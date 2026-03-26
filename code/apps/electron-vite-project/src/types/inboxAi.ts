@@ -86,6 +86,9 @@ export interface BulkClassification {
   draft_reply?: string
   /** True when classifier recommends soft pending-delete (paired with recommended_action). */
   pending_delete: boolean
+  classification_failed?: boolean
+  /** Per-message remote lifecycle enqueue right after classify (when not urgent). */
+  remote_enqueue?: { enqueued: number; skipped: number; skipReasons?: string[] }
 }
 
 /**

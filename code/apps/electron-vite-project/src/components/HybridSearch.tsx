@@ -514,8 +514,13 @@ Output ONLY the complete draft email text, no explanation.`
                 inboxContext = `[Email] Subject: ${msg.subject ?? '(none)'}\nBody: ${(msg.body_text || msg.body_html || '').slice(0, 4000)}\n`
                 if (selectedAttachmentId && window.emailInbox?.getAttachmentText) {
                   const attRes = await window.emailInbox.getAttachmentText(selectedAttachmentId)
-                  if (attRes.ok && attRes.data?.text) {
-                    inboxContext += `[Selected Attachment]\n${attRes.data.text.slice(0, 4000)}\n`
+                  if (attRes.ok && attRes.data) {
+                    const t = (attRes.data.text || '').trim()
+                    if (t) {
+                      inboxContext += `[Selected Attachment]\n${t.slice(0, 4000)}\n`
+                    } else if (attRes.data.error) {
+                      inboxContext += `[Selected Attachment: text not available] ${String(attRes.data.error).slice(0, 800)}\n`
+                    }
                   }
                 }
                 inboxContext += '\n'

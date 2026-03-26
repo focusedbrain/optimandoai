@@ -8,6 +8,7 @@
  */
 
 import { app, shell } from 'electron'
+import type { IncomingHttpHeaders } from 'http'
 import * as https from 'https'
 import * as fs from 'fs'
 import * as path from 'path'
@@ -33,7 +34,7 @@ import {
 } from '../domain/mailboxLifecycleMapping'
 import { sanitizeHtmlToText } from '../sanitizer'
 import { oauthServerManager } from '../oauth-server'
-import { getCredentialsForOAuth } from '../credentials'
+import { getCredentialsForOAuth, type OutlookCreds } from '../credentials'
 
 /**
  * Microsoft Graph API scopes
@@ -161,80 +162,236 @@ export class OutlookProvider extends BaseEmailProvider {
     }))
   }
   
-  async fetchMessages(folder: string, options?: MessageSearchOptions): Promise<RawEmailMessage[]> {
-    const syncAll = options?.syncFetchAllPages === true
-    const maxTotal = Math.min(Math.max(1, options?.syncMaxMessages ?? (syncAll ? 25_000 : 500)), 100_000)
-    const singleTop = Math.min(Math.max(1, options?.limit ?? 50), 999)
-    const pageTop = syncAll ? Math.min(999, maxTotal) : singleTop
+  /**
+   * Graph mail folder segment: well-known `inbox` or a folder UUID. Avoid upper-case `INBOX` (IMAP) in the path.
+   */
+  private normalizeGraphMailFolderId(folder: string): string {
+    const f = (folder || 'inbox').trim()
+    if (/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(f)) {
+      return f
+    }
+    if (f.toUpperCase() === 'INBOX') return 'inbox'
+    return f
+  }
 
+  private buildMessagesODataQuery(options?: MessageSearchOptions): URLSearchParams {
     const params = new URLSearchParams()
-    params.append('$top', String(pageTop))
-    params.append('$select', 'id,conversationId,subject,from,toRecipients,ccRecipients,receivedDateTime,body,isRead,flag,isDraft,hasAttachments')
-
     const filters: string[] = []
 
-    if (options?.unreadOnly) {
-      filters.push('isRead eq false')
-    }
+    if (options?.unreadOnly) filters.push('isRead eq false')
+    if (options?.flaggedOnly) filters.push("flag/flagStatus eq 'flagged'")
+    if (options?.hasAttachments) filters.push('hasAttachments eq true')
+    if (options?.fromDate) filters.push(`receivedDateTime ge ${options.fromDate}`)
+    if (options?.toDate) filters.push(`receivedDateTime le ${options.toDate}`)
 
-    if (options?.flaggedOnly) {
-      filters.push("flag/flagStatus eq 'flagged'")
-    }
+    if (filters.length > 0) params.append('$filter', filters.join(' and '))
+    if (!options?.search) params.append('$orderby', 'receivedDateTime desc')
+    if (options?.search) params.append('$search', `"${options.search}"`)
 
-    if (options?.hasAttachments) {
-      filters.push('hasAttachments eq true')
-    }
+    return params
+  }
 
-    if (options?.fromDate) {
-      filters.push(`receivedDateTime ge ${options.fromDate}`)
-    }
-
-    if (options?.toDate) {
-      filters.push(`receivedDateTime le ${options.toDate}`)
-    }
+  /**
+   * UI / single-page list: one Graph request (optionally paginated when syncFetchAllPages and a low cap).
+   */
+  private async fetchMessagesListResponse(
+    folderId: string,
+    options: MessageSearchOptions | undefined,
+    pageTop: number,
+    selectFields: string,
+  ): Promise<{ collected: any[]; useClientFilter: boolean }> {
+    const params = this.buildMessagesODataQuery(options)
+    params.append('$top', String(pageTop))
+    params.append('$select', selectFields)
 
     const useClientFilter = !!(options?.from || options?.subject)
-
-    if (filters.length > 0) {
-      params.append('$filter', filters.join(' and '))
-    }
-
-    if (!options?.search) {
-      params.append('$orderby', 'receivedDateTime desc')
-    }
-
-    if (options?.search) {
-      params.append('$search', `"${options.search}"`)
-    }
-
-    const folderId = folder || 'inbox'
     const requestUrl = `/me/mailFolders/${folderId}/messages?${params.toString()}`
 
     const collected: any[] = []
     let response = await this.graphApiRequest('GET', requestUrl)
     let page = response.value || []
     collected.push(...page)
+    let graphPageIdx = 1
+    console.log(
+      `[Outlook] messages page ${graphPageIdx}: +${page.length} (cumulative ${collected.length}, $top=${pageTop})`,
+    )
+
+    const syncAll = options?.syncFetchAllPages === true
+    const maxTotal = syncAll
+      ? options?.syncMaxMessages != null
+        ? Math.max(1, options.syncMaxMessages)
+        : Number.MAX_SAFE_INTEGER
+      : Math.min(Math.max(1, options?.syncMaxMessages ?? pageTop), 999)
 
     if (syncAll) {
       let nextLink: string | undefined = response['@odata.nextLink']
       while (nextLink && collected.length < maxTotal) {
+        graphPageIdx++
         response = await this.graphApiRequestAbsolute('GET', nextLink)
         page = response.value || []
-        if (!page.length) break
         for (const msg of page) {
           if (collected.length >= maxTotal) break
           collected.push(msg)
         }
+        console.log(
+          `[Outlook] messages page ${graphPageIdx}: +${page.length} (cumulative ${collected.length}${response['@odata.nextLink'] ? ', nextLink' : ', end'})`,
+        )
         nextLink = response['@odata.nextLink']
+        if (!page.length && !nextLink) break
       }
     }
 
-    let messages = collected
+    return { collected, useClientFilter }
+  }
 
+  /**
+   * Complete listing: all message IDs with stable paging ($top=100), then GET each message (concurrency 10).
+   * Matches Graph guidance for reliable pagination; list+item avoids truncated list payloads.
+   */
+  private async fetchAllMessagesTwoPhase(
+    folderId: string,
+    options: MessageSearchOptions | undefined,
+    maxIds: number,
+  ): Promise<RawEmailMessage[]> {
+    const listParamsBase = this.buildMessagesODataQuery(options)
+    listParamsBase.append('$select', 'id')
+    const LIST_TOP = 100
+    listParamsBase.append('$top', String(LIST_TOP))
+
+    const ids: string[] = []
+    const seen = new Set<string>()
+    const requestUrl = `/me/mailFolders/${folderId}/messages?${listParamsBase.toString()}`
+    let response = await this.graphApiRequest('GET', requestUrl)
+    let page = response.value || []
+    for (const row of page) {
+      const id = row?.id as string | undefined
+      if (id && !seen.has(id)) {
+        seen.add(id)
+        ids.push(id)
+        if (ids.length >= maxIds) break
+      }
+    }
+    let nextLink: string | undefined = response['@odata.nextLink']
+    let pageIdx = 1
+    console.log(
+      `[Outlook] sync list-ids page ${pageIdx}: +${page.length} ids (cumulative ${ids.length}, max=${maxIds === Number.MAX_SAFE_INTEGER ? 'unlimited' : maxIds})`,
+    )
+
+    while (nextLink && ids.length < maxIds) {
+      pageIdx++
+      response = await this.graphApiRequestAbsolute('GET', nextLink)
+      page = response.value || []
+      for (const row of page) {
+        const id = row?.id as string | undefined
+        if (id && !seen.has(id)) {
+          seen.add(id)
+          ids.push(id)
+          if (ids.length >= maxIds) break
+        }
+      }
+      console.log(
+        `[Outlook] sync list-ids page ${pageIdx}: +${page.length} ids (cumulative ${ids.length}${response['@odata.nextLink'] ? ', nextLink' : ', end'})`,
+      )
+      nextLink = response['@odata.nextLink']
+      if (!page.length && !nextLink) break
+    }
+
+    const nextAfterList = response['@odata.nextLink']
+    if (!nextAfterList && page.length === LIST_TOP && ids.length < maxIds) {
+      console.warn(
+        `[Outlook] List ended on a full ${LIST_TOP}-id page with no @odata.nextLink (${ids.length} id(s)). ` +
+          `If the folder has more mail, this may be Graph throttling or a query edge case — check logs for 429/401.`,
+      )
+    }
+
+    /** Lower concurrency + small gaps reduce delegated-token throttling (was yielding ~100 successes then nulls). */
+    const CONCURRENCY = 4
+    const INTER_BATCH_MS = 200
+    const out: RawEmailMessage[] = []
+    for (let i = 0; i < ids.length; i += CONCURRENCY) {
+      if (i > 0) await new Promise((r) => setTimeout(r, INTER_BATCH_MS))
+      const chunk = ids.slice(i, i + CONCURRENCY)
+      const settled = await Promise.allSettled(chunk.map((id) => this.fetchMessage(id, folderId)))
+      for (let j = 0; j < settled.length; j++) {
+        const r = settled[j]
+        if (r.status === 'fulfilled' && r.value) {
+          out.push(r.value)
+        } else if (r.status === 'rejected') {
+          console.warn('[Outlook] fetchMessage failed in batch:', chunk[j], (r as PromiseRejectedResult).reason)
+        }
+      }
+      if ((i + CONCURRENCY) % 100 === 0 || i + CONCURRENCY >= ids.length) {
+        console.log(
+          `[Outlook] detail-fetch progress: ${Math.min(i + CONCURRENCY, ids.length)}/${ids.length} attempted, ${out.length} retrieved`,
+        )
+      }
+    }
+
+    if (out.length < ids.length) {
+      console.warn(
+        `[Outlook] two-phase sync: ${ids.length} id(s) listed but only ${out.length} full message(s) retrieved (failures/throttling/null returns)`,
+      )
+    }
+    console.log(`[Outlook] two-phase sync: ${ids.length} id(s) listed, ${out.length} full message(s) retrieved`)
+    return out
+  }
+
+  async fetchMessages(folder: string, options?: MessageSearchOptions): Promise<RawEmailMessage[]> {
+    const syncAll = options?.syncFetchAllPages === true
+    const folderId = this.normalizeGraphMailFolderId(folder)
+
+    const singleTop = Math.min(Math.max(1, options?.limit ?? 50), 999)
+    const maxTotal = syncAll
+      ? options?.syncMaxMessages != null
+        ? Math.max(1, options.syncMaxMessages)
+        : Number.MAX_SAFE_INTEGER
+      : Math.min(Math.max(1, options?.syncMaxMessages ?? singleTop), 999)
+    const pageTop = syncAll ? Math.min(999, maxTotal) : singleTop
+
+    if (syncAll) {
+      const filterParts: string[] = []
+      if (options?.fromDate) filterParts.push(`receivedDateTime ge ${options.fromDate}`)
+      if (options?.toDate) filterParts.push(`receivedDateTime le ${options.toDate}`)
+      console.log(
+        `[Outlook] Smart Sync list: folder=${folderId} maxMessages=${maxTotal} ` +
+          `fromDate=${options?.fromDate ?? 'none'} toDate=${options?.toDate ?? 'none'} ` +
+          `($filter: ${filterParts.length ? filterParts.join(' and ') : 'none'})`,
+      )
+      const raw = await this.fetchAllMessagesTwoPhase(folderId, options, maxTotal)
+      let messages: any[] = raw
+
+      const useClientFilter = !!(options?.from || options?.subject)
+      if (useClientFilter && messages.length > 0) {
+        const fromFilter = options?.from?.toLowerCase()
+        const subjectFilter = options?.subject?.toLowerCase()
+        messages = messages.filter((msg: any) => {
+          let match = true
+          if (fromFilter) {
+            const msgFrom = (msg.from?.email || '').toLowerCase()
+            const msgFromName = (msg.from?.name || '').toLowerCase()
+            match = match && (msgFrom.includes(fromFilter) || msgFromName.includes(fromFilter) || fromFilter.includes(msgFrom))
+          }
+          if (subjectFilter && match) {
+            const msgSubject = (msg.subject || '').toLowerCase()
+            match = match && (msgSubject.includes(subjectFilter) || subjectFilter.includes(msgSubject))
+          }
+          return match
+        })
+      }
+      return messages
+    }
+
+    const { collected, useClientFilter } = await this.fetchMessagesListResponse(
+      folderId,
+      options,
+      pageTop,
+      'id,conversationId,subject,from,toRecipients,ccRecipients,receivedDateTime,body,isRead,flag,isDraft,hasAttachments',
+    )
+
+    let messages = collected
     if (useClientFilter && messages.length > 0) {
       const fromFilter = options?.from?.toLowerCase()
       const subjectFilter = options?.subject?.toLowerCase()
-
       messages = messages.filter((msg: any) => {
         let match = true
         if (fromFilter) {
@@ -250,17 +407,17 @@ export class OutlookProvider extends BaseEmailProvider {
       })
     }
 
-    return messages.map((msg: any) => this.parseOutlookMessage(msg, folder))
+    return messages.map((msg: any) => this.parseOutlookMessage(msg, folderId))
   }
   
-  async fetchMessage(messageId: string): Promise<RawEmailMessage | null> {
+  async fetchMessage(messageId: string, folderHint?: string): Promise<RawEmailMessage | null> {
     try {
       const response = await this.graphApiRequest(
         'GET',
         `/me/messages/${messageId}?$select=id,conversationId,subject,from,toRecipients,ccRecipients,replyTo,receivedDateTime,body,isRead,flag,isDraft,hasAttachments,internetMessageHeaders`
       )
       
-      return this.parseOutlookMessage(response, 'inbox')
+      return this.parseOutlookMessage(response, folderHint || 'inbox')
     } catch (err) {
       console.error('[Outlook] Error fetching message:', messageId, err)
       return null
@@ -330,8 +487,10 @@ export class OutlookProvider extends BaseEmailProvider {
 
   /**
    * Microsoft Graph mapping:
-   * - **archive** — move to well-known `archive` folder.
-   * - **pending_review** / **pending_delete** — child folders under Inbox (created on demand).
+   * - **archive** — move to well-known `archive` folder (resolved id via GET).
+   * - **pending_review** / **pending_delete** / **urgent** — root-level folders by display name:
+   *   list `/me/mailFolders` (no OData `$filter`), client-side name match, else **POST /me/mailFolders**.
+   *   Never uses Graph **DELETE** for these ops — only **POST …/move**.
    */
   async applyOrchestratorRemoteOperation(
     messageId: string,
@@ -348,47 +507,85 @@ export class OutlookProvider extends BaseEmailProvider {
         const arch = await this.graphApiRequest('GET', '/me/mailFolders/archive?$select=id')
         destId = arch.id
       } else if (operation === 'pending_review') {
-        destId = await this.ensureOutlookOrchestratorChildFolder(names.outlook.pendingReviewFolder)
+        destId = await this.ensureOutlookOrchestratorFolder(names.outlook.pendingReviewFolder)
       } else if (operation === 'pending_delete') {
-        destId = await this.ensureOutlookOrchestratorChildFolder(names.outlook.pendingDeleteFolder)
+        destId = await this.ensureOutlookOrchestratorFolder(names.outlook.pendingDeleteFolder)
+      } else if (operation === 'urgent') {
+        destId = await this.ensureOutlookOrchestratorFolder(names.outlook.urgentFolder)
       } else {
         return { ok: false, error: `Unknown orchestrator operation: ${operation}` }
       }
 
+      console.log(
+        `[Outlook] Moving message ${messageId.slice(0, 24)}… → folder op=${operation} (remote mirror)`,
+      )
       await this.graphApiRequest('POST', `/me/messages/${messageId}/move`, {
         destinationId: destId,
       })
       return { ok: true }
     } catch (e: any) {
       const msg = e?.message || String(e)
-      if (/same folder|already been moved|item not found|not found/i.test(msg)) {
+      // Idempotent: message already in correct place or no longer exists in source
+      if (
+        /same destination folder|same folder|cannot move.*same folder|already been moved|already in the destination|ErrorFolderSameAsDestination|is already in that folder|item not found|not found|ErrorItemNotFound|does not exist|resource could not be found/i.test(
+          msg,
+        )
+      ) {
+        console.log(
+          `[Outlook] Idempotent skip: ${operation} ${messageId.slice(0, 24)}… — ${msg.slice(0, 100)}`,
+        )
         return { ok: true, skipped: true }
       }
       return { ok: false, error: msg }
     }
   }
 
-  private async ensureOutlookOrchestratorChildFolder(displayName: string): Promise<string> {
-    const hit = this.orchestratorFolderCache.get(displayName)
-    if (hit) return hit
+  /**
+   * Root-level lifecycle folder: list mail folders (no OData $filter), match display name, or POST create.
+   * Cached per connection for performance.
+   */
+  private async ensureOutlookOrchestratorFolder(displayName: string): Promise<string> {
+    const cached = this.orchestratorFolderCache.get(displayName)
+    if (cached) return cached
 
-    const inbox = await this.graphApiRequest('GET', '/me/mailFolders/inbox?$select=id')
-    const inboxId = inbox.id as string
-    const kids = await this.graphApiRequest(
-      'GET',
-      `/me/mailFolders/${inboxId}/childFolders?$select=id,displayName&$top=200`,
-    )
-    const found = (kids.value || []).find((f: any) => f.displayName === displayName)
-    if (found?.id) {
-      this.orchestratorFolderCache.set(displayName, found.id)
-      return found.id
+    const trimmed = displayName.trim()
+    if (!trimmed) throw new Error('Empty orchestrator folder display name')
+
+    try {
+      const resp = await this.graphApiRequest('GET', '/me/mailFolders?$top=100&$select=id,displayName')
+      const folders = resp.value || []
+      const existing = folders.find(
+        (f: any) => (f.displayName || '').trim().toLowerCase() === trimmed.toLowerCase(),
+      )
+      if (existing?.id) {
+        this.orchestratorFolderCache.set(displayName, existing.id)
+        return existing.id
+      }
+    } catch (e: any) {
+      console.warn('[Outlook] Folder list failed, will try to create:', e?.message)
     }
-    const created = await this.graphApiRequest('POST', `/me/mailFolders/${inboxId}/childFolders`, {
-      displayName,
-    })
-    if (!created?.id) throw new Error('Graph folder create returned no id')
-    this.orchestratorFolderCache.set(displayName, created.id)
-    return created.id
+
+    console.log('[Outlook] Creating folder:', trimmed)
+    try {
+      const created = await this.graphApiRequest('POST', '/me/mailFolders', {
+        displayName: trimmed,
+      })
+      if (!created?.id) throw new Error('No folder ID returned')
+      this.orchestratorFolderCache.set(displayName, created.id)
+      return created.id
+    } catch (createErr: any) {
+      console.warn('[Outlook] Folder create failed:', createErr?.message)
+      const retryResp = await this.graphApiRequest('GET', '/me/mailFolders?$top=100&$select=id,displayName')
+      const retryFolders = retryResp.value || []
+      const found = retryFolders.find(
+        (f: any) => (f.displayName || '').trim().toLowerCase() === trimmed.toLowerCase(),
+      )
+      if (found?.id) {
+        this.orchestratorFolderCache.set(displayName, found.id)
+        return found.id
+      }
+      throw createErr
+    }
   }
   
   async sendEmail(payload: SendEmailPayload): Promise<SendResult> {
@@ -444,11 +641,12 @@ export class OutlookProvider extends BaseEmailProvider {
    * - State machine for flow management
    */
   async startOAuthFlow(): Promise<{ oauth: EmailAccountConfig['oauth']; email: string }> {
-    const oauthConfig = await getCredentialsForOAuth('outlook')
-    if (!oauthConfig) {
+    const oauthConfigRaw = await getCredentialsForOAuth('outlook')
+    if (!oauthConfigRaw) {
       throw new Error('Outlook OAuth client credentials not configured. Please set up an Azure AD application.')
     }
-    
+    const oauthConfig = oauthConfigRaw as OutlookCreds
+
     // Check if another OAuth flow is in progress
     if (oauthServerManager.isFlowInProgress()) {
       throw new Error('Another OAuth flow is already in progress. Please wait or try again.')
@@ -460,10 +658,12 @@ export class OutlookProvider extends BaseEmailProvider {
     try {
       // Start OAuth flow with the server manager
       // This will start the server, wait for callback, and return the result
-      const flowPromise = oauthServerManager.startOAuthFlow('outlook', 5 * 60 * 1000)
-      
-      // Build auth URL with dynamic port from the manager
-      const authUrl = this.buildAuthUrl(oauthConfig.clientId, oauthConfig.tenantId)
+      const { callbackUrl, resultPromise } = await oauthServerManager.beginOAuthFlow(
+        'outlook',
+        5 * 60 * 1000,
+      )
+
+      const authUrl = this.buildAuthUrl(oauthConfig.clientId, oauthConfig.tenantId, callbackUrl)
       console.log('[Outlook] Opening OAuth in system browser:', authUrl.substring(0, 100) + '...')
       
       // Open browser
@@ -478,7 +678,7 @@ export class OutlookProvider extends BaseEmailProvider {
       
       // Wait for callback
       console.log('[Outlook] Waiting for OAuth callback...')
-      const result = await flowPromise
+      const result = await resultPromise
       
       if (!result.success) {
         throw new Error(result.errorDescription || result.error || 'OAuth authorization failed')
@@ -491,7 +691,7 @@ export class OutlookProvider extends BaseEmailProvider {
       console.log('[Outlook] Auth code received, exchanging for tokens...')
       
       // Exchange code for tokens
-      const tokens = await this.exchangeCodeForTokens(oauthConfig, result.code)
+      const tokens = await this.exchangeCodeForTokens(oauthConfig, result.code, callbackUrl)
       if (!tokens) {
         throw new Error('Failed to exchange authorization code for tokens')
       }
@@ -536,10 +736,8 @@ export class OutlookProvider extends BaseEmailProvider {
    * Build the OAuth authorization URL
    * Uses dynamic port from the OAuth server manager
    */
-  private buildAuthUrl(clientId: string, tenantId?: string): string {
+  private buildAuthUrl(clientId: string, tenantId: string | undefined, redirectUri: string): string {
     const tenant = tenantId || 'organizations'
-    // Get the callback URL from the OAuth server manager (with dynamic port)
-    const redirectUri = oauthServerManager.getCallbackUrl()
     
     const params = new URLSearchParams({
       client_id: clientId,
@@ -557,11 +755,10 @@ export class OutlookProvider extends BaseEmailProvider {
   
   private async exchangeCodeForTokens(
     oauthConfig: { clientId: string; clientSecret?: string; tenantId?: string },
-    code: string
+    code: string,
+    redirectUri: string,
   ): Promise<EmailAccountConfig['oauth']> {
     const tenant = oauthConfig.tenantId || 'organizations'
-    // Use the same redirect URI that was used for authorization
-    const redirectUri = oauthServerManager.getCallbackUrl()
     
     return new Promise((resolve, reject) => {
       const postParams: Record<string, string> = {
@@ -652,11 +849,12 @@ export class OutlookProvider extends BaseEmailProvider {
   }
   
   private async refreshAccessToken(): Promise<void> {
-    const oauthConfig = await getCredentialsForOAuth('outlook')
-    if (!oauthConfig || !this.refreshToken) {
+    const oauthConfigRaw = await getCredentialsForOAuth('outlook')
+    if (!oauthConfigRaw || !this.refreshToken) {
       throw new Error('Cannot refresh token: missing credentials')
     }
-    
+    const oauthConfig = oauthConfigRaw as OutlookCreds
+
     const tenant = oauthConfig.tenantId || 'organizations'
     return new Promise((resolve, reject) => {
       const postParams: Record<string, string> = {
@@ -720,11 +918,126 @@ export class OutlookProvider extends BaseEmailProvider {
     })
   }
   
+  /**
+   * Single HTTPS request to Graph — returns status, headers, parsed JSON (best-effort).
+   * Does not retry; use {@link graphApiRequest} / {@link graphApiRequestAbsolute} for 429/401 handling.
+   */
+  private graphSingleRequest(opts: {
+    hostname: string
+    path: string
+    method: string
+    body?: any
+  }): Promise<{ statusCode: number; headers: IncomingHttpHeaders; json: any; rawBody: string }> {
+    return new Promise((resolve, reject) => {
+      const req = https.request(
+        {
+          hostname: opts.hostname,
+          path: opts.path,
+          method: opts.method,
+          headers: {
+            Authorization: `Bearer ${this.accessToken}`,
+            ...(opts.body ? { 'Content-Type': 'application/json' } : {}),
+          },
+        },
+        (res) => {
+          let data = ''
+          res.on('data', (chunk) => {
+            data += chunk
+          })
+          res.on('end', () => {
+            let json: any = {}
+            try {
+              json = data ? JSON.parse(data) : {}
+            } catch {
+              json = { _parseError: true, _raw: data?.slice?.(0, 500) }
+            }
+            resolve({
+              statusCode: res.statusCode ?? 0,
+              headers: res.headers,
+              json,
+              rawBody: data,
+            })
+          })
+        },
+      )
+      req.on('error', reject)
+      if (opts.body) req.write(JSON.stringify(opts.body))
+      req.end()
+    })
+  }
+
+  private getRetryAfterSeconds(headers: IncomingHttpHeaders): number {
+    const h = headers['retry-after']
+    const v = Array.isArray(h) ? h[0] : h
+    const n = parseInt(String(v ?? '5'), 10)
+    return Number.isFinite(n) && n > 0 ? Math.min(120, n) : 5
+  }
+
+  /**
+   * Graph HTTP with 429 (Retry-After), 401 (refresh token), and 5xx backoff.
+   * Fixes "exactly 100 messages" when throttling or token skew caused silent failures mid-pull.
+   */
+  private async graphRequestWithRetries(
+    execOnce: () => Promise<{ statusCode: number; headers: IncomingHttpHeaders; json: any }>,
+    context: string,
+  ): Promise<any> {
+    const maxAttempts = 6
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      if (this.isTokenExpired() && this.refreshToken) {
+        try {
+          await this.refreshAccessToken()
+        } catch (e: any) {
+          console.warn('[Outlook] Pre-request token refresh failed:', e?.message)
+        }
+      }
+
+      const { statusCode, headers, json } = await execOnce()
+
+      if (statusCode === 429) {
+        const waitSec = this.getRetryAfterSeconds(headers)
+        console.warn(
+          `[Outlook] Graph 429 (${context}), retry in ${waitSec}s (attempt ${attempt + 1}/${maxAttempts})`,
+        )
+        await new Promise((r) => setTimeout(r, waitSec * 1000))
+        continue
+      }
+
+      if (statusCode === 401 && this.refreshToken) {
+        console.warn(`[Outlook] Graph 401 (${context}), refreshing access token`)
+        try {
+          await this.refreshAccessToken()
+        } catch (e: any) {
+          throw new Error(e?.message || 'Token refresh failed after 401')
+        }
+        continue
+      }
+
+      if (statusCode >= 500 && statusCode < 600 && attempt < maxAttempts - 1) {
+        const backoff = Math.min(30_000, 1000 * Math.pow(2, attempt))
+        console.warn(
+          `[Outlook] Graph ${statusCode} (${context}), backoff ${backoff}ms (attempt ${attempt + 1})`,
+        )
+        await new Promise((r) => setTimeout(r, backoff))
+        continue
+      }
+
+      if (json?.error) {
+        throw new Error(json.error.message || json.error.code || 'API error')
+      }
+
+      if (statusCode >= 400) {
+        throw new Error(
+          `Graph HTTP ${statusCode} (${context}): ${typeof json === 'object' ? JSON.stringify(json).slice(0, 500) : String(json)}`,
+        )
+      }
+
+      return json
+    }
+    throw new Error(`[Outlook] Graph max retries exceeded (${context})`)
+  }
+
   /** Follow `@odata.nextLink` from list responses (full URL from Graph). */
   private async graphApiRequestAbsolute(method: string, absoluteUrl: string, body?: any): Promise<any> {
-    if (this.isTokenExpired() && this.refreshToken) {
-      await this.refreshAccessToken()
-    }
     let hostname = 'graph.microsoft.com'
     let path = ''
     try {
@@ -735,87 +1048,30 @@ export class OutlookProvider extends BaseEmailProvider {
       throw new Error('Invalid Graph nextLink URL')
     }
 
-    return new Promise((resolve, reject) => {
-      const options = {
-        hostname,
-        path,
-        method,
-        headers: {
-          Authorization: `Bearer ${this.accessToken}`,
-          ...(body ? { 'Content-Type': 'application/json' } : {}),
-        },
-      }
-
-      const req = https.request(options, (res) => {
-        let data = ''
-        res.on('data', (chunk) => {
-          data += chunk
-        })
-        res.on('end', () => {
-          try {
-            const json = data ? JSON.parse(data) : {}
-            if (json.error) {
-              reject(new Error(json.error.message || 'API error'))
-            } else {
-              resolve(json)
-            }
-          } catch (err) {
-            reject(err)
-          }
-        })
-      })
-
-      req.on('error', reject)
-
-      if (body) {
-        req.write(JSON.stringify(body))
-      }
-
-      req.end()
-    })
+    return this.graphRequestWithRetries(
+      () =>
+        this.graphSingleRequest({
+          hostname,
+          path,
+          method,
+          body,
+        }),
+      `absolute ${method} ${path.slice(0, 80)}`,
+    )
   }
 
   private async graphApiRequest(method: string, endpoint: string, body?: any): Promise<any> {
-    if (this.isTokenExpired() && this.refreshToken) {
-      await this.refreshAccessToken()
-    }
-    
-    return new Promise((resolve, reject) => {
-      const options = {
-        hostname: 'graph.microsoft.com',
-        path: `/v1.0${endpoint}`,
-        method,
-        headers: {
-          'Authorization': `Bearer ${this.accessToken}`,
-          ...(body ? { 'Content-Type': 'application/json' } : {})
-        }
-      }
-      
-      const req = https.request(options, (res) => {
-        let data = ''
-        res.on('data', chunk => { data += chunk })
-        res.on('end', () => {
-          try {
-            const json = data ? JSON.parse(data) : {}
-            if (json.error) {
-              reject(new Error(json.error.message || 'API error'))
-            } else {
-              resolve(json)
-            }
-          } catch (err) {
-            reject(err)
-          }
-        })
-      })
-      
-      req.on('error', reject)
-      
-      if (body) {
-        req.write(JSON.stringify(body))
-      }
-      
-      req.end()
-    })
+    const path = `/v1.0${endpoint}`
+    return this.graphRequestWithRetries(
+      () =>
+        this.graphSingleRequest({
+          hostname: 'graph.microsoft.com',
+          path,
+          method,
+          body,
+        }),
+      `${method} ${endpoint.slice(0, 80)}`,
+    )
   }
   
   private parseOutlookMessage(raw: any, folder: string): RawEmailMessage {
@@ -832,9 +1088,12 @@ export class OutlookProvider extends BaseEmailProvider {
       }
     }
     
+    const graphHasAtt = Boolean(raw.hasAttachments)
     return {
       id: raw.id,
       threadId: raw.conversationId,
+      hasAttachments: graphHasAtt,
+      attachmentCount: graphHasAtt ? 1 : 0,
       subject: raw.subject || '',
       from: {
         email: from.address || '',

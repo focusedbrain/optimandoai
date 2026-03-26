@@ -1,6 +1,23 @@
 import { createServer, type Server } from 'node:http';
+import fs from 'node:fs';
+import path from 'node:path';
 import { URL } from 'node:url';
 import { randomString } from './pkce';
+
+/** Same mark as renderer: `public/wrdesk-logo.png` (dev) or `dist/wrdesk-logo.png` (packaged). */
+function wrDeskLogoHtml(): string {
+  const pub = process.env.VITE_PUBLIC;
+  if (!pub) {
+    return '<div class="logo" style="font-weight:800;font-size:22px;color:#0f172a">WR Desk</div>';
+  }
+  try {
+    const png = fs.readFileSync(path.join(pub, 'wrdesk-logo.png'));
+    const uri = `data:image/png;base64,${png.toString('base64')}`;
+    return `<div class="logo" role="img" aria-label="WR Desk"><img src="${uri}" alt="WR Desk" /></div>`;
+  } catch {
+    return '<div class="logo" style="font-weight:800;font-size:22px;color:#0f172a">WR Desk</div>';
+  }
+}
 
 export interface CallbackResult {
   code: string | null;
@@ -110,7 +127,8 @@ function startServerOnPort(port: number): Promise<LoopbackServer> {
       const error = url.searchParams.get('error');
       const error_description = url.searchParams.get('error_description');
 
-      // Respond with enterprise-grade success page
+      // Respond with enterprise-grade success page (logo file matches app + extension)
+      const logoBlock = wrDeskLogoHtml();
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
       res.end(`<!DOCTYPE html>
 <html lang="en">
@@ -143,6 +161,8 @@ function startServerOnPort(port: number): Promise<LoopbackServer> {
     .logo img {
       width: 120px;
       height: auto;
+      display: block;
+      margin: 0 auto;
     }
     .status {
       display: inline-flex;
@@ -242,9 +262,7 @@ function startServerOnPort(port: number): Promise<LoopbackServer> {
 </head>
 <body>
   <div class="card">
-    <div class="logo">
-      <img src="https://wrdesk.com/wp-content/uploads/2024/10/wrdesk-logo-256.png" alt="WR Desk" onerror="this.style.display='none'"/>
-    </div>
+    ${logoBlock}
     <div class="status">
       <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg>
       <span>Authentication successful</span>

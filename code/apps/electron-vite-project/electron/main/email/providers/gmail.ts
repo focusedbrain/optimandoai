@@ -11,6 +11,7 @@ import { app, shell } from 'electron'
 import * as https from 'https'
 import * as fs from 'fs'
 import * as path from 'path'
+import { randomBytes, createHash } from 'node:crypto'
 import { 
   BaseEmailProvider, 
   RawEmailMessage, 
@@ -33,6 +34,102 @@ import {
 } from '../domain/mailboxLifecycleMapping'
 import { oauthServerManager } from '../oauth-server'
 import { getCredentialsForOAuth } from '../credentials'
+import {
+  logOAuthDiagnostic,
+  oauthClientIdFingerprint,
+  getPackagedResourceGoogleOAuthClientId,
+  isPackagedProductionGmailStandardConnect,
+  resolveBuiltinGoogleOAuthClientSecret,
+  resolveBuiltinGoogleOAuthClientWithMeta,
+} from '../googleOAuthBuiltin'
+import { resolveGmailOAuthForConnect, type ResolvedGmailOAuth } from '../gmailOAuthResolve'
+import { attachOauthDebug, oauthDebugFromUnknown } from '../gmailOAuthConnectDebug'
+
+/** Diagnostic label for token exchange / refresh body shape (never log the secret). */
+function gmailOAuthTokenExchangeShape(oauthConfig: ResolvedGmailOAuth): string {
+  if (oauthConfig.authMode !== 'pkce') return 'legacy_with_client_secret'
+  const has = !!(oauthConfig.clientSecret && String(oauthConfig.clientSecret).trim())
+  return has ? 'pkce_desktop_with_secret' : 'pkce_public_no_client_secret'
+}
+import {
+  clearLastGmailStandardConnectRuntimeProof,
+  setLastGmailStandardConnectRuntimeProof,
+  type GmailStandardConnectRuntimeProof,
+} from '../gmailOAuthRuntimeProof'
+
+function emitGmailStandardConnectFlowProof(
+  oauthConfig: ResolvedGmailOAuth,
+  params: {
+    authorizeClientIdFingerprint: string
+    tokenExchangeClientIdFingerprint: string
+    redirectUri: string
+    hasCodeVerifier: boolean
+    googleTokenHttpStatus: number | null
+    googleError: string | null
+    googleErrorDescription: string | null
+  },
+): void {
+  if (oauthConfig.credentialSourceUsed !== 'builtin_public') return
+  const br = oauthConfig.builtinClientResolution
+  const shipped = getPackagedResourceGoogleOAuthClientId()
+  const oauthMismatch = params.authorizeClientIdFingerprint !== params.tokenExchangeClientIdFingerprint
+  const envIgnored = !!br?.packagedStandardConnectIgnoredEnvVarNames?.length
+
+  const payload: Record<string, unknown> = {
+    flowType: 'standard_connect',
+    credentialSource: oauthConfig.credentialSourceUsed,
+    resolution: oauthConfig.resolution,
+    authMode: oauthConfig.authMode,
+    authorizeClientIdFingerprint: params.authorizeClientIdFingerprint,
+    tokenExchangeClientIdFingerprint: params.tokenExchangeClientIdFingerprint,
+    oauth_client_id_mismatch_between_authorize_and_token_exchange: oauthMismatch,
+    builtinSourceKind: br?.sourceKind,
+    builtinSourceLabel: br?.sourcePath ? path.basename(br.sourcePath) : br?.sourceName,
+    hasClientSecret: !!(oauthConfig.clientSecret && String(oauthConfig.clientSecret).trim()),
+    hasCodeVerifier: params.hasCodeVerifier,
+    redirectUri: params.redirectUri,
+    tokenExchangeShape: gmailOAuthTokenExchangeShape(oauthConfig),
+    googleTokenHttpStatus: params.googleTokenHttpStatus,
+    googleError: params.googleError,
+    googleErrorDescription: params.googleErrorDescription,
+    bundledExpectedFingerprint: shipped ? oauthClientIdFingerprint(shipped) : null,
+    packagedStandardConnectEnvIgnored: envIgnored,
+  }
+  logOAuthDiagnostic('gmail_standard_connect_flow_proof', payload)
+
+  const proof: GmailStandardConnectRuntimeProof = {
+    flowType: 'standard_connect',
+    credentialSource: oauthConfig.credentialSourceUsed,
+    resolution: oauthConfig.resolution,
+    authMode: oauthConfig.authMode,
+    authorizeClientIdFingerprint: params.authorizeClientIdFingerprint,
+    tokenExchangeClientIdFingerprint: params.tokenExchangeClientIdFingerprint,
+    oauth_client_id_mismatch_between_authorize_and_token_exchange: oauthMismatch,
+    builtinSourceKind: br?.sourceKind,
+    builtinSourceLabel: br?.sourcePath ? path.basename(br.sourcePath) : br?.sourceName,
+    hasClientSecret: !!(oauthConfig.clientSecret && String(oauthConfig.clientSecret).trim()),
+    hasCodeVerifier: params.hasCodeVerifier,
+    redirectUri: params.redirectUri,
+    tokenExchangeShape: gmailOAuthTokenExchangeShape(oauthConfig),
+    googleTokenHttpStatus: params.googleTokenHttpStatus,
+    googleError: params.googleError,
+    googleErrorDescription: params.googleErrorDescription,
+    bundledExpectedFingerprint: shipped ? oauthClientIdFingerprint(shipped) : null,
+    packagedStandardConnectEnvIgnored: envIgnored,
+    completedAt: new Date().toISOString(),
+  }
+  setLastGmailStandardConnectRuntimeProof(proof)
+}
+
+function base64url(buf: Buffer): string {
+  return buf.toString('base64url')
+}
+function oauthRandomString(bytes = 32): string {
+  return base64url(randomBytes(bytes))
+}
+function sha256base64url(input: string): string {
+  return createHash('sha256').update(input).digest('base64url')
+}
 
 /**
  * Gmail API scopes
@@ -53,7 +150,7 @@ function getOAuthConfigPath(): string {
 /**
  * Load OAuth client credentials
  */
-export function loadOAuthConfig(): { clientId: string; clientSecret: string } | null {
+export function loadOAuthConfig(): { clientId: string; clientSecret?: string } | null {
   try {
     const configPath = getOAuthConfigPath()
     if (fs.existsSync(configPath)) {
@@ -66,12 +163,14 @@ export function loadOAuthConfig(): { clientId: string; clientSecret: string } | 
 }
 
 /**
- * Save OAuth client credentials
+ * Save OAuth client credentials (secret optional for PKCE-only developer entries).
  */
-export function saveOAuthConfig(clientId: string, clientSecret: string): void {
+export function saveOAuthConfig(clientId: string, clientSecret?: string): void {
   try {
     const configPath = getOAuthConfigPath()
-    fs.writeFileSync(configPath, JSON.stringify({ clientId, clientSecret }), 'utf-8')
+    const payload: { clientId: string; clientSecret?: string } = { clientId }
+    if (clientSecret) payload.clientSecret = clientSecret
+    fs.writeFileSync(configPath, JSON.stringify(payload), 'utf-8')
   } catch (err) {
     console.error('[Gmail] Error saving OAuth config:', err)
   }
@@ -85,6 +184,10 @@ export class GmailProvider extends BaseEmailProvider {
   private tokenExpiresAt: number = 0
   /** User-label name → Gmail label id */
   private wrDeskLabelIdCache: Map<string, string> = new Map()
+  /** PKCE code_verifier for the in-flight browser OAuth only; cleared after token exchange. */
+  private pkceVerifier: string | null = null
+  /** Fingerprint of client_id sent to Google authorize URL (standard Connect proof only). */
+  private standardConnectAuthorizeClientIdFingerprint: string | null = null
   
   async connect(config: EmailAccountConfig): Promise<void> {
     if (!config.oauth) {
@@ -111,6 +214,38 @@ export class GmailProvider extends BaseEmailProvider {
     this.connected = false
     this.config = null
     this.wrDeskLabelIdCache.clear()
+  }
+
+  /**
+   * Resolve the signed-in mailbox address after OAuth (`users/me/profile`).
+   * Connects with the given tokens, fetches profile, then disconnects (avoids leaving a stale singleton session).
+   */
+  async fetchProfileEmailAddress(oauth: NonNullable<EmailAccountConfig['oauth']>): Promise<string> {
+    const probe: EmailAccountConfig = {
+      id: '__gmail_profile_probe__',
+      displayName: 'Gmail',
+      email: '',
+      provider: 'gmail',
+      authType: 'oauth2',
+      oauth,
+      folders: { monitored: ['INBOX'], inbox: 'INBOX' },
+      sync: { maxAgeDays: 0, analyzePdfs: true, batchSize: 50 },
+      status: 'active',
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    }
+    await this.connect(probe)
+    try {
+      const profile = await this.apiRequest('GET', '/users/me/profile')
+      const addr = typeof profile?.emailAddress === 'string' ? profile.emailAddress.trim() : ''
+      if (!addr) {
+        throw new Error('Gmail users/me/profile did not return emailAddress')
+      }
+      console.log('[Gmail] Profile email resolved:', addr)
+      return addr
+    } finally {
+      await this.disconnect()
+    }
   }
   
   async testConnection(config: EmailAccountConfig): Promise<{ success: boolean; error?: string }> {
@@ -200,35 +335,80 @@ export class GmailProvider extends BaseEmailProvider {
 
     const query = queryParts.join(' ')
     const syncAll = options?.syncFetchAllPages === true
-    const maxTotal = Math.min(Math.max(1, options?.syncMaxMessages ?? (syncAll ? 25_000 : 500)), 100_000)
     const singleLimit = Math.min(Math.max(1, options?.limit ?? 50), 500)
-    const pageSize = syncAll ? Math.min(500, maxTotal) : singleLimit
+    const maxTotal = syncAll
+      ? options?.syncMaxMessages != null
+        ? Math.max(1, options.syncMaxMessages)
+        : Number.MAX_SAFE_INTEGER
+      : Math.min(Math.max(1, options?.syncMaxMessages ?? singleLimit), 500)
+    /** Gmail allows up to 500 ids per messages.list page — use full page size for sync so we minimize list round-trips. */
+    const listPageSize = syncAll ? 500 : Math.min(singleLimit, 500)
 
-    const messages: RawEmailMessage[] = []
+    // ── Phase 1: paginate messages.list until no nextPageToken (never stop early because a page had zero *new* bodies). ──
+    const allIds: string[] = []
+    let listPageIdx = 0
     let pageToken: string | undefined
 
-    for (;;) {
-      const remaining = maxTotal - messages.length
-      if (remaining <= 0) break
+    if (syncAll) {
+      for (;;) {
+        const remainingSlots = maxTotal - allIds.length
+        if (remainingSlots <= 0) break
 
-      const listParams = new URLSearchParams({
-        maxResults: Math.min(pageSize, remaining).toString(),
-        ...(query ? { q: query } : {}),
-        ...(pageToken ? { pageToken } : {}),
-      })
+        listPageIdx++
+        const listParams = new URLSearchParams({
+          maxResults: Math.min(listPageSize, remainingSlots).toString(),
+          ...(query ? { q: query } : {}),
+          ...(pageToken ? { pageToken } : {}),
+        })
 
-      const listResponse = await this.apiRequest('GET', `/users/me/messages?${listParams.toString()}`)
+        const listResponse = await this.apiRequest('GET', `/users/me/messages?${listParams.toString()}`)
+        const batch = (listResponse.messages || []) as Array<{ id: string }>
+        pageToken = listResponse.nextPageToken
 
-      const batch = (listResponse.messages || []) as Array<{ id: string }>
-      pageToken = listResponse.nextPageToken
+        for (const row of batch) {
+          if (allIds.length >= maxTotal) break
+          if (row?.id) allIds.push(row.id)
+        }
 
-      for (const row of batch) {
-        if (messages.length >= maxTotal) break
-        const msg = await this.fetchMessage(row.id)
-        if (msg) messages.push(msg)
+        console.log(
+          `[Gmail] messages.list page ${listPageIdx}: +${batch.length} id(s), cumulative ${allIds.length}${pageToken ? ', nextPageToken present' : ', no more pages'}`,
+        )
+
+        // Continue while the API says there is another page — do NOT break on batch.length===0 if nextPageToken exists.
+        if (!pageToken) break
       }
+    } else {
+      const listParams = new URLSearchParams({
+        maxResults: Math.min(listPageSize, maxTotal).toString(),
+        ...(query ? { q: query } : {}),
+      })
+      const listResponse = await this.apiRequest('GET', `/users/me/messages?${listParams.toString()}`)
+      const batch = (listResponse.messages || []) as Array<{ id: string }>
+      for (const row of batch) {
+        if (allIds.length >= maxTotal) break
+        if (row?.id) allIds.push(row.id)
+      }
+    }
 
-      if (!syncAll || !pageToken || batch.length === 0) break
+    // ── Phase 2: fetch full messages in concurrent batches (dedupe is in syncOrchestrator). ──
+    const messages: RawEmailMessage[] = []
+    const CONCURRENT_BATCH = 10
+    for (let i = 0; i < allIds.length; i += CONCURRENT_BATCH) {
+      if (messages.length >= maxTotal) break
+      const sliceEnd = Math.min(i + CONCURRENT_BATCH, allIds.length)
+      const batchIds = allIds.slice(i, sliceEnd)
+      const batchResults = await Promise.allSettled(batchIds.map((id) => this.fetchMessage(id)))
+      for (const r of batchResults) {
+        if (messages.length >= maxTotal) break
+        if (r.status === 'fulfilled' && r.value) {
+          messages.push(r.value)
+        }
+      }
+      if (syncAll) {
+        console.log(
+          `[Gmail] fetch full ${sliceEnd}/${allIds.length} listed (${messages.length} loaded, batch ${CONCURRENT_BATCH} concurrent)`,
+        )
+      }
     }
 
     return messages
@@ -311,8 +491,9 @@ export class GmailProvider extends BaseEmailProvider {
   /**
    * Gmail mapping (names from `resolveOrchestratorRemoteNames`; defaults match IMAP bucket labels):
    * - **archive** — remove `INBOX` (All Mail / archive semantics).
-   * - **pending_review** — user label (default `Pending Review`), remove INBOX + conflicting pending-delete label.
-   * - **pending_delete** — user label (default `Pending Delete`), strip INBOX + pending-review label.
+   * - **pending_review** — user label (default `Pending Review`), remove INBOX + conflicting lifecycle labels.
+   * - **pending_delete** — user label (default `Pending Delete`), strip INBOX + other lifecycle labels.
+   * - **urgent** — user label (default `Urgent`), strip INBOX + other lifecycle labels.
    */
   async applyOrchestratorRemoteOperation(
     messageId: string,
@@ -326,6 +507,7 @@ export class GmailProvider extends BaseEmailProvider {
       const names = resolveOrchestratorRemoteNames(this.config)
       const reviewId = await this.ensureWrDeskUserLabel(names.gmail.pendingReviewLabel)
       const deleteId = await this.ensureWrDeskUserLabel(names.gmail.pendingDeleteLabel)
+      const urgentId = await this.ensureWrDeskUserLabel(names.gmail.urgentLabel)
 
       if (operation === 'archive') {
         await this.gmailModifyOrIdempotent(messageId, {
@@ -337,7 +519,7 @@ export class GmailProvider extends BaseEmailProvider {
       if (operation === 'pending_review') {
         await this.gmailModifyOrIdempotent(messageId, {
           addLabelIds: [reviewId],
-          removeLabelIds: [...names.gmail.archiveRemoveLabelIds, deleteId],
+          removeLabelIds: [...names.gmail.archiveRemoveLabelIds, deleteId, urgentId],
         })
         return { ok: true }
       }
@@ -345,7 +527,15 @@ export class GmailProvider extends BaseEmailProvider {
       if (operation === 'pending_delete') {
         await this.gmailModifyOrIdempotent(messageId, {
           addLabelIds: [deleteId],
-          removeLabelIds: [...names.gmail.archiveRemoveLabelIds, reviewId],
+          removeLabelIds: [...names.gmail.archiveRemoveLabelIds, reviewId, urgentId],
+        })
+        return { ok: true }
+      }
+
+      if (operation === 'urgent') {
+        await this.gmailModifyOrIdempotent(messageId, {
+          addLabelIds: [urgentId],
+          removeLabelIds: [...names.gmail.archiveRemoveLabelIds, reviewId, deleteId],
         })
         return { ok: true }
       }
@@ -379,6 +569,33 @@ export class GmailProvider extends BaseEmailProvider {
     } catch (e: any) {
       if (this.isGmailIdempotentModifyError(e?.message || '')) return
       throw e
+    }
+  }
+
+  /**
+   * Batch label changes (up to **1000** message ids per Gmail API call).
+   * Use for future drain optimization; current queue still applies per-message `modify`.
+   * @see https://developers.google.com/gmail/api/reference/rest/v1/users.messages/batchModify
+   */
+  async batchModifyMessages(
+    messageIds: string[],
+    body: { addLabelIds?: string[]; removeLabelIds?: string[] },
+  ): Promise<void> {
+    const add = body.addLabelIds?.filter(Boolean) ?? []
+    const rem = body.removeLabelIds?.filter(Boolean) ?? []
+    if (add.length === 0 && rem.length === 0) {
+      throw new Error('batchModifyMessages: addLabelIds or removeLabelIds required')
+    }
+    const ids = [...new Set(messageIds.filter((id) => typeof id === 'string' && id.trim()))]
+    if (ids.length === 0) return
+    const chunkSize = 1000
+    for (let i = 0; i < ids.length; i += chunkSize) {
+      const chunk = ids.slice(i, i + chunkSize)
+      await this.apiRequest('POST', '/users/me/messages/batchModify', {
+        ids: chunk,
+        ...(add.length ? { addLabelIds: add } : {}),
+        ...(rem.length ? { removeLabelIds: rem } : {}),
+      })
     }
   }
 
@@ -446,74 +663,134 @@ export class GmailProvider extends BaseEmailProvider {
    * - Concurrent request prevention
    * - State machine for flow management
    */
-  async startOAuthFlow(email?: string): Promise<EmailAccountConfig['oauth']> {
-    const oauthConfig = await getCredentialsForOAuth('gmail')
-    if (!oauthConfig) {
-      throw new Error('OAuth client credentials not configured. Please set up Google Cloud Console credentials.')
+  /**
+   * @param resolved Optional pre-resolved client (avoids double resolve when gateway merges oauth metadata).
+   */
+  async startOAuthFlow(
+    email?: string,
+    resolved?: ResolvedGmailOAuth,
+  ): Promise<NonNullable<EmailAccountConfig['oauth']>> {
+    const oauthConfig = resolved ?? (await resolveGmailOAuthForConnect())
+    this.standardConnectAuthorizeClientIdFingerprint = null
+    if (oauthConfig.credentialSourceUsed === 'builtin_public') {
+      clearLastGmailStandardConnectRuntimeProof()
     }
-    
+    this.pkceVerifier = null
+    let codeChallenge: string | undefined
+    if (oauthConfig.authMode === 'pkce') {
+      this.pkceVerifier = oauthRandomString(32)
+      codeChallenge = sha256base64url(this.pkceVerifier)
+    }
+
+    logOAuthDiagnostic('oauth_start', {
+      provider: 'gmail',
+      authMode: oauthConfig.authMode,
+      hasVerifier: !!this.pkceVerifier,
+    })
+
     // Check if another OAuth flow is in progress
     if (oauthServerManager.isFlowInProgress()) {
-      throw new Error('Another OAuth flow is already in progress. Please wait or try again.')
+      throw attachOauthDebug(
+        new Error('Another OAuth flow is already in progress. Please wait or try again.'),
+        oauthDebugFromUnknown('oauth_server_manager: flow already in progress'),
+      )
     }
-    
+
     console.log('[Gmail] Starting OAuth flow using centralized server manager...')
     console.log('[Gmail] Current OAuth state:', oauthServerManager.getState())
-    
+
     try {
-      // Start OAuth flow with the server manager
-      // This will start the server, wait for callback, and return the result
-      const flowPromise = oauthServerManager.startOAuthFlow('gmail', 5 * 60 * 1000)
-      
-      // Build auth URL with dynamic port from the manager
-      const authUrl = this.buildAuthUrl(oauthConfig.clientId, email)
+      const { callbackUrl, resultPromise } = await oauthServerManager.beginOAuthFlow('gmail', 5 * 60 * 1000)
+
+      const authUrl = this.buildAuthUrl(
+        oauthConfig.clientId,
+        email,
+        oauthConfig.authMode,
+        codeChallenge,
+        callbackUrl,
+      )
+      if (oauthConfig.credentialSourceUsed === 'builtin_public') {
+        this.standardConnectAuthorizeClientIdFingerprint = oauthClientIdFingerprint(oauthConfig.clientId)
+      }
       console.log('[Gmail] Opening OAuth in system browser:', authUrl.substring(0, 100) + '...')
-      
-      // Open browser
+
       try {
         await shell.openExternal(authUrl)
         console.log('[Gmail] Browser opened successfully')
       } catch (err: any) {
         console.error('[Gmail] Failed to open browser:', err)
         await oauthServerManager.cancelFlow()
-        throw new Error('Failed to open browser for authentication')
+        throw attachOauthDebug(
+          new Error('Failed to open browser for authentication'),
+          oauthDebugFromUnknown(err?.message != null ? String(err.message) : 'shell.openExternal failed'),
+        )
       }
-      
-      // Wait for callback
+
       console.log('[Gmail] Waiting for OAuth callback...')
-      const result = await flowPromise
-      
+      const result = await resultPromise
+
+      logOAuthDiagnostic('oauth_callback_received', {
+        provider: 'gmail',
+        success: result.success,
+        error: result.error,
+      })
+
       if (!result.success) {
-        throw new Error(result.errorDescription || result.error || 'OAuth authorization failed')
+        logOAuthDiagnostic('token_exchange_failure', { provider: 'gmail', stage: 'callback', reason: result.error })
+        throw attachOauthDebug(
+          new Error(result.errorDescription || result.error || 'OAuth authorization failed'),
+          {
+            step: 'unknown',
+            httpStatus: null,
+            googleError: result.error != null ? String(result.error) : null,
+            googleErrorDescription:
+              result.errorDescription != null ? String(result.errorDescription) : null,
+            responseBody: null,
+          },
+        )
       }
-      
+
       if (!result.code) {
-        throw new Error('No authorization code received')
+        throw attachOauthDebug(
+          new Error('No authorization code received'),
+          oauthDebugFromUnknown('OAuth callback succeeded but code was empty'),
+        )
       }
-      
+
       console.log('[Gmail] Auth code received, exchanging for tokens...')
-      
-      // Exchange code for tokens
-      const tokens = await this.exchangeCodeForTokens(oauthConfig, result.code)
+      const tokens = await this.exchangeCodeForTokens(
+        oauthConfig,
+        result.code,
+        this.pkceVerifier,
+        callbackUrl,
+      )
+      this.pkceVerifier = null
+      logOAuthDiagnostic('token_exchange_success', { provider: 'gmail'})
       console.log('[Gmail] Tokens received!')
-      
       return tokens
     } catch (err: any) {
       console.error('[Gmail] OAuth flow error:', err.message || err)
-      // Ensure cleanup happens
+      logOAuthDiagnostic('token_exchange_failure', { provider: 'gmail', stage: 'flow', error: err?.message })
+      this.pkceVerifier = null
+      this.standardConnectAuthorizeClientIdFingerprint = null
       await oauthServerManager.cancelFlow().catch(() => {})
       throw err
+    } finally {
+      this.standardConnectAuthorizeClientIdFingerprint = null
     }
   }
   
   /**
-   * Build the OAuth authorization URL
-   * Uses dynamic port from the OAuth server manager
+   * Build the OAuth authorization URL.
+   * @param redirectUri Exact redirect from {@link oauthServerManager.beginOAuthFlow} (must match token exchange).
    */
-  private buildAuthUrl(clientId: string, email?: string): string {
-    // Get the callback URL from the OAuth server manager (with dynamic port)
-    const redirectUri = oauthServerManager.getCallbackUrl()
-    
+  private buildAuthUrl(
+    clientId: string,
+    email: string | undefined,
+    authMode: ResolvedGmailOAuth['authMode'],
+    codeChallenge: string | undefined,
+    redirectUri: string,
+  ): string {
     const params = new URLSearchParams({
       client_id: clientId,
       redirect_uri: redirectUri,
@@ -521,62 +798,294 @@ export class GmailProvider extends BaseEmailProvider {
       scope: GMAIL_SCOPES.join(' '),
       access_type: 'offline',
       prompt: 'consent',
-      ...(email ? { login_hint: email } : {})
+      ...(email ? { login_hint: email } : {}),
     })
-    
+    if (authMode === 'pkce' && codeChallenge) {
+      params.set('code_challenge', codeChallenge)
+      params.set('code_challenge_method', 'S256')
+    }
+
     console.log('[Gmail] Redirect URI:', redirectUri)
     return `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`
   }
-  
+
   private async exchangeCodeForTokens(
-    oauthConfig: { clientId: string; clientSecret: string },
-    code: string
-  ): Promise<EmailAccountConfig['oauth']> {
-    // Use the same redirect URI that was used for authorization
-    const redirectUri = oauthServerManager.getCallbackUrl()
-    
+    oauthConfig: ResolvedGmailOAuth,
+    code: string,
+    codeVerifier: string | null,
+    redirectUri: string,
+  ): Promise<NonNullable<EmailAccountConfig['oauth']>> {
+    const authorizeFp =
+      this.standardConnectAuthorizeClientIdFingerprint ?? oauthClientIdFingerprint(oauthConfig.clientId)
+    const tokenExchangeFp = oauthClientIdFingerprint(oauthConfig.clientId)
+
+    if (oauthConfig.credentialSourceUsed === 'builtin_public') {
+      if (authorizeFp !== tokenExchangeFp) {
+        emitGmailStandardConnectFlowProof(oauthConfig, {
+          authorizeClientIdFingerprint: authorizeFp,
+          tokenExchangeClientIdFingerprint: tokenExchangeFp,
+          redirectUri,
+          hasCodeVerifier: !!codeVerifier,
+          googleTokenHttpStatus: null,
+          googleError: 'oauth_client_id_mismatch_authorize_vs_token',
+          googleErrorDescription: 'authorizeClientIdFingerprint !== tokenExchangeClientIdFingerprint',
+        })
+        throw attachOauthDebug(
+          new Error(
+            'Runtime Gmail OAuth mismatch: authorize and token exchange used different client_id fingerprints',
+          ),
+          {
+            step: 'unknown',
+            httpStatus: null,
+            googleError: 'oauth_client_id_mismatch_authorize_vs_token',
+            googleErrorDescription:
+              'authorizeClientIdFingerprint !== tokenExchangeClientIdFingerprint',
+            responseBody: null,
+          },
+        )
+      }
+      if (isPackagedProductionGmailStandardConnect()) {
+        const shipped = getPackagedResourceGoogleOAuthClientId()
+        if (shipped && oauthClientIdFingerprint(shipped) !== tokenExchangeFp) {
+          emitGmailStandardConnectFlowProof(oauthConfig, {
+            authorizeClientIdFingerprint: authorizeFp,
+            tokenExchangeClientIdFingerprint: tokenExchangeFp,
+            redirectUri,
+            hasCodeVerifier: !!codeVerifier,
+            googleTokenHttpStatus: null,
+            googleError: 'local_bundled_client_mismatch',
+            googleErrorDescription: 'token exchange client_id fingerprint !== bundled resource file',
+          })
+          throw attachOauthDebug(
+            new Error(
+              'Runtime Gmail OAuth mismatch: token exchange is not using the bundled Desktop client ID',
+            ),
+            {
+              step: 'unknown',
+              httpStatus: null,
+              googleError: 'local_bundled_client_mismatch',
+              googleErrorDescription: 'token exchange client_id fingerprint !== bundled resource file',
+              responseBody: null,
+            },
+          )
+        }
+      }
+    }
+
+    const br = oauthConfig.builtinClientResolution
+    logOAuthDiagnostic('gmail_token_exchange_request', {
+      authMode: oauthConfig.authMode,
+      resolution: oauthConfig.resolution,
+      credentialSourceUsed: oauthConfig.credentialSourceUsed,
+      clientId: oauthConfig.clientId,
+      clientIdFingerprintAtExchange: tokenExchangeFp,
+      authorizeClientIdFingerprint: authorizeFp,
+      redirect_uri: redirectUri,
+      tokenExchangeShape: gmailOAuthTokenExchangeShape(oauthConfig),
+      hasCodeVerifier: !!codeVerifier,
+      hasClientSecret: !!(oauthConfig.clientSecret && String(oauthConfig.clientSecret).trim()),
+      ...(br
+        ? {
+            builtinSourceKind: br.sourceKind,
+            builtinSourceName: br.sourceName,
+            builtinSourcePathBasename: br.sourcePath ? path.basename(br.sourcePath) : null,
+            builtinFromBuildTimeInline: br.fromBuildTimeInline,
+            builtinFromPackagedResourceFile: br.fromPackagedResourceFile,
+          }
+        : {}),
+    })
+
     return new Promise((resolve, reject) => {
-      const postData = new URLSearchParams({
+      const body = new URLSearchParams({
         code,
         client_id: oauthConfig.clientId,
-        client_secret: oauthConfig.clientSecret,
         redirect_uri: redirectUri,
-        grant_type: 'authorization_code'
-      }).toString()
-      
+        grant_type: 'authorization_code',
+      })
+      if (oauthConfig.authMode === 'pkce') {
+        if (!codeVerifier) {
+          if (oauthConfig.credentialSourceUsed === 'builtin_public') {
+            emitGmailStandardConnectFlowProof(oauthConfig, {
+              authorizeClientIdFingerprint: authorizeFp,
+              tokenExchangeClientIdFingerprint: tokenExchangeFp,
+              redirectUri,
+              hasCodeVerifier: false,
+              googleTokenHttpStatus: null,
+              googleError: 'local_pkce_missing_verifier',
+              googleErrorDescription: 'PKCE code_verifier missing at token exchange',
+            })
+          }
+          reject(
+            attachOauthDebug(
+              new Error('PKCE: missing code_verifier'),
+              oauthDebugFromUnknown('PKCE code_verifier missing at token exchange'),
+            ),
+          )
+          return
+        }
+        body.set('code_verifier', codeVerifier)
+        const desktopSecret = oauthConfig.clientSecret?.trim()
+        if (desktopSecret) {
+          body.set('client_secret', desktopSecret)
+        }
+      } else if (oauthConfig.clientSecret) {
+        body.set('client_secret', oauthConfig.clientSecret)
+      } else {
+        reject(
+          attachOauthDebug(
+            new Error('Gmail OAuth: client secret required for legacy flow'),
+            oauthDebugFromUnknown('legacy flow without client_secret'),
+          ),
+        )
+        return
+      }
+
+      console.log(
+        `[Gmail OAuth] Token exchange: clientId=${(body.get('client_id') || '').slice(0, 20)}..., redirect_uri=${body.get('redirect_uri')}, hasSecret=${body.has('client_secret')}, hasVerifier=${body.has('code_verifier')}, grant=${body.get('grant_type')}`,
+      )
+
+      const postData = body.toString()
+
       const options = {
         hostname: 'oauth2.googleapis.com',
         path: '/token',
         method: 'POST',
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
-          'Content-Length': Buffer.byteLength(postData)
-        }
+          'Content-Length': Buffer.byteLength(postData),
+        },
       }
-      
+
       const req = https.request(options, (res) => {
         let data = ''
-        res.on('data', chunk => { data += chunk })
+        const httpStatus = res.statusCode ?? 0
+        res.on('data', (chunk) => {
+          data += chunk
+        })
         res.on('end', () => {
+          const responseText = data
           try {
-            const json = JSON.parse(data)
+            const json = JSON.parse(responseText)
             if (json.error) {
-              reject(new Error(json.error_description || json.error))
+              console.error('[Gmail OAuth] Token exchange error response (full body):', responseText)
+              logOAuthDiagnostic('gmail_token_exchange_response', {
+                httpStatus,
+                ok: false,
+                error: json.error,
+                error_description: json.error_description,
+                responseCharCount: data.length,
+              })
+              logOAuthDiagnostic('token_exchange_failure', {
+                provider: 'gmail',
+                stage: 'authorization_code',
+                error: json.error,
+                httpStatus,
+              })
+              if (oauthConfig.credentialSourceUsed === 'builtin_public') {
+                emitGmailStandardConnectFlowProof(oauthConfig, {
+                  authorizeClientIdFingerprint: authorizeFp,
+                  tokenExchangeClientIdFingerprint: tokenExchangeFp,
+                  redirectUri,
+                  hasCodeVerifier: !!codeVerifier,
+                  googleTokenHttpStatus: httpStatus,
+                  googleError: typeof json.error === 'string' ? json.error : String(json.error),
+                  googleErrorDescription:
+                    typeof json.error_description === 'string' ? json.error_description : null,
+                })
+              }
+              const ge = json.error
+              const googleErrStr =
+                typeof ge === 'string' ? ge : ge != null ? JSON.stringify(ge).slice(0, 200) : null
+              const googleDesc =
+                typeof json.error_description === 'string' ? json.error_description : null
+              const msg = googleDesc || googleErrStr || `HTTP ${httpStatus}`
+              reject(
+                attachOauthDebug(new Error(msg), {
+                  step: 'token_exchange',
+                  httpStatus,
+                  googleError: googleErrStr,
+                  googleErrorDescription: googleDesc,
+                  responseBody: responseText.substring(0, 500),
+                }),
+              )
             } else {
+              logOAuthDiagnostic('gmail_token_exchange_response', {
+                httpStatus,
+                ok: true,
+                responseCharCount: data.length,
+                expiresIn: typeof json.expires_in === 'number' ? json.expires_in : undefined,
+              })
+              if (oauthConfig.credentialSourceUsed === 'builtin_public') {
+                emitGmailStandardConnectFlowProof(oauthConfig, {
+                  authorizeClientIdFingerprint: authorizeFp,
+                  tokenExchangeClientIdFingerprint: tokenExchangeFp,
+                  redirectUri,
+                  hasCodeVerifier: !!codeVerifier,
+                  googleTokenHttpStatus: httpStatus,
+                  googleError: null,
+                  googleErrorDescription: null,
+                })
+              }
+              const expiresInSec =
+                typeof json.expires_in === 'number' && Number.isFinite(json.expires_in) ? json.expires_in : 3600
+              const pkceDesktopSecret =
+                oauthConfig.authMode === 'pkce' ? oauthConfig.clientSecret?.trim() : undefined
               resolve({
                 accessToken: json.access_token,
                 refreshToken: json.refresh_token,
-                expiresAt: Date.now() + (json.expires_in * 1000),
-                scope: json.scope
+                expiresAt: Date.now() + expiresInSec * 1000,
+                scope: typeof json.scope === 'string' ? json.scope : '',
+                oauthClientId: oauthConfig.clientId,
+                gmailRefreshUsesSecret: oauthConfig.authMode === 'legacy_secret',
+                ...(pkceDesktopSecret ? { gmailOAuthClientSecret: pkceDesktopSecret } : {}),
               })
             }
           } catch (err) {
-            reject(err)
+            console.error('[Gmail OAuth] Token exchange JSON parse error; raw body:', responseText.slice(0, 500))
+            logOAuthDiagnostic('gmail_token_exchange_response', {
+              httpStatus,
+              ok: false,
+              parseError: true,
+              responseCharCount: responseText.length,
+            })
+            if (oauthConfig.credentialSourceUsed === 'builtin_public') {
+              emitGmailStandardConnectFlowProof(oauthConfig, {
+                authorizeClientIdFingerprint: authorizeFp,
+                tokenExchangeClientIdFingerprint: tokenExchangeFp,
+                redirectUri,
+                hasCodeVerifier: !!codeVerifier,
+                googleTokenHttpStatus: httpStatus,
+                googleError: 'parse_error',
+                googleErrorDescription: err instanceof Error ? err.message : 'token response parse failed',
+              })
+            }
+            const wrapped =
+              err instanceof Error ? err : new Error(err != null ? String(err) : 'parse failed')
+            reject(
+              attachOauthDebug(wrapped, {
+                step: 'token_exchange',
+                httpStatus,
+                googleError: 'parse_error',
+                googleErrorDescription: wrapped.message,
+                responseBody: responseText.substring(0, 500),
+              }),
+            )
           }
         })
       })
-      
-      req.on('error', reject)
+
+      req.on('error', (e) =>
+        reject(
+          attachOauthDebug(e instanceof Error ? e : new Error(String(e)), {
+            step: 'token_exchange',
+            httpStatus: null,
+            googleError: null,
+            googleErrorDescription: null,
+            responseBody: null,
+            raw: (e instanceof Error ? e.message : String(e)).substring(0, 500),
+          }),
+        ),
+      )
       req.write(postData)
       req.end()
     })
@@ -591,18 +1100,72 @@ export class GmailProvider extends BaseEmailProvider {
   }
   
   private async refreshAccessToken(): Promise<void> {
-    const oauthConfig = await getCredentialsForOAuth('gmail')
-    if (!oauthConfig || !this.refreshToken) {
+    const stored = this.config?.oauth
+    const userCreds = await getCredentialsForOAuth('gmail')
+    if (!this.refreshToken) {
       throw new Error('Cannot refresh token: missing credentials')
     }
-    
+
+    const clientId =
+      stored?.oauthClientId && stored.oauthClientId.trim()
+        ? stored.oauthClientId.trim()
+        : userCreds && 'clientId' in userCreds
+          ? userCreds.clientId
+          : null
+    if (!clientId) {
+      throw new Error('Cannot refresh token: missing OAuth client id')
+    }
+
+    const legacyVaultSecret = stored?.gmailRefreshUsesSecret === true
+    const secretFromVault =
+      legacyVaultSecret && userCreds && 'clientSecret' in userCreds && userCreds.clientSecret
+        ? String(userCreds.clientSecret).trim()
+        : ''
+    const secretFromAccount = stored?.gmailOAuthClientSecret?.trim() ?? ''
+    let refreshClientSecret = secretFromVault || secretFromAccount || undefined
+    let secretSource: 'vault' | 'account' | 'builtin' | 'none' = 'none'
+    if (secretFromVault) secretSource = 'vault'
+    else if (secretFromAccount) secretSource = 'account'
+
+    if (!refreshClientSecret) {
+      try {
+        const metas = [
+          resolveBuiltinGoogleOAuthClientWithMeta({ forStandardGmailConnect: true }),
+          resolveBuiltinGoogleOAuthClientWithMeta(undefined),
+        ]
+        for (const meta of metas) {
+          if (!meta || meta.clientId !== clientId) continue
+          const builtinSecret = resolveBuiltinGoogleOAuthClientSecret(meta)
+          if (builtinSecret) {
+            refreshClientSecret = builtinSecret
+            secretSource = 'builtin'
+            console.log('[Gmail] Using builtin secret for refresh (account missing stored secret)')
+            break
+          }
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+
+    console.log('[Gmail] refreshAccessToken:', {
+      hasClientId: !!clientId,
+      hasRefreshSecret: !!refreshClientSecret,
+      hasRefreshToken: !!this.refreshToken,
+      secretSource,
+    })
+
     return new Promise((resolve, reject) => {
-      const postData = new URLSearchParams({
-        client_id: oauthConfig.clientId,
-        client_secret: oauthConfig.clientSecret,
+      const body = new URLSearchParams({
+        client_id: clientId,
         refresh_token: this.refreshToken!,
-        grant_type: 'refresh_token'
-      }).toString()
+        grant_type: 'refresh_token',
+      })
+      if (refreshClientSecret) {
+        body.set('client_secret', refreshClientSecret)
+      }
+
+      const postData = body.toString()
       
       const options = {
         hostname: 'oauth2.googleapis.com',
@@ -618,36 +1181,76 @@ export class GmailProvider extends BaseEmailProvider {
         let data = ''
         res.on('data', chunk => { data += chunk })
         res.on('end', () => {
+          const refreshStatus = res.statusCode ?? 0
           try {
             const json = JSON.parse(data)
             if (json.error) {
-              reject(new Error(json.error_description || json.error))
+              console.error('[Gmail] Token refresh FAILED:', json.error, json.error_description)
+              logOAuthDiagnostic('token_refresh_failure', {
+                provider: 'gmail',
+                error: json.error,
+              })
+              const ge = json.error
+              const googleErrStr =
+                typeof ge === 'string' ? ge : ge != null ? JSON.stringify(ge).slice(0, 200) : null
+              const googleDesc =
+                typeof json.error_description === 'string' ? json.error_description : null
+              const msg = googleDesc || googleErrStr || `HTTP ${refreshStatus}`
+              reject(
+                attachOauthDebug(new Error(msg), {
+                  step: 'token_refresh',
+                  httpStatus: refreshStatus,
+                  googleError: googleErrStr,
+                  googleErrorDescription: googleDesc,
+                  responseBody: data.substring(0, 500),
+                }),
+              )
             } else {
+              logOAuthDiagnostic('token_refresh_success', { provider: 'gmail' })
               this.accessToken = json.access_token
-              // Google may return a new refresh token
               if (json.refresh_token) {
                 this.refreshToken = json.refresh_token
               }
               this.tokenExpiresAt = Date.now() + (json.expires_in * 1000)
-              
-              // Persist new tokens via callback
+
               if (this.onTokenRefresh && this.refreshToken) {
                 this.onTokenRefresh({
                   accessToken: this.accessToken!,
                   refreshToken: this.refreshToken,
-                  expiresAt: this.tokenExpiresAt
+                  expiresAt: this.tokenExpiresAt,
                 })
               }
-              
+
               resolve()
             }
           } catch (err) {
-            reject(err)
+            const wrapped =
+              err instanceof Error ? err : new Error(err != null ? String(err) : 'parse failed')
+            reject(
+              attachOauthDebug(wrapped, {
+                step: 'token_refresh',
+                httpStatus: refreshStatus,
+                googleError: 'parse_error',
+                googleErrorDescription: wrapped.message,
+                responseBody: data.substring(0, 500),
+              }),
+            )
           }
         })
       })
       
-      req.on('error', reject)
+      req.on('error', (e) =>
+        reject(
+          attachOauthDebug(e instanceof Error ? e : new Error(String(e)), {
+            step: 'token_refresh',
+            httpStatus: null,
+            googleError: null,
+            googleErrorDescription: null,
+            responseBody: null,
+            raw: (e instanceof Error ? e.message : String(e)).substring(0, 500),
+          }),
+        ),
+      )
       req.write(postData)
       req.end()
     })
@@ -668,25 +1271,83 @@ export class GmailProvider extends BaseEmailProvider {
           ...(body ? { 'Content-Type': 'application/json' } : {})
         }
       }
-      
+
       const req = https.request(options, (res) => {
         let data = ''
         res.on('data', chunk => { data += chunk })
         res.on('end', () => {
+          const httpStatus = res.statusCode ?? 0
+          const likelyError = httpStatus < 200 || httpStatus >= 300
           try {
             const json = data ? JSON.parse(data) : {}
-            if (json.error) {
-              reject(new Error(json.error.message || 'API error'))
+
+            const ge = json.error
+            const gmailApiReject = (message: string, googleError: string | null, googleDesc: string | null) => {
+              reject(
+                attachOauthDebug(new Error(message), {
+                  step: 'gmail_api_call',
+                  httpStatus,
+                  googleError,
+                  googleErrorDescription: googleDesc,
+                  responseBody: data.substring(0, 500),
+                }),
+              )
+            }
+
+            if (ge) {
+              let googleError: string | null = null
+              let googleErrorDescription: string | null = null
+              if (typeof ge === 'string') {
+                googleError = ge
+              } else if (ge && typeof ge === 'object') {
+                googleError =
+                  typeof ge.status === 'string'
+                    ? ge.status
+                    : typeof ge.code === 'number'
+                      ? String(ge.code)
+                      : null
+                googleErrorDescription =
+                  typeof ge.message === 'string' ? ge.message : JSON.stringify(ge).slice(0, 200)
+              }
+              const msg = googleErrorDescription || googleError || 'API error'
+              gmailApiReject(msg, googleError, googleErrorDescription)
+            } else if (likelyError) {
+              gmailApiReject(
+                `Gmail API HTTP ${httpStatus}`,
+                null,
+                null,
+              )
             } else {
               resolve(json)
             }
           } catch (err) {
-            reject(err)
+            const wrapped =
+              err instanceof Error ? err : new Error(err != null ? String(err) : 'parse failed')
+            reject(
+              attachOauthDebug(wrapped, {
+                step: 'gmail_api_call',
+                httpStatus,
+                googleError: 'parse_error',
+                googleErrorDescription: wrapped.message,
+                responseBody: data.substring(0, 500),
+              }),
+            )
           }
         })
       })
       
-      req.on('error', reject)
+      req.on('error', (e) =>
+        reject(
+          attachOauthDebug(e instanceof Error ? e : new Error(String(e)), {
+            step: 'gmail_api_call',
+            httpStatus: null,
+            googleError: null,
+            googleErrorDescription: null,
+            responseBody: null,
+            raw: (e instanceof Error ? e.message : String(e)).substring(0, 500),
+          }),
+        ),
+      )
       
       if (body) {
         req.write(JSON.stringify(body))
@@ -704,7 +1365,9 @@ export class GmailProvider extends BaseEmailProvider {
     }
     
     const labelIds = raw.labelIds || []
-    
+    const extractedAttMeta = this.extractAttachments(raw.payload)
+    const attN = extractedAttMeta.length
+
     return {
       id: raw.id,
       threadId: raw.threadId,
@@ -729,7 +1392,9 @@ export class GmailProvider extends BaseEmailProvider {
         messageId: getHeader('Message-ID'),
         inReplyTo: getHeader('In-Reply-To'),
         references: getHeader('References')?.split(/\s+/).filter(Boolean)
-      }
+      },
+      hasAttachments: attN > 0,
+      attachmentCount: attN,
     }
   }
   

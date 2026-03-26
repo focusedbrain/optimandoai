@@ -16,13 +16,14 @@
 export type EmailProvider = 
   | 'gmail'           // Google Gmail (OAuth2)
   | 'microsoft365'    // Microsoft 365 / Outlook.com (OAuth2)
+  | 'zoho'            // Zoho Mail (OAuth2)
   | 'imap'            // Generic IMAP provider
 
 /**
  * Authentication type for email accounts
  */
 export type AuthType = 
-  | 'oauth2'          // OAuth2 (Gmail, Microsoft)
+  | 'oauth2'          // OAuth2 (Gmail, Microsoft, Zoho)
   | 'password'        // Username/password (IMAP)
   | 'app_password'    // App-specific password
 
@@ -74,11 +75,13 @@ export interface CustomImapSmtpConnectPayload {
   imapLifecyclePendingReviewMailbox?: string
   imapLifecyclePendingDeleteMailbox?: string
   imapLifecycleTrashMailbox?: string
+  /** Initial inbox sync window in days; `0` = all mail (use with care). Default 30 when omitted. */
+  syncWindowDays?: number
 }
 
 /** One row from IMAP lifecycle folder validation (`validateLifecycleRemoteBoxes` / IPC). */
 export interface ImapLifecycleValidationEntry {
-  role: 'archive' | 'pending_review' | 'pending_delete' | 'trash'
+  role: 'archive' | 'pending_review' | 'pending_delete' | 'urgent' | 'trash'
   mailbox: string
   exists: boolean
   /** Set when the server had no mailbox but `CREATE` succeeded. */
@@ -98,12 +101,20 @@ export interface ImapLifecycleValidationResult {
 export interface OrchestratorRemoteNamesInput {
   gmailPendingReviewLabel?: string
   gmailPendingDeleteLabel?: string
+  gmailUrgentLabel?: string
   gmailArchiveRemoveLabelIds?: string[]
   outlookPendingReviewFolder?: string
   outlookPendingDeleteFolder?: string
+  outlookUrgentFolder?: string
+  zohoPendingReviewFolder?: string
+  zohoPendingDeleteFolder?: string
+  zohoUrgentFolder?: string
+  zohoArchiveFolder?: string
+  zohoTrashFolder?: string
   imapArchiveMailbox?: string
   imapPendingReviewMailbox?: string
   imapPendingDeleteMailbox?: string
+  imapUrgentMailbox?: string
   imapTrashMailbox?: string
 }
 
@@ -281,12 +292,30 @@ export interface EmailAccountConfig {
    */
   externalPrincipalId?: string
   
-  /** OAuth tokens (for gmail/microsoft365) */
+  /**
+   * Zoho Mail API region: `mail.zoho.com` / `accounts.zoho.com` vs `.eu` for EU accounts.
+   * Persisted at connect time from OAuth client config + wizard.
+   */
+  zohoDatacenter?: 'com' | 'eu'
+
+  /** OAuth tokens (for gmail / microsoft365 / zoho) */
   oauth?: {
     accessToken: string
     refreshToken: string
     expiresAt: number
     scope: string
+    /**
+     * Google OAuth client id used when this refresh token was issued.
+     * Required when mixing built-in PKCE clients with legacy user-supplied OAuth apps.
+     */
+    oauthClientId?: string
+    /** Legacy user-supplied OAuth app: refresh included client_secret. PKCE accounts omit. */
+    gmailRefreshUsesSecret?: boolean
+    /**
+     * Desktop PKCE (built-in OAuth client): Google requires `client_secret` on refresh; persisted encrypted
+     * when present at connect. Not used for legacy vault-only refresh.
+     */
+    gmailOAuthClientSecret?: string
   }
   
   /** IMAP credentials (for imap provider) */
@@ -336,14 +365,27 @@ export interface EmailAccountConfig {
   sync: {
     /** Only fetch emails from the last N days */
     maxAgeDays: number
+    /**
+     * Smart Sync initial/window: 7, 30, 90, or **0** = entire mailbox (UI warns).
+     * When omitted, orchestrator falls back to `maxAgeDays` if > 0, else **30**.
+     */
+    syncWindowDays?: number
+    /** Cap for first pull / Pull More batches (default 500). */
+    maxMessagesPerPull?: number
     /** Whether to auto-analyze PDF attachments */
     analyzePdfs: boolean
     /** Maximum emails to fetch per sync */
     batchSize: number
   }
   
-  /** Account status */
-  status: 'active' | 'error' | 'disabled'
+  /** Account status — `auth_error` = credentials rejected (IMAP / password); reconnect required */
+  status: 'active' | 'error' | 'disabled' | 'auth_error'
+
+  /**
+   * User paused mail processing for this row (pull/sync gating — orthogonal to `status` / health).
+   * Omitted or false = not paused. Not the same as `status: 'disabled'`.
+   */
+  processingPaused?: boolean
   
   /** Last error message if status is 'error' */
   lastError?: string
@@ -375,7 +417,9 @@ export interface EmailAccountInfo {
   displayName: string
   email: string
   provider: EmailProvider
-  status: 'active' | 'error' | 'disabled'
+  status: 'active' | 'error' | 'disabled' | 'auth_error'
+  /** True when the user paused processing for this account (credentials and sync prefs unchanged). */
+  processingPaused?: boolean
   lastError?: string
   lastSyncAt?: number
   folders: {
@@ -391,7 +435,31 @@ export interface EmailAccountInfo {
   sync?: {
     maxAgeDays: number
     batchSize: number
+    /** Smart Sync window days (0 = all mail). */
+    syncWindowDays?: number
+    maxMessagesPerPull?: number
   }
+}
+
+/** Non-secret fields to prefill “Update credentials” for IMAP (passwords never included). */
+export interface ImapReconnectHints {
+  email: string
+  displayName: string
+  imapHost: string
+  imapPort: number
+  imapSecurity: SecurityMode
+  imapUsername: string
+  smtpHost: string
+  smtpPort: number
+  smtpSecurity: SecurityMode
+  smtpUseSameCredentials: boolean
+  smtpUsername: string
+  /** True when a non-empty IMAP password exists in main-process memory (never sent to renderer). */
+  hasImapPassword?: boolean
+  /** True when a non-empty SMTP password exists in main-process memory. */
+  hasSmtpPassword?: boolean
+  /** Persisted Smart Sync window (for reconnect wizard; mirrors account.sync.syncWindowDays). */
+  syncWindowDays?: number
 }
 
 // =============================================================================
@@ -590,11 +658,11 @@ export interface MessageSearchOptions {
 
   /**
    * When true (sync orchestrator only), provider follows pagination (`pageToken` / `@odata.nextLink` /
-   * IMAP chunking) until no more results or `syncMaxMessages` is reached.
+   * IMAP chunking) until the provider returns no more pages. If `syncMaxMessages` is set, stops when that count is reached.
    */
   syncFetchAllPages?: boolean
 
-  /** Hard cap on how many messages one list operation may return (default: high; sync layer sets explicitly). */
+  /** Optional hard cap on listed messages (sync); omit for uncapped pagination when `syncFetchAllPages` is true. */
   syncMaxMessages?: number
 }
 
@@ -722,8 +790,19 @@ export interface IEmailGateway {
   getAccount(id: string): Promise<EmailAccountInfo | null>
   addAccount(config: Omit<EmailAccountConfig, 'id' | 'createdAt' | 'updatedAt'>): Promise<EmailAccountInfo>
   updateAccount(id: string, updates: Partial<EmailAccountConfig>): Promise<EmailAccountInfo>
+  patchAccountSyncPreferences(
+    id: string,
+    partial: Partial<Pick<EmailAccountConfig['sync'], 'syncWindowDays' | 'maxMessagesPerPull' | 'maxAgeDays' | 'batchSize'>>,
+  ): Promise<EmailAccountInfo>
+  /** User toggle: pause or resume background processing (does not change `status` or credentials). */
+  setProcessingPaused(id: string, paused: boolean): Promise<EmailAccountInfo>
   deleteAccount(id: string): Promise<void>
   testConnection(id: string): Promise<{ success: boolean; error?: string }>
+  getImapReconnectHints(id: string): Promise<ImapReconnectHints | null>
+  updateImapCredentials(
+    id: string,
+    creds: { imapPassword: string; smtpPassword?: string; smtpUseSameCredentials?: boolean },
+  ): Promise<{ success: boolean; error?: string }>
   
   // Message operations
   listMessages(accountId: string, options?: MessageSearchOptions): Promise<SanitizedMessage[]>

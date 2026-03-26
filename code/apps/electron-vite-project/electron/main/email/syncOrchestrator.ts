@@ -1,19 +1,62 @@
 /**
  * Sync Orchestrator — Pulls emails from connected providers and routes through message detection.
  *
- * **Model**
- * - **Manual Pull** (`inbox:syncAccount`): `fullSync: true` — re-lists the whole account sync window
- *   (`sync.maxAgeDays` lower bound when set) with `syncFetchAllPages` until caps; existing rows are skipped.
- * - **First run** (no `last_sync_at`): same as Pull (bootstrap import).
- * - **Auto-sync tick**: incremental from `last_sync_at`, capped at `SYNC_AUTO_SYNC_MAX_MESSAGES` per tick.
- * - Providers paginate list APIs (Gmail `pageToken`, Graph `@odata.nextLink`, IMAP seq/SEARCH chunks).
+ * **Model (Smart Sync)**
+ * - **First run** (no `last_sync_at`): pull up to `maxMessagesPerPull` (default 500) within `syncWindowDays` (default 30; **0** = all time, same cap).
+ * - **Bootstrap or incremental with 0 listed / 0 new** (and not Pull More): do **not** advance `last_sync_at` so the next pull retries the same window (avoids anchor drift when the provider list is empty but mail exists — e.g. IMAP SEARCH/folder quirks).
+ * - **Auto-sync / manual Pull** (after first sync): incremental from `last_sync_at` only (new mail).
+ * - **Pull More** (`pullMore: true`): next batch older than `MIN(received_at)` in DB, capped at `maxMessagesPerPull`.
+ * - Providers paginate list APIs (Gmail `pageToken`, Graph `@odata.nextLink`, IMAP SEARCH + fetch chunks).
+ * - **`syncPullLock`** during list+fetch prevents remote-queue moves for the same account (see `REMOTE_ORCHESTRATOR_SYNC.md`).
  *
- * @version 1.0.0
+ * @version 1.1.0
  */
 
+import { processPendingP2PBeapEmails } from './beapEmailIngestion'
+import { processPendingPlainEmails } from './plainEmailIngestion'
+import {
+  drainOrchestratorRemoteQueueBounded,
+  enqueueRemoteOpsForLocalLifecycleState,
+  scheduleOrchestratorRemoteDrain,
+} from './inboxOrchestratorRemoteQueue'
 import { emailGateway } from './gateway'
 import { detectAndRouteMessage, type RawEmailMessage } from './messageRouter'
-import type { MessageSearchOptions, SanitizedMessageDetail } from './types'
+import { emailDebugLog, emailDebugWarn } from './emailDebug'
+import {
+  IMAP_SYNC_FOLDER_EXPAND_MS,
+  IMAP_SYNC_LIST_MESSAGES_MS,
+  setImapSyncProgress,
+  clearImapSyncProgress,
+  getImapSyncProgressSnapshot,
+  formatImapSyncPhaseLine,
+} from './imapSyncTelemetry'
+import { isPullActive, markPullActive, markPullInactive } from './syncPullLock'
+
+/** Re-export for callers that already import sync orchestrator (Sync Remote clears locks via ipc → syncPullLock). */
+export { clearAllPullActiveLocks } from './syncPullLock'
+import { ImapProvider } from './providers/imap'
+import { resolveImapPullFolders } from './domain/imapPullFolders'
+import type { MessageSearchOptions, SanitizedMessage, SanitizedMessageDetail } from './types'
+import { getEffectiveSyncWindowDays, getMaxMessagesPerPull } from './domain/smartSyncPrefs'
+import { shouldSkipAdvancingLastSyncAt } from './domain/syncLastSyncAnchorPolicy'
+import { isLikelyEmailAuthError } from './emailAuthErrors'
+import { BrowserWindow } from 'electron'
+
+function broadcastImapCredentialError(accountId: string, message: string): void {
+  BrowserWindow.getAllWindows().forEach((w) => {
+    try {
+      if (!w.isDestroyed() && w.webContents) {
+        w.webContents.send('email:credentialError', {
+          accountId,
+          provider: 'imap' as const,
+          message,
+        })
+      }
+    } catch {
+      /* ignore */
+    }
+  })
+}
 
 // ── Types ──
 
@@ -21,17 +64,15 @@ export interface SyncAccountOptions {
   accountId: string
   limit?: number
   /**
-   * Manual Pull: list the whole sync window on the host (subject to `sync.maxAgeDays` and `SYNC_PULL_MAX_MESSAGES`),
-   * not only messages newer than `last_sync_at`.
+   * Fetch the next batch of messages **older** than the oldest `inbox_messages.received_at` for this account.
+   * @see `domain/smartSyncPrefs` for batch size.
+   */
+  pullMore?: boolean
+  /**
+   * @deprecated No longer used — manual Pull is incremental after the first Smart Sync bootstrap.
    */
   fullSync?: boolean
 }
-
-/** One Pull / first bootstrap may import up to this many new rows (per account). */
-export const SYNC_PULL_MAX_MESSAGES = 25_000
-
-/** Each auto-sync tick fetches at most this many new list rows (then processes). */
-export const SYNC_AUTO_SYNC_MAX_MESSAGES = 2_000
 
 export interface SyncResult {
   ok: boolean
@@ -39,6 +80,14 @@ export interface SyncResult {
   beapMessages: number
   plainMessages: number
   errors: string[]
+  /** `inbox_messages.id` for rows ingested in this run (for remote lifecycle mirror). */
+  newInboxMessageIds: string[]
+  /** Messages returned from provider list API in this run (before dedupe / per-message fetch). */
+  listedFromProvider?: number
+  /** Skipped during ingest — `email_message_id` already in `inbox_messages` for this account. */
+  skippedDuplicate?: number
+  /** Set when no provider work ran — e.g. user paused processing for this account row. */
+  skipReason?: 'processing_paused'
 }
 
 export interface EmailSyncStateUpdates {
@@ -69,7 +118,7 @@ export function updateSyncState(db: any, accountId: string, updates: EmailSyncSt
       last_uid: updates.last_uid ?? row?.last_uid ?? null,
       sync_cursor: updates.sync_cursor ?? row?.sync_cursor ?? null,
       auto_sync_enabled: updates.auto_sync_enabled ?? row?.auto_sync_enabled ?? 0,
-      sync_interval_ms: updates.sync_interval_ms ?? row?.sync_interval_ms ?? 30000,
+      sync_interval_ms: updates.sync_interval_ms ?? row?.sync_interval_ms ?? 300_000,
       total_synced: updates.total_synced ?? row?.total_synced ?? 0,
       last_error: updates.last_error ?? row?.last_error ?? null,
       last_error_at: updates.last_error_at ?? row?.last_error_at ?? null,
@@ -115,13 +164,87 @@ function getExistingEmailMessageIds(db: any, accountId: string): Set<string> {
   }
 }
 
+/** Oldest message timestamp in local inbox for this account (for Pull More upper bound). */
+function getOldestInboxReceivedAtIso(db: any, accountId: string): string | null {
+  if (!db) return null
+  try {
+    const row = db
+      .prepare(
+        `SELECT MIN(datetime(COALESCE(received_at, ingested_at))) AS oldest
+         FROM inbox_messages WHERE account_id = ?`,
+      )
+      .get(accountId) as { oldest?: string | null }
+    const o = row?.oldest
+    if (o == null || String(o).trim() === '') return null
+    return String(o)
+  } catch {
+    return null
+  }
+}
+
+/**
+ * One-time per account: move messages out of legacy WRDesk-* / typo lifecycle folders into canonical names.
+ * Sets `email_sync_state.imap_folders_consolidated` after a successful run (connect + consolidate).
+ */
+async function maybeRunImapLegacyFolderConsolidation(db: any, accountId: string): Promise<void> {
+  if (!db) return
+  try {
+    const row = db
+      .prepare('SELECT imap_folders_consolidated FROM email_sync_state WHERE account_id = ?')
+      .get(accountId) as { imap_folders_consolidated?: number } | undefined
+    if (row?.imap_folders_consolidated === 1) return
+  } catch {
+    return
+  }
+
+  const cfg = emailGateway.getAccountConfig(accountId)
+  if (!cfg || cfg.provider !== 'imap') return
+
+  const p = new ImapProvider()
+  try {
+    console.log('[SyncOrchestrator] IMAP legacy folder consolidation (one-time) starting for account', accountId)
+    await p.connect(cfg)
+    await p.consolidateLifecycleFolders()
+    try {
+      db.prepare(
+        `INSERT INTO email_sync_state (account_id, imap_folders_consolidated)
+         VALUES (?, 1)
+         ON CONFLICT(account_id) DO UPDATE SET imap_folders_consolidated = 1`,
+      ).run(accountId)
+    } catch (e: any) {
+      console.warn('[SyncOrchestrator] Could not persist imap_folders_consolidated:', e?.message)
+    }
+    console.log('[SyncOrchestrator] IMAP legacy folder consolidation done for account', accountId)
+  } catch (e: any) {
+    console.warn(
+      '[SyncOrchestrator] IMAP legacy folder consolidation failed (will retry on next sync):',
+      e?.message || e,
+    )
+  } finally {
+    try {
+      await p.disconnect()
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
 function mapToRawEmailMessage(
   detail: SanitizedMessageDetail,
   attachments: Array<{ id: string; filename: string; mimeType: string; size: number; contentId?: string; content?: Buffer }>,
+  opts?: { provider?: string },
 ): RawEmailMessage {
-  return {
-    messageId: detail.id,
-    id: detail.id,
+  const id = detail.id
+  const headerBlock =
+    detail.headers?.messageId || detail.headers?.inReplyTo || detail.headers?.references
+      ? {
+          ...(detail.headers.messageId ? { messageId: detail.headers.messageId } : {}),
+          ...(detail.headers.inReplyTo ? { inReplyTo: detail.headers.inReplyTo } : {}),
+          ...(detail.headers.references ? { references: detail.headers.references } : {}),
+        }
+      : undefined
+
+  const base = {
     from: { address: detail.from.email, name: detail.from.name },
     to: detail.to.map((r) => ({ address: r.email, name: r.name })),
     cc: detail.cc?.map((r) => ({ address: r.email, name: r.name })),
@@ -130,9 +253,7 @@ function mapToRawEmailMessage(
     html: detail.bodySafeHtml,
     date: detail.date ?? new Date(detail.timestamp).toISOString(),
     folder: detail.folder || 'INBOX',
-    headers: detail.headers?.messageId
-      ? { messageId: detail.headers.messageId }
-      : undefined,
+    headers: headerBlock,
     attachments: attachments.map((a) => ({
       id: a.id,
       filename: a.filename,
@@ -142,29 +263,185 @@ function mapToRawEmailMessage(
       content: a.content,
     })),
   }
+
+  /**
+   * IMAP: `SanitizedMessageDetail.id` is the UID from the provider. Do **not** set top-level
+   * `messageId` here — it collides with RFC Message-ID semantics in `messageRouter` and breaks MOVE.
+   * RFC header stays in `headers.messageId` → `imap_rfc_message_id`.
+   */
+  if (opts?.provider === 'imap') {
+    return {
+      ...base,
+      uid: id,
+      id,
+    }
+  }
+
+  return {
+    ...base,
+    messageId: id,
+    id,
+  }
 }
 
-// ── Main exports ──
+// ── Per-account sync serialization (manual Pull + auto-sync ticks share one queue) ──
+
+const syncChains = new Map<string, Promise<unknown>>()
+const syncChainTimestamps = new Map<string, number>()
+
+/** Successful pulls that listed 0 messages and ingested 0 new (per account) — for stuck detection. */
+const consecutiveZeroListingPulls = new Map<string, number>()
+
+const MS_PER_DAY = 24 * 60 * 60 * 1000
+
+/**
+ * Hard cap for one full sync run (folder resolve + list + per-message fetch).
+ * Must exceed inner races (e.g. 30s folder expand + 30s list) and allow slow IMAP bootstrap (web.de, large mailboxes).
+ * A 45s cap caused false "timed out" failures while the server was still working.
+ */
+const SYNC_ACCOUNT_EMAILS_MAX_MS = 300_000
+
+/** Call from `inbox:resetSyncState` so streak does not carry over after a manual reset. */
+export function clearConsecutiveZeroListingPulls(accountId: string): void {
+  const id = String(accountId ?? '').trim()
+  if (!id) return
+  consecutiveZeroListingPulls.delete(id)
+}
+
+function notePullOutcomeForStuckDetection(
+  accountId: string,
+  opts: {
+    ok: boolean
+    /** `last_sync_at` from DB at the start of this sync run (before any update). */
+    lastSyncAtBeforeRun: string | undefined
+    listedFromProvider: number
+    newMessages: number
+  },
+): void {
+  const id = String(accountId ?? '').trim()
+  if (!id || !opts.ok) return
+
+  const listed = opts.listedFromProvider
+  const newM = opts.newMessages
+  if (listed === 0 && newM === 0) {
+    const next = (consecutiveZeroListingPulls.get(id) ?? 0) + 1
+    consecutiveZeroListingPulls.set(id, next)
+
+    const anchor = opts.lastSyncAtBeforeRun
+    if (anchor) {
+      const t = new Date(anchor).getTime()
+      if (!Number.isNaN(t) && Date.now() - t > MS_PER_DAY && next >= 3) {
+        emailDebugWarn('[SYNC-DEBUG] Account may be stuck — consider resetting sync state.', {
+          accountId: id,
+          last_sync_at_at_start_of_run: anchor,
+          consecutive_zero_listing_pulls: next,
+        })
+      }
+    }
+  } else {
+    consecutiveZeroListingPulls.set(id, 0)
+  }
+}
 
 /**
  * Sync emails for an account: pull from provider, deduplicate, route through message detection.
+ * Serialized per `accountId` so manual Pull and auto-sync never run concurrently for the same account.
  */
-export async function syncAccountEmails(
+export async function syncAccountEmails(db: any, options: SyncAccountOptions): Promise<SyncResult> {
+  const accountId = options.accountId
+  console.error('[SYNC] syncAccountEmails called:', accountId)
+
+  // Clear any stuck chain older than 60 seconds
+  const chainAge = syncChainTimestamps.get(accountId) ?? 0
+  if (chainAge > 0 && Date.now() - chainAge > 60_000) {
+    console.error('[SYNC] Clearing stuck syncChain for:', accountId)
+    syncChains.delete(accountId)
+    syncChainTimestamps.delete(accountId)
+  }
+
+  const prev = syncChains.get(accountId) ?? Promise.resolve()
+  syncChainTimestamps.set(accountId, Date.now())
+
+  const current = prev.then(
+    () => syncAccountEmailsImpl(db, options),
+    () => syncAccountEmailsImpl(db, options), // also run if previous REJECTED
+  )
+
+  const withTimeout = Promise.race([
+    current,
+    new Promise<SyncResult>((_, reject) =>
+      setTimeout(() => {
+        const snap = getImapSyncProgressSnapshot()
+        const inFlight =
+          snap && snap.accountId === accountId
+            ? ` inFlight=${JSON.stringify({
+                phase: snap.phase,
+                folder: snap.folder ?? null,
+                provider: snap.provider,
+                detail: snap.detail ?? null,
+                staleMs: Date.now() - snap.updatedAt,
+              })}`
+            : ''
+        reject(
+          new Error(
+            `syncAccountEmails timed out after ${Math.round(SYNC_ACCOUNT_EMAILS_MAX_MS / 1000)}s${inFlight}`,
+          ),
+        )
+      }, SYNC_ACCOUNT_EMAILS_MAX_MS),
+    ),
+  ]).finally(() => {
+    syncChainTimestamps.delete(accountId)
+  })
+
+  syncChains.set(accountId, withTimeout.then(() => undefined, () => undefined))
+  return withTimeout
+}
+
+async function syncAccountEmailsImpl(
   db: any,
   options: SyncAccountOptions,
 ): Promise<SyncResult> {
-  const { accountId, fullSync = false } = options
-  const result: SyncResult = { ok: true, newMessages: 0, beapMessages: 0, plainMessages: 0, errors: [] }
+  const { accountId, pullMore = false } = options
+  console.error('[SYNC-IMPL] syncAccountEmailsImpl ENTRY:', accountId)
+  const result: SyncResult = {
+    ok: true,
+    newMessages: 0,
+    beapMessages: 0,
+    plainMessages: 0,
+    errors: [],
+    newInboxMessageIds: [],
+  }
+
+  const pausedCfg = emailGateway.getAccountConfig(accountId)
+  if (pausedCfg?.processingPaused === true) {
+    emailDebugLog('[SYNC-DEBUG] syncAccountEmailsImpl skipped — processingPaused', { accountId })
+    return {
+      ...result,
+      listedFromProvider: 0,
+      skippedDuplicate: 0,
+      skipReason: 'processing_paused',
+    }
+  }
 
   try {
     const accountInfo = await emailGateway.getAccount(accountId)
-    const maxAgeDays = accountInfo?.sync?.maxAgeDays ?? 90
+    if (accountInfo?.provider === 'imap') {
+      await maybeRunImapLegacyFolderConsolidation(db, accountId)
+    }
+    const accountCfg = emailGateway.getAccountConfig(accountId)
+    setImapSyncProgress({
+      accountId,
+      provider: accountCfg?.provider ?? accountInfo?.provider ?? 'unknown',
+      phase: 'preflight',
+    })
+    const windowDays = getEffectiveSyncWindowDays(accountCfg?.sync)
+    const maxPerPull = getMaxMessagesPerPull(accountCfg?.sync)
 
-    let oldestIso: string | undefined
-    if (maxAgeDays > 0) {
+    let windowStartIso: string | undefined
+    if (windowDays > 0) {
       const d = new Date()
-      d.setUTCDate(d.getUTCDate() - maxAgeDays)
-      oldestIso = d.toISOString()
+      d.setUTCDate(d.getUTCDate() - windowDays)
+      windowStartIso = d.toISOString()
     }
 
     const stateRow = db.prepare('SELECT * FROM email_sync_state WHERE account_id = ?').get(accountId) as Record<string, unknown> | undefined
@@ -173,112 +450,517 @@ export async function syncAccountEmails(
     const syncCursor = stateRow?.sync_cursor as string | undefined
 
     const hasPriorSync = Boolean(lastSyncAt)
-    const bootstrap = !hasPriorSync
-    const treatAsFullImport = fullSync || bootstrap
+    const bootstrap = !hasPriorSync && !pullMore
 
-    let effectiveFrom: string | undefined
-    if (treatAsFullImport) {
-      effectiveFrom = oldestIso
-    } else if (lastSyncAt) {
-      effectiveFrom = lastSyncAt
-      if (oldestIso) {
-        const a = new Date(effectiveFrom).getTime()
-        const b = new Date(oldestIso).getTime()
-        if (!Number.isNaN(a) && !Number.isNaN(b) && a < b) {
-          effectiveFrom = oldestIso
-        }
+    emailDebugLog('[SYNC-DEBUG] sync prefs + DB sync state', {
+      accountId,
+      provider: accountCfg?.provider,
+      rawAccountSync: accountCfg?.sync ?? null,
+      windowDays,
+      windowStartIsoForBootstrap: windowStartIso ?? '(none — all time)',
+      maxPerPull,
+      last_sync_at: lastSyncAt ?? null,
+      hasPriorSync,
+      bootstrap,
+      pullMore,
+    })
+
+    let listOptions: MessageSearchOptions
+
+    if (pullMore) {
+      const oldestLocal = getOldestInboxReceivedAtIso(db, accountId)
+      if (!oldestLocal) {
+        emailDebugLog(
+          '[SYNC-DEBUG] list fetch NOT attempted: Pull More aborted — no local messages (oldest received_at)',
+          { accountId },
+        )
+        result.errors.push('Pull More: no local messages — run Pull first.')
+        result.ok = false
+        result.listedFromProvider = 0
+        console.error('SYNC_RETURN_LINE_399', accountId)
+        return result
+      }
+      const t = new Date(oldestLocal).getTime()
+      if (Number.isNaN(t)) {
+        result.errors.push('Pull More: invalid oldest message date in local DB.')
+        result.ok = false
+        result.listedFromProvider = 0
+        console.error('SYNC_RETURN_LINE_407', accountId)
+        return result
+      }
+      const beforeIso = new Date(t - 1).toISOString()
+      listOptions = {
+        limit: 200,
+        syncFetchAllPages: true,
+        syncMaxMessages: maxPerPull,
+        toDate: beforeIso,
+      }
+    } else if (bootstrap) {
+      listOptions = {
+        limit: 200,
+        syncFetchAllPages: true,
+        syncMaxMessages: maxPerPull,
+        ...(windowStartIso ? { fromDate: windowStartIso } : {}),
       }
     } else {
-      effectiveFrom = oldestIso
+      /**
+       * Incremental: start slightly before `last_sync_at` so IMAP SINCE / Graph `ge` / Gmail `after:`
+       * do not drop mail on the same clock tick as the anchor. Overlap rows dedupe via `existingIds`.
+       */
+      const overlapMs = 60_000
+      const anchorMs = new Date(lastSyncAt as string).getTime()
+      const incrementalFrom = Number.isNaN(anchorMs)
+        ? (lastSyncAt as string)
+        : new Date(anchorMs - overlapMs).toISOString()
+      listOptions = {
+        limit: 200,
+        syncFetchAllPages: true,
+        fromDate: incrementalFrom,
+      }
     }
 
-    const syncMaxMessages = treatAsFullImport ? SYNC_PULL_MAX_MESSAGES : SYNC_AUTO_SYNC_MAX_MESSAGES
+    emailDebugLog('[SYNC-DEBUG] listOptions for provider listMessages', {
+      accountId,
+      mode: pullMore ? 'pullMore' : bootstrap ? 'bootstrap' : 'incremental',
+      last_sync_at_anchor: !pullMore && !bootstrap ? (lastSyncAt as string) : null,
+      fromDate: listOptions.fromDate ?? null,
+      toDate: listOptions.toDate ?? null,
+      syncMaxMessages: listOptions.syncMaxMessages,
+    })
 
-    const listOptions: MessageSearchOptions = {
-      limit: 200,
-      syncFetchAllPages: true,
-      syncMaxMessages,
-      ...(effectiveFrom ? { fromDate: effectiveFrom } : {}),
-    }
-
-    const messages = await emailGateway.listMessages(accountId, listOptions)
-    const existingIds = getExistingEmailMessageIds(db, accountId)
-
+    /** Hold during list + per-message fetch so remote mirror cannot move mail out of INBOX mid-pull. */
+    let messages: Awaited<ReturnType<typeof emailGateway.listMessages>> = []
+    let skippedDuplicate = 0
     let newCount = 0
     let beapCount = 0
     let plainCount = 0
     let lastUidSeen = lastUid
     let cursorSeen = syncCursor
+    /** For post-pull IMAP summary log (inner `try` scope does not expose `pullFolders`). */
+    let pullFoldersResolved: string[] = []
+    let detailFetchOk = 0
+    let detailFetchMiss = 0
+    let loggedFirstFetchOk = false
+    let detailFetchPhaseStartedAt = 0
 
-    for (const msg of messages) {
-      if (existingIds.has(msg.id)) continue
+    emailDebugLog('[SYNC-DEBUG] SyncPullLock before list+fetch', {
+      accountId,
+      pullLockAlreadyActive: isPullActive(accountId),
+      note: 'isPullActive only defers remote-queue moves; sync still runs',
+    })
+    markPullActive(accountId)
+    try {
+      const basePullLabels = accountCfg ? resolveImapPullFolders(accountCfg) : ['INBOX']
+      let pullFolders: string[]
+      if (accountCfg?.provider === 'imap') {
+        const expandStarted = Date.now()
+        setImapSyncProgress({
+          accountId,
+          provider: 'imap',
+          phase: 'folder_expand',
+          detail: `baseLabels=${basePullLabels.join(',')}`,
+        })
+        console.error(
+          formatImapSyncPhaseLine('folder_expand_start', {
+            accountId,
+            provider: 'imap',
+            timeoutMs: IMAP_SYNC_FOLDER_EXPAND_MS,
+            basePullLabels,
+          }),
+        )
+        const expandPromise = emailGateway.resolveImapPullFoldersExpanded(accountId, basePullLabels)
+        const expandTimeout = new Promise<never>((_, reject) =>
+          setTimeout(
+            () =>
+              reject(
+                new Error(
+                  `resolveImapPullFoldersExpanded timed out after ${IMAP_SYNC_FOLDER_EXPAND_MS / 1000}s (phase=folder_expand)`,
+                ),
+              ),
+            IMAP_SYNC_FOLDER_EXPAND_MS,
+          ),
+        )
+        try {
+          pullFolders = await Promise.race([expandPromise, expandTimeout])
+        } catch (e: any) {
+          const expandMs = Date.now() - expandStarted
+          const timedOut = /timed out/i.test(String(e?.message ?? ''))
+          console.warn(
+            formatImapSyncPhaseLine('folder_expand_fail', {
+              accountId,
+              expandMs,
+              timedOut,
+              error: String(e?.message ?? e),
+            }),
+          )
+          console.warn('[SyncOrchestrator] resolveImapPullFoldersExpanded failed or timed out:', e?.message ?? e)
+          pullFolders = basePullLabels
+        }
+        console.error(
+          formatImapSyncPhaseLine('folder_expand_done', {
+            accountId,
+            expandMs: Date.now() - expandStarted,
+            resolvedFolders: pullFolders,
+            resolvedCount: pullFolders.length,
+          }),
+        )
+      } else {
+        pullFolders = basePullLabels
+      }
+      pullFoldersResolved = pullFolders
+      emailDebugLog('[SYNC-DEBUG] resolved IMAP pull folder list (expanded)', {
+        accountId,
+        basePullLabels,
+        pullFolders,
+        provider: accountCfg?.provider ?? 'unknown',
+      })
+      if (accountCfg?.provider === 'imap' && pullFolders.length > 1) {
+        const merged: SanitizedMessage[] = []
+        const seen = new Set<string>()
+        for (const folder of pullFolders) {
+          try {
+            const folderListStarted = Date.now()
+            setImapSyncProgress({ accountId, provider: 'imap', phase: 'list_messages', folder })
+            emailDebugLog('[SYNC-DEBUG] multi-folder listMessages fetch', { accountId, folder, listOptions })
+            console.error('SYNC_LIST_CALL', accountId, folder)
+            console.error('[SYNC-IMPL] about to call listMessages:', accountId)
+            console.error(
+              formatImapSyncPhaseLine('list_messages_start', {
+                accountId,
+                folder,
+                timeoutMs: IMAP_SYNC_LIST_MESSAGES_MS,
+              }),
+            )
+            const listPromise = emailGateway.listMessages(accountId, { ...listOptions, folder })
+            const timeoutPromise = new Promise<never>((_, reject) =>
+              setTimeout(
+                () =>
+                  reject(
+                    new Error(
+                      `listMessages timed out after ${IMAP_SYNC_LIST_MESSAGES_MS / 1000}s (phase=list_messages folder=${JSON.stringify(folder)})`,
+                    ),
+                  ),
+                IMAP_SYNC_LIST_MESSAGES_MS,
+              ),
+            )
+            const part = await Promise.race([listPromise, timeoutPromise])
+            console.error(
+              formatImapSyncPhaseLine('list_messages_done', {
+                accountId,
+                folder,
+                listMs: Date.now() - folderListStarted,
+                count: part.length,
+              }),
+            )
+            for (const m of part) {
+              const k = `${m.folder || folder}|${m.id}`
+              if (seen.has(k)) continue
+              seen.add(k)
+              merged.push(m)
+            }
+            console.log(
+              `[SyncOrchestrator] IMAP list folder=${JSON.stringify(folder)} → ${part.length} message(s) (merged ${merged.length} unique)`,
+            )
+          } catch (folderErr: any) {
+            const msg = folderErr?.message ?? String(folderErr)
+            const timedOut = /timed out/i.test(msg)
+            console.warn(
+              formatImapSyncPhaseLine('list_messages_fail', {
+                accountId,
+                folder,
+                timedOut,
+                error: msg,
+              }),
+            )
+            result.errors.push(`listMessages ${folder}: ${msg}`)
+            console.warn('[SyncOrchestrator] IMAP folder list failed:', folder, msg)
+          }
+        }
+        messages = merged
+      } else {
+        const folder = pullFolders[0] || accountCfg?.folders?.inbox || accountInfo?.folders?.inbox || 'INBOX'
+        const folderListStarted = Date.now()
+        setImapSyncProgress({ accountId, provider: accountCfg?.provider ?? 'unknown', phase: 'list_messages', folder })
+        emailDebugLog('[SYNC-DEBUG] single-folder listMessages fetch', { accountId, folder, listOptions })
+        console.error('SYNC_LIST_CALL', accountId, folder)
+        console.error('[SYNC-IMPL] about to call listMessages:', accountId)
+        console.error(
+          formatImapSyncPhaseLine('list_messages_start', {
+            accountId,
+            folder,
+            timeoutMs: IMAP_SYNC_LIST_MESSAGES_MS,
+          }),
+        )
+        const listPromise = emailGateway.listMessages(accountId, { ...listOptions, folder })
+        const timeoutPromise = new Promise<never>((_, reject) =>
+          setTimeout(
+            () =>
+              reject(
+                new Error(
+                  `listMessages timed out after ${IMAP_SYNC_LIST_MESSAGES_MS / 1000}s (phase=list_messages folder=${JSON.stringify(folder)})`,
+                ),
+              ),
+            IMAP_SYNC_LIST_MESSAGES_MS,
+          ),
+        )
+        messages = await Promise.race([listPromise, timeoutPromise])
+        console.error(
+          formatImapSyncPhaseLine('list_messages_done', {
+            accountId,
+            folder,
+            listMs: Date.now() - folderListStarted,
+            count: messages.length,
+          }),
+        )
+      }
+      console.error('SYNC_LIST_RESULT', accountId, messages?.length)
+      const existingIds = getExistingEmailMessageIds(db, accountId)
+      skippedDuplicate = 0
 
-      try {
-        const detail = await emailGateway.getMessage(accountId, msg.id)
-        if (!detail) {
-          result.errors.push(`Could not fetch message ${msg.id}`)
+      console.log(
+        `[SyncOrchestrator] Provider returned ${messages.length} message(s) (bootstrap=${bootstrap}, pullMore=${pullMore}, fromDate=${listOptions.fromDate ?? 'none'}, toDate=${listOptions.toDate ?? 'none'}, pullFolders=${pullFolders.join(',')})`,
+      )
+      if (messages.length === 0) {
+        emailDebugLog(
+          '[SYNC-DEBUG] provider list returned 0 messages after fetch was attempted (not “skipped”) — check IMAP SEARCH/SINCE, folder path, or incremental last_sync_at window',
+          { accountId, bootstrap, pullMore, last_sync_at_used: lastSyncAt ?? null },
+        )
+      }
+
+      setImapSyncProgress({
+        accountId,
+        provider: accountCfg?.provider ?? 'unknown',
+        phase: 'message_detail_fetch',
+        detail: `toIngest=${messages.length}`,
+      })
+      detailFetchPhaseStartedAt = Date.now()
+
+      for (const msg of messages) {
+        if (existingIds.has(msg.id)) {
+          skippedDuplicate++
           continue
         }
 
-        const attachments: Array<{ id: string; filename: string; mimeType: string; size: number; contentId?: string; content?: Buffer }> = []
-        if (detail.hasAttachments && detail.attachmentCount) {
-          const attList = await emailGateway.listAttachments(accountId, msg.id)
-          for (const att of attList) {
-            let content: Buffer | undefined
-            try {
-              const buf = await emailGateway.fetchAttachmentBuffer(accountId, msg.id, att.id)
-              if (buf) content = buf
-            } catch {
-              // Non-fatal: attachment without content still gets registered
-            }
-            attachments.push({
-              id: att.id,
-              filename: att.filename,
-              mimeType: att.mimeType,
-              size: att.size,
-              contentId: att.contentId,
-              content,
+        try {
+          const detail = await emailGateway.getMessage(accountId, msg.id)
+          if (!detail) {
+            detailFetchMiss++
+            result.errors.push(`Could not fetch message ${msg.id}`)
+            continue
+          }
+          detailFetchOk++
+          if (!loggedFirstFetchOk) {
+            loggedFirstFetchOk = true
+            emailDebugLog('[SYNC-DEBUG] first provider message body fetch succeeded', {
+              accountId,
+              messageId: msg.id,
             })
           }
+
+          const attachments: Array<{ id: string; filename: string; mimeType: string; size: number; contentId?: string; content?: Buffer }> = []
+          // Always list attachments (Gmail/Outlook APIs). Empty list is harmless; IMAP may return [] until implemented.
+          try {
+            const attList = await emailGateway.listAttachments(accountId, msg.id)
+            console.log(
+              `[SyncOrchestrator] Attachments for ${msg.id}: ${attList.length} listed (detail flags hasAttachments=${detail.hasAttachments} count=${detail.attachmentCount})`,
+            )
+            for (const att of attList) {
+              let content: Buffer | undefined
+              try {
+                const buf = await emailGateway.fetchAttachmentBuffer(accountId, msg.id, att.id)
+                if (buf) content = buf
+              } catch {
+                // Non-fatal: attachment without content still gets registered
+              }
+              attachments.push({
+                id: att.id,
+                filename: att.filename,
+                mimeType: att.mimeType,
+                size: att.size,
+                contentId: att.contentId,
+                content,
+              })
+            }
+          } catch (attListErr: any) {
+            console.warn(
+              `[SyncOrchestrator] listAttachments failed for ${msg.id}:`,
+              attListErr?.message ?? attListErr,
+            )
+          }
+
+          const rawMsg = mapToRawEmailMessage(detail, attachments, { provider: accountInfo?.provider })
+          const routeResult = await detectAndRouteMessage(db, accountId, rawMsg)
+
+          newCount++
+          result.newInboxMessageIds.push(routeResult.inboxMessageId)
+          if (routeResult.type === 'beap') beapCount++
+          else plainCount++
+
+          if (newCount > 0 && newCount % 50 === 0) {
+            console.log(
+              `[SyncOrchestrator] Progress: ${newCount} ingested, ${skippedDuplicate} dupes, ${result.errors.length} errors, ${messages.length} listed`,
+            )
+          }
+
+          if ((msg as any).uid) lastUidSeen = String((msg as any).uid)
+        } catch (err: any) {
+          result.errors.push(`${msg.id}: ${err?.message ?? 'Unknown error'}`)
+          console.error('[SyncOrchestrator] Message processing error:', msg.id, err)
         }
-
-        const rawMsg = mapToRawEmailMessage(detail, attachments)
-        const routeResult = detectAndRouteMessage(db, accountId, rawMsg)
-
-        newCount++
-        if (routeResult.type === 'beap') beapCount++
-        else plainCount++
-
-        if ((msg as any).uid) lastUidSeen = String((msg as any).uid)
-      } catch (err: any) {
-        result.errors.push(`${msg.id}: ${err?.message ?? 'Unknown error'}`)
-        console.error('[SyncOrchestrator] Message processing error:', msg.id, err)
       }
+    } finally {
+      markPullInactive(accountId)
     }
 
     result.newMessages = newCount
     result.beapMessages = beapCount
     result.plainMessages = plainCount
+    result.listedFromProvider = messages.length
+    result.skippedDuplicate = skippedDuplicate
+
+    console.log(
+      `[SyncOrchestrator] Ingested ${newCount} new message(s), skipped ${skippedDuplicate} duplicate id(s) already in inbox`,
+    )
 
     const totalSynced = (stateRow?.total_synced as number | undefined) ?? 0
-    updateSyncState(db, accountId, {
-      last_sync_at: new Date().toISOString(),
+    const nextLastSyncAt = new Date().toISOString()
+    const skipAdvanceLastSyncAt = shouldSkipAdvancingLastSyncAt({
+      pullMore,
+      listedFromProvider: messages.length,
+      newIngestedCount: newCount,
+    })
+
+    if (accountCfg?.provider === 'imap') {
+      const syncMode = pullMore ? 'pullMore' : bootstrap ? 'bootstrap' : 'incremental'
+      console.error(
+        '[IMAP-SYNC-SUMMARY]',
+        JSON.stringify({
+          accountId,
+          provider: 'imap',
+          folders: pullFoldersResolved,
+          syncMode,
+          windowDays,
+          syncMaxMessages: listOptions.syncMaxMessages ?? null,
+          fromDate: listOptions.fromDate ?? null,
+          toDate: listOptions.toDate ?? null,
+          last_sync_at_before: lastSyncAt ?? null,
+          listed: messages.length,
+          deduped: skippedDuplicate,
+          fetch_ok: detailFetchOk,
+          fetch_miss: detailFetchMiss,
+          detail_fetch_ms: detailFetchPhaseStartedAt ? Date.now() - detailFetchPhaseStartedAt : 0,
+          inserted: newCount,
+          errorCount: result.errors.length,
+          advance_last_sync_at: !skipAdvanceLastSyncAt,
+        }),
+      )
+    }
+
+    if (skipAdvanceLastSyncAt) {
+      emailDebugWarn(
+        '[SYNC-DEBUG] Sync returned 0 listed and 0 new — NOT advancing last_sync_at (retry same window on next pull).',
+        { accountId, bootstrap, pullMore, listedFromProvider: messages.length, newMessagesIngested: newCount },
+      )
+    } else {
+      emailDebugLog('[SYNC-DEBUG] updating last_sync_at after sync', {
+        accountId,
+        previous_last_sync_at: lastSyncAt ?? null,
+        next_last_sync_at: nextLastSyncAt,
+        listedFromProvider: messages.length,
+        newMessagesIngested: newCount,
+        bootstrap,
+      })
+    }
+
+    const syncUpdates: EmailSyncStateUpdates = {
+      ...(skipAdvanceLastSyncAt ? {} : { last_sync_at: nextLastSyncAt }),
       last_uid: lastUidSeen,
       sync_cursor: cursorSeen,
       total_synced: totalSynced + newCount,
       last_error: undefined,
       last_error_at: undefined,
+    }
+    updateSyncState(db, accountId, syncUpdates)
+
+    notePullOutcomeForStuckDetection(accountId, {
+      ok: true,
+      lastSyncAtBeforeRun: lastSyncAt,
+      listedFromProvider: messages.length,
+      newMessages: newCount,
     })
   } catch (err: any) {
     result.ok = false
-    result.errors.push(err?.message ?? 'Sync failed')
+    const errMsg = err?.message ?? 'Sync failed'
+    result.errors.push(errMsg)
+    const snap = getImapSyncProgressSnapshot()
+    if (snap?.accountId === accountId) {
+      console.error(
+        formatImapSyncPhaseLine('sync_impl_uncaught', {
+          accountId,
+          errMsg,
+          timedOut: /timed out/i.test(errMsg),
+          atPhase: snap.phase,
+          folder: snap.folder ?? null,
+        }),
+      )
+    }
     console.error('[SyncOrchestrator] syncAccountEmails error:', err)
     updateSyncState(db, accountId, {
-      last_error: err?.message ?? 'Sync failed',
+      last_error: errMsg,
       last_error_at: new Date().toISOString(),
     })
+    if (isLikelyEmailAuthError(errMsg)) {
+      try {
+        const accountCfg = emailGateway.getAccountConfig(accountId)
+        const isImap = accountCfg?.provider === 'imap'
+        const imapMsg = 'Authentication failed — check credentials'
+        await emailGateway.updateAccount(accountId, {
+          status: isImap ? 'auth_error' : 'error',
+          lastError: isImap
+            ? imapMsg
+            : 'Not authenticated or session expired. Reconnect this account in Email settings.',
+        })
+        if (isImap) {
+          broadcastImapCredentialError(accountId, imapMsg)
+        }
+      } catch (persistErr: any) {
+        console.warn('[SyncOrchestrator] Could not persist account auth state:', persistErr?.message)
+      }
+    }
+  } finally {
+    clearImapSyncProgress()
   }
 
+  const anyAuthErr = result.errors.some((e) => isLikelyEmailAuthError(e))
+  if (anyAuthErr) {
+    try {
+      const accountCfg = emailGateway.getAccountConfig(accountId)
+      const isImap = accountCfg?.provider === 'imap'
+      const imapMsg = 'Authentication failed — check credentials'
+      await emailGateway.updateAccount(accountId, {
+        status: isImap ? 'auth_error' : 'error',
+        lastError: isImap
+          ? imapMsg
+          : 'Not authenticated or session expired. Reconnect this account in Email settings.',
+      })
+      if (isImap) {
+        broadcastImapCredentialError(accountId, imapMsg)
+      }
+    } catch (persistErr: any) {
+      console.warn('[SyncOrchestrator] Could not persist account auth state (partial errors):', persistErr?.message)
+    }
+  } else if (result.ok) {
+    try {
+      const cfg = emailGateway.getAccountConfig(accountId)
+      if (cfg?.status === 'auth_error') {
+        await emailGateway.updateAccount(accountId, { status: 'active', lastError: undefined })
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
+  console.error('SYNC_RETURN_LINE_678', accountId)
   return result
 }
 
@@ -288,25 +970,49 @@ export async function syncAccountEmails(
 export function startAutoSync(
   db: any,
   accountId: string,
-  intervalMs: number = 30_000,
-  onNewMessages?: (result: SyncResult) => void,
+  intervalMs: number = 300_000,
+  /** Called after each tick (success or failure). On success: `result` is set; on throw/timeout: `err` set. */
+  onSyncComplete?: (result: SyncResult | null, err?: unknown) => void,
+  /** Resume background remote-queue drain when bounded inline drain does not finish. */
+  getDbForRemoteDrain?: () => Promise<any> | any,
 ): { stop: () => void } {
   let timeoutId: ReturnType<typeof setTimeout> | null = null
 
   const tick = async () => {
     try {
+      console.log('[AUTO_SYNC] Tick fired for account:', accountId)
       const row = db.prepare('SELECT auto_sync_enabled FROM email_sync_state WHERE account_id = ?').get(accountId) as { auto_sync_enabled?: number } | undefined
       if (row?.auto_sync_enabled !== 1) {
         scheduleNext()
         return
       }
 
-      const result = await syncAccountEmails(db, { accountId })
-      if (result.newMessages > 0 && onNewMessages) {
-        onNewMessages(result)
+      const accCfg = emailGateway.getAccountConfig(accountId)
+      if (accCfg?.processingPaused === true) {
+        scheduleNext()
+        return
       }
+
+      const result = await syncAccountEmails(db, { accountId })
+      processPendingPlainEmails(db)
+      processPendingP2PBeapEmails(db)
+      try {
+        if (result.newInboxMessageIds.length > 0) {
+          enqueueRemoteOpsForLocalLifecycleState(db, result.newInboxMessageIds)
+        }
+        await drainOrchestratorRemoteQueueBounded(
+          db,
+          getDbForRemoteDrain ? { getDbForDrainContinue: getDbForRemoteDrain } : undefined,
+        )
+        if (getDbForRemoteDrain) scheduleOrchestratorRemoteDrain(getDbForRemoteDrain)
+      } catch (e: any) {
+        console.warn('[SyncOrchestrator] Post-sync remote drain:', e?.message)
+        if (getDbForRemoteDrain) scheduleOrchestratorRemoteDrain(getDbForRemoteDrain)
+      }
+      if (onSyncComplete) onSyncComplete(result)
     } catch (err: any) {
       console.error('[SyncOrchestrator] Auto-sync tick error:', err?.message)
+      if (onSyncComplete) onSyncComplete(null, err)
     }
     scheduleNext()
   }

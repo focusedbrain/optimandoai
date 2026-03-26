@@ -9,7 +9,10 @@
  * On Linux: Uses libsecret/kwallet
  */
 
-import { safeStorage } from 'electron'
+import { safeStorage, dialog } from 'electron'
+
+/** One-shot UX + log when persisting secrets without OS encryption. */
+let safeStorageUnavailableWarningShown = false
 
 // Check if encryption is available
 let encryptionAvailable: boolean | null = null
@@ -21,31 +24,50 @@ export function isSecureStorageAvailable(): boolean {
   if (encryptionAvailable === null) {
     try {
       encryptionAvailable = safeStorage.isEncryptionAvailable()
-      console.log('[SecureStorage] Encryption available:', encryptionAvailable)
+      console.log('[SecureStorage] isSecureStorageAvailable() =>', encryptionAvailable)
     } catch (err) {
       console.error('[SecureStorage] Error checking encryption availability:', err)
       encryptionAvailable = false
+      console.log('[SecureStorage] isSecureStorageAvailable() =>', false)
     }
   }
-  return encryptionAvailable
+  return encryptionAvailable ?? false
 }
 
 /**
  * Encrypt a string value using the OS keychain
  * Returns base64-encoded encrypted data
  */
-export function encryptValue(plaintext: string): string {
+export function encryptValue(plaintext: string | undefined | null): string {
+  const p = plaintext ?? ''
   if (!isSecureStorageAvailable()) {
-    console.warn('[SecureStorage] Encryption not available, storing unencrypted')
-    return plaintext
+    if (!safeStorageUnavailableWarningShown) {
+      safeStorageUnavailableWarningShown = true
+      console.error(
+        '[SecureStorage] OS secure storage is not available. Email credentials will be stored WITHOUT encryption. This is a security risk.',
+      )
+      setImmediate(() => {
+        try {
+          void dialog.showMessageBox({
+            type: 'warning',
+            title: 'Secure storage unavailable',
+            message:
+              'OS secure storage is not available on this session. Email account secrets may be saved to disk without encryption. Reconnect accounts on a trusted device or fix keychain / DPAPI access if this is unexpected.',
+          })
+        } catch (e) {
+          console.warn('[SecureStorage] Could not show secure-storage warning dialog:', e)
+        }
+      })
+    }
+    return p
   }
-  
+
   try {
-    const encrypted = safeStorage.encryptString(plaintext)
+    const encrypted = safeStorage.encryptString(p)
     return encrypted.toString('base64')
   } catch (err) {
     console.error('[SecureStorage] Encryption failed:', err)
-    return plaintext
+    return p
   }
 }
 
@@ -69,12 +91,15 @@ function isUnencryptedToken(value: string): boolean {
 /**
  * Decrypt a base64-encoded encrypted value
  */
-export function decryptValue(encrypted: string): string {
+export function decryptValue(encrypted: string | undefined | null): string {
+  if (encrypted == null || encrypted === '') {
+    return ''
+  }
   if (!isSecureStorageAvailable()) {
     // If encryption wasn't available during save, data is unencrypted
     return encrypted
   }
-  
+
   // First, check if this looks like unencrypted token data (legacy)
   if (isUnencryptedToken(encrypted)) {
     console.log('[SecureStorage] Found unencrypted legacy token, returning as-is')
@@ -100,6 +125,12 @@ export interface OAuthTokens {
   refreshToken: string
   expiresAt: number
   scope?: string
+  /** Gmail: client id used when the refresh token was issued (not encrypted). */
+  oauthClientId?: string
+  /** Gmail: legacy OAuth app used client_secret on refresh (not encrypted). */
+  gmailRefreshUsesSecret?: boolean
+  /** Gmail: Desktop PKCE built-in client_secret for token refresh (encrypted at rest when safeStorage works). */
+  gmailOAuthClientSecret?: string
 }
 
 /**
@@ -110,14 +141,24 @@ export function encryptOAuthTokens(tokens: OAuthTokens): {
   accessToken: string
   refreshToken: string
   expiresAt: number
-  scope?: string
+  scope: string
+  oauthClientId?: string
+  gmailRefreshUsesSecret?: boolean
+  gmailOAuthClientSecret?: string
   _encrypted: boolean
 } {
+  const gmailOAuthClientSecret =
+    tokens.gmailOAuthClientSecret && tokens.gmailOAuthClientSecret.trim()
+      ? encryptValue(tokens.gmailOAuthClientSecret.trim())
+      : undefined
   return {
     accessToken: encryptValue(tokens.accessToken),
     refreshToken: encryptValue(tokens.refreshToken),
     expiresAt: tokens.expiresAt,
-    scope: tokens.scope,
+    scope: tokens.scope ?? '',
+    oauthClientId: tokens.oauthClientId,
+    gmailRefreshUsesSecret: tokens.gmailRefreshUsesSecret,
+    ...(gmailOAuthClientSecret ? { gmailOAuthClientSecret } : {}),
     _encrypted: isSecureStorageAvailable()
   }
 }
@@ -130,8 +171,16 @@ export function decryptOAuthTokens(stored: {
   refreshToken: string
   expiresAt: number
   scope?: string
+  oauthClientId?: string
+  gmailRefreshUsesSecret?: boolean
+  gmailOAuthClientSecret?: string
   _encrypted?: boolean
 }): OAuthTokens {
+  const decryptOptionalSecret = (v: string | undefined): string | undefined => {
+    if (v == null || v === '') return undefined
+    return decryptValue(v)
+  }
+
   // If explicitly marked as not encrypted, return as-is
   if (stored._encrypted === false) {
     console.log('[SecureStorage] Tokens marked as unencrypted, returning as-is')
@@ -139,7 +188,10 @@ export function decryptOAuthTokens(stored: {
       accessToken: stored.accessToken,
       refreshToken: stored.refreshToken,
       expiresAt: stored.expiresAt,
-      scope: stored.scope
+      scope: stored.scope,
+      oauthClientId: stored.oauthClientId,
+      gmailRefreshUsesSecret: stored.gmailRefreshUsesSecret,
+      gmailOAuthClientSecret: stored.gmailOAuthClientSecret,
     }
   }
   
@@ -150,7 +202,10 @@ export function decryptOAuthTokens(stored: {
     accessToken: decryptValue(stored.accessToken),
     refreshToken: decryptValue(stored.refreshToken),
     expiresAt: stored.expiresAt,
-    scope: stored.scope
+    scope: stored.scope,
+    oauthClientId: stored.oauthClientId,
+    gmailRefreshUsesSecret: stored.gmailRefreshUsesSecret,
+    gmailOAuthClientSecret: decryptOptionalSecret(stored.gmailOAuthClientSecret),
   }
 }
 

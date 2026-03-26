@@ -838,7 +838,7 @@ async function createWindow() {
   // Always create hidden - visibility is controlled by openDashboardWindow()
   win = new BrowserWindow({
     title: 'WR Desk™',
-    icon: path.join(process.env.VITE_PUBLIC, 'wrdesk-logo.svg'),
+    icon: path.join(process.env.VITE_PUBLIC, 'wrdesk-logo.png'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
@@ -1634,7 +1634,7 @@ async function createWindow() {
 
 function createTray() {
   try {
-    tray = new Tray(path.join(process.env.VITE_PUBLIC, 'wrdesk-logo.svg'))
+    tray = new Tray(path.join(process.env.VITE_PUBLIC, 'wrdesk-logo.png'))
     updateTrayMenu()
     tray.setToolTip('WR Desk Orchestrator')
 
@@ -2073,6 +2073,56 @@ app.whenReady().then(async () => {
       }
     } catch (err: any) {
       console.warn('[INTEGRITY] Verification module error:', err.message)
+    }
+
+    // ========== GMAIL OAUTH (built-in client id) ==========
+    try {
+      const {
+        isBuiltinGmailOAuthConfigured,
+        isEmailDeveloperModeEnabled,
+        getPackagedResourceGoogleOAuthClientId,
+        oauthClientIdFingerprint,
+        resolveBuiltinGoogleOAuthClientWithMeta,
+        resolveBuiltinGoogleOAuthClientSecret,
+        getGoogleOauthClientIdEnvVarNamesPresent,
+        getGoogleOauthClientSecretEnvVarNamesPresent,
+        getGmailOAuthPackagedStartupDiagnostics,
+        logOAuthDiagnostic,
+        warnOnceIfBuiltinGmailOAuthClientSecretMissingOrPlaceholder,
+      } = await import('./main/email/googleOAuthBuiltin')
+      warnOnceIfBuiltinGmailOAuthClientSecretMissingOrPlaceholder()
+      if (app.isPackaged) {
+        logOAuthDiagnostic('gmail_oauth_packaged_startup_diagnostics', {
+          startupDiagnostics: getGmailOAuthPackagedStartupDiagnostics(),
+        })
+      }
+      if (app.isPackaged && !isBuiltinGmailOAuthConfigured()) {
+        console.error(
+          '[GMAIL-OAUTH] Packaged build has no valid built-in Google OAuth client id. End-user Gmail sign-in will not work until the installer is built with GOOGLE_OAUTH_CLIENT_ID or a non-placeholder resources/google-oauth-client-id.txt (and matching Desktop client secret in resources/google-oauth-client-secret.txt or build env).',
+        )
+      } else if (!isBuiltinGmailOAuthConfigured() && isEmailDeveloperModeEnabled()) {
+        console.warn(
+          '[GMAIL-OAUTH] No valid built-in client id — for local dev set GOOGLE_OAUTH_CLIENT_ID or replace apps/electron-vite-project/resources/google-oauth-client-id.txt',
+        )
+      } else if (app.isPackaged && isBuiltinGmailOAuthConfigured()) {
+        const packagedProdStandard = app.isPackaged && !isEmailDeveloperModeEnabled()
+        const res = resolveBuiltinGoogleOAuthClientWithMeta(
+          packagedProdStandard ? { forStandardGmailConnect: true } : undefined,
+        )
+        const shipped = getPackagedResourceGoogleOAuthClientId()
+        logOAuthDiagnostic('gmail_oauth_startup_packaged', {
+          builtinSourceKind: res?.sourceKind,
+          builtinSourceName: res?.sourceName,
+          clientId: res?.clientId,
+          packagedResourceFingerprint: shipped ? oauthClientIdFingerprint(shipped) : '(none)',
+          googleOauthEnvVarsPresent: getGoogleOauthClientIdEnvVarNamesPresent(),
+          googleOauthClientSecretEnvVarsPresent: getGoogleOauthClientSecretEnvVarNamesPresent(),
+          hasBuiltinDesktopClientSecret: res ? !!resolveBuiltinGoogleOAuthClientSecret(res) : false,
+          packagedStandardConnectResourcePrecedenceEnforced: packagedProdStandard,
+        })
+      }
+    } catch (e: any) {
+      console.warn('[GMAIL-OAUTH] Startup check failed:', e?.message)
     }
 
     // ========== AUTH TEST IPC ==========
@@ -3878,8 +3928,8 @@ app.whenReady().then(async () => {
     // Register Email Gateway handlers
     try {
       const { registerEmailHandlers, registerInboxHandlers } = await import('./main/email/ipc')
-      registerEmailHandlers()
       const getInboxDb = () => getLedgerDb() ?? (globalThis as any).__og_vault_service_ref?.getDb?.() ?? (globalThis as any).__og_vault_service_ref?.db ?? null
+      registerEmailHandlers(getInboxDb)
       const getAnthropicApiKey = async () => {
         try {
           const { vaultService } = await import('./main/vault/rpc')
@@ -3891,7 +3941,10 @@ app.whenReady().then(async () => {
       registerInboxHandlers(getInboxDb, null, getAnthropicApiKey)
       console.log('[MAIN] Email Gateway IPC handlers registered')
     } catch (emailErr) {
-      console.error('[MAIN] Failed to register email handlers:', emailErr)
+      console.error('[MAIN] FATAL: Email IPC registration failed:', emailErr)
+      if (emailErr instanceof Error && emailErr.stack) {
+        console.error('[MAIN] FATAL stack:', emailErr.stack)
+      }
     }
 
     // Wire BEAP handshake → email transport bridge
@@ -4624,8 +4677,14 @@ app.whenReady().then(async () => {
               console.log('[MAIN] 📧 Received EMAIL_CONNECT_GMAIL request')
               try {
                 const { emailGateway } = await import('./main/email/gateway')
-                // This will open the OAuth setup dialog
-                const account = await emailGateway.connectGmailAccount()
+                const rawSrc = msg.gmailOAuthCredentialSource
+                const gmailOAuthCredentialSource =
+                  rawSrc === 'developer_saved' || rawSrc === 'builtin_public' ? rawSrc : undefined
+                const account = await emailGateway.connectGmailAccount(
+                  undefined,
+                  undefined,
+                  gmailOAuthCredentialSource !== undefined ? { gmailOAuthCredentialSource } : undefined,
+                )
                 socket.send(JSON.stringify({ id: msg.id, ok: true, data: account }))
               } catch (err: any) {
                 console.error('[MAIN] Error connecting Gmail:', err)
@@ -7980,15 +8039,27 @@ app.whenReady().then(async () => {
         console.log('[HTTP-EMAIL] GET /api/email/credentials/gmail')
         const { checkExistingCredentials, isVaultUnlocked } = await import('./main/email/credentials')
         const result = await checkExistingCredentials('gmail')
+        const canConnect =
+          !!result.credentials || result.builtinOAuthAvailable === true
+        const {
+          isEmailDeveloperModeEnabled,
+          getStandardConnectBuiltinClientDiagnostics,
+        } = await import('./main/email/googleOAuthBuiltin')
+        const std = getStandardConnectBuiltinClientDiagnostics()
         res.json({
           ok: true,
           data: {
-            configured: !!result.credentials,
+            configured: canConnect,
+            developerCredentialsStored: !!result.credentials,
+            builtinOAuthAvailable: result.builtinOAuthAvailable === true,
+            developerModeEnabled: isEmailDeveloperModeEnabled(),
             clientId: result.clientId,
             source: result.source,
             credentials: result.credentials,
             hasSecret: result.hasSecret,
             vaultUnlocked: isVaultUnlocked(),
+            standardConnectBundledClientFingerprint: std.standardConnectBundledClientFingerprint,
+            standardConnectBuiltinSourceKind: std.standardConnectBuiltinSourceKind,
           },
         })
       } catch (error: any) {
@@ -8002,13 +8073,17 @@ app.whenReady().then(async () => {
       try {
         console.log('[HTTP-EMAIL] POST /api/email/credentials/gmail')
         const { clientId, clientSecret } = req.body
-        if (!clientId || !clientSecret) {
-          res.status(400).json({ ok: false, error: 'clientId and clientSecret are required' })
+        if (!clientId) {
+          res.status(400).json({ ok: false, error: 'clientId is required' })
           return
         }
         const { saveCredentials } = await import('./main/email/credentials')
         const storeInVault = req.body.storeInVault !== false
-        const result = await saveCredentials('gmail', { clientId, clientSecret }, storeInVault)
+        const result = await saveCredentials(
+          'gmail',
+          { clientId, clientSecret: typeof clientSecret === 'string' ? clientSecret : undefined },
+          storeInVault,
+        )
         res.json({ ok: result.ok, savedToVault: result.savedToVault })
       } catch (error: any) {
         console.error('[HTTP-EMAIL] Error saving Gmail credentials:', error)
@@ -8057,6 +8132,56 @@ app.whenReady().then(async () => {
         res.status(500).json({ ok: false, error: error.message })
       }
     })
+
+    // GET /api/email/credentials/zoho
+    httpApp.get('/api/email/credentials/zoho', async (_req, res) => {
+      try {
+        console.log('[HTTP-EMAIL] GET /api/email/credentials/zoho')
+        const { checkExistingCredentials, isVaultUnlocked } = await import('./main/email/credentials')
+        const result = await checkExistingCredentials('zoho')
+        res.json({
+          ok: true,
+          data: {
+            configured: !!result.credentials,
+            clientId: result.clientId,
+            source: result.source,
+            credentials: result.credentials,
+            hasSecret: result.hasSecret,
+            vaultUnlocked: isVaultUnlocked(),
+          },
+        })
+      } catch (error: any) {
+        console.error('[HTTP-EMAIL] Error checking Zoho credentials:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+
+    // POST /api/email/credentials/zoho
+    httpApp.post('/api/email/credentials/zoho', async (req, res) => {
+      try {
+        console.log('[HTTP-EMAIL] POST /api/email/credentials/zoho')
+        const { clientId, clientSecret, datacenter } = req.body
+        if (!clientId || !clientSecret) {
+          res.status(400).json({ ok: false, error: 'clientId and clientSecret are required' })
+          return
+        }
+        const { saveCredentials } = await import('./main/email/credentials')
+        const storeInVault = req.body.storeInVault !== false
+        const result = await saveCredentials(
+          'zoho',
+          {
+            clientId,
+            clientSecret,
+            datacenter: datacenter === 'eu' ? 'eu' : 'com',
+          },
+          storeInVault,
+        )
+        res.json({ ok: result.ok, savedToVault: result.savedToVault })
+      } catch (error: any) {
+        console.error('[HTTP-EMAIL] Error saving Zoho credentials:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
     
     // GET /api/email/accounts - List all email accounts
     httpApp.get('/api/email/accounts', async (_req, res) => {
@@ -8101,12 +8226,26 @@ app.whenReady().then(async () => {
         res.setTimeout(6 * 60 * 1000)
         
         const { displayName } = req.body
+        const swRaw = req.body?.syncWindowDays
+        const syncWindowDays =
+          swRaw === 0
+            ? 0
+            : typeof swRaw === 'number' && Number.isInteger(swRaw) && swRaw > 0
+              ? swRaw
+              : undefined
+        const rawCredSrc = req.body?.gmailOAuthCredentialSource
+        const gmailOAuthCredentialSource =
+          rawCredSrc === 'developer_saved' || rawCredSrc === 'builtin_public' ? rawCredSrc : undefined
         const { emailGateway } = await import('./main/email/gateway')
         
         // Try to connect - if credentials not set, show setup dialog
         try {
           console.log('[HTTP-EMAIL] Starting Gmail OAuth flow...')
-          const account = await emailGateway.connectGmailAccount(displayName || 'Gmail Account')
+          const account = await emailGateway.connectGmailAccount(
+            displayName || 'Gmail Account',
+            syncWindowDays,
+            gmailOAuthCredentialSource !== undefined ? { gmailOAuthCredentialSource } : undefined,
+          )
           console.log('[HTTP-EMAIL] Gmail OAuth flow completed successfully')
           res.json({ ok: true, data: account })
         } catch (credError: any) {
@@ -8134,7 +8273,13 @@ app.whenReady().then(async () => {
         }
       } catch (error: any) {
         console.error('[HTTP-EMAIL] Error connecting Gmail:', error)
-        res.status(500).json({ ok: false, error: error.message })
+        const { pickOauthDebugFromError } = await import('./main/email/gmailOAuthConnectDebug')
+        // HTTP 200 so the extension HTTP client returns JSON body (ok/error/debug) instead of retrying on 5xx.
+        res.status(200).json({
+          ok: false,
+          error: error?.message != null ? String(error.message) : 'Unknown error',
+          debug: pickOauthDebugFromError(error),
+        })
       }
     })
     
@@ -8150,12 +8295,19 @@ app.whenReady().then(async () => {
         res.setTimeout(6 * 60 * 1000)
         
         const { displayName } = req.body
+        const swRaw = req.body?.syncWindowDays
+        const syncWindowDays =
+          swRaw === 0
+            ? 0
+            : typeof swRaw === 'number' && Number.isInteger(swRaw) && swRaw > 0
+              ? swRaw
+              : undefined
         const { emailGateway } = await import('./main/email/gateway')
         
         // Try to connect - if credentials not set, show setup dialog
         try {
           console.log('[HTTP-EMAIL] Starting Outlook OAuth flow...')
-          const account = await emailGateway.connectOutlookAccount(displayName || 'Outlook Account')
+          const account = await emailGateway.connectOutlookAccount(displayName || 'Outlook Account', syncWindowDays)
           console.log('[HTTP-EMAIL] Outlook OAuth flow completed successfully')
           res.json({ ok: true, data: account })
         } catch (credError: any) {
@@ -8186,12 +8338,52 @@ app.whenReady().then(async () => {
         res.status(500).json({ ok: false, error: error.message })
       }
     })
+
+    httpApp.post('/api/email/accounts/connect/zoho', async (req, res) => {
+      try {
+        console.log('[HTTP-EMAIL] POST /api/email/accounts/connect/zoho')
+        req.setTimeout(6 * 60 * 1000)
+        res.setTimeout(6 * 60 * 1000)
+        const { displayName } = req.body
+        const swRaw = req.body?.syncWindowDays
+        const syncWindowDays =
+          swRaw === 0
+            ? 0
+            : typeof swRaw === 'number' && Number.isInteger(swRaw) && swRaw > 0
+              ? swRaw
+              : undefined
+        const { emailGateway } = await import('./main/email/gateway')
+        try {
+          const account = await emailGateway.connectZohoAccount(displayName || 'Zoho Mail', syncWindowDays)
+          res.json({ ok: true, data: account })
+        } catch (credError: any) {
+          if (
+            credError.message?.includes('not configured') ||
+            credError.message?.includes('Client ID')
+          ) {
+            res.json({ ok: false, error: credError.message })
+          } else {
+            throw credError
+          }
+        }
+      } catch (error: any) {
+        console.error('[HTTP-EMAIL] Error connecting Zoho:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
     
     // POST /api/email/accounts/connect/imap - Connect IMAP account
     httpApp.post('/api/email/accounts/connect/imap', async (req, res) => {
       try {
         console.log('[HTTP-EMAIL] POST /api/email/accounts/connect/imap')
-        const { displayName, email, host, port, username, password, security } = req.body
+        const { displayName, email, host, port, username, password, security, syncWindowDays: imapSw } = req.body
+        const swRaw = imapSw
+        const syncWindowDays =
+          swRaw === 0
+            ? 0
+            : typeof swRaw === 'number' && Number.isInteger(swRaw) && swRaw > 0
+              ? swRaw
+              : undefined
         
         if (!email || !host || !username || !password) {
           res.status(400).json({ ok: false, error: 'Missing required fields: email, host, username, password' })
@@ -8206,7 +8398,8 @@ app.whenReady().then(async () => {
           port: port || 993,
           username,
           password,
-          security: security || 'ssl'
+          security: security || 'ssl',
+          syncWindowDays,
         })
         res.json({ ok: true, data: account })
       } catch (error: any) {
@@ -8220,6 +8413,13 @@ app.whenReady().then(async () => {
       try {
         console.log('[HTTP-EMAIL] POST /api/email/accounts/connect/custom-mailbox')
         const b = req.body || {}
+        const swRaw = b.syncWindowDays
+        const customSyncWindowDays =
+          swRaw === 0
+            ? 0
+            : typeof swRaw === 'number' && Number.isInteger(swRaw) && swRaw > 0
+              ? swRaw
+              : undefined
         const { emailGateway } = await import('./main/email/gateway')
         const account = await emailGateway.connectCustomImapSmtpAccount({
           displayName: typeof b.displayName === 'string' ? b.displayName : undefined,
@@ -8234,7 +8434,8 @@ app.whenReady().then(async () => {
           smtpSecurity: b.smtpSecurity === 'ssl' || b.smtpSecurity === 'none' ? b.smtpSecurity : 'starttls',
           smtpUseSameCredentials: b.smtpUseSameCredentials !== false,
           smtpUsername: typeof b.smtpUsername === 'string' ? b.smtpUsername : undefined,
-          smtpPassword: typeof b.smtpPassword === 'string' ? b.smtpPassword : undefined
+          smtpPassword: typeof b.smtpPassword === 'string' ? b.smtpPassword : undefined,
+          ...(customSyncWindowDays !== undefined ? { syncWindowDays: customSyncWindowDays } : {}),
         })
         res.json({ ok: true, data: account })
       } catch (error: any) {
@@ -8243,6 +8444,25 @@ app.whenReady().then(async () => {
       }
     })
     
+    // PATCH /api/email/accounts/:id/processing-pause — pause/resume sync (non-destructive)
+    httpApp.patch('/api/email/accounts/:id/processing-pause', async (req, res) => {
+      try {
+        const { id } = req.params
+        const paused = req.body?.paused
+        if (typeof paused !== 'boolean') {
+          res.status(400).json({ ok: false, error: 'paused (boolean) is required' })
+          return
+        }
+        console.log('[HTTP-EMAIL] PATCH /api/email/accounts/:id/processing-pause', id, paused)
+        const { emailGateway } = await import('./main/email/gateway')
+        const info = await emailGateway.setProcessingPaused(id, paused)
+        res.json({ ok: true, data: info })
+      } catch (error: any) {
+        console.error('[HTTP-EMAIL] Error setting processing pause:', error)
+        res.status(500).json({ ok: false, error: error.message })
+      }
+    })
+
     // DELETE /api/email/accounts/:id - Delete email account
     httpApp.delete('/api/email/accounts/:id', async (req, res) => {
       try {

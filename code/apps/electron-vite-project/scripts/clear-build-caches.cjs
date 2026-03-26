@@ -19,11 +19,142 @@ function rmDir(p) {
   }
 }
 
+/** Basename of extension Vite outDir (e.g. build2) — never delete this folder here. */
+function getActiveExtensionOutDir(extensionRoot) {
+  try {
+    const viteCfg = fs.readFileSync(path.join(extensionRoot, 'vite.config.ts'), 'utf8')
+    const m = viteCfg.match(/outDir:\s*['"]([^'"]+)['"]/)
+    return m ? m[1] : null
+  } catch {
+    return null
+  }
+}
+
 function clearBuildCaches() {
   const scriptsDir = __dirname
   const electronRoot = path.join(scriptsDir, '..')
   const codeRoot = path.join(electronRoot, '..', '..')
   const extensionRoot = path.join(electronRoot, '..', 'extension-chromium')
+  const keepExt = getActiveExtensionOutDir(extensionRoot)
+
+  /** Prior extension outDir(s) — remove stale unpacked builds; skip active outDir from vite.config.ts */
+  const staleExtensionOutDirs = [
+    'build9445',
+    'build15',
+    'build2315',
+    'build0015',
+    'build005',
+    'build5',
+    'build2334',
+    'build224',
+    'build774',
+    'build554',
+    'build124',
+    'build6',
+    'build1',
+    'build1024',
+    'build17',
+    'build2',
+    'build24',
+    'build74',
+    'build74172',
+    'build772',
+    'build752',
+    'build702',
+    'build802',
+    'build807',
+    'build82',
+    'build12',
+    'build354',
+    'build4',
+    'build0004',
+    'build0005',
+    'build0105',
+    'build085',
+    'build812',
+    'build712',
+    'build72',
+    'build7972',
+    'build24977',
+    'build1557',
+    'build0001',
+    'build441',
+    'build371',
+    'build375',
+    'build991',
+    'build665',
+    'build995',
+    'build775',
+    'build1057',
+    'build107',
+    'build195',
+    'build19957',
+    'build197777',
+    'build15555777',
+    'build119589',
+    'build12407',
+    'build1003',
+    'build13009',
+    'build1509',
+    'build1209',
+    'build129',
+    'build29',
+    'build39',
+    'build377',
+    'build119',
+    'build9',
+    'build0079',
+    'build179',
+    'build100009',
+    'build1354009',
+    'build139',
+    'build1007',
+    'build691',
+    'build115',
+    'build2455',
+    'build1175',
+    'build1775',
+    'build295',
+    'build2333',
+    'build2553',
+    'build23',
+    'build3',
+    'build222',
+    'build1115',
+    'build2664',
+    'build7543',
+    'build43',
+    'build143',
+    'build1156',
+    'build2225',
+    'build442',
+    'build882',
+    'build992',
+    'build002',
+    'build8802',
+    'build2227',
+    'build2557',
+    'build22227',
+    'build5427',
+    'build56',
+    'build5667',
+    'build1756',
+    'build06',
+    'build54606',
+    'build27',
+    'build975',
+    'build1045',
+    'build215',
+    'build1555',
+    'build1475',
+  ]
+  for (const name of staleExtensionOutDirs) {
+    if (keepExt && name === keepExt) {
+      console.log('[clear-build-caches] Keeping active extension outDir:', path.join(extensionRoot, name))
+      continue
+    }
+    rmDir(path.join(extensionRoot, name))
+  }
 
   /** Vite / Rollup transform caches */
   const dirs = [

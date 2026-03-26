@@ -6,12 +6,14 @@
  * Platform-aware: Electron (`window.emailAccounts`) and extension (`chrome.runtime.sendMessage`).
  */
 
-import React, { useState, useEffect, useCallback } from 'react'
+import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { ConnectEmailLaunchSource, formatConnectEmailLaunchSource } from '../email/connectEmailTypes'
+import { ImapConnectionNotice } from '../email/ImapConnectionNotice'
 
 const OAUTH_CALLBACK_PORT = 51249
 const CREDENTIALS_NEEDED_GMAIL = 'credentials not configured'
 const CREDENTIALS_NEEDED_OUTLOOK = 'oauth client credentials not configured'
+const CREDENTIALS_NEEDED_ZOHO = 'zoho oauth client credentials not configured'
 
 export interface EmailConnectWizardProps {
   isOpen: boolean
@@ -20,31 +22,73 @@ export interface EmailConnectWizardProps {
   theme?: 'professional' | 'default'
   /** Optional UI shell context (which surface opened the wizard). */
   launchSource?: ConnectEmailLaunchSource
+  /** When set (Electron), skip provider picker and open Custom IMAP pre-filled for password update. */
+  reconnectAccountId?: string | null
 }
 
 type Step = 'provider' | 'credentials' | 'connecting' | 'result'
-type Provider = 'gmail' | 'outlook' | 'custom'
+type Provider = 'gmail' | 'outlook' | 'zoho' | 'custom'
 type ResultType = 'success' | 'failure'
 type SecurityModeUi = 'ssl' | 'starttls' | 'none'
 
-declare global {
-  interface Window {
-    emailAccounts?: {
-      connectGmail?: (displayName?: string) => Promise<{ ok: boolean; data?: { id: string; email: string; provider: string }; error?: string }>
-      connectOutlook?: (displayName?: string) => Promise<{ ok: boolean; data?: { id: string; email: string; provider: string }; error?: string }>
-      setGmailCredentials?: (clientId: string, clientSecret: string, storeInVault?: boolean) => Promise<{ ok: boolean; savedToVault?: boolean; error?: string }>
-      setOutlookCredentials?: (clientId: string, clientSecret?: string, tenantId?: string, storeInVault?: boolean) => Promise<{ ok: boolean; savedToVault?: boolean; error?: string }>
-      checkGmailCredentials?: () => Promise<{ ok: boolean; data?: { configured: boolean; clientId?: string }; error?: string }>
-      checkOutlookCredentials?: () => Promise<{ ok: boolean; data?: { configured: boolean; clientId?: string }; error?: string }>
-      checkVaultStatus?: () => Promise<{ isUnlocked?: boolean }>
-      listAccounts?: () => Promise<{ ok: boolean; data?: unknown[] }>
-      connectCustomMailbox?: (payload: Record<string, unknown>) => Promise<{ ok: boolean; data?: { id: string; email: string; provider: string }; error?: string }>
-    }
-  }
+/** Gmail OAuth connect failure detail from main (IPC or HTTP API). */
+type GmailConnectFailureDebug = {
+  step?: string
+  httpStatus?: number | null
+  googleError?: string | null
+  googleErrorDescription?: string | null
+  responseBody?: string | null
+  raw?: string
 }
+
+/** Align reconnect hints / legacy values with `<select>` option values (`ssl` | `starttls` | `none`). */
+function coerceSecurityModeUi(v: unknown, fallback: SecurityModeUi): SecurityModeUi {
+  const k = typeof v === 'string' ? v.toLowerCase().trim().replace(/\s+/g, '') : ''
+  if (k === 'ssl' || k === 'tls' || k === 'ssl/tls' || k === 'imaps') return 'ssl'
+  if (k === 'starttls') return 'starttls'
+  if (k === 'none' || k === 'plain') return 'none'
+  return fallback
+}
+
+/** Single `Window.emailAccounts` merge — see `electron-vite-project/src/components/handshakeViewTypes.ts`. */
+/// <reference path="../../../../electron-vite-project/src/components/handshakeViewTypes.ts" />
 
 const isElectron = (): boolean =>
   typeof window !== 'undefined' && typeof (window as any).emailAccounts?.connectGmail === 'function'
+
+/** True when preload exposes the packaged Gmail OAuth runtime diagnostics IPC (proves this build includes that code path). */
+const gmailOAuthDiagnosticsBridgeAvailable = (): boolean =>
+  typeof window !== 'undefined' &&
+  typeof (window as any).emailAccounts?.getGmailOAuthRuntimeDiagnostics === 'function'
+
+function formatGmailOAuthDiagnosticRows(data: unknown): { key: string; value: string }[] {
+  if (!data || typeof data !== 'object') {
+    return [{ key: 'error', value: 'No data returned from main process.' }]
+  }
+  const d = data as Record<string, unknown>
+  const flow = d.lastStandardConnectFlow as Record<string, unknown> | null | undefined
+  const str = (v: unknown) => (v === null || v === undefined ? '—' : String(v))
+  const boolStr = (v: unknown) => (v === true ? 'true' : v === false ? 'false' : '—')
+  return [
+    {
+      key: 'authorizeClientIdFingerprint',
+      value: str(d.authorizeClientIdFingerprint ?? flow?.authorizeClientIdFingerprint),
+    },
+    {
+      key: 'tokenExchangeClientIdFingerprint',
+      value: str(d.tokenExchangeClientIdFingerprint ?? flow?.tokenExchangeClientIdFingerprint),
+    },
+    {
+      key: 'bundledExpectedFingerprint',
+      value: str(d.expectedBundledClientFingerprint ?? flow?.bundledExpectedFingerprint),
+    },
+    { key: 'builtinSourceKind', value: str(d.builtinSourceKind ?? flow?.builtinSourceKind) },
+    { key: 'authMode', value: str(d.authMode ?? flow?.authMode) },
+    { key: 'hasClientSecret', value: boolStr(flow?.hasClientSecret) },
+    { key: 'tokenExchangeShape', value: str(flow?.tokenExchangeShape) },
+    { key: 'googleErrorDescription', value: str(flow?.googleErrorDescription) },
+  ]
+}
 
 function emptyCustomForm() {
   return {
@@ -73,6 +117,7 @@ export function EmailConnectWizard({
   onConnected,
   theme = 'default',
   launchSource,
+  reconnectAccountId = null,
 }: EmailConnectWizardProps) {
   const [step, setStep] = useState<Step>('provider')
   const [provider, setProvider] = useState<Provider | null>(null)
@@ -80,19 +125,51 @@ export function EmailConnectWizard({
   const [result, setResult] = useState<ResultType | null>(null)
   const [resultEmail, setResultEmail] = useState<string>('')
   const [resultError, setResultError] = useState<string>('')
+  const [resultDebug, setResultDebug] = useState<GmailConnectFailureDebug | null>(null)
   const [connectingElapsed, setConnectingElapsed] = useState(0)
   const [connectingTimedOut, setConnectingTimedOut] = useState(false)
 
   const [gmailCreds, setGmailCreds] = useState({ clientId: '', clientSecret: '' })
   const [outlookCreds, setOutlookCreds] = useState({ clientId: '', clientSecret: '', tenantId: 'organizations' })
+  const [zohoCreds, setZohoCreds] = useState<{ clientId: string; clientSecret: string; datacenter: 'com' | 'eu' }>({
+    clientId: '',
+    clientSecret: '',
+    datacenter: 'com',
+  })
   const [existingGmail, setExistingGmail] = useState<{ clientId: string; clientSecret?: string; hasSecret: boolean; source: 'vault' | 'vault-migrated' | 'temporary' } | null>(null)
   const [existingOutlook, setExistingOutlook] = useState<{ clientId: string; clientSecret?: string; tenantId?: string; hasSecret: boolean; source: 'vault' | 'vault-migrated' | 'temporary' } | null>(null)
+  const [existingZoho, setExistingZoho] = useState<{ clientId: string; clientSecret?: string; datacenter?: 'com' | 'eu'; hasSecret: boolean; source: 'vault' | 'vault-migrated' | 'temporary' } | null>(null)
   const [credError, setCredError] = useState<string | null>(null)
   const [showSecret, setShowSecret] = useState(false)
   const [vaultUnlocked, setVaultUnlocked] = useState<boolean | undefined>(undefined)
   const [storeInVault, setStoreInVault] = useState(true)
   const [saveFeedback, setSaveFeedback] = useState<string | null>(null)
+  /** Gmail: show legacy Google Cloud client id/secret UI (self-hosted / developer). */
+  const [showGmailAdvanced, setShowGmailAdvanced] = useState(false)
+  /** Gmail OAuth readiness from main process (builtin app id and/or saved developer creds). */
+  const [gmailOAuthMeta, setGmailOAuthMeta] = useState<{
+    configured: boolean
+    builtinOAuthAvailable: boolean
+    /** Electron / native: show Advanced OAuth UI (env or unpackaged dev). */
+    developerModeEnabled?: boolean
+    /** Fingerprint for standard Connect built-in client (from main checkGmailCredentials). */
+    standardConnectBundledClientFingerprint?: string | null
+  } | null>(null)
   const [customForm, setCustomForm] = useState(emptyCustomForm)
+  /** Electron reconnect: main process reports whether a password is already saved (value never sent here). */
+  const [reconnectHasStoredImapPassword, setReconnectHasStoredImapPassword] = useState(false)
+  /** Initial inbox sync window for the account being connected (7 / 30 / 90 / 0 = all). */
+  const [connectSyncWindowDays, setConnectSyncWindowDays] = useState(30)
+  /**
+   * Standard “Connect Google” must use built-in Desktop OAuth (PKCE). Advanced uses saved developer creds.
+   * Set synchronously before `setStep('connecting')` so the connect effect reads the right source.
+   */
+  const gmailOAuthCredentialSourceRef = useRef<'builtin_public' | 'developer_saved'>('builtin_public')
+  /** Electron: structured Gmail OAuth runtime proof rows (from main via IPC). */
+  const [gmailOAuthDiagModalOpen, setGmailOAuthDiagModalOpen] = useState(false)
+  const [gmailOAuthDiagRows, setGmailOAuthDiagRows] = useState<{ key: string; value: string }[] | null>(null)
+  const [gmailOAuthDiagError, setGmailOAuthDiagError] = useState<string | null>(null)
+  const [gmailOAuthDiagLoading, setGmailOAuthDiagLoading] = useState(false)
 
   const isPro = theme === 'professional'
   const textColor = isPro ? '#0f172a' : 'white'
@@ -107,22 +184,104 @@ export function EmailConnectWizard({
     setResult(null)
     setResultEmail('')
     setResultError('')
+    setResultDebug(null)
     setConnectingElapsed(0)
     setConnectingTimedOut(false)
     setCredError(null)
     setGmailCreds({ clientId: '', clientSecret: '' })
     setOutlookCreds({ clientId: '', clientSecret: '', tenantId: 'organizations' })
+    setZohoCreds({ clientId: '', clientSecret: '', datacenter: 'com' })
     setExistingGmail(null)
     setExistingOutlook(null)
+    setExistingZoho(null)
     setVaultUnlocked(undefined)
     setStoreInVault(true)
     setSaveFeedback(null)
+    setShowGmailAdvanced(false)
+    setGmailOAuthMeta(null)
     setCustomForm(emptyCustomForm())
+    setReconnectHasStoredImapPassword(false)
+    setConnectSyncWindowDays(30)
+    setGmailOAuthDiagModalOpen(false)
+    setGmailOAuthDiagRows(null)
+    setGmailOAuthDiagError(null)
+    setGmailOAuthDiagLoading(false)
   }, [])
 
   useEffect(() => {
     if (!isOpen) reset()
   }, [isOpen, reset])
+
+  const showGmailOAuthRuntimeDiagnostics = useCallback(async () => {
+    if (!isElectron() || !gmailOAuthDiagnosticsBridgeAvailable()) return
+    setGmailOAuthDiagModalOpen(true)
+    setGmailOAuthDiagError(null)
+    setGmailOAuthDiagRows(null)
+    setGmailOAuthDiagLoading(true)
+    try {
+      const raw = await window.emailAccounts!.getGmailOAuthRuntimeDiagnostics!()
+      if (!raw) {
+        setGmailOAuthDiagError('IPC returned no response (getGmailOAuthRuntimeDiagnostics).')
+        setGmailOAuthDiagRows(formatGmailOAuthDiagnosticRows(null))
+        return
+      }
+      if (!raw.ok) {
+        setGmailOAuthDiagError(raw.error ?? 'Unknown error from main process.')
+        setGmailOAuthDiagRows(formatGmailOAuthDiagnosticRows(raw.data ?? null))
+        return
+      }
+      setGmailOAuthDiagError(null)
+      setGmailOAuthDiagRows(formatGmailOAuthDiagnosticRows(raw.data ?? null))
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e)
+      setGmailOAuthDiagError(msg)
+      setGmailOAuthDiagRows(formatGmailOAuthDiagnosticRows(null))
+    } finally {
+      setGmailOAuthDiagLoading(false)
+    }
+  }, [])
+
+  /** Pre-fill Custom IMAP form when updating credentials for an existing account (Electron). */
+  useEffect(() => {
+    if (!isOpen || !reconnectAccountId || !isElectron()) return
+    let cancelled = false
+    const run = async () => {
+      try {
+        const r = await window.emailAccounts?.getImapReconnectHints?.(reconnectAccountId)
+        if (cancelled || !r?.ok || !r.data) return
+        const h = r.data as Record<string, unknown>
+        setProvider('custom')
+        setStep('credentials')
+        setCredError(null)
+        setReconnectHasStoredImapPassword(h.hasImapPassword === true)
+        const sw = h.syncWindowDays
+        if (typeof sw === 'number' && Number.isInteger(sw) && sw >= 0) {
+          setConnectSyncWindowDays(sw)
+        }
+        setCustomForm({
+          email: String(h.email ?? ''),
+          displayName: String(h.displayName ?? h.email ?? ''),
+          imapHost: String(h.imapHost ?? ''),
+          imapPort: String(h.imapPort ?? '993'),
+          imapSecurity: coerceSecurityModeUi(h.imapSecurity, 'ssl'),
+          imapUsername: String(h.imapUsername ?? ''),
+          imapPassword: '',
+          smtpHost: String(h.smtpHost ?? ''),
+          smtpPort: String(h.smtpPort ?? '587'),
+          smtpSecurity: coerceSecurityModeUi(h.smtpSecurity, 'starttls'),
+          smtpUseSameCredentials: h.smtpUseSameCredentials !== false,
+          smtpUsername: String(h.smtpUsername ?? ''),
+          smtpPassword: '',
+        })
+      } catch (e) {
+        console.warn('[EmailConnectWizard] reconnect hints failed:', e)
+      }
+    }
+    void run()
+    return () => {
+      cancelled = true
+    }
+  }, [isOpen, reconnectAccountId])
 
   // Fetch vault status when on credentials step (platform-aware)
   useEffect(() => {
@@ -158,10 +317,14 @@ export function EmailConnectWizard({
   // Platform API helpers — returns honest source (vault / vault-migrated / temporary / none)
   const checkGmailCreds = useCallback(async (): Promise<{
     configured: boolean
+    developerCredentialsStored?: boolean
+    builtinOAuthAvailable?: boolean
+    developerModeEnabled?: boolean
     clientId?: string
     clientSecret?: string
     source?: 'vault' | 'vault-migrated' | 'temporary' | 'none'
     hasSecret?: boolean
+    standardConnectBundledClientFingerprint?: string | null
   }> => {
     if (isElectron()) {
       const res = await (window as any).emailAccounts?.checkGmailCredentials?.()
@@ -169,10 +332,14 @@ export function EmailConnectWizard({
       const d = res.data
       return {
         configured: !!d?.configured,
+        developerCredentialsStored: !!d?.developerCredentialsStored,
+        builtinOAuthAvailable: !!d?.builtinOAuthAvailable,
+        developerModeEnabled: d?.developerModeEnabled === true,
         clientId: d?.clientId,
         clientSecret: (d?.credentials as any)?.clientSecret,
         source: d?.source || (d?.configured ? 'temporary' : 'none'),
         hasSecret: d?.hasSecret ?? false,
+        standardConnectBundledClientFingerprint: d?.standardConnectBundledClientFingerprint ?? null,
       }
     }
     if (isExtension()) {
@@ -181,10 +348,14 @@ export function EmailConnectWizard({
       const d = res.data
       return {
         configured: !!d?.configured,
+        developerCredentialsStored: !!d?.developerCredentialsStored,
+        builtinOAuthAvailable: !!d?.builtinOAuthAvailable,
+        developerModeEnabled: d?.developerModeEnabled === true,
         clientId: d?.clientId,
         clientSecret: (d?.credentials as any)?.clientSecret,
         source: d?.source || (d?.configured ? 'temporary' : 'none'),
         hasSecret: d?.hasSecret ?? false,
+        standardConnectBundledClientFingerprint: d?.standardConnectBundledClientFingerprint ?? null,
       }
     }
     return { configured: false }
@@ -227,7 +398,44 @@ export function EmailConnectWizard({
     return { configured: false }
   }, [])
 
-  const saveGmailCreds = useCallback(async (clientId: string, clientSecret: string, storeInVaultOpt?: boolean): Promise<{ ok: boolean; savedToVault?: boolean }> => {
+  const checkZohoCreds = useCallback(async (): Promise<{
+    configured: boolean
+    clientId?: string
+    clientSecret?: string
+    datacenter?: 'com' | 'eu'
+    source?: 'vault' | 'vault-migrated' | 'temporary' | 'none'
+    hasSecret?: boolean
+  }> => {
+    if (isElectron()) {
+      const res = await (window as any).emailAccounts?.checkZohoCredentials?.()
+      if (!res?.ok) return { configured: false }
+      const d = res.data
+      return {
+        configured: !!d?.configured,
+        clientId: d?.clientId,
+        clientSecret: (d?.credentials as any)?.clientSecret,
+        datacenter: (d?.credentials as any)?.datacenter === 'eu' ? 'eu' : 'com',
+        source: d?.source || (d?.configured ? 'temporary' : 'none'),
+        hasSecret: d?.hasSecret ?? false,
+      }
+    }
+    if (isExtension()) {
+      const res = await chrome.runtime.sendMessage({ type: 'EMAIL_CHECK_ZOHO_CREDENTIALS' })
+      if (!res?.ok) return { configured: false }
+      const d = res.data
+      return {
+        configured: !!d?.configured,
+        clientId: d?.clientId,
+        clientSecret: (d?.credentials as any)?.clientSecret,
+        datacenter: (d?.credentials as any)?.datacenter === 'eu' ? 'eu' : 'com',
+        source: d?.source || (d?.configured ? 'temporary' : 'none'),
+        hasSecret: d?.hasSecret ?? false,
+      }
+    }
+    return { configured: false }
+  }, [])
+
+  const saveGmailCreds = useCallback(async (clientId: string, clientSecret?: string, storeInVaultOpt?: boolean): Promise<{ ok: boolean; savedToVault?: boolean }> => {
     if (isElectron()) {
       const res = await (window as any).emailAccounts?.setGmailCredentials?.(clientId, clientSecret, storeInVaultOpt ?? true)
       return { ok: !!res?.ok, savedToVault: res?.savedToVault }
@@ -260,26 +468,115 @@ export function EmailConnectWizard({
     [],
   )
 
-  const connectGmail = useCallback(async (): Promise<{ ok: boolean; email?: string; error?: string }> => {
+  const saveZohoCreds = useCallback(
+    async (
+      clientId: string,
+      clientSecret: string,
+      datacenter: 'com' | 'eu',
+      storeInVaultOpt?: boolean,
+    ): Promise<{ ok: boolean; savedToVault?: boolean }> => {
+      if (isElectron()) {
+        const res = await (window as any).emailAccounts?.setZohoCredentials?.(
+          clientId,
+          clientSecret,
+          datacenter,
+          storeInVaultOpt ?? true,
+        )
+        return { ok: !!res?.ok, savedToVault: res?.savedToVault }
+      }
+      if (isExtension()) {
+        const res = await chrome.runtime.sendMessage({
+          type: 'EMAIL_SAVE_ZOHO_CREDENTIALS',
+          clientId,
+          clientSecret,
+          datacenter,
+          storeInVault: storeInVaultOpt ?? true,
+        })
+        return { ok: !!res?.ok, savedToVault: res?.savedToVault }
+      }
+      return { ok: false }
+    },
+    [],
+  )
+
+  const connectGmail = useCallback(
+    async (
+      syncWindowDays?: number,
+      gmailOAuthCredentialSource: 'builtin_public' | 'developer_saved' = 'builtin_public',
+    ): Promise<{
+      ok: boolean
+      email?: string
+      error?: string
+      debug?: GmailConnectFailureDebug | null
+    }> => {
+      const days = typeof syncWindowDays === 'number' ? syncWindowDays : 30
+      if (isElectron()) {
+        const res = await (window as any).emailAccounts?.connectGmail?.(
+          'Gmail Account',
+          days,
+          gmailOAuthCredentialSource,
+        )
+        return {
+          ok: !!res?.ok,
+          email: res?.data?.email,
+          error: res?.error,
+          debug: (res?.debug ?? null) as GmailConnectFailureDebug | null,
+        }
+      }
+      if (isExtension()) {
+        const res = await chrome.runtime.sendMessage({
+          type: 'EMAIL_CONNECT_GMAIL',
+          displayName: 'Gmail Account',
+          syncWindowDays: days,
+          gmailOAuthCredentialSource,
+        })
+        return {
+          ok: !!res?.ok,
+          email: res?.data?.email,
+          error: res?.error,
+          debug: (res?.debug ?? null) as GmailConnectFailureDebug | null,
+        }
+      }
+      return { ok: false, error: 'Email connection requires the desktop app or extension.' }
+    },
+    [],
+  )
+
+  const connectOutlook = useCallback(async (syncWindowDays?: number): Promise<{ ok: boolean; email?: string; error?: string }> => {
+    const days = typeof syncWindowDays === 'number' ? syncWindowDays : 30
     if (isElectron()) {
-      const res = await (window as any).emailAccounts?.connectGmail?.('Gmail Account')
+      const res = await (window as any).emailAccounts?.connectOutlook?.('Outlook Account', days)
       return { ok: !!res?.ok, email: res?.data?.email, error: res?.error }
     }
     if (isExtension()) {
-      const res = await chrome.runtime.sendMessage({ type: 'EMAIL_CONNECT_GMAIL' })
+      const res = await chrome.runtime.sendMessage({
+        type: 'EMAIL_CONNECT_OUTLOOK',
+        displayName: 'Outlook Account',
+        syncWindowDays: days,
+      })
       return { ok: !!res?.ok, email: res?.data?.email, error: res?.error }
     }
     return { ok: false, error: 'Email connection requires the desktop app or extension.' }
   }, [])
 
-  const connectOutlook = useCallback(async (): Promise<{ ok: boolean; email?: string; error?: string }> => {
+  const connectZoho = useCallback(async (syncWindowDays?: number): Promise<{ ok: boolean; email?: string; error?: string }> => {
+    const days = typeof syncWindowDays === 'number' ? syncWindowDays : 30
     if (isElectron()) {
-      const res = await (window as any).emailAccounts?.connectOutlook?.('Outlook Account')
+      const res = await (window as any).emailAccounts?.connectZoho?.('Zoho Mail', days)
       return { ok: !!res?.ok, email: res?.data?.email, error: res?.error }
     }
     if (isExtension()) {
-      const res = await chrome.runtime.sendMessage({ type: 'EMAIL_CONNECT_OUTLOOK' })
-      return { ok: !!res?.ok, email: res?.data?.email, error: res?.error }
+      const res = await chrome.runtime.sendMessage({
+        type: 'EMAIL_CONNECT_ZOHO',
+        displayName: 'Zoho Mail',
+        syncWindowDays: days,
+      })
+      const inner = res?.data ?? res
+      return {
+        ok: !!(inner?.ok ?? res?.ok),
+        email: inner?.data?.email ?? inner?.email ?? res?.data?.email,
+        error: inner?.error ?? res?.error,
+      }
     }
     return { ok: false, error: 'Email connection requires the desktop app or extension.' }
   }, [])
@@ -311,8 +608,15 @@ export function EmailConnectWizard({
       if (p === 'gmail') {
         try {
           const check = await checkGmailCreds()
+          setGmailOAuthMeta({
+            configured: !!check.configured,
+            builtinOAuthAvailable: !!check.builtinOAuthAvailable,
+            developerModeEnabled: check.developerModeEnabled === true,
+            standardConnectBundledClientFingerprint: check.standardConnectBundledClientFingerprint ?? null,
+          })
+          setShowGmailAdvanced(false)
           const src = check.source as 'vault' | 'vault-migrated' | 'temporary' | undefined
-          if (check.configured && src) {
+          if (check.developerCredentialsStored && check.clientId && src) {
             setExistingGmail({
               clientId: check.clientId || '',
               clientSecret: check.clientSecret,
@@ -329,6 +633,31 @@ export function EmailConnectWizard({
           }
         } catch {
           setExistingGmail(null)
+          setGmailOAuthMeta(null)
+        }
+      } else if (p === 'zoho') {
+        try {
+          const check = await checkZohoCreds()
+          const src = check.source as 'vault' | 'vault-migrated' | 'temporary' | undefined
+          if (check.configured && src) {
+            setExistingZoho({
+              clientId: check.clientId || '',
+              clientSecret: check.clientSecret,
+              datacenter: check.datacenter,
+              hasSecret: check.hasSecret ?? true,
+              source: src,
+            })
+            setZohoCreds({
+              clientId: check.clientId || '',
+              clientSecret: check.clientSecret || '',
+              datacenter: check.datacenter || 'com',
+            })
+          } else {
+            setExistingZoho(null)
+            setZohoCreds({ clientId: '', clientSecret: '', datacenter: 'com' })
+          }
+        } catch {
+          setExistingZoho(null)
         }
       } else {
         try {
@@ -356,7 +685,7 @@ export function EmailConnectWizard({
         }
       }
     },
-    [checkGmailCreds, checkOutlookCreds],
+    [checkGmailCreds, checkOutlookCreds, checkZohoCreds],
   )
 
   const handleSaveAndConnect = useCallback(async () => {
@@ -402,6 +731,10 @@ export function EmailConnectWizard({
           return
         }
       }
+      if (connectSyncWindowDays === 0) {
+        const ok = window.confirm('Syncing all messages may take a long time. Continue?')
+        if (!ok) return
+      }
       setStep('connecting')
       setConnecting(true)
       setConnectingElapsed(0)
@@ -409,12 +742,53 @@ export function EmailConnectWizard({
       return
     }
     if (provider === 'gmail') {
-      const c = gmailCreds
-      if (!c.clientId?.trim() || !c.clientSecret?.trim()) {
-        setCredError('Please enter both Client ID and Client Secret')
+      if (!showGmailAdvanced) {
+        if (!gmailOAuthMeta?.configured) {
+          setCredError(
+            gmailOAuthMeta?.developerModeEnabled
+              ? 'Google sign-in is not configured for this build. Add the app OAuth client id to the build, or use Advanced to supply your own OAuth client.'
+              : 'Google sign-in is not available in this version of the app. Please update the app or contact support.',
+          )
+          return
+        }
+        if (connectSyncWindowDays === 0) {
+          const ok = window.confirm('Syncing all messages may take a long time. Continue?')
+          if (!ok) return
+        }
+        gmailOAuthCredentialSourceRef.current = 'builtin_public'
+        setStep('connecting')
+        setConnecting(true)
+        setConnectingElapsed(0)
+        setConnectingTimedOut(false)
         return
       }
-      const res = await saveGmailCreds(c.clientId.trim(), c.clientSecret.trim(), storeInVault)
+      gmailOAuthCredentialSourceRef.current = 'developer_saved'
+      const c = gmailCreds
+      const gmailClientId = c.clientId?.trim()
+      if (!gmailClientId) {
+        setCredError('Client ID is required')
+        return
+      }
+      const res = await saveGmailCreds(gmailClientId, c.clientSecret?.trim() || undefined, storeInVault)
+      if (!res.ok) {
+        setCredError('Failed to save credentials')
+        return
+      }
+      setSaveFeedback(
+        res.savedToVault
+          ? '🔐 Credentials stored in vault'
+          : storeInVault
+            ? '⚠️ Vault save failed — credentials stored temporarily in file'
+            : '💾 Credentials saved to file',
+      )
+      setTimeout(() => setSaveFeedback(null), 4000)
+    } else if (provider === 'zoho') {
+      const c = zohoCreds
+      if (!c.clientId?.trim() || !c.clientSecret?.trim()) {
+        setCredError('Please enter Zoho Client ID and Client Secret')
+        return
+      }
+      const res = await saveZohoCreds(c.clientId.trim(), c.clientSecret.trim(), c.datacenter, storeInVault)
       if (!res.ok) {
         setCredError('Failed to save credentials')
         return
@@ -447,73 +821,160 @@ export function EmailConnectWizard({
       )
       setTimeout(() => setSaveFeedback(null), 4000)
     }
+    if (connectSyncWindowDays === 0) {
+      const ok = window.confirm('Syncing all messages may take a long time. Continue?')
+      if (!ok) return
+    }
     setStep('connecting')
     setConnecting(true)
     setConnectingElapsed(0)
     setConnectingTimedOut(false)
-  }, [provider, gmailCreds, outlookCreds, storeInVault, saveGmailCreds, saveOutlookCreds, customForm])
+  }, [
+    provider,
+    gmailCreds,
+    showGmailAdvanced,
+    gmailOAuthMeta,
+    outlookCreds,
+    zohoCreds,
+    storeInVault,
+    saveGmailCreds,
+    saveOutlookCreds,
+    saveZohoCreds,
+    customForm,
+    connectSyncWindowDays,
+  ])
 
   const handleConnectWithExisting = useCallback(() => {
+    gmailOAuthCredentialSourceRef.current = 'developer_saved'
     setCredError(null)
+    if (connectSyncWindowDays === 0) {
+      const ok = window.confirm('Syncing all messages may take a long time. Continue?')
+      if (!ok) return
+    }
     setStep('connecting')
     setConnecting(true)
     setConnectingElapsed(0)
     setConnectingTimedOut(false)
-  }, [])
+  }, [connectSyncWindowDays])
 
   useEffect(() => {
     if (step !== 'connecting' || !connecting) return
     const connect = async () => {
       try {
-        let res: { ok: boolean; email?: string; error?: string }
+        let res: { ok: boolean; email?: string; error?: string; debug?: GmailConnectFailureDebug | null }
         if (provider === 'gmail') {
-          res = await connectGmail()
+          res = await connectGmail(connectSyncWindowDays, gmailOAuthCredentialSourceRef.current)
         } else if (provider === 'outlook') {
-          res = await connectOutlook()
+          res = await connectOutlook(connectSyncWindowDays)
+        } else if (provider === 'zoho') {
+          res = await connectZoho(connectSyncWindowDays)
         } else {
           const cf = customForm
-          const imapPort = parseInt(cf.imapPort, 10)
-          const smtpPort = parseInt(cf.smtpPort, 10)
-          res = await connectCustomMailbox({
-            displayName: cf.displayName.trim() || undefined,
-            email: cf.email.trim(),
-            imapHost: cf.imapHost.trim(),
-            imapPort,
-            imapSecurity: cf.imapSecurity,
-            imapUsername: cf.imapUsername.trim() || undefined,
-            imapPassword: cf.imapPassword,
-            smtpHost: cf.smtpHost.trim(),
-            smtpPort,
-            smtpSecurity: cf.smtpSecurity,
-            smtpUseSameCredentials: cf.smtpUseSameCredentials,
-            smtpUsername: cf.smtpUseSameCredentials ? undefined : cf.smtpUsername.trim() || undefined,
-            smtpPassword: cf.smtpUseSameCredentials ? undefined : cf.smtpPassword,
-          })
+          if (reconnectAccountId && isElectron() && window.emailAccounts?.updateImapCredentials) {
+            const raw = await window.emailAccounts.updateImapCredentials(reconnectAccountId, {
+              imapPassword: cf.imapPassword,
+              smtpPassword: cf.smtpUseSameCredentials ? undefined : cf.smtpPassword,
+              smtpUseSameCredentials: cf.smtpUseSameCredentials,
+            })
+            const inner = raw?.data as { success?: boolean; error?: string } | undefined
+            const ok = !!(raw?.ok && inner?.success)
+            res = {
+              ok,
+              email: cf.email.trim(),
+              error: ok ? undefined : inner?.error || (raw as { error?: string })?.error || 'Could not update credentials',
+            }
+          } else {
+            const imapPort = parseInt(cf.imapPort, 10)
+            const smtpPort = parseInt(cf.smtpPort, 10)
+            res = await connectCustomMailbox({
+              displayName: cf.displayName.trim() || undefined,
+              email: cf.email.trim(),
+              imapHost: cf.imapHost.trim(),
+              imapPort,
+              imapSecurity: cf.imapSecurity,
+              imapUsername: cf.imapUsername.trim() || undefined,
+              imapPassword: cf.imapPassword,
+              smtpHost: cf.smtpHost.trim(),
+              smtpPort,
+              smtpSecurity: cf.smtpSecurity,
+              smtpUseSameCredentials: cf.smtpUseSameCredentials,
+              smtpUsername: cf.smtpUseSameCredentials ? undefined : cf.smtpUsername.trim() || undefined,
+              smtpPassword: cf.smtpUseSameCredentials ? undefined : cf.smtpPassword,
+              syncWindowDays: connectSyncWindowDays,
+            })
+          }
         }
         setConnecting(false)
         setStep('result')
         if (res.ok) {
+          setResultDebug(null)
           setResult('success')
           const em = res.email || (provider === 'custom' ? customForm.email.trim() : '')
           setResultEmail(em)
           const providerTag = provider === 'custom' ? 'imap' : provider!
-          setTimeout(() => {
-            onConnected({ provider: providerTag, email: em })
-            onClose()
-          }, 3000)
+          const isImapReconnect =
+            Boolean(reconnectAccountId) && isElectron() && provider === 'custom'
+          if (isImapReconnect) {
+            // Show result screen until the user clicks Done — do not auto-close.
+          } else {
+            setTimeout(() => {
+              onConnected({ provider: providerTag, email: em })
+              onClose()
+            }, 3000)
+          }
         } else {
           setResult('failure')
           setResultError(res.error || 'Connection failed')
+          if (provider === 'gmail') {
+            setResultDebug(
+              res.debug ??
+                ({
+                  step: 'unknown',
+                  httpStatus: null,
+                  googleError: null,
+                  googleErrorDescription: null,
+                  responseBody: null,
+                  raw: (res.error || 'Connection failed').slice(0, 500),
+                } satisfies GmailConnectFailureDebug),
+            )
+          } else {
+            setResultDebug(null)
+          }
         }
       } catch (e: any) {
         setConnecting(false)
         setStep('result')
         setResult('failure')
         setResultError(e?.message || 'Connection failed')
+        setResultDebug(
+          provider === 'gmail'
+            ? {
+                step: 'unknown',
+                httpStatus: null,
+                googleError: null,
+                googleErrorDescription: null,
+                responseBody: null,
+                raw: (e?.message ? String(e.message) : String(e)).slice(0, 500),
+              }
+            : null,
+        )
       }
     }
     connect()
-  }, [step, connecting, provider, connectGmail, connectOutlook, connectCustomMailbox, customForm, onConnected, onClose])
+  }, [
+    step,
+    connecting,
+    provider,
+    connectGmail,
+    connectOutlook,
+    connectZoho,
+    connectCustomMailbox,
+    customForm,
+    connectSyncWindowDays,
+    reconnectAccountId,
+    onConnected,
+    onClose,
+  ])
 
   useEffect(() => {
     if (step !== 'connecting' || !connecting) return
@@ -533,6 +994,7 @@ export function EmailConnectWizard({
     setCredError(null)
     setExistingGmail(null)
     setExistingOutlook(null)
+    setExistingZoho(null)
   }, [])
 
   const handleBackToCredentials = useCallback(() => {
@@ -540,11 +1002,13 @@ export function EmailConnectWizard({
     setConnecting(false)
     setConnectingTimedOut(false)
     setConnectingElapsed(0)
+    setResultDebug(null)
   }, [])
 
   const handleTryAgain = useCallback(() => {
     setResult(null)
     setResultError('')
+    setResultDebug(null)
     setStep('connecting')
     setConnecting(true)
     setConnectingElapsed(0)
@@ -564,9 +1028,11 @@ export function EmailConnectWizard({
   const hasElectron = isElectron()
   const hasExtension = isExtension()
   const canConnect = hasElectron || hasExtension
-  const modalWidth = provider === 'custom' ? 'min(500px, 96vw)' : '400px'
+  const modalWidth =
+    step === 'provider' ? 'min(520px, 96vw)' : provider === 'custom' ? 'min(500px, 96vw)' : '400px'
 
   return (
+    <>
     <div
       style={{
         position: 'fixed',
@@ -636,8 +1102,10 @@ export function EmailConnectWizard({
           {/* Step 1: Provider */}
           {step === 'provider' && (
             <>
-              <div style={{ fontSize: '13px', color: mutedColor, marginBottom: '16px' }}>
-                Choose your email provider to connect:
+              <div style={{ fontSize: '14px', fontWeight: 700, color: textColor, marginBottom: 6 }}>Connect email account</div>
+              <div style={{ fontSize: '12px', color: mutedColor, marginBottom: 14, lineHeight: 1.45 }}>
+                Recommended providers offer <strong>Smart Sync</strong> — pull, classify, and mirror sorted emails back to your
+                mailbox automatically.
               </div>
               {!canConnect && (
                 <div
@@ -653,78 +1121,224 @@ export function EmailConnectWizard({
                   Email connection requires the desktop app. Ensure WR Desk™ is running.
                 </div>
               )}
-              <button
-                onClick={() => canConnect && handleSelectProvider('gmail')}
-                disabled={!canConnect}
+              <div
+                style={{
+                  fontSize: '11px',
+                  fontWeight: 700,
+                  color: mutedColor,
+                  textTransform: 'uppercase',
+                  letterSpacing: 0.6,
+                  marginBottom: 8,
+                }}
+              >
+                Recommended — Smart Sync
+              </div>
+              <div
                 style={{
                   width: '100%',
                   padding: '14px 16px',
                   background: inputBg,
                   border: `1px solid ${borderColor}`,
                   borderRadius: '10px',
-                  cursor: canConnect ? 'pointer' : 'not-allowed',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '12px',
                   marginBottom: '10px',
-                  textAlign: 'left',
                 }}
               >
-                <span style={{ fontSize: '24px' }}>📧</span>
-                <div>
-                  <div style={{ fontSize: '14px', fontWeight: '600', color: textColor }}>Gmail</div>
-                  <div style={{ fontSize: '11px', color: mutedColor }}>Connect via Google OAuth</div>
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
+                  <span style={{ fontSize: '22px', lineHeight: 1.2 }}>🟢</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: '14px', fontWeight: '600', color: textColor }}>Microsoft 365 / Outlook</div>
+                    <div style={{ fontSize: '11px', color: mutedColor, lineHeight: 1.45, marginTop: 4 }}>
+                      Smart Sync via Microsoft Graph
+                    </div>
+                    <button
+                      type="button"
+                      disabled={!canConnect}
+                      onClick={() => canConnect && handleSelectProvider('outlook')}
+                      style={{
+                        marginTop: 10,
+                        padding: '8px 14px',
+                        fontSize: 12,
+                        fontWeight: 600,
+                        borderRadius: 8,
+                        border: 'none',
+                        cursor: canConnect ? 'pointer' : 'not-allowed',
+                        opacity: canConnect ? 1 : 0.65,
+                        background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
+                        color: 'white',
+                      }}
+                    >
+                      Connect with Microsoft
+                    </button>
+                  </div>
                 </div>
-                <span style={{ marginLeft: 'auto', fontSize: '14px', color: mutedColor }}>→</span>
-              </button>
-              <button
-                onClick={() => canConnect && handleSelectProvider('outlook')}
-                disabled={!canConnect}
+              </div>
+              <div
                 style={{
                   width: '100%',
                   padding: '14px 16px',
                   background: inputBg,
                   border: `1px solid ${borderColor}`,
                   borderRadius: '10px',
-                  cursor: canConnect ? 'pointer' : 'not-allowed',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '12px',
                   marginBottom: '10px',
-                  textAlign: 'left',
                 }}
               >
-                <span style={{ fontSize: '24px' }}>📨</span>
-                <div>
-                  <div style={{ fontSize: '14px', fontWeight: '600', color: textColor }}>Microsoft 365 / Outlook</div>
-                  <div style={{ fontSize: '11px', color: mutedColor }}>Connect via Microsoft OAuth</div>
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
+                  <span style={{ fontSize: '22px', lineHeight: 1.2 }}>🟢</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: '14px', fontWeight: '600', color: textColor }}>Gmail</div>
+                    <div style={{ fontSize: '11px', color: mutedColor, lineHeight: 1.45, marginTop: 4 }}>
+                      Smart Sync via Gmail API
+                    </div>
+                    <button
+                      type="button"
+                      disabled={!canConnect}
+                      onClick={() => canConnect && handleSelectProvider('gmail')}
+                      style={{
+                        marginTop: 10,
+                        padding: '8px 14px',
+                        fontSize: 12,
+                        fontWeight: 600,
+                        borderRadius: 8,
+                        border: 'none',
+                        cursor: canConnect ? 'pointer' : 'not-allowed',
+                        opacity: canConnect ? 1 : 0.65,
+                        background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
+                        color: 'white',
+                      }}
+                    >
+                      Connect with Google
+                    </button>
+                  </div>
                 </div>
-                <span style={{ marginLeft: 'auto', fontSize: '14px', color: mutedColor }}>→</span>
-              </button>
-              <button
-                onClick={() => canConnect && handleSelectProvider('custom')}
-                disabled={!canConnect}
+              </div>
+              <div
                 style={{
                   width: '100%',
                   padding: '14px 16px',
                   background: inputBg,
                   border: `1px solid ${borderColor}`,
                   borderRadius: '10px',
-                  cursor: canConnect ? 'pointer' : 'not-allowed',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '12px',
-                  marginBottom: '10px',
-                  textAlign: 'left',
+                  marginBottom: '12px',
                 }}
               >
-                <span style={{ fontSize: '24px' }}>⚙️</span>
-                <div>
-                  <div style={{ fontSize: '14px', fontWeight: '600', color: textColor }}>Custom Email (IMAP + SMTP)</div>
-                  <div style={{ fontSize: '11px', color: mutedColor }}>Any provider — inbox via IMAP, sending via SMTP</div>
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
+                  <span style={{ fontSize: '22px', lineHeight: 1.2 }}>🟢</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: '14px', fontWeight: '600', color: textColor }}>Zoho Mail</div>
+                    <div style={{ fontSize: '11px', color: mutedColor, lineHeight: 1.45, marginTop: 4 }}>
+                      Smart Sync via Zoho API
+                    </div>
+                    <button
+                      type="button"
+                      disabled={!canConnect}
+                      onClick={() => canConnect && handleSelectProvider('zoho')}
+                      style={{
+                        marginTop: 10,
+                        padding: '8px 14px',
+                        fontSize: 12,
+                        fontWeight: 600,
+                        borderRadius: 8,
+                        border: 'none',
+                        cursor: canConnect ? 'pointer' : 'not-allowed',
+                        opacity: canConnect ? 1 : 0.65,
+                        background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
+                        color: 'white',
+                      }}
+                    >
+                      Connect with Zoho
+                    </button>
+                  </div>
                 </div>
-                <span style={{ marginLeft: 'auto', fontSize: '14px', color: mutedColor }}>→</span>
-              </button>
+              </div>
+              <div
+                style={{
+                  fontSize: '11px',
+                  fontWeight: 700,
+                  color: mutedColor,
+                  textTransform: 'uppercase',
+                  letterSpacing: 0.6,
+                  marginBottom: 8,
+                }}
+              >
+                Other providers
+              </div>
+              <div
+                style={{
+                  width: '100%',
+                  padding: '14px 16px',
+                  background: inputBg,
+                  border: `1px solid ${borderColor}`,
+                  borderRadius: '10px',
+                  marginBottom: '14px',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
+                  <span style={{ fontSize: '22px', lineHeight: 1.2 }}>📧</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: '14px', fontWeight: '600', color: textColor }}>IMAP / SMTP</div>
+                    <div style={{ fontSize: '11px', color: mutedColor, lineHeight: 1.45, marginTop: 4 }}>
+                      Pull &amp; classify: full support
+                      <br />
+                      Remote folder sync: limited
+                    </div>
+                    <button
+                      type="button"
+                      disabled={!canConnect}
+                      onClick={() => canConnect && handleSelectProvider('custom')}
+                      style={{
+                        marginTop: 10,
+                        padding: '8px 14px',
+                        fontSize: 12,
+                        fontWeight: 600,
+                        borderRadius: 8,
+                        border: `1px solid ${borderColor}`,
+                        cursor: canConnect ? 'pointer' : 'not-allowed',
+                        opacity: canConnect ? 1 : 0.65,
+                        background: isPro ? '#f8fafc' : 'rgba(255,255,255,0.12)',
+                        color: textColor,
+                      }}
+                    >
+                      Connect with IMAP
+                    </button>
+                  </div>
+                </div>
+              </div>
+              <div style={{ marginBottom: 14 }}>
+                <label
+                  style={{
+                    display: 'flex',
+                    flexWrap: 'wrap',
+                    alignItems: 'center',
+                    gap: 8,
+                    fontSize: 12,
+                    fontWeight: 600,
+                    color: textColor,
+                  }}
+                >
+                  <span style={{ whiteSpace: 'nowrap' }}>Sync window:</span>
+                  <select
+                    value={connectSyncWindowDays}
+                    onChange={(e) => setConnectSyncWindowDays(parseInt(e.target.value, 10))}
+                    style={{
+                      fontSize: 12,
+                      padding: '6px 10px',
+                      borderRadius: 8,
+                      border: `1px solid ${borderColor}`,
+                      background: inputBg,
+                      color: textColor,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <option value={7}>Last 7 days</option>
+                    <option value={30}>Last 30 days</option>
+                    <option value={90}>Last 90 days</option>
+                    <option value={0}>All mail (warning)</option>
+                  </select>
+                </label>
+                <div style={{ fontSize: '11px', color: mutedColor, lineHeight: 1.45, marginTop: 8 }}>
+                  Only recent messages are synced initially. Pull older messages anytime with &quot;Pull More&quot;.
+                </div>
+              </div>
               <div style={{ marginTop: '16px', padding: '12px', background: isPro ? 'rgba(59,130,246,0.1)' : 'rgba(59,130,246,0.15)', borderRadius: '8px', border: '1px solid rgba(59,130,246,0.2)' }}>
                 <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
                   <span style={{ fontSize: '14px' }}>🔒</span>
@@ -762,17 +1376,32 @@ export function EmailConnectWizard({
               <div style={{ fontSize: '14px', fontWeight: '600', color: textColor, marginBottom: '8px' }}>
                 {provider === 'custom'
                   ? 'Custom email (IMAP + SMTP)'
-                  : `Set up ${provider === 'gmail' ? 'Gmail' : 'Outlook'} OAuth`}
+                  : `Set up ${
+                      provider === 'gmail' ? 'Gmail' : provider === 'zoho' ? 'Zoho Mail' : 'Outlook'
+                    } OAuth`}
               </div>
+              {provider === 'custom' ? (
+                <ImapConnectionNotice accountId="wizard-imap-credentials" variant="wizard-full" theme={isPro ? 'professional' : 'dark'} />
+              ) : null}
 
               {/* Vault status (for new saves) — only when no existing creds or source is none */}
-              {provider !== 'custom' && !existingGmail && !existingOutlook && vaultUnlocked === true && (
+              {provider !== 'custom' &&
+                !(provider === 'gmail' && !showGmailAdvanced) &&
+                !(provider === 'gmail' && existingGmail) &&
+                !(provider === 'outlook' && existingOutlook) &&
+                !(provider === 'zoho' && existingZoho) &&
+                vaultUnlocked === true && (
                 <div style={{ padding: '10px 12px', background: isPro ? '#ecfdf5' : 'rgba(34,197,94,0.15)', borderRadius: '8px', marginBottom: '12px', fontSize: '12px', color: isPro ? '#166534' : 'rgba(34,197,94,0.95)', display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <span>🔐</span>
                   <span>Credentials will be stored encrypted in your vault.</span>
                 </div>
               )}
-              {provider !== 'custom' && !existingGmail && !existingOutlook && vaultUnlocked === false && (
+              {provider !== 'custom' &&
+                !(provider === 'gmail' && !showGmailAdvanced) &&
+                !(provider === 'gmail' && existingGmail) &&
+                !(provider === 'outlook' && existingOutlook) &&
+                !(provider === 'zoho' && existingZoho) &&
+                vaultUnlocked === false && (
                 <div style={{ padding: '10px 12px', background: isPro ? '#fef3c7' : 'rgba(245,158,11,0.2)', borderRadius: '8px', marginBottom: '12px', fontSize: '12px', color: isPro ? '#92400e' : 'rgba(255,255,255,0.9)', display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <span>⚠️</span>
                   <span>Vault is locked. Your credentials will be stored temporarily. Unlock your vault for permanent encrypted storage.</span>
@@ -781,7 +1410,140 @@ export function EmailConnectWizard({
 
               {provider === 'gmail' && (
                 <>
-                  {existingGmail ? (
+                  {!showGmailAdvanced ? (
+                    <>
+                      <div style={{ fontSize: '12px', lineHeight: 1.55, color: mutedColor, marginBottom: 10 }}>
+                        Sign in with Google in your browser. Your password is not stored — only OAuth tokens (and refresh
+                        tokens are encrypted when the vault is unlocked).
+                      </div>
+                      {isElectron() && gmailOAuthDiagnosticsBridgeAvailable() && (
+                        <div
+                          style={{
+                            marginBottom: 10,
+                            padding: '6px 10px',
+                            fontSize: '10px',
+                            fontWeight: 600,
+                            letterSpacing: '0.02em',
+                            textTransform: 'uppercase',
+                            borderRadius: 6,
+                            display: 'inline-block',
+                            background: isPro ? '#ede9fe' : 'rgba(139,92,246,0.25)',
+                            color: isPro ? '#5b21b6' : 'rgba(196,181,253,0.95)',
+                            border: `1px solid ${isPro ? '#c4b5fd' : 'rgba(167,139,250,0.35)'}`,
+                          }}
+                        >
+                          OAuth diagnostics build active
+                        </div>
+                      )}
+                      {(isElectron() || isExtension()) && gmailOAuthMeta && (
+                        <div style={{ fontSize: '11px', color: mutedColor, marginBottom: 10, lineHeight: 1.45 }}>
+                          Bundled OAuth client (fingerprint):{' '}
+                          <span
+                            style={{
+                              fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+                              color: textColor,
+                              fontWeight: 600,
+                            }}
+                          >
+                            {gmailOAuthMeta.standardConnectBundledClientFingerprint ?? '—'}
+                          </span>
+                        </div>
+                      )}
+                      {gmailOAuthMeta && !gmailOAuthMeta.configured && (
+                        <div
+                          style={{
+                            padding: '10px 12px',
+                            background: isPro ? '#fef3c7' : 'rgba(245,158,11,0.2)',
+                            borderRadius: '8px',
+                            marginBottom: 10,
+                            fontSize: '11px',
+                            color: isPro ? '#92400e' : 'rgba(255,255,255,0.9)',
+                            lineHeight: 1.5,
+                          }}
+                        >
+                          {gmailOAuthMeta.developerModeEnabled ? (
+                            <>
+                              Google sign-in is not configured for this build. Set the app Google OAuth client id at build
+                              time (environment or bundled resources file), or open Advanced to use your own OAuth client.
+                            </>
+                          ) : (
+                            <>
+                              Google sign-in is not available in this version of the app. Please check for an update or
+                              contact support.
+                            </>
+                          )}
+                        </div>
+                      )}
+                      {existingGmail && (
+                        <div style={{ fontSize: '11px', color: mutedColor, marginBottom: 8 }}>
+                          Custom OAuth credentials may be saved for Advanced. The standard Connect Google button always uses
+                          the app&apos;s built-in Google client (PKCE) so sign-in is not tied to a developer web client id
+                          on disk.
+                        </div>
+                      )}
+                      {credError && (
+                        <div style={{ fontSize: '12px', color: '#dc2626', marginBottom: 8 }}>{credError}</div>
+                      )}
+                      <button
+                        type="button"
+                        onClick={handleSaveAndConnect}
+                        style={{
+                          width: '100%',
+                          padding: '12px',
+                          background: 'linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%)',
+                          border: 'none',
+                          borderRadius: '8px',
+                          color: 'white',
+                          fontSize: '14px',
+                          fontWeight: '600',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        Connect Google
+                      </button>
+                      {(gmailOAuthMeta?.developerModeEnabled === true || !!existingGmail) && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setCredError(null)
+                            setShowGmailAdvanced(true)
+                          }}
+                          style={{
+                            width: '100%',
+                            marginTop: 8,
+                            padding: '8px',
+                            fontSize: '12px',
+                            background: 'transparent',
+                            border: 'none',
+                            color: isPro ? '#64748b' : 'rgba(255,255,255,0.65)',
+                            cursor: 'pointer',
+                            textDecoration: 'underline',
+                          }}
+                        >
+                          Advanced (developer OAuth client)
+                        </button>
+                      )}
+                      {isElectron() && gmailOAuthDiagnosticsBridgeAvailable() && (
+                        <button
+                          type="button"
+                          onClick={() => void showGmailOAuthRuntimeDiagnostics()}
+                          style={{
+                            width: '100%',
+                            marginTop: 10,
+                            padding: '8px',
+                            fontSize: '11px',
+                            background: isPro ? '#f1f5f9' : 'rgba(255,255,255,0.06)',
+                            border: `1px solid ${borderColor}`,
+                            borderRadius: '8px',
+                            color: mutedColor,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          Show Gmail OAuth runtime diagnostics
+                        </button>
+                      )}
+                    </>
+                  ) : existingGmail ? (
                     <>
                       {existingGmail.source === 'vault' && (
                         <div style={{ fontSize: '12px', color: '#22c55e', marginBottom: '8px' }}>🔐 Credentials stored securely in your vault</div>
@@ -805,7 +1567,7 @@ export function EmailConnectWizard({
                         />
                       </div>
                       <div>
-                        <label style={{ fontSize: '12px', fontWeight: '600', color: mutedColor, marginBottom: '4px', display: 'block' }}>Client Secret</label>
+                        <label style={{ fontSize: '12px', fontWeight: '600', color: mutedColor, marginBottom: '4px', display: 'block' }}>Client Secret (legacy)</label>
                         <input
                           type={showSecret ? 'text' : 'password'}
                           value={gmailCreds.clientSecret}
@@ -846,7 +1608,7 @@ export function EmailConnectWizard({
                             cursor: 'pointer',
                           }}
                         >
-                          Connect with existing credentials
+                          Connect with saved client
                         </button>
                         <button
                           onClick={handleSaveAndConnect}
@@ -865,20 +1627,23 @@ export function EmailConnectWizard({
                           Update credentials
                         </button>
                       </div>
+                      <button
+                        type="button"
+                        onClick={() => setShowGmailAdvanced(false)}
+                        style={{ marginTop: 10, fontSize: '12px', background: 'none', border: 'none', color: isPro ? '#3b82f6' : '#60a5fa', cursor: 'pointer' }}
+                      >
+                        ← Back to simple sign-in
+                      </button>
                     </>
                   ) : (
                     <>
                       <div style={{ padding: '12px', background: isPro ? 'rgba(234,179,8,0.1)' : 'rgba(234,179,8,0.15)', borderRadius: '8px', border: '1px solid rgba(234,179,8,0.3)', marginBottom: '8px', fontSize: '11px', color: isPro ? '#854d0e' : 'rgba(255,255,255,0.9)', lineHeight: '1.6' }}>
-                        <strong>For Gmail:</strong>
-                        <ol style={{ margin: '8px 0 0 16px', padding: 0 }}>
-                          <li>Go to <a href="https://console.cloud.google.com" target="_blank" rel="noopener noreferrer" style={{ color: isPro ? '#3b82f6' : '#60a5fa' }}>Google Cloud Console</a></li>
-                          <li>Create a project or select an existing one</li>
-                          <li>Enable the Gmail API</li>
-                          <li>Credentials → Create OAuth 2.0 Client ID</li>
-                          <li>Application type: Web application</li>
-                          <li>Add redirect URI: http://localhost:{OAUTH_CALLBACK_PORT}/callback</li>
-                          <li>Copy Client ID and Client Secret below</li>
-                        </ol>
+                        <strong>Developer OAuth (optional):</strong> create a Google Cloud OAuth client (Desktop or Web with
+                        loopback). Enable Gmail API. Add authorized redirect URIs:{' '}
+                        <code style={{ fontSize: 10 }}>http://127.0.0.1:51249/callback</code> through{' '}
+                        <code style={{ fontSize: 10 }}>http://127.0.0.1:51258/callback</code> (the app may pick any port in
+                        that range). Client secret is only required for legacy confidential clients; PKCE works with client
+                        id alone.
                       </div>
                       <div>
                         <label style={{ fontSize: '12px', fontWeight: '600', color: mutedColor, marginBottom: '4px', display: 'block' }}>Client ID *</label>
@@ -891,12 +1656,12 @@ export function EmailConnectWizard({
                         />
                       </div>
                       <div>
-                        <label style={{ fontSize: '12px', fontWeight: '600', color: mutedColor, marginBottom: '4px', display: 'block' }}>Client Secret *</label>
+                        <label style={{ fontSize: '12px', fontWeight: '600', color: mutedColor, marginBottom: '4px', display: 'block' }}>Client Secret (optional for PKCE)</label>
                         <input
                           type="password"
                           value={gmailCreds.clientSecret}
                           onChange={(e) => setGmailCreds((p) => ({ ...p, clientSecret: e.target.value }))}
-                          placeholder="GOCSPX-xxxxxxxxx"
+                          placeholder="Leave empty if using PKCE-only client"
                           style={{ width: '100%', padding: '10px 12px', background: inputBg, border: `1px solid ${borderColor}`, borderRadius: '8px', fontSize: '13px', color: textColor }}
                         />
                       </div>
@@ -927,6 +1692,13 @@ export function EmailConnectWizard({
                         }}
                       >
                         Save & Connect
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setShowGmailAdvanced(false)}
+                        style={{ marginTop: 10, fontSize: '12px', background: 'none', border: 'none', color: isPro ? '#3b82f6' : '#60a5fa', cursor: 'pointer' }}
+                      >
+                        ← Back to simple sign-in
                       </button>
                     </>
                   )}
@@ -1038,7 +1810,7 @@ export function EmailConnectWizard({
                         <ol style={{ margin: '8px 0 0 16px', padding: 0 }}>
                           <li>Go to <a href="https://portal.azure.com" target="_blank" rel="noopener noreferrer" style={{ color: isPro ? '#3b82f6' : '#60a5fa' }}>Azure Portal</a></li>
                           <li>Register an application in Azure Active Directory</li>
-                          <li>Add redirect URI: http://localhost:{OAUTH_CALLBACK_PORT}/callback</li>
+                          <li>Add redirect URI: http://127.0.0.1:{OAUTH_CALLBACK_PORT}/callback</li>
                           <li>Create a client secret</li>
                           <li>Copy Application (client) ID, Client Secret, and Tenant ID below</li>
                         </ol>
@@ -1091,6 +1863,393 @@ export function EmailConnectWizard({
                           width: '100%',
                           padding: '12px',
                           background: 'linear-gradient(135deg, #0078d4 0%, #004578 100%)',
+                          border: 'none',
+                          borderRadius: '8px',
+                          color: 'white',
+                          fontSize: '14px',
+                          fontWeight: '600',
+                          cursor: 'pointer',
+                          marginTop: '8px',
+                        }}
+                      >
+                        Save & Connect
+                      </button>
+                    </>
+                  )}
+                </>
+              )}
+
+              {provider === 'zoho' && (
+                <>
+                  {existingZoho ? (
+                    <>
+                      {existingZoho.source === 'vault' && (
+                        <div style={{ fontSize: '12px', color: '#22c55e', marginBottom: '8px' }}>
+                          🔐 Credentials stored securely in your vault
+                        </div>
+                      )}
+                      {existingZoho.source === 'vault-migrated' && (
+                        <div style={{ fontSize: '12px', color: '#22c55e', marginBottom: '8px' }}>
+                          🔐 Credentials migrated to vault from temporary storage
+                        </div>
+                      )}
+                      {existingZoho.source === 'temporary' && (
+                        <div
+                          style={{
+                            fontSize: '12px',
+                            color: isPro ? '#92400e' : 'rgba(245,158,11,0.95)',
+                            marginBottom: '8px',
+                          }}
+                        >
+                          ⚠️ Credentials loaded from temporary storage. Check &quot;Store in Vault&quot; and reconnect to
+                          secure them.
+                        </div>
+                      )}
+                      <div>
+                        <label
+                          style={{
+                            fontSize: '12px',
+                            fontWeight: '600',
+                            color: mutedColor,
+                            marginBottom: '4px',
+                            display: 'block',
+                          }}
+                        >
+                          Client ID
+                        </label>
+                        <input
+                          type="text"
+                          value={zohoCreds.clientId}
+                          onChange={(e) => setZohoCreds((p) => ({ ...p, clientId: e.target.value }))}
+                          style={{
+                            width: '100%',
+                            padding: '10px 12px',
+                            background: inputBg,
+                            border: `1px solid ${borderColor}`,
+                            borderRadius: '8px',
+                            fontSize: '13px',
+                            color: textColor,
+                          }}
+                        />
+                      </div>
+                      <div>
+                        <label
+                          style={{
+                            fontSize: '12px',
+                            fontWeight: '600',
+                            color: mutedColor,
+                            marginBottom: '4px',
+                            display: 'block',
+                          }}
+                        >
+                          Client Secret
+                        </label>
+                        <input
+                          type={showSecret ? 'text' : 'password'}
+                          value={zohoCreds.clientSecret}
+                          onChange={(e) => setZohoCreds((p) => ({ ...p, clientSecret: e.target.value }))}
+                          style={{
+                            width: '100%',
+                            padding: '10px 12px',
+                            background: inputBg,
+                            border: `1px solid ${borderColor}`,
+                            borderRadius: '8px',
+                            fontSize: '13px',
+                            color: textColor,
+                          }}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowSecret((s) => !s)}
+                          style={{
+                            marginTop: '4px',
+                            fontSize: '11px',
+                            background: 'none',
+                            border: 'none',
+                            color: isPro ? '#3b82f6' : '#60a5fa',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          {showSecret ? 'Hide' : 'Reveal'} and edit
+                        </button>
+                      </div>
+                      <div style={{ marginTop: '10px' }}>
+                        <label
+                          style={{
+                            fontSize: '12px',
+                            fontWeight: '600',
+                            color: mutedColor,
+                            marginBottom: '4px',
+                            display: 'block',
+                          }}
+                        >
+                          Data center
+                        </label>
+                        <select
+                          value={zohoCreds.datacenter}
+                          onChange={(e) =>
+                            setZohoCreds((p) => ({
+                              ...p,
+                              datacenter: e.target.value === 'eu' ? 'eu' : 'com',
+                            }))
+                          }
+                          style={{
+                            width: '100%',
+                            padding: '10px 12px',
+                            background: inputBg,
+                            border: `1px solid ${borderColor}`,
+                            borderRadius: '8px',
+                            fontSize: '13px',
+                            color: textColor,
+                          }}
+                        >
+                          <option value="com">US — accounts.zoho.com / mail.zoho.com</option>
+                          <option value="eu">EU — accounts.zoho.eu / mail.zoho.eu</option>
+                        </select>
+                      </div>
+                      <label
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '8px',
+                          marginTop: '12px',
+                          fontSize: '13px',
+                          color: textColor,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        <input type="checkbox" checked={storeInVault} onChange={(e) => setStoreInVault(e.target.checked)} />
+                        🔐 Store securely in Vault
+                        {storeInVault && vaultUnlocked === false && (
+                          <span
+                            style={{
+                              fontSize: '11px',
+                              color: isPro ? '#92400e' : 'rgba(245,158,11,0.95)',
+                            }}
+                          >
+                            (vault locked — will store temporarily, migrate when unlocked)
+                          </span>
+                        )}
+                      </label>
+                      {saveFeedback && (
+                        <div
+                          style={{
+                            fontSize: '12px',
+                            marginTop: '8px',
+                            color: saveFeedback.startsWith('🔐')
+                              ? '#22c55e'
+                              : isPro
+                                ? '#92400e'
+                                : 'rgba(245,158,11,0.95)',
+                          }}
+                        >
+                          {saveFeedback}
+                        </div>
+                      )}
+                      <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
+                        <button
+                          onClick={handleConnectWithExisting}
+                          style={{
+                            flex: 1,
+                            padding: '12px',
+                            background: 'linear-gradient(135deg, #0d9488 0%, #0f766e 100%)',
+                            border: 'none',
+                            borderRadius: '8px',
+                            color: 'white',
+                            fontSize: '14px',
+                            fontWeight: '600',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          Connect with existing credentials
+                        </button>
+                        <button
+                          onClick={handleSaveAndConnect}
+                          style={{
+                            flex: 1,
+                            padding: '12px',
+                            background: isPro ? '#e2e8f0' : 'rgba(255,255,255,0.15)',
+                            border: `1px solid ${borderColor}`,
+                            borderRadius: '8px',
+                            color: textColor,
+                            fontSize: '14px',
+                            fontWeight: '600',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          Update credentials
+                        </button>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div
+                        style={{
+                          padding: '12px',
+                          background: isPro ? 'rgba(234,179,8,0.1)' : 'rgba(234,179,8,0.15)',
+                          borderRadius: '8px',
+                          border: '1px solid rgba(234,179,8,0.3)',
+                          marginBottom: '8px',
+                          fontSize: '11px',
+                          color: isPro ? '#854d0e' : 'rgba(255,255,255,0.9)',
+                          lineHeight: '1.6',
+                        }}
+                      >
+                        <strong>For Zoho Mail:</strong>
+                        <ol style={{ margin: '8px 0 0 16px', padding: 0 }}>
+                          <li>
+                            Go to{' '}
+                            <a
+                              href="https://api-console.zoho.com/"
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              style={{ color: isPro ? '#3b82f6' : '#60a5fa' }}
+                            >
+                              Zoho API Console
+                            </a>
+                          </li>
+                          <li>Add a Server-based client</li>
+                          <li>
+                            Authorized redirect URI: http://127.0.0.1:{OAUTH_CALLBACK_PORT}/callback
+                          </li>
+                          <li>Enable Zoho Mail scopes (messages, folders, accounts)</li>
+                          <li>Copy Client ID and Client Secret below; pick EU if your mail is on zoho.eu</li>
+                        </ol>
+                      </div>
+                      <div>
+                        <label
+                          style={{
+                            fontSize: '12px',
+                            fontWeight: '600',
+                            color: mutedColor,
+                            marginBottom: '4px',
+                            display: 'block',
+                          }}
+                        >
+                          Client ID *
+                        </label>
+                        <input
+                          type="text"
+                          value={zohoCreds.clientId}
+                          onChange={(e) => setZohoCreds((p) => ({ ...p, clientId: e.target.value }))}
+                          style={{
+                            width: '100%',
+                            padding: '10px 12px',
+                            background: inputBg,
+                            border: `1px solid ${borderColor}`,
+                            borderRadius: '8px',
+                            fontSize: '13px',
+                            color: textColor,
+                          }}
+                        />
+                      </div>
+                      <div>
+                        <label
+                          style={{
+                            fontSize: '12px',
+                            fontWeight: '600',
+                            color: mutedColor,
+                            marginBottom: '4px',
+                            display: 'block',
+                          }}
+                        >
+                          Client Secret *
+                        </label>
+                        <input
+                          type="password"
+                          value={zohoCreds.clientSecret}
+                          onChange={(e) => setZohoCreds((p) => ({ ...p, clientSecret: e.target.value }))}
+                          style={{
+                            width: '100%',
+                            padding: '10px 12px',
+                            background: inputBg,
+                            border: `1px solid ${borderColor}`,
+                            borderRadius: '8px',
+                            fontSize: '13px',
+                            color: textColor,
+                          }}
+                        />
+                      </div>
+                      <div style={{ marginTop: '10px' }}>
+                        <label
+                          style={{
+                            fontSize: '12px',
+                            fontWeight: '600',
+                            color: mutedColor,
+                            marginBottom: '4px',
+                            display: 'block',
+                          }}
+                        >
+                          Data center *
+                        </label>
+                        <select
+                          value={zohoCreds.datacenter}
+                          onChange={(e) =>
+                            setZohoCreds((p) => ({
+                              ...p,
+                              datacenter: e.target.value === 'eu' ? 'eu' : 'com',
+                            }))
+                          }
+                          style={{
+                            width: '100%',
+                            padding: '10px 12px',
+                            background: inputBg,
+                            border: `1px solid ${borderColor}`,
+                            borderRadius: '8px',
+                            fontSize: '13px',
+                            color: textColor,
+                          }}
+                        >
+                          <option value="com">US — accounts.zoho.com / mail.zoho.com</option>
+                          <option value="eu">EU — accounts.zoho.eu / mail.zoho.eu</option>
+                        </select>
+                      </div>
+                      <label
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '8px',
+                          marginTop: '12px',
+                          fontSize: '13px',
+                          color: textColor,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        <input type="checkbox" checked={storeInVault} onChange={(e) => setStoreInVault(e.target.checked)} />
+                        🔐 Store securely in Vault
+                        {storeInVault && vaultUnlocked === false && (
+                          <span
+                            style={{
+                              fontSize: '11px',
+                              color: isPro ? '#92400e' : 'rgba(245,158,11,0.95)',
+                            }}
+                          >
+                            (vault locked — will store temporarily, migrate when unlocked)
+                          </span>
+                        )}
+                      </label>
+                      {saveFeedback && (
+                        <div
+                          style={{
+                            fontSize: '12px',
+                            marginTop: '8px',
+                            color: saveFeedback.startsWith('🔐')
+                              ? '#22c55e'
+                              : isPro
+                                ? '#92400e'
+                                : 'rgba(245,158,11,0.95)',
+                          }}
+                        >
+                          {saveFeedback}
+                        </div>
+                      )}
+                      {credError && <div style={{ fontSize: '12px', color: '#dc2626' }}>{credError}</div>}
+                      <button
+                        onClick={handleSaveAndConnect}
+                        style={{
+                          width: '100%',
+                          padding: '12px',
+                          background: 'linear-gradient(135deg, #0d9488 0%, #0f766e 100%)',
                           border: 'none',
                           borderRadius: '8px',
                           color: 'white',
@@ -1171,9 +2330,12 @@ export function EmailConnectWizard({
                   </div>
                   <div>
                     <label style={{ fontSize: '12px', fontWeight: '600', color: mutedColor, marginBottom: '4px', display: 'block' }}>Security *</label>
+                    {/* option `value` is canonical SecurityMode — not the label text (see types.SecurityMode / IMAP_PRESETS). */}
                     <select
                       value={customForm.imapSecurity}
-                      onChange={(e) => setCustomForm((p) => ({ ...p, imapSecurity: e.target.value as SecurityModeUi }))}
+                      onChange={(e) =>
+                        setCustomForm((p) => ({ ...p, imapSecurity: coerceSecurityModeUi(e.target.value, p.imapSecurity) }))
+                      }
                       style={{ width: '100%', padding: '10px 12px', background: inputBg, border: `1px solid ${borderColor}`, borderRadius: '8px', fontSize: '13px', color: textColor }}
                     >
                       <option value="ssl">SSL/TLS (typical port 993)</option>
@@ -1198,10 +2360,19 @@ export function EmailConnectWizard({
                       type="password"
                       value={customForm.imapPassword}
                       onChange={(e) => setCustomForm((p) => ({ ...p, imapPassword: e.target.value }))}
-                      placeholder="••••••••"
+                      placeholder={reconnectAccountId && reconnectHasStoredImapPassword ? 'Enter new password' : '••••••••'}
                       autoComplete="new-password"
                       style={{ width: '100%', padding: '10px 12px', background: inputBg, border: `1px solid ${borderColor}`, borderRadius: '8px', fontSize: '13px', color: textColor }}
                     />
+                    {reconnectAccountId && (
+                      <div style={{ fontSize: '11px', color: mutedColor, marginTop: '8px', lineHeight: 1.5 }}>
+                        <span style={{ fontWeight: 700, color: reconnectHasStoredImapPassword ? '#22c55e' : '#f59e0b' }}>
+                          {reconnectHasStoredImapPassword ? 'Password saved ✓' : 'No password stored'}
+                        </span>
+                        {' — '}
+                        The field stays empty for security until you type. Enter your password to verify or update; the connection test result is shown on the next step.
+                      </div>
+                    )}
                   </div>
 
                   <div style={{ fontSize: '13px', fontWeight: 600, color: textColor, marginTop: '12px' }}>SMTP (sending)</div>
@@ -1233,7 +2404,9 @@ export function EmailConnectWizard({
                     <label style={{ fontSize: '12px', fontWeight: '600', color: mutedColor, marginBottom: '4px', display: 'block' }}>Security *</label>
                     <select
                       value={customForm.smtpSecurity}
-                      onChange={(e) => setCustomForm((p) => ({ ...p, smtpSecurity: e.target.value as SecurityModeUi }))}
+                      onChange={(e) =>
+                        setCustomForm((p) => ({ ...p, smtpSecurity: coerceSecurityModeUi(e.target.value, p.smtpSecurity) }))
+                      }
                       style={{ width: '100%', padding: '10px 12px', background: inputBg, border: `1px solid ${borderColor}`, borderRadius: '8px', fontSize: '13px', color: textColor }}
                     >
                       <option value="starttls">STARTTLS (typical port 587)</option>
@@ -1271,6 +2444,42 @@ export function EmailConnectWizard({
                       </div>
                     </>
                   )}
+                  <div style={{ marginTop: 14, marginBottom: 4 }}>
+                    <label
+                      style={{
+                        display: 'flex',
+                        flexWrap: 'wrap',
+                        alignItems: 'center',
+                        gap: 8,
+                        fontSize: 12,
+                        fontWeight: 600,
+                        color: textColor,
+                      }}
+                    >
+                      <span style={{ whiteSpace: 'nowrap' }}>Initial sync window:</span>
+                      <select
+                        value={connectSyncWindowDays}
+                        onChange={(e) => setConnectSyncWindowDays(parseInt(e.target.value, 10))}
+                        style={{
+                          fontSize: 12,
+                          padding: '6px 10px',
+                          borderRadius: 8,
+                          border: `1px solid ${borderColor}`,
+                          background: inputBg,
+                          color: textColor,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        <option value={7}>Last 7 days</option>
+                        <option value={30}>Last 30 days</option>
+                        <option value={90}>Last 90 days</option>
+                        <option value={0}>All mail (warning)</option>
+                      </select>
+                    </label>
+                    <div style={{ fontSize: '11px', color: mutedColor, lineHeight: 1.45, marginTop: 6 }}>
+                      Saved on the account as <code style={{ fontSize: 10 }}>sync.syncWindowDays</code> — must match what you expect for the first Pull.
+                    </div>
+                  </div>
                   {credError && <div style={{ fontSize: '12px', color: '#dc2626', marginTop: '8px' }}>{credError}</div>}
                   <button
                     type="button"
@@ -1302,7 +2511,9 @@ export function EmailConnectWizard({
               <div style={{ fontSize: '14px', fontWeight: 600, color: textColor, marginBottom: '8px' }}>
                 {provider === 'custom'
                   ? 'Testing IMAP and SMTP...'
-                  : `Connecting to ${provider === 'gmail' ? 'Gmail' : 'Outlook'}...`}
+                  : `Connecting to ${
+                      provider === 'gmail' ? 'Gmail' : provider === 'zoho' ? 'Zoho Mail' : 'Outlook'
+                    }...`}
               </div>
               <div style={{ fontSize: '12px', color: mutedColor, marginBottom: '16px' }}>
                 {provider === 'custom'
@@ -1349,33 +2560,132 @@ export function EmailConnectWizard({
           {step === 'result' && result && (
             <div style={{ textAlign: 'center', padding: '40px 20px' }}>
               {result === 'success' ? (
-                <>
-                  <div style={{ fontSize: '48px', marginBottom: '16px', color: '#22c55e' }}>✓</div>
-                  <div style={{ fontSize: '16px', fontWeight: 600, color: textColor, marginBottom: '8px' }}>
-                    Connected as {resultEmail || 'your account'}
-                  </div>
-                  <div style={{ fontSize: '12px', color: mutedColor, marginBottom: '20px' }}>Closing in 3 seconds...</div>
-                  <button
-                    onClick={handleDone}
-                    style={{
-                      padding: '12px 24px',
-                      background: 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)',
-                      border: 'none',
-                      borderRadius: '8px',
-                      color: 'white',
-                      fontSize: '14px',
-                      fontWeight: '600',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    Done
-                  </button>
-                </>
+                reconnectAccountId && isElectron() ? (
+                  <>
+                    <div style={{ fontSize: '48px', marginBottom: '12px', color: '#22c55e' }}>✓</div>
+                    <div style={{ fontSize: '18px', fontWeight: 700, color: '#22c55e', marginBottom: '10px' }}>Connected ✓</div>
+                    <div style={{ fontSize: '14px', fontWeight: 600, color: textColor, marginBottom: '8px' }}>
+                      IMAP and SMTP tests passed — credentials saved.
+                    </div>
+                    <div style={{ fontSize: '13px', color: textColor, marginBottom: '6px' }}>{resultEmail || 'Your account'}</div>
+                    <div style={{ fontSize: '12px', color: mutedColor, marginBottom: '20px' }}>
+                      Click Done to refresh the inbox and clear sign-in warnings.
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleDone}
+                      style={{
+                        padding: '12px 24px',
+                        background: 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)',
+                        border: 'none',
+                        borderRadius: '8px',
+                        color: 'white',
+                        fontSize: '14px',
+                        fontWeight: '600',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      Done
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <div style={{ fontSize: '48px', marginBottom: '16px', color: '#22c55e' }}>✓</div>
+                    <div style={{ fontSize: '16px', fontWeight: 600, color: textColor, marginBottom: '8px' }}>
+                      Connected as {resultEmail || 'your account'}
+                    </div>
+                    <div style={{ fontSize: '12px', color: mutedColor, marginBottom: '20px' }}>Closing in 3 seconds...</div>
+                    <button
+                      type="button"
+                      onClick={handleDone}
+                      style={{
+                        padding: '12px 24px',
+                        background: 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)',
+                        border: 'none',
+                        borderRadius: '8px',
+                        color: 'white',
+                        fontSize: '14px',
+                        fontWeight: '600',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      Done
+                    </button>
+                  </>
+                )
               ) : (
                 <>
                   <div style={{ fontSize: '48px', marginBottom: '16px', color: '#dc2626' }}>✗</div>
                   <div style={{ fontSize: '16px', fontWeight: 600, color: textColor, marginBottom: '8px' }}>Connection failed</div>
-                  <div style={{ fontSize: '12px', color: mutedColor, marginBottom: '20px', maxHeight: '80px', overflowY: 'auto' }}>{resultError}</div>
+                  <div style={{ fontSize: '12px', color: mutedColor, marginBottom: '20px', maxHeight: '220px', overflowY: 'auto', lineHeight: 1.45 }}>
+                    <p style={{ margin: 0 }}>
+                      {resultError ? `Connection failed: ${resultError}` : 'Connection failed: Unknown error'}
+                    </p>
+                    {resultDebug && (
+                      <details
+                        style={{
+                          marginTop: '12px',
+                          textAlign: 'left',
+                          borderRadius: '6px',
+                          border: `1px solid ${borderColor}`,
+                          padding: '8px 10px',
+                          backgroundColor: isPro ? 'rgba(15,23,42,0.04)' : 'rgba(255,255,255,0.04)',
+                        }}
+                      >
+                        <summary
+                          style={{
+                            cursor: 'pointer',
+                            fontSize: '12px',
+                            color: mutedColor,
+                            userSelect: 'none',
+                            listStyle: 'none',
+                          }}
+                        >
+                          Technical details (Google / HTTP)
+                        </summary>
+                        <div
+                          style={{
+                            marginTop: '10px',
+                            padding: '8px',
+                            backgroundColor: isPro ? 'rgba(15,23,42,0.06)' : 'rgba(255,255,255,0.05)',
+                            borderRadius: '6px',
+                            fontFamily: 'monospace',
+                            fontSize: '11px',
+                            color: isPro ? '#475569' : '#aaa',
+                            maxHeight: '150px',
+                            overflowY: 'auto',
+                            wordBreak: 'break-all',
+                          }}
+                        >
+                          <div>
+                            <strong>Step:</strong> {resultDebug.step ?? '—'}
+                          </div>
+                          <div>
+                            <strong>HTTP Status:</strong>{' '}
+                            {resultDebug.httpStatus === null || resultDebug.httpStatus === undefined
+                              ? '—'
+                              : String(resultDebug.httpStatus)}
+                          </div>
+                          <div>
+                            <strong>Google Error:</strong> {resultDebug.googleError ?? '—'}
+                          </div>
+                          <div>
+                            <strong>Description:</strong> {resultDebug.googleErrorDescription ?? '—'}
+                          </div>
+                          {resultDebug.responseBody ? (
+                            <div>
+                              <strong>Response:</strong> {resultDebug.responseBody}
+                            </div>
+                          ) : null}
+                          {resultDebug.raw ? (
+                            <div>
+                              <strong>Raw:</strong> {resultDebug.raw}
+                            </div>
+                          ) : null}
+                        </div>
+                      </details>
+                    )}
+                  </div>
                   <div style={{ display: 'flex', gap: '8px', justifyContent: 'center', flexWrap: 'wrap' }}>
                     <button
                       onClick={handleTryAgain}
@@ -1406,6 +2716,129 @@ export function EmailConnectWizard({
         @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
       `}</style>
     </div>
+
+    {gmailOAuthDiagModalOpen && (
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="gmail-oauth-diag-title"
+        style={{
+          position: 'fixed',
+          inset: 0,
+          zIndex: 2147483652,
+          background: 'rgba(0,0,0,0.55)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: 16,
+        }}
+        onClick={(e) => {
+          if (e.target === e.currentTarget) setGmailOAuthDiagModalOpen(false)
+        }}
+      >
+        <div
+          style={{
+            width: 'min(440px, 96vw)',
+            maxHeight: '85vh',
+            overflow: 'hidden',
+            display: 'flex',
+            flexDirection: 'column',
+            background: isPro ? '#ffffff' : '#1e293b',
+            borderRadius: 12,
+            border: `1px solid ${borderColor}`,
+            boxShadow: '0 25px 50px rgba(0,0,0,0.45)',
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div
+            id="gmail-oauth-diag-title"
+            style={{
+              padding: '14px 16px',
+              fontSize: 15,
+              fontWeight: 700,
+              color: textColor,
+              borderBottom: `1px solid ${borderColor}`,
+            }}
+          >
+            Gmail OAuth runtime diagnostics
+          </div>
+          <div style={{ padding: 12, overflowY: 'auto', flex: 1 }}>
+            {gmailOAuthDiagLoading && (
+              <div style={{ fontSize: 12, color: mutedColor, marginBottom: 10 }}>Loading from main process…</div>
+            )}
+            {gmailOAuthDiagError && (
+              <div
+                style={{
+                  fontSize: 12,
+                  color: '#b91c1c',
+                  background: isPro ? '#fee2e2' : 'rgba(248,113,113,0.15)',
+                  padding: '8px 10px',
+                  borderRadius: 8,
+                  marginBottom: 10,
+                  lineHeight: 1.4,
+                }}
+              >
+                {gmailOAuthDiagError}
+              </div>
+            )}
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+              <tbody>
+                {(gmailOAuthDiagRows ?? formatGmailOAuthDiagnosticRows(null)).map((row) => (
+                  <tr key={row.key}>
+                    <td
+                      style={{
+                        verticalAlign: 'top',
+                        padding: '6px 8px 6px 0',
+                        color: mutedColor,
+                        fontWeight: 600,
+                        width: '42%',
+                        wordBreak: 'break-word',
+                      }}
+                    >
+                      {row.key}
+                    </td>
+                    <td
+                      style={{
+                        verticalAlign: 'top',
+                        padding: '6px 0',
+                        color: textColor,
+                        wordBreak: 'break-word',
+                        lineHeight: 1.35,
+                      }}
+                    >
+                      {row.value}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <div style={{ fontSize: 10, color: mutedColor, marginTop: 10, lineHeight: 1.4 }}>
+              Values update after a standard Connect Google attempt. Fingerprints only — no secrets or tokens.
+            </div>
+          </div>
+          <div style={{ padding: 12, borderTop: `1px solid ${borderColor}` }}>
+            <button
+              type="button"
+              onClick={() => setGmailOAuthDiagModalOpen(false)}
+              style={{
+                width: '100%',
+                padding: '10px',
+                fontSize: 13,
+                fontWeight: 600,
+                border: 'none',
+                borderRadius: 8,
+                cursor: 'pointer',
+                background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
+                color: 'white',
+              }}
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+    </>
   )
 }
 

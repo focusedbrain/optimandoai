@@ -107,4 +107,55 @@ describe('inboxClassificationReconcile', () => {
     expect(out.category).toBe('normal')
     expect(out.urgency).toBe(5)
   })
+
+  const beapWeight = { nativeBeap: true, depackagedEmail: false, handshakeLinked: false } as const
+  const hsWeight = { nativeBeap: false, depackagedEmail: false, handshakeLinked: true } as const
+  const plainWeight = { nativeBeap: false, depackagedEmail: true, handshakeLinked: false } as const
+
+  it('Native BEAP softens promotional pending_delete to pending_review', () => {
+    const out = reconcileInboxClassification(
+      {
+        category: 'urgent',
+        urgency: 10,
+        needsReply: true,
+        reason: 'Promotional offer without clear action required.',
+        summary: 'Marketing blast',
+      },
+      { subject: '50% off sale', body: 'Unsubscribe link below.' },
+      beapWeight
+    )
+    expect(out.category).toBe('pending_review')
+    expect(out.urgency).toBeGreaterThanOrEqual(4)
+  })
+
+  it('Handshake-linked bumps archive to pending_review when non-promotional', () => {
+    const out = reconcileInboxClassification(
+      {
+        category: 'archive',
+        urgency: 2,
+        needsReply: false,
+        reason: 'Reference newsletter digest.',
+        summary: 'Weekly roundup',
+      },
+      { subject: 'Digest', body: 'Here are the links.' },
+      hsWeight
+    )
+    expect(out.category).toBe('pending_review')
+    expect(out.urgency).toBeGreaterThanOrEqual(4)
+  })
+
+  it('Depackaged + promotional + archive becomes pending_review', () => {
+    const out = reconcileInboxClassification(
+      {
+        category: 'archive',
+        urgency: 2,
+        needsReply: false,
+        reason: 'Newsletter with special offer.',
+        summary: 'Promotional',
+      },
+      ctx,
+      plainWeight
+    )
+    expect(out.category).toBe('pending_review')
+  })
 })

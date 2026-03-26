@@ -394,7 +394,7 @@ export default function EmailMessageDetail({ message, selectedAttachmentId: sele
 
         {/* Attachments */}
         {hasAttachments && attachments.length > 0 && (
-          <div style={{ marginTop: 20 }} data-subfocus="attachment">
+          <div className="inbox-detail-attachments-block" data-subfocus="attachment">
             <div
               style={{
                 fontSize: 11,

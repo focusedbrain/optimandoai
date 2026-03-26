@@ -97,6 +97,12 @@ export interface BeapInboxViewProps {
   onAiQuery?: (query: string, messageId: string, attachmentId?: string) => void
 
   /**
+   * Called when the user selects or clears an attachment on the active message.
+   * Parent can keep inbox search / LLM routing scope in sync.
+   */
+  onAttachmentSelect?: (messageId: string, attachmentId: string | null) => void
+
+  /**
    * Called when user wants to switch to the Handshakes tab for cross-tab navigation.
    */
   onNavigateToHandshakesTab?: () => void
@@ -195,6 +201,7 @@ export const BeapInboxView = React.forwardRef<BeapInboxViewHandle, BeapInboxView
       onNavigateToWRGuard,
       onSetSearchContext,
       onAiQuery,
+      onAttachmentSelect,
       onNavigateToHandshakesTab,
       replyComposerConfig,
     },
@@ -371,6 +378,7 @@ export const BeapInboxView = React.forwardRef<BeapInboxViewHandle, BeapInboxView
                   theme={theme}
                   onSetSearchContext={handleSetSearchContext}
                   onAiQuery={onAiQuery}
+                  onAttachmentSelect={onAttachmentSelect}
                   onViewHandshake={handleViewHandshake}
                   replyComposerConfig={replyComposerConfig}
                 />

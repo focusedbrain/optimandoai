@@ -5,21 +5,24 @@
  * When message selected: right = 50/50 message + AI workspace.
  */
 
-import { useEffect, useCallback, useState, useRef } from 'react'
+import { useEffect, useCallback, useState, useRef, useMemo } from 'react'
 import EmailInboxToolbar from './EmailInboxToolbar'
+import { emailInboxSyncWindowSelectValue } from './EmailInboxSyncControls'
 import EmailMessageDetail from './EmailMessageDetail'
 import EmailComposeOverlay, { type DraftAttachment } from './EmailComposeOverlay'
 import BeapMessageImportZone from './BeapMessageImportZone'
 import { EmailProvidersSection } from '@ext/wrguard/components/EmailProvidersSection'
 import { ConnectEmailLaunchSource, useConnectEmailFlow } from '@ext/shared/email/connectEmailFlow'
+import { SyncFailureBanner } from './SyncFailureBanner'
 import { pickDefaultEmailAccountRowId } from '@ext/shared/email/pickDefaultAccountRow'
-import { useEmailInboxStore, type InboxMessage } from '../stores/useEmailInboxStore'
+import { useEmailInboxStore, activeEmailAccountIdsForSync, type InboxMessage } from '../stores/useEmailInboxStore'
 import { useDraftRefineStore } from '../stores/useDraftRefineStore'
 import type { NormalInboxAiResult } from '../types/inboxAi'
 import { useInboxPreloadQueue } from '../hooks/useInboxPreloadQueue'
 import { tryParsePartialAnalysis, tryParseAnalysis, type NormalInboxAiResultKey } from '../utils/parseInboxAiJson'
 import { reconcileAnalyzeTriage } from '../lib/inboxClassificationReconcile'
 import { InboxUrgencyMeter } from './InboxUrgencyMeter'
+import { InboxHandshakeNavIconButton } from './InboxHandshakeNavIcon'
 import '../components/handshakeViewTypes'
 
 // ── Relative date ──
@@ -38,6 +41,28 @@ function formatRelativeDate(isoString: string): string {
   if (diffH < 24) return `${diffH}h`
   if (diffD < 7) return `${diffD}d`
   return d.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit' }).replace(/\//g, '.')
+}
+
+/** AI preview line for list rows — aligns with Bulk (summary / reason / sort_reason). */
+function getMessageAiPreviewLine(msg: InboxMessage): string | null {
+  let text = ''
+  const raw = msg.ai_analysis_json
+  if (raw) {
+    const parsed = tryParseAnalysis(raw)
+    if (parsed) {
+      text = (parsed.summary || parsed.urgencyReason || '').trim()
+    } else {
+      try {
+        const o = JSON.parse(raw) as Record<string, unknown>
+        const s = o.summary ?? o.reason ?? o.urgencyReason
+        if (typeof s === 'string') text = s.trim()
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+  if (!text && msg.sort_reason) text = String(msg.sort_reason).trim()
+  return text || null
 }
 
 // ── InboxDetailAiPanel (right column: multi-section AI dashboard) ──
@@ -65,7 +90,8 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
   const [editedDraft, setEditedDraft] = useState('')
   const [attachments, setAttachments] = useState<DraftAttachment[]>([])
   const [actionChecked, setActionChecked] = useState<Record<number, boolean>>({})
-  const [analysisExpanded, setAnalysisExpanded] = useState(true)
+  const [draftSubFocused, setDraftSubFocused] = useState(false)
+  const [visibleSections, setVisibleSections] = useState<Set<string>>(() => new Set(['summary', 'draft', 'analysis']))
   const summaryRef = useRef<HTMLDivElement>(null)
   const draftRef = useRef<HTMLDivElement>(null)
   const draftTextareaRef = useRef<HTMLTextAreaElement>(null)
@@ -80,6 +106,8 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
   const draftRefineDisconnect = useDraftRefineStore((s) => s.disconnect)
   const draftRefineConnected = useDraftRefineStore((s) => s.connected)
   const draftRefineMessageId = useDraftRefineStore((s) => s.messageId)
+  /** One automatic aiDraftReply per message when analysis finishes with needsReply but no streamed draft. */
+  const draftFallbackAttemptedRef = useRef(false)
   const refinedDraftText = useDraftRefineStore((s) => s.refinedDraftText)
   const acceptRefinement = useDraftRefineStore((s) => s.acceptRefinement)
 
@@ -230,7 +258,9 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
     setDraft(null)
     setEditedDraft('')
     setActionChecked({})
-    setAnalysisExpanded(true)
+    setDraftSubFocused(false)
+    setVisibleSections(new Set(['summary', 'draft', 'analysis']))
+    draftFallbackAttemptedRef.current = false
     draftRefineDisconnect()
     runAnalysisStream()
     return () => {
@@ -251,10 +281,6 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
   useEffect(() => {
     onCollapsedChange?.(false)
   }, [onCollapsedChange])
-
-  const toggleAnalysisExpanded = useCallback(() => {
-    setAnalysisExpanded((prev) => !prev)
-  }, [])
 
   /** Connect to chat bar for draft refinement — on click or focus (FIX-ISSUE-5). */
   const handleDraftRefineConnect = useCallback(() => {
@@ -317,18 +343,29 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
         const summaryText = data!.summary!
         manualSummaryOverrideRef.current = { messageId, summary: summaryText }
         setAnalysis((prev) => {
-          const next = prev
-            ? { ...prev, summary: summaryText }
-            : {
-                needsReply: false,
-                needsReplyReason: '',
-                summary: summaryText,
-                urgencyScore: 5,
-                urgencyReason: '',
-                actionItems: [],
-                archiveRecommendation: 'keep',
-                archiveReason: '',
-              }
+          const next: NormalInboxAiResult =
+            prev === null
+              ? {
+                  needsReply: false,
+                  needsReplyReason: '',
+                  summary: summaryText,
+                  urgencyScore: 5,
+                  urgencyReason: '',
+                  actionItems: [],
+                  archiveRecommendation: 'keep',
+                  archiveReason: '',
+                }
+              : {
+                  needsReply: prev.needsReply,
+                  needsReplyReason: prev.needsReplyReason,
+                  summary: summaryText,
+                  urgencyScore: prev.urgencyScore,
+                  urgencyReason: prev.urgencyReason,
+                  actionItems: prev.actionItems,
+                  archiveRecommendation: prev.archiveRecommendation,
+                  archiveReason: prev.archiveReason,
+                  ...(prev.draftReply !== undefined ? { draftReply: prev.draftReply } : {}),
+                }
           useEmailInboxStore.getState().setAnalysisCache(messageId, next)
           return next
         })
@@ -372,6 +409,26 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
     draftRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
   }, [messageId])
 
+  /** If analyze stream ends with needsReply but no draftReply, fetch draft once via aiDraftReply. */
+  useEffect(() => {
+    if (!messageId || !visibleSections.has('draft')) return
+    if (analysisLoading || !analysis?.needsReply) return
+    if ((draft ?? '').trim() || draftLoading) return
+    if (editedDraft.trim()) return
+    if (draftFallbackAttemptedRef.current) return
+    draftFallbackAttemptedRef.current = true
+    void handleDraftReply()
+  }, [
+    messageId,
+    visibleSections,
+    analysisLoading,
+    analysis?.needsReply,
+    draft,
+    draftLoading,
+    editedDraft,
+    handleDraftReply,
+  ])
+
   const handleRegenerateDraft = useCallback(() => {
     handleDraftReply()
   }, [handleDraftReply])
@@ -379,8 +436,9 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
   const handleAddAttachment = useCallback(async () => {
     if (!window.emailInbox?.showOpenDialogForAttachments) return
     const res = await window.emailInbox.showOpenDialogForAttachments()
-    if (res?.ok && res?.data?.files?.length) {
-      setAttachments((prev) => [...prev, ...res.data.files])
+    const picked = res?.ok ? res.data?.files : undefined
+    if (picked?.length) {
+      setAttachments((prev) => [...prev, ...picked])
     }
   }, [])
 
@@ -429,25 +487,89 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
     setActionChecked((prev) => ({ ...prev, [idx]: !prev[idx] }))
   }, [])
 
+  const toggleSection = useCallback((section: string) => {
+    setVisibleSections((prev) => {
+      const next = new Set(prev)
+      if (next.has(section)) {
+        if (next.size > 1) {
+          next.delete(section)
+        }
+      } else {
+        next.add(section)
+      }
+      return next
+    })
+  }, [])
+
   const isDepackaged = message?.source_type === 'email_plain'
 
   return (
-    <div className="inbox-detail-ai-inner inbox-detail-ai-premium" data-has-draft={draft ? 'true' : undefined}>
-      <div className="inbox-detail-ai-advisory-banner">
-        AI suggestions — you decide what to do
-      </div>
-      <div className="inbox-detail-ai-actions">
-        <button type="button" onClick={handleSummarize} disabled={summarizeLoading || draftLoading}>
-          {summarizeLoading ? 'Summarizing…' : 'Summarize'}
+    <div className="inbox-detail-ai-inner inbox-detail-ai-premium" role="complementary" aria-label="AI email analysis">
+      <div className="inbox-detail-ai-action-bar">
+        <button
+          type="button"
+          className={`inbox-detail-ai-section-toggle${visibleSections.has('summary') ? ' inbox-detail-ai-section-toggle--active' : ''}`}
+          onClick={() => {
+            const willShow = !visibleSections.has('summary')
+            toggleSection('summary')
+            if (willShow && !(analysis?.summary ?? '').trim() && !summarizeLoading) {
+              void handleSummarize()
+            }
+          }}
+          aria-pressed={visibleSections.has('summary')}
+          aria-label="Toggle summary section"
+        >
+          <span className="inbox-detail-ai-section-toggle-check" aria-hidden>
+            {visibleSections.has('summary') ? '☑' : '☐'}
+          </span>
+          <span>Summary</span>
         </button>
-        <button type="button" onClick={handleDraftReply} disabled={analysisLoading || draftLoading}>
-          {draftLoading ? 'Generating…' : draft ? 'Regenerate' : 'Draft Reply'}
+        <button
+          type="button"
+          className={`inbox-detail-ai-section-toggle${visibleSections.has('draft') ? ' inbox-detail-ai-section-toggle--active' : ''}`}
+          onClick={() => {
+            const willShow = !visibleSections.has('draft')
+            toggleSection('draft')
+            if (willShow && !draft && !draftLoading) {
+              void handleDraftReply()
+            }
+          }}
+          aria-pressed={visibleSections.has('draft')}
+          aria-label="Toggle draft section"
+        >
+          <span className="inbox-detail-ai-section-toggle-check" aria-hidden>
+            {visibleSections.has('draft') ? '☑' : '☐'}
+          </span>
+          <span>Draft</span>
         </button>
-        {onDelete && messageId && (
-          <button type="button" className="inbox-detail-ai-btn-delete" onClick={handleDelete}>
-            Delete
+        <button
+          type="button"
+          className={`inbox-detail-ai-section-toggle${visibleSections.has('analysis') ? ' inbox-detail-ai-section-toggle--active' : ''}`}
+          onClick={() => {
+            const willShow = !visibleSections.has('analysis')
+            toggleSection('analysis')
+            if (willShow && !analysis && !analysisLoading) {
+              void runAnalysisStream()
+            }
+          }}
+          aria-pressed={visibleSections.has('analysis')}
+          aria-label="Toggle analysis section"
+        >
+          <span className="inbox-detail-ai-section-toggle-check" aria-hidden>
+            {visibleSections.has('analysis') ? '☑' : '☐'}
+          </span>
+          <span>Analysis</span>
+        </button>
+        {onDelete && messageId ? (
+          <button
+            type="button"
+            className="inbox-detail-ai-action-btn inbox-detail-ai-action-btn--danger inbox-detail-ai-action-bar-delete"
+            onClick={handleDelete}
+            aria-label="Delete email"
+          >
+            🗑️
           </button>
-        )}
+        ) : null}
       </div>
       <div className="inbox-detail-ai-scroll">
         {analysisError && (
@@ -457,20 +579,9 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
           </div>
         )}
 
-        {/* Collapsible analysis header */}
-        <div
-          className="ai-analysis-toggle"
-          onClick={toggleAnalysisExpanded}
-          role="button"
-          tabIndex={0}
-          onKeyDown={(e) => e.key === 'Enter' && toggleAnalysisExpanded()}
-        >
-          <span>Analysis</span>
-          <span>{analysisExpanded ? '▾' : '▸'}</span>
-        </div>
-
-        {/* Collapsible analysis body — toggles visibility via data-collapsed, panel width unchanged */}
-        <div className="ai-analysis-body" data-collapsed={!analysisExpanded}>
+        {visibleSections.has('analysis') && (
+          <div className="inbox-detail-ai-section inbox-detail-ai-section--tab-panel">
+            <div className="ai-analysis-body">
             {/* Response Needed */}
             <div className="inbox-detail-ai-row">
               <span className="inbox-detail-ai-row-label">Response Needed</span>
@@ -557,7 +668,14 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
                         : `Keep for now — ${analysis.archiveReason || '—'}`}
                     </span>
                     {analysis.archiveRecommendation === 'archive' && onArchive && (
-                      <button type="button" className="inbox-detail-ai-btn-primary inbox-detail-ai-archive-btn" onClick={handleArchive}>Archive</button>
+                      <button
+                        type="button"
+                        className="inbox-detail-ai-btn-primary inbox-detail-ai-archive-btn"
+                        aria-label="Archive email"
+                        onClick={handleArchive}
+                      >
+                        Archive
+                      </button>
                     )}
                   </>
                 ) : (
@@ -565,46 +683,104 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
                 )}
               </div>
             </div>
-        </div>
-
-        {/* Draft Reply — always below, outside collapsible; fills height when draft exists */}
-        <div
-          className={`inbox-detail-ai-row inbox-detail-ai-row-draft${draft ? ' ai-draft-expanded' : ''}${draftRefineConnected && draftRefineMessageId === messageId ? ' ai-draft-connected' : ''}`}
-          ref={draftRef}
-          style={draft ? { flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' } : undefined}
-        >
-          <div className="ai-section-draft-header">
-            <span className="inbox-detail-ai-row-label">{draft ? 'DRAFT REPLY' : 'Draft Reply'}</span>
-            {draft && (
-              <span className="ai-draft-connect-hint">click to refine with AI ↑</span>
-            )}
+            </div>
           </div>
-          <div className="inbox-detail-ai-row-value" style={draft ? { flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' } : undefined}>
-            {draftLoading ? (
-              <span className="inbox-detail-ai-skeleton-inline" style={{ width: '90%', height: 48 }} />
-            ) : draft ? (
-              <>
-                {draftRefineConnected && draftRefineMessageId === messageId && (
-                  <span className="ai-draft-connect-hint" style={{ marginBottom: 4 }}>Connected to chat ↑ — type instructions to refine</span>
+        )}
+
+        {visibleSections.has('summary') && !visibleSections.has('analysis') && (
+          <div className="inbox-detail-ai-section inbox-detail-ai-section--tab-panel">
+            <div className="inbox-detail-ai-section-heading">SUMMARY</div>
+            <div className="inbox-detail-ai-section-body" ref={summaryRef}>
+              {summarizeLoading ? (
+                <span className="inbox-detail-ai-skeleton-inline" style={{ width: '80%' }} aria-busy="true" />
+              ) : analysisLoading && !receivedFields.has('summary') ? (
+                <span className="inbox-detail-ai-skeleton-inline" style={{ width: '80%' }} />
+              ) : (analysis?.summary ?? '').trim() ? (
+                <span className="inbox-detail-ai-text">{analysis?.summary}</span>
+              ) : (
+                <span className="inbox-detail-ai-muted">Use the Summary checkbox to generate…</span>
+              )}
+            </div>
+            <div className="inbox-detail-ai-row">
+              <span className="inbox-detail-ai-row-label">Urgency</span>
+              <div className="inbox-detail-ai-row-value">
+                {analysisLoading && !receivedFields.has('urgencyScore') ? (
+                  <span className="inbox-detail-ai-skeleton-inline" />
+                ) : analysis ? (
+                  <InboxUrgencyMeter
+                    score={analysis.urgencyScore}
+                    variant="panel"
+                    reason={analysis.urgencyReason || '—'}
+                  />
+                ) : (
+                  <span className="inbox-detail-ai-muted">—</span>
                 )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {visibleSections.has('draft') && (
+          <div className="inbox-detail-ai-section inbox-detail-ai-section--tab-panel">
+            <div
+              className={`inbox-detail-ai-row inbox-detail-ai-row-draft ai-draft-expanded${
+                draftRefineConnected && draftRefineMessageId === messageId ? ' ai-draft-connected' : ''
+              }`}
+              ref={draftRef}
+            >
+              <div className="ai-section-draft-header">
+                {draft && draftSubFocused ? (
+                  <span
+                    className="bulk-action-card-draft-subfocus-indicator"
+                    title="Draft selected — chat scoped to this draft"
+                    aria-hidden
+                  >
+                    ✏️
+                  </span>
+                ) : null}
+                <span className="inbox-detail-ai-row-label">{draft ? 'DRAFT REPLY' : 'Draft Reply'}</span>
+                {draft ? <span className="ai-draft-connect-hint">click to refine with AI ↑</span> : null}
+              </div>
+              <div className="inbox-detail-ai-row-value">
                 {draftError && (
                   <div className="inbox-detail-ai-error-banner">
                     <span>Draft generation failed.</span>
-                    <button type="button" onClick={handleRetryDraft}>Retry</button>
+                    <button type="button" onClick={handleRetryDraft}>
+                      Retry
+                    </button>
                   </div>
+                )}
+                {draftRefineConnected && draftRefineMessageId === messageId && (
+                  <span className="ai-draft-connect-hint" style={{ marginBottom: 4 }}>
+                    Connected to chat ↑ — type instructions to refine
+                  </span>
                 )}
                 <textarea
                   ref={draftTextareaRef}
-                  value={editedDraft || draft}
+                  value={editedDraft || draft || ''}
                   onChange={(e) => setEditedDraft(e.target.value)}
                   onClick={handleDraftRefineConnect}
                   onFocus={() => {
+                    setDraftSubFocused(true)
                     useEmailInboxStore.getState().setEditingDraftForMessageId(messageId)
                     handleDraftRefineConnect()
                   }}
-                  onBlur={() => useEmailInboxStore.getState().setEditingDraftForMessageId(null)}
+                  onBlur={() => {
+                    setDraftSubFocused(false)
+                    useEmailInboxStore.getState().setEditingDraftForMessageId(null)
+                  }}
                   className="inbox-detail-ai-draft-textarea"
-                  placeholder="Edit draft before sending…"
+                  readOnly={draftLoading}
+                  aria-busy={draftLoading}
+                  placeholder={
+                    draftLoading
+                      ? 'Draft will be generated…'
+                      : analysisLoading
+                        ? 'Draft will be generated when analysis finishes…'
+                        : analysis?.needsReply
+                          ? 'Edit draft before sending…'
+                          : 'Optional reply — no response required for this message.'
+                  }
                 />
                 {refinedDraftText && draftRefineConnected && draftRefineMessageId === messageId && (
                   <div className="inbox-detail-ai-refined-preview">
@@ -629,30 +805,49 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
                       <div key={i} className="attachment-chip">
                         <span>{a.name}</span>
                         <span className="attachment-size">{Math.round(a.size / 1024)}KB</span>
-                        <button type="button" onClick={() => removeAttachment(i)} aria-label="Remove attachment">✕</button>
+                        <button type="button" onClick={() => removeAttachment(i)} aria-label="Remove attachment">
+                          ✕
+                        </button>
                       </div>
                     ))}
                   </div>
                 )}
-                <div className="inbox-detail-ai-draft-actions">
-                  {isDepackaged && (
-                    <button type="button" className="inbox-detail-ai-btn-attach" onClick={handleAddAttachment} title="Add attachment">
-                      📎 Attach
+                <div className="bulk-draft-actions-toolbar-wrap inbox-detail-ai-draft-actions">
+                  <div className="bulk-draft-actions-toolbar">
+                    {isDepackaged && (
+                      <button
+                        type="button"
+                        className="bulk-action-card-btn bulk-action-card-btn--secondary"
+                        onClick={handleAddAttachment}
+                        title="Add attachment"
+                      >
+                        📎 Attach
+                      </button>
+                    )}
+                    {message && onSendDraft && !draftError && (
+                      <button
+                        type="button"
+                        className="bulk-action-card-btn bulk-action-card-btn--primary bulk-action-card-btn--primary-emphasis"
+                        onClick={handleSend}
+                        disabled={sending || !(editedDraft || draft)?.trim()}
+                      >
+                        {sending ? 'Sending...' : isDepackaged ? 'Send via Email' : 'Send via BEAP'}
+                      </button>
+                    )}
+                    {onArchive && messageId ? (
+                      <button type="button" className="bulk-action-card-btn bulk-action-card-btn--secondary" onClick={handleArchive}>
+                        Archive
+                      </button>
+                    ) : null}
+                    <button type="button" className="bulk-action-card-btn bulk-action-card-btn--secondary" onClick={handleRegenerateDraft}>
+                      Regenerate
                     </button>
-                  )}
-                  <button type="button" className="inbox-detail-ai-btn-secondary" onClick={handleRegenerateDraft}>Regenerate</button>
-                  {message && onSendDraft && !draftError && (
-                    <button type="button" className="inbox-detail-ai-btn-primary" onClick={handleSend} disabled={sending}>
-                      {sending ? 'Sending...' : isDepackaged ? 'Send via Email' : 'Send via BEAP'}
-                    </button>
-                  )}
+                  </div>
                 </div>
-              </>
-            ) : (
-              <span className="inbox-detail-ai-muted">{analysis?.needsReply ? 'Draft will appear with analysis…' : 'Click &quot;Draft Reply&quot; to generate.'}</span>
-            )}
+              </div>
+            </div>
           </div>
-        </div>
+        )}
       </div>
     </div>
   )
@@ -668,6 +863,7 @@ interface InboxMessageRowProps {
   onSelect: () => void
   onToggleMultiSelect: () => void
   onMouseEnter?: () => void
+  onNavigateToHandshake?: (handshakeId: string) => void
 }
 
 function InboxMessageRow({
@@ -678,6 +874,7 @@ function InboxMessageRow({
   onSelect,
   onToggleMultiSelect,
   onMouseEnter,
+  onNavigateToHandshake,
 }: InboxMessageRowProps) {
   const isBeap = message.source_type === 'email_beap' || message.source_type === 'direct_beap'
   const bodyPreview = (message.body_text || '').slice(0, 100).replace(/\s+/g, ' ').trim()
@@ -753,19 +950,31 @@ function InboxMessageRow({
       </div>
 
       <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, minWidth: 0 }}>
-          <span
-            style={{
-              fontSize: 12,
-              fontWeight: message.read_status === 0 ? 700 : 500,
-              color: 'var(--color-text, #e2e8f0)',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            {message.from_name || message.from_address || '—'}
-          </span>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8, minWidth: 0 }}>
+          {onNavigateToHandshake ? (
+            <InboxHandshakeNavIconButton message={message} onNavigateToHandshake={onNavigateToHandshake} />
+          ) : null}
+          <div className="msg-sender" style={{ minWidth: 0, flex: 1 }}>
+            <span
+              className="msg-sender-name"
+              style={{
+                fontSize: 12,
+                fontWeight: message.read_status === 0 ? 700 : 500,
+                color: 'var(--color-text, #e2e8f0)',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+                display: 'block',
+              }}
+            >
+              {message.from_name || message.from_address || '—'}
+              {message.from_address &&
+                message.from_name &&
+                message.from_name.trim() !== message.from_address.trim() && (
+                  <span style={{ color: '#888', marginLeft: 6, fontSize: '0.9em' }}>{message.from_address}</span>
+                )}
+            </span>
+          </div>
           <span
             style={{
               flexShrink: 0,
@@ -788,6 +997,19 @@ function InboxMessageRow({
         >
           {message.subject || '(No subject)'}
         </div>
+        {(() => {
+          const preview = getMessageAiPreviewLine(message)
+          if (!preview) return null
+          return (
+            <div
+              className="bulk-view-message-preview-line"
+              style={{ fontStyle: 'italic', fontSize: '0.85em', opacity: 0.7, marginTop: 2 }}
+            >
+              {preview.slice(0, 120)}
+              {preview.length > 120 ? '…' : ''}
+            </div>
+          )
+        })()}
         {bodyPreview && (
           <div
             style={{
@@ -821,19 +1043,6 @@ function InboxMessageRow({
               {message.sort_category}
             </span>
           )}
-          {message.handshake_id && (
-            <span
-              style={{
-                fontSize: 9,
-                padding: '2px 6px',
-                borderRadius: 4,
-                background: 'var(--purple-accent-muted, rgba(147,51,234,0.2))',
-                color: 'var(--purple-accent, #9333ea)',
-              }}
-            >
-              🤝
-            </span>
-          )}
         </div>
       </div>
     </div>
@@ -843,29 +1052,36 @@ function InboxMessageRow({
 // ── Main component ──
 
 export interface EmailInboxViewProps {
-  accounts: Array<{ id: string; email: string; status?: string }>
+  accounts: Array<{ id: string; email: string; status?: string; processingPaused?: boolean }>
+  /** Refresh app-level account list after pause/resume so sync targets stay in sync. */
+  onEmailAccountsChanged?: () => void
   selectedMessageId?: string | null
   onSelectMessage?: (messageId: string | null) => void
   selectedAttachmentId?: string | null
   onSelectAttachment?: (attachmentId: string | null) => void
+  onNavigateToHandshake?: (handshakeId: string) => void
 }
 
 export default function EmailInboxView({
   accounts,
+  onEmailAccountsChanged,
   selectedMessageId: selectedMessageIdProp,
   onSelectMessage,
   selectedAttachmentId: selectedAttachmentIdProp,
   onSelectAttachment,
+  onNavigateToHandshake,
 }: EmailInboxViewProps) {
   const {
     messages,
     total,
     loading,
     error,
+    lastSyncWarnings,
     selectedMessageId,
     selectedMessage,
     selectedAttachmentId,
     filter,
+    tabCounts,
     bulkMode,
     multiSelectIds,
     analysisCache,
@@ -882,25 +1098,41 @@ export default function EmailInboxView({
     archiveMessages,
     deleteMessages,
     setCategory,
-    syncAccount,
-    toggleAutoSync,
-    loadSyncState,
+    syncAllAccounts,
+    toggleAutoSyncForActiveAccounts,
+    refreshInboxSyncBackendState,
+    accountSyncWindowDays,
+    patchAccountSyncPreferences,
   } = useEmailInboxStore()
 
   const { prioritize } = useInboxPreloadQueue({ messages, analysisCache })
 
   const primaryAccountId = pickDefaultEmailAccountRowId(accounts)
+  const autoSyncEligibleAccountIds = useMemo(() => activeEmailAccountIdsForSync(accounts), [accounts])
 
   useEffect(() => {
-    if (primaryAccountId) loadSyncState(primaryAccountId)
-  }, [primaryAccountId, loadSyncState])
+    void refreshInboxSyncBackendState({
+      syncTargetIds: autoSyncEligibleAccountIds,
+      primaryAccountId: primaryAccountId ?? null,
+    })
+  }, [autoSyncEligibleAccountIds, primaryAccountId, refreshInboxSyncBackendState])
 
   useEffect(() => {
     setAiPanelCollapsed(false)
   }, [selectedMessageId])
 
   // Provider/account state for no-selection workspace
-  const [providerAccounts, setProviderAccounts] = useState<Array<{ id: string; displayName: string; email: string; provider: 'gmail' | 'microsoft365' | 'imap'; status: 'active' | 'error' | 'disabled'; lastError?: string }>>([])
+  const [providerAccounts, setProviderAccounts] = useState<
+    Array<{
+      id: string
+      displayName: string
+      email: string
+      provider: 'gmail' | 'microsoft365' | 'zoho' | 'imap'
+      status: 'active' | 'auth_error' | 'error' | 'disabled'
+      processingPaused?: boolean
+      lastError?: string
+    }>
+  >([])
   const [isLoadingProviderAccounts, setIsLoadingProviderAccounts] = useState(true)
   const [selectedProviderAccountId, setSelectedProviderAccountId] = useState<string | null>(null)
   const [showEmailCompose, setShowEmailCompose] = useState(false)
@@ -918,15 +1150,45 @@ export default function EmailInboxView({
     try {
       const res = await window.emailAccounts.listAccounts()
       if (res?.ok && res?.data) {
-        const data = res.data as Array<{ id: string; displayName?: string; email: string; provider?: string; status?: string; lastError?: string }>
-        setProviderAccounts(data.map((a) => ({
-          id: a.id,
-          displayName: a.displayName ?? a.email,
-          email: a.email,
-          provider: (a.provider === 'gmail' ? 'gmail' : a.provider === 'microsoft365' ? 'microsoft365' : 'imap') as 'gmail' | 'microsoft365' | 'imap',
-          status: (a.status === 'active' ? 'active' : a.status === 'error' ? 'error' : 'disabled') as 'active' | 'error' | 'disabled',
-          lastError: a.lastError,
-        })))
+        const data = res.data as Array<{
+          id: string
+          displayName?: string
+          email: string
+          provider?: string
+          status?: string
+          processingPaused?: boolean
+          lastError?: string
+        }>
+        setProviderAccounts(
+          data.map((a) => {
+            const p = a.provider
+            const provider: 'gmail' | 'microsoft365' | 'zoho' | 'imap' =
+              p === 'gmail'
+                ? 'gmail'
+                : p === 'microsoft365'
+                  ? 'microsoft365'
+                  : p === 'zoho'
+                    ? 'zoho'
+                    : 'imap'
+            const status: 'active' | 'auth_error' | 'error' | 'disabled' =
+              a.status === 'active'
+                ? 'active'
+                : a.status === 'auth_error'
+                  ? 'auth_error'
+                  : a.status === 'error'
+                    ? 'error'
+                    : 'disabled'
+            return {
+              id: a.id,
+              displayName: a.displayName ?? a.email,
+              email: a.email,
+              provider,
+              status,
+              processingPaused: a.processingPaused === true,
+              lastError: a.lastError,
+            }
+          }),
+        )
         setSelectedProviderAccountId((prev) => {
           if (prev && data.some((a: { id: string }) => a.id === prev)) return prev
           const pick = pickDefaultEmailAccountRowId(
@@ -953,27 +1215,99 @@ export default function EmailInboxView({
     return () => unsub?.()
   }, [loadProviderAccounts])
 
+  const handleAfterEmailConnected = useCallback(async () => {
+    await loadProviderAccounts()
+    useEmailInboxStore.getState().clearLastSyncWarnings()
+    useEmailInboxStore.getState().clearRemoteSyncLog()
+  }, [loadProviderAccounts])
+
   const { openConnectEmail, connectEmailFlowModal } = useConnectEmailFlow({
-    onAfterConnected: loadProviderAccounts,
+    onAfterConnected: handleAfterEmailConnected,
     theme: 'dark',
   })
+
+  useEffect(() => {
+    const unsub = window.emailAccounts?.onCredentialError?.((p) => {
+      void loadProviderAccounts()
+      if (p.provider === 'imap') {
+        const open = window.confirm(`${p.message}\n\nOpen credential update for this account?`)
+        if (open) {
+          openConnectEmail(ConnectEmailLaunchSource.Inbox, { reconnectAccountId: p.accountId })
+        }
+      }
+    })
+    return () => unsub?.()
+  }, [loadProviderAccounts, openConnectEmail])
 
   const handleConnectEmail = useCallback(
     () => openConnectEmail(ConnectEmailLaunchSource.Inbox),
     [openConnectEmail],
   )
+
+  const handleUpdateImapCredentials = useCallback(
+    (accountId: string) => {
+      openConnectEmail(ConnectEmailLaunchSource.Inbox, { reconnectAccountId: accountId })
+    },
+    [openConnectEmail],
+  )
+
+  const imapProbeDoneRef = useRef(false)
+  useEffect(() => {
+    if (isLoadingProviderAccounts || imapProbeDoneRef.current) return
+    if (!providerAccounts.some((a) => a.provider === 'imap')) return
+    imapProbeDoneRef.current = true
+    let cancelled = false
+    ;(async () => {
+      for (const acc of providerAccounts) {
+        if (acc.provider !== 'imap') continue
+        try {
+          const r = await window.emailAccounts?.testConnection?.(acc.id)
+          if (cancelled) return
+          if (r?.ok && r.data && !r.data.success) {
+            await loadProviderAccounts()
+            break
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [isLoadingProviderAccounts, providerAccounts, loadProviderAccounts])
   const handleDisconnectEmail = useCallback(
     async (id: string) => {
       try {
         if (typeof window.emailAccounts?.deleteAccount === 'function') {
           await window.emailAccounts.deleteAccount(id)
           loadProviderAccounts()
+          onEmailAccountsChanged?.()
         }
       } catch {
         /* ignore */
       }
     },
-    [loadProviderAccounts]
+    [loadProviderAccounts, onEmailAccountsChanged],
+  )
+
+  const handleSetProcessingPaused = useCallback(
+    async (id: string, paused: boolean) => {
+      if (typeof window.emailAccounts?.setProcessingPaused !== 'function') return
+      setProviderAccounts((rows) =>
+        rows.map((a) => (a.id === id ? { ...a, processingPaused: paused } : a)),
+      )
+      try {
+        const res = await window.emailAccounts.setProcessingPaused(id, paused)
+        if (!res?.ok) throw new Error((res as { error?: string })?.error || 'Failed')
+        await loadProviderAccounts()
+        onEmailAccountsChanged?.()
+      } catch {
+        await loadProviderAccounts()
+        onEmailAccountsChanged?.()
+      }
+    },
+    [loadProviderAccounts, onEmailAccountsChanged],
   )
 
   // Sync App-level selection to store when props change
@@ -982,6 +1316,19 @@ export default function EmailInboxView({
       selectMessage(selectedMessageIdProp)
     }
   }, [selectedMessageIdProp, selectedMessageId, selectMessage])
+
+  /**
+   * Normal inbox loads a single page (`messages`). After sync / Pull / onNewMessages / filter, the
+   * visible list can omit the current `selectedMessageId` while `selectedMessage` from `getMessage`
+   * still fills the detail pane — no row matches `selected`. Clear focus (store + App) when the id
+   * is absent from the visible page.
+   */
+  useEffect(() => {
+    if (!selectedMessageId || loading) return
+    if (messages.some((m) => m.id === selectedMessageId)) return
+    void selectMessage(null)
+    onSelectMessage?.(null)
+  }, [messages, selectedMessageId, loading, selectMessage, onSelectMessage])
 
   useEffect(() => {
     if (selectedAttachmentIdProp !== undefined && selectedAttachmentIdProp !== selectedAttachmentId) {
@@ -1007,9 +1354,97 @@ export default function EmailInboxView({
   )
   const selectedCount = multiSelectIds.size
 
-  const handleSync = useCallback(() => {
-    if (primaryAccountId) syncAccount(primaryAccountId)
-  }, [primaryAccountId, syncAccount])
+  const handleSyncWindowChange = useCallback(
+    async (days: number) => {
+      if (!primaryAccountId || !window.emailInbox?.patchAccountSyncPreferences) return
+      if (days === 0) {
+        const ok = window.confirm('Syncing all messages may take a long time. Continue?')
+        if (!ok) return
+      }
+      await patchAccountSyncPreferences(primaryAccountId, { syncWindowDays: days })
+    },
+    [primaryAccountId, patchAccountSyncPreferences],
+  )
+
+  const handleToggleAutoSyncAll = useCallback(
+    (enabled: boolean) => {
+      if (autoSyncEligibleAccountIds.length === 0) return
+      void toggleAutoSyncForActiveAccounts(enabled, autoSyncEligibleAccountIds, primaryAccountId ?? null)
+    },
+    [autoSyncEligibleAccountIds, primaryAccountId, toggleAutoSyncForActiveAccounts],
+  )
+
+  const [remoteSyncBusy, setRemoteSyncBusy] = useState(false)
+
+  /** Same as Bulk Inbox: full remote reconcile after pull when any OAuth account exists. */
+  const enqueueFullRemoteSync = useCallback(async (): Promise<void> => {
+    const fn = window.emailInbox?.fullRemoteSyncAllAccounts
+    if (!fn) {
+      console.warn('[Inbox] fullRemoteSyncAllAccounts not available (update app)')
+      useEmailInboxStore.getState().addRemoteSyncLog('Sync: remote reconcile not available — update WR Desk')
+      return
+    }
+    setRemoteSyncBusy(true)
+    try {
+      const r = await fn()
+      if (r?.ok) {
+        console.log(
+          '[Inbox] Sync Remote enqueued:',
+          `accounts=${r.accountCount ?? '?'} enqueued=${r.enqueued ?? 0} skipped=${r.skipped ?? 0}`,
+        )
+        useEmailInboxStore.getState().addRemoteSyncLog(
+          `Sync Remote: ${r.enqueued ?? 0} enqueued, ${r.skipped ?? 0} skipped` +
+            (typeof r.unmirroredEnqueued === 'number' && r.unmirroredEnqueued > 0
+              ? ` (${r.unmirroredEnqueued} backfill unmirrored)`
+              : '') +
+            (typeof r.orphanPendingCleared === 'number' && r.orphanPendingCleared > 0
+              ? `, ${r.orphanPendingCleared} orphan queue row(s) cleared`
+              : '') +
+            ' — background drain until empty (see 🔧 Debug for pending)',
+        )
+      } else {
+        console.warn('[Inbox] Sync Remote:', r?.error)
+        useEmailInboxStore.getState().addRemoteSyncLog(`Sync Remote failed: ${r?.error ?? 'unknown'}`)
+      }
+    } catch (e) {
+      console.warn('[Inbox] Sync Remote failed:', e)
+      useEmailInboxStore.getState().addRemoteSyncLog(
+        `Sync Remote error: ${e instanceof Error ? e.message : String(e)}`,
+      )
+    } finally {
+      setRemoteSyncBusy(false)
+    }
+  }, [])
+
+  /** Matches Bulk Inbox toolbar: pull then enqueue remote when not IMAP-only. */
+  const handleUnifiedSync = useCallback(async () => {
+    const ids = activeEmailAccountIdsForSync(accounts)
+    const toSync = ids.length > 0 ? ids : primaryAccountId ? [primaryAccountId] : []
+    if (toSync.length === 0) return
+    await syncAllAccounts(toSync)
+    let shouldEnqueueRemote = true
+    if (typeof window.emailAccounts?.listAccounts === 'function') {
+      try {
+        const res = await window.emailAccounts.listAccounts()
+        if (res?.ok && res.data && res.data.length > 0) {
+          const allImap = res.data.every((a: { provider?: string }) => {
+            const p = a.provider
+            return p !== 'gmail' && p !== 'microsoft365' && p !== 'zoho'
+          })
+          if (allImap) shouldEnqueueRemote = false
+        }
+      } catch {
+        /* keep shouldEnqueueRemote true */
+      }
+    }
+    if (shouldEnqueueRemote) await enqueueFullRemoteSync()
+  }, [accounts, primaryAccountId, syncAllAccounts, enqueueFullRemoteSync])
+
+  /** True when every listed account is IMAP — unified Sync runs pull only (matches Bulk Inbox). */
+  const inboxToolbarPullOnly = useMemo(
+    () => providerAccounts.length > 0 && providerAccounts.every((a) => a.provider === 'imap'),
+    [providerAccounts],
+  )
 
   const handleBulkDelete = useCallback(() => {
     const ids = Array.from(multiSelectIds)
@@ -1038,11 +1473,62 @@ export default function EmailInboxView({
   }, [fetchMessages])
 
   useEffect(() => {
-    const unsub = window.emailInbox?.onNewMessages?.(() => {
-      fetchMessages()
+    const add = useEmailInboxStore.getState().addRemoteSyncLog
+    const unsubDrain = window.emailInbox?.onDrainProgress?.((raw) => {
+      const p = raw as {
+        processed?: number
+        pending?: number
+        failed?: number
+        deferred?: number
+        phase?: string
+        batchSize?: number
+        batchMoved?: number
+        batchSkipped?: number
+        batchErrors?: number
+        batchImapDeferred?: number
+      }
+      if (p.phase === 'simple_processing') {
+        add(`Drain batch: starting up to ${p.batchSize ?? 0} row(s)…`)
+        return
+      }
+      if (p.phase === 'simple_idle' && p.batchSize != null) {
+        const moved = p.batchMoved ?? 0
+        const skipped = p.batchSkipped ?? 0
+        const errors = p.batchErrors ?? p.failed ?? 0
+        const imapDef = p.batchImapDeferred ?? 0
+        const tail = imapDef > 0 ? `, ${imapDef} deferred (IMAP ping)` : ''
+        add(
+          `Drain: ${p.batchSize} processed (${moved} moved, ${skipped} skipped, ${errors} errors${tail}) | ${p.pending ?? 0} pending`,
+        )
+        return
+      }
+      add(
+        `Drain: processed=${p.processed ?? 0} pending=${p.pending ?? 0} failed=${p.failed ?? 0} deferred(pull)=${p.deferred ?? 0}`,
+      )
     })
-    return () => unsub?.()
-  }, [fetchMessages])
+    const unsubRow = window.emailInbox?.onSimpleDrainRow?.((raw) => {
+      const r = raw as {
+        status?: string
+        op?: string
+        msgId?: string
+        dest?: string
+        error?: string
+      }
+      const op = r.op ?? '?'
+      const msg = String(r.msgId ?? '').slice(0, 8)
+      if (r.status === 'moved') {
+        add(`MOVED: ${op} → ${r.dest ?? '?'} (msg ${msg})`)
+      } else if (r.status === 'skipped') {
+        add(`SKIPPED: ${op} → ${r.dest ?? '?'} (msg ${msg})`)
+      } else if (r.status === 'error') {
+        add(`ERROR: ${op} — ${r.error ?? '?'} (msg ${msg})`)
+      }
+    })
+    return () => {
+      unsubDrain?.()
+      unsubRow?.()
+    }
+  }, [])
 
   const handleComposeClick = useCallback((fn: () => void) => {
     const now = Date.now()
@@ -1149,7 +1635,11 @@ export default function EmailInboxView({
       style={{
         display: 'grid',
         gridTemplateColumns: gridCols,
-        height: '100%',
+        gridTemplateRows: 'minmax(0, 1fr)',
+        flex: 1,
+        minHeight: 0,
+        width: '100%',
+        minWidth: 0,
         overflow: 'hidden',
         background: 'var(--color-bg, #0f172a)',
         color: 'var(--color-text, #e2e8f0)',
@@ -1205,12 +1695,26 @@ export default function EmailInboxView({
       >
         <EmailInboxToolbar
           filter={filter}
+          tabCounts={{
+            all: tabCounts.all ?? 0,
+            urgent: tabCounts.urgent ?? 0,
+            pending_delete: tabCounts.pending_delete ?? 0,
+            pending_review: tabCounts.pending_review ?? 0,
+            archived: tabCounts.archived ?? 0,
+          }}
+          messageKind={filter.messageKind}
+          onMessageKindChange={(kind) => setFilter({ messageKind: kind, sourceType: 'all' })}
           onFilterChange={(partial) => setFilter(partial)}
           accounts={accounts}
           autoSyncEnabled={autoSyncEnabled}
           syncing={syncing}
-          onSync={handleSync}
-          onToggleAutoSync={toggleAutoSync}
+          remoteSyncBusy={remoteSyncBusy}
+          onUnifiedSync={() => void handleUnifiedSync()}
+          accountSyncWindowDays={accountSyncWindowDays}
+          onSyncWindowChange={handleSyncWindowChange}
+          autoSyncEligibleAccountIds={autoSyncEligibleAccountIds}
+          onToggleAutoSync={handleToggleAutoSyncAll}
+          pullOnly={inboxToolbarPullOnly}
           bulkMode={bulkMode}
           onBulkModeChange={setBulkMode}
           selectedCount={selectedCount}
@@ -1229,6 +1733,15 @@ export default function EmailInboxView({
               : undefined
           }
         />
+
+        {lastSyncWarnings && lastSyncWarnings.length > 0 ? (
+          <SyncFailureBanner
+            warnings={lastSyncWarnings}
+            accounts={providerAccounts.map((a) => ({ id: a.id, email: a.email, provider: a.provider }))}
+            onUpdateCredentials={handleUpdateImapCredentials}
+            onRemoveAccount={handleDisconnectEmail}
+          />
+        ) : null}
 
         <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden' }}>
           {loading ? (
@@ -1279,6 +1792,7 @@ export default function EmailInboxView({
                 onSelect={() => handleSelectMessage(msg.id)}
                 onToggleMultiSelect={() => toggleMultiSelect(msg.id)}
                 onMouseEnter={() => prioritize(msg.id)}
+                onNavigateToHandshake={onNavigateToHandshake}
               />
             ))
           )}
@@ -1292,7 +1806,7 @@ export default function EmailInboxView({
             borderTop: '1px solid var(--color-border, rgba(255,255,255,0.08))',
           }}
         >
-          {total} message{total !== 1 ? 's' : ''}
+          {total} message(s) in this tab ({messages.length} loaded)
         </div>
       </div>
 
@@ -1319,8 +1833,57 @@ export default function EmailInboxView({
               selectedEmailAccountId={selectedProviderAccountId}
               onConnectEmail={handleConnectEmail}
               onDisconnectEmail={handleDisconnectEmail}
+              onSetProcessingPaused={handleSetProcessingPaused}
               onSelectEmailAccount={setSelectedProviderAccountId}
+              onUpdateImapCredentials={handleUpdateImapCredentials}
               />
+              {primaryAccountId && window.emailInbox?.patchAccountSyncPreferences && (
+                <div
+                  style={{
+                    padding: '12px 18px',
+                    borderTop: '1px solid rgba(15,23,42,0.08)',
+                    background: 'rgba(59,130,246,0.04)',
+                  }}
+                >
+                  <div style={{ fontSize: 11, fontWeight: 700, color: '#0f172a', marginBottom: 8 }}>Account sync</div>
+                  <label
+                    style={{
+                      display: 'flex',
+                      flexWrap: 'wrap',
+                      alignItems: 'center',
+                      gap: 8,
+                      fontSize: 12,
+                      color: '#0f172a',
+                    }}
+                  >
+                    <span style={{ fontWeight: 600, whiteSpace: 'nowrap' }}>Sync window</span>
+                    <select
+                      className="bulk-view-toolbar-sync-select"
+                      aria-label="Initial sync window"
+                      value={emailInboxSyncWindowSelectValue(accountSyncWindowDays)}
+                      onChange={(e) => {
+                        const v = parseInt(e.target.value, 10)
+                        if (!Number.isNaN(v)) void handleSyncWindowChange(v)
+                      }}
+                      style={{ fontSize: 12, padding: '6px 10px' }}
+                      title="How far back the first inbox pull reaches (same as Bulk Inbox toolbar)"
+                    >
+                      <option value={7}>7d</option>
+                      <option value={30}>30d</option>
+                      <option value={90}>90d</option>
+                      <option value={365}>1y</option>
+                    </select>
+                  </label>
+                  <div style={{ fontSize: 10, color: '#64748b', marginTop: 8, lineHeight: 1.45 }}>
+                    Editable after connecting. Only recent mail syncs initially; expand the sync window to include older mail.
+                    {accountSyncWindowDays === 0 ? (
+                      <span style={{ color: '#b45309', display: 'block', marginTop: 4 }}>
+                        Warning: syncing all mail may take a long time.
+                      </span>
+                    ) : null}
+                  </div>
+                </div>
+              )}
             </div>
             <div
               style={{
@@ -1370,7 +1933,10 @@ export default function EmailInboxView({
 
       {/* Right panel: 50/50 message + AI workspace (only when message selected) */}
       {selectedMessageId && (
-        <div className={`inbox-detail-workspace${aiPanelCollapsed ? ' inbox-detail-workspace--ai-collapsed' : ''}`}>
+        <div
+          className={`inbox-detail-workspace${aiPanelCollapsed ? ' inbox-detail-workspace--ai-collapsed' : ''}`}
+          style={{ minHeight: 0 }}
+        >
           <div className="inbox-detail-message">
             <EmailMessageDetail
               message={selectedMessage}

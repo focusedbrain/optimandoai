@@ -6,6 +6,17 @@
 import type { VerifiedContextBlock } from './contextEscaping'
 import type { NormalInboxAiResult, BulkClassification } from '../types/inboxAi'
 
+/** AutoSort session persistence / review (preload `window.autosortSession`). */
+export interface AutosortSessionAPI {
+  create: () => Promise<string | null>
+  finalize: (id: string, stats: any) => Promise<void>
+  generateSummary: (id: string) => Promise<unknown>
+  getSession: (id: string) => Promise<Record<string, unknown> | undefined>
+  listSessions: (limit?: number) => Promise<Record<string, unknown>[]>
+  deleteSession: (id: string) => Promise<void>
+  getSessionMessages: (id: string) => Promise<Record<string, unknown>[]>
+}
+
 declare global {
   interface Window {
     handshakeView?: {
@@ -71,6 +82,8 @@ declare global {
           email: string
           provider: string
           status: string
+          /** Present from gateway; false/absent = not paused */
+          processingPaused?: boolean
           lastError?: string
           capabilities?: {
             oauthBased: boolean
@@ -90,30 +103,221 @@ declare global {
         }>
         error?: string
       }>
-      sendEmail: (accountId: string, payload: { to: string[]; subject: string; bodyText: string }) => Promise<{ ok: boolean; data?: { success: boolean; messageId?: string }; error?: string }>
+      sendEmail: (
+        accountId: string,
+        payload: {
+          to: string[]
+          subject: string
+          bodyText: string
+          attachments?: { filename: string; mimeType: string; contentBase64: string }[]
+        },
+      ) => Promise<{ ok: boolean; data?: { success: boolean; messageId?: string }; error?: string }>
       validateImapLifecycleRemote?: (accountId: string) => Promise<
         | { ok: true; result: { ok: boolean; entries: Array<{ role: string; mailbox: string; exists: boolean; created?: boolean; error?: string }> } }
         | { ok: false; error: string }
       >
-      onAccountConnected?: (callback: (data: { provider: string; email: string }) => void | Promise<void>) => () => void
+      getAccount?: (accountId: string) => Promise<{ ok: boolean; data?: unknown; error?: string }>
+      setProcessingPaused?: (
+        accountId: string,
+        paused: boolean,
+      ) => Promise<{ ok: boolean; data?: unknown; error?: string }>
+      testConnection?: (accountId: string) => Promise<{ ok: boolean; data?: { success: boolean; error?: string }; error?: string }>
+      getImapReconnectHints?: (accountId: string) => Promise<{ ok: boolean; data?: Record<string, unknown> | null; error?: string }>
+      updateImapCredentials?: (
+        accountId: string,
+        creds: { imapPassword: string; smtpPassword?: string; smtpUseSameCredentials?: boolean },
+      ) => Promise<{ ok: boolean; data?: { success: boolean; error?: string }; error?: string }>
+      deleteAccount?: (accountId: string) => Promise<{ ok: boolean; error?: string }>
+      /** Clears inbox DB sync cursor so the next Pull runs a full bootstrap window again. */
+      resetSyncState?: (accountId: string) => Promise<{ ok: boolean; error?: string }>
+      fullResetAccount?: (accountId: string) => Promise<{
+        ok: boolean
+        error?: string
+        results?: string[]
+      }>
+      /** DevTools: schemas + sample rows for tables whose names include sync or state. */
+      debugDumpSyncState?: () => Promise<{ ok: boolean; dump?: Record<string, unknown>; error?: string }>
+      onAccountConnected?: (
+        callback: (data: { provider: string; email: string; accountId?: string }) => void | Promise<void>,
+      ) => () => void
+      /** Main → renderer when IMAP auth fails during sync (`email:credentialError`). */
+      onCredentialError?: (
+        callback: (data: { accountId: string; provider: string; message: string }) => void | Promise<void>,
+      ) => () => void
+      /** Gmail / Outlook / Zoho connect + credential checks (EmailConnectWizard; preload bridge). */
+      connectGmail?: (
+        displayName?: string,
+        syncWindowDays?: number,
+        gmailOAuthCredentialSource?: 'builtin_public' | 'developer_saved',
+      ) => Promise<{
+        ok: boolean
+        data?: { id: string; email: string; provider: string }
+        error?: string
+        debug?: {
+          step: string
+          httpStatus: number | null
+          googleError: string | null
+          googleErrorDescription: string | null
+          responseBody: string | null
+          raw?: string
+        }
+      }>
+      connectOutlook?: (
+        displayName?: string,
+        syncWindowDays?: number,
+      ) => Promise<{ ok: boolean; data?: { id: string; email: string; provider: string }; error?: string }>
+      connectZoho?: (
+        displayName?: string,
+        syncWindowDays?: number,
+      ) => Promise<{ ok: boolean; data?: { id: string; email: string; provider: string }; error?: string }>
+      setGmailCredentials?: (
+        clientId: string,
+        clientSecret?: string,
+        storeInVault?: boolean,
+      ) => Promise<{ ok: boolean; savedToVault?: boolean; error?: string }>
+      setOutlookCredentials?: (
+        clientId: string,
+        clientSecret?: string,
+        tenantId?: string,
+        storeInVault?: boolean,
+      ) => Promise<{ ok: boolean; savedToVault?: boolean; error?: string }>
+      setZohoCredentials?: (
+        clientId: string,
+        clientSecret: string,
+        datacenter?: 'com' | 'eu',
+        storeInVault?: boolean,
+      ) => Promise<{ ok: boolean; savedToVault?: boolean; error?: string }>
+      checkGmailCredentials?: () => Promise<{
+        ok: boolean
+        data?: {
+          configured: boolean
+          developerCredentialsStored?: boolean
+          builtinOAuthAvailable?: boolean
+          /** Unpackaged app or WR_DESK_EMAIL_DEVELOPER_MODE / WR_DESK_DEVELOPER_MODE */
+          developerModeEnabled?: boolean
+          clientId?: string
+          source?: string
+          credentials?: unknown
+          hasSecret?: boolean
+          vaultUnlocked?: boolean
+          /** Fingerprint of client id used for standard Connect Google (`builtin_public`); null if none resolved. */
+          standardConnectBundledClientFingerprint?: string | null
+          standardConnectBuiltinSourceKind?: string | null
+        }
+        error?: string
+      }>
+      /** Packaged Gmail OAuth runtime proof (fingerprints + paths — no secrets / full client ids / tokens). */
+      getGmailOAuthRuntimeDiagnostics?: () => Promise<{
+        ok: boolean
+        error?: string
+        data?: {
+          expectedBundledClientFingerprint: string | null
+          authorizeClientIdFingerprint: string | null
+          tokenExchangeClientIdFingerprint: string | null
+          builtinSourceKind: string | null | undefined
+          authMode: string | null | undefined
+          packagedStandardConnectEnvIgnored: boolean
+          startup: Record<string, unknown>
+          lastStandardConnectFlow: Record<string, unknown> | null
+        }
+      }>
+      checkOutlookCredentials?: () => Promise<{
+        ok: boolean
+        data?: {
+          configured: boolean
+          clientId?: string
+          source?: string
+          credentials?: unknown
+          hasSecret?: boolean
+          vaultUnlocked?: boolean
+        }
+        error?: string
+      }>
+      checkZohoCredentials?: () => Promise<{
+        ok: boolean
+        data?: {
+          configured: boolean
+          clientId?: string
+          source?: string
+          credentials?: unknown
+          hasSecret?: boolean
+          vaultUnlocked?: boolean
+        }
+        error?: string
+      }>
+      checkVaultStatus?: () => Promise<{ isUnlocked?: boolean }>
+      connectCustomMailbox?: (payload: Record<string, unknown>) => Promise<{
+        ok: boolean
+        data?: { id: string; email: string; provider: string }
+        error?: string
+      }>
     }
     email?: {
       sendBeapEmail: (contract: { to: string; subject: string; body: string; attachments: { name: string; data: string; mime: string }[] }) => Promise<{ ok: boolean; data?: { success: boolean; messageId?: string }; error?: string }>
     }
     /** Email Inbox IPC bridge (inbox_messages, sync, deletion, attachments, AI placeholders) */
     emailInbox?: EmailInboxBridge
+    /** AutoSort run CRUD + session summary (IPC). */
+    autosortSession?: AutosortSessionAPI
   }
 }
 
 /** Email Inbox IPC bridge interface */
 export interface EmailInboxBridge {
-  syncAccount: (accountId: string) => Promise<{ ok: boolean; data?: unknown; error?: string }>
+  /** DevTools diagnostic: remote orchestrator queue snapshot (main process logs + return value). */
+  debugQueueStatus?: () => Promise<Record<string, unknown>>
+  /** Main-inbox message rows (WR Desk “all” tab) + reasons they may not have a lifecycle remote move. */
+  debugMainInboxRows?: (accountId?: string | null) => Promise<Record<string, unknown>>
+  /** IMAP: LIST + STATUS counts + canonical lifecycle exact-match (read-only; legacy folders ignored for match). */
+  verifyImapRemoteFolders?: (accountId: string) => Promise<Record<string, unknown>>
+  /** Gateway vs DB: connected accounts, inbox row counts, orphan account_ids after reconnect. */
+  debugAccountMigrationStatus?: () => Promise<Record<string, unknown>>
+  /** Stale account_id → connected id; removes remote queue rows for old id only (not inbox rows). */
+  migrateInboxAccountId?: (fromAccountId: string, toAccountId: string) => Promise<Record<string, unknown>>
+  debugTestMoveOne?: (messageId: string) => Promise<Record<string, unknown>>
+  /** Set all failed remote orchestrator queue rows back to pending + schedule drain. */
+  retryFailedRemoteOps?: (accountId?: string) => Promise<{ ok: boolean; resetCount?: number; error?: string }>
+  /** Permanently delete failed queue rows for one account (requires accountId). */
+  clearFailedRemoteOps?: (accountId: string) => Promise<{ ok: boolean; deletedCount?: number; error?: string }>
+  syncAccount: (accountId: string) => Promise<{
+    ok: boolean
+    data?: unknown
+    error?: string
+    /** Pull diagnostics for in-app log */
+    pullStats?: { listed: number; new: number; skippedDupes: number; errors: number }
+    /** Shown in activity log when new mail was pulled — suggests Auto-Sort */
+    pullHint?: string
+    /** Present when some messages failed to ingest but sync continued */
+    warningCount?: number
+    syncWarnings?: string[]
+  }>
+  /** Next batch of older messages (see Smart Sync / Pull More). */
+  pullMoreAccount?: (accountId: string) => Promise<{
+    ok: boolean
+    data?: unknown
+    error?: string
+    pullStats?: { listed: number; new: number; skippedDupes: number; errors: number }
+    pullHint?: string
+    warningCount?: number
+    syncWarnings?: string[]
+  }>
+  patchAccountSyncPreferences?: (
+    accountId: string,
+    partial: { syncWindowDays?: number; maxMessagesPerPull?: number },
+  ) => Promise<{ ok: boolean; data?: unknown; error?: string }>
   toggleAutoSync: (accountId: string, enabled: boolean) => Promise<{ ok: boolean; error?: string }>
   getSyncState: (accountId: string) => Promise<{ ok: boolean; data?: unknown; error?: string }>
+  /** Wipes local DB rows with this account_id across all tables (see main process). */
+  fullResetAccount?: (accountId: string) => Promise<{ ok: boolean; error?: string; results?: string[] }>
   onNewMessages: (handler: (data: unknown) => void) => () => void
+  /** Each background drain batch: `{ processed, pending, failed, deferred }` (deferred = pull-lock). */
+  onDrainProgress?: (handler: (data: unknown) => void) => () => void
+  /** Simple drain: `{ status: 'moved'|'skipped', op, msgId }` per completed row. */
+  onSimpleDrainRow?: (handler: (data: unknown) => void) => () => void
   listMessages: (options?: {
     filter?: string
     sourceType?: string
+    messageKind?: 'handshake' | 'depackaged'
     handshakeId?: string
     category?: string
     limit?: number
@@ -123,6 +327,7 @@ export interface EmailInboxBridge {
   listMessageIds: (options?: {
     filter?: string
     sourceType?: string
+    messageKind?: 'handshake' | 'depackaged'
     handshakeId?: string
     category?: string
     limit?: number
@@ -138,7 +343,19 @@ export interface EmailInboxBridge {
   cancelDeletion: (id: string) => Promise<{ ok: boolean; data?: { cancelled: boolean }; error?: string }>
   getDeletedMessages: () => Promise<{ ok: boolean; data?: unknown[]; error?: string }>
   getAttachment: (id: string) => Promise<{ ok: boolean; data?: unknown; error?: string }>
-  getAttachmentText: (id: string) => Promise<{ ok: boolean; data?: { text: string; status: string }; error?: string }>
+  getAttachmentText: (id: string) => Promise<{
+    ok: boolean
+    data?: {
+      text: string
+      /** Per-page text when available (pdfjs extraction or split from stored text). */
+      pages?: string[]
+      status: string
+      error?: string | null
+      content_sha256?: string | null
+      extracted_text_sha256?: string | null
+    }
+    error?: string
+  }>
   openAttachmentOriginal: (id: string) => Promise<{ ok: boolean; data?: { opened: boolean }; error?: string }>
   aiSummarize: (id: string) => Promise<{ ok: boolean; data?: { summary: string }; error?: string }>
   aiDraftReply: (id: string) => Promise<{ ok: boolean; data?: { draft: string }; error?: string }>
@@ -148,6 +365,69 @@ export interface EmailInboxBridge {
   onAiAnalyzeDone: (cb: (data: { messageId: string }) => void) => () => void
   onAiAnalyzeError: (cb: (data: { messageId: string; error: string; message: string }) => void) => () => void
   aiCategorize: (ids: string[]) => Promise<{ ok: boolean; data?: { classifications?: BulkClassification[] }; error?: string }>
+  aiClassifySingle?: (
+    messageId: string,
+    sessionId?: string,
+  ) => Promise<{
+    messageId?: string
+    category?: string
+    error?: string
+    recommended_action?: string
+    pending_delete?: boolean
+    pending_review?: boolean
+    remoteEnqueue?: { enqueued: number; skipped: number; skipReasons?: string[] }
+    [key: string]: unknown
+  }>
+  /**
+   * Re-enqueue remote folder moves from local lifecycle state + schedule background drain.
+   * Use after bulk Auto-Sort (parallel classify) so Microsoft 365 / IMAP mirrors reliably.
+   */
+  enqueueRemoteLifecycleMirror?: (messageIds: string[]) => Promise<{
+    ok: boolean
+    data?: { enqueued: number; skipped: number; skipReasons?: string[] }
+    error?: string
+  }>
+  /** Same lifecycle re-enqueue + drain as `enqueueRemoteLifecycleMirror` (flat result). */
+  enqueueRemoteSync?: (messageIds: string[]) => Promise<{
+    ok: boolean
+    enqueued?: number
+    skipped?: number
+    skipReasons?: string[]
+    error?: string
+  }>
+  /** Enqueue lifecycle moves for any row on the account where local state ≠ `imap_remote_mailbox`. */
+  fullRemoteSync?: (accountId: string) => Promise<{
+    ok: boolean
+    enqueued?: number
+    skipped?: number
+    inboxRestoreNeeded?: number
+    error?: string
+  }>
+  /** Same as fullRemoteSync for each distinct account among the given message ids. */
+  fullRemoteSyncForMessages?: (messageIds: string[]) => Promise<{
+    ok: boolean
+    enqueued?: number
+    skipped?: number
+    inboxRestoreNeeded?: number
+    error?: string
+  }>
+  /** Full reconcile for every connected email account (background queue drain). */
+  fullRemoteSyncAllAccounts?: () => Promise<{
+    ok: boolean
+    enqueued?: number
+    skipped?: number
+    inboxRestoreNeeded?: number
+    accountCount?: number
+    /** Classified rows that had no active queue row before this run (backfill). */
+    unmirroredIds?: number
+    unmirroredEnqueued?: number
+    unmirroredSkipped?: number
+    /** pending/processing rows failed for disconnected account_id */
+    orphanPendingCleared?: number
+    /** Drain runs in background until queue empty (IPC does not await bounded drain). */
+    backgroundDrain?: boolean
+    error?: string
+  }>
   /** Persist manual Analyze result to ai_analysis_json only (no sort / move). */
   persistManualBulkAnalysis?: (messageId: string, analysisJson: string) => Promise<{ ok: boolean; error?: string }>
   markPendingDelete: (ids: string[]) => Promise<{ ok: boolean; data?: { marked: number }; error?: string }>
@@ -163,4 +443,16 @@ export interface EmailInboxBridge {
   getAiRules: () => Promise<string>
   saveAiRules: (content: string) => Promise<{ ok: boolean; error?: string }>
   getAiRulesDefault: () => Promise<string>
+  /** Native file picker for compose attachments ({ name, path, size } per file). */
+  showOpenDialogForAttachments?: () => Promise<{
+    ok: boolean
+    data?: { files: Array<{ name: string; path: string; size: number }> }
+    error?: string
+  }>
+  /** Read file from disk as base64 for outbound email attachment. */
+  readFileForAttachment?: (filePath: string) => Promise<{
+    ok: boolean
+    data?: { filename: string; mimeType: string; contentBase64: string }
+    error?: string
+  }>
 }

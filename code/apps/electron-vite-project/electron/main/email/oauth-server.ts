@@ -33,9 +33,15 @@ export interface OAuthCallbackResult {
   state?: string
 }
 
+/** After {@link OAuthServerManager.beginOAuthFlow} — server is listening; use {@link callbackUrl} for authorize + token exchange. */
+export interface OAuthFlowSession {
+  callbackUrl: string
+  resultPromise: Promise<OAuthCallbackResult>
+}
+
 // Pending OAuth request
 interface PendingOAuthRequest {
-  provider: 'gmail' | 'outlook'
+  provider: 'gmail' | 'outlook' | 'zoho'
   resolve: (result: OAuthCallbackResult) => void
   reject: (error: Error) => void
   timeout: NodeJS.Timeout
@@ -94,10 +100,11 @@ class OAuthServerManager {
    * Get the current callback URL (with port)
    */
   getCallbackUrl(): string {
+    // Loopback IP matches Google Desktop-app redirect guidance; must match Console-registered URIs.
     if (this.currentPort === 0) {
-      return `http://localhost:${PREFERRED_PORT}/callback`
+      return `http://127.0.0.1:${PREFERRED_PORT}/callback`
     }
-    return `http://localhost:${this.currentPort}/callback`
+    return `http://127.0.0.1:${this.currentPort}/callback`
   }
 
   /**
@@ -115,59 +122,67 @@ class OAuthServerManager {
   }
 
   /**
-   * Start OAuth flow for a provider
-   * Returns a promise that resolves when the callback is received
+   * Phase 1: bind port, listen, then return the exact callback URL and a promise for the browser callback.
+   * Callers must use {@link callbackUrl} for both authorize and token exchange (do not call {@link getCallbackUrl} after delay).
    */
-  async startOAuthFlow(
-    provider: 'gmail' | 'outlook',
-    timeoutMs: number = DEFAULT_TIMEOUT
-  ): Promise<OAuthCallbackResult> {
-    // Prevent concurrent OAuth flows
+  async beginOAuthFlow(
+    provider: 'gmail' | 'outlook' | 'zoho',
+    timeoutMs: number = DEFAULT_TIMEOUT,
+  ): Promise<OAuthFlowSession> {
     if (this.isFlowInProgress()) {
       throw new Error('Another OAuth flow is already in progress. Please wait or cancel the current flow.')
     }
 
-    // Cleanup any previous state
     await this.cleanup()
 
     console.log(`[OAuthServer] Starting OAuth flow for ${provider}`)
     this.state = OAuthState.STARTING_SERVER
 
     try {
-      // Find available port
       this.currentPort = await findAvailablePort(PREFERRED_PORT, PORT_RANGE)
       console.log(`[OAuthServer] Using port ${this.currentPort}`)
 
-      // Start the server
       await this.startServer()
 
-      // Create promise for the callback
-      return new Promise<OAuthCallbackResult>((resolve, reject) => {
-        // Set up timeout
+      const callbackUrl = `http://127.0.0.1:${this.currentPort}/callback`
+
+      const resultPromise = new Promise<OAuthCallbackResult>((resolve, reject) => {
         const timeout = setTimeout(() => {
           console.log(`[OAuthServer] OAuth flow timed out after ${timeoutMs}ms`)
           this.cleanup()
           reject(new Error('OAuth authentication timed out. Please try again.'))
         }, timeoutMs)
 
-        // Store pending request
         this.pendingRequest = {
           provider,
           resolve,
           reject,
           timeout,
-          startTime: Date.now()
+          startTime: Date.now(),
         }
 
         this.state = OAuthState.WAITING_FOR_AUTH
-        console.log(`[OAuthServer] Waiting for OAuth callback...`)
+        console.log(`[OAuthServer] Waiting for OAuth callback... (callbackUrl=${callbackUrl})`)
       })
+
+      return { callbackUrl, resultPromise }
     } catch (error: any) {
       console.error(`[OAuthServer] Failed to start OAuth flow:`, error)
       this.state = OAuthState.ERROR
       await this.cleanup()
       throw error
     }
+  }
+
+  /**
+   * Start OAuth flow — listens first, then waits for callback (same as {@link beginOAuthFlow} + awaiting result).
+   */
+  async startOAuthFlow(
+    provider: 'gmail' | 'outlook' | 'zoho',
+    timeoutMs: number = DEFAULT_TIMEOUT,
+  ): Promise<OAuthCallbackResult> {
+    const { resultPromise } = await this.beginOAuthFlow(provider, timeoutMs)
+    return resultPromise
   }
 
   /**
@@ -221,7 +236,9 @@ class OAuthServerManager {
           state
         })
       } else if (code) {
-        console.log(`[OAuthServer] OAuth code received`)
+        console.log(
+          `[OAuthServer] oauth_callback_received path=/callback codeLen=${String(code).length} statePresent=${Boolean(state)}`,
+        )
         this.sendHtmlResponse(res, 'WR Desk™', 
           `<h1>✓ Authorization received</h1><p>Return to WR Desk™ to complete setup.</p><p style="font-size:12px;color:#64748b;">This window will close automatically.</p><script>setTimeout(function(){window.close();},4000)</script>`, 
           'neutral')
@@ -414,6 +431,10 @@ class OAuthServerManager {
 
 // Export singleton instance
 export const oauthServerManager = new OAuthServerManager()
+
+/** Zoho OAuth (US data center); EU uses `accounts.zoho.eu` / `mail.zoho.eu`. */
+export const ZOHO_OAUTH_AUTH_URL = 'https://accounts.zoho.com/oauth/v2/auth'
+export const ZOHO_OAUTH_TOKEN_URL = 'https://accounts.zoho.com/oauth/v2/token'
 
 // Export types (OAuthCallbackResult already exported as interface above)
 export type { PendingOAuthRequest }

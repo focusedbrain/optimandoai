@@ -122,6 +122,15 @@ export default defineConfig({
         // Shortcut of `build.lib.entry`.
         entry: 'electron/main.ts',
         vite: {
+          define: {
+            // Inlined at `vite build` — set GOOGLE_OAUTH_CLIENT_ID in CI for packaged Gmail OAuth.
+            __BUILD_TIME_GOOGLE_OAUTH_CLIENT_ID__: JSON.stringify(
+              (process.env.GOOGLE_OAUTH_CLIENT_ID || process.env.WR_DESK_GOOGLE_OAUTH_CLIENT_ID || '').trim(),
+            ),
+            __BUILD_TIME_GOOGLE_OAUTH_CLIENT_SECRET__: JSON.stringify(
+              (process.env.GOOGLE_OAUTH_CLIENT_SECRET || process.env.WR_DESK_GOOGLE_OAUTH_CLIENT_SECRET || '').trim(),
+            ),
+          },
           build: {
             rollupOptions: {
               // Only NATIVE MODULES should be externalized

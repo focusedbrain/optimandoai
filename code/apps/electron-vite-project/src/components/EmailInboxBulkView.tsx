@@ -1,6 +1,6 @@
 /**
  * EmailInboxBulkView — Bulk grid view: [Message Card | AI Output Field] per row (50/50).
- * Toolbar: Select all, bulk actions, pagination. Batch size “All” = entire current tab (drained fetch + id list), not one page.
+ * Toolbar: Select all, bulk actions, infinite scroll (next page). Batch size “All” = entire current tab (drained fetch + id list), not one page.
  * Collapsible provider section at top for account management.
  *
  * AI Auto-Sort: runs only on explicit toolbar / per-row actions (never from effects). Classify → immediate moves; no preview countdown.
@@ -9,16 +9,21 @@
 import { useEffect, useState, useCallback, useRef, useMemo, type ReactNode } from 'react'
 import {
   useEmailInboxStore,
-  deriveTabCounts,
+  activeEmailAccountIdsForSync,
   type InboxMessage,
+  type InboxFilter,
   type SubFocus,
 } from '../stores/useEmailInboxStore'
+import { workflowFilterFromSessionReviewRow, type SessionReviewMessageRow } from '../lib/inboxSessionReviewOpen'
 import { useShallow } from 'zustand/react/shallow'
 import EmailMessageDetail from './EmailMessageDetail'
 import EmailComposeOverlay from './EmailComposeOverlay'
 import { EmailProvidersSection } from '@ext/wrguard/components/EmailProvidersSection'
 import { ConnectEmailLaunchSource, useConnectEmailFlow } from '@ext/shared/email/connectEmailFlow'
 import { pickDefaultEmailAccountRowId } from '@ext/shared/email/pickDefaultAccountRow'
+import { SyncFailureBanner } from './SyncFailureBanner'
+import EmailInboxSyncControls from './EmailInboxSyncControls'
+import { InboxMessageKindSelect } from './InboxMessageKindSelect'
 import LinkWarningDialog from './LinkWarningDialog'
 import { extractLinkParts } from '../utils/safeLinks'
 import type {
@@ -34,9 +39,127 @@ import { tryParseAnalysis, tryParsePartialAnalysis } from '../utils/parseInboxAi
 import { useDraftRefineStore } from '../stores/useDraftRefineStore'
 import { InboxUrgencyMeter } from './InboxUrgencyMeter'
 import { reconcileInboxClassification } from '../lib/inboxClassificationReconcile'
+import { BulkInboxAttachmentsStrip } from './BulkInboxAttachmentsStrip'
+import { AutoSortSessionReview } from './AutoSortSessionReview'
+import { AutoSortSessionHistory } from './AutoSortSessionHistory'
+import { InboxHandshakeNavIconButton } from './InboxHandshakeNavIcon'
 import '../components/handshakeViewTypes'
 
 const MUTED = '#64748b'
+
+/** After Auto-Sort finishes, show "Review Session" briefly then fade out (see `autosortReviewBanner`). */
+const AUTOSORT_REVIEW_BANNER_VISIBLE_MS = 5500
+
+type AutosortReviewBannerState = { sessionId: string; fading: boolean }
+
+/** Remote orchestrator queue row indicator (latest row per message from list query). */
+function RemoteSyncStatusDot({ msg }: { msg: InboxMessage }) {
+  const st = msg.remote_queue_status
+  if (st == null || st === '') return null
+  let color = '#eab308'
+  if (st === 'completed') color = '#22c55e'
+  if (st === 'failed') color = '#ef4444'
+  const title =
+    st === 'failed' && msg.remote_queue_last_error
+      ? msg.remote_queue_last_error
+      : `${msg.remote_queue_operation ?? '?'} · ${st}`
+  return (
+    <span
+      title={title}
+      aria-label={title}
+      style={{
+        width: 8,
+        height: 8,
+        borderRadius: '50%',
+        background: color,
+        display: 'inline-block',
+        flexShrink: 0,
+      }}
+    />
+  )
+}
+
+type QueueStatusRow = { operation?: string; status?: string; c?: number }
+type QueueAccountStatusRow = { account_id?: string | null; status?: string; c?: number }
+type QueueByAccountSummaryRow = {
+  accountId: string
+  label: string
+  provider?: string
+  pending: number
+  processing: number
+  completed: number
+  failed: number
+  total: number
+}
+type QueueMsgRow = {
+  operation?: string
+  last_error?: string | null
+  attempts?: number
+  email_message_id?: string
+  status?: string
+  created_at?: string
+  updated_at?: string
+}
+
+function aggregateLifecycleOpCounts(byOp: QueueStatusRow[]): Record<
+  string,
+  { pending: number; failed: number }
+> {
+  const base = ['archive', 'pending_delete', 'pending_review', 'urgent']
+  const out: Record<string, { pending: number; failed: number }> = {}
+  for (const o of base) out[o] = { pending: 0, failed: 0 }
+  for (const row of byOp ?? []) {
+    const op = String(row.operation ?? '')
+    if (!out[op]) out[op] = { pending: 0, failed: 0 }
+    const c = Number(row.c) || 0
+    if (row.status === 'pending') out[op].pending += c
+    if (row.status === 'failed') out[op].failed += c
+  }
+  return out
+}
+
+function countStatus(byStatus: QueueStatusRow[], s: string): number {
+  const row = (byStatus ?? []).find((x) => x.status === s)
+  return Number(row?.c) || 0
+}
+
+/** Plain-language remote sync line for the debug panel (honest, no fake ETAs). IMAP is pull-only — no remote queue rows. */
+function buildRemoteSyncUserSummary(byStatus: QueueStatusRow[]): { line: string } {
+  const pending = countStatus(byStatus, 'pending')
+  const processing = countStatus(byStatus, 'processing')
+  const active = pending + processing
+  if (active === 0) {
+    return { line: 'Remote folder sync: idle — no moves queued. ✓' }
+  }
+  return {
+    line: `Remote sync: in progress — ${active} move(s) queued (Gmail / Microsoft 365 / Zoho).`,
+  }
+}
+
+/** Samples for ETA: `completed` trend over ~30s while debug panel polls. */
+type RemoteDrainSample = { t: number; completed: number; pending: number; processing: number }
+
+function formatDrainEtaLine(history: RemoteDrainSample[], pending: number, processing: number): string | null {
+  const now = Date.now()
+  const windowMs = 30_000
+  const h = history.filter((x) => now - x.t <= windowMs)
+  if (h.length < 2) return null
+  const first = h[0]
+  const last = h[h.length - 1]
+  const dtSec = (last.t - first.t) / 1000
+  if (dtSec < 3) return null
+  const dComp = last.completed - first.completed
+  if (dComp <= 0) return null
+  const ratePerSec = dComp / dtSec
+  const backlog = pending + processing
+  if (backlog <= 0) return null
+  const etaSec = backlog / ratePerSec
+  if (!Number.isFinite(etaSec) || etaSec < 0) return null
+  if (etaSec > 72 * 3600) return null
+  const mins = Math.ceil(etaSec / 60)
+  if (mins <= 1) return '~1 minute remaining at current rate'
+  return `~${mins} minutes remaining at current rate`
+}
 
 /**
  * Urgency cutoff (1–10): at or above this score, bulk Auto-Sort does not auto-move mail.
@@ -257,6 +380,23 @@ function formatDate(isoString: string | null): string {
   } catch {
     return '—'
   }
+}
+
+/** Same as `EmailInboxView` InboxMessageRow — compact received time in list cards. */
+function formatRelativeDate(isoString: string): string {
+  if (!isoString) return '—'
+  const d = new Date(isoString)
+  const now = new Date()
+  const diffMs = now.getTime() - d.getTime()
+  const diffM = Math.floor(diffMs / 60000)
+  const diffH = Math.floor(diffMs / 3600000)
+  const diffD = Math.floor(diffMs / 86400000)
+
+  if (diffM < 1) return 'now'
+  if (diffM < 60) return `${diffM}m`
+  if (diffH < 24) return `${diffH}h`
+  if (diffD < 7) return `${diffD}d`
+  return d.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit' }).replace(/\//g, '.')
 }
 
 /** Map persisted sort_category / stored category → classifier labels used by reconcile. */
@@ -610,11 +750,12 @@ function BulkActionCardStructured({
   draftAttachments = [],
   onAddDraftAttachment,
   onRemoveDraftAttachment,
+  onNavigateToHandshake,
 }: {
   msg: InboxMessage
   output: BulkAiResultEntry
   isExpanded: boolean
-  currentFilter: 'all' | 'unread' | 'starred' | 'deleted' | 'archived' | 'pending_delete' | 'pending_review'
+  currentFilter: 'all' | 'unread' | 'starred' | 'deleted' | 'archived' | 'pending_delete' | 'pending_review' | 'urgent'
   updateDraftReply: (messageId: string, draftReply: string) => void
   handleSendDraft: (msg: InboxMessage, draftBody: string, attachments?: Array<{ name: string; path: string; size: number }>) => void
   handleArchiveOne: (msg: InboxMessage) => void
@@ -637,6 +778,7 @@ function BulkActionCardStructured({
   draftAttachments?: Array<{ name: string; path: string; size: number }>
   onAddDraftAttachment?: () => void
   onRemoveDraftAttachment?: (index: number) => void
+  onNavigateToHandshake?: (handshakeId: string) => void
 }) {
   const draftExpanded = !!(output.draftReply != null && output.draftReply !== '')
   const isDraftSubFocused = subFocus.kind === 'draft' && subFocus.messageId === msg.id
@@ -742,19 +884,21 @@ function BulkActionCardStructured({
     output.summaryError === true ||
     summaryTextTrimmed.length > 0 ||
     output.bulkAnalysisStreaming === true
+  const hasDraftText = output.draftReply != null && output.draftReply !== ''
 
   return (
     <div
       className={`bulk-action-card bulk-action-card--structured ${isExpanded ? 'bulk-action-card--expanded' : ''}${hideAnalysisChrome ? ' bulk-action-card--draft-compose-focus' : ''}`.trim()}
       style={{ borderLeftColor: effectiveBorderColor }}
     >
+      <div className="bulk-action-card-body">
       {output.autosortOutcome === 'retained' && output.autosortRetainExplanation ? (
         <div
           className="bulk-action-card-autosort-retained"
           role="status"
-          aria-label="Auto-Sort kept this message in the inbox"
+          aria-label="Auto-Sort note for this message"
         >
-          <span className="bulk-action-card-autosort-retained-label">Kept in inbox</span>
+          <span className="bulk-action-card-autosort-retained-label">Auto-Sort note</span>
           <span className="bulk-action-card-autosort-retained-text">{output.autosortRetainExplanation}</span>
         </div>
       ) : null}
@@ -772,6 +916,15 @@ function BulkActionCardStructured({
         <div className="bulk-action-card-header-urgency-slot">
           <InboxUrgencyMeter score={urgency} variant="compact" />
         </div>
+        {onNavigateToHandshake ? (
+          <div
+            className="bulk-action-card-header-handshake"
+            onClick={(e) => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <InboxHandshakeNavIconButton message={msg} onNavigateToHandshake={onNavigateToHandshake} />
+          </div>
+        ) : null}
         <div ref={analysisButtonRef} style={{ position: 'relative', marginLeft: 'auto' }}>
           <button
             type="button"
@@ -987,7 +1140,7 @@ function BulkActionCardStructured({
           </div>
         </div>
         ) : null}
-        {output.draftReply != null && output.draftReply !== '' && (
+        {hasDraftText && (
           <div
             className={[
               isDraftSubFocused ? 'bulk-action-card-row-draft--subfocused' : '',
@@ -999,14 +1152,23 @@ function BulkActionCardStructured({
             style={{
               display: 'flex',
               flexDirection: 'column',
-              height: '100%',
+              height: isExpanded ? '100%' : 'auto',
               minHeight: 0,
               width: '100%',
-              flex: '1 1 0%',
+              flex: isExpanded ? '1 1 0%' : '0 1 auto',
               boxSizing: 'border-box',
             }}
           >
-            <div className="flex min-h-0 flex-1 flex-col" style={{ flex: 1, minHeight: 0, width: '100%', display: 'flex', flexDirection: 'column' }}>
+            <div
+              className="bulk-draft-pane-scroll-region flex min-h-0 flex-1 flex-col"
+              style={{
+                flex: isExpanded ? 1 : '0 1 auto',
+                minHeight: 0,
+                width: '100%',
+                display: 'flex',
+                flexDirection: 'column',
+              }}
+            >
               <div
                 ref={draftRef}
                 data-subfocus="draft"
@@ -1020,65 +1182,27 @@ function BulkActionCardStructured({
                     handleDraftRefineConnect()
                   }
                 }}
-                className="flex h-full min-h-0 w-full flex-col"
+                className={`bulk-draft-pane-card flex h-full min-h-0 w-full flex-col${isConnected ? ' bulk-draft-pane-card--connected' : ''}`}
                 style={{
                   display: 'flex',
                   flexDirection: 'column',
-                  height: '100%',
+                  height: isExpanded ? '100%' : 'auto',
                   minHeight: 0,
                   width: '100%',
-                  borderRadius: 16,
-                  border: isConnected ? '2px solid var(--color-primary, #7c3aed)' : '1px solid #c4b5fd',
-                  background: '#ffffff',
-                  boxShadow: '0 1px 3px rgba(124, 58, 237, 0.12), 0 1px 2px rgba(0, 0, 0, 0.05)',
                   boxSizing: 'border-box',
                 }}
               >
-                <div
-                  className="bulk-draft-pane-titlebar"
-                  style={{
-                    flexShrink: 0,
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: isExpanded ? 8 : 6,
-                    borderBottom: '1px solid #cbd5e1',
-                    background: '#e2e8f0',
-                    padding: isExpanded ? '12px 16px' : '6px 10px',
-                    borderRadius: '16px 16px 0 0',
-                  }}
-                >
+                <div className="bulk-draft-pane-titlebar">
                   {isDraftSubFocused ? (
                     <span className="bulk-action-card-draft-subfocus-indicator" title="Draft selected — chat scoped to this draft" aria-hidden>
                       ✏️
                     </span>
                   ) : null}
-                  <span
-                    style={{
-                      fontSize: isExpanded ? 11 : 9,
-                      fontWeight: 600,
-                      letterSpacing: isExpanded ? '0.08em' : '0.06em',
-                      textTransform: 'uppercase',
-                      color: '#6d28d9',
-                    }}
-                  >
-                    DRAFT — EDIT BEFORE SENDING
-                  </span>
+                  <span className="bulk-draft-pane-titlebar-label">DRAFT — EDIT BEFORE SENDING</span>
                   {(draftExpanded || (hideAnalysisChrome && hasFullStructured)) ? (
-                    <span
-                      style={{
-                        marginLeft: 'auto',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 8,
-                        flexShrink: 0,
-                        flexWrap: 'wrap',
-                        justifyContent: 'flex-end',
-                      }}
-                    >
+                    <span className="bulk-draft-pane-titlebar-actions">
                       {draftExpanded ? (
-                        <span className="bulk-action-card-connect-hint" style={{ marginLeft: 0 }}>
-                          click to refine with AI ↑
-                        </span>
+                        <span className="bulk-draft-pane-refine-hint">click to refine with AI ↑</span>
                       ) : null}
                       {hideAnalysisChrome && hasFullStructured ? (
                         <button
@@ -1097,41 +1221,18 @@ function BulkActionCardStructured({
                   ) : null}
                 </div>
                 {isConnected ? (
-                  <span
-                    className="bulk-action-card-connect-hint"
-                    style={{ display: 'block', flexShrink: 0, padding: '8px 16px 0', fontSize: 11, opacity: 0.55 }}
-                  >
+                  <span className="bulk-draft-pane-chat-hint">
                     Connected to chat ↑ — type instructions to refine
                   </span>
                 ) : null}
                 <div
-                  className="flex min-h-0 w-full flex-1 flex-col p-4 bulk-draft-editor-shell"
-                  style={{
-                    flex: 1,
-                    minHeight: 0,
-                    width: '100%',
-                    padding: isExpanded ? 16 : 6,
-                    display: 'flex',
-                    flexDirection: 'column',
-                    boxSizing: 'border-box',
-                  }}
+                  className={`bulk-draft-editor-shell w-full flex flex-col ${isExpanded ? 'min-h-0 flex-1' : ''}`}
                 >
                   <div
-                    className="flex min-h-0 w-full flex-1 flex-col bulk-draft-editor-frame"
-                    style={{
-                      flex: 1,
-                      minHeight: 0,
-                      width: '100%',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      borderRadius: 12,
-                      border: '1px solid #cbd5e1',
-                      background: '#f1f5f9',
-                      boxSizing: 'border-box',
-                    }}
+                    className={`bulk-draft-editor-frame w-full flex flex-col ${isExpanded ? 'min-h-0 flex-1' : ''}`}
                   >
                     <textarea
-                      className="h-full min-h-[260px] w-full resize-none overflow-y-auto bulk-draft-editor-textarea"
+                      className={`bulk-draft-editor-textarea w-full max-w-full${isExpanded ? ' bulk-draft-editor-textarea--expanded' : ''}`}
                       value={output.draftReply}
                       onChange={(e) => updateDraftReply(msg.id, e.target.value)}
                       onClick={() => {
@@ -1151,24 +1252,6 @@ function BulkActionCardStructured({
                         }
                       }}
                       placeholder="Edit draft before sending…"
-                      style={{
-                        width: '100%',
-                        height: '100%',
-                        minHeight: isExpanded ? 260 : 48,
-                        flex: 1,
-                        resize: 'none',
-                        overflowY: 'auto',
-                        borderRadius: 12,
-                        background: '#f8fafc',
-                        padding: isExpanded ? '12px 16px' : '6px 10px',
-                        fontSize: isExpanded ? 14 : 12,
-                        lineHeight: isExpanded ? 1.6 : 1.45,
-                        outline: 'none',
-                        border: 'none',
-                        boxSizing: 'border-box',
-                        fontFamily: 'inherit',
-                        color: '#334155',
-                      }}
                     />
                   </div>
                 </div>
@@ -1206,155 +1289,156 @@ function BulkActionCardStructured({
                 ) : null}
               </div>
             </div>
-            <div
-              className="bulk-draft-actions-toolbar-wrap"
-              style={{ flexShrink: 0, width: '100%', paddingTop: isExpanded ? 16 : 6, boxSizing: 'border-box' }}
-            >
-              <div
-                className="bulk-draft-actions-toolbar"
-                style={{
-                  display: 'flex',
-                  flexWrap: 'nowrap',
-                  overflowX: 'auto',
-                  alignItems: 'center',
-                  gap: isExpanded ? 8 : 4,
-                  borderTop: '1px solid #e2e8f0',
-                  paddingTop: isExpanded ? 12 : 6,
-                  paddingBottom: isExpanded ? 0 : 2,
-                }}
-              >
-                {showUndo ? (
-                  <button
-                    type="button"
-                    className="bulk-action-card-btn bulk-action-card-btn--secondary"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      if (currentFilter === 'pending_delete') handleUndoPendingDelete([msg.id])
-                      else if (currentFilter === 'pending_review') handleUndoPendingReview(msg.id)
-                      else handleUndoArchived(msg.id)
-                    }}
-                    title="Move back to inbox"
-                  >
-                    Undo
-                  </button>
-                ) : null}
-                {msg.source_type === 'email_plain' && onAddDraftAttachment ? (
-                  <button
-                    type="button"
-                    className="bulk-action-card-btn bulk-action-card-btn--secondary"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      onAddDraftAttachment()
-                    }}
-                    title="Add attachment"
-                  >
-                    📎 Attach
-                  </button>
-                ) : null}
-                <button
-                  type="button"
-                  className={`bulk-action-card-btn bulk-action-card-btn--primary${rec === 'draft_reply_ready' ? ' bulk-action-card-btn--primary-emphasis' : ''}`}
-                  onClick={() => handleSendDraft(msg, output.draftReply ?? '', draftAttachments.length > 0 ? draftAttachments : undefined)}
-                >
-                  {msg.source_type === 'email_plain' ? 'Send via Email' : 'Send via BEAP'}
-                </button>
-                {!streamClassifying && rec === 'draft_reply_ready' && output.draftReply ? (
-                  <button type="button" className="bulk-action-card-btn bulk-action-card-btn--secondary" onClick={() => handleArchiveOne(msg)}>
-                    Archive
-                  </button>
-                ) : null}
-                {!streamClassifying && (rec === 'archive' || rec === 'keep_for_manual_action') ? (
-                  <button type="button" className="bulk-action-card-btn bulk-action-card-btn--primary bulk-action-card-btn--primary-emphasis" onClick={() => handleArchiveOne(msg)}>
-                    📦 Archive
-                  </button>
-                ) : null}
-                {showAnalyzeButton ? (
-                  <button
-                    type="button"
-                    className="bulk-action-card-btn bulk-action-card-btn--secondary"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      handleBulkAnalyze(msg.id)
-                    }}
-                    disabled={analyzeRunning || !!output?.loading}
-                    title="Run full AI triage (classify) for this message"
-                  >
-                    Analyze
-                  </button>
-                ) : null}
-                <button type="button" className="bulk-action-card-btn bulk-action-card-btn--secondary" onClick={() => handleSummarize(msg.id)} disabled={!!output?.loading} title="Regenerate summary">
-                  ✨ Summarize
-                </button>
-                <button type="button" className="bulk-action-card-btn bulk-action-card-btn--secondary" onClick={() => handleDraftReply(msg.id)} disabled={!!output?.loading} title="Regenerate draft">
-                  ✍ Draft
-                </button>
-                <button type="button" className="bulk-action-card-btn bulk-action-card-btn-delete" onClick={() => handleDeleteOne(msg)} title="Delete this message">
-                  🗑 Delete
-                </button>
-              </div>
-            </div>
           </div>
         )}
       </div>
-      {!(output.draftReply != null && output.draftReply !== '') && (
-      <div className="bulk-action-card-buttons">
-        {showUndo && (
-          <button
-            type="button"
-            className="bulk-action-card-btn bulk-action-card-btn--secondary"
-            onClick={(e) => {
-              e.stopPropagation()
-              if (currentFilter === 'pending_delete') handleUndoPendingDelete([msg.id])
-              else if (currentFilter === 'pending_review') handleUndoPendingReview(msg.id)
-              else handleUndoArchived(msg.id)
+      </div>
+      {hasDraftText ? (
+        <div
+          className="bulk-draft-actions-toolbar-wrap"
+          style={{ flexShrink: 0, width: '100%', paddingTop: isExpanded ? 16 : 6, boxSizing: 'border-box' }}
+        >
+          <div
+            className="bulk-draft-actions-toolbar"
+            style={{
+              display: 'flex',
+              flexWrap: 'nowrap',
+              overflowX: 'auto',
+              alignItems: 'center',
+              gap: isExpanded ? 8 : 4,
+              paddingTop: isExpanded ? 12 : 6,
+              paddingBottom: isExpanded ? 0 : 2,
             }}
-            title="Move back to inbox"
           >
-            Undo
-          </button>
-        )}
-        {!streamClassifying && rec === 'draft_reply_ready' && output.draftReply && (
-          <button
-            type="button"
-            className="bulk-action-card-btn bulk-action-card-btn--primary bulk-action-card-btn--primary-emphasis"
-            onClick={() => handleSendDraft(msg, output.draftReply!)}
-          >
-            ✉ Send via Email
-          </button>
-        )}
-        {!streamClassifying && (rec === 'archive' || rec === 'keep_for_manual_action') && (
-          <button type="button" className="bulk-action-card-btn bulk-action-card-btn--primary bulk-action-card-btn--primary-emphasis" onClick={() => handleArchiveOne(msg)}>
-            📦 Archive
-          </button>
-        )}
-        {!streamClassifying && rec === 'draft_reply_ready' && output.draftReply && (
-          <button type="button" className="bulk-action-card-btn bulk-action-card-btn--secondary" onClick={() => handleArchiveOne(msg)}>
-            Archive
-          </button>
-        )}
-        <div className="bulk-action-card-buttons-secondary">
-          {showAnalyzeButton ? (
+            {showUndo ? (
+              <button
+                type="button"
+                className="bulk-action-card-btn bulk-action-card-btn--secondary"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  if (currentFilter === 'pending_delete') handleUndoPendingDelete([msg.id])
+                  else if (currentFilter === 'pending_review') handleUndoPendingReview(msg.id)
+                  else handleUndoArchived(msg.id)
+                }}
+                title="Move back to inbox"
+              >
+                Undo
+              </button>
+            ) : null}
+            {msg.source_type === 'email_plain' && onAddDraftAttachment ? (
+              <button
+                type="button"
+                className="bulk-action-card-btn bulk-action-card-btn--secondary"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onAddDraftAttachment()
+                }}
+                title="Add attachment"
+              >
+                📎 Attach
+              </button>
+            ) : null}
+            <button
+              type="button"
+              className={`bulk-action-card-btn bulk-action-card-btn--primary${rec === 'draft_reply_ready' ? ' bulk-action-card-btn--primary-emphasis' : ''}`}
+              onClick={() => handleSendDraft(msg, output.draftReply ?? '', draftAttachments.length > 0 ? draftAttachments : undefined)}
+            >
+              {msg.source_type === 'email_plain' ? 'Send via Email' : 'Send via Handshake'}
+            </button>
+            {!streamClassifying && rec === 'draft_reply_ready' && output.draftReply ? (
+              <button type="button" className="bulk-action-card-btn bulk-action-card-btn--secondary" onClick={() => handleArchiveOne(msg)}>
+                Archive
+              </button>
+            ) : null}
+            {!streamClassifying && (rec === 'archive' || rec === 'keep_for_manual_action') ? (
+              <button type="button" className="bulk-action-card-btn bulk-action-card-btn--primary bulk-action-card-btn--primary-emphasis" onClick={() => handleArchiveOne(msg)}>
+                📦 Archive
+              </button>
+            ) : null}
+            {showAnalyzeButton ? (
+              <button
+                type="button"
+                className="bulk-action-card-btn bulk-action-card-btn--secondary"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  handleBulkAnalyze(msg.id)
+                }}
+                disabled={analyzeRunning || !!output?.loading}
+                title="Run full AI triage (classify) for this message"
+              >
+                Analyze
+              </button>
+            ) : null}
+            <button type="button" className="bulk-action-card-btn bulk-action-card-btn--secondary" onClick={() => handleSummarize(msg.id)} disabled={!!output?.loading} title="Regenerate summary">
+              ✨ Summarize
+            </button>
+            <button type="button" className="bulk-action-card-btn bulk-action-card-btn--secondary" onClick={() => handleDraftReply(msg.id)} disabled={!!output?.loading} title="Regenerate draft">
+              ✍ Draft
+            </button>
+            <button type="button" className="bulk-action-card-btn bulk-action-card-btn-delete" onClick={() => handleDeleteOne(msg)} title="Delete this message">
+              🗑 Delete
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="bulk-action-card-buttons">
+          {showUndo && (
             <button
               type="button"
               className="bulk-action-card-btn bulk-action-card-btn--secondary"
-              onClick={() => handleBulkAnalyze(msg.id)}
-              disabled={analyzeRunning || !!output?.loading}
-              title="Run full AI triage (classify) for this message"
+              onClick={(e) => {
+                e.stopPropagation()
+                if (currentFilter === 'pending_delete') handleUndoPendingDelete([msg.id])
+                else if (currentFilter === 'pending_review') handleUndoPendingReview(msg.id)
+                else handleUndoArchived(msg.id)
+              }}
+              title="Move back to inbox"
             >
-              Analyze
+              Undo
             </button>
-          ) : null}
-          <button type="button" className="bulk-action-card-btn bulk-action-card-btn--secondary" onClick={() => handleSummarize(msg.id)} disabled={!!output?.loading} title="Regenerate summary">
-            ✨ Summarize
-          </button>
-          <button type="button" className="bulk-action-card-btn bulk-action-card-btn--secondary" onClick={() => handleDraftReply(msg.id)} disabled={!!output?.loading} title="Regenerate draft">
-            ✍ Draft
-          </button>
-          <button type="button" className="bulk-action-card-btn bulk-action-card-btn-delete" onClick={() => handleDeleteOne(msg)} title="Delete this message">
-            🗑 Delete
-          </button>
+          )}
+          {!streamClassifying && rec === 'draft_reply_ready' && output.draftReply && (
+            <button
+              type="button"
+              className="bulk-action-card-btn bulk-action-card-btn--primary bulk-action-card-btn--primary-emphasis"
+              onClick={() => handleSendDraft(msg, output.draftReply!)}
+            >
+              ✉ Send via Email
+            </button>
+          )}
+          {!streamClassifying && (rec === 'archive' || rec === 'keep_for_manual_action') && (
+            <button type="button" className="bulk-action-card-btn bulk-action-card-btn--primary bulk-action-card-btn--primary-emphasis" onClick={() => handleArchiveOne(msg)}>
+              📦 Archive
+            </button>
+          )}
+          {!streamClassifying && rec === 'draft_reply_ready' && output.draftReply && (
+            <button type="button" className="bulk-action-card-btn bulk-action-card-btn--secondary" onClick={() => handleArchiveOne(msg)}>
+              Archive
+            </button>
+          )}
+          <div className="bulk-action-card-buttons-secondary">
+            {showAnalyzeButton ? (
+              <button
+                type="button"
+                className="bulk-action-card-btn bulk-action-card-btn--secondary"
+                onClick={() => handleBulkAnalyze(msg.id)}
+                disabled={analyzeRunning || !!output?.loading}
+                title="Run full AI triage (classify) for this message"
+              >
+                Analyze
+              </button>
+            ) : null}
+            <button type="button" className="bulk-action-card-btn bulk-action-card-btn--secondary" onClick={() => handleSummarize(msg.id)} disabled={!!output?.loading} title="Regenerate summary">
+              ✨ Summarize
+            </button>
+            <button type="button" className="bulk-action-card-btn bulk-action-card-btn--secondary" onClick={() => handleDraftReply(msg.id)} disabled={!!output?.loading} title="Regenerate draft">
+              ✍ Draft
+            </button>
+            <button type="button" className="bulk-action-card-btn bulk-action-card-btn-delete" onClick={() => handleDeleteOne(msg)} title="Delete this message">
+              🗑 Delete
+            </button>
+          </div>
         </div>
-      </div>
       )}
     </div>
   )
@@ -1401,8 +1485,18 @@ function sortMessagesByCategory(msgs: InboxMessage[]): InboxMessage[] {
   })
 }
 
+/** Auto-Sort toolbar progress (animated bar + optional session phases). */
+export interface AiSortProgressState {
+  done: number
+  total: number
+  label: string
+  phase: 'sorting' | 'summarizing' | 'complete'
+}
+
 export interface EmailInboxBulkViewProps {
-  accounts: Array<{ id: string; email: string; status?: string }>
+  accounts: Array<{ id: string; email: string; status?: string; processingPaused?: boolean }>
+  /** Refresh app-level account list after connect/disconnect/pause so sync targets stay in sync. */
+  onEmailAccountsChanged?: () => void
   /** Focused message for chat/search scope; syncs with Hybrid Search */
   selectedMessageId?: string | null
   /** Toggle focus; does not switch views */
@@ -1411,14 +1505,18 @@ export interface EmailInboxBulkViewProps {
   selectedAttachmentId?: string | null
   /** Toggle attachment focus */
   onSelectAttachment?: (attachmentId: string | null) => void
+  /** Open Handshakes view and select this relationship */
+  onNavigateToHandshake?: (handshakeId: string) => void
 }
 
 export default function EmailInboxBulkView({
   accounts,
+  onEmailAccountsChanged,
   selectedMessageId: focusedMessageId,
   onSelectMessage,
   selectedAttachmentId,
   onSelectAttachment,
+  onNavigateToHandshake,
 }: EmailInboxBulkViewProps) {
   const {
     messages,
@@ -1426,7 +1524,7 @@ export default function EmailInboxBulkView({
     loading,
     bulkBackgroundRefresh,
     error,
-    bulkPage,
+    lastSyncWarnings,
     bulkBatchSize,
     bulkCompactMode,
     bulkAiOutputs,
@@ -1434,13 +1532,14 @@ export default function EmailInboxBulkView({
     selectedMessage,
     selectedMessageId,
     filter,
-    allMessages,
+    tabCounts: storeTabCounts,
+    bulkHasMore,
+    bulkLoadingMore,
     fetchMessages,
     fetchAllMessages,
     selectAllMatchingCurrentFilter,
     refreshMessages,
     setBulkMode,
-    setBulkPage,
     setBulkBatchSize,
     setBulkCompactMode,
     syncBulkBatchSizeFromSettings,
@@ -1460,14 +1559,19 @@ export default function EmailInboxBulkView({
     setCategory,
     autoSyncEnabled,
     syncing,
-    syncAccount,
-    toggleAutoSync,
-    loadSyncState,
+    syncAllAccounts,
+    toggleAutoSyncForActiveAccounts,
+    refreshInboxSyncBackendState,
+    accountSyncWindowDays,
+    patchAccountSyncPreferences,
     editingDraftForMessageId,
     setEditingDraftForMessageId,
     subFocus,
     setSubFocus,
     isSortingActive,
+    remoteSyncLog,
+    addRemoteSyncLog,
+    clearRemoteSyncLog,
   } = useEmailInboxStore(
     useShallow((s) => ({
       messages: s.messages,
@@ -1475,7 +1579,7 @@ export default function EmailInboxBulkView({
       loading: s.loading,
       bulkBackgroundRefresh: s.bulkBackgroundRefresh,
       error: s.error,
-      bulkPage: s.bulkPage,
+      lastSyncWarnings: s.lastSyncWarnings,
       bulkBatchSize: s.bulkBatchSize,
       bulkCompactMode: s.bulkCompactMode,
       bulkAiOutputs: s.bulkAiOutputs,
@@ -1483,13 +1587,14 @@ export default function EmailInboxBulkView({
       selectedMessage: s.selectedMessage,
       selectedMessageId: s.selectedMessageId,
       filter: s.filter,
-      allMessages: s.allMessages,
+      tabCounts: s.tabCounts,
+      bulkHasMore: s.bulkHasMore,
+      bulkLoadingMore: s.bulkLoadingMore,
       fetchMessages: s.fetchMessages,
       fetchAllMessages: s.fetchAllMessages,
       selectAllMatchingCurrentFilter: s.selectAllMatchingCurrentFilter,
       refreshMessages: s.refreshMessages,
       setBulkMode: s.setBulkMode,
-      setBulkPage: s.setBulkPage,
       setBulkBatchSize: s.setBulkBatchSize,
       setBulkCompactMode: s.setBulkCompactMode,
       syncBulkBatchSizeFromSettings: s.syncBulkBatchSizeFromSettings,
@@ -1509,36 +1614,218 @@ export default function EmailInboxBulkView({
       setCategory: s.setCategory,
       autoSyncEnabled: s.autoSyncEnabled,
       syncing: s.syncing,
-      syncAccount: s.syncAccount,
-      toggleAutoSync: s.toggleAutoSync,
-      loadSyncState: s.loadSyncState,
+      syncAllAccounts: s.syncAllAccounts,
+      toggleAutoSyncForActiveAccounts: s.toggleAutoSyncForActiveAccounts,
+      refreshInboxSyncBackendState: s.refreshInboxSyncBackendState,
+      accountSyncWindowDays: s.accountSyncWindowDays,
+      patchAccountSyncPreferences: s.patchAccountSyncPreferences,
       editingDraftForMessageId: s.editingDraftForMessageId,
       setEditingDraftForMessageId: s.setEditingDraftForMessageId,
       subFocus: s.subFocus,
       setSubFocus: s.setSubFocus,
       isSortingActive: s.isSortingActive,
+      remoteSyncLog: s.remoteSyncLog,
+      addRemoteSyncLog: s.addRemoteSyncLog,
+      clearRemoteSyncLog: s.clearRemoteSyncLog,
     }))
   )
 
   const primaryAccountId = pickDefaultEmailAccountRowId(accounts)
+  const autoSyncEligibleAccountIds = useMemo(() => activeEmailAccountIdsForSync(accounts), [accounts])
   const draftRefineConnect = useDraftRefineStore((s) => s.connect)
 
-  const tabCounts = useMemo(() => deriveTabCounts(allMessages, filter), [allMessages, filter])
+  const tabCounts = useMemo(() => {
+    const t = storeTabCounts ?? {}
+    return {
+      all: typeof t.all === 'number' ? t.all : 0,
+      urgent: typeof t.urgent === 'number' ? t.urgent : 0,
+      pending_delete: typeof t.pending_delete === 'number' ? t.pending_delete : 0,
+      pending_review: typeof t.pending_review === 'number' ? t.pending_review : 0,
+      archived: typeof t.archived === 'number' ? t.archived : 0,
+    }
+  }, [storeTabCounts])
 
   useEffect(() => {
-    if (primaryAccountId) loadSyncState(primaryAccountId)
-  }, [primaryAccountId, loadSyncState])
+    void refreshInboxSyncBackendState({
+      syncTargetIds: autoSyncEligibleAccountIds,
+      primaryAccountId: primaryAccountId ?? null,
+    })
+  }, [autoSyncEligibleAccountIds, primaryAccountId, refreshInboxSyncBackendState])
 
   useEffect(() => {
-    const unsub = window.emailInbox?.onNewMessages?.(() => {
-      void refreshMessages()
+    const unsub = window.emailInbox?.onDrainProgress?.((raw) => {
+      const p = raw as {
+        processed?: number
+        pending?: number
+        failed?: number
+        deferred?: number
+        phase?: string
+        batchSize?: number
+        batchMoved?: number
+        batchSkipped?: number
+        batchErrors?: number
+        batchImapDeferred?: number
+      }
+      if (p.phase === 'simple_processing') {
+        addRemoteSyncLog(`Drain batch: starting up to ${p.batchSize ?? 0} row(s)…`)
+        return
+      }
+      if (p.phase === 'simple_idle' && p.batchSize != null) {
+        const moved = p.batchMoved ?? 0
+        const skipped = p.batchSkipped ?? 0
+        const errors = p.batchErrors ?? p.failed ?? 0
+        const imapDef = p.batchImapDeferred ?? 0
+        const tail =
+          imapDef > 0 ? `, ${imapDef} deferred (IMAP ping)` : ''
+        addRemoteSyncLog(
+          `Drain: ${p.batchSize} processed (${moved} moved, ${skipped} skipped, ${errors} errors${tail}) | ${p.pending ?? 0} pending`,
+        )
+        return
+      }
+      addRemoteSyncLog(
+        `Drain: processed=${p.processed ?? 0} pending=${p.pending ?? 0} failed=${p.failed ?? 0} deferred(pull)=${p.deferred ?? 0}`,
+      )
     })
     return () => unsub?.()
-  }, [refreshMessages])
+  }, [addRemoteSyncLog])
 
-  const handleSync = useCallback(() => {
-    if (primaryAccountId) syncAccount(primaryAccountId)
-  }, [primaryAccountId, syncAccount])
+  useEffect(() => {
+    const unsub = window.emailInbox?.onSimpleDrainRow?.((raw) => {
+      const r = raw as {
+        status?: string
+        op?: string
+        msgId?: string
+        dest?: string
+        error?: string
+      }
+      const op = r.op ?? '?'
+      const msg = String(r.msgId ?? '').slice(0, 8)
+      if (r.status === 'moved') {
+        addRemoteSyncLog(`MOVED: ${op} → ${r.dest ?? '?'} (msg ${msg})`)
+      } else if (r.status === 'skipped') {
+        addRemoteSyncLog(`SKIPPED: ${op} → ${r.dest ?? '?'} (msg ${msg})`)
+      } else if (r.status === 'error') {
+        addRemoteSyncLog(`ERROR: ${op} — ${r.error ?? '?'} (msg ${msg})`)
+      }
+    })
+    return () => unsub?.()
+  }, [addRemoteSyncLog])
+
+  const handleSyncWindowChange = useCallback(
+    async (days: number) => {
+      if (!primaryAccountId) return
+      if (days === 0) {
+        const ok = window.confirm('Syncing all messages may take a long time. Continue?')
+        if (!ok) return
+      }
+      await patchAccountSyncPreferences(primaryAccountId, { syncWindowDays: days })
+    },
+    [primaryAccountId, patchAccountSyncPreferences],
+  )
+
+  const handleToggleAutoSyncAll = useCallback(
+    (enabled: boolean) => {
+      if (autoSyncEligibleAccountIds.length === 0) return
+      void toggleAutoSyncForActiveAccounts(enabled, autoSyncEligibleAccountIds, primaryAccountId ?? null)
+    },
+    [autoSyncEligibleAccountIds, primaryAccountId, toggleAutoSyncForActiveAccounts],
+  )
+
+  const [remoteSyncBusy, setRemoteSyncBusy] = useState(false)
+
+  /** Enqueue full remote lifecycle reconcile (background drain). */
+  const enqueueFullRemoteSync = useCallback(async (): Promise<void> => {
+    const fn = window.emailInbox?.fullRemoteSyncAllAccounts
+    if (!fn) {
+      console.warn('[Inbox] fullRemoteSyncAllAccounts not available (update app)')
+      addRemoteSyncLog('Sync: remote reconcile not available — update WR Desk')
+      return
+    }
+    setRemoteSyncBusy(true)
+    try {
+      const r = await fn()
+      if (r?.ok) {
+        console.log(
+          '[Inbox] Sync Remote enqueued:',
+          `accounts=${r.accountCount ?? '?'} enqueued=${r.enqueued ?? 0} skipped=${r.skipped ?? 0}`,
+        )
+        addRemoteSyncLog(
+          `Sync Remote: ${r.enqueued ?? 0} enqueued, ${r.skipped ?? 0} skipped` +
+            (typeof r.unmirroredEnqueued === 'number' && r.unmirroredEnqueued > 0
+              ? ` (${r.unmirroredEnqueued} backfill unmirrored)`
+              : '') +
+            (typeof r.orphanPendingCleared === 'number' && r.orphanPendingCleared > 0
+              ? `, ${r.orphanPendingCleared} orphan queue row(s) cleared`
+              : '') +
+            ' — background drain until empty (see 🔧 for pending)',
+        )
+      } else {
+        console.warn('[Inbox] Sync Remote:', r?.error)
+        addRemoteSyncLog(`Sync Remote failed: ${r?.error ?? 'unknown'}`)
+      }
+    } catch (e) {
+      console.warn('[Inbox] Sync Remote failed:', e)
+      addRemoteSyncLog(`Sync Remote error: ${e instanceof Error ? e.message : String(e)}`)
+    } finally {
+      setRemoteSyncBusy(false)
+    }
+  }, [addRemoteSyncLog])
+
+  /** Pull from mailbox(es); optionally enqueue remote folder reconcile when at least one OAuth account exists. */
+  const handleUnifiedSync = useCallback(async () => {
+    const ids = activeEmailAccountIdsForSync(accounts)
+    const toSync = ids.length > 0 ? ids : primaryAccountId ? [primaryAccountId] : []
+    if (toSync.length === 0) return
+    await syncAllAccounts(toSync)
+    let shouldEnqueueRemote = true
+    if (typeof window.emailAccounts?.listAccounts === 'function') {
+      try {
+        const res = await window.emailAccounts.listAccounts()
+        if (res?.ok && res.data && res.data.length > 0) {
+          const allImap = res.data.every((a: { provider?: string }) => {
+            const p = a.provider
+            return p !== 'gmail' && p !== 'microsoft365' && p !== 'zoho'
+          })
+          if (allImap) shouldEnqueueRemote = false
+        }
+      } catch {
+        /* keep shouldEnqueueRemote true */
+      }
+    }
+    if (shouldEnqueueRemote) await enqueueFullRemoteSync()
+  }, [accounts, primaryAccountId, syncAllAccounts, enqueueFullRemoteSync])
+
+  const [remoteDebugOpen, setRemoteDebugOpen] = useState(false)
+  const [remoteDebugLoading, setRemoteDebugLoading] = useState(false)
+  const [remoteDebugQueue, setRemoteDebugQueue] = useState<Record<string, unknown> | null>(null)
+  /** Optional account filter for `debugMainInboxRows` IPC (empty = all accounts). */
+  const [remoteMainInboxAccountId, setRemoteMainInboxAccountId] = useState('')
+  const [remoteMainInboxDebug, setRemoteMainInboxDebug] = useState<Record<string, unknown> | null>(null)
+  /** IMAP LIST + STATUS + lifecycle exact-match (read-only). */
+  const [remoteFolderVerify, setRemoteFolderVerify] = useState<Record<string, unknown> | null>(null)
+  const [remoteFolderVerifyLoading, setRemoteFolderVerifyLoading] = useState(false)
+  /** Which account the last verify was run for (debug panel). */
+  const [remoteFolderVerifyLabel, setRemoteFolderVerifyLabel] = useState<string | null>(null)
+  /** Last ~30s of queue snapshots (while debug panel open) for drain ETA. */
+  const [remoteDrainHistory, setRemoteDrainHistory] = useState<RemoteDrainSample[]>([])
+  const [remoteDebugTestMove, setRemoteDebugTestMove] = useState<{
+    enqueue: string
+    move: string
+    skipReasons?: string[]
+    messageRowBeforeEnqueue?: Record<string, unknown> | null
+    messageRowAfterDrain?: Record<string, unknown> | null
+    queueRows?: Array<Record<string, unknown>>
+  } | null>(null)
+  /** `inbox:debugAccountMigrationStatus` — gateway ids vs orphan inbox_messages.account_id */
+  const [accountMigrationDiag, setAccountMigrationDiag] = useState<Record<string, unknown> | null>(null)
+  /** Per-orphan chosen target account id for migrate (defaults to first suggestion in UI). */
+  const [orphanMigrateTargetId, setOrphanMigrateTargetId] = useState<Record<string, string>>({})
+
+  const remoteSyncUserSummary = useMemo(() => {
+    if (!remoteDebugQueue || typeof remoteDebugQueue !== 'object') return null
+    const byStatus = (remoteDebugQueue.byStatus as QueueStatusRow[]) ?? []
+    return buildRemoteSyncUserSummary(byStatus)
+  }, [remoteDebugQueue])
 
   const [expandedMessageId, setExpandedMessageId] = useState<string | null>(null)
   const [expandedCardIds, setExpandedCardIds] = useState<Set<string>>(new Set())
@@ -1554,12 +1841,31 @@ export default function EmailInboxBulkView({
   }, [])
 
 
-  const [providerAccounts, setProviderAccounts] = useState<Array<{ id: string; displayName: string; email: string; provider: 'gmail' | 'microsoft365' | 'imap'; status: 'active' | 'error' | 'disabled'; lastError?: string }>>([])
+  const [providerAccounts, setProviderAccounts] = useState<
+    Array<{
+      id: string
+      displayName: string
+      email: string
+      provider: 'gmail' | 'microsoft365' | 'zoho' | 'imap'
+      status: 'active' | 'auth_error' | 'error' | 'disabled'
+      processingPaused?: boolean
+      lastError?: string
+    }>
+  >([])
   const [isLoadingProviderAccounts, setIsLoadingProviderAccounts] = useState(true)
   const [selectedProviderAccountId, setSelectedProviderAccountId] = useState<string | null>(null)
+  /** True when every listed account is IMAP — unified Sync runs pull only (no remote enqueue). */
+  const bulkToolbarPullOnly = useMemo(
+    () => providerAccounts.length > 0 && providerAccounts.every((a) => a.provider === 'imap'),
+    [providerAccounts],
+  )
 
   const [pendingLinkUrl, setPendingLinkUrl] = useState<string | null>(null)
-  const [aiSortProgress, setAiSortProgress] = useState<string | null>(null)
+  const [aiSortProgress, setAiSortProgress] = useState<AiSortProgressState | null>(null)
+  /** Transient CTA after a successful Auto-Sort (not a persistent dock slot — fades out and unmounts). */
+  const [autosortReviewBanner, setAutosortReviewBanner] = useState<AutosortReviewBannerState | null>(null)
+  const [showSessionReview, setShowSessionReview] = useState<string | null>(null)
+  const [showSessionHistory, setShowSessionHistory] = useState(false)
   /** One-line summary after a bulk Auto-Sort run (moved / kept / failed counts). */
   const [aiSortOutcomeSummary, setAiSortOutcomeSummary] = useState<string | null>(null)
   /** Shown when user triggers Auto-Sort while a run is already active. */
@@ -1607,6 +1913,23 @@ export default function EmailInboxBulkView({
     }
   }, [])
 
+  /** After Auto-Sort completes, keep "Review Session" visible briefly then start fade-out. */
+  useEffect(() => {
+    if (!autosortReviewBanner || autosortReviewBanner.fading) return
+    const id = window.setTimeout(() => {
+      setAutosortReviewBanner((b) => (b && !b.fading ? { sessionId: b.sessionId, fading: true } : b))
+    }, AUTOSORT_REVIEW_BANNER_VISIBLE_MS)
+    return () => clearTimeout(id)
+  }, [autosortReviewBanner?.sessionId, autosortReviewBanner?.fading])
+
+  /** When fading with reduced motion, `transitionend` may not run — unmount after a tick. */
+  useEffect(() => {
+    if (!autosortReviewBanner?.fading) return
+    if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
+    const id = window.setTimeout(() => setAutosortReviewBanner(null), 80)
+    return () => clearTimeout(id)
+  }, [autosortReviewBanner?.fading, autosortReviewBanner?.sessionId])
+
   const sortedMessages = useMemo(() => sortMessagesByCategory(messages), [messages])
 
   /** Build display list: current messages + removing items at original positions. */
@@ -1620,6 +1943,357 @@ export default function EmailInboxBulkView({
     }
     return base
   }, [sortedMessages, removingItems])
+
+  const refreshRemoteDebugQueue = useCallback(
+    async (opts?: { silent?: boolean; mainInboxAccountOverride?: string }) => {
+      if (!opts?.silent) setRemoteDebugLoading(true)
+      try {
+        const q = await window.emailInbox?.debugQueueStatus?.()
+        setRemoteDebugQueue(q && typeof q === 'object' ? (q as Record<string, unknown>) : null)
+        if (q && typeof q === 'object' && typeof (q as { error?: unknown }).error !== 'string') {
+          const byStatus = ((q as { byStatus?: QueueStatusRow[] }).byStatus ?? []) as QueueStatusRow[]
+          const completed = countStatus(byStatus, 'completed')
+          const pending = countStatus(byStatus, 'pending')
+          const processing = countStatus(byStatus, 'processing')
+          const now = Date.now()
+          setRemoteDrainHistory((prev) => {
+            const trimmed = prev.filter((x) => now - x.t <= 30_000)
+            return [...trimmed, { t: now, completed, pending, processing }]
+          })
+        }
+        const inboxFn = window.emailInbox?.debugMainInboxRows
+        if (inboxFn) {
+          const accFilter =
+            opts?.mainInboxAccountOverride !== undefined
+              ? opts.mainInboxAccountOverride
+              : remoteMainInboxAccountId.trim() || undefined
+          const ir = await inboxFn(accFilter)
+          setRemoteMainInboxDebug(ir && typeof ir === 'object' ? (ir as Record<string, unknown>) : null)
+        } else {
+          setRemoteMainInboxDebug(null)
+        }
+        const migFn = window.emailInbox?.debugAccountMigrationStatus
+        if (migFn) {
+          const mig = await migFn()
+          if (mig && typeof mig === 'object' && (mig as { ok?: boolean }).ok === true) {
+            setAccountMigrationDiag(mig as Record<string, unknown>)
+          } else {
+            setAccountMigrationDiag(null)
+          }
+        } else {
+          setAccountMigrationDiag(null)
+        }
+      } finally {
+        if (!opts?.silent) setRemoteDebugLoading(false)
+      }
+    },
+    [remoteMainInboxAccountId],
+  )
+
+  const openRemoteDebugPanel = useCallback(() => {
+    setRemoteDebugOpen(true)
+    void refreshRemoteDebugQueue()
+  }, [refreshRemoteDebugQueue])
+
+  const handleVerifyImapRemoteFolders = useCallback(
+    async (explicitAccountId?: string, accountLabelForUi?: string) => {
+      const fn = window.emailInbox?.verifyImapRemoteFolders
+      if (!fn) {
+        setRemoteFolderVerify({ ok: false, error: 'verifyImapRemoteFolders not in bridge (update app)' })
+        setRemoteFolderVerifyLabel(null)
+        return
+      }
+      const aid = (explicitAccountId?.trim() || remoteMainInboxAccountId.trim() || primaryAccountId || '').trim()
+      if (!aid) {
+        setRemoteFolderVerify({
+          ok: false,
+          error: 'Use “Verify” next to an IMAP account in Per account (queue), or pick an account in Account filter.',
+        })
+        setRemoteFolderVerifyLabel(null)
+        return
+      }
+      setRemoteFolderVerifyLabel(accountLabelForUi?.trim() || null)
+      setRemoteFolderVerifyLoading(true)
+      try {
+        const r = await fn(aid)
+        const rec = r && typeof r === 'object' ? (r as Record<string, unknown>) : { ok: false, error: 'empty' }
+        setRemoteFolderVerify(rec)
+        if (rec.ok === false) {
+          const err = typeof rec.error === 'string' ? rec.error : 'unknown'
+          addRemoteSyncLog(`Verify Remote: FAILED — ${err}`)
+        } else {
+          addRemoteSyncLog('Verify Remote: OK (folder list loaded)')
+        }
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e)
+        setRemoteFolderVerify({ ok: false, error: msg })
+        addRemoteSyncLog(`Verify Remote: FAILED — ${msg}`)
+      } finally {
+        setRemoteFolderVerifyLoading(false)
+      }
+    },
+    [remoteMainInboxAccountId, primaryAccountId, addRemoteSyncLog],
+  )
+
+  useEffect(() => {
+    if (!remoteDebugOpen) {
+      setRemoteDrainHistory([])
+      setRemoteMainInboxDebug(null)
+      setAccountMigrationDiag(null)
+      setRemoteFolderVerify(null)
+      setRemoteFolderVerifyLabel(null)
+      return
+    }
+    const id = window.setInterval(() => {
+      void refreshRemoteDebugQueue({ silent: true })
+    }, 5_000)
+    return () => clearInterval(id)
+  }, [remoteDebugOpen, refreshRemoteDebugQueue])
+
+  const handleRetryFailedRemoteQueue = useCallback(
+    async (accountId?: string) => {
+      const fn = window.emailInbox?.retryFailedRemoteOps
+      if (!fn) {
+        addRemoteSyncLog('retryFailedRemoteOps not in bridge (update app)')
+        return
+      }
+      setRemoteDebugLoading(true)
+      try {
+        const r = await fn(accountId)
+        if (r?.ok) {
+          addRemoteSyncLog(
+            accountId
+              ? `Retry failed (${accountId.slice(0, 8)}…): ${r.resetCount ?? 0} row(s) reset to pending (drain scheduled)`
+              : `Retry failed queue: ${r.resetCount ?? 0} row(s) reset to pending (drain scheduled)`,
+          )
+        } else {
+          addRemoteSyncLog(`Retry failed queue: ${r?.error ?? 'failed'}`)
+        }
+        await refreshRemoteDebugQueue()
+      } finally {
+        setRemoteDebugLoading(false)
+      }
+    },
+    [addRemoteSyncLog, refreshRemoteDebugQueue],
+  )
+
+  const handleClearFailedRemoteQueue = useCallback(
+    async (accountId: string) => {
+      const fn = window.emailInbox?.clearFailedRemoteOps
+      if (!fn) {
+        addRemoteSyncLog('clearFailedRemoteOps not in bridge (update app)')
+        return
+      }
+      setRemoteDebugLoading(true)
+      try {
+        const r = await fn(accountId)
+        if (r?.ok) {
+          addRemoteSyncLog(
+            `Clear failed (${accountId.slice(0, 8)}…): ${r.deletedCount ?? 0} row(s) removed (orphan / dead session)`,
+          )
+        } else {
+          addRemoteSyncLog(`Clear failed: ${r?.error ?? 'failed'}`)
+        }
+        await refreshRemoteDebugQueue()
+      } finally {
+        setRemoteDebugLoading(false)
+      }
+    },
+    [addRemoteSyncLog, refreshRemoteDebugQueue],
+  )
+
+  const handleMigrateInboxAccount = useCallback(
+    async (fromAccountId: string, toAccountId: string) => {
+      const fn = window.emailInbox?.migrateInboxAccountId
+      if (!fn) {
+        addRemoteSyncLog('migrateInboxAccountId not in bridge (update app)')
+        return
+      }
+      setRemoteDebugLoading(true)
+      try {
+        const r = (await fn(fromAccountId, toAccountId)) as {
+          ok?: boolean
+          error?: string
+          messagesUpdated?: number
+          queueRowsDeleted?: number
+        }
+        if (r?.ok) {
+          addRemoteSyncLog(
+            `Inbox migrate: ${fromAccountId.slice(0, 8)}… → ${toAccountId.slice(0, 8)}… — ${r.messagesUpdated ?? 0} message row(s), ${r.queueRowsDeleted ?? 0} queue row(s) removed. Run ☁ Sync Remote.`,
+          )
+          await refreshMessages()
+        } else {
+          addRemoteSyncLog(`Inbox migrate failed: ${r?.error ?? 'unknown'}`)
+        }
+        await refreshRemoteDebugQueue({ silent: true })
+      } finally {
+        setRemoteDebugLoading(false)
+      }
+    },
+    [addRemoteSyncLog, refreshMessages, refreshRemoteDebugQueue],
+  )
+
+  const invokeFullResetAccountBridge = useCallback(async (accountId: string) => {
+    const bridge = window.emailInbox?.fullResetAccount ?? window.emailAccounts?.fullResetAccount
+    if (!bridge) {
+      return { ok: false as const, error: 'fullResetAccount not in bridge (update app)' }
+    }
+    return bridge(accountId) as Promise<{ ok: boolean; error?: string; results?: string[] }>
+  }, [])
+
+  const handleFullResetAccount = useCallback(
+    async (accountId: string, email: string) => {
+      if (
+        !window.confirm(
+          `DELETE all messages and sync data for ${email}? Cannot be undone.`,
+        )
+      ) {
+        return
+      }
+      setRemoteDebugLoading(true)
+      try {
+        const result = await invokeFullResetAccountBridge(accountId)
+        console.log('[FULL-RESET]', accountId, result)
+        window.alert(JSON.stringify(result, null, 2))
+        if (result.ok && Array.isArray(result.results)) {
+          addRemoteSyncLog(`Full reset (${email}): ${result.results.join(' · ')}`)
+        } else {
+          addRemoteSyncLog(`Full reset (${email}): ${result.error ?? 'failed'}`)
+        }
+        await refreshMessages()
+        await refreshRemoteDebugQueue()
+        await refreshInboxSyncBackendState({
+          syncTargetIds: autoSyncEligibleAccountIds,
+          primaryAccountId: primaryAccountId ?? null,
+        })
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e)
+        addRemoteSyncLog(`Full reset (${email}): ${msg}`)
+        window.alert(msg)
+      } finally {
+        setRemoteDebugLoading(false)
+      }
+    },
+    [
+      addRemoteSyncLog,
+      invokeFullResetAccountBridge,
+      refreshMessages,
+      refreshRemoteDebugQueue,
+      refreshInboxSyncBackendState,
+      autoSyncEligibleAccountIds,
+      primaryAccountId,
+    ],
+  )
+
+  const handleFullResetAllAccounts = useCallback(async () => {
+    const active = providerAccounts.filter((a) => a.status === 'active')
+    if (active.length === 0) {
+      addRemoteSyncLog('Full reset ALL: no active accounts')
+      return
+    }
+    if (
+      !window.confirm(
+        'DELETE all messages and sync data for ALL accounts? Cannot be undone.',
+      )
+    ) {
+      return
+    }
+    setRemoteDebugLoading(true)
+    try {
+      for (const account of active) {
+        const result = await invokeFullResetAccountBridge(account.id)
+        console.log('[FULL-RESET]', account.id, result)
+        if (result.ok && Array.isArray(result.results)) {
+          addRemoteSyncLog(
+            `Full reset (${account.email}): ${result.results.join(' · ')}`,
+          )
+        } else {
+          addRemoteSyncLog(`Full reset (${account.email}): ${result.error ?? 'failed'}`)
+        }
+      }
+      window.alert('All accounts reset')
+      await refreshMessages()
+      await refreshRemoteDebugQueue()
+      await refreshInboxSyncBackendState({
+        syncTargetIds: autoSyncEligibleAccountIds,
+        primaryAccountId: primaryAccountId ?? null,
+      })
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e)
+      addRemoteSyncLog(`Full reset ALL: ${msg}`)
+      window.alert(msg)
+    } finally {
+      setRemoteDebugLoading(false)
+    }
+  }, [
+    providerAccounts,
+    addRemoteSyncLog,
+    invokeFullResetAccountBridge,
+    refreshMessages,
+    refreshRemoteDebugQueue,
+    refreshInboxSyncBackendState,
+    autoSyncEligibleAccountIds,
+    primaryAccountId,
+  ])
+
+  const handleTestMoveOne = useCallback(async () => {
+    const id = displayMessages[0]?.id
+    if (!id) {
+      setRemoteDebugTestMove({ enqueue: 'No message in current view', move: '—', skipReasons: [] })
+      setRemoteDebugOpen(true)
+      return
+    }
+    const fn = window.emailInbox?.debugTestMoveOne
+    if (!fn) {
+      setRemoteDebugTestMove({ enqueue: 'debugTestMoveOne not in bridge', move: '—', skipReasons: [] })
+      setRemoteDebugOpen(true)
+      return
+    }
+    setRemoteDebugOpen(true)
+    setRemoteDebugLoading(true)
+    try {
+      const r = (await fn(id)) as {
+        ok?: boolean
+        error?: string
+        enqueue?: { enqueued: number; skipped: number; skipReasons?: string[] }
+        drainProcessed?: number
+        drainFailed?: number
+        lastRow?: { status?: string; last_error?: string | null } | null
+        messageRowBeforeEnqueue?: Record<string, unknown> | null
+        messageRowAfterDrain?: Record<string, unknown> | null
+        queueRowsForMessage?: Array<Record<string, unknown>>
+      }
+      if (!r?.ok) {
+        const enc = `Enqueue: error ${r?.error ?? 'unknown'}`
+        setRemoteDebugTestMove({ enqueue: enc, move: '—', skipReasons: [] })
+        addRemoteSyncLog(enc)
+      } else {
+        const enq = r.enqueue
+        const reasons = Array.isArray(enq?.skipReasons) ? enq!.skipReasons! : []
+        const encLine = `Enqueue result: ${enq?.enqueued ?? 0} enqueued, ${enq?.skipped ?? 0} skipped`
+        const row = r.lastRow
+        let moveLine: string
+        if (!row) moveLine = 'Move result: no queue row (nothing to mirror or skipped)'
+        else if (row.status === 'completed') moveLine = 'Move result: OK'
+        else if (row.status === 'failed') moveLine = `Move result: FAIL: ${row.last_error ?? 'unknown'}`
+        else
+          moveLine = `Move result: ${row.status} (batch processed=${r.drainProcessed ?? 0}, failed=${r.drainFailed ?? 0})`
+        setRemoteDebugTestMove({
+          enqueue: encLine,
+          move: moveLine,
+          skipReasons: reasons,
+          messageRowBeforeEnqueue: r.messageRowBeforeEnqueue ?? null,
+          messageRowAfterDrain: r.messageRowAfterDrain ?? null,
+          queueRows: r.queueRowsForMessage ?? [],
+        })
+        const reasonSuffix = reasons.length ? ` · skips: ${reasons.join(' | ')}` : ''
+        addRemoteSyncLog(`${encLine} · ${moveLine}${reasonSuffix}`)
+      }
+      await refreshRemoteDebugQueue()
+    } finally {
+      setRemoteDebugLoading(false)
+    }
+  }, [displayMessages, addRemoteSyncLog, refreshRemoteDebugQueue])
 
   /** Detect removals and add to removingItems for exit animation. Skip when filter changed (view switch). */
   useEffect(() => {
@@ -1691,15 +2365,15 @@ export default function EmailInboxBulkView({
     }
   }, [someInBatchSelected, allInBatchSelected])
 
-  const totalPages =
-    bulkBatchSize === 'all' ? 1 : Math.max(1, Math.ceil(total / bulkBatchSize))
-  const canPrev = bulkPage > 0
-  const canNext = bulkPage < totalPages - 1
-
   useEffect(() => {
     setBulkMode(true)
     return () => setBulkMode(false)
   }, [setBulkMode])
+
+  /** Same as EmailInboxView: load inbox snapshot after mount (bulkMode is set by the effect above; order guarantees store.bulkMode is true). */
+  useEffect(() => {
+    void fetchMessages()
+  }, [fetchMessages])
 
   /** Auto-focus first row when messages finish loading — enables immediate keyboard triage. Skip when user explicitly unfocused. */
   const prevLoadingRef = useRef(false)
@@ -1719,30 +2393,48 @@ export default function EmailInboxBulkView({
     }
   }, [focusedMessageId])
 
-  /** When focused message is removed (archived/deleted), focus next available row. */
+  /**
+   * When focused id is not in the current list (tab / refresh / archive) keep list highlight and
+   * Hybrid Search scope aligned: focus first row, or clear App + store when the list is empty.
+   */
   useEffect(() => {
-    if (
-      focusedMessageId &&
-      !sortedMessages.some((m) => m.id === focusedMessageId) &&
-      sortedMessages.length > 0 &&
-      onSelectMessage
-    ) {
+    if (!focusedMessageId || !onSelectMessage || loading) return
+    if (sortedMessages.some((m) => m.id === focusedMessageId)) return
+    if (sortedMessages.length > 0) {
       onSelectMessage(sortedMessages[0].id)
+      return
     }
-  }, [focusedMessageId, sortedMessages, onSelectMessage])
+    onSelectMessage(null)
+    void selectMessage(null)
+  }, [focusedMessageId, sortedMessages, onSelectMessage, selectMessage, loading])
 
   useEffect(() => {
     syncBulkBatchSizeFromSettings()
   }, [syncBulkBatchSizeFromSettings])
 
-  /** On mount and page 0: fetch all tabs for instant switching. On page change: fetch current page. */
+  const bulkScrollContainerRef = useRef<HTMLDivElement>(null)
+  const bulkLoadSentinelRef = useRef<HTMLDivElement>(null)
+
+  /** Infinite scroll: sentinel vs IntersectionObserver root = `.bulk-view-root` (sole vertical scrollport). */
   useEffect(() => {
-    if (bulkPage === 0) {
-      fetchAllMessages()
-    } else {
-      fetchMessages()
-    }
-  }, [fetchAllMessages, fetchMessages, bulkPage])
+    const root = bulkScrollContainerRef.current
+    const sentinel = bulkLoadSentinelRef.current
+    if (!root || !sentinel || !bulkHasMore) return
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[0]
+        if (!entry?.isIntersecting) return
+        const s = useEmailInboxStore.getState()
+        if (!s.bulkMode || s.bulkLoadingMore || !s.bulkHasMore) return
+        if (s.messages.length >= s.total) return
+        void s.loadMoreBulkMessages()
+      },
+      { root, rootMargin: '0px 0px 120px 0px', threshold: 0.1 },
+    )
+    observer.observe(sentinel)
+    return () => observer.disconnect()
+  }, [bulkHasMore, filter.filter, loading, messages.length])
 
   /** When user selects batch size “All”, select every ID for the active tab (DB drain), not just the rendered slice. */
   useEffect(() => {
@@ -1795,7 +2487,8 @@ export default function EmailInboxBulkView({
       ids: string[],
       clearSelection: boolean,
       isRetry = false,
-      opts?: { manageConcurrencyLock?: boolean; suppressGlobalSortingUi?: boolean; skipEndRefresh?: boolean }
+      opts?: { manageConcurrencyLock?: boolean; suppressGlobalSortingUi?: boolean; skipEndRefresh?: boolean },
+      sessionId?: string
     ): Promise<BulkSortRunAggregate> => {
       const manageConcurrencyLock = opts?.manageConcurrencyLock !== false
       const suppressGlobalSortingUi = opts?.suppressGlobalSortingUi === true
@@ -1819,9 +2512,15 @@ export default function EmailInboxBulkView({
       }
       if (!suppressGlobalSortingUi) {
         useEmailInboxStore.getState().setSortingActive(true)
-        setAiSortProgress(`Analyzing ${ids.length} message${ids.length !== 1 ? 's' : ''}…`)
+        setAiSortProgress({
+          done: 0,
+          total: ids.length,
+          label: `Analyzing ${ids.length} message${ids.length !== 1 ? 's' : ''}…`,
+          phase: 'sorting',
+        })
       }
-      const CONCURRENCY = 3
+      /** Parallel IPC calls — Ollama queues; 5 keeps GPU fed without huge bursts (was 3). */
+      const CONCURRENCY = 5
       const VALID_ACTIONS: BulkRecommendedAction[] = ['pending_delete', 'pending_review', 'archive', 'keep_for_manual_action', 'draft_reply_ready']
       const VALID_CATEGORIES: SortCategory[] = ['urgent', 'important', 'normal', 'newsletter', 'spam', 'irrelevant', 'pending_review']
       const processedIds: string[] = []
@@ -1831,9 +2530,19 @@ export default function EmailInboxBulkView({
       try {
         for (let i = 0; i < ids.length; i += CONCURRENCY) {
           const batch = ids.slice(i, i + CONCURRENCY)
-          await Promise.all(
+          const doneAfterBatch = Math.min(i + batch.length, ids.length)
+          if (!suppressGlobalSortingUi) {
+            setAiSortProgress({
+              done: doneAfterBatch,
+              total: ids.length,
+              label: `Analyzing ${doneAfterBatch}/${ids.length}…`,
+              phase: 'sorting',
+            })
+          }
+          const settled = await Promise.allSettled(
             batch.map(async (messageId) => {
-              const result = await window.emailInbox!.aiClassifySingle(messageId)
+              try {
+              const result = await window.emailInbox!.aiClassifySingle(messageId, sessionId)
               if (result.error) {
                 failedIds.push(messageId)
                 console.warn('[SORT] Failed to analyze message:', messageId, result.error)
@@ -1864,6 +2573,13 @@ export default function EmailInboxBulkView({
               const recommendedAction = (VALID_ACTIONS.includes((result.recommended_action ?? '') as BulkRecommendedAction)
                 ? result.recommended_action
                 : 'keep_for_manual_action') as BulkRecommendedAction
+              const remoteEnq = (result as { remoteEnqueue?: { enqueued: number; skipped: number; skipReasons?: string[] } })
+                .remoteEnqueue
+              if (remoteEnq) {
+                useEmailInboxStore.getState().addRemoteSyncLog(
+                  `Classified: ${category}, remote enqueue: ${remoteEnq.enqueued} enqueued / ${remoteEnq.skipped} skipped`,
+                )
+              }
               const summary = (result.summary ?? '').slice(0, 500)
               const reason = (result.reason ?? '').slice(0, 300)
               const entry: BulkAiResult = {
@@ -1882,14 +2598,24 @@ export default function EmailInboxBulkView({
               if (result.draftReply && (result.needsReply || recommendedAction === 'draft_reply_ready')) {
                 entry.draftReply = result.draftReply.slice(0, 4000)
               }
-              const isUrgent = entry.urgencyScore >= BULK_AUTO_SORT_URGENCY_THRESHOLD
               const inboxStore = useEmailInboxStore.getState()
 
+              /** Urgent: main process sets sort_category + enqueues remote Urgent folder — no “retained in inbox” UX. */
+              if (result.category === 'urgent') {
+                processedIds.push(messageId)
+                setBulkAiOutputs((prev) => ({
+                  ...prev,
+                  [messageId]: { ...entry },
+                }))
+                await sortFeedbackPaintDwell()
+                inboxStore.removeBulkDraftManualCompose(messageId)
+                return
+              }
+
               const willAutoMoveFromInbox =
-                !isUrgent &&
-                ((result.pending_delete && recommendedAction === 'pending_delete') ||
-                  (result.pending_review && recommendedAction === 'pending_review') ||
-                  recommendedAction === 'archive')
+                (result.pending_delete && recommendedAction === 'pending_delete') ||
+                (result.pending_review && recommendedAction === 'pending_review') ||
+                recommendedAction === 'archive'
 
               if (willAutoMoveFromInbox) {
                 setBulkAiOutputs((prev) => ({
@@ -1897,21 +2623,6 @@ export default function EmailInboxBulkView({
                   [messageId]: { ...entry },
                 }))
                 await sortFeedbackPaintDwell()
-              }
-
-              if (isUrgent) {
-                processedIds.push(messageId)
-                retainedCounts.urgent_threshold += 1
-                setBulkAiOutputs((prev) => ({
-                  ...prev,
-                  [messageId]: withAutosortRetained(
-                    entry,
-                    'urgent_threshold',
-                    `Urgency score ${entry.urgencyScore} ≥ ${BULK_AUTO_SORT_URGENCY_THRESHOLD} — high-priority mail is not auto-moved. Use the actions below if needed.`
-                  ),
-                }))
-                inboxStore.removeBulkDraftManualCompose(messageId)
-                return
               }
 
               if (result.pending_delete && recommendedAction === 'pending_delete') {
@@ -1988,17 +2699,18 @@ export default function EmailInboxBulkView({
                 retained = withAutosortRetained(
                   entry,
                   'keep_for_manual_action',
-                  'AI recommends manual handling — not auto-archived, deleted, or moved.'
+                  'AI recommends manual handling — Auto-Sort did not change local archive/delete/review; use actions below. Remote folders update via the sync queue / ☁ Sync Remote.'
                 )
               } else if (recommendedAction === 'draft_reply_ready') {
-                retainedCounts.draft_reply_ready += 1
-                retained = withAutosortRetained(
-                  entry,
-                  'draft_reply_ready',
-                  entry.draftReply?.trim()
-                    ? 'Draft suggested — review or send below; replies are never auto-sent.'
-                    : 'Classified as reply-ready — no draft text returned; not auto-moved.'
-                )
+                /** Urgent + needsReply: DB already updated in main; no local tab move — same as urgent early return if duplicate. */
+                processedIds.push(messageId)
+                setBulkAiOutputs((prev) => ({
+                  ...prev,
+                  [messageId]: { ...entry },
+                }))
+                await sortFeedbackPaintDwell()
+                inboxStore.removeBulkDraftManualCompose(messageId)
+                return
               } else if (recommendedAction === 'pending_delete' && !result.pending_delete) {
                 retainedCounts.classified_no_auto_move += 1
                 retained = withAutosortRetained(
@@ -2023,8 +2735,28 @@ export default function EmailInboxBulkView({
               }
               setBulkAiOutputs((prev) => ({ ...prev, [messageId]: retained }))
               inboxStore.removeBulkDraftManualCompose(messageId)
-            })
+              } catch (sortErr: unknown) {
+                const msg = sortErr instanceof Error ? sortErr.message : String(sortErr ?? 'unknown error')
+                console.warn('[SORT] Classification or move failed:', messageId, msg)
+                failedIds.push(messageId)
+                setBulkAiOutputs((prev) => ({
+                  ...prev,
+                  [messageId]: {
+                    summary: `Auto-Sort error: ${msg.slice(0, 200)}`,
+                    autosortFailure: true,
+                    failureReason: 'llm_error',
+                    autosortOutcome: 'failed',
+                    status: 'classified',
+                  },
+                }))
+              }
+            }),
           )
+          for (const s of settled) {
+            if (s.status === 'rejected') {
+              console.warn('[SORT] Batch promise rejected:', s.reason)
+            }
+          }
         }
         const missedIdsPass1 = ids.filter((id) => !processedIds.includes(id) && !failedIds.includes(id))
         const toRetry = ids.filter((id) => !processedIds.includes(id))
@@ -2049,7 +2781,7 @@ export default function EmailInboxBulkView({
             manageConcurrencyLock: false,
             suppressGlobalSortingUi,
             skipEndRefresh,
-          })
+          }, sessionId)
           allProcessedIds = [...new Set([...processedIds, ...retryResult.processedIds])]
           allFailedIds = [...new Set([...failedIds, ...retryResult.failedIds])]
           allMovedIds = [...new Set([...movedIds, ...retryResult.movedIds])]
@@ -2093,6 +2825,39 @@ export default function EmailInboxBulkView({
           movedIds: allMovedIds,
           failedIds: allFailedIds,
         })
+        /** Ensure M365/IMAP mirror for every successfully classified id (not raw batch targets). Re-upserts from DB + chained drain. */
+        const classifiedIdsForRemote = [...new Set(allProcessedIds)]
+        if (classifiedIdsForRemote.length > 0) {
+          const syncFn = window.emailInbox?.enqueueRemoteSync ?? window.emailInbox?.enqueueRemoteLifecycleMirror
+          if (syncFn) {
+            try {
+              const res = await syncFn(classifiedIdsForRemote)
+              if (!res?.ok) {
+                console.warn('[AutoSort] Remote enqueue failed:', res && 'error' in res ? res.error : res)
+              } else if ('enqueued' in res && (res.enqueued ?? 0) > 0) {
+                console.log('[AutoSort] Remote enqueue:', { enqueued: res.enqueued, skipped: res.skipped })
+              } else if ('data' in res && res.data?.enqueued) {
+                console.log('[AutoSort] Remote enqueue:', res.data)
+              }
+            } catch (e) {
+              console.warn('[AutoSort] Remote enqueue failed:', e)
+            }
+            try {
+              const full = await window.emailInbox?.fullRemoteSyncForMessages?.(classifiedIdsForRemote)
+              if (full?.ok && (full.enqueued ?? 0) + (full.inboxRestoreNeeded ?? 0) > 0) {
+                console.log('[AutoSort] Full remote reconcile:', {
+                  enqueued: full.enqueued,
+                  skipped: full.skipped,
+                  inboxRestoreNeeded: full.inboxRestoreNeeded,
+                })
+              } else if (full && !full.ok) {
+                console.warn('[AutoSort] fullRemoteSyncForMessages:', full.error)
+              }
+            } catch (e) {
+              console.warn('[AutoSort] fullRemoteSyncForMessages failed:', e)
+            }
+          }
+        }
         if (clearSelection) clearMultiSelect()
         if (!skipEndRefresh) {
           await refreshMessages()
@@ -2281,12 +3046,20 @@ export default function EmailInboxBulkView({
       window.setTimeout(() => setConcurrentSortNotice(null), 12_000)
       return
     }
+    const startTime = Date.now()
+    let sessionId: string | null = null
     isSortingRef.current = true
     useEmailInboxStore.getState().setSortingActive(true)
-    setAiSortProgress('Gathering messages…')
+    setAiSortProgress({ done: 0, total: 0, label: 'Gathering messages…', phase: 'sorting' })
     setConcurrentSortNotice(null)
     setAiSortOutcomeSummary(null)
+    setAutosortReviewBanner(null)
     try {
+      const sessionApi = window.autosortSession
+      if (sessionApi?.create) {
+        sessionId = await sessionApi.create()
+      }
+
       let targetIds: string[]
       if (bulkBatchSize === 'all') {
         await useEmailInboxStore.getState().fetchAllMessages({ soft: true })
@@ -2296,59 +3069,135 @@ export default function EmailInboxBulkView({
       }
       if (!targetIds.length) {
         console.info('[SORT] Auto-Sort: no messages in target set (nothing to do)')
+        if (sessionId && sessionApi?.finalize) {
+          try {
+            await sessionApi.finalize(sessionId, {
+              total: 0,
+              urgent: 0,
+              pendingReview: 0,
+              pendingDelete: 0,
+              archived: 0,
+              errors: 0,
+              durationMs: Date.now() - startTime,
+            })
+          } catch {
+            /* ignore */
+          }
+        }
         setAiSortProgress(null)
         return
       }
-      setAiSortProgress(`Analyzing ${targetIds.length} message${targetIds.length !== 1 ? 's' : ''}…`)
+      setAiSortProgress({
+        done: 0,
+        total: targetIds.length,
+        label: `Analyzing ${targetIds.length} message${targetIds.length !== 1 ? 's' : ''}…`,
+        phase: 'sorting',
+      })
       console.log('[SORT] Start. Batch:', bulkBatchSize, 'Target:', targetIds.length)
-      const { processedIds, failedIds, movedIds, missedIds, retainedCounts } = await runAiCategorizeForIds(
+      await runAiCategorizeForIds(
         targetIds,
         true,
         false,
         {
           manageConcurrencyLock: false,
-        }
+        },
+        sessionId ?? undefined
       )
-      const retainedN = processedIds.filter((id) => !movedIds.includes(id)).length
-      const rc = retainedCounts
-      const retainParts: string[] = []
-      if (rc.urgent_threshold) retainParts.push(`${rc.urgent_threshold} high-urgency (not auto-moved)`)
-      if (rc.keep_for_manual_action) retainParts.push(`${rc.keep_for_manual_action} manual review`)
-      if (rc.draft_reply_ready) retainParts.push(`${rc.draft_reply_ready} reply-ready`)
-      if (rc.classified_no_auto_move) retainParts.push(`${rc.classified_no_auto_move} other no auto-move`)
 
-      const lines: string[] = [`Auto-Sort: ${movedIds.length} moved`]
-      if (retainedN > 0) {
-        lines.push(
-          retainParts.length > 0
-            ? `${retainedN} kept on purpose (${retainParts.join(', ')} — see “Kept in inbox” banners)`
-            : `${retainedN} kept on purpose (see “Kept in inbox” / Recommended Action on rows)`
-        )
+      if (sessionId && sessionApi?.getSessionMessages && sessionApi.finalize && sessionApi.generateSummary) {
+        const sessionMessages = await sessionApi.getSessionMessages(sessionId)
+        const stats = {
+          total: sessionMessages.length,
+          urgent: sessionMessages.filter(
+            (m: { sort_category?: string; urgency_score?: number | null }) =>
+              m.sort_category === 'urgent' || (m.urgency_score != null && m.urgency_score >= 7)
+          ).length,
+          pendingReview: sessionMessages.filter((m: { pending_review_at?: string | null }) => !!m.pending_review_at)
+            .length,
+          pendingDelete: sessionMessages.filter((m: { pending_delete?: number | null }) => !!m.pending_delete).length,
+          archived: sessionMessages.filter((m: { archived?: number | null }) => !!m.archived).length,
+          errors: Math.max(0, targetIds.length - sessionMessages.length),
+          durationMs: Date.now() - startTime,
+        }
+        await sessionApi.finalize(sessionId, stats)
+        setAiSortProgress({
+          done: stats.total,
+          total: stats.total,
+          label: '✦ Generating session summary…',
+          phase: 'summarizing',
+        })
+        await sessionApi.generateSummary(sessionId)
+        setAutosortReviewBanner({ sessionId, fading: false })
       }
-      lines.push(`${failedIds.length} failed (red error cards + Retry)`)
-      if (missedIds.length > 0) {
-        lines.push(`${missedIds.length} still incomplete — run Auto-Sort again`)
+    } catch (err) {
+      console.error('[AutoSort] Session error:', err)
+      if (sessionId && window.autosortSession?.finalize) {
+        try {
+          await window.autosortSession.finalize(sessionId, {
+            total: 0,
+            urgent: 0,
+            pendingReview: 0,
+            pendingDelete: 0,
+            archived: 0,
+            errors: 1,
+            durationMs: Date.now() - startTime,
+          })
+        } catch {
+          /* ignore */
+        }
       }
-      if (failedIds.length > 0) {
-        const sample = failedIds.slice(0, 5).map(shortIdForSummary).join(', ')
-        lines.push(`Failed sample: ${sample}${failedIds.length > 5 ? ` (+${failedIds.length - 5} more)` : ''}`)
-      }
-      console.log('[SORT] Toolbar run summary', {
-        targeted: targetIds.length,
-        moved: movedIds.length,
-        retained: retainedN,
-        failed: failedIds.length,
-        missed: missedIds.length,
-        retainedCounts: rc,
-      })
-      setAiSortOutcomeSummary(lines.join(' · '))
-      window.setTimeout(() => setAiSortOutcomeSummary(null), 16_000)
     } finally {
       isSortingRef.current = false
       useEmailInboxStore.getState().setSortingActive(false)
       setAiSortProgress(null)
     }
   }, [bulkBatchSize, multiSelectIds, runAiCategorizeForIds])
+
+  /** Session Review → inbox: align workflow tab + list paging with post-sort row, then sync App + store selection. */
+  const handleOpenMessageFromSessionReview = useCallback(
+    async (msg: SessionReviewMessageRow) => {
+      setShowSessionReview(null)
+      const id = msg.id
+      if (!id) return
+
+      const scopeClear: Partial<InboxFilter> = {
+        handshakeId: undefined,
+        category: undefined,
+        search: undefined,
+        sourceType: 'all',
+        messageKind: 'all',
+      }
+
+      const listIncludesId = () => useEmailInboxStore.getState().messages.some((m) => m.id === id)
+
+      const revealInBulkIfNeeded = async (): Promise<void> => {
+        const maxLoads = 120
+        for (let n = 0; n < maxLoads; n++) {
+          if (listIncludesId()) return
+          const { bulkHasMore, bulkMode } = useEmailInboxStore.getState()
+          if (!bulkMode || !bulkHasMore) return
+          await useEmailInboxStore.getState().loadMoreBulkMessages()
+        }
+      }
+
+      const tryTab = async (tab: InboxFilter['filter']): Promise<boolean> => {
+        setFilter({ ...scopeClear, filter: tab })
+        await refreshMessages()
+        await revealInBulkIfNeeded()
+        return listIncludesId()
+      }
+
+      const primary = workflowFilterFromSessionReviewRow(msg)
+      let ok = await tryTab(primary)
+      if (!ok && primary !== 'all') {
+        ok = await tryTab('all')
+      }
+
+      onSelectMessage?.(id)
+      await selectMessage(id)
+    },
+    [refreshMessages, selectMessage, setFilter, onSelectMessage],
+  )
 
   const handleUndoPendingDelete = useCallback(
     async (ids: string[]) => {
@@ -2394,15 +3243,45 @@ export default function EmailInboxBulkView({
     try {
       const res = await window.emailAccounts.listAccounts()
       if (res?.ok && res?.data) {
-        const data = res.data as Array<{ id: string; displayName?: string; email: string; provider?: string; status?: string; lastError?: string }>
-        setProviderAccounts(data.map((a) => ({
-          id: a.id,
-          displayName: a.displayName ?? a.email,
-          email: a.email,
-          provider: (a.provider === 'gmail' ? 'gmail' : a.provider === 'microsoft365' ? 'microsoft365' : 'imap') as 'gmail' | 'microsoft365' | 'imap',
-          status: (a.status === 'active' ? 'active' : a.status === 'error' ? 'error' : 'disabled') as 'active' | 'error' | 'disabled',
-          lastError: a.lastError,
-        })))
+        const data = res.data as Array<{
+          id: string
+          displayName?: string
+          email: string
+          provider?: string
+          status?: string
+          processingPaused?: boolean
+          lastError?: string
+        }>
+        setProviderAccounts(
+          data.map((a) => {
+            const p = a.provider
+            const provider: 'gmail' | 'microsoft365' | 'zoho' | 'imap' =
+              p === 'gmail'
+                ? 'gmail'
+                : p === 'microsoft365'
+                  ? 'microsoft365'
+                  : p === 'zoho'
+                    ? 'zoho'
+                    : 'imap'
+            const status: 'active' | 'auth_error' | 'error' | 'disabled' =
+              a.status === 'active'
+                ? 'active'
+                : a.status === 'auth_error'
+                  ? 'auth_error'
+                  : a.status === 'error'
+                    ? 'error'
+                    : 'disabled'
+            return {
+              id: a.id,
+              displayName: a.displayName ?? a.email,
+              email: a.email,
+              provider,
+              status,
+              processingPaused: a.processingPaused === true,
+              lastError: a.lastError,
+            }
+          }),
+        )
         setSelectedProviderAccountId((prev) => {
           if (prev && data.some((a: { id: string }) => a.id === prev)) return prev
           const pick = pickDefaultEmailAccountRowId(
@@ -2429,27 +3308,100 @@ export default function EmailInboxBulkView({
     return () => unsub?.()
   }, [loadProviderAccounts])
 
+  const handleAfterEmailConnected = useCallback(async () => {
+    await loadProviderAccounts()
+    useEmailInboxStore.getState().clearLastSyncWarnings()
+    useEmailInboxStore.getState().clearRemoteSyncLog()
+  }, [loadProviderAccounts])
+
   const { openConnectEmail, connectEmailFlowModal } = useConnectEmailFlow({
-    onAfterConnected: loadProviderAccounts,
+    onAfterConnected: handleAfterEmailConnected,
     theme: 'dark',
   })
+
+  useEffect(() => {
+    const unsub = window.emailAccounts?.onCredentialError?.((p) => {
+      void loadProviderAccounts()
+      if (p.provider === 'imap') {
+        const open = window.confirm(`${p.message}\n\nOpen credential update for this account?`)
+        if (open) {
+          openConnectEmail(ConnectEmailLaunchSource.BulkInbox, { reconnectAccountId: p.accountId })
+        }
+      }
+    })
+    return () => unsub?.()
+  }, [loadProviderAccounts, openConnectEmail])
 
   const handleConnectEmail = useCallback(
     () => openConnectEmail(ConnectEmailLaunchSource.BulkInbox),
     [openConnectEmail],
   )
+
+  const handleUpdateImapCredentials = useCallback(
+    (accountId: string) => {
+      openConnectEmail(ConnectEmailLaunchSource.BulkInbox, { reconnectAccountId: accountId })
+    },
+    [openConnectEmail],
+  )
+
+  /** One-time IMAP connection probe after accounts load (password / app-password drift). */
+  const imapProbeDoneRef = useRef(false)
+  useEffect(() => {
+    if (isLoadingProviderAccounts || imapProbeDoneRef.current) return
+    if (!providerAccounts.some((a) => a.provider === 'imap')) return
+    imapProbeDoneRef.current = true
+    let cancelled = false
+    ;(async () => {
+      for (const acc of providerAccounts) {
+        if (acc.provider !== 'imap') continue
+        try {
+          const r = await window.emailAccounts?.testConnection?.(acc.id)
+          if (cancelled) return
+          if (r?.ok && r.data && !r.data.success) {
+            await loadProviderAccounts()
+            break
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [isLoadingProviderAccounts, providerAccounts, loadProviderAccounts])
   const handleDisconnectEmail = useCallback(
     async (id: string) => {
       try {
         if (typeof window.emailAccounts?.deleteAccount === 'function') {
           await window.emailAccounts.deleteAccount(id)
           loadProviderAccounts()
+          onEmailAccountsChanged?.()
         }
       } catch {
         /* ignore */
       }
     },
-    [loadProviderAccounts]
+    [loadProviderAccounts, onEmailAccountsChanged],
+  )
+
+  const handleSetProcessingPaused = useCallback(
+    async (id: string, paused: boolean) => {
+      if (typeof window.emailAccounts?.setProcessingPaused !== 'function') return
+      setProviderAccounts((rows) =>
+        rows.map((a) => (a.id === id ? { ...a, processingPaused: paused } : a)),
+      )
+      try {
+        const res = await window.emailAccounts.setProcessingPaused(id, paused)
+        if (!res?.ok) throw new Error((res as { error?: string })?.error || 'Failed')
+        await loadProviderAccounts()
+        onEmailAccountsChanged?.()
+      } catch {
+        await loadProviderAccounts()
+        onEmailAccountsChanged?.()
+      }
+    },
+    [loadProviderAccounts, onEmailAccountsChanged],
   )
 
   const handleSummarize = useCallback(
@@ -2778,9 +3730,11 @@ export default function EmailInboxBulkView({
       if (output?.loading) {
         return (
           <div className="bulk-action-card bulk-action-card--loading">
-            <div className="bulk-action-card-state-content">
-              <span className="bulk-action-card-state-label">Analyzing</span>
-              <span className="bulk-action-card-state-detail">AI is processing this message…</span>
+            <div className="bulk-action-card-body">
+              <div className="bulk-action-card-state-content">
+                <span className="bulk-action-card-state-label">Analyzing</span>
+                <span className="bulk-action-card-state-detail">AI is processing this message…</span>
+              </div>
             </div>
             <div className="bulk-action-card-actions-row">
               {showUndo && (
@@ -2838,9 +3792,11 @@ export default function EmailInboxBulkView({
                   : 'No usable result from AI for this message.')
         return (
           <div className="bulk-action-card bulk-action-card--failure">
-            <div className="bulk-action-card-state-content bulk-action-card-failure-content">
-              <span className="bulk-action-card-state-label bulk-action-card-failure-label">{failTitle}</span>
-              <span className="bulk-action-card-state-detail bulk-action-card-failure-detail">{failDetail}</span>
+            <div className="bulk-action-card-body">
+              <div className="bulk-action-card-state-content bulk-action-card-failure-content">
+                <span className="bulk-action-card-state-label bulk-action-card-failure-label">{failTitle}</span>
+                <span className="bulk-action-card-state-detail bulk-action-card-failure-detail">{failDetail}</span>
+              </div>
             </div>
             <div className="bulk-action-card-actions-row">
               {showUndo && (
@@ -2920,9 +3876,10 @@ export default function EmailInboxBulkView({
             handleUndoArchived={handleUndoArchived}
             focusedMessageId={focusedMessageId ?? null}
             editingDraftForMessageId={editingDraftForMessageId ?? null}
-  subFocus={subFocus}
-  setSubFocus={setSubFocus}
-  onSelectMessage={onSelectMessage}
+            subFocus={subFocus}
+            setSubFocus={setSubFocus}
+            onSelectMessage={onSelectMessage}
+            onNavigateToHandshake={onNavigateToHandshake}
           />
         )
       }
@@ -2934,7 +3891,8 @@ export default function EmailInboxBulkView({
         const fallbackSummaryCls = isExpanded ? 'bulk-action-card-summary bulk-action-card-summary--expanded' : 'bulk-action-card-summary bulk-action-card-summary--collapsed'
         return (
           <div className={`bulk-action-card bulk-action-card--fallback ${isExpanded ? 'bulk-action-card--expanded' : ''}`}>
-            <div className="bulk-action-card-fallback-content">
+            <div className="bulk-action-card-body">
+              <div className="bulk-action-card-fallback-content">
               {(output.summaryError || output.draftError) && (
                 <div className="bulk-action-card-error-banner">
                   {output.summaryError && (
@@ -2960,6 +3918,7 @@ export default function EmailInboxBulkView({
                   <div className="bulk-action-card-row-value">{output.summary}</div>
                 </div>
               )}
+              </div>
             </div>
             <div className="bulk-action-card-actions-row">
               {showUndo && (
@@ -3020,11 +3979,13 @@ export default function EmailInboxBulkView({
       const guidanceAnalyzeRunning = bulkAnalyzeInFlightRef.current.has(msg.id)
       return (
         <div className="bulk-action-card bulk-action-card--guidance">
-          <div className="bulk-action-card-state-content bulk-action-card-guidance-content">
-            <span className="bulk-action-card-state-label bulk-action-card-guidance-label">Not yet analyzed</span>
-            <span className="bulk-action-card-state-detail bulk-action-card-guidance-detail">
-              This message has not been analyzed. Select messages above and click <strong>AI Auto-Sort</strong> in the toolbar to analyze the batch, or use per-message actions below.
-            </span>
+          <div className="bulk-action-card-body">
+            <div className="bulk-action-card-state-content bulk-action-card-guidance-content">
+              <span className="bulk-action-card-state-label bulk-action-card-guidance-label">Not yet analyzed</span>
+              <span className="bulk-action-card-state-detail bulk-action-card-guidance-detail">
+                This message has not been analyzed. Select messages above and click <strong>AI Auto-Sort</strong> in the toolbar to analyze the batch, or use per-message actions below.
+              </span>
+            </div>
           </div>
           <div className="bulk-action-card-actions-row bulk-action-card-actions-row--secondary">
             {showUndo && (
@@ -3101,6 +4062,7 @@ export default function EmailInboxBulkView({
       runAiCategorizeForIds,
       handleBulkAnalyzeOne,
       draftRefineConnect,
+      onNavigateToHandshake,
     ]
   )
 
@@ -3235,142 +4197,888 @@ export default function EmailInboxBulkView({
 
   const showBulkStatusDock =
     Boolean(aiSortProgress) ||
+    Boolean(autosortReviewBanner) ||
     Boolean(sendEmailToast) ||
     Boolean(concurrentSortNotice) ||
     Boolean(aiSortOutcomeSummary)
 
   return (
-    <div className={`bulk-view-root ${bulkCompactMode ? 'bulk-view--compact' : ''}`}>
-      {/* Toolbar — three groups: left (selection+sort), center (filter tabs), right (sync+tools) */}
-      <div className="bulk-view-toolbar">
-        <div className="bulk-view-toolbar-left">
-          {/* GROUP 1: Selection + Sort */}
-          <input
-            type="checkbox"
-            checked={allInBatchSelected}
-            ref={batchCheckboxRef}
-            onChange={handleBatchCheckboxToggle}
-            title={
-              bulkBatchSize === 'all'
-                ? allInBatchSelected || someInBatchSelected
-                  ? 'Deselect all in this tab'
-                  : 'Select all messages in this tab (full list)'
-                : allInBatchSelected || someInBatchSelected
-                  ? 'Deselect all on this page'
-                  : 'Select all on this page'
-            }
+    <div className={`bulk-view-root ${bulkCompactMode ? 'bulk-view--compact' : ''}`} ref={bulkScrollContainerRef}>
+      {/* Toolbar — row 1: status tabs; row 2: Type filter; row 3: selection + AI / sync */}
+      <div className="bulk-view-toolbar bulk-view-toolbar--stacked">
+        <div className="bulk-view-toolbar-row bulk-view-toolbar-row--tabs">
+          <div className="bulk-view-toolbar-tabs">
+            <button
+              type="button"
+              className="session-history-btn"
+              title="AutoSort History"
+              onClick={() => setShowSessionHistory(true)}
+            >
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="8" cy="8" r="6.5" />
+                <polyline points="8,4.5 8,8 10.5,9.5" />
+              </svg>
+            </button>
+            <button
+              type="button"
+              onClick={() => setFilter({ filter: 'all' })}
+              className="bulk-view-toolbar-filter-btn"
+              data-active={filter.filter === 'all'}
+            >
+              All ({filter.filter === 'all' ? total : (tabCounts.all ?? 0)})
+            </button>
+            <button
+              type="button"
+              onClick={() => setFilter({ filter: 'urgent' })}
+              className="bulk-view-toolbar-filter-btn bulk-view-toolbar-filter-btn--urgent"
+              data-active={filter.filter === 'urgent'}
+            >
+              Urgent ({filter.filter === 'urgent' ? total : (tabCounts.urgent ?? 0)})
+            </button>
+            <button
+              type="button"
+              onClick={() => setFilter({ filter: 'pending_delete' })}
+              className="bulk-view-toolbar-filter-btn bulk-view-toolbar-filter-btn--pending"
+              data-active={filter.filter === 'pending_delete'}
+            >
+              Pending Delete ({filter.filter === 'pending_delete' ? total : (tabCounts.pending_delete ?? 0)})
+            </button>
+            <button
+              type="button"
+              onClick={() => setFilter({ filter: 'pending_review' })}
+              className="bulk-view-toolbar-filter-btn bulk-view-toolbar-filter-btn--review"
+              data-active={filter.filter === 'pending_review'}
+            >
+              Pending Review ({filter.filter === 'pending_review' ? total : (tabCounts.pending_review ?? 0)})
+            </button>
+            <button
+              type="button"
+              onClick={() => setFilter({ filter: 'archived' })}
+              className="bulk-view-toolbar-filter-btn bulk-view-toolbar-filter-btn--archived"
+              data-active={filter.filter === 'archived'}
+            >
+              Archived ({filter.filter === 'archived' ? total : (tabCounts.archived ?? 0)})
+            </button>
+          </div>
+        </div>
+
+        <div className="bulk-view-toolbar-row bulk-view-toolbar-row--message-kind">
+          <InboxMessageKindSelect
+            id="inbox-message-kind-bulk"
+            variant="bulk"
+            value={filter.messageKind}
+            onChange={(messageKind) => setFilter({ messageKind, sourceType: 'all' })}
           />
-          <select
-            value={bulkBatchSize}
-            onChange={(e) => {
-              const val = e.target.value
-              if (val === 'all') {
-                setBulkBatchSize('all')
-                setShouldSelectAllWhenReady(true)
-              } else {
-                setBulkBatchSize(Number(val))
-              }
-            }}
-            className="bulk-view-selection-group-select"
-          >
-            <option value="all">All</option>
-            {[10, 12, 24, 48].map((n) => (
-              <option key={n} value={n}>
-                {n}
-              </option>
-            ))}
-          </select>
-          <button
-            type="button"
-            className="bulk-view-ai-sort-btn ai-auto-sort-btn"
-            onClick={() => void handleAiAutoSort()}
-            disabled={
-              isSortingActive || (bulkBatchSize === 'all' ? total === 0 : selectedCount === 0)
-            }
-            title={
-              isSortingActive
-                ? 'Auto-Sort is running…'
-                : bulkBatchSize === 'all'
-                  ? total === 0
-                    ? 'No messages in this tab'
-                    : `AI Auto-Sort all ${total} message(s) in this tab`
-                  : selectedCount === 0
-                    ? 'Select messages on this page, then run AI Auto-Sort'
-                    : 'AI Auto-Sort selected messages'
-            }
-          >
-            ⚡ AI Auto-Sort
-          </button>
-          <span className="bulk-view-selection-group-count selected-count">
-            {bulkBatchSize === 'all' ? `${total} in tab · ${selectedCount} selected` : `${selectedCount} selected`}
-          </span>
         </div>
 
-        <div className="bulk-view-toolbar-center">
-          {/* GROUP 2: Filter tabs */}
-          <button
-            type="button"
-            onClick={() => setFilter({ filter: 'all' })}
-            className="bulk-view-toolbar-filter-btn"
-            data-active={filter.filter === 'all'}
-          >
-            All ({filter.filter === 'all' ? total : (tabCounts.all ?? 0)})
-          </button>
-          <button
-            type="button"
-            onClick={() => setFilter({ filter: 'pending_delete' })}
-            className="bulk-view-toolbar-filter-btn bulk-view-toolbar-filter-btn--pending"
-            data-active={filter.filter === 'pending_delete'}
-          >
-            Pending Delete ({filter.filter === 'pending_delete' ? total : (tabCounts.pending_delete ?? 0)})
-          </button>
-          <button
-            type="button"
-            onClick={() => setFilter({ filter: 'pending_review' })}
-            className="bulk-view-toolbar-filter-btn bulk-view-toolbar-filter-btn--review"
-            data-active={filter.filter === 'pending_review'}
-          >
-            Pending Review ({filter.filter === 'pending_review' ? total : (tabCounts.pending_review ?? 0)})
-          </button>
-          <button
-            type="button"
-            onClick={() => setFilter({ filter: 'archived' })}
-            className="bulk-view-toolbar-filter-btn bulk-view-toolbar-filter-btn--archived"
-            data-active={filter.filter === 'archived'}
-          >
-            Archived ({filter.filter === 'archived' ? total : (tabCounts.archived ?? 0)})
-          </button>
-        </div>
-
-        <div className="bulk-view-toolbar-right">
-          {/* GROUP 3: Sync & Tools */}
-          <label className="bulk-view-sync-label">
+        <div className="bulk-view-toolbar-row bulk-view-toolbar-row--main">
+          <div className="bulk-view-toolbar-left">
             <input
               type="checkbox"
-              checked={autoSyncEnabled}
-              onChange={() => primaryAccountId && toggleAutoSync(primaryAccountId, !autoSyncEnabled)}
+              checked={allInBatchSelected}
+              ref={batchCheckboxRef}
+              onChange={handleBatchCheckboxToggle}
+              title={
+                bulkBatchSize === 'all'
+                  ? allInBatchSelected || someInBatchSelected
+                    ? 'Deselect all in this tab'
+                    : 'Select all messages in this tab (full list)'
+                  : allInBatchSelected || someInBatchSelected
+                    ? 'Deselect all on this page'
+                    : 'Select all on this page'
+              }
             />
-            Auto-sync
-          </label>
-          <button
-            type="button"
-            className="bulk-view-pull-btn"
-            onClick={handleSync}
-            disabled={syncing || !primaryAccountId}
-            title="Pull messages"
-          >
-            {syncing ? '↻ Syncing…' : '↻ Pull'}
-          </button>
-          <button
-            type="button"
-            className="bulk-view-wr-expert-btn"
-            onClick={() => setShowWrExpertModal(true)}
-            title="Edit AI inbox rules (WRExpert.md)"
-          >
-            WR Expert
-          </button>
+            <select
+              value={bulkBatchSize}
+              onChange={(e) => {
+                const val = e.target.value
+                if (val === 'all') {
+                  setBulkBatchSize('all')
+                  setShouldSelectAllWhenReady(true)
+                } else {
+                  setBulkBatchSize(Number(val))
+                }
+              }}
+              className="bulk-view-selection-group-select"
+            >
+              <option value="all">All</option>
+              {[10, 12, 24, 48].map((n) => (
+                <option key={n} value={n}>
+                  {n}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              className="bulk-view-ai-sort-btn ai-auto-sort-btn"
+              onClick={() => void handleAiAutoSort()}
+              disabled={
+                isSortingActive || (bulkBatchSize === 'all' ? total === 0 : selectedCount === 0)
+              }
+              title={
+                isSortingActive
+                  ? 'Auto-Sort is running…'
+                  : bulkBatchSize === 'all'
+                    ? total === 0
+                      ? 'No messages in this tab'
+                      : `AI Auto-Sort all ${total} message(s) in this tab`
+                    : selectedCount === 0
+                      ? 'Select messages on this page, then run AI Auto-Sort'
+                      : 'AI Auto-Sort selected messages'
+              }
+            >
+              ⚡AI Auto-Sort
+            </button>
+            <span className="bulk-view-selection-group-count selected-count">{selectedCount} selected</span>
+          </div>
+
+          <div className="bulk-view-toolbar-right bulk-view-toolbar-right--compact">
+            <EmailInboxSyncControls
+              accountSyncWindowDays={accountSyncWindowDays}
+              onSyncWindowChange={handleSyncWindowChange}
+              primaryAccountId={primaryAccountId}
+              autoSyncEligibleAccountIds={autoSyncEligibleAccountIds}
+              autoSyncEnabled={autoSyncEnabled}
+              onToggleAutoSync={handleToggleAutoSyncAll}
+              onUnifiedSync={() => void handleUnifiedSync()}
+              syncing={syncing}
+              remoteSyncBusy={remoteSyncBusy}
+              pullOnly={bulkToolbarPullOnly}
+            />
+            <button
+              type="button"
+              className="bulk-view-wr-expert-btn"
+              onClick={() => setShowWrExpertModal(true)}
+              title="Edit AI inbox rules (WRExpert.md)"
+            >
+              WR Expert
+            </button>
+            <button
+              type="button"
+              className="bulk-view-debug-icon-btn"
+              onClick={openRemoteDebugPanel}
+              title="Developer tools — remote queue & diagnostics"
+            >
+              🔧
+            </button>
+          </div>
         </div>
       </div>
+
+      {remoteDebugOpen ? (
+        <div
+          role="dialog"
+          aria-label="Remote sync debug"
+          style={{
+            position: 'fixed',
+            top: 100,
+            right: 16,
+            width: 440,
+            maxHeight: '72vh',
+            zIndex: 12000,
+            background: '#fff',
+            color: '#111',
+            border: '1px solid #ccc',
+            borderRadius: 8,
+            boxShadow: '0 8px 32px rgba(0,0,0,0.2)',
+            display: 'flex',
+            flexDirection: 'column',
+            fontSize: 12,
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', borderBottom: '1px solid #ddd' }}>
+            <div>
+              <strong>Developer tools — Remote sync</strong>
+              <div style={{ fontSize: 10, fontWeight: 400, color: MUTED, marginTop: 2 }}>Queue diagnostics &amp; IMAP folder checks</div>
+            </div>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+              <button type="button" onClick={() => void refreshRemoteDebugQueue()} disabled={remoteDebugLoading}>
+                Refresh
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleRetryFailedRemoteQueue()}
+                disabled={remoteDebugLoading}
+                title="Set all failed remote queue rows to pending (attempts=0) and schedule background drain"
+              >
+                Retry failed
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleTestMoveOne()}
+                disabled={displayMessages.length === 0 || remoteDebugLoading}
+                title="Enqueue + drain first visible message only"
+              >
+                Test Move 1
+              </button>
+              <button type="button" onClick={() => setRemoteDebugOpen(false)}>
+                Close
+              </button>
+            </div>
+          </div>
+          <div style={{ overflow: 'auto', padding: 12, flex: 1 }}>
+            {remoteSyncUserSummary ? (
+              <div
+                style={{
+                  marginBottom: 12,
+                  padding: '10px 12px',
+                  background: '#f8fafc',
+                  border: '1px solid #e2e8f0',
+                  borderRadius: 8,
+                  fontSize: 12,
+                  lineHeight: 1.45,
+                  color: '#0f172a',
+                }}
+              >
+                <div style={{ fontWeight: 700, marginBottom: 4 }}>Sync status</div>
+                {remoteSyncUserSummary.line}
+              </div>
+            ) : null}
+            {remoteDebugLoading ? <div>Loading…</div> : null}
+            {remoteFolderVerifyLoading ? <div style={{ marginBottom: 8, fontSize: 11 }}>Verifying IMAP folders…</div> : null}
+            {remoteFolderVerify && remoteFolderVerify.ok === false ? (
+              <div style={{ marginBottom: 10, padding: 8, background: '#fef2f2', borderRadius: 6, fontSize: 11, color: '#b91c1c' }}>
+                Verify remote: {String((remoteFolderVerify as { error?: string }).error ?? 'failed')}
+              </div>
+            ) : null}
+            {remoteFolderVerify && remoteFolderVerify.ok === true && (remoteFolderVerify as { data?: unknown }).data ? (
+              <section
+                style={{
+                  marginBottom: 12,
+                  padding: 10,
+                  background: '#f0fdf4',
+                  borderRadius: 6,
+                  border: '1px solid #bbf7d0',
+                  fontSize: 11,
+                }}
+              >
+                <div style={{ fontWeight: 600, marginBottom: 6 }}>
+                  IMAP server folders (read-only)
+                  {remoteFolderVerifyLabel ? (
+                    <span style={{ fontWeight: 400, color: '#475569' }}> — {remoteFolderVerifyLabel}</span>
+                  ) : null}
+                </div>
+                <div style={{ fontSize: 10, color: MUTED, marginBottom: 8, lineHeight: 1.45 }}>
+                  Canonical lifecycle uses <strong>exact</strong> name match — typo <code>Archieve</code> and <code>WRDesk-*</code>{' '}
+                  do not count. Use <strong>Verify</strong> next to each IMAP account under Per account (queue).
+                </div>
+                {(() => {
+                  const data = (remoteFolderVerify as { data?: { lifecycleOnServer?: unknown[]; folders?: unknown[] } }).data
+                  const lc = (data?.lifecycleOnServer ?? []) as Array<{
+                    role?: string
+                    mailbox?: string
+                    resolved?: string
+                    exactMatch?: boolean
+                  }>
+                  const fds = (data?.folders ?? []) as Array<{
+                    path?: string
+                    name?: string
+                    messages?: number
+                    unseen?: number
+                    legacy?: boolean
+                    statusError?: string
+                  }>
+                  return (
+                    <>
+                      <div style={{ fontWeight: 600, marginBottom: 4 }}>Expected lifecycle (exact on server)</div>
+                      <ul style={{ margin: '0 0 10px 14px', padding: 0, lineHeight: 1.5 }}>
+                        {lc.map((row) => (
+                          <li key={String(row.role)}>
+                            <strong>{String(row.role)}</strong>: {String(row.mailbox)} →{' '}
+                            <code style={{ fontSize: 10 }}>{String(row.resolved)}</code>{' '}
+                            {row.exactMatch ? (
+                              <span style={{ color: '#15803d' }}>✓</span>
+                            ) : (
+                              <span style={{ color: '#b45309' }}>missing / wrong name</span>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                      <div style={{ fontWeight: 600, marginBottom: 4 }}>All folders (STATUS)</div>
+                      <ul
+                        style={{
+                          margin: 0,
+                          paddingLeft: 14,
+                          maxHeight: 220,
+                          overflow: 'auto',
+                          lineHeight: 1.45,
+                          fontSize: 10,
+                        }}
+                      >
+                        {fds.map((f) => (
+                          <li key={String(f.path)} style={{ marginBottom: 4 }}>
+                            <code>{String(f.path)}</code>
+                            {f.legacy ? (
+                              <span style={{ color: '#b45309', marginLeft: 6 }}>(legacy)</span>
+                            ) : null}
+                            {typeof f.messages === 'number' ? (
+                              <span style={{ color: '#475569', marginLeft: 6 }}>
+                                msgs {f.messages}
+                                {typeof f.unseen === 'number' ? ` · unseen ${f.unseen}` : ''}
+                              </span>
+                            ) : (
+                              <span style={{ color: '#94a3b8', marginLeft: 6 }}>{f.statusError || 'no count'}</span>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    </>
+                  )
+                })()}
+              </section>
+            ) : null}
+            {(() => {
+              const err = remoteDebugQueue?.error
+              if (typeof err === 'string') {
+                return <div style={{ color: '#b91c1c' }}>Error: {err}</div>
+              }
+              const total = remoteDebugQueue?.total as { c?: number } | undefined
+              const byStatus = (remoteDebugQueue?.byStatus as QueueStatusRow[]) ?? []
+              const byOp = (remoteDebugQueue?.byOp as QueueStatusRow[]) ?? []
+              const byAccountStatus = (remoteDebugQueue?.byAccountStatus as QueueAccountStatusRow[]) ?? []
+              const queueByAccountSummary = (remoteDebugQueue?.queueByAccountSummary as QueueByAccountSummaryRow[]) ?? []
+              const failed = (remoteDebugQueue?.failed as QueueMsgRow[]) ?? []
+              const recent = (remoteDebugQueue?.sample as QueueMsgRow[]) ?? []
+              const opAgg = aggregateLifecycleOpCounts(byOp)
+              const totalC = Number(total?.c) || 0
+              const completedC = countStatus(byStatus, 'completed')
+              const pendingC = countStatus(byStatus, 'pending')
+              const processingC = countStatus(byStatus, 'processing')
+              const etaLine = formatDrainEtaLine(remoteDrainHistory, pendingC, processingC)
+              return (
+                <>
+                  <section style={{ marginBottom: 12, padding: 10, background: '#f0f9ff', borderRadius: 6, border: '1px solid #bae6fd' }}>
+                    <div style={{ fontWeight: 600, marginBottom: 6 }}>Drain progress</div>
+                    <div style={{ lineHeight: 1.45 }}>
+                      Remote sync: {completedC}/{totalC} completed ({pendingC} pending, {processingC} processing)
+                    </div>
+                    {etaLine ? (
+                      <div style={{ marginTop: 6, color: '#0369a1', fontWeight: 500 }}>{etaLine}</div>
+                    ) : (
+                      <div style={{ marginTop: 6, fontSize: 11, color: MUTED }}>
+                        {pendingC + processingC > 0
+                          ? 'ETA appears after a few samples (completed count must rise over ~30s).'
+                          : 'No pending/processing rows — queue idle for remote moves.'}
+                      </div>
+                    )}
+                    <div style={{ marginTop: 8, fontSize: 10, color: MUTED }}>
+                      Auto-refresh every 5s while this panel is open.
+                    </div>
+                    <div
+                      style={{
+                        marginTop: 10,
+                        padding: 8,
+                        fontSize: 10,
+                        lineHeight: 1.45,
+                        color: '#92400e',
+                        background: '#fffbeb',
+                        borderRadius: 4,
+                        border: '1px solid #fcd34d',
+                      }}
+                    >
+                      <strong>Microsoft 365 / Outlook:</strong> If pending lifecycle mail seems missing after an
+                      older sync, check <strong>Deleted items</strong> (Gelöschte Elemente) and{' '}
+                      <strong>Recoverable items</strong> in Outlook on the web. Move back to Inbox if needed, then use
+                      ☁ Sync Remote or Retry failed. Current app moves to &quot;Pending Delete&quot; / &quot;Pending
+                      Review&quot; folders only — it does not hard-delete those messages from the queue op.
+                    </div>
+                  </section>
+                  <section
+                    style={{
+                      marginBottom: 12,
+                      padding: 10,
+                      background: '#fefce8',
+                      borderRadius: 6,
+                      border: '1px solid #fde047',
+                    }}
+                  >
+                    <div style={{ fontWeight: 600, marginBottom: 6 }}>Account status (gateway vs inbox DB)</div>
+                    <div style={{ fontSize: 10, color: MUTED, marginBottom: 8, lineHeight: 1.45 }}>
+                      Accounts are stored in <code>email-accounts.json</code>. Inbox rows use <code>account_id</code> — after
+                      reconnect the UUID may change. Orphan ids are absent from the gateway; migrate to the current
+                      account, then run <strong>☁ Sync Remote</strong> (classifications are kept; only the id is fixed).
+                    </div>
+                    {!window.emailInbox?.debugAccountMigrationStatus ? (
+                      <div style={{ color: MUTED, fontSize: 11 }}>Update app for account migration diagnostics.</div>
+                    ) : accountMigrationDiag && accountMigrationDiag.ok === true ? (
+                      <>
+                        <div style={{ fontWeight: 600, fontSize: 11, marginBottom: 6 }}>Connected accounts</div>
+                        <ul style={{ margin: 0, paddingLeft: 16, fontSize: 11, lineHeight: 1.5 }}>
+                          {(
+                            (accountMigrationDiag.gatewayAccounts as Array<Record<string, unknown>>) ?? []
+                          ).map((g) => (
+                            <li key={String(g.id)} style={{ marginBottom: 8 }}>
+                              <div>
+                                <strong>{String(g.email ?? '—')}</strong> · {String(g.provider ?? '—')} ·{' '}
+                                {String(g.status ?? '—')}
+                              </div>
+                              <div
+                                style={{ fontFamily: 'ui-monospace, monospace', fontSize: 10, color: '#475569' }}
+                              >
+                                id {String(g.id)}
+                              </div>
+                              <div>inbox_messages (non-deleted): {Number(g.inboxMessageCount) || 0}</div>
+                            </li>
+                          ))}
+                        </ul>
+                        {(
+                          (accountMigrationDiag.orphans as Array<Record<string, unknown>>) ?? []
+                        ).length > 0 ? (
+                          <>
+                            <div
+                              style={{ fontWeight: 600, fontSize: 11, margin: '10px 0 6px', color: '#a16207' }}
+                            >
+                              Orphan account_id (not in gateway — often old id after reconnect)
+                            </div>
+                            <ul style={{ margin: 0, paddingLeft: 16, fontSize: 11, lineHeight: 1.5 }}>
+                              {(
+                                (accountMigrationDiag.orphans as Array<Record<string, unknown>>) ?? []
+                              ).map((o) => {
+                                const oid = String(o.accountId ?? '')
+                                const sugg = (o.suggestedTargetAccountIds as string[] | undefined) ?? []
+                                const gw =
+                                  (accountMigrationDiag.gatewayAccounts as Array<Record<string, unknown>>) ?? []
+                                const emailFor = (id: string) =>
+                                  String(gw.find((x) => String(x.id) === id)?.email ?? `${id.slice(0, 8)}…`)
+                                const target = orphanMigrateTargetId[oid] || (sugg.length > 0 ? sugg[0] : '')
+                                return (
+                                  <li key={oid} style={{ marginBottom: 10 }}>
+                                    <div style={{ fontFamily: 'ui-monospace, monospace', fontSize: 10 }}>{oid}</div>
+                                    <div>
+                                      {Number(o.inboxMessageCount) || 0} messages · {Number(o.queueRowCount) || 0}{' '}
+                                      queue rows
+                                    </div>
+                                    {sugg.length === 0 ? (
+                                      <div style={{ color: '#b45309', fontSize: 10, marginTop: 4 }}>
+                                        No To/Cc match to a connected mailbox — use a manual SQL UPDATE or ensure
+                                        messages include your address in To/Cc so we can suggest a target.
+                                      </div>
+                                    ) : (
+                                      <div
+                                        style={{
+                                          display: 'flex',
+                                          flexWrap: 'wrap',
+                                          gap: 6,
+                                          alignItems: 'center',
+                                          marginTop: 6,
+                                        }}
+                                      >
+                                        {sugg.length > 1 ? (
+                                          <select
+                                            value={target}
+                                            onChange={(e) =>
+                                              setOrphanMigrateTargetId((prev) => ({
+                                                ...prev,
+                                                [oid]: e.target.value,
+                                              }))
+                                            }
+                                            style={{ fontSize: 11, maxWidth: 240 }}
+                                          >
+                                            {sugg.map((tid) => (
+                                              <option key={tid} value={tid}>
+                                                {emailFor(tid)}
+                                              </option>
+                                            ))}
+                                          </select>
+                                        ) : (
+                                          <span style={{ fontSize: 11 }}>→ {emailFor(sugg[0])}</span>
+                                        )}
+                                        <button
+                                          type="button"
+                                          disabled={remoteDebugLoading || !target}
+                                          style={{ fontSize: 11, padding: '4px 8px' }}
+                                          onClick={() => void handleMigrateInboxAccount(oid, target)}
+                                        >
+                                          Migrate messages + clear queue (old id)
+                                        </button>
+                                      </div>
+                                    )}
+                                  </li>
+                                )
+                              })}
+                            </ul>
+                          </>
+                        ) : (
+                          <div style={{ fontSize: 11, color: MUTED, marginTop: 8 }}>
+                            No orphan account ids — inbox account_id values match the gateway.
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <div style={{ fontSize: 11, color: MUTED }}>Refresh to load account diagnostics.</div>
+                    )}
+                  </section>
+                  <section style={{ marginBottom: 12 }}>
+                    <div style={{ fontWeight: 600, marginBottom: 4 }}>Queue overview</div>
+                    <div>Total queue rows: {totalC}</div>
+                    <div>
+                      Pending: {pendingC} | Processing: {processingC} | Completed: {completedC} | Failed:{' '}
+                      {countStatus(byStatus, 'failed')}
+                    </div>
+                  </section>
+                  <section style={{ marginBottom: 12 }}>
+                    <div style={{ fontWeight: 600, marginBottom: 4 }}>By operation</div>
+                    {(['archive', 'pending_delete', 'pending_review', 'urgent'] as const).map((op) => (
+                      <div key={op}>
+                        {op}: {opAgg[op]?.pending ?? 0} pending, {opAgg[op]?.failed ?? 0} failed
+                      </div>
+                    ))}
+                  </section>
+                  <section style={{ marginBottom: 12 }}>
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        flexWrap: 'wrap',
+                        gap: 8,
+                        marginBottom: 6,
+                      }}
+                    >
+                      <div style={{ fontWeight: 600 }}>Connected accounts — full reset (local DB)</div>
+                      <button
+                        type="button"
+                        disabled={remoteDebugLoading || providerAccounts.filter((a) => a.status === 'active').length === 0}
+                        onClick={() => void handleFullResetAllAccounts()}
+                        style={{
+                          fontSize: 11,
+                          padding: '4px 10px',
+                          background: '#b91c1c',
+                          color: '#fff',
+                          border: 'none',
+                          borderRadius: 4,
+                          cursor: remoteDebugLoading ? 'not-allowed' : 'pointer',
+                        }}
+                      >
+                        Reset ALL Accounts
+                      </button>
+                    </div>
+                    <div style={{ fontSize: 10, color: MUTED, marginBottom: 8, lineHeight: 1.45 }}>
+                      Removes inbox rows and sync state for this device only. Does not disconnect the account in the gateway.
+                    </div>
+                    {providerAccounts.filter((a) => a.status === 'active').length === 0 ? (
+                      <div style={{ color: MUTED, fontSize: 11 }}>No active connected accounts.</div>
+                    ) : (
+                      <ul style={{ margin: 0, paddingLeft: 16, lineHeight: 1.6 }}>
+                        {providerAccounts
+                          .filter((a) => a.status === 'active')
+                          .map((a) => (
+                            <li key={a.id} style={{ marginBottom: 8, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
+                              <span>
+                                <strong>{a.email}</strong> · {a.provider} · {a.status}
+                              </span>
+                              <button
+                                type="button"
+                                disabled={remoteDebugLoading}
+                                onClick={() => void handleFullResetAccount(a.id, a.email)}
+                                style={{
+                                  fontSize: 11,
+                                  padding: '3px 8px',
+                                  background: '#b91c1c',
+                                  color: '#fff',
+                                  border: 'none',
+                                  borderRadius: 4,
+                                  cursor: remoteDebugLoading ? 'not-allowed' : 'pointer',
+                                }}
+                              >
+                                Full Reset
+                              </button>
+                            </li>
+                          ))}
+                      </ul>
+                    )}
+                  </section>
+                  <section style={{ marginBottom: 12 }}>
+                    <div style={{ fontWeight: 600, marginBottom: 4 }}>Per account (queue)</div>
+                    {queueByAccountSummary.length === 0 ? (
+                      <div style={{ color: MUTED }}>No rows (or no accounts in gateway).</div>
+                    ) : (
+                      <ul style={{ margin: 0, paddingLeft: 16, lineHeight: 1.5 }}>
+                        {queueByAccountSummary.map((acc) => (
+                          <li key={acc.accountId} style={{ marginBottom: 6 }}>
+                            <strong>{acc.label}</strong>
+                            <div style={{ fontSize: 11, color: '#334155' }}>
+                              id <code style={{ fontSize: 10 }}>{acc.accountId}</code>
+                            </div>
+                            <div style={{ fontSize: 11 }}>
+                              pending {acc.pending} · processing {acc.processing} · completed {acc.completed} · failed{' '}
+                              {acc.failed} · total {acc.total}
+                            </div>
+                            {acc.accountId !== '(no account_id)' ? (
+                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 6 }}>
+                                {String(acc.provider ?? '')
+                                  .toLowerCase()
+                                  .includes('imap') ? (
+                                  <button
+                                    type="button"
+                                    disabled={remoteDebugLoading || remoteFolderVerifyLoading}
+                                    style={{ fontSize: 11, padding: '4px 8px' }}
+                                    title="LIST + STATUS counts + lifecycle exact-match (read-only)"
+                                    onClick={() => void handleVerifyImapRemoteFolders(acc.accountId, acc.label)}
+                                  >
+                                    Verify remote
+                                  </button>
+                                ) : null}
+                                {acc.failed > 0 ? (
+                                  <>
+                                    <button
+                                      type="button"
+                                      disabled={remoteDebugLoading}
+                                      style={{ fontSize: 11, padding: '4px 8px' }}
+                                      title="Reset failed queue rows for this account only (e.g. Outlook after provider fix)"
+                                      onClick={() => void handleRetryFailedRemoteQueue(acc.accountId)}
+                                    >
+                                      Retry failed (this account)
+                                    </button>
+                                    <button
+                                      type="button"
+                                      disabled={remoteDebugLoading}
+                                      style={{ fontSize: 11, padding: '4px 8px' }}
+                                      title="Delete failed queue rows for this account (e.g. Account not found after disconnect — use Sync Remote after reconnect)"
+                                      onClick={() => void handleClearFailedRemoteQueue(acc.accountId)}
+                                    >
+                                      Clear failed (this account)
+                                    </button>
+                                  </>
+                                ) : null}
+                              </div>
+                            ) : null}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </section>
+                  <section
+                    style={{
+                      marginBottom: 12,
+                      padding: 10,
+                      background: '#fafafa',
+                      borderRadius: 6,
+                      border: '1px solid #e5e7eb',
+                    }}
+                  >
+                    <div style={{ fontWeight: 600, marginBottom: 6 }}>
+                      Unclassified messages (main Inbox — may still be in server Posteingang)
+                    </div>
+                    <div style={{ fontSize: 10, color: MUTED, marginBottom: 8, lineHeight: 1.45 }}>
+                      WR Desk “all” tab: not archived, not pending delete/review. Classified messages mirror to four server
+                      folders: <strong>Archive</strong> (archive / newsletter / normal / other categories),{' '}
+                      <strong>Pending Review</strong> (pending_review / important), <strong>Pending Delete</strong>,{' '}
+                      <strong>Urgent</strong>. Unclassified (no sort_category) stay in Inbox until Auto-Sort.
+                    </div>
+                    <div style={{ marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                      <label style={{ fontSize: 11, display: 'flex', alignItems: 'center', gap: 6 }}>
+                        Account filter
+                        <select
+                          value={remoteMainInboxAccountId}
+                          onChange={(e) => {
+                            const v = e.target.value
+                            setRemoteMainInboxAccountId(v)
+                            void refreshRemoteDebugQueue({
+                              silent: true,
+                              mainInboxAccountOverride: v.trim() ? v : undefined,
+                            })
+                          }}
+                          style={{ fontSize: 11, maxWidth: 240 }}
+                        >
+                          <option value="">All accounts</option>
+                          {queueByAccountSummary
+                            .filter((a) => a.accountId && a.accountId !== '(no account_id)')
+                            .map((a) => (
+                              <option key={a.accountId} value={a.accountId}>
+                                {a.label}
+                              </option>
+                            ))}
+                        </select>
+                      </label>
+                    </div>
+                    {remoteMainInboxDebug && remoteMainInboxDebug.ok === false ? (
+                      <div style={{ color: '#b91c1c', fontSize: 11 }}>
+                        {String((remoteMainInboxDebug as { error?: string }).error ?? 'failed')}
+                      </div>
+                    ) : remoteMainInboxDebug && remoteMainInboxDebug.ok === true ? (
+                      <>
+                        <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 6 }}>
+                          {String(remoteMainInboxDebug.summaryText ?? '')}
+                        </div>
+                        <div style={{ fontSize: 10, color: '#64748b', marginBottom: 8 }}>
+                          {String(remoteMainInboxDebug.policyNote ?? '')}
+                        </div>
+                        <ul
+                          style={{
+                            margin: 0,
+                            paddingLeft: 14,
+                            fontSize: 11,
+                            lineHeight: 1.45,
+                            maxHeight: 280,
+                            overflow: 'auto',
+                          }}
+                        >
+                          {(
+                            (remoteMainInboxDebug.rows as Array<Record<string, unknown>>) ?? []
+                          ).map((row) => (
+                            <li key={String(row.id)} style={{ marginBottom: 8 }}>
+                              <div style={{ fontWeight: 600 }}>
+                                {String(row.subject ?? '(no subject)').slice(0, 140)}
+                              </div>
+                              <div style={{ color: '#475569' }}>
+                                {String(row.from_address ?? '—')} · {String(row.received_at ?? '—')}
+                              </div>
+                              <div>
+                                <code>sort_category</code> {String(row.sort_category ?? 'null')} ·{' '}
+                                <code>imap_remote_mailbox</code> {String(row.imap_remote_mailbox ?? 'null')} ·{' '}
+                                <code>queue</code> {String(row.queue_op ?? '—')} / {String(row.queue_status ?? '—')}
+                              </div>
+                              <div style={{ color: '#0369a1' }}>{String(row.whyDetail ?? row.why ?? '')}</div>
+                            </li>
+                          ))}
+                        </ul>
+                      </>
+                    ) : (
+                      <div style={{ fontSize: 11, color: MUTED }}>
+                        Open Refresh to load (needs app with debugMainInboxRows).
+                      </div>
+                    )}
+                  </section>
+                  <section style={{ marginBottom: 12 }}>
+                    <div style={{ fontWeight: 600, marginBottom: 4 }}>Raw: account × status</div>
+                    <ul style={{ margin: 0, paddingLeft: 16, fontSize: 11, fontFamily: 'ui-monospace, monospace' }}>
+                      {byAccountStatus.length === 0 ? (
+                        <li>—</li>
+                      ) : (
+                        byAccountStatus.map((row, i) => (
+                          <li key={i}>
+                            {row.account_id ?? 'null'} · {row.status} · {row.c}
+                          </li>
+                        ))
+                      )}
+                    </ul>
+                  </section>
+                  <section style={{ marginBottom: 12 }}>
+                    <div style={{ fontWeight: 600, marginBottom: 4 }}>Failed rows (sample up to 10)</div>
+                    <ul style={{ margin: 0, paddingLeft: 18 }}>
+                      {failed.map((row, i) => (
+                        <li key={i} style={{ marginBottom: 6 }}>
+                          <code>{row.operation}</code> — {String(row.last_error ?? '').slice(0, 200)} (attempts {row.attempts ?? 0}, email_id{' '}
+                          {row.email_message_id ?? '—'})
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                  <section style={{ marginBottom: 12 }}>
+                    <div style={{ fontWeight: 600, marginBottom: 4 }}>Recent rows (last 5)</div>
+                    <ul style={{ margin: 0, paddingLeft: 18 }}>
+                      {recent.map((row, i) => (
+                        <li key={i} style={{ marginBottom: 4 }}>
+                          <code>{row.operation}</code> · {row.status} · {row.created_at ?? ''} → {row.updated_at ?? ''}
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                  {remoteDebugTestMove ? (
+                    <section style={{ marginBottom: 12, padding: 8, background: '#f8fafc', borderRadius: 4 }}>
+                      <div style={{ fontWeight: 600, marginBottom: 4 }}>Test Move 1</div>
+                      <div>{remoteDebugTestMove.enqueue}</div>
+                      <div>{remoteDebugTestMove.move}</div>
+                      {(() => {
+                        const fmt = (row: Record<string, unknown> | null | undefined, title: string) =>
+                          row ? (
+                            <div style={{ marginTop: 8, fontSize: 11, lineHeight: 1.45 }}>
+                              <div style={{ fontWeight: 600, marginBottom: 4 }}>{title}</div>
+                              <div>
+                                <code>imap_remote_mailbox</code>:{' '}
+                                {row.imap_remote_mailbox != null ? String(row.imap_remote_mailbox) : 'null'}
+                              </div>
+                              <div>
+                                <code>email_message_id</code>:{' '}
+                                {row.email_message_id != null ? String(row.email_message_id) : 'null'}
+                              </div>
+                              <div>
+                                archived={String(row.archived ?? '—')} · pending_delete={String(row.pending_delete ?? '—')} ·
+                                sort_category={row.sort_category != null ? String(row.sort_category) : 'null'}
+                              </div>
+                              <div>
+                                pending_review_at={row.pending_review_at != null ? String(row.pending_review_at) : 'null'} ·
+                                source_type={String(row.source_type ?? '—')}
+                              </div>
+                            </div>
+                          ) : null
+                        return (
+                          <>
+                            {fmt(remoteDebugTestMove.messageRowBeforeEnqueue, 'Message (before enqueue — skip logic)')}
+                            {fmt(remoteDebugTestMove.messageRowAfterDrain, 'Message (after drain — current DB)')}
+                          </>
+                        )
+                      })()}
+                      {remoteDebugTestMove.skipReasons && remoteDebugTestMove.skipReasons.length > 0 ? (
+                        <div style={{ marginTop: 8 }}>
+                          <div style={{ fontWeight: 600, marginBottom: 4 }}>Skip reasons</div>
+                          <ul style={{ margin: 0, paddingLeft: 16, fontSize: 11, lineHeight: 1.4 }}>
+                            {remoteDebugTestMove.skipReasons.map((line, i) => (
+                              <li key={i} style={{ marginBottom: 4 }}>
+                                {line}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      ) : null}
+                      {remoteDebugTestMove.queueRows && remoteDebugTestMove.queueRows.length > 0 ? (
+                        <div style={{ marginTop: 8, fontSize: 11 }}>
+                          <div style={{ fontWeight: 600, marginBottom: 4 }}>Queue rows (this message)</div>
+                          <ul style={{ margin: 0, paddingLeft: 16 }}>
+                            {remoteDebugTestMove.queueRows.map((qr, i) => (
+                              <li key={i} style={{ marginBottom: 4 }}>
+                                <code>{String(qr.operation ?? '—')}</code> · {String(qr.status ?? '—')} · attempts{' '}
+                                {String(qr.attempts ?? '—')}
+                                {qr.last_error ? ` · ${String(qr.last_error).slice(0, 120)}` : ''}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      ) : null}
+                    </section>
+                  ) : null}
+                  <section>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                      <span style={{ fontWeight: 600 }}>Activity log</span>
+                      <button type="button" onClick={() => clearRemoteSyncLog()}>
+                        Clear log
+                      </button>
+                    </div>
+                    <div
+                      style={{
+                        maxHeight: 140,
+                        overflow: 'auto',
+                        background: '#f1f5f9',
+                        padding: 8,
+                        borderRadius: 4,
+                        fontFamily: 'ui-monospace, monospace',
+                        fontSize: 11,
+                      }}
+                    >
+                      {remoteSyncLog.length === 0 ? <span style={{ color: MUTED }}>No entries yet.</span> : null}
+                      {remoteSyncLog.map((line, i) => (
+                        <div key={i} style={{ marginBottom: 4 }}>
+                          {line}
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+                </>
+              )
+            })()}
+          </div>
+        </div>
+      ) : null}
+
+      {lastSyncWarnings && lastSyncWarnings.length > 0 ? (
+        <SyncFailureBanner
+          warnings={lastSyncWarnings}
+          accounts={providerAccounts.map((a) => ({ id: a.id, email: a.email, provider: a.provider }))}
+          onUpdateCredentials={handleUpdateImapCredentials}
+          onRemoveAccount={handleDisconnectEmail}
+        />
+      ) : null}
 
       {/* Collapsible provider/account section */}
       <div className={`bulk-view-provider-section ${providerSectionExpanded ? 'bulk-view-provider-section--expanded' : ''}`}>
@@ -3398,20 +5106,22 @@ export default function EmailInboxBulkView({
         </button>
         {providerSectionExpanded && (
           <div className="bulk-view-provider-body">
-            <EmailProvidersSection
-              theme="professional"
-              emailAccounts={providerAccounts}
+              <EmailProvidersSection
+                theme="professional"
+                emailAccounts={providerAccounts}
               isLoadingEmailAccounts={isLoadingProviderAccounts}
               selectedEmailAccountId={selectedProviderAccountId}
               onConnectEmail={handleConnectEmail}
               onDisconnectEmail={handleDisconnectEmail}
+              onSetProcessingPaused={handleSetProcessingPaused}
               onSelectEmailAccount={setSelectedProviderAccountId}
-            />
+              onUpdateImapCredentials={handleUpdateImapCredentials}
+              />
           </div>
         )}
       </div>
 
-      {/* Content */}
+      {/* Content — list + chrome (scrolls with `.bulk-view-root`) */}
       <div className="bulk-view-content">
         {error ? (
           <div className="bulk-view-content-message bulk-view-empty-state" style={{ color: '#ef4444' }}>
@@ -3432,59 +5142,54 @@ export default function EmailInboxBulkView({
                   aria-busy="true"
                 />
               ) : null}
-              {totalPages > 1 && (
-                <div className="bulk-view-pagination-bar">
-                  <span style={{ fontSize: 11, color: MUTED }}>
-                    {total} message{total !== 1 ? 's' : ''}
-                  </span>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <button
-                      type="button"
-                      onClick={() => setBulkPage(Math.max(0, bulkPage - 1))}
-                      disabled={!canPrev}
-                      title="Previous page"
-                      style={{
-                        padding: '4px 8px',
-                        fontSize: 10,
-                        fontWeight: 600,
-                        background: '#f1f5f9',
-                        border: '1px solid #e2e8f0',
-                        borderRadius: 6,
-                        color: canPrev ? '#334155' : MUTED,
-                        cursor: canPrev ? 'pointer' : 'not-allowed',
-                      }}
-                    >
-                      ‹ Prev
-                    </button>
-                    <span style={{ fontSize: 11, color: MUTED }}>
-                      Page {bulkPage + 1} of {totalPages}
+              <div className="bulk-view-pagination-bar">
+                <span style={{ fontSize: 11, color: MUTED }}>
+                  {total} message{total !== 1 ? 's' : ''} in this tab
+                  {bulkHasMore ? (
+                    <span style={{ marginLeft: 8 }}>
+                      ({messages.length} loaded)
                     </span>
-                    <button
-                      type="button"
-                      onClick={() => setBulkPage(Math.min(totalPages - 1, bulkPage + 1))}
-                      disabled={!canNext}
-                      title="Next page"
-                      style={{
-                        padding: '4px 8px',
-                        fontSize: 10,
-                        fontWeight: 600,
-                        background: '#f1f5f9',
-                        border: '1px solid #e2e8f0',
-                        borderRadius: 6,
-                        color: canNext ? '#334155' : MUTED,
-                        cursor: canNext ? 'pointer' : 'not-allowed',
-                      }}
-                    >
-                      Next ›
-                    </button>
-                  </div>
-                </div>
-              )}
+                  ) : null}
+                </span>
+              </div>
               {showBulkStatusDock ? (
                 <div className="bulk-view-status-dock" role="region" aria-label="Bulk inbox status">
                   {aiSortProgress ? (
-                    <div className="bulk-view-sort-progress" role="status">
-                      <span className="bulk-view-sort-progress-text">{aiSortProgress}</span>
+                    <div className="autosort-progress-container" role="status">
+                      <div
+                        className="autosort-progress-fill"
+                        style={{
+                          width:
+                            aiSortProgress.phase === 'summarizing'
+                              ? '100%'
+                              : `${Math.round((aiSortProgress.done / Math.max(aiSortProgress.total, 1)) * 100)}%`,
+                        }}
+                      />
+                      <span className="autosort-progress-text">
+                        {aiSortProgress.phase === 'summarizing'
+                          ? '✦ Generating session summary…'
+                          : aiSortProgress.label}
+                      </span>
+                    </div>
+                  ) : null}
+                  {!aiSortProgress && autosortReviewBanner ? (
+                    <div
+                      className={`bulk-view-autosort-review-banner-wrap${autosortReviewBanner.fading ? ' bulk-view-autosort-review-banner-wrap--out' : ''}`}
+                      onTransitionEnd={(e) => {
+                        if (e.target !== e.currentTarget || e.propertyName !== 'opacity') return
+                        setAutosortReviewBanner((b) => (b?.fading ? null : b))
+                      }}
+                    >
+                      <button
+                        type="button"
+                        className="autosort-review-btn"
+                        onClick={() => {
+                          setShowSessionReview(autosortReviewBanner.sessionId)
+                          setAutosortReviewBanner(null)
+                        }}
+                      >
+                        ▶ Review Session
+                      </button>
                     </div>
                   ) : null}
                   {sendEmailToast ? (
@@ -3591,7 +5296,14 @@ export default function EmailInboxBulkView({
                     role="button"
                     tabIndex={0}
                     onClick={(e) => {
-                      if ((e.target as HTMLElement).closest('input[type="checkbox"]') || (e.target as HTMLElement).closest('.bulk-view-expand-btn') || (e.target as HTMLElement).closest('.bulk-view-msg-delete-btn')) return
+                      if (
+                        (e.target as HTMLElement).closest('.bulk-view-expand-btn') ||
+                        (e.target as HTMLElement).closest('.bulk-view-msg-delete-btn') ||
+                        (e.target as HTMLElement).closest('.inbox-handshake-nav-btn') ||
+                        (e.target as HTMLElement).closest('[data-subfocus="attachment"]')
+                      ) {
+                        return
+                      }
                       handleFocusPair(msg)
                     }}
                     onKeyDown={(e) => {
@@ -3602,36 +5314,34 @@ export default function EmailInboxBulkView({
                     }}
                     className={`bulk-view-message ${isMultiSelected ? 'bulk-view-message--multi' : ''} ${isFocused ? 'bulk-view-message--focused' : ''} ${editingDraftForMessageId === msg.id ? 'bulk-view-message--editing-draft' : ''}`}
                   >
-                    <div style={{ display: 'flex', alignItems: 'stretch', gap: 12, flex: 1, minHeight: 0, overflow: 'hidden' }}>
-                      <input
-                        type="checkbox"
-                        checked={isMultiSelected}
-                        onChange={(e) => {
-                          e.stopPropagation()
-                          toggleMultiSelect(msg.id)
-                        }}
-                        onClick={(e) => e.stopPropagation()}
-                        style={{ alignSelf: 'flex-start' }}
-                      />
-                      {isFocused && (
-                        <span
-                          style={{ flexShrink: 0, alignSelf: 'flex-start', fontSize: 14, color: 'var(--purple-accent, #7c3aed)', lineHeight: 1 }}
-                          title="Focused — chat/search scoped to this message"
-                          aria-hidden
-                        >
-                          👉
-                        </span>
-                      )}
-                      <div className="bulk-view-message-inner" style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, flexShrink: 0 }}>
-                          <span
-                            style={{
-                              fontSize: 14,
-                              fontWeight: 600,
-                            }}
-                          >
-                            {msg.from_name || msg.from_address || '—'}
-                          </span>
+                    <div className="bulk-view-message-inner">
+                      <div className="bulk-view-message-header">
+                        <div className="bulk-view-message-meta">
+                          {isFocused ? (
+                            <span
+                              className="bulk-view-message-focus-cue"
+                              title="Focused — chat/search scoped to this message"
+                              aria-hidden
+                            >
+                              👉
+                            </span>
+                          ) : null}
+                          <RemoteSyncStatusDot msg={msg} />
+                          {onNavigateToHandshake ? (
+                            <InboxHandshakeNavIconButton message={msg} onNavigateToHandshake={onNavigateToHandshake} />
+                          ) : null}
+                          <div className="msg-sender" style={{ minWidth: 0 }}>
+                            <span className="msg-sender-name" style={{ fontSize: 14, fontWeight: 600 }}>
+                              {msg.from_name || msg.from_address || '—'}
+                              {msg.from_address &&
+                                msg.from_name &&
+                                msg.from_name.trim() !== msg.from_address.trim() && (
+                                  <span style={{ color: '#888', marginLeft: 6, fontSize: '0.9em' }}>
+                                    {msg.from_address}
+                                  </span>
+                                )}
+                            </span>
+                          </div>
                           {editingDraftForMessageId === msg.id && (
                             <span
                               role="button"
@@ -3652,6 +5362,18 @@ export default function EmailInboxBulkView({
                               Editing draft
                             </span>
                           )}
+                          <span
+                            style={{
+                              marginLeft: 'auto',
+                              flexShrink: 0,
+                              fontSize: 11,
+                              fontWeight: 500,
+                              color: MUTED,
+                            }}
+                            title={msg.received_at ? `Received: ${formatDate(msg.received_at)}` : 'No received date'}
+                          >
+                            {formatRelativeDate(msg.received_at)}
+                          </span>
                           <button
                             type="button"
                             className="bulk-view-expand-btn"
@@ -3675,15 +5397,17 @@ export default function EmailInboxBulkView({
                             🗑 Delete
                           </button>
                         </div>
-                        <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 4, flexShrink: 0 }}>
+                        <div className="bulk-view-message-subject" style={{ fontSize: 13, fontWeight: 500, marginBottom: 4, flexShrink: 0 }}>
                           {msg.subject || '(No subject)'}
                         </div>
-                        {((output?.summary || output?.reason || msg.sort_reason) ?? '').trim() && (
-                          <div style={{ fontSize: 11, fontStyle: 'italic', color: MUTED, marginBottom: 6, flexShrink: 0 }}>
+                        {((output?.summary || output?.reason || msg.sort_reason) ?? '').trim() ? (
+                          <div className="bulk-view-message-preview-line" style={{ fontSize: 11, fontStyle: 'italic', color: MUTED, marginBottom: 6, flexShrink: 0 }}>
                             {((output?.summary || output?.reason || msg.sort_reason) ?? '').trim().slice(0, 120)}
                             {((output?.summary || output?.reason || msg.sort_reason) ?? '').trim().length > 120 ? '…' : ''}
                           </div>
-                        )}
+                        ) : null}
+                      </div>
+                      <div className="bulk-view-message-scroll">
                         <div
                           className="bulk-view-message-body"
                           style={{
@@ -3713,6 +5437,16 @@ export default function EmailInboxBulkView({
                           )}
                         </div>
                       </div>
+                      {hasAttachments ? (
+                        <div className="bulk-view-message-attachments-footer bulk-message-footer">
+                          <BulkInboxAttachmentsStrip
+                            msg={msg}
+                            selectedAttachmentId={selectedAttachmentId ?? null}
+                            selectAttachment={selectAttachment}
+                            onSelectAttachment={onSelectAttachment}
+                          />
+                        </div>
+                      ) : null}
                     </div>
                   </div>
 
@@ -3782,7 +5516,9 @@ export default function EmailInboxBulkView({
                         </span>
                       )}
                     </div>
-                    {renderActionCard(msg, output, isCardExpanded)}
+                    <div className="bulk-view-ai-inner">
+                      {renderActionCard(msg, output, isCardExpanded)}
+                    </div>
                   </div>
                   {/* Full-row expand toggle — CSS gives this grid-column: 1/-1 so it spans both panes */}
                   <div
@@ -3807,6 +5543,19 @@ export default function EmailInboxBulkView({
               )
             })}
           </div>
+            {bulkHasMore ? (
+              <div
+                ref={bulkLoadSentinelRef}
+                className="bulk-scroll-sentinel"
+                aria-hidden={!bulkLoadingMore}
+              >
+                {bulkLoadingMore ? (
+                  <span className="bulk-loading-inline" role="status">
+                    Loading…
+                  </span>
+                ) : null}
+              </div>
+            ) : null}
             </div>
           </div>
         )}
@@ -3999,6 +5748,24 @@ export default function EmailInboxBulkView({
           </div>
         </div>
       )}
+
+      {showSessionReview ? (
+        <AutoSortSessionReview
+          sessionId={showSessionReview}
+          onClose={() => setShowSessionReview(null)}
+          onNavigateToMessage={(m) => void handleOpenMessageFromSessionReview(m)}
+        />
+      ) : null}
+
+      {showSessionHistory ? (
+        <AutoSortSessionHistory
+          onClose={() => setShowSessionHistory(false)}
+          onOpenSession={(id) => {
+            setShowSessionHistory(false)
+            setShowSessionReview(id)
+          }}
+        />
+      ) : null}
     </div>
   )
 }

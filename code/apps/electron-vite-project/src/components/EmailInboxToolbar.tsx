@@ -1,21 +1,35 @@
 /**
- * EmailInboxToolbar — Filter tabs, source type, auto-sync, pull, bulk actions.
+ * EmailInboxToolbar — Workflow filter tabs (with counts), sync controls (shared with Bulk Inbox), bulk row actions when items selected.
  */
 
 import React from 'react'
-import type { InboxFilter } from '../stores/useEmailInboxStore'
+import type { InboxFilter, InboxTabCounts } from '../stores/useEmailInboxStore'
+import type { InboxMessageKindFilter } from '../lib/inboxMessageKind'
 import { pickDefaultEmailAccountRowId } from '@ext/shared/email/pickDefaultAccountRow'
+import EmailInboxSyncControls from './EmailInboxSyncControls'
+import { InboxMessageKindSelect } from './InboxMessageKindSelect'
 
 // ── Types ──
 
 export interface EmailInboxToolbarProps {
   filter: InboxFilter
   onFilterChange: (partial: Partial<InboxFilter>) => void
+  tabCounts: InboxTabCounts
+  messageKind: InboxMessageKindFilter
+  onMessageKindChange: (kind: InboxMessageKindFilter) => void
   accounts: Array<{ id: string; email: string }>
   autoSyncEnabled: boolean
   syncing: boolean
-  onSync: () => void
-  onToggleAutoSync: (accountId: string, enabled: boolean) => void
+  remoteSyncBusy: boolean
+  /** Same behavior as Bulk Inbox: pull then optional remote reconcile. */
+  onUnifiedSync: () => void
+  /** Current sync window in days (0 = all mail in DB). */
+  accountSyncWindowDays?: number
+  onSyncWindowChange: (days: number) => void | Promise<void>
+  autoSyncEligibleAccountIds: string[]
+  onToggleAutoSync: (enabled: boolean) => void
+  /** When every account is IMAP, primary button shows Pull (matches Bulk). */
+  pullOnly: boolean
   bulkMode: boolean
   onBulkModeChange: (enabled: boolean) => void
   selectedCount: number
@@ -25,70 +39,15 @@ export interface EmailInboxToolbarProps {
   onBulkCategorize?: () => void
 }
 
-// ── Filter tabs ──
+// ── Filter tabs (aligned with Bulk Inbox workflow buckets) ──
 
-const FILTER_TABS = ['all', 'unread', 'starred', 'archived', 'pending_delete', 'pending_review', 'deleted'] as const
-const FILTER_LABELS: Record<string, string> = {
+const FILTER_TABS = ['all', 'urgent', 'pending_delete', 'pending_review', 'archived'] as const
+const FILTER_LABELS: Record<(typeof FILTER_TABS)[number], string> = {
   all: 'All',
-  unread: 'Unread',
-  starred: 'Starred',
-  archived: 'Archived',
+  urgent: 'Urgent',
   pending_delete: 'Pending Delete',
-  pending_review: '⏳ Pending Review',
-  deleted: 'Deleted',
-}
-
-// ── Source type tabs ──
-
-const SOURCE_TABS = [
-  { value: 'all' as const, label: 'All' },
-  { value: 'email_beap' as const, label: 'BEAP' },
-  { value: 'email_plain' as const, label: 'Plain' },
-  { value: 'direct_beap' as const, label: 'Direct' },
-]
-
-// ── Toggle switch ──
-
-function ToggleSwitch({
-  checked,
-  onChange,
-}: {
-  checked: boolean
-  onChange: () => void
-}) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      onClick={onChange}
-      style={{
-        width: 36,
-        height: 20,
-        borderRadius: 10,
-        border: 'none',
-        background: checked ? 'var(--purple-accent, #9333ea)' : '#ccc',
-        cursor: 'pointer',
-        padding: 0,
-        position: 'relative',
-        transition: 'background 0.2s ease',
-      }}
-    >
-      <span
-        style={{
-          position: 'absolute',
-          top: 2,
-          left: checked ? 18 : 2,
-          width: 16,
-          height: 16,
-          borderRadius: '50%',
-          background: '#fff',
-          boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
-          transition: 'left 0.2s ease',
-        }}
-      />
-    </button>
-  )
+  pending_review: 'Pending Review',
+  archived: 'Archived',
 }
 
 // ── Main component ──
@@ -96,13 +55,21 @@ function ToggleSwitch({
 export default function EmailInboxToolbar({
   filter,
   onFilterChange,
+  tabCounts,
+  messageKind,
+  onMessageKindChange,
   accounts,
   autoSyncEnabled,
   syncing,
-  onSync,
+  remoteSyncBusy,
+  onUnifiedSync,
+  accountSyncWindowDays = 30,
+  onSyncWindowChange,
+  autoSyncEligibleAccountIds,
   onToggleAutoSync,
-  bulkMode,
-  onBulkModeChange,
+  pullOnly,
+  bulkMode: _bulkMode,
+  onBulkModeChange: _onBulkModeChange,
   selectedCount,
   onBulkDelete,
   onBulkArchive,
@@ -112,114 +79,51 @@ export default function EmailInboxToolbar({
   const primaryAccountId = pickDefaultEmailAccountRowId(accounts)
 
   return (
-    <div
-      style={{
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 10,
-        padding: '12px 14px',
-        borderBottom: '1px solid var(--color-border, rgba(255,255,255,0.08))',
-        background: 'var(--color-bg, #0f172a)',
-      }}
-    >
+    <div className="email-inbox-toolbar">
       {/* Filter tabs row */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+      <div className="inbox-toolbar-tabs" role="tablist" aria-label="Inbox filters">
         {FILTER_TABS.map((tab) => {
-          const active = filter.filter === tab
           return (
             <button
               key={tab}
+              className={`inbox-toolbar-tab${tab === filter.filter ? ' inbox-toolbar-tab--active' : ''}`}
+              role="tab"
+              aria-selected={tab === filter.filter}
+              id={`inbox-tab-${tab}`}
+              type="button"
               onClick={() => onFilterChange({ filter: tab })}
-              style={{
-                padding: '6px 12px',
-                fontSize: 11,
-                fontWeight: 600,
-                borderRadius: 999,
-                border: 'none',
-                background: active ? 'var(--purple-accent, #9333ea)' : '#eee',
-                color: active ? '#fff' : 'var(--color-text, #0f172a)',
-                cursor: 'pointer',
-                textTransform: 'capitalize',
-              }}
             >
-              {FILTER_LABELS[tab] ?? tab}
+              {FILTER_LABELS[tab]} ({tabCounts[tab]})
             </button>
           )
         })}
       </div>
 
-      {/* Source type filter row */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
-        {SOURCE_TABS.map(({ value, label }) => {
-          const active = filter.sourceType === value
-          return (
-            <button
-              key={value}
-              onClick={() => onFilterChange({ sourceType: value })}
-              style={{
-                padding: '4px 10px',
-                fontSize: 10,
-                fontWeight: 600,
-                borderRadius: 6,
-                border: `1px solid ${active ? 'var(--purple-accent, #9333ea)' : 'var(--color-border, rgba(255,255,255,0.2))'}`,
-                background: active ? 'var(--purple-accent-muted, rgba(147,51,234,0.2))' : 'transparent',
-                color: active ? 'var(--purple-accent, #9333ea)' : 'var(--color-text-muted, #94a3b8)',
-                cursor: 'pointer',
-              }}
-            >
-              {label}
-            </button>
-          )
-        })}
-
-        <div style={{ flex: 1, minWidth: 8 }} />
-
-        {/* Auto-sync toggle */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ fontSize: 11, color: 'var(--color-text-muted, #94a3b8)' }}>
-            Auto-sync
-          </span>
-          <ToggleSwitch
-            checked={autoSyncEnabled}
-            onChange={() => primaryAccountId && onToggleAutoSync(primaryAccountId, !autoSyncEnabled)}
+      <div className="inbox-toolbar-settings">
+        <div className="inbox-toolbar-settings-row">
+          <span className="inbox-toolbar-settings-label">Type</span>
+          <InboxMessageKindSelect
+            id="inbox-message-kind-normal"
+            variant="bulk"
+            suppressBuiltInLabel
+            value={messageKind}
+            onChange={onMessageKindChange}
           />
         </div>
-
-        {/* Manual pull button */}
-        <button
-          onClick={onSync}
-          disabled={syncing}
-          style={{
-            padding: '6px 12px',
-            fontSize: 11,
-            fontWeight: 600,
-            borderRadius: 6,
-            border: '1px solid var(--purple-accent, #9333ea)',
-            background: 'var(--purple-accent-muted, rgba(147,51,234,0.2))',
-            color: 'var(--purple-accent, #9333ea)',
-            cursor: syncing ? 'not-allowed' : 'pointer',
-            opacity: syncing ? 0.7 : 1,
-          }}
-        >
-          {syncing ? '↻ Syncing…' : '↻ Pull'}
-        </button>
-
-        {/* Bulk mode toggle */}
-        <button
-          onClick={() => onBulkModeChange(!bulkMode)}
-          style={{
-            padding: '6px 12px',
-            fontSize: 11,
-            fontWeight: 600,
-            borderRadius: 6,
-            border: `1px solid ${bulkMode ? 'var(--purple-accent, #9333ea)' : 'var(--color-border, rgba(255,255,255,0.2))'}`,
-            background: bulkMode ? 'var(--purple-accent-muted, rgba(147,51,234,0.2))' : 'transparent',
-            color: bulkMode ? 'var(--purple-accent, #9333ea)' : 'var(--color-text-muted, #94a3b8)',
-            cursor: 'pointer',
-          }}
-        >
-          Bulk
-        </button>
+        <div className="inbox-toolbar-settings-row">
+          <EmailInboxSyncControls
+            accountSyncWindowDays={accountSyncWindowDays}
+            onSyncWindowChange={onSyncWindowChange}
+            primaryAccountId={primaryAccountId}
+            autoSyncEligibleAccountIds={autoSyncEligibleAccountIds}
+            autoSyncEnabled={autoSyncEnabled}
+            onToggleAutoSync={onToggleAutoSync}
+            onUnifiedSync={onUnifiedSync}
+            syncing={syncing}
+            remoteSyncBusy={remoteSyncBusy}
+            pullOnly={pullOnly}
+          />
+        </div>
       </div>
 
       {/* Bulk actions (when selectedCount > 0) */}

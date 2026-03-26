@@ -28,6 +28,14 @@ export interface PlainEmailBeapMessage {
     sizeBytes: number
     semanticContent?: string
     selected: boolean
+    /** Filled when PDF text was extracted at ingest (or merged later). */
+    extracted_text?: string
+    extraction_status?: string
+    extraction_error?: string | null
+    /** SHA-256 (hex) of raw attachment bytes — verifiable vs stored file. */
+    content_sha256?: string
+    /** SHA-256 (hex) of UTF-8 extracted text — links text to extraction result. */
+    extracted_text_sha256?: string
   }>
   automationTags: string[]
   /** Matches ProcessingEventOffer: LOCAL semantic allows AI classification. */
@@ -161,7 +169,18 @@ export interface PlainEmailDepackagedFormat {
     date: string
   }
   body: { text: string; html?: string }
-  attachments: Array<{ filename: string; content_type: string; size: number; content_id?: string; extracted_text?: string }>
+  attachments: Array<{
+    id?: string
+    filename: string
+    content_type: string
+    size: number
+    content_id?: string
+    extracted_text?: string
+    extraction_status?: string
+    extraction_error?: string | null
+    content_sha256?: string
+    extracted_text_sha256?: string
+  }>
   metadata: { converted_at: string; source: 'plain_email' }
 }
 
@@ -183,7 +202,18 @@ export function convertPlainToBeapFormat(rawMsg: unknown): PlainEmailDepackagedF
       date: now,
     },
     body: { text: '', html: undefined as string | undefined },
-    attachments: [] as Array<{ filename: string; content_type: string; size: number; content_id?: string; extracted_text?: string }>,
+    attachments: [] as Array<{
+      id?: string
+      filename: string
+      content_type: string
+      size: number
+      content_id?: string
+      extracted_text?: string
+      extraction_status?: string
+      extraction_error?: string | null
+      content_sha256?: string
+      extracted_text_sha256?: string
+    }>,
     metadata: { converted_at: now, source: 'plain_email' as const },
   }
 
@@ -197,7 +227,18 @@ export function convertPlainToBeapFormat(rawMsg: unknown): PlainEmailDepackagedF
     const subject = (m.subject as string) || ''
     const bodyText = (m.messageBody as string) || (m.canonicalContent as string) || ''
     const timestamp = typeof m.timestamp === 'number' ? m.timestamp : Date.now()
-    const atts = (m.attachments as Array<{ filename?: string; mimeType?: string; sizeBytes?: number; attachmentId?: string }>) || []
+    const atts =
+      (m.attachments as Array<{
+        filename?: string
+        mimeType?: string
+        sizeBytes?: number
+        attachmentId?: string
+        extracted_text?: string
+        extraction_status?: string
+        extraction_error?: string | null
+        content_sha256?: string
+        extracted_text_sha256?: string
+      }>) || []
     return {
       schema_version: '1.0.0',
       format: 'plain_email_converted',
@@ -211,11 +252,16 @@ export function convertPlainToBeapFormat(rawMsg: unknown): PlainEmailDepackagedF
       },
       body: { text: bodyText },
       attachments: atts.map((a) => ({
+        id: a.attachmentId,
         filename: a.filename || 'attachment',
         content_type: a.mimeType || 'application/octet-stream',
         size: a.sizeBytes ?? 0,
         content_id: a.attachmentId,
-        extracted_text: (a as { extracted_text?: string }).extracted_text,
+        extracted_text: a.extracted_text,
+        extraction_status: a.extraction_status,
+        extraction_error: a.extraction_error,
+        content_sha256: a.content_sha256,
+        extracted_text_sha256: a.extracted_text_sha256,
       })),
       metadata: { converted_at: now, source: 'plain_email' },
     }
@@ -230,7 +276,19 @@ export function convertPlainToBeapFormat(rawMsg: unknown): PlainEmailDepackagedF
   const ccAddrs = ccList.map((r) => r?.address ?? r?.email ?? '')
   const msgId = (m.messageId ?? m.id ?? m.uid ?? '') as string
   const date = (m.date as string) || now
-  const atts = (m.attachments as Array<{ filename?: string; contentType?: string; size?: number; contentId?: string }>) || []
+  const atts =
+    (m.attachments as Array<{
+      id?: string
+      filename?: string
+      contentType?: string
+      size?: number
+      contentId?: string
+      extracted_text?: string
+      extraction_status?: string
+      extraction_error?: string | null
+      content_sha256?: string
+      extracted_text_sha256?: string
+    }>) || []
 
   return {
     schema_version: '1.0.0',
@@ -248,11 +306,16 @@ export function convertPlainToBeapFormat(rawMsg: unknown): PlainEmailDepackagedF
       html: (m.html as string) || undefined,
     },
     attachments: atts.map((a) => ({
+      id: a.id ?? a.contentId,
       filename: a.filename || 'attachment',
       content_type: a.contentType || 'application/octet-stream',
       size: a.size ?? 0,
       content_id: a.contentId,
-      extracted_text: (a as { extracted_text?: string }).extracted_text,
+      extracted_text: a.extracted_text,
+      extraction_status: a.extraction_status,
+      extraction_error: a.extraction_error,
+      content_sha256: a.content_sha256,
+      extracted_text_sha256: a.extracted_text_sha256,
     })),
     metadata: { converted_at: now, source: 'plain_email' },
   }
@@ -264,7 +327,17 @@ export function convertPlainToBeapFormat(rawMsg: unknown): PlainEmailDepackagedF
  */
 export function enrichWithAttachments(
   msg: PlainEmailBeapMessage,
-  attachments: Array<{ id: string; filename: string; mimeType: string; size: number }>,
+  attachments: Array<{
+    id: string
+    filename: string
+    mimeType: string
+    size: number
+    extracted_text?: string
+    extraction_status?: string
+    extraction_error?: string | null
+    content_sha256?: string
+    extracted_text_sha256?: string
+  }>,
 ): PlainEmailBeapMessage {
   return {
     ...msg,
@@ -274,6 +347,11 @@ export function enrichWithAttachments(
       mimeType: a.mimeType || 'application/octet-stream',
       sizeBytes: a.size || 0,
       selected: false,
+      ...(a.extracted_text !== undefined && { extracted_text: a.extracted_text }),
+      ...(a.extraction_status !== undefined && { extraction_status: a.extraction_status }),
+      ...(a.extraction_error !== undefined && { extraction_error: a.extraction_error }),
+      ...(a.content_sha256 !== undefined && { content_sha256: a.content_sha256 }),
+      ...(a.extracted_text_sha256 !== undefined && { extracted_text_sha256: a.extracted_text_sha256 }),
     })),
   }
 }

@@ -7,6 +7,8 @@ import HandshakeInitiateModal from './components/HandshakeInitiateModal'
 import SettingsView from './components/SettingsView'
 import EmailInboxView from './components/EmailInboxView'
 import EmailInboxBulkView from './components/EmailInboxBulkView'
+import { useEmailInboxStore } from './stores/useEmailInboxStore'
+import { subscribeInboxNewMessagesBackgroundRefresh } from './utils/inboxNewMessagesBackgroundRefresh'
 import { type AnalysisOpenPayload, sanitizeAnalysisOpenPayload } from './components/analysis'
 import './components/handshakeViewTypes'
 
@@ -18,9 +20,11 @@ function mapThemeToCss(theme: ExtensionTheme): string {
 }
 
 function WRCodeLogo({ size = 220 }: { size?: number }) {
+  // Respect Vite base ('./') so packaged Electron (file://) resolves like dev server
+  const logoSrc = `${import.meta.env.BASE_URL}wrdesk-logo.png`
   return (
     <img 
-      src="./wrdesk-logo.png" 
+      src={logoSrc}
       alt="WR Desk Logo"
       style={{
         width: size,
@@ -49,7 +53,9 @@ function App() {
   const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null)
   const [selectedAttachmentId, setSelectedAttachmentId] = useState<string | null>(null)
   const [inboxBulkMode, setInboxBulkMode] = useState(false)
-  const [emailAccounts, setEmailAccounts] = useState<Array<{ id: string; email: string; status?: string }>>([])
+  const [emailAccounts, setEmailAccounts] = useState<
+    Array<{ id: string; email: string; status?: string; processingPaused?: boolean }>
+  >([])
 
   useEffect(() => {
     const root = document.documentElement
@@ -101,37 +107,53 @@ function App() {
     }
   }, [activeView])
 
-  // Load email accounts and listen for onAccountConnected
-  useEffect(() => {
-    async function loadEmailAccounts() {
-      if (typeof window.emailAccounts?.listAccounts !== 'function') return
-      try {
-        const res = await window.emailAccounts.listAccounts()
-        if (res?.ok && res?.data) {
-          setEmailAccounts(
-            res.data.map((a: { id: string; email: string }) => ({ id: a.id, email: a.email }))
-          )
-        }
-      } catch {
-        /* ignore */
+  const loadEmailAccounts = useCallback(async () => {
+    if (typeof window.emailAccounts?.listAccounts !== 'function') return
+    try {
+      const res = await window.emailAccounts.listAccounts()
+      if (res?.ok && res?.data) {
+        setEmailAccounts(
+          res.data.map((a: { id: string; email: string; status?: string; processingPaused?: boolean }) => ({
+            id: a.id,
+            email: a.email,
+            status: a.status,
+            processingPaused: a.processingPaused === true ? true : undefined,
+          })),
+        )
       }
+    } catch {
+      /* ignore */
     }
+  }, [])
+
+  useEffect(() => {
     loadEmailAccounts()
-    const unsub = window.emailAccounts?.onAccountConnected?.(async (data?: { provider?: string; email?: string }) => {
-      const res = await window.emailAccounts?.listAccounts?.()
-      if (res?.ok && res?.data && res.data.length > 0 && window.emailInbox) {
-        const accounts = res.data as Array<{ id: string; email: string; status?: string }>
-        const match = data?.email
-          ? accounts.find((a) => a.email?.toLowerCase() === data.email?.toLowerCase())
-          : accounts[accounts.length - 1]
-        if (match?.id) {
-          await window.emailInbox.toggleAutoSync(match.id, true)
-          await window.emailInbox.syncAccount(match.id)
-        }
-      }
+    const unsub = window.emailAccounts?.onAccountConnected?.(async () => {
       await loadEmailAccounts()
     })
     return () => unsub?.()
+  }, [loadEmailAccounts])
+
+  /**
+   * Background sync (auto-sync, IMAP interval, etc.) emits `inbox:newMessages` from the main process.
+   * Subscribing only inside Inbox/Bulk would miss events while the user is on Analysis, Handshakes, or Settings.
+   * Single app-level listener keeps the Zustand snapshot fresh so opening Inbox shows new mail without manual refresh.
+   */
+  useEffect(() => {
+    return subscribeInboxNewMessagesBackgroundRefresh({
+      onNewMessages: window.emailInbox?.onNewMessages,
+      refreshMessages: () => useEmailInboxStore.getState().refreshMessages(),
+    })
+  }, [])
+
+  /** Inbox → Handshakes: reuse app-level handshake selection (same as picking a row in HandshakeView). */
+  const handleNavigateToHandshakeFromInbox = useCallback((handshakeId: string) => {
+    setActiveView('handshakes')
+    setSelectedHandshakeId(handshakeId)
+    setSelectedHandshakeEmail(null)
+    setSelectedDocumentId(null)
+    setSelectedMessageId(null)
+    setSelectedAttachmentId(null)
   }, [])
 
   return (
@@ -213,6 +235,7 @@ function App() {
           inboxBulkMode ? (
             <EmailInboxBulkView
               accounts={emailAccounts}
+              onEmailAccountsChanged={loadEmailAccounts}
               selectedMessageId={selectedMessageId}
               onSelectMessage={(id) => {
                 setSelectedMessageId(id)
@@ -220,10 +243,12 @@ function App() {
               }}
               selectedAttachmentId={selectedAttachmentId}
               onSelectAttachment={setSelectedAttachmentId}
+              onNavigateToHandshake={handleNavigateToHandshakeFromInbox}
             />
           ) : (
             <EmailInboxView
               accounts={emailAccounts}
+              onEmailAccountsChanged={loadEmailAccounts}
               selectedMessageId={selectedMessageId}
               onSelectMessage={(id) => {
                 setSelectedMessageId(id)
@@ -231,6 +256,7 @@ function App() {
               }}
               selectedAttachmentId={selectedAttachmentId}
               onSelectAttachment={setSelectedAttachmentId}
+              onNavigateToHandshake={handleNavigateToHandshakeFromInbox}
             />
           )
         ) : activeView === 'settings' ? (

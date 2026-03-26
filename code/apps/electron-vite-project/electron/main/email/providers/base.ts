@@ -24,6 +24,8 @@ import type {
  */
 export interface RawEmailMessage {
   id: string
+  /** IMAP: same as `id` when the provider uses numeric mailbox UIDs. */
+  uid?: string
   threadId?: string
   subject: string
   from: { email: string; name?: string }
@@ -47,6 +49,9 @@ export interface RawEmailMessage {
     inReplyTo?: string
     references?: string[]
   }
+  /** When set by the provider, used by gateway sanitization + sync attachment gate. */
+  hasAttachments?: boolean
+  attachmentCount?: number
 }
 
 /**
@@ -81,7 +86,7 @@ export interface IEmailProvider {
   /**
    * Provider type identifier
    */
-  readonly providerType: 'gmail' | 'microsoft365' | 'imap'
+  readonly providerType: 'gmail' | 'microsoft365' | 'zoho' | 'imap'
   
   /**
    * Connect to the email server
@@ -205,7 +210,7 @@ export type TokenRefreshCallback = (newTokens: {
  * Base implementation with common helper methods
  */
 export abstract class BaseEmailProvider implements IEmailProvider {
-  abstract readonly providerType: 'gmail' | 'microsoft365' | 'imap'
+  abstract readonly providerType: 'gmail' | 'microsoft365' | 'zoho' | 'imap'
   
   protected connected: boolean = false
   protected config: EmailAccountConfig | null = null

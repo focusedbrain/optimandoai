@@ -111,6 +111,7 @@ function assertCustomMailboxPayload(v: unknown): {
   imapLifecyclePendingReviewMailbox?: string
   imapLifecyclePendingDeleteMailbox?: string
   imapLifecycleTrashMailbox?: string
+  syncWindowDays: number
 } {
   if (!v || typeof v !== 'object') throw new Error('customMailbox: expected object')
   const o = v as Record<string, unknown>
@@ -143,6 +144,14 @@ function assertCustomMailboxPayload(v: unknown): {
   const lifeReview = optionalImapLifecycleMailbox(o.imapLifecyclePendingReviewMailbox, 'imapLifecyclePendingReviewMailbox')
   const lifeDelete = optionalImapLifecycleMailbox(o.imapLifecyclePendingDeleteMailbox, 'imapLifecyclePendingDeleteMailbox')
   const lifeTrash = optionalImapLifecycleMailbox(o.imapLifecycleTrashMailbox, 'imapLifecycleTrashMailbox')
+  let syncWindowDays = 30
+  if (o.syncWindowDays !== undefined && o.syncWindowDays !== null) {
+    const n = typeof o.syncWindowDays === 'number' ? o.syncWindowDays : parseInt(String(o.syncWindowDays).trim(), 10)
+    if (!Number.isInteger(n) || n < 0) {
+      throw new Error('customMailbox.syncWindowDays: expected non-negative integer')
+    }
+    syncWindowDays = n
+  }
   return {
     ...(displayName ? { displayName } : {}),
     email: emailRaw,
@@ -157,6 +166,40 @@ function assertCustomMailboxPayload(v: unknown): {
     smtpUseSameCredentials: useSame,
     ...(smtpUser ? { smtpUsername: smtpUser } : {}),
     ...(smtpPass ? { smtpPassword: smtpPass } : {}),
+    ...(lifeArchive ? { imapLifecycleArchiveMailbox: lifeArchive } : {}),
+    ...(lifeReview ? { imapLifecyclePendingReviewMailbox: lifeReview } : {}),
+    ...(lifeDelete ? { imapLifecyclePendingDeleteMailbox: lifeDelete } : {}),
+    ...(lifeTrash ? { imapLifecycleTrashMailbox: lifeTrash } : {}),
+    syncWindowDays,
+  }
+}
+
+/** DevTools IMAP wire test — forwards plaintext credentials to main (debug only). */
+function assertDiagnoseImapParams(v: unknown): {
+  host: string
+  port: number
+  security: 'ssl' | 'starttls' | 'none'
+  username: string
+  password: string
+} {
+  if (!v || typeof v !== 'object') throw new Error('diagnoseImap: expected object')
+  const o = v as Record<string, unknown>
+  return {
+    host: assertHostLike(o.host, 'host'),
+    port: assertMailboxPort(o.port, 'port'),
+    security: assertSecurityMode(o.security, 'security'),
+    username: (() => {
+      const u = typeof o.username === 'string' ? o.username.trim() : ''
+      if (!u || u.length > 320) throw new Error('diagnoseImap.username: non-empty string required (max 320)')
+      return u
+    })(),
+    password: (() => {
+      const pwd = typeof o.password === 'string' ? o.password : ''
+      if (!pwd || pwd.length > 2048) {
+        throw new Error('diagnoseImap.password: non-empty string required (max 2048 chars)')
+      }
+      return pwd
+    })(),
   }
 }
 
@@ -565,42 +608,127 @@ contextBridge.exposeInMainWorld('email', {
 // ── Email Accounts ─────────────────────────────────────────────────────────
 contextBridge.exposeInMainWorld('emailAccounts', {
   listAccounts: () => ipcRenderer.invoke('email:listAccounts'),
+  getAccount: (accountId: string) => ipcRenderer.invoke('email:getAccount', accountId),
+  setProcessingPaused: (accountId: string, paused: boolean) =>
+    ipcRenderer.invoke('email:setProcessingPaused', accountId, paused),
+  testConnection: (accountId: string) => ipcRenderer.invoke('email:testConnection', accountId),
+  getImapReconnectHints: (accountId: string) => ipcRenderer.invoke('email:getImapReconnectHints', accountId),
+  updateImapCredentials: (
+    accountId: string,
+    creds: { imapPassword: string; smtpPassword?: string; smtpUseSameCredentials?: boolean },
+  ) => ipcRenderer.invoke('email:updateImapCredentials', accountId, creds),
   sendEmail: (accountId: string, payload: { to: string[]; subject: string; bodyText: string; attachments?: { filename: string; mimeType: string; contentBase64: string }[] }) =>
     ipcRenderer.invoke('email:sendEmail', accountId, payload),
   deleteAccount: (accountId: string) => ipcRenderer.invoke('email:deleteAccount', accountId),
-  connectGmail: (displayName?: string) => ipcRenderer.invoke('email:connectGmail', displayName),
-  connectOutlook: (displayName?: string) => ipcRenderer.invoke('email:connectOutlook', displayName),
+  connectGmail: (displayName?: string, syncWindowDays?: number, gmailOAuthCredentialSource?: 'builtin_public' | 'developer_saved') =>
+    ipcRenderer.invoke('email:connectGmail', displayName, syncWindowDays, gmailOAuthCredentialSource),
+  connectOutlook: (displayName?: string, syncWindowDays?: number) =>
+    ipcRenderer.invoke('email:connectOutlook', displayName, syncWindowDays),
+  connectZoho: (displayName?: string, syncWindowDays?: number) =>
+    ipcRenderer.invoke('email:connectZoho', displayName, syncWindowDays),
   connectCustomMailbox: (payload: unknown) =>
     ipcRenderer.invoke('email:connectCustomMailbox', assertCustomMailboxPayload(payload)),
+  resetSyncState: (accountId: string) => ipcRenderer.invoke('inbox:resetSyncState', accountId),
+  /** Wipes all inbox + sync state for this account (messages, attachments, queue, sync row). Gateway credentials unchanged. */
+  fullResetAccount: (accountId: string) => ipcRenderer.invoke('inbox:fullResetAccount', accountId),
+  /** DevTools: dump sync/state-related table schemas + sample rows (see inbox:debugDumpSyncState). */
+  debugDumpSyncState: () => ipcRenderer.invoke('inbox:debugDumpSyncState'),
+  /** Dev only — raw node-imap session (IPC not registered in production main). */
+  ...(import.meta.env.DEV
+    ? {
+        diagnoseImap: (params: unknown) =>
+          ipcRenderer.invoke('email:diagnoseImap', assertDiagnoseImapParams(params)),
+      }
+    : {}),
   validateImapLifecycleRemote: (accountId: string) =>
     ipcRenderer.invoke('email:validateImapLifecycleRemote', accountId),
-  setGmailCredentials: (clientId: string, clientSecret: string, storeInVault?: boolean) =>
+  setGmailCredentials: (clientId: string, clientSecret?: string, storeInVault?: boolean) =>
     ipcRenderer.invoke('email:setGmailCredentials', clientId, clientSecret, storeInVault ?? true),
   setOutlookCredentials: (clientId: string, clientSecret?: string, tenantId?: string, storeInVault?: boolean) =>
     ipcRenderer.invoke('email:setOutlookCredentials', clientId, clientSecret, tenantId, storeInVault ?? true),
+  setZohoCredentials: (
+    clientId: string,
+    clientSecret: string,
+    datacenter?: 'com' | 'eu',
+    storeInVault?: boolean,
+  ) =>
+    ipcRenderer.invoke(
+      'email:setZohoCredentials',
+      clientId,
+      clientSecret,
+      datacenter ?? 'com',
+      storeInVault ?? true,
+    ),
   checkGmailCredentials: () => ipcRenderer.invoke('email:checkGmailCredentials'),
+  /** Packaged Gmail OAuth runtime proof (fingerprints only — see main process gmail_standard_connect_flow_proof logs). */
+  getGmailOAuthRuntimeDiagnostics: () => ipcRenderer.invoke('email:getGmailOAuthRuntimeDiagnostics'),
   checkOutlookCredentials: () => ipcRenderer.invoke('email:checkOutlookCredentials'),
+  checkZohoCredentials: () => ipcRenderer.invoke('email:checkZohoCredentials'),
   checkVaultStatus: () => ipcRenderer.invoke('vault:getStatus'),
-  onAccountConnected: (cb: (data: { provider: string; email: string }) => void) => {
-    const handler = (_e: Electron.IpcRendererEvent, data: { provider: string; email: string }) => cb(data)
+  onAccountConnected: (cb: (data: { provider: string; email: string; accountId?: string }) => void) => {
+    const handler = (_e: Electron.IpcRendererEvent, data: { provider: string; email: string; accountId?: string }) =>
+      cb(data)
     ipcRenderer.on('email:accountConnected', handler)
     return () => { ipcRenderer.removeListener('email:accountConnected', handler) }
+  },
+  onCredentialError: (cb: (data: { accountId: string; provider: string; message: string }) => void) => {
+    const handler = (
+      _e: Electron.IpcRendererEvent,
+      data: { accountId: string; provider: string; message: string },
+    ) => cb(data)
+    ipcRenderer.on('email:credentialError', handler)
+    return () => {
+      ipcRenderer.removeListener('email:credentialError', handler)
+    }
   },
 })
 
 // ── Email Inbox ───────────────────────────────────────────────────────────
 contextBridge.exposeInMainWorld('emailInbox', {
+  /** DevTools: `window.emailInbox.debugQueueStatus().then(console.log)` */
+  debugQueueStatus: () => ipcRenderer.invoke('debug:queueStatus'),
+  /** Debug: main-inbox rows + why they may still be in server Inbox (optional accountId). */
+  debugMainInboxRows: (accountId?: string | null) =>
+    ipcRenderer.invoke('inbox:debugMainInboxRows', accountId ?? null),
+  /** IMAP: server folder LIST + STATUS counts + lifecycle exact-match (read-only). */
+  verifyImapRemoteFolders: (accountId: string) => ipcRenderer.invoke('inbox:verifyImapRemoteFolders', accountId),
+  /** Debug: gateway account ids vs orphan inbox_messages.account_id (reconnect mismatch). */
+  debugAccountMigrationStatus: () => ipcRenderer.invoke('inbox:debugAccountMigrationStatus'),
+  /** Repoint inbox_messages from stale account_id to a connected id; deletes queue rows for old id only. */
+  migrateInboxAccountId: (fromAccountId: string, toAccountId: string) =>
+    ipcRenderer.invoke('inbox:migrateInboxAccountId', fromAccountId, toAccountId),
   syncAccount: (accountId: string) => ipcRenderer.invoke('inbox:syncAccount', accountId),
+  pullMoreAccount: (accountId: string) => ipcRenderer.invoke('inbox:pullMore', accountId),
+  patchAccountSyncPreferences: (accountId: string, partial: { syncWindowDays?: number; maxMessagesPerPull?: number }) =>
+    ipcRenderer.invoke('inbox:patchAccountSyncPreferences', accountId, partial),
   toggleAutoSync: (accountId: string, enabled: boolean) => ipcRenderer.invoke('inbox:toggleAutoSync', accountId, enabled),
   getSyncState: (accountId: string) => ipcRenderer.invoke('inbox:getSyncState', accountId),
+  fullResetAccount: (accountId: string) => ipcRenderer.invoke('inbox:fullResetAccount', accountId),
   onNewMessages: (handler: (data: unknown) => void) => {
     const fn = (_e: Electron.IpcRendererEvent, data: unknown) => handler(data)
     ipcRenderer.on('inbox:newMessages', fn)
     return () => { ipcRenderer.removeListener('inbox:newMessages', fn) }
   },
+  /** Remote orchestrator drain batch progress (main → renderer debug activity log). */
+  onDrainProgress: (handler: (data: unknown) => void) => {
+    const fn = (_e: Electron.IpcRendererEvent, data: unknown) => handler(data)
+    ipcRenderer.on('inbox:drainProgress', fn)
+    return () => {
+      ipcRenderer.removeListener('inbox:drainProgress', fn)
+    }
+  },
+  /** Per-row simple drain outcome (moved vs idempotent skip) — optional UI diagnostics. */
+  onSimpleDrainRow: (handler: (data: unknown) => void) => {
+    const fn = (_e: Electron.IpcRendererEvent, data: unknown) => handler(data)
+    ipcRenderer.on('inbox:simpleDrainRow', fn)
+    return () => {
+      ipcRenderer.removeListener('inbox:simpleDrainRow', fn)
+    }
+  },
   listMessages: (options?: {
     filter?: string
     sourceType?: string
+    messageKind?: 'handshake' | 'depackaged'
     handshakeId?: string
     category?: string
     limit?: number
@@ -610,6 +738,7 @@ contextBridge.exposeInMainWorld('emailInbox', {
   listMessageIds: (options?: {
     filter?: string
     sourceType?: string
+    messageKind?: 'handshake' | 'depackaged'
     handshakeId?: string
     category?: string
     limit?: number
@@ -647,7 +776,23 @@ contextBridge.exposeInMainWorld('emailInbox', {
     return () => ipcRenderer.removeListener('inbox:aiAnalyzeMessageError', handler)
   },
   aiCategorize: (ids: string[]) => ipcRenderer.invoke('inbox:aiCategorize', ids),
-  aiClassifySingle: (messageId: string) => ipcRenderer.invoke('inbox:aiClassifySingle', messageId),
+  aiClassifySingle: (messageId: string, sessionId?: string) =>
+    ipcRenderer.invoke('inbox:aiClassifySingle', messageId, sessionId),
+  enqueueRemoteLifecycleMirror: (messageIds: string[]) =>
+    ipcRenderer.invoke('inbox:enqueueRemoteLifecycleMirror', messageIds),
+  /** After Auto-Sort batch: enqueue remote moves from local lifecycle state + chained background drain. */
+  enqueueRemoteSync: (messageIds: string[]) => ipcRenderer.invoke('inbox:enqueueRemoteSync', messageIds),
+  fullRemoteSync: (accountId: string) => ipcRenderer.invoke('inbox:fullRemoteSync', accountId),
+  fullRemoteSyncForMessages: (messageIds: string[]) =>
+    ipcRenderer.invoke('inbox:fullRemoteSyncForMessages', messageIds),
+  /** Enqueue full lifecycle reconcile for every connected account + background drain (debug / force sync). */
+  fullRemoteSyncAllAccounts: () => ipcRenderer.invoke('inbox:fullRemoteSyncAllAccounts'),
+  /** Dev: enqueue + synchronously drain batches for one message (in-app remote pipeline test). */
+  debugTestMoveOne: (messageId: string) => ipcRenderer.invoke('inbox:debugTestMoveOne', messageId),
+  /** Reset every `failed` row in `remote_orchestrator_mutation_queue` to `pending` and schedule drain. */
+  retryFailedRemoteOps: (accountId?: string) => ipcRenderer.invoke('inbox:retryFailedRemoteOps', accountId),
+  /** Delete `failed` rows for one `account_id` (orphan queue after disconnect / reconnect). */
+  clearFailedRemoteOps: (accountId: string) => ipcRenderer.invoke('inbox:clearFailedRemoteOps', accountId),
   persistManualBulkAnalysis: (messageId: string, analysisJson: string) =>
     ipcRenderer.invoke('inbox:persistManualBulkAnalysis', messageId, analysisJson),
   markPendingDelete: (ids: string[]) => ipcRenderer.invoke('inbox:markPendingDelete', ids),
@@ -667,6 +812,16 @@ contextBridge.exposeInMainWorld('emailInbox', {
   readFileForAttachment: (filePath: string) => ipcRenderer.invoke('inbox:readFileForAttachment', filePath),
   reconcileImapRemoteLifecycle: (accountId: string) =>
     ipcRenderer.invoke('inbox:reconcileImapRemoteLifecycle', accountId),
+})
+
+contextBridge.exposeInMainWorld('autosortSession', {
+  create: () => ipcRenderer.invoke('autosort:createSession'),
+  finalize: (id: string, stats: any) => ipcRenderer.invoke('autosort:finalizeSession', id, stats),
+  generateSummary: (id: string) => ipcRenderer.invoke('autosort:generateSummary', id),
+  getSession: (id: string) => ipcRenderer.invoke('autosort:getSession', id),
+  listSessions: (limit?: number) => ipcRenderer.invoke('autosort:listSessions', limit),
+  deleteSession: (id: string) => ipcRenderer.invoke('autosort:deleteSession', id),
+  getSessionMessages: (id: string) => ipcRenderer.invoke('autosort:getSessionMessages', id),
 })
 
 // ── Build Integrity (offline verification) ────────────────────────────────

@@ -50,6 +50,15 @@ interface HsContextDocumentReaderProps {
   api?: HsContextDocumentReaderApi | null
   /** Optional: full extracted text from context block (received documents). When provided and no page records exist, splits by \\n\\n into synthetic pages. */
   fullText?: string | null
+  /**
+   * When set (e.g. inbox IPC with pdfjs per-page extraction), use this array as pages instead of splitting `fullText` by \\n\\n.
+   * Avoids mis-splitting when a page body contains blank lines.
+   */
+  pageTexts?: string[] | null
+  /** When true, grow to fill a flex parent (e.g. modal) instead of a fixed min-height. */
+  fillParent?: boolean
+  /** When true, hide the “approximate page boundaries” banner (e.g. email inbox attachments). */
+  hideSyntheticPageBanner?: boolean
   /** Optional: callback to open original PDF (e.g. ProtectedAccessWarningDialog flow) */
   onViewOriginal?: () => void
   /** Optional: whether View Original button is available (vault unlocked, etc.) */
@@ -76,16 +85,26 @@ export const HsContextDocumentReader: React.FC<HsContextDocumentReaderProps> = (
   mimeType = 'application/pdf',
   api: apiProp,
   fullText: fullTextProp,
+  pageTexts: pageTextsProp,
+  fillParent = false,
+  hideSyntheticPageBanner = false,
   onViewOriginal,
   canViewOriginal = false,
   onClose,
 }) => {
-  const api = apiProp ?? getDefaultApi()
-  const fullText = fullTextProp?.trim() || null
-  const syntheticPages = useMemo(
-    () => (fullText ? splitToSyntheticPages(fullText) : null),
-    [fullText],
-  )
+  /** Use `api={null}` to force synthetic/fullText-only mode (e.g. inbox); `??` would treat null as missing. */
+  const api = apiProp !== undefined ? apiProp : getDefaultApi()
+  /** `fullText !== undefined` means caller supplied text explicitly (including empty), e.g. inbox after IPC fetch. */
+  const resolvedFullText = fullTextProp !== undefined ? String(fullTextProp ?? '') : null
+  const syntheticPages = useMemo(() => {
+    if (pageTextsProp != null && pageTextsProp.length > 0) {
+      return pageTextsProp
+    }
+    if (resolvedFullText !== null) {
+      return splitToSyntheticPages(resolvedFullText)
+    }
+    return null
+  }, [pageTextsProp, resolvedFullText])
 
   const [pageCount, setPageCount] = useState(0)
   const [pageList, setPageList] = useState<Array<{ page_number: number; char_count: number }>>([])
@@ -102,7 +121,7 @@ export const HsContextDocumentReader: React.FC<HsContextDocumentReaderProps> = (
   const contentRef = useRef<HTMLDivElement>(null)
   const sidebarRef = useRef<HTMLDivElement>(null)
 
-  const isPdf = /pdf/i.test(mimeType)
+  const isPdf = /pdf/i.test(mimeType) || filename.toLowerCase().endsWith('.pdf')
   const maxCharCount = pageList.length > 0 ? Math.max(...pageList.map((p) => p.char_count), 1) : 1
 
   // Load page list and count (fullText first when available, else API)
@@ -110,7 +129,7 @@ export const HsContextDocumentReader: React.FC<HsContextDocumentReaderProps> = (
   // Do NOT wait for IPC — getDocumentPageCount can hang (getEffectiveTier, vault init)
   // for received documents that don't exist in local vault.
   useEffect(() => {
-    if (fullText && syntheticPages && syntheticPages.length > 0) {
+    if (syntheticPages && syntheticPages.length > 0) {
       setFullTextMode(true)
       setPageCount(syntheticPages.length)
       setPageList(syntheticPages.map((text, i) => ({ page_number: i + 1, char_count: text.length })))
@@ -139,7 +158,7 @@ export const HsContextDocumentReader: React.FC<HsContextDocumentReaderProps> = (
           setFullTextMode(false)
           setPageCount(count)
           setPageList(pages)
-        } else if (fullText && syntheticPages) {
+        } else if (syntheticPages && syntheticPages.length > 0) {
           setFullTextMode(true)
           setPageCount(syntheticPages.length)
           setPageList(syntheticPages.map((text, i) => ({ page_number: i + 1, char_count: text.length })))
@@ -151,7 +170,7 @@ export const HsContextDocumentReader: React.FC<HsContextDocumentReaderProps> = (
         setLoading(false)
       })
       .catch(() => {
-        if (!cancelled && fullText && syntheticPages) {
+        if (!cancelled && syntheticPages && syntheticPages.length > 0) {
           setFullTextMode(true)
           setPageCount(syntheticPages.length)
           setPageList(syntheticPages.map((text, i) => ({ page_number: i + 1, char_count: text.length })))
@@ -163,7 +182,7 @@ export const HsContextDocumentReader: React.FC<HsContextDocumentReaderProps> = (
         if (!cancelled) setLoading(false)
       })
     return () => { cancelled = true }
-  }, [api, documentId, fullText, syntheticPages])
+  }, [api, documentId, resolvedFullText, syntheticPages])
 
   // Load current page text (API or synthetic)
   useEffect(() => {
@@ -291,7 +310,7 @@ export const HsContextDocumentReader: React.FC<HsContextDocumentReaderProps> = (
 
   const handleDownloadFullText = useCallback(async () => {
     let text = ''
-    if (fullTextMode && fullText) text = fullText
+    if (fullTextMode && resolvedFullText !== null) text = resolvedFullText
     else if (api) {
       const res = await api.getDocumentFullText(documentId)
       text = res.text ?? ''
@@ -310,9 +329,11 @@ export const HsContextDocumentReader: React.FC<HsContextDocumentReaderProps> = (
     } catch {
       // ignore
     }
-  }, [api, documentId, filename, fullTextMode, fullText])
+  }, [api, documentId, filename, fullTextMode, resolvedFullText])
 
-  if (!api && !fullText) {
+  const hasSyntheticInput =
+    (pageTextsProp != null && pageTextsProp.length > 0) || resolvedFullText !== null
+  if (!api && !hasSyntheticInput) {
     return (
       <div style={{
         padding: 24,
@@ -367,15 +388,16 @@ export const HsContextDocumentReader: React.FC<HsContextDocumentReaderProps> = (
       style={{
         display: 'flex',
         flexDirection: 'column',
-        height: '100%',
-        minHeight: 400,
+        height: fillParent ? '100%' : '100%',
+        minHeight: fillParent ? 0 : 400,
+        flex: fillParent ? 1 : undefined,
         background: 'var(--color-bg, #0f172a)',
         borderRadius: 8,
         overflow: 'hidden',
         border: BORDER,
       }}
     >
-      {fullTextMode && (
+      {fullTextMode && !hideSyntheticPageBanner && (
         <div
           style={{
             padding: '8px 14px',

@@ -773,7 +773,357 @@ const HANDSHAKE_MIGRATIONS: Array<{
       `ALTER TABLE inbox_messages ADD COLUMN imap_rfc_message_id TEXT`,
     ],
   },
+  {
+    version: 38,
+    description:
+      'Schema v38: p2p_pending_beap.package_json — repair DBs where table existed without column (CREATE IF NOT EXISTS skipped full DDL)',
+    sql: [
+      `ALTER TABLE p2p_pending_beap ADD COLUMN package_json TEXT`,
+    ],
+  },
+  {
+    version: 39,
+    description:
+      'Schema v39: Reset forced auto-sync — clear auto_sync_enabled previously turned on by onAccountConnected (user opts in via Inbox)',
+    sql: [
+      `UPDATE email_sync_state SET auto_sync_enabled = 0 WHERE auto_sync_enabled = 1`,
+    ],
+  },
+  {
+    version: 40,
+    description:
+      'Schema v40: Auto-sync off by default — one-time reset of all email_sync_state rows (user opts in per account)',
+    sql: [`UPDATE email_sync_state SET auto_sync_enabled = 0`],
+  },
+  {
+    version: 41,
+    description:
+      'Schema v41: IMAP one-time legacy lifecycle folder consolidation flag (email_sync_state.imap_folders_consolidated)',
+    sql: [`ALTER TABLE email_sync_state ADD COLUMN imap_folders_consolidated INTEGER NOT NULL DEFAULT 0`],
+  },
+  {
+    version: 42,
+    description:
+      'Schema v42: Repair swapped IMAP identifiers — email_message_id held RFC Message-ID while imap_rfc_message_id held UID',
+    sql: [
+      `UPDATE inbox_messages
+       SET email_message_id = imap_rfc_message_id,
+           imap_rfc_message_id = email_message_id
+       WHERE email_message_id LIKE '<%'
+         AND imap_rfc_message_id IS NOT NULL
+         AND imap_rfc_message_id NOT LIKE '<%'`,
+    ],
+  },
+  {
+    version: 43,
+    description: 'Schema v43: inbox_attachments.text_extraction_error for PDF ingest failures',
+    sql: [`ALTER TABLE inbox_attachments ADD COLUMN text_extraction_error TEXT DEFAULT NULL`],
+  },
+  {
+    version: 44,
+    description:
+      'Schema v44: inbox_attachments content_sha256 + extracted_text_sha256 (link blob to extracted text)',
+    sql: [
+      `ALTER TABLE inbox_attachments ADD COLUMN content_sha256 TEXT DEFAULT NULL`,
+      `ALTER TABLE inbox_attachments ADD COLUMN extracted_text_sha256 TEXT DEFAULT NULL`,
+    ],
+  },
+  {
+    version: 45,
+    description:
+      'Schema v45: inbox_attachments AES-GCM at rest — encryption_key/iv/tag + storage_encrypted',
+    sql: [
+      `ALTER TABLE inbox_attachments ADD COLUMN encryption_key TEXT DEFAULT NULL`,
+      `ALTER TABLE inbox_attachments ADD COLUMN encryption_iv TEXT DEFAULT NULL`,
+      `ALTER TABLE inbox_attachments ADD COLUMN encryption_tag TEXT DEFAULT NULL`,
+      `ALTER TABLE inbox_attachments ADD COLUMN storage_encrypted INTEGER NOT NULL DEFAULT 0`,
+    ],
+  },
+  {
+    version: 46,
+    description: 'Schema v46: inbox_attachments.page_count for PDF page count (pdfjs extraction)',
+    sql: [`ALTER TABLE inbox_attachments ADD COLUMN page_count INTEGER DEFAULT NULL`],
+  },
+  {
+    version: 47,
+    description:
+      "Schema v47: inbox_attachments.text_extraction_status allows 'partial' (sparse PDF text vs page count)",
+    sql: [
+      `CREATE TABLE IF NOT EXISTS inbox_attachments_v47 (
+        id TEXT PRIMARY KEY,
+        message_id TEXT NOT NULL REFERENCES inbox_messages(id) ON DELETE CASCADE,
+        filename TEXT NOT NULL,
+        content_type TEXT,
+        size_bytes INTEGER,
+        content_id TEXT,
+        storage_path TEXT,
+        extracted_text TEXT,
+        text_extraction_status TEXT DEFAULT 'pending' CHECK(text_extraction_status IN ('pending','done','failed','skipped','partial')),
+        raster_path TEXT,
+        embedding_status TEXT DEFAULT 'pending' CHECK(embedding_status IN ('pending','done','failed')),
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        text_extraction_error TEXT DEFAULT NULL,
+        content_sha256 TEXT DEFAULT NULL,
+        extracted_text_sha256 TEXT DEFAULT NULL,
+        encryption_key TEXT DEFAULT NULL,
+        encryption_iv TEXT DEFAULT NULL,
+        encryption_tag TEXT DEFAULT NULL,
+        storage_encrypted INTEGER NOT NULL DEFAULT 0,
+        page_count INTEGER DEFAULT NULL
+      )`,
+      `INSERT INTO inbox_attachments_v47 (
+        id, message_id, filename, content_type, size_bytes, content_id, storage_path,
+        extracted_text, text_extraction_status, raster_path, embedding_status, created_at,
+        text_extraction_error, content_sha256, extracted_text_sha256,
+        encryption_key, encryption_iv, encryption_tag, storage_encrypted, page_count
+      ) SELECT
+        id, message_id, filename, content_type, size_bytes, content_id, storage_path,
+        extracted_text, text_extraction_status, raster_path, embedding_status, created_at,
+        text_extraction_error, content_sha256, extracted_text_sha256,
+        encryption_key, encryption_iv, encryption_tag, storage_encrypted, page_count
+      FROM inbox_attachments`,
+      `DROP TABLE inbox_attachments`,
+      `ALTER TABLE inbox_attachments_v47 RENAME TO inbox_attachments`,
+      `CREATE INDEX IF NOT EXISTS idx_inbox_attachments_message_id ON inbox_attachments(message_id)`,
+    ],
+  },
+  {
+    version: 48,
+    description:
+      'Schema v48: autosort_sessions (Auto-Sort run metadata) + inbox_messages.last_autosort_session_id',
+    sql: [
+      `CREATE TABLE IF NOT EXISTS autosort_sessions (
+        id                      TEXT PRIMARY KEY,
+        started_at              TEXT NOT NULL,
+        completed_at            TEXT,
+        total_messages          INTEGER NOT NULL DEFAULT 0,
+        urgent_count            INTEGER NOT NULL DEFAULT 0,
+        pending_review_count  INTEGER NOT NULL DEFAULT 0,
+        pending_delete_count    INTEGER NOT NULL DEFAULT 0,
+        archived_count          INTEGER NOT NULL DEFAULT 0,
+        error_count             INTEGER NOT NULL DEFAULT 0,
+        duration_ms             INTEGER,
+        ai_summary_json         TEXT,
+        status                  TEXT NOT NULL DEFAULT 'running'
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_autosort_sessions_started
+        ON autosort_sessions(started_at)`,
+      `ALTER TABLE inbox_messages ADD COLUMN last_autosort_session_id TEXT`,
+    ],
+  },
 ]
+
+/**
+ * Canonical columns for the email / inbox / sync pipeline. Repairs partial tables where
+ * `CREATE TABLE IF NOT EXISTS` skipped full DDL (legacy or manual DB). Each ALTER is
+ * attempted only if the table exists and `PRAGMA table_info` lacks the column.
+ *
+ * Types/default match `HANDSHAKE_MIGRATIONS` + messageRouter / ipc / syncOrchestrator usage.
+ */
+const EMAIL_PIPELINE_COLUMN_REPAIRS: ReadonlyArray<{ table: string; column: string; ddl: string }> = [
+  // ── p2p_pending_beap (BEAP queue — insertPendingP2PBeap, beapEmailIngestion) ──
+  { table: 'p2p_pending_beap', column: 'handshake_id', ddl: 'TEXT' },
+  { table: 'p2p_pending_beap', column: 'package_json', ddl: 'TEXT' },
+  { table: 'p2p_pending_beap', column: 'created_at', ddl: "TEXT DEFAULT (datetime('now'))" },
+  { table: 'p2p_pending_beap', column: 'processed', ddl: 'INTEGER NOT NULL DEFAULT 0' },
+  // ── plain_email_inbox (plainEmailIngestion, insertPendingPlainEmail) ──
+  { table: 'plain_email_inbox', column: 'message_json', ddl: 'TEXT' },
+  { table: 'plain_email_inbox', column: 'account_id', ddl: 'TEXT' },
+  { table: 'plain_email_inbox', column: 'email_message_id', ddl: 'TEXT' },
+  { table: 'plain_email_inbox', column: 'created_at', ddl: "TEXT DEFAULT (datetime('now'))" },
+  { table: 'plain_email_inbox', column: 'processed', ddl: 'INTEGER NOT NULL DEFAULT 0' },
+  // ── inbox_messages (v29 + v30–v37) ──
+  { table: 'inbox_messages', column: 'source_type', ddl: "TEXT DEFAULT 'email_plain'" },
+  { table: 'inbox_messages', column: 'handshake_id', ddl: 'TEXT' },
+  { table: 'inbox_messages', column: 'account_id', ddl: 'TEXT' },
+  { table: 'inbox_messages', column: 'email_message_id', ddl: 'TEXT' },
+  { table: 'inbox_messages', column: 'from_address', ddl: 'TEXT' },
+  { table: 'inbox_messages', column: 'from_name', ddl: 'TEXT' },
+  { table: 'inbox_messages', column: 'to_addresses', ddl: 'TEXT' },
+  { table: 'inbox_messages', column: 'cc_addresses', ddl: 'TEXT' },
+  { table: 'inbox_messages', column: 'subject', ddl: 'TEXT' },
+  { table: 'inbox_messages', column: 'body_text', ddl: 'TEXT' },
+  { table: 'inbox_messages', column: 'body_html', ddl: 'TEXT' },
+  { table: 'inbox_messages', column: 'beap_package_json', ddl: 'TEXT' },
+  { table: 'inbox_messages', column: 'depackaged_json', ddl: 'TEXT' },
+  { table: 'inbox_messages', column: 'has_attachments', ddl: 'INTEGER DEFAULT 0' },
+  { table: 'inbox_messages', column: 'attachment_count', ddl: 'INTEGER DEFAULT 0' },
+  { table: 'inbox_messages', column: 'received_at', ddl: "TEXT DEFAULT (datetime('now'))" },
+  { table: 'inbox_messages', column: 'ingested_at', ddl: "TEXT DEFAULT (datetime('now'))" },
+  { table: 'inbox_messages', column: 'read_status', ddl: 'INTEGER DEFAULT 0' },
+  { table: 'inbox_messages', column: 'starred', ddl: 'INTEGER DEFAULT 0' },
+  { table: 'inbox_messages', column: 'archived', ddl: 'INTEGER DEFAULT 0' },
+  { table: 'inbox_messages', column: 'deleted', ddl: 'INTEGER DEFAULT 0' },
+  { table: 'inbox_messages', column: 'deleted_at', ddl: 'TEXT' },
+  { table: 'inbox_messages', column: 'purge_after', ddl: 'TEXT' },
+  { table: 'inbox_messages', column: 'remote_deleted', ddl: 'INTEGER DEFAULT 0' },
+  { table: 'inbox_messages', column: 'remote_deleted_at', ddl: 'TEXT' },
+  { table: 'inbox_messages', column: 'batch_id', ddl: 'TEXT' },
+  { table: 'inbox_messages', column: 'sort_category', ddl: 'TEXT' },
+  { table: 'inbox_messages', column: 'ai_summary', ddl: 'TEXT' },
+  { table: 'inbox_messages', column: 'ai_draft_response', ddl: 'TEXT' },
+  { table: 'inbox_messages', column: 'embedding_status', ddl: "TEXT DEFAULT 'pending'" },
+  { table: 'inbox_messages', column: 'pending_delete', ddl: 'INTEGER DEFAULT 0' },
+  { table: 'inbox_messages', column: 'pending_delete_at', ddl: 'TEXT' },
+  { table: 'inbox_messages', column: 'sort_reason', ddl: 'TEXT' },
+  { table: 'inbox_messages', column: 'urgency_score', ddl: 'INTEGER DEFAULT 5' },
+  { table: 'inbox_messages', column: 'needs_reply', ddl: 'INTEGER DEFAULT 0' },
+  { table: 'inbox_messages', column: 'pending_review_at', ddl: 'TEXT' },
+  { table: 'inbox_messages', column: 'ai_analysis_json', ddl: 'TEXT' },
+  { table: 'inbox_messages', column: 'remote_orchestrator_last_error', ddl: 'TEXT' },
+  { table: 'inbox_messages', column: 'lifecycle_exited_review_utc', ddl: 'TEXT' },
+  { table: 'inbox_messages', column: 'lifecycle_final_delete_queued_utc', ddl: 'TEXT' },
+  { table: 'inbox_messages', column: 'imap_remote_mailbox', ddl: 'TEXT' },
+  { table: 'inbox_messages', column: 'imap_rfc_message_id', ddl: 'TEXT' },
+  { table: 'inbox_messages', column: 'last_autosort_session_id', ddl: 'TEXT' },
+  // ── inbox_attachments (messageRouter, ipc) ──
+  { table: 'inbox_attachments', column: 'message_id', ddl: 'TEXT' },
+  { table: 'inbox_attachments', column: 'filename', ddl: 'TEXT' },
+  { table: 'inbox_attachments', column: 'content_type', ddl: 'TEXT' },
+  { table: 'inbox_attachments', column: 'size_bytes', ddl: 'INTEGER' },
+  { table: 'inbox_attachments', column: 'content_id', ddl: 'TEXT' },
+  { table: 'inbox_attachments', column: 'storage_path', ddl: 'TEXT' },
+  { table: 'inbox_attachments', column: 'extracted_text', ddl: 'TEXT' },
+  { table: 'inbox_attachments', column: 'text_extraction_status', ddl: "TEXT DEFAULT 'pending'" },
+  { table: 'inbox_attachments', column: 'text_extraction_error', ddl: 'TEXT' },
+  { table: 'inbox_attachments', column: 'content_sha256', ddl: 'TEXT' },
+  { table: 'inbox_attachments', column: 'extracted_text_sha256', ddl: 'TEXT' },
+  { table: 'inbox_attachments', column: 'encryption_key', ddl: 'TEXT' },
+  { table: 'inbox_attachments', column: 'encryption_iv', ddl: 'TEXT' },
+  { table: 'inbox_attachments', column: 'encryption_tag', ddl: 'TEXT' },
+  { table: 'inbox_attachments', column: 'storage_encrypted', ddl: 'INTEGER NOT NULL DEFAULT 0' },
+  { table: 'inbox_attachments', column: 'raster_path', ddl: 'TEXT' },
+  { table: 'inbox_attachments', column: 'embedding_status', ddl: "TEXT DEFAULT 'pending'" },
+  { table: 'inbox_attachments', column: 'page_count', ddl: 'INTEGER DEFAULT NULL' },
+  { table: 'inbox_attachments', column: 'created_at', ddl: "TEXT DEFAULT (datetime('now'))" },
+  // ── email_sync_state (syncOrchestrator, ipc) ──
+  { table: 'email_sync_state', column: 'last_sync_at', ddl: 'TEXT' },
+  { table: 'email_sync_state', column: 'last_uid', ddl: 'TEXT' },
+  { table: 'email_sync_state', column: 'sync_cursor', ddl: 'TEXT' },
+  { table: 'email_sync_state', column: 'auto_sync_enabled', ddl: 'INTEGER DEFAULT 0' },
+  { table: 'email_sync_state', column: 'sync_interval_ms', ddl: 'INTEGER DEFAULT 30000' },
+  { table: 'email_sync_state', column: 'total_synced', ddl: 'INTEGER DEFAULT 0' },
+  { table: 'email_sync_state', column: 'last_error', ddl: 'TEXT' },
+  { table: 'email_sync_state', column: 'last_error_at', ddl: 'TEXT' },
+  { table: 'email_sync_state', column: 'imap_folders_consolidated', ddl: 'INTEGER NOT NULL DEFAULT 0' },
+  // ── deletion_queue (remoteDeletion) ──
+  { table: 'deletion_queue', column: 'message_id', ddl: 'TEXT' },
+  { table: 'deletion_queue', column: 'account_id', ddl: 'TEXT' },
+  { table: 'deletion_queue', column: 'email_message_id', ddl: 'TEXT' },
+  { table: 'deletion_queue', column: 'provider_type', ddl: 'TEXT' },
+  { table: 'deletion_queue', column: 'queued_at', ddl: "TEXT DEFAULT (datetime('now'))" },
+  { table: 'deletion_queue', column: 'grace_period_ends', ddl: 'TEXT' },
+  { table: 'deletion_queue', column: 'executed', ddl: 'INTEGER DEFAULT 0' },
+  { table: 'deletion_queue', column: 'executed_at', ddl: 'TEXT' },
+  { table: 'deletion_queue', column: 'execution_error', ddl: 'TEXT' },
+  { table: 'deletion_queue', column: 'cancelled', ddl: 'INTEGER DEFAULT 0' },
+  // ── remote_orchestrator_mutation_queue (inboxOrchestratorRemoteQueue) ──
+  { table: 'remote_orchestrator_mutation_queue', column: 'message_id', ddl: 'TEXT' },
+  { table: 'remote_orchestrator_mutation_queue', column: 'account_id', ddl: 'TEXT' },
+  { table: 'remote_orchestrator_mutation_queue', column: 'email_message_id', ddl: 'TEXT' },
+  { table: 'remote_orchestrator_mutation_queue', column: 'provider_type', ddl: 'TEXT' },
+  { table: 'remote_orchestrator_mutation_queue', column: 'operation', ddl: 'TEXT' },
+  { table: 'remote_orchestrator_mutation_queue', column: 'status', ddl: "TEXT DEFAULT 'pending'" },
+  { table: 'remote_orchestrator_mutation_queue', column: 'attempts', ddl: 'INTEGER NOT NULL DEFAULT 0' },
+  { table: 'remote_orchestrator_mutation_queue', column: 'last_error', ddl: 'TEXT' },
+  { table: 'remote_orchestrator_mutation_queue', column: 'created_at', ddl: 'TEXT' },
+  { table: 'remote_orchestrator_mutation_queue', column: 'updated_at', ddl: 'TEXT' },
+  // ── inbox_embeddings (referenced by future embedding pipeline) ──
+  { table: 'inbox_embeddings', column: 'message_id', ddl: 'TEXT' },
+  { table: 'inbox_embeddings', column: 'chunk_index', ddl: 'INTEGER NOT NULL DEFAULT 0' },
+  { table: 'inbox_embeddings', column: 'chunk_text', ddl: "TEXT DEFAULT ''" },
+  { table: 'inbox_embeddings', column: 'embedding', ddl: "BLOB DEFAULT X''" },
+  { table: 'inbox_embeddings', column: 'source', ddl: "TEXT DEFAULT 'body'" },
+  { table: 'inbox_embeddings', column: 'attachment_id', ddl: 'TEXT' },
+  // ── inbox_settings (ipc) ──
+  { table: 'inbox_settings', column: 'value_json', ddl: "TEXT NOT NULL DEFAULT 'null'" },
+  { table: 'inbox_settings', column: 'updated_at', ddl: 'INTEGER NOT NULL DEFAULT 0' },
+]
+
+/** Indexes that may be missing if the table predates them; all use IF NOT EXISTS. */
+const EMAIL_PIPELINE_INDEX_REPAIRS: ReadonlyArray<string> = [
+  `CREATE INDEX IF NOT EXISTS idx_p2p_pending_beap_handshake ON p2p_pending_beap(handshake_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_p2p_pending_beap_created ON p2p_pending_beap(created_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_p2p_pending_beap_processed ON p2p_pending_beap(processed)`,
+  `CREATE INDEX IF NOT EXISTS idx_plain_email_inbox_processed ON plain_email_inbox(processed)`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_plain_email_inbox_dedup ON plain_email_inbox(account_id, email_message_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_inbox_messages_source_type ON inbox_messages(source_type)`,
+  `CREATE INDEX IF NOT EXISTS idx_inbox_messages_handshake_id ON inbox_messages(handshake_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_inbox_messages_account_id ON inbox_messages(account_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_inbox_messages_deleted_purge ON inbox_messages(deleted, purge_after)`,
+  `CREATE INDEX IF NOT EXISTS idx_inbox_messages_read_status ON inbox_messages(read_status)`,
+  `CREATE INDEX IF NOT EXISTS idx_inbox_messages_received_at ON inbox_messages(received_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_inbox_messages_sort_category ON inbox_messages(sort_category)`,
+  `CREATE INDEX IF NOT EXISTS idx_inbox_messages_archived ON inbox_messages(archived)`,
+  `CREATE INDEX IF NOT EXISTS idx_inbox_messages_pending_delete ON inbox_messages(pending_delete)`,
+  `CREATE INDEX IF NOT EXISTS idx_inbox_attachments_message_id ON inbox_attachments(message_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_inbox_embeddings_message_id ON inbox_embeddings(message_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_deletion_queue_grace_exec_cancel ON deletion_queue(grace_period_ends, executed, cancelled)`,
+  `CREATE INDEX IF NOT EXISTS idx_remote_orch_queue_status ON remote_orchestrator_mutation_queue(status, updated_at)`,
+]
+
+function tableExistsInDb(db: any, name: string): boolean {
+  try {
+    const row = db
+      .prepare(`SELECT 1 AS x FROM sqlite_master WHERE type='table' AND name=?`)
+      .get(name) as { x: number } | undefined
+    return !!row
+  } catch {
+    return false
+  }
+}
+
+function getColumnNames(db: any, table: string): Set<string> {
+  try {
+    const rows = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>
+    return new Set(rows.map((r) => r.name))
+  } catch {
+    return new Set()
+  }
+}
+
+/**
+ * Idempotent repairs after versioned migrations — fixes `CREATE IF NOT EXISTS` gaps.
+ */
+export function ensureEmailPipelineSchemaRepairs(db: any): void {
+  if (!db) return
+
+  const columnCache = new Map<string, Set<string>>()
+  const colsFor = (table: string): Set<string> => {
+    let s = columnCache.get(table)
+    if (!s) {
+      s = getColumnNames(db, table)
+      columnCache.set(table, s)
+    }
+    return s
+  }
+
+  for (const { table, column, ddl } of EMAIL_PIPELINE_COLUMN_REPAIRS) {
+    if (!tableExistsInDb(db, table)) continue
+    const cols = colsFor(table)
+    if (cols.has(column)) continue
+    try {
+      db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${ddl}`)
+      cols.add(column)
+      console.log(`[HANDSHAKE DB] Repaired missing column ${table}.${column}`)
+    } catch (e: any) {
+      const msg = e?.message ?? String(e)
+      if (msg.includes('duplicate column') || msg.includes('duplicate column name')) continue
+      console.warn(`[HANDSHAKE DB] Could not add column ${table}.${column}:`, msg)
+    }
+  }
+
+  for (const sql of EMAIL_PIPELINE_INDEX_REPAIRS) {
+    if (!sql) continue
+    try {
+      db.prepare(sql).run()
+    } catch (e: any) {
+      const msg = e?.message ?? String(e)
+      if (msg.includes('already exists') || msg.includes('duplicate')) continue
+      console.warn('[HANDSHAKE DB] Index repair skipped:', msg)
+    }
+  }
+}
 
 export function migrateHandshakeTables(db: any): void {
   // Ensure migrations table exists first
@@ -818,6 +1168,8 @@ export function migrateHandshakeTables(db: any): void {
     tx()
     console.log(`[HANDSHAKE DB] Applied migration ${migration.version}: ${migration.description}`)
   }
+
+  ensureEmailPipelineSchemaRepairs(db)
 }
 
 // ── CRUD Operations ──

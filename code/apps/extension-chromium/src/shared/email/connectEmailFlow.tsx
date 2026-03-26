@@ -31,7 +31,8 @@ export function wizardThemeFromFlowTheme(flow: ConnectEmailFlowTheme): 'professi
 }
 
 export interface UseConnectEmailFlowResult {
-  openConnectEmail: (source: ConnectEmailLaunchSource) => void
+  /** Optional `reconnectAccountId` opens IMAP “update credentials” pre-filled for that account (Electron). */
+  openConnectEmail: (source: ConnectEmailLaunchSource, options?: { reconnectAccountId?: string }) => void
   /** Render once near the root of the surface (same as previous EmailConnectWizard placement). */
   connectEmailFlowModal: React.ReactElement
 }
@@ -46,6 +47,7 @@ export function useConnectEmailFlow(options: UseConnectEmailFlowOptions): UseCon
 
   const [isOpen, setIsOpen] = useState(false)
   const [launchSource, setLaunchSource] = useState<ConnectEmailLaunchSource | null>(null)
+  const [reconnectAccountId, setReconnectAccountId] = useState<string | null>(null)
   const launchSourceRef = useRef<ConnectEmailLaunchSource | null>(null)
   useEffect(() => {
     launchSourceRef.current = launchSource
@@ -53,8 +55,9 @@ export function useConnectEmailFlow(options: UseConnectEmailFlowOptions): UseCon
 
   const pendingSuccessRef = useRef(false)
 
-  const openConnectEmail = useCallback((source: ConnectEmailLaunchSource) => {
-    console.info('[ConnectEmailFlow] open', { source })
+  const openConnectEmail = useCallback((source: ConnectEmailLaunchSource, options?: { reconnectAccountId?: string }) => {
+    console.info('[ConnectEmailFlow] open', { source, reconnectAccountId: options?.reconnectAccountId })
+    setReconnectAccountId(options?.reconnectAccountId?.trim() || null)
     setLaunchSource(source)
     setIsOpen(true)
   }, [])
@@ -75,6 +78,7 @@ export function useConnectEmailFlow(options: UseConnectEmailFlowOptions): UseCon
     const src = launchSourceRef.current
     setIsOpen(false)
     setLaunchSource(null)
+    setReconnectAccountId(null)
     if (!wasSuccess) {
       if (src != null) {
         console.info('[ConnectEmailFlow] closed without successful connection', { source: src })
@@ -92,6 +96,7 @@ export function useConnectEmailFlow(options: UseConnectEmailFlowOptions): UseCon
       onConnected={handleConnected}
       theme={wizardTheme}
       launchSource={launchSource ?? undefined}
+      reconnectAccountId={reconnectAccountId}
     />
   )
 

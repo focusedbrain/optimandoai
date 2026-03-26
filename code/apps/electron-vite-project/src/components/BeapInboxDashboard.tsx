@@ -60,6 +60,8 @@ function getContentPreview(msg: BeapMessage): string {
 interface BeapInboxDashboardProps {
   selectedMessageId: string | null
   onMessageSelect: (messageId: string | null) => void
+  /** Refresh app-level account list after connect/disconnect/pause (e.g. sync target list). */
+  onEmailAccountsChanged?: () => void
   /** Called when user selects/deselects an attachment. Parent can update search bar scope. */
   onAttachmentSelect?: (messageId: string, attachmentId: string | null) => void
   onSetSearchContext?: (context: string) => void
@@ -71,6 +73,7 @@ interface BeapInboxDashboardProps {
 export default function BeapInboxDashboard({
   selectedMessageId: selectedMessageIdProp,
   onMessageSelect,
+  onEmailAccountsChanged,
   onAttachmentSelect,
   onSetSearchContext,
   onNavigateToHandshake,
@@ -95,7 +98,17 @@ export default function BeapInboxDashboard({
   }, [])
 
   // Connected Email Accounts (for center panel empty state)
-  const [emailAccounts, setEmailAccounts] = useState<Array<{ id: string; displayName: string; email: string; provider: 'gmail' | 'microsoft365' | 'imap'; status: 'active' | 'error' | 'disabled'; lastError?: string }>>([])
+  const [emailAccounts, setEmailAccounts] = useState<
+    Array<{
+      id: string
+      displayName: string
+      email: string
+      provider: 'gmail' | 'microsoft365' | 'zoho' | 'imap'
+      status: 'active' | 'auth_error' | 'error' | 'disabled'
+      processingPaused?: boolean
+      lastError?: string
+    }>
+  >([])
   const [isLoadingEmailAccounts, setIsLoadingEmailAccounts] = useState(true)
   const [selectedEmailAccountId, setSelectedEmailAccountId] = useState<string | null>(null)
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' | 'info' } | null>(null)
@@ -113,8 +126,48 @@ export default function BeapInboxDashboard({
     try {
       const res = await (window as any).emailAccounts!.listAccounts()
       if (res?.ok && res?.data) {
-        setEmailAccounts(res.data)
-        setSelectedEmailAccountId((prev) => (prev && res.data.some((a: { id: string }) => a.id === prev)) ? prev : (res.data[0]?.id ?? null))
+        const data = res.data as Array<{
+          id: string
+          displayName?: string
+          email: string
+          provider?: string
+          status?: string
+          processingPaused?: boolean
+          lastError?: string
+        }>
+        setEmailAccounts(
+          data.map((a) => {
+            const p = a.provider
+            const provider: 'gmail' | 'microsoft365' | 'zoho' | 'imap' =
+              p === 'gmail'
+                ? 'gmail'
+                : p === 'microsoft365'
+                  ? 'microsoft365'
+                  : p === 'zoho'
+                    ? 'zoho'
+                    : 'imap'
+            const status: 'active' | 'auth_error' | 'error' | 'disabled' =
+              a.status === 'active'
+                ? 'active'
+                : a.status === 'auth_error'
+                  ? 'auth_error'
+                  : a.status === 'error'
+                    ? 'error'
+                    : 'disabled'
+            return {
+              id: a.id,
+              displayName: a.displayName ?? a.email,
+              email: a.email,
+              provider,
+              status,
+              processingPaused: a.processingPaused === true,
+              lastError: a.lastError,
+            }
+          }),
+        )
+        setSelectedEmailAccountId((prev) =>
+          prev && data.some((a) => a.id === prev) ? prev : (data[0]?.id ?? null),
+        )
       }
     } catch {
       // ignore
@@ -137,21 +190,63 @@ export default function BeapInboxDashboard({
     theme: THEME,
   })
 
+  useEffect(() => {
+    const unsub = window.emailAccounts?.onCredentialError?.((p) => {
+      void loadEmailAccounts()
+      if (p.provider === 'imap') {
+        const open = window.confirm(`${p.message}\n\nOpen credential update for this account?`)
+        if (open) {
+          openConnectEmail(ConnectEmailLaunchSource.BeapInboxDashboard, { reconnectAccountId: p.accountId })
+        }
+      }
+    })
+    return () => unsub?.()
+  }, [loadEmailAccounts, openConnectEmail])
+
   const handleConnectEmail = useCallback(() => {
     openConnectEmail(ConnectEmailLaunchSource.BeapInboxDashboard)
   }, [openConnectEmail])
+
+  const handleUpdateImapCredentials = useCallback(
+    (accountId: string) => {
+      openConnectEmail(ConnectEmailLaunchSource.BeapInboxDashboard, { reconnectAccountId: accountId })
+    },
+    [openConnectEmail],
+  )
 
   const handleDisconnectEmail = useCallback(async (id: string) => {
     try {
       if (typeof (window as any).emailAccounts?.deleteAccount === 'function') {
         await (window as any).emailAccounts!.deleteAccount(id)
         loadEmailAccounts()
+        onEmailAccountsChanged?.()
         notify('Email account disconnected', 'info')
       }
     } catch {
       notify('Failed to disconnect account', 'error')
     }
-  }, [loadEmailAccounts, notify])
+  }, [loadEmailAccounts, notify, onEmailAccountsChanged])
+
+  const handleSetProcessingPaused = useCallback(
+    async (id: string, paused: boolean) => {
+      if (typeof window.emailAccounts?.setProcessingPaused !== 'function') return
+      setEmailAccounts((rows) =>
+        rows.map((a) => (a.id === id ? { ...a, processingPaused: paused } : a)),
+      )
+      try {
+        const res = await window.emailAccounts.setProcessingPaused(id, paused)
+        if (!res?.ok) throw new Error((res as { error?: string })?.error || 'Failed')
+        await loadEmailAccounts()
+        onEmailAccountsChanged?.()
+        notify(paused ? 'Sync paused' : 'Sync resumed', 'info')
+      } catch {
+        await loadEmailAccounts()
+        onEmailAccountsChanged?.()
+        notify('Could not update pause state', 'error')
+      }
+    },
+    [loadEmailAccounts, notify, onEmailAccountsChanged],
+  )
   const effectiveSelectedId = storeSelectedId ?? selectedMessageIdProp
 
   // Sync prop to store (e.g. when navigating from Bulk Inbox)
@@ -417,7 +512,9 @@ export default function BeapInboxDashboard({
               selectedEmailAccountId={selectedEmailAccountId}
               onConnectEmail={handleConnectEmail}
               onDisconnectEmail={handleDisconnectEmail}
+              onSetProcessingPaused={handleSetProcessingPaused}
               onSelectEmailAccount={setSelectedEmailAccountId}
+              onUpdateImapCredentials={handleUpdateImapCredentials}
             />
             <div style={{
               flex: 1,

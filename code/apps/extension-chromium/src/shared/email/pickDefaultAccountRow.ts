@@ -9,7 +9,9 @@ export function pickDefaultEmailAccountRowId(
   if (!accounts.length) return undefined
   const active = accounts.filter((a) => a.status === 'active')
   if (active.length) return active[0].id
-  const notError = accounts.filter((a) => a.status !== 'error' && a.status !== 'disabled')
-  if (notError.length) return notError[0].id
-  return accounts[0].id
+  const notBroken = accounts.filter(
+    (a) => a.status !== 'error' && a.status !== 'disabled' && a.status !== 'auth_error',
+  )
+  if (notBroken.length) return notBroken[0].id
+  return undefined
 }

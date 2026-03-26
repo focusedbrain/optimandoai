@@ -1,7 +1,7 @@
 /**
  * Electron Builder config with cross-platform output paths.
  * Auto-detects the OS at build time:
- *   - Windows: C:\build-output\build8496
+ *   - Windows: C:\build-output\build18875
  *   - Linux / macOS: dist/release (relative, avoids path errors)
  *
  * This file is the single source of truth for the output directory.
@@ -14,7 +14,7 @@ const fs = require('fs')
 
 function getOutputDir() {
   if (process.platform === 'win32') {
-    return 'C:\\build-output\\build8496'
+    return 'C:\\build-output\\build18875'
   }
   // Linux and macOS: relative path avoids "path must not start with .." errors
   return path.join(__dirname, 'dist', 'release')
@@ -96,5 +96,14 @@ module.exports = {
   extraResources: [
     ...baseConfig.extraResources,
     ...tesseractResources,
+    /** Gmail end-user OAuth: Desktop client id + secret (PKCE + Google-required secret). CI via prepare-google-oauth-resource.cjs */
+    {
+      from: 'resources/google-oauth-client-id.txt',
+      to: 'google-oauth-client-id.txt',
+    },
+    {
+      from: 'resources/google-oauth-client-secret.txt',
+      to: 'google-oauth-client-secret.txt',
+    },
   ],
 }

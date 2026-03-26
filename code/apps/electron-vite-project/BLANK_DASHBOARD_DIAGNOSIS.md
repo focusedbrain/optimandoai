@@ -5,7 +5,7 @@
 | Check | Result |
 |-------|--------|
 | **D1: Renderer files in AppImage** | *Not testable* — No AppImage found at `dist/release/WR Desk™-0.0.0.AppImage`. Release folder only contains `builder-debug.yml`. Build the AppImage first to inspect. |
-| **D2: dist-electron contents** | `main.js`, `preload.mjs`, `main-D3EytrkH.js` (bundle), and chunks. **dist/** has `index.html`, `assets/index-*.js`, `assets/index-*.css`, `wrdesk-logo.svg` ✓ |
+| **D2: dist-electron contents** | `main.js`, `preload.mjs`, `main-D3EytrkH.js` (bundle), and chunks. **dist/** has `index.html`, `assets/index-*.js`, `assets/index-*.css`, `wrdesk-logo.png` ✓ |
 | **D3: Main process loads** | `O.loadFile(n)` where `n = path.join(RENDERER_DIST, 'index.html')`. `RENDERER_DIST = path.join(APP_ROOT, 'dist')`, `APP_ROOT = path.join(__dirname, '..')` |
 | **D4: Builder includes renderer** | **Yes** — `electron-builder.json` files: `["dist/**/*", "dist-electron/**/*", "package.json"]`. `builder-debug.yml` shows `!dist/release{,/**/*}` (output dir excluded) ✓ |
 | **D5: Vite base path** | **`base: './'`** — Set in `vite.config.ts`. Built `index.html` uses `./assets/index-*.js` ✓ |

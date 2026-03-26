@@ -33,19 +33,23 @@ describe('resolveOrchestratorRemoteNames', () => {
     expect(DEFAULT_ORCHESTRATOR_REMOTE_NAMES.imap.pendingReviewMailbox).toBe('Pending Review')
     expect(DEFAULT_ORCHESTRATOR_REMOTE_NAMES.imap.pendingDeleteMailbox).toBe('Pending Delete')
     expect(DEFAULT_ORCHESTRATOR_REMOTE_NAMES.imap.archiveMailbox).toBe('Archive')
+    expect(DEFAULT_ORCHESTRATOR_REMOTE_NAMES.imap.urgentMailbox).toBe('Urgent')
   })
 
   it('Gmail + Outlook defaults match IMAP-style Pending Review / Pending Delete names', () => {
     expect(DEFAULT_ORCHESTRATOR_REMOTE_NAMES.gmail.pendingReviewLabel).toBe('Pending Review')
     expect(DEFAULT_ORCHESTRATOR_REMOTE_NAMES.gmail.pendingDeleteLabel).toBe('Pending Delete')
+    expect(DEFAULT_ORCHESTRATOR_REMOTE_NAMES.gmail.urgentLabel).toBe('Urgent')
     expect(DEFAULT_ORCHESTRATOR_REMOTE_NAMES.outlook.pendingReviewFolder).toBe('Pending Review')
     expect(DEFAULT_ORCHESTRATOR_REMOTE_NAMES.outlook.pendingDeleteFolder).toBe('Pending Delete')
+    expect(DEFAULT_ORCHESTRATOR_REMOTE_NAMES.outlook.urgentFolder).toBe('Urgent')
   })
 
   it('uses product defaults for Gmail labels and archive remove list', () => {
     const r = resolveOrchestratorRemoteNames(baseAccount({ provider: 'gmail' }))
     expect(r.gmail.pendingReviewLabel).toBe(DEFAULT_ORCHESTRATOR_REMOTE_NAMES.gmail.pendingReviewLabel)
     expect(r.gmail.pendingDeleteLabel).toBe(DEFAULT_ORCHESTRATOR_REMOTE_NAMES.gmail.pendingDeleteLabel)
+    expect(r.gmail.urgentLabel).toBe(DEFAULT_ORCHESTRATOR_REMOTE_NAMES.gmail.urgentLabel)
     expect(r.gmail.archiveRemoveLabelIds).toEqual(['INBOX'])
   })
 
@@ -66,6 +70,16 @@ describe('resolveOrchestratorRemoteNames', () => {
     const r = resolveOrchestratorRemoteNames(baseAccount({ provider: 'microsoft365' }))
     expect(r.outlook.pendingReviewFolder).toBe(DEFAULT_ORCHESTRATOR_REMOTE_NAMES.outlook.pendingReviewFolder)
     expect(r.outlook.pendingDeleteFolder).toBe(DEFAULT_ORCHESTRATOR_REMOTE_NAMES.outlook.pendingDeleteFolder)
+    expect(r.outlook.urgentFolder).toBe(DEFAULT_ORCHESTRATOR_REMOTE_NAMES.outlook.urgentFolder)
+  })
+
+  it('Zoho Mail: lifecycle folder names match IMAP-style defaults', () => {
+    const r = resolveOrchestratorRemoteNames(baseAccount({ provider: 'zoho' }))
+    expect(r.zoho.pendingReviewFolder).toBe('Pending Review')
+    expect(r.zoho.pendingDeleteFolder).toBe('Pending Delete')
+    expect(r.zoho.urgentFolder).toBe('Urgent')
+    expect(r.zoho.archiveFolder).toBe('Archive')
+    expect(r.zoho.trashFolder).toBe('Trash')
   })
 
   it('IMAP: merges lifecycle mailbox overrides from orchestratorRemote', () => {
@@ -103,10 +117,11 @@ describe('orchestratorRemoteFromImapLifecycleFields', () => {
 })
 
 describe('describeOrchestratorRemoteOperation', () => {
-  it('covers archive / pending_review / pending_delete', () => {
+  it('covers archive / pending_review / pending_delete / urgent', () => {
     expect(describeOrchestratorRemoteOperation('archive')).toContain('archive')
     expect(describeOrchestratorRemoteOperation('pending_review')).toContain('pending_review')
     expect(describeOrchestratorRemoteOperation('pending_delete')).toContain('pending_delete')
+    expect(describeOrchestratorRemoteOperation('urgent')).toContain('urgent')
   })
 })
 

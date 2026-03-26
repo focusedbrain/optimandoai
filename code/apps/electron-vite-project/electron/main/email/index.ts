@@ -86,6 +86,6 @@ export {
 } from './sanitizer'
 
 // Export PDF extractor
-export { extractPdfText, isPdfFile, supportsTextExtraction } from './pdf-extractor'
+export { extractPdfText, isPdfFile, supportsTextExtraction, type ExtractPdfTextResult } from './pdf-extractor'
 
 

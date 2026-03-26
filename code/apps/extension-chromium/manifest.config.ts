@@ -69,6 +69,7 @@ export default defineManifest({
   web_accessible_resources: [
     {
       resources: [
+        'wrdesk-logo.png',
         'grid-display.html',
         'grid-display.js',
         'grid-script.js',

@@ -10,6 +10,8 @@ export type OrchestratorRemoteOperation =
   | 'archive'
   /** Local `sort_category = pending_review` */
   | 'pending_review'
+  /** Local `sort_category = urgent` */
+  | 'urgent'
   /** Local `pending_delete = 1` (not yet grace-queue delete) */
   | 'pending_delete'
 

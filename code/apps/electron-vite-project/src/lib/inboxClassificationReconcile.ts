@@ -4,8 +4,15 @@
  * Spec: electron/WRExpert.default.md — promotional and unsolicited commercial email
  * → pending_delete, urgency 1–3, not urgent/action_required.
  *
+ * Optional source/handshake weighting softens delete/archive for Native BEAP and
+ * handshake-linked rows; adds review pressure for depackaged + weak-archive cases.
+ *
  * Used by Electron main (ipc) and renderer (streaming analysis).
  */
+
+import type { SortSourceWeighting } from './inboxSortSourceWeighting'
+
+export type { SortSourceWeighting } from './inboxSortSourceWeighting'
 
 export type ReconcileClassifyInput = {
   /** Normalized category (lowercase, from VALID_NEW set). */
@@ -112,15 +119,52 @@ const ESCALATED_CATEGORIES = new Set(['urgent', 'action_required'])
  *
  * Escalated categories are remapped to pending_delete per WRExpert (marketing → pending_delete).
  */
+function applySortSourceWeighting(
+  out: ReconcileClassifyInput,
+  weighting: SortSourceWeighting | undefined,
+  flags: { promotional: boolean; highStakes: boolean }
+): ReconcileClassifyInput {
+  if (!weighting) return out
+  let { category, urgency, needsReply, reason, summary } = out
+  const note = (suffix: string) => ((reason || '') + suffix).slice(0, 500)
+
+  if (weighting.handshakeLinked) {
+    if (category === 'archive') {
+      category = 'pending_review'
+      urgency = Math.max(urgency, 4)
+      reason = note(' [Handshake-linked: surfaced for review]')
+    } else if (category === 'pending_delete') {
+      category = 'pending_review'
+      urgency = Math.max(urgency, 4)
+      reason = note(' [Handshake-linked: not auto-deleted]')
+    }
+  }
+
+  if (weighting.nativeBeap && category === 'pending_delete' && !flags.highStakes) {
+    category = 'pending_review'
+    urgency = Math.max(urgency, 4)
+    reason = note(' [Native BEAP: conservative retention]')
+  }
+
+  if (weighting.depackagedEmail && category === 'archive' && flags.promotional && !flags.highStakes) {
+    category = 'pending_review'
+    urgency = Math.max(urgency, 4)
+    reason = note(' [Depackaged: review before filing]')
+  }
+
+  return { category, urgency, needsReply, reason, summary }
+}
+
 export function reconcileInboxClassification(
   input: ReconcileClassifyInput,
-  context: ReconcileContext
+  context: ReconcileContext,
+  weighting?: SortSourceWeighting | null
 ): ReconcileClassifyInput {
   const combined = combinedClassificationText({ ...input, ...context })
   const { promotional, highStakes } = detectPromotionalAndHighStakes(combined)
 
   if (!promotional || highStakes) {
-    return { ...input }
+    return applySortSourceWeighting({ ...input }, weighting ?? undefined, { promotional, highStakes })
   }
 
   let category = input.category
@@ -131,19 +175,24 @@ export function reconcileInboxClassification(
     category = 'pending_delete'
   }
 
-  return {
-    category,
-    urgency,
-    needsReply,
-    reason: input.reason,
-    summary: input.summary,
-  }
+  return applySortSourceWeighting(
+    {
+      category,
+      urgency,
+      needsReply,
+      reason: input.reason,
+      summary: input.summary,
+    },
+    weighting ?? undefined,
+    { promotional, highStakes }
+  )
 }
 
 /** Same promotional cap for normal-inbox triage JSON (no category field from model). */
 export function reconcileAnalyzeTriage(
   fields: { urgencyScore: number; needsReply: boolean; urgencyReason: string; summary: string },
-  context: ReconcileContext
+  context: ReconcileContext,
+  weighting?: SortSourceWeighting | null
 ): { urgencyScore: number; needsReply: boolean; urgencyReason: string; summary: string } {
   const r = reconcileInboxClassification(
     {
@@ -153,7 +202,8 @@ export function reconcileAnalyzeTriage(
       reason: fields.urgencyReason,
       summary: fields.summary,
     },
-    context
+    context,
+    weighting
   )
   return {
     urgencyScore: r.urgency,
