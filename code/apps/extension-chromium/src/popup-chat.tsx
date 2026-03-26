@@ -37,9 +37,8 @@ import {
   getOurIdentity,
   type OurIdentity
 } from './handshake/handshakeService'
-import { processAttachmentForParsing } from './beap-builder'
-import { VisionFallbackButton, AttachmentStatusBadge } from './beap-builder/components'
-import { BeapAttachmentReader } from './beap-messages/components/BeapAttachmentReader'
+import { runDraftAttachmentParseWithFallback } from './beap-builder'
+import { BeapDocumentReaderModal, AttachmentStatusBadge } from './beap-builder/components'
 import type { CapsuleAttachment, RasterProof, RasterPageData } from './beap-builder'
 import { electronRpc } from './rpc/electronRpc'
 import { getVaultStatus } from './vault/api'
@@ -91,18 +90,6 @@ type SessionOption = {
   key: string
   name: string
   timestamp: string
-}
-
-function draftAttachmentToBeapReaderModel(att: DraftAttachment): import('./beap-messages/beapInboxTypes').BeapAttachment {
-  const sc = att.capsuleAttachment.semanticContent
-  return {
-    attachmentId: att.id,
-    filename: att.name,
-    mimeType: att.mime,
-    sizeBytes: att.size,
-    semanticContent: sc && String(sc).trim() ? String(sc) : undefined,
-    selected: false,
-  }
 }
 
 // Get initial theme from window (set by inline script in HTML)
@@ -397,7 +384,7 @@ function PopupChatApp() {
   const [beapDraftTo, setBeapDraftTo] = useState('')
   const [beapDraftSessionId, setBeapDraftSessionId] = useState('')
   const [beapDraftAttachments, setBeapDraftAttachments] = useState<DraftAttachment[]>([])
-  const [beapDraftReaderOpenId, setBeapDraftReaderOpenId] = useState<string | null>(null)
+  const [beapDraftReaderModalId, setBeapDraftReaderModalId] = useState<string | null>(null)
   const [availableSessions, setAvailableSessions] = useState<SessionOption[]>([])
   
   // BEAP Recipient Mode state (PRIVATE=qBEAP / PUBLIC=pBEAP)
@@ -620,6 +607,31 @@ function PopupChatApp() {
       return
     }
 
+    const trimmedEncrypted = beapDraftEncryptedMessage?.trim()
+    if (beapRecipientMode === 'private' && trimmedEncrypted) {
+      if (beapDraftMessage.includes(trimmedEncrypted)) {
+        setToastMessage({
+          message:
+            'The public message must not contain the encrypted message content. ' +
+            'The public field is transport-visible — use different text than your private message.',
+          type: 'error',
+        })
+        setTimeout(() => setToastMessage(null), 6000)
+        return
+      }
+      const trimmedPublic = beapDraftMessage.trim()
+      if (trimmedPublic && trimmedEncrypted.includes(trimmedPublic)) {
+        setToastMessage({
+          message:
+            'The encrypted message contains the same text as the public message. ' +
+            'Use distinct content for each field — the public message is visible in transport.',
+          type: 'error',
+        })
+        setTimeout(() => setToastMessage(null), 6000)
+        return
+      }
+    }
+
     const useHandshakeRefresh =
       beapDeliveryMethod === 'email' &&
       beapRecipientMode === 'private' &&
@@ -668,7 +680,7 @@ function PopupChatApp() {
           setBeapDraftMessage('')
           setBeapDraftEncryptedMessage('')
           setBeapDraftSessionId('')
-          setBeapDraftReaderOpenId(null)
+          setBeapDraftReaderModalId(null)
           setBeapDraftAttachments([])
           setSelectedRecipient(null)
         } else {
@@ -726,7 +738,7 @@ function PopupChatApp() {
         setBeapDraftMessage('')
         setBeapDraftEncryptedMessage('')
         setBeapDraftSessionId('')
-        setBeapDraftReaderOpenId(null)
+        setBeapDraftReaderModalId(null)
         setBeapDraftAttachments([])
         setSelectedRecipient(null)
       } else {
@@ -1244,8 +1256,8 @@ function PopupChatApp() {
                   </select>
                 </div>
                 <div>
-                  <label style={{ fontSize: '10px', fontWeight: 500, marginBottom: '4px', display: 'block', color: mutedColor }}>Attachments (PDFs: use Parse or Vision — no auto rasterization)</label>
-                  <input type="file" multiple onChange={async (e) => { const files = Array.from(e.target.files ?? []); if (!files.length) return; const newItems: DraftAttachment[] = []; for (const file of files) { if (file.size > 10 * 1024 * 1024) { console.warn(`[BEAP] Skipping ${file.name}: exceeds 10MB limit`); continue } if (beapDraftAttachments.length + newItems.length >= 20) { console.warn('[BEAP] Max 20 attachments reached'); break } const dataBase64 = await new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onload = () => { const res = String(reader.result ?? ''); resolve(res.includes(',') ? res.split(',')[1] : res) }; reader.onerror = () => reject(reader.error); reader.readAsDataURL(file) }); const attachmentId = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`; const mimeType = file.type || 'application/octet-stream'; const capsuleAttachment: CapsuleAttachment = { id: attachmentId, originalName: file.name, originalSize: file.size, originalType: mimeType, semanticContent: null, semanticExtracted: false, encryptedRef: `encrypted_${attachmentId}`, encryptedHash: '', previewRef: null, rasterProof: null, isMedia: mimeType.startsWith('image/') || mimeType.startsWith('video/') || mimeType.startsWith('audio/'), hasTranscript: false }; newItems.push({ id: attachmentId, name: file.name, mime: mimeType, size: file.size, dataBase64, capsuleAttachment, processing: { parsing: false, rasterizing: false } }) } setBeapDraftAttachments((prev) => [...prev, ...newItems]); e.currentTarget.value = '' }} style={{ fontSize: '11px', color: mutedColor }} />
+                  <label style={{ fontSize: '10px', fontWeight: 500, marginBottom: '4px', display: 'block', color: mutedColor }}>Attachments (PDFs: text extracts automatically)</label>
+                  <input type="file" multiple onChange={async (e) => { const files = Array.from(e.target.files ?? []); if (!files.length) return; const newItems: DraftAttachment[] = []; for (const file of files) { if (file.size > 10 * 1024 * 1024) { console.warn(`[BEAP] Skipping ${file.name}: exceeds 10MB limit`); continue } if (beapDraftAttachments.length + newItems.length >= 20) { console.warn('[BEAP] Max 20 attachments reached'); break } const dataBase64 = await new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onload = () => { const res = String(reader.result ?? ''); resolve(res.includes(',') ? res.split(',')[1] : res) }; reader.onerror = () => reject(reader.error); reader.readAsDataURL(file) }); const attachmentId = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`; const mimeType = file.type || 'application/octet-stream'; const isPdfFile = mimeType.toLowerCase() === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf'); const capsuleAttachment: CapsuleAttachment = { id: attachmentId, originalName: file.name, originalSize: file.size, originalType: mimeType, semanticContent: null, semanticExtracted: false, encryptedRef: `encrypted_${attachmentId}`, encryptedHash: '', previewRef: null, rasterProof: null, isMedia: mimeType.startsWith('image/') || mimeType.startsWith('video/') || mimeType.startsWith('audio/'), hasTranscript: false }; newItems.push({ id: attachmentId, name: file.name, mime: mimeType, size: file.size, dataBase64, capsuleAttachment, processing: { parsing: isPdfFile, rasterizing: false } }) } setBeapDraftAttachments((prev) => [...prev, ...newItems]); for (const item of newItems) { const isPdfItem = item.mime?.toLowerCase() === 'application/pdf' || item.name.toLowerCase().endsWith('.pdf'); if (!isPdfItem || !item.dataBase64) continue; void runDraftAttachmentParseWithFallback({ id: item.id, dataBase64: item.dataBase64, capsuleAttachment: item.capsuleAttachment }).then((upd) => { setBeapDraftAttachments((prev) => prev.map((x) => (x.id === item.id ? { ...x, capsuleAttachment: upd.capsuleAttachment, processing: upd.processing } : x))) }) } e.currentTarget.value = '' }} style={{ fontSize: '11px', color: mutedColor }} />
                   {beapDraftAttachments.length > 0 && (
                     <div style={{ marginTop: '8px' }}>
                       {beapDraftAttachments.map((a) => {
@@ -1254,7 +1266,6 @@ function PopupChatApp() {
                       const isSuccess = !!a.capsuleAttachment?.semanticExtracted
                       const showPdfBadge = isPdf && (isParsing || isSuccess || !!a.processing?.error)
                       const parseStatus: 'pending' | 'success' | 'failed' = isParsing ? 'pending' : isSuccess ? 'success' : 'failed'
-                      const readerOpen = beapDraftReaderOpenId === a.id
                       return (
                       <div key={a.id} style={{ background: isStandard ? 'rgba(0,0,0,0.03)' : 'rgba(255,255,255,0.05)', borderRadius: '4px', marginBottom: '4px', overflow: 'hidden' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 8px' }}>
@@ -1264,51 +1275,14 @@ function PopupChatApp() {
                               <div style={{ fontSize: '11px', color: textColor, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.name}</div>
                               <div style={{ fontSize: '9px', color: mutedColor }}>
                                 {a.mime} · {(a.size / 1024).toFixed(0)} KB
-                                {isPdf && !isParsing && !isSuccess && !a.processing?.error && ' · Click Parse to extract text'}
                               </div>
                             </div>
                           </div>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0, flexWrap: 'wrap' as const }}>
-                            {isPdf && a.dataBase64 && (
-                              <button
-                                type="button"
-                                disabled={isParsing || isSuccess}
-                                onClick={() => {
-                                  setBeapDraftAttachments((prev) => prev.map((x) => x.id === a.id ? { ...x, processing: { ...x.processing, parsing: true, error: undefined } } : x))
-                                  processAttachmentForParsing(a.capsuleAttachment, a.dataBase64)
-                                    .then((parseResult) => {
-                                      setBeapDraftAttachments((prev) => prev.map((x) =>
-                                        x.id === a.id ? {
-                                          ...x,
-                                          capsuleAttachment: parseResult.attachment,
-                                          processing: { ...x.processing, parsing: false, error: parseResult.error || x.processing.error }
-                                        } : x
-                                      ))
-                                    })
-                                    .catch((err) => {
-                                      setBeapDraftAttachments((prev) => prev.map((x) =>
-                                        x.id === a.id ? { ...x, processing: { ...x.processing, parsing: false, error: String(err) } } : x
-                                      ))
-                                    })
-                                }}
-                                style={{
-                                  background: isStandard ? 'rgba(139,92,246,0.12)' : 'rgba(139,92,246,0.25)',
-                                  border: `1px solid ${isStandard ? 'rgba(139,92,246,0.35)' : 'rgba(192,132,252,0.4)'}`,
-                                  color: isStandard ? '#6d28d9' : '#e9d5ff',
-                                  borderRadius: '4px',
-                                  padding: '2px 8px',
-                                  fontSize: '10px',
-                                  cursor: isParsing || isSuccess ? 'not-allowed' : 'pointer',
-                                  opacity: isParsing || isSuccess ? 0.6 : 1,
-                                }}
-                              >
-                                {isParsing ? 'Parsing…' : 'Parse'}
-                              </button>
-                            )}
                             {isSuccess && a.capsuleAttachment.semanticContent && (
                               <button
                                 type="button"
-                                onClick={() => setBeapDraftReaderOpenId(readerOpen ? null : a.id)}
+                                onClick={() => setBeapDraftReaderModalId(a.id)}
                                 style={{
                                   background: 'transparent',
                                   border: isStandard ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.2)',
@@ -1319,36 +1293,51 @@ function PopupChatApp() {
                                   cursor: 'pointer',
                                 }}
                               >
-                                {readerOpen ? 'Hide text' : 'View text'}
+                                Open reader
                               </button>
                             )}
-                            {isPdf && !isSuccess && !isParsing && a.dataBase64 && (
-                              <VisionFallbackButton
-                                attachment={a.capsuleAttachment}
-                                dataBase64={a.dataBase64}
-                                onSuccess={(text) => setBeapDraftAttachments((prev) => prev.map((x) => x.id === a.id ? { ...x, capsuleAttachment: { ...x.capsuleAttachment, semanticContent: text, semanticExtracted: true }, processing: { ...x.processing, error: undefined } } : x))}
-                                theme={isStandard ? 'standard' : 'default'}
-                              />
+                            {isPdf && !isSuccess && !isParsing && a.dataBase64 && a.processing?.error && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setBeapDraftAttachments((prev) => prev.map((x) => x.id === a.id ? { ...x, processing: { ...x.processing, parsing: true, error: undefined } } : x))
+                                  void runDraftAttachmentParseWithFallback({
+                                    id: a.id,
+                                    dataBase64: a.dataBase64,
+                                    capsuleAttachment: a.capsuleAttachment,
+                                  }).then((upd) => {
+                                    setBeapDraftAttachments((prev) =>
+                                      prev.map((x) => (x.id === a.id ? { ...x, capsuleAttachment: upd.capsuleAttachment, processing: upd.processing } : x)),
+                                    )
+                                  })
+                                }}
+                                style={{
+                                  background: isStandard ? 'rgba(139,92,246,0.12)' : 'rgba(139,92,246,0.25)',
+                                  border: `1px solid ${isStandard ? 'rgba(139,92,246,0.35)' : 'rgba(192,132,252,0.4)'}`,
+                                  color: isStandard ? '#6d28d9' : '#e9d5ff',
+                                  borderRadius: '4px',
+                                  padding: '2px 8px',
+                                  fontSize: '10px',
+                                  cursor: 'pointer',
+                                }}
+                              >
+                                Retry
+                              </button>
                             )}
-                            <button onClick={() => { setBeapDraftReaderOpenId((id) => (id === a.id ? null : id)); setBeapDraftAttachments((prev) => prev.filter((x) => x.id !== a.id)) }} style={{ background: 'transparent', border: 'none', color: isStandard ? '#ef4444' : '#f87171', fontSize: '10px', cursor: 'pointer' }}>Remove</button>
+                            <button onClick={() => { setBeapDraftReaderModalId((id) => (id === a.id ? null : id)); setBeapDraftAttachments((prev) => prev.filter((x) => x.id !== a.id)) }} style={{ background: 'transparent', border: 'none', color: isStandard ? '#ef4444' : '#f87171', fontSize: '10px', cursor: 'pointer' }}>Remove</button>
                             {showPdfBadge && <AttachmentStatusBadge status={parseStatus} theme={isStandard ? 'standard' : 'dark'} />}
                           </div>
                         </div>
-                        {readerOpen && isSuccess && (
-                          <div style={{ borderTop: `1px solid ${isStandard ? 'rgba(15,23,42,0.12)' : 'rgba(255,255,255,0.08)'}`, padding: '8px' }}>
-                            <BeapAttachmentReader attachment={draftAttachmentToBeapReaderModel(a)} isProfessional={isStandard} maxHeight={220} />
-                          </div>
-                        )}
                         {a.processing?.error && !isParsing && (
                           <div style={{ padding: '6px 8px', borderTop: `1px solid ${isStandard ? 'rgba(251,191,36,0.2)' : 'rgba(251,191,36,0.25)'}`, background: isStandard ? 'rgba(251,191,36,0.08)' : 'rgba(251,191,36,0.12)', fontSize: '10px', color: isStandard ? '#b45309' : '#fbbf24' }}>
                             {a.processing.error.includes('connect') || a.processing.error.includes('Failed to connect')
-                              ? 'Desktop App required for PDF text extraction. Or use Vision AI above.'
+                              ? 'Desktop parser (port 51248) can improve extraction. Add an API key in settings for AI extraction.'
                               : a.processing.error}
                           </div>
                         )}
                       </div>
                     )})}
-                      <button onClick={() => { setBeapDraftReaderOpenId(null); setBeapDraftAttachments([]) }} style={{ background: 'transparent', border: isStandard ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.2)', color: mutedColor, borderRadius: '4px', padding: '4px 8px', fontSize: '10px', cursor: 'pointer', marginTop: '4px' }}>Clear all</button>
+                      <button onClick={() => { setBeapDraftReaderModalId(null); setBeapDraftAttachments([]) }} style={{ background: 'transparent', border: isStandard ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.2)', color: mutedColor, borderRadius: '4px', padding: '4px 8px', fontSize: '10px', cursor: 'pointer', marginTop: '4px' }}>Clear all</button>
                     </div>
                   )}
                 </div>
@@ -1382,7 +1371,7 @@ function PopupChatApp() {
                   setBeapDraftMessage('')
                   setBeapDraftEncryptedMessage('')
                   setBeapDraftSessionId('')
-                  setBeapDraftReaderOpenId(null)
+                  setBeapDraftReaderModalId(null)
                   setBeapDraftAttachments([])
                   setSelectedRecipient(null)
                 }}
@@ -2200,6 +2189,21 @@ function PopupChatApp() {
       )}
       
       {connectEmailFlowModal}
+
+      {beapDraftReaderModalId && (() => {
+        const att = beapDraftAttachments.find((x) => x.id === beapDraftReaderModalId)
+        const t = att?.capsuleAttachment?.semanticContent?.trim()
+        if (!att || !t) return null
+        return (
+          <BeapDocumentReaderModal
+            open
+            onClose={() => setBeapDraftReaderModalId(null)}
+            filename={att.name}
+            semanticContent={att.capsuleAttachment.semanticContent ?? ''}
+            theme={theme === 'standard' ? 'standard' : 'dark'}
+          />
+        )
+      })()}
 
     </div>
   )

@@ -37,7 +37,7 @@ import { useBeapMessageAi } from '../hooks/useBeapMessageAi'
 import { useReplyComposer } from '../hooks/useReplyComposer'
 import { BeapReplyComposer } from './BeapReplyComposer'
 import { AiEntryContent } from './AiEntryContent'
-import { BeapAttachmentReader } from './BeapAttachmentReader'
+import { BeapDocumentReaderModal } from '../../beap-builder/components/BeapDocumentReaderModal'
 import ProtectedAccessWarningDialog from './ProtectedAccessWarningDialog'
 import { useViewOriginalArtefact } from '../hooks/useViewOriginalArtefact'
 
@@ -215,6 +215,11 @@ const MessageContentPanel: React.FC<MessageContentPanelProps> = ({
   const dimColor = isProfessional ? '#9ca3af' : 'rgba(255,255,255,0.4)'
   const cardBg = isProfessional ? '#ffffff' : 'rgba(255,255,255,0.04)'
   const borderColor = isProfessional ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.1)'
+
+  const [attachmentReaderOpen, setAttachmentReaderOpen] = useState<{
+    filename: string
+    semanticContent: string
+  } | null>(null)
 
   const hasHandshake = message.handshakeId !== null
   const trustConfig = TRUST_BADGE[message.trustLevel]
@@ -444,30 +449,33 @@ const MessageContentPanel: React.FC<MessageContentPanelProps> = ({
                 />
               ))}
             </div>
-            {/* Reader panel below list when selected attachment has semanticContent */}
+            {/* Open full reader when selected attachment has semantic text */}
             {selectedAttachmentId && (() => {
               const sel = message.attachments.find((a) => a.attachmentId === selectedAttachmentId)
               if (!sel?.semanticContent?.trim()) return null
               return (
                 <div style={{ marginTop: '12px' }}>
-                  <div
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setAttachmentReaderOpen({
+                        filename: sel.filename,
+                        semanticContent: sel.semanticContent ?? '',
+                      })
+                    }
                     style={{
                       fontSize: '11px',
                       fontWeight: 600,
-                      color: mutedColor,
-                      textTransform: 'uppercase' as const,
-                      letterSpacing: '0.4px',
-                      marginBottom: '6px',
+                      padding: '6px 12px',
+                      borderRadius: '6px',
+                      border: `1px solid ${borderColor}`,
+                      background: isProfessional ? 'white' : 'rgba(255,255,255,0.06)',
+                      color: textColor,
+                      cursor: 'pointer',
                     }}
                   >
-                    📄 Extracted Text
-                  </div>
-                  <BeapAttachmentReader
-                    attachment={sel}
-                    isProfessional={isProfessional}
-                    maxHeight={280}
-                    showCopy={true}
-                  />
+                    📄 Open extracted text reader
+                  </button>
                 </div>
               )
             })()}
@@ -493,6 +501,16 @@ const MessageContentPanel: React.FC<MessageContentPanelProps> = ({
           minRows={3}
         />
       </div>
+
+      {attachmentReaderOpen && (
+        <BeapDocumentReaderModal
+          open
+          onClose={() => setAttachmentReaderOpen(null)}
+          filename={attachmentReaderOpen.filename}
+          semanticContent={attachmentReaderOpen.semanticContent}
+          theme={isProfessional ? 'standard' : 'dark'}
+        />
+      )}
     </div>
   )
 }

@@ -62,6 +62,10 @@ export {
   useGenerationCount
 } from './useEnvelopeGenerator'
 
+// Draft attachment auto-parse (primary + Vision)
+export { runDraftAttachmentParseWithFallback } from './draftAttachmentAutoParse'
+export type { DraftAttachmentParseItem, DraftAttachmentParseUpdate } from './draftAttachmentAutoParse'
+
 // Parser service
 export {
   extractPdfText,
