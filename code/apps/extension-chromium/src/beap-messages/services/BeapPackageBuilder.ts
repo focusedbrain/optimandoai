@@ -12,6 +12,7 @@ import type { RecipientMode, SelectedRecipient } from '../components/RecipientMo
 import type { DeliveryMethod } from '../components/DeliveryMethodPanel'
 import type { BeapBuildResult } from '../../beap-builder/types'
 import type { CapsuleAttachment } from '../../beap-builder/canonical-types'
+import type { OutboundRequestDebugSnapshot } from '../../handshake/handshakeRpc'
 import {
   buildDefaultProcessingOffer,
   mergeWithNoneDefaults,
@@ -630,6 +631,8 @@ export interface DeliveryResult {
    * another send may reach the server. UI can disable Send until `Date.now() >= this`.
    */
   p2pCooldownUntilMs?: number
+  /** Sanitized outbound HTTP diagnostics when Electron captured them (e.g. terminal HTTP 400). */
+  p2pOutboundDebug?: OutboundRequestDebugSnapshot
   details?: {
     to?: string
     filename?: string
@@ -2059,6 +2062,7 @@ export async function executeP2PAction(
         message: lines.join('\n'),
         code: 'REQUEST_INVALID',
         queued: false,
+        ...(result.outbound_debug && { p2pOutboundDebug: result.outbound_debug }),
       }
     }
     const mayRetry = result?.queued !== false
@@ -2092,6 +2096,7 @@ export async function executeP2PAction(
         code: 'BACKOFF_WAIT',
         queued: mayRetry,
         ...(p2pCooldownUntilMs !== undefined && { p2pCooldownUntilMs }),
+        ...(result.outbound_debug && { p2pOutboundDebug: result.outbound_debug }),
       }
     }
     const message =
@@ -2103,6 +2108,7 @@ export async function executeP2PAction(
       action: 'sent',
       message,
       queued: mayRetry,
+      ...(result.outbound_debug && { p2pOutboundDebug: result.outbound_debug }),
     }
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'P2P delivery failed'

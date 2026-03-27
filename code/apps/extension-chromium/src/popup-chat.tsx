@@ -42,6 +42,8 @@ import { BeapDocumentReaderModal, AttachmentStatusBadge } from './beap-builder/c
 import type { CapsuleAttachment, RasterProof, RasterPageData } from './beap-builder'
 import { electronRpc } from './rpc/electronRpc'
 import { getVaultStatus } from './vault/api'
+import { P2pOutboundDebugModal } from './components/P2pOutboundDebugModal'
+import type { OutboundRequestDebugSnapshot } from './handshake/handshakeRpc'
 import { ConnectEmailLaunchSource, useConnectEmailFlow } from './shared/email/connectEmailFlow'
 import { pickDefaultEmailAccountRowId } from './shared/email/pickDefaultAccountRow'
 
@@ -511,7 +513,12 @@ function PopupChatApp() {
   )
   const [isLoadingEmailAccounts, setIsLoadingEmailAccounts] = useState(false)
   const [selectedEmailAccountId, setSelectedEmailAccountId] = useState<string | null>(null)
-  const [toastMessage, setToastMessage] = useState<{message: string, type: 'success' | 'error' | 'info'} | null>(null)
+  const [toastMessage, setToastMessage] = useState<{
+    message: string
+    type: 'success' | 'error' | 'info'
+    p2pOutboundDebug?: OutboundRequestDebugSnapshot
+  } | null>(null)
+  const [p2pOutboundDebugModal, setP2pOutboundDebugModal] = useState<OutboundRequestDebugSnapshot | null>(null)
   const [isSendingBeap, setIsSendingBeap] = useState(false)
   /** P2P queue backoff: block Send until this time */
   const [beapP2pCooldownUntilMs, setBeapP2pCooldownUntilMs] = useState<number | null>(null)
@@ -727,7 +734,9 @@ function PopupChatApp() {
         setBeapDraftAttachments([])
         setSelectedRecipient(null)
       } else {
-        if (beapDeliveryMethod === 'p2p' && typeof result.p2pCooldownUntilMs === 'number') {
+        if (result.code === 'REQUEST_INVALID') {
+          setBeapP2pCooldownUntilMs(null)
+        } else if (beapDeliveryMethod === 'p2p' && typeof result.p2pCooldownUntilMs === 'number') {
           setBeapP2pCooldownUntilMs(result.p2pCooldownUntilMs)
           const delay = Math.max(0, result.p2pCooldownUntilMs - Date.now())
           window.setTimeout(() => setBeapP2pCooldownUntilMs(null), delay + 250)
@@ -736,9 +745,11 @@ function PopupChatApp() {
           result.code === 'BACKOFF_WAIT' ||
           (result.message?.includes('waiting before retry') ?? false)
         if (isBackoff) toastClearMs = 9000
+        if (result.p2pOutboundDebug) toastClearMs = Math.max(toastClearMs, 12000)
         setToastMessage({
           message: result.message || 'Failed to send message',
           type: isBackoff ? 'info' : 'error',
+          ...(result.p2pOutboundDebug && { p2pOutboundDebug: result.p2pOutboundDebug }),
         })
       }
     } catch (error) {
@@ -2038,9 +2049,31 @@ function PopupChatApp() {
           <span style={{ flexShrink: 0, lineHeight: 1.4 }}>
             {toastMessage.type === 'success' ? '✓' : toastMessage.type === 'info' ? 'ℹ' : '✕'}
           </span>
-          <span style={{ whiteSpace: 'pre-line', lineHeight: 1.45 }}>{toastMessage.message}</span>
+          <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <span style={{ whiteSpace: 'pre-line', lineHeight: 1.45 }}>{toastMessage.message}</span>
+            {toastMessage.p2pOutboundDebug && (
+              <button
+                type="button"
+                onClick={() => setP2pOutboundDebugModal(toastMessage.p2pOutboundDebug ?? null)}
+                style={{
+                  alignSelf: 'flex-start',
+                  background: 'rgba(0,0,0,0.2)',
+                  border: '1px solid rgba(255,255,255,0.35)',
+                  color: 'white',
+                  borderRadius: 4,
+                  padding: '4px 10px',
+                  fontSize: 11,
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                }}
+              >
+                DEBUG
+              </button>
+            )}
+          </div>
         </div>
       )}
+      <P2pOutboundDebugModal debug={p2pOutboundDebugModal} onClose={() => setP2pOutboundDebugModal(null)} />
       
       {/* Header with Workspace Select and Submode - MIRRORS docked exactly */}
       <header style={headerStyles}>

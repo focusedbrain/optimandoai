@@ -23,16 +23,6 @@ function decodeJwtPayload(token: string): Record<string, unknown> | null {
   }
 }
 
-export interface SendCapsuleResult {
-  success: boolean
-  error?: string
-  statusCode?: number
-  /** From HTTP Retry-After (seconds), when present */
-  retryAfterSec?: number
-  /** Sanitized non-OK response body fragment for debugging (no secrets). */
-  responseBodySnippet?: string
-}
-
 /**
  * Summarizes outbound JSON body shape for logs (no values beyond keys / booleans).
  * Aligns with coordination `/beap/capsule`: accepts either a BEAP message package
@@ -91,28 +81,112 @@ export function describeOutboundPayloadForLogs(capsule: unknown): {
   }
 }
 
-function logOutboundRequestFailureDiagnostics(
+/**
+ * Sanitized outbound POST diagnostics for UI/IPC (no auth headers, no raw capsule body).
+ * Keep in sync with `OutboundRequestDebugSnapshot` in extension `handshakeRpc.ts`.
+ */
+export interface OutboundRequestDebugSnapshot {
+  route: 'coordination' | 'direct'
+  url: string
+  method: 'POST'
+  content_type: string
+  content_length_bytes: number
+  body_type: 'json_string'
+  top_level_keys: string[]
+  body_looks_double_encoded: boolean
+  request_shape: ReturnType<typeof describeOutboundPayloadForLogs>
+  /** HTTP status when a response was received; 0 if the request failed before that */
+  http_status: number
+  response_body_snippet?: string
+  /** Present when fetch failed before an HTTP response */
+  transport_error?: string
+}
+
+export interface SendCapsuleResult {
+  success: boolean
+  error?: string
+  statusCode?: number
+  /** From HTTP Retry-After (seconds), when present */
+  retryAfterSec?: number
+  /** Sanitized non-OK response body fragment for debugging (no secrets). */
+  responseBodySnippet?: string
+  /** Structured request/response diagnostics for terminal failures and debugging */
+  outboundDebug?: OutboundRequestDebugSnapshot
+}
+
+/** Top-level JSON keys of the serialized request body (no values). */
+export function extractTopLevelKeysFromJsonBody(bodyUtf8: string): string[] {
+  const t = bodyUtf8.trim()
+  if (!t) return []
+  try {
+    let parsed: unknown = JSON.parse(t)
+    if (typeof parsed === 'string') {
+      try {
+        parsed = JSON.parse(parsed)
+      } catch {
+        return []
+      }
+    }
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return Object.keys(parsed as Record<string, unknown>)
+        .sort()
+        .slice(0, 48)
+    }
+  } catch {
+    return []
+  }
+  return []
+}
+
+/** True if the wire body is a JSON string containing another JSON object (double-encoding). */
+export function detectBodyLooksDoubleEncoded(bodyUtf8: string): boolean {
+  const t = bodyUtf8.trim()
+  if (!t.startsWith('"')) return false
+  try {
+    const first = JSON.parse(t) as unknown
+    if (typeof first !== 'string') return false
+    const second = JSON.parse(first) as unknown
+    return second !== null && typeof second === 'object'
+  } catch {
+    return false
+  }
+}
+
+export function buildOutboundRequestDebugSnapshot(
   route: 'coordination' | 'direct',
   targetUrl: string,
   capsule: object,
   bodyUtf8: string,
-  reqHeaders: Record<string, string>,
+  contentType: string,
   httpStatus: number,
   responseSnippet: string | undefined,
+  transportError?: string,
+): OutboundRequestDebugSnapshot {
+  const ct = (contentType || '').trim() || 'application/json'
+  return {
+    route,
+    url: targetUrl,
+    method: 'POST',
+    content_type: ct,
+    content_length_bytes: Buffer.byteLength(bodyUtf8, 'utf8'),
+    body_type: 'json_string',
+    top_level_keys: extractTopLevelKeysFromJsonBody(bodyUtf8),
+    body_looks_double_encoded: detectBodyLooksDoubleEncoded(bodyUtf8),
+    request_shape: describeOutboundPayloadForLogs(capsule),
+    http_status: httpStatus,
+    ...(responseSnippet && responseSnippet.length > 0 ? { response_body_snippet: responseSnippet } : {}),
+    ...(transportError ? { transport_error: transportError } : {}),
+  }
+}
+
+function logOutboundRequestFailureDiagnostics(
+  snapshot: OutboundRequestDebugSnapshot,
 ): void {
   console.info(
     '[P2P-OUTBOUND]',
     JSON.stringify({
       event: 'outbound_request_diagnostics',
-      route,
-      target_url: targetUrl,
-      method: 'POST',
-      content_type: reqHeaders['Content-Type'] ?? '',
-      content_length_bytes: Buffer.byteLength(bodyUtf8, 'utf8'),
-      body_sent_as: 'json_string',
-      request_shape: describeOutboundPayloadForLogs(capsule),
-      http_status: httpStatus,
-      response_body_snippet: responseSnippet && responseSnippet.length > 0 ? responseSnippet : undefined,
+      ...snapshot,
     }),
   )
 }
@@ -211,20 +285,22 @@ async function sendCapsuleViaHttpWithAuth(
       responseBodySnippet = sanitizeHttpResponseBodyForLogs(errBody)
       console.log('[P2P-DEBUG] Error body:', responseBodySnippet)
     }
-    logOutboundRequestFailureDiagnostics(
+    const snapshot = buildOutboundRequestDebugSnapshot(
       'coordination',
       targetEndpoint,
       capsule,
       body,
-      headers,
+      headers['Content-Type'] ?? 'application/json',
       response.status,
       responseBodySnippet,
     )
+    logOutboundRequestFailureDiagnostics(snapshot)
     const errMsg = `HTTP ${response.status}`
     return {
       success: false,
       error: errMsg,
       statusCode: response.status,
+      outboundDebug: snapshot,
       ...(retryAfterSec !== undefined && { retryAfterSec }),
       ...(responseBodySnippet && { responseBodySnippet }),
     }
@@ -232,7 +308,18 @@ async function sendCapsuleViaHttpWithAuth(
     clearTimeout(timeout)
     const errMsg = err?.message ?? err?.name ?? String(err)
     console.warn('[P2P] Coordination delivery error', { endpoint: targetEndpoint, error: errMsg })
-    return { success: false, error: errMsg }
+    const snapshot = buildOutboundRequestDebugSnapshot(
+      'coordination',
+      targetEndpoint,
+      capsule,
+      body,
+      'application/json',
+      0,
+      undefined,
+      errMsg,
+    )
+    logOutboundRequestFailureDiagnostics(snapshot)
+    return { success: false, error: errMsg, outboundDebug: snapshot }
   }
 }
 
@@ -289,20 +376,22 @@ export async function sendCapsuleViaHttp(
     console.warn('[P2P] Context-sync delivery failed', { handshake_id: handshakeId, endpoint: trimmed, status: response.status })
     const errBody = await response.text()
     const responseBodySnippet = sanitizeHttpResponseBodyForLogs(errBody)
-    logOutboundRequestFailureDiagnostics(
+    const snapshot = buildOutboundRequestDebugSnapshot(
       'direct',
       trimmed,
       capsule,
       body,
-      headers,
+      headers['Content-Type'] ?? 'application/json',
       response.status,
       responseBodySnippet.length > 0 ? responseBodySnippet : undefined,
     )
+    logOutboundRequestFailureDiagnostics(snapshot)
     const errMsg = `HTTP ${response.status}`
     return {
       success: false,
       error: errMsg,
       statusCode: response.status,
+      outboundDebug: snapshot,
       ...(retryAfterSec !== undefined && { retryAfterSec }),
       ...(responseBodySnippet.length > 0 && { responseBodySnippet }),
     }
@@ -310,6 +399,17 @@ export async function sendCapsuleViaHttp(
     clearTimeout(timeout)
     const errMsg = err?.message ?? err?.name ?? String(err)
     console.warn('[P2P] Context-sync delivery error', { handshake_id: handshakeId, endpoint: trimmed, error: errMsg })
-    return { success: false, error: errMsg }
+    const snapshot = buildOutboundRequestDebugSnapshot(
+      'direct',
+      trimmed,
+      capsule,
+      body,
+      'application/json',
+      0,
+      undefined,
+      errMsg,
+    )
+    logOutboundRequestFailureDiagnostics(snapshot)
+    return { success: false, error: errMsg, outboundDebug: snapshot }
   }
 }

@@ -13,6 +13,7 @@ import {
   sendCapsuleViaCoordination,
   describeOutboundPayloadForLogs,
   type SendCapsuleResult,
+  type OutboundRequestDebugSnapshot,
 } from './p2pTransport'
 import { getHandshakeRecord } from './db'
 import { getP2PConfig } from '../p2p/p2pConfig'
@@ -81,6 +82,8 @@ export interface ProcessOutboundQueueResult {
   http_status?: number
   /** Sanitized server error body fragment when available (no secrets). */
   response_body_snippet?: string
+  /** Sanitized outbound POST diagnostics (when transport captured them). */
+  outbound_debug?: OutboundRequestDebugSnapshot
 }
 
 function jitterMs(max = 400): number {
@@ -513,6 +516,7 @@ async function processOutboundQueueInner(
         healing_status: 'STOPPED_REQUIRES_FIX',
         http_status: 400,
         ...(snippet.length > 0 && { response_body_snippet: snippet }),
+        ...(result.outboundDebug && { outbound_debug: result.outboundDebug }),
       }
     }
 
@@ -563,6 +567,7 @@ async function processOutboundQueueInner(
         max_retries: row.max_retries,
         failure_class: 'AUTH_RECOVERABLE',
         healing_status: 'idle',
+        ...(result.outboundDebug && { outbound_debug: result.outboundDebug }),
       }
     }
 
@@ -623,6 +628,7 @@ async function processOutboundQueueInner(
       max_retries: row.max_retries,
       failure_class: failureClass,
       healing_status,
+      ...(result.outboundDebug && { outbound_debug: result.outboundDebug }),
       ...(throttleMs != null && throttleMs > 0
         ? {
             next_retry_at: new Date(Date.now() + Math.max(backoffDelay(updatedRetryCount - 1), throttleMs)).toISOString(),

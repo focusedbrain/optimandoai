@@ -293,6 +293,32 @@ export async function ackPendingPlainEmail(id: number): Promise<void> {
  * @param handshakeId - Handshake ID for the recipient
  * @param packageJson - JSON string of the BEAP package
  */
+/**
+ * Sanitized P2P outbound diagnostics (mirrors Electron `OutboundRequestDebugSnapshot` in `p2pTransport.ts`).
+ */
+export type OutboundRequestDebugSnapshot = {
+  route: 'coordination' | 'direct'
+  url: string
+  method: 'POST'
+  content_type: string
+  content_length_bytes: number
+  body_type: 'json_string'
+  top_level_keys: string[]
+  body_looks_double_encoded: boolean
+  request_shape: {
+    value_kind: 'object' | 'other'
+    top_level_keys: string[]
+    has_top_level_handshake_id: boolean
+    has_capsule_type_key: boolean
+    looks_like_beap_message_package: boolean
+    looks_like_relay_capsule_envelope: boolean
+    has_message_header_receiver_binding_handshake_id: boolean
+  }
+  http_status: number
+  response_body_snippet?: string
+  transport_error?: string
+}
+
 /** Matches Electron `handshake.sendBeapViaP2P` response (additive fields). */
 export type SendBeapViaP2PResult = {
   success: boolean
@@ -327,6 +353,7 @@ export type SendBeapViaP2PResult = {
     | 'STOPPED_REQUIRES_FIX'
   http_status?: number
   response_body_snippet?: string
+  outbound_debug?: OutboundRequestDebugSnapshot
 }
 
 export async function sendBeapViaP2P(

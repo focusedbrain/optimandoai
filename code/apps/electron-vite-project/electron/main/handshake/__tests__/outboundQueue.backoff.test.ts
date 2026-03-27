@@ -419,6 +419,10 @@ describe.skipIf(!hasSqlite)('outboundQueue: backoff & transport', () => {
     expect(r.healing_status).toBe('STOPPED_REQUIRES_FIX')
     expect(r.http_status).toBe(400)
     expect(r.response_body_snippet).toContain('invalid capsule')
+    expect(r.outbound_debug).toBeDefined()
+    expect(r.outbound_debug?.url).toContain('peer.example')
+    expect(r.outbound_debug?.method).toBe('POST')
+    expect(r.outbound_debug?.http_status).toBe(400)
     expect(r.remaining_ms).toBeUndefined()
     expect(r.next_retry_at).toBeUndefined()
 
