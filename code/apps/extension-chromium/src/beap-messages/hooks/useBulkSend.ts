@@ -141,7 +141,9 @@ export function useBulkSend(config: UseBulkSendConfig = {}): UseBulkSendReturn {
 
         const buildResult = await buildPackage(packageConfig)
         if (!buildResult.success || !buildResult.package) {
-          return { success: false, error: buildResult.error ?? 'BEAP build failed.' }
+          const err = buildResult.error ?? 'BEAP build failed.'
+          console.error('[BEAP-SEND] Delivery failed — full debug:', JSON.stringify({ message: err, phase: 'package_build' }))
+          return { success: false, error: err }
         }
         return { success: true, error: null }
       } else {
@@ -161,19 +163,33 @@ export function useBulkSend(config: UseBulkSendConfig = {}): UseBulkSendReturn {
 
         const buildResult = await buildPackage(packageConfig)
         if (!buildResult.success || !buildResult.package) {
-          return { success: false, error: buildResult.error ?? 'Email build failed.' }
+          const err = buildResult.error ?? 'Email build failed.'
+          console.error('[BEAP-SEND] Delivery failed — full debug:', JSON.stringify({ message: err, phase: 'package_build' }))
+          return { success: false, error: err }
         }
 
         const emailResult = await executeEmailAction(buildResult.package, packageConfig)
         if (!emailResult.success) {
-          return { success: false, error: emailResult.error ?? 'Email delivery failed.' }
+          const err = emailResult.message || 'Email delivery failed.'
+          console.error(
+            '[BEAP-SEND] Delivery failed — full debug:',
+            JSON.stringify({
+              message: emailResult.message,
+              action: emailResult.action,
+              clientSendFailureDebug: emailResult.clientSendFailureDebug,
+              outbound_debug: emailResult.p2pOutboundDebug,
+            }),
+          )
+          return { success: false, error: err }
         }
         return { success: true, error: null }
       }
     } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      console.error('[BEAP-SEND] Send exception — full debug:', msg, err)
       return {
         success: false,
-        error: err instanceof Error ? err.message : String(err),
+        error: msg,
       }
     }
   }

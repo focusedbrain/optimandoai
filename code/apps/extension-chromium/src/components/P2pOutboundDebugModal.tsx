@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useEffect } from 'react'
 import type { OutboundRequestDebugSnapshot, ClientSendFailureDebug } from '../handshake/handshakeRpc'
 
 export type P2pDebugModalPayload = OutboundRequestDebugSnapshot | ClientSendFailureDebug
@@ -8,6 +8,24 @@ export function P2pOutboundDebugModal(props: {
   onClose: () => void
 }): React.ReactElement | null {
   const { debug, onClose } = props
+
+  useEffect(() => {
+    if (!debug) return
+    const outbound: OutboundRequestDebugSnapshot | undefined =
+      'url' in debug ? (debug as OutboundRequestDebugSnapshot) : undefined
+    const client: ClientSendFailureDebug | undefined =
+      'kind' in debug && (debug as ClientSendFailureDebug).kind === 'client_send_failure'
+        ? (debug as ClientSendFailureDebug)
+        : undefined
+    console.error(
+      '[BEAP-SEND] Debug payload for failed P2P send:',
+      JSON.stringify({
+        outbound_debug: outbound,
+        clientSendFailureDebug: client,
+      }),
+    )
+  }, [debug])
+
   if (!debug) return null
 
   if ('kind' in debug && debug.kind === 'client_send_failure') {

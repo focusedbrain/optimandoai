@@ -772,40 +772,44 @@ function PopupChatApp() {
       
       // Execute the delivery action
       const result = await executeDeliveryAction(config)
-      
-      if (result.success) {
+
+      const e2eOk =
+        result.success &&
+        (beapDeliveryMethod !== 'p2p' || result.recipientIngestConfirmed === true)
+
+      if (e2eOk) {
         setBeapP2pCooldownUntilMs(null)
-        const p2pAwaitingIngest =
-          beapDeliveryMethod === 'p2p' && result.recipientIngestConfirmed !== true
-        if (p2pAwaitingIngest) {
-          setBeapP2pRelayPendingMessage(
-            'Relay accepted the package — recipient ingest is not confirmed yet. Your draft stays until delivery is confirmed.',
-          )
-          toastClearMs = 0
-        } else {
-          setBeapP2pRelayPendingMessage(null)
-          const actionLabel =
-            beapDeliveryMethod === 'download'
-              ? 'BEAP capsule downloaded'
-              : beapDeliveryMethod === 'p2p'
-                ? 'Recipient ingest confirmed — BEAP™ delivery complete.'
-                : 'BEAP™ Message sent!'
-          const toastType: 'success' | 'info' =
-            beapDeliveryMethod === 'download' || beapDeliveryMethod === 'email'
+        setBeapP2pRelayPendingMessage(null)
+        const actionLabel =
+          beapDeliveryMethod === 'download'
+            ? 'BEAP capsule downloaded'
+            : beapDeliveryMethod === 'p2p'
+              ? 'Recipient ingest confirmed — BEAP™ delivery complete.'
+              : 'BEAP™ Message sent!'
+        const toastType: 'success' | 'info' =
+          beapDeliveryMethod === 'download' || beapDeliveryMethod === 'email'
+            ? 'success'
+            : beapDeliveryMethod === 'p2p' && result.recipientIngestConfirmed === true
               ? 'success'
-              : beapDeliveryMethod === 'p2p' && result.recipientIngestConfirmed === true
-                ? 'success'
-                : 'info'
-          setToastMessage({ message: actionLabel, type: toastType })
-          setBeapDraftTo('')
-          setBeapDraftMessage('')
-          setBeapDraftEncryptedMessage('')
-          setBeapDraftSessionId('')
-          setBeapDraftReaderModalId(null)
-          setBeapDraftAttachments([])
-          setSelectedRecipient(null)
-        }
-      } else {
+              : 'info'
+        setToastMessage({ message: actionLabel, type: toastType })
+        setBeapDraftTo('')
+        setBeapDraftMessage('')
+        setBeapDraftEncryptedMessage('')
+        setBeapDraftSessionId('')
+        setBeapDraftReaderModalId(null)
+        setBeapDraftAttachments([])
+        setSelectedRecipient(null)
+      } else if (!result.success) {
+        console.error(
+          '[BEAP-SEND] Delivery failed — full debug:',
+          JSON.stringify({
+            message: result.message,
+            action: result.action,
+            clientSendFailureDebug: result.clientSendFailureDebug,
+            outbound_debug: result.p2pOutboundDebug,
+          }),
+        )
         if (result.code === 'REQUEST_INVALID' || result.code === 'PAYLOAD_TOO_LARGE') {
           setBeapP2pCooldownUntilMs(null)
         } else if (beapDeliveryMethod === 'p2p' && typeof result.p2pCooldownUntilMs === 'number') {
@@ -834,9 +838,39 @@ function PopupChatApp() {
               },
             }),
         })
+      } else {
+        setBeapP2pRelayPendingMessage(null)
+        toastClearMs = 12000
+        const failMsg =
+          result.message ||
+          'P2P delivery is not confirmed end-to-end. Draft retained.'
+        console.error(
+          '[BEAP-SEND] Delivery failed — full debug:',
+          JSON.stringify({
+            message: result.message,
+            action: result.action,
+            clientSendFailureDebug: result.clientSendFailureDebug,
+            outbound_debug: result.p2pOutboundDebug,
+          }),
+        )
+        setToastMessage({
+          message: failMsg,
+          type: 'error',
+          ...(result.p2pOutboundDebug && { p2pOutboundDebug: result.p2pOutboundDebug }),
+          ...(result.clientSendFailureDebug && { clientSendFailureDebug: result.clientSendFailureDebug }),
+          ...(!result.p2pOutboundDebug &&
+            !result.clientSendFailureDebug && {
+              clientSendFailureDebug: {
+                kind: 'client_send_failure',
+                phase: 'p2p_transport',
+                message: failMsg,
+              },
+            }),
+        })
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'An unexpected error occurred'
+      console.error('[BEAP-SEND] Send exception — full debug:', message, error)
       setToastMessage({
         message,
         type: 'error',

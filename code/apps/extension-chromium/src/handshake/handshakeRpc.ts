@@ -55,7 +55,8 @@ async function sendHandshakeRpc<T = unknown>(
           return
         }
         // Handshake / vault RPCs use `{ success: boolean, error?: string }` for business failures.
-        // Do not reject when `error` is present if `success` is explicitly set (e.g. BACKOFF_WAIT).
+        // Do not reject when `success` is false — callers such as `sendBeapViaP2P` need the full
+        // structured payload (BACKOFF_WAIT, outbound_debug, etc.).
         if (typeof (response as { success?: unknown }).success === 'boolean') {
           resolve(response as T)
           return
@@ -355,6 +356,8 @@ export type OutboundRequestDebugSnapshot = {
 /** Matches Electron `handshake.sendBeapViaP2P` response (additive fields). */
 export type SendBeapViaP2PResult = {
   success: boolean
+  /** When present and false while success is true, outbound queue did not confirm HTTP delivery. */
+  delivered?: boolean
   error?: string
   queued?: boolean
   code?:

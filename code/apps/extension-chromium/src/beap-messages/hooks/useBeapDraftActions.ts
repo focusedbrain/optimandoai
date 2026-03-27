@@ -212,35 +212,44 @@ export function useBeapDraftActions(options: UseBeapDraftActionsOptions): [BeapD
       const result = await executeDeliveryAction(config)
       
       setLastResult(result)
-      
-      if (result.success) {
-        const finalizeOutbound =
-          deliveryMethod !== 'p2p' || result.recipientIngestConfirmed === true
-        if (finalizeOutbound) {
-          addOutboxMessage({
-            id: `beap_${Date.now()}`,
-            folder: 'outbox',
-            fingerprint: senderFingerprint,
-            senderName: 'You',
-            deliveryMethod,
-            title: subject || 'BEAP™ Message',
-            bodyText: messageBody.slice(0, 100),
-            timestamp: Date.now(),
-            status: deliveryMethod === 'email' ? 'sending' : 'pending_user_action',
-            deliveryStatus: deliveryMethod === 'email' ? 'sending' : 'pending_user_action',
-            direction: 'outbound',
-            attachments: attachments.map(f => ({
-              name: f.name,
-              size: f.size,
-              type: f.type
-            })),
-          })
-          clearDraft()
-        }
+
+      const e2eOk =
+        result.success &&
+        (deliveryMethod !== 'p2p' || result.recipientIngestConfirmed === true)
+
+      if (e2eOk) {
+        addOutboxMessage({
+          id: `beap_${Date.now()}`,
+          folder: 'outbox',
+          fingerprint: senderFingerprint,
+          senderName: 'You',
+          deliveryMethod,
+          title: subject || 'BEAP™ Message',
+          bodyText: messageBody.slice(0, 100),
+          timestamp: Date.now(),
+          status: deliveryMethod === 'email' ? 'sending' : 'pending_user_action',
+          deliveryStatus: deliveryMethod === 'email' ? 'sending' : 'pending_user_action',
+          direction: 'outbound',
+          attachments: attachments.map(f => ({
+            name: f.name,
+            size: f.size,
+            type: f.type
+          })),
+        })
+        clearDraft()
         if (onSuccess) {
           onSuccess(result)
         }
       } else {
+        console.error(
+          '[BEAP-SEND] Delivery failed — full debug:',
+          JSON.stringify({
+            message: result.message,
+            action: result.action,
+            clientSendFailureDebug: result.clientSendFailureDebug,
+            outbound_debug: result.p2pOutboundDebug,
+          }),
+        )
         if (onError) {
           onError(result.message)
         }
@@ -248,10 +257,12 @@ export function useBeapDraftActions(options: UseBeapDraftActionsOptions): [BeapD
       
       return result
     } catch (error) {
+      const msg = error instanceof Error ? error.message : 'An unexpected error occurred'
+      console.error('[BEAP-SEND] Send exception — full debug:', msg, error)
       const errorResult: DeliveryResult = {
         success: false,
         action: deliveryMethod === 'email' ? 'sent' : deliveryMethod === 'messenger' ? 'copied' : 'downloaded',
-        message: error instanceof Error ? error.message : 'An unexpected error occurred'
+        message: msg
       }
       setLastResult(errorResult)
       

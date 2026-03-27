@@ -620,6 +620,7 @@ export async function handleHandshakeRPC(
         const d = deliveryResult as ProcessOutboundQueueResult
         return {
           success: false,
+          delivered: d.delivered,
           error: d.error ?? 'Delivery failed — capsule queued for retry',
           queued: d.queued !== false,
           ...(d.code && { code: d.code }),
@@ -641,6 +642,7 @@ export async function handleHandshakeRPC(
       const ok = deliveryResult as ProcessOutboundQueueResult
       return {
         success: true,
+        delivered: ok.delivered,
         recipient_ingest_confirmed: false,
         ...(ok.code && { code: ok.code }),
         ...(ok.healing_status !== undefined && { healing_status: ok.healing_status }),

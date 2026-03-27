@@ -378,7 +378,9 @@ export function useReplyComposer(
         // buildPackage validates config internally
         const buildResult = await buildPackage(packageConfig)
         if (!buildResult.success || !buildResult.package) {
-          throw new Error(buildResult.error ?? 'BEAP package build failed.')
+          const bm = buildResult.error ?? 'BEAP package build failed.'
+          console.error('[BEAP-SEND] Delivery failed — full debug:', JSON.stringify({ message: bm, phase: 'package_build' }))
+          throw new Error(bm)
         }
 
         // Write to store as sent
@@ -411,12 +413,23 @@ export function useReplyComposer(
 
         const buildResult = await buildPackage(packageConfig)
         if (!buildResult.success || !buildResult.package) {
-          throw new Error(buildResult.error ?? 'Email package build failed.')
+          const em = buildResult.error ?? 'Email package build failed.'
+          console.error('[BEAP-SEND] Delivery failed — full debug:', JSON.stringify({ message: em, phase: 'package_build' }))
+          throw new Error(em)
         }
 
         const emailResult = await executeEmailAction(buildResult.package, packageConfig)
         if (!emailResult.success) {
-          throw new Error(emailResult.error ?? 'Email send failed.')
+          console.error(
+            '[BEAP-SEND] Delivery failed — full debug:',
+            JSON.stringify({
+              message: emailResult.message,
+              action: emailResult.action,
+              clientSendFailureDebug: emailResult.clientSendFailureDebug,
+              outbound_debug: emailResult.p2pOutboundDebug,
+            }),
+          )
+          throw new Error(emailResult.message || 'Email send failed.')
         }
 
         setDraftReply(message.messageId, { content, mode: 'email', status: 'sent' })
@@ -429,6 +442,7 @@ export function useReplyComposer(
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
+      console.error('[BEAP-SEND] Send exception — full debug:', msg, err)
       setError(msg)
       config.onSendError?.(msg)
     } finally {

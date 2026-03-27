@@ -13,7 +13,11 @@ import type { DeliveryMethod } from '../components/DeliveryMethodPanel'
 import type { BeapBuildResult } from '../../beap-builder/types'
 import type { CapsuleAttachment } from '../../beap-builder/canonical-types'
 import { assertNoSemanticContentInTransport } from '../../beap-builder/parserService'
-import type { OutboundRequestDebugSnapshot, ClientSendFailureDebug } from '../../handshake/handshakeRpc'
+import type {
+  OutboundRequestDebugSnapshot,
+  ClientSendFailureDebug,
+  SendBeapViaP2PResult,
+} from '../../handshake/handshakeRpc'
 import {
   buildDefaultProcessingOffer,
   mergeWithNoneDefaults,
@@ -2092,6 +2096,36 @@ export async function executeP2PAction(
     const { sendBeapViaP2P } = await import('../../handshake/handshakeRpc')
     const packageJson = JSON.stringify(pkg)
     const result = await sendBeapViaP2P(handshakeId, packageJson)
+    const rpc = result as SendBeapViaP2PResult & { outbound_debug?: OutboundRequestDebugSnapshot }
+    if (rpc.success === true && rpc.delivered === undefined) {
+      console.warn(
+        '[BEAP-SEND] Electron did not report delivered status — treating RPC success as delivery success (legacy compat)',
+      )
+    }
+    if (rpc.success === true && rpc.delivered === false) {
+      const msg = rpc.error || `P2P delivery not confirmed (code: ${rpc.code ?? 'unknown'})`
+      console.error(
+        '[BEAP-SEND] P2P delivery NOT confirmed:',
+        JSON.stringify({
+          delivered: rpc.delivered,
+          code: rpc.code,
+          http_status: rpc.http_status,
+          error: rpc.error,
+          outbound_debug: rpc.outbound_debug,
+        }),
+      )
+      return {
+        success: false,
+        action: 'sent',
+        message: msg,
+        clientSendFailureDebug: {
+          kind: 'client_send_failure',
+          phase: 'p2p_transport',
+          message: msg,
+        },
+        ...(rpc.outbound_debug && { p2pOutboundDebug: rpc.outbound_debug }),
+      }
+    }
     if (result?.success) {
       const relay = result.coordinationRelayDelivery
       const ingestConfirmed = result.recipient_ingest_confirmed === true
