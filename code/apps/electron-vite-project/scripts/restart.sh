@@ -3,9 +3,9 @@
 set -e
 cd "$(dirname "$0")/.."
 
-echo "1. Killing electron & vite..."
-pkill -9 -f electron 2>/dev/null || true
-pkill -9 -f "node.*vite" 2>/dev/null || true
+echo "1. Killing WR Desk / electron-vite-project processes..."
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+bash "${SCRIPT_DIR}/kill-wr-desk-unix.sh"
 sleep 2
 
 echo "2. Cleaning cache..."

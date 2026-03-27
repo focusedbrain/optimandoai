@@ -60,7 +60,21 @@ function deleteOldBuilds() {
 
 function killProcesses() {
   if (process.platform !== 'win32') {
-    console.log('[kill-wr-desk] Skipping on non-Windows')
+    const unixKill = path.join(__dirname, 'kill-wr-desk-unix.sh')
+    if (fs.existsSync(unixKill)) {
+      try {
+        execSync(`bash "${unixKill}"`, { stdio: 'inherit' })
+      } catch (e) {
+        console.warn('[kill-wr-desk] unix kill script:', e.message)
+      }
+    } else {
+      console.warn('[kill-wr-desk] Missing kill-wr-desk-unix.sh')
+    }
+    try {
+      clearBuildCaches()
+    } catch (e) {
+      console.warn('[kill-wr-desk] clearBuildCaches:', e.message)
+    }
     return
   }
 
