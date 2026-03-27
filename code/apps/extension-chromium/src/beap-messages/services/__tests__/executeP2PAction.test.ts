@@ -116,4 +116,39 @@ describe('executeP2PAction — REQUEST_INVALID + outbound_debug', () => {
     expect(r.message?.includes('Retry available')).toBe(false)
     expect(r.p2pCooldownUntilMs).toBeUndefined()
   })
+
+  it('includes clientSendFailureDebug when transport fails without outbound_debug', async () => {
+    vi.mocked(sendBeapViaP2P).mockResolvedValue({
+      success: false,
+      error: 'network down',
+      queued: false,
+    })
+    const pkg = { header: {}, metadata: {}, envelope: {} } as unknown as BeapPackage
+    const config = {
+      recipientMode: 'private' as const,
+      deliveryMethod: 'p2p' as const,
+      selectedRecipient: {
+        handshake_id: 'hs-1',
+        p2pEndpoint: 'https://peer.example/beap',
+        counterparty_email: 'a@b.com',
+        counterparty_user_id: 'u',
+        sharing_mode: 'reciprocal' as const,
+        receiver_fingerprint_short: 'x',
+        receiver_fingerprint_full: 'y',
+        receiver_display_name: 'R',
+        receiver_organization: '',
+        receiver_email_list: ['a@b.com'],
+      },
+      senderFingerprint: 's',
+      senderFingerprintShort: 'ss',
+      emailTo: '',
+      subject: '',
+      messageBody: 'hi',
+      attachments: [],
+    } satisfies BeapPackageConfig
+    const r = await executeP2PAction(pkg, config)
+    expect(r.success).toBe(false)
+    expect(r.clientSendFailureDebug?.kind).toBe('client_send_failure')
+    expect(r.clientSendFailureDebug?.phase).toBe('p2p_transport')
+  })
 })

@@ -12,6 +12,7 @@ import type { RecipientMode, SelectedRecipient } from '../components/RecipientMo
 import type { DeliveryMethod } from '../components/DeliveryMethodPanel'
 import type { BeapBuildResult } from '../../beap-builder/types'
 import type { CapsuleAttachment } from '../../beap-builder/canonical-types'
+import { assertNoSemanticContentInTransport } from '../../beap-builder/parserService'
 import type { OutboundRequestDebugSnapshot, ClientSendFailureDebug } from '../../handshake/handshakeRpc'
 import {
   buildDefaultProcessingOffer,
@@ -637,6 +638,11 @@ export interface DeliveryResult {
   derivedOutgoingRelayCapsuleType?: string | null
   /** Coordination P2P: 200 live push vs 202 queued offline (from `handshake.sendBeapViaP2P`). */
   coordinationRelayDelivery?: 'pushed_live' | 'queued_recipient_offline'
+  /**
+   * True only when the sender has explicit confirmation that the recipient orchestrator
+   * ingested the message (not implemented for coordination relay today — UI must not show green “delivered”).
+   */
+  recipientIngestConfirmed?: boolean
   /** Build / preflight / client-side exception — DEBUG button (no transport round-trip). */
   clientSendFailureDebug?: ClientSendFailureDebug
   details?: {
@@ -917,6 +923,31 @@ function validateQBeapPolicy(
   return null
 }
 
+/**
+ * Fail closed before qBEAP crypto if transport would duplicate encrypted capsule text
+ * or embed extracted attachment semantic content in the transport-visible field.
+ */
+export function checkQbeapTransportChannelSafety(
+  config: Pick<BeapPackageConfig, 'messageBody' | 'encryptedMessage' | 'attachments'>,
+  transportPlaintextNormalized: string,
+): string | null {
+  const enc = (config.encryptedMessage ?? '').trim()
+  const tp = transportPlaintextNormalized.trim()
+  if (enc.length >= 32 && tp.length >= 24) {
+    const prefixLen = Math.min(200, enc.length)
+    const prefix = enc.slice(0, prefixLen)
+    if (tp.includes(prefix)) {
+      return 'SECURITY: encryptedMessage leaked into transport plaintext'
+    }
+  }
+  try {
+    assertNoSemanticContentInTransport(config.messageBody ?? '', config.attachments ?? [])
+  } catch (e) {
+    return e instanceof Error ? e.message : String(e)
+  }
+  return null
+}
+
 // =============================================================================
 // Package Building
 // =============================================================================
@@ -992,6 +1023,15 @@ async function buildQBeapPackage(config: BeapPackageConfig): Promise<PackageBuil
   const transportNormResult = normalizeUrls(rawTransportPlaintext)
   const authoritativeBody = authNormResult.normalizedText
   const transportPlaintext = transportNormResult.normalizedText
+
+  const transportLeak = checkQbeapTransportChannelSafety(config, transportPlaintext)
+  if (transportLeak) {
+    return {
+      success: false,
+      error: transportLeak,
+    }
+  }
+
   // Consolidated URL references for the capsule metadata (deduped by normalizedUrl)
   const normalizedUrlRefs: ExtractedUrl[] = Object.values(
     [...authNormResult.extractedUrls, ...transportNormResult.extractedUrls].reduce<
@@ -2028,17 +2068,21 @@ export async function executeP2PAction(
     ? (recipient as { p2pEndpoint?: string | null }).p2pEndpoint
     : null
   if (!handshakeId) {
+    const msg = 'P2P delivery requires a handshake recipient'
     return {
       success: false,
       action: 'sent',
-      message: 'P2P delivery requires a handshake recipient'
+      message: msg,
+      clientSendFailureDebug: { kind: 'client_send_failure', phase: 'preflight', message: msg },
     }
   }
   if (!p2pEndpoint || typeof p2pEndpoint !== 'string' || p2pEndpoint.trim().length === 0) {
+    const msg = 'Recipient has no P2P endpoint'
     return {
       success: false,
       action: 'sent',
-      message: 'Recipient has no P2P endpoint'
+      message: msg,
+      clientSendFailureDebug: { kind: 'client_send_failure', phase: 'preflight', message: msg },
     }
   }
   try {
@@ -2057,6 +2101,7 @@ export async function executeP2PAction(
         success: true,
         action: 'sent',
         message,
+        recipientIngestConfirmed: false,
         ...(relay && { coordinationRelayDelivery: relay }),
       }
     }
@@ -2083,15 +2128,23 @@ export async function executeP2PAction(
             : result.code === 'OUT_OF_BAND_REQUIRED'
               ? 'OUT_OF_BAND_REQUIRED'
               : 'REQUEST_INVALID'
+      const msgJoined = lines.join('\n')
       return {
         success: false,
         action: 'sent',
-        message: lines.join('\n'),
+        message: msgJoined,
         code: terminalCode,
         queued: false,
         ...(result.outbound_debug && { p2pOutboundDebug: result.outbound_debug }),
         ...(result.derived_outgoing_relay_capsule_type !== undefined && {
           derivedOutgoingRelayCapsuleType: result.derived_outgoing_relay_capsule_type,
+        }),
+        ...(!result.outbound_debug && {
+          clientSendFailureDebug: {
+            kind: 'client_send_failure',
+            phase: 'p2p_transport',
+            message: msgJoined,
+          },
         }),
       }
     }
@@ -2119,14 +2172,22 @@ export async function executeP2PAction(
         typeof result.remaining_ms === 'number' && result.remaining_ms > 0
           ? Date.now() + result.remaining_ms
           : undefined
+      const backoffMsg = lines.join('\n')
       return {
         success: false,
         action: 'sent',
-        message: lines.join('\n'),
+        message: backoffMsg,
         code: 'BACKOFF_WAIT',
         queued: mayRetry,
         ...(p2pCooldownUntilMs !== undefined && { p2pCooldownUntilMs }),
         ...(result.outbound_debug && { p2pOutboundDebug: result.outbound_debug }),
+        ...(!result.outbound_debug && {
+          clientSendFailureDebug: {
+            kind: 'client_send_failure',
+            phase: 'p2p_transport',
+            message: backoffMsg,
+          },
+        }),
       }
     }
     const message =
@@ -2139,6 +2200,13 @@ export async function executeP2PAction(
       message,
       queued: mayRetry,
       ...(result.outbound_debug && { p2pOutboundDebug: result.outbound_debug }),
+      ...(!result.outbound_debug && {
+        clientSendFailureDebug: {
+          kind: 'client_send_failure',
+          phase: 'p2p_transport',
+          message,
+        },
+      }),
     }
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'P2P delivery failed'

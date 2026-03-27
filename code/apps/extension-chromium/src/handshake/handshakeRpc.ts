@@ -298,7 +298,13 @@ export async function ackPendingPlainEmail(id: number): Promise<void> {
  */
 export type ClientSendFailureDebug = {
   kind: 'client_send_failure'
-  phase: 'package_build' | 'preflight' | 'send_exception' | 'transport_exception'
+  phase:
+    | 'package_build'
+    | 'preflight'
+    | 'send_exception'
+    | 'transport_exception'
+    | 'p2p_transport'
+    | 'ui_validation'
   /** Short, user-safe summary (may repeat toast message). */
   message: string
 }
