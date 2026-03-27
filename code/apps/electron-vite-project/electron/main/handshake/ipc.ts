@@ -610,7 +610,12 @@ export async function handleHandshakeRPC(
       console.log(`[P2P-SEND] Enqueuing capsule for handshake ${handshakeId} → ${targetEndpoint}`)
       enqueueOutboundCapsule(db, handshakeId, targetEndpoint, pkg)
       const deliveryResult = await processOutboundQueue(db, _getOidcToken)
-      console.log(`[P2P-SEND] Delivery result for ${handshakeId}: ${JSON.stringify(deliveryResult)}`)
+      console.log('[P2P-SEND] Delivery result:', JSON.stringify({
+        delivered: deliveryResult.delivered,
+        code: deliveryResult.code,
+        http_status: deliveryResult.http_status,
+        error: deliveryResult.error,
+      }))
       if (!deliveryResult.delivered) {
         const d = deliveryResult as ProcessOutboundQueueResult
         return {

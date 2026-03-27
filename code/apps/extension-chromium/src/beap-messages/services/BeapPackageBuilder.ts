@@ -2240,6 +2240,7 @@ export async function executeDeliveryAction(
     const readyCheck = await checkHandshakeSendReady(config.selectedRecipient.handshake_id)
     if (!readyCheck.ready) {
       const msg = readyCheck.error ?? 'Handshake is no longer available for sending'
+      console.error('[BEAP-SEND] P2P preflight failed:', msg)
       return {
         success: false,
         action: 'preflight',
@@ -2258,6 +2259,7 @@ export async function executeDeliveryAction(
   
   if (!buildResult.success || !buildResult.package) {
     const msg = buildResult.error || 'Failed to build package'
+    console.error('[BEAP-SEND] Package build failed:', msg)
     return {
       success: false,
       action: config.deliveryMethod === 'email' ? 'sent' : 
@@ -2279,8 +2281,13 @@ export async function executeDeliveryAction(
       return executeEmailAction(pkg, config)
     case 'download':
       return executeDownloadAction(pkg, config)
-    case 'p2p':
-      return executeP2PAction(pkg, config)
+    case 'p2p': {
+      const p2pResult = await executeP2PAction(pkg, config)
+      if (!p2pResult.success) {
+        console.error('[BEAP-SEND] P2P transport failed:', p2pResult.message, p2pResult.clientSendFailureDebug)
+      }
+      return p2pResult
+    }
     default: {
       const msg = `Unknown delivery method: ${config.deliveryMethod}`
       return {

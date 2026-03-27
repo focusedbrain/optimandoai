@@ -18,6 +18,20 @@
 
 import type { CapsuleAttachment, RasterProof } from './canonical-types'
 
+/**
+ * Retrieve the per-launch HTTP auth headers from the background script.
+ * Returns { 'X-Launch-Secret': '<hex>' } when connected to Electron,
+ * or {} when not available (browser-only fallback still works).
+ */
+async function getLaunchHeaders(): Promise<Record<string, string>> {
+  try {
+    const resp = await chrome.runtime.sendMessage({ type: 'BEAP_GET_PQ_HEADERS' })
+    return resp?.headers ?? {}
+  } catch {
+    return {}
+  }
+}
+
 // Browser-based PDF text extraction (pdfjs-dist) — no Electron required
 let _pdfjsInit = false
 
@@ -206,9 +220,10 @@ async function extractPdfTextElectron(
   base64Data: string
 ): Promise<ParserResult> {
   try {
+    const launchHeaders = await getLaunchHeaders()
     const response = await fetch(`${ELECTRON_BASE_URL}/api/parser/pdf/extract`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...launchHeaders },
       body: JSON.stringify({ attachmentId, base64: base64Data }),
       signal: AbortSignal.timeout(30_000),
     })
@@ -407,10 +422,12 @@ export async function rasterizePdf(
   dpi?: number
 ): Promise<RasterResult> {
   try {
+    const launchHeaders = await getLaunchHeaders()
     const response = await fetch(`${ELECTRON_BASE_URL}/api/parser/pdf/rasterize`, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        ...launchHeaders,
       },
       body: JSON.stringify({
         attachmentId,

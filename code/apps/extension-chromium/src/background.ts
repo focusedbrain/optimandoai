@@ -2372,6 +2372,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   // Check if this is a vault RPC message (has type: 'VAULT_RPC')
   if (msg && msg.type === 'VAULT_RPC') {
     console.log('[BG] Received VAULT_RPC:', msg.method)
+    console.log('[BG] WS state:', ws ? `readyState=${ws.readyState}` : 'null', '| launchSecret:', _launchSecret ? 'set' : 'NOT SET')
 
     if (!ws || ws.readyState !== WebSocket.OPEN) {
       console.error('[BG] WebSocket not connected for vault RPC')

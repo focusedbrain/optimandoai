@@ -55,8 +55,8 @@ function serviceWorkerSafePreload(): Plugin {
 
 export default defineConfig({
   define: {
-    // New value on every production build — log in background to confirm you are not on stale unpacked output.
-    'import.meta.env.VITE_EXT_BUILD_STAMP': JSON.stringify(new Date().toISOString()),
+    // Production build label — log in background to confirm unpacked output version.
+    'import.meta.env.VITE_EXT_BUILD_STAMP': JSON.stringify('build152'),
   },
   plugins: [
     react(),
@@ -73,7 +73,7 @@ export default defineConfig({
     },
   },
   build: {
-    outDir: 'build452',
+    outDir: 'build152',
     // Disable Vite's modulepreload polyfill — it references `document` and
     // `window` which don't exist in Chrome extension service workers (MV3).
     modulePreload: false,
