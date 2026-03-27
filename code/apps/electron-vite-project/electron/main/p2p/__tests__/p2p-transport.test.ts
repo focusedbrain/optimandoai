@@ -1346,6 +1346,7 @@ describe('P8: TLS', () => {
   })
 
   test('P8_03_no_tls_warning', async () => {
+    if (skipIfNoSqlite()) return
     const logs: string[] = []
     const orig = console.warn
     console.warn = (...args: unknown[]) => {

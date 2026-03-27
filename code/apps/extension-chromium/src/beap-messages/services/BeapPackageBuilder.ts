@@ -621,8 +621,15 @@ export interface DeliveryResult {
   success: boolean
   action: 'sent' | 'copied' | 'downloaded' | 'preflight'
   message: string
+  /** P2P queue / transport outcome from Electron when present (e.g. `BACKOFF_WAIT`) */
+  code?: string
   /** P2P: set when delivery failed but the capsule may still be retried from the outbound queue */
   queued?: boolean
+  /**
+   * P2P: when the Electron queue is in backoff (`BACKOFF_WAIT`), absolute time (ms) after which
+   * another send may reach the server. UI can disable Send until `Date.now() >= this`.
+   */
+  p2pCooldownUntilMs?: number
   details?: {
     to?: string
     filename?: string
@@ -2038,6 +2045,38 @@ export async function executeP2PAction(
     }
     const errMsg = result?.error ?? 'P2P delivery failed'
     const mayRetry = result?.queued !== false
+    if (result?.code === 'BACKOFF_WAIT') {
+      const prev = result.last_queue_error?.trim()
+      const lines: string[] = [errMsg]
+      if (prev) {
+        lines.push('')
+        lines.push('Underlying issue:')
+        lines.push(prev)
+      }
+      if (typeof result.remaining_ms === 'number' && result.remaining_ms > 0) {
+        const sec = Math.max(1, Math.ceil(result.remaining_ms / 1000))
+        lines.push('')
+        lines.push(`Retry available in ~${sec}s`)
+      }
+      if (
+        typeof result.retry_count === 'number' &&
+        typeof result.max_retries === 'number'
+      ) {
+        lines.push(`(queue: ${result.retry_count} / ${result.max_retries} retries)`)
+      }
+      const p2pCooldownUntilMs =
+        typeof result.remaining_ms === 'number' && result.remaining_ms > 0
+          ? Date.now() + result.remaining_ms
+          : undefined
+      return {
+        success: false,
+        action: 'sent',
+        message: lines.join('\n'),
+        code: 'BACKOFF_WAIT',
+        queued: mayRetry,
+        ...(p2pCooldownUntilMs !== undefined && { p2pCooldownUntilMs }),
+      }
+    }
     const message =
       !mayRetry || /retry/i.test(errMsg)
         ? errMsg

@@ -57,7 +57,7 @@ import {
 } from './db'
 import { tryEnqueueContextSync } from './contextSyncEnqueue'
 import { deriveRelationshipId } from './relationshipId'
-import { enqueueOutboundCapsule, processOutboundQueue } from './outboundQueue'
+import { enqueueOutboundCapsule, processOutboundQueue, type ProcessOutboundQueueResult } from './outboundQueue'
 import { randomBytes, randomUUID, generateKeyPairSync } from 'crypto'
 import { getP2PConfig, getEffectiveRelayEndpoint } from '../p2p/p2pConfig'
 import { registerHandshakeWithRelay } from '../p2p/relaySync'
@@ -610,13 +610,20 @@ export async function handleHandshakeRPC(
       const deliveryResult = await processOutboundQueue(db, _getOidcToken)
       console.log(`[P2P-SEND] Delivery result for ${handshakeId}: ${JSON.stringify(deliveryResult)}`)
       if (!deliveryResult.delivered) {
+        const d = deliveryResult as ProcessOutboundQueueResult
         return {
           success: false,
-          error: deliveryResult.error ?? 'Delivery failed — capsule queued for retry',
-          queued: deliveryResult.queued !== false,
+          error: d.error ?? 'Delivery failed — capsule queued for retry',
+          queued: d.queued !== false,
+          ...(d.code && { code: d.code }),
+          ...(d.last_queue_error !== undefined && { last_queue_error: d.last_queue_error }),
+          ...(d.retry_count !== undefined && { retry_count: d.retry_count }),
+          ...(d.max_retries !== undefined && { max_retries: d.max_retries }),
+          ...(d.remaining_ms !== undefined && { remaining_ms: d.remaining_ms }),
         }
       }
-      return { success: true }
+      const ok = deliveryResult as ProcessOutboundQueueResult
+      return { success: true, ...(ok.code && { code: ok.code }) }
     }
 
     case 'handshake.checkSendReady': {

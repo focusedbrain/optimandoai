@@ -390,6 +390,7 @@ function PopupChatApp() {
   // BEAP Recipient Mode state (PRIVATE=qBEAP / PUBLIC=pBEAP)
   const [beapRecipientMode, setBeapRecipientMode] = useState<RecipientMode>('private')
   const [selectedRecipient, setSelectedRecipient] = useState<SelectedRecipient | null>(null)
+  const [beapDeliveryMethod, setBeapDeliveryMethod] = useState<'email' | 'download' | 'p2p'>('p2p')
 
   // Active handshakes for recipient selection in BEAP draft (private/qBEAP mode)
   const {
@@ -510,8 +511,10 @@ function PopupChatApp() {
   )
   const [isLoadingEmailAccounts, setIsLoadingEmailAccounts] = useState(false)
   const [selectedEmailAccountId, setSelectedEmailAccountId] = useState<string | null>(null)
-  const [toastMessage, setToastMessage] = useState<{message: string, type: 'success' | 'error'} | null>(null)
+  const [toastMessage, setToastMessage] = useState<{message: string, type: 'success' | 'error' | 'info'} | null>(null)
   const [isSendingBeap, setIsSendingBeap] = useState(false)
+  /** P2P queue backoff: block Send until this time */
+  const [beapP2pCooldownUntilMs, setBeapP2pCooldownUntilMs] = useState<number | null>(null)
   
   // Load email accounts from Electron via background script
   const loadEmailAccounts = async () => {
@@ -644,6 +647,7 @@ function PopupChatApp() {
     }
 
     setIsSendingBeap(true)
+    let toastClearMs = 3000
 
     try {
       // Download/messenger: always use package builder + executeDeliveryAction (never handshake.refresh)
@@ -707,6 +711,7 @@ function PopupChatApp() {
       const result = await executeDeliveryAction(config)
       
       if (result.success) {
+        setBeapP2pCooldownUntilMs(null)
         // Show success notification based on delivery method
         const actionLabel = beapDeliveryMethod === 'download' ? 'BEAP capsule downloaded' 
           : beapDeliveryMethod === 'p2p' ? 'BEAP™ Message sent via P2P!' 
@@ -722,20 +727,39 @@ function PopupChatApp() {
         setBeapDraftAttachments([])
         setSelectedRecipient(null)
       } else {
-        setToastMessage({ message: result.message || 'Failed to send message', type: 'error' })
+        if (beapDeliveryMethod === 'p2p' && typeof result.p2pCooldownUntilMs === 'number') {
+          setBeapP2pCooldownUntilMs(result.p2pCooldownUntilMs)
+          const delay = Math.max(0, result.p2pCooldownUntilMs - Date.now())
+          window.setTimeout(() => setBeapP2pCooldownUntilMs(null), delay + 250)
+        }
+        const isBackoff =
+          result.code === 'BACKOFF_WAIT' ||
+          (result.message?.includes('waiting before retry') ?? false)
+        if (isBackoff) toastClearMs = 9000
+        setToastMessage({
+          message: result.message || 'Failed to send message',
+          type: isBackoff ? 'info' : 'error',
+        })
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'An unexpected error occurred'
       setToastMessage({ message, type: 'error' })
     } finally {
       setIsSendingBeap(false)
-      setTimeout(() => setToastMessage(null), 3000)
+      setTimeout(() => setToastMessage(null), toastClearMs)
     }
   }
   
   // Get button label based on delivery method
   const getBeapSendButtonLabel = () => {
     if (isSendingBeap) return '⏳ Processing...'
+    if (
+      beapDeliveryMethod === 'p2p' &&
+      beapP2pCooldownUntilMs != null &&
+      Date.now() < beapP2pCooldownUntilMs
+    ) {
+      return '⏳ Cooldown…'
+    }
     switch (beapDeliveryMethod) {
       case 'email': return '📧 Send'
       case 'p2p': return '🔗 Send'
@@ -745,8 +769,13 @@ function PopupChatApp() {
   }
   
   // Check if send button should be disabled
-  const isBeapSendDisabled = isSendingBeap || !beapDraftMessage.trim() || 
-    (beapRecipientMode === 'private' && !selectedRecipient)
+  const isBeapSendDisabled =
+    isSendingBeap ||
+    !beapDraftMessage.trim() ||
+    (beapRecipientMode === 'private' && !selectedRecipient) ||
+    (beapDeliveryMethod === 'p2p' &&
+      beapP2pCooldownUntilMs != null &&
+      Date.now() < beapP2pCooldownUntilMs)
   
   
   // For debugging: toggle admin role with keyboard shortcut
@@ -766,7 +795,6 @@ function PopupChatApp() {
   // BEAP Messages State (mirrors docked sidepanel)
   // =========================================================================
   // NOTE: Using beapDraftMessage and beapDraftTo from above for consistency with sidepanel
-  const [beapDeliveryMethod, setBeapDeliveryMethod] = useState<'email' | 'download' | 'p2p'>('p2p')
   const [beapFingerprintCopied, setBeapFingerprintCopied] = useState(false)
   
   // Email compose form state (for email-compose workspace)
@@ -1992,17 +2020,25 @@ function PopupChatApp() {
           zIndex: 9999,
           padding: '10px 20px',
           borderRadius: '8px',
-          background: toastMessage.type === 'success' ? 'rgba(34,197,94,0.95)' : 'rgba(239,68,68,0.95)',
+          background:
+            toastMessage.type === 'success'
+              ? 'rgba(34,197,94,0.95)'
+              : toastMessage.type === 'info'
+                ? 'rgba(33, 150, 243, 0.95)'
+                : 'rgba(239,68,68,0.95)',
           color: 'white',
           fontSize: '12px',
           fontWeight: 500,
           boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
           display: 'flex',
-          alignItems: 'center',
-          gap: '8px'
+          alignItems: 'flex-start',
+          gap: '8px',
+          maxWidth: 'min(92vw, 420px)',
         }}>
-          <span>{toastMessage.type === 'success' ? '✓' : '✕'}</span>
-          <span>{toastMessage.message}</span>
+          <span style={{ flexShrink: 0, lineHeight: 1.4 }}>
+            {toastMessage.type === 'success' ? '✓' : toastMessage.type === 'info' ? 'ℹ' : '✕'}
+          </span>
+          <span style={{ whiteSpace: 'pre-line', lineHeight: 1.45 }}>{toastMessage.message}</span>
         </div>
       )}
       

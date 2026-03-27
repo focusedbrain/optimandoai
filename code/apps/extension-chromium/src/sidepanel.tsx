@@ -475,6 +475,8 @@ function SidepanelOrchestrator() {
   
   // BEAP Message sending state
   const [isSendingBeap, setIsSendingBeap] = useState(false)
+  /** P2P queue backoff: block Send until this time (ms since epoch) */
+  const [beapP2pCooldownUntilMs, setBeapP2pCooldownUntilMs] = useState<number | null>(null)
   
   // Handler for sending BEAP messages (shared across all Draft views)
   const handleSendBeapMessage = async () => {
@@ -526,6 +528,7 @@ function SidepanelOrchestrator() {
     }
 
     setIsSendingBeap(true)
+    let toastClearMs = 3000
 
     try {
       // Download/messenger: always use package builder + executeDeliveryAction (never handshake.refresh)
@@ -581,6 +584,7 @@ function SidepanelOrchestrator() {
         const result = await executeDeliveryAction(config)
         
         if (result.success) {
+          setBeapP2pCooldownUntilMs(null)
           const actionLabel = handshakeDelivery === 'download' ? 'BEAP capsule downloaded' 
             : handshakeDelivery === 'p2p' ? 'BEAP™ Message sent via P2P!' 
             : 'BEAP™ Message sent!'
@@ -593,7 +597,19 @@ function SidepanelOrchestrator() {
           setBeapDraftAttachments([])
           setSelectedRecipient(null)
         } else {
-          setNotification({ message: result.message || 'Failed to send message', type: 'error' })
+          if (handshakeDelivery === 'p2p' && typeof result.p2pCooldownUntilMs === 'number') {
+            setBeapP2pCooldownUntilMs(result.p2pCooldownUntilMs)
+            const delay = Math.max(0, result.p2pCooldownUntilMs - Date.now())
+            window.setTimeout(() => setBeapP2pCooldownUntilMs(null), delay + 250)
+          }
+          const isBackoff =
+            result.code === 'BACKOFF_WAIT' ||
+            (result.message?.includes('waiting before retry') ?? false)
+          if (isBackoff) toastClearMs = 9000
+          setNotification({
+            message: result.message || 'Failed to send message',
+            type: isBackoff ? 'info' : 'error',
+          })
         }
       }
     } catch (error) {
@@ -602,13 +618,20 @@ function SidepanelOrchestrator() {
       setNotification({ message: isTechnical ? 'Something went wrong. Please try again.' : raw, type: 'error' })
     } finally {
       setIsSendingBeap(false)
-      setTimeout(() => setNotification(null), 3000)
+      setTimeout(() => setNotification(null), toastClearMs)
     }
   }
   
   // Get button label based on delivery method
   const getBeapSendButtonLabel = () => {
     if (isSendingBeap) return '⏳ Processing...'
+    if (
+      handshakeDelivery === 'p2p' &&
+      beapP2pCooldownUntilMs != null &&
+      Date.now() < beapP2pCooldownUntilMs
+    ) {
+      return '⏳ Cooldown…'
+    }
     switch (handshakeDelivery) {
       case 'email': return '📧 Send'
       case 'p2p': return '🔗 Send'
@@ -618,8 +641,13 @@ function SidepanelOrchestrator() {
   }
   
   // Check if send button should be disabled
-  const isBeapSendDisabled = isSendingBeap || !beapDraftMessage.trim() || 
-    (beapRecipientMode === 'private' && !selectedRecipient)
+  const isBeapSendDisabled =
+    isSendingBeap ||
+    !beapDraftMessage.trim() ||
+    (beapRecipientMode === 'private' && !selectedRecipient) ||
+    (handshakeDelivery === 'p2p' &&
+      beapP2pCooldownUntilMs != null &&
+      Date.now() < beapP2pCooldownUntilMs)
   
   const [isResizingMailguard, setIsResizingMailguard] = useState(false)
   const mailguardFileRef = useRef<HTMLInputElement>(null)
@@ -5582,10 +5610,13 @@ function SidepanelOrchestrator() {
             boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
             animation: 'slideInDown 0.3s ease',
             display: 'flex',
-            alignItems: 'center',
+            alignItems: 'flex-start',
             gap: '8px'
           }}>
-            <span>{notification.message}</span>
+            <span style={{ flexShrink: 0, lineHeight: 1.4 }}>
+              {notification.type === 'success' ? '✓' : notification.type === 'info' ? 'ℹ' : '✕'}
+            </span>
+            <span style={{ whiteSpace: 'pre-line', lineHeight: 1.45 }}>{notification.message}</span>
           </div>
         )}
       </div>
@@ -8777,10 +8808,13 @@ height: '28px',
           boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
           animation: 'slideInDown 0.3s ease',
           display: 'flex',
-          alignItems: 'center',
+          alignItems: 'flex-start',
           gap: '8px'
         }}>
-          <span>{notification.message}</span>
+          <span style={{ flexShrink: 0, lineHeight: 1.4 }}>
+            {notification.type === 'success' ? '✓' : notification.type === 'info' ? 'ℹ' : '✕'}
+          </span>
+          <span style={{ whiteSpace: 'pre-line', lineHeight: 1.45 }}>{notification.message}</span>
         </div>
       )}
       </div>

@@ -26,12 +26,28 @@ function backoffDelay(retryCount: number): number {
   return delay
 }
 
+/** Stable codes for IPC/diagnostics (additive; optional on each path). */
+export type OutboundQueueCode =
+  | 'BACKOFF_WAIT'
+  | 'DELIVERED'
+  | 'PREFLIGHT_FAILED'
+  | 'TRANSPORT_FAILED'
+  | 'AUTH_REQUIRED'
+  | 'FAILED_MAX_RETRIES'
+
 /** Result of attempting to process one pending outbound capsule (oldest first). */
 export interface ProcessOutboundQueueResult {
   delivered: boolean
   error?: string
   /** False when the row is marked failed (max retries); true when still pending / may retry */
   queued?: boolean
+  code?: OutboundQueueCode
+  /** Last persisted failure on the queue row (`outbound_capsule_queue.error`). */
+  last_queue_error?: string | null
+  retry_count?: number
+  max_retries?: number
+  /** ms until this row is eligible for the next attempt (backoff path only). */
+  remaining_ms?: number
 }
 
 export function enqueueOutboundCapsule(
@@ -88,10 +104,15 @@ function recordCoordinationPreflightFailure(
   }
   const counts = getQueueCountsInternal(db)
   setP2PHealthQueueCounts(counts.pending, counts.failed)
+  const failedMax = newRetry >= row.max_retries
   return {
     delivered: false,
     error: errorMsg,
-    queued: newRetry < row.max_retries,
+    queued: !failedMax,
+    code: failedMax ? 'FAILED_MAX_RETRIES' : 'PREFLIGHT_FAILED',
+    last_queue_error: errorMsg,
+    retry_count: newRetry,
+    max_retries: row.max_retries,
   }
 }
 
@@ -102,12 +123,20 @@ export async function processOutboundQueue(
   if (!db) return { delivered: false, error: 'Database unavailable', queued: false }
   try {
     const row = db.prepare(
-      `SELECT id, handshake_id, target_endpoint, capsule_json, retry_count, max_retries
+      `SELECT id, handshake_id, target_endpoint, capsule_json, retry_count, max_retries, error
        FROM outbound_capsule_queue
        WHERE status = 'pending'
        ORDER BY created_at ASC, id ASC
        LIMIT 1`,
-    ).get() as { id: number; handshake_id: string; target_endpoint: string; capsule_json: string; retry_count: number; max_retries: number } | undefined
+    ).get() as {
+      id: number
+      handshake_id: string
+      target_endpoint: string
+      capsule_json: string
+      retry_count: number
+      max_retries: number
+      error: string | null
+    } | undefined
 
     if (!row) return { delivered: false, error: 'No pending capsule to process', queued: false }
 
@@ -119,10 +148,39 @@ export async function processOutboundQueue(
       const elapsed = Date.now() - Date.parse(lastAttempt.last_attempt_at)
       const required = backoffDelay(row.retry_count - 1)
       if (elapsed < required) {
+        const remaining_ms = Math.max(0, required - elapsed)
+        const last_queue_error = row.error ?? null
+        const p2pCfg = getP2PConfig(db)
+        const preview =
+          last_queue_error && last_queue_error.length > 0
+            ? last_queue_error.slice(0, 120)
+            : null
+        console.info(
+          '[P2P-QUEUE]',
+          JSON.stringify({
+            event: 'outbound_backoff',
+            code: 'BACKOFF_WAIT',
+            queue_row_id: row.id,
+            handshake_id: row.handshake_id,
+            retry_count: row.retry_count,
+            max_retries: row.max_retries,
+            required_ms: required,
+            elapsed_ms: elapsed,
+            remaining_ms,
+            last_error_preview: preview,
+            last_error_len: last_queue_error?.length ?? 0,
+            use_coordination: p2pCfg.use_coordination,
+          }),
+        )
         return {
           delivered: false,
           error: 'Delivery is waiting before retry — try again shortly',
           queued: true,
+          code: 'BACKOFF_WAIT',
+          last_queue_error,
+          retry_count: row.retry_count,
+          max_retries: row.max_retries,
+          remaining_ms,
         }
       }
     }
@@ -164,7 +222,7 @@ export async function processOutboundQueue(
       ).run(now, row.id)
       const counts = getQueueCountsInternal(db)
       setP2PHealthQueueCounts(counts.pending, counts.failed)
-      return { delivered: true }
+      return { delivered: true, code: 'DELIVERED' }
     }
 
     const is401 = result.statusCode === 401
@@ -178,6 +236,17 @@ export async function processOutboundQueue(
       db.prepare(
         `UPDATE outbound_capsule_queue SET last_attempt_at = ?, error = ? WHERE id = ?`,
       ).run(now, userError, row.id)
+      const counts401 = getQueueCountsInternal(db)
+      setP2PHealthQueueCounts(counts401.pending, counts401.failed)
+      return {
+        delivered: false,
+        error: userError,
+        queued: true,
+        code: 'AUTH_REQUIRED',
+        last_queue_error: userError,
+        retry_count: row.retry_count,
+        max_retries: row.max_retries,
+      }
     } else {
       const newRetry = row.retry_count + 1
       const isFailed = newRetry >= row.max_retries
@@ -200,11 +269,28 @@ export async function processOutboundQueue(
 
     const counts = getQueueCountsInternal(db)
     setP2PHealthQueueCounts(counts.pending, counts.failed)
-    return { delivered: false, error: userError, queued }
+    const failedMax = !queued
+    const updatedRetryCount = row.retry_count + 1
+    return {
+      delivered: false,
+      error: userError,
+      queued,
+      code: failedMax ? 'FAILED_MAX_RETRIES' : 'TRANSPORT_FAILED',
+      last_queue_error: userError,
+      retry_count: updatedRetryCount,
+      max_retries: row.max_retries,
+    }
   } catch (err: any) {
     console.warn('[P2P] processOutboundQueue error:', err?.message)
     setP2PHealthOutboundFailure(err?.message ?? 'Unknown error')
-    return { delivered: false, error: err?.message ?? 'Unknown error', queued: true }
+    const msg = err?.message ?? 'Unknown error'
+    return {
+      delivered: false,
+      error: msg,
+      queued: true,
+      code: 'TRANSPORT_FAILED',
+      last_queue_error: msg,
+    }
   }
 }
 

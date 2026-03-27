@@ -284,14 +284,29 @@ export async function ackPendingPlainEmail(id: number): Promise<void> {
  * @param handshakeId - Handshake ID for the recipient
  * @param packageJson - JSON string of the BEAP package
  */
+/** Matches Electron `handshake.sendBeapViaP2P` response (additive fields). */
+export type SendBeapViaP2PResult = {
+  success: boolean
+  error?: string
+  queued?: boolean
+  code?:
+    | 'BACKOFF_WAIT'
+    | 'DELIVERED'
+    | 'PREFLIGHT_FAILED'
+    | 'TRANSPORT_FAILED'
+    | 'AUTH_REQUIRED'
+    | 'FAILED_MAX_RETRIES'
+  last_queue_error?: string | null
+  retry_count?: number
+  max_retries?: number
+  remaining_ms?: number
+}
+
 export async function sendBeapViaP2P(
   handshakeId: string,
   packageJson: string
-): Promise<{ success: boolean; error?: string; queued?: boolean }> {
-  return sendHandshakeRpc<{ success: boolean; error?: string; queued?: boolean }>(
-    'handshake.sendBeapViaP2P',
-    { handshakeId, packageJson }
-  )
+): Promise<SendBeapViaP2PResult> {
+  return sendHandshakeRpc<SendBeapViaP2PResult>('handshake.sendBeapViaP2P', { handshakeId, packageJson })
 }
 
 /**
