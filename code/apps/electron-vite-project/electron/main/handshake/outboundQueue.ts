@@ -8,7 +8,7 @@
  * When !use_coordination: target = relay URL from queue, auth = handshake Bearer token.
  */
 
-import { sendCapsuleViaHttp, sendCapsuleViaCoordination } from './p2pTransport'
+import { sendCapsuleViaHttp, sendCapsuleViaCoordination, type SendCapsuleResult } from './p2pTransport'
 import { getHandshakeRecord } from './db'
 import { getP2PConfig } from '../p2p/p2pConfig'
 import {
@@ -35,6 +35,22 @@ export type OutboundQueueCode =
   | 'AUTH_REQUIRED'
   | 'FAILED_MAX_RETRIES'
 
+/** Classified failure for self-healing policy (best-effort). */
+export type FailureClass =
+  | 'AUTH_RECOVERABLE'
+  | 'TRANSIENT_TRANSPORT'
+  | 'THROTTLED'
+  | 'STALE_ROUTE'
+  | 'CONFIG_PERMANENT'
+  | 'PAYLOAD_PERMANENT'
+
+export type HealingStatus =
+  | 'idle'
+  | 'scheduled'
+  | 'auth_refreshing'
+  | 'route_refreshing'
+  | 'terminal_non_recoverable'
+
 /** Result of attempting to process one pending outbound capsule (oldest first). */
 export interface ProcessOutboundQueueResult {
   delivered: boolean
@@ -48,7 +64,77 @@ export interface ProcessOutboundQueueResult {
   max_retries?: number
   /** ms until this row is eligible for the next attempt (backoff path only). */
   remaining_ms?: number
+  /** ISO timestamp when the next automatic drain may succeed (backoff path). */
+  next_retry_at?: string
+  failure_class?: FailureClass
+  healing_status?: HealingStatus
 }
+
+function jitterMs(max = 400): number {
+  return Math.floor(Math.random() * max)
+}
+
+function classifySendFailure(
+  statusCode: number | undefined,
+  rawError: string,
+  context: { noToken?: boolean; noCoordUrl?: boolean; invalidTarget?: boolean },
+): FailureClass {
+  if (context.noCoordUrl) return 'CONFIG_PERMANENT'
+  if (context.noToken) return 'AUTH_RECOVERABLE'
+  if (context.invalidTarget) return 'CONFIG_PERMANENT'
+  if (statusCode === 401) return 'AUTH_RECOVERABLE'
+  if (statusCode === 429) return 'THROTTLED'
+  if (statusCode != null && statusCode >= 400 && statusCode < 500) return 'PAYLOAD_PERMANENT'
+  const e = (rawError || '').toLowerCase()
+  if (e.includes('econnrefused') || e.includes('enotfound') || e.includes('getaddrinfo')) return 'STALE_ROUTE'
+  if (e.includes('timeout') || e.includes('aborted') || e.includes('fetch failed')) return 'TRANSIENT_TRANSPORT'
+  if (statusCode != null && statusCode >= 500) return 'TRANSIENT_TRANSPORT'
+  return 'TRANSIENT_TRANSPORT'
+}
+
+function shouldAutodrainOnBackoff(lastError: string | null, fc?: FailureClass): boolean {
+  if (fc === 'CONFIG_PERMANENT' || fc === 'PAYLOAD_PERMANENT') return false
+  if (!lastError) return true
+  if (/Coordination URL not configured/i.test(lastError)) return false
+  if (/Invalid package/i.test(lastError)) return false
+  return true
+}
+
+/** Optional: call from main with `() => ensureSession()` so 401 coordination sends can refresh once. */
+let _refreshSession: (() => Promise<void>) | undefined
+export function setOutboundQueueAuthRefresh(fn?: (() => Promise<void>) | undefined): void {
+  _refreshSession = fn
+}
+
+let _autoDrainTimer: ReturnType<typeof setTimeout> | null = null
+
+/** @internal tests */
+export function clearOutboundAutoDrainTimer(): void {
+  if (_autoDrainTimer) {
+    clearTimeout(_autoDrainTimer)
+    _autoDrainTimer = null
+  }
+}
+
+function scheduleAutoDrain(
+  db: any,
+  getOidcToken: (() => Promise<string | null>) | undefined,
+  delayMs: number,
+  meta: Record<string, unknown>,
+): void {
+  clearOutboundAutoDrainTimer()
+  const total = Math.max(0, delayMs) + jitterMs(400)
+  console.info('[P2P-QUEUE]', JSON.stringify({ event: 'backoff_autodrain_scheduled', delay_ms: total, ...meta }))
+  _autoDrainTimer = setTimeout(() => {
+    _autoDrainTimer = null
+    console.info('[P2P-QUEUE]', JSON.stringify({ event: 'retry_attempt_started', trigger: 'auto', ...meta }))
+    processOutboundQueue(db, getOidcToken).catch((e) =>
+      console.warn('[P2P-QUEUE]', JSON.stringify({ event: 'autodrain_error', error: String(e) })),
+    )
+  }, total)
+}
+
+let _drainChain: Promise<unknown> = Promise.resolve()
 
 export function enqueueOutboundCapsule(
   db: any,
@@ -93,18 +179,27 @@ function recordCoordinationPreflightFailure(
   row: { id: number; retry_count: number; max_retries: number },
   now: string,
   errorMsg: string,
+  fc: FailureClass,
+  getOidcToken?: () => Promise<string | null>,
 ): ProcessOutboundQueueResult {
   setP2PHealthOutboundFailure(errorMsg)
   const newRetry = row.retry_count + 1
   db.prepare(
-    `UPDATE outbound_capsule_queue SET error = ?, last_attempt_at = ?, retry_count = ? WHERE id = ?`,
-  ).run(errorMsg, now, newRetry, row.id)
+    `UPDATE outbound_capsule_queue SET error = ?, last_attempt_at = ?, retry_count = ?, failure_class = ? WHERE id = ?`,
+  ).run(errorMsg, now, newRetry, fc, row.id)
   if (newRetry >= row.max_retries) {
     db.prepare(`UPDATE outbound_capsule_queue SET status = 'failed' WHERE id = ?`).run(row.id)
   }
   const counts = getQueueCountsInternal(db)
   setP2PHealthQueueCounts(counts.pending, counts.failed)
   const failedMax = newRetry >= row.max_retries
+  if (!failedMax && getOidcToken && shouldAutodrainOnBackoff(errorMsg, fc)) {
+    scheduleAutoDrain(db, getOidcToken, backoffDelay(newRetry - 1), {
+      queue_row_id: row.id,
+      failure_class: fc,
+      source: 'preflight',
+    })
+  }
   return {
     delivered: false,
     error: errorMsg,
@@ -113,6 +208,8 @@ function recordCoordinationPreflightFailure(
     last_queue_error: errorMsg,
     retry_count: newRetry,
     max_retries: row.max_retries,
+    failure_class: fc,
+    healing_status: failedMax ? 'terminal_non_recoverable' : 'idle',
   }
 }
 
@@ -120,10 +217,20 @@ export async function processOutboundQueue(
   db: any,
   getOidcToken?: () => Promise<string | null>,
 ): Promise<ProcessOutboundQueueResult> {
+  const run = _drainChain.then(() => processOutboundQueueInner(db, getOidcToken))
+  _drainChain = run.then(() => {}).catch(() => {})
+  return run as Promise<ProcessOutboundQueueResult>
+}
+
+async function processOutboundQueueInner(
+  db: any,
+  getOidcToken?: () => Promise<string | null>,
+): Promise<ProcessOutboundQueueResult> {
   if (!db) return { delivered: false, error: 'Database unavailable', queued: false }
   try {
     const row = db.prepare(
-      `SELECT id, handshake_id, target_endpoint, capsule_json, retry_count, max_retries, error
+      `SELECT id, handshake_id, target_endpoint, capsule_json, retry_count, max_retries, error,
+              IFNULL(retry_after_ms, 0) AS retry_after_ms, failure_class
        FROM outbound_capsule_queue
        WHERE status = 'pending'
        ORDER BY created_at ASC, id ASC
@@ -136,6 +243,8 @@ export async function processOutboundQueue(
       retry_count: number
       max_retries: number
       error: string | null
+      retry_after_ms: number
+      failure_class: string | null
     } | undefined
 
     if (!row) return { delivered: false, error: 'No pending capsule to process', queued: false }
@@ -146,7 +255,9 @@ export async function processOutboundQueue(
     const lastAttempt = db.prepare('SELECT last_attempt_at FROM outbound_capsule_queue WHERE id = ?').get(row.id) as { last_attempt_at: string | null } | undefined
     if (lastAttempt?.last_attempt_at && row.retry_count > 0) {
       const elapsed = Date.now() - Date.parse(lastAttempt.last_attempt_at)
-      const required = backoffDelay(row.retry_count - 1)
+      const baseBackoff = backoffDelay(row.retry_count - 1)
+      const throttleExtra = row.retry_after_ms > 0 ? row.retry_after_ms : 0
+      const required = Math.max(baseBackoff, throttleExtra)
       if (elapsed < required) {
         const remaining_ms = Math.max(0, required - elapsed)
         const last_queue_error = row.error ?? null
@@ -155,6 +266,11 @@ export async function processOutboundQueue(
           last_queue_error && last_queue_error.length > 0
             ? last_queue_error.slice(0, 120)
             : null
+        const last_queue_error_log =
+          last_queue_error && last_queue_error.length > 512
+            ? `${last_queue_error.slice(0, 512)}…`
+            : last_queue_error
+        const fc = (row.failure_class as FailureClass | undefined) || undefined
         console.info(
           '[P2P-QUEUE]',
           JSON.stringify({
@@ -165,13 +281,26 @@ export async function processOutboundQueue(
             retry_count: row.retry_count,
             max_retries: row.max_retries,
             required_ms: required,
+            base_backoff_ms: baseBackoff,
+            throttle_extra_ms: throttleExtra,
             elapsed_ms: elapsed,
             remaining_ms,
+            last_queue_error: last_queue_error_log,
             last_error_preview: preview,
             last_error_len: last_queue_error?.length ?? 0,
+            failure_class: fc ?? null,
             use_coordination: p2pCfg.use_coordination,
           }),
         )
+        const next_retry_at = new Date(Date.now() + remaining_ms).toISOString()
+        const healing_status: HealingStatus = 'scheduled'
+        if (shouldAutodrainOnBackoff(last_queue_error, fc)) {
+          scheduleAutoDrain(db, getOidcToken, remaining_ms, {
+            queue_row_id: row.id,
+            handshake_id: row.handshake_id,
+            failure_class: fc,
+          })
+        }
         return {
           delivered: false,
           error: 'Delivery is waiting before retry — try again shortly',
@@ -181,6 +310,9 @@ export async function processOutboundQueue(
           retry_count: row.retry_count,
           max_retries: row.max_retries,
           remaining_ms,
+          next_retry_at,
+          failure_class: fc,
+          healing_status,
         }
       }
     }
@@ -193,24 +325,114 @@ export async function processOutboundQueue(
     console.log(
       `[P2P-QUEUE] Config: use_coordination=${config.use_coordination}, coordination_url=${config.coordination_url}`,
     )
-    let result: { success: boolean; error?: string; statusCode?: number }
+    let result: SendCapsuleResult
 
     if (config.use_coordination && getOidcToken) {
       const token = await getOidcToken()
-      const targetUrl = config.coordination_url?.trim()
+      const targetUrl = config.coordination_url?.trim() ?? ''
       if (!token?.trim()) {
         console.warn(`[P2P-QUEUE] Early return: No OIDC token for row ${row.id}`)
-        return recordCoordinationPreflightFailure(db, row, now, 'No OIDC token — please log in')
-      }
-      if (!targetUrl) {
+        console.info(
+          '[P2P-QUEUE]',
+          JSON.stringify({ event: 'auth_refresh_attempt', reason: 'missing_token', queue_row_id: row.id }),
+        )
+        if (_refreshSession) {
+          try {
+            await _refreshSession()
+            console.info('[P2P-QUEUE]', JSON.stringify({ event: 'auth_refresh_success', reason: 'missing_token', queue_row_id: row.id }))
+          } catch (e: any) {
+            console.warn(
+              '[P2P-QUEUE]',
+              JSON.stringify({ event: 'auth_refresh_failure', reason: 'missing_token', error: String(e?.message ?? e), queue_row_id: row.id }),
+            )
+          }
+        }
+        const token2 = await getOidcToken()
+        if (token2?.trim() && targetUrl) {
+          result = await sendCapsuleViaCoordination(capsule, targetUrl, token2)
+        } else {
+          return recordCoordinationPreflightFailure(
+            db,
+            row,
+            now,
+            'No OIDC token — please log in',
+            'AUTH_RECOVERABLE',
+            getOidcToken,
+          )
+        }
+      } else if (!targetUrl) {
         console.warn(`[P2P-QUEUE] Early return: No coordination URL for row ${row.id}`)
-        return recordCoordinationPreflightFailure(db, row, now, 'Coordination URL not configured')
+        return recordCoordinationPreflightFailure(
+          db,
+          row,
+          now,
+          'Coordination URL not configured',
+          'CONFIG_PERMANENT',
+          getOidcToken,
+        )
+      } else {
+        result = await sendCapsuleViaCoordination(capsule, targetUrl, token!)
       }
-      result = await sendCapsuleViaCoordination(capsule, targetUrl, token)
+
+      if (targetUrl && result && !result.success && result.statusCode === 401 && _refreshSession) {
+        console.info('[P2P-QUEUE]', JSON.stringify({ event: 'auth_refresh_attempt', reason: 'http_401', queue_row_id: row.id }))
+        try {
+          await _refreshSession()
+          console.info('[P2P-QUEUE]', JSON.stringify({ event: 'auth_refresh_success', queue_row_id: row.id }))
+        } catch (e: any) {
+          console.warn(
+            '[P2P-QUEUE]',
+            JSON.stringify({ event: 'auth_refresh_failure', error: String(e?.message ?? e), queue_row_id: row.id }),
+          )
+        }
+        const token3 = await getOidcToken()
+        if (token3?.trim()) {
+          result = await sendCapsuleViaCoordination(capsule, targetUrl, token3)
+          console.info(
+            '[P2P-QUEUE]',
+            JSON.stringify({
+              event: 'retry_attempt_started',
+              trigger: 'auth_401_retry',
+              queue_row_id: row.id,
+              success: result.success,
+            }),
+          )
+        }
+      }
     } else {
       const record = getHandshakeRecord(db, row.handshake_id)
       const bearerToken = record?.counterparty_p2p_token ?? null
-      result = await sendCapsuleViaHttp(capsule, row.target_endpoint, row.handshake_id, bearerToken)
+      let endpoint = row.target_endpoint
+      result = await sendCapsuleViaHttp(capsule, endpoint, row.handshake_id, bearerToken)
+      const freshEp = record?.p2p_endpoint?.trim()
+      const errText = (result.error ?? '').toLowerCase()
+      if (
+        !result.success &&
+        freshEp &&
+        freshEp !== endpoint.trim() &&
+        /connection refused|econnrefused|enotfound|getaddrinfo|could not resolve/.test(errText)
+      ) {
+        console.info(
+          '[P2P-QUEUE]',
+          JSON.stringify({
+            event: 'route_refresh_attempt',
+            queue_row_id: row.id,
+            handshake_id: row.handshake_id,
+            old_endpoint: endpoint,
+            new_endpoint: freshEp,
+          }),
+        )
+        db.prepare(`UPDATE outbound_capsule_queue SET target_endpoint = ? WHERE id = ?`).run(freshEp, row.id)
+        endpoint = freshEp
+        result = await sendCapsuleViaHttp(capsule, endpoint, row.handshake_id, bearerToken)
+        console.info(
+          '[P2P-QUEUE]',
+          JSON.stringify({
+            event: result.success ? 'route_refresh_success' : 'route_refresh_failure',
+            queue_row_id: row.id,
+          }),
+        )
+      }
     }
 
     console.log(`[P2P-QUEUE] Transport result for row ${row.id}: ${JSON.stringify(result)}`)
@@ -218,11 +440,15 @@ export async function processOutboundQueue(
     if (result.success) {
       setP2PHealthOutboundSuccess()
       db.prepare(
-        `UPDATE outbound_capsule_queue SET status = 'sent', last_attempt_at = ? WHERE id = ?`,
+        `UPDATE outbound_capsule_queue SET status = 'sent', last_attempt_at = ?, retry_after_ms = NULL, failure_class = NULL WHERE id = ?`,
       ).run(now, row.id)
       const counts = getQueueCountsInternal(db)
       setP2PHealthQueueCounts(counts.pending, counts.failed)
-      return { delivered: true, code: 'DELIVERED' }
+      console.info(
+        '[P2P-QUEUE]',
+        JSON.stringify({ event: 'retry_attempt_succeeded', queue_row_id: row.id, handshake_id: row.handshake_id }),
+      )
+      return { delivered: true, code: 'DELIVERED', healing_status: 'idle' }
     }
 
     const is401 = result.statusCode === 401
@@ -231,11 +457,35 @@ export async function processOutboundQueue(
       : formatP2PErrorForUser(result.error ?? 'Unknown', row.target_endpoint)
     setP2PHealthOutboundFailure(userError)
     let queued = true
+
+    const noCoordUrl =
+      config.use_coordination && (!config.coordination_url?.trim() || config.coordination_url.trim().length === 0)
+    const failureClass = classifySendFailure(result.statusCode, result.error ?? '', {
+      noCoordUrl,
+      noToken: false,
+      invalidTarget: !row.target_endpoint?.trim(),
+    })
+    const throttleMs =
+      result.statusCode === 429 && result.retryAfterSec != null && result.retryAfterSec >= 0
+        ? Math.round(result.retryAfterSec * 1000)
+        : null
+
+    console.info(
+      '[P2P-QUEUE]',
+      JSON.stringify({
+        event: 'retry_attempt_failed',
+        queue_row_id: row.id,
+        handshake_id: row.handshake_id,
+        status_code: result.statusCode ?? null,
+        failure_class: failureClass,
+      }),
+    )
+
     // 401 = auth issue — do not increment retry; leave pending for retry after re-auth
     if (is401) {
       db.prepare(
-        `UPDATE outbound_capsule_queue SET last_attempt_at = ?, error = ? WHERE id = ?`,
-      ).run(now, userError, row.id)
+        `UPDATE outbound_capsule_queue SET last_attempt_at = ?, error = ?, failure_class = ?, retry_after_ms = NULL WHERE id = ?`,
+      ).run(now, userError, 'AUTH_RECOVERABLE', row.id)
       const counts401 = getQueueCountsInternal(db)
       setP2PHealthQueueCounts(counts401.pending, counts401.failed)
       return {
@@ -246,31 +496,58 @@ export async function processOutboundQueue(
         last_queue_error: userError,
         retry_count: row.retry_count,
         max_retries: row.max_retries,
+        failure_class: 'AUTH_RECOVERABLE',
+        healing_status: 'idle',
       }
-    } else {
-      const newRetry = row.retry_count + 1
-      const isFailed = newRetry >= row.max_retries
-      if (isFailed) {
-        queued = false
-        console.warn('[P2P] Outbound capsule failed after max retries', {
+    }
+
+    const newRetry = row.retry_count + 1
+    const isFailed = newRetry >= row.max_retries
+    if (isFailed) {
+      queued = false
+      console.warn(
+        '[P2P-QUEUE]',
+        JSON.stringify({
+          event: 'terminal_non_recoverable',
+          queue_row_id: row.id,
           handshake_id: row.handshake_id,
-          retries: newRetry,
-          error: result.error,
-        })
-        db.prepare(
-          `UPDATE outbound_capsule_queue SET status = 'failed', retry_count = ?, last_attempt_at = ?, error = ? WHERE id = ?`,
-        ).run(newRetry, now, userError, row.id)
-      } else {
-        db.prepare(
-          `UPDATE outbound_capsule_queue SET retry_count = ?, last_attempt_at = ?, error = ? WHERE id = ?`,
-        ).run(newRetry, now, userError, row.id)
-      }
+          reason: 'max_retries',
+          failure_class: failureClass,
+        }),
+      )
+      console.warn('[P2P] Outbound capsule failed after max retries', {
+        handshake_id: row.handshake_id,
+        retries: newRetry,
+        error: result.error,
+      })
+      db.prepare(
+        `UPDATE outbound_capsule_queue SET status = 'failed', retry_count = ?, last_attempt_at = ?, error = ?, failure_class = ?, retry_after_ms = ? WHERE id = ?`,
+      ).run(newRetry, now, userError, failureClass, throttleMs, row.id)
+    } else {
+      db.prepare(
+        `UPDATE outbound_capsule_queue SET retry_count = ?, last_attempt_at = ?, error = ?, failure_class = ?, retry_after_ms = ? WHERE id = ?`,
+      ).run(newRetry, now, userError, failureClass, throttleMs, row.id)
     }
 
     const counts = getQueueCountsInternal(db)
     setP2PHealthQueueCounts(counts.pending, counts.failed)
     const failedMax = !queued
-    const updatedRetryCount = row.retry_count + 1
+    const updatedRetryCount = newRetry
+    const healing_status: HealingStatus = failedMax
+      ? 'terminal_non_recoverable'
+      : failureClass === 'CONFIG_PERMANENT' || failureClass === 'PAYLOAD_PERMANENT'
+        ? 'terminal_non_recoverable'
+        : 'scheduled'
+
+    if (!failedMax && shouldAutodrainOnBackoff(userError, failureClass)) {
+      scheduleAutoDrain(db, getOidcToken, backoffDelay(updatedRetryCount - 1), {
+        queue_row_id: row.id,
+        handshake_id: row.handshake_id,
+        failure_class: failureClass,
+        source: 'post_transport',
+      })
+    }
+
     return {
       delivered: false,
       error: userError,
@@ -279,6 +556,13 @@ export async function processOutboundQueue(
       last_queue_error: userError,
       retry_count: updatedRetryCount,
       max_retries: row.max_retries,
+      failure_class: failureClass,
+      healing_status,
+      ...(throttleMs != null && throttleMs > 0
+        ? {
+            next_retry_at: new Date(Date.now() + Math.max(backoffDelay(updatedRetryCount - 1), throttleMs)).toISOString(),
+          }
+        : {}),
     }
   } catch (err: any) {
     console.warn('[P2P] processOutboundQueue error:', err?.message)

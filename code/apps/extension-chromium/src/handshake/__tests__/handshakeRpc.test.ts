@@ -25,6 +25,7 @@ import {
   acceptHandshake,
   refreshHandshake,
   revokeHandshake,
+  sendBeapViaP2P,
 } from '../handshakeRpc'
 import type { HandshakeRecord } from '../rpcTypes'
 
@@ -277,5 +278,31 @@ describe('revokeHandshake', () => {
 
     const call = mockSendMessage.mock.calls[0][0]
     expect(call.method).toBe('handshake.initiateRevocation')
+  })
+})
+
+describe('sendBeapViaP2P', () => {
+  beforeEach(() => {
+    mockSendMessage.mockReset()
+    mockChrome.runtime.lastError = null
+  })
+
+  it('resolves when success:false and error set (BACKOFF_WAIT), preserving last_queue_error', async () => {
+    mockRpcResponse({
+      success: false,
+      error: 'Delivery is waiting before retry — try again shortly',
+      queued: true,
+      code: 'BACKOFF_WAIT',
+      last_queue_error: 'P2P delivery failed: HTTP 500',
+      retry_count: 1,
+      max_retries: 10,
+      remaining_ms: 4200,
+    })
+    const r = await sendBeapViaP2P('hs-1', '{}')
+    expect(r.success).toBe(false)
+    expect(r.code).toBe('BACKOFF_WAIT')
+    expect(r.last_queue_error).toBe('P2P delivery failed: HTTP 500')
+    expect(r.remaining_ms).toBe(4200)
+    expect(mockSendMessage.mock.calls[0][0].method).toBe('handshake.sendBeapViaP2P')
   })
 })

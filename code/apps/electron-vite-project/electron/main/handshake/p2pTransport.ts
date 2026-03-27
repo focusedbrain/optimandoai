@@ -27,6 +27,16 @@ export interface SendCapsuleResult {
   success: boolean
   error?: string
   statusCode?: number
+  /** From HTTP Retry-After (seconds), when present */
+  retryAfterSec?: number
+}
+
+function parseRetryAfterSeconds(response: Response): number | undefined {
+  const raw = response.headers.get('retry-after')
+  if (!raw) return undefined
+  const n = parseInt(raw.trim(), 10)
+  if (!Number.isNaN(n) && n >= 0) return n
+  return undefined
 }
 
 /**
@@ -96,12 +106,18 @@ async function sendCapsuleViaHttpWithAuth(
     }
 
     const errMsg = `HTTP ${response.status}`
+    const retryAfterSec = parseRetryAfterSeconds(response)
     console.warn('[P2P] Coordination delivery failed', { endpoint: targetEndpoint, status: response.status })
     if (!response.ok) {
       const errBody = await response.text()
       console.log('[P2P-DEBUG] Error body:', errBody)
     }
-    return { success: false, error: errMsg, statusCode: response.status }
+    return {
+      success: false,
+      error: errMsg,
+      statusCode: response.status,
+      ...(retryAfterSec !== undefined && { retryAfterSec }),
+    }
   } catch (err: any) {
     clearTimeout(timeout)
     const errMsg = err?.message ?? err?.name ?? String(err)
@@ -160,8 +176,14 @@ export async function sendCapsuleViaHttp(
     }
 
     const errMsg = `HTTP ${response.status}`
+    const retryAfterSec = parseRetryAfterSeconds(response)
     console.warn('[P2P] Context-sync delivery failed', { handshake_id: handshakeId, endpoint: trimmed, status: response.status })
-    return { success: false, error: errMsg, statusCode: response.status }
+    return {
+      success: false,
+      error: errMsg,
+      statusCode: response.status,
+      ...(retryAfterSec !== undefined && { retryAfterSec }),
+    }
   } catch (err: any) {
     clearTimeout(timeout)
     const errMsg = err?.message ?? err?.name ?? String(err)

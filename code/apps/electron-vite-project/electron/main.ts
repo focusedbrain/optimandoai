@@ -646,7 +646,7 @@ import {
   buildLedgerSessionToken,
 } from './main/handshake/ledger'
 import { setEmailSendFn } from './main/handshake/emailTransport'
-import { processOutboundQueue } from './main/handshake/outboundQueue'
+import { processOutboundQueue, setOutboundQueueAuthRefresh } from './main/handshake/outboundQueue'
 import { pullFromRelay } from './main/p2p/relayPull'
 import { createP2PServer } from './main/p2p/p2pServer'
 import { createCoordinationWsClient } from './main/p2p/coordinationWs'
@@ -3973,6 +3973,9 @@ app.whenReady().then(async () => {
           const session = await ensureSession()
           return session.accessToken ?? getAccessToken()
         } catch { return null }
+      })
+      setOutboundQueueAuthRefresh(async () => {
+        await ensureSession()
       })
 
       // Open the handshake ledger using the current SSO session.
@@ -8537,6 +8540,9 @@ app.whenReady().then(async () => {
       if (!p2pServerStarted) {
         try {
           migrateHandshakeTables(handshakeDb)
+          setOutboundQueueAuthRefresh(async () => {
+            await ensureSession()
+          })
           const config = getP2PConfig(handshakeDb)
           if (config.enabled) {
             const getDb = () => getHandshakeDb()

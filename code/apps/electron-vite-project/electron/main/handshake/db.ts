@@ -911,6 +911,15 @@ const HANDSHAKE_MIGRATIONS: Array<{
       `ALTER TABLE inbox_messages ADD COLUMN last_autosort_session_id TEXT`,
     ],
   },
+  {
+    version: 49,
+    description:
+      'Schema v49: outbound_capsule_queue retry_after_ms + failure_class (self-healing queue)',
+    sql: [
+      `ALTER TABLE outbound_capsule_queue ADD COLUMN retry_after_ms INTEGER`,
+      `ALTER TABLE outbound_capsule_queue ADD COLUMN failure_class TEXT`,
+    ],
+  },
 ]
 
 /**

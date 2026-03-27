@@ -5,7 +5,12 @@
 
 import { describe, test, expect, beforeEach, afterEach, vi } from 'vitest'
 import { createRequire } from 'module'
-import { processOutboundQueue, enqueueOutboundCapsule } from '../outboundQueue'
+import {
+  processOutboundQueue,
+  enqueueOutboundCapsule,
+  setOutboundQueueAuthRefresh,
+  clearOutboundAutoDrainTimer,
+} from '../outboundQueue'
 import { migrateHandshakeTables, insertHandshakeRecord } from '../db'
 import { migrateIngestionTables } from '../../ingestion/persistenceDb'
 import { upsertP2PConfig } from '../../p2p/p2pConfig'
@@ -81,8 +86,11 @@ describe.skipIf(!hasSqlite)('outboundQueue: backoff & transport', () => {
   })
 
   afterEach(() => {
+    clearOutboundAutoDrainTimer()
+    setOutboundQueueAuthRefresh(undefined)
     fetchSpy?.mockRestore?.()
     vi.useRealTimers()
+    vi.restoreAllMocks()
   })
 
   test('QB_01_first_transport_failure_sets_retry_and_last_queue_error', async () => {
@@ -256,5 +264,158 @@ describe.skipIf(!hasSqlite)('outboundQueue: backoff & transport', () => {
     expect(r.queued).toBe(true)
     expect(r.retry_count).toBe(1)
     expect(r.last_queue_error).toContain('Connection refused')
+  })
+
+  test('QB_09_post_failure_autodrain_retries_without_second_user_call', async () => {
+    vi.useFakeTimers({ now: new Date('2025-06-01T12:00:00.000Z') })
+    vi.spyOn(Math, 'random').mockReturnValue(0)
+    upsertP2PConfig(db, {
+      relay_mode: 'remote',
+      use_coordination: false,
+      relay_url: 'https://relay.example/beap/ingest',
+    })
+    insertHandshakeRecord(db, relayDirectHandshake('hs-qb-09'))
+    fetchSpy.mockResolvedValue(new Response('fail', { status: 500 }))
+    enqueueOutboundCapsule(db, 'hs-qb-09', 'https://peer.example/beap/ingest', minimalCapsule('hs-qb-09'))
+
+    const r1 = await processOutboundQueue(db)
+    expect(r1.code).toBe('TRANSPORT_FAILED')
+    expect(fetchSpy).toHaveBeenCalledTimes(1)
+
+    await vi.advanceTimersByTimeAsync(5_500)
+    await vi.runAllTimersAsync()
+
+    expect(fetchSpy).toHaveBeenCalledTimes(2)
+  })
+
+  test('QB_10_parallel_processOutboundQueue_calls_fetch_once_per_row', async () => {
+    upsertP2PConfig(db, {
+      relay_mode: 'remote',
+      use_coordination: false,
+      relay_url: 'https://relay.example/beap/ingest',
+    })
+    insertHandshakeRecord(db, relayDirectHandshake('hs-qb-10'))
+    let resolveFetch!: (v: Response) => void
+    const deferred = new Promise<Response>((res) => {
+      resolveFetch = res
+    })
+    fetchSpy.mockReturnValueOnce(deferred as Promise<Response>)
+    enqueueOutboundCapsule(db, 'hs-qb-10', 'https://peer.example/beap/ingest', minimalCapsule('hs-qb-10'))
+
+    const a = processOutboundQueue(db)
+    const b = processOutboundQueue(db)
+    await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(1))
+    resolveFetch(new Response('fail', { status: 500 }))
+    await Promise.all([a, b])
+    expect(fetchSpy).toHaveBeenCalledTimes(1)
+  })
+
+  test('QB_15_coordination_missing_token_then_token_after_refresh_sends', async () => {
+    setOutboundQueueAuthRefresh(async () => {})
+    upsertP2PConfig(db, {
+      relay_mode: 'local',
+      use_coordination: true,
+      coordination_url: 'https://coordination.wrdesk.com',
+    })
+    fetchSpy.mockResolvedValue(new Response('', { status: 200 }))
+    enqueueOutboundCapsule(db, 'hs-qb-15', 'https://coordination.wrdesk.com/beap/capsule', minimalCapsule('hs-qb-15'))
+
+    let calls = 0
+    await processOutboundQueue(db, async () => {
+      calls += 1
+      if (calls === 1) return null
+      return 'oidc-after-refresh'
+    })
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1)
+    expect(calls).toBe(2)
+  })
+
+  test('QB_11_coordination_401_with_refresh_retries_http_once', async () => {
+    setOutboundQueueAuthRefresh(async () => {})
+    upsertP2PConfig(db, {
+      relay_mode: 'local',
+      use_coordination: true,
+      coordination_url: 'https://coordination.wrdesk.com',
+    })
+    fetchSpy.mockResolvedValue(new Response('unauthorized', { status: 401 }))
+    enqueueOutboundCapsule(db, 'hs-qb-11', 'https://coordination.wrdesk.com/beap/capsule', minimalCapsule('hs-qb-11'))
+
+    await processOutboundQueue(db, async () => 'oidc-token')
+
+    expect(fetchSpy).toHaveBeenCalledTimes(2)
+  })
+
+  test('QB_12_coordination_429_persists_retry_after_ms', async () => {
+    upsertP2PConfig(db, {
+      relay_mode: 'local',
+      use_coordination: true,
+      coordination_url: 'https://coordination.wrdesk.com',
+    })
+    fetchSpy.mockResolvedValue(
+      new Response('rate limited', {
+        status: 429,
+        headers: { 'Retry-After': '3' },
+      }),
+    )
+    enqueueOutboundCapsule(db, 'hs-qb-12', 'https://coordination.wrdesk.com/beap/capsule', minimalCapsule('hs-qb-12'))
+
+    await processOutboundQueue(db, async () => 'oidc-token')
+
+    const row = db.prepare('SELECT retry_after_ms, failure_class FROM outbound_capsule_queue WHERE handshake_id = ?').get(
+      'hs-qb-12',
+    ) as { retry_after_ms: number | null; failure_class: string | null }
+    expect(row.retry_after_ms).toBe(3000)
+    expect(row.failure_class).toBe('THROTTLED')
+  })
+
+  test('QB_13_stale_direct_endpoint_refreshes_and_retries', async () => {
+    upsertP2PConfig(db, {
+      relay_mode: 'remote',
+      use_coordination: false,
+      relay_url: 'https://relay.example/beap/ingest',
+    })
+    const h = relayDirectHandshake('hs-qb-13')
+    h.p2p_endpoint = 'https://fresh.peer/beap/ingest'
+    insertHandshakeRecord(db, h)
+    fetchSpy
+      .mockRejectedValueOnce(new Error('ECONNREFUSED'))
+      .mockResolvedValueOnce(new Response('', { status: 200 }))
+    enqueueOutboundCapsule(db, 'hs-qb-13', 'https://stale.peer/beap/ingest', minimalCapsule('hs-qb-13'))
+
+    const r = await processOutboundQueue(db)
+
+    expect(fetchSpy).toHaveBeenCalledTimes(2)
+    expect(r.delivered).toBe(true)
+    const row = db.prepare('SELECT target_endpoint FROM outbound_capsule_queue WHERE handshake_id = ?').get('hs-qb-13') as {
+      target_endpoint: string
+    }
+    expect(row.target_endpoint).toBe('https://fresh.peer/beap/ingest')
+  })
+
+  test('QB_14_preflight_config_permanent_does_not_schedule_autodrain', async () => {
+    vi.useFakeTimers({ now: new Date('2025-06-01T12:00:00.000Z') })
+    vi.spyOn(Math, 'random').mockReturnValue(0)
+    upsertP2PConfig(db, {
+      relay_mode: 'local',
+      use_coordination: true,
+      coordination_url: '',
+    })
+    enqueueOutboundCapsule(db, 'hs-qb-14', 'https://ignored/beap/capsule', minimalCapsule('hs-qb-14'))
+
+    await processOutboundQueue(db, async () => 'oidc-token')
+
+    const row1 = db.prepare('SELECT retry_count FROM outbound_capsule_queue WHERE handshake_id = ?').get('hs-qb-14') as {
+      retry_count: number
+    }
+    expect(row1.retry_count).toBe(1)
+
+    await vi.advanceTimersByTimeAsync(120_000)
+    await vi.runAllTimersAsync()
+
+    const row2 = db.prepare('SELECT retry_count FROM outbound_capsule_queue WHERE handshake_id = ?').get('hs-qb-14') as {
+      retry_count: number
+    }
+    expect(row2.retry_count).toBe(1)
   })
 })

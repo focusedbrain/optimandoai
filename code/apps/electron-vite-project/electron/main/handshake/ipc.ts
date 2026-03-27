@@ -620,10 +620,17 @@ export async function handleHandshakeRPC(
           ...(d.retry_count !== undefined && { retry_count: d.retry_count }),
           ...(d.max_retries !== undefined && { max_retries: d.max_retries }),
           ...(d.remaining_ms !== undefined && { remaining_ms: d.remaining_ms }),
+          ...(d.next_retry_at !== undefined && { next_retry_at: d.next_retry_at }),
+          ...(d.failure_class !== undefined && { failure_class: d.failure_class }),
+          ...(d.healing_status !== undefined && { healing_status: d.healing_status }),
         }
       }
       const ok = deliveryResult as ProcessOutboundQueueResult
-      return { success: true, ...(ok.code && { code: ok.code }) }
+      return {
+        success: true,
+        ...(ok.code && { code: ok.code }),
+        ...(ok.healing_status !== undefined && { healing_status: ok.healing_status }),
+      }
     }
 
     case 'handshake.checkSendReady': {

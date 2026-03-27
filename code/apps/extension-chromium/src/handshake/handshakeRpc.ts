@@ -54,8 +54,17 @@ async function sendHandshakeRpc<T = unknown>(
           reject(new Error('Empty response from background'))
           return
         }
-        if (response.error) {
-          reject(new Error(typeof response.error === 'string' ? response.error : response.error.reason ?? 'RPC error'))
+        // Handshake / vault RPCs use `{ success: boolean, error?: string }` for business failures.
+        // Do not reject when `error` is present if `success` is explicitly set (e.g. BACKOFF_WAIT).
+        if (typeof (response as { success?: unknown }).success === 'boolean') {
+          resolve(response as T)
+          return
+        }
+        if ((response as { error?: unknown }).error) {
+          const err = (response as { error: unknown }).error
+          reject(
+            new Error(typeof err === 'string' ? err : (err as { reason?: string })?.reason ?? 'RPC error'),
+          )
           return
         }
         resolve(response as T)
@@ -300,6 +309,15 @@ export type SendBeapViaP2PResult = {
   retry_count?: number
   max_retries?: number
   remaining_ms?: number
+  next_retry_at?: string
+  failure_class?:
+    | 'AUTH_RECOVERABLE'
+    | 'TRANSIENT_TRANSPORT'
+    | 'THROTTLED'
+    | 'STALE_ROUTE'
+    | 'CONFIG_PERMANENT'
+    | 'PAYLOAD_PERMANENT'
+  healing_status?: 'idle' | 'scheduled' | 'auth_refreshing' | 'route_refreshing' | 'terminal_non_recoverable'
 }
 
 export async function sendBeapViaP2P(
