@@ -734,7 +734,7 @@ function PopupChatApp() {
         setBeapDraftAttachments([])
         setSelectedRecipient(null)
       } else {
-        if (result.code === 'REQUEST_INVALID') {
+        if (result.code === 'REQUEST_INVALID' || result.code === 'PAYLOAD_TOO_LARGE') {
           setBeapP2pCooldownUntilMs(null)
         } else if (beapDeliveryMethod === 'p2p' && typeof result.p2pCooldownUntilMs === 'number') {
           setBeapP2pCooldownUntilMs(result.p2pCooldownUntilMs)

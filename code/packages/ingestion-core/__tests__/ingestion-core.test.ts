@@ -120,8 +120,45 @@ describe('ingestion-core', () => {
   test('isMessagePackageStructure: detects header+metadata+envelope', () => {
     expect(isMessagePackageStructure({ header: {}, metadata: {}, envelope: {} })).toBe(true);
     expect(isMessagePackageStructure({ header: {}, metadata: {}, payload: {} })).toBe(true);
-    expect(isMessagePackageStructure({ header: {}, metadata: {} })).toBe(false); // no envelope/payload
+    expect(
+      isMessagePackageStructure({
+        header: { receiver_binding: { handshake_id: 'hs-qbeap' } },
+        metadata: {},
+        payloadEnc: { chunking: { count: 2, enabled: true, maxChunkBytes: 262144, merkleRoot: 'x' } },
+      }),
+    ).toBe(true);
+    expect(
+      isMessagePackageStructure({
+        header: { receiver_binding: { handshake_id: 'hs-qbeap' } },
+        metadata: {},
+        innerEnvelopeCiphertext: 'abc',
+      }),
+    ).toBe(true);
+    expect(isMessagePackageStructure({ header: {}, metadata: {} })).toBe(false); // no body fields
     expect(isMessagePackageStructure({ schema_version: 1, capsule_type: 'initiate' })).toBe(false);
+  });
+
+  test('validateInput: qBEAP wire shape (payloadEnc) → success, message_relay', () => {
+    const qbeapPackage = {
+      header: {
+        encoding: 'qBEAP',
+        receiver_binding: { handshake_id: 'hs-qbeap-1' },
+      },
+      metadata: { created_at: new Date().toISOString() },
+      payloadEnc: {
+        sha256Plain: 'a'.repeat(64),
+        bytesPlain: 100,
+        chunking: { enabled: true, count: 1, maxChunkBytes: 262144, merkleRoot: 'b'.repeat(64) },
+        chunks: [],
+      },
+    };
+    const rawInput: RawInput = { body: JSON.stringify(qbeapPackage) };
+    const result = validateInput(rawInput, 'coordination_service', emptyTransport);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.distribution!.target).toBe('message_relay');
+      expect(result.validated!.capsule.handshake_id).toBe('hs-qbeap-1');
+    }
   });
 
   test('detectBeapCapsule: message package structure (json_structure path)', () => {

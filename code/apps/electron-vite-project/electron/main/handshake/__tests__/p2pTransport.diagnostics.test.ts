@@ -4,6 +4,7 @@ import {
   extractTopLevelKeysFromJsonBody,
   detectBodyLooksDoubleEncoded,
   buildOutboundRequestDebugSnapshot,
+  summarizeCanonChunkingForOutboundDebug,
 } from '../p2pTransport'
 
 describe('describeOutboundPayloadForLogs', () => {
@@ -29,6 +30,27 @@ describe('describeOutboundPayloadForLogs', () => {
     })
     expect(d.looks_like_beap_message_package).toBe(true)
     expect(d.has_message_header_receiver_binding_handshake_id).toBe(true)
+  })
+
+  test('qBEAP wire shape (payloadEnc) counts as message package for coordination', () => {
+    const d = describeOutboundPayloadForLogs({
+      header: { receiver_binding: { handshake_id: 'hs-q' } },
+      metadata: {},
+      payloadEnc: { chunking: { count: 3, enabled: true, maxChunkBytes: 262144, merkleRoot: 'x' } },
+    })
+    expect(d.looks_like_beap_message_package).toBe(true)
+  })
+
+  test('summarizeCanonChunkingForOutboundDebug — payload + artefact chunk counts', () => {
+    const s = summarizeCanonChunkingForOutboundDebug({
+      payloadEnc: {
+        chunking: { count: 2, enabled: true, maxChunkBytes: 262144, merkleRoot: 'a' },
+      },
+      artefactsEnc: [{ chunking: { count: 4, enabled: true, maxChunkBytes: 1048576, merkleRoot: 'b' } }],
+    })
+    expect(s.payload_enc_chunk_count).toBe(2)
+    expect(s.artefact_encrypted_chunk_total).toBe(4)
+    expect(s.note).toMatch(/Canon A\.3/)
   })
 
   test('extractTopLevelKeysFromJsonBody — normal object', () => {
@@ -64,5 +86,24 @@ describe('describeOutboundPayloadForLogs', () => {
     expect(s.body_looks_double_encoded).toBe(false)
     expect(s.http_status).toBe(400)
     expect(s.response_body_snippet).toContain('Bad request')
+  })
+
+  test('buildOutboundRequestDebugSnapshot — coordination includes canon summary and single-post flag', () => {
+    const cap = {
+      header: {},
+      metadata: {},
+      payloadEnc: { chunking: { count: 1, enabled: true, maxChunkBytes: 262144, merkleRoot: 'z' } },
+    }
+    const s = buildOutboundRequestDebugSnapshot(
+      'coordination',
+      'https://relay/beap/capsule',
+      cap as object,
+      JSON.stringify(cap),
+      'application/json',
+      400,
+      '{"error":"x"}',
+    )
+    expect(s.coordination_single_post_json).toBe(true)
+    expect(s.canon_chunking_summary?.payload_enc_chunk_count).toBe(1)
   })
 })

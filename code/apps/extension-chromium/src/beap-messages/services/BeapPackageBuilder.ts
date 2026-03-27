@@ -2047,7 +2047,7 @@ export async function executeP2PAction(
       }
     }
     const errMsg = result?.error ?? 'P2P delivery failed'
-    if (result?.code === 'REQUEST_INVALID') {
+    if (result?.code === 'REQUEST_INVALID' || result?.code === 'PAYLOAD_TOO_LARGE') {
       const lines: string[] = [errMsg]
       if (typeof result.http_status === 'number') {
         lines.push(`(HTTP ${result.http_status})`)
@@ -2060,7 +2060,7 @@ export async function executeP2PAction(
         success: false,
         action: 'sent',
         message: lines.join('\n'),
-        code: 'REQUEST_INVALID',
+        code: result.code === 'PAYLOAD_TOO_LARGE' ? 'PAYLOAD_TOO_LARGE' : 'REQUEST_INVALID',
         queued: false,
         ...(result.outbound_debug && { p2pOutboundDebug: result.outbound_debug }),
       }

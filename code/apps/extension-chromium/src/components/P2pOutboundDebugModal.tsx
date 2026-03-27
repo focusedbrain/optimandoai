@@ -22,6 +22,16 @@ export function P2pOutboundDebugModal(props: {
       ? [`response_body_snippet: ${debug.response_body_snippet}`]
       : []),
     ...(debug.transport_error ? [`transport_error: ${debug.transport_error}`] : []),
+    ...(debug.coordination_single_post_json != null
+      ? [`coordination_single_post_json: ${debug.coordination_single_post_json}`]
+      : []),
+    ...(debug.canon_chunking_summary
+      ? [
+          '',
+          'canon_chunking_summary:',
+          JSON.stringify(debug.canon_chunking_summary, null, 2),
+        ]
+      : []),
     '',
     'request_shape:',
     JSON.stringify(debug.request_shape, null, 2),

@@ -42,6 +42,8 @@ export type OutboundQueueCode =
   | 'FAILED_MAX_RETRIES'
   /** Generic HTTP 400 — non-retryable client/request/payload rejection */
   | 'REQUEST_INVALID'
+  /** HTTP 422 / 413 — payload or body too large for relay; reduce attachments or rely on canon inner chunking */
+  | 'PAYLOAD_TOO_LARGE'
 
 /** Classified failure for self-healing policy (best-effort). */
 export type FailureClass =
@@ -51,6 +53,10 @@ export type FailureClass =
   | 'STALE_ROUTE'
   | 'CONFIG_PERMANENT'
   | 'PAYLOAD_PERMANENT'
+  /** HTTP 400 schema / contract mismatch (coordination envelope, missing routing fields) */
+  | 'SCHEMA_PERMANENT'
+  /** Size / limit at relay or validator — may be mitigated by smaller wire package or canon limits */
+  | 'SIZE_RECOVERABLE'
 
 export type HealingStatus =
   | 'idle'
@@ -60,6 +66,8 @@ export type HealingStatus =
   | 'terminal_non_recoverable'
   /** HTTP 400 / contract mismatch — fix payload or config before retrying */
   | 'STOPPED_REQUIRES_FIX'
+  /** Payload over limit — reduce attachments or send smaller package; no blind backoff retry */
+  | 'RETRY_WITH_CHUNKING'
 
 /** Result of attempting to process one pending outbound capsule (oldest first). */
 export interface ProcessOutboundQueueResult {
@@ -110,7 +118,13 @@ function classifySendFailure(
 }
 
 function shouldAutodrainOnBackoff(lastError: string | null, fc?: FailureClass): boolean {
-  if (fc === 'CONFIG_PERMANENT' || fc === 'PAYLOAD_PERMANENT') return false
+  if (
+    fc === 'CONFIG_PERMANENT' ||
+    fc === 'PAYLOAD_PERMANENT' ||
+    fc === 'SCHEMA_PERMANENT' ||
+    fc === 'SIZE_RECOVERABLE'
+  )
+    return false
   if (!lastError) return true
   if (/^HTTP 400\b/i.test(lastError)) return false
   if (/Coordination URL not configured/i.test(lastError)) return false
@@ -469,10 +483,70 @@ async function processOutboundQueueInner(
       return { delivered: true, code: 'DELIVERED', healing_status: 'idle' }
     }
 
+    // HTTP 413 — request body too large for relay
+    if (result.statusCode === 413) {
+      const snippet = (result.responseBodySnippet ?? '').trim()
+      const persistedError =
+        snippet.length > 0 ? `HTTP 413 — ${snippet}` : 'HTTP 413 — request body too large for coordination relay.'
+      setP2PHealthOutboundFailure(persistedError)
+      const newRetry = row.retry_count + 1
+      db.prepare(
+        `UPDATE outbound_capsule_queue SET status = 'failed', retry_count = ?, last_attempt_at = ?, error = ?, failure_class = ?, retry_after_ms = NULL WHERE id = ?`,
+      ).run(newRetry, now, persistedError, 'SIZE_RECOVERABLE', row.id)
+      const counts413 = getQueueCountsInternal(db)
+      setP2PHealthQueueCounts(counts413.pending, counts413.failed)
+      return {
+        delivered: false,
+        error: persistedError,
+        queued: false,
+        code: 'PAYLOAD_TOO_LARGE',
+        last_queue_error: persistedError,
+        retry_count: newRetry,
+        max_retries: row.max_retries,
+        failure_class: 'SIZE_RECOVERABLE',
+        healing_status: 'RETRY_WITH_CHUNKING',
+        http_status: 413,
+        ...(snippet.length > 0 && { response_body_snippet: snippet }),
+        ...(result.outboundDebug && { outbound_debug: result.outboundDebug }),
+      }
+    }
+
+    // HTTP 422 — structural / size validation at relay (ingestion-core)
+    if (result.statusCode === 422) {
+      const snippet = (result.responseBodySnippet ?? '').trim()
+      const sizeHint = /PAYLOAD_SIZE|exceeds|size/i.test(snippet)
+      const persistedError =
+        snippet.length > 0
+          ? `HTTP 422 — ${snippet}`
+          : 'HTTP 422 — capsule rejected by relay validation (check size and schema).'
+      setP2PHealthOutboundFailure(persistedError)
+      const newRetry = row.retry_count + 1
+      const fc: FailureClass = sizeHint ? 'SIZE_RECOVERABLE' : 'SCHEMA_PERMANENT'
+      db.prepare(
+        `UPDATE outbound_capsule_queue SET status = 'failed', retry_count = ?, last_attempt_at = ?, error = ?, failure_class = ?, retry_after_ms = NULL WHERE id = ?`,
+      ).run(newRetry, now, persistedError, fc, row.id)
+      const counts422 = getQueueCountsInternal(db)
+      setP2PHealthQueueCounts(counts422.pending, counts422.failed)
+      return {
+        delivered: false,
+        error: persistedError,
+        queued: false,
+        code: sizeHint ? 'PAYLOAD_TOO_LARGE' : 'REQUEST_INVALID',
+        last_queue_error: persistedError,
+        retry_count: newRetry,
+        max_retries: row.max_retries,
+        failure_class: fc,
+        healing_status: sizeHint ? 'RETRY_WITH_CHUNKING' : 'STOPPED_REQUIRES_FIX',
+        http_status: 422,
+        ...(snippet.length > 0 && { response_body_snippet: snippet }),
+        ...(result.outboundDebug && { outbound_debug: result.outboundDebug }),
+      }
+    }
+
     // HTTP 400 — bad request / validation: terminal, no backoff, no automatic retries
     if (result.statusCode === 400) {
       const snippet = (result.responseBodySnippet ?? '').trim()
-      const failureClass: FailureClass = 'PAYLOAD_PERMANENT'
+      const failureClass: FailureClass = 'SCHEMA_PERMANENT'
       const persistedError =
         snippet.length > 0
           ? `HTTP 400 — ${snippet}`

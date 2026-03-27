@@ -169,10 +169,14 @@ export function validateCapsule(candidate: CandidateCapsuleEnvelope): Validation
 function isMessagePackageShape(obj: Record<string, unknown>): boolean {
   const hasHeader = 'header' in obj && obj.header != null && typeof obj.header === 'object';
   const hasMetadata = 'metadata' in obj && obj.metadata != null && typeof obj.metadata === 'object';
-  const hasEnvelope = 'envelope' in obj;
-  const hasPayload = 'payload' in obj;
   const noCapsuleType = !('capsule_type' in obj);
-  return hasHeader && hasMetadata && (hasEnvelope || hasPayload) && noCapsuleType;
+  if (!hasHeader || !hasMetadata || !noCapsuleType) return false;
+  return (
+    'envelope' in obj ||
+    'payload' in obj ||
+    'payloadEnc' in obj ||
+    'innerEnvelopeCiphertext' in obj
+  );
 }
 
 function runValidationMessagePackage(
@@ -198,8 +202,11 @@ function runValidationMessagePackage(
     }
   }
 
-  if (!('envelope' in obj) && !('payload' in obj)) {
-    return fail('MISSING_REQUIRED_FIELD', 'Message package must have envelope or payload');
+  if (!('envelope' in obj) && !('payload' in obj) && !('payloadEnc' in obj) && !('innerEnvelopeCiphertext' in obj)) {
+    return fail(
+      'MISSING_REQUIRED_FIELD',
+      'Message package must have envelope, payload, or encrypted fields (payloadEnc / innerEnvelopeCiphertext)',
+    );
   }
 
   // Validate header.encoding if present (qBEAP or pBEAP, case-insensitive)

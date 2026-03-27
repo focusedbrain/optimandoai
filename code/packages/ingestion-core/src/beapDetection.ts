@@ -71,7 +71,21 @@ function checkJsonStructure(input: RawInput): BeapDetectionResult | null {
 const VALID_MESSAGE_PACKAGE_ENCODINGS = new Set(['qBEAP', 'pBEAP', 'qbeap', 'pbeap']);
 
 /**
- * Detect qBEAP/pBEAP message packages: header + metadata + (envelope or payload), no capsule_type.
+ * True if the object carries the encrypted body of a qBEAP/pBEAP message package
+ * (plain envelope/payload OR encrypted fields: payloadEnc, innerEnvelopeCiphertext).
+ * Aligns with coordination `/beap/capsule` and Stage-2 message-package validation.
+ */
+export function hasEncryptedMessagePackageBody(obj: Record<string, unknown>): boolean {
+  return (
+    'envelope' in obj ||
+    'payload' in obj ||
+    'payloadEnc' in obj ||
+    'innerEnvelopeCiphertext' in obj
+  );
+}
+
+/**
+ * Detect qBEAP/pBEAP message packages: header + metadata + (envelope | payload | encrypted body), no capsule_type.
  * Optional strictness: header.encoding in ['qBEAP', 'pBEAP'].
  */
 export function isMessagePackageStructure(parsed: unknown): boolean {
@@ -79,11 +93,9 @@ export function isMessagePackageStructure(parsed: unknown): boolean {
   const obj = parsed as Record<string, unknown>;
   const hasHeader = 'header' in obj && obj.header != null && typeof obj.header === 'object';
   const hasMetadata = 'metadata' in obj && obj.metadata != null && typeof obj.metadata === 'object';
-  const hasEnvelope = 'envelope' in obj;
-  const hasPayload = 'payload' in obj;
   const noCapsuleType = !('capsule_type' in obj);
-  if (!hasHeader || !hasMetadata || !(hasEnvelope || hasPayload) || !noCapsuleType) return false;
-  return true;
+  if (!hasHeader || !hasMetadata || !noCapsuleType) return false;
+  return hasEncryptedMessagePackageBody(obj);
 }
 
 /**

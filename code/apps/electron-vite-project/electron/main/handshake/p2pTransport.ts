@@ -26,7 +26,7 @@ function decodeJwtPayload(token: string): Record<string, unknown> | null {
 /**
  * Summarizes outbound JSON body shape for logs (no values beyond keys / booleans).
  * Aligns with coordination `/beap/capsule`: accepts either a BEAP message package
- * (`header`+`metadata`+`envelope`|`payload`, no top-level `capsule_type`) or a
+ * (`header`+`metadata`+`envelope`|`payload`|`payloadEnc`|`innerEnvelopeCiphertext`, no top-level `capsule_type`) or a
  * capsule envelope (`capsule_type` in accept|context_sync|refresh|revoke).
  */
 export function describeOutboundPayloadForLogs(capsule: unknown): {
@@ -57,7 +57,10 @@ export function describeOutboundPayloadForLogs(capsule: unknown): {
   const looks_like_beap_message_package =
     'header' in o &&
     'metadata' in o &&
-    ('envelope' in o || 'payload' in o) &&
+    ('envelope' in o ||
+      'payload' in o ||
+      'payloadEnc' in o ||
+      'innerEnvelopeCiphertext' in o) &&
     !has_capsule_type_key
   const RELAY = new Set(['accept', 'context_sync', 'refresh', 'revoke'])
   const looks_like_relay_capsule_envelope = has_capsule_type_key && RELAY.has(capsuleType)
@@ -100,6 +103,14 @@ export interface OutboundRequestDebugSnapshot {
   response_body_snippet?: string
   /** Present when fetch failed before an HTTP response */
   transport_error?: string
+  /** Summarizes canon A.3.042 / A.3.054 inner encrypted chunk counts (no raw bytes). */
+  canon_chunking_summary?: {
+    payload_enc_chunk_count?: number
+    artefact_encrypted_chunk_total?: number
+    note?: string
+  }
+  /** Coordination relay uses a single JSON POST per send (full wire package). */
+  coordination_single_post_json?: boolean
 }
 
 export interface SendCapsuleResult {
@@ -152,6 +163,42 @@ export function detectBodyLooksDoubleEncoded(bodyUtf8: string): boolean {
   }
 }
 
+/** Summarizes canon inner encrypted chunking (A.3.042 / A.3.054) for DEBUG UI — no raw ciphertext. */
+export function summarizeCanonChunkingForOutboundDebug(capsule: unknown): NonNullable<
+  OutboundRequestDebugSnapshot['canon_chunking_summary']
+> {
+  const note =
+    'Canon A.3.042/A.3.054: inner fields use encrypted chunks; coordination relay sends one JSON POST per send.'
+  if (!capsule || typeof capsule !== 'object' || Array.isArray(capsule)) {
+    return { note }
+  }
+  const o = capsule as Record<string, unknown>
+  const pe = o.payloadEnc
+  let payload_enc_chunk_count: number | undefined
+  if (pe && typeof pe === 'object' && !Array.isArray(pe)) {
+    const ch = (pe as { chunking?: { count?: number } }).chunking
+    if (ch?.count != null) payload_enc_chunk_count = ch.count
+    else if (Array.isArray((pe as { chunks?: unknown[] }).chunks)) {
+      payload_enc_chunk_count = (pe as { chunks: unknown[] }).chunks.length
+    }
+  }
+  let artefact_encrypted_chunk_total = 0
+  const arts = o.artefactsEnc
+  if (Array.isArray(arts)) {
+    for (const a of arts) {
+      if (a && typeof a === 'object' && 'chunking' in a) {
+        const c = (a as { chunking?: { count?: number } }).chunking
+        if (c?.count) artefact_encrypted_chunk_total += c.count
+      }
+    }
+  }
+  return {
+    note,
+    ...(payload_enc_chunk_count != null ? { payload_enc_chunk_count } : {}),
+    ...(artefact_encrypted_chunk_total > 0 ? { artefact_encrypted_chunk_total } : {}),
+  }
+}
+
 export function buildOutboundRequestDebugSnapshot(
   route: 'coordination' | 'direct',
   targetUrl: string,
@@ -174,6 +221,8 @@ export function buildOutboundRequestDebugSnapshot(
     body_looks_double_encoded: detectBodyLooksDoubleEncoded(bodyUtf8),
     request_shape: describeOutboundPayloadForLogs(capsule),
     http_status: httpStatus,
+    canon_chunking_summary: summarizeCanonChunkingForOutboundDebug(capsule),
+    ...(route === 'coordination' ? { coordination_single_post_json: true as const } : {}),
     ...(responseSnippet && responseSnippet.length > 0 ? { response_body_snippet: responseSnippet } : {}),
     ...(transportError ? { transport_error: transportError } : {}),
   }

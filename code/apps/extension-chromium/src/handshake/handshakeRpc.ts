@@ -317,6 +317,12 @@ export type OutboundRequestDebugSnapshot = {
   http_status: number
   response_body_snippet?: string
   transport_error?: string
+  canon_chunking_summary?: {
+    payload_enc_chunk_count?: number
+    artefact_encrypted_chunk_total?: number
+    note?: string
+  }
+  coordination_single_post_json?: boolean
 }
 
 /** Matches Electron `handshake.sendBeapViaP2P` response (additive fields). */
@@ -332,6 +338,7 @@ export type SendBeapViaP2PResult = {
     | 'AUTH_REQUIRED'
     | 'FAILED_MAX_RETRIES'
     | 'REQUEST_INVALID'
+    | 'PAYLOAD_TOO_LARGE'
   last_queue_error?: string | null
   retry_count?: number
   max_retries?: number
@@ -344,6 +351,8 @@ export type SendBeapViaP2PResult = {
     | 'STALE_ROUTE'
     | 'CONFIG_PERMANENT'
     | 'PAYLOAD_PERMANENT'
+    | 'SCHEMA_PERMANENT'
+    | 'SIZE_RECOVERABLE'
   healing_status?:
     | 'idle'
     | 'scheduled'
@@ -351,6 +360,7 @@ export type SendBeapViaP2PResult = {
     | 'route_refreshing'
     | 'terminal_non_recoverable'
     | 'STOPPED_REQUIRES_FIX'
+    | 'RETRY_WITH_CHUNKING'
   http_status?: number
   response_body_snippet?: string
   outbound_debug?: OutboundRequestDebugSnapshot
