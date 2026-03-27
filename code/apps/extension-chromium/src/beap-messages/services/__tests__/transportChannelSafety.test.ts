@@ -5,7 +5,7 @@ import type { CapsuleAttachment } from '../../../beap-builder/canonical-types'
 const emptyAtt: CapsuleAttachment[] = []
 
 describe('checkQbeapTransportChannelSafety', () => {
-  it('returns null when encrypted and transport are independent', () => {
+  it('returns null when encrypted and transport plaintext are independent', () => {
     expect(
       checkQbeapTransportChannelSafety(
         {
@@ -18,8 +18,8 @@ describe('checkQbeapTransportChannelSafety', () => {
     ).toBeNull()
   })
 
-  it('detects identical encrypted and transport plaintext (short messages)', () => {
-    const body = 'Same text'
+  it('allows the same human-readable text in both designated plaintext and encrypted fields', () => {
+    const body = 'Same user-authored text in both fields is valid.'
     expect(
       checkQbeapTransportChannelSafety(
         {
@@ -29,19 +29,50 @@ describe('checkQbeapTransportChannelSafety', () => {
         },
         body,
       ),
-    ).toBe('SECURITY: encryptedMessage leaked into transport plaintext')
+    ).toBeNull()
   })
 
-  it('detects encrypted prefix duplicated in normalized transport', () => {
+  it('allows overlapping content between encryptedMessage and messageBody (not a leak)', () => {
     const secret = 'y'.repeat(50) + ' UNIQUE_TAIL'
+    expect(
+      checkQbeapTransportChannelSafety(
+        {
+          messageBody: `prefix ${secret} suffix`,
+          encryptedMessage: secret,
+          attachments: emptyAtt,
+        },
+        `prefix ${secret} suffix`,
+      ),
+    ).toBeNull()
+  })
+
+  it('still fails when extracted PDF semantic content appears in transport plaintext', () => {
+    const semantic =
+      'This is long extracted PDF semantic content that must not be pasted into the transport plaintext field because it belongs in the capsule only. ' +
+      'More text to exceed fifty characters for the security check.'
+    const att: CapsuleAttachment = {
+      id: 'a1',
+      originalName: 'doc.pdf',
+      originalSize: 100,
+      originalType: 'application/pdf',
+      semanticExtracted: true,
+      semanticContent: semantic,
+      encryptedRef: 'ref',
+      encryptedHash: 'hash',
+      previewRef: null,
+      rasterProof: null,
+      isMedia: false,
+      hasTranscript: false,
+    }
+    const transport = `Please read: ${semantic}`
     const err = checkQbeapTransportChannelSafety(
       {
-        messageBody: `prefix ${secret} suffix`,
-        encryptedMessage: secret,
-        attachments: emptyAtt,
+        messageBody: transport,
+        encryptedMessage: 'separate encrypted body',
+        attachments: [att],
       },
-      `prefix ${secret} suffix`,
+      transport,
     )
-    expect(err).toBe('SECURITY: encryptedMessage leaked into transport plaintext')
+    expect(err).toMatch(/SECURITY: Extracted PDF content detected in transport text/)
   })
 })

@@ -929,27 +929,22 @@ function validateQBeapPolicy(
 }
 
 /**
- * Fail closed before qBEAP crypto if transport would duplicate encrypted capsule text
- * or embed extracted attachment semantic content in the transport-visible field.
+ * Fail closed before qBEAP crypto if extracted attachment semantic content would appear
+ * in the transport-visible plaintext field.
+ *
+ * `messageBody` and `encryptedMessage` are separate designated fields; the same
+ * user-authored text may legitimately appear in both — that is not a leak and
+ * must not be flagged by comparing those two strings.
  */
 export function checkQbeapTransportChannelSafety(
   config: Pick<BeapPackageConfig, 'messageBody' | 'encryptedMessage' | 'attachments'>,
   transportPlaintextNormalized: string,
 ): string | null {
-  const enc = (config.encryptedMessage ?? '').trim()
-  const tp = transportPlaintextNormalized.trim()
-  if (enc.length > 0 && tp.length > 0 && enc === tp) {
-    return 'SECURITY: encryptedMessage leaked into transport plaintext'
-  }
-  if (enc.length >= 32 && tp.length >= 24) {
-    const prefixLen = Math.min(200, enc.length)
-    const prefix = enc.slice(0, prefixLen)
-    if (tp.includes(prefix)) {
-      return 'SECURITY: encryptedMessage leaked into transport plaintext'
-    }
-  }
   try {
-    assertNoSemanticContentInTransport(config.messageBody ?? '', config.attachments ?? [])
+    assertNoSemanticContentInTransport(
+      transportPlaintextNormalized,
+      config.attachments ?? [],
+    )
   } catch (e) {
     return e instanceof Error ? e.message : String(e)
   }
