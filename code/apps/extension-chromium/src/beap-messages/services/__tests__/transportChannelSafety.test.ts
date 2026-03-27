@@ -18,6 +18,20 @@ describe('checkQbeapTransportChannelSafety', () => {
     ).toBeNull()
   })
 
+  it('detects identical encrypted and transport plaintext (short messages)', () => {
+    const body = 'Same text'
+    expect(
+      checkQbeapTransportChannelSafety(
+        {
+          messageBody: body,
+          encryptedMessage: body,
+          attachments: emptyAtt,
+        },
+        body,
+      ),
+    ).toBe('SECURITY: encryptedMessage leaked into transport plaintext')
+  })
+
   it('detects encrypted prefix duplicated in normalized transport', () => {
     const secret = 'y'.repeat(50) + ' UNIQUE_TAIL'
     const err = checkQbeapTransportChannelSafety(

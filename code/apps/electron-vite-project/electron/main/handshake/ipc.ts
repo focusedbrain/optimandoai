@@ -636,6 +636,7 @@ export async function handleHandshakeRPC(
       const ok = deliveryResult as ProcessOutboundQueueResult
       return {
         success: true,
+        recipient_ingest_confirmed: false,
         ...(ok.code && { code: ok.code }),
         ...(ok.healing_status !== undefined && { healing_status: ok.healing_status }),
         ...(ok.coordinationRelayDelivery && {

@@ -214,29 +214,29 @@ export function useBeapDraftActions(options: UseBeapDraftActionsOptions): [BeapD
       setLastResult(result)
       
       if (result.success) {
-        // Add to outbox
-        addOutboxMessage({
-          id: `beap_${Date.now()}`,
-          folder: 'outbox',
-          fingerprint: senderFingerprint,
-          senderName: 'You',
-          deliveryMethod,
-          title: subject || 'BEAP™ Message',
-          bodyText: messageBody.slice(0, 100),
-          timestamp: Date.now(),
-          status: deliveryMethod === 'email' ? 'sending' : 'pending_user_action',
-          deliveryStatus: deliveryMethod === 'email' ? 'sending' : 'pending_user_action',
-          direction: 'outbound',
-          attachments: attachments.map(f => ({
-            name: f.name,
-            size: f.size,
-            type: f.type
-          })),
-        })
-        
-        // Clear draft on success
-        clearDraft()
-        
+        const finalizeOutbound =
+          deliveryMethod !== 'p2p' || result.recipientIngestConfirmed === true
+        if (finalizeOutbound) {
+          addOutboxMessage({
+            id: `beap_${Date.now()}`,
+            folder: 'outbox',
+            fingerprint: senderFingerprint,
+            senderName: 'You',
+            deliveryMethod,
+            title: subject || 'BEAP™ Message',
+            bodyText: messageBody.slice(0, 100),
+            timestamp: Date.now(),
+            status: deliveryMethod === 'email' ? 'sending' : 'pending_user_action',
+            deliveryStatus: deliveryMethod === 'email' ? 'sending' : 'pending_user_action',
+            direction: 'outbound',
+            attachments: attachments.map(f => ({
+              name: f.name,
+              size: f.size,
+              type: f.type
+            })),
+          })
+          clearDraft()
+        }
         if (onSuccess) {
           onSuccess(result)
         }

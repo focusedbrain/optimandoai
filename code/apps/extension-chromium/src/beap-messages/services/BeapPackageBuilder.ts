@@ -643,6 +643,11 @@ export interface DeliveryResult {
    * ingested the message (not implemented for coordination relay today — UI must not show green “delivered”).
    */
   recipientIngestConfirmed?: boolean
+  /**
+   * P2P: coordination/relay accepted the HTTP post but recipient ingest is not confirmed.
+   * UI must not clear the draft or show terminal “delivered” success.
+   */
+  p2pRelayAcceptedPendingIngest?: boolean
   /** Build / preflight / client-side exception — DEBUG button (no transport round-trip). */
   clientSendFailureDebug?: ClientSendFailureDebug
   details?: {
@@ -933,6 +938,9 @@ export function checkQbeapTransportChannelSafety(
 ): string | null {
   const enc = (config.encryptedMessage ?? '').trim()
   const tp = transportPlaintextNormalized.trim()
+  if (enc.length > 0 && tp.length > 0 && enc === tp) {
+    return 'SECURITY: encryptedMessage leaked into transport plaintext'
+  }
   if (enc.length >= 32 && tp.length >= 24) {
     const prefixLen = Math.min(200, enc.length)
     const prefix = enc.slice(0, prefixLen)
@@ -2091,6 +2099,7 @@ export async function executeP2PAction(
     const result = await sendBeapViaP2P(handshakeId, packageJson)
     if (result?.success) {
       const relay = result.coordinationRelayDelivery
+      const ingestConfirmed = result.recipient_ingest_confirmed === true
       const message =
         relay === 'queued_recipient_offline'
           ? 'Relay accepted — message queued (recipient offline).'
@@ -2101,7 +2110,8 @@ export async function executeP2PAction(
         success: true,
         action: 'sent',
         message,
-        recipientIngestConfirmed: false,
+        recipientIngestConfirmed: ingestConfirmed,
+        ...(!ingestConfirmed && { p2pRelayAcceptedPendingIngest: true }),
         ...(relay && { coordinationRelayDelivery: relay }),
       }
     }

@@ -543,6 +543,7 @@ function PopupChatApp() {
   const [isSendingBeap, setIsSendingBeap] = useState(false)
   /** P2P queue backoff: block Send until this time */
   const [beapP2pCooldownUntilMs, setBeapP2pCooldownUntilMs] = useState<number | null>(null)
+  const [beapP2pRelayPendingMessage, setBeapP2pRelayPendingMessage] = useState<string | null>(null)
   
   // Load email accounts from Electron via background script
   const loadEmailAccounts = async () => {
@@ -656,6 +657,16 @@ function PopupChatApp() {
       return
     }
 
+    if (beapDraftAttachments.some((a) => a.processing?.error)) {
+      setToastMessage(
+        beapUiValidationFailure(
+          'One or more attachments failed extraction. Fix or remove them before sending.',
+        ),
+      )
+      setTimeout(() => setToastMessage(null), 10000)
+      return
+    }
+
     const useHandshakeRefresh =
       beapDeliveryMethod === 'email' &&
       beapRecipientMode === 'private' &&
@@ -672,19 +683,20 @@ function PopupChatApp() {
       return
     }
 
-    const unparsedPdfs = beapDraftAttachments.filter(
+    const pdfUnready = beapDraftAttachments.filter(
       (a) =>
         (a.mime?.toLowerCase() === 'application/pdf' ||
           a.name?.toLowerCase().endsWith('.pdf')) &&
         !a.capsuleAttachment?.semanticExtracted,
     )
-    if (unparsedPdfs.length > 0) {
-      const proceed = window.confirm(
-        `${unparsedPdfs.length} PDF attachment(s) have not been parsed. ` +
-          'The recipient will not see extracted text in the capsule.\n\n' +
-          'Click OK to send anyway, or Cancel to go back and parse first.',
+    if (pdfUnready.length > 0) {
+      setToastMessage(
+        beapUiValidationFailure(
+          'PDF attachments must finish extraction before send, or remove them.',
+        ),
       )
-      if (!proceed) return
+      setTimeout(() => setToastMessage(null), 10000)
+      return
     }
 
     setIsSendingBeap(true)
@@ -700,6 +712,7 @@ function PopupChatApp() {
         const result = await sendViaHandshakeRefresh(hsId, { text: beapDraftMessage }, accountId)
         
         if (result.success) {
+          setBeapP2pRelayPendingMessage(null)
           setToastMessage({ message: 'BEAP™ Message sent via handshake!', type: 'info' })
           setBeapDraftTo('')
           setBeapDraftMessage('')
@@ -762,33 +775,36 @@ function PopupChatApp() {
       
       if (result.success) {
         setBeapP2pCooldownUntilMs(null)
-        // Show success notification based on delivery method
-        const actionLabel =
-          beapDeliveryMethod === 'download'
-            ? 'BEAP capsule downloaded'
-            : beapDeliveryMethod === 'p2p'
-              ? result.coordinationRelayDelivery === 'queued_recipient_offline'
-                ? 'Relay accepted — queued (recipient offline). Not confirmed at recipient yet.'
-                : result.coordinationRelayDelivery === 'pushed_live'
-                  ? 'Relay accepted — coordination received the package. Recipient ingest not confirmed.'
-                  : 'Relay accepted — awaiting recipient ingest (not confirmed).'
-              : 'BEAP™ Message sent!'
-        const toastType: 'success' | 'info' =
-          beapDeliveryMethod === 'download' || beapDeliveryMethod === 'email'
-            ? 'success'
-            : beapDeliveryMethod === 'p2p' && result.recipientIngestConfirmed === true
+        const p2pAwaitingIngest =
+          beapDeliveryMethod === 'p2p' && result.recipientIngestConfirmed !== true
+        if (p2pAwaitingIngest) {
+          setBeapP2pRelayPendingMessage(
+            'Relay accepted the package — recipient ingest is not confirmed yet. Your draft stays until delivery is confirmed.',
+          )
+          toastClearMs = 0
+        } else {
+          setBeapP2pRelayPendingMessage(null)
+          const actionLabel =
+            beapDeliveryMethod === 'download'
+              ? 'BEAP capsule downloaded'
+              : beapDeliveryMethod === 'p2p'
+                ? 'Recipient ingest confirmed — BEAP™ delivery complete.'
+                : 'BEAP™ Message sent!'
+          const toastType: 'success' | 'info' =
+            beapDeliveryMethod === 'download' || beapDeliveryMethod === 'email'
               ? 'success'
-              : 'info'
-        setToastMessage({ message: actionLabel, type: toastType })
-        
-        // Clear form
-        setBeapDraftTo('')
-        setBeapDraftMessage('')
-        setBeapDraftEncryptedMessage('')
-        setBeapDraftSessionId('')
-        setBeapDraftReaderModalId(null)
-        setBeapDraftAttachments([])
-        setSelectedRecipient(null)
+              : beapDeliveryMethod === 'p2p' && result.recipientIngestConfirmed === true
+                ? 'success'
+                : 'info'
+          setToastMessage({ message: actionLabel, type: toastType })
+          setBeapDraftTo('')
+          setBeapDraftMessage('')
+          setBeapDraftEncryptedMessage('')
+          setBeapDraftSessionId('')
+          setBeapDraftReaderModalId(null)
+          setBeapDraftAttachments([])
+          setSelectedRecipient(null)
+        }
       } else {
         if (result.code === 'REQUEST_INVALID' || result.code === 'PAYLOAD_TOO_LARGE') {
           setBeapP2pCooldownUntilMs(null)
@@ -833,7 +849,9 @@ function PopupChatApp() {
       toastClearMs = 12000
     } finally {
       setIsSendingBeap(false)
-      setTimeout(() => setToastMessage(null), toastClearMs)
+      if (toastClearMs > 0) {
+        setTimeout(() => setToastMessage(null), toastClearMs)
+      }
     }
   }
   
@@ -1478,6 +1496,39 @@ function PopupChatApp() {
             </div>
             
             {/* Action Buttons */}
+            {beapP2pRelayPendingMessage && (
+              <div
+                style={{
+                  padding: '10px 14px',
+                  borderTop: isStandard ? '1px solid rgba(234, 179, 8, 0.35)' : '1px solid rgba(250, 204, 21, 0.3)',
+                  background: isStandard ? 'rgba(234, 179, 8, 0.1)' : 'rgba(234, 179, 8, 0.12)',
+                  fontSize: '12px',
+                  color: isStandard ? '#a16207' : '#fde68a',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'flex-start',
+                  gap: '10px',
+                }}
+              >
+                <span>{beapP2pRelayPendingMessage}</span>
+                <button
+                  type="button"
+                  onClick={() => setBeapP2pRelayPendingMessage(null)}
+                  style={{
+                    background: 'transparent',
+                    border: isStandard ? '1px solid rgba(161, 98, 7, 0.35)' : '1px solid rgba(253, 230, 138, 0.4)',
+                    color: 'inherit',
+                    borderRadius: '4px',
+                    padding: '2px 8px',
+                    fontSize: '11px',
+                    cursor: 'pointer',
+                    flexShrink: 0,
+                  }}
+                >
+                  Dismiss
+                </button>
+              </div>
+            )}
             <div style={{
               padding: '12px 14px',
               borderTop: isStandard ? '1px solid rgba(15,23,42,0.1)' : '1px solid rgba(255,255,255,0.1)',
@@ -1488,6 +1539,7 @@ function PopupChatApp() {
             }}>
               <button 
                 onClick={() => {
+                  setBeapP2pRelayPendingMessage(null)
                   setBeapDraftTo('')
                   setBeapDraftMessage('')
                   setBeapDraftEncryptedMessage('')

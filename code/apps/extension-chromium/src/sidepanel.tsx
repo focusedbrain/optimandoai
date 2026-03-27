@@ -515,6 +515,8 @@ function SidepanelOrchestrator() {
   const [isSendingBeap, setIsSendingBeap] = useState(false)
   /** P2P queue backoff: block Send until this time (ms since epoch) */
   const [beapP2pCooldownUntilMs, setBeapP2pCooldownUntilMs] = useState<number | null>(null)
+  /** P2P: relay accepted HTTP post but recipient ingest not confirmed — non-terminal pending banner */
+  const [beapP2pRelayPendingMessage, setBeapP2pRelayPendingMessage] = useState<string | null>(null)
   
   // Handler for sending BEAP messages (shared across all Draft views)
   const handleSendBeapMessage = async () => {
@@ -541,6 +543,16 @@ function SidepanelOrchestrator() {
       return
     }
 
+    if (beapDraftAttachments.some((a) => a.processing?.error)) {
+      setNotification(
+        beapUiValidationFailure(
+          'One or more attachments failed extraction. Fix or remove them before sending.',
+        ),
+      )
+      setTimeout(() => setNotification(null), 10000)
+      return
+    }
+
     const useHandshakeRefresh =
       handshakeDelivery === 'email' &&
       beapRecipientMode === 'private' &&
@@ -557,19 +569,20 @@ function SidepanelOrchestrator() {
       return
     }
 
-    const unparsedPdfs = beapDraftAttachments.filter(
+    const pdfUnready = beapDraftAttachments.filter(
       (a) =>
         (a.mime?.toLowerCase() === 'application/pdf' ||
           a.name?.toLowerCase().endsWith('.pdf')) &&
         !a.capsuleAttachment?.semanticExtracted,
     )
-    if (unparsedPdfs.length > 0) {
-      const proceed = window.confirm(
-        `${unparsedPdfs.length} PDF attachment(s) have not been parsed. ` +
-          'The recipient will not see extracted text in the capsule.\n\n' +
-          'Click OK to send anyway, or Cancel to go back and parse first.',
+    if (pdfUnready.length > 0) {
+      setNotification(
+        beapUiValidationFailure(
+          'PDF attachments must finish extraction before send, or remove them.',
+        ),
       )
-      if (!proceed) return
+      setTimeout(() => setNotification(null), 10000)
+      return
     }
 
     setIsSendingBeap(true)
@@ -586,6 +599,7 @@ function SidepanelOrchestrator() {
         const result = await sendViaHandshakeRefresh(hsId, { text: beapDraftMessage }, accountId)
         
         if (result.success) {
+          setBeapP2pRelayPendingMessage(null)
           setNotification({ message: 'BEAP™ Message sent via handshake!', type: 'info' })
           setBeapDraftTo('')
           setBeapDraftMessage('')
@@ -639,33 +653,39 @@ function SidepanelOrchestrator() {
         
         if (result.success) {
           setBeapP2pCooldownUntilMs(null)
-          const actionLabel =
-            handshakeDelivery === 'download'
-              ? 'BEAP capsule downloaded'
-              : handshakeDelivery === 'p2p'
-                ? result.coordinationRelayDelivery === 'queued_recipient_offline'
-                  ? 'Relay accepted — queued (recipient offline). Not confirmed at recipient yet.'
-                  : result.coordinationRelayDelivery === 'pushed_live'
-                    ? 'Relay accepted — coordination received the package. Recipient ingest not confirmed.'
-                    : 'Relay accepted — awaiting recipient ingest (not confirmed).'
-                : 'BEAP™ Message sent!'
-          const toastType: 'success' | 'info' =
-            handshakeDelivery === 'download' || handshakeDelivery === 'email'
-              ? 'success'
-              : handshakeDelivery === 'p2p' && result.recipientIngestConfirmed === true
+          const p2pAwaitingIngest =
+            handshakeDelivery === 'p2p' && result.recipientIngestConfirmed !== true
+          if (p2pAwaitingIngest) {
+            setBeapP2pRelayPendingMessage(
+              'Relay accepted the package — recipient ingest is not confirmed yet. Your draft stays until delivery is confirmed.',
+            )
+            toastClearMs = 0
+          } else {
+            setBeapP2pRelayPendingMessage(null)
+            const actionLabel =
+              handshakeDelivery === 'download'
+                ? 'BEAP capsule downloaded'
+                : handshakeDelivery === 'p2p'
+                  ? 'Recipient ingest confirmed — BEAP™ delivery complete.'
+                  : 'BEAP™ Message sent!'
+            const toastType: 'success' | 'info' =
+              handshakeDelivery === 'download' || handshakeDelivery === 'email'
                 ? 'success'
-                : 'info'
-          setNotification({
-            message: actionLabel,
-            type: toastType,
-          })
-          setBeapDraftTo('')
-          setBeapDraftMessage('')
-          setBeapDraftEncryptedMessage('')
-          setBeapDraftSessionId('')
-          setBeapDraftReaderModalId(null)
-          setBeapDraftAttachments([])
-          setSelectedRecipient(null)
+                : handshakeDelivery === 'p2p' && result.recipientIngestConfirmed === true
+                  ? 'success'
+                  : 'info'
+            setNotification({
+              message: actionLabel,
+              type: toastType,
+            })
+            setBeapDraftTo('')
+            setBeapDraftMessage('')
+            setBeapDraftEncryptedMessage('')
+            setBeapDraftSessionId('')
+            setBeapDraftReaderModalId(null)
+            setBeapDraftAttachments([])
+            setSelectedRecipient(null)
+          }
         } else {
           if (result.code === 'REQUEST_INVALID' || result.code === 'PAYLOAD_TOO_LARGE') {
             setBeapP2pCooldownUntilMs(null)
@@ -712,7 +732,9 @@ function SidepanelOrchestrator() {
       toastClearMs = 12000
     } finally {
       setIsSendingBeap(false)
-      setTimeout(() => setNotification(null), toastClearMs)
+      if (toastClearMs > 0) {
+        setTimeout(() => setNotification(null), toastClearMs)
+      }
     }
   }
   
@@ -6895,8 +6917,41 @@ height: '28px',
                     </div>
                   </div>
                 </div>
+                {beapP2pRelayPendingMessage && (
+                  <div
+                    style={{
+                      padding: '10px 14px',
+                      borderTop: theme === 'standard' ? '1px solid rgba(234, 179, 8, 0.35)' : '1px solid rgba(250, 204, 21, 0.3)',
+                      background: theme === 'standard' ? 'rgba(234, 179, 8, 0.1)' : 'rgba(234, 179, 8, 0.12)',
+                      fontSize: '12px',
+                      color: theme === 'standard' ? '#a16207' : '#fde68a',
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'flex-start',
+                      gap: '10px',
+                    }}
+                  >
+                    <span>{beapP2pRelayPendingMessage}</span>
+                    <button
+                      type="button"
+                      onClick={() => setBeapP2pRelayPendingMessage(null)}
+                      style={{
+                        background: 'transparent',
+                        border: theme === 'standard' ? '1px solid rgba(161, 98, 7, 0.35)' : '1px solid rgba(253, 230, 138, 0.4)',
+                        color: 'inherit',
+                        borderRadius: '4px',
+                        padding: '2px 8px',
+                        fontSize: '11px',
+                        cursor: 'pointer',
+                        flexShrink: 0,
+                      }}
+                    >
+                      Dismiss
+                    </button>
+                  </div>
+                )}
                 <div style={{ padding: '12px 14px', borderTop: theme === 'standard' ? '1px solid rgba(147, 51, 234, 0.12)' : '1px solid rgba(255,255,255,0.1)', display: 'flex', justifyContent: 'flex-end', gap: '8px', background: theme === 'standard' ? '#ffffff' : 'rgba(0,0,0,0.2)' }}>
-                  <button onClick={() => { setBeapDraftTo(''); setBeapDraftMessage(''); setBeapDraftEncryptedMessage(''); setBeapDraftSessionId(''); setBeapDraftReaderModalId(null); setBeapDraftAttachments([]); setSelectedRecipient(null) }} style={{ background: 'transparent', border: theme === 'standard' ? '1px solid #e1e8ed' : '1px solid rgba(255,255,255,0.2)', color: theme === 'standard' ? '#536471' : 'rgba(255,255,255,0.7)', borderRadius: '6px', padding: '8px 16px', fontSize: '12px', cursor: 'pointer' }}>Clear</button>
+                  <button onClick={() => { setBeapP2pRelayPendingMessage(null); setBeapDraftTo(''); setBeapDraftMessage(''); setBeapDraftEncryptedMessage(''); setBeapDraftSessionId(''); setBeapDraftReaderModalId(null); setBeapDraftAttachments([]); setSelectedRecipient(null) }} style={{ background: 'transparent', border: theme === 'standard' ? '1px solid #e1e8ed' : '1px solid rgba(255,255,255,0.2)', color: theme === 'standard' ? '#536471' : 'rgba(255,255,255,0.7)', borderRadius: '6px', padding: '8px 16px', fontSize: '12px', cursor: 'pointer' }}>Clear</button>
                   <button onClick={handleSendBeapMessage} disabled={isBeapSendDisabled} style={{ background: isBeapSendDisabled ? 'rgba(168,85,247,0.5)' : 'linear-gradient(135deg, #a855f7 0%, #9333ea 100%)', border: 'none', color: 'white', borderRadius: '6px', padding: '8px 20px', fontSize: '12px', fontWeight: 600, cursor: isBeapSendDisabled ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: '6px', opacity: isBeapSendDisabled ? 0.7 : 1 }}>{getBeapSendButtonLabel()}</button>
                 </div>
                   </>
@@ -8150,8 +8205,41 @@ height: '28px',
                     </div>
                   </div>
                 </div>
+                {beapP2pRelayPendingMessage && (
+                  <div
+                    style={{
+                      padding: '10px 14px',
+                      borderTop: theme === 'standard' ? '1px solid rgba(234, 179, 8, 0.35)' : '1px solid rgba(250, 204, 21, 0.3)',
+                      background: theme === 'standard' ? 'rgba(234, 179, 8, 0.1)' : 'rgba(234, 179, 8, 0.12)',
+                      fontSize: '12px',
+                      color: theme === 'standard' ? '#a16207' : '#fde68a',
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'flex-start',
+                      gap: '10px',
+                    }}
+                  >
+                    <span>{beapP2pRelayPendingMessage}</span>
+                    <button
+                      type="button"
+                      onClick={() => setBeapP2pRelayPendingMessage(null)}
+                      style={{
+                        background: 'transparent',
+                        border: theme === 'standard' ? '1px solid rgba(161, 98, 7, 0.35)' : '1px solid rgba(253, 230, 138, 0.4)',
+                        color: 'inherit',
+                        borderRadius: '4px',
+                        padding: '2px 8px',
+                        fontSize: '11px',
+                        cursor: 'pointer',
+                        flexShrink: 0,
+                      }}
+                    >
+                      Dismiss
+                    </button>
+                  </div>
+                )}
                 <div style={{ padding: '12px 14px', borderTop: theme === 'standard' ? '1px solid rgba(147, 51, 234, 0.12)' : '1px solid rgba(255,255,255,0.1)', display: 'flex', justifyContent: 'flex-end', gap: '8px', background: theme === 'standard' ? '#ffffff' : 'rgba(0,0,0,0.2)' }}>
-                  <button onClick={() => { setBeapDraftTo(''); setBeapDraftMessage(''); setBeapDraftEncryptedMessage(''); setBeapDraftSessionId(''); setBeapDraftReaderModalId(null); setBeapDraftAttachments([]); setSelectedRecipient(null) }} style={{ background: 'transparent', border: theme === 'standard' ? '1px solid #e1e8ed' : '1px solid rgba(255,255,255,0.2)', color: theme === 'standard' ? '#536471' : 'rgba(255,255,255,0.7)', borderRadius: '6px', padding: '8px 16px', fontSize: '12px', cursor: 'pointer' }}>Clear</button>
+                  <button onClick={() => { setBeapP2pRelayPendingMessage(null); setBeapDraftTo(''); setBeapDraftMessage(''); setBeapDraftEncryptedMessage(''); setBeapDraftSessionId(''); setBeapDraftReaderModalId(null); setBeapDraftAttachments([]); setSelectedRecipient(null) }} style={{ background: 'transparent', border: theme === 'standard' ? '1px solid #e1e8ed' : '1px solid rgba(255,255,255,0.2)', color: theme === 'standard' ? '#536471' : 'rgba(255,255,255,0.7)', borderRadius: '6px', padding: '8px 16px', fontSize: '12px', cursor: 'pointer' }}>Clear</button>
                   <button onClick={handleSendBeapMessage} disabled={isBeapSendDisabled} style={{ background: isBeapSendDisabled ? 'rgba(168,85,247,0.5)' : 'linear-gradient(135deg, #a855f7 0%, #9333ea 100%)', border: 'none', color: 'white', borderRadius: '6px', padding: '8px 20px', fontSize: '12px', fontWeight: 600, cursor: isBeapSendDisabled ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: '6px', opacity: isBeapSendDisabled ? 0.7 : 1 }}>{getBeapSendButtonLabel()}</button>
                 </div>
                   </>
