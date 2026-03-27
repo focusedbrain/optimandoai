@@ -157,8 +157,18 @@ function toBase64Vault(bytes: Uint8Array): string {
   return btoa(binary)
 }
 
+/** Match beapCrypto: accept standard base64 and base64url (Linux / cross-platform storage). */
+function safeAtobVault(input: string): string {
+  let b64 = input.replace(/-/g, '+').replace(/_/g, '/')
+  b64 = b64.replace(/\s/g, '')
+  const pad = b64.length % 4
+  if (pad === 2) b64 += '=='
+  else if (pad === 3) b64 += '='
+  return atob(b64)
+}
+
 function fromBase64Vault(b64: string): Uint8Array {
-  const binary = atob(b64)
+  const binary = safeAtobVault(b64)
   const bytes = new Uint8Array(binary.length)
   for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
   return bytes

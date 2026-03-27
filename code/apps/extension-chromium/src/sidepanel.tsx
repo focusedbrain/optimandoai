@@ -52,14 +52,11 @@ import { BeapDocumentReaderModal, AttachmentStatusBadge } from './beap-builder/c
 import type { CapsuleAttachment, RasterProof, RasterPageData } from './beap-builder'
 import { electronRpc } from './rpc/electronRpc'
 import { getVaultStatus } from './vault/api'
-import { P2pOutboundDebugModal } from './components/P2pOutboundDebugModal'
 import type { ClientSendFailureDebug, OutboundRequestDebugSnapshot } from './handshake/handshakeRpc'
 import {
   formatOversizeAttachmentRejection,
   MAX_BEAP_DRAFT_ATTACHMENT_BYTES,
 } from './beap-messages/attachmentPickerLimits'
-import type { P2pDebugModalPayload } from './components/P2pOutboundDebugModal'
-
 interface ConnectionStatus {
   isConnected: boolean
   readyState?: number
@@ -240,7 +237,6 @@ function SidepanelOrchestrator() {
     p2pOutboundDebug?: OutboundRequestDebugSnapshot
     clientSendFailureDebug?: ClientSendFailureDebug
   } | null>(null)
-  const [p2pOutboundDebugModal, setP2pOutboundDebugModal] = useState<P2pDebugModalPayload | null>(null)
   const [theme, setTheme] = useState<'pro' | 'dark' | 'standard'>('standard')
   
   // ==========================================================================
@@ -289,15 +285,6 @@ function SidepanelOrchestrator() {
       setPlatformOs(info.os as 'linux' | 'mac' | 'win')
     }).catch(() => setPlatformOs(null))
   }, [])
-
-  // Failed send: auto-open DEBUG modal when diagnostics are present (Linux/Windows parity).
-  useEffect(() => {
-    if (!notification) return
-    if (notification.type === 'success') return
-    const dbg = notification.p2pOutboundDebug ?? notification.clientSendFailureDebug
-    if (!dbg) return
-    setP2pOutboundDebugModal(dbg)
-  }, [notification])
 
   // Open wrdesk.com when logged out (once per sidepanel open, no tab spam)
   const hasTriedOpeningWrdeskRef = useRef(false);
@@ -5829,35 +5816,9 @@ function SidepanelOrchestrator() {
             <span style={{ flexShrink: 0, lineHeight: 1.4 }}>
               {notification.type === 'success' ? '✓' : notification.type === 'info' ? 'ℹ' : '✕'}
             </span>
-            <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 8 }}>
-              <span style={{ whiteSpace: 'pre-line', lineHeight: 1.45 }}>{notification.message}</span>
-              {(notification.p2pOutboundDebug || notification.clientSendFailureDebug) && (
-                <button
-                  type="button"
-                  onClick={() =>
-                    setP2pOutboundDebugModal(
-                      notification.p2pOutboundDebug ?? notification.clientSendFailureDebug ?? null,
-                    )
-                  }
-                  style={{
-                    alignSelf: 'flex-start',
-                    background: 'rgba(0,0,0,0.2)',
-                    border: '1px solid rgba(255,255,255,0.35)',
-                    color: 'white',
-                    borderRadius: 4,
-                    padding: '4px 10px',
-                    fontSize: 11,
-                    fontWeight: 700,
-                    cursor: 'pointer',
-                  }}
-                >
-                  DEBUG
-                </button>
-              )}
-            </div>
+            <span style={{ flex: 1, minWidth: 0, whiteSpace: 'pre-line', lineHeight: 1.45 }}>{notification.message}</span>
           </div>
         )}
-        <P2pOutboundDebugModal debug={p2pOutboundDebugModal} onClose={() => setP2pOutboundDebugModal(null)} />
       </div>
     )
   }
@@ -9165,35 +9126,9 @@ height: '28px',
           <span style={{ flexShrink: 0, lineHeight: 1.4 }}>
             {notification.type === 'success' ? '✓' : notification.type === 'info' ? 'ℹ' : '✕'}
           </span>
-          <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <span style={{ whiteSpace: 'pre-line', lineHeight: 1.45 }}>{notification.message}</span>
-            {(notification.p2pOutboundDebug || notification.clientSendFailureDebug) && (
-              <button
-                type="button"
-                onClick={() =>
-                  setP2pOutboundDebugModal(
-                    notification.p2pOutboundDebug ?? notification.clientSendFailureDebug ?? null,
-                  )
-                }
-                style={{
-                  alignSelf: 'flex-start',
-                  background: 'rgba(0,0,0,0.2)',
-                  border: '1px solid rgba(255,255,255,0.35)',
-                  color: 'white',
-                  borderRadius: 4,
-                  padding: '4px 10px',
-                  fontSize: 11,
-                  fontWeight: 700,
-                  cursor: 'pointer',
-                }}
-              >
-                DEBUG
-              </button>
-            )}
-          </div>
+          <span style={{ flex: 1, minWidth: 0, whiteSpace: 'pre-line', lineHeight: 1.45 }}>{notification.message}</span>
         </div>
       )}
-      <P2pOutboundDebugModal debug={p2pOutboundDebugModal} onClose={() => setP2pOutboundDebugModal(null)} />
       </div>
     </div>
   )

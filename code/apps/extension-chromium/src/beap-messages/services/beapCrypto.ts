@@ -275,6 +275,18 @@ export function randomBytes(length: number): Uint8Array {
 }
 
 /**
+ * Decode standard base64 or base64url safely (PoAE / signing keys may use either).
+ */
+export function safeAtob(input: string): string {
+  let b64 = input.replace(/-/g, '+').replace(/_/g, '/')
+  b64 = b64.replace(/\s/g, '')
+  const pad = b64.length % 4
+  if (pad === 2) b64 += '=='
+  else if (pad === 3) b64 += '='
+  return atob(b64)
+}
+
+/**
  * Convert Uint8Array to base64 string
  */
 export function toBase64(bytes: Uint8Array): string {
@@ -294,7 +306,7 @@ export function fromBase64(base64: string): Uint8Array {
     throw new Error('Invalid base64 input: expected non-empty string')
   }
   try {
-    const binary = atob(base64)
+    const binary = safeAtob(base64)
     const bytes = new Uint8Array(binary.length)
     for (let i = 0; i < binary.length; i++) {
       bytes[i] = binary.charCodeAt(i)

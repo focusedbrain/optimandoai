@@ -13,6 +13,8 @@
 
 import { x25519 } from '@noble/curves/ed25519'
 
+import { safeAtob } from './beapCrypto'
+
 // =============================================================================
 // Types
 // =============================================================================
@@ -54,7 +56,7 @@ function toBase64(bytes: Uint8Array): string {
 }
 
 function fromBase64(base64: string): Uint8Array {
-  const binary = atob(base64)
+  const binary = safeAtob(base64)
   const bytes = new Uint8Array(binary.length)
   for (let i = 0; i < binary.length; i++) {
     bytes[i] = binary.charCodeAt(i)

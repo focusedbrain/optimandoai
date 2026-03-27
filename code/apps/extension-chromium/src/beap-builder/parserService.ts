@@ -18,6 +18,16 @@
 
 import type { CapsuleAttachment, RasterProof } from './canonical-types'
 
+/** Decode standard base64 or base64url (PDF bytes from file readers / APIs may vary). */
+function safeAtob(input: string): string {
+  let b64 = input.replace(/-/g, '+').replace(/_/g, '/')
+  b64 = b64.replace(/\s/g, '')
+  const pad = b64.length % 4
+  if (pad === 2) b64 += '=='
+  else if (pad === 3) b64 += '='
+  return atob(b64)
+}
+
 /**
  * Retrieve the per-launch HTTP auth headers from the background script.
  * Returns { 'X-Launch-Secret': '<hex>' } when connected to Electron,
@@ -91,7 +101,7 @@ async function extractPdfTextBrowser(base64Data: string): Promise<ParserResult> 
   const extractPromise = (async (): Promise<ParserResult> => {
     const pdfjsLib = await initPdfjs()
     try {
-      const binary = atob(base64Data)
+      const binary = safeAtob(base64Data)
       const bytes = new Uint8Array(binary.length)
       for (let i = 0; i < binary.length; i++) {
         bytes[i] = binary.charCodeAt(i)

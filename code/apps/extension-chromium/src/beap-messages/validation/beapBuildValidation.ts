@@ -9,7 +9,12 @@
  */
 
 import type { BeapPackage } from '../services/BeapPackageBuilder'
-import { computeMerkleRoot, getDebugAadStats, getDebugLastSigningData } from '../services/beapCrypto'
+import {
+  computeMerkleRoot,
+  getDebugAadStats,
+  getDebugLastSigningData,
+  safeAtob,
+} from '../services/beapCrypto'
 
 /**
  * Validate a built qBEAP package for canon compliance.
@@ -30,7 +35,7 @@ export async function validateBuiltQBeapPackage(pkg: BeapPackage): Promise<strin
     errors.push('header.crypto.senderX25519PublicKeyB64 is missing or empty')
   } else {
     try {
-      const decoded = atob(senderX25519)
+      const decoded = safeAtob(senderX25519)
       if (decoded.length !== 32) {
         errors.push(`header.crypto.senderX25519PublicKeyB64 decodes to ${decoded.length} bytes, expected 32`)
       }
@@ -48,7 +53,7 @@ export async function validateBuiltQBeapPackage(pkg: BeapPackage): Promise<strin
       errors.push('header.crypto.pq.kemCiphertextB64 is missing or empty')
     } else {
       try {
-        const decoded = atob(pq.kemCiphertextB64)
+        const decoded = safeAtob(pq.kemCiphertextB64)
         if (decoded.length < 32) {
           errors.push(`header.crypto.pq.kemCiphertextB64 decodes to ${decoded.length} bytes, expected at least 32`)
         }
@@ -64,7 +69,7 @@ export async function validateBuiltQBeapPackage(pkg: BeapPackage): Promise<strin
     errors.push('header.crypto.salt is missing or empty')
   } else {
     try {
-      const decoded = atob(salt)
+      const decoded = safeAtob(salt)
       if (decoded.length !== 16) {
         errors.push(`header.crypto.salt decodes to ${decoded.length} bytes, expected 16`)
       }

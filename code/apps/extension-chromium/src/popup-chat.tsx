@@ -42,7 +42,6 @@ import { BeapDocumentReaderModal, AttachmentStatusBadge } from './beap-builder/c
 import type { CapsuleAttachment, RasterProof, RasterPageData } from './beap-builder'
 import { electronRpc } from './rpc/electronRpc'
 import { getVaultStatus } from './vault/api'
-import { P2pOutboundDebugModal, type P2pDebugModalPayload } from './components/P2pOutboundDebugModal'
 import type { ClientSendFailureDebug, OutboundRequestDebugSnapshot } from './handshake/handshakeRpc'
 import {
   formatOversizeAttachmentRejection,
@@ -539,7 +538,6 @@ function PopupChatApp() {
     p2pOutboundDebug?: OutboundRequestDebugSnapshot
     clientSendFailureDebug?: ClientSendFailureDebug
   } | null>(null)
-  const [p2pOutboundDebugModal, setP2pOutboundDebugModal] = useState<P2pDebugModalPayload | null>(null)
   const [isSendingBeap, setIsSendingBeap] = useState(false)
   /** P2P queue backoff: block Send until this time */
   const [beapP2pCooldownUntilMs, setBeapP2pCooldownUntilMs] = useState<number | null>(null)
@@ -575,14 +573,6 @@ function PopupChatApp() {
     loadEmailAccounts()
   }, [])
 
-  useEffect(() => {
-    if (!toastMessage) return
-    if (toastMessage.type === 'success') return
-    const dbg = toastMessage.p2pOutboundDebug ?? toastMessage.clientSendFailureDebug
-    if (!dbg) return
-    setP2pOutboundDebugModal(dbg)
-  }, [toastMessage])
-  
   // Reload email accounts when switching to relevant workspaces
   useEffect(() => {
     if (dockedWorkspace === 'beap-messages' || dockedWorkspace === 'wrguard' || dockedWorkspace === 'email-compose') {
@@ -2242,35 +2232,9 @@ function PopupChatApp() {
           <span style={{ flexShrink: 0, lineHeight: 1.4 }}>
             {toastMessage.type === 'success' ? '✓' : toastMessage.type === 'info' ? 'ℹ' : '✕'}
           </span>
-          <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <span style={{ whiteSpace: 'pre-line', lineHeight: 1.45 }}>{toastMessage.message}</span>
-            {(toastMessage.p2pOutboundDebug || toastMessage.clientSendFailureDebug) && (
-              <button
-                type="button"
-                onClick={() =>
-                  setP2pOutboundDebugModal(
-                    toastMessage.p2pOutboundDebug ?? toastMessage.clientSendFailureDebug ?? null,
-                  )
-                }
-                style={{
-                  alignSelf: 'flex-start',
-                  background: 'rgba(0,0,0,0.2)',
-                  border: '1px solid rgba(255,255,255,0.35)',
-                  color: 'white',
-                  borderRadius: 4,
-                  padding: '4px 10px',
-                  fontSize: 11,
-                  fontWeight: 700,
-                  cursor: 'pointer',
-                }}
-              >
-                DEBUG
-              </button>
-            )}
-          </div>
+          <span style={{ flex: 1, minWidth: 0, whiteSpace: 'pre-line', lineHeight: 1.45 }}>{toastMessage.message}</span>
         </div>
       )}
-      <P2pOutboundDebugModal debug={p2pOutboundDebugModal} onClose={() => setP2pOutboundDebugModal(null)} />
       
       {/* Header with Workspace Select and Submode - MIRRORS docked exactly */}
       <header style={headerStyles}>

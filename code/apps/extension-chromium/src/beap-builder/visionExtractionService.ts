@@ -16,6 +16,16 @@ const VISION_RENDER_SCALE = 2.0
 const VISION_MAX_PAGES = 50
 const MAX_CANVAS_DIMENSION = 4096
 
+/** Decode standard base64 or base64url (PDF bytes from file readers / APIs may vary). */
+function safeAtob(input: string): string {
+  let b64 = input.replace(/-/g, '+').replace(/_/g, '/')
+  b64 = b64.replace(/\s/g, '')
+  const pad = b64.length % 4
+  if (pad === 2) b64 += '=='
+  else if (pad === 3) b64 += '='
+  return atob(b64)
+}
+
 const EXTRACT_PROMPT = [
   'Extract ALL text from this document page image exactly as written.',
   'Preserve paragraphs, line breaks, and logical structure.',
@@ -176,7 +186,7 @@ export async function extractPdfTextWithVision(
 
   try {
     const pdfjsLib = await initPdfjs()
-    const binary = atob(base64Data)
+    const binary = safeAtob(base64Data)
     const bytes = new Uint8Array(binary.length)
     for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
 
