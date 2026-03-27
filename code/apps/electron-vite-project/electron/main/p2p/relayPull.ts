@@ -10,7 +10,7 @@ import { processIncomingInput } from '../ingestion/ingestionPipeline'
 import { processHandshakeCapsule } from '../handshake/enforcement'
 import { canonicalRebuild } from '../handshake/canonicalRebuild'
 import { buildDefaultReceiverPolicy } from '../handshake/types'
-import { migrateHandshakeTables } from '../handshake/db'
+import { migrateHandshakeTables, insertPendingP2PBeap } from '../handshake/db'
 import {
   insertIngestionAuditRecord,
   insertQuarantineRecord,
@@ -146,6 +146,24 @@ export async function pullFromRelay(
       }
 
       const { distribution } = result
+      if (distribution.target === 'message_relay') {
+        const msgCapsule = distribution.validated_capsule!.capsule as Record<string, unknown>
+        const handshakeId =
+          (msgCapsule?.handshake_id as string)?.trim() ||
+          (msgCapsule?.header && typeof msgCapsule.header === 'object'
+            ? ((msgCapsule.header as Record<string, unknown>)?.receiver_binding as Record<string, unknown>)?.handshake_id as string
+            : undefined)?.trim() ||
+          '__relay_message__'
+        const capsuleJson = cap.capsule_json
+        try {
+          insertPendingP2PBeap(db, handshakeId, capsuleJson)
+          accepted++
+          idsToAck.push(cap.id)
+        } catch {
+          rejected++
+        }
+        continue
+      }
       if (distribution.target !== 'handshake_pipeline') {
         idsToAck.push(cap.id)
         rejected++

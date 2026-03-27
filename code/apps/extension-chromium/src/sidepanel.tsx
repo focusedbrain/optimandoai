@@ -46,7 +46,7 @@ import { HandshakeManagementPanel } from './handshake/components/HandshakeManage
 import { HandshakeRequestForm } from './handshake/components/HandshakeRequestForm'
 import { SendHandshakeDelivery } from './handshake/components/SendHandshakeDelivery'
 import { useHandshakes } from './handshake/useHandshakes'
-import { runDraftAttachmentParseWithFallback } from './beap-builder'
+import { runDraftAttachmentParseWithFallback, draftAttachmentParseRejectedUpdate } from './beap-builder'
 import { BeapDocumentReaderModal, AttachmentStatusBadge } from './beap-builder/components'
 import type { CapsuleAttachment, RasterProof, RasterPageData } from './beap-builder'
 import { electronRpc } from './rpc/electronRpc'
@@ -5242,11 +5242,33 @@ function SidepanelOrchestrator() {
                                 id: item.id,
                                 dataBase64: item.dataBase64,
                                 capsuleAttachment: item.capsuleAttachment,
-                              }).then((upd) => {
-                                setBeapDraftAttachments((prev) =>
-                                  prev.map((x) => (x.id === item.id ? { ...x, capsuleAttachment: upd.capsuleAttachment, processing: upd.processing } : x)),
-                                )
                               })
+                                .then((upd) => {
+                                  setBeapDraftAttachments((prev) =>
+                                    prev.map((x) =>
+                                      x.id === item.id
+                                        ? { ...x, capsuleAttachment: upd.capsuleAttachment, processing: upd.processing }
+                                        : x,
+                                    ),
+                                  )
+                                })
+                                .catch((err) => {
+                                  const u = draftAttachmentParseRejectedUpdate(
+                                    {
+                                      id: item.id,
+                                      dataBase64: item.dataBase64,
+                                      capsuleAttachment: item.capsuleAttachment,
+                                    },
+                                    err,
+                                  )
+                                  setBeapDraftAttachments((prev) =>
+                                    prev.map((x) =>
+                                      x.id === item.id
+                                        ? { ...x, capsuleAttachment: u.capsuleAttachment, processing: u.processing }
+                                        : x,
+                                    ),
+                                  )
+                                })
                             }
                             e.currentTarget.value = ''
                           }}
@@ -5305,11 +5327,33 @@ function SidepanelOrchestrator() {
                                             id: a.id,
                                             dataBase64: a.dataBase64,
                                             capsuleAttachment: a.capsuleAttachment,
-                                          }).then((upd) => {
-                                            setBeapDraftAttachments((prev) =>
-                                              prev.map((x) => (x.id === a.id ? { ...x, capsuleAttachment: upd.capsuleAttachment, processing: upd.processing } : x)),
-                                            )
                                           })
+                                            .then((upd) => {
+                                              setBeapDraftAttachments((prev) =>
+                                                prev.map((x) =>
+                                                  x.id === a.id
+                                                    ? { ...x, capsuleAttachment: upd.capsuleAttachment, processing: upd.processing }
+                                                    : x,
+                                                ),
+                                              )
+                                            })
+                                            .catch((err) => {
+                                              const u = draftAttachmentParseRejectedUpdate(
+                                                {
+                                                  id: a.id,
+                                                  dataBase64: a.dataBase64!,
+                                                  capsuleAttachment: a.capsuleAttachment,
+                                                },
+                                                err,
+                                              )
+                                              setBeapDraftAttachments((prev) =>
+                                                prev.map((x) =>
+                                                  x.id === a.id
+                                                    ? { ...x, capsuleAttachment: u.capsuleAttachment, processing: u.processing }
+                                                    : x,
+                                                ),
+                                              )
+                                            })
                                         }}
                                         style={{
                                           background: theme === 'standard' ? 'rgba(139,92,246,0.12)' : 'rgba(139,92,246,0.25)',
@@ -6645,7 +6689,7 @@ height: '28px',
                     </div>
                     <div>
                       <label style={{ fontSize: '10px', fontWeight: 500, marginBottom: '4px', display: 'block', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.6)' }}>Attachments (PDFs: text extracts automatically)</label>
-                      <input type="file" multiple onChange={async (e) => { const files = Array.from(e.target.files ?? []); if (!files.length) return; const newItems: DraftAttachment[] = []; for (const file of files) { if (file.size > 10 * 1024 * 1024) { console.warn(`[BEAP] Skipping ${file.name}: exceeds 10MB limit`); continue } if (beapDraftAttachments.length + newItems.length >= 20) { console.warn('[BEAP] Max 20 attachments reached'); break } const dataBase64 = await new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onload = () => { const res = String(reader.result ?? ''); resolve(res.includes(',') ? res.split(',')[1] : res) }; reader.onerror = () => reject(reader.error); reader.readAsDataURL(file) }); const attachmentId = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`; const mimeType = file.type || 'application/octet-stream'; const isPdfFile = mimeType.toLowerCase() === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf'); const capsuleAttachment: CapsuleAttachment = { id: attachmentId, originalName: file.name, originalSize: file.size, originalType: mimeType, semanticContent: null, semanticExtracted: false, encryptedRef: `encrypted_${attachmentId}`, encryptedHash: '', previewRef: null, rasterProof: null, isMedia: mimeType.startsWith('image/') || mimeType.startsWith('video/') || mimeType.startsWith('audio/'), hasTranscript: false }; newItems.push({ id: attachmentId, name: file.name, mime: mimeType, size: file.size, dataBase64, capsuleAttachment, processing: { parsing: isPdfFile, rasterizing: false } }) } setBeapDraftAttachments((prev) => [...prev, ...newItems]); for (const item of newItems) { const isPdfItem = item.mime?.toLowerCase() === 'application/pdf' || item.name.toLowerCase().endsWith('.pdf'); if (!isPdfItem || !item.dataBase64) continue; void runDraftAttachmentParseWithFallback({ id: item.id, dataBase64: item.dataBase64, capsuleAttachment: item.capsuleAttachment }).then((upd) => { setBeapDraftAttachments((prev) => prev.map((x) => (x.id === item.id ? { ...x, capsuleAttachment: upd.capsuleAttachment, processing: upd.processing } : x))) }) } e.currentTarget.value = '' }} style={{ fontSize: '11px', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)' }} />
+                      <input type="file" multiple onChange={async (e) => { const files = Array.from(e.target.files ?? []); if (!files.length) return; const newItems: DraftAttachment[] = []; for (const file of files) { if (file.size > 10 * 1024 * 1024) { console.warn(`[BEAP] Skipping ${file.name}: exceeds 10MB limit`); continue } if (beapDraftAttachments.length + newItems.length >= 20) { console.warn('[BEAP] Max 20 attachments reached'); break } const dataBase64 = await new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onload = () => { const res = String(reader.result ?? ''); resolve(res.includes(',') ? res.split(',')[1] : res) }; reader.onerror = () => reject(reader.error); reader.readAsDataURL(file) }); const attachmentId = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`; const mimeType = file.type || 'application/octet-stream'; const isPdfFile = mimeType.toLowerCase() === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf'); const capsuleAttachment: CapsuleAttachment = { id: attachmentId, originalName: file.name, originalSize: file.size, originalType: mimeType, semanticContent: null, semanticExtracted: false, encryptedRef: `encrypted_${attachmentId}`, encryptedHash: '', previewRef: null, rasterProof: null, isMedia: mimeType.startsWith('image/') || mimeType.startsWith('video/') || mimeType.startsWith('audio/'), hasTranscript: false }; newItems.push({ id: attachmentId, name: file.name, mime: mimeType, size: file.size, dataBase64, capsuleAttachment, processing: { parsing: isPdfFile, rasterizing: false } }) } setBeapDraftAttachments((prev) => [...prev, ...newItems]); for (const item of newItems) { const isPdfItem = item.mime?.toLowerCase() === 'application/pdf' || item.name.toLowerCase().endsWith('.pdf'); if (!isPdfItem || !item.dataBase64) continue; void runDraftAttachmentParseWithFallback({ id: item.id, dataBase64: item.dataBase64, capsuleAttachment: item.capsuleAttachment }).then((upd) => { setBeapDraftAttachments((prev) => prev.map((x) => (x.id === item.id ? { ...x, capsuleAttachment: upd.capsuleAttachment, processing: upd.processing } : x))) }).catch((err) => { const u = draftAttachmentParseRejectedUpdate({ id: item.id, dataBase64: item.dataBase64, capsuleAttachment: item.capsuleAttachment }, err); setBeapDraftAttachments((prev) => prev.map((x) => (x.id === item.id ? { ...x, capsuleAttachment: u.capsuleAttachment, processing: u.processing } : x))) }) } e.currentTarget.value = '' }} style={{ fontSize: '11px', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)' }} />
                       {beapDraftAttachments.length > 0 && (
                         <div style={{ marginTop: '8px' }}>
                           {beapDraftAttachments.map((a) => {
@@ -6693,11 +6737,33 @@ height: '28px',
                                             id: a.id,
                                             dataBase64: a.dataBase64,
                                             capsuleAttachment: a.capsuleAttachment,
-                                          }).then((upd) => {
-                                            setBeapDraftAttachments((prev) =>
-                                              prev.map((x) => (x.id === a.id ? { ...x, capsuleAttachment: upd.capsuleAttachment, processing: upd.processing } : x)),
-                                            )
                                           })
+                                            .then((upd) => {
+                                              setBeapDraftAttachments((prev) =>
+                                                prev.map((x) =>
+                                                  x.id === a.id
+                                                    ? { ...x, capsuleAttachment: upd.capsuleAttachment, processing: upd.processing }
+                                                    : x,
+                                                ),
+                                              )
+                                            })
+                                            .catch((err) => {
+                                              const u = draftAttachmentParseRejectedUpdate(
+                                                {
+                                                  id: a.id,
+                                                  dataBase64: a.dataBase64!,
+                                                  capsuleAttachment: a.capsuleAttachment,
+                                                },
+                                                err,
+                                              )
+                                              setBeapDraftAttachments((prev) =>
+                                                prev.map((x) =>
+                                                  x.id === a.id
+                                                    ? { ...x, capsuleAttachment: u.capsuleAttachment, processing: u.processing }
+                                                    : x,
+                                                ),
+                                              )
+                                            })
                                         }}
                                         style={{
                                           background: theme === 'standard' ? 'rgba(139,92,246,0.12)' : 'rgba(139,92,246,0.25)',
@@ -7878,7 +7944,7 @@ height: '28px',
                     </div>
                     <div>
                       <label style={{ fontSize: '10px', fontWeight: 500, marginBottom: '4px', display: 'block', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.6)' }}>Attachments (PDFs: text extracts automatically)</label>
-                      <input type="file" multiple onChange={async (e) => { const files = Array.from(e.target.files ?? []); if (!files.length) return; const newItems: DraftAttachment[] = []; for (const file of files) { if (file.size > 10 * 1024 * 1024) { console.warn(`[BEAP] Skipping ${file.name}: exceeds 10MB limit`); continue } if (beapDraftAttachments.length + newItems.length >= 20) { console.warn('[BEAP] Max 20 attachments reached'); break } const dataBase64 = await new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onload = () => { const res = String(reader.result ?? ''); resolve(res.includes(',') ? res.split(',')[1] : res) }; reader.onerror = () => reject(reader.error); reader.readAsDataURL(file) }); const attachmentId = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`; const mimeType = file.type || 'application/octet-stream'; const isPdfFile = mimeType.toLowerCase() === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf'); const capsuleAttachment: CapsuleAttachment = { id: attachmentId, originalName: file.name, originalSize: file.size, originalType: mimeType, semanticContent: null, semanticExtracted: false, encryptedRef: `encrypted_${attachmentId}`, encryptedHash: '', previewRef: null, rasterProof: null, isMedia: mimeType.startsWith('image/') || mimeType.startsWith('video/') || mimeType.startsWith('audio/'), hasTranscript: false }; newItems.push({ id: attachmentId, name: file.name, mime: mimeType, size: file.size, dataBase64, capsuleAttachment, processing: { parsing: isPdfFile, rasterizing: false } }) } setBeapDraftAttachments((prev) => [...prev, ...newItems]); for (const item of newItems) { const isPdfItem = item.mime?.toLowerCase() === 'application/pdf' || item.name.toLowerCase().endsWith('.pdf'); if (!isPdfItem || !item.dataBase64) continue; void runDraftAttachmentParseWithFallback({ id: item.id, dataBase64: item.dataBase64, capsuleAttachment: item.capsuleAttachment }).then((upd) => { setBeapDraftAttachments((prev) => prev.map((x) => (x.id === item.id ? { ...x, capsuleAttachment: upd.capsuleAttachment, processing: upd.processing } : x))) }) } e.currentTarget.value = '' }} style={{ fontSize: '11px', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)' }} />
+                      <input type="file" multiple onChange={async (e) => { const files = Array.from(e.target.files ?? []); if (!files.length) return; const newItems: DraftAttachment[] = []; for (const file of files) { if (file.size > 10 * 1024 * 1024) { console.warn(`[BEAP] Skipping ${file.name}: exceeds 10MB limit`); continue } if (beapDraftAttachments.length + newItems.length >= 20) { console.warn('[BEAP] Max 20 attachments reached'); break } const dataBase64 = await new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onload = () => { const res = String(reader.result ?? ''); resolve(res.includes(',') ? res.split(',')[1] : res) }; reader.onerror = () => reject(reader.error); reader.readAsDataURL(file) }); const attachmentId = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`; const mimeType = file.type || 'application/octet-stream'; const isPdfFile = mimeType.toLowerCase() === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf'); const capsuleAttachment: CapsuleAttachment = { id: attachmentId, originalName: file.name, originalSize: file.size, originalType: mimeType, semanticContent: null, semanticExtracted: false, encryptedRef: `encrypted_${attachmentId}`, encryptedHash: '', previewRef: null, rasterProof: null, isMedia: mimeType.startsWith('image/') || mimeType.startsWith('video/') || mimeType.startsWith('audio/'), hasTranscript: false }; newItems.push({ id: attachmentId, name: file.name, mime: mimeType, size: file.size, dataBase64, capsuleAttachment, processing: { parsing: isPdfFile, rasterizing: false } }) } setBeapDraftAttachments((prev) => [...prev, ...newItems]); for (const item of newItems) { const isPdfItem = item.mime?.toLowerCase() === 'application/pdf' || item.name.toLowerCase().endsWith('.pdf'); if (!isPdfItem || !item.dataBase64) continue; void runDraftAttachmentParseWithFallback({ id: item.id, dataBase64: item.dataBase64, capsuleAttachment: item.capsuleAttachment }).then((upd) => { setBeapDraftAttachments((prev) => prev.map((x) => (x.id === item.id ? { ...x, capsuleAttachment: upd.capsuleAttachment, processing: upd.processing } : x))) }).catch((err) => { const u = draftAttachmentParseRejectedUpdate({ id: item.id, dataBase64: item.dataBase64, capsuleAttachment: item.capsuleAttachment }, err); setBeapDraftAttachments((prev) => prev.map((x) => (x.id === item.id ? { ...x, capsuleAttachment: u.capsuleAttachment, processing: u.processing } : x))) }) } e.currentTarget.value = '' }} style={{ fontSize: '11px', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)' }} />
                       {beapDraftAttachments.length > 0 && (
                         <div style={{ marginTop: '8px' }}>
                           {beapDraftAttachments.map((a) => {
@@ -7926,11 +7992,33 @@ height: '28px',
                                             id: a.id,
                                             dataBase64: a.dataBase64,
                                             capsuleAttachment: a.capsuleAttachment,
-                                          }).then((upd) => {
-                                            setBeapDraftAttachments((prev) =>
-                                              prev.map((x) => (x.id === a.id ? { ...x, capsuleAttachment: upd.capsuleAttachment, processing: upd.processing } : x)),
-                                            )
                                           })
+                                            .then((upd) => {
+                                              setBeapDraftAttachments((prev) =>
+                                                prev.map((x) =>
+                                                  x.id === a.id
+                                                    ? { ...x, capsuleAttachment: upd.capsuleAttachment, processing: upd.processing }
+                                                    : x,
+                                                ),
+                                              )
+                                            })
+                                            .catch((err) => {
+                                              const u = draftAttachmentParseRejectedUpdate(
+                                                {
+                                                  id: a.id,
+                                                  dataBase64: a.dataBase64!,
+                                                  capsuleAttachment: a.capsuleAttachment,
+                                                },
+                                                err,
+                                              )
+                                              setBeapDraftAttachments((prev) =>
+                                                prev.map((x) =>
+                                                  x.id === a.id
+                                                    ? { ...x, capsuleAttachment: u.capsuleAttachment, processing: u.processing }
+                                                    : x,
+                                                ),
+                                              )
+                                            })
                                         }}
                                         style={{
                                           background: theme === 'standard' ? 'rgba(139,92,246,0.12)' : 'rgba(139,92,246,0.25)',

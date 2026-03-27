@@ -48,8 +48,15 @@ const PARSING_HARD_TIMEOUT_MS = 120_000
  * Wrapped with timeout to prevent indefinite hangs.
  */
 async function extractPdfTextBrowser(base64Data: string): Promise<ParserResult> {
-  const timeoutPromise = new Promise<ParserResult>((_, reject) => {
-    setTimeout(() => reject(new Error('PDF extraction timed out — try Vision AI fallback')), BROWSER_EXTRACT_TIMEOUT_MS)
+  const timeoutPromise = new Promise<ParserResult>((resolve) => {
+    setTimeout(
+      () =>
+        resolve({
+          success: false,
+          error: 'PDF extraction timed out — try Vision AI fallback',
+        }),
+      BROWSER_EXTRACT_TIMEOUT_MS,
+    )
   })
 
   const extractPromise = (async (): Promise<ParserResult> => {
@@ -335,7 +342,17 @@ export async function processAttachmentForParsing(
           'Extraction timed out. Try “Extract with Vision AI”, split the PDF, or ensure the desktop parser is running (port 51248).',
       }
     }
-    throw err
+    const message =
+      err instanceof Error ? err.message : typeof err === 'string' ? err : 'Parsing failed unexpectedly'
+    return {
+      attachment: {
+        ...attachment,
+        semanticContent: null,
+        semanticExtracted: false,
+      },
+      provenance: null,
+      error: message,
+    }
   }
 }
 

@@ -304,6 +304,26 @@ describe('processAttachmentForParsing', () => {
     expect(result.attachment.semanticContent).toContain('[TRUNCATED')
     expect(result.provenance?.truncated).toBe(true)
   })
+
+  it('should return structured error on hard timeout (does not throw)', async () => {
+    vi.useFakeTimers()
+    try {
+      const fetchMock = vi.fn(() => new Promise<Response>(() => {}))
+      vi.stubGlobal('fetch', fetchMock)
+
+      const attachment = createMockAttachment({ originalType: 'application/pdf' })
+      const p = processAttachmentForParsing(attachment, 'dGVzdA==')
+
+      await vi.advanceTimersByTimeAsync(125_000)
+
+      const result = await p
+      expect(result.attachment.semanticExtracted).toBe(false)
+      expect(result.error).toMatch(/Extraction timed out/)
+    } finally {
+      vi.useRealTimers()
+      vi.unstubAllGlobals()
+    }
+  })
 })
 
 // =============================================================================

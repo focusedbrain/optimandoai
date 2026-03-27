@@ -480,6 +480,7 @@ async function processOutboundQueueInner(
 
     if (result.success) {
       setP2PHealthOutboundSuccess()
+      // status 'sent' means the relay (or direct endpoint) accepted the payload — not that the recipient ingested it.
       db.prepare(
         `UPDATE outbound_capsule_queue SET status = 'sent', last_attempt_at = ?, retry_after_ms = NULL, failure_class = NULL WHERE id = ?`,
       ).run(now, row.id)
