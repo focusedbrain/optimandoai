@@ -623,6 +623,8 @@ export async function handleHandshakeRPC(
           ...(d.next_retry_at !== undefined && { next_retry_at: d.next_retry_at }),
           ...(d.failure_class !== undefined && { failure_class: d.failure_class }),
           ...(d.healing_status !== undefined && { healing_status: d.healing_status }),
+          ...(d.http_status !== undefined && { http_status: d.http_status }),
+          ...(d.response_body_snippet !== undefined && { response_body_snippet: d.response_body_snippet }),
         }
       }
       const ok = deliveryResult as ProcessOutboundQueueResult

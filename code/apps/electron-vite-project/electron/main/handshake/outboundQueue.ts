@@ -34,6 +34,8 @@ export type OutboundQueueCode =
   | 'TRANSPORT_FAILED'
   | 'AUTH_REQUIRED'
   | 'FAILED_MAX_RETRIES'
+  /** Generic HTTP 400 — non-retryable client/request/payload rejection */
+  | 'REQUEST_INVALID'
 
 /** Classified failure for self-healing policy (best-effort). */
 export type FailureClass =
@@ -68,6 +70,10 @@ export interface ProcessOutboundQueueResult {
   next_retry_at?: string
   failure_class?: FailureClass
   healing_status?: HealingStatus
+  /** Present when the last transport attempt returned this HTTP status (e.g. terminal 400). */
+  http_status?: number
+  /** Sanitized server error body fragment when available (no secrets). */
+  response_body_snippet?: string
 }
 
 function jitterMs(max = 400): number {
@@ -84,6 +90,7 @@ function classifySendFailure(
   if (context.invalidTarget) return 'CONFIG_PERMANENT'
   if (statusCode === 401) return 'AUTH_RECOVERABLE'
   if (statusCode === 429) return 'THROTTLED'
+  if (statusCode === 400) return 'PAYLOAD_PERMANENT'
   if (statusCode != null && statusCode >= 400 && statusCode < 500) return 'PAYLOAD_PERMANENT'
   const e = (rawError || '').toLowerCase()
   if (e.includes('econnrefused') || e.includes('enotfound') || e.includes('getaddrinfo')) return 'STALE_ROUTE'
@@ -95,6 +102,7 @@ function classifySendFailure(
 function shouldAutodrainOnBackoff(lastError: string | null, fc?: FailureClass): boolean {
   if (fc === 'CONFIG_PERMANENT' || fc === 'PAYLOAD_PERMANENT') return false
   if (!lastError) return true
+  if (/^HTTP 400\b/i.test(lastError)) return false
   if (/Coordination URL not configured/i.test(lastError)) return false
   if (/Invalid package/i.test(lastError)) return false
   return true
@@ -449,6 +457,49 @@ async function processOutboundQueueInner(
         JSON.stringify({ event: 'retry_attempt_succeeded', queue_row_id: row.id, handshake_id: row.handshake_id }),
       )
       return { delivered: true, code: 'DELIVERED', healing_status: 'idle' }
+    }
+
+    // HTTP 400 — bad request / validation: terminal, no backoff, no automatic retries
+    if (result.statusCode === 400) {
+      const snippet = (result.responseBodySnippet ?? '').trim()
+      const failureClass: FailureClass = 'PAYLOAD_PERMANENT'
+      const persistedError =
+        snippet.length > 0
+          ? `HTTP 400 — ${snippet}`
+          : 'HTTP 400 — Bad Request: the server rejected this request. Fix capsule content or handshake settings.'
+      const userMessage = persistedError
+      setP2PHealthOutboundFailure(userMessage)
+      const newRetry = row.retry_count + 1
+      db.prepare(
+        `UPDATE outbound_capsule_queue SET status = 'failed', retry_count = ?, last_attempt_at = ?, error = ?, failure_class = ?, retry_after_ms = NULL WHERE id = ?`,
+      ).run(newRetry, now, persistedError, failureClass, row.id)
+      const counts400 = getQueueCountsInternal(db)
+      setP2PHealthQueueCounts(counts400.pending, counts400.failed)
+      console.warn(
+        '[P2P-QUEUE]',
+        JSON.stringify({
+          event: 'terminal_http_400',
+          queue_row_id: row.id,
+          handshake_id: row.handshake_id,
+          statusCode: 400,
+          failure_class: failureClass,
+          terminal: true,
+          response_body_snippet: snippet || undefined,
+        }),
+      )
+      return {
+        delivered: false,
+        error: userMessage,
+        queued: false,
+        code: 'REQUEST_INVALID',
+        last_queue_error: persistedError,
+        retry_count: newRetry,
+        max_retries: row.max_retries,
+        failure_class: failureClass,
+        healing_status: 'terminal_non_recoverable',
+        http_status: 400,
+        ...(snippet.length > 0 && { response_body_snippet: snippet }),
+      }
     }
 
     const is401 = result.statusCode === 401

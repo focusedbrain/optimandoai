@@ -29,6 +29,20 @@ export interface SendCapsuleResult {
   statusCode?: number
   /** From HTTP Retry-After (seconds), when present */
   retryAfterSec?: number
+  /** Sanitized non-OK response body fragment for debugging (no secrets). */
+  responseBodySnippet?: string
+}
+
+/** Truncate and redact patterns that may appear in JSON error bodies; never log raw tokens. */
+export function sanitizeHttpResponseBodyForLogs(text: string, maxLen = 400): string {
+  if (!text || typeof text !== 'string') return ''
+  let s = text
+    .replace(/\bBearer\s+[^\s"'<>]+/gi, 'Bearer [redacted]')
+    .replace(/\baccess_token["':\s]+[^"'\s,}\]]+/gi, 'access_token=[redacted]')
+    .replace(/\brefresh_token["':\s]+[^"'\s,}\]]+/gi, 'refresh_token=[redacted]')
+    .replace(/\bpassword["':\s]+[^"'\s,}\]]+/gi, 'password=[redacted]')
+  if (s.length > maxLen) s = s.slice(0, maxLen) + '…'
+  return s.trim()
 }
 
 function parseRetryAfterSeconds(response: Response): number | undefined {
@@ -105,18 +119,21 @@ async function sendCapsuleViaHttpWithAuth(
       return { success: true }
     }
 
-    const errMsg = `HTTP ${response.status}`
     const retryAfterSec = parseRetryAfterSeconds(response)
     console.warn('[P2P] Coordination delivery failed', { endpoint: targetEndpoint, status: response.status })
+    let responseBodySnippet: string | undefined
     if (!response.ok) {
       const errBody = await response.text()
-      console.log('[P2P-DEBUG] Error body:', errBody)
+      responseBodySnippet = sanitizeHttpResponseBodyForLogs(errBody)
+      console.log('[P2P-DEBUG] Error body:', responseBodySnippet)
     }
+    const errMsg = `HTTP ${response.status}`
     return {
       success: false,
       error: errMsg,
       statusCode: response.status,
       ...(retryAfterSec !== undefined && { retryAfterSec }),
+      ...(responseBodySnippet && { responseBodySnippet }),
     }
   } catch (err: any) {
     clearTimeout(timeout)
@@ -175,14 +192,17 @@ export async function sendCapsuleViaHttp(
       return { success: true }
     }
 
-    const errMsg = `HTTP ${response.status}`
     const retryAfterSec = parseRetryAfterSeconds(response)
     console.warn('[P2P] Context-sync delivery failed', { handshake_id: handshakeId, endpoint: trimmed, status: response.status })
+    const errBody = await response.text()
+    const responseBodySnippet = sanitizeHttpResponseBodyForLogs(errBody)
+    const errMsg = `HTTP ${response.status}`
     return {
       success: false,
       error: errMsg,
       statusCode: response.status,
       ...(retryAfterSec !== undefined && { retryAfterSec }),
+      ...(responseBodySnippet.length > 0 && { responseBodySnippet }),
     }
   } catch (err: any) {
     clearTimeout(timeout)

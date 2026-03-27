@@ -393,6 +393,64 @@ describe.skipIf(!hasSqlite)('outboundQueue: backoff & transport', () => {
     expect(row.target_endpoint).toBe('https://fresh.peer/beap/ingest')
   })
 
+  test('QB_16_http_400_terminal_request_invalid_no_autodrain', async () => {
+    vi.useFakeTimers({ now: new Date('2025-06-01T12:00:00.000Z') })
+    vi.spyOn(Math, 'random').mockReturnValue(0)
+    upsertP2PConfig(db, {
+      relay_mode: 'remote',
+      use_coordination: false,
+      relay_url: 'https://relay.example/beap/ingest',
+    })
+    insertHandshakeRecord(db, relayDirectHandshake('hs-qb-16'))
+    fetchSpy.mockResolvedValue(
+      new Response(JSON.stringify({ error: 'invalid capsule schema' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    )
+    enqueueOutboundCapsule(db, 'hs-qb-16', 'https://peer.example/beap/ingest', minimalCapsule('hs-qb-16'))
+
+    const r = await processOutboundQueue(db)
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1)
+    expect(r.code).toBe('REQUEST_INVALID')
+    expect(r.queued).toBe(false)
+    expect(r.failure_class).toBe('PAYLOAD_PERMANENT')
+    expect(r.healing_status).toBe('terminal_non_recoverable')
+    expect(r.http_status).toBe(400)
+    expect(r.response_body_snippet).toContain('invalid capsule')
+    expect(r.remaining_ms).toBeUndefined()
+    expect(r.next_retry_at).toBeUndefined()
+
+    const row = db.prepare(
+      `SELECT status, error, failure_class FROM outbound_capsule_queue WHERE handshake_id = ?`,
+    ).get('hs-qb-16') as { status: string; error: string; failure_class: string | null }
+    expect(row.status).toBe('failed')
+    expect(row.failure_class).toBe('PAYLOAD_PERMANENT')
+    expect(row.error).toContain('HTTP 400')
+
+    await vi.advanceTimersByTimeAsync(60_000)
+    await vi.runAllTimersAsync()
+    expect(fetchSpy).toHaveBeenCalledTimes(1)
+  })
+
+  test('QB_17_coordination_http_400_terminal_single_fetch', async () => {
+    upsertP2PConfig(db, {
+      relay_mode: 'local',
+      use_coordination: true,
+      coordination_url: 'https://coordination.wrdesk.com',
+    })
+    fetchSpy.mockResolvedValue(new Response('bad request body', { status: 400 }))
+    enqueueOutboundCapsule(db, 'hs-qb-17', 'https://coordination.wrdesk.com/beap/capsule', minimalCapsule('hs-qb-17'))
+
+    const r = await processOutboundQueue(db, async () => 'oidc-token')
+
+    expect(r.code).toBe('REQUEST_INVALID')
+    expect(r.queued).toBe(false)
+    expect(r.failure_class).toBe('PAYLOAD_PERMANENT')
+    expect(fetchSpy).toHaveBeenCalledTimes(1)
+  })
+
   test('QB_14_preflight_config_permanent_does_not_schedule_autodrain', async () => {
     vi.useFakeTimers({ now: new Date('2025-06-01T12:00:00.000Z') })
     vi.spyOn(Math, 'random').mockReturnValue(0)

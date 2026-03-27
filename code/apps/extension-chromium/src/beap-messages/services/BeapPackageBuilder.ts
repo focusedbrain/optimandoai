@@ -2044,6 +2044,23 @@ export async function executeP2PAction(
       }
     }
     const errMsg = result?.error ?? 'P2P delivery failed'
+    if (result?.code === 'REQUEST_INVALID') {
+      const lines: string[] = [errMsg]
+      if (typeof result.http_status === 'number') {
+        lines.push(`(HTTP ${result.http_status})`)
+      }
+      if (result.response_body_snippet?.trim()) {
+        lines.push('')
+        lines.push(result.response_body_snippet.trim())
+      }
+      return {
+        success: false,
+        action: 'sent',
+        message: lines.join('\n'),
+        code: 'REQUEST_INVALID',
+        queued: false,
+      }
+    }
     const mayRetry = result?.queued !== false
     if (result?.code === 'BACKOFF_WAIT') {
       const prev = result.last_queue_error?.trim()

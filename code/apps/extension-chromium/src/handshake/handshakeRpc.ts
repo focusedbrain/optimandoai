@@ -305,6 +305,7 @@ export type SendBeapViaP2PResult = {
     | 'TRANSPORT_FAILED'
     | 'AUTH_REQUIRED'
     | 'FAILED_MAX_RETRIES'
+    | 'REQUEST_INVALID'
   last_queue_error?: string | null
   retry_count?: number
   max_retries?: number
@@ -318,6 +319,8 @@ export type SendBeapViaP2PResult = {
     | 'CONFIG_PERMANENT'
     | 'PAYLOAD_PERMANENT'
   healing_status?: 'idle' | 'scheduled' | 'auth_refreshing' | 'route_refreshing' | 'terminal_non_recoverable'
+  http_status?: number
+  response_body_snippet?: string
 }
 
 export async function sendBeapViaP2P(
