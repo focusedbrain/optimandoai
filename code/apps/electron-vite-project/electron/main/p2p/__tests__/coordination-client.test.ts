@@ -86,6 +86,33 @@ describe('Coordination Client', () => {
     expect(call[1]?.headers?.Authorization).toBe('Bearer oidc-token-xyz')
   })
 
+  test('CC_05b_coordination_merges_queue_handshake_id: BEAP message package POST includes top-level handshake_id', async () => {
+    if (skipIfNoSqlite()) return
+    const db = createTestDb()
+    upsertP2PConfig(db, {
+      relay_mode: 'local',
+      use_coordination: true,
+      coordination_url: 'https://coordination.wrdesk.com',
+    })
+    fetchSpy.mockResolvedValue(
+      new Response(JSON.stringify({ ok: true }), { status: 200, headers: { 'Content-Type': 'application/json' } }),
+    )
+
+    enqueueOutboundCapsule(db, 'hs-cc05b', 'https://coordination.wrdesk.com/beap/capsule', {
+      header: { receiver_binding: {} },
+      metadata: {},
+      payloadEnc: { chunking: { count: 1, enabled: true, maxChunkBytes: 262144, merkleRoot: 'z' } },
+    })
+
+    await processOutboundQueue(db, async () => 'oidc-token-xyz')
+    const call = (fetchSpy as any).mock.calls.find((c: any) => String(c[0]).includes('/beap/capsule'))
+    expect(call).toBeDefined()
+    const postBody = JSON.parse(call[1]?.body as string) as Record<string, unknown>
+    expect(postBody.handshake_id).toBe('hs-cc05b')
+    expect(postBody.payloadEnc).toBeDefined()
+    expect(postBody.capsule_type).toBeUndefined()
+  })
+
   test('CC_06_outbound_via_relay: use_coordination=false → outbound goes to relay URL with Bearer token', async () => {
     if (skipIfNoSqlite()) return
     const db = createTestDb()

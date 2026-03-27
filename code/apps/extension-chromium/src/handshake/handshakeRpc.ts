@@ -323,6 +323,8 @@ export type OutboundRequestDebugSnapshot = {
     note?: string
   }
   coordination_single_post_json?: boolean
+  expected_coordination_routing_keys?: string[]
+  missing_coordination_top_level_fields?: string[]
 }
 
 /** Matches Electron `handshake.sendBeapViaP2P` response (additive fields). */

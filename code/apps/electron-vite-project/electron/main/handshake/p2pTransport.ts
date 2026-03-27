@@ -111,6 +111,13 @@ export interface OutboundRequestDebugSnapshot {
   }
   /** Coordination relay uses a single JSON POST per send (full wire package). */
   coordination_single_post_json?: boolean
+  /**
+   * Coordination `/beap/capsule` routing: server resolves `handshake_id` from the top-level string
+   * or from `header.receiver_binding.handshake_id` on BEAP message packages (ingestion-core).
+   */
+  expected_coordination_routing_keys?: string[]
+  /** Top-level keys missing for coordination routing (e.g. `handshake_id` when not inferable). */
+  missing_coordination_top_level_fields?: string[]
 }
 
 export interface SendCapsuleResult {
@@ -164,6 +171,32 @@ export function detectBodyLooksDoubleEncoded(bodyUtf8: string): boolean {
 }
 
 /** Summarizes canon inner encrypted chunking (A.3.042 / A.3.054) for DEBUG UI — no raw ciphertext. */
+/**
+ * Coordination `/beap/capsule` expects a JSON object the server can route by handshake:
+ * top-level `handshake_id`, or a BEAP message package where `header.receiver_binding.handshake_id` is set.
+ * Merge the queue row handshake id so routing does not depend only on nested binding.
+ */
+export function buildCoordinationCapsulePostBody(capsule: object, queueHandshakeId: string): object {
+  const id = queueHandshakeId?.trim()
+  if (!id) return capsule
+  const o = capsule as Record<string, unknown>
+  return { ...o, handshake_id: id }
+}
+
+/** Safe diagnostics: which coordination routing keys are expected / missing (no secrets). */
+export function analyzeCoordinationRoutingCompliance(capsule: unknown): {
+  expected_coordination_routing_keys: string[]
+  missing_coordination_top_level_fields: string[]
+} {
+  const expected_coordination_routing_keys = ['handshake_id']
+  const shape = describeOutboundPayloadForLogs(capsule)
+  const missing: string[] = []
+  if (!shape.has_top_level_handshake_id && !shape.has_message_header_receiver_binding_handshake_id) {
+    missing.push('handshake_id')
+  }
+  return { expected_coordination_routing_keys, missing_coordination_top_level_fields: missing }
+}
+
 export function summarizeCanonChunkingForOutboundDebug(capsule: unknown): NonNullable<
   OutboundRequestDebugSnapshot['canon_chunking_summary']
 > {
@@ -210,6 +243,8 @@ export function buildOutboundRequestDebugSnapshot(
   transportError?: string,
 ): OutboundRequestDebugSnapshot {
   const ct = (contentType || '').trim() || 'application/json'
+  const coordinationHint =
+    route === 'coordination' ? analyzeCoordinationRoutingCompliance(capsule) : null
   return {
     route,
     url: targetUrl,
@@ -223,6 +258,12 @@ export function buildOutboundRequestDebugSnapshot(
     http_status: httpStatus,
     canon_chunking_summary: summarizeCanonChunkingForOutboundDebug(capsule),
     ...(route === 'coordination' ? { coordination_single_post_json: true as const } : {}),
+    ...(coordinationHint
+      ? {
+          expected_coordination_routing_keys: coordinationHint.expected_coordination_routing_keys,
+          missing_coordination_top_level_fields: coordinationHint.missing_coordination_top_level_fields,
+        }
+      : {}),
     ...(responseSnippet && responseSnippet.length > 0 ? { response_body_snippet: responseSnippet } : {}),
     ...(transportError ? { transport_error: transportError } : {}),
   }
@@ -267,15 +308,18 @@ function parseRetryAfterSeconds(response: Response): number | undefined {
  * @param capsule - Serializable capsule object (will be JSON.stringify'd)
  * @param coordinationUrl - Base URL e.g. https://coordination.wrdesk.com (will append /beap/capsule)
  * @param oidcToken - OIDC access token for Authorization: Bearer
+ * @param queueHandshakeId - Handshake id for this outbound row; merged as top-level `handshake_id` for coordination routing
  */
 export async function sendCapsuleViaCoordination(
   capsule: object,
   coordinationUrl: string,
   oidcToken: string,
+  queueHandshakeId: string,
 ): Promise<SendCapsuleResult> {
   const base = coordinationUrl.replace(/\/$/, '')
   const targetEndpoint = `${base}/beap/capsule`
-  return sendCapsuleViaHttpWithAuth(capsule, targetEndpoint, oidcToken)
+  const payload = buildCoordinationCapsulePostBody(capsule, queueHandshakeId)
+  return sendCapsuleViaHttpWithAuth(payload, targetEndpoint, oidcToken)
 }
 
 async function sendCapsuleViaHttpWithAuth(

@@ -5,6 +5,8 @@ import {
   detectBodyLooksDoubleEncoded,
   buildOutboundRequestDebugSnapshot,
   summarizeCanonChunkingForOutboundDebug,
+  buildCoordinationCapsulePostBody,
+  analyzeCoordinationRoutingCompliance,
 } from '../p2pTransport'
 
 describe('describeOutboundPayloadForLogs', () => {
@@ -86,6 +88,44 @@ describe('describeOutboundPayloadForLogs', () => {
     expect(s.body_looks_double_encoded).toBe(false)
     expect(s.http_status).toBe(400)
     expect(s.response_body_snippet).toContain('Bad request')
+  })
+
+  test('buildCoordinationCapsulePostBody — merges queue handshake_id for coordination routing', () => {
+    const raw = {
+      header: { receiver_binding: { handshake_id: 'nested' } },
+      metadata: {},
+      payloadEnc: { chunking: { count: 1, enabled: true, maxChunkBytes: 262144, merkleRoot: 'z' } },
+    }
+    const merged = buildCoordinationCapsulePostBody(raw, 'hs-queue') as Record<string, unknown>
+    expect(merged.handshake_id).toBe('hs-queue')
+    expect(merged.header).toBe(raw.header)
+    expect(merged.payloadEnc).toBe(raw.payloadEnc)
+  })
+
+  test('analyzeCoordinationRoutingCompliance — missing top-level handshake_id when no binding', () => {
+    const a = analyzeCoordinationRoutingCompliance({
+      header: {},
+      metadata: {},
+      payloadEnc: {},
+    })
+    expect(a.expected_coordination_routing_keys).toEqual(['handshake_id'])
+    expect(a.missing_coordination_top_level_fields).toContain('handshake_id')
+  })
+
+  test('buildOutboundRequestDebugSnapshot — coordination includes routing contract hints', () => {
+    const cap = { handshake_id: 'hs-x', header: {}, metadata: {}, payloadEnc: {} }
+    const body = JSON.stringify(cap)
+    const s = buildOutboundRequestDebugSnapshot(
+      'coordination',
+      'https://relay/beap/capsule',
+      cap,
+      body,
+      'application/json',
+      400,
+      '{"error":"Bad request"}',
+    )
+    expect(s.expected_coordination_routing_keys).toEqual(['handshake_id'])
+    expect(s.missing_coordination_top_level_fields).toEqual([])
   })
 
   test('buildOutboundRequestDebugSnapshot — coordination includes canon summary and single-post flag', () => {

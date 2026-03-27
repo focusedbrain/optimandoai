@@ -25,6 +25,12 @@ export function P2pOutboundDebugModal(props: {
     ...(debug.coordination_single_post_json != null
       ? [`coordination_single_post_json: ${debug.coordination_single_post_json}`]
       : []),
+    ...(debug.expected_coordination_routing_keys != null
+      ? [`expected_coordination_routing_keys: ${JSON.stringify(debug.expected_coordination_routing_keys)}`]
+      : []),
+    ...(debug.missing_coordination_top_level_fields != null && debug.missing_coordination_top_level_fields.length > 0
+      ? [`missing_coordination_top_level_fields: ${JSON.stringify(debug.missing_coordination_top_level_fields)}`]
+      : []),
     ...(debug.canon_chunking_summary
       ? [
           '',

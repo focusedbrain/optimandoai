@@ -381,7 +381,7 @@ async function processOutboundQueueInner(
         }
         const token2 = await getOidcToken()
         if (token2?.trim() && targetUrl) {
-          result = await sendCapsuleViaCoordination(capsule, targetUrl, token2)
+          result = await sendCapsuleViaCoordination(capsule, targetUrl, token2, row.handshake_id)
         } else {
           return recordCoordinationPreflightFailure(
             db,
@@ -403,7 +403,7 @@ async function processOutboundQueueInner(
           getOidcToken,
         )
       } else {
-        result = await sendCapsuleViaCoordination(capsule, targetUrl, token!)
+        result = await sendCapsuleViaCoordination(capsule, targetUrl, token!, row.handshake_id)
       }
 
       if (targetUrl && result && !result.success && result.statusCode === 401 && _refreshSession) {
@@ -419,7 +419,7 @@ async function processOutboundQueueInner(
         }
         const token3 = await getOidcToken()
         if (token3?.trim()) {
-          result = await sendCapsuleViaCoordination(capsule, targetUrl, token3)
+          result = await sendCapsuleViaCoordination(capsule, targetUrl, token3, row.handshake_id)
           console.info(
             '[P2P-QUEUE]',
             JSON.stringify({
