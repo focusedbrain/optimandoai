@@ -20,9 +20,17 @@
  */
 
 import { createRequire } from 'module'
+import path from 'path'
+import { pathToFileURL } from 'url'
 import { ocrService } from '../ocr/ocr-service'
 
 const require = createRequire(import.meta.url)
+
+/** Same strategy as `email/pdf-extractor.ts`: bundled chunks may live in subdirs, so `./pdf.worker.mjs` next to import.meta.url is often wrong. */
+function resolvePdfWorkerSrc(): string {
+  const root = path.dirname(require.resolve('pdfjs-dist/package.json'))
+  return pathToFileURL(path.join(root, 'build', 'pdf.worker.mjs')).href
+}
 
 // Minimum average non-whitespace characters per page for the direct path to
 // be considered "dense enough" to skip OCR.
@@ -76,10 +84,9 @@ async function loadPdfjs(): Promise<any> {
     const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs' as any).catch(
       () => import('pdfjs-dist' as any)
     )
-    // pdfjs-dist v4+ requires a real workerSrc — an empty string throws
-    // "Setting up fake worker failed: 'No GlobalWorkerOptions.workerSrc specified'".
+    // pdfjs-dist v4+ requires workerSrc for the Node fake-worker path (dynamic import).
     if (pdfjs.GlobalWorkerOptions) {
-      pdfjs.GlobalWorkerOptions.workerSrc = new URL('./pdf.worker.mjs', import.meta.url).toString()
+      pdfjs.GlobalWorkerOptions.workerSrc = resolvePdfWorkerSrc()
     }
     return pdfjs
   } catch (err: any) {

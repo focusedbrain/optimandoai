@@ -20,6 +20,21 @@ import type { CapsuleAttachment, RasterProof } from './canonical-types'
 
 // Browser-based PDF text extraction (pdfjs-dist) — no Electron required
 let _pdfjsInit = false
+
+/** MV3 extension: Vite emits a relative worker path; `new Worker()` must use a chrome-extension:// URL. */
+function resolveExtensionPdfWorkerSrc(viteUrl: string): string {
+  if (/^https?:\/\//i.test(viteUrl)) return viteUrl
+  const trimmed = viteUrl.startsWith('/') ? viteUrl.slice(1) : viteUrl
+  if (typeof chrome !== 'undefined' && chrome.runtime?.getURL) {
+    try {
+      return chrome.runtime.getURL(trimmed)
+    } catch {
+      /* fall through */
+    }
+  }
+  return viteUrl
+}
+
 async function initPdfjs(): Promise<typeof import('pdfjs-dist')> {
   if (_pdfjsInit) {
     return (await import('pdfjs-dist')) as typeof import('pdfjs-dist')
@@ -28,7 +43,7 @@ async function initPdfjs(): Promise<typeof import('pdfjs-dist')> {
   if (typeof window !== 'undefined' && pdfjsLib.GlobalWorkerOptions) {
     try {
       const workerUrl = (await import('pdfjs-dist/build/pdf.worker.mjs?url')).default
-      pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl
+      pdfjsLib.GlobalWorkerOptions.workerSrc = resolveExtensionPdfWorkerSrc(workerUrl)
     } catch {
       // Worker init may fail in some environments; getDocument may still work
     }
