@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react'
 import { createRoot } from 'react-dom/client'
 import { BackendSwitcherInline } from './components/BackendSwitcherInline'
+import { BuildPipelineInfo } from './components/BuildPipelineInfo'
 import { PackageBuilderPolicy } from './policy/components/PackageBuilderPolicy'
 import type { CanonicalPolicy } from './policy/schema'
 import { 
@@ -7225,6 +7226,8 @@ height: '28px',
           setAuthUserInfo({});
         }}
       />
+
+      <BuildPipelineInfo />
 
       {/* Docked Command Chat - Admin View */}
       {isCommandChatPinned && (

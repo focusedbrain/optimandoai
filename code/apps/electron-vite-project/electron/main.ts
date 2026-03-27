@@ -491,6 +491,21 @@ function validateLaunchSecret(incoming: string): boolean {
   return crypto.timingSafeEqual(LAUNCH_SECRET_BUF, inBuf)
 }
 
+/** Injected by Vite `define` when the main bundle is built — proves which compile is running. */
+declare const __ORCHESTRATOR_BUILD_STAMP__: string | undefined
+
+function orchestratorBuildMeta(): { orchestratorBuildStamp: string; orchestratorAppPath: string } {
+  const orchestratorBuildStamp =
+    typeof __ORCHESTRATOR_BUILD_STAMP__ !== 'undefined' && __ORCHESTRATOR_BUILD_STAMP__
+      ? String(__ORCHESTRATOR_BUILD_STAMP__)
+      : 'dev'
+  return {
+    orchestratorBuildStamp,
+    /** Process cwd (dev: repo app dir). Compare with your clone path if you suspect a stale binary. */
+    orchestratorAppPath: process.cwd(),
+  }
+}
+
 // CORS: Allowed origins for WRDesk (extension + website). No wildcard in production.
 const CORS_ALLOWED_ORIGINS = new Set(['https://wrdesk.com', 'https://www.wrdesk.com'])
 function isCorsAllowedOrigin(origin: string | undefined): boolean {
@@ -4073,7 +4088,8 @@ app.whenReady().then(async () => {
           version: app.getVersion(),
           ready: false,
           starting: true,
-          pid: process.pid
+          pid: process.pid,
+          ...orchestratorBuildMeta(),
         }))
         return
       }
@@ -5141,6 +5157,8 @@ app.whenReady().then(async () => {
           ok: true,
           timestamp: Date.now(),
           version: app.getVersion(),
+          pid: process.pid,
+          ...orchestratorBuildMeta(),
           services: {
             http: true,
             oauth: {
