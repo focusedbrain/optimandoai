@@ -8,7 +8,7 @@ import https from 'https'
 import { readFile } from 'fs/promises'
 import { WebSocketServer } from 'ws'
 import { randomUUID } from 'crypto'
-import { validateInput, isMessagePackageStructure } from '@repo/ingestion-core'
+import { validateInput, isCoordinationRelayNativeBeap } from '@repo/ingestion-core'
 import type { CoordinationConfig } from './config.js'
 import { createStore } from './store.js'
 import { createAuth } from './auth.js'
@@ -190,8 +190,8 @@ function createRequestHandler(
           return
         }
 
-        /** qBEAP/pBEAP wire packages use payloadEnc / innerEnvelopeCiphertext — same as ingestion-core message package detection */
-        const isMessagePackage = isMessagePackageStructure(parsed)
+        /** Native BEAP / qBEAP–pBEAP wire — structural + optional string header/metadata normalization (ingestion-core). */
+        const isMessagePackage = isCoordinationRelayNativeBeap(parsed)
 
         if (isMessagePackage) {
           const header = parsed?.header

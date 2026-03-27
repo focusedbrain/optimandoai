@@ -76,11 +76,13 @@ const VALID_MESSAGE_PACKAGE_ENCODINGS = new Set(['qBEAP', 'pBEAP', 'qbeap', 'pbe
  * Aligns with coordination `/beap/capsule` and Stage-2 message-package validation.
  */
 export function hasEncryptedMessagePackageBody(obj: Record<string, unknown>): boolean {
+  const artefacts = obj.artefactsEnc
   return (
     'envelope' in obj ||
     'payload' in obj ||
     'payloadEnc' in obj ||
-    'innerEnvelopeCiphertext' in obj
+    'innerEnvelopeCiphertext' in obj ||
+    (Array.isArray(artefacts) && artefacts.length > 0)
   );
 }
 
@@ -109,6 +111,44 @@ export function isMessagePackageStructure(parsed: unknown): boolean {
   }
 
   return hasEncryptedMessagePackageBody(obj);
+}
+
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+  return v !== null && typeof v === 'object' && !Array.isArray(v);
+}
+
+/**
+ * Coordination `/beap/capsule` gate: native BEAP / qBEAP–pBEAP wire that must pass without top-level `capsule_type`.
+ * Prefer this over `isMessagePackageStructure` alone on the relay path so minor wire-shape differences still classify as native.
+ */
+export function isCoordinationRelayNativeBeap(parsed: unknown): boolean {
+  if (isMessagePackageStructure(parsed)) return true;
+  if (parsed == null || typeof parsed !== 'object' || Array.isArray(parsed)) return false;
+  const obj = parsed as Record<string, unknown>;
+  const normalized: Record<string, unknown> = { ...obj };
+  if (typeof normalized.header === 'string') {
+    try {
+      const h = JSON.parse(normalized.header) as unknown;
+      if (!isPlainObject(h)) return false;
+      normalized.header = h;
+    } catch {
+      return false;
+    }
+  }
+  if (typeof normalized.metadata === 'string') {
+    try {
+      const m = JSON.parse(normalized.metadata) as unknown;
+      if (!isPlainObject(m)) return false;
+      normalized.metadata = m;
+    } catch {
+      return false;
+    }
+  }
+  if (isMessagePackageStructure(normalized)) return true;
+  if (!isPlainObject(normalized.header) || !isPlainObject(normalized.metadata)) return false;
+  const ct = normalized.capsule_type;
+  if (typeof ct === 'string' && RELAY_HANDSHAKE_CAPSULE_TYPES.has(ct.trim())) return false;
+  return hasEncryptedMessagePackageBody(normalized);
 }
 
 /**

@@ -5,6 +5,8 @@ import {
   validateCapsule,
   detectBeapCapsule,
   routeValidatedCapsule,
+  isCoordinationRelayNativeBeap,
+  isMessagePackageStructure,
   type RawInput,
   type TransportMetadata,
 } from '@repo/ingestion-core';
@@ -195,5 +197,48 @@ describe('ingestion-core', () => {
       emptyTransport,
     );
     expect(result.success).toBe(true);
+  });
+
+  test('isCoordinationRelayNativeBeap: qBEAP wire without top-level capsule_type', () => {
+    const wire = {
+      handshake_id: 'h1',
+      header: {},
+      metadata: {},
+      payloadEnc: { chunking: { count: 1 } },
+    };
+    expect(isCoordinationRelayNativeBeap(wire)).toBe(true);
+    expect(isMessagePackageStructure(wire)).toBe(true);
+  });
+
+  test('isCoordinationRelayNativeBeap: stringified header/metadata', () => {
+    const wire = {
+      handshake_id: 'h2',
+      header: JSON.stringify({}),
+      metadata: JSON.stringify({}),
+      payloadEnc: {},
+    };
+    expect(isMessagePackageStructure(wire)).toBe(false);
+    expect(isCoordinationRelayNativeBeap(wire)).toBe(true);
+  });
+
+  test('isCoordinationRelayNativeBeap: false for initiate discriminator', () => {
+    const w = {
+      handshake_id: 'h3',
+      capsule_type: 'initiate',
+      header: {},
+      metadata: {},
+      payloadEnc: {},
+    };
+    expect(isCoordinationRelayNativeBeap(w)).toBe(false);
+  });
+
+  test('isCoordinationRelayNativeBeap: artefactsEnc alone as encrypted signal', () => {
+    const w = {
+      handshake_id: 'h4',
+      header: {},
+      metadata: {},
+      artefactsEnc: [{ x: 1 }],
+    };
+    expect(isCoordinationRelayNativeBeap(w)).toBe(true);
   });
 });

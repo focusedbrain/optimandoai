@@ -438,12 +438,21 @@ describe.skipIf(!hasSqlite)('outboundQueue: backoff & transport', () => {
     expect(fetchSpy).toHaveBeenCalledTimes(1)
   })
 
-  test('QB_19_coordination_preflight_out_of_band_terminal_no_fetch', async () => {
+  test('QB_19_coordination_initiate_reaches_server_terminal_400', async () => {
     upsertP2PConfig(db, {
       relay_mode: 'local',
       use_coordination: true,
       coordination_url: 'https://coordination.wrdesk.com',
     })
+    fetchSpy.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          error: 'capsule_type_not_allowed',
+          detail: "Type 'initiate' must be delivered out-of-band",
+        }),
+        { status: 400, headers: { 'Content-Type': 'application/json' } },
+      ),
+    )
     enqueueOutboundCapsule(db, 'hs-qb-19', 'https://coordination.wrdesk.com/beap/capsule', {
       schema_version: 1,
       capsule_type: 'initiate',
@@ -452,12 +461,10 @@ describe.skipIf(!hasSqlite)('outboundQueue: backoff & transport', () => {
 
     const r = await processOutboundQueue(db, async () => 'oidc-token')
 
-    expect(fetchSpy).toHaveBeenCalledTimes(0)
-    expect(r.code).toBe('OUT_OF_BAND_REQUIRED')
+    expect(fetchSpy).toHaveBeenCalledTimes(1)
+    expect(r.code).toBe('RELAY_TYPE_NOT_ALLOWED')
     expect(r.queued).toBe(false)
     expect(r.http_status).toBe(400)
-    expect(r.outbound_debug?.relay_validator_contract_matches).toBe(false)
-    expect(r.response_body_snippet).toContain('relay_coordination_contract_violation')
   })
 
   test('QB_17_coordination_http_400_terminal_single_fetch', async () => {

@@ -161,6 +161,7 @@ function clearBuildCaches() {
     /** Previous active outDir — safe to remove after bumping vite outDir */
     'build006',
     'build045',
+    'build845',
   ]
   for (const name of staleExtensionOutDirs) {
     if (keepExt && name === keepExt) {

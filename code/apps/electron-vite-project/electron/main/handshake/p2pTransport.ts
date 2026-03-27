@@ -8,7 +8,7 @@
  */
 
 /** Direct source import: Vitest + `@repo/ingestion-core` index alias can yield incomplete exports for this module. */
-import { isMessagePackageStructure } from '../../../../../packages/ingestion-core/src/beapDetection.ts'
+import { isCoordinationRelayNativeBeap } from '../../../../../packages/ingestion-core/src/beapDetection.ts'
 
 const TIMEOUT_MS = 30_000
 
@@ -20,28 +20,14 @@ export const COORDINATION_RELAY_ALLOWED_CAPSULE_TYPES = ['accept', 'context_sync
 
 /**
  * True iff coordination `/beap/capsule` would accept this body (same rules as coordination-service):
- * either `isMessagePackageStructure` (qBEAP/pBEAP wire) or `capsule_type` in the four allowed strings.
+ * either `isCoordinationRelayNativeBeap` (native wire) or `capsule_type` in the four allowed strings.
  */
 export function coordinationRelayContractSatisfied(parsed: unknown): boolean {
-  if (isMessagePackageStructure(parsed)) return true
+  if (isCoordinationRelayNativeBeap(parsed)) return true
   if (parsed == null || typeof parsed !== 'object' || Array.isArray(parsed)) return false
   const o = parsed as Record<string, unknown>
   const ct = typeof o.capsule_type === 'string' ? o.capsule_type.trim() : ''
   return (COORDINATION_RELAY_ALLOWED_CAPSULE_TYPES as readonly string[]).includes(ct)
-}
-
-/** Decode JWT payload (middle segment) for debug logging. Returns null on parse error. */
-function decodeJwtPayload(token: string): Record<string, unknown> | null {
-  try {
-    const parts = token.split('.')
-    if (parts.length !== 3) return null
-    const payloadB64 = parts[1]
-    const padded = payloadB64 + '='.repeat((4 - (payloadB64.length % 4)) % 4)
-    const json = Buffer.from(padded, 'base64url').toString('utf8')
-    return JSON.parse(json) as Record<string, unknown>
-  } catch {
-    return null
-  }
 }
 
 /**
@@ -75,7 +61,7 @@ export function describeOutboundPayloadForLogs(capsule: unknown): {
   const has_top_level_handshake_id = typeof o.handshake_id === 'string' && o.handshake_id.trim().length > 0
   const has_capsule_type_key = 'capsule_type' in o
   const capsuleType = typeof o.capsule_type === 'string' ? o.capsule_type : ''
-  const looks_like_beap_message_package = isMessagePackageStructure(o)
+  const looks_like_beap_message_package = isCoordinationRelayNativeBeap(o)
   const RELAY = new Set(['accept', 'context_sync', 'refresh', 'revoke'])
   const looks_like_relay_capsule_envelope = has_capsule_type_key && RELAY.has(capsuleType)
   let has_message_header_receiver_binding_handshake_id = false
@@ -146,7 +132,7 @@ export interface OutboundRequestDebugSnapshot {
   serialized_capsule_type_field_present?: boolean
   /** From the final serialized JSON body — string value, or null if absent / non-string. */
   serialized_capsule_type_value?: string | null
-  /** True iff the final JSON body satisfies coordination-service gate (ingestion-core + allowed types). */
+  /** True iff the final JSON body satisfies coordination-service gate (isCoordinationRelayNativeBeap or allowed capsule_type). */
   relay_validator_contract_matches?: boolean
   /** When server returns capsule_type_not_allowed, parsed hint from detail (no secrets). */
   relay_allowed_types_from_response?: string
@@ -233,7 +219,7 @@ export function describeCoordinationRelayNormalization(capsule: object): {
       relay_envelope_matches_expectations: coordinationRelayContractSatisfied(o),
     }
   }
-  const wireOk = isMessagePackageStructure(o)
+  const wireOk = isCoordinationRelayNativeBeap(o)
   return {
     coordination_source_format: 'beap_wire_message_package',
     coordination_normalized_shape: 'relay_native_beap_wire',
@@ -468,30 +454,6 @@ export async function sendCapsuleViaCoordination(
   const base = coordinationUrl.replace(/\/$/, '')
   const targetEndpoint = `${base}/beap/capsule`
   const payload = buildCoordinationCapsulePostBody(capsule, queueHandshakeId)
-  if (!coordinationRelayContractSatisfied(payload)) {
-    const body = JSON.stringify(payload)
-    const detail =
-      'Payload is not a native BEAP message package (ingestion-core isMessagePackageStructure) and capsule_type is not one of accept, context_sync, refresh, revoke. Deliver out-of-band (file, email, USB).'
-    const responseBodySnippet = sanitizeHttpResponseBodyForLogs(
-      JSON.stringify({ error: 'relay_coordination_contract_violation', detail }),
-    )
-    const snapshot = buildOutboundRequestDebugSnapshot(
-      'coordination',
-      targetEndpoint,
-      payload,
-      body,
-      'application/json',
-      0,
-      responseBodySnippet,
-    )
-    return {
-      success: false,
-      error: 'OUT_OF_BAND_REQUIRED',
-      statusCode: 400,
-      responseBodySnippet,
-      outboundDebug: snapshot,
-    }
-  }
   return sendCapsuleViaHttpWithAuth(payload, targetEndpoint, oidcToken)
 }
 
@@ -507,25 +469,6 @@ async function sendCapsuleViaHttpWithAuth(
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     Authorization: `Bearer ${bearerToken.trim()}`,
-  }
-
-  // P2P-DEBUG: temporary diagnostic logging for 401 / audience investigation
-  const capsuleObj = capsule as { handshake_id?: string; capsule_type?: string }
-  console.log('[P2P-DEBUG] Sending capsule to:', targetEndpoint, 'handshake_id:', capsuleObj.handshake_id, 'capsule_type:', capsuleObj.capsule_type)
-  console.log('[P2P-DEBUG] Auth header present:', !!headers.Authorization)
-  if (bearerToken?.trim()) {
-    try {
-      const payload = decodeJwtPayload(bearerToken.trim())
-      if (payload) {
-        const aud = payload.aud
-        const audStr = typeof aud === 'string' ? aud : Array.isArray(aud) ? aud.join(',') : JSON.stringify(aud)
-        console.log('[P2P-DEBUG] Token aud:', audStr ?? '(absent) — relay expects COORD_OIDC_AUDIENCE to match')
-      }
-    } catch {
-      console.log('[P2P-DEBUG] Token first 20 chars:', bearerToken.substring(0, 20))
-    }
-  } else {
-    console.log('[P2P-DEBUG] Token: null')
   }
 
   try {

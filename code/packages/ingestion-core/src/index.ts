@@ -13,6 +13,7 @@ export type { PipelineResult } from './pipeline.js';
 export {
   detectBeapCapsule,
   isMessagePackageStructure,
+  isCoordinationRelayNativeBeap,
   hasEncryptedMessagePackageBody,
   detectBeapMessagePackage,
 } from './beapDetection.js';

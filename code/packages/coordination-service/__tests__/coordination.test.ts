@@ -537,6 +537,77 @@ describe('coordination-service', () => {
     attackerWs.close()
   })
 
+  test('CS_17_native_wire_no_capsule_type: native BEAP shape accepted', async () => {
+    const hsId = 'hs-cs17'
+    await request(port, 'POST', '/beap/register-handshake', {
+      body: JSON.stringify({
+        handshake_id: hsId,
+        initiator_user_id: 'sender17',
+        acceptor_user_id: 'recipient17',
+      }),
+      auth: 'test-sender17-pro',
+      contentType: 'application/json',
+    })
+    const native = JSON.stringify({
+      handshake_id: hsId,
+      header: { receiver_binding: { handshake_id: hsId }, encoding: 'qBEAP' },
+      metadata: {},
+      payloadEnc: { chunking: { count: 1, enabled: true, maxChunkBytes: 262144, merkleRoot: 'x' } },
+      innerEnvelopeCiphertext: 'x',
+    })
+    const r = await request(port, 'POST', '/beap/capsule', {
+      body: native,
+      auth: 'test-sender17-pro',
+      contentType: 'application/json',
+    })
+    expect([200, 202]).toContain(r.status)
+  })
+
+  test('CS_18_native_wire_stringified_header_metadata: normalized native BEAP accepted', async () => {
+    const hsId = 'hs-cs18'
+    await request(port, 'POST', '/beap/register-handshake', {
+      body: JSON.stringify({
+        handshake_id: hsId,
+        initiator_user_id: 'sender18',
+        acceptor_user_id: 'recipient18',
+      }),
+      auth: 'test-sender18-pro',
+      contentType: 'application/json',
+    })
+    const native = JSON.stringify({
+      handshake_id: hsId,
+      header: JSON.stringify({ receiver_binding: { handshake_id: hsId } }),
+      metadata: JSON.stringify({}),
+      payloadEnc: { chunking: { count: 1, enabled: true, maxChunkBytes: 262144, merkleRoot: 'z' } },
+    })
+    const r = await request(port, 'POST', '/beap/capsule', {
+      body: native,
+      auth: 'test-sender18-pro',
+      contentType: 'application/json',
+    })
+    expect([200, 202]).toContain(r.status)
+  })
+
+  test('CS_19_non_native_junk_no_capsule_type: 400 capsule_type_not_allowed', async () => {
+    const hsId = 'hs-cs19'
+    await request(port, 'POST', '/beap/register-handshake', {
+      body: JSON.stringify({
+        handshake_id: hsId,
+        initiator_user_id: 'sender19',
+        acceptor_user_id: 'recipient19',
+      }),
+      auth: 'test-sender19-pro',
+      contentType: 'application/json',
+    })
+    const r = await request(port, 'POST', '/beap/capsule', {
+      body: JSON.stringify({ handshake_id: hsId, foo: 'bar' }),
+      auth: 'test-sender19-pro',
+      contentType: 'application/json',
+    })
+    expect(r.status).toBe(400)
+    expect(JSON.parse(r.body).error).toBe('capsule_type_not_allowed')
+  })
+
   test('health: GET /health → 200 with status when healthy', async () => {
     const r = await request(port, 'GET', '/health')
     expect(r.status).toBe(200)
