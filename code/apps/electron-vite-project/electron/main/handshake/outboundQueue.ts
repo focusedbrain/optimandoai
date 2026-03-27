@@ -44,6 +44,8 @@ export type OutboundQueueCode =
   | 'REQUEST_INVALID'
   /** HTTP 400 — relay rejected capsule_type (e.g. initiate or unknown); terminal */
   | 'RELAY_TYPE_NOT_ALLOWED'
+  /** HTTP 400 / preflight — not a message package and not an allowed relay capsule_type; terminal */
+  | 'OUT_OF_BAND_REQUIRED'
   /** HTTP 422 / 413 — payload or body too large for relay; reduce attachments or rely on canon inner chunking */
   | 'PAYLOAD_TOO_LARGE'
 
@@ -553,7 +555,14 @@ async function processOutboundQueueInner(
       const failureClass: FailureClass = 'SCHEMA_PERMANENT'
       const relayTypeNotAllowed =
         snippet.includes('capsule_type_not_allowed') || /"capsule_type_not_allowed"/.test(snippet)
-      const queueCode: OutboundQueueCode = relayTypeNotAllowed ? 'RELAY_TYPE_NOT_ALLOWED' : 'REQUEST_INVALID'
+      const outOfBandContract =
+        snippet.includes('relay_coordination_contract_violation') ||
+        /"relay_coordination_contract_violation"/.test(snippet)
+      const queueCode: OutboundQueueCode = relayTypeNotAllowed
+        ? 'RELAY_TYPE_NOT_ALLOWED'
+        : outOfBandContract
+          ? 'OUT_OF_BAND_REQUIRED'
+          : 'REQUEST_INVALID'
       const persistedError =
         snippet.length > 0
           ? `HTTP 400 — ${snippet}`

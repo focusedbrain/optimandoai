@@ -330,6 +330,10 @@ export type OutboundRequestDebugSnapshot = {
   derived_relay_capsule_type?: string | null
   relay_envelope_matches_expectations?: boolean
   relay_allowed_types_from_response?: string
+  relay_capsule_type_field_name?: 'capsule_type'
+  serialized_capsule_type_field_present?: boolean
+  serialized_capsule_type_value?: string | null
+  relay_validator_contract_matches?: boolean
 }
 
 /** Matches Electron `handshake.sendBeapViaP2P` response (additive fields). */
@@ -346,6 +350,7 @@ export type SendBeapViaP2PResult = {
     | 'FAILED_MAX_RETRIES'
     | 'REQUEST_INVALID'
     | 'RELAY_TYPE_NOT_ALLOWED'
+    | 'OUT_OF_BAND_REQUIRED'
     | 'PAYLOAD_TOO_LARGE'
   last_queue_error?: string | null
   retry_count?: number

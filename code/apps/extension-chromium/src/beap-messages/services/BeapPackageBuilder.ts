@@ -2052,7 +2052,8 @@ export async function executeP2PAction(
     if (
       result?.code === 'REQUEST_INVALID' ||
       result?.code === 'PAYLOAD_TOO_LARGE' ||
-      result?.code === 'RELAY_TYPE_NOT_ALLOWED'
+      result?.code === 'RELAY_TYPE_NOT_ALLOWED' ||
+      result?.code === 'OUT_OF_BAND_REQUIRED'
     ) {
       const lines: string[] = [errMsg]
       if (typeof result.http_status === 'number') {
@@ -2067,7 +2068,9 @@ export async function executeP2PAction(
           ? 'PAYLOAD_TOO_LARGE'
           : result.code === 'RELAY_TYPE_NOT_ALLOWED'
             ? 'RELAY_TYPE_NOT_ALLOWED'
-            : 'REQUEST_INVALID'
+            : result.code === 'OUT_OF_BAND_REQUIRED'
+              ? 'OUT_OF_BAND_REQUIRED'
+              : 'REQUEST_INVALID'
       return {
         success: false,
         action: 'sent',

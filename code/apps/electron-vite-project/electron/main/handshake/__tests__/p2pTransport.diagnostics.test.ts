@@ -9,6 +9,8 @@ import {
   analyzeCoordinationRoutingCompliance,
   describeCoordinationRelayNormalization,
   parseRelayCapsuleTypeNotAllowedHint,
+  coordinationRelayContractSatisfied,
+  analyzeSerializedCoordinationContract,
 } from '../p2pTransport'
 
 describe('describeOutboundPayloadForLogs', () => {
@@ -159,6 +161,67 @@ describe('describeOutboundPayloadForLogs', () => {
     )
     expect(s.expected_coordination_routing_keys).toEqual(['handshake_id'])
     expect(s.missing_coordination_top_level_fields).toEqual([])
+  })
+
+  test('coordinationRelayContractSatisfied — message package and allowed handshake types', () => {
+    expect(
+      coordinationRelayContractSatisfied({
+        header: {},
+        metadata: {},
+        payloadEnc: {},
+      }),
+    ).toBe(true)
+    expect(
+      coordinationRelayContractSatisfied({
+        schema_version: 1,
+        capsule_type: 'context_sync',
+        handshake_id: 'h',
+      }),
+    ).toBe(true)
+    expect(
+      coordinationRelayContractSatisfied({
+        schema_version: 1,
+        capsule_type: 'initiate',
+        handshake_id: 'h',
+      }),
+    ).toBe(false)
+  })
+
+  test('analyzeSerializedCoordinationContract — reflects final JSON wire', () => {
+    const body = JSON.stringify({
+      header: {},
+      metadata: {},
+      payloadEnc: {},
+      handshake_id: 'h1',
+    })
+    const a = analyzeSerializedCoordinationContract(body)
+    expect(a.relay_capsule_type_field_name).toBe('capsule_type')
+    expect(a.serialized_capsule_type_field_present).toBe(false)
+    expect(a.serialized_capsule_type_value).toBe(null)
+    expect(a.relay_validator_contract_matches).toBe(true)
+    const body2 = JSON.stringify({ handshake_id: 'h2', capsule_type: 'context_sync' })
+    const a2 = analyzeSerializedCoordinationContract(body2)
+    expect(a2.serialized_capsule_type_field_present).toBe(true)
+    expect(a2.serialized_capsule_type_value).toBe('context_sync')
+    expect(a2.relay_validator_contract_matches).toBe(true)
+  })
+
+  test('buildOutboundRequestDebugSnapshot — coordination includes serialized relay contract fields', () => {
+    const cap = { handshake_id: 'hs-w', header: {}, metadata: {}, innerEnvelopeCiphertext: 'x' }
+    const body = JSON.stringify(cap)
+    const s = buildOutboundRequestDebugSnapshot(
+      'coordination',
+      'https://relay/beap/capsule',
+      cap,
+      body,
+      'application/json',
+      400,
+      '{"error":"capsule_type_not_allowed"}',
+    )
+    expect(s.relay_capsule_type_field_name).toBe('capsule_type')
+    expect(s.serialized_capsule_type_field_present).toBe(false)
+    expect(s.relay_validator_contract_matches).toBe(true)
+    expect(s.relay_envelope_matches_expectations).toBe(true)
   })
 
   test('buildOutboundRequestDebugSnapshot — coordination includes canon summary and single-post flag', () => {

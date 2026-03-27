@@ -438,6 +438,28 @@ describe.skipIf(!hasSqlite)('outboundQueue: backoff & transport', () => {
     expect(fetchSpy).toHaveBeenCalledTimes(1)
   })
 
+  test('QB_19_coordination_preflight_out_of_band_terminal_no_fetch', async () => {
+    upsertP2PConfig(db, {
+      relay_mode: 'local',
+      use_coordination: true,
+      coordination_url: 'https://coordination.wrdesk.com',
+    })
+    enqueueOutboundCapsule(db, 'hs-qb-19', 'https://coordination.wrdesk.com/beap/capsule', {
+      schema_version: 1,
+      capsule_type: 'initiate',
+      handshake_id: 'hs-qb-19',
+    })
+
+    const r = await processOutboundQueue(db, async () => 'oidc-token')
+
+    expect(fetchSpy).toHaveBeenCalledTimes(0)
+    expect(r.code).toBe('OUT_OF_BAND_REQUIRED')
+    expect(r.queued).toBe(false)
+    expect(r.http_status).toBe(400)
+    expect(r.outbound_debug?.relay_validator_contract_matches).toBe(false)
+    expect(r.response_body_snippet).toContain('relay_coordination_contract_violation')
+  })
+
   test('QB_17_coordination_http_400_terminal_single_fetch', async () => {
     upsertP2PConfig(db, {
       relay_mode: 'local',

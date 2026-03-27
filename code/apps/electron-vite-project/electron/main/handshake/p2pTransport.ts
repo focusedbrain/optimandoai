@@ -7,27 +7,27 @@
  * Does NOT throw — returns { success, error } for queue/retry handling.
  */
 
+/** Direct source import: Vitest + `@repo/ingestion-core` index alias can yield incomplete exports for this module. */
+import { isMessagePackageStructure } from '../../../../../packages/ingestion-core/src/beapDetection.ts'
+
 const TIMEOUT_MS = 30_000
 
-/** Aligns with @repo/ingestion-core `isMessagePackageStructure` (do not drift). */
+/** Handshake relay envelopes (top-level `capsule_type`) — must match coordination-service `/beap/capsule`. */
 const RELAY_HANDSHAKE_CAPSULE_TYPES = new Set(['accept', 'context_sync', 'refresh', 'revoke', 'initiate'])
 
-function hasEncryptedMessagePackageBodyLocal(o: Record<string, unknown>): boolean {
-  return (
-    'envelope' in o ||
-    'payload' in o ||
-    'payloadEnc' in o ||
-    'innerEnvelopeCiphertext' in o
-  )
-}
+/** Relay accepts these when not a native message package (coordination-service `RELAY_ALLOWED_TYPES`). */
+export const COORDINATION_RELAY_ALLOWED_CAPSULE_TYPES = ['accept', 'context_sync', 'refresh', 'revoke'] as const
 
-function isBeapWireMessagePackageShape(o: Record<string, unknown>): boolean {
-  const hasHeader = 'header' in o && o.header != null && typeof o.header === 'object'
-  const hasMetadata = 'metadata' in o && o.metadata != null && typeof o.metadata === 'object'
-  if (!hasHeader || !hasMetadata) return false
-  const ct = o.capsule_type
-  if (typeof ct === 'string' && RELAY_HANDSHAKE_CAPSULE_TYPES.has(ct.trim())) return false
-  return hasEncryptedMessagePackageBodyLocal(o)
+/**
+ * True iff coordination `/beap/capsule` would accept this body (same rules as coordination-service):
+ * either `isMessagePackageStructure` (qBEAP/pBEAP wire) or `capsule_type` in the four allowed strings.
+ */
+export function coordinationRelayContractSatisfied(parsed: unknown): boolean {
+  if (isMessagePackageStructure(parsed)) return true
+  if (parsed == null || typeof parsed !== 'object' || Array.isArray(parsed)) return false
+  const o = parsed as Record<string, unknown>
+  const ct = typeof o.capsule_type === 'string' ? o.capsule_type.trim() : ''
+  return (COORDINATION_RELAY_ALLOWED_CAPSULE_TYPES as readonly string[]).includes(ct)
 }
 
 /** Decode JWT payload (middle segment) for debug logging. Returns null on parse error. */
@@ -75,7 +75,7 @@ export function describeOutboundPayloadForLogs(capsule: unknown): {
   const has_top_level_handshake_id = typeof o.handshake_id === 'string' && o.handshake_id.trim().length > 0
   const has_capsule_type_key = 'capsule_type' in o
   const capsuleType = typeof o.capsule_type === 'string' ? o.capsule_type : ''
-  const looks_like_beap_message_package = isBeapWireMessagePackageShape(o)
+  const looks_like_beap_message_package = isMessagePackageStructure(o)
   const RELAY = new Set(['accept', 'context_sync', 'refresh', 'revoke'])
   const looks_like_relay_capsule_envelope = has_capsule_type_key && RELAY.has(capsuleType)
   let has_message_header_receiver_binding_handshake_id = false
@@ -138,8 +138,16 @@ export interface OutboundRequestDebugSnapshot {
   coordination_normalized_shape?: 'relay_native_beap_wire' | 'relay_handshake_capsule'
   /** Inferred relay / ingestion label (wire → message_package bypass). */
   derived_relay_capsule_type?: string | null
-  /** True when the payload matches coordination relay expectations for its class. */
+  /** True when the payload matches coordination relay expectations for its class (prefer relay_validator_contract_matches). */
   relay_envelope_matches_expectations?: boolean
+  /** Canonical coordination field name (matches coordination-service). */
+  relay_capsule_type_field_name?: 'capsule_type'
+  /** From the final serialized JSON body — whether `capsule_type` exists as a key. */
+  serialized_capsule_type_field_present?: boolean
+  /** From the final serialized JSON body — string value, or null if absent / non-string. */
+  serialized_capsule_type_value?: string | null
+  /** True iff the final JSON body satisfies coordination-service gate (ingestion-core + allowed types). */
+  relay_validator_contract_matches?: boolean
   /** When server returns capsule_type_not_allowed, parsed hint from detail (no secrets). */
   relay_allowed_types_from_response?: string
 }
@@ -218,20 +226,63 @@ export function describeCoordinationRelayNormalization(capsule: object): {
   const o = capsule as Record<string, unknown>
   const ct = typeof o.capsule_type === 'string' ? o.capsule_type.trim() : ''
   if (ct && RELAY_HANDSHAKE_CAPSULE_TYPES.has(ct)) {
-    const allowed = new Set(['accept', 'context_sync', 'refresh', 'revoke'])
     return {
       coordination_source_format: 'handshake_relay_envelope',
       coordination_normalized_shape: 'relay_handshake_capsule',
       derived_relay_capsule_type: ct,
-      relay_envelope_matches_expectations: allowed.has(ct),
+      relay_envelope_matches_expectations: coordinationRelayContractSatisfied(o),
     }
   }
-  const wireOk = isBeapWireMessagePackageShape(o)
+  const wireOk = isMessagePackageStructure(o)
   return {
     coordination_source_format: 'beap_wire_message_package',
     coordination_normalized_shape: 'relay_native_beap_wire',
     derived_relay_capsule_type: wireOk ? 'message_package' : null,
-    relay_envelope_matches_expectations: wireOk,
+    relay_envelope_matches_expectations: coordinationRelayContractSatisfied(o),
+  }
+}
+
+/**
+ * Parse the exact JSON the relay receives (handles outer JSON-string double-wrap like extractTopLevelKeys).
+ * Returns null if not a JSON object.
+ */
+export function parseCoordinationWireJsonBody(bodyUtf8: string): Record<string, unknown> | null {
+  try {
+    let v: unknown = JSON.parse(bodyUtf8.trim())
+    if (typeof v === 'string') {
+      v = JSON.parse(v)
+    }
+    if (v == null || typeof v !== 'object' || Array.isArray(v)) return null
+    return v as Record<string, unknown>
+  } catch {
+    return null
+  }
+}
+
+/** Strict wire analysis — must match what coordination-service parses from the POST body. */
+export function analyzeSerializedCoordinationContract(bodyUtf8: string): {
+  relay_capsule_type_field_name: 'capsule_type'
+  serialized_capsule_type_field_present: boolean
+  serialized_capsule_type_value: string | null
+  relay_validator_contract_matches: boolean
+} {
+  const o = parseCoordinationWireJsonBody(bodyUtf8)
+  if (!o) {
+    return {
+      relay_capsule_type_field_name: 'capsule_type',
+      serialized_capsule_type_field_present: false,
+      serialized_capsule_type_value: null,
+      relay_validator_contract_matches: false,
+    }
+  }
+  const raw = o.capsule_type
+  const serialized_capsule_type_field_present = 'capsule_type' in o
+  const serialized_capsule_type_value = typeof raw === 'string' ? raw : null
+  return {
+    relay_capsule_type_field_name: 'capsule_type',
+    serialized_capsule_type_field_present,
+    serialized_capsule_type_value,
+    relay_validator_contract_matches: coordinationRelayContractSatisfied(o),
   }
 }
 
@@ -314,10 +365,13 @@ export function buildOutboundRequestDebugSnapshot(
   const coordinationHint =
     route === 'coordination' ? analyzeCoordinationRoutingCompliance(capsule) : null
   const relayNorm = route === 'coordination' ? describeCoordinationRelayNormalization(capsule) : null
+  const serializedRelay = route === 'coordination' ? analyzeSerializedCoordinationContract(bodyUtf8) : null
   const relayHint =
     route === 'coordination' && responseSnippet
       ? parseRelayCapsuleTypeNotAllowedHint(responseSnippet)
       : undefined
+  const relayMatchesWire =
+    serializedRelay != null ? serializedRelay.relay_validator_contract_matches : relayNorm?.relay_envelope_matches_expectations
   return {
     route,
     url: targetUrl,
@@ -342,7 +396,20 @@ export function buildOutboundRequestDebugSnapshot(
           coordination_source_format: relayNorm.coordination_source_format,
           coordination_normalized_shape: relayNorm.coordination_normalized_shape,
           derived_relay_capsule_type: relayNorm.derived_relay_capsule_type,
-          relay_envelope_matches_expectations: relayNorm.relay_envelope_matches_expectations,
+        }
+      : {}),
+    ...(serializedRelay
+      ? {
+          relay_capsule_type_field_name: serializedRelay.relay_capsule_type_field_name,
+          serialized_capsule_type_field_present: serializedRelay.serialized_capsule_type_field_present,
+          serialized_capsule_type_value: serializedRelay.serialized_capsule_type_value,
+          relay_validator_contract_matches: serializedRelay.relay_validator_contract_matches,
+        }
+      : {}),
+    ...(relayNorm || serializedRelay
+      ? {
+          relay_envelope_matches_expectations:
+            relayMatchesWire !== undefined ? relayMatchesWire : relayNorm?.relay_envelope_matches_expectations,
         }
       : {}),
     ...(relayHint ? { relay_allowed_types_from_response: relayHint } : {}),
@@ -401,6 +468,30 @@ export async function sendCapsuleViaCoordination(
   const base = coordinationUrl.replace(/\/$/, '')
   const targetEndpoint = `${base}/beap/capsule`
   const payload = buildCoordinationCapsulePostBody(capsule, queueHandshakeId)
+  if (!coordinationRelayContractSatisfied(payload)) {
+    const body = JSON.stringify(payload)
+    const detail =
+      'Payload is not a native BEAP message package (ingestion-core isMessagePackageStructure) and capsule_type is not one of accept, context_sync, refresh, revoke. Deliver out-of-band (file, email, USB).'
+    const responseBodySnippet = sanitizeHttpResponseBodyForLogs(
+      JSON.stringify({ error: 'relay_coordination_contract_violation', detail }),
+    )
+    const snapshot = buildOutboundRequestDebugSnapshot(
+      'coordination',
+      targetEndpoint,
+      payload,
+      body,
+      'application/json',
+      0,
+      responseBodySnippet,
+    )
+    return {
+      success: false,
+      error: 'OUT_OF_BAND_REQUIRED',
+      statusCode: 400,
+      responseBodySnippet,
+      outboundDebug: snapshot,
+    }
+  }
   return sendCapsuleViaHttpWithAuth(payload, targetEndpoint, oidcToken)
 }
 

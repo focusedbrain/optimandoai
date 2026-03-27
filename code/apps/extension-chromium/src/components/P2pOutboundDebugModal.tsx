@@ -44,6 +44,22 @@ export function P2pOutboundDebugModal(props: {
           }`,
         ]
       : []),
+    ...(debug.relay_capsule_type_field_name != null
+      ? [`relay_capsule_type_field_name: ${debug.relay_capsule_type_field_name}`]
+      : []),
+    ...(debug.serialized_capsule_type_field_present != null
+      ? [`serialized_capsule_type_field_present: ${debug.serialized_capsule_type_field_present}`]
+      : []),
+    ...(debug.serialized_capsule_type_value !== undefined
+      ? [
+          `serialized_capsule_type_value: ${
+            debug.serialized_capsule_type_value === null ? 'null' : debug.serialized_capsule_type_value
+          }`,
+        ]
+      : []),
+    ...(debug.relay_validator_contract_matches != null
+      ? [`relay_validator_contract_matches: ${debug.relay_validator_contract_matches}`]
+      : []),
     ...(debug.relay_envelope_matches_expectations != null
       ? [`relay_envelope_matches_expectations: ${debug.relay_envelope_matches_expectations}`]
       : []),
