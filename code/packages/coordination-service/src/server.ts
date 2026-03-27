@@ -389,17 +389,3 @@ export async function createServer(config: CoordinationConfig): Promise<{
 
   return { server, relay }
 }
-
-// Run when executed directly: node dist/server.js
-import { fileURLToPath } from 'node:url'
-import { resolve } from 'node:path'
-const __filename = resolve(fileURLToPath(import.meta.url))
-const entry = process.argv[1] ? resolve(process.argv[1]) : ''
-if (entry === __filename) {
-  import('./index.js').then((m) =>
-    m.main().catch((err: Error) => {
-      console.error(err)
-      process.exit(1)
-    }),
-  )
-}

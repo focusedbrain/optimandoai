@@ -49,4 +49,4 @@ EXPOSE 51249
 USER beap
 
 ENTRYPOINT ["tini", "--"]
-CMD ["node", "packages/coordination-service/dist/server.js"]
+CMD ["node", "packages/coordination-service/dist/index.js"]
