@@ -720,9 +720,16 @@ function PopupChatApp() {
       if (result.success) {
         setBeapP2pCooldownUntilMs(null)
         // Show success notification based on delivery method
-        const actionLabel = beapDeliveryMethod === 'download' ? 'BEAP capsule downloaded' 
-          : beapDeliveryMethod === 'p2p' ? 'BEAP™ Message sent via P2P!' 
-          : 'BEAP™ Message sent!'
+        const actionLabel =
+          beapDeliveryMethod === 'download'
+            ? 'BEAP capsule downloaded'
+            : beapDeliveryMethod === 'p2p'
+              ? result.coordinationRelayDelivery === 'queued_recipient_offline'
+                ? 'BEAP™ Message queued — recipient offline'
+                : result.coordinationRelayDelivery === 'pushed_live'
+                  ? 'BEAP™ Message delivered (recipient online)'
+                  : 'BEAP™ Message sent via P2P!'
+              : 'BEAP™ Message sent!'
         setToastMessage({ message: actionLabel, type: 'success' })
         
         // Clear form

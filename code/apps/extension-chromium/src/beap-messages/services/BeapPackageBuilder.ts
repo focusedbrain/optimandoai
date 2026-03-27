@@ -635,6 +635,8 @@ export interface DeliveryResult {
   p2pOutboundDebug?: OutboundRequestDebugSnapshot
   /** When relay rejects capsule_type; from Electron queue (no secrets). */
   derivedOutgoingRelayCapsuleType?: string | null
+  /** Coordination P2P: 200 live push vs 202 queued offline (from `handshake.sendBeapViaP2P`). */
+  coordinationRelayDelivery?: 'pushed_live' | 'queued_recipient_offline'
   details?: {
     to?: string
     filename?: string
@@ -2042,10 +2044,18 @@ export async function executeP2PAction(
     const packageJson = JSON.stringify(pkg)
     const result = await sendBeapViaP2P(handshakeId, packageJson)
     if (result?.success) {
+      const relay = result.coordinationRelayDelivery
+      const message =
+        relay === 'queued_recipient_offline'
+          ? 'Message queued — recipient offline; will deliver when they connect.'
+          : relay === 'pushed_live'
+            ? 'Message delivered to recipient.'
+            : 'Message delivered.'
       return {
         success: true,
         action: 'sent',
-        message: 'Message delivered',
+        message,
+        ...(relay && { coordinationRelayDelivery: relay }),
       }
     }
     const errMsg = result?.error ?? 'P2P delivery failed'

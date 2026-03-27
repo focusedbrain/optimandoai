@@ -138,10 +138,15 @@ export interface OutboundRequestDebugSnapshot {
   relay_allowed_types_from_response?: string
 }
 
+/** Coordination `/beap/capsule` only: 200 = WebSocket push to recipient, 202 = stored for later. */
+export type CoordinationRelayDelivery = 'pushed_live' | 'queued_recipient_offline'
+
 export interface SendCapsuleResult {
   success: boolean
   error?: string
   statusCode?: number
+  /** Coordination relay: set when success — distinguishes live push vs offline queue. */
+  coordinationRelayDelivery?: CoordinationRelayDelivery
   /** From HTTP Retry-After (seconds), when present */
   retryAfterSec?: number
   /** Sanitized non-OK response body fragment for debugging (no secrets). */
@@ -481,9 +486,24 @@ async function sendCapsuleViaHttpWithAuth(
 
     clearTimeout(timeout)
 
-    if (response.status === 200 || response.status === 202) {
-      console.log('[P2P] Coordination delivery OK', { endpoint: targetEndpoint, status: response.status })
-      return { success: true }
+    if (response.status === 200) {
+      console.log('[P2P] Coordination delivery OK (live push)', { endpoint: targetEndpoint, status: response.status })
+      return {
+        success: true,
+        statusCode: 200,
+        coordinationRelayDelivery: 'pushed_live',
+      }
+    }
+    if (response.status === 202) {
+      console.log('[P2P] Coordination delivery OK (recipient offline, queued)', {
+        endpoint: targetEndpoint,
+        status: response.status,
+      })
+      return {
+        success: true,
+        statusCode: 202,
+        coordinationRelayDelivery: 'queued_recipient_offline',
+      }
     }
 
     const retryAfterSec = parseRetryAfterSeconds(response)

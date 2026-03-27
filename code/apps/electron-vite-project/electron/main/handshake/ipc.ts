@@ -638,6 +638,9 @@ export async function handleHandshakeRPC(
         success: true,
         ...(ok.code && { code: ok.code }),
         ...(ok.healing_status !== undefined && { healing_status: ok.healing_status }),
+        ...(ok.coordinationRelayDelivery && {
+          coordinationRelayDelivery: ok.coordinationRelayDelivery,
+        }),
       }
     }
 

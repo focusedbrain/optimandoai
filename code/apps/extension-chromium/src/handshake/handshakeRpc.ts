@@ -378,6 +378,8 @@ export type SendBeapViaP2PResult = {
   response_body_snippet?: string
   outbound_debug?: OutboundRequestDebugSnapshot
   derived_outgoing_relay_capsule_type?: string | null
+  /** Coordination relay: live push (200) vs stored while recipient offline (202). */
+  coordinationRelayDelivery?: 'pushed_live' | 'queued_recipient_offline'
 }
 
 export async function sendBeapViaP2P(

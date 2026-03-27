@@ -10,6 +10,29 @@ import { INGESTION_CONSTANTS } from './types.js';
 import { ingestInput } from './ingestor.js';
 import { validateCapsule } from './validator.js';
 import { routeValidatedCapsule } from './distributionGate.js';
+import {
+  isCoordinationRelayNativeBeap,
+  normalizeCoordinationRelayNativeBeapWire,
+} from './beapDetection.js';
+
+/**
+ * Normalize native BEAP wire (string header/metadata) before ingest/validate.
+ * Use for `coordination_service` (relay HTTP) and `coordination_ws` (recipient push)
+ * so validation matches `isCoordinationRelayNativeBeap`.
+ */
+export function prepareCoordinationRelayNativeBeapRawInput(rawInput: RawInput): RawInput {
+  if (typeof rawInput.body !== 'string') return rawInput;
+  const trimmed = rawInput.body.trim();
+  if (!trimmed.startsWith('{')) return rawInput;
+  try {
+    const parsed = JSON.parse(trimmed) as Record<string, unknown>;
+    if (!isCoordinationRelayNativeBeap(parsed)) return rawInput;
+    const norm = normalizeCoordinationRelayNativeBeapWire(parsed);
+    return { ...rawInput, body: JSON.stringify(norm) };
+  } catch {
+    return rawInput;
+  }
+}
 
 export interface PipelineResult {
   readonly success: boolean;
@@ -31,7 +54,11 @@ export function validateInput(
   const startTime = performance.now();
 
   try {
-    const candidate = ingestInput(rawInput, sourceType, transportMeta);
+    const effectiveInput =
+      sourceType === 'coordination_service'
+        ? prepareCoordinationRelayNativeBeapRawInput(rawInput)
+        : rawInput;
+    const candidate = ingestInput(effectiveInput, sourceType, transportMeta);
 
     const postIngestMs = performance.now() - startTime;
     if (postIngestMs > INGESTION_CONSTANTS.PIPELINE_TIMEOUT_MS) {

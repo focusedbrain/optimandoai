@@ -6,7 +6,7 @@
  */
 
 // Main pipeline
-export { validateInput } from './pipeline.js';
+export { validateInput, prepareCoordinationRelayNativeBeapRawInput } from './pipeline.js';
 export type { PipelineResult } from './pipeline.js';
 
 // Individual steps
@@ -14,6 +14,7 @@ export {
   detectBeapCapsule,
   isMessagePackageStructure,
   isCoordinationRelayNativeBeap,
+  normalizeCoordinationRelayNativeBeapWire,
   hasEncryptedMessagePackageBody,
   detectBeapMessagePackage,
 } from './beapDetection.js';

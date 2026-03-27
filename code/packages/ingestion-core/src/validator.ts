@@ -168,6 +168,18 @@ export function validateCapsule(candidate: CandidateCapsuleEnvelope): Validation
 
 const RELAY_HANDSHAKE_CAPSULE_TYPES = new Set(['accept', 'context_sync', 'refresh', 'revoke', 'initiate']);
 
+/** Matches `hasEncryptedMessagePackageBody` in beapDetection — native wire encrypted artefacts. */
+function hasMessagePackageEncryptedBody(obj: Record<string, unknown>): boolean {
+  const artefacts = obj.artefactsEnc;
+  return (
+    'envelope' in obj ||
+    'payload' in obj ||
+    'payloadEnc' in obj ||
+    'innerEnvelopeCiphertext' in obj ||
+    (Array.isArray(artefacts) && artefacts.length > 0)
+  );
+}
+
 function isMessagePackageShape(obj: Record<string, unknown>): boolean {
   const hasHeader = 'header' in obj && obj.header != null && typeof obj.header === 'object';
   const hasMetadata = 'metadata' in obj && obj.metadata != null && typeof obj.metadata === 'object';
@@ -178,12 +190,7 @@ function isMessagePackageShape(obj: Record<string, unknown>): boolean {
     return false;
   }
 
-  return (
-    'envelope' in obj ||
-    'payload' in obj ||
-    'payloadEnc' in obj ||
-    'innerEnvelopeCiphertext' in obj
-  );
+  return hasMessagePackageEncryptedBody(obj);
 }
 
 function runValidationMessagePackage(
@@ -209,10 +216,10 @@ function runValidationMessagePackage(
     }
   }
 
-  if (!('envelope' in obj) && !('payload' in obj) && !('payloadEnc' in obj) && !('innerEnvelopeCiphertext' in obj)) {
+  if (!hasMessagePackageEncryptedBody(obj)) {
     return fail(
       'MISSING_REQUIRED_FIELD',
-      'Message package must have envelope, payload, or encrypted fields (payloadEnc / innerEnvelopeCiphertext)',
+      'Message package must have envelope, payload, encrypted fields (payloadEnc / innerEnvelopeCiphertext), or artefactsEnc',
     );
   }
 

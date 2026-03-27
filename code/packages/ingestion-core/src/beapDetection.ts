@@ -121,6 +121,26 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
  * Coordination `/beap/capsule` gate: native BEAP / qBEAP–pBEAP wire that must pass without top-level `capsule_type`.
  * Prefer this over `isMessagePackageStructure` alone on the relay path so minor wire-shape differences still classify as native.
  */
+/**
+ * Expand string `header` / `metadata` JSON to objects — same normalization as
+ * `isCoordinationRelayNativeBeap` uses internally. Call after the relay gate passes
+ * so `validateInput` / `detectBeapCapsule` see the same shape the gate classified.
+ */
+export function normalizeCoordinationRelayNativeBeapWire(obj: Record<string, unknown>): Record<string, unknown> {
+  const normalized: Record<string, unknown> = { ...obj };
+  if (typeof normalized.header === 'string') {
+    const h = JSON.parse(normalized.header) as unknown;
+    if (!isPlainObject(h)) throw new Error('coordination native BEAP: header string is not a JSON object');
+    normalized.header = h;
+  }
+  if (typeof normalized.metadata === 'string') {
+    const m = JSON.parse(normalized.metadata) as unknown;
+    if (!isPlainObject(m)) throw new Error('coordination native BEAP: metadata string is not a JSON object');
+    normalized.metadata = m;
+  }
+  return normalized;
+}
+
 export function isCoordinationRelayNativeBeap(parsed: unknown): boolean {
   if (isMessagePackageStructure(parsed)) return true;
   if (parsed == null || typeof parsed !== 'object' || Array.isArray(parsed)) return false;

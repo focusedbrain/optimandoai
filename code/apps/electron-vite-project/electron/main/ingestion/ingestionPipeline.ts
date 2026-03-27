@@ -19,7 +19,12 @@ import type {
   DistributionDecision,
 } from './types'
 import { INGESTION_CONSTANTS } from './types'
-import { ingestInput, validateCapsule, routeValidatedCapsule } from '@repo/ingestion-core'
+import {
+  ingestInput,
+  validateCapsule,
+  routeValidatedCapsule,
+  prepareCoordinationRelayNativeBeapRawInput,
+} from '@repo/ingestion-core'
 
 export async function processIncomingInput(
   rawInput: RawInput,
@@ -29,8 +34,12 @@ export async function processIncomingInput(
   const startTime = performance.now()
 
   try {
+    const inputForIngest =
+      sourceType === 'coordination_ws'
+        ? prepareCoordinationRelayNativeBeapRawInput(rawInput)
+        : rawInput
     // Stage 1: Ingest
-    const candidate = ingestInput(rawInput, sourceType, transportMeta)
+    const candidate = ingestInput(inputForIngest, sourceType, transportMeta)
 
     // Wall-clock budget check after ingestion
     const postIngestMs = performance.now() - startTime

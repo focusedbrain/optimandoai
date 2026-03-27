@@ -241,4 +241,39 @@ describe('ingestion-core', () => {
     };
     expect(isCoordinationRelayNativeBeap(w)).toBe(true);
   });
+
+  test('validateInput: coordination_service + stringified header/metadata → message_relay (aligned with relay gate)', () => {
+    const wire = {
+      handshake_id: 'hs-str',
+      header: JSON.stringify({
+        receiver_binding: { handshake_id: 'hs-str' },
+      }),
+      metadata: JSON.stringify({ created_at: new Date().toISOString() }),
+      payloadEnc: { chunking: { count: 1, enabled: true, maxChunkBytes: 262144, merkleRoot: 'a'.repeat(64) } },
+    };
+    const rawInput: RawInput = { body: JSON.stringify(wire) };
+    const result = validateInput(rawInput, 'coordination_service', emptyTransport);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.distribution!.target).toBe('message_relay');
+      expect(result.validated!.capsule.capsule_type).toBe('message_package');
+    }
+  });
+
+  test('validateInput: coordination_service + artefactsEnc-only → message_relay', () => {
+    const w = {
+      handshake_id: 'hs-art',
+      header: {
+        receiver_binding: { handshake_id: 'hs-art' },
+      },
+      metadata: { created_at: new Date().toISOString() },
+      artefactsEnc: [{ chunking: { count: 1, enabled: true, maxChunkBytes: 1024, merkleRoot: 'b'.repeat(64) } }],
+    };
+    const rawInput: RawInput = { body: JSON.stringify(w) };
+    const result = validateInput(rawInput, 'coordination_service', emptyTransport);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.distribution!.target).toBe('message_relay');
+    }
+  });
 });

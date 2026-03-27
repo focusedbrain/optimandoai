@@ -592,9 +592,16 @@ function SidepanelOrchestrator() {
         
         if (result.success) {
           setBeapP2pCooldownUntilMs(null)
-          const actionLabel = handshakeDelivery === 'download' ? 'BEAP capsule downloaded' 
-            : handshakeDelivery === 'p2p' ? 'BEAP™ Message sent via P2P!' 
-            : 'BEAP™ Message sent!'
+          const actionLabel =
+            handshakeDelivery === 'download'
+              ? 'BEAP capsule downloaded'
+              : handshakeDelivery === 'p2p'
+                ? result.coordinationRelayDelivery === 'queued_recipient_offline'
+                  ? 'BEAP™ Message queued — recipient offline'
+                  : result.coordinationRelayDelivery === 'pushed_live'
+                    ? 'BEAP™ Message delivered (recipient online)'
+                    : 'BEAP™ Message sent via P2P!'
+                : 'BEAP™ Message sent!'
           setNotification({ message: actionLabel, type: 'success' })
           setBeapDraftTo('')
           setBeapDraftMessage('')

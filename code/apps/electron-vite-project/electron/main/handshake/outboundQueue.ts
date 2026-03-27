@@ -14,6 +14,7 @@ import {
   describeOutboundPayloadForLogs,
   type SendCapsuleResult,
   type OutboundRequestDebugSnapshot,
+  type CoordinationRelayDelivery,
 } from './p2pTransport'
 import { getHandshakeRecord } from './db'
 import { getP2PConfig } from '../p2p/p2pConfig'
@@ -98,6 +99,8 @@ export interface ProcessOutboundQueueResult {
   outbound_debug?: OutboundRequestDebugSnapshot
   /** When relay returns capsule_type_not_allowed — derived type from DEBUG if present. */
   derived_outgoing_relay_capsule_type?: string | null
+  /** Coordination relay: live WebSocket push vs stored while recipient offline. */
+  coordinationRelayDelivery?: CoordinationRelayDelivery
 }
 
 function jitterMs(max = 400): number {
@@ -486,7 +489,14 @@ async function processOutboundQueueInner(
         '[P2P-QUEUE]',
         JSON.stringify({ event: 'retry_attempt_succeeded', queue_row_id: row.id, handshake_id: row.handshake_id }),
       )
-      return { delivered: true, code: 'DELIVERED', healing_status: 'idle' }
+      return {
+        delivered: true,
+        code: 'DELIVERED',
+        healing_status: 'idle',
+        ...(result.coordinationRelayDelivery && {
+          coordinationRelayDelivery: result.coordinationRelayDelivery,
+        }),
+      }
     }
 
     // HTTP 413 — request body too large for relay
