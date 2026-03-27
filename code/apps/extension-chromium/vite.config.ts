@@ -54,6 +54,10 @@ function serviceWorkerSafePreload(): Plugin {
 }
 
 export default defineConfig({
+  define: {
+    // New value on every production build — log in background to confirm you are not on stale unpacked output.
+    'import.meta.env.VITE_EXT_BUILD_STAMP': JSON.stringify(new Date().toISOString()),
+  },
   plugins: [
     react(),
     // @ts-expect-error crxjs plugin types lag behind Vite's Plugin type

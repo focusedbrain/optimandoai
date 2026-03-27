@@ -2,6 +2,16 @@ import { handleElectronRpc, type ElectronRpcRequest } from './rpc/electronRpc'
 import { WEBMCP_RESULT_VERSION } from './vault/autofill/webMcpConstants'
 import type { BgWebMcpErrorCode } from './vault/autofill/webMcpAdapter'
 
+try {
+  const m = chrome.runtime.getManifest()
+  console.info('[WR Desk] Service worker started', {
+    manifestVersion: m.version,
+    buildStamp: import.meta.env.VITE_EXT_BUILD_STAMP ?? 'dev',
+  })
+} catch {
+  /* ignore */
+}
+
 declare global {
   var vaultRpcCallbacks: Map<string, (data: any) => void> | undefined
   var emailCallbacks: Map<string, (data: any) => void> | undefined

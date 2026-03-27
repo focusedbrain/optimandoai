@@ -30,151 +30,50 @@ function getActiveExtensionOutDir(extensionRoot) {
   }
 }
 
+/** Names like build2, build542, build02 — legacy Vite outputs under extension-chromium. */
+const EXTENSION_BUILD_DIR_RE = /^build\d+$/
+
+/**
+ * Remove every `build<number>` directory except the active outDir from vite.config.ts.
+ * A static list cannot keep up; leaving old folders causes Chrome "Load unpacked" to
+ * keep pointing at stale JS (parsing pipeline never updates).
+ */
+function removeStaleExtensionBuildDirs(extensionRoot, keepBasename) {
+  if (!fs.existsSync(extensionRoot)) return
+  let entries
+  try {
+    entries = fs.readdirSync(extensionRoot, { withFileTypes: true })
+  } catch {
+    return
+  }
+  for (const ent of entries) {
+    if (!ent.isDirectory()) continue
+    const name = ent.name
+    if (!EXTENSION_BUILD_DIR_RE.test(name)) continue
+    const full = path.join(extensionRoot, name)
+    if (keepBasename && name === keepBasename) {
+      console.log('[clear-build-caches] Keeping active extension outDir:', full)
+      continue
+    }
+    rmDir(full)
+  }
+}
+
 function clearBuildCaches() {
   const scriptsDir = __dirname
   const electronRoot = path.join(scriptsDir, '..')
   const codeRoot = path.join(electronRoot, '..', '..')
   const extensionRoot = path.join(electronRoot, '..', 'extension-chromium')
   const keepExt = getActiveExtensionOutDir(extensionRoot)
-
-  /** Prior extension outDir(s) — remove stale unpacked builds; skip active outDir from vite.config.ts */
-  const staleExtensionOutDirs = [
-    'build18817',
-    'build1917',
-    'build1687',
-    'build175',
-    'build15575',
-    'build18875',
-    'build9445',
-    'build15',
-    'build2315',
-    'build0015',
-    'build005',
-    'build5',
-    'build2334',
-    'build224',
-    'build774',
-    'build554',
-    'build124',
-    'build6',
-    'build1',
-    'build1024',
-    'build17',
-    'build2',
-    'build24',
-    'build74',
-    'build74172',
-    'build772',
-    'build752',
-    'build702',
-    'build802',
-    'build807',
-    'build82',
-    'build12',
-    'build354',
-    'build4',
-    'build0004',
-    'build0005',
-    'build0105',
-    'build085',
-    'build812',
-    'build712',
-    'build72',
-    'build7972',
-    'build24977',
-    'build1557',
-    'build0001',
-    'build441',
-    'build371',
-    'build375',
-    'build991',
-    'build665',
-    'build995',
-    'build775',
-    'build1057',
-    'build107',
-    'build195',
-    'build19957',
-    'build197777',
-    'build15555777',
-    'build119589',
-    'build12407',
-    'build1003',
-    'build13009',
-    'build1509',
-    'build1209',
-    'build129',
-    'build29',
-    'build39',
-    'build377',
-    'build119',
-    'build9',
-    'build0079',
-    'build179',
-    'build100009',
-    'build1354009',
-    'build139',
-    'build1007',
-    'build691',
-    'build115',
-    'build2455',
-    'build1175',
-    'build1775',
-    'build295',
-    'build2333',
-    'build2553',
-    'build23',
-    'build3',
-    'build222',
-    'build1115',
-    'build2664',
-    'build7543',
-    'build43',
-    'build143',
-    'build1156',
-    'build2225',
-    'build442',
-    'build882',
-    'build992',
-    'build002',
-    'build8802',
-    'build2227',
-    'build2557',
-    'build22227',
-    'build5427',
-    'build56',
-    'build5667',
-    'build1756',
-    'build06',
-    'build54606',
-    'build27',
-    'build975',
-    'build1045',
-    'build105',
-    'build805',
-    'build215',
-    'build1555',
-    'build1475',
-    'build1875417',
-    'build766',
-    'build556',
-    'build5686',
-    'build246',
-    /** Previous active outDir — safe to remove after bumping vite outDir */
-    'build542',
-    'build142',
-    'build822',
-    'build006',
-    'build045',
-    'build845',
-    'build945',
-  ]
-  for (const name of staleExtensionOutDirs) {
-    if (keepExt && name === keepExt) {
-      console.log('[clear-build-caches] Keeping active extension outDir:', path.join(extensionRoot, name))
-      continue
-    }
-    rmDir(path.join(extensionRoot, name))
+  removeStaleExtensionBuildDirs(extensionRoot, keepExt)
+  if (keepExt) {
+    console.log(
+      '[clear-build-caches] Chrome: load unpacked from',
+      path.join(extensionRoot, keepExt),
+      '— then chrome://extensions → Reload (MV3 keeps old JS until reload).',
+    )
+  } else {
+    console.warn('[clear-build-caches] Could not read extension outDir from vite.config.ts; stale build dirs may remain.')
   }
 
   /** Vite / Rollup transform caches */
