@@ -294,6 +294,16 @@ export async function ackPendingPlainEmail(id: number): Promise<void> {
  * @param packageJson - JSON string of the BEAP package
  */
 /**
+ * Client-side send failure detail (no secrets) — same DEBUG affordance as transport diagnostics.
+ */
+export type ClientSendFailureDebug = {
+  kind: 'client_send_failure'
+  phase: 'package_build' | 'preflight' | 'send_exception' | 'transport_exception'
+  /** Short, user-safe summary (may repeat toast message). */
+  message: string
+}
+
+/**
  * Sanitized P2P outbound diagnostics (mirrors Electron `OutboundRequestDebugSnapshot` in `p2pTransport.ts`).
  */
 export type OutboundRequestDebugSnapshot = {

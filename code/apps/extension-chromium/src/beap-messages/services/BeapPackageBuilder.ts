@@ -12,7 +12,7 @@ import type { RecipientMode, SelectedRecipient } from '../components/RecipientMo
 import type { DeliveryMethod } from '../components/DeliveryMethodPanel'
 import type { BeapBuildResult } from '../../beap-builder/types'
 import type { CapsuleAttachment } from '../../beap-builder/canonical-types'
-import type { OutboundRequestDebugSnapshot } from '../../handshake/handshakeRpc'
+import type { OutboundRequestDebugSnapshot, ClientSendFailureDebug } from '../../handshake/handshakeRpc'
 import {
   buildDefaultProcessingOffer,
   mergeWithNoneDefaults,
@@ -637,6 +637,8 @@ export interface DeliveryResult {
   derivedOutgoingRelayCapsuleType?: string | null
   /** Coordination P2P: 200 live push vs 202 queued offline (from `handshake.sendBeapViaP2P`). */
   coordinationRelayDelivery?: 'pushed_live' | 'queued_recipient_offline'
+  /** Build / preflight / client-side exception — DEBUG button (no transport round-trip). */
+  clientSendFailureDebug?: ClientSendFailureDebug
   details?: {
     to?: string
     filename?: string
@@ -2047,10 +2049,10 @@ export async function executeP2PAction(
       const relay = result.coordinationRelayDelivery
       const message =
         relay === 'queued_recipient_offline'
-          ? 'Message queued — recipient offline; will deliver when they connect.'
+          ? 'Relay accepted — message queued (recipient offline).'
           : relay === 'pushed_live'
-            ? 'Message delivered to recipient.'
-            : 'Message delivered.'
+            ? 'Relay accepted — live push to coordination (not a guarantee the recipient app has ingested it).'
+            : 'Relay accepted message.'
       return {
         success: true,
         action: 'sent',
@@ -2143,7 +2145,12 @@ export async function executeP2PAction(
     return {
       success: false,
       action: 'sent',
-      message: msg
+      message: msg,
+      clientSendFailureDebug: {
+        kind: 'client_send_failure',
+        phase: 'transport_exception',
+        message: msg,
+      },
     }
   }
 }
@@ -2159,10 +2166,16 @@ export async function executeDeliveryAction(
     const { checkHandshakeSendReady } = await import('../../handshake/handshakeRpc')
     const readyCheck = await checkHandshakeSendReady(config.selectedRecipient.handshake_id)
     if (!readyCheck.ready) {
+      const msg = readyCheck.error ?? 'Handshake is no longer available for sending'
       return {
         success: false,
         action: 'preflight',
-        message: readyCheck.error ?? 'Handshake is no longer available for sending',
+        message: msg,
+        clientSendFailureDebug: {
+          kind: 'client_send_failure',
+          phase: 'preflight',
+          message: msg,
+        },
       }
     }
   }
@@ -2171,11 +2184,17 @@ export async function executeDeliveryAction(
   const buildResult = await buildPackage(config)
   
   if (!buildResult.success || !buildResult.package) {
+    const msg = buildResult.error || 'Failed to build package'
     return {
       success: false,
       action: config.deliveryMethod === 'email' ? 'sent' : 
               config.deliveryMethod === 'p2p' ? 'sent' : 'downloaded',
-      message: buildResult.error || 'Failed to build package'
+      message: msg,
+      clientSendFailureDebug: {
+        kind: 'client_send_failure',
+        phase: 'package_build',
+        message: msg,
+      },
     }
   }
 
@@ -2189,12 +2208,19 @@ export async function executeDeliveryAction(
       return executeDownloadAction(pkg, config)
     case 'p2p':
       return executeP2PAction(pkg, config)
-    default:
+    default: {
+      const msg = `Unknown delivery method: ${config.deliveryMethod}`
       return {
         success: false,
         action: 'sent',
-        message: `Unknown delivery method: ${config.deliveryMethod}`
+        message: msg,
+        clientSendFailureDebug: {
+          kind: 'client_send_failure',
+          phase: 'package_build',
+          message: msg,
+        },
       }
+    }
   }
 }
 

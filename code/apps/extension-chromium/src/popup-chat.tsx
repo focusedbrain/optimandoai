@@ -42,8 +42,12 @@ import { BeapDocumentReaderModal, AttachmentStatusBadge } from './beap-builder/c
 import type { CapsuleAttachment, RasterProof, RasterPageData } from './beap-builder'
 import { electronRpc } from './rpc/electronRpc'
 import { getVaultStatus } from './vault/api'
-import { P2pOutboundDebugModal } from './components/P2pOutboundDebugModal'
-import type { OutboundRequestDebugSnapshot } from './handshake/handshakeRpc'
+import { P2pOutboundDebugModal, type P2pDebugModalPayload } from './components/P2pOutboundDebugModal'
+import type { ClientSendFailureDebug, OutboundRequestDebugSnapshot } from './handshake/handshakeRpc'
+import {
+  formatOversizeAttachmentRejection,
+  MAX_BEAP_DRAFT_ATTACHMENT_BYTES,
+} from './beap-messages/attachmentPickerLimits'
 import { ConnectEmailLaunchSource, useConnectEmailFlow } from './shared/email/connectEmailFlow'
 import { pickDefaultEmailAccountRowId } from './shared/email/pickDefaultAccountRow'
 
@@ -517,8 +521,9 @@ function PopupChatApp() {
     message: string
     type: 'success' | 'error' | 'info'
     p2pOutboundDebug?: OutboundRequestDebugSnapshot
+    clientSendFailureDebug?: ClientSendFailureDebug
   } | null>(null)
-  const [p2pOutboundDebugModal, setP2pOutboundDebugModal] = useState<OutboundRequestDebugSnapshot | null>(null)
+  const [p2pOutboundDebugModal, setP2pOutboundDebugModal] = useState<P2pDebugModalPayload | null>(null)
   const [isSendingBeap, setIsSendingBeap] = useState(false)
   /** P2P queue backoff: block Send until this time */
   const [beapP2pCooldownUntilMs, setBeapP2pCooldownUntilMs] = useState<number | null>(null)
@@ -725,10 +730,10 @@ function PopupChatApp() {
             ? 'BEAP capsule downloaded'
             : beapDeliveryMethod === 'p2p'
               ? result.coordinationRelayDelivery === 'queued_recipient_offline'
-                ? 'BEAP™ Message queued — recipient offline'
+                ? 'BEAP™ Message queued on relay — recipient offline'
                 : result.coordinationRelayDelivery === 'pushed_live'
-                  ? 'BEAP™ Message delivered (recipient online)'
-                  : 'BEAP™ Message sent via P2P!'
+                  ? 'BEAP™ Relay accepted — live push (not proof the recipient app ingested it)'
+                  : 'BEAP™ Relay accepted message'
               : 'BEAP™ Message sent!'
         setToastMessage({ message: actionLabel, type: 'success' })
         
@@ -753,15 +758,26 @@ function PopupChatApp() {
           (result.message?.includes('waiting before retry') ?? false)
         if (isBackoff) toastClearMs = 9000
         if (result.p2pOutboundDebug) toastClearMs = Math.max(toastClearMs, 12000)
+        if (result.clientSendFailureDebug) toastClearMs = Math.max(toastClearMs, 12000)
         setToastMessage({
           message: result.message || 'Failed to send message',
           type: isBackoff ? 'info' : 'error',
           ...(result.p2pOutboundDebug && { p2pOutboundDebug: result.p2pOutboundDebug }),
+          ...(result.clientSendFailureDebug && { clientSendFailureDebug: result.clientSendFailureDebug }),
         })
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'An unexpected error occurred'
-      setToastMessage({ message, type: 'error' })
+      setToastMessage({
+        message,
+        type: 'error',
+        clientSendFailureDebug: {
+          kind: 'client_send_failure',
+          phase: 'send_exception',
+          message,
+        },
+      })
+      toastClearMs = 12000
     } finally {
       setIsSendingBeap(false)
       setTimeout(() => setToastMessage(null), toastClearMs)
@@ -1286,7 +1302,7 @@ function PopupChatApp() {
                 </div>
                 <div>
                   <label style={{ fontSize: '10px', fontWeight: 500, marginBottom: '4px', display: 'block', color: mutedColor }}>Attachments (PDFs: text extracts automatically)</label>
-                  <input type="file" multiple onChange={async (e) => { const files = Array.from(e.target.files ?? []); if (!files.length) return; const newItems: DraftAttachment[] = []; for (const file of files) { if (file.size > 10 * 1024 * 1024) { console.warn(`[BEAP] Skipping ${file.name}: exceeds 10MB limit`); continue } if (beapDraftAttachments.length + newItems.length >= 20) { console.warn('[BEAP] Max 20 attachments reached'); break } const dataBase64 = await new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onload = () => { const res = String(reader.result ?? ''); resolve(res.includes(',') ? res.split(',')[1] : res) }; reader.onerror = () => reject(reader.error); reader.readAsDataURL(file) }); const attachmentId = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`; const mimeType = file.type || 'application/octet-stream'; const isPdfFile = mimeType.toLowerCase() === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf'); const capsuleAttachment: CapsuleAttachment = { id: attachmentId, originalName: file.name, originalSize: file.size, originalType: mimeType, semanticContent: null, semanticExtracted: false, encryptedRef: `encrypted_${attachmentId}`, encryptedHash: '', previewRef: null, rasterProof: null, isMedia: mimeType.startsWith('image/') || mimeType.startsWith('video/') || mimeType.startsWith('audio/'), hasTranscript: false }; newItems.push({ id: attachmentId, name: file.name, mime: mimeType, size: file.size, dataBase64, capsuleAttachment, processing: { parsing: isPdfFile, rasterizing: false } }) } setBeapDraftAttachments((prev) => [...prev, ...newItems]); for (const item of newItems) { const isPdfItem = item.mime?.toLowerCase() === 'application/pdf' || item.name.toLowerCase().endsWith('.pdf'); if (!isPdfItem || !item.dataBase64) continue; void runDraftAttachmentParseWithFallback({ id: item.id, dataBase64: item.dataBase64, capsuleAttachment: item.capsuleAttachment }).then((upd) => { setBeapDraftAttachments((prev) => prev.map((x) => (x.id === item.id ? { ...x, capsuleAttachment: upd.capsuleAttachment, processing: upd.processing } : x))) }).catch((err) => { const u = draftAttachmentParseRejectedUpdate({ id: item.id, dataBase64: item.dataBase64, capsuleAttachment: item.capsuleAttachment }, err); setBeapDraftAttachments((prev) => prev.map((x) => (x.id === item.id ? { ...x, capsuleAttachment: u.capsuleAttachment, processing: u.processing } : x))) }) } e.currentTarget.value = '' }} style={{ fontSize: '11px', color: mutedColor }} />
+                  <input type="file" multiple onChange={async (e) => { const files = Array.from(e.target.files ?? []); if (!files.length) return; const tooBig = files.filter((f) => f.size > MAX_BEAP_DRAFT_ATTACHMENT_BYTES); if (tooBig.length) { setToastMessage({ message: formatOversizeAttachmentRejection(tooBig.map((f) => f.name)), type: 'error' }); setTimeout(() => setToastMessage(null), 10000); } const okFiles = files.filter((f) => f.size <= MAX_BEAP_DRAFT_ATTACHMENT_BYTES); const newItems: DraftAttachment[] = []; for (const file of okFiles) { if (beapDraftAttachments.length + newItems.length >= 20) { console.warn('[BEAP] Max 20 attachments reached'); break } const dataBase64 = await new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onload = () => { const res = String(reader.result ?? ''); resolve(res.includes(',') ? res.split(',')[1] : res) }; reader.onerror = () => reject(reader.error); reader.readAsDataURL(file) }); const attachmentId = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`; const mimeType = file.type || 'application/octet-stream'; const isPdfFile = mimeType.toLowerCase() === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf'); const capsuleAttachment: CapsuleAttachment = { id: attachmentId, originalName: file.name, originalSize: file.size, originalType: mimeType, semanticContent: null, semanticExtracted: false, encryptedRef: `encrypted_${attachmentId}`, encryptedHash: '', previewRef: null, rasterProof: null, isMedia: mimeType.startsWith('image/') || mimeType.startsWith('video/') || mimeType.startsWith('audio/'), hasTranscript: false }; newItems.push({ id: attachmentId, name: file.name, mime: mimeType, size: file.size, dataBase64, capsuleAttachment, processing: { parsing: isPdfFile, rasterizing: false } }) } setBeapDraftAttachments((prev) => [...prev, ...newItems]); for (const item of newItems) { const isPdfItem = item.mime?.toLowerCase() === 'application/pdf' || item.name.toLowerCase().endsWith('.pdf'); if (!isPdfItem || !item.dataBase64) continue; void runDraftAttachmentParseWithFallback({ id: item.id, dataBase64: item.dataBase64, capsuleAttachment: item.capsuleAttachment }).then((upd) => { setBeapDraftAttachments((prev) => prev.map((x) => (x.id === item.id ? { ...x, capsuleAttachment: upd.capsuleAttachment, processing: upd.processing } : x))) }).catch((err) => { const u = draftAttachmentParseRejectedUpdate({ id: item.id, dataBase64: item.dataBase64, capsuleAttachment: item.capsuleAttachment }, err); setBeapDraftAttachments((prev) => prev.map((x) => (x.id === item.id ? { ...x, capsuleAttachment: u.capsuleAttachment, processing: u.processing } : x))) }) } e.currentTarget.value = '' }} style={{ fontSize: '11px', color: mutedColor }} />
                   {beapDraftAttachments.length > 0 && (
                     <div style={{ marginTop: '8px' }}>
                       {beapDraftAttachments.map((a) => {
@@ -1489,8 +1505,17 @@ function PopupChatApp() {
       const files = e.target.files
       if (!files?.length) return
       const newAttachments: { name: string; size: number; mimeType: string; contentBase64: string }[] = []
-      for (const file of Array.from(files)) {
-        if (file.size > 10 * 1024 * 1024) continue // 10MB limit
+      const fileArr = Array.from(files)
+      const tooBig = fileArr.filter((f) => f.size > MAX_BEAP_DRAFT_ATTACHMENT_BYTES)
+      if (tooBig.length) {
+        setToastMessage({
+          message: formatOversizeAttachmentRejection(tooBig.map((f) => f.name)),
+          type: 'error',
+        })
+        setTimeout(() => setToastMessage(null), 10000)
+      }
+      const okFiles = fileArr.filter((f) => f.size <= MAX_BEAP_DRAFT_ATTACHMENT_BYTES)
+      for (const file of okFiles) {
         if (emailComposeAttachments.length + newAttachments.length >= 10) break
         const contentBase64 = await new Promise<string>((resolve, reject) => {
           const reader = new FileReader()
@@ -2080,10 +2105,14 @@ function PopupChatApp() {
           </span>
           <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 8 }}>
             <span style={{ whiteSpace: 'pre-line', lineHeight: 1.45 }}>{toastMessage.message}</span>
-            {toastMessage.p2pOutboundDebug && (
+            {(toastMessage.p2pOutboundDebug || toastMessage.clientSendFailureDebug) && (
               <button
                 type="button"
-                onClick={() => setP2pOutboundDebugModal(toastMessage.p2pOutboundDebug ?? null)}
+                onClick={() =>
+                  setP2pOutboundDebugModal(
+                    toastMessage.p2pOutboundDebug ?? toastMessage.clientSendFailureDebug ?? null,
+                  )
+                }
                 style={{
                   alignSelf: 'flex-start',
                   background: 'rgba(0,0,0,0.2)',

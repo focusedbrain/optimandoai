@@ -161,6 +161,7 @@ function clearBuildCaches() {
     'build5686',
     'build246',
     /** Previous active outDir — safe to remove after bumping vite outDir */
+    'build822',
     'build006',
     'build045',
     'build845',

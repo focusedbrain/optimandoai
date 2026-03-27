@@ -15,6 +15,7 @@ import { describe, it, expect } from 'vitest'
 import {
   buildPackage,
   buildDraftEmailPackage,
+  executeDeliveryAction,
   extractAutomationTags,
   type BeapPackageConfig,
   type DraftBuildPolicy
@@ -424,6 +425,20 @@ describe('BeapBuildResult Unified Type', () => {
     const failConfig = createPrivateConfig({ selectedRecipient: null })
     const failResult = await buildDraftEmailPackage(failConfig)
     expect(failResult.silentMode).toBe(false)
+  })
+})
+
+describe('executeDeliveryAction — clientSendFailureDebug', () => {
+  it('includes clientSendFailureDebug when package build fails (validation)', async () => {
+    const config = createPrivateConfig({
+      deliveryMethod: 'download',
+      selectedRecipient: null,
+    })
+    const r = await executeDeliveryAction(config)
+    expect(r.success).toBe(false)
+    expect(r.clientSendFailureDebug?.kind).toBe('client_send_failure')
+    expect(r.clientSendFailureDebug?.phase).toBe('package_build')
+    expect(r.clientSendFailureDebug?.message).toMatch(/PRIVATE mode requires|handshake recipient/i)
   })
 })
 
