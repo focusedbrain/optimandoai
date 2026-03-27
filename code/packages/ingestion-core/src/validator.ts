@@ -166,11 +166,18 @@ export function validateCapsule(candidate: CandidateCapsuleEnvelope): Validation
   }
 }
 
+const RELAY_HANDSHAKE_CAPSULE_TYPES = new Set(['accept', 'context_sync', 'refresh', 'revoke', 'initiate']);
+
 function isMessagePackageShape(obj: Record<string, unknown>): boolean {
   const hasHeader = 'header' in obj && obj.header != null && typeof obj.header === 'object';
   const hasMetadata = 'metadata' in obj && obj.metadata != null && typeof obj.metadata === 'object';
-  const noCapsuleType = !('capsule_type' in obj);
-  if (!hasHeader || !hasMetadata || !noCapsuleType) return false;
+  if (!hasHeader || !hasMetadata) return false;
+
+  const ct = obj.capsule_type;
+  if (typeof ct === 'string' && RELAY_HANDSHAKE_CAPSULE_TYPES.has(ct.trim())) {
+    return false;
+  }
+
   return (
     'envelope' in obj ||
     'payload' in obj ||
@@ -227,12 +234,13 @@ function runValidationMessagePackage(
   }
 
   const safeObj = sanitizeObject(obj);
+  /** Spread first so wire `capsule_type: null` cannot overwrite normalized `message_package`. */
   const validatedPayload: ValidatedCapsulePayload = {
+    ...safeObj,
+    handshake_id: extractHandshakeIdFromMessagePackage(safeObj),
     capsule_type: 'message_package',
     content_type: 'beap_message_package',
     schema_version: 2,
-    handshake_id: extractHandshakeIdFromMessagePackage(safeObj),
-    ...safeObj,
   };
 
   const validated = createValidatedCapsule(candidate, validatedPayload);

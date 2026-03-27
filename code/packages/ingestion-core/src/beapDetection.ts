@@ -85,16 +85,29 @@ export function hasEncryptedMessagePackageBody(obj: Record<string, unknown>): bo
 }
 
 /**
- * Detect qBEAP/pBEAP message packages: header + metadata + (envelope | payload | encrypted body), no capsule_type.
- * Optional strictness: header.encoding in ['qBEAP', 'pBEAP'].
+ * Handshake capsules that use `capsule_type` at top level (relay gate on coordination).
+ * Native BEAP wire must NOT use these strings — otherwise it is classified as handshake, not wire.
+ */
+const RELAY_HANDSHAKE_CAPSULE_TYPES = new Set(['accept', 'context_sync', 'refresh', 'revoke', 'initiate']);
+
+/**
+ * Detect qBEAP/pBEAP message packages: header + metadata + (envelope | payload | encrypted body).
+ * `capsule_type` must not be a relay handshake discriminator (accept|context_sync|…).
+ * Important: `capsule_type: null` still has the key after JSON parse — old logic used
+ * `!('capsule_type' in obj)` and wrongly excluded valid native BEAP wire.
  */
 export function isMessagePackageStructure(parsed: unknown): boolean {
   if (parsed == null || typeof parsed !== 'object' || Array.isArray(parsed)) return false;
   const obj = parsed as Record<string, unknown>;
   const hasHeader = 'header' in obj && obj.header != null && typeof obj.header === 'object';
   const hasMetadata = 'metadata' in obj && obj.metadata != null && typeof obj.metadata === 'object';
-  const noCapsuleType = !('capsule_type' in obj);
-  if (!hasHeader || !hasMetadata || !noCapsuleType) return false;
+  if (!hasHeader || !hasMetadata) return false;
+
+  const ct = obj.capsule_type;
+  if (typeof ct === 'string' && RELAY_HANDSHAKE_CAPSULE_TYPES.has(ct.trim())) {
+    return false;
+  }
+
   return hasEncryptedMessagePackageBody(obj);
 }
 

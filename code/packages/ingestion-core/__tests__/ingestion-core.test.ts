@@ -5,7 +5,6 @@ import {
   validateCapsule,
   detectBeapCapsule,
   routeValidatedCapsule,
-  isMessagePackageStructure,
   type RawInput,
   type TransportMetadata,
 } from '@repo/ingestion-core';
@@ -117,25 +116,20 @@ describe('ingestion-core', () => {
     }
   });
 
-  test('isMessagePackageStructure: detects header+metadata+envelope', () => {
-    expect(isMessagePackageStructure({ header: {}, metadata: {}, envelope: {} })).toBe(true);
-    expect(isMessagePackageStructure({ header: {}, metadata: {}, payload: {} })).toBe(true);
-    expect(
-      isMessagePackageStructure({
-        header: { receiver_binding: { handshake_id: 'hs-qbeap' } },
-        metadata: {},
-        payloadEnc: { chunking: { count: 2, enabled: true, maxChunkBytes: 262144, merkleRoot: 'x' } },
-      }),
-    ).toBe(true);
-    expect(
-      isMessagePackageStructure({
-        header: { receiver_binding: { handshake_id: 'hs-qbeap' } },
-        metadata: {},
-        innerEnvelopeCiphertext: 'abc',
-      }),
-    ).toBe(true);
-    expect(isMessagePackageStructure({ header: {}, metadata: {} })).toBe(false); // no body fields
-    expect(isMessagePackageStructure({ schema_version: 1, capsule_type: 'initiate' })).toBe(false);
+  test('validateInput: wire with capsule_type null → message_relay (relay gate)', () => {
+    const wire = {
+      header: { receiver_binding: { handshake_id: 'hs-null-ct' } },
+      metadata: { created_at: new Date().toISOString() },
+      payloadEnc: { chunking: { count: 1, enabled: true, maxChunkBytes: 262144, merkleRoot: 'z' } },
+      capsule_type: null,
+    };
+    const rawInput: RawInput = { body: JSON.stringify(wire) };
+    const result = validateInput(rawInput, 'coordination_service', emptyTransport);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.distribution!.target).toBe('message_relay');
+      expect(result.validated!.capsule.capsule_type).toBe('message_package');
+    }
   });
 
   test('validateInput: qBEAP wire shape (payloadEnc) → success, message_relay', () => {

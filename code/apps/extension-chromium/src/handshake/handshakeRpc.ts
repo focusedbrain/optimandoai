@@ -325,6 +325,11 @@ export type OutboundRequestDebugSnapshot = {
   coordination_single_post_json?: boolean
   expected_coordination_routing_keys?: string[]
   missing_coordination_top_level_fields?: string[]
+  coordination_source_format?: 'beap_wire_message_package' | 'handshake_relay_envelope'
+  coordination_normalized_shape?: 'relay_native_beap_wire' | 'relay_handshake_capsule'
+  derived_relay_capsule_type?: string | null
+  relay_envelope_matches_expectations?: boolean
+  relay_allowed_types_from_response?: string
 }
 
 /** Matches Electron `handshake.sendBeapViaP2P` response (additive fields). */
@@ -340,6 +345,7 @@ export type SendBeapViaP2PResult = {
     | 'AUTH_REQUIRED'
     | 'FAILED_MAX_RETRIES'
     | 'REQUEST_INVALID'
+    | 'RELAY_TYPE_NOT_ALLOWED'
     | 'PAYLOAD_TOO_LARGE'
   last_queue_error?: string | null
   retry_count?: number
@@ -366,6 +372,7 @@ export type SendBeapViaP2PResult = {
   http_status?: number
   response_body_snippet?: string
   outbound_debug?: OutboundRequestDebugSnapshot
+  derived_outgoing_relay_capsule_type?: string | null
 }
 
 export async function sendBeapViaP2P(

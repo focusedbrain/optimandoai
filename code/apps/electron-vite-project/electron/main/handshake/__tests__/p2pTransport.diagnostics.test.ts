@@ -7,6 +7,8 @@ import {
   summarizeCanonChunkingForOutboundDebug,
   buildCoordinationCapsulePostBody,
   analyzeCoordinationRoutingCompliance,
+  describeCoordinationRelayNormalization,
+  parseRelayCapsuleTypeNotAllowedHint,
 } from '../p2pTransport'
 
 describe('describeOutboundPayloadForLogs', () => {
@@ -88,6 +90,37 @@ describe('describeOutboundPayloadForLogs', () => {
     expect(s.body_looks_double_encoded).toBe(false)
     expect(s.http_status).toBe(400)
     expect(s.response_body_snippet).toContain('Bad request')
+  })
+
+  test('buildCoordinationCapsulePostBody — strips null capsule_type (relay message-package detection)', () => {
+    const raw = {
+      header: {},
+      metadata: {},
+      payloadEnc: {},
+      capsule_type: null,
+    } as Record<string, unknown>
+    const merged = buildCoordinationCapsulePostBody(raw, 'hs-q') as Record<string, unknown>
+    expect('capsule_type' in merged).toBe(false)
+    expect(merged.handshake_id).toBe('hs-q')
+  })
+
+  test('describeCoordinationRelayNormalization — native wire → message_package', () => {
+    const n = describeCoordinationRelayNormalization({
+      header: {},
+      metadata: {},
+      payloadEnc: {},
+      handshake_id: 'h1',
+    })
+    expect(n.coordination_source_format).toBe('beap_wire_message_package')
+    expect(n.derived_relay_capsule_type).toBe('message_package')
+    expect(n.relay_envelope_matches_expectations).toBe(true)
+  })
+
+  test('parseRelayCapsuleTypeNotAllowedHint — extracts detail from JSON', () => {
+    const h = parseRelayCapsuleTypeNotAllowedHint(
+      '{"error":"capsule_type_not_allowed","detail":"Relay accepts: a, b"}',
+    )
+    expect(h).toContain('Relay accepts')
   })
 
   test('buildCoordinationCapsulePostBody — merges queue handshake_id for coordination routing', () => {

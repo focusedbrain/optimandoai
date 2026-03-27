@@ -9,6 +9,27 @@
 
 const TIMEOUT_MS = 30_000
 
+/** Aligns with @repo/ingestion-core `isMessagePackageStructure` (do not drift). */
+const RELAY_HANDSHAKE_CAPSULE_TYPES = new Set(['accept', 'context_sync', 'refresh', 'revoke', 'initiate'])
+
+function hasEncryptedMessagePackageBodyLocal(o: Record<string, unknown>): boolean {
+  return (
+    'envelope' in o ||
+    'payload' in o ||
+    'payloadEnc' in o ||
+    'innerEnvelopeCiphertext' in o
+  )
+}
+
+function isBeapWireMessagePackageShape(o: Record<string, unknown>): boolean {
+  const hasHeader = 'header' in o && o.header != null && typeof o.header === 'object'
+  const hasMetadata = 'metadata' in o && o.metadata != null && typeof o.metadata === 'object'
+  if (!hasHeader || !hasMetadata) return false
+  const ct = o.capsule_type
+  if (typeof ct === 'string' && RELAY_HANDSHAKE_CAPSULE_TYPES.has(ct.trim())) return false
+  return hasEncryptedMessagePackageBodyLocal(o)
+}
+
 /** Decode JWT payload (middle segment) for debug logging. Returns null on parse error. */
 function decodeJwtPayload(token: string): Record<string, unknown> | null {
   try {
@@ -54,14 +75,7 @@ export function describeOutboundPayloadForLogs(capsule: unknown): {
   const has_top_level_handshake_id = typeof o.handshake_id === 'string' && o.handshake_id.trim().length > 0
   const has_capsule_type_key = 'capsule_type' in o
   const capsuleType = typeof o.capsule_type === 'string' ? o.capsule_type : ''
-  const looks_like_beap_message_package =
-    'header' in o &&
-    'metadata' in o &&
-    ('envelope' in o ||
-      'payload' in o ||
-      'payloadEnc' in o ||
-      'innerEnvelopeCiphertext' in o) &&
-    !has_capsule_type_key
+  const looks_like_beap_message_package = isBeapWireMessagePackageShape(o)
   const RELAY = new Set(['accept', 'context_sync', 'refresh', 'revoke'])
   const looks_like_relay_capsule_envelope = has_capsule_type_key && RELAY.has(capsuleType)
   let has_message_header_receiver_binding_handshake_id = false
@@ -118,6 +132,16 @@ export interface OutboundRequestDebugSnapshot {
   expected_coordination_routing_keys?: string[]
   /** Top-level keys missing for coordination routing (e.g. `handshake_id` when not inferable). */
   missing_coordination_top_level_fields?: string[]
+  /** Wire BEAP vs handshake relay envelope (coordination path). */
+  coordination_source_format?: 'beap_wire_message_package' | 'handshake_relay_envelope'
+  /** How the relay classifies the POST after normalization. */
+  coordination_normalized_shape?: 'relay_native_beap_wire' | 'relay_handshake_capsule'
+  /** Inferred relay / ingestion label (wire → message_package bypass). */
+  derived_relay_capsule_type?: string | null
+  /** True when the payload matches coordination relay expectations for its class. */
+  relay_envelope_matches_expectations?: boolean
+  /** When server returns capsule_type_not_allowed, parsed hint from detail (no secrets). */
+  relay_allowed_types_from_response?: string
 }
 
 export interface SendCapsuleResult {
@@ -170,17 +194,60 @@ export function detectBodyLooksDoubleEncoded(bodyUtf8: string): boolean {
   }
 }
 
-/** Summarizes canon inner encrypted chunking (A.3.042 / A.3.054) for DEBUG UI — no raw ciphertext. */
 /**
- * Coordination `/beap/capsule` expects a JSON object the server can route by handshake:
- * top-level `handshake_id`, or a BEAP message package where `header.receiver_binding.handshake_id` is set.
- * Merge the queue row handshake id so routing does not depend only on nested binding.
+ * Coordination `/beap/capsule`: merge queue `handshake_id`, strip null/empty `capsule_type`
+ * (JSON `capsule_type: null` breaks relay message-package detection — key exists but type is not a string).
  */
 export function buildCoordinationCapsulePostBody(capsule: object, queueHandshakeId: string): object {
   const id = queueHandshakeId?.trim()
-  if (!id) return capsule
+  const o = { ...(capsule as Record<string, unknown>) }
+  if (id) o.handshake_id = id
+  const ct = o.capsule_type
+  if (ct === null || ct === undefined) delete o.capsule_type
+  if (typeof ct === 'string' && ct.trim() === '') delete o.capsule_type
+  return o
+}
+
+/** DEBUG: classify outbound object for coordination relay (no secrets). */
+export function describeCoordinationRelayNormalization(capsule: object): {
+  coordination_source_format: 'beap_wire_message_package' | 'handshake_relay_envelope'
+  coordination_normalized_shape: 'relay_native_beap_wire' | 'relay_handshake_capsule'
+  derived_relay_capsule_type: string | null
+  relay_envelope_matches_expectations: boolean
+} {
   const o = capsule as Record<string, unknown>
-  return { ...o, handshake_id: id }
+  const ct = typeof o.capsule_type === 'string' ? o.capsule_type.trim() : ''
+  if (ct && RELAY_HANDSHAKE_CAPSULE_TYPES.has(ct)) {
+    const allowed = new Set(['accept', 'context_sync', 'refresh', 'revoke'])
+    return {
+      coordination_source_format: 'handshake_relay_envelope',
+      coordination_normalized_shape: 'relay_handshake_capsule',
+      derived_relay_capsule_type: ct,
+      relay_envelope_matches_expectations: allowed.has(ct),
+    }
+  }
+  const wireOk = isBeapWireMessagePackageShape(o)
+  return {
+    coordination_source_format: 'beap_wire_message_package',
+    coordination_normalized_shape: 'relay_native_beap_wire',
+    derived_relay_capsule_type: wireOk ? 'message_package' : null,
+    relay_envelope_matches_expectations: wireOk,
+  }
+}
+
+/** Parse relay error body for allowed-types hint (sanitized). */
+export function parseRelayCapsuleTypeNotAllowedHint(snippet: string): string | undefined {
+  const t = (snippet || '').trim()
+  if (!t.includes('capsule_type_not_allowed')) return undefined
+  try {
+    const j = JSON.parse(t) as { detail?: string }
+    const d = j.detail
+    if (typeof d === 'string' && d.length > 0 && d.length < 800) return d
+  } catch {
+    const m = t.match(/Relay accepts:\s*([^\n}]+)/)
+    if (m) return m[1].trim()
+  }
+  return undefined
 }
 
 /** Safe diagnostics: which coordination routing keys are expected / missing (no secrets). */
@@ -197,6 +264,7 @@ export function analyzeCoordinationRoutingCompliance(capsule: unknown): {
   return { expected_coordination_routing_keys, missing_coordination_top_level_fields: missing }
 }
 
+/** Summarizes canon inner encrypted chunking (A.3.042 / A.3.054) for DEBUG UI — no raw ciphertext. */
 export function summarizeCanonChunkingForOutboundDebug(capsule: unknown): NonNullable<
   OutboundRequestDebugSnapshot['canon_chunking_summary']
 > {
@@ -245,6 +313,11 @@ export function buildOutboundRequestDebugSnapshot(
   const ct = (contentType || '').trim() || 'application/json'
   const coordinationHint =
     route === 'coordination' ? analyzeCoordinationRoutingCompliance(capsule) : null
+  const relayNorm = route === 'coordination' ? describeCoordinationRelayNormalization(capsule) : null
+  const relayHint =
+    route === 'coordination' && responseSnippet
+      ? parseRelayCapsuleTypeNotAllowedHint(responseSnippet)
+      : undefined
   return {
     route,
     url: targetUrl,
@@ -264,6 +337,15 @@ export function buildOutboundRequestDebugSnapshot(
           missing_coordination_top_level_fields: coordinationHint.missing_coordination_top_level_fields,
         }
       : {}),
+    ...(relayNorm
+      ? {
+          coordination_source_format: relayNorm.coordination_source_format,
+          coordination_normalized_shape: relayNorm.coordination_normalized_shape,
+          derived_relay_capsule_type: relayNorm.derived_relay_capsule_type,
+          relay_envelope_matches_expectations: relayNorm.relay_envelope_matches_expectations,
+        }
+      : {}),
+    ...(relayHint ? { relay_allowed_types_from_response: relayHint } : {}),
     ...(responseSnippet && responseSnippet.length > 0 ? { response_body_snippet: responseSnippet } : {}),
     ...(transportError ? { transport_error: transportError } : {}),
   }

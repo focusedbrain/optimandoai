@@ -42,6 +42,8 @@ export type OutboundQueueCode =
   | 'FAILED_MAX_RETRIES'
   /** Generic HTTP 400 — non-retryable client/request/payload rejection */
   | 'REQUEST_INVALID'
+  /** HTTP 400 — relay rejected capsule_type (e.g. initiate or unknown); terminal */
+  | 'RELAY_TYPE_NOT_ALLOWED'
   /** HTTP 422 / 413 — payload or body too large for relay; reduce attachments or rely on canon inner chunking */
   | 'PAYLOAD_TOO_LARGE'
 
@@ -92,6 +94,8 @@ export interface ProcessOutboundQueueResult {
   response_body_snippet?: string
   /** Sanitized outbound POST diagnostics (when transport captured them). */
   outbound_debug?: OutboundRequestDebugSnapshot
+  /** When relay returns capsule_type_not_allowed — derived type from DEBUG if present. */
+  derived_outgoing_relay_capsule_type?: string | null
 }
 
 function jitterMs(max = 400): number {
@@ -547,6 +551,9 @@ async function processOutboundQueueInner(
     if (result.statusCode === 400) {
       const snippet = (result.responseBodySnippet ?? '').trim()
       const failureClass: FailureClass = 'SCHEMA_PERMANENT'
+      const relayTypeNotAllowed =
+        snippet.includes('capsule_type_not_allowed') || /"capsule_type_not_allowed"/.test(snippet)
+      const queueCode: OutboundQueueCode = relayTypeNotAllowed ? 'RELAY_TYPE_NOT_ALLOWED' : 'REQUEST_INVALID'
       const persistedError =
         snippet.length > 0
           ? `HTTP 400 — ${snippet}`
@@ -565,6 +572,10 @@ async function processOutboundQueueInner(
       } catch {
         request_shape = undefined
       }
+      const derivedType =
+        result.outboundDebug?.derived_relay_capsule_type !== undefined
+          ? result.outboundDebug.derived_relay_capsule_type
+          : undefined
       console.warn(
         '[P2P-QUEUE]',
         JSON.stringify({
@@ -576,13 +587,15 @@ async function processOutboundQueueInner(
           terminal: true,
           response_body_snippet: snippet || undefined,
           request_shape,
+          queue_code: queueCode,
+          relay_type_not_allowed: relayTypeNotAllowed,
         }),
       )
       return {
         delivered: false,
         error: userMessage,
         queued: false,
-        code: 'REQUEST_INVALID',
+        code: queueCode,
         last_queue_error: persistedError,
         retry_count: newRetry,
         max_retries: row.max_retries,
@@ -591,6 +604,7 @@ async function processOutboundQueueInner(
         http_status: 400,
         ...(snippet.length > 0 && { response_body_snippet: snippet }),
         ...(result.outboundDebug && { outbound_debug: result.outboundDebug }),
+        ...(derivedType !== undefined && { derived_outgoing_relay_capsule_type: derivedType }),
       }
     }
 

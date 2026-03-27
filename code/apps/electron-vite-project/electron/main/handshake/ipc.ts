@@ -628,6 +628,9 @@ export async function handleHandshakeRPC(
           ...(d.http_status !== undefined && { http_status: d.http_status }),
           ...(d.response_body_snippet !== undefined && { response_body_snippet: d.response_body_snippet }),
           ...(d.outbound_debug !== undefined && { outbound_debug: d.outbound_debug }),
+          ...(d.derived_outgoing_relay_capsule_type !== undefined && {
+            derived_outgoing_relay_capsule_type: d.derived_outgoing_relay_capsule_type,
+          }),
         }
       }
       const ok = deliveryResult as ProcessOutboundQueueResult

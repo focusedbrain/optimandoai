@@ -31,6 +31,25 @@ export function P2pOutboundDebugModal(props: {
     ...(debug.missing_coordination_top_level_fields != null && debug.missing_coordination_top_level_fields.length > 0
       ? [`missing_coordination_top_level_fields: ${JSON.stringify(debug.missing_coordination_top_level_fields)}`]
       : []),
+    ...(debug.coordination_source_format != null
+      ? [`coordination_source_format: ${debug.coordination_source_format}`]
+      : []),
+    ...(debug.coordination_normalized_shape != null
+      ? [`coordination_normalized_shape: ${debug.coordination_normalized_shape}`]
+      : []),
+    ...(debug.derived_relay_capsule_type !== undefined
+      ? [
+          `derived_relay_capsule_type: ${
+            debug.derived_relay_capsule_type === null ? 'null' : debug.derived_relay_capsule_type
+          }`,
+        ]
+      : []),
+    ...(debug.relay_envelope_matches_expectations != null
+      ? [`relay_envelope_matches_expectations: ${debug.relay_envelope_matches_expectations}`]
+      : []),
+    ...(debug.relay_allowed_types_from_response != null && debug.relay_allowed_types_from_response.length > 0
+      ? [`relay_allowed_types_from_response: ${debug.relay_allowed_types_from_response}`]
+      : []),
     ...(debug.canon_chunking_summary
       ? [
           '',

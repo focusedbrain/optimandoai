@@ -633,6 +633,8 @@ export interface DeliveryResult {
   p2pCooldownUntilMs?: number
   /** Sanitized outbound HTTP diagnostics when Electron captured them (e.g. terminal HTTP 400). */
   p2pOutboundDebug?: OutboundRequestDebugSnapshot
+  /** When relay rejects capsule_type; from Electron queue (no secrets). */
+  derivedOutgoingRelayCapsuleType?: string | null
   details?: {
     to?: string
     filename?: string
@@ -2047,7 +2049,11 @@ export async function executeP2PAction(
       }
     }
     const errMsg = result?.error ?? 'P2P delivery failed'
-    if (result?.code === 'REQUEST_INVALID' || result?.code === 'PAYLOAD_TOO_LARGE') {
+    if (
+      result?.code === 'REQUEST_INVALID' ||
+      result?.code === 'PAYLOAD_TOO_LARGE' ||
+      result?.code === 'RELAY_TYPE_NOT_ALLOWED'
+    ) {
       const lines: string[] = [errMsg]
       if (typeof result.http_status === 'number') {
         lines.push(`(HTTP ${result.http_status})`)
@@ -2056,13 +2062,22 @@ export async function executeP2PAction(
         lines.push('')
         lines.push(result.response_body_snippet.trim())
       }
+      const terminalCode =
+        result.code === 'PAYLOAD_TOO_LARGE'
+          ? 'PAYLOAD_TOO_LARGE'
+          : result.code === 'RELAY_TYPE_NOT_ALLOWED'
+            ? 'RELAY_TYPE_NOT_ALLOWED'
+            : 'REQUEST_INVALID'
       return {
         success: false,
         action: 'sent',
         message: lines.join('\n'),
-        code: result.code === 'PAYLOAD_TOO_LARGE' ? 'PAYLOAD_TOO_LARGE' : 'REQUEST_INVALID',
+        code: terminalCode,
         queued: false,
         ...(result.outbound_debug && { p2pOutboundDebug: result.outbound_debug }),
+        ...(result.derived_outgoing_relay_capsule_type !== undefined && {
+          derivedOutgoingRelayCapsuleType: result.derived_outgoing_relay_capsule_type,
+        }),
       }
     }
     const mayRetry = result?.queued !== false
