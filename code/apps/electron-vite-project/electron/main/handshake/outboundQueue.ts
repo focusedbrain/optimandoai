@@ -8,7 +8,12 @@
  * When !use_coordination: target = relay URL from queue, auth = handshake Bearer token.
  */
 
-import { sendCapsuleViaHttp, sendCapsuleViaCoordination, type SendCapsuleResult } from './p2pTransport'
+import {
+  sendCapsuleViaHttp,
+  sendCapsuleViaCoordination,
+  describeOutboundPayloadForLogs,
+  type SendCapsuleResult,
+} from './p2pTransport'
 import { getHandshakeRecord } from './db'
 import { getP2PConfig } from '../p2p/p2pConfig'
 import {
@@ -52,6 +57,8 @@ export type HealingStatus =
   | 'auth_refreshing'
   | 'route_refreshing'
   | 'terminal_non_recoverable'
+  /** HTTP 400 / contract mismatch — fix payload or config before retrying */
+  | 'STOPPED_REQUIRES_FIX'
 
 /** Result of attempting to process one pending outbound capsule (oldest first). */
 export interface ProcessOutboundQueueResult {
@@ -475,6 +482,12 @@ async function processOutboundQueueInner(
       ).run(newRetry, now, persistedError, failureClass, row.id)
       const counts400 = getQueueCountsInternal(db)
       setP2PHealthQueueCounts(counts400.pending, counts400.failed)
+      let request_shape: ReturnType<typeof describeOutboundPayloadForLogs> | undefined
+      try {
+        request_shape = describeOutboundPayloadForLogs(JSON.parse(row.capsule_json) as object)
+      } catch {
+        request_shape = undefined
+      }
       console.warn(
         '[P2P-QUEUE]',
         JSON.stringify({
@@ -485,6 +498,7 @@ async function processOutboundQueueInner(
           failure_class: failureClass,
           terminal: true,
           response_body_snippet: snippet || undefined,
+          request_shape,
         }),
       )
       return {
@@ -496,7 +510,7 @@ async function processOutboundQueueInner(
         retry_count: newRetry,
         max_retries: row.max_retries,
         failure_class: failureClass,
-        healing_status: 'terminal_non_recoverable',
+        healing_status: 'STOPPED_REQUIRES_FIX',
         http_status: 400,
         ...(snippet.length > 0 && { response_body_snippet: snippet }),
       }

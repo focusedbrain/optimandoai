@@ -416,7 +416,7 @@ describe.skipIf(!hasSqlite)('outboundQueue: backoff & transport', () => {
     expect(r.code).toBe('REQUEST_INVALID')
     expect(r.queued).toBe(false)
     expect(r.failure_class).toBe('PAYLOAD_PERMANENT')
-    expect(r.healing_status).toBe('terminal_non_recoverable')
+    expect(r.healing_status).toBe('STOPPED_REQUIRES_FIX')
     expect(r.http_status).toBe(400)
     expect(r.response_body_snippet).toContain('invalid capsule')
     expect(r.remaining_ms).toBeUndefined()
@@ -448,7 +448,28 @@ describe.skipIf(!hasSqlite)('outboundQueue: backoff & transport', () => {
     expect(r.code).toBe('REQUEST_INVALID')
     expect(r.queued).toBe(false)
     expect(r.failure_class).toBe('PAYLOAD_PERMANENT')
+    expect(r.healing_status).toBe('STOPPED_REQUIRES_FIX')
     expect(fetchSpy).toHaveBeenCalledTimes(1)
+  })
+
+  test('QB_18_http_400_emits_request_diagnostics_logs', async () => {
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {})
+    upsertP2PConfig(db, {
+      relay_mode: 'remote',
+      use_coordination: false,
+      relay_url: 'https://relay.example/beap/ingest',
+    })
+    insertHandshakeRecord(db, relayDirectHandshake('hs-qb-18'))
+    fetchSpy.mockResolvedValue(new Response('{"error":"Bad request"}', { status: 400, headers: { 'Content-Type': 'application/json' } }))
+    enqueueOutboundCapsule(db, 'hs-qb-18', 'https://peer.example/beap/ingest', minimalCapsule('hs-qb-18'))
+
+    await processOutboundQueue(db)
+
+    const allInfo = infoSpy.mock.calls.map((c) => String(c[1] ?? c[0])).join('\n')
+    expect(allInfo).toContain('outbound_request_diagnostics')
+    expect(allInfo).toContain('terminal_http_400')
+    expect(allInfo).toContain('request_shape')
+    infoSpy.mockRestore()
   })
 
   test('QB_14_preflight_config_permanent_does_not_schedule_autodrain', async () => {

@@ -605,6 +605,8 @@ export async function handleHandshakeRPC(
       } catch (err: any) {
         return { success: false, error: `Invalid package: ${err?.message ?? 'decode failed'}` }
       }
+      // `pkg` is parsed JSON: BEAP message package (header/metadata/envelope|payload) from the extension,
+      // or a capsule envelope — coordination `/beap/capsule` accepts both (see coordination-service).
       console.log(`[P2P-SEND] Enqueuing capsule for handshake ${handshakeId} → ${targetEndpoint}`)
       enqueueOutboundCapsule(db, handshakeId, targetEndpoint, pkg)
       const deliveryResult = await processOutboundQueue(db, _getOidcToken)

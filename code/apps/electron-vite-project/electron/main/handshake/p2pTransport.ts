@@ -33,6 +33,90 @@ export interface SendCapsuleResult {
   responseBodySnippet?: string
 }
 
+/**
+ * Summarizes outbound JSON body shape for logs (no values beyond keys / booleans).
+ * Aligns with coordination `/beap/capsule`: accepts either a BEAP message package
+ * (`header`+`metadata`+`envelope`|`payload`, no top-level `capsule_type`) or a
+ * capsule envelope (`capsule_type` in accept|context_sync|refresh|revoke).
+ */
+export function describeOutboundPayloadForLogs(capsule: unknown): {
+  value_kind: 'object' | 'other'
+  top_level_keys: string[]
+  has_top_level_handshake_id: boolean
+  has_capsule_type_key: boolean
+  looks_like_beap_message_package: boolean
+  looks_like_relay_capsule_envelope: boolean
+  has_message_header_receiver_binding_handshake_id: boolean
+} {
+  if (!capsule || typeof capsule !== 'object' || Array.isArray(capsule)) {
+    return {
+      value_kind: 'other',
+      top_level_keys: [],
+      has_top_level_handshake_id: false,
+      has_capsule_type_key: false,
+      looks_like_beap_message_package: false,
+      looks_like_relay_capsule_envelope: false,
+      has_message_header_receiver_binding_handshake_id: false,
+    }
+  }
+  const o = capsule as Record<string, unknown>
+  const keys = Object.keys(o).sort()
+  const has_top_level_handshake_id = typeof o.handshake_id === 'string' && o.handshake_id.trim().length > 0
+  const has_capsule_type_key = 'capsule_type' in o
+  const capsuleType = typeof o.capsule_type === 'string' ? o.capsule_type : ''
+  const looks_like_beap_message_package =
+    'header' in o &&
+    'metadata' in o &&
+    ('envelope' in o || 'payload' in o) &&
+    !has_capsule_type_key
+  const RELAY = new Set(['accept', 'context_sync', 'refresh', 'revoke'])
+  const looks_like_relay_capsule_envelope = has_capsule_type_key && RELAY.has(capsuleType)
+  let has_message_header_receiver_binding_handshake_id = false
+  if (o.header && typeof o.header === 'object' && !Array.isArray(o.header)) {
+    const h = o.header as Record<string, unknown>
+    const rb = h.receiver_binding
+    if (rb && typeof rb === 'object' && !Array.isArray(rb)) {
+      const id = (rb as Record<string, unknown>).handshake_id
+      has_message_header_receiver_binding_handshake_id = typeof id === 'string' && id.trim().length > 0
+    }
+  }
+  return {
+    value_kind: 'object',
+    top_level_keys: keys.slice(0, 48),
+    has_top_level_handshake_id,
+    has_capsule_type_key,
+    looks_like_beap_message_package,
+    looks_like_relay_capsule_envelope,
+    has_message_header_receiver_binding_handshake_id,
+  }
+}
+
+function logOutboundRequestFailureDiagnostics(
+  route: 'coordination' | 'direct',
+  targetUrl: string,
+  capsule: object,
+  bodyUtf8: string,
+  reqHeaders: Record<string, string>,
+  httpStatus: number,
+  responseSnippet: string | undefined,
+): void {
+  console.info(
+    '[P2P-OUTBOUND]',
+    JSON.stringify({
+      event: 'outbound_request_diagnostics',
+      route,
+      target_url: targetUrl,
+      method: 'POST',
+      content_type: reqHeaders['Content-Type'] ?? '',
+      content_length_bytes: Buffer.byteLength(bodyUtf8, 'utf8'),
+      body_sent_as: 'json_string',
+      request_shape: describeOutboundPayloadForLogs(capsule),
+      http_status: httpStatus,
+      response_body_snippet: responseSnippet && responseSnippet.length > 0 ? responseSnippet : undefined,
+    }),
+  )
+}
+
 /** Truncate and redact patterns that may appear in JSON error bodies; never log raw tokens. */
 export function sanitizeHttpResponseBodyForLogs(text: string, maxLen = 400): string {
   if (!text || typeof text !== 'string') return ''
@@ -127,6 +211,15 @@ async function sendCapsuleViaHttpWithAuth(
       responseBodySnippet = sanitizeHttpResponseBodyForLogs(errBody)
       console.log('[P2P-DEBUG] Error body:', responseBodySnippet)
     }
+    logOutboundRequestFailureDiagnostics(
+      'coordination',
+      targetEndpoint,
+      capsule,
+      body,
+      headers,
+      response.status,
+      responseBodySnippet,
+    )
     const errMsg = `HTTP ${response.status}`
     return {
       success: false,
@@ -196,6 +289,15 @@ export async function sendCapsuleViaHttp(
     console.warn('[P2P] Context-sync delivery failed', { handshake_id: handshakeId, endpoint: trimmed, status: response.status })
     const errBody = await response.text()
     const responseBodySnippet = sanitizeHttpResponseBodyForLogs(errBody)
+    logOutboundRequestFailureDiagnostics(
+      'direct',
+      trimmed,
+      capsule,
+      body,
+      headers,
+      response.status,
+      responseBodySnippet.length > 0 ? responseBodySnippet : undefined,
+    )
     const errMsg = `HTTP ${response.status}`
     return {
       success: false,

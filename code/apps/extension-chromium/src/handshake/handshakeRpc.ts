@@ -318,7 +318,13 @@ export type SendBeapViaP2PResult = {
     | 'STALE_ROUTE'
     | 'CONFIG_PERMANENT'
     | 'PAYLOAD_PERMANENT'
-  healing_status?: 'idle' | 'scheduled' | 'auth_refreshing' | 'route_refreshing' | 'terminal_non_recoverable'
+  healing_status?:
+    | 'idle'
+    | 'scheduled'
+    | 'auth_refreshing'
+    | 'route_refreshing'
+    | 'terminal_non_recoverable'
+    | 'STOPPED_REQUIRES_FIX'
   http_status?: number
   response_body_snippet?: string
 }
