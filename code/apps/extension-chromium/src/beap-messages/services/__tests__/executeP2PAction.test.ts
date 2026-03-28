@@ -149,6 +149,8 @@ describe('executeP2PAction — REQUEST_INVALID + outbound_debug', () => {
 
     const r = await executeP2PAction(pkg, config)
     expect(r.success).toBe(true)
+    expect(r.message).toBe('Message sent')
+    expect(r.delivered).toBe(true)
     expect(r.recipientIngestConfirmed).toBe(false)
     expect(r.p2pRelayAcceptedPendingIngest).toBe(true)
     expect(r.coordinationRelayDelivery).toBe('pushed_live')
@@ -186,6 +188,8 @@ describe('executeP2PAction — REQUEST_INVALID + outbound_debug', () => {
 
     const r = await executeP2PAction(pkg, config)
     expect(r.success).toBe(true)
+    expect(r.message).toBe('Message sent')
+    expect(r.delivered).toBe(true)
     expect(r.recipientIngestConfirmed).toBe(true)
     expect(r.p2pRelayAcceptedPendingIngest).toBeUndefined()
   })

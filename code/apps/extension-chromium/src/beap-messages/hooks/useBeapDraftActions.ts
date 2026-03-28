@@ -213,11 +213,9 @@ export function useBeapDraftActions(options: UseBeapDraftActionsOptions): [BeapD
       
       setLastResult(result)
 
-      const e2eOk =
-        result.success &&
-        (deliveryMethod !== 'p2p' || result.recipientIngestConfirmed === true)
+      const sendOk = result.success && result.delivered !== false
 
-      if (e2eOk) {
+      if (sendOk) {
         addOutboxMessage({
           id: `beap_${Date.now()}`,
           folder: 'outbox',

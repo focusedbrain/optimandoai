@@ -627,6 +627,11 @@ export interface DeliveryResult {
   success: boolean
   action: 'sent' | 'copied' | 'downloaded' | 'preflight'
   message: string
+  /**
+   * When false while success is true, the outbound path did not confirm delivery (e.g. relay rejected).
+   * When undefined (non-P2P or legacy RPC), treat as success together with `success`.
+   */
+  delivered?: boolean
   /** P2P queue / transport outcome from Electron when present (e.g. `BACKOFF_WAIT`) */
   code?: string
   /** P2P: set when delivery failed but the capsule may still be retried from the outbound queue */
@@ -642,15 +647,9 @@ export interface DeliveryResult {
   derivedOutgoingRelayCapsuleType?: string | null
   /** Coordination P2P: 200 live push vs 202 queued offline (from `handshake.sendBeapViaP2P`). */
   coordinationRelayDelivery?: 'pushed_live' | 'queued_recipient_offline'
-  /**
-   * True only when the sender has explicit confirmation that the recipient orchestrator
-   * ingested the message (not implemented for coordination relay today — UI must not show green “delivered”).
-   */
+  /** True when Electron reports recipient-side ingest (optional; delivery receipts). */
   recipientIngestConfirmed?: boolean
-  /**
-   * P2P: coordination/relay accepted the HTTP post but recipient ingest is not confirmed.
-   * UI must not clear the draft or show terminal “delivered” success.
-   */
+  /** P2P: relay accepted but recipient ingest not yet confirmed (informational). */
   p2pRelayAcceptedPendingIngest?: boolean
   /** Build / preflight / client-side exception — DEBUG button (no transport round-trip). */
   clientSendFailureDebug?: ClientSendFailureDebug
@@ -2129,16 +2128,22 @@ export async function executeP2PAction(
     if (result?.success) {
       const relay = result.coordinationRelayDelivery
       const ingestConfirmed = result.recipient_ingest_confirmed === true
-      const message =
+      const relayDebugDetail =
         relay === 'queued_recipient_offline'
           ? 'Relay accepted — message queued (recipient offline).'
           : relay === 'pushed_live'
             ? 'Relay accepted — live push to coordination (not a guarantee the recipient app has ingested it).'
             : 'Relay accepted message.'
+      console.log('[BEAP-SEND] P2P relay result (debug):', relayDebugDetail, {
+        coordinationRelayDelivery: relay,
+        recipient_ingest_confirmed: ingestConfirmed,
+        rpc_delivered: rpc.delivered,
+      })
       return {
         success: true,
         action: 'sent',
-        message,
+        message: 'Message sent',
+        delivered: rpc.delivered !== false,
         recipientIngestConfirmed: ingestConfirmed,
         ...(!ingestConfirmed && { p2pRelayAcceptedPendingIngest: true }),
         ...(relay && { coordinationRelayDelivery: relay }),
