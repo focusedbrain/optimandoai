@@ -859,7 +859,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
           <span className="inbox-detail-ai-section-toggle-check" aria-hidden>
             {visibleSections.has('draft') ? '☑' : '☐'}
           </span>
-          <span>✎ {isNativeBeap ? 'Capsule Draft' : 'Draft'}</span>
+          <span>✎ Draft</span>
         </button>
         <button
           type="button"
@@ -1262,7 +1262,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
                             onClick={() => void handleDraftReply()}
                             disabled={draftLoading}
                           >
-                            {draftLoading ? 'Generating…' : 'AI capsule draft'}
+                            {draftLoading ? 'Generating…' : 'Draft'}
                           </button>
                         </div>
                         {sendResult && (

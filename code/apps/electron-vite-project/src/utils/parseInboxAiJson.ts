@@ -67,6 +67,18 @@ export function tryParseAnalysis(text: string): NormalInboxAiResult | null {
   try {
     const parsed = JSON.parse(cleaned) as Record<string, unknown>
     if (!parsed || typeof parsed !== 'object' || Object.keys(parsed).length === 0) return null
+    const flatPub =
+      typeof parsed.draftReplyPublic === 'string' ? parsed.draftReplyPublic.trim() : ''
+    const flatFull =
+      typeof parsed.draftReplyFull === 'string' ? parsed.draftReplyFull.trim() : ''
+    const draftFromFlat =
+      flatPub || flatFull
+        ? ({
+            publicMessage: flatPub.slice(0, 4000),
+            encryptedMessage: flatFull.slice(0, 8000),
+          } as const)
+        : null
+
     return {
       needsReply: !!parsed.needsReply,
       needsReplyReason: String(parsed.needsReplyReason ?? '').slice(0, 300),
@@ -80,7 +92,7 @@ export function tryParseAnalysis(text: string): NormalInboxAiResult | null {
         : [],
       archiveRecommendation: parsed.archiveRecommendation === 'archive' ? 'archive' : 'keep',
       archiveReason: String(parsed.archiveReason ?? '').slice(0, 300),
-      draftReply: normalizeDraftReplyField(parsed.draftReply),
+      draftReply: draftFromFlat ?? normalizeDraftReplyField(parsed.draftReply),
     }
   } catch {
     return null
@@ -168,6 +180,15 @@ export function tryParsePartialAnalysis(
     if (draftReplyMatch) {
       result.draftReply = draftReplyMatch[1].replace(/\\"/g, '"').slice(0, 8000)
       receivedKeys.push('draftReply')
+  } else {
+    const pubFlat = text.match(/"draftReplyPublic"\s*:\s*"((?:[^"\\]|\\.)*)/)
+    const fullFlat = text.match(/"draftReplyFull"\s*:\s*"((?:[^"\\]|\\.)*)/)
+    if (pubFlat || fullFlat) {
+      result.draftReply = {
+        publicMessage: pubFlat ? pubFlat[1].replace(/\\"/g, '"').slice(0, 4000) : '',
+        encryptedMessage: fullFlat ? fullFlat[1].replace(/\\"/g, '"').slice(0, 8000) : '',
+      }
+      receivedKeys.push('draftReply')
     } else {
       const pubMatch = text.match(/"publicMessage"\s*:\s*"((?:[^"\\]|\\.)*)/)
       const encMatch = text.match(/"encryptedMessage"\s*:\s*"((?:[^"\\]|\\.)*)/)
@@ -179,6 +200,7 @@ export function tryParsePartialAnalysis(
         receivedKeys.push('draftReply')
       }
     }
+  }
   }
 
   return receivedKeys.length > 0 ? { partial: { ...DEFAULTS, ...result }, receivedKeys } : null

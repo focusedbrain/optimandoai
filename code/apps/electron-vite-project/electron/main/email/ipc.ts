@@ -405,11 +405,16 @@ function buildNativeBeapAnalyzeBody(row: {
   return messageContent.slice(0, 12_000)
 }
 
-/** Normalize draftReply from LLM JSON for native BEAP (object or stringified JSON). */
+/** Normalize draftReply from LLM JSON for native BEAP (flat keys, object, or stringified JSON). */
 function normalizeNativeBeapDraftReply(parsed: Record<string, unknown>): {
   publicMessage: string
   encryptedMessage: string
 } | null {
+  const flatPub = typeof parsed.draftReplyPublic === 'string' ? parsed.draftReplyPublic.trim() : ''
+  const flatFull = typeof parsed.draftReplyFull === 'string' ? parsed.draftReplyFull.trim() : ''
+  if (flatPub || flatFull) {
+    return { publicMessage: flatPub, encryptedMessage: flatFull }
+  }
   const dr = parsed.draftReply
   if (dr && typeof dr === 'object' && !Array.isArray(dr)) {
     const o = dr as Record<string, unknown>
@@ -3348,46 +3353,45 @@ Rules:
 
       if (isNativeBeap) {
         const messageContent = buildNativeBeapAnalyzeBody(row)
-        const userPrompt = `Original message:
-
-${messageContent}
-
-Reply as JSON:
-{"publicMessage": "brief preview summary", "encryptedMessage": "full detailed reply"}`
-
         const { tone } = getToneAndSortForPrompts(db)
         const contextBlock = getContextBlockForPrompts(db)
-        let systemPrompt = `You are an AI assistant drafting a professional reply to a message.
-Generate TWO parts:
-1. A brief summary suitable for a preview (1-2 sentences)
-2. The full detailed reply
-
-Respond ONLY with valid JSON. No markdown, no backticks, no preamble.
-Match the language of the original message.`
-        if (tone) systemPrompt += `\n\nUser instructions for response tone and style: ${tone}`
-        if (contextBlock) systemPrompt += contextBlock
-
-        const response = await callInboxOllamaChat(systemPrompt, userPrompt)
-        console.log('[AI-DRAFT] Native BEAP raw LLM response:', response.substring(0, 500))
-        const parsed = parseAiJson(response) as { publicMessage?: unknown; encryptedMessage?: unknown }
-        const pub =
-          typeof parsed.publicMessage === 'string'
-            ? parsed.publicMessage
-            : typeof parsed.publicMessage === 'number'
-              ? String(parsed.publicMessage)
-              : ''
-        const enc =
-          typeof parsed.encryptedMessage === 'string'
-            ? parsed.encryptedMessage
-            : typeof parsed.encryptedMessage === 'number'
-              ? String(parsed.encryptedMessage)
-              : ''
-
-        const draftFallback = (enc || response).slice(0, 8000)
-        const capsuleDraft = {
-          publicText: (pub || '').slice(0, 4000),
-          encryptedText: (enc || response).slice(0, 8000),
+        let systemFull =
+          'You are a professional assistant writing a reply to a business message. Output only the reply text as natural prose. No JSON, no key-value contact cards, no structured metadata.'
+        let systemSummary =
+          'You summarize text into a short 1-2 sentence preview for an inbox. Output only the summary text. No JSON.'
+        if (tone) {
+          systemFull += `\n\nUser instructions for response tone and style: ${tone}`
+          systemSummary += `\n\nUser instructions for tone: ${tone}`
         }
+        if (contextBlock) {
+          systemFull += contextBlock
+          systemSummary += contextBlock
+        }
+
+        const fullUserPrompt = `Write a professional reply to this message.
+Output ONLY the reply text. No JSON, no labels, no structured fields — write as normal sentences.
+Match the language of the original message.
+
+Original message:
+${messageContent}`
+
+        const fullReply = (await callInboxOllamaChat(systemFull, fullUserPrompt)).trim().slice(0, 8000)
+        console.log('[AI-DRAFT] Native BEAP full reply length:', fullReply.length)
+
+        const summaryUserPrompt = `Summarize this reply in 1-2 sentences for a preview.
+Output ONLY the summary text. No JSON, no formatting.
+
+Reply being summarized:
+${fullReply}`
+
+        const summary = (await callInboxOllamaChat(systemSummary, summaryUserPrompt)).trim().slice(0, 4000)
+        console.log('[AI-DRAFT] Native BEAP summary length:', summary.length)
+
+        const capsuleDraft = {
+          publicText: summary || '',
+          encryptedText: fullReply || '',
+        }
+        const draftFallback = (capsuleDraft.encryptedText || capsuleDraft.publicText).slice(0, 8000)
 
         const existingRow = db.prepare('SELECT ai_analysis_json FROM inbox_messages WHERE id = ?').get(messageId) as { ai_analysis_json?: string | null } | undefined
         let merged: Record<string, unknown> = {}
@@ -3518,7 +3522,7 @@ Match the language of the original message.`
 
 Respond ONLY with valid JSON. No markdown, no backticks, no preamble, no explanation.`
       if (isNativeBeap) {
-        systemPrompt = `You are an email triage AI for WR Desk. The message is a BEAP handshake / native capsule (end-to-end encrypted channel). Analyze it and respond with a JSON object only. Use these exact keys:
+        systemPrompt = `You are an email triage AI for WR Desk. The message is a BEAP handshake / native capsule. Analyze it and respond with a JSON object only. Use these exact keys:
 - needsReply: boolean — true if the user should respond
 - needsReplyReason: string — one sentence why
 - summary: string — 2-3 sentence summary
@@ -3527,7 +3531,8 @@ Respond ONLY with valid JSON. No markdown, no backticks, no preamble, no explana
 - actionItems: string[] — empty array if none
 - archiveRecommendation: "archive" | "keep"
 - archiveReason: string
-- draftReply: object | null — If needsReply is true, draftReply MUST be a JSON object with exactly two string fields: "publicMessage" (brief transport-visible summary, 1-2 sentences) and "encryptedMessage" (full detailed reply). Match the language of the message. If needsReply is false, set draftReply to null.
+- draftReplyPublic: string | null — If needsReply is true, a brief 1-2 sentence preview (plain prose only). If needsReply is false, null.
+- draftReplyFull: string | null — If needsReply is true, the full reply as natural prose only (no JSON inside the string, no structured contact-card fields). If needsReply is false, null.
 
 Respond ONLY with valid JSON. No markdown, no backticks, no preamble, no explanation.`
       }
@@ -3573,7 +3578,7 @@ Respond ONLY with valid JSON. No markdown, no backticks, no preamble, no explana
       if (!parseFailed && needsReply) {
         if (isNativeBeap) {
           const cap = normalizeNativeBeapDraftReply(parsed as Record<string, unknown>)
-          if (cap) {
+          if (cap && (cap.publicMessage.trim() || cap.encryptedMessage.trim())) {
             draftReply = {
               publicMessage: cap.publicMessage.slice(0, 4000),
               encryptedMessage: cap.encryptedMessage.slice(0, 8000),
@@ -3676,7 +3681,8 @@ Respond ONLY with valid JSON. No markdown, no backticks, no preamble, no explana
       if (isNativeBeapStream) {
         systemPrompt = `You are an email triage AI for WR Desk. The message is a BEAP handshake / native capsule. Analyze it and respond with JSON only. Keys:
 - needsReply, needsReplyReason, summary, urgencyScore, urgencyReason, actionItems, archiveRecommendation, archiveReason (same meanings as email triage)
-- draftReply: object | null — If needsReply is true, draftReply MUST be {"publicMessage":"string","encryptedMessage":"string"}. If false, null.
+- draftReplyPublic: string | null — If needsReply is true, brief 1-2 sentence preview (plain prose). If false, null.
+- draftReplyFull: string | null — If needsReply is true, full reply as natural prose (no JSON inside strings). If false, null.
 
 Respond ONLY with valid JSON. No markdown, no backticks, no preamble.`
       }

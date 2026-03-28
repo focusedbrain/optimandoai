@@ -84,6 +84,21 @@ function getSessionRefs(p: Record<string, unknown>): Array<Record<string, unknow
   return r.filter((x): x is Record<string, unknown> => x !== null && typeof x === 'object')
 }
 
+/** Join string fields from shallow nested objects (e.g. contact cards) instead of raw JSON. */
+function humanizeObjectStrings(o: Record<string, unknown>, depth: number): string {
+  if (depth > 3) return ''
+  const parts: string[] = []
+  for (const k of Object.keys(o)) {
+    const v = o[k]
+    if (typeof v === 'string' && v.trim()) parts.push(v.trim())
+    else if (v && typeof v === 'object' && !Array.isArray(v)) {
+      const inner = humanizeObjectStrings(v as Record<string, unknown>, depth + 1)
+      if (inner.trim()) parts.push(inner.trim())
+    }
+  }
+  return parts.join('\n\n')
+}
+
 /** Safe display string for depackaged body/subject when the value may be a nested object. */
 function extractBodyText(body: unknown): string {
   if (body == null) return ''
@@ -109,6 +124,8 @@ function extractBodyText(body: unknown): string {
       if (nested.trim()) return nested
     }
     if (typeof o.body === 'string' && o.body.trim()) return o.body
+    const human = humanizeObjectStrings(o, 0).trim()
+    if (human) return human
     try {
       return JSON.stringify(body, null, 2)
     } catch {

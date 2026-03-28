@@ -48,7 +48,7 @@ export interface NormalInboxAiResult {
   archiveReason: string
   /**
    * When needsReply is true, a draft from the combined analysis call.
-   * Native BEAP uses a capsule object; email uses a plain string.
+   * Native BEAP uses { publicMessage, encryptedMessage } (from LLM keys draftReplyPublic / draftReplyFull or legacy nested draftReply); email uses a plain string.
    */
   draftReply?: string | { publicMessage: string; encryptedMessage: string } | null
 }
