@@ -5300,7 +5300,7 @@ app.whenReady().then(async () => {
     // ========================================================================
     // SECURITY: Global auth middleware — per-launch secret required.
     //
-    // Every HTTP endpoint (except /api/health) must include:
+    // Every HTTP endpoint (except exempt paths below) must include:
     //   X-Launch-Secret: <64-char hex>
     //
     // This eliminates Attack Chain 1: even if a website could somehow
@@ -5313,6 +5313,7 @@ app.whenReady().then(async () => {
     const AUTH_EXEMPT_PATHS = new Set([
       '/api/health',               // Lightweight liveness probe, returns no sensitive data
       '/api/orchestrator/status',  // Availability check for getActiveAdapter (before WebSocket handshake)
+      '/api/crypto/pq/status',     // ML-KEM availability probe (boolean only; no secrets). Extension may call before WS supplies X-Launch-Secret; POST /mlkem768/* still require auth
     ])
 
     httpApp.use((req, res, next) => {

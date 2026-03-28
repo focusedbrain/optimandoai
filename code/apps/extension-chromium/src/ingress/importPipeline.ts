@@ -34,6 +34,7 @@ import {
 } from '../beap-messages/sandbox'
 import type { SanitisedDecryptedPackage, RejectionReasonUI } from '../beap-messages/sandbox'
 import { getHandshake } from '../handshake/handshakeRpc'
+import { getLocalMlkemSecret } from '../handshake/mlkemHandshakeStorage'
 import { parseBeapFile } from '../beap-messages/services/beapDecrypt'
 import { deriveSharedSecretX25519 } from '../beap-messages/services/x25519KeyAgreement'
 import { pqDecapsulate } from '../beap-messages/services/beapCrypto'
@@ -683,7 +684,7 @@ async function augmentVerifyOptionsForQBeap(
   let handshakeId = options.handshakeId
   let senderX25519PublicKey = options.senderX25519PublicKey
   let hybridSharedSecretB64 = options.hybridSharedSecretB64
-  const mlkemSecretKeyB64 = options.mlkemSecretKeyB64
+  let mlkemSecretKeyB64 = options.mlkemSecretKeyB64
 
   // Fix A: File import — resolve handshake from package.receiver_binding.handshake_id
   if (handshakeId === '__file_import__' || handshakeId === '__email_import__') {
@@ -699,6 +700,16 @@ async function augmentVerifyOptionsForQBeap(
         // Handshake lookup failed — continue with original options (Gate 4 will use package header fallback)
       }
     }
+  }
+
+  if (
+    !mlkemSecretKeyB64?.trim() &&
+    handshakeId &&
+    handshakeId !== '__file_import__' &&
+    handshakeId !== '__email_import__'
+  ) {
+    const fromStore = await getLocalMlkemSecret(handshakeId)
+    if (fromStore) mlkemSecretKeyB64 = fromStore
   }
 
   // Host-side hybrid pre-decapsulation: sandbox cannot reach PQ service (127.0.0.1:51248)
@@ -721,9 +732,13 @@ async function augmentVerifyOptionsForQBeap(
     }
   }
 
-  const changed = handshakeId !== options.handshakeId || senderX25519PublicKey !== options.senderX25519PublicKey || hybridSharedSecretB64 !== options.hybridSharedSecretB64
+  const changed =
+    handshakeId !== options.handshakeId ||
+    senderX25519PublicKey !== options.senderX25519PublicKey ||
+    hybridSharedSecretB64 !== options.hybridSharedSecretB64 ||
+    mlkemSecretKeyB64 !== options.mlkemSecretKeyB64
   if (!changed) return options
-  return { ...options, handshakeId, senderX25519PublicKey, hybridSharedSecretB64 }
+  return { ...options, handshakeId, senderX25519PublicKey, hybridSharedSecretB64, mlkemSecretKeyB64 }
 }
 
 // =============================================================================

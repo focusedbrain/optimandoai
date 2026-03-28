@@ -11,7 +11,8 @@
  * @version 1.0.0
  */
 
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import * as beapCrypto from '../beapCrypto'
 import {
   buildPackage,
   buildDraftEmailPackage,
@@ -26,8 +27,8 @@ import { hasValidX25519Key } from '../x25519KeyAgreement'
 // Test Fixtures
 // =============================================================================
 
-/** Valid X25519 public key (32 bytes base64) for qBEAP key agreement tests */
-const VALID_X25519_PUBLIC_KEY_B64 = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA='
+/** Valid X25519 public key (32 bytes base64) for qBEAP key agreement tests — must be a real curve point (ECDH will reject dummy keys). */
+const VALID_X25519_PUBLIC_KEY_B64 = 'PQAyyYZtoBodLy4h7CmpCwqRRHs+NHgkg07LdBnPgzY='
 /** Valid ML-KEM-768 public key (base64) for post-quantum tests */
 const VALID_PQ_PUBLIC_KEY_B64 = 'dGVzdC1tbC1rZW0tNzY4LXB1YmxpYy1rZXktYmFzZTY0' // 32+ chars for PQ
 
@@ -65,6 +66,21 @@ const createPublicConfig = (overrides: Partial<BeapPackageConfig> = {}): BeapPac
   recipientMode: 'public',
   selectedRecipient: null, // Public mode doesn't use handshake
   ...overrides
+})
+
+const mockKemCt = Buffer.from(new Uint8Array(1088).fill(0x42)).toString('base64')
+const mockMlkemSs = new Uint8Array(32).fill(0xab)
+
+beforeEach(() => {
+  vi.spyOn(beapCrypto, 'pqKemSupportedAsync').mockResolvedValue(true)
+  vi.spyOn(beapCrypto, 'pqEncapsulate').mockResolvedValue({
+    kemCiphertextB64: mockKemCt,
+    sharedSecretBytes: mockMlkemSs,
+  })
+})
+
+afterEach(() => {
+  vi.restoreAllMocks()
 })
 
 // =============================================================================
@@ -108,9 +124,7 @@ describe('Transport Leak Prevention', () => {
       messageBody: 'Hello, please see attached package.',
       encryptedMessage: SECRET
     })
-
     const result = await buildPackage(config)
-    
     expect(result.success).toBe(true)
     expect(result.package).toBeDefined()
     

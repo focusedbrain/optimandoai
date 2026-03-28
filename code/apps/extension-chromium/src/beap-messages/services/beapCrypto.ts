@@ -1894,9 +1894,37 @@ async function _getPqHeaders(): Promise<Record<string, string>> {
   return {}
 }
 
+/**
+ * Wait for background WebSocket to deliver X-Launch-Secret (required for POST /api/crypto/pq/mlkem768/*).
+ * No-op when chrome is unavailable (e.g. unit tests).
+ */
+async function ensurePqHttpAuthReady(): Promise<boolean> {
+  if (typeof chrome === 'undefined' || !chrome.runtime?.sendMessage) {
+    return true
+  }
+  try {
+    const r = (await chrome.runtime.sendMessage({ type: 'BEAP_ENSURE_LAUNCH_SECRET' })) as { ok?: boolean } | undefined
+    if (typeof r?.ok === 'boolean') return r.ok
+    // No handler (e.g. tests) — proceed; POST may still 401 if headers missing
+    return true
+  } catch {
+    return false
+  }
+}
+
 // Cache for PQ availability status (to avoid repeated HTTP calls)
 let _pqAvailabilityCache: { available: boolean; checkedAt: number } | null = null
-const PQ_CACHE_TTL_MS = 30000 // 30 seconds
+const PQ_POSITIVE_CACHE_TTL_MS = 30000 // 30 seconds — success probes
+const PQ_NEGATIVE_CACHE_TTL_MS = 5000 // 5 seconds — failures recover quickly after Electron comes up
+
+/** Clear PQ availability cache (e.g. after fixing connectivity or auth). */
+export function invalidatePqAvailabilityCache(): void {
+  _pqAvailabilityCache = null
+}
+
+function _pqCacheTtlFor(available: boolean): number {
+  return available ? PQ_POSITIVE_CACHE_TTL_MS : PQ_NEGATIVE_CACHE_TTL_MS
+}
 
 /**
  * Check if post-quantum KEM (ML-KEM-768) is supported.
@@ -1910,11 +1938,13 @@ const PQ_CACHE_TTL_MS = 30000 // 30 seconds
  * @returns true if PQ KEM operations are available, false otherwise
  */
 export function pqKemSupported(): boolean {
-  // Check cache first
-  if (_pqAvailabilityCache && (Date.now() - _pqAvailabilityCache.checkedAt) < PQ_CACHE_TTL_MS) {
-    return _pqAvailabilityCache.available
+  if (_pqAvailabilityCache) {
+    const age = Date.now() - _pqAvailabilityCache.checkedAt
+    if (age < _pqCacheTtlFor(_pqAvailabilityCache.available)) {
+      return _pqAvailabilityCache.available
+    }
   }
-  
+
   // Synchronous check: we can't make HTTP call here
   // Return cached value if available, otherwise assume false
   // The actual check happens in pqKemSupportedAsync()
@@ -1928,6 +1958,13 @@ export function pqKemSupported(): boolean {
  * @returns true if PQ KEM operations are available
  */
 export async function pqKemSupportedAsync(): Promise<boolean> {
+  if (_pqAvailabilityCache) {
+    const age = Date.now() - _pqAvailabilityCache.checkedAt
+    if (age < _pqCacheTtlFor(_pqAvailabilityCache.available)) {
+      return _pqAvailabilityCache.available
+    }
+  }
+
   try {
     const extraHeaders = await _getPqHeaders()
     const headers: Record<string, string> = { ...extraHeaders }
@@ -1970,7 +2007,14 @@ export async function pqKemGenerateKeyPair(): Promise<{
   if (!available) {
     throw new PQNotAvailableError('pqKemGenerateKeyPair')
   }
-  
+
+  const authReady = await ensurePqHttpAuthReady()
+  if (!authReady) {
+    throw new PQNotAvailableError(
+      'pqKemGenerateKeyPair: launch secret not ready — ensure WR Desk is running and connected',
+    )
+  }
+
   try {
     const extraHeaders = await _getPqHeaders()
     const headers: Record<string, string> = { 'Content-Type': 'application/json', ...extraHeaders }
@@ -2022,7 +2066,14 @@ export async function pqEncapsulate(peerPublicKeyB64: string): Promise<PQEncapsu
   if (!available) {
     throw new PQNotAvailableError('pqEncapsulate')
   }
-  
+
+  const authReady = await ensurePqHttpAuthReady()
+  if (!authReady) {
+    throw new PQNotAvailableError(
+      'pqEncapsulate: launch secret not ready — ensure WR Desk is running and connected',
+    )
+  }
+
   try {
     const extraHeaders = await _getPqHeaders()
     const headers: Record<string, string> = { 'Content-Type': 'application/json', ...extraHeaders }
@@ -2075,7 +2126,14 @@ export async function pqDecapsulate(kemCiphertextB64: string, secretKeyB64: stri
   if (!available) {
     throw new PQNotAvailableError('pqDecapsulate')
   }
-  
+
+  const authReady = await ensurePqHttpAuthReady()
+  if (!authReady) {
+    throw new PQNotAvailableError(
+      'pqDecapsulate: launch secret not ready — ensure WR Desk is running and connected',
+    )
+  }
+
   try {
     const extraHeaders = await _getPqHeaders()
     const headers: Record<string, string> = { 'Content-Type': 'application/json', ...extraHeaders }

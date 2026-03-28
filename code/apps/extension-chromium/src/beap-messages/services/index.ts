@@ -204,6 +204,7 @@ export {
   setPqAuthHeadersProvider,
   pqKemSupported,
   pqKemSupportedAsync,
+  invalidatePqAvailabilityCache,
   pqKemGenerateKeyPair,
   pqEncapsulate,
   pqDecapsulate,

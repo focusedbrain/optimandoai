@@ -954,6 +954,13 @@ export function checkQbeapTransportChannelSafety(
   return null
 }
 
+/** PQ HTTP failures (401, no launch secret, Electron down) vs true ML-KEM unavailability from status. */
+function isPqServiceConnectivityError(err: PQNotAvailableError): boolean {
+  return /launch secret|not ready|\b401\b|unauthorized|network error|fetch failed|failed to fetch|ECONNREFUSED/i.test(
+    err.message,
+  )
+}
+
 // =============================================================================
 // Package Building
 // =============================================================================
@@ -1118,9 +1125,17 @@ async function buildQBeapPackage(config: BeapPackageConfig): Promise<PackageBuil
     pqKemResult = await pqEncapsulate(peerMlkemPublicKey)
   } catch (err) {
     if (err instanceof PQNotAvailableError) {
+      if (isPqServiceConnectivityError(err)) {
+        return {
+          success: false,
+          error:
+            'Cannot reach the post-quantum service. Ensure WR Desk is running, the extension is connected, and try again.',
+        }
+      }
       return {
         success: false,
-        error: 'CANON VIOLATION: qBEAP requires post-quantum cryptography (ML-KEM-768 + X25519 hybrid) per canon A.3.054.10 and A.3.13. PQ library is not available. Cannot create qBEAP package without post-quantum protection.'
+        error:
+          'CANON VIOLATION: qBEAP requires post-quantum cryptography (ML-KEM-768 + X25519 hybrid) per canon A.3.054.10 and A.3.13. PQ library is not available. Cannot create qBEAP package without post-quantum protection.',
       }
     }
     throw err // Re-throw unexpected errors

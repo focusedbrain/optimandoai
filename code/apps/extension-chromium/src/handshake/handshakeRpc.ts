@@ -7,6 +7,7 @@
 
 import { getDeviceX25519PublicKey } from '../beap-messages/services/x25519KeyAgreement'
 import { pqKemGenerateKeyPair, pqKemSupportedAsync } from '../beap-messages/services/beapCrypto'
+import { storeLocalMlkemSecret, removeLocalMlkemSecret } from './mlkemHandshakeStorage'
 import type {
   HandshakeRecord,
   HandshakeListResponse,
@@ -78,19 +79,21 @@ async function sendHandshakeRpc<T = unknown>(
 async function getKeyAgreementForHandshake(): Promise<{
   x25519PublicKeyB64: string
   mlkem768PublicKeyB64: string | undefined
+  mlkem768SecretKeyB64: string | undefined
 }> {
   const x25519PublicKeyB64 = await getDeviceX25519PublicKey()
   let mlkem768PublicKeyB64: string | undefined
+  let mlkem768SecretKeyB64: string | undefined
   try {
     if (await pqKemSupportedAsync()) {
       const kp = await pqKemGenerateKeyPair()
       mlkem768PublicKeyB64 = kp.publicKeyB64
-      // TODO: Store kp.secretKeyB64 per handshake for qBEAP decapsulation when receiving
+      mlkem768SecretKeyB64 = kp.secretKeyB64
     }
   } catch {
-    // PQ not available — Electron will generate fallback
+    // PQ not available — Electron may generate fallback public key only (receive-side qBEAP needs client-generated PQ + stored secret)
   }
-  return { x25519PublicKeyB64, mlkem768PublicKeyB64 }
+  return { x25519PublicKeyB64, mlkem768PublicKeyB64, mlkem768SecretKeyB64 }
 }
 
 // ── Public API ──
@@ -136,7 +139,7 @@ export async function initiateHandshake(
   },
 ): Promise<HandshakeInitiateResponse> {
   const keyAgreement = await getKeyAgreementForHandshake()
-  return sendHandshakeRpc<HandshakeInitiateResponse>('handshake.initiate', {
+  const res = await sendHandshakeRpc<HandshakeInitiateResponse>('handshake.initiate', {
     receiverUserId,
     receiverEmail,
     fromAccountId,
@@ -149,6 +152,10 @@ export async function initiateHandshake(
     ...(options?.profile_items?.length ? { profile_items: options.profile_items } : {}),
     ...(options?.policy_selections ? { policy_selections: options.policy_selections } : {}),
   })
+  if (keyAgreement.mlkem768SecretKeyB64 && res.handshake_id) {
+    await storeLocalMlkemSecret(res.handshake_id, keyAgreement.mlkem768SecretKeyB64)
+  }
+  return res
 }
 
 export async function buildHandshakeForDownload(
@@ -164,7 +171,7 @@ export async function buildHandshakeForDownload(
   },
 ): Promise<HandshakeBuildForDownloadResponse> {
   const keyAgreement = await getKeyAgreementForHandshake()
-  return sendHandshakeRpc<HandshakeBuildForDownloadResponse>('handshake.buildForDownload', {
+  const res = await sendHandshakeRpc<HandshakeBuildForDownloadResponse>('handshake.buildForDownload', {
     receiverUserId: receiverEmail,
     receiverEmail,
     senderX25519PublicKeyB64: keyAgreement.x25519PublicKeyB64,
@@ -176,6 +183,10 @@ export async function buildHandshakeForDownload(
     ...(options?.profile_items?.length ? { profile_items: options.profile_items } : {}),
     ...(options?.policy_selections ? { policy_selections: options.policy_selections } : {}),
   })
+  if (keyAgreement.mlkem768SecretKeyB64 && res.success && res.handshake_id) {
+    await storeLocalMlkemSecret(res.handshake_id, keyAgreement.mlkem768SecretKeyB64)
+  }
+  return res
 }
 
 export async function acceptHandshake(
@@ -190,7 +201,7 @@ export async function acceptHandshake(
   },
 ): Promise<HandshakeAcceptResponse> {
   const keyAgreement = await getKeyAgreementForHandshake()
-  return sendHandshakeRpc<HandshakeAcceptResponse>('handshake.accept', {
+  const res = await sendHandshakeRpc<HandshakeAcceptResponse>('handshake.accept', {
     handshake_id: handshakeId,
     sharing_mode: sharingMode,
     fromAccountId,
@@ -201,6 +212,10 @@ export async function acceptHandshake(
     ...(contextOpts?.profile_items?.length ? { profile_items: contextOpts.profile_items } : {}),
     ...(contextOpts?.policy_selections ? { policy_selections: contextOpts.policy_selections } : {}),
   })
+  if (keyAgreement.mlkem768SecretKeyB64 && handshakeId) {
+    await storeLocalMlkemSecret(handshakeId, keyAgreement.mlkem768SecretKeyB64)
+  }
+  return res
 }
 
 export async function refreshHandshake(
@@ -224,9 +239,13 @@ export async function revokeHandshake(handshakeId: string): Promise<{ status: st
 }
 
 export async function deleteHandshake(handshakeId: string): Promise<{ success: boolean; error?: string }> {
-  return sendHandshakeRpc<{ success: boolean; error?: string }>('handshake.delete', {
+  const res = await sendHandshakeRpc<{ success: boolean; error?: string }>('handshake.delete', {
     handshakeId,
   })
+  if (res.success !== false) {
+    await removeLocalMlkemSecret(handshakeId)
+  }
+  return res
 }
 
 /**

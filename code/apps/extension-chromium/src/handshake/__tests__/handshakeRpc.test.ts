@@ -7,6 +7,18 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
+vi.mock('../../beap-messages/services/x25519KeyAgreement', () => ({
+  getDeviceX25519PublicKey: vi.fn().mockResolvedValue('AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA='),
+}))
+
+vi.mock('../../beap-messages/services/beapCrypto', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../beap-messages/services/beapCrypto')>()
+  return {
+    ...actual,
+    pqKemSupportedAsync: vi.fn().mockResolvedValue(false),
+  }
+})
+
 // Mock chrome.runtime.sendMessage
 const mockSendMessage = vi.fn()
 const mockChrome = {
@@ -187,20 +199,12 @@ describe('refreshHandshake', () => {
     mockChrome.runtime.lastError = null
   })
 
-  it('T7: calls handshake.refresh RPC with context_blocks', async () => {
+  it('T7: calls handshake.refresh RPC with context_block_proofs', async () => {
     mockRpcResponse({ handshake_id: 'hs-001', capsule_hash: 'abc123', status: 'ACTIVE' })
 
-    const blocks = [
-      {
-        block_id: 'blk-001',
-        block_type: 'text',
-        content: 'Hello, world!',
-        version: 1,
-        block_hash: 'deadbeef',
-      },
-    ]
+    const proofs = [{ block_id: 'blk-001', block_hash: 'deadbeef' }]
 
-    const result = await refreshHandshake('hs-001', blocks, 'acct-1')
+    const result = await refreshHandshake('hs-001', 'acct-1', proofs)
 
     expect(result.handshake_id).toBe('hs-001')
     expect(result.capsule_hash).toBe('abc123')
@@ -208,7 +212,7 @@ describe('refreshHandshake', () => {
     const call = mockSendMessage.mock.calls[0][0]
     expect(call.method).toBe('handshake.refresh')
     expect(call.params.handshake_id).toBe('hs-001')
-    expect(call.params.context_blocks).toEqual(blocks)
+    expect(call.params.context_block_proofs).toEqual(proofs)
   })
 })
 

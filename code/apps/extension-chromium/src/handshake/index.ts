@@ -10,6 +10,9 @@ export * from './rpcTypes'
 // New RPC client
 export * from './handshakeRpc'
 
+// Local ML-KEM secret persistence (qBEAP receive)
+export * from './mlkemHandshakeStorage'
+
 // New hook (reads from backend RPC)
 export { useHandshakes } from './useHandshakes'
 export { usePendingP2PBeapIngestion } from './usePendingP2PBeapIngestion'

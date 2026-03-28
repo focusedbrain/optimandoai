@@ -1817,6 +1817,25 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return false // synchronous response
   }
 
+  if (msg.type === 'BEAP_ENSURE_LAUNCH_SECRET') {
+    ensureLaunchSecret(15000)
+      .then((ok) => {
+        try {
+          sendResponse({ ok })
+        } catch {
+          /* channel closed */
+        }
+      })
+      .catch(() => {
+        try {
+          sendResponse({ ok: false })
+        } catch {
+          /* channel closed */
+        }
+      })
+    return true
+  }
+
   if (!sender || sender.id !== chrome.runtime.id) {
     console.warn('[BG] Rejected message from foreign sender:', sender?.id, msg.type)
     try {
