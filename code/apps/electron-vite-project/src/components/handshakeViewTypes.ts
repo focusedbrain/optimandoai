@@ -351,6 +351,8 @@ export interface EmailInboxBridge {
   archiveMessages: (ids: string[]) => Promise<{ ok: boolean; error?: string }>
   setCategory: (ids: string[], category: string) => Promise<{ ok: boolean; error?: string }>
   deleteMessages: (ids: string[], gracePeriodHours?: number) => Promise<{ ok: boolean; data?: { queued: number; failed: number }; error?: string }>
+  /** Dev: bulk-delete all `direct_beap` inbox messages (local DB only). */
+  deleteAllDirectBeap?: () => Promise<{ ok: boolean; data?: { deleted: number; failed: number }; error?: string }>
   cancelDeletion: (id: string) => Promise<{ ok: boolean; data?: { cancelled: boolean }; error?: string }>
   getDeletedMessages: () => Promise<{ ok: boolean; data?: unknown[]; error?: string }>
   getAttachment: (id: string) => Promise<{ ok: boolean; data?: unknown; error?: string }>

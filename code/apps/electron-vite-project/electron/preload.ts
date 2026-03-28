@@ -818,6 +818,8 @@ contextBridge.exposeInMainWorld('emailInbox', {
   archiveMessages: (ids: string[]) => ipcRenderer.invoke('inbox:archiveMessages', ids),
   setCategory: (ids: string[], category: string) => ipcRenderer.invoke('inbox:setCategory', ids, category),
   deleteMessages: (ids: string[], gracePeriodHours?: number) => ipcRenderer.invoke('inbox:deleteMessages', ids, gracePeriodHours),
+  /** Dev: remove all native BEAP (`direct_beap`) rows from local DB. */
+  deleteAllDirectBeap: () => ipcRenderer.invoke('inbox:deleteAllDirectBeap'),
   cancelDeletion: (id: string) => ipcRenderer.invoke('inbox:cancelDeletion', id),
   getDeletedMessages: () => ipcRenderer.invoke('inbox:getDeletedMessages'),
   getAttachment: (id: string) => ipcRenderer.invoke('inbox:getAttachment', id),

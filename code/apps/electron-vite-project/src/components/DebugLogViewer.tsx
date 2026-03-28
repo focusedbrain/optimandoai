@@ -1,5 +1,6 @@
 // === TEMPORARY DEBUG LOG VIEWER (remove before production) ===
 import { useState, useEffect, useRef } from 'react'
+import type { EmailInboxBridge } from './handshakeViewTypes'
 
 export interface MainProcessLogEntry {
   ts: string
@@ -11,6 +12,7 @@ export function DebugLogViewer() {
   const [open, setOpen] = useState(false)
   const [logs, setLogs] = useState<MainProcessLogEntry[]>([])
   const [filter, setFilter] = useState('')
+  const [nativeBeapCount, setNativeBeapCount] = useState<number | null>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -36,6 +38,25 @@ export function DebugLogViewer() {
   useEffect(() => {
     if (open) bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [logs, open])
+
+  useEffect(() => {
+    if (!open) return
+    let cancelled = false
+    void (async () => {
+      try {
+        const w = window as Window & { emailInbox?: EmailInboxBridge }
+        const res = await w.emailInbox?.listMessageIds?.({ sourceType: 'direct_beap', limit: 10000 })
+        if (cancelled) return
+        if (res?.ok && res.data?.total != null) setNativeBeapCount(res.data.total)
+        else setNativeBeapCount(0)
+      } catch {
+        if (!cancelled) setNativeBeapCount(null)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [open])
 
   const filtered = filter
     ? logs.filter((l) => {
@@ -167,6 +188,35 @@ export function DebugLogViewer() {
         >
           Clear
         </button>
+        {nativeBeapCount != null && nativeBeapCount > 0 && (
+          <button
+            type="button"
+            title="Dev only: removes direct_beap rows from local SQLite (attachments + pending queue match)"
+            onClick={async () => {
+              if (
+                !confirm(
+                  'Delete ALL native BEAP messages from the local inbox? This cannot be undone.',
+                )
+              ) {
+                return
+              }
+              const w = window as Window & { emailInbox?: EmailInboxBridge }
+              const res = await w.emailInbox?.deleteAllDirectBeap?.()
+              if (res?.ok) setNativeBeapCount(0)
+            }}
+            style={{
+              padding: '2px 8px',
+              borderRadius: 4,
+              border: '1px solid #7f1d1d',
+              background: '#3f1515',
+              color: '#fca5a5',
+              cursor: 'pointer',
+              fontSize: 11,
+            }}
+          >
+            Delete all native BEAP ({nativeBeapCount})
+          </button>
+        )}
         <button
           type="button"
           onClick={() => setOpen(false)}

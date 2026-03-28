@@ -172,7 +172,7 @@ import {
   type SyncResult,
 } from './syncOrchestrator'
 import { isLikelyEmailAuthError } from './emailAuthErrors'
-import { bulkQueueDeletion, cancelRemoteDeletion } from './remoteDeletion'
+import { bulkQueueDeletion, cancelRemoteDeletion, deleteAllDirectBeapMessages } from './remoteDeletion'
 import {
   enqueueOrchestratorRemoteMutations,
   scheduleOrchestratorRemoteDrain,
@@ -1523,7 +1523,7 @@ export function registerInboxHandlers(
     'inbox:getSyncState',
     'inbox:listMessages', 'inbox:listMessageIds', 'inbox:getMessage',
     'inbox:markRead', 'inbox:toggleStar', 'inbox:archiveMessages', 'inbox:setCategory',
-    'inbox:deleteMessages', 'inbox:cancelDeletion', 'inbox:getDeletedMessages',
+    'inbox:deleteMessages', 'inbox:cancelDeletion', 'inbox:getDeletedMessages', 'inbox:deleteAllDirectBeap',
     'inbox:getAttachment', 'inbox:getAttachmentText', 'inbox:openAttachmentOriginal', 'inbox:rasterAttachment',
     'inbox:aiSummarize', 'inbox:aiDraftReply', 'inbox:aiAnalyzeMessage', 'inbox:aiAnalyzeMessageStream', 'inbox:aiClassifySingle', 'inbox:persistManualBulkAnalysis', 'inbox:aiCategorize', 'inbox:enqueueRemoteLifecycleMirror', 'inbox:enqueueRemoteSync', 'inbox:markPendingDelete', 'inbox:moveToPendingReview', 'inbox:cancelPendingDelete', 'inbox:cancelPendingReview', 'inbox:unarchive',
     'inbox:getInboxSettings', 'inbox:setInboxSettings', 'inbox:selectAndUploadContextDoc', 'inbox:deleteContextDoc', 'inbox:listContextDocs',
@@ -3020,7 +3020,29 @@ Rules:
     try {
       const db = await resolveDb()
       if (!db) return { ok: false, error: 'Database unavailable' }
-      const result = bulkQueueDeletion(db, messageIds ?? [], gracePeriodHours ?? 72)
+      const ids = messageIds ?? []
+      let touchedDirectBeap = false
+      for (const id of ids) {
+        const r = db
+          .prepare('SELECT source_type, account_id FROM inbox_messages WHERE id = ?')
+          .get(id) as { source_type?: string | null; account_id?: string | null } | undefined
+        if (r && (r.source_type === 'direct_beap' || r.account_id === '__p2p_beap__')) {
+          touchedDirectBeap = true
+          break
+        }
+      }
+      const result = bulkQueueDeletion(db, ids, gracePeriodHours ?? 72)
+      if (touchedDirectBeap) {
+        BrowserWindow.getAllWindows().forEach((w) => {
+          try {
+            if (!w.isDestroyed() && w.webContents) {
+              w.webContents.send('inbox:newMessages', { inboxInvalidate: true, reason: 'direct_beap_deleted' })
+            }
+          } catch {
+            /* ignore */
+          }
+        })
+      }
       return { ok: true, data: result }
     } catch (err: any) {
       return { ok: false, error: err?.message ?? 'Delete failed' }
@@ -3052,6 +3074,27 @@ Rules:
       return { ok: true, data: rows }
     } catch (err: any) {
       return { ok: false, error: err?.message ?? 'Get failed' }
+    }
+  })
+
+  /** Dev: purge all `direct_beap` inbox rows (no remote mailbox). */
+  ipcMain.handle('inbox:deleteAllDirectBeap', async () => {
+    try {
+      const db = await resolveDb()
+      if (!db) return { ok: false, error: 'Database unavailable' }
+      const data = deleteAllDirectBeapMessages(db)
+      BrowserWindow.getAllWindows().forEach((w) => {
+        try {
+          if (!w.isDestroyed() && w.webContents) {
+            w.webContents.send('inbox:newMessages', { inboxInvalidate: true, reason: 'delete_all_direct_beap' })
+          }
+        } catch {
+          /* ignore */
+        }
+      })
+      return { ok: true, data }
+    } catch (err: any) {
+      return { ok: false, error: err?.message ?? 'Delete all direct_beap failed' }
     }
   })
 

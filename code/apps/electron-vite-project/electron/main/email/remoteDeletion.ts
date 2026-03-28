@@ -1,11 +1,103 @@
 /**
  * Remote Deletion — Soft-delete inbox messages with grace period before remote mailbox deletion.
  *
+ * Native BEAP (`direct_beap`, sentinel account `__p2p_beap__`) has no remote mailbox; those rows
+ * are purged locally (attachments on disk, embeddings, pending queue match).
+ *
  * @version 1.0.0
  */
 
 import { randomUUID } from 'crypto'
+import { existsSync, unlinkSync } from 'fs'
 import { emailGateway } from './gateway'
+
+const P2P_BEAP_ACCOUNT_ID = '__p2p_beap__'
+
+function isDirectBeapRow(row: {
+  source_type?: string | null
+  account_id?: string | null
+}): boolean {
+  return row.source_type === 'direct_beap' || row.account_id === P2P_BEAP_ACCOUNT_ID
+}
+
+/**
+ * Hard-delete a native BEAP inbox row and related rows/files. No remote API.
+ */
+export function purgeDirectBeapMessageLocal(
+  db: any,
+  messageId: string,
+): QueueRemoteDeletionResult {
+  if (!db) return { ok: false, error: 'No database' }
+  try {
+    const row = db
+      .prepare(
+        `SELECT id, source_type, account_id, beap_package_json FROM inbox_messages WHERE id = ?`,
+      )
+      .get(messageId) as
+      | {
+          id: string
+          source_type?: string | null
+          account_id?: string | null
+          beap_package_json?: string | null
+        }
+      | undefined
+
+    if (!row) return { ok: false, error: 'Message not found' }
+    if (!isDirectBeapRow(row)) return { ok: false, error: 'Not a native BEAP message' }
+
+    const tx = db.transaction(() => {
+      const attRows = db
+        .prepare('SELECT storage_path FROM inbox_attachments WHERE message_id = ?')
+        .all(messageId) as Array<{ storage_path?: string | null }>
+      for (const a of attRows) {
+        const p = a.storage_path
+        if (p && typeof p === 'string' && existsSync(p)) {
+          try {
+            unlinkSync(p)
+          } catch {
+            /* ignore */
+          }
+        }
+      }
+      try {
+        db.prepare('DELETE FROM inbox_embeddings WHERE message_id = ?').run(messageId)
+      } catch {
+        /* older DBs */
+      }
+      db.prepare('DELETE FROM inbox_attachments WHERE message_id = ?').run(messageId)
+      db.prepare('DELETE FROM deletion_queue WHERE message_id = ?').run(messageId)
+      const pkg = row.beap_package_json
+      if (pkg != null && String(pkg).trim()) {
+        db.prepare('DELETE FROM p2p_pending_beap WHERE package_json = ?').run(String(pkg))
+      }
+      db.prepare('DELETE FROM inbox_messages WHERE id = ?').run(messageId)
+    })
+    tx()
+    return { ok: true }
+  } catch (e: any) {
+    console.error('[RemoteDeletion] purgeDirectBeapMessageLocal error:', e?.message)
+    return { ok: false, error: e?.message ?? 'Failed to delete native BEAP message' }
+  }
+}
+
+/** Dev helper: remove all `direct_beap` rows (same cleanup as single purge per message). */
+export function deleteAllDirectBeapMessages(db: any): { deleted: number; failed: number } {
+  const out = { deleted: 0, failed: 0 }
+  if (!db) return out
+  try {
+    const ids = db
+      .prepare(`SELECT id FROM inbox_messages WHERE source_type = 'direct_beap'`)
+      .all() as Array<{ id: string }>
+    for (const { id } of ids) {
+      const r = purgeDirectBeapMessageLocal(db, id)
+      if (r.ok) out.deleted++
+      else out.failed++
+    }
+  } catch (e: any) {
+    console.error('[RemoteDeletion] deleteAllDirectBeapMessages error:', e?.message)
+  }
+  return out
+}
 
 // ── Types ──
 
@@ -37,11 +129,23 @@ export function queueRemoteDeletion(
 ): QueueRemoteDeletionResult {
   if (!db) return { ok: false, error: 'No database' }
   try {
-    const row = db.prepare(
-      'SELECT account_id, email_message_id FROM inbox_messages WHERE id = ?'
-    ).get(messageId) as { account_id: string; email_message_id: string } | undefined
+    const row = db
+      .prepare(
+        'SELECT account_id, email_message_id, source_type FROM inbox_messages WHERE id = ?',
+      )
+      .get(messageId) as
+      | { account_id: string; email_message_id: string; source_type?: string | null }
+      | undefined
 
-    if (!row?.account_id || !row?.email_message_id) {
+    if (!row) {
+      return { ok: false, error: 'Message not found' }
+    }
+
+    if (isDirectBeapRow(row)) {
+      return purgeDirectBeapMessageLocal(db, messageId)
+    }
+
+    if (!row.account_id || !row.email_message_id) {
       return { ok: false, error: 'Message not found or not from email' }
     }
 
