@@ -7,13 +7,85 @@
  * - **qBEAP**: metadata + email body excerpt only (cannot decrypt without keys).
  * - **Handshake capsules** (schema_version + capsule_type): structural preview for inbox UI.
  *
- * Always updates matching `inbox_messages` rows (`beap_package_json` match) and marks
- * pending rows processed so Pull does not stall on the extension poll loop.
+ * Updates matching `inbox_messages` rows (`beap_package_json` match). When no row exists
+ * (e.g. P2P relay delivered only to `p2p_pending_beap`), inserts a `direct_beap` inbox row
+ * then depackages. Marks pending rows processed so Pull does not stall on the extension poll loop.
  *
  * @version 1.0.0
  */
 
+import { randomUUID } from 'crypto'
+
 const BATCH_SIZE = 100
+
+/** Sentinel account_id for P2P-ingested rows (no email account). */
+const P2P_BEAP_ACCOUNT_ID = '__p2p_beap__'
+
+function resolveP2PPendingPackageColumnExpr(db: any): string {
+  try {
+    const cols = db.prepare(`PRAGMA table_info(p2p_pending_beap)`).all() as Array<{ name: string }>
+    const names = new Set(cols.map((c) => c.name))
+    if (names.has('raw_package') && names.has('package_json')) return 'COALESCE(package_json, raw_package)'
+    if (names.has('raw_package')) return 'raw_package'
+    return 'package_json'
+  } catch {
+    return 'package_json'
+  }
+}
+
+/**
+ * Best-effort subject/body for `inbox_messages` before depackaging (P2P path has no email envelope).
+ */
+export function extractP2PBeapInboxPreview(packageJson: string): {
+  subject: string
+  body_text: string
+  from_address: string | null
+} {
+  const fallback = { subject: 'BEAP message', body_text: '', from_address: null as string | null }
+  if (!packageJson || typeof packageJson !== 'string') return fallback
+  try {
+    const parsed = JSON.parse(packageJson.trim()) as Record<string, unknown>
+
+    if (typeof parsed.schema_version === 'number' && typeof parsed.capsule_type === 'string') {
+      return {
+        subject: `BEAP ${String(parsed.capsule_type)}`,
+        body_text: '',
+        from_address: null,
+      }
+    }
+
+    const header = parsed.header as Record<string, unknown> | undefined
+    if (!header || typeof header !== 'object') return fallback
+
+    const encoding = header.encoding
+    if (encoding === 'pBEAP' && typeof parsed.payload === 'string') {
+      try {
+        const capsuleJson = Buffer.from(parsed.payload, 'base64').toString('utf8')
+        const capsule = JSON.parse(capsuleJson) as Record<string, unknown>
+        const bodyText = String(capsule.body ?? capsule.transport_plaintext ?? '')
+        const title =
+          typeof capsule.title === 'string' && capsule.title.trim()
+            ? capsule.title
+            : fallback.subject
+        return { subject: title, body_text: bodyText.slice(0, 50_000), from_address: null }
+      } catch {
+        /* fall through */
+      }
+    }
+
+    if (encoding === 'qBEAP') {
+      return {
+        subject: 'BEAP message (encrypted)',
+        body_text: '(Encrypted qBEAP — open in extension for full content)',
+        from_address: null,
+      }
+    }
+
+    return fallback
+  } catch {
+    return fallback
+  }
+}
 
 export interface InboxRowFallback {
   id: string
@@ -188,15 +260,16 @@ export function beapPackageToMainProcessDepackaged(
 
 /**
  * Process pending rows in `p2p_pending_beap` in batches until drained.
- * Matches `inbox_messages` via `beap_package_json` = `package_json`.
+ * Matches `inbox_messages` via `beap_package_json` = `package_json`; if none, inserts `direct_beap`.
  */
 export function processPendingP2PBeapEmails(db: any): number {
   if (!db) return 0
 
-  let updated = 0
+  let drained = 0
 
+  const pkgExpr = resolveP2PPendingPackageColumnExpr(db)
   const selectBatch = db.prepare(
-    `SELECT id, handshake_id, package_json, created_at FROM p2p_pending_beap
+    `SELECT id, handshake_id, ${pkgExpr} AS package_json, created_at FROM p2p_pending_beap
      WHERE processed = 0 ORDER BY created_at ASC LIMIT ?`,
   )
 
@@ -210,9 +283,25 @@ export function processPendingP2PBeapEmails(db: any): number {
     `UPDATE inbox_messages SET depackaged_json = ?, embedding_status = 'pending' WHERE id = ?`,
   )
 
+  const insertDirectBeap = db.prepare(`
+    INSERT INTO inbox_messages (
+      id, source_type, handshake_id, account_id, email_message_id,
+      from_address, from_name, to_addresses, cc_addresses,
+      subject, body_text, body_html, beap_package_json,
+      has_attachments, attachment_count, received_at, ingested_at,
+      imap_remote_mailbox, imap_rfc_message_id
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `)
+
   const markProcessed = db.prepare(`UPDATE p2p_pending_beap SET processed = 1 WHERE id = ?`)
 
   try {
+    const pendingCountRow = db.prepare(`SELECT COUNT(*) as c FROM p2p_pending_beap WHERE processed = 0`).get() as { c: number }
+    const pendingTotal = pendingCountRow?.c ?? 0
+    if (pendingTotal > 0) {
+      console.log(`[BEAP-INBOX] Processing ${pendingTotal} pending P2P BEAP message(s)`)
+    }
+
     for (;;) {
       const rows = selectBatch.all(BATCH_SIZE) as Array<{
         id: number
@@ -225,30 +314,61 @@ export function processPendingP2PBeapEmails(db: any): number {
 
       for (const row of rows) {
         try {
-          const inbox = selectInbox.get(row.package_json) as InboxRowFallback | undefined
-
-          if (!inbox) {
-            console.warn(
-              '[BeapEmailIngestion] No inbox_messages row for pending BEAP id=',
-              row.id,
-              'handshake=',
-              row.handshake_id,
-              '(package length',
-              row.package_json?.length ?? 0,
-              ')',
-            )
+          const pkg = row.package_json != null ? String(row.package_json) : ''
+          if (!pkg.trim()) {
+            console.warn('[BEAP-INBOX] Skipping pending row with empty package id=', row.id)
             markProcessed.run(row.id)
+            drained++
             continue
           }
 
-          const depackagedJson = beapPackageToMainProcessDepackaged(row.package_json, inbox)
-          const r = updateInbox.run(depackagedJson, inbox.id)
-          if (r.changes > 0) updated++
+          let inbox = selectInbox.get(pkg) as InboxRowFallback | undefined
+
+          if (!inbox) {
+            const preview = extractP2PBeapInboxPreview(pkg)
+            const inboxId = randomUUID()
+            const now = new Date().toISOString()
+            const receivedAt = row.created_at && String(row.created_at).trim() ? String(row.created_at) : now
+            insertDirectBeap.run(
+              inboxId,
+              'direct_beap',
+              row.handshake_id,
+              P2P_BEAP_ACCOUNT_ID,
+              `p2p-pending-${row.id}`,
+              preview.from_address,
+              null,
+              '[]',
+              '[]',
+              preview.subject,
+              preview.body_text,
+              null,
+              pkg,
+              0,
+              0,
+              receivedAt,
+              now,
+              'P2P_DIRECT',
+              null,
+            )
+            inbox = {
+              id: inboxId,
+              subject: preview.subject,
+              from_address: preview.from_address,
+              body_text: preview.body_text,
+            }
+          }
+
+          const depackagedJson = beapPackageToMainProcessDepackaged(pkg, inbox)
+          updateInbox.run(depackagedJson, inbox.id)
           markProcessed.run(row.id)
+          drained++
+          console.log(`[BEAP-INBOX] Message imported: handshake=${row.handshake_id} messageId=${inbox.id}`)
         } catch (e: unknown) {
+          console.error('[BEAP-INBOX] Import failed:', (e as Error)?.message ?? e)
           console.error('[BeapEmailIngestion] Error processing pending id', row.id, (e as Error)?.message)
           try {
             markProcessed.run(row.id)
+            drained++
           } catch {
             /* non-fatal */
           }
@@ -256,9 +376,10 @@ export function processPendingP2PBeapEmails(db: any): number {
       }
     }
   } catch (e: unknown) {
+    console.error('[BEAP-INBOX] Import failed:', (e as Error)?.message ?? e)
     console.error('[BeapEmailIngestion] Query error:', (e as Error)?.message)
-    return updated
+    return drained
   }
 
-  return updated
+  return drained
 }

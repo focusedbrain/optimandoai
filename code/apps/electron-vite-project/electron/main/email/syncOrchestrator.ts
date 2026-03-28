@@ -13,6 +13,7 @@
  */
 
 import { processPendingP2PBeapEmails } from './beapEmailIngestion'
+import { notifyBeapInboxDashboard } from './beapInboxDashboardNotify'
 import { processPendingPlainEmails } from './plainEmailIngestion'
 import {
   drainOrchestratorRemoteQueueBounded,
@@ -995,7 +996,8 @@ export function startAutoSync(
 
       const result = await syncAccountEmails(db, { accountId })
       processPendingPlainEmails(db)
-      processPendingP2PBeapEmails(db)
+      const beapDrained = processPendingP2PBeapEmails(db)
+      if (beapDrained > 0) notifyBeapInboxDashboard(null)
       try {
         if (result.newInboxMessageIds.length > 0) {
           enqueueRemoteOpsForLocalLifecycleState(db, result.newInboxMessageIds)

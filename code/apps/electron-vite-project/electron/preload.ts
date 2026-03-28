@@ -709,6 +709,14 @@ contextBridge.exposeInMainWorld('emailInbox', {
     ipcRenderer.on('inbox:newMessages', fn)
     return () => { ipcRenderer.removeListener('inbox:newMessages', fn) }
   },
+  /** P2P BEAP rows imported into inbox_messages (main → renderer refresh). */
+  onBeapInboxUpdated: (handler: (data: { handshakeId: string | null }) => void) => {
+    const fn = (_e: Electron.IpcRendererEvent, data: { handshakeId: string | null }) => handler(data)
+    ipcRenderer.on('inbox:beapInboxUpdated', fn)
+    return () => {
+      ipcRenderer.removeListener('inbox:beapInboxUpdated', fn)
+    }
+  },
   /** Remote orchestrator drain batch progress (main → renderer debug activity log). */
   onDrainProgress: (handler: (data: unknown) => void) => {
     const fn = (_e: Electron.IpcRendererEvent, data: unknown) => handler(data)

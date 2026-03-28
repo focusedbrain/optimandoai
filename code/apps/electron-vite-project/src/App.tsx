@@ -149,6 +149,13 @@ function App() {
     })
   }, [])
 
+  useEffect(() => {
+    const unsub = window.emailInbox?.onBeapInboxUpdated?.(() => {
+      void useEmailInboxStore.getState().refreshMessages()
+    })
+    return () => unsub?.()
+  }, [])
+
   /** Inbox → Handshakes: reuse app-level handshake selection (same as picking a row in HandshakeView). */
   const handleNavigateToHandshakeFromInbox = useCallback((handshakeId: string) => {
     setActiveView('handshakes')

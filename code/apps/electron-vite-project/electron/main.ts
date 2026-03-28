@@ -707,6 +707,8 @@ import { pullFromRelay } from './main/p2p/relayPull'
 import { createP2PServer } from './main/p2p/p2pServer'
 import { createCoordinationWsClient } from './main/p2p/coordinationWs'
 import { setBeapRecipientPendingNotifier } from './main/p2p/beapRecipientNotify'
+import { processPendingP2PBeapEmails } from './main/email/beapEmailIngestion'
+import { setBeapInboxDashboardNotifier, notifyBeapInboxDashboard } from './main/email/beapInboxDashboardNotify'
 import { getP2PConfig, upsertP2PConfig, computeLocalP2PEndpoint } from './main/p2p/p2pConfig'
 import { getP2PHealth, setP2PHealthQueueCounts, setP2PHealthSelfTest, setP2PHealthRelayMode } from './main/p2p/p2pHealth'
 import { getQueueStatus, getQueueEntries } from './main/handshake/outboundQueue'
@@ -3991,6 +3993,12 @@ app.whenReady().then(async () => {
         }
       }
       registerInboxHandlers(getInboxDb, null, getAnthropicApiKey)
+      setBeapInboxDashboardNotifier((handshakeId) => {
+        console.log('[BEAP-INBOX] Notifying dashboard of new BEAP messages')
+        for (const w of BrowserWindow.getAllWindows()) {
+          w.webContents.send('inbox:beapInboxUpdated', { handshakeId })
+        }
+      })
       console.log('[MAIN] Email Gateway IPC handlers registered')
     } catch (emailErr) {
       console.error('[MAIN] FATAL: Email IPC registration failed:', emailErr)
@@ -8543,6 +8551,14 @@ app.whenReady().then(async () => {
 
     setBeapRecipientPendingNotifier((handshakeId) => {
       broadcastToExtensions({ type: 'P2P_BEAP_RECEIVED', handshakeId })
+      const db = getHandshakeDb()
+      if (!db) return
+      try {
+        const n = processPendingP2PBeapEmails(db)
+        if (n > 0) notifyBeapInboxDashboard(handshakeId)
+      } catch (e: unknown) {
+        console.error('[BEAP-INBOX] Import failed:', (e as Error)?.message ?? e)
+      }
     })
 
     async function getOidcToken(): Promise<string | null> {
@@ -8558,6 +8574,12 @@ app.whenReady().then(async () => {
       const handshakeDb = getHandshakeDb()
       if (!handshakeDb) {
         return // Ledger not ready yet — will retry in 10s
+      }
+      try {
+        const drained = processPendingP2PBeapEmails(handshakeDb)
+        if (drained > 0) notifyBeapInboxDashboard(null)
+      } catch (e: unknown) {
+        console.error('[BEAP-INBOX] Import failed:', (e as Error)?.message ?? e)
       }
       processOutboundQueue(handshakeDb, getOidcToken).catch((err) => {
         console.warn('[P2P] processOutboundQueue error:', err?.message)

@@ -310,6 +310,8 @@ export interface EmailInboxBridge {
   /** Wipes local DB rows with this account_id across all tables (see main process). */
   fullResetAccount?: (accountId: string) => Promise<{ ok: boolean; error?: string; results?: string[] }>
   onNewMessages: (handler: (data: unknown) => void) => () => void
+  /** After P2P BEAP pending rows are imported into `inbox_messages`. */
+  onBeapInboxUpdated?: (handler: (data: { handshakeId: string | null }) => void) => () => void
   /** Each background drain batch: `{ processed, pending, failed, deferred }` (deferred = pull-lock). */
   onDrainProgress?: (handler: (data: unknown) => void) => () => void
   /** Simple drain: `{ status: 'moved'|'skipped', op, msgId }` per completed row. */

@@ -84,6 +84,14 @@ export default function HandshakeBeapMessages({
     fetchMessages()
   }, [fetchMessages])
 
+  useEffect(() => {
+    const unsub = window.emailInbox?.onBeapInboxUpdated?.((data) => {
+      if (data.handshakeId != null && data.handshakeId !== handshakeId) return
+      void fetchMessages()
+    })
+    return () => unsub?.()
+  }, [handshakeId, fetchMessages])
+
   const handleSelectMessage = useCallback(
     (id: string | null) => {
       onSelectMessage(id)

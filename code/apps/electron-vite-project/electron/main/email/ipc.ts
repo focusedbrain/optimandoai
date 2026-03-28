@@ -204,6 +204,7 @@ import type {
   OrchestratorRemoteOperation,
 } from './domain/orchestratorRemoteTypes'
 import { processPendingP2PBeapEmails } from './beapEmailIngestion'
+import { notifyBeapInboxDashboard } from './beapInboxDashboardNotify'
 import { processPendingPlainEmails } from './plainEmailIngestion'
 import { reconcileAnalyzeTriage, reconcileInboxClassification } from '../../../src/lib/inboxClassificationReconcile'
 import { formatSourceWeightingForPrompt, sortSourceWeightingFromMessageRow } from '../../../src/lib/inboxSortSourceWeighting'
@@ -2440,7 +2441,8 @@ Rules:
       console.warn('[Inbox] Plain email post-sync processing:', e?.message)
     }
     try {
-      processPendingP2PBeapEmails(db)
+      const beapDrained = processPendingP2PBeapEmails(db)
+      if (beapDrained > 0) notifyBeapInboxDashboard(null)
     } catch (e: any) {
       console.warn('[Inbox] BEAP post-sync processing:', e?.message)
     }
