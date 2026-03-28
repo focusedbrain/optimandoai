@@ -426,7 +426,11 @@ export async function sendBeapViaP2P(
   handshakeId: string,
   packageJson: string
 ): Promise<SendBeapViaP2PResult> {
-  return sendHandshakeRpc<SendBeapViaP2PResult>('handshake.sendBeapViaP2P', { handshakeId, packageJson })
+  return sendHandshakeRpc<SendBeapViaP2PResult>('handshake.sendBeapViaP2P', {
+    handshakeId,
+    packageJson,
+    sendSource: 'user_package_builder',
+  })
 }
 
 /**

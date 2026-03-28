@@ -5,8 +5,35 @@
 
 import { getPendingP2PBeapMessages, ackPendingP2PBeap, getHandshake } from './handshakeRpc'
 import { importBeapMessage, verifyImportedMessage } from '../ingress/importPipeline'
+import { buildElectronMergePayload } from '../ingress/electronDepackagedSync'
+import type { SanitisedDecryptedPackage } from '../beap-messages/sandbox/sandboxProtocol'
 
 let globalProcessing = false
+
+/** Push Stage-5 decrypted content to Electron inbox DB (localhost HTTP via background). */
+function mergeDepackagedToElectron(
+  packageJson: string,
+  handshakeId: string,
+  pkg: SanitisedDecryptedPackage,
+): Promise<{ ok: boolean; error?: string }> {
+  const payload = buildElectronMergePayload(packageJson, handshakeId, pkg)
+  return new Promise((resolve, reject) => {
+    try {
+      chrome.runtime.sendMessage(
+        { type: 'ELECTRON_INBOX_MERGE_DEPACKAGED', payload },
+        (response: { ok?: boolean; error?: string } | undefined) => {
+          if (chrome.runtime.lastError) {
+            reject(new Error(chrome.runtime.lastError.message))
+            return
+          }
+          resolve(response ?? { ok: false, error: 'no response' })
+        },
+      )
+    } catch (e) {
+      reject(e)
+    }
+  })
+}
 
 async function buildVerifyOptions(
   handshakeId: string,
@@ -42,6 +69,24 @@ export async function processPendingP2PBeapQueue(): Promise<void> {
         const verifyOptions = await buildVerifyOptions(item.handshake_id)
         const verifyResult = await verifyImportedMessage(importResult.messageId, verifyOptions)
         if (verifyResult.success) {
+          if (verifyResult.sanitisedPackage) {
+            try {
+              let r = await mergeDepackagedToElectron(item.package_json, item.handshake_id, verifyResult.sanitisedPackage)
+              if (
+                !r.ok &&
+                typeof r.error === 'string' &&
+                /no inbox row|matches this package/i.test(r.error)
+              ) {
+                await new Promise((z) => setTimeout(z, 2000))
+                r = await mergeDepackagedToElectron(item.package_json, item.handshake_id, verifyResult.sanitisedPackage)
+              }
+              if (!r.ok) {
+                console.warn('[P2P→Electron] merge-depackaged:', r.error ?? 'failed')
+              }
+            } catch (syncErr) {
+              console.warn('[P2P→Electron] merge depackaged failed (inbox may show placeholders):', syncErr)
+            }
+          }
           await ackPendingP2PBeap(item.id)
           console.log('[P2P-POLL] Message imported and verified:', importResult.messageId)
         }

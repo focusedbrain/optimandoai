@@ -442,7 +442,11 @@ contextBridge.exposeInMainWorld('handshakeView', {
     if (typeof packageJson !== 'string' || packageJson.length === 0 || packageJson.length > 512 * 1024) {
       throw new Error('packageJson: expected non-empty string (max 512KB)')
     }
-    return ipcRenderer.invoke('handshake:sendBeapViaP2P', { handshakeId: id, packageJson })
+    return ipcRenderer.invoke('handshake:sendBeapViaP2P', {
+      handshakeId: id,
+      packageJson,
+      sendSource: 'user_package_builder',
+    })
   },
   checkHandshakeSendReady: (handshakeId: unknown) => {
     return ipcRenderer.invoke('handshake:checkSendReady', { handshakeId: assertString(handshakeId, 'handshakeId') })

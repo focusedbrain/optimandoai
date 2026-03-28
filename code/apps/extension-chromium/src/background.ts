@@ -1848,6 +1848,31 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true
   }
 
+  /** Extension Stage-5 → Electron inbox: merge decrypted depackaged_json / attachments into local DB. */
+  if (msg.type === 'ELECTRON_INBOX_MERGE_DEPACKAGED') {
+    ;(async () => {
+      try {
+        const r = await electronRequest('/api/inbox/merge-depackaged', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(msg.payload ?? {}),
+        })
+        try {
+          sendResponse({ ok: r.ok, error: r.error, data: r.data })
+        } catch {
+          /* channel closed */
+        }
+      } catch (e: any) {
+        try {
+          sendResponse({ ok: false, error: e?.message ?? String(e) })
+        } catch {
+          /* channel closed */
+        }
+      }
+    })()
+    return true
+  }
+
   // ════════════════════════════════════════════════════════════════════════
   // WEBMCP FILL PREVIEW — route to content script for overlay preview
   //

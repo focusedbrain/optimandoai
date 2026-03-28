@@ -308,5 +308,6 @@ describe('sendBeapViaP2P', () => {
     expect(r.last_queue_error).toBe('P2P delivery failed: HTTP 500')
     expect(r.remaining_ms).toBe(4200)
     expect(mockSendMessage.mock.calls[0][0].method).toBe('handshake.sendBeapViaP2P')
+    expect(mockSendMessage.mock.calls[0][0].params?.sendSource).toBe('user_package_builder')
   })
 })

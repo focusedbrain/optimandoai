@@ -2277,7 +2277,9 @@ app.whenReady().then(async () => {
       }
     })
 
-    ipcMain.handle('handshake:sendBeapViaP2P', async (_e, payload: { handshakeId: string; packageJson: string }) => {
+    ipcMain.handle(
+      'handshake:sendBeapViaP2P',
+      async (_e, payload: { handshakeId: string; packageJson: string; sendSource?: string }) => {
       try {
         const db = await getLedgerDbOrOpen()
         if (!db) return { success: false, error: 'Database unavailable' }
@@ -2311,7 +2313,11 @@ app.whenReady().then(async () => {
           if (!db) return { success: false, error: 'Database unavailable' }
           return await handleHandshakeRPC(
             'handshake.sendBeapViaP2P',
-            { handshakeId: p.handshakeId, packageJson: p.packageJson },
+            {
+              handshakeId: p.handshakeId,
+              packageJson: p.packageJson,
+              sendSource: 'user_package_builder',
+            },
             db,
           )
         }
@@ -5364,6 +5370,34 @@ app.whenReady().then(async () => {
           timestamp: Date.now(),
           error: error.message || 'Health check failed'
         })
+      }
+    })
+
+    // POST /api/inbox/merge-depackaged — Chromium extension Stage-5 → local inbox_messages (decrypted body + optional attachment bytes)
+    httpApp.post('/api/inbox/merge-depackaged', async (req, res) => {
+      try {
+        const { mergeExtensionDepackaged, notifyInboxDepackagedMerged } = await import('./main/email/mergeExtensionDepackaged')
+        let db = getLedgerDb()
+        if (!db) {
+          db =
+            (globalThis as any).__og_vault_service_ref?.getDb?.() ??
+            (globalThis as any).__og_vault_service_ref?.db ??
+            null
+        }
+        if (!db) {
+          res.status(503).json({ ok: false, error: 'Database unavailable' })
+          return
+        }
+        const result = mergeExtensionDepackaged(db, req.body)
+        if (!result.ok) {
+          res.status(400).json({ ok: false, error: result.error ?? 'merge failed' })
+          return
+        }
+        notifyInboxDepackagedMerged(result.handshakeId)
+        res.json({ ok: true, messageId: result.messageId })
+      } catch (error: any) {
+        console.error('[HTTP] merge-depackaged:', error?.message ?? error)
+        res.status(500).json({ ok: false, error: error?.message ?? 'merge failed' })
       }
     })
 

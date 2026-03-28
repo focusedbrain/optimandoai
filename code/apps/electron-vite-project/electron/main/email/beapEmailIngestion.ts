@@ -550,8 +550,11 @@ export function processPendingP2PBeapEmails(db: any): number {
             })
             logAutoresponderDecision(evaluation)
             if (evaluation.decision === 'policy-consent') {
-              // TODO: Auto-import sessions + trigger orchestrator + build reply
-              // This is where the autoresponder pipeline will execute
+              // Autoresponder send path is intentionally NOT implemented — user must send manually.
+              console.log(
+                '[Autoresponder] policy-consent detected; auto-send disabled (receiver authority / manual consent).',
+                inbox.id,
+              )
             }
           } catch (evalErr: unknown) {
             console.warn('[Autoresponder] evaluation failed:', (evalErr as Error)?.message ?? evalErr)

@@ -67,6 +67,7 @@ import { canonicalRebuild } from './canonicalRebuild'
 import { semanticSearch } from './embeddings'
 import { validateReceiverEmail } from '../../../../../packages/shared/src/handshake/receiverEmailValidation'
 import { vaultService } from '../vault/rpc'
+import { USER_PACKAGE_BUILDER_SEND_SOURCE } from '../email/mergeExtensionDepackaged'
 
 // ── Key Agreement Helpers (fallback when extension does not provide keys) ──
 
@@ -584,9 +585,21 @@ export async function handleHandshakeRPC(
     }
 
     case 'handshake.sendBeapViaP2P': {
-      const { handshakeId, packageJson } = params as { handshakeId: string; packageJson: string }
+      const { handshakeId, packageJson, sendSource } = params as {
+        handshakeId: string
+        packageJson: string
+        sendSource?: string
+      }
       if (!handshakeId || !packageJson) {
         return { success: false, error: 'handshakeId and packageJson are required' }
+      }
+      if (sendSource !== USER_PACKAGE_BUILDER_SEND_SOURCE) {
+        console.warn('[P2P-SEND] Blocked — sendSource must be user_package_builder, got:', sendSource)
+        return {
+          success: false,
+          error:
+            'BEAP P2P send requires explicit user action (Send). Automatic or background sends are disabled.',
+        }
       }
       if (!db) return { success: false, error: 'Database unavailable' }
       const activeCheck = diagnoseHandshakeInactive(db, handshakeId, new Date())
