@@ -395,6 +395,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
     const st = useDraftRefineStore.getState()
     if (st.connected && st.messageId === messageId && st.refineTarget === 'capsule-public') {
       draftRefineDisconnect()
+      useEmailInboxStore.getState().setEditingDraftForMessageId(null)
       return
     }
     const subject = message?.subject ?? null
@@ -407,12 +408,14 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
       },
       'capsule-public',
     )
+    useEmailInboxStore.getState().setEditingDraftForMessageId(messageId)
   }, [messageId, message?.subject, capsulePublicText, draftRefineConnect, draftRefineDisconnect])
 
   const handleCapsuleEncryptedRefineConnect = useCallback(() => {
     const st = useDraftRefineStore.getState()
     if (st.connected && st.messageId === messageId && st.refineTarget === 'capsule-encrypted') {
       draftRefineDisconnect()
+      useEmailInboxStore.getState().setEditingDraftForMessageId(null)
       return
     }
     const subject = message?.subject ?? null
@@ -425,14 +428,19 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
       },
       'capsule-encrypted',
     )
+    useEmailInboxStore.getState().setEditingDraftForMessageId(messageId)
   }, [messageId, message?.subject, capsuleEncryptedText, draftRefineConnect, draftRefineDisconnect])
 
   useEffect(() => {
     if (!draftRefineConnected || draftRefineMessageId !== messageId) return
     function handleClickOutside(e: MouseEvent) {
       const target = e.target as Node
+      // Top HybridSearch bar lives outside draftRef — exclude it so refinement can be typed there.
+      const chatBar = document.querySelector('.hs-root')
+      if (chatBar && chatBar.contains(target)) return
       if (draftRef.current && !draftRef.current.contains(target)) {
         draftRefineDisconnect()
+        useEmailInboxStore.getState().setEditingDraftForMessageId(null)
       }
     }
     document.addEventListener('mousedown', handleClickOutside)
@@ -1081,9 +1089,6 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
                             useEmailInboxStore.getState().setEditingDraftForMessageId(messageId)
                             handleCapsulePublicRefineConnect()
                           }}
-                          onBlur={() => {
-                            useEmailInboxStore.getState().setEditingDraftForMessageId(null)
-                          }}
                           rows={3}
                         />
                       </div>
@@ -1126,9 +1131,6 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
                           onFocus={() => {
                             useEmailInboxStore.getState().setEditingDraftForMessageId(messageId)
                             handleCapsuleEncryptedRefineConnect()
-                          }}
-                          onBlur={() => {
-                            useEmailInboxStore.getState().setEditingDraftForMessageId(null)
                           }}
                           rows={4}
                         />
@@ -1300,8 +1302,11 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
                         handleDraftRefineConnect()
                       }}
                       onBlur={() => {
+                        const stillConnected = useDraftRefineStore.getState().connected
                         setDraftSubFocused(false)
-                        useEmailInboxStore.getState().setEditingDraftForMessageId(null)
+                        if (!stillConnected) {
+                          useEmailInboxStore.getState().setEditingDraftForMessageId(null)
+                        }
                       }}
                       className="inbox-detail-ai-draft-textarea"
                       readOnly={draftLoading}
