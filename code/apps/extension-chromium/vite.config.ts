@@ -79,7 +79,8 @@ export default defineConfig({
     modulePreload: false,
     rollupOptions: {
       input: {
-        'popup-chat': path.resolve(__dirname, 'src/popup-chat.html')
+        'popup-chat': path.resolve(__dirname, 'src/popup-chat.html'),
+        sidepanel: path.resolve(__dirname, 'src/sidepanel.html'),
       },
       output: {
         manualChunks(id) {
