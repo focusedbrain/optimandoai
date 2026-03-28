@@ -46,8 +46,11 @@ export interface NormalInboxAiResult {
   /** Advisory: suggested archive/keep. User must click Archive to act. */
   archiveRecommendation: AdvisoryRecommendedAction
   archiveReason: string
-  /** When needsReply is true, a draft reply from the combined analysis call. null otherwise. */
-  draftReply?: string | null
+  /**
+   * When needsReply is true, a draft from the combined analysis call.
+   * Native BEAP uses a capsule object; email uses a plain string.
+   */
+  draftReply?: string | { publicMessage: string; encryptedMessage: string } | null
 }
 
 /**

@@ -80,6 +80,25 @@ function formatRelativeDate(isoString: string): string {
   return d.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit' }).replace(/\//g, '.')
 }
 
+/** Apply AI `draftReply` to native BEAP capsule fields (string or capsule object). */
+function applyCapsuleDraftFromDraftReply(
+  dr: NormalInboxAiResult['draftReply'],
+  setPublic: (s: string) => void,
+  setEnc: (s: string) => void,
+): void {
+  if (dr == null) return
+  if (typeof dr === 'object' && !Array.isArray(dr) && ('publicMessage' in dr || 'encryptedMessage' in dr)) {
+    const o = dr as { publicMessage?: string; encryptedMessage?: string }
+    setPublic(o.publicMessage ?? '')
+    setEnc(o.encryptedMessage ?? '')
+    return
+  }
+  if (typeof dr === 'string') {
+    setEnc(dr)
+    setPublic('')
+  }
+}
+
 /** AI preview line for list rows — aligns with Bulk (summary / reason / sort_reason). */
 function getMessageAiPreviewLine(msg: InboxMessage): string | null {
   let text = ''
@@ -183,7 +202,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
       setAnalysis(cachedAdj)
       setReceivedFields(new Set(['needsReply', 'needsReplyReason', 'summary', 'urgencyScore', 'urgencyReason', 'actionItems', 'archiveRecommendation', 'archiveReason', 'draftReply']))
       if (!skipEmailDraft) {
-        if (cachedAdj.draftReply) {
+        if (cachedAdj.draftReply && typeof cachedAdj.draftReply === 'string') {
           setDraft(cachedAdj.draftReply)
           setEditedDraft(cachedAdj.draftReply)
         } else {
@@ -191,8 +210,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
           setEditedDraft('')
         }
       } else if (cachedAdj.draftReply) {
-        setCapsuleEncryptedText(cachedAdj.draftReply)
-        setCapsulePublicText('')
+        applyCapsuleDraftFromDraftReply(cachedAdj.draftReply, setCapsulePublicText, setCapsuleEncryptedText)
       }
       setAnalysisLoading(false)
       return
@@ -236,12 +254,17 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
           return merged
         })
         setReceivedFields((prev) => new Set([...prev, ...parsed.receivedKeys]))
-        if (!skipEmailDraft && parsed.receivedKeys.includes('draftReply') && parsed.partial.draftReply) {
+        if (
+          !skipEmailDraft &&
+          parsed.receivedKeys.includes('draftReply') &&
+          parsed.partial.draftReply &&
+          typeof parsed.partial.draftReply === 'string'
+        ) {
           setDraft(parsed.partial.draftReply)
           setEditedDraft(parsed.partial.draftReply)
         }
-        if (skipEmailDraft && parsed.receivedKeys.includes('draftReply') && parsed.partial.draftReply) {
-          setCapsuleEncryptedText(parsed.partial.draftReply)
+        if (skipEmailDraft && parsed.receivedKeys.includes('draftReply') && parsed.partial.draftReply != null) {
+          applyCapsuleDraftFromDraftReply(parsed.partial.draftReply, setCapsulePublicText, setCapsuleEncryptedText)
         }
       }
     })
@@ -273,7 +296,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
         setAnalysis(adjusted)
         setReceivedFields(new Set(['needsReply', 'needsReplyReason', 'summary', 'urgencyScore', 'urgencyReason', 'actionItems', 'archiveRecommendation', 'archiveReason', 'draftReply']))
         if (!skipEmailDraft) {
-          if (adjusted.draftReply) {
+          if (adjusted.draftReply && typeof adjusted.draftReply === 'string') {
             setDraft(adjusted.draftReply)
             setEditedDraft(adjusted.draftReply)
           } else {
@@ -281,7 +304,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
             setEditedDraft('')
           }
         } else if (adjusted.draftReply) {
-          setCapsuleEncryptedText(adjusted.draftReply)
+          applyCapsuleDraftFromDraftReply(adjusted.draftReply, setCapsulePublicText, setCapsuleEncryptedText)
         }
         useEmailInboxStore.getState().setAnalysisCache(messageId, adjusted)
       }
@@ -369,6 +392,11 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
   }, [messageId, message?.subject, editedDraft, draft, draftRefineConnect])
 
   const handleCapsulePublicRefineConnect = useCallback(() => {
+    const st = useDraftRefineStore.getState()
+    if (st.connected && st.messageId === messageId && st.refineTarget === 'capsule-public') {
+      draftRefineDisconnect()
+      return
+    }
     const subject = message?.subject ?? null
     draftRefineConnect(
       messageId,
@@ -379,9 +407,14 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
       },
       'capsule-public',
     )
-  }, [messageId, message?.subject, capsulePublicText, draftRefineConnect])
+  }, [messageId, message?.subject, capsulePublicText, draftRefineConnect, draftRefineDisconnect])
 
   const handleCapsuleEncryptedRefineConnect = useCallback(() => {
+    const st = useDraftRefineStore.getState()
+    if (st.connected && st.messageId === messageId && st.refineTarget === 'capsule-encrypted') {
+      draftRefineDisconnect()
+      return
+    }
     const subject = message?.subject ?? null
     draftRefineConnect(
       messageId,
@@ -392,7 +425,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
       },
       'capsule-encrypted',
     )
-  }, [messageId, message?.subject, capsuleEncryptedText, draftRefineConnect])
+  }, [messageId, message?.subject, capsuleEncryptedText, draftRefineConnect, draftRefineDisconnect])
 
   useEffect(() => {
     if (!draftRefineConnected || draftRefineMessageId !== messageId) return
@@ -1008,9 +1041,17 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
                   </div>
                   <div className="inbox-detail-ai-row-value">
                     <div className="inbox-ai-capsule-draft">
-                      <div className="capsule-draft-field">
+                      <div
+                        className={`capsule-draft-field${
+                          draftRefineConnected &&
+                          draftRefineMessageId === messageId &&
+                          draftRefineTarget === 'capsule-public'
+                            ? ' capsule-draft-field--selected'
+                            : ''
+                        }`}
+                      >
                         <label className="capsule-field-label">
-                          BEAP™ Message (public)
+                          📨 Public Message (pBEAP)
                           {draftRefineConnected &&
                           draftRefineMessageId === messageId &&
                           draftRefineTarget === 'capsule-public'
@@ -1046,9 +1087,17 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
                           rows={3}
                         />
                       </div>
-                      <div className="capsule-draft-field capsule-draft-field--encrypted">
+                      <div
+                        className={`capsule-draft-field capsule-draft-field--encrypted${
+                          draftRefineConnected &&
+                          draftRefineMessageId === messageId &&
+                          draftRefineTarget === 'capsule-encrypted'
+                            ? ' capsule-draft-field--selected'
+                            : ''
+                        }`}
+                      >
                         <label className="capsule-field-label capsule-field-label--encrypted">
-                          🔒 Encrypted Message (Private · QBEAP)
+                          🔒 End-to-End Encrypted (qBEAP)
                           {draftRefineConnected &&
                           draftRefineMessageId === messageId &&
                           draftRefineTarget === 'capsule-encrypted'
@@ -1070,7 +1119,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
                               ? ' capsule-draft-textarea--refine-connected'
                               : ''
                           }`}
-                          placeholder="This message is encrypted, capsule-bound, and never transported outside the BEAP package."
+                          placeholder="Encrypted capsule-bound message — end-to-end encrypted, fully readable by you"
                           value={capsuleEncryptedText}
                           onChange={(e) => setCapsuleEncryptedText(e.target.value)}
                           onClick={handleCapsuleEncryptedRefineConnect}
@@ -1084,7 +1133,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
                           rows={4}
                         />
                         <div className="capsule-field-hint">
-                          ⚠ This content is authoritative when present and never leaves the encrypted capsule.
+                          ⚠ This content is end-to-end encrypted and capsule-bound.
                         </div>
                       </div>
                       {refinedDraftText && draftRefineConnected && draftRefineMessageId === messageId && (

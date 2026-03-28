@@ -5,6 +5,40 @@
 
 import type { NormalInboxAiResult } from '../types/inboxAi'
 
+/** Normalize LLM `draftReply` (string, JSON string, or capsule object). */
+export function normalizeDraftReplyField(
+  dr: unknown,
+): string | { publicMessage: string; encryptedMessage: string } | null {
+  if (dr === null || dr === undefined) return null
+  if (typeof dr === 'string') {
+    const t = dr.trim()
+    if (t.startsWith('{')) {
+      try {
+        const inner = JSON.parse(t) as Record<string, unknown>
+        if (inner && typeof inner === 'object' && ('publicMessage' in inner || 'encryptedMessage' in inner)) {
+          return {
+            publicMessage: String(inner.publicMessage ?? ''),
+            encryptedMessage: String(inner.encryptedMessage ?? ''),
+          }
+        }
+      } catch {
+        /* plain string */
+      }
+    }
+    return dr.slice(0, 8000)
+  }
+  if (typeof dr === 'object' && dr !== null && !Array.isArray(dr)) {
+    const o = dr as Record<string, unknown>
+    if ('publicMessage' in o || 'encryptedMessage' in o) {
+      return {
+        publicMessage: String(o.publicMessage ?? ''),
+        encryptedMessage: String(o.encryptedMessage ?? ''),
+      }
+    }
+  }
+  return null
+}
+
 /** Default values for missing fields. */
 const DEFAULTS: NormalInboxAiResult = {
   needsReply: false,
@@ -46,7 +80,7 @@ export function tryParseAnalysis(text: string): NormalInboxAiResult | null {
         : [],
       archiveRecommendation: parsed.archiveRecommendation === 'archive' ? 'archive' : 'keep',
       archiveReason: String(parsed.archiveReason ?? '').slice(0, 300),
-      draftReply: typeof parsed.draftReply === 'string' ? parsed.draftReply.slice(0, 8000) : null,
+      draftReply: normalizeDraftReplyField(parsed.draftReply),
     }
   } catch {
     return null
@@ -134,6 +168,16 @@ export function tryParsePartialAnalysis(
     if (draftReplyMatch) {
       result.draftReply = draftReplyMatch[1].replace(/\\"/g, '"').slice(0, 8000)
       receivedKeys.push('draftReply')
+    } else {
+      const pubMatch = text.match(/"publicMessage"\s*:\s*"((?:[^"\\]|\\.)*)/)
+      const encMatch = text.match(/"encryptedMessage"\s*:\s*"((?:[^"\\]|\\.)*)/)
+      if (pubMatch || encMatch) {
+        result.draftReply = {
+          publicMessage: pubMatch ? pubMatch[1].replace(/\\"/g, '"').slice(0, 4000) : '',
+          encryptedMessage: encMatch ? encMatch[1].replace(/\\"/g, '"').slice(0, 8000) : '',
+        }
+        receivedKeys.push('draftReply')
+      }
     }
   }
 

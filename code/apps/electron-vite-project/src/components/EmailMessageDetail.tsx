@@ -246,16 +246,31 @@ export default function EmailMessageDetail({ message, selectedAttachmentId: sele
 
   const publicMessageText = useMemo(() => {
     if (!message || !isNativeBeap) return ''
-    const placeholder = (message.body_text || '').includes('open in extension')
+    const bt = message.body_text || ''
+    const placeholder =
+      bt.includes('open in extension') || bt.includes('Encrypted qBEAP')
     if (parsedDepackaged) {
       const tp = parsedDepackaged.transport_plaintext
       if (typeof tp === 'string' && tp.trim()) return tp.trim()
+      const transport = parsedDepackaged.transport
+      if (typeof transport === 'string' && transport.trim()) return transport.trim()
+      const subj = parsedDepackaged.subject
+      if (typeof subj === 'string' && subj.trim() && !placeholder) return subj.trim()
     }
     const fromPkg = transportPlaintextFromBeapPackageJson(message.beap_package_json)
     if (fromPkg) return fromPkg
     if (message.body_text && !placeholder) return message.body_text
     return ''
   }, [message, isNativeBeap, parsedDepackaged])
+
+  const encryptedBodyText = useMemo(() => {
+    if (!parsedDepackaged) return ''
+    const combined =
+      extractBodyText(parsedDepackaged.body) ||
+      extractBodyText(parsedDepackaged.content) ||
+      extractBodyText(parsedDepackaged.decryptedBody)
+    return combined.trim()
+  }, [parsedDepackaged])
 
   const fromDisplay = useMemo((): ReactNode => {
     if (!message) return '—'
@@ -559,7 +574,7 @@ export default function EmailMessageDetail({ message, selectedAttachmentId: sele
 
         {/* Body — human-readable by default; native BEAP uses structured depackaged sections */}
         <div style={{ marginBottom: 20 }}>
-          {isNativeBeap && parsedDepackaged ? (
+          {isNativeBeap ? (
             <div className="native-beap-body">
               {publicMessageText.trim() ? (
                 <div className="beap-body-section">
@@ -572,20 +587,30 @@ export default function EmailMessageDetail({ message, selectedAttachmentId: sele
                 </div>
               ) : null}
 
-              {extractBodyText(parsedDepackaged.body).trim() !== '' ? (
+              {encryptedBodyText ? (
                 <div className="beap-body-section">
-                  <div className="beap-body-label beap-body-label--confidential">
-                    🔒 CONFIDENTIAL (qBEAP — Encrypted Content)
-                  </div>
+                  <div className="beap-body-label beap-body-label--confidential">🔒 End-to-End Encrypted (qBEAP)</div>
                   <div className="beap-body-content beap-body-content--confidential">
                     <pre className="beap-ui-body-pre" style={{ whiteSpace: 'pre-wrap', margin: 0, fontFamily: 'inherit' }}>
-                      {extractBodyText(parsedDepackaged.body)}
+                      {encryptedBodyText}
                     </pre>
                   </div>
                 </div>
               ) : null}
 
-              {automationTags.length > 0 ? (
+              {!publicMessageText.trim() &&
+              !encryptedBodyText &&
+              automationTags.length === 0 &&
+              sessionRefsList.length === 0 ? (
+                <div className="beap-body-section">
+                  <div className="beap-body-label">Decryption pending</div>
+                  <div className="beap-body-content" style={{ opacity: 0.75 }}>
+                    Message content has not been decrypted yet on this device, or the capsule has no body fields.
+                  </div>
+                </div>
+              ) : null}
+
+              {parsedDepackaged && automationTags.length > 0 ? (
                 <div className="beap-body-section">
                   <div className="beap-body-label">🏷️ Automation Tags</div>
                   <div className="beap-automation-tags">
@@ -598,7 +623,7 @@ export default function EmailMessageDetail({ message, selectedAttachmentId: sele
                 </div>
               ) : null}
 
-              {sessionRefsList.length > 0 ? (
+              {parsedDepackaged && sessionRefsList.length > 0 ? (
                 <div className="beap-body-section beap-session-indicator">
                   <div className="beap-body-label">⚙️ Attached Session</div>
                   {sessionRefsList.map((ref, i) => {

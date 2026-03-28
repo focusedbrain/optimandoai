@@ -344,6 +344,98 @@ function parseAiJson(raw: string): Record<string, unknown> {
     return {}
   }
 }
+
+/**
+ * Body text for AI analyze/draft prompts on native BEAP rows — prefers depackaged structure
+ * and package transport text over raw body_text placeholders.
+ */
+function buildNativeBeapAnalyzeBody(row: {
+  body_text?: string | null
+  depackaged_json?: string | null
+  beap_package_json?: string | null
+  subject?: string | null
+}): string {
+  let messageContent = ''
+  if (row.depackaged_json) {
+    try {
+      const d = JSON.parse(row.depackaged_json) as Record<string, unknown>
+      const body = d.body
+      if (typeof body === 'string') {
+        messageContent = body
+      } else if (body && typeof body === 'object') {
+        const b = body as Record<string, unknown>
+        messageContent = String(b.text ?? b.content ?? b.message ?? b.body ?? b.plaintext ?? '')
+        if (!messageContent.trim()) messageContent = JSON.stringify(body, null, 2)
+      }
+      const subj = d.subject
+      if (typeof subj === 'string' && subj.trim()) {
+        messageContent = `Subject: ${subj}\n\n${messageContent}`
+      }
+    } catch {
+      messageContent = (row.body_text || '').trim()
+    }
+  } else {
+    messageContent = (row.body_text || '').trim()
+  }
+  const rawBt = (row.body_text || '').trim()
+  if (
+    !messageContent.trim() &&
+    rawBt &&
+    !rawBt.includes('open in extension') &&
+    !rawBt.includes('Encrypted qBEAP')
+  ) {
+    messageContent = rawBt
+  }
+  if (!messageContent.trim() && row.beap_package_json) {
+    try {
+      const pkg = JSON.parse(row.beap_package_json) as Record<string, unknown>
+      const tp =
+        (typeof pkg.transport_plaintext === 'string' && pkg.transport_plaintext) ||
+        (pkg.header &&
+          typeof pkg.header === 'object' &&
+          typeof (pkg.header as Record<string, unknown>).transport_plaintext === 'string' &&
+          String((pkg.header as Record<string, unknown>).transport_plaintext)) ||
+        ''
+      if (typeof tp === 'string' && tp.trim()) messageContent = tp.trim()
+    } catch {
+      /* ignore */
+    }
+  }
+  if (!messageContent.trim()) messageContent = row.subject || '(no content)'
+  return messageContent.slice(0, 12_000)
+}
+
+/** Normalize draftReply from LLM JSON for native BEAP (object or stringified JSON). */
+function normalizeNativeBeapDraftReply(parsed: Record<string, unknown>): {
+  publicMessage: string
+  encryptedMessage: string
+} | null {
+  const dr = parsed.draftReply
+  if (dr && typeof dr === 'object' && !Array.isArray(dr)) {
+    const o = dr as Record<string, unknown>
+    if ('publicMessage' in o || 'encryptedMessage' in o) {
+      return {
+        publicMessage: String(o.publicMessage ?? ''),
+        encryptedMessage: String(o.encryptedMessage ?? ''),
+      }
+    }
+  }
+  if (typeof dr === 'string' && dr.trim().startsWith('{')) {
+    try {
+      const inner = parseAiJson(dr) as Record<string, unknown>
+      if (inner.publicMessage != null || inner.encryptedMessage != null) {
+        return {
+          publicMessage: String(inner.publicMessage ?? ''),
+          encryptedMessage: String(inner.encryptedMessage ?? ''),
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+  return null
+}
+
 const activeAutoSyncLoops = new Map<string, { stop: () => void }>()
 
 /** Set from `main.ts` with the same getter as inbox — used for post-connect remote queue cleanup. */
@@ -3240,50 +3332,8 @@ Rules:
       const isNativeBeap =
         row.source_type === 'direct_beap' || (!!row.handshake_id && row.source_type !== 'email_plain')
 
-      const buildNativeBeapContext = (): string => {
-        let messageContent = ''
-        if (row.depackaged_json) {
-          try {
-            const d = JSON.parse(row.depackaged_json) as Record<string, unknown>
-            const body = d.body
-            if (typeof body === 'string') {
-              messageContent = body
-            } else if (body && typeof body === 'object') {
-              const b = body as Record<string, unknown>
-              messageContent = String(b.text ?? b.content ?? b.message ?? b.body ?? b.plaintext ?? '')
-              if (!messageContent.trim()) messageContent = JSON.stringify(body, null, 2)
-            }
-            const subj = d.subject
-            if (typeof subj === 'string' && subj.trim()) {
-              messageContent = `Subject: ${subj}\n\n${messageContent}`
-            }
-          } catch {
-            messageContent = (row.body_text || '').trim()
-          }
-        } else {
-          messageContent = (row.body_text || '').trim()
-        }
-        if (!messageContent.trim() && row.beap_package_json) {
-          try {
-            const pkg = JSON.parse(row.beap_package_json) as Record<string, unknown>
-            const tp =
-              (typeof pkg.transport_plaintext === 'string' && pkg.transport_plaintext) ||
-              (pkg.header &&
-                typeof pkg.header === 'object' &&
-                typeof (pkg.header as Record<string, unknown>).transport_plaintext === 'string' &&
-                String((pkg.header as Record<string, unknown>).transport_plaintext)) ||
-              ''
-            if (typeof tp === 'string' && tp.trim()) messageContent = tp.trim()
-          } catch {
-            /* ignore */
-          }
-        }
-        if (!messageContent.trim()) messageContent = row.subject || '(no content)'
-        return messageContent.slice(0, 12_000)
-      }
-
       if (isNativeBeap) {
-        const messageContent = buildNativeBeapContext()
+        const messageContent = buildNativeBeapAnalyzeBody(row)
         const userPrompt = `You are drafting a BEAP capsule reply. The original message was:
 
 ${messageContent}
@@ -3338,7 +3388,10 @@ Match the language of the original message. No markdown, no backticks, no preamb
             /* ignore */
           }
         }
-        merged.draftReply = draftFallback
+        merged.draftReply = {
+          publicMessage: capsuleDraft.publicText,
+          encryptedMessage: capsuleDraft.encryptedText,
+        }
         merged.status = merged.status ?? 'draft_reply'
         db.prepare('UPDATE inbox_messages SET ai_analysis_json = ? WHERE id = ?').run(JSON.stringify(merged), messageId)
 
@@ -3396,7 +3449,7 @@ Match the language of the original message. No markdown, no backticks, no preamb
       if (!db) return { ok: false, error: 'Database unavailable' }
       const row = db
         .prepare(
-          'SELECT from_address, from_name, subject, body_text, received_at, source_type, handshake_id FROM inbox_messages WHERE id = ?',
+          'SELECT from_address, from_name, subject, body_text, received_at, source_type, handshake_id, depackaged_json, beap_package_json FROM inbox_messages WHERE id = ?',
         )
         .get(messageId) as
         | {
@@ -3407,6 +3460,8 @@ Match the language of the original message. No markdown, no backticks, no preamb
             received_at?: string
             source_type?: string | null
             handshake_id?: string | null
+            depackaged_json?: string | null
+            beap_package_json?: string | null
           }
         | undefined
       if (!row) return { ok: false, error: 'Message not found' }
@@ -3417,8 +3472,13 @@ Match the language of the original message. No markdown, no backticks, no preamb
         return { ok: true, data: { error: 'LLM not available. Check Ollama status.' } }
       }
 
+      const isNativeBeap =
+        row.source_type === 'direct_beap' || (!!row.handshake_id && row.source_type !== 'email_plain')
+
       const sender = row.from_name ? `${row.from_name} <${row.from_address || ''}>` : (row.from_address || 'Unknown')
-      const body = (row.body_text || '').trim().slice(0, 8000)
+      const body = isNativeBeap
+        ? buildNativeBeapAnalyzeBody(row)
+        : (row.body_text || '').trim().slice(0, 8000)
       const sortWAnalyze = sortSourceWeightingFromMessageRow(row)
       const userPrompt = `From: ${sender}\nSubject: ${row.subject || '(No subject)'}\nDate: ${row.received_at || '—'}\n\n${body}\n\n${formatSourceWeightingForPrompt(sortWAnalyze)}`
 
@@ -3436,6 +3496,20 @@ Match the language of the original message. No markdown, no backticks, no preamb
 - draftReply: string | null — if needsReply is true, write a professional, concise draft reply here. If needsReply is false, set draftReply to null.
 
 Respond ONLY with valid JSON. No markdown, no backticks, no preamble, no explanation.`
+      if (isNativeBeap) {
+        systemPrompt = `You are an email triage AI for WR Desk. The message is a BEAP handshake / native capsule (end-to-end encrypted channel). Analyze it and respond with a JSON object only. Use these exact keys:
+- needsReply: boolean — true if the user should respond
+- needsReplyReason: string — one sentence why
+- summary: string — 2-3 sentence summary
+- urgencyScore: number — 1-10
+- urgencyReason: string
+- actionItems: string[] — empty array if none
+- archiveRecommendation: "archive" | "keep"
+- archiveReason: string
+- draftReply: object | null — If needsReply is true, draftReply MUST be a JSON object with exactly two string fields: "publicMessage" (brief transport-visible summary, 1-2 sentences) and "encryptedMessage" (full detailed reply). Match the language of the message. If needsReply is false, set draftReply to null.
+
+Respond ONLY with valid JSON. No markdown, no backticks, no preamble, no explanation.`
+      }
       if (tone) systemPrompt += `\n\nUser instructions for response tone and style: ${tone}`
       if (sortRules) systemPrompt += `\n\nUser custom sorting rules: ${sortRules}`
       if (contextBlock) systemPrompt += contextBlock
@@ -3474,12 +3548,22 @@ Respond ONLY with valid JSON. No markdown, no backticks, no preamble, no explana
       const actionItems = parseFailed ? [] : (Array.isArray(parsed.actionItems) ? parsed.actionItems.filter((x): x is string => typeof x === 'string').slice(0, 10) : [])
       const archiveRecommendation = parseFailed ? 'keep' : (parsed.archiveRecommendation === 'archive' ? 'archive' : 'keep')
       const archiveReason = (parseFailed ? 'Could not determine' : (parsed.archiveReason ?? '')).slice(0, 300)
-      const draftReply =
-        parseFailed || !needsReply
-          ? null
-          : typeof parsed.draftReply === 'string'
-            ? parsed.draftReply.slice(0, 8000)
-            : null
+      let draftReply: string | { publicMessage: string; encryptedMessage: string } | null = null
+      if (!parseFailed && needsReply) {
+        if (isNativeBeap) {
+          const cap = normalizeNativeBeapDraftReply(parsed as Record<string, unknown>)
+          if (cap) {
+            draftReply = {
+              publicMessage: cap.publicMessage.slice(0, 4000),
+              encryptedMessage: cap.encryptedMessage.slice(0, 8000),
+            }
+          } else if (typeof parsed.draftReply === 'string') {
+            draftReply = parsed.draftReply.slice(0, 8000)
+          }
+        } else if (typeof parsed.draftReply === 'string') {
+          draftReply = parsed.draftReply.slice(0, 8000)
+        }
+      }
 
       console.log('[AI-ANALYZE] Parsed result:', JSON.stringify({ needsReply, needsReplyReason: needsReplyReason.slice(0, 80), summary: summary.slice(0, 80), urgencyScore, archiveRecommendation, hasDraftReply: !!draftReply }).slice(0, 500))
 
@@ -3518,7 +3602,7 @@ Respond ONLY with valid JSON. No markdown, no backticks, no preamble, no explana
       }
       const row = db
         .prepare(
-          'SELECT from_address, from_name, subject, body_text, received_at, source_type, handshake_id FROM inbox_messages WHERE id = ?',
+          'SELECT from_address, from_name, subject, body_text, received_at, source_type, handshake_id, depackaged_json, beap_package_json FROM inbox_messages WHERE id = ?',
         )
         .get(messageId) as
         | {
@@ -3529,6 +3613,8 @@ Respond ONLY with valid JSON. No markdown, no backticks, no preamble, no explana
             received_at?: string
             source_type?: string | null
             handshake_id?: string | null
+            depackaged_json?: string | null
+            beap_package_json?: string | null
           }
         | undefined
       if (!row) {
@@ -3542,8 +3628,13 @@ Respond ONLY with valid JSON. No markdown, no backticks, no preamble, no explana
         return { started: false }
       }
 
+      const isNativeBeapStream =
+        row.source_type === 'direct_beap' || (!!row.handshake_id && row.source_type !== 'email_plain')
+
       const sender = row.from_name ? `${row.from_name} <${row.from_address || ''}>` : (row.from_address || 'Unknown')
-      const body = (row.body_text || '').trim().slice(0, 8000)
+      const body = isNativeBeapStream
+        ? buildNativeBeapAnalyzeBody(row)
+        : (row.body_text || '').trim().slice(0, 8000)
       const sortWStream = sortSourceWeightingFromMessageRow(row)
       const userPrompt = `From: ${sender}\nSubject: ${row.subject || '(No subject)'}\nDate: ${row.received_at || '—'}\n\n${body}\n\n${formatSourceWeightingForPrompt(sortWStream)}`
 
@@ -3561,6 +3652,13 @@ Respond ONLY with valid JSON. No markdown, no backticks, no preamble, no explana
 - draftReply: string | null — if needsReply is true, write a professional, concise draft reply here. If needsReply is false, set draftReply to null.
 
 Respond ONLY with valid JSON. No markdown, no backticks, no preamble, no explanation.`
+      if (isNativeBeapStream) {
+        systemPrompt = `You are an email triage AI for WR Desk. The message is a BEAP handshake / native capsule. Analyze it and respond with JSON only. Keys:
+- needsReply, needsReplyReason, summary, urgencyScore, urgencyReason, actionItems, archiveRecommendation, archiveReason (same meanings as email triage)
+- draftReply: object | null — If needsReply is true, draftReply MUST be {"publicMessage":"string","encryptedMessage":"string"}. If false, null.
+
+Respond ONLY with valid JSON. No markdown, no backticks, no preamble.`
+      }
       if (tone) systemPrompt += `\n\nUser instructions for response tone and style: ${tone}`
       if (sortRules) systemPrompt += `\n\nUser custom sorting rules: ${sortRules}`
       if (contextBlock) systemPrompt += contextBlock
