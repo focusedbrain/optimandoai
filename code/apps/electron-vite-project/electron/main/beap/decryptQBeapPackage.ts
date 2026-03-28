@@ -13,6 +13,47 @@ import { getHandshakeRecord } from '../handshake/db'
 
 const wc = webcrypto as Crypto
 
+/** Set `WR_QBEAP_DECRYPT_DEBUG=1` for hex previews and full HKDF inner-envelope derivation logs. */
+const QBEAP_DBG = process.env.WR_QBEAP_DECRYPT_DEBUG === '1'
+
+function hexPreview(u8: Uint8Array, maxBytes = 8): string {
+  return Buffer.from(u8).toString('hex').slice(0, maxBytes * 2) + '...'
+}
+
+/** HKDF labels — must match extension / sender exactly. */
+const HKDF_CAPSULE = 'BEAP v1 capsule'
+const HKDF_ARTEFACT = 'BEAP v1 artefact'
+const HKDF_INNER_ENVELOPE = 'BEAP v2 inner-envelope'
+
+function logGcmDecryptInputs(label: string, nonceB64: string, ciphertextB64: string, tagB64?: string) {
+  let nonceBytes: Buffer
+  let ciphertextBytes: Buffer
+  try {
+    nonceBytes = Buffer.from(fromBase64(nonceB64))
+    ciphertextBytes = Buffer.from(fromBase64(ciphertextB64))
+  } catch {
+    console.warn('[qBEAP-decrypt] AES-GCM input (decode failed):', label)
+    return
+  }
+  console.log(`[qBEAP-decrypt] AES-GCM input (${label}):`, {
+    nonceLen: nonceBytes.length,
+    ciphertextLen: ciphertextBytes.length,
+    nonceHex: QBEAP_DBG ? nonceBytes.toString('hex') : '(set WR_QBEAP_DECRYPT_DEBUG=1)',
+    ciphertextStart: QBEAP_DBG ? ciphertextBytes.toString('hex').substring(0, 32) + '...' : '(set WR_QBEAP_DECRYPT_DEBUG=1)',
+  })
+  if (nonceBytes.length !== 12) {
+    console.error('[qBEAP-decrypt] NONCE LENGTH WRONG:', label, nonceBytes.length, 'expected 12')
+  }
+  if (tagB64 && String(tagB64).trim()) {
+    try {
+      const tagBytes = Buffer.from(fromBase64(String(tagB64).trim()))
+      console.log('[qBEAP-decrypt] SEPARATE TAG:', label, 'length:', tagBytes.length)
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
 export interface DecryptedQBeapContent {
   subject: string
   body: string
@@ -54,15 +95,24 @@ async function hkdfDerive(
   return new Uint8Array(bits)
 }
 
+/**
+ * AES-256-GCM decrypt. WebCrypto expects the 16-byte auth tag appended to ciphertext.
+ * If the package stores tag separately (`tag` / `authTag` base64), it is concatenated after ciphertext bytes.
+ */
 async function aesGcmDecrypt(
   keyBytes: Uint8Array,
   nonceB64: string,
   ciphertextB64: string,
   aad?: Uint8Array,
+  tagB64?: string,
 ): Promise<Uint8Array> {
   const key = await wc.subtle.importKey('raw', keyBytes, { name: 'AES-GCM' }, false, ['decrypt'])
   const iv = fromBase64(nonceB64)
-  const data = fromBase64(ciphertextB64)
+  let data = Buffer.from(fromBase64(ciphertextB64))
+  if (tagB64 && String(tagB64).trim()) {
+    const tag = fromBase64(String(tagB64).trim())
+    data = Buffer.concat([data, Buffer.from(tag)])
+  }
   const decrypted = await wc.subtle.decrypt(
     aad && aad.length > 0
       ? { name: 'AES-GCM', iv, additionalData: aad }
@@ -94,6 +144,8 @@ interface EncryptedChunk {
   index?: number
   nonce: string
   ciphertext: string
+  tag?: string
+  authTag?: string
 }
 
 function getPayloadChunks(payloadEnc: Record<string, unknown>): EncryptedChunk[] | null {
@@ -133,7 +185,13 @@ async function decryptChunkSequence(
   const sorted = [...chunks].sort((a, b) => (a.index ?? 0) - (b.index ?? 0))
   const parts: Uint8Array[] = []
   for (const chunk of sorted) {
-    const plain = await aesGcmDecrypt(key, chunk.nonce, chunk.ciphertext, aad)
+    const tagExtra =
+      typeof chunk.tag === 'string'
+        ? chunk.tag
+        : typeof chunk.authTag === 'string'
+          ? chunk.authTag
+          : undefined
+    const plain = await aesGcmDecrypt(key, chunk.nonce, chunk.ciphertext, aad, tagExtra)
     parts.push(plain)
   }
   return concatByteArrays(parts)
@@ -190,6 +248,55 @@ export async function decryptQBeapPackage(
       ? pq.kemCiphertextB64.trim()
       : ''
 
+  const receiverX25519InHeader =
+    typeof cryptoHdr.receiverX25519PublicKeyB64 === 'string' ? cryptoHdr.receiverX25519PublicKeyB64.trim() : ''
+  const receiverMlkemInHeader =
+    pq && typeof pq.receiverMlkemPublicKeyB64 === 'string' ? pq.receiverMlkemPublicKeyB64.trim() : ''
+
+  const peLog = pkg.payloadEnc as Record<string, unknown> | undefined
+  const chLog = peLog?.chunking as Record<string, unknown> | undefined
+  console.log(
+    '[qBEAP-decrypt] Package header.crypto:',
+    JSON.stringify({
+      hasPq: !!pq,
+      kemCiphertextLen: kemCiphertextB64.length,
+      senderX25519Len: senderX25519PubB64.length,
+      saltLen: saltB64.length,
+      hasPayloadEnc: !!peLog,
+      payloadNonceLen: typeof peLog?.nonce === 'string' ? peLog.nonce.length : 0,
+      payloadCiphertextLen: typeof peLog?.ciphertext === 'string' ? peLog.ciphertext.length : 0,
+      hasChunking: !!(chLog && Array.isArray(chLog.chunks)),
+      chunkCount: Array.isArray(chLog?.chunks) ? (chLog.chunks as unknown[]).length : 0,
+      topLevelChunkCount: Array.isArray(peLog?.chunks) ? (peLog.chunks as unknown[]).length : 0,
+      artefactCount: Array.isArray(pkg.artefactsEnc) ? pkg.artefactsEnc.length : 0,
+      hasInnerEnvelope: typeof (pkg as Record<string, unknown>).innerEnvelopeCiphertext === 'string',
+      hasSeparatePayloadTag: !!(peLog && (typeof peLog.tag === 'string' || typeof peLog.authTag === 'string')),
+    }),
+  )
+
+  console.log('[qBEAP-decrypt] Key material:', {
+    hasLocalX25519Priv: !!localX25519PrivB64,
+    localX25519PrivLen: localX25519PrivB64?.length,
+    hasLocalMlkemSecret: !!localMlkemSecretB64,
+    localMlkemSecretLen: localMlkemSecretB64?.length,
+    peerX25519PubLen: hs.peer_x25519_public_key_b64?.length,
+    peerMlkemPubLen: hs.peer_mlkem768_public_key_b64?.length,
+  })
+  console.log('[qBEAP-decrypt] Key match check:', {
+    receiverX25519InHeader: receiverX25519InHeader ? `${receiverX25519InHeader.slice(0, 12)}…` : 'NOT IN HEADER',
+    ourLocalX25519PubLen: hs.local_x25519_public_key_b64?.length,
+    x25519Match:
+      receiverX25519InHeader && hs.local_x25519_public_key_b64
+        ? receiverX25519InHeader === hs.local_x25519_public_key_b64.trim()
+        : null,
+    receiverMlkemInHeader: receiverMlkemInHeader ? `${receiverMlkemInHeader.slice(0, 12)}…` : 'NOT IN HEADER',
+    ourLocalMlkemPubLen: hs.local_mlkem768_public_key_b64?.length,
+    mlkemMatch:
+      receiverMlkemInHeader && hs.local_mlkem768_public_key_b64
+        ? receiverMlkemInHeader === hs.local_mlkem768_public_key_b64.trim()
+        : null,
+  })
+
   if (!senderX25519PubB64 || !saltB64) {
     console.warn('[qBEAP-decrypt] Missing sender X25519 public or salt')
     return null
@@ -204,7 +311,9 @@ export async function decryptQBeapPackage(
     return null
   }
 
+  let cryptoStep = 'init'
   try {
+    cryptoStep = 'x25519-load'
     const peerPub = fromBase64(senderX25519PubB64)
     const localPriv = fromBase64(localX25519PrivB64)
     if (peerPub.length !== 32 || localPriv.length !== 32) {
@@ -212,7 +321,12 @@ export async function decryptQBeapPackage(
       return null
     }
 
+    cryptoStep = 'x25519-dh'
     const x25519Secret = x25519.getSharedSecret(localPriv, peerPub)
+    console.log('[qBEAP-decrypt] X25519 result:', {
+      secretLength: x25519Secret.length,
+      secretHex: QBEAP_DBG ? hexPreview(x25519Secret) : '(set WR_QBEAP_DECRYPT_DEBUG=1)',
+    })
 
     let sharedSecret: Uint8Array
     if (kemCiphertextB64) {
@@ -220,20 +334,41 @@ export async function decryptQBeapPackage(
         console.warn('[qBEAP-decrypt] Hybrid package requires local ML-KEM secret for handshake:', handshakeId)
         return null
       }
+      cryptoStep = 'mlkem-decapsulate'
       const ct = fromBase64(kemCiphertextB64)
       const sk = fromBase64(localMlkemSecretB64)
       const mlkemSecret = ml_kem768.decapsulate(ct, sk)
+      console.log('[qBEAP-decrypt] ML-KEM decapsulate result:', {
+        secretLength: mlkemSecret.length,
+        secretHex: QBEAP_DBG ? hexPreview(mlkemSecret) : '(set WR_QBEAP_DECRYPT_DEBUG=1)',
+      })
+      cryptoStep = 'hybrid-concat'
       const hybrid = new Uint8Array(mlkemSecret.length + x25519Secret.length)
       hybrid.set(mlkemSecret, 0)
       hybrid.set(x25519Secret, mlkemSecret.length)
       sharedSecret = hybrid
+      console.log('[qBEAP-decrypt] Hybrid secret (ML-KEM || X25519):', {
+        length: hybrid.length,
+        hex: QBEAP_DBG ? hexPreview(hybrid, 16) : '(set WR_QBEAP_DECRYPT_DEBUG=1)',
+      })
     } else {
       sharedSecret = x25519Secret
+      console.log('[qBEAP-decrypt] X25519-only shared secret (no PQ ciphertext), length:', sharedSecret.length)
     }
 
+    cryptoStep = 'hkdf'
     const saltBytes = fromBase64(saltB64)
-    const capsuleKey = await hkdfDerive(sharedSecret, saltBytes, 'BEAP v1 capsule', 32)
-    const artefactKey = await hkdfDerive(sharedSecret, saltBytes, 'BEAP v1 artefact', 32)
+    const capsuleKey = await hkdfDerive(sharedSecret, saltBytes, HKDF_CAPSULE, 32)
+    const artefactKey = await hkdfDerive(sharedSecret, saltBytes, HKDF_ARTEFACT, 32)
+    const innerEnvelopeKey = await hkdfDerive(sharedSecret, saltBytes, HKDF_INNER_ENVELOPE, 32)
+    console.log('[qBEAP-decrypt] Derived keys:', {
+      capsuleKeyLen: capsuleKey.length,
+      artefactKeyLen: artefactKey.length,
+      innerEnvelopeKeyLen: innerEnvelopeKey.length,
+      capsuleKeyHex: QBEAP_DBG ? hexPreview(capsuleKey) : '(set WR_QBEAP_DECRYPT_DEBUG=1)',
+      hkdfLabels: [HKDF_CAPSULE, HKDF_ARTEFACT, HKDF_INNER_ENVELOPE],
+    })
+    void innerEnvelopeKey
 
     const payloadEnc = pkg.payloadEnc as Record<string, unknown> | undefined
     if (!payloadEnc) {
@@ -244,6 +379,12 @@ export async function decryptQBeapPackage(
     const chunks = getPayloadChunks(payloadEnc)
     let capsuleJson: string
     if (chunks && chunks.length > 0) {
+      const sorted = [...chunks].sort((a, b) => (a.index ?? 0) - (b.index ?? 0))
+      const c0 = sorted[0] as EncryptedChunk
+      const c0tag =
+        typeof c0.tag === 'string' ? c0.tag : typeof c0.authTag === 'string' ? c0.authTag : undefined
+      cryptoStep = 'aes-gcm-capsule-chunks'
+      logGcmDecryptInputs('capsule-chunk-0', c0.nonce, c0.ciphertext, c0tag)
       const combined = await decryptChunkSequence(capsuleKey, chunks)
       capsuleJson = new TextDecoder().decode(combined)
     } else {
@@ -253,7 +394,15 @@ export async function decryptQBeapPackage(
         console.warn('[qBEAP-decrypt] Missing payloadEnc nonce/ciphertext')
         return null
       }
-      const plain = await aesGcmDecrypt(capsuleKey, nonce, ctext)
+      const tagB64 =
+        typeof payloadEnc.tag === 'string'
+          ? payloadEnc.tag
+          : typeof payloadEnc.authTag === 'string'
+            ? payloadEnc.authTag
+            : undefined
+      cryptoStep = 'aes-gcm-capsule-single'
+      logGcmDecryptInputs('capsule-payload', nonce, ctext, tagB64)
+      const plain = await aesGcmDecrypt(capsuleKey, nonce, ctext, undefined, tagB64)
       capsuleJson = new TextDecoder().decode(plain)
     }
 
@@ -293,7 +442,13 @@ export async function decryptQBeapPackage(
           if (achunks && achunks.length > 0) {
             decBytes = await decryptChunkSequence(artefactKey, achunks)
           } else if (typeof enc.nonce === 'string' && typeof enc.ciphertext === 'string') {
-            decBytes = await aesGcmDecrypt(artefactKey, enc.nonce, enc.ciphertext)
+            const aTag =
+              typeof enc.tag === 'string'
+                ? enc.tag
+                : typeof enc.authTag === 'string'
+                  ? enc.authTag
+                  : undefined
+            decBytes = await aesGcmDecrypt(artefactKey, enc.nonce, enc.ciphertext, undefined, aTag)
           } else {
             continue
           }
@@ -361,7 +516,7 @@ export async function decryptQBeapPackage(
       automation,
     }
   } catch (e) {
-    console.error('[qBEAP-decrypt] Decryption failed:', (e as Error)?.message ?? e)
+    console.error('[qBEAP-decrypt] Decryption failed at step:', cryptoStep, (e as Error)?.message ?? e)
     return null
   }
 }

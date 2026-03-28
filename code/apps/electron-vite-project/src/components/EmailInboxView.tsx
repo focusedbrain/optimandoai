@@ -181,13 +181,20 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
   const refinedDraftText = useDraftRefineStore((s) => s.refinedDraftText)
   const acceptRefinement = useDraftRefineStore((s) => s.acceptRefinement)
 
+  /** Latest row for streaming — avoids re-creating runAnalysisStream when body/subject updates (e.g. qBEAP decrypt) and re-triggering the effect loop. */
+  const messageRef = useRef(message)
+  useEffect(() => {
+    messageRef.current = message
+  }, [message])
+
   const messageKind = message ? deriveInboxMessageKind(message) : null
   const isNativeBeap = messageKind === 'handshake'
 
   const runAnalysisStream = useCallback(async () => {
+    const msg = messageRef.current
     console.log('[ANALYSIS] runAnalysisStream triggered for:', messageId)
     if (!window.emailInbox?.aiAnalyzeMessageStream || !window.emailInbox.onAiAnalyzeChunk) return
-    const skipEmailDraft = !!(message && deriveInboxMessageKind(message) === 'handshake')
+    const skipEmailDraft = !!(msg && deriveInboxMessageKind(msg) === 'handshake')
     const cached = useEmailInboxStore.getState().analysisCache[messageId]
     if (cached) {
       const tri = reconcileAnalyzeTriage(
@@ -197,7 +204,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
           urgencyReason: cached.urgencyReason,
           summary: cached.summary,
         },
-        { subject: message?.subject, body: message?.body_text }
+        { subject: msg?.subject, body: msg?.body_text }
       )
       const cachedAdj = {
         ...cached,
@@ -301,7 +308,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
             urgencyReason: final.urgencyReason,
             summary: final.summary,
           },
-          { subject: message?.subject, body: message?.body_text }
+          { subject: msg?.subject, body: msg?.body_text }
         )
         let adjusted = {
           ...final,
@@ -360,7 +367,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
       setAnalysisError('Analysis failed. Check that Ollama is running.')
       cleanup()
     }
-  }, [messageId, message?.subject, message?.body_text, message?.source_type, message?.handshake_id])
+  }, [messageId])
 
   useEffect(() => {
     if (!messageId) return
