@@ -3302,6 +3302,7 @@ Rules:
 
   ipcMain.handle('inbox:aiDraftReply', async (_e, messageId: string) => {
     console.log('[AI-DRAFT] Starting for message:', messageId)
+    let isNativeBeap = false
     try {
       const db = await resolveDb()
       if (!db) return { ok: false, error: 'Database unavailable' }
@@ -3324,13 +3325,24 @@ Rules:
       if (!row) return { ok: false, error: 'Message not found' }
       console.log('[AI-DRAFT] Message fetched:', { from: row.from_address, subject: row.subject, bodyLength: (row.body_text ?? '').length })
 
+      isNativeBeap =
+        row.source_type === 'direct_beap' || (!!row.handshake_id && row.source_type !== 'email_plain')
+
       const available = await isOllamaAvailable()
       if (!available) {
+        if (isNativeBeap) {
+          return {
+            ok: true,
+            data: {
+              draft: '',
+              capsuleDraft: { publicText: '', encryptedText: '' },
+              isNativeBeap: true as const,
+              error: true,
+            },
+          }
+        }
         return { ok: true, data: { draft: 'Error: LLM not available. Check Ollama status.', error: true } }
       }
-
-      const isNativeBeap =
-        row.source_type === 'direct_beap' || (!!row.handshake_id && row.source_type !== 'email_plain')
 
       if (isNativeBeap) {
         const messageContent = buildNativeBeapAnalyzeBody(row)
@@ -3433,6 +3445,17 @@ Match the language of the original message. No markdown, no backticks, no preamb
 
       return { ok: true, data: { draft } }
     } catch (err: any) {
+      if (isNativeBeap) {
+        return {
+          ok: true,
+          data: {
+            draft: '',
+            capsuleDraft: { publicText: '', encryptedText: '' },
+            isNativeBeap: true as const,
+            error: true,
+          },
+        }
+      }
       const isTimeout = err?.message?.startsWith('LLM_TIMEOUT')
       return {
         ok: false,

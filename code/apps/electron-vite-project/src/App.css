@@ -6213,6 +6213,10 @@ body {
   padding: 8px 0;
 }
 
+.capsule-draft-error {
+  margin-bottom: 2px;
+}
+
 .capsule-draft-field {
   display: flex;
   flex-direction: column;

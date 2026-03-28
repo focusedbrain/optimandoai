@@ -1049,6 +1049,24 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
                   </div>
                   <div className="inbox-detail-ai-row-value">
                     <div className="inbox-ai-capsule-draft">
+                      {draftError && isNativeBeap && (
+                        <div
+                          className="capsule-draft-error inbox-detail-ai-error-banner"
+                          role="alert"
+                        >
+                          <span>
+                            ⚠ Could not generate AI draft. Check that Ollama is running.
+                          </span>
+                          <button
+                            type="button"
+                            className="capsule-draft-retry"
+                            onClick={() => void handleDraftReply()}
+                            disabled={draftLoading}
+                          >
+                            Retry
+                          </button>
+                        </div>
+                      )}
                       <div
                         className={`capsule-draft-field${
                           draftRefineConnected &&
