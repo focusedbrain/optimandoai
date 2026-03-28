@@ -521,26 +521,23 @@ export default function HybridSearch({
         let chatQuery: string
         if (isDraftRefine) {
           const target = useDraftRefineStore.getState().refineTarget
-          let fieldLabel = 'email reply'
+          let fieldLabel = 'reply draft'
           if (target === 'capsule-public') {
-            fieldLabel = 'public message field of a BEAP capsule reply'
+            fieldLabel = 'preview summary of a reply'
           } else if (target === 'capsule-encrypted') {
-            fieldLabel = 'private message field of a BEAP capsule reply'
+            fieldLabel = 'full reply draft'
           }
           if (currentDraft.trim()) {
             chatQuery = [
-              `Here is the current draft text for the ${fieldLabel}:`,
+              `Here is the current ${fieldLabel}:`,
               '',
               '---',
               currentDraft,
               '---',
               '',
-              `The user wants you to modify this draft with the following instruction:`,
-              `"${trimmed}"`,
+              `The user wants to modify it: "${trimmed}"`,
               '',
-              `Generate a revised version of the draft text that incorporates the user's instruction.`,
-              `Output ONLY the revised text. No explanation, no preamble, no markdown formatting.`,
-              `Match the language and tone of the original draft.`,
+              `Output ONLY the revised text. No explanation, no markdown.`,
             ].join('\n')
           } else {
             chatQuery = [

@@ -97,6 +97,7 @@ function extractBodyText(body: unknown): string {
       'body',
       'plaintext',
       'decrypted',
+      'decryptedBody',
       'transport_plaintext',
       'capsule_text',
     ] as const) {
@@ -115,6 +116,19 @@ function extractBodyText(body: unknown): string {
     }
   }
   return String(body)
+}
+
+/** Same as extractBodyText — used for qBEAP / nested body objects. */
+function extractText(val: unknown): string {
+  return extractBodyText(val)
+}
+
+function isPlaceholder(s: string): boolean {
+  return (
+    s.includes('open in extension') ||
+    s.includes('Encrypted qBEAP') ||
+    s.includes('(Encrypted qBEAP')
+  )
 }
 
 function partyEmail(p: unknown): string | null {
@@ -321,54 +335,64 @@ export default function EmailMessageDetail({ message, selectedAttachmentId: sele
     }
   }, [message?.handshake_id, message?.from_address, message?.to_addresses, isNativeBeap])
 
-  const publicMessageText = useMemo(() => {
+  const publicBody = useMemo(() => {
     if (!message || !isNativeBeap) return ''
-    const bt = message.body_text || ''
-    const placeholder =
-      bt.includes('open in extension') ||
-      bt.includes('Encrypted qBEAP') ||
-      bt.includes('(Encrypted qBEAP')
     const pkg = parsedPackage
+    const dp = parsedDepackaged
+    const pick = (s: string | undefined) => {
+      const t = (s ?? '').trim()
+      return t && !isPlaceholder(t) ? t : ''
+    }
     if (pkg) {
-      if (typeof pkg.transport_plaintext === 'string' && pkg.transport_plaintext.trim()) {
-        return pkg.transport_plaintext.trim()
-      }
+      const a = typeof pkg.transport_plaintext === 'string' ? pick(pkg.transport_plaintext) : ''
+      if (a) return a
       const header = pkg.header as Record<string, unknown> | undefined
-      if (header && typeof header.transport_plaintext === 'string' && header.transport_plaintext.trim()) {
-        return header.transport_plaintext.trim()
+      if (header && typeof header.transport_plaintext === 'string') {
+        const b = pick(header.transport_plaintext)
+        if (b) return b
       }
       const capsule = pkg.capsule as Record<string, unknown> | undefined
-      if (capsule && typeof capsule.text === 'string' && capsule.text.trim()) {
-        return capsule.text.trim()
+      if (capsule && typeof capsule.text === 'string') {
+        const c = pick(capsule.text)
+        if (c) return c
       }
     }
     const fromLegacy = transportPlaintextFromBeapPackageJson(message.beap_package_json)
-    if (fromLegacy) return fromLegacy
-    if (parsedDepackaged) {
-      const tp = parsedDepackaged.transport_plaintext
-      if (typeof tp === 'string' && tp.trim()) return tp.trim()
-      const transport = parsedDepackaged.transport
-      if (typeof transport === 'string' && transport.trim()) return transport.trim()
+    if (fromLegacy && !isPlaceholder(fromLegacy)) return fromLegacy
+    if (dp) {
+      if (typeof dp.transport_plaintext === 'string') {
+        const t = pick(dp.transport_plaintext)
+        if (t) return t
+      }
+      if (typeof dp.transport === 'string') {
+        const t = pick(dp.transport)
+        if (t) return t
+      }
     }
-    if (message.body_text && !placeholder) return message.body_text
+    if (message.body_text) {
+      const t = pick(message.body_text)
+      if (t) return t
+    }
     return ''
   }, [message, isNativeBeap, parsedPackage, parsedDepackaged])
 
-  const encryptedBodyText = useMemo(() => {
+  const encryptedBody = useMemo(() => {
     if (!isNativeBeap) return ''
-    const candidates: unknown[] = [
-      parsedDepackaged?.body,
-      parsedDepackaged?.content,
-      parsedDepackaged?.decryptedBody,
-      parsedDepackaged?.encryptedMessage,
-      parsedDepackaged?.encrypted_message,
-      parsedDepackaged?.decrypted_body,
-    ]
+    if (parsedDepackaged) {
+      const b =
+        extractText(parsedDepackaged.body) ||
+        extractText(parsedDepackaged.content) ||
+        extractText(parsedDepackaged.decryptedBody) ||
+        extractText(parsedDepackaged.encryptedMessage) ||
+        extractText(parsedDepackaged.encrypted_message) ||
+        extractText(parsedDepackaged.decrypted_body)
+      const trimmed = b.trim()
+      if (trimmed && !isPlaceholder(trimmed)) return trimmed
+    }
     const cap = parsedPackage?.capsule as Record<string, unknown> | undefined
-    if (cap && 'body' in cap) candidates.push(cap.body)
-    for (const c of candidates) {
-      const t = extractBodyText(c).trim()
-      if (t) return t
+    if (cap?.body != null) {
+      const b = extractText(cap.body).trim()
+      if (b && !isPlaceholder(b)) return b
     }
     return ''
   }, [isNativeBeap, parsedDepackaged, parsedPackage])
@@ -451,6 +475,13 @@ export default function EmailMessageDetail({ message, selectedAttachmentId: sele
       cancelled = true
     }
   }, [message?.id, message?.has_attachments, message?.attachment_count, message?.attachments, mergeMessageAttachments])
+
+  useEffect(() => {
+    if (!import.meta.env.DEV || !message || !isNativeBeap) return
+    console.log('[BEAP attachment debug] message.attachments:', message.attachments)
+    console.log('[BEAP attachment debug] message.attachment_count:', message.attachment_count)
+    console.log('[BEAP attachment debug] message.has_attachments:', message.has_attachments)
+  }, [message, isNativeBeap])
 
   const handleSessionImport = useCallback(async (raw: Record<string, unknown>) => {
     const sessionId = typeof raw.sessionId === 'string' ? raw.sessionId : String(raw.sessionId ?? '')
@@ -727,19 +758,19 @@ export default function EmailMessageDetail({ message, selectedAttachmentId: sele
         <div style={{ marginBottom: 20 }}>
           {isNativeBeap ? (
             <div className="native-beap-body">
-              {publicMessageText.trim() ? (
+              {publicBody ? (
                 <div className="beap-body-section">
                   <div className="beap-body-label">📨 Public Message (pBEAP)</div>
                   <pre
                     className="beap-body-pre beap-body-content beap-body-content--public"
                     style={{ whiteSpace: 'pre-wrap', margin: 0, fontFamily: 'inherit' }}
                   >
-                    {publicMessageText}
+                    {publicBody}
                   </pre>
                 </div>
               ) : null}
 
-              {encryptedBodyText ? (
+              {encryptedBody ? (
                 <div className="beap-body-section">
                   <div className="beap-body-label beap-body-label--encrypted beap-body-label--confidential">
                     🔒 End-to-End Encrypted (qBEAP)
@@ -749,21 +780,15 @@ export default function EmailMessageDetail({ message, selectedAttachmentId: sele
                       className="beap-body-pre"
                       style={{ whiteSpace: 'pre-wrap', margin: 0, fontFamily: 'inherit' }}
                     >
-                      {encryptedBodyText}
+                      {encryptedBody}
                     </pre>
                   </div>
                 </div>
               ) : null}
 
-              {!publicMessageText.trim() &&
-              !encryptedBodyText &&
-              automationTags.length === 0 &&
-              sessionRefsList.length === 0 ? (
-                <div className="beap-body-section" style={{ opacity: 0.6 }}>
-                  <div className="beap-body-label">Message content</div>
-                  <div className="beap-body-content">
-                    Content not yet available on this device. Open in the extension to decrypt.
-                  </div>
+              {!publicBody && !encryptedBody ? (
+                <div className="beap-body-section" style={{ opacity: 0.5 }}>
+                  Content not yet decrypted on this device.
                 </div>
               ) : null}
 

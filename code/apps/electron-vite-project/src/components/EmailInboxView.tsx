@@ -176,7 +176,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
   const draftRefineConnected = useDraftRefineStore((s) => s.connected)
   const draftRefineMessageId = useDraftRefineStore((s) => s.messageId)
   const draftRefineTarget = useDraftRefineStore((s) => s.refineTarget)
-  /** Email: one aiDraftReply when needsReply and no draft. Native BEAP: one aiDraftReply when analysis finished and capsules still empty. */
+  /** Email: one aiDraftReply when needsReply and no draft. Native BEAP: one aiDraftReply on view when capsules empty (no needsReply / analysis wait). */
   const draftFallbackAttemptedRef = useRef(false)
   const refinedDraftText = useDraftRefineStore((s) => s.refinedDraftText)
   const acceptRefinement = useDraftRefineStore((s) => s.acceptRefinement)
@@ -220,7 +220,12 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
           setEditedDraft('')
         }
       } else if (cachedAdj.draftReply) {
-        applyCapsuleDraftFromDraftReply(cachedAdj.draftReply, setCapsulePublicText, setCapsuleEncryptedText)
+        const dr = cachedAdj.draftReply
+        if (typeof dr === 'string' && dr.trim()) {
+          setCapsuleEncryptedText((prev) => (prev.trim() ? prev : dr))
+        } else {
+          applyCapsuleDraftFromDraftReply(dr, setCapsulePublicText, setCapsuleEncryptedText)
+        }
       }
       setAnalysisLoading(false)
       return
@@ -274,7 +279,12 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
           setEditedDraft(parsed.partial.draftReply)
         }
         if (skipEmailDraft && parsed.receivedKeys.includes('draftReply') && parsed.partial.draftReply != null) {
-          applyCapsuleDraftFromDraftReply(parsed.partial.draftReply, setCapsulePublicText, setCapsuleEncryptedText)
+          const dr = parsed.partial.draftReply
+          if (typeof dr === 'string' && dr.trim()) {
+            setCapsuleEncryptedText((prev) => (prev.trim() ? prev : dr))
+          } else {
+            applyCapsuleDraftFromDraftReply(dr, setCapsulePublicText, setCapsuleEncryptedText)
+          }
         }
       }
     })
@@ -318,7 +328,12 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
             setEditedDraft('')
           }
         } else if (adjusted.draftReply) {
-          applyCapsuleDraftFromDraftReply(adjusted.draftReply, setCapsulePublicText, setCapsuleEncryptedText)
+          const dr = adjusted.draftReply
+          if (typeof dr === 'string' && dr.trim()) {
+            setCapsuleEncryptedText((prev) => (prev.trim() ? prev : dr))
+          } else {
+            applyCapsuleDraftFromDraftReply(dr, setCapsulePublicText, setCapsuleEncryptedText)
+          }
         }
         useEmailInboxStore.getState().setAnalysisCache(messageId, adjusted)
       }
@@ -639,11 +654,10 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
     handleDraftReply,
   ])
 
-  /** Native BEAP: after analysis finishes, if capsule fields are still empty, fetch capsule draft once (no needsReply gate). */
+  /** Native BEAP: fetch capsule draft once when both fields empty — do not wait for analysis or needsReply. */
   useEffect(() => {
     if (!messageId || !visibleSections.has('draft')) return
     if (!isNativeBeap) return
-    if (analysisLoading) return
     if (capsuleEncryptedText.trim() || capsulePublicText.trim()) return
     if (draftLoading) return
     if (draftFallbackAttemptedRef.current) return
@@ -653,7 +667,6 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
     messageId,
     visibleSections,
     isNativeBeap,
-    analysisLoading,
     capsuleEncryptedText,
     capsulePublicText,
     draftLoading,

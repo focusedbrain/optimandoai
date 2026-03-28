@@ -203,7 +203,7 @@ import type {
   OrchestratorRemoteApplyResult,
   OrchestratorRemoteOperation,
 } from './domain/orchestratorRemoteTypes'
-import { processPendingP2PBeapEmails } from './beapEmailIngestion'
+import { ensureInboxAttachmentsFromBeapPackageJson, processPendingP2PBeapEmails } from './beapEmailIngestion'
 import { notifyBeapInboxDashboard } from './beapInboxDashboardNotify'
 import { processPendingPlainEmails } from './plainEmailIngestion'
 import { reconcileAnalyzeTriage, reconcileInboxClassification } from '../../../src/lib/inboxClassificationReconcile'
@@ -2937,6 +2937,11 @@ Rules:
       if (!db) return { ok: false, error: 'Database unavailable' }
       const row = db.prepare('SELECT * FROM inbox_messages WHERE id = ?').get(messageId) as any
       if (!row) return { ok: false, error: 'Message not found' }
+      const st = row.source_type as string | undefined
+      const pkgJson = row.beap_package_json as string | null | undefined
+      if ((st === 'direct_beap' || st === 'email_beap') && pkgJson) {
+        ensureInboxAttachmentsFromBeapPackageJson(db, messageId, pkgJson)
+      }
       const atts = db.prepare('SELECT * FROM inbox_attachments WHERE message_id = ?').all(messageId) as any[]
       row.attachments = atts
       db.prepare('UPDATE inbox_messages SET read_status = 1 WHERE id = ?').run(messageId)
@@ -3343,26 +3348,22 @@ Rules:
 
       if (isNativeBeap) {
         const messageContent = buildNativeBeapAnalyzeBody(row)
-        const userPrompt = `You are drafting a BEAP capsule reply. The original message was:
+        const userPrompt = `Original message:
 
 ${messageContent}
 
-Generate a reply with TWO parts:
-1. PUBLIC_MESSAGE: A brief, transport-visible summary (1-2 sentences, professional)
-2. ENCRYPTED_MESSAGE: The full detailed reply (confidential, capsule-bound)
-
-Respond ONLY with valid JSON:
-{
-  "publicMessage": "brief transport-visible text",
-  "encryptedMessage": "full detailed reply"
-}
-
-Match the language of the original message. No markdown, no backticks, no preamble.`
+Reply as JSON:
+{"publicMessage": "brief preview summary", "encryptedMessage": "full detailed reply"}`
 
         const { tone } = getToneAndSortForPrompts(db)
         const contextBlock = getContextBlockForPrompts(db)
-        let systemPrompt =
-          'You output only valid JSON with keys publicMessage and encryptedMessage for a BEAP capsule reply. No markdown fences.'
+        let systemPrompt = `You are an AI assistant drafting a professional reply to a message.
+Generate TWO parts:
+1. A brief summary suitable for a preview (1-2 sentences)
+2. The full detailed reply
+
+Respond ONLY with valid JSON. No markdown, no backticks, no preamble.
+Match the language of the original message.`
         if (tone) systemPrompt += `\n\nUser instructions for response tone and style: ${tone}`
         if (contextBlock) systemPrompt += contextBlock
 

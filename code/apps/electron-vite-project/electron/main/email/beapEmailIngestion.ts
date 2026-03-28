@@ -48,6 +48,7 @@ function getHandshakePartyEmails(
 
 /**
  * Metadata-only attachment rows for pBEAP capsule (no file bytes in main process).
+ * qBEAP payloads are opaque here — only pBEAP / plaintext capsule shapes yield rows.
  */
 export function extractAttachmentsFromBeapPackageJson(packageJson: string): Array<{
   filename: string
@@ -59,29 +60,58 @@ export function extractAttachmentsFromBeapPackageJson(packageJson: string): Arra
   if (!packageJson || typeof packageJson !== 'string') return out
   try {
     const parsed = JSON.parse(packageJson.trim()) as Record<string, unknown>
+
+    const pushOne = (o: Record<string, unknown>) => {
+      const cid =
+        typeof o.id === 'string'
+          ? o.id
+          : typeof o.attachmentId === 'string'
+            ? o.attachmentId
+            : typeof o.encryptedRef === 'string' && o.encryptedRef.trim()
+              ? o.encryptedRef.trim()
+              : null
+      const size =
+        typeof o.originalSize === 'number'
+          ? o.originalSize
+          : typeof o.sizeBytes === 'number'
+            ? o.sizeBytes
+            : typeof o.size === 'number'
+              ? o.size
+              : Number(o.size_bytes ?? 0) || 0
+      out.push({
+        filename: String(o.originalName ?? o.filename ?? o.name ?? 'attachment'),
+        content_type: String(o.originalType ?? o.mimeType ?? o.content_type ?? 'application/octet-stream'),
+        size_bytes: size,
+        content_id: cid,
+      })
+    }
+
     const pushFromCapsule = (capsule: Record<string, unknown>) => {
-      if (!Array.isArray(capsule.attachments)) return
-      for (const a of capsule.attachments) {
-        if (!a || typeof a !== 'object') continue
-        const o = a as Record<string, unknown>
-        out.push({
-          filename: String(o.originalName ?? o.filename ?? o.name ?? 'attachment'),
-          content_type: String(o.originalType ?? o.mimeType ?? o.content_type ?? 'application/octet-stream'),
-          size_bytes:
-            typeof o.originalSize === 'number'
-              ? o.originalSize
-              : Number(o.sizeBytes ?? o.size ?? 0) || 0,
-          content_id: typeof o.id === 'string' ? o.id : null,
-        })
+      if (Array.isArray(capsule.attachments)) {
+        for (const a of capsule.attachments) {
+          if (a && typeof a === 'object') pushOne(a as Record<string, unknown>)
+        }
+      }
+      const body = capsule.body
+      if (body && typeof body === 'object' && !Array.isArray(body)) {
+        const b = body as Record<string, unknown>
+        if (Array.isArray(b.attachments)) {
+          for (const a of b.attachments) {
+            if (a && typeof a === 'object') pushOne(a as Record<string, unknown>)
+          }
+        }
       }
     }
+
     const topCapsule = parsed.capsule
     if (topCapsule && typeof topCapsule === 'object' && !Array.isArray(topCapsule)) {
       pushFromCapsule(topCapsule as Record<string, unknown>)
     }
+
     const header = parsed.header as Record<string, unknown> | undefined
-    const encoding = header?.encoding
-    if (encoding === 'pBEAP' && typeof parsed.payload === 'string') {
+    const encodingRaw = header?.encoding
+    const encNorm = typeof encodingRaw === 'string' ? encodingRaw.toUpperCase() : ''
+    if (encNorm === 'PBEAP' && typeof parsed.payload === 'string') {
       try {
         const capsuleJson = Buffer.from(parsed.payload, 'base64').toString('utf8')
         const capsule = JSON.parse(capsuleJson) as Record<string, unknown>
@@ -90,22 +120,69 @@ export function extractAttachmentsFromBeapPackageJson(packageJson: string): Arra
         /* ignore */
       }
     }
+
     if (Array.isArray(parsed.attachments)) {
       for (const a of parsed.attachments) {
-        if (!a || typeof a !== 'object') continue
-        const o = a as Record<string, unknown>
-        out.push({
-          filename: String(o.filename ?? o.name ?? 'attachment'),
-          content_type: String(o.content_type ?? o.mimeType ?? 'application/octet-stream'),
-          size_bytes: typeof o.size === 'number' ? o.size : Number(o.size_bytes ?? 0) || 0,
-          content_id: typeof o.id === 'string' ? o.id : null,
-        })
+        if (a && typeof a === 'object') pushOne(a as Record<string, unknown>)
       }
     }
+
+    const seen = new Set<string>()
+    const deduped: typeof out = []
+    for (const x of out) {
+      const k = `${x.content_id ?? ''}|${x.filename}|${x.size_bytes}`
+      if (seen.has(k)) continue
+      seen.add(k)
+      deduped.push(x)
+    }
+    return deduped
   } catch {
     /* ignore */
   }
   return out
+}
+
+/**
+ * Insert missing `inbox_attachments` rows from BEAP package JSON (metadata only; no file bytes).
+ * Safe to call on read — backfills when extraction improved or a prior ingest skipped rows.
+ */
+export function ensureInboxAttachmentsFromBeapPackageJson(
+  db: any,
+  messageId: string,
+  packageJson: string | null | undefined,
+): number {
+  if (!db || !messageId || !packageJson || typeof packageJson !== 'string' || !packageJson.trim()) return 0
+  const attMeta = extractAttachmentsFromBeapPackageJson(packageJson)
+  if (attMeta.length === 0) return 0
+  const existingCount = (
+    db.prepare('SELECT COUNT(*) as c FROM inbox_attachments WHERE message_id = ?').get(messageId) as {
+      c: number
+    }
+  )?.c ?? 0
+  if (existingCount >= attMeta.length) return 0
+  const insertP2PAttachment = db.prepare(`
+    INSERT INTO inbox_attachments (id, message_id, filename, content_type, size_bytes, content_id, storage_path, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `)
+  const ts = new Date().toISOString()
+  for (let i = existingCount; i < attMeta.length; i++) {
+    const a = attMeta[i]
+    insertP2PAttachment.run(
+      randomUUID(),
+      messageId,
+      a.filename,
+      a.content_type,
+      a.size_bytes,
+      a.content_id,
+      null,
+      ts,
+    )
+  }
+  db.prepare(`UPDATE inbox_messages SET has_attachments = 1, attachment_count = ? WHERE id = ?`).run(
+    attMeta.length,
+    messageId,
+  )
+  return attMeta.length - existingCount
 }
 
 function resolveP2PPendingPackageColumnExpr(db: any): string {
@@ -380,11 +457,6 @@ export function processPendingP2PBeapEmails(db: any): number {
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `)
 
-  const insertP2PAttachment = db.prepare(`
-    INSERT INTO inbox_attachments (id, message_id, filename, content_type, size_bytes, content_id, storage_path, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-  `)
-
   const markProcessed = db.prepare(`UPDATE p2p_pending_beap SET processed = 1 WHERE id = ?`)
 
   try {
@@ -417,30 +489,7 @@ export function processPendingP2PBeapEmails(db: any): number {
           let inbox = selectInbox.get(pkg) as InboxRowFallback | undefined
 
           const ensureAttachmentsForInboxMessage = (messageId: string) => {
-            const attMeta = extractAttachmentsFromBeapPackageJson(pkg)
-            if (attMeta.length === 0) return
-            const existingCount = (
-              db.prepare('SELECT COUNT(*) as c FROM inbox_attachments WHERE message_id = ?').get(messageId) as {
-                c: number
-              }
-            )?.c ?? 0
-            if (existingCount > 0) return
-            const ts = new Date().toISOString()
-            for (const a of attMeta) {
-              insertP2PAttachment.run(
-                randomUUID(),
-                messageId,
-                a.filename,
-                a.content_type,
-                a.size_bytes,
-                a.content_id,
-                null,
-                ts,
-              )
-            }
-            db.prepare(
-              `UPDATE inbox_messages SET has_attachments = 1, attachment_count = ? WHERE id = ?`,
-            ).run(attMeta.length, messageId)
+            ensureInboxAttachmentsFromBeapPackageJson(db, messageId, pkg)
           }
 
           if (!inbox) {
@@ -478,18 +527,7 @@ export function processPendingP2PBeapEmails(db: any): number {
               null,
             )
             if (attCount > 0) {
-              for (const a of attMeta) {
-                insertP2PAttachment.run(
-                  randomUUID(),
-                  inboxId,
-                  a.filename,
-                  a.content_type,
-                  a.size_bytes,
-                  a.content_id,
-                  null,
-                  now,
-                )
-              }
+              ensureInboxAttachmentsFromBeapPackageJson(db, inboxId, pkg)
             }
             inbox = {
               id: inboxId,
