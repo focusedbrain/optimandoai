@@ -840,6 +840,27 @@ contextBridge.exposeInMainWorld('lifecycle', {
   },
 })
 
+// === TEMPORARY DEBUG LOG BRIDGE (remove before production) ===
+contextBridge.exposeInMainWorld('debugLogs', {
+  onLog: (callback: (entry: { ts: string; level: string; line: string }) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, entry: unknown) => {
+      if (!entry || typeof entry !== 'object') return
+      const o = entry as Record<string, unknown>
+      if (typeof o.ts === 'string' && typeof o.level === 'string' && typeof o.line === 'string') {
+        callback({ ts: o.ts, level: o.level, line: o.line })
+      }
+    }
+    ipcRenderer.on('main-process-log', handler)
+    return () => {
+      ipcRenderer.removeListener('main-process-log', handler)
+    }
+  },
+  removeLogListener: () => {
+    ipcRenderer.removeAllListeners('main-process-log')
+  },
+})
+// === END TEMPORARY DEBUG LOG BRIDGE ===
+
 // ============================================================================
 // §4  What Is NOT Exposed
 // ============================================================================

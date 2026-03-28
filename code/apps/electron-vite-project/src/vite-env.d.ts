@@ -52,9 +52,22 @@ interface IntegrityBridge {
   getStatus: () => Promise<IntegrityStatus>
 }
 
+/** TEMPORARY — main process log viewer (remove before production) */
+interface MainProcessLogEntry {
+  ts: string
+  level: string
+  line: string
+}
+
+interface DebugLogsBridge {
+  onLog: (callback: (entry: MainProcessLogEntry) => void) => () => void
+  removeLogListener: () => void
+}
+
 interface Window {
   LETmeGIRAFFETHATFORYOU?: LmgtfyBridge
   analysisDashboard?: AnalysisDashboardBridge
   lifecycle?: LifecycleBridge
   integrity?: IntegrityBridge
+  debugLogs?: DebugLogsBridge
 }

@@ -8,6 +8,47 @@ import {
   type Tier
 } from '../src/auth/capabilities'
 
+// === TEMPORARY DEBUG LOG CAPTURE (remove before production) ===
+const _originalLog = console.log
+const _originalError = console.error
+const _originalWarn = console.warn
+
+function formatMainLogArg(a: unknown): string {
+  if (typeof a === 'string') return a
+  try {
+    return JSON.stringify(a)
+  } catch {
+    return String(a)
+  }
+}
+
+function broadcastMainProcessLog(level: string, args: unknown[]) {
+  const line = args.map(formatMainLogArg).join(' ')
+  const entry = { ts: new Date().toISOString(), level, line }
+  try {
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (win.isDestroyed()) continue
+      win.webContents.send('main-process-log', entry)
+    }
+  } catch {
+    /* never throw from logging */
+  }
+}
+
+console.log = (...args: unknown[]) => {
+  _originalLog(...args)
+  broadcastMainProcessLog('log', args)
+}
+console.error = (...args: unknown[]) => {
+  _originalError(...args)
+  broadcastMainProcessLog('error', args)
+}
+console.warn = (...args: unknown[]) => {
+  _originalWarn(...args)
+  broadcastMainProcessLog('warn', args)
+}
+// === END TEMPORARY DEBUG LOG CAPTURE ===
+
 // ============================================================================
 // INSTANT LOGOUT - Split into fast sync (UI lock) + slow async (cleanup)
 // ============================================================================

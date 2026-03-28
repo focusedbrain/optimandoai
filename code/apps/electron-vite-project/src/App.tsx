@@ -11,6 +11,9 @@ import { useEmailInboxStore } from './stores/useEmailInboxStore'
 import { subscribeInboxNewMessagesBackgroundRefresh } from './utils/inboxNewMessagesBackgroundRefresh'
 import { type AnalysisOpenPayload, sanitizeAnalysisOpenPayload } from './components/analysis'
 import './components/handshakeViewTypes'
+// === TEMPORARY DEBUG LOG VIEWER (remove before production) ===
+import { DebugLogViewer } from './components/DebugLogViewer'
+// === END TEMPORARY DEBUG LOG VIEWER ===
 
 type DashboardView = 'analysis' | 'handshakes' | 'beap-inbox' | 'settings'
 type ExtensionTheme = 'pro' | 'dark' | 'standard'
@@ -276,6 +279,9 @@ function App() {
             }}
           />
         )}
+        {/* === TEMPORARY DEBUG LOG VIEWER (remove before production) === */}
+        <DebugLogViewer />
+        {/* === END TEMPORARY DEBUG LOG VIEWER === */}
       </main>
     </div>
   )
