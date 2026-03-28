@@ -1481,9 +1481,34 @@ export function insertAuditLogEntry(db: any, entry: AuditLogEntry): void {
 
 export function insertPendingP2PBeap(db: any, handshakeId: string, packageJson: string): void {
   const now = new Date().toISOString()
+  const cols = getColumnNames(db, 'p2p_pending_beap')
+  const columns: string[] = []
+  const values: string[] = []
+  if (cols.has('handshake_id')) {
+    columns.push('handshake_id')
+    values.push(handshakeId)
+  }
+  if (cols.has('package_json')) {
+    columns.push('package_json')
+    values.push(packageJson)
+  }
+  if (cols.has('raw_package')) {
+    columns.push('raw_package')
+    values.push(packageJson)
+  }
+  if (cols.has('created_at')) {
+    columns.push('created_at')
+    values.push(now)
+  }
+  if (!cols.has('package_json') && !cols.has('raw_package')) {
+    throw new Error('p2p_pending_beap: no package_json or raw_package column')
+  }
+  if (columns.length === 0) {
+    throw new Error('p2p_pending_beap: no insertable columns')
+  }
   db.prepare(
-    'INSERT INTO p2p_pending_beap (handshake_id, package_json, created_at) VALUES (?, ?, ?)'
-  ).run(handshakeId, packageJson, now)
+    `INSERT INTO p2p_pending_beap (${columns.join(', ')}) VALUES (${columns.map(() => '?').join(', ')})`
+  ).run(...values)
 }
 
 export interface PendingP2PBeapEntry {
@@ -1496,9 +1521,18 @@ export interface PendingP2PBeapEntry {
 export function getPendingP2PBeapMessages(db: any): PendingP2PBeapEntry[] {
   if (!db) return []
   try {
-    const rows = db.prepare(
-      'SELECT id, handshake_id, package_json, created_at FROM p2p_pending_beap WHERE processed = 0 ORDER BY created_at ASC'
-    ).all() as Array<{ id: number; handshake_id: string; package_json: string; created_at: string }>
+    const cols = getColumnNames(db, 'p2p_pending_beap')
+    const pkgExpr =
+      cols.has('raw_package') && cols.has('package_json')
+        ? 'COALESCE(package_json, raw_package)'
+        : cols.has('raw_package')
+          ? 'raw_package'
+          : 'package_json'
+    const rows = db
+      .prepare(
+        `SELECT id, handshake_id, ${pkgExpr} AS package_json, created_at FROM p2p_pending_beap WHERE processed = 0 ORDER BY created_at ASC`,
+      )
+      .all() as Array<{ id: number; handshake_id: string; package_json: string; created_at: string }>
     return rows.map(r => ({
       id: r.id,
       handshake_id: r.handshake_id,
