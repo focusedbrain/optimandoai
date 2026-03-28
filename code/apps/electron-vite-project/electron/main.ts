@@ -6939,6 +6939,19 @@ app.whenReady().then(async () => {
       }
     })
 
+    // GET /api/orchestrator/sessions - List automation sessions (orchestrator SQLite)
+    httpApp.get('/api/orchestrator/sessions', async (_req, res) => {
+      try {
+        const { getOrchestratorService } = await import('./main/orchestrator-db/service')
+        const service = getOrchestratorService()
+        const sessions = await service.listSessions()
+        res.json({ success: true, data: sessions })
+      } catch (error: any) {
+        console.error('[HTTP-ORCHESTRATOR] Error in sessions:', error)
+        res.status(500).json({ success: false, error: error.message || 'Failed to list sessions' })
+      }
+    })
+
     // GET /api/orchestrator/get - Get value by key
     httpApp.get('/api/orchestrator/get', async (req, res) => {
       try {

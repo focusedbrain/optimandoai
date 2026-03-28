@@ -21,9 +21,13 @@ import type { NormalInboxAiResult } from '../types/inboxAi'
 import { useInboxPreloadQueue } from '../hooks/useInboxPreloadQueue'
 import { tryParsePartialAnalysis, tryParseAnalysis, type NormalInboxAiResultKey } from '../utils/parseInboxAiJson'
 import { reconcileAnalyzeTriage } from '../lib/inboxClassificationReconcile'
+import { deriveInboxMessageKind } from '../lib/inboxMessageKind'
 import { InboxUrgencyMeter } from './InboxUrgencyMeter'
 import { InboxHandshakeNavIconButton } from './InboxHandshakeNavIcon'
 import '../components/handshakeViewTypes'
+
+/** Local HTTP API for orchestrator DB (matches `HTTP_PORT` in electron/main.ts). */
+const ORCHESTRATOR_HTTP_BASE = 'http://127.0.0.1:51248'
 
 // ── Relative date ──
 
@@ -92,6 +96,11 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
   const [actionChecked, setActionChecked] = useState<Record<number, boolean>>({})
   const [draftSubFocused, setDraftSubFocused] = useState(false)
   const [visibleSections, setVisibleSections] = useState<Set<string>>(() => new Set(['summary', 'draft', 'analysis']))
+  const [capsulePublicText, setCapsulePublicText] = useState('')
+  const [capsuleEncryptedText, setCapsuleEncryptedText] = useState('')
+  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
+  const [availableSessions, setAvailableSessions] = useState<Array<{ id: string; name: string }>>([])
+  const [capsuleAttachments, setCapsuleAttachments] = useState<File[]>([])
   const summaryRef = useRef<HTMLDivElement>(null)
   const draftRef = useRef<HTMLDivElement>(null)
   const draftTextareaRef = useRef<HTMLTextAreaElement>(null)
@@ -111,9 +120,13 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
   const refinedDraftText = useDraftRefineStore((s) => s.refinedDraftText)
   const acceptRefinement = useDraftRefineStore((s) => s.acceptRefinement)
 
+  const messageKind = message ? deriveInboxMessageKind(message) : null
+  const isNativeBeap = messageKind === 'handshake'
+
   const runAnalysisStream = useCallback(async () => {
     console.log('[ANALYSIS] runAnalysisStream triggered for:', messageId)
     if (!window.emailInbox?.aiAnalyzeMessageStream || !window.emailInbox.onAiAnalyzeChunk) return
+    const skipEmailDraft = !!(message && deriveInboxMessageKind(message) === 'handshake')
     const cached = useEmailInboxStore.getState().analysisCache[messageId]
     if (cached) {
       const tri = reconcileAnalyzeTriage(
@@ -133,12 +146,14 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
       }
       setAnalysis(cachedAdj)
       setReceivedFields(new Set(['needsReply', 'needsReplyReason', 'summary', 'urgencyScore', 'urgencyReason', 'actionItems', 'archiveRecommendation', 'archiveReason', 'draftReply']))
-      if (cachedAdj.draftReply) {
-        setDraft(cachedAdj.draftReply)
-        setEditedDraft(cachedAdj.draftReply)
-      } else {
-        setDraft(null)
-        setEditedDraft('')
+      if (!skipEmailDraft) {
+        if (cachedAdj.draftReply) {
+          setDraft(cachedAdj.draftReply)
+          setEditedDraft(cachedAdj.draftReply)
+        } else {
+          setDraft(null)
+          setEditedDraft('')
+        }
       }
       setAnalysisLoading(false)
       return
@@ -182,7 +197,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
           return merged
         })
         setReceivedFields((prev) => new Set([...prev, ...parsed.receivedKeys]))
-        if (parsed.receivedKeys.includes('draftReply') && parsed.partial.draftReply) {
+        if (!skipEmailDraft && parsed.receivedKeys.includes('draftReply') && parsed.partial.draftReply) {
           setDraft(parsed.partial.draftReply)
           setEditedDraft(parsed.partial.draftReply)
         }
@@ -215,12 +230,14 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
         }
         setAnalysis(adjusted)
         setReceivedFields(new Set(['needsReply', 'needsReplyReason', 'summary', 'urgencyScore', 'urgencyReason', 'actionItems', 'archiveRecommendation', 'archiveReason', 'draftReply']))
-        if (adjusted.draftReply) {
-          setDraft(adjusted.draftReply)
-          setEditedDraft(adjusted.draftReply)
-        } else {
-          setDraft(null)
-          setEditedDraft('')
+        if (!skipEmailDraft) {
+          if (adjusted.draftReply) {
+            setDraft(adjusted.draftReply)
+            setEditedDraft(adjusted.draftReply)
+          } else {
+            setDraft(null)
+            setEditedDraft('')
+          }
         }
         useEmailInboxStore.getState().setAnalysisCache(messageId, adjusted)
       }
@@ -247,7 +264,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
       setAnalysisError('Analysis failed. Check that Ollama is running.')
       cleanup()
     }
-  }, [messageId, message?.subject, message?.body_text])
+  }, [messageId, message?.subject, message?.body_text, message?.source_type, message?.handshake_id])
 
   useEffect(() => {
     if (!messageId) return
@@ -257,9 +274,15 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
     setSummarizeLoading(false)
     setDraft(null)
     setEditedDraft('')
+    setDraftError(false)
     setActionChecked({})
     setDraftSubFocused(false)
     setVisibleSections(new Set(['summary', 'draft', 'analysis']))
+    setCapsulePublicText('')
+    setCapsuleEncryptedText('')
+    setSelectedSessionId(null)
+    setCapsuleAttachments([])
+    setAvailableSessions([])
     draftFallbackAttemptedRef.current = false
     draftRefineDisconnect()
     runAnalysisStream()
@@ -386,6 +409,30 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
     setAttachments([])
   }, [messageId])
 
+  useEffect(() => {
+    if (!isNativeBeap) return
+    const loadSessions = async () => {
+      try {
+        await fetch(`${ORCHESTRATOR_HTTP_BASE}/api/orchestrator/connect`, { method: 'POST' })
+      } catch {
+        /* best-effort — listSessions may still connect */
+      }
+      try {
+        const res = await fetch(`${ORCHESTRATOR_HTTP_BASE}/api/orchestrator/sessions`)
+        const json = (await res.json()) as { success?: boolean; data?: Array<{ id: string; name: string }> }
+        if (json.success && Array.isArray(json.data)) {
+          setAvailableSessions(json.data.map((s) => ({ id: s.id, name: s.name })))
+        } else {
+          setAvailableSessions([])
+        }
+      } catch (e) {
+        console.warn('Failed to load orchestrator sessions:', e)
+        setAvailableSessions([])
+      }
+    }
+    void loadSessions()
+  }, [isNativeBeap])
+
   const handleDraftReply = useCallback(async () => {
     if (!window.emailInbox?.aiDraftReply) return
     setDraftLoading(true)
@@ -412,6 +459,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
   /** If analyze stream ends with needsReply but no draftReply, fetch draft once via aiDraftReply. */
   useEffect(() => {
     if (!messageId || !visibleSections.has('draft')) return
+    if (isNativeBeap) return
     if (analysisLoading || !analysis?.needsReply) return
     if ((draft ?? '').trim() || draftLoading) return
     if (editedDraft.trim()) return
@@ -421,6 +469,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
   }, [
     messageId,
     visibleSections,
+    isNativeBeap,
     analysisLoading,
     analysis?.needsReply,
     draft,
@@ -450,7 +499,9 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
 
   const handleSend = useCallback(async () => {
     if (!message || !onSendDraft) return
-    const draftToSend = (editedDraft || draft) ?? ''
+    const draftToSend = isNativeBeap
+      ? [capsulePublicText, capsuleEncryptedText].map((s) => s.trim()).filter(Boolean).join('\n\n---\n\n')
+      : (editedDraft || draft) ?? ''
     if (!draftToSend.trim()) return
     setSending(true)
     try {
@@ -459,11 +510,26 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
         setDraft(null)
         setEditedDraft('')
         setAttachments([])
+        if (isNativeBeap) {
+          setCapsulePublicText('')
+          setCapsuleEncryptedText('')
+          setSelectedSessionId(null)
+          setCapsuleAttachments([])
+        }
       }
     } finally {
       setSending(false)
     }
-  }, [message, onSendDraft, editedDraft, draft, attachments])
+  }, [
+    message,
+    onSendDraft,
+    isNativeBeap,
+    editedDraft,
+    draft,
+    attachments,
+    capsulePublicText,
+    capsuleEncryptedText,
+  ])
 
   const handleArchive = useCallback(() => {
     if (onArchive && messageId) onArchive([messageId])
@@ -530,7 +596,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
           onClick={() => {
             const willShow = !visibleSections.has('draft')
             toggleSection('draft')
-            if (willShow && !draft && !draftLoading) {
+            if (willShow && !draft && !draftLoading && !isNativeBeap) {
               void handleDraftReply()
             }
           }}
@@ -540,7 +606,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
           <span className="inbox-detail-ai-section-toggle-check" aria-hidden>
             {visibleSections.has('draft') ? '☑' : '☐'}
           </span>
-          <span>Draft</span>
+          <span>✎ {isNativeBeap ? 'Capsule Draft' : 'Draft'}</span>
         </button>
         <button
           type="button"
@@ -724,127 +790,236 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
           <div className="inbox-detail-ai-section inbox-detail-ai-section--tab-panel">
             <div
               className={`inbox-detail-ai-row inbox-detail-ai-row-draft ai-draft-expanded${
-                draftRefineConnected && draftRefineMessageId === messageId ? ' ai-draft-connected' : ''
+                !isNativeBeap && draftRefineConnected && draftRefineMessageId === messageId ? ' ai-draft-connected' : ''
               }`}
               ref={draftRef}
             >
-              <div className="ai-section-draft-header">
-                {draft && draftSubFocused ? (
-                  <span
-                    className="bulk-action-card-draft-subfocus-indicator"
-                    title="Draft selected — chat scoped to this draft"
-                    aria-hidden
-                  >
-                    ✏️
-                  </span>
-                ) : null}
-                <span className="inbox-detail-ai-row-label">{draft ? 'DRAFT REPLY' : 'Draft Reply'}</span>
-                {draft ? <span className="ai-draft-connect-hint">click to refine with AI ↑</span> : null}
-              </div>
-              <div className="inbox-detail-ai-row-value">
-                {draftError && (
-                  <div className="inbox-detail-ai-error-banner">
-                    <span>Draft generation failed.</span>
-                    <button type="button" onClick={handleRetryDraft}>
-                      Retry
-                    </button>
+              {isNativeBeap ? (
+                <>
+                  <div className="ai-section-draft-header">
+                    <span className="inbox-detail-ai-row-label">Capsule reply</span>
                   </div>
-                )}
-                {draftRefineConnected && draftRefineMessageId === messageId && (
-                  <span className="ai-draft-connect-hint" style={{ marginBottom: 4 }}>
-                    Connected to chat ↑ — type instructions to refine
-                  </span>
-                )}
-                <textarea
-                  ref={draftTextareaRef}
-                  value={editedDraft || draft || ''}
-                  onChange={(e) => setEditedDraft(e.target.value)}
-                  onClick={handleDraftRefineConnect}
-                  onFocus={() => {
-                    setDraftSubFocused(true)
-                    useEmailInboxStore.getState().setEditingDraftForMessageId(messageId)
-                    handleDraftRefineConnect()
-                  }}
-                  onBlur={() => {
-                    setDraftSubFocused(false)
-                    useEmailInboxStore.getState().setEditingDraftForMessageId(null)
-                  }}
-                  className="inbox-detail-ai-draft-textarea"
-                  readOnly={draftLoading}
-                  aria-busy={draftLoading}
-                  placeholder={
-                    draftLoading
-                      ? 'Draft will be generated…'
-                      : analysisLoading
-                        ? 'Draft will be generated when analysis finishes…'
-                        : analysis?.needsReply
-                          ? 'Edit draft before sending…'
-                          : 'Optional reply — no response required for this message.'
-                  }
-                />
-                {refinedDraftText && draftRefineConnected && draftRefineMessageId === messageId && (
-                  <div className="inbox-detail-ai-refined-preview">
-                    <div className="inbox-detail-ai-refined-header">
-                      <span className="inbox-detail-ai-refined-label">Suggested refinement:</span>
-                      <button
-                        type="button"
-                        className="inbox-detail-ai-accept-refinement"
-                        onClick={acceptRefinement}
-                        title="Apply refined draft"
-                        aria-label="Apply refined draft"
-                      >
-                        ✓ Accept
-                      </button>
+                  <div className="inbox-detail-ai-row-value">
+                    <div className="inbox-ai-capsule-draft">
+                      <div className="capsule-draft-field">
+                        <label className="capsule-field-label">BEAP™ Message (public)</label>
+                        <textarea
+                          className="capsule-draft-textarea"
+                          placeholder="Public capsule text — transport-visible message body"
+                          value={capsulePublicText}
+                          onChange={(e) => setCapsulePublicText(e.target.value)}
+                          rows={3}
+                        />
+                      </div>
+                      <div className="capsule-draft-field capsule-draft-field--encrypted">
+                        <label className="capsule-field-label capsule-field-label--encrypted">
+                          🔒 Encrypted Message (Private · QBEAP)
+                        </label>
+                        <textarea
+                          className="capsule-draft-textarea capsule-draft-textarea--encrypted"
+                          placeholder="This message is encrypted, capsule-bound, and never transported outside the BEAP package."
+                          value={capsuleEncryptedText}
+                          onChange={(e) => setCapsuleEncryptedText(e.target.value)}
+                          rows={4}
+                        />
+                        <div className="capsule-field-hint">
+                          ⚠ This content is authoritative when present and never leaves the encrypted capsule.
+                        </div>
+                      </div>
+                      <div className="capsule-draft-field">
+                        <label className="capsule-field-label">Session (optional)</label>
+                        <select
+                          className="capsule-session-select"
+                          value={selectedSessionId ?? ''}
+                          onChange={(e) => setSelectedSessionId(e.target.value || null)}
+                        >
+                          <option value="">— No session —</option>
+                          {availableSessions.map((s) => (
+                            <option key={s.id} value={s.id}>
+                              {s.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="capsule-draft-field">
+                        <label className="capsule-field-label">Attachments</label>
+                        <input
+                          type="file"
+                          accept=".pdf,.txt,.json,application/pdf,text/plain,application/json"
+                          multiple
+                          className="capsule-file-input"
+                          onChange={(e) => {
+                            if (e.target.files) setCapsuleAttachments(Array.from(e.target.files))
+                          }}
+                        />
+                        {capsuleAttachments.length > 0 && (
+                          <div className="capsule-attachment-list">
+                            {capsuleAttachments.map((f, i) => (
+                              <div key={`${f.name}-${i}`} className="capsule-attachment-chip">
+                                📎 {f.name}
+                                <button
+                                  type="button"
+                                  className="capsule-attachment-remove"
+                                  onClick={() => setCapsuleAttachments((prev) => prev.filter((_, j) => j !== i))}
+                                  aria-label="Remove attachment"
+                                >
+                                  ×
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
                     </div>
-                    <div className="inbox-detail-ai-refined-content">{refinedDraftText}</div>
+                    <div className="bulk-draft-actions-toolbar-wrap inbox-detail-ai-draft-actions">
+                      <div className="bulk-draft-actions-toolbar">
+                        {message && onSendDraft && (
+                          <button
+                            type="button"
+                            className="bulk-action-card-btn bulk-action-card-btn--primary bulk-action-card-btn--primary-emphasis"
+                            onClick={handleSend}
+                            disabled={
+                              sending ||
+                              ![capsulePublicText, capsuleEncryptedText].some((s) => s.trim().length > 0)
+                            }
+                          >
+                            {sending ? 'Sending...' : 'Send via BEAP'}
+                          </button>
+                        )}
+                        {onArchive && messageId ? (
+                          <button
+                            type="button"
+                            className="bulk-action-card-btn bulk-action-card-btn--secondary"
+                            onClick={handleArchive}
+                          >
+                            Archive
+                          </button>
+                        ) : null}
+                      </div>
+                    </div>
                   </div>
-                )}
-                {attachments.length > 0 && (
-                  <div className="draft-attachments">
-                    {attachments.map((a, i) => (
-                      <div key={i} className="attachment-chip">
-                        <span>{a.name}</span>
-                        <span className="attachment-size">{Math.round(a.size / 1024)}KB</span>
-                        <button type="button" onClick={() => removeAttachment(i)} aria-label="Remove attachment">
-                          ✕
+                </>
+              ) : (
+                <>
+                  <div className="ai-section-draft-header">
+                    {draft && draftSubFocused ? (
+                      <span
+                        className="bulk-action-card-draft-subfocus-indicator"
+                        title="Draft selected — chat scoped to this draft"
+                        aria-hidden
+                      >
+                        ✏️
+                      </span>
+                    ) : null}
+                    <span className="inbox-detail-ai-row-label">{draft ? 'DRAFT REPLY' : 'Draft Reply'}</span>
+                    {draft ? <span className="ai-draft-connect-hint">click to refine with AI ↑</span> : null}
+                  </div>
+                  <div className="inbox-detail-ai-row-value inbox-ai-draft-section">
+                    {draftError && (
+                      <div className="inbox-detail-ai-error-banner">
+                        <span>Draft generation failed.</span>
+                        <button type="button" onClick={handleRetryDraft}>
+                          Retry
                         </button>
                       </div>
-                    ))}
-                  </div>
-                )}
-                <div className="bulk-draft-actions-toolbar-wrap inbox-detail-ai-draft-actions">
-                  <div className="bulk-draft-actions-toolbar">
-                    {isDepackaged && (
-                      <button
-                        type="button"
-                        className="bulk-action-card-btn bulk-action-card-btn--secondary"
-                        onClick={handleAddAttachment}
-                        title="Add attachment"
-                      >
-                        📎 Attach
-                      </button>
                     )}
-                    {message && onSendDraft && !draftError && (
-                      <button
-                        type="button"
-                        className="bulk-action-card-btn bulk-action-card-btn--primary bulk-action-card-btn--primary-emphasis"
-                        onClick={handleSend}
-                        disabled={sending || !(editedDraft || draft)?.trim()}
-                      >
-                        {sending ? 'Sending...' : isDepackaged ? 'Send via Email' : 'Send via BEAP'}
-                      </button>
+                    {draftRefineConnected && draftRefineMessageId === messageId && (
+                      <span className="ai-draft-connect-hint" style={{ marginBottom: 4 }}>
+                        Connected to chat ↑ — type instructions to refine
+                      </span>
                     )}
-                    {onArchive && messageId ? (
-                      <button type="button" className="bulk-action-card-btn bulk-action-card-btn--secondary" onClick={handleArchive}>
-                        Archive
-                      </button>
-                    ) : null}
-                    <button type="button" className="bulk-action-card-btn bulk-action-card-btn--secondary" onClick={handleRegenerateDraft}>
-                      Regenerate
-                    </button>
+                    <textarea
+                      ref={draftTextareaRef}
+                      value={editedDraft || draft || ''}
+                      onChange={(e) => setEditedDraft(e.target.value)}
+                      onClick={handleDraftRefineConnect}
+                      onFocus={() => {
+                        setDraftSubFocused(true)
+                        useEmailInboxStore.getState().setEditingDraftForMessageId(messageId)
+                        handleDraftRefineConnect()
+                      }}
+                      onBlur={() => {
+                        setDraftSubFocused(false)
+                        useEmailInboxStore.getState().setEditingDraftForMessageId(null)
+                      }}
+                      className="inbox-detail-ai-draft-textarea"
+                      readOnly={draftLoading}
+                      aria-busy={draftLoading}
+                      placeholder={
+                        draftLoading
+                          ? 'Draft will be generated…'
+                          : analysisLoading
+                            ? 'Draft will be generated when analysis finishes…'
+                            : analysis?.needsReply
+                              ? 'Edit draft before sending…'
+                              : 'Optional reply — no response required for this message.'
+                      }
+                    />
+                    {refinedDraftText && draftRefineConnected && draftRefineMessageId === messageId && (
+                      <div className="inbox-detail-ai-refined-preview">
+                        <div className="inbox-detail-ai-refined-header">
+                          <span className="inbox-detail-ai-refined-label">Suggested refinement:</span>
+                          <button
+                            type="button"
+                            className="inbox-detail-ai-accept-refinement"
+                            onClick={acceptRefinement}
+                            title="Apply refined draft"
+                            aria-label="Apply refined draft"
+                          >
+                            ✓ Accept
+                          </button>
+                        </div>
+                        <div className="inbox-detail-ai-refined-content">{refinedDraftText}</div>
+                      </div>
+                    )}
+                    {attachments.length > 0 && (
+                      <div className="draft-attachments">
+                        {attachments.map((a, i) => (
+                          <div key={i} className="attachment-chip">
+                            <span>{a.name}</span>
+                            <span className="attachment-size">{Math.round(a.size / 1024)}KB</span>
+                            <button type="button" onClick={() => removeAttachment(i)} aria-label="Remove attachment">
+                              ✕
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    <div className="bulk-draft-actions-toolbar-wrap inbox-detail-ai-draft-actions">
+                      <div className="bulk-draft-actions-toolbar">
+                        {isDepackaged && (
+                          <button
+                            type="button"
+                            className="bulk-action-card-btn bulk-action-card-btn--secondary"
+                            onClick={handleAddAttachment}
+                            title="Add attachment"
+                          >
+                            📎 Attach
+                          </button>
+                        )}
+                        {message && onSendDraft && !draftError && (
+                          <button
+                            type="button"
+                            className="bulk-action-card-btn bulk-action-card-btn--primary bulk-action-card-btn--primary-emphasis"
+                            onClick={handleSend}
+                            disabled={sending || !(editedDraft || draft)?.trim()}
+                          >
+                            {sending ? 'Sending...' : isDepackaged ? 'Send via Email' : 'Send via BEAP'}
+                          </button>
+                        )}
+                        {onArchive && messageId ? (
+                          <button type="button" className="bulk-action-card-btn bulk-action-card-btn--secondary" onClick={handleArchive}>
+                            Archive
+                          </button>
+                        ) : null}
+                        <button type="button" className="bulk-action-card-btn bulk-action-card-btn--secondary" onClick={handleRegenerateDraft}>
+                          Regenerate
+                        </button>
+                      </div>
+                    </div>
                   </div>
-                </div>
-              </div>
+                </>
+              )}
             </div>
           </div>
         )}

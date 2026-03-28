@@ -6194,3 +6194,97 @@ body {
   line-height: 1.55;
   color: #64748b;
 }
+
+/* Native BEAP capsule draft */
+.inbox-ai-capsule-draft {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 8px 0;
+}
+
+.capsule-draft-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.capsule-field-label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-secondary, #666);
+}
+
+.capsule-field-label--encrypted {
+  color: #7c3aed;
+}
+
+.capsule-draft-textarea {
+  font-size: 12px;
+  padding: 8px;
+  border: 1px solid var(--border-color, #e0e0e0);
+  border-radius: 6px;
+  resize: vertical;
+  font-family: inherit;
+  line-height: 1.4;
+  background: var(--input-bg, #fff);
+}
+
+.capsule-draft-textarea--encrypted {
+  background: #f5f3ff;
+  border-color: #c4b5fd;
+}
+
+.capsule-draft-textarea:focus {
+  outline: none;
+  border-color: #7c3aed;
+  box-shadow: 0 0 0 2px rgba(124, 58, 237, 0.15);
+}
+
+.capsule-field-hint {
+  font-size: 10px;
+  color: #7c3aed;
+  opacity: 0.8;
+}
+
+.capsule-session-select {
+  font-size: 12px;
+  padding: 6px 8px;
+  border: 1px solid var(--border-color, #e0e0e0);
+  border-radius: 6px;
+  background: var(--input-bg, #fff);
+}
+
+.capsule-file-input {
+  font-size: 11px;
+}
+
+.capsule-attachment-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.capsule-attachment-chip {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 12px;
+  background: #ede9fe;
+  color: #5b21b6;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.capsule-attachment-remove {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 14px;
+  color: #7c3aed;
+  padding: 0 2px;
+  line-height: 1;
+}
