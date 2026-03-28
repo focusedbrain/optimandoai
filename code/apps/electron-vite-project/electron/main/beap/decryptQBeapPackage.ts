@@ -10,6 +10,7 @@ import { x25519 } from '@noble/curves/ed25519'
 import { ml_kem768 } from '@noble/post-quantum/ml-kem'
 
 import { getHandshakeRecord } from '../handshake/db'
+import { computeEnvelopeAadBytes } from './beapEnvelopeAad'
 
 const wc = webcrypto as Crypto
 
@@ -146,6 +147,7 @@ interface EncryptedChunk {
   ciphertext: string
   tag?: string
   authTag?: string
+  gcmTag?: string
 }
 
 function getPayloadChunks(payloadEnc: Record<string, unknown>): EncryptedChunk[] | null {
@@ -190,7 +192,9 @@ async function decryptChunkSequence(
         ? chunk.tag
         : typeof chunk.authTag === 'string'
           ? chunk.authTag
-          : undefined
+          : typeof chunk.gcmTag === 'string'
+            ? chunk.gcmTag
+            : undefined
     const plain = await aesGcmDecrypt(key, chunk.nonce, chunk.ciphertext, aad, tagExtra)
     parts.push(plain)
   }
@@ -370,6 +374,16 @@ export async function decryptQBeapPackage(
     })
     void innerEnvelopeKey
 
+    /** Per canon A.3.054.10 — same bytes as extension `encryptCapsulePayloadChunked` / `encryptChunks` AAD. */
+    let envelopeAadBytes: Uint8Array | undefined
+    try {
+      const aad = computeEnvelopeAadBytes(header as Record<string, unknown>)
+      envelopeAadBytes = aad.length > 0 ? aad : undefined
+      console.log('[qBEAP-decrypt] Envelope AAD length:', aad.length)
+    } catch (e) {
+      console.warn('[qBEAP-decrypt] computeEnvelopeAadBytes failed:', (e as Error)?.message ?? e)
+    }
+
     const payloadEnc = pkg.payloadEnc as Record<string, unknown> | undefined
     if (!payloadEnc) {
       console.warn('[qBEAP-decrypt] Missing payloadEnc')
@@ -380,12 +394,34 @@ export async function decryptQBeapPackage(
     let capsuleJson: string
     if (chunks && chunks.length > 0) {
       const sorted = [...chunks].sort((a, b) => (a.index ?? 0) - (b.index ?? 0))
-      const c0 = sorted[0] as EncryptedChunk
+      const c0 = sorted[0] as EncryptedChunk & Record<string, unknown>
       const c0tag =
-        typeof c0.tag === 'string' ? c0.tag : typeof c0.authTag === 'string' ? c0.authTag : undefined
+        typeof c0.tag === 'string'
+          ? c0.tag
+          : typeof c0.authTag === 'string'
+            ? c0.authTag
+            : typeof c0.gcmTag === 'string'
+              ? c0.gcmTag
+              : undefined
+      console.log(
+        '[qBEAP-decrypt] Chunk 0 structure:',
+        JSON.stringify({
+          hasNonce: !!c0.nonce,
+          nonceLen: typeof c0.nonce === 'string' ? c0.nonce.length : 0,
+          hasCiphertext: !!c0.ciphertext,
+          ciphertextLen: typeof c0.ciphertext === 'string' ? c0.ciphertext.length : 0,
+          hasTag: !!c0.tag,
+          tagLen: typeof c0.tag === 'string' ? c0.tag.length : 0,
+          hasAuthTag: !!c0.authTag,
+          authTagLen: typeof c0.authTag === 'string' ? c0.authTag.length : 0,
+          hasSha256Cipher: !!c0.sha256Cipher,
+          index: c0.index,
+          allKeys: c0 && typeof c0 === 'object' ? Object.keys(c0) : [],
+        }),
+      )
       cryptoStep = 'aes-gcm-capsule-chunks'
       logGcmDecryptInputs('capsule-chunk-0', c0.nonce, c0.ciphertext, c0tag)
-      const combined = await decryptChunkSequence(capsuleKey, chunks)
+      const combined = await decryptChunkSequence(capsuleKey, chunks, envelopeAadBytes)
       capsuleJson = new TextDecoder().decode(combined)
     } else {
       const nonce = payloadEnc.nonce
@@ -402,7 +438,7 @@ export async function decryptQBeapPackage(
             : undefined
       cryptoStep = 'aes-gcm-capsule-single'
       logGcmDecryptInputs('capsule-payload', nonce, ctext, tagB64)
-      const plain = await aesGcmDecrypt(capsuleKey, nonce, ctext, undefined, tagB64)
+      const plain = await aesGcmDecrypt(capsuleKey, nonce, ctext, envelopeAadBytes, tagB64)
       capsuleJson = new TextDecoder().decode(plain)
     }
 
@@ -440,15 +476,17 @@ export async function decryptQBeapPackage(
           const achunks = getArtefactChunks(enc)
           let decBytes: Uint8Array
           if (achunks && achunks.length > 0) {
-            decBytes = await decryptChunkSequence(artefactKey, achunks)
+            decBytes = await decryptChunkSequence(artefactKey, achunks, envelopeAadBytes)
           } else if (typeof enc.nonce === 'string' && typeof enc.ciphertext === 'string') {
             const aTag =
               typeof enc.tag === 'string'
                 ? enc.tag
                 : typeof enc.authTag === 'string'
                   ? enc.authTag
-                  : undefined
-            decBytes = await aesGcmDecrypt(artefactKey, enc.nonce, enc.ciphertext, undefined, aTag)
+                  : typeof (enc as EncryptedChunk).gcmTag === 'string'
+                    ? (enc as EncryptedChunk).gcmTag
+                    : undefined
+            decBytes = await aesGcmDecrypt(artefactKey, enc.nonce, enc.ciphertext, envelopeAadBytes, aTag)
           } else {
             continue
           }

@@ -205,6 +205,9 @@ import type {
 } from './domain/orchestratorRemoteTypes'
 import { ensureInboxAttachmentsFromBeapPackageJson, processPendingP2PBeapEmails } from './beapEmailIngestion'
 import { notifyBeapInboxDashboard } from './beapInboxDashboardNotify'
+
+/** Dedup concurrent `inbox:aiAnalyzeMessageStream` IPC calls for the same message id. */
+const activeAiAnalyzeMessageStreams = new Set<string>()
 import { processPendingPlainEmails } from './plainEmailIngestion'
 import { reconcileAnalyzeTriage, reconcileInboxClassification } from '../../../src/lib/inboxClassificationReconcile'
 import { formatSourceWeightingForPrompt, sortSourceWeightingFromMessageRow } from '../../../src/lib/inboxSortSourceWeighting'
@@ -3662,6 +3665,11 @@ Respond ONLY with valid JSON. No markdown, no backticks, no preamble, no explana
   })
 
   ipcMain.handle('inbox:aiAnalyzeMessageStream', async (event, messageId: string) => {
+    if (activeAiAnalyzeMessageStreams.has(messageId)) {
+      console.log('[AI-ANALYZE-STREAM] Already running for:', messageId)
+      return { started: false, reason: 'already-running' as const }
+    }
+    activeAiAnalyzeMessageStreams.add(messageId)
     console.log('[AI-ANALYZE-STREAM] Starting for message:', messageId)
     try {
       const db = await resolveDb()
@@ -3751,6 +3759,8 @@ Respond ONLY with valid JSON. No markdown, no backticks, no preamble.`
           message: err?.message ?? 'Unknown error',
         })
       }
+    } finally {
+      activeAiAnalyzeMessageStreams.delete(messageId)
     }
     return { started: true }
   })
