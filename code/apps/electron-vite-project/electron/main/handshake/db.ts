@@ -1483,29 +1483,64 @@ export function insertPendingP2PBeap(db: any, handshakeId: string, packageJson: 
   const now = new Date().toISOString()
   const cols = getColumnNames(db, 'p2p_pending_beap')
   const columns: string[] = []
-  const values: string[] = []
-  if (cols.has('handshake_id')) {
-    columns.push('handshake_id')
-    values.push(handshakeId)
+  const values: (string | number)[] = []
+  const filled = new Set<string>()
+
+  const pushCol = (name: string, value: string | number) => {
+    columns.push(name)
+    values.push(value)
+    filled.add(name)
   }
-  if (cols.has('package_json')) {
-    columns.push('package_json')
-    values.push(packageJson)
-  }
-  if (cols.has('raw_package')) {
-    columns.push('raw_package')
-    values.push(packageJson)
-  }
-  if (cols.has('created_at')) {
-    columns.push('created_at')
-    values.push(now)
-  }
+
+  if (cols.has('handshake_id')) pushCol('handshake_id', handshakeId)
+  if (cols.has('package_json')) pushCol('package_json', packageJson)
+  if (cols.has('raw_package')) pushCol('raw_package', packageJson)
+  if (cols.has('created_at')) pushCol('created_at', now)
+  if (cols.has('received_at')) pushCol('received_at', now)
+
   if (!cols.has('package_json') && !cols.has('raw_package')) {
     throw new Error('p2p_pending_beap: no package_json or raw_package column')
   }
+
+  // Legacy / drift: NOT NULL columns without DEFAULT must receive a value
+  try {
+    const pragmaRows = db.prepare(`PRAGMA table_info(p2p_pending_beap)`).all() as Array<{
+      name: string
+      type: string
+      notnull: number
+      dflt_value: string | null
+      pk: number
+    }>
+    for (const row of pragmaRows) {
+      if (row.pk === 1) continue
+      if (filled.has(row.name)) continue
+      if (row.notnull !== 1) continue
+      if (row.dflt_value !== null) continue
+      const t = (row.type || '').toUpperCase()
+      const n = row.name.toLowerCase()
+      let v: string | number
+      if (t.includes('INT') || t === 'INTEGER' || t === 'REAL') {
+        v = 0
+      } else if (
+        /_at$/.test(n) ||
+        n.includes('timestamp') ||
+        n.includes('date') ||
+        (n.includes('time') && /(^|_)(created|updated|received|sent|processed)/.test(n))
+      ) {
+        v = now
+      } else {
+        v = ''
+      }
+      pushCol(row.name, v)
+    }
+  } catch {
+    /* non-fatal — explicit mapping above is the common path */
+  }
+
   if (columns.length === 0) {
     throw new Error('p2p_pending_beap: no insertable columns')
   }
+  console.log('[P2P-RECV] insertPendingP2PBeap columns:', columns.join(', '))
   db.prepare(
     `INSERT INTO p2p_pending_beap (${columns.join(', ')}) VALUES (${columns.map(() => '?').join(', ')})`
   ).run(...values)
