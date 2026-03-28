@@ -16,6 +16,9 @@
 
 import { randomUUID } from 'crypto'
 
+import { evaluateAutoresponder } from '../beap/autoresponderEvaluator'
+import { logAutoresponderDecision } from '../beap/autoresponderAudit'
+
 const BATCH_SIZE = 100
 
 /** Sentinel account_id for P2P-ingested rows (no email account). */
@@ -360,6 +363,22 @@ export function processPendingP2PBeapEmails(db: any): number {
 
           const depackagedJson = beapPackageToMainProcessDepackaged(pkg, inbox)
           updateInbox.run(depackagedJson, inbox.id)
+
+          try {
+            const evaluation = evaluateAutoresponder({
+              messageId: inbox.id,
+              handshakeId: row.handshake_id ?? null,
+              depackagedJson,
+            })
+            logAutoresponderDecision(evaluation)
+            if (evaluation.decision === 'policy-consent') {
+              // TODO: Auto-import sessions + trigger orchestrator + build reply
+              // This is where the autoresponder pipeline will execute
+            }
+          } catch (evalErr: unknown) {
+            console.warn('[Autoresponder] evaluation failed:', (evalErr as Error)?.message ?? evalErr)
+          }
+
           markProcessed.run(row.id)
           drained++
           console.log(`[BEAP-INBOX] Message imported: handshake=${row.handshake_id} messageId=${inbox.id}`)

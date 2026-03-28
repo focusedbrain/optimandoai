@@ -708,6 +708,7 @@ import { createP2PServer } from './main/p2p/p2pServer'
 import { createCoordinationWsClient } from './main/p2p/coordinationWs'
 import { setBeapRecipientPendingNotifier } from './main/p2p/beapRecipientNotify'
 import { processPendingP2PBeapEmails } from './main/email/beapEmailIngestion'
+import { getAuditForMessage, getAutoresponderAuditLog } from './main/beap/autoresponderAudit'
 import { setBeapInboxDashboardNotifier, notifyBeapInboxDashboard } from './main/email/beapInboxDashboardNotify'
 import { getP2PConfig, upsertP2PConfig, computeLocalP2PEndpoint } from './main/p2p/p2pConfig'
 import { getP2PHealth, setP2PHealthQueueCounts, setP2PHealthSelfTest, setP2PHealthRelayMode } from './main/p2p/p2pHealth'
@@ -2276,6 +2277,54 @@ app.whenReady().then(async () => {
       }
     })
 
+    ipcMain.handle('handshake:sendBeapViaP2P', async (_e, payload: { handshakeId: string; packageJson: string }) => {
+      try {
+        const db = await getLedgerDbOrOpen()
+        if (!db) return { success: false, error: 'Database unavailable' }
+        return await handleHandshakeRPC('handshake.sendBeapViaP2P', payload, db)
+      } catch (err: any) {
+        console.error('[MAIN] handshake:sendBeapViaP2P error:', err?.message)
+        return { success: false, error: err?.message ?? 'Send failed' }
+      }
+    })
+
+    ipcMain.handle('handshake:checkSendReady', async (_e, payload: { handshakeId: string }) => {
+      try {
+        const db = await getLedgerDbOrOpen()
+        if (!db) return { ready: false, error: 'Database unavailable' }
+        return await handleHandshakeRPC('handshake.checkSendReady', payload, db)
+      } catch (err: any) {
+        console.error('[MAIN] handshake:checkSendReady error:', err?.message)
+        return { ready: false, error: err?.message ?? 'Check failed' }
+      }
+    })
+
+    /** Relay-only: forward pre-built package JSON to P2P pipeline (build happens in renderer via BeapPackageBuilder). */
+    ipcMain.handle('beap:sendCapsuleReply', async (_e, payload: unknown) => {
+      try {
+        if (!payload || typeof payload !== 'object') {
+          return { success: false, error: 'Invalid payload' }
+        }
+        const p = payload as Record<string, unknown>
+        if (typeof p.handshakeId === 'string' && typeof p.packageJson === 'string' && p.packageJson.length > 0) {
+          const db = await getLedgerDbOrOpen()
+          if (!db) return { success: false, error: 'Database unavailable' }
+          return await handleHandshakeRPC(
+            'handshake.sendBeapViaP2P',
+            { handshakeId: p.handshakeId, packageJson: p.packageJson },
+            db,
+          )
+        }
+        return {
+          success: false,
+          error:
+            'Use “Send BEAP Reply” in the inbox panel to build and send from draft fields, or pass { handshakeId, packageJson } after building in the renderer.',
+        }
+      } catch (err: any) {
+        return { success: false, error: err?.message ?? 'Send failed' }
+      }
+    })
+
     ipcMain.handle('handshake:submitCapsule', async (_e, jsonString: string) => {
       try {
         // Get the SSO session — try refreshing first if not available
@@ -3622,6 +3671,14 @@ app.whenReady().then(async () => {
       }
     })
 
+    ipcMain.handle('autoresponder:getAudit', async (_e, messageId: unknown) => {
+      const id = typeof messageId === 'string' ? messageId : ''
+      if (!id) return null
+      return getAuditForMessage(id) ?? null
+    })
+
+    ipcMain.handle('autoresponder:getFullLog', async () => getAutoresponderAuditLog())
+
     // ── Relay Setup Wizard IPC ─────────────────────────────────────────────
     ipcMain.handle('relay:generateSecret', async () => {
       try {
@@ -3857,7 +3914,7 @@ app.whenReady().then(async () => {
       }
     })
 
-    console.log('[MAIN] IPC handlers registered: handshake:list/submitCapsule/importCapsule/accept/decline/contextBlockCount/queryContextBlocks/chatWithContext/initiate/buildForDownload/downloadCapsule, p2p:getHealth, p2p:getQueueStatus, relay:*')
+    console.log('[MAIN] IPC handlers registered: handshake:list/sendBeapViaP2P/checkSendReady/submitCapsule/importCapsule/accept/decline/contextBlockCount/queryContextBlocks/chatWithContext/initiate/buildForDownload/downloadCapsule, beap:sendCapsuleReply, p2p:getHealth, p2p:getQueueStatus, relay:*')
 
     // Get current auth status with tier and user info
     ipcMain.handle('auth:status', async () => {

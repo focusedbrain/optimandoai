@@ -154,4 +154,30 @@ export async function ackPendingPlainEmail(id: number): Promise<void> {
   if (typeof fn === 'function') await fn(id)
 }
 
+/** P2P send — delegates to main `handshake.sendBeapViaP2P` (used by BeapPackageBuilder.executeP2PAction). */
+export async function sendBeapViaP2P(
+  handshakeId: string,
+  packageJson: string,
+): Promise<{
+  success: boolean
+  error?: string
+  delivered?: boolean
+  queued?: boolean
+  code?: string
+  [key: string]: unknown
+}> {
+  const fn = (window.handshakeView as any)?.sendBeapViaP2P
+  if (typeof fn === 'function') return fn(handshakeId, packageJson)
+  throw new Error('sendBeapViaP2P not available (handshakeView bridge missing)')
+}
+
+/** Preflight for P2P send — aligns with main `handshake.checkSendReady`. */
+export async function checkHandshakeSendReady(
+  handshakeId: string,
+): Promise<{ ready: boolean; error?: string }> {
+  const fn = (window.handshakeView as any)?.checkHandshakeSendReady
+  if (typeof fn === 'function') return fn(handshakeId)
+  throw new Error('checkHandshakeSendReady not available (handshakeView bridge missing)')
+}
+
 export { listHandshakes as _sendHandshakeRpc }

@@ -72,6 +72,15 @@ declare global {
       getPendingP2PBeapMessages?: () => Promise<{ items: Array<{ id: number; handshake_id: string; package_json: string; created_at: string }> }>
       ackPendingP2PBeap?: (id: number) => Promise<{ success?: boolean }>
       importBeapMessage?: (packageJson: string) => Promise<{ success: boolean; error?: string }>
+      sendBeapViaP2P?: (
+        handshakeId: string,
+        packageJson: string,
+      ) => Promise<{ success: boolean; error?: string; delivered?: boolean; queued?: boolean; code?: string }>
+      checkHandshakeSendReady?: (handshakeId: string) => Promise<{ ready: boolean; error?: string }>
+    }
+    /** Optional relay for pre-built BEAP packages (`beap:sendCapsuleReply`); inbox uses `executeDeliveryAction` in renderer. */
+    beap?: {
+      sendCapsuleReply: (payload: Record<string, unknown>) => Promise<{ success: boolean; error?: string }>
     }
     emailAccounts?: {
       listAccounts: () => Promise<{

@@ -25,9 +25,42 @@ import { deriveInboxMessageKind } from '../lib/inboxMessageKind'
 import { InboxUrgencyMeter } from './InboxUrgencyMeter'
 import { InboxHandshakeNavIconButton } from './InboxHandshakeNavIcon'
 import '../components/handshakeViewTypes'
+import { executeDeliveryAction, type BeapPackageConfig } from '@ext/beap-messages/services/BeapPackageBuilder'
+import { getSigningKeyPair } from '@ext/beap-messages/services/beapCrypto'
+import { hasHandshakeKeyMaterial, type SelectedHandshakeRecipient } from '@ext/handshake/rpcTypes'
+import { listHandshakes } from '../shims/handshakeRpc'
 
 /** Local HTTP API for orchestrator DB (matches `HTTP_PORT` in electron/main.ts). */
 const ORCHESTRATOR_HTTP_BASE = 'http://127.0.0.1:51248'
+
+/** Map ledger handshake row (main DB shape) to builder `SelectedHandshakeRecipient`. */
+function mapLedgerRecordToSelectedRecipient(raw: Record<string, unknown>): SelectedHandshakeRecipient {
+  const isInitiator = raw.local_role === 'initiator'
+  const counterparty = (isInitiator ? raw.acceptor : raw.initiator) as
+    | { email?: string; wrdesk_user_id?: string }
+    | null
+    | undefined
+  const cpk = raw.counterparty_public_key
+  const fpFull =
+    typeof cpk === 'string' && cpk.length >= 64
+      ? cpk
+      : `fp${String(raw.handshake_id ?? '').replace(/[^a-z0-9]/gi, '').slice(0, 40)}`
+  const fpShort = fpFull.length > 12 ? `${fpFull.slice(0, 4)}…${fpFull.slice(-4)}` : fpFull
+  const sm = raw.sharing_mode
+  const sharing = sm === 'reciprocal' ? 'reciprocal' : 'receive-only'
+  return {
+    handshake_id: String(raw.handshake_id ?? ''),
+    counterparty_email: counterparty?.email ?? '',
+    counterparty_user_id: counterparty?.wrdesk_user_id ?? '',
+    sharing_mode: sharing,
+    receiver_fingerprint_full: fpFull,
+    receiver_fingerprint_short: fpShort,
+    receiver_display_name: (counterparty?.email ?? 'peer').split('@')[0] ?? 'Peer',
+    peerX25519PublicKey: typeof raw.peer_x25519_public_key_b64 === 'string' ? raw.peer_x25519_public_key_b64 : undefined,
+    peerPQPublicKey: typeof raw.peer_mlkem768_public_key_b64 === 'string' ? raw.peer_mlkem768_public_key_b64 : undefined,
+    p2pEndpoint: (raw.p2p_endpoint as string | null | undefined) ?? null,
+  }
+}
 
 // ── Relative date ──
 
@@ -101,6 +134,8 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
   const [availableSessions, setAvailableSessions] = useState<Array<{ id: string; name: string }>>([])
   const [capsuleAttachments, setCapsuleAttachments] = useState<File[]>([])
+  const [sendingCapsule, setSendingCapsule] = useState(false)
+  const [sendResult, setSendResult] = useState<{ success: boolean; error?: string } | null>(null)
   const summaryRef = useRef<HTMLDivElement>(null)
   const draftRef = useRef<HTMLDivElement>(null)
   const draftTextareaRef = useRef<HTMLTextAreaElement>(null)
@@ -282,6 +317,8 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
     setCapsuleEncryptedText('')
     setSelectedSessionId(null)
     setCapsuleAttachments([])
+    setSendResult(null)
+    setSendingCapsule(false)
     setAvailableSessions([])
     draftFallbackAttemptedRef.current = false
     draftRefineDisconnect()
@@ -496,6 +533,64 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
   }, [])
 
   const [sending, setSending] = useState(false)
+
+  const handleSendCapsuleReply = useCallback(async () => {
+    if (!message?.handshake_id) {
+      setSendResult({ success: false, error: 'No handshake linked to this message' })
+      return
+    }
+    setSendingCapsule(true)
+    setSendResult(null)
+    try {
+      const records = await listHandshakes('active')
+      const raw = records.find((r: { handshake_id?: string }) => r.handshake_id === message.handshake_id) as
+        | Record<string, unknown>
+        | undefined
+      if (!raw) {
+        setSendResult({ success: false, error: 'Handshake not found' })
+        return
+      }
+      const selectedRecipient = mapLedgerRecordToSelectedRecipient(raw)
+      if (!hasHandshakeKeyMaterial(selectedRecipient)) {
+        setSendResult({
+          success: false,
+          error: 'Handshake is missing X25519 / ML-KEM keys — re-establish the handshake for qBEAP.',
+        })
+        return
+      }
+      const kp = await getSigningKeyPair()
+      const senderFp = kp.publicKey
+      const senderShort =
+        senderFp.length > 12 ? `${senderFp.slice(0, 4)}…${senderFp.slice(-4)}` : senderFp
+      const pub = capsulePublicText.trim()
+      const enc = capsuleEncryptedText.trim()
+      const config: BeapPackageConfig = {
+        recipientMode: 'private',
+        deliveryMethod: 'p2p',
+        selectedRecipient,
+        senderFingerprint: senderFp,
+        senderFingerprintShort: senderShort,
+        messageBody: pub,
+        encryptedMessage: enc || undefined,
+        attachments: [],
+      }
+      const delivery = await executeDeliveryAction(config)
+      if (delivery.success) {
+        setSendResult({ success: true })
+        setCapsulePublicText('')
+        setCapsuleEncryptedText('')
+        setSelectedSessionId(null)
+        setCapsuleAttachments([])
+      } else {
+        setSendResult({ success: false, error: delivery.message || 'Send failed' })
+      }
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Send failed'
+      setSendResult({ success: false, error: msg })
+    } finally {
+      setSendingCapsule(false)
+    }
+  }, [message?.handshake_id, capsulePublicText, capsuleEncryptedText])
 
   const handleSend = useCallback(async () => {
     if (!message || !onSendDraft) return
@@ -871,21 +966,47 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
                         )}
                       </div>
                     </div>
-                    <div className="bulk-draft-actions-toolbar-wrap inbox-detail-ai-draft-actions">
-                      <div className="bulk-draft-actions-toolbar">
-                        {message && onSendDraft && (
+                    {visibleSections.has('draft') && (
+                      <>
+                        <div className="capsule-draft-actions">
                           <button
                             type="button"
-                            className="bulk-action-card-btn bulk-action-card-btn--primary bulk-action-card-btn--primary-emphasis"
-                            onClick={handleSend}
+                            className="capsule-draft-send"
+                            onClick={() => void handleSendCapsuleReply()}
                             disabled={
-                              sending ||
-                              ![capsulePublicText, capsuleEncryptedText].some((s) => s.trim().length > 0)
+                              sendingCapsule ||
+                              (!capsulePublicText.trim() && !capsuleEncryptedText.trim())
                             }
                           >
-                            {sending ? 'Sending...' : 'Send via BEAP'}
+                            {sendingCapsule ? 'Sending…' : '📤 Send BEAP Reply'}
                           </button>
+                          <button
+                            type="button"
+                            className="capsule-draft-clear"
+                            onClick={() => {
+                              setCapsulePublicText('')
+                              setCapsuleEncryptedText('')
+                              setSelectedSessionId(null)
+                              setCapsuleAttachments([])
+                              setSendResult(null)
+                            }}
+                          >
+                            Clear
+                          </button>
+                        </div>
+                        {sendResult && (
+                          <div
+                            className={`capsule-send-result ${
+                              sendResult.success ? 'capsule-send-result--success' : 'capsule-send-result--error'
+                            }`}
+                          >
+                            {sendResult.success ? '✓ BEAP reply sent' : `✗ ${sendResult.error}`}
+                          </div>
                         )}
+                      </>
+                    )}
+                    <div className="bulk-draft-actions-toolbar-wrap inbox-detail-ai-draft-actions">
+                      <div className="bulk-draft-actions-toolbar">
                         {onArchive && messageId ? (
                           <button
                             type="button"

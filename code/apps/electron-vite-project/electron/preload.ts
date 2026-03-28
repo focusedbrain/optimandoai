@@ -437,6 +437,16 @@ contextBridge.exposeInMainWorld('handshakeView', {
     }
     return ipcRenderer.invoke('handshake:importBeapMessage', packageJson)
   },
+  sendBeapViaP2P: (handshakeId: unknown, packageJson: unknown) => {
+    const id = assertString(handshakeId, 'handshakeId')
+    if (typeof packageJson !== 'string' || packageJson.length === 0 || packageJson.length > 512 * 1024) {
+      throw new Error('packageJson: expected non-empty string (max 512KB)')
+    }
+    return ipcRenderer.invoke('handshake:sendBeapViaP2P', { handshakeId: id, packageJson })
+  },
+  checkHandshakeSendReady: (handshakeId: unknown) => {
+    return ipcRenderer.invoke('handshake:checkSendReady', { handshakeId: assertString(handshakeId, 'handshakeId') })
+  },
   requestUnlockVault: () => {
     return ipcRenderer.invoke('vault:unlockForHandshake')
   },
@@ -589,6 +599,11 @@ contextBridge.exposeInMainWorld('handshakeView', {
       ? suggestedFilename : 'handshake.beap'
     return ipcRenderer.invoke('handshake:downloadCapsule', capsuleJson, name)
   },
+})
+
+// ── BEAP capsule reply (optional IPC relay when package is pre-built in renderer) ──
+contextBridge.exposeInMainWorld('beap', {
+  sendCapsuleReply: (payload: unknown) => ipcRenderer.invoke('beap:sendCapsuleReply', payload),
 })
 
 // ── P2P Health & Queue ─────────────────────────────────────────────────────

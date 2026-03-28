@@ -1,0 +1,337 @@
+/* ═══════════════════════════════════════════════════
+   @repo/shared-beap-ui — Base Styles
+
+   All classes prefixed with .beap-ui- to avoid
+   collision with app-level styles.
+
+   Compact modifier: .beap-ui--compact on root wrapper
+   reduces font size, padding, and gaps.
+   ═══════════════════════════════════════════════════ */
+
+/* ── Layout ── */
+
+.beap-ui-capsule-fields,
+.beap-ui-message-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.beap-ui--compact.beap-ui-capsule-fields,
+.beap-ui--compact.beap-ui-message-body {
+  gap: 6px;
+}
+
+/* ── Field containers ── */
+
+.beap-ui-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.beap-ui--compact .beap-ui-field {
+  gap: 2px;
+}
+
+/* ── Labels ── */
+
+.beap-ui-field-label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--beap-ui-label-color, #666);
+}
+
+.beap-ui-field-label--encrypted {
+  color: var(--beap-ui-accent, #7c3aed);
+}
+
+.beap-ui--compact .beap-ui-field-label {
+  font-size: 9px;
+}
+
+/* ── Textareas ── */
+
+.beap-ui-textarea {
+  font-size: 12px;
+  padding: 8px;
+  border: 1px solid var(--beap-ui-border, #e0e0e0);
+  border-radius: 6px;
+  resize: vertical;
+  font-family: inherit;
+  line-height: 1.4;
+  background: var(--beap-ui-input-bg, #fff);
+  color: var(--beap-ui-text, #1f2937);
+}
+
+.beap-ui-textarea--encrypted {
+  background: var(--beap-ui-encrypted-bg, #f5f3ff);
+  border-color: var(--beap-ui-encrypted-border, #c4b5fd);
+}
+
+.beap-ui-textarea:focus {
+  outline: none;
+  border-color: var(--beap-ui-accent, #7c3aed);
+  box-shadow: 0 0 0 2px rgba(124, 58, 237, 0.15);
+}
+
+.beap-ui-textarea[readonly] {
+  opacity: 0.7;
+  cursor: default;
+  resize: none;
+}
+
+.beap-ui--compact .beap-ui-textarea {
+  font-size: 11px;
+  padding: 6px;
+}
+
+/* ── Hint text ── */
+
+.beap-ui-field-hint {
+  font-size: 10px;
+  color: var(--beap-ui-accent, #7c3aed);
+  opacity: 0.8;
+}
+
+.beap-ui--compact .beap-ui-field-hint {
+  font-size: 9px;
+}
+
+/* ── Select ── */
+
+.beap-ui-select {
+  font-size: 12px;
+  padding: 6px 8px;
+  border: 1px solid var(--beap-ui-border, #e0e0e0);
+  border-radius: 6px;
+  background: var(--beap-ui-input-bg, #fff);
+  color: var(--beap-ui-text, #1f2937);
+}
+
+.beap-ui--compact .beap-ui-select {
+  font-size: 11px;
+  padding: 4px 6px;
+}
+
+/* ── File input ── */
+
+.beap-ui-file-input {
+  font-size: 11px;
+}
+
+/* ── Attachment list ── */
+
+.beap-ui-attachment-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.beap-ui-attachment-chip {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 12px;
+  background: var(--beap-ui-chip-bg, #ede9fe);
+  color: var(--beap-ui-chip-text, #5b21b6);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.beap-ui-attachment-remove {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 14px;
+  color: var(--beap-ui-accent, #7c3aed);
+  padding: 0 2px;
+  line-height: 1;
+}
+
+.beap-ui-attachment-add-btn {
+  font-size: 11px;
+  padding: 4px 10px;
+  border: 1px dashed var(--beap-ui-border, #d1d5db);
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+  color: var(--beap-ui-label-color, #666);
+}
+
+.beap-ui-attachment-add-btn:hover {
+  border-color: var(--beap-ui-accent, #7c3aed);
+  color: var(--beap-ui-accent, #7c3aed);
+}
+
+/* ── Message body sections ── */
+
+.beap-ui-body-section {
+  border: 1px solid var(--beap-ui-border, #e5e7eb);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.beap-ui--compact .beap-ui-body-section {
+  padding: 6px 8px;
+  border-radius: 6px;
+}
+
+.beap-ui-body-label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--beap-ui-label-color, #6b7280);
+  margin-bottom: 6px;
+}
+
+.beap-ui-body-label--confidential {
+  color: var(--beap-ui-accent, #7c3aed);
+}
+
+.beap-ui-body-content {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--beap-ui-text, #1f2937);
+}
+
+.beap-ui-body-content--confidential {
+  background: var(--beap-ui-encrypted-bg, #faf5ff);
+  border-radius: 4px;
+  padding: 8px;
+  border-left: 3px solid var(--beap-ui-accent, #7c3aed);
+}
+
+.beap-ui-body-pre {
+  white-space: pre-wrap;
+  margin: 0;
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
+}
+
+.beap-ui--compact .beap-ui-body-label {
+  font-size: 9px;
+  margin-bottom: 4px;
+}
+
+.beap-ui--compact .beap-ui-body-content {
+  font-size: 12px;
+}
+
+/* ── Tags ── */
+
+.beap-ui-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.beap-ui-tag {
+  font-size: 10px;
+  padding: 2px 8px;
+  border-radius: 8px;
+  background: var(--beap-ui-chip-bg, #ede9fe);
+  color: var(--beap-ui-chip-text, #5b21b6);
+}
+
+/* ── Session refs ── */
+
+.beap-ui-body-section--session {
+  background: #fffbeb;
+  border-color: #fbbf24;
+}
+
+.beap-ui-session-ref {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+
+.beap-ui-session-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--beap-ui-text, #1f2937);
+}
+
+.beap-ui-session-capability {
+  font-size: 10px;
+  color: #92400e;
+}
+
+.beap-ui-session-import-btn {
+  font-size: 11px;
+  padding: 3px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--beap-ui-accent, #7c3aed);
+  background: var(--beap-ui-encrypted-bg, #f5f3ff);
+  color: var(--beap-ui-accent, #7c3aed);
+  cursor: pointer;
+  font-weight: 500;
+}
+
+.beap-ui-session-import-btn:hover {
+  background: var(--beap-ui-chip-bg, #ede9fe);
+}
+
+/* ── Identity badge ── */
+
+.beap-ui-identity-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.beap-ui-identity-name {
+  font-weight: 500;
+  color: var(--beap-ui-text, #1f2937);
+}
+
+.beap-ui-identity-handshake {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: #ecfdf5;
+  color: #059669;
+}
+
+.beap-ui-identity-trust {
+  font-size: 10px;
+  color: var(--beap-ui-label-color, #6b7280);
+}
+
+.beap-ui--compact .beap-ui-identity-badge {
+  font-size: 11px;
+  gap: 4px;
+}
+
+/* ── Session selector ── */
+
+.beap-ui-session-selector {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.beap-ui--compact .beap-ui-session-selector {
+  gap: 2px;
+}
+
+/* ── Attachment picker ── */
+
+.beap-ui-attachment-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.beap-ui--compact .beap-ui-attachment-picker {
+  gap: 2px;
+}
