@@ -6288,3 +6288,102 @@ body {
   padding: 0 2px;
   line-height: 1;
 }
+
+/* Native BEAP message display */
+.native-beap-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.beap-body-section {
+  border: 1px solid var(--border-color, #e5e7eb);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.beap-body-label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-secondary, #6b7280);
+  margin-bottom: 6px;
+}
+
+.beap-body-label--confidential {
+  color: #7c3aed;
+}
+
+.beap-body-content {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-primary, #1f2937);
+}
+
+.beap-body-content--confidential {
+  background: #faf5ff;
+  border-radius: 4px;
+  padding: 8px;
+  border-left: 3px solid #7c3aed;
+}
+
+.beap-identity-badge {
+  font-size: 10px;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: #ecfdf5;
+  color: #059669;
+}
+
+.beap-automation-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.beap-automation-tag {
+  font-size: 10px;
+  padding: 2px 8px;
+  border-radius: 8px;
+  background: #ede9fe;
+  color: #5b21b6;
+}
+
+.beap-session-indicator {
+  background: #fffbeb;
+  border-color: #fbbf24;
+}
+
+.beap-session-ref {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.beap-session-name {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.beap-session-capability {
+  font-size: 10px;
+  color: #92400e;
+}
+
+.beap-session-import-btn {
+  font-size: 11px;
+  padding: 3px 10px;
+  border-radius: 6px;
+  border: 1px solid #7c3aed;
+  background: #f5f3ff;
+  color: #7c3aed;
+  cursor: pointer;
+  font-weight: 500;
+}
+
+.beap-session-import-btn:hover {
+  background: #ede9fe;
+}

@@ -3,12 +3,13 @@
  * Header (From, To, date, subject, actions), source badge, body, attachments, deletion notice.
  */
 
-import { useCallback, useState } from 'react'
+import { useCallback, useMemo, useState, type ReactNode } from 'react'
 import type { InboxMessage, InboxSourceType } from '../stores/useEmailInboxStore'
 import { useEmailInboxStore } from '../stores/useEmailInboxStore'
 import InboxAttachmentRow from './InboxAttachmentRow'
 import LinkWarningDialog from './LinkWarningDialog'
 import { extractLinkParts } from '../utils/safeLinks'
+import { deriveInboxMessageKind } from '../lib/inboxMessageKind'
 
 export interface EmailMessageDetailProps {
   message: InboxMessage | null
@@ -67,7 +68,21 @@ function sanitizeHtml(html: string): string {
   return doc.body.innerHTML
 }
 
-function renderDepackagedJson(jsonStr: string | null): React.ReactNode {
+function getAutomationTags(p: Record<string, unknown>): string[] {
+  const a = p.automation
+  if (!a || typeof a !== 'object') return []
+  const tags = (a as { tags?: unknown }).tags
+  if (!Array.isArray(tags)) return []
+  return tags.filter((t): t is string => typeof t === 'string')
+}
+
+function getSessionRefs(p: Record<string, unknown>): Array<Record<string, unknown>> {
+  const r = p.sessionRefs
+  if (!Array.isArray(r)) return []
+  return r.filter((x): x is Record<string, unknown> => x !== null && typeof x === 'object')
+}
+
+function renderDepackagedJson(jsonStr: string | null): ReactNode {
   if (!jsonStr || typeof jsonStr !== 'string') return null
   try {
     const parsed = JSON.parse(jsonStr)
@@ -96,13 +111,55 @@ export default function EmailMessageDetail({ message, selectedAttachmentId: sele
     setEditingDraftForMessageId,
   } = useEmailInboxStore()
 
+  const messageKind = message ? deriveInboxMessageKind(message) : 'depackaged'
+  const isNativeBeap = messageKind === 'handshake'
+
+  const parsedDepackaged = useMemo(() => {
+    if (!isNativeBeap || !message?.depackaged_json) return null
+    try {
+      return JSON.parse(message.depackaged_json) as Record<string, unknown>
+    } catch {
+      return null
+    }
+  }, [isNativeBeap, message?.depackaged_json])
+
+  const fromDisplay = useMemo((): ReactNode => {
+    if (!message) return '—'
+    if (isNativeBeap) {
+      const name = message.from_name || message.from_address
+      return (
+        <span>
+          {name || 'Unknown sender'}
+          {message.handshake_id ? (
+            <span className="beap-identity-badge" title="Verified via BEAP handshake">
+              🤝 Handshake
+            </span>
+          ) : null}
+        </span>
+      )
+    }
+    return message.from_name
+      ? `${message.from_name} <${message.from_address || ''}>`
+      : message.from_address || '—'
+  }, [isNativeBeap, message])
+
+  const toDisplay = useMemo((): ReactNode => {
+    if (!message) return '—'
+    if (isNativeBeap) {
+      return message.to_addresses || 'You (local identity)'
+    }
+    return message.to_addresses || '—'
+  }, [isNativeBeap, message])
+
   if (!message) return null
 
   const isBeap = message.source_type === 'email_beap' || message.source_type === 'direct_beap'
-  const hasDepackaged = !!message.depackaged_json
   const hasAttachments = message.has_attachments === 1
   const attachments = message.attachments ?? []
   const isDeleted = message.deleted === 1
+
+  const automationTags = parsedDepackaged ? getAutomationTags(parsedDepackaged) : []
+  const sessionRefsList = parsedDepackaged ? getSessionRefs(parsedDepackaged) : []
 
   const handleStar = useCallback(() => {
     toggleStar(message.id)
@@ -132,11 +189,6 @@ export default function EmailMessageDetail({ message, selectedAttachmentId: sele
     }
   }, [pendingLinkUrl])
   const handleLinkCancel = useCallback(() => setPendingLinkUrl(null), [])
-
-  const fromDisplay = message.from_name
-    ? `${message.from_name} <${message.from_address || ''}>`
-    : message.from_address || '—'
-  const toDisplay = message.to_addresses || '—'
 
   return (
     <>
@@ -320,75 +372,157 @@ export default function EmailMessageDetail({ message, selectedAttachmentId: sele
           </span>
         </div>
 
-        {/* Body — human-readable by default, links as safe buttons */}
+        {/* Body — human-readable by default; native BEAP uses structured depackaged sections */}
         <div style={{ marginBottom: 20 }}>
-          {message.body_html ? (
-            <div
-              className="msg-detail-body-html"
-              onClick={(e) => {
-                const a = (e.target as HTMLElement).closest('a[href]')
-                if (a) {
-                  e.preventDefault()
-                  e.stopPropagation()
-                  const href = (a as HTMLAnchorElement).href
-                  if (href && !href.startsWith('mailto:')) handleLinkClick(href)
-                }
-              }}
-              style={{
-                fontSize: 13,
-                lineHeight: 1.6,
-                color: 'var(--color-text, #e2e8f0)',
-              }}
-            >
-              <div
-                dangerouslySetInnerHTML={{ __html: sanitizeHtml(message.body_html) }}
-                style={{ fontSize: 'inherit', lineHeight: 'inherit', color: 'inherit' }}
-              />
+          {isNativeBeap && parsedDepackaged ? (
+            <div className="native-beap-body">
+              {message.body_text ? (
+                <div className="beap-body-section">
+                  <div className="beap-body-label">📨 Public Message (pBEAP)</div>
+                  <div className="beap-body-content beap-body-content--public">
+                    <pre style={{ whiteSpace: 'pre-wrap', margin: 0, fontFamily: 'inherit' }}>
+                      {message.body_text}
+                    </pre>
+                  </div>
+                </div>
+              ) : null}
+
+              {parsedDepackaged.body != null && String(parsedDepackaged.body).trim() !== '' ? (
+                <div className="beap-body-section">
+                  <div className="beap-body-label beap-body-label--confidential">
+                    🔒 CONFIDENTIAL (qBEAP — Encrypted Content)
+                  </div>
+                  <div className="beap-body-content beap-body-content--confidential">
+                    <pre style={{ whiteSpace: 'pre-wrap', margin: 0, fontFamily: 'inherit' }}>
+                      {typeof parsedDepackaged.body === 'string'
+                        ? parsedDepackaged.body
+                        : String(parsedDepackaged.body)}
+                    </pre>
+                  </div>
+                </div>
+              ) : null}
+
+              {automationTags.length > 0 ? (
+                <div className="beap-body-section">
+                  <div className="beap-body-label">🏷️ Automation Tags</div>
+                  <div className="beap-automation-tags">
+                    {automationTags.map((tag, i) => (
+                      <span key={i} className="beap-automation-tag">
+                        {tag}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
+              {sessionRefsList.length > 0 ? (
+                <div className="beap-body-section beap-session-indicator">
+                  <div className="beap-body-label">⚙️ Attached Session</div>
+                  {sessionRefsList.map((ref, i) => {
+                    const sessionId =
+                      typeof ref.sessionId === 'string' ? ref.sessionId : String(ref.sessionId ?? '')
+                    const sessionName =
+                      typeof ref.sessionName === 'string'
+                        ? ref.sessionName
+                        : sessionId || 'Session'
+                    const cap = ref.requiredCapability
+                    const capLabel =
+                      cap != null && typeof cap === 'object'
+                        ? JSON.stringify(cap)
+                        : cap != null
+                          ? String(cap)
+                          : ''
+                    return (
+                      <div key={i} className="beap-session-ref">
+                        <span className="beap-session-name">{sessionName || sessionId}</span>
+                        {capLabel ? (
+                          <span className="beap-session-capability">Requires: {capLabel}</span>
+                        ) : null}
+                        <button
+                          type="button"
+                          className="beap-session-import-btn"
+                          onClick={() => {
+                            console.log('Import session:', sessionId)
+                          }}
+                        >
+                          ▶ Import & Run
+                        </button>
+                      </div>
+                    )
+                  })}
+                </div>
+              ) : null}
             </div>
           ) : (
-            <pre
-              style={{
-                margin: 0,
-                fontSize: 13,
-                lineHeight: 1.6,
-                whiteSpace: 'pre-wrap',
-                wordBreak: 'break-word',
-                fontFamily: 'inherit',
-              }}
-            >
-              {extractLinkParts(message.body_text || '(No body)').map((part, i) =>
-                part.type === 'text' ? (
-                  <span key={i}>{part.text}</span>
-                ) : (
-                  <button
-                    key={i}
-                    type="button"
-                    className="msg-safe-link-btn"
-                    onClick={() => handleLinkClick(part.url!)}
-                  >
-                    {part.text}
-                  </button>
-                )
-              )}
-            </pre>
-          )}
-
-          {/* BEAP content — collapsed by default, low-emphasis toggle */}
-          {hasDepackaged && (
-            <div style={{ marginTop: 16 }}>
-              <button
-                type="button"
-                className="msg-detail-beap-toggle"
-                onClick={() => setBeapPanelOpen((o) => !o)}
-              >
-                BEAP content
-              </button>
-              {beapPanelOpen && (
-                <div className="msg-detail-beap-panel">
-                  {renderDepackagedJson(message.depackaged_json)}
+            <>
+              {message.body_html ? (
+                <div
+                  className="msg-detail-body-html"
+                  onClick={(e) => {
+                    const a = (e.target as HTMLElement).closest('a[href]')
+                    if (a) {
+                      e.preventDefault()
+                      e.stopPropagation()
+                      const href = (a as HTMLAnchorElement).href
+                      if (href && !href.startsWith('mailto:')) handleLinkClick(href)
+                    }
+                  }}
+                  style={{
+                    fontSize: 13,
+                    lineHeight: 1.6,
+                    color: 'var(--color-text, #e2e8f0)',
+                  }}
+                >
+                  <div
+                    dangerouslySetInnerHTML={{ __html: sanitizeHtml(message.body_html) }}
+                    style={{ fontSize: 'inherit', lineHeight: 'inherit', color: 'inherit' }}
+                  />
                 </div>
+              ) : (
+                <pre
+                  style={{
+                    margin: 0,
+                    fontSize: 13,
+                    lineHeight: 1.6,
+                    whiteSpace: 'pre-wrap',
+                    wordBreak: 'break-word',
+                    fontFamily: 'inherit',
+                  }}
+                >
+                  {extractLinkParts(message.body_text || '(No body)').map((part, i) =>
+                    part.type === 'text' ? (
+                      <span key={i}>{part.text}</span>
+                    ) : (
+                      <button
+                        key={i}
+                        type="button"
+                        className="msg-safe-link-btn"
+                        onClick={() => handleLinkClick(part.url!)}
+                      >
+                        {part.text}
+                      </button>
+                    )
+                  )}
+                </pre>
               )}
-            </div>
+
+              {message.depackaged_json && !isNativeBeap ? (
+                <div style={{ marginTop: 16 }}>
+                  <button
+                    type="button"
+                    className="msg-detail-beap-toggle"
+                    onClick={() => setBeapPanelOpen((o) => !o)}
+                  >
+                    BEAP content
+                  </button>
+                  {beapPanelOpen && (
+                    <div className="msg-detail-beap-panel">
+                      {renderDepackagedJson(message.depackaged_json)}
+                    </div>
+                  )}
+                </div>
+              ) : null}
+            </>
           )}
         </div>
 
