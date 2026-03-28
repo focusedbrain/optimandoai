@@ -340,6 +340,7 @@ export default function HybridSearch({
   const draftRefineConnected = useDraftRefineStore((s) => s.connected)
   const draftRefineMessageId = useDraftRefineStore((s) => s.messageId)
   const draftRefineMessageSubject = useDraftRefineStore((s) => s.messageSubject)
+  const draftRefineTarget = useDraftRefineStore((s) => s.refineTarget)
   const inboxSubFocus = useEmailInboxStore((s) => (activeView === 'beap-inbox' ? s.subFocus : SUBFOCUS_NONE))
 
   /** Derived focus context — distinguishes outer message vs draft sub-focus vs attachment above chat. */
@@ -347,17 +348,42 @@ export default function HybridSearch({
     if (!selectedMessageId) return { kind: 'none' }
     const msgId = selectedMessageId
     if (activeView === 'beap-inbox') {
+      if (draftRefineConnected && draftRefineMessageId === msgId) {
+        return { kind: 'draft', messageId: msgId }
+      }
       if (inboxSubFocus.kind === 'draft' && inboxSubFocus.messageId === msgId) return { kind: 'draft', messageId: msgId }
       if (inboxSubFocus.kind === 'attachment' && inboxSubFocus.messageId === msgId && selectedAttachmentId)
         return { kind: 'attachment', messageId: msgId, attachmentId: selectedAttachmentId }
     }
     return { kind: 'message', messageId: msgId }
-  }, [activeView, selectedMessageId, selectedAttachmentId, inboxSubFocus])
+  }, [activeView, selectedMessageId, selectedAttachmentId, inboxSubFocus, draftRefineConnected, draftRefineMessageId])
   const draftRefineDraftText = useDraftRefineStore((s) => s.draftText)
-  const draftRefineTarget = useDraftRefineStore((s) => s.refineTarget)
   const draftRefineDeliverResponse = useDraftRefineStore((s) => s.deliverResponse)
   const draftRefineAcceptRefinement = useDraftRefineStore((s) => s.acceptRefinement)
   const draftRefineDisconnect = useDraftRefineStore((s) => s.disconnect)
+
+  /** Shown after "✏️ Draft" when refine store targets a capsule field (not subFocus-only). */
+  const draftRefineScopeSuffix =
+    draftRefineConnected && draftRefineMessageId === selectedMessageId
+      ? draftRefineTarget === 'capsule-public'
+        ? ' · Public (pBEAP)'
+        : draftRefineTarget === 'capsule-encrypted'
+          ? ' · Encrypted (qBEAP)'
+          : draftRefineTarget === 'email'
+            ? ' · Email'
+            : ''
+      : ''
+
+  const draftRefineChipTitle =
+    uiFocusContext.kind === 'draft' && draftRefineConnected && draftRefineMessageId === selectedMessageId
+      ? draftRefineTarget === 'capsule-public'
+        ? 'Chat scoped to public capsule draft — refine with AI'
+        : draftRefineTarget === 'capsule-encrypted'
+          ? 'Chat scoped to encrypted capsule draft — refine with AI'
+          : draftRefineTarget === 'email'
+            ? 'Chat scoped to email draft — refine with AI'
+            : 'Chat scoped to draft — refine with AI'
+      : 'Chat scoped to draft — refine with AI'
 
   useEffect(() => {
     if (draftRefineConnected) setMode('chat')
@@ -678,8 +704,11 @@ Output ONLY the complete draft email text, no explanation.`
               padding: '2px 8px', borderRadius: '6px',
               background: 'rgba(34,197,94,0.15)', border: '1px solid rgba(34,197,94,0.4)',
               color: '#15803d',
-            }} title="Chat scoped to draft — refine with AI">
-              ✏️ Draft{draftRefineMessageSubject ? ` · ${draftRefineMessageSubject.length > 40 ? draftRefineMessageSubject.slice(0, 40) + '…' : draftRefineMessageSubject}` : ''}
+            }} title={draftRefineChipTitle}>
+              ✏️ Draft{draftRefineScopeSuffix}
+              {draftRefineMessageSubject
+                ? ` · ${draftRefineMessageSubject.length > 40 ? draftRefineMessageSubject.slice(0, 40) + '…' : draftRefineMessageSubject}`
+                : ''}
               <button
                 type="button"
                 onClick={handleClearMessageSelection}
@@ -819,7 +848,21 @@ Output ONLY the complete draft email text, no explanation.`
               marginRight: '6px', fontSize: '16px', lineHeight: 1, flexShrink: 0, cursor: 'default',
               color: uiFocusContext.kind === 'draft' ? '#15803d' : 'var(--purple-accent, #a78bfa)',
             }}
-            title={uiFocusContext.kind === 'draft' ? 'Chat scoped to draft' : uiFocusContext.kind === 'attachment' ? 'Chat scoped to attachment' : 'Chat scoped to message'}
+            title={
+              uiFocusContext.kind === 'draft'
+                ? draftRefineConnected && draftRefineMessageId === selectedMessageId
+                  ? draftRefineTarget === 'capsule-public'
+                    ? 'Chat scoped to public capsule draft'
+                    : draftRefineTarget === 'capsule-encrypted'
+                      ? 'Chat scoped to encrypted capsule draft'
+                      : draftRefineTarget === 'email'
+                        ? 'Chat scoped to email draft'
+                        : 'Chat scoped to draft'
+                  : 'Chat scoped to draft'
+                : uiFocusContext.kind === 'attachment'
+                  ? 'Chat scoped to attachment'
+                  : 'Chat scoped to message'
+            }
           >
             {uiFocusContext.kind === 'draft' ? '✏️' : '👉'}
           </span>
