@@ -250,6 +250,37 @@ function assertSavePreset(v: unknown): object {
   return v as object
 }
 
+function assertBeapSessionImportPayload(v: unknown): {
+  sessionId: string
+  sessionName: string
+  config: Record<string, unknown>
+  sourceMessageId: string
+  handshakeId: string | null
+} {
+  if (!v || typeof v !== 'object') throw new Error('importSessionFromBeap: expected object')
+  const o = v as Record<string, unknown>
+  const sessionId = typeof o.sessionId === 'string' ? o.sessionId.trim() : String(o.sessionId ?? '').trim()
+  if (!sessionId || sessionId.length > 500) throw new Error('importSessionFromBeap: sessionId required')
+  const sessionName =
+    typeof o.sessionName === 'string' && o.sessionName.trim()
+      ? o.sessionName.trim().slice(0, 500)
+      : sessionId
+  const sourceMessageId =
+    typeof o.sourceMessageId === 'string' ? o.sourceMessageId.trim() : String(o.sourceMessageId ?? '').trim()
+  if (!sourceMessageId || sourceMessageId.length > 500) {
+    throw new Error('importSessionFromBeap: sourceMessageId required')
+  }
+  const config =
+    o.config && typeof o.config === 'object' && o.config !== null
+      ? (o.config as Record<string, unknown>)
+      : {}
+  let handshakeId: string | null = null
+  if (o.handshakeId !== undefined && o.handshakeId !== null) {
+    handshakeId = String(o.handshakeId).slice(0, 500)
+  }
+  return { sessionId, sessionName, config, sourceMessageId, handshakeId }
+}
+
 // ============================================================================
 // §2  Channel Allowlists (compile-time constants)
 // ============================================================================
@@ -299,6 +330,15 @@ const lmgtfyBridge = {
 }
 
 contextBridge.exposeInMainWorld('LETmeGIRAFFETHATFORYOU', lmgtfyBridge)
+
+// ── Orchestrator (local automation DB) ───────────────────────────────────
+contextBridge.exposeInMainWorld('orchestrator', {
+  importSessionFromBeap: (payload: unknown) => {
+    const validated = assertBeapSessionImportPayload(payload)
+    return ipcRenderer.invoke('orchestrator:importSessionFromBeap', validated)
+  },
+  listSessions: () => ipcRenderer.invoke('orchestrator:listSessions'),
+})
 
 // ── Analysis Dashboard ───────────────────────────────────────────────────
 contextBridge.exposeInMainWorld('analysisDashboard', {

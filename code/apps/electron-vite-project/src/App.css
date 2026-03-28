@@ -6387,3 +6387,89 @@ body {
 .beap-session-import-btn:hover {
   background: #ede9fe;
 }
+
+.beap-session-import-error {
+  font-size: 11px;
+  color: #dc2626;
+  font-weight: 500;
+}
+
+/* Session import dialog */
+.session-import-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.session-import-dialog {
+  background: var(--card-bg, #fff);
+  border-radius: 12px;
+  padding: 20px;
+  max-width: 440px;
+  width: 90%;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+}
+
+.session-import-header {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 12px;
+}
+
+.session-import-details {
+  background: #f9fafb;
+  border-radius: 6px;
+  padding: 10px;
+  font-size: 12px;
+  margin: 10px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.session-import-warning {
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.session-import-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.session-import-cancel {
+  padding: 6px 14px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  background: #fff;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.session-import-confirm {
+  padding: 6px 14px;
+  border: none;
+  border-radius: 6px;
+  background: #7c3aed;
+  color: #fff;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.session-import-confirm:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.beap-session-imported {
+  font-size: 11px;
+  color: #059669;
+  font-weight: 500;
+}

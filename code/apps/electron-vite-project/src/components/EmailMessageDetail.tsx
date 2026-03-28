@@ -3,13 +3,14 @@
  * Header (From, To, date, subject, actions), source badge, body, attachments, deletion notice.
  */
 
-import { useCallback, useMemo, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import type { InboxMessage, InboxSourceType } from '../stores/useEmailInboxStore'
 import { useEmailInboxStore } from '../stores/useEmailInboxStore'
 import InboxAttachmentRow from './InboxAttachmentRow'
 import LinkWarningDialog from './LinkWarningDialog'
 import { extractLinkParts } from '../utils/safeLinks'
 import { deriveInboxMessageKind } from '../lib/inboxMessageKind'
+import SessionImportDialog, { type SessionImportDialogSessionRef } from './SessionImportDialog'
 
 export interface EmailMessageDetailProps {
   message: InboxMessage | null
@@ -82,6 +83,15 @@ function getSessionRefs(p: Record<string, unknown>): Array<Record<string, unknow
   return r.filter((x): x is Record<string, unknown> => x !== null && typeof x === 'object')
 }
 
+function sessionRefToDialogProps(ref: Record<string, unknown>): SessionImportDialogSessionRef {
+  const sessionId = typeof ref.sessionId === 'string' ? ref.sessionId : String(ref.sessionId ?? '')
+  const sessionName = typeof ref.sessionName === 'string' ? ref.sessionName : undefined
+  const cap = ref.requiredCapability
+  const requiredCapability =
+    cap != null && typeof cap === 'object' ? JSON.stringify(cap) : cap != null ? String(cap) : undefined
+  return { sessionId, sessionName, requiredCapability }
+}
+
 function renderDepackagedJson(jsonStr: string | null): ReactNode {
   if (!jsonStr || typeof jsonStr !== 'string') return null
   try {
@@ -100,6 +110,8 @@ function renderDepackagedJson(jsonStr: string | null): ReactNode {
 export default function EmailMessageDetail({ message, selectedAttachmentId: selectedAttachmentIdProp, onSelectAttachment, onReply }: EmailMessageDetailProps) {
   const [beapPanelOpen, setBeapPanelOpen] = useState(false)
   const [pendingLinkUrl, setPendingLinkUrl] = useState<string | null>(null)
+  const [importingSession, setImportingSession] = useState<Record<string, unknown> | null>(null)
+  const [importStatus, setImportStatus] = useState<Record<string, 'idle' | 'importing' | 'imported' | 'error'>>({})
   const {
     selectedAttachmentId: storeSelectedAttachmentId,
     selectAttachment,
@@ -151,6 +163,47 @@ export default function EmailMessageDetail({ message, selectedAttachmentId: sele
     return message.to_addresses || '—'
   }, [isNativeBeap, message])
 
+  useEffect(() => {
+    setImportingSession(null)
+    setImportStatus({})
+  }, [message?.id])
+
+  const handleSessionImport = useCallback(async (raw: Record<string, unknown>) => {
+    const sessionId = typeof raw.sessionId === 'string' ? raw.sessionId : String(raw.sessionId ?? '')
+    const sessionName = typeof raw.sessionName === 'string' ? raw.sessionName : sessionId
+    setImportStatus((prev) => ({ ...prev, [sessionId]: 'importing' }))
+    try {
+      const api = window.orchestrator
+      if (!api?.importSessionFromBeap) {
+        throw new Error('Orchestrator bridge unavailable')
+      }
+      const mid = message?.id
+      if (!mid) {
+        throw new Error('No message context')
+      }
+      const result = await api.importSessionFromBeap({
+        sessionId,
+        sessionName,
+        config: raw,
+        sourceMessageId: mid,
+        handshakeId: message?.handshake_id ?? null,
+      })
+      if (!result?.success) {
+        throw new Error(result?.error || 'Import failed')
+      }
+      setImportStatus((prev) => ({ ...prev, [sessionId]: 'imported' }))
+      setImportingSession(null)
+    } catch (e) {
+      console.error('Session import failed:', e)
+      setImportStatus((prev) => ({ ...prev, [sessionId]: 'error' }))
+    }
+  }, [message?.id, message?.handshake_id])
+
+  const dialogSessionRef = useMemo(
+    () => (importingSession ? sessionRefToDialogProps(importingSession) : null),
+    [importingSession],
+  )
+
   if (!message) return null
 
   const isBeap = message.source_type === 'email_beap' || message.source_type === 'direct_beap'
@@ -198,6 +251,15 @@ export default function EmailMessageDetail({ message, selectedAttachmentId: sele
         onConfirm={handleLinkConfirm}
         onCancel={handleLinkCancel}
       />
+      {importingSession && dialogSessionRef ? (
+        <SessionImportDialog
+          sessionRef={dialogSessionRef}
+          messageId={message.id}
+          onConfirm={() => handleSessionImport(importingSession)}
+          onCancel={() => setImportingSession(null)}
+          importing={importStatus[dialogSessionRef.sessionId] === 'importing'}
+        />
+      ) : null}
     <div
       className={`inbox-detail-message-inner inbox-detail-message-inner--premium${editingDraftForMessageId === message.id ? ' inbox-detail-message-inner--editing-draft' : ''}`}
       style={{
@@ -432,21 +494,30 @@ export default function EmailMessageDetail({ message, selectedAttachmentId: sele
                         : cap != null
                           ? String(cap)
                           : ''
+                    const status = importStatus[sessionId]
                     return (
-                      <div key={i} className="beap-session-ref">
+                      <div key={`${sessionId}-${i}`} className="beap-session-ref">
                         <span className="beap-session-name">{sessionName || sessionId}</span>
                         {capLabel ? (
                           <span className="beap-session-capability">Requires: {capLabel}</span>
                         ) : null}
-                        <button
-                          type="button"
-                          className="beap-session-import-btn"
-                          onClick={() => {
-                            console.log('Import session:', sessionId)
-                          }}
-                        >
-                          ▶ Import & Run
-                        </button>
+                        {status === 'imported' ? (
+                          <span className="beap-session-imported">✓ Imported</span>
+                        ) : (
+                          <>
+                            {status === 'error' ? (
+                              <span className="beap-session-import-error">Import failed</span>
+                            ) : null}
+                            <button
+                              type="button"
+                              className="beap-session-import-btn"
+                              onClick={() => setImportingSession(ref)}
+                              disabled={status === 'importing'}
+                            >
+                              {status === 'importing' ? 'Importing…' : status === 'error' ? 'Retry' : '▶ Import & Run'}
+                            </button>
+                          </>
+                        )}
                       </div>
                     )
                   })}

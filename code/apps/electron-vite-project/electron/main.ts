@@ -2614,6 +2614,86 @@ app.whenReady().then(async () => {
       }
     })
 
+    /** Policy / auto-run hook point after BEAP session import (orchestrator DB). Intentionally empty until policy work ships. */
+    function beapSessionImportPolicyHook(_ctx: {
+      importedSessionId: string
+      sourceSessionId: string
+      sourceMessageId: string
+      handshakeId: string | null
+    }): void {
+      void _ctx
+    }
+
+    ipcMain.handle('orchestrator:listSessions', async () => {
+      try {
+        const { getOrchestratorService } = await import('./main/orchestrator-db/service')
+        const service = getOrchestratorService()
+        const sessions = await service.listSessions()
+        return { success: true, data: sessions }
+      } catch (err: any) {
+        console.error('[MAIN] orchestrator:listSessions', err?.message ?? err)
+        return { success: false, error: err?.message ?? 'LIST_FAILED', data: [] }
+      }
+    })
+
+    ipcMain.handle('orchestrator:importSessionFromBeap', async (_e, payload: unknown) => {
+      try {
+        if (!payload || typeof payload !== 'object') {
+          return { success: false, error: 'INVALID_PAYLOAD' }
+        }
+        const p = payload as Record<string, unknown>
+        const sessionIdRaw = p.sessionId
+        const sessionId = typeof sessionIdRaw === 'string' ? sessionIdRaw.trim() : String(sessionIdRaw ?? '').trim()
+        const sessionNameRaw = p.sessionName
+        const sessionName =
+          typeof sessionNameRaw === 'string' && sessionNameRaw.trim()
+            ? sessionNameRaw.trim().slice(0, 500)
+            : sessionId || 'Imported session'
+        const sourceMessageId =
+          typeof p.sourceMessageId === 'string' ? p.sourceMessageId.trim() : String(p.sourceMessageId ?? '').trim()
+        if (!sessionId || !sourceMessageId) {
+          return { success: false, error: 'MISSING_FIELDS' }
+        }
+        const config =
+          p.config && typeof p.config === 'object' && p.config !== null
+            ? (p.config as Record<string, unknown>)
+            : {}
+        const handshakeId =
+          p.handshakeId === null || p.handshakeId === undefined
+            ? null
+            : String(p.handshakeId)
+        const { getOrchestratorService } = await import('./main/orchestrator-db/service')
+        const orchestratorService = getOrchestratorService()
+        const now = Date.now()
+        const importedId = `beap-import-${sessionId}-${now}`
+        await orchestratorService.saveSession({
+          id: importedId,
+          name: sessionName,
+          config: {
+            ...config,
+            importedFrom: 'beap-message',
+            sourceMessageId,
+            handshakeId,
+            importedAt: now,
+            beapSourceSessionId: sessionId,
+          },
+          created_at: now,
+          updated_at: now,
+          tags: ['beap-import'],
+        })
+        beapSessionImportPolicyHook({
+          importedSessionId: importedId,
+          sourceSessionId: sessionId,
+          sourceMessageId,
+          handshakeId,
+        })
+        return { success: true, sessionId: importedId }
+      } catch (err: any) {
+        console.error('[MAIN] orchestrator:importSessionFromBeap', err?.message ?? err)
+        return { success: false, error: err?.message ?? 'IMPORT_FAILED' }
+      }
+    })
+
     /** Generate a draft reply via LLM (no RAG). Used by BEAP "Draft with AI". */
     ipcMain.handle('handshake:generateDraft', async (_e, prompt: string) => {
       try {

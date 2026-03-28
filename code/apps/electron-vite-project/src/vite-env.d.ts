@@ -64,10 +64,22 @@ interface DebugLogsBridge {
   removeLogListener: () => void
 }
 
+interface OrchestratorBridge {
+  importSessionFromBeap: (payload: {
+    sessionId: string
+    sessionName: string
+    config: Record<string, unknown>
+    sourceMessageId: string
+    handshakeId: string | null
+  }) => Promise<{ success: boolean; sessionId?: string; error?: string }>
+  listSessions: () => Promise<{ success: boolean; data?: unknown[]; error?: string }>
+}
+
 interface Window {
   LETmeGIRAFFETHATFORYOU?: LmgtfyBridge
   analysisDashboard?: AnalysisDashboardBridge
   lifecycle?: LifecycleBridge
   integrity?: IntegrityBridge
   debugLogs?: DebugLogsBridge
+  orchestrator?: OrchestratorBridge
 }
