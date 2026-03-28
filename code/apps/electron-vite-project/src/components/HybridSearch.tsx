@@ -354,6 +354,7 @@ export default function HybridSearch({
     return { kind: 'message', messageId: msgId }
   }, [activeView, selectedMessageId, selectedAttachmentId, inboxSubFocus])
   const draftRefineDraftText = useDraftRefineStore((s) => s.draftText)
+  const draftRefineTarget = useDraftRefineStore((s) => s.refineTarget)
   const draftRefineDeliverResponse = useDraftRefineStore((s) => s.deliverResponse)
   const draftRefineAcceptRefinement = useDraftRefineStore((s) => s.acceptRefinement)
   const draftRefineDisconnect = useDraftRefineStore((s) => s.disconnect)
@@ -493,17 +494,39 @@ export default function HybridSearch({
 
         let chatQuery: string
         if (isDraftRefine) {
-          chatQuery = currentDraft
-            ? `Here is a draft email reply:
+          const isCapsule =
+            draftRefineTarget === 'capsule-public' || draftRefineTarget === 'capsule-encrypted'
+          const capsuleKind =
+            draftRefineTarget === 'capsule-public'
+              ? 'public transport-visible BEAP capsule text'
+              : draftRefineTarget === 'capsule-encrypted'
+                ? 'private encrypted qBEAP capsule text'
+                : null
+          if (isCapsule && capsuleKind) {
+            chatQuery = currentDraft
+              ? `Here is a ${capsuleKind} draft:
+
+${currentDraft}
+
+The user wants you to refine it with this instruction: ${trimmed}
+
+Generate a refined version that incorporates the instruction. Output ONLY the refined text, no explanation.`
+              : `The user has no draft yet. Write ${capsuleKind} based on this instruction: ${trimmed}
+
+Output ONLY the complete draft text, no explanation.`
+          } else {
+            chatQuery = currentDraft
+              ? `Here is a draft email reply:
 
 ${currentDraft}
 
 The user wants you to refine it with this instruction: ${trimmed}
 
 Generate a refined version of the draft that incorporates the user's instruction. Output ONLY the refined email text, no explanation.`
-            : `The user has no draft yet. Create a draft email reply based on this instruction: ${trimmed}
+              : `The user has no draft yet. Create a draft email reply based on this instruction: ${trimmed}
 
 Output ONLY the complete draft email text, no explanation.`
+          }
         } else {
           let inboxContext = ''
           if (selectedMessageId && window.emailInbox?.getMessage) {
@@ -609,7 +632,7 @@ Output ONLY the complete draft email text, no explanation.`
     } finally {
       setIsLoading(false)
     }
-  }, [query, mode, scope, selectedHandshakeId, selectedMessageId, selectedAttachmentId, selectedModel, availableModels, isLoading, response, selectedDocumentId, draftRefineConnected, draftRefineMessageId, draftRefineDraftText, draftRefineDeliverResponse, draftRefineAcceptRefinement])
+  }, [query, mode, scope, selectedHandshakeId, selectedMessageId, selectedAttachmentId, selectedModel, availableModels, isLoading, response, selectedDocumentId, draftRefineConnected, draftRefineMessageId, draftRefineDraftText, draftRefineTarget, draftRefineDeliverResponse, draftRefineAcceptRefinement])
 
   const showModelSelector = mode === 'chat' || mode === 'actions'
 

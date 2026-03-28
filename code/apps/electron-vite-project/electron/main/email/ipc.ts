@@ -3213,13 +3213,143 @@ Rules:
     try {
       const db = await resolveDb()
       if (!db) return { ok: false, error: 'Database unavailable' }
-      const row = db.prepare('SELECT from_address, from_name, subject, body_text FROM inbox_messages WHERE id = ?').get(messageId) as { from_address?: string; from_name?: string; subject?: string; body_text?: string } | undefined
+      const row = db
+        .prepare(
+          'SELECT from_address, from_name, subject, body_text, source_type, handshake_id, depackaged_json, beap_package_json FROM inbox_messages WHERE id = ?',
+        )
+        .get(messageId) as
+        | {
+            from_address?: string
+            from_name?: string
+            subject?: string
+            body_text?: string
+            source_type?: string | null
+            handshake_id?: string | null
+            depackaged_json?: string | null
+            beap_package_json?: string | null
+          }
+        | undefined
       if (!row) return { ok: false, error: 'Message not found' }
       console.log('[AI-DRAFT] Message fetched:', { from: row.from_address, subject: row.subject, bodyLength: (row.body_text ?? '').length })
 
       const available = await isOllamaAvailable()
       if (!available) {
         return { ok: true, data: { draft: 'Error: LLM not available. Check Ollama status.', error: true } }
+      }
+
+      const isNativeBeap =
+        row.source_type === 'direct_beap' || (!!row.handshake_id && row.source_type !== 'email_plain')
+
+      const buildNativeBeapContext = (): string => {
+        let messageContent = ''
+        if (row.depackaged_json) {
+          try {
+            const d = JSON.parse(row.depackaged_json) as Record<string, unknown>
+            const body = d.body
+            if (typeof body === 'string') {
+              messageContent = body
+            } else if (body && typeof body === 'object') {
+              const b = body as Record<string, unknown>
+              messageContent = String(b.text ?? b.content ?? b.message ?? b.body ?? b.plaintext ?? '')
+              if (!messageContent.trim()) messageContent = JSON.stringify(body, null, 2)
+            }
+            const subj = d.subject
+            if (typeof subj === 'string' && subj.trim()) {
+              messageContent = `Subject: ${subj}\n\n${messageContent}`
+            }
+          } catch {
+            messageContent = (row.body_text || '').trim()
+          }
+        } else {
+          messageContent = (row.body_text || '').trim()
+        }
+        if (!messageContent.trim() && row.beap_package_json) {
+          try {
+            const pkg = JSON.parse(row.beap_package_json) as Record<string, unknown>
+            const tp =
+              (typeof pkg.transport_plaintext === 'string' && pkg.transport_plaintext) ||
+              (pkg.header &&
+                typeof pkg.header === 'object' &&
+                typeof (pkg.header as Record<string, unknown>).transport_plaintext === 'string' &&
+                String((pkg.header as Record<string, unknown>).transport_plaintext)) ||
+              ''
+            if (typeof tp === 'string' && tp.trim()) messageContent = tp.trim()
+          } catch {
+            /* ignore */
+          }
+        }
+        if (!messageContent.trim()) messageContent = row.subject || '(no content)'
+        return messageContent.slice(0, 12_000)
+      }
+
+      if (isNativeBeap) {
+        const messageContent = buildNativeBeapContext()
+        const userPrompt = `You are drafting a BEAP capsule reply. The original message was:
+
+${messageContent}
+
+Generate a reply with TWO parts:
+1. PUBLIC_MESSAGE: A brief, transport-visible summary (1-2 sentences, professional)
+2. ENCRYPTED_MESSAGE: The full detailed reply (confidential, capsule-bound)
+
+Respond ONLY with valid JSON:
+{
+  "publicMessage": "brief transport-visible text",
+  "encryptedMessage": "full detailed reply"
+}
+
+Match the language of the original message. No markdown, no backticks, no preamble.`
+
+        const { tone } = getToneAndSortForPrompts(db)
+        const contextBlock = getContextBlockForPrompts(db)
+        let systemPrompt =
+          'You output only valid JSON with keys publicMessage and encryptedMessage for a BEAP capsule reply. No markdown fences.'
+        if (tone) systemPrompt += `\n\nUser instructions for response tone and style: ${tone}`
+        if (contextBlock) systemPrompt += contextBlock
+
+        const response = await callInboxOllamaChat(systemPrompt, userPrompt)
+        console.log('[AI-DRAFT] Native BEAP raw LLM response:', response.substring(0, 500))
+        const parsed = parseAiJson(response) as { publicMessage?: unknown; encryptedMessage?: unknown }
+        const pub =
+          typeof parsed.publicMessage === 'string'
+            ? parsed.publicMessage
+            : typeof parsed.publicMessage === 'number'
+              ? String(parsed.publicMessage)
+              : ''
+        const enc =
+          typeof parsed.encryptedMessage === 'string'
+            ? parsed.encryptedMessage
+            : typeof parsed.encryptedMessage === 'number'
+              ? String(parsed.encryptedMessage)
+              : ''
+
+        const draftFallback = (enc || response).slice(0, 8000)
+        const capsuleDraft = {
+          publicText: (pub || '').slice(0, 4000),
+          encryptedText: (enc || response).slice(0, 8000),
+        }
+
+        const existingRow = db.prepare('SELECT ai_analysis_json FROM inbox_messages WHERE id = ?').get(messageId) as { ai_analysis_json?: string | null } | undefined
+        let merged: Record<string, unknown> = {}
+        if (existingRow?.ai_analysis_json) {
+          try {
+            merged = JSON.parse(existingRow.ai_analysis_json) as Record<string, unknown>
+          } catch {
+            /* ignore */
+          }
+        }
+        merged.draftReply = draftFallback
+        merged.status = merged.status ?? 'draft_reply'
+        db.prepare('UPDATE inbox_messages SET ai_analysis_json = ? WHERE id = ?').run(JSON.stringify(merged), messageId)
+
+        return {
+          ok: true,
+          data: {
+            draft: draftFallback,
+            capsuleDraft,
+            isNativeBeap: true as const,
+          },
+        }
       }
 
       const sender = row.from_name ? `${row.from_name} <${row.from_address || ''}>` : (row.from_address || 'Unknown')

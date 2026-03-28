@@ -1558,8 +1558,8 @@ body {
 .inbox-detail-ai-action-bar {
   display: flex;
   flex-wrap: nowrap;
-  gap: 6px;
-  padding: 8px 12px;
+  gap: 4px;
+  padding: 6px 6px 6px 8px;
   border-bottom: 1px solid #e2e8f0;
   flex-shrink: 0;
   margin-bottom: 14px;
@@ -1575,22 +1575,30 @@ body {
 .inbox-detail-ai-section-toggle {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  padding: 5px 12px;
-  font-size: 12px;
+  gap: 3px;
+  padding: 4px 6px;
+  font-size: 11px;
   font-weight: 500;
   letter-spacing: 0.01em;
   border: 1px solid #e2e5e9;
-  border-radius: 6px;
+  border-radius: 5px;
   background: #ffffff;
   color: #4a5568;
   cursor: pointer;
   white-space: nowrap;
-  min-height: 30px;
+  min-height: 26px;
   transition: all 0.15s ease;
-  flex: 1;
+  flex: 1 1 0;
+  min-width: 0;
   justify-content: center;
   box-sizing: border-box;
+  overflow: hidden;
+}
+
+.inbox-detail-ai-section-toggle > span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .inbox-detail-ai-section-toggle:hover {
@@ -1611,9 +1619,10 @@ body {
 }
 
 .inbox-detail-ai-section-toggle-check {
-  font-size: 13px;
+  font-size: 11px;
   line-height: 1;
   opacity: 0.7;
+  flex-shrink: 0;
 }
 
 .inbox-detail-ai-section-toggle--active .inbox-detail-ai-section-toggle-check {
@@ -1631,8 +1640,9 @@ body {
 
 .inbox-detail-ai-action-bar-delete {
   flex: 0 0 auto;
-  min-width: 36px;
-  padding: 4px 10px;
+  flex-shrink: 0;
+  min-width: 32px;
+  padding: 4px 6px;
   justify-content: center;
 }
 
@@ -6235,6 +6245,11 @@ body {
 .capsule-draft-textarea--encrypted {
   background: #f5f3ff;
   border-color: #c4b5fd;
+}
+
+.capsule-draft-textarea.capsule-draft-textarea--refine-connected {
+  border: 2px solid #7c3aed;
+  box-shadow: 0 0 0 2px rgba(124, 58, 237, 0.2);
 }
 
 .capsule-draft-textarea:focus {

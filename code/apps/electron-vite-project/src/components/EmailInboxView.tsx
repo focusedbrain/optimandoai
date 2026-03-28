@@ -150,6 +150,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
   const draftRefineDisconnect = useDraftRefineStore((s) => s.disconnect)
   const draftRefineConnected = useDraftRefineStore((s) => s.connected)
   const draftRefineMessageId = useDraftRefineStore((s) => s.messageId)
+  const draftRefineTarget = useDraftRefineStore((s) => s.refineTarget)
   /** One automatic aiDraftReply per message when analysis finishes with needsReply but no streamed draft. */
   const draftFallbackAttemptedRef = useRef(false)
   const refinedDraftText = useDraftRefineStore((s) => s.refinedDraftText)
@@ -189,6 +190,9 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
           setDraft(null)
           setEditedDraft('')
         }
+      } else if (cachedAdj.draftReply) {
+        setCapsuleEncryptedText(cachedAdj.draftReply)
+        setCapsulePublicText('')
       }
       setAnalysisLoading(false)
       return
@@ -236,6 +240,9 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
           setDraft(parsed.partial.draftReply)
           setEditedDraft(parsed.partial.draftReply)
         }
+        if (skipEmailDraft && parsed.receivedKeys.includes('draftReply') && parsed.partial.draftReply) {
+          setCapsuleEncryptedText(parsed.partial.draftReply)
+        }
       }
     })
 
@@ -273,6 +280,8 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
             setDraft(null)
             setEditedDraft('')
           }
+        } else if (adjusted.draftReply) {
+          setCapsuleEncryptedText(adjusted.draftReply)
         }
         useEmailInboxStore.getState().setAnalysisCache(messageId, adjusted)
       }
@@ -347,11 +356,43 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
     const text = (editedDraft || draft) ?? ''
     if (!text.trim()) return
     const subject = message?.subject ?? null
-    draftRefineConnect(messageId, subject, text, (refined) => {
-      setDraft(refined)
-      setEditedDraft(refined)
-    })
+    draftRefineConnect(
+      messageId,
+      subject,
+      text,
+      (refined) => {
+        setDraft(refined)
+        setEditedDraft(refined)
+      },
+      'email',
+    )
   }, [messageId, message?.subject, editedDraft, draft, draftRefineConnect])
+
+  const handleCapsulePublicRefineConnect = useCallback(() => {
+    const subject = message?.subject ?? null
+    draftRefineConnect(
+      messageId,
+      subject,
+      capsulePublicText,
+      (refined) => {
+        setCapsulePublicText(refined)
+      },
+      'capsule-public',
+    )
+  }, [messageId, message?.subject, capsulePublicText, draftRefineConnect])
+
+  const handleCapsuleEncryptedRefineConnect = useCallback(() => {
+    const subject = message?.subject ?? null
+    draftRefineConnect(
+      messageId,
+      subject,
+      capsuleEncryptedText,
+      (refined) => {
+        setCapsuleEncryptedText(refined)
+      },
+      'capsule-encrypted',
+    )
+  }, [messageId, message?.subject, capsuleEncryptedText, draftRefineConnect])
 
   useEffect(() => {
     if (!draftRefineConnected || draftRefineMessageId !== messageId) return
@@ -366,10 +407,25 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
   }, [draftRefineConnected, draftRefineMessageId, messageId, draftRefineDisconnect])
 
   useEffect(() => {
-    if (draftRefineConnected && draftRefineMessageId === messageId) {
+    if (!draftRefineConnected || draftRefineMessageId !== messageId) return
+    const rt = useDraftRefineStore.getState().refineTarget
+    if (rt === 'capsule-public') {
+      useDraftRefineStore.getState().updateDraftText(capsulePublicText)
+    } else if (rt === 'capsule-encrypted') {
+      useDraftRefineStore.getState().updateDraftText(capsuleEncryptedText)
+    } else {
       useDraftRefineStore.getState().updateDraftText(editedDraft || draft || '')
     }
-  }, [draftRefineConnected, draftRefineMessageId, messageId, editedDraft, draft])
+  }, [
+    draftRefineConnected,
+    draftRefineMessageId,
+    messageId,
+    editedDraft,
+    draft,
+    capsulePublicText,
+    capsuleEncryptedText,
+    draftRefineTarget,
+  ])
 
   const handleSummarize = useCallback(async () => {
     if (!window.emailInbox?.aiSummarize) {
@@ -478,10 +534,22 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
     setAttachments([])
     try {
       const res = await window.emailInbox.aiDraftReply(messageId)
-      if (res.ok && res.data?.draft) {
-        setDraft(res.data.draft)
-        setEditedDraft(res.data.draft)
-        setDraftError(!!(res.data as { error?: boolean }).error)
+      const data = res.data
+      const native = data?.isNativeBeap && data.capsuleDraft
+      if (res.ok && native) {
+        setCapsulePublicText(data.capsuleDraft!.publicText)
+        setCapsuleEncryptedText(data.capsuleDraft!.encryptedText)
+        setDraftError(!!data.error)
+        setVisibleSections((prev) => {
+          if (prev.has('draft')) return prev
+          const next = new Set(prev)
+          next.add('draft')
+          return next
+        })
+      } else if (res.ok && data?.draft) {
+        setDraft(data.draft)
+        setEditedDraft(data.draft)
+        setDraftError(!!data.error)
       } else {
         setDraftError(true)
       }
@@ -512,6 +580,28 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
     draft,
     draftLoading,
     editedDraft,
+    handleDraftReply,
+  ])
+
+  /** Native BEAP: if analysis needs a reply but stream left capsule fields empty, fetch capsule-shaped draft once. */
+  useEffect(() => {
+    if (!messageId || !visibleSections.has('draft')) return
+    if (!isNativeBeap) return
+    if (analysisLoading || !analysis?.needsReply) return
+    if (capsuleEncryptedText.trim() || capsulePublicText.trim()) return
+    if (draftLoading) return
+    if (draftFallbackAttemptedRef.current) return
+    draftFallbackAttemptedRef.current = true
+    void handleDraftReply()
+  }, [
+    messageId,
+    visibleSections,
+    isNativeBeap,
+    analysisLoading,
+    analysis?.needsReply,
+    capsuleEncryptedText,
+    capsulePublicText,
+    draftLoading,
     handleDraftReply,
   ])
 
@@ -885,42 +975,135 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
           <div className="inbox-detail-ai-section inbox-detail-ai-section--tab-panel">
             <div
               className={`inbox-detail-ai-row inbox-detail-ai-row-draft ai-draft-expanded${
-                !isNativeBeap && draftRefineConnected && draftRefineMessageId === messageId ? ' ai-draft-connected' : ''
+                draftRefineConnected && draftRefineMessageId === messageId ? ' ai-draft-connected' : ''
               }`}
               ref={draftRef}
             >
               {isNativeBeap ? (
                 <>
                   <div className="ai-section-draft-header">
+                    {draftRefineConnected &&
+                    draftRefineMessageId === messageId &&
+                    draftRefineTarget === 'capsule-public' ? (
+                      <span
+                        className="bulk-action-card-draft-subfocus-indicator"
+                        title="Public field selected — chat scoped to this field"
+                        aria-hidden
+                      >
+                        👉
+                      </span>
+                    ) : draftRefineConnected &&
+                      draftRefineMessageId === messageId &&
+                      draftRefineTarget === 'capsule-encrypted' ? (
+                      <span
+                        className="bulk-action-card-draft-subfocus-indicator"
+                        title="Encrypted field selected — chat scoped to this field"
+                        aria-hidden
+                      >
+                        👉
+                      </span>
+                    ) : null}
                     <span className="inbox-detail-ai-row-label">Capsule reply</span>
+                    <span className="ai-draft-connect-hint">click a field to refine with AI ↑</span>
                   </div>
                   <div className="inbox-detail-ai-row-value">
                     <div className="inbox-ai-capsule-draft">
                       <div className="capsule-draft-field">
-                        <label className="capsule-field-label">BEAP™ Message (public)</label>
+                        <label className="capsule-field-label">
+                          BEAP™ Message (public)
+                          {draftRefineConnected &&
+                          draftRefineMessageId === messageId &&
+                          draftRefineTarget === 'capsule-public'
+                            ? ' — connected to chat'
+                            : ''}
+                        </label>
+                        {draftRefineConnected &&
+                          draftRefineMessageId === messageId &&
+                          draftRefineTarget === 'capsule-public' && (
+                            <span className="ai-draft-connect-hint" style={{ marginBottom: 4 }}>
+                              Connected to chat ↑ — type instructions to refine
+                            </span>
+                          )}
                         <textarea
-                          className="capsule-draft-textarea"
+                          className={`capsule-draft-textarea${
+                            draftRefineConnected &&
+                            draftRefineMessageId === messageId &&
+                            draftRefineTarget === 'capsule-public'
+                              ? ' capsule-draft-textarea--refine-connected'
+                              : ''
+                          }`}
                           placeholder="Public capsule text — transport-visible message body"
                           value={capsulePublicText}
                           onChange={(e) => setCapsulePublicText(e.target.value)}
+                          onClick={handleCapsulePublicRefineConnect}
+                          onFocus={() => {
+                            useEmailInboxStore.getState().setEditingDraftForMessageId(messageId)
+                            handleCapsulePublicRefineConnect()
+                          }}
+                          onBlur={() => {
+                            useEmailInboxStore.getState().setEditingDraftForMessageId(null)
+                          }}
                           rows={3}
                         />
                       </div>
                       <div className="capsule-draft-field capsule-draft-field--encrypted">
                         <label className="capsule-field-label capsule-field-label--encrypted">
                           🔒 Encrypted Message (Private · QBEAP)
+                          {draftRefineConnected &&
+                          draftRefineMessageId === messageId &&
+                          draftRefineTarget === 'capsule-encrypted'
+                            ? ' — connected to chat'
+                            : ''}
                         </label>
+                        {draftRefineConnected &&
+                          draftRefineMessageId === messageId &&
+                          draftRefineTarget === 'capsule-encrypted' && (
+                            <span className="ai-draft-connect-hint" style={{ marginBottom: 4 }}>
+                              Connected to chat ↑ — type instructions to refine
+                            </span>
+                          )}
                         <textarea
-                          className="capsule-draft-textarea capsule-draft-textarea--encrypted"
+                          className={`capsule-draft-textarea capsule-draft-textarea--encrypted${
+                            draftRefineConnected &&
+                            draftRefineMessageId === messageId &&
+                            draftRefineTarget === 'capsule-encrypted'
+                              ? ' capsule-draft-textarea--refine-connected'
+                              : ''
+                          }`}
                           placeholder="This message is encrypted, capsule-bound, and never transported outside the BEAP package."
                           value={capsuleEncryptedText}
                           onChange={(e) => setCapsuleEncryptedText(e.target.value)}
+                          onClick={handleCapsuleEncryptedRefineConnect}
+                          onFocus={() => {
+                            useEmailInboxStore.getState().setEditingDraftForMessageId(messageId)
+                            handleCapsuleEncryptedRefineConnect()
+                          }}
+                          onBlur={() => {
+                            useEmailInboxStore.getState().setEditingDraftForMessageId(null)
+                          }}
                           rows={4}
                         />
                         <div className="capsule-field-hint">
                           ⚠ This content is authoritative when present and never leaves the encrypted capsule.
                         </div>
                       </div>
+                      {refinedDraftText && draftRefineConnected && draftRefineMessageId === messageId && (
+                        <div className="inbox-detail-ai-refined-preview">
+                          <div className="inbox-detail-ai-refined-header">
+                            <span className="inbox-detail-ai-refined-label">Suggested refinement:</span>
+                            <button
+                              type="button"
+                              className="inbox-detail-ai-accept-refinement"
+                              onClick={acceptRefinement}
+                              title="Apply refined text"
+                              aria-label="Apply refined text"
+                            >
+                              ✓ Accept
+                            </button>
+                          </div>
+                          <div className="inbox-detail-ai-refined-content">{refinedDraftText}</div>
+                        </div>
+                      )}
                       <div className="capsule-draft-field">
                         <label className="capsule-field-label">Session (optional)</label>
                         <select
@@ -992,6 +1175,14 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
                             }}
                           >
                             Clear
+                          </button>
+                          <button
+                            type="button"
+                            className="capsule-draft-clear"
+                            onClick={() => void handleDraftReply()}
+                            disabled={draftLoading}
+                          >
+                            {draftLoading ? 'Generating…' : 'AI capsule draft'}
                           </button>
                         </div>
                         {sendResult && (

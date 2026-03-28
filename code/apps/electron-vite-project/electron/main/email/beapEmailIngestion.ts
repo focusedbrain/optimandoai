@@ -24,6 +24,86 @@ const BATCH_SIZE = 100
 /** Sentinel account_id for P2P-ingested rows (no email account). */
 const P2P_BEAP_ACCOUNT_ID = '__p2p_beap__'
 
+function getHandshakePartyEmails(
+  db: any,
+  handshakeId: string,
+): { counterpartyEmail: string | null; localEmail: string | null } {
+  try {
+    const row = db
+      .prepare(`SELECT local_role, initiator_json, acceptor_json FROM handshakes WHERE handshake_id = ?`)
+      .get(handshakeId) as { local_role: string; initiator_json: string; acceptor_json: string | null } | undefined
+    if (!row) return { counterpartyEmail: null, localEmail: null }
+    const initiator = JSON.parse(row.initiator_json) as { email?: string }
+    const acceptor = row.acceptor_json ? (JSON.parse(row.acceptor_json) as { email?: string }) : null
+    const initEmail = initiator?.email?.trim() || ''
+    const accEmail = acceptor?.email?.trim() || ''
+    if (row.local_role === 'initiator') {
+      return { counterpartyEmail: accEmail || null, localEmail: initEmail || null }
+    }
+    return { counterpartyEmail: initEmail || null, localEmail: accEmail || null }
+  } catch {
+    return { counterpartyEmail: null, localEmail: null }
+  }
+}
+
+/**
+ * Metadata-only attachment rows for pBEAP capsule (no file bytes in main process).
+ */
+export function extractAttachmentsFromBeapPackageJson(packageJson: string): Array<{
+  filename: string
+  content_type: string
+  size_bytes: number
+  content_id: string | null
+}> {
+  const out: Array<{ filename: string; content_type: string; size_bytes: number; content_id: string | null }> = []
+  if (!packageJson || typeof packageJson !== 'string') return out
+  try {
+    const parsed = JSON.parse(packageJson.trim()) as Record<string, unknown>
+    const pushFromCapsule = (capsule: Record<string, unknown>) => {
+      if (!Array.isArray(capsule.attachments)) return
+      for (const a of capsule.attachments) {
+        if (!a || typeof a !== 'object') continue
+        const o = a as Record<string, unknown>
+        out.push({
+          filename: String(o.originalName ?? o.filename ?? o.name ?? 'attachment'),
+          content_type: String(o.originalType ?? o.mimeType ?? o.content_type ?? 'application/octet-stream'),
+          size_bytes:
+            typeof o.originalSize === 'number'
+              ? o.originalSize
+              : Number(o.sizeBytes ?? o.size ?? 0) || 0,
+          content_id: typeof o.id === 'string' ? o.id : null,
+        })
+      }
+    }
+    const header = parsed.header as Record<string, unknown> | undefined
+    const encoding = header?.encoding
+    if (encoding === 'pBEAP' && typeof parsed.payload === 'string') {
+      try {
+        const capsuleJson = Buffer.from(parsed.payload, 'base64').toString('utf8')
+        const capsule = JSON.parse(capsuleJson) as Record<string, unknown>
+        pushFromCapsule(capsule)
+      } catch {
+        /* ignore */
+      }
+    }
+    if (Array.isArray(parsed.attachments)) {
+      for (const a of parsed.attachments) {
+        if (!a || typeof a !== 'object') continue
+        const o = a as Record<string, unknown>
+        out.push({
+          filename: String(o.filename ?? o.name ?? 'attachment'),
+          content_type: String(o.content_type ?? o.mimeType ?? 'application/octet-stream'),
+          size_bytes: typeof o.size === 'number' ? o.size : Number(o.size_bytes ?? 0) || 0,
+          content_id: typeof o.id === 'string' ? o.id : null,
+        })
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+  return out
+}
+
 function resolveP2PPendingPackageColumnExpr(db: any): string {
   try {
     const cols = db.prepare(`PRAGMA table_info(p2p_pending_beap)`).all() as Array<{ name: string }>
@@ -296,6 +376,11 @@ export function processPendingP2PBeapEmails(db: any): number {
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `)
 
+  const insertP2PAttachment = db.prepare(`
+    INSERT INTO inbox_attachments (id, message_id, filename, content_type, size_bytes, content_id, storage_path, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `)
+
   const markProcessed = db.prepare(`UPDATE p2p_pending_beap SET processed = 1 WHERE id = ?`)
 
   try {
@@ -329,6 +414,14 @@ export function processPendingP2PBeapEmails(db: any): number {
 
           if (!inbox) {
             const preview = extractP2PBeapInboxPreview(pkg)
+            const parties = row.handshake_id ? getHandshakePartyEmails(db, row.handshake_id) : { counterpartyEmail: null, localEmail: null }
+            const fromAddr =
+              (preview.from_address && String(preview.from_address).trim()) ||
+              (parties.counterpartyEmail && parties.counterpartyEmail.trim()) ||
+              null
+            const toJson = parties.localEmail ? JSON.stringify([parties.localEmail]) : '[]'
+            const attMeta = extractAttachmentsFromBeapPackageJson(pkg)
+            const attCount = attMeta.length
             const inboxId = randomUUID()
             const now = new Date().toISOString()
             const receivedAt = row.created_at && String(row.created_at).trim() ? String(row.created_at) : now
@@ -338,25 +431,39 @@ export function processPendingP2PBeapEmails(db: any): number {
               row.handshake_id,
               P2P_BEAP_ACCOUNT_ID,
               `p2p-pending-${row.id}`,
-              preview.from_address,
+              fromAddr,
               null,
-              '[]',
+              toJson,
               '[]',
               preview.subject,
               preview.body_text,
               null,
               pkg,
-              0,
-              0,
+              attCount > 0 ? 1 : 0,
+              attCount,
               receivedAt,
               now,
               'P2P_DIRECT',
               null,
             )
+            if (attCount > 0) {
+              for (const a of attMeta) {
+                insertP2PAttachment.run(
+                  randomUUID(),
+                  inboxId,
+                  a.filename,
+                  a.content_type,
+                  a.size_bytes,
+                  a.content_id,
+                  null,
+                  now,
+                )
+              }
+            }
             inbox = {
               id: inboxId,
               subject: preview.subject,
-              from_address: preview.from_address,
+              from_address: fromAddr,
               body_text: preview.body_text,
             }
           }

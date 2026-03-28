@@ -369,7 +369,17 @@ export interface EmailInboxBridge {
   }>
   openAttachmentOriginal: (id: string) => Promise<{ ok: boolean; data?: { opened: boolean }; error?: string }>
   aiSummarize: (id: string) => Promise<{ ok: boolean; data?: { summary: string }; error?: string }>
-  aiDraftReply: (id: string) => Promise<{ ok: boolean; data?: { draft: string }; error?: string }>
+  aiDraftReply: (id: string) => Promise<{
+    ok: boolean
+    data?: {
+      draft: string
+      /** Present when the message is native BEAP — split public / encrypted capsule text. */
+      capsuleDraft?: { publicText: string; encryptedText: string }
+      isNativeBeap?: boolean
+      error?: boolean
+    }
+    error?: string
+  }>
   aiAnalyzeMessage: (id: string) => Promise<{ ok: boolean; data?: NormalInboxAiResult; error?: string }>
   aiAnalyzeMessageStream: (messageId: string) => Promise<{ started: boolean }>
   onAiAnalyzeChunk: (cb: (data: { messageId: string; chunk: string }) => void) => () => void

@@ -11,6 +11,7 @@ import LinkWarningDialog from './LinkWarningDialog'
 import { extractLinkParts } from '../utils/safeLinks'
 import { deriveInboxMessageKind } from '../lib/inboxMessageKind'
 import SessionImportDialog, { type SessionImportDialogSessionRef } from './SessionImportDialog'
+import { listHandshakes } from '../shims/handshakeRpc'
 
 export interface EmailMessageDetailProps {
   message: InboxMessage | null
@@ -83,6 +84,75 @@ function getSessionRefs(p: Record<string, unknown>): Array<Record<string, unknow
   return r.filter((x): x is Record<string, unknown> => x !== null && typeof x === 'object')
 }
 
+/** Safe display string for depackaged body/subject when the value may be a nested object. */
+function extractBodyText(body: unknown): string {
+  if (body == null) return ''
+  if (typeof body === 'string') return body
+  if (typeof body === 'object') {
+    const o = body as Record<string, unknown>
+    const nested =
+      o.text ?? o.content ?? o.message ?? o.body ?? o.plaintext ?? o.decrypted
+    if (typeof nested === 'string') return nested
+    try {
+      return JSON.stringify(body, null, 2)
+    } catch {
+      return String(body)
+    }
+  }
+  return String(body)
+}
+
+/** Best-effort transport-visible text for native BEAP (avoid qBEAP ingestion placeholder). */
+function transportPlaintextFromBeapPackageJson(jsonStr: string | null): string {
+  if (!jsonStr || typeof jsonStr !== 'string') return ''
+  try {
+    const pkg = JSON.parse(jsonStr) as Record<string, unknown>
+    if (typeof pkg.transport_plaintext === 'string' && pkg.transport_plaintext.trim()) {
+      return pkg.transport_plaintext.trim()
+    }
+    const header = pkg.header as Record<string, unknown> | undefined
+    if (header && typeof header.transport_plaintext === 'string' && header.transport_plaintext.trim()) {
+      return header.transport_plaintext.trim()
+    }
+    const encoding = header?.encoding
+    if (encoding === 'pBEAP' && typeof pkg.payload === 'string') {
+      try {
+        const binary = atob(pkg.payload)
+        const bytes = Uint8Array.from(binary, (c) => c.charCodeAt(0))
+        const capsuleJson = new TextDecoder().decode(bytes)
+        const capsule = JSON.parse(capsuleJson) as Record<string, unknown>
+        let transport = ''
+        if (typeof capsule.transport_plaintext === 'string') transport = capsule.transport_plaintext
+        else if (typeof capsule.body === 'string') transport = capsule.body
+        else if (capsule.body && typeof capsule.body === 'object') {
+          const bt = (capsule.body as Record<string, unknown>).text
+          if (typeof bt === 'string') transport = bt
+        }
+        if (transport.trim()) return transport.trim()
+      } catch {
+        /* ignore */
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+  return ''
+}
+
+function formatToLine(raw: string | null): string {
+  if (!raw || raw.trim() === '' || raw.trim() === '[]') return '—'
+  try {
+    const parsed = JSON.parse(raw) as unknown
+    if (Array.isArray(parsed)) {
+      const parts = parsed.filter((x): x is string => typeof x === 'string')
+      return parts.length ? parts.join(', ') : '—'
+    }
+  } catch {
+    /* ignore */
+  }
+  return raw
+}
+
 function sessionRefToDialogProps(ref: Record<string, unknown>): SessionImportDialogSessionRef {
   const sessionId = typeof ref.sessionId === 'string' ? ref.sessionId : String(ref.sessionId ?? '')
   const sessionName = typeof ref.sessionName === 'string' ? ref.sessionName : undefined
@@ -135,13 +205,65 @@ export default function EmailMessageDetail({ message, selectedAttachmentId: sele
     }
   }, [isNativeBeap, message?.depackaged_json])
 
+  const [resolvedSender, setResolvedSender] = useState<string | null>(null)
+  const [resolvedRecipient, setResolvedRecipient] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!message?.handshake_id || !isNativeBeap) {
+      setResolvedSender(null)
+      setResolvedRecipient(null)
+      return
+    }
+    const needsSender = !(message.from_address || '').trim()
+    const needsRecipient =
+      !message.to_addresses ||
+      message.to_addresses.trim() === '' ||
+      message.to_addresses.trim() === '[]'
+    if (!needsSender && !needsRecipient) {
+      setResolvedSender(null)
+      setResolvedRecipient(null)
+      return
+    }
+    let cancelled = false
+    void (async () => {
+      try {
+        const list = await listHandshakes('all')
+        const rec = list.find((h) => h.handshake_id === message.handshake_id)
+        if (!rec || cancelled) return
+        const { initiator, acceptor, local_role } = rec
+        const localParty = local_role === 'initiator' ? initiator : acceptor
+        const peerParty = local_role === 'initiator' ? acceptor : initiator
+        if (needsSender) setResolvedSender(peerParty?.email ?? null)
+        if (needsRecipient) setResolvedRecipient(localParty?.email ?? null)
+      } catch {
+        /* ignore */
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [message?.handshake_id, message?.from_address, message?.to_addresses, isNativeBeap])
+
+  const publicMessageText = useMemo(() => {
+    if (!message || !isNativeBeap) return ''
+    const placeholder = (message.body_text || '').includes('open in extension')
+    if (parsedDepackaged) {
+      const tp = parsedDepackaged.transport_plaintext
+      if (typeof tp === 'string' && tp.trim()) return tp.trim()
+    }
+    const fromPkg = transportPlaintextFromBeapPackageJson(message.beap_package_json)
+    if (fromPkg) return fromPkg
+    if (message.body_text && !placeholder) return message.body_text
+    return ''
+  }, [message, isNativeBeap, parsedDepackaged])
+
   const fromDisplay = useMemo((): ReactNode => {
     if (!message) return '—'
     if (isNativeBeap) {
-      const name = message.from_name || message.from_address
+      const sender = message.from_name || message.from_address || resolvedSender
       return (
         <span>
-          {name || 'Unknown sender'}
+          {sender || (message.handshake_id ? 'Resolving…' : 'Unknown sender')}
           {message.handshake_id ? (
             <span className="beap-identity-badge" title="Verified via BEAP handshake">
               🤝 Handshake
@@ -153,15 +275,17 @@ export default function EmailMessageDetail({ message, selectedAttachmentId: sele
     return message.from_name
       ? `${message.from_name} <${message.from_address || ''}>`
       : message.from_address || '—'
-  }, [isNativeBeap, message])
+  }, [isNativeBeap, message, resolvedSender])
 
   const toDisplay = useMemo((): ReactNode => {
     if (!message) return '—'
     if (isNativeBeap) {
-      return message.to_addresses || 'You (local identity)'
+      const raw = message.to_addresses
+      if (raw && raw.trim() && raw.trim() !== '[]') return formatToLine(raw)
+      return resolvedRecipient || 'You (local identity)'
     }
     return message.to_addresses || '—'
-  }, [isNativeBeap, message])
+  }, [isNativeBeap, message, resolvedRecipient])
 
   useEffect(() => {
     setImportingSession(null)
@@ -207,7 +331,6 @@ export default function EmailMessageDetail({ message, selectedAttachmentId: sele
   if (!message) return null
 
   const isBeap = message.source_type === 'email_beap' || message.source_type === 'direct_beap'
-  const hasAttachments = message.has_attachments === 1
   const attachments = message.attachments ?? []
   const isDeleted = message.deleted === 1
 
@@ -438,27 +561,25 @@ export default function EmailMessageDetail({ message, selectedAttachmentId: sele
         <div style={{ marginBottom: 20 }}>
           {isNativeBeap && parsedDepackaged ? (
             <div className="native-beap-body">
-              {message.body_text ? (
+              {publicMessageText.trim() ? (
                 <div className="beap-body-section">
                   <div className="beap-body-label">📨 Public Message (pBEAP)</div>
                   <div className="beap-body-content beap-body-content--public">
                     <pre style={{ whiteSpace: 'pre-wrap', margin: 0, fontFamily: 'inherit' }}>
-                      {message.body_text}
+                      {publicMessageText}
                     </pre>
                   </div>
                 </div>
               ) : null}
 
-              {parsedDepackaged.body != null && String(parsedDepackaged.body).trim() !== '' ? (
+              {extractBodyText(parsedDepackaged.body).trim() !== '' ? (
                 <div className="beap-body-section">
                   <div className="beap-body-label beap-body-label--confidential">
                     🔒 CONFIDENTIAL (qBEAP — Encrypted Content)
                   </div>
                   <div className="beap-body-content beap-body-content--confidential">
-                    <pre style={{ whiteSpace: 'pre-wrap', margin: 0, fontFamily: 'inherit' }}>
-                      {typeof parsedDepackaged.body === 'string'
-                        ? parsedDepackaged.body
-                        : String(parsedDepackaged.body)}
+                    <pre className="beap-ui-body-pre" style={{ whiteSpace: 'pre-wrap', margin: 0, fontFamily: 'inherit' }}>
+                      {extractBodyText(parsedDepackaged.body)}
                     </pre>
                   </div>
                 </div>
@@ -598,7 +719,7 @@ export default function EmailMessageDetail({ message, selectedAttachmentId: sele
         </div>
 
         {/* Attachments */}
-        {hasAttachments && attachments.length > 0 && (
+        {attachments.length > 0 && (
           <div className="inbox-detail-attachments-block" data-subfocus="attachment">
             <div
               style={{
