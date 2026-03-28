@@ -148,6 +148,12 @@ function isPlaceholder(s: string): boolean {
   )
 }
 
+/** Main-process ingest placeholder before extension Stage-5 merge. */
+function isPendingQbeapDepackaged(dp: Record<string, unknown> | null): boolean {
+  if (!dp) return false
+  return dp.format === 'beap_qbeap_pending_main'
+}
+
 function partyEmail(p: unknown): string | null {
   if (!p || typeof p !== 'object') return null
   const o = p as Record<string, unknown>
@@ -805,7 +811,14 @@ export default function EmailMessageDetail({ message, selectedAttachmentId: sele
 
               {!publicBody && !encryptedBody ? (
                 <div className="beap-body-section" style={{ opacity: 0.5 }}>
-                  Content not yet decrypted on this device.
+                  {parsedDepackaged && isPendingQbeapDepackaged(parsedDepackaged) ? (
+                    <>
+                      Waiting for decryption… Content will appear when the extension processes this message (merge into
+                      the desktop inbox).
+                    </>
+                  ) : (
+                    'Content not yet decrypted on this device.'
+                  )}
                 </div>
               ) : null}
 

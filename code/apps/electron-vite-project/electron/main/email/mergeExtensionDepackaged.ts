@@ -88,14 +88,29 @@ export function mergeExtensionDepackaged(
     return { ok: false, error: 'No inbox row matches this package (sync after main-process ingest?)' }
   }
 
-  const bodyText =
-    input.body_text != null && String(input.body_text).trim()
-      ? String(input.body_text).trim().slice(0, 120_000)
+  /** Always pass through when extension sends body_text (including empty string); only skip when omitted. */
+  const bodyText: string | null =
+    input.body_text !== undefined && input.body_text !== null
+      ? String(input.body_text).slice(0, 120_000)
       : null
 
-  db.prepare(
+  console.log('[MERGE] Received merge request:', {
+    hasDepackagedJson: !!depackaged,
+    depackagedLength: depackaged.length,
+    bodyTextLength: bodyText != null ? bodyText.length : null,
+    attachmentCount: Array.isArray(input.attachments) ? input.attachments.length : 0,
+    packageJsonSnippet: rawPkg.slice(0, 100),
+    messageId: row.id,
+  })
+
+  const upd = db.prepare(
     `UPDATE inbox_messages SET depackaged_json = ?, body_text = COALESCE(?, body_text), embedding_status = 'pending' WHERE id = ?`,
   ).run(depackaged, bodyText, row.id)
+
+  console.log('[MERGE] DB update result:', {
+    changes: typeof upd?.changes === 'number' ? upd.changes : undefined,
+    messageId: row.id,
+  })
 
   const atts = Array.isArray(input.attachments) ? input.attachments : []
   if (atts.length > 0) {

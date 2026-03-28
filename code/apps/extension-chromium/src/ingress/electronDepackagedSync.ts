@@ -52,6 +52,14 @@ export function buildElectronMergePayload(
     })
   }
 
+  console.log('[MERGE] Building merge payload:', {
+    hasDepackagedJson: !!depackaged_json,
+    depackagedJsonLength: depackaged_json.length,
+    bodyTextLength: body_text.length,
+    attachmentCount: attachments.length,
+    hasBase64: attachments.some((a) => !!a.base64 && a.base64.length > 0),
+  })
+
   return {
     beap_package_json: packageJson,
     handshake_id: handshakeId,

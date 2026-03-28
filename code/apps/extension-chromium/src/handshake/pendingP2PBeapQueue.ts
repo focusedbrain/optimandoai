@@ -70,15 +70,25 @@ export async function processPendingP2PBeapQueue(): Promise<void> {
         const verifyResult = await verifyImportedMessage(importResult.messageId, verifyOptions)
         if (verifyResult.success) {
           if (verifyResult.sanitisedPackage) {
+            const pkg = verifyResult.sanitisedPackage
             try {
-              let r = await mergeDepackagedToElectron(item.package_json, item.handshake_id, verifyResult.sanitisedPackage)
-              if (
-                !r.ok &&
-                typeof r.error === 'string' &&
-                /no inbox row|matches this package/i.test(r.error)
-              ) {
+              console.log('[MERGE] About to merge depackaged to Electron:', {
+                ingressMessageId: importResult.messageId,
+                handshakeId: item.handshake_id,
+                hasBody: !!(pkg.capsule?.body && String(pkg.capsule.body).trim()),
+                hasTransport: !!(pkg.capsule?.transport_plaintext && String(pkg.capsule.transport_plaintext).trim()),
+                attachmentCount: pkg.capsule?.attachments?.length ?? 0,
+                artefactCount: pkg.artefacts?.length ?? 0,
+              })
+              let r = await mergeDepackagedToElectron(item.package_json, item.handshake_id, pkg)
+              for (let attempt = 0; attempt < 3; attempt++) {
+                if (r.ok) break
+                const retryable =
+                  typeof r.error === 'string' && /no inbox row|matches this package/i.test(r.error)
+                if (!retryable || attempt >= 2) break
                 await new Promise((z) => setTimeout(z, 2000))
-                r = await mergeDepackagedToElectron(item.package_json, item.handshake_id, verifyResult.sanitisedPackage)
+                console.log('[MERGE] Retrying merge after inbox row delay (attempt ' + (attempt + 2) + '/3)')
+                r = await mergeDepackagedToElectron(item.package_json, item.handshake_id, pkg)
               }
               if (!r.ok) {
                 console.warn('[P2P→Electron] merge-depackaged:', r.error ?? 'failed')

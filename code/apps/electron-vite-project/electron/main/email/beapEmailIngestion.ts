@@ -228,9 +228,11 @@ export function extractP2PBeapInboxPreview(packageJson: string): {
         const capsule = JSON.parse(capsuleJson) as Record<string, unknown>
         const bodyText = String(capsule.body ?? capsule.transport_plaintext ?? '')
         const title =
-          typeof capsule.title === 'string' && capsule.title.trim()
-            ? capsule.title
-            : fallback.subject
+          typeof capsule.subject === 'string' && capsule.subject.trim()
+            ? capsule.subject
+            : typeof capsule.title === 'string' && capsule.title.trim()
+              ? capsule.title
+              : fallback.subject
         return { subject: title, body_text: bodyText.slice(0, 50_000), from_address: null }
       } catch {
         /* fall through */

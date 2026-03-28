@@ -1852,17 +1852,43 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === 'ELECTRON_INBOX_MERGE_DEPACKAGED') {
     ;(async () => {
       try {
+        const secretOk = await ensureLaunchSecret(20000)
+        if (!secretOk) {
+          console.warn('[MERGE] X-Launch-Secret not ready after 20s — merge may return 401')
+        }
+        const payload = msg.payload ?? {}
+        const bodyStr = JSON.stringify(payload)
+        const mergeUrl = `${ELECTRON_BASE_URL}/api/inbox/merge-depackaged`
+        console.log('[MERGE] POSTing to Electron:', {
+          url: mergeUrl,
+          payloadSize: bodyStr.length,
+          hasAuth: !!_launchSecret,
+        })
         const r = await electronRequest('/api/inbox/merge-depackaged', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(msg.payload ?? {}),
+          body: bodyStr,
+        })
+        const dataOk = r.data && typeof r.data === 'object' && (r.data as { ok?: boolean }).ok === false
+        const effectiveOk = r.ok && !dataOk
+        console.log('[MERGE] Electron response:', {
+          ok: r.ok,
+          effectiveOk,
+          error: r.error,
+          errorCode: r.errorCode,
+          messageId: (r.data as { messageId?: string })?.messageId,
         })
         try {
-          sendResponse({ ok: r.ok, error: r.error, data: r.data })
+          sendResponse({
+            ok: effectiveOk,
+            error: effectiveOk ? undefined : r.error ?? (dataOk ? 'merge rejected' : undefined),
+            data: r.data,
+          })
         } catch {
           /* channel closed */
         }
       } catch (e: any) {
+        console.error('[MERGE] merge-depackaged exception:', e?.message ?? e)
         try {
           sendResponse({ ok: false, error: e?.message ?? String(e) })
         } catch {

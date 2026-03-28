@@ -5320,6 +5320,8 @@ app.whenReady().then(async () => {
       '/api/health',               // Lightweight liveness probe, returns no sensitive data
       '/api/orchestrator/status',  // Availability check for getActiveAdapter (before WebSocket handshake)
       '/api/crypto/pq/status',     // ML-KEM availability probe (boolean only; no secrets). Extension may call before WS supplies X-Launch-Secret; POST /mlkem768/* still require auth
+      // Localhost-only: merge still requires matching inbox row + exact package JSON (or handshake fallback).
+      '/api/inbox/merge-depackaged',
     ])
 
     httpApp.use((req, res, next) => {
