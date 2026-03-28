@@ -90,15 +90,24 @@ function extractBodyText(body: unknown): string {
   if (typeof body === 'string') return body
   if (typeof body === 'object') {
     const o = body as Record<string, unknown>
-    const nested =
-      o.text ??
-      o.content ??
-      o.message ??
-      o.plaintext ??
-      o.decrypted ??
-      (typeof o.body === 'string' ? o.body : null) ??
-      (o.body != null && typeof o.body === 'object' ? extractBodyText(o.body) : null)
-    if (typeof nested === 'string' && nested.trim()) return nested
+    for (const key of [
+      'text',
+      'content',
+      'message',
+      'body',
+      'plaintext',
+      'decrypted',
+      'transport_plaintext',
+      'capsule_text',
+    ] as const) {
+      const v = o[key]
+      if (typeof v === 'string' && v.trim()) return v
+    }
+    if (o.body != null && typeof o.body === 'object') {
+      const nested = extractBodyText(o.body)
+      if (nested.trim()) return nested
+    }
+    if (typeof o.body === 'string' && o.body.trim()) return o.body
     try {
       return JSON.stringify(body, null, 2)
     } catch {
@@ -230,13 +239,22 @@ export default function EmailMessageDetail({ message, selectedAttachmentId: sele
   const isNativeBeap = messageKind === 'handshake'
 
   const parsedDepackaged = useMemo(() => {
-    if (!isNativeBeap || !message?.depackaged_json) return null
+    if (!message?.depackaged_json) return null
     try {
       return JSON.parse(message.depackaged_json) as Record<string, unknown>
     } catch {
       return null
     }
-  }, [isNativeBeap, message?.depackaged_json])
+  }, [message?.depackaged_json])
+
+  const parsedPackage = useMemo(() => {
+    if (!message?.beap_package_json) return null
+    try {
+      return JSON.parse(message.beap_package_json) as Record<string, unknown>
+    } catch {
+      return null
+    }
+  }, [message?.beap_package_json])
 
   const [resolvedSender, setResolvedSender] = useState<string | null>(null)
   const [resolvedRecipient, setResolvedRecipient] = useState<string | null>(null)
@@ -310,31 +328,50 @@ export default function EmailMessageDetail({ message, selectedAttachmentId: sele
       bt.includes('open in extension') ||
       bt.includes('Encrypted qBEAP') ||
       bt.includes('(Encrypted qBEAP')
-    const fromPkg = transportPlaintextFromBeapPackageJson(message.beap_package_json)
-    if (fromPkg) return fromPkg
+    const pkg = parsedPackage
+    if (pkg) {
+      if (typeof pkg.transport_plaintext === 'string' && pkg.transport_plaintext.trim()) {
+        return pkg.transport_plaintext.trim()
+      }
+      const header = pkg.header as Record<string, unknown> | undefined
+      if (header && typeof header.transport_plaintext === 'string' && header.transport_plaintext.trim()) {
+        return header.transport_plaintext.trim()
+      }
+      const capsule = pkg.capsule as Record<string, unknown> | undefined
+      if (capsule && typeof capsule.text === 'string' && capsule.text.trim()) {
+        return capsule.text.trim()
+      }
+    }
+    const fromLegacy = transportPlaintextFromBeapPackageJson(message.beap_package_json)
+    if (fromLegacy) return fromLegacy
     if (parsedDepackaged) {
       const tp = parsedDepackaged.transport_plaintext
       if (typeof tp === 'string' && tp.trim()) return tp.trim()
       const transport = parsedDepackaged.transport
       if (typeof transport === 'string' && transport.trim()) return transport.trim()
-      const subj = parsedDepackaged.subject
-      if (typeof subj === 'string' && subj.trim() && !placeholder) return subj.trim()
     }
     if (message.body_text && !placeholder) return message.body_text
     return ''
-  }, [message, isNativeBeap, parsedDepackaged])
+  }, [message, isNativeBeap, parsedPackage, parsedDepackaged])
 
   const encryptedBodyText = useMemo(() => {
-    if (!parsedDepackaged) return ''
-    const combined =
-      extractBodyText(parsedDepackaged.body) ||
-      extractBodyText(parsedDepackaged.content) ||
-      extractBodyText(parsedDepackaged.decryptedBody) ||
-      extractBodyText(parsedDepackaged.encryptedMessage) ||
-      extractBodyText(parsedDepackaged.encrypted_message) ||
-      extractBodyText(parsedDepackaged.decrypted_body)
-    return combined.trim()
-  }, [parsedDepackaged])
+    if (!isNativeBeap) return ''
+    const candidates: unknown[] = [
+      parsedDepackaged?.body,
+      parsedDepackaged?.content,
+      parsedDepackaged?.decryptedBody,
+      parsedDepackaged?.encryptedMessage,
+      parsedDepackaged?.encrypted_message,
+      parsedDepackaged?.decrypted_body,
+    ]
+    const cap = parsedPackage?.capsule as Record<string, unknown> | undefined
+    if (cap && 'body' in cap) candidates.push(cap.body)
+    for (const c of candidates) {
+      const t = extractBodyText(c).trim()
+      if (t) return t
+    }
+    return ''
+  }, [isNativeBeap, parsedDepackaged, parsedPackage])
 
   const fromDisplay = useMemo((): ReactNode => {
     if (!message) return '—'
@@ -381,7 +418,10 @@ export default function EmailMessageDetail({ message, selectedAttachmentId: sele
   useEffect(() => {
     const mid = message?.id
     if (!mid) return
-    if (message.has_attachments !== 1) {
+    const expectAtt =
+      message.has_attachments === 1 ||
+      (typeof message.attachment_count === 'number' && message.attachment_count > 0)
+    if (!expectAtt) {
       attachmentHydrateSettledRef.current = null
       return
     }
@@ -410,7 +450,7 @@ export default function EmailMessageDetail({ message, selectedAttachmentId: sele
     return () => {
       cancelled = true
     }
-  }, [message?.id, message?.has_attachments, message?.attachments, mergeMessageAttachments])
+  }, [message?.id, message?.has_attachments, message?.attachment_count, message?.attachments, mergeMessageAttachments])
 
   const handleSessionImport = useCallback(async (raw: Record<string, unknown>) => {
     const sessionId = typeof raw.sessionId === 'string' ? raw.sessionId : String(raw.sessionId ?? '')
@@ -452,6 +492,12 @@ export default function EmailMessageDetail({ message, selectedAttachmentId: sele
 
   const isBeap = message.source_type === 'email_beap' || message.source_type === 'direct_beap'
   const attachments = message.attachments ?? []
+  const attachmentMetaExpected =
+    message.has_attachments === 1 ||
+    (typeof message.attachment_count === 'number' && message.attachment_count > 0)
+  /** Show block if we have rows, or DB says attachments exist (list may omit rows until merge). */
+  const showAttachmentsBlock = attachments.length > 0 || attachmentMetaExpected
+  const attachmentsPendingRows = attachmentMetaExpected && attachments.length === 0
   const isDeleted = message.deleted === 1
 
   const automationTags = parsedDepackaged ? getAutomationTags(parsedDepackaged) : []
@@ -713,10 +759,10 @@ export default function EmailMessageDetail({ message, selectedAttachmentId: sele
               !encryptedBodyText &&
               automationTags.length === 0 &&
               sessionRefsList.length === 0 ? (
-                <div className="beap-body-section">
-                  <div className="beap-body-label">Decryption pending</div>
-                  <div className="beap-body-content" style={{ opacity: 0.75 }}>
-                    Message content has not been decrypted yet on this device, or the capsule has no body fields.
+                <div className="beap-body-section" style={{ opacity: 0.6 }}>
+                  <div className="beap-body-label">Message content</div>
+                  <div className="beap-body-content">
+                    Content not yet available on this device. Open in the extension to decrypt.
                   </div>
                 </div>
               ) : null}
@@ -854,8 +900,8 @@ export default function EmailMessageDetail({ message, selectedAttachmentId: sele
           )}
         </div>
 
-        {/* Attachments */}
-        {attachments.length > 0 && (
+        {/* Attachments — all source types; rows load even when list omitted attachment join */}
+        {showAttachmentsBlock && (
           <div className="inbox-detail-attachments-block" data-subfocus="attachment">
             <div
               style={{
@@ -867,16 +913,25 @@ export default function EmailMessageDetail({ message, selectedAttachmentId: sele
                 letterSpacing: '0.5px',
               }}
             >
-              ATTACHMENTS
+              📎 ATTACHMENTS
             </div>
-            {attachments.map((att) => (
-              <InboxAttachmentRow
-                key={att.id}
-                attachment={att}
-                selectedAttachmentId={selectedAttachmentIdProp ?? storeSelectedAttachmentId}
-                onSelectAttachment={onSelectAttachment ?? ((id) => selectAttachment(message.id, id))}
-              />
-            ))}
+            {attachments.length > 0 ? (
+              attachments.map((att) => (
+                <InboxAttachmentRow
+                  key={att.id}
+                  attachment={att}
+                  selectedAttachmentId={selectedAttachmentIdProp ?? storeSelectedAttachmentId}
+                  onSelectAttachment={onSelectAttachment ?? ((id) => selectAttachment(message.id, id))}
+                />
+              ))
+            ) : attachmentsPendingRows ? (
+              <div
+                className="inbox-detail-attachments-loading"
+                style={{ fontSize: 12, color: 'var(--color-text-muted, #94a3b8)' }}
+              >
+                Loading attachment list…
+              </div>
+            ) : null}
           </div>
         )}
       </div>

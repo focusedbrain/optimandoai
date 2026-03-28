@@ -75,6 +75,10 @@ export function extractAttachmentsFromBeapPackageJson(packageJson: string): Arra
         })
       }
     }
+    const topCapsule = parsed.capsule
+    if (topCapsule && typeof topCapsule === 'object' && !Array.isArray(topCapsule)) {
+      pushFromCapsule(topCapsule as Record<string, unknown>)
+    }
     const header = parsed.header as Record<string, unknown> | undefined
     const encoding = header?.encoding
     if (encoding === 'pBEAP' && typeof parsed.payload === 'string') {
@@ -412,6 +416,33 @@ export function processPendingP2PBeapEmails(db: any): number {
 
           let inbox = selectInbox.get(pkg) as InboxRowFallback | undefined
 
+          const ensureAttachmentsForInboxMessage = (messageId: string) => {
+            const attMeta = extractAttachmentsFromBeapPackageJson(pkg)
+            if (attMeta.length === 0) return
+            const existingCount = (
+              db.prepare('SELECT COUNT(*) as c FROM inbox_attachments WHERE message_id = ?').get(messageId) as {
+                c: number
+              }
+            )?.c ?? 0
+            if (existingCount > 0) return
+            const ts = new Date().toISOString()
+            for (const a of attMeta) {
+              insertP2PAttachment.run(
+                randomUUID(),
+                messageId,
+                a.filename,
+                a.content_type,
+                a.size_bytes,
+                a.content_id,
+                null,
+                ts,
+              )
+            }
+            db.prepare(
+              `UPDATE inbox_messages SET has_attachments = 1, attachment_count = ? WHERE id = ?`,
+            ).run(attMeta.length, messageId)
+          }
+
           if (!inbox) {
             const preview = extractP2PBeapInboxPreview(pkg)
             const parties = row.handshake_id ? getHandshakePartyEmails(db, row.handshake_id) : { counterpartyEmail: null, localEmail: null }
@@ -466,6 +497,8 @@ export function processPendingP2PBeapEmails(db: any): number {
               from_address: fromAddr,
               body_text: preview.body_text,
             }
+          } else {
+            ensureAttachmentsForInboxMessage(inbox.id)
           }
 
           const depackagedJson = beapPackageToMainProcessDepackaged(pkg, inbox)

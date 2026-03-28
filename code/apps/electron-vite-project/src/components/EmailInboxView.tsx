@@ -87,11 +87,17 @@ function applyCapsuleDraftFromDraftReply(
   setEnc: (s: string) => void,
 ): void {
   if (dr == null) return
-  if (typeof dr === 'object' && !Array.isArray(dr) && ('publicMessage' in dr || 'encryptedMessage' in dr)) {
-    const o = dr as { publicMessage?: string; encryptedMessage?: string }
-    setPublic(o.publicMessage ?? '')
-    setEnc(o.encryptedMessage ?? '')
-    return
+  if (typeof dr === 'object' && !Array.isArray(dr)) {
+    const o = dr as Record<string, unknown>
+    const pub =
+      o.publicMessage ?? o.publicText ?? o.public
+    const enc =
+      o.encryptedMessage ?? o.encryptedText ?? o.text
+    if (pub != null || enc != null) {
+      setPublic(typeof pub === 'string' ? pub : '')
+      setEnc(typeof enc === 'string' ? enc : '')
+      return
+    }
   }
   if (typeof dr === 'string') {
     setEnc(dr)
@@ -170,7 +176,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
   const draftRefineConnected = useDraftRefineStore((s) => s.connected)
   const draftRefineMessageId = useDraftRefineStore((s) => s.messageId)
   const draftRefineTarget = useDraftRefineStore((s) => s.refineTarget)
-  /** One automatic aiDraftReply per message when analysis finishes with needsReply but no streamed draft. */
+  /** Email: one aiDraftReply when needsReply and no draft. Native BEAP: one aiDraftReply when analysis finished and capsules still empty. */
   const draftFallbackAttemptedRef = useRef(false)
   const refinedDraftText = useDraftRefineStore((s) => s.refinedDraftText)
   const acceptRefinement = useDraftRefineStore((s) => s.acceptRefinement)
@@ -197,7 +203,11 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
         ...cached,
         urgencyScore: tri.urgencyScore,
         needsReply: tri.needsReply,
-        draftReply: tri.needsReply ? cached.draftReply : null,
+        draftReply: skipEmailDraft
+          ? cached.draftReply
+          : tri.needsReply
+            ? cached.draftReply
+            : null,
       }
       setAnalysis(cachedAdj)
       setReceivedFields(new Set(['needsReply', 'needsReplyReason', 'summary', 'urgencyScore', 'urgencyReason', 'actionItems', 'archiveRecommendation', 'archiveReason', 'draftReply']))
@@ -287,7 +297,11 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
           ...final,
           urgencyScore: tri.urgencyScore,
           needsReply: tri.needsReply,
-          draftReply: tri.needsReply ? final.draftReply : null,
+          draftReply: skipEmailDraft
+            ? final.draftReply
+            : tri.needsReply
+              ? final.draftReply
+              : null,
         }
         const ov = manualSummaryOverrideRef.current
         if (ov && ov.messageId === messageId && ov.summary.trim()) {
@@ -336,6 +350,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
   useEffect(() => {
     if (!messageId) return
     manualSummaryOverrideRef.current = null
+    setAnalysisLoading(true)
     setAnalysis(null)
     setReceivedFields(new Set())
     setSummarizeLoading(false)
@@ -624,11 +639,11 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
     handleDraftReply,
   ])
 
-  /** Native BEAP: if analysis needs a reply but stream left capsule fields empty, fetch capsule-shaped draft once. */
+  /** Native BEAP: after analysis finishes, if capsule fields are still empty, fetch capsule draft once (no needsReply gate). */
   useEffect(() => {
     if (!messageId || !visibleSections.has('draft')) return
     if (!isNativeBeap) return
-    if (analysisLoading || !analysis?.needsReply) return
+    if (analysisLoading) return
     if (capsuleEncryptedText.trim() || capsulePublicText.trim()) return
     if (draftLoading) return
     if (draftFallbackAttemptedRef.current) return
@@ -639,7 +654,6 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
     visibleSections,
     isNativeBeap,
     analysisLoading,
-    analysis?.needsReply,
     capsuleEncryptedText,
     capsulePublicText,
     draftLoading,
@@ -1156,23 +1170,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
                           ⚠ This content is end-to-end encrypted and capsule-bound.
                         </div>
                       </div>
-                      {refinedDraftText && draftRefineConnected && draftRefineMessageId === messageId && (
-                        <div className="inbox-detail-ai-refined-preview">
-                          <div className="inbox-detail-ai-refined-header">
-                            <span className="inbox-detail-ai-refined-label">Suggested refinement:</span>
-                            <button
-                              type="button"
-                              className="inbox-detail-ai-accept-refinement"
-                              onClick={acceptRefinement}
-                              title="Apply refined text"
-                              aria-label="Apply refined text"
-                            >
-                              ✓ Accept
-                            </button>
-                          </div>
-                          <div className="inbox-detail-ai-refined-content">{refinedDraftText}</div>
-                        </div>
-                      )}
+                      {/* Refined text: use chat expansion "USE ↓" only — no duplicate preview here (capsule fields). */}
                       <div className="capsule-draft-field">
                         <label className="capsule-field-label">Session (optional)</label>
                         <select

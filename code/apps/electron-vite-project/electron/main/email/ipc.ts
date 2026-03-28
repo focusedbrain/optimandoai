@@ -2897,13 +2897,10 @@ Rules:
          FROM inbox_messages ${where} ORDER BY received_at DESC LIMIT ? OFFSET ?`
       ).all(...qParams) as any[]
 
+      const attStmt = db.prepare('SELECT * FROM inbox_attachments WHERE message_id = ?')
       for (const m of rows) {
-        if (m.has_attachments === 1) {
-          const atts = db.prepare('SELECT * FROM inbox_attachments WHERE message_id = ?').all(m.id) as any[]
-          m.attachments = atts
-        } else {
-          m.attachments = []
-        }
+        // Always attach rows: flags can be stale (e.g. P2P backfill) or out of sync with inbox_attachments.
+        m.attachments = attStmt.all(m.id) as any[]
       }
 
       return { ok: true, data: { messages: rows, total } }

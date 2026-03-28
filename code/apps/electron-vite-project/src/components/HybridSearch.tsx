@@ -520,38 +520,37 @@ export default function HybridSearch({
 
         let chatQuery: string
         if (isDraftRefine) {
-          const isCapsule =
-            draftRefineTarget === 'capsule-public' || draftRefineTarget === 'capsule-encrypted'
-          const capsuleKind =
-            draftRefineTarget === 'capsule-public'
-              ? 'public transport-visible BEAP capsule text'
-              : draftRefineTarget === 'capsule-encrypted'
-                ? 'private encrypted qBEAP capsule text'
-                : null
-          if (isCapsule && capsuleKind) {
-            chatQuery = currentDraft
-              ? `Here is a ${capsuleKind} draft:
-
-${currentDraft}
-
-The user wants you to refine it with this instruction: ${trimmed}
-
-Generate a refined version that incorporates the instruction. Output ONLY the refined text, no explanation.`
-              : `The user has no draft yet. Write ${capsuleKind} based on this instruction: ${trimmed}
-
-Output ONLY the complete draft text, no explanation.`
+          const target = useDraftRefineStore.getState().refineTarget
+          let fieldLabel = 'email reply'
+          if (target === 'capsule-public') {
+            fieldLabel = 'public message field of a BEAP capsule reply'
+          } else if (target === 'capsule-encrypted') {
+            fieldLabel = 'private message field of a BEAP capsule reply'
+          }
+          if (currentDraft.trim()) {
+            chatQuery = [
+              `Here is the current draft text for the ${fieldLabel}:`,
+              '',
+              '---',
+              currentDraft,
+              '---',
+              '',
+              `The user wants you to modify this draft with the following instruction:`,
+              `"${trimmed}"`,
+              '',
+              `Generate a revised version of the draft text that incorporates the user's instruction.`,
+              `Output ONLY the revised text. No explanation, no preamble, no markdown formatting.`,
+              `Match the language and tone of the original draft.`,
+            ].join('\n')
           } else {
-            chatQuery = currentDraft
-              ? `Here is a draft email reply:
-
-${currentDraft}
-
-The user wants you to refine it with this instruction: ${trimmed}
-
-Generate a refined version of the draft that incorporates the user's instruction. Output ONLY the refined email text, no explanation.`
-              : `The user has no draft yet. Create a draft email reply based on this instruction: ${trimmed}
-
-Output ONLY the complete draft email text, no explanation.`
+            chatQuery = [
+              `The user has no draft text yet for the ${fieldLabel}.`,
+              '',
+              `Write initial draft text based on this instruction:`,
+              `"${trimmed}"`,
+              '',
+              `Output ONLY the draft text. No explanation, no preamble, no markdown formatting.`,
+            ].join('\n')
           }
         } else {
           let inboxContext = ''
