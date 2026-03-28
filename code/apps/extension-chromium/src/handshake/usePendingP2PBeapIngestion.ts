@@ -1,62 +1,22 @@
 /**
  * usePendingP2PBeapIngestion Hook
  *
- * Polls for pending P2P BEAP message packages received via /beap/ingest,
- * imports them into the inbox, verifies (decrypts) with handshake context,
- * and acknowledges processing. Messages appear in inbox via the import pipeline.
+ * Processes pending P2P BEAP message packages (coordination WS, relay pull, local P2P).
+ * Primary: push notification from Electron (P2P_BEAP_RECEIVED) for real-time ingest.
+ * Fallback: 5s poll when the BEAP inbox view is mounted.
  */
 
 import { useEffect, useRef } from 'react'
-import { getPendingP2PBeapMessages, ackPendingP2PBeap, getHandshake } from './handshakeRpc'
-import { importBeapMessage, verifyImportedMessage } from '../ingress/importPipeline'
+import { processPendingP2PBeapQueue } from './pendingP2PBeapQueue'
 
 const POLL_INTERVAL_MS = 5_000
-
-let globalProcessing = false
-
-/** Build sandbox options with handshake keys when handshakeId is a real handshake (not __file_import__ / __email_import__). */
-async function buildVerifyOptions(handshakeId: string): Promise<{ handshakeId: string; senderX25519PublicKey?: string; mlkemSecretKeyB64?: string }> {
-  const opts: { handshakeId: string; senderX25519PublicKey?: string; mlkemSecretKeyB64?: string } = { handshakeId }
-  if (!handshakeId || handshakeId === '__file_import__' || handshakeId === '__email_import__') return opts
-  try {
-    const hs = await getHandshake(handshakeId)
-    if (hs.peerX25519PublicKey) opts.senderX25519PublicKey = hs.peerX25519PublicKey
-    // mlkemSecretKeyB64: requires RPC to get local ML-KEM secret key per handshake (TODO)
-    return opts
-  } catch {
-    return opts
-  }
-}
 
 export function usePendingP2PBeapIngestion(): void {
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   useEffect(() => {
     async function processPending() {
-      if (globalProcessing) return
-      globalProcessing = true
-      try {
-        const items = await getPendingP2PBeapMessages()
-        for (const item of items) {
-          try {
-            const importResult = await importBeapMessage(item.package_json, 'p2p')
-            if (!importResult.success || !importResult.messageId) {
-              console.warn('[P2P Ingestion] Import failed for pending item', item.id, importResult.error)
-              continue
-            }
-            const verifyOptions = await buildVerifyOptions(item.handshake_id)
-            const verifyResult = await verifyImportedMessage(importResult.messageId, verifyOptions)
-            if (verifyResult.success) {
-              await ackPendingP2PBeap(item.id)
-            }
-            // On verify failure, message is rejected in store; we do not ack so it can be retried
-          } catch (err) {
-            console.warn('[P2P Ingestion] Error processing pending item', item.id, err)
-          }
-        }
-      } finally {
-        globalProcessing = false
-      }
+      await processPendingP2PBeapQueue()
     }
 
     processPending()
@@ -66,6 +26,40 @@ export function usePendingP2PBeapIngestion(): void {
         clearInterval(intervalRef.current)
         intervalRef.current = null
       }
+    }
+  }, [])
+
+  useEffect(() => {
+    const listener = (
+      msg: { type?: string; handshakeId?: string },
+      _sender: chrome.runtime.MessageSender,
+      sendResponse: (r?: unknown) => void,
+    ): boolean => {
+      if (msg?.type === 'P2P_BEAP_RECEIVED') {
+        console.log('[P2P-POLL] Immediate processing triggered by push notification', msg.handshakeId ?? '')
+        void processPendingP2PBeapQueue().then(
+          () => {
+            try {
+              sendResponse({ ok: true })
+            } catch {
+              /* channel may be gone */
+            }
+          },
+          () => {
+            try {
+              sendResponse({ ok: false })
+            } catch {
+              /* channel may be gone */
+            }
+          },
+        )
+        return true
+      }
+      return false
+    }
+    chrome.runtime.onMessage.addListener(listener)
+    return () => {
+      chrome.runtime.onMessage.removeListener(listener)
     }
   }, [])
 }

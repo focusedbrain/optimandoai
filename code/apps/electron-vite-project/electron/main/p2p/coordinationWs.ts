@@ -26,6 +26,7 @@ import {
   setP2PHealthCoordinationLastPush,
   setP2PHealthCoordinationReconnectAttempts,
 } from './p2pHealth'
+import { notifyBeapRecipientPending } from './beapRecipientNotify'
 
 /**
  * In-memory buffer for context_sync capsules that arrived before the accept was processed.
@@ -151,6 +152,7 @@ async function processCapsuleInternal(
 
     const { distribution } = result
     if (distribution.target === 'message_relay') {
+      console.log('[Coordination] BEAP capsule received via WS push')
       // BEAP message package (qBEAP/pBEAP): route to p2p_pending_beap for extension ingestion
       const msgCapsule = distribution.validated_capsule!.capsule
       const handshakeId =
@@ -163,7 +165,9 @@ async function processCapsuleInternal(
       if (db) {
         try {
           insertPendingP2PBeap(db, handshakeId, capsuleJson)
+          console.log('[P2P-RECV] BEAP message inserted into pending table', handshakeId)
           console.log('[Coordination] Message package routed to p2p_pending_beap, handshake=', handshakeId)
+          notifyBeapRecipientPending(handshakeId)
         } catch (err: any) {
           console.error('[Coordination] insertPendingP2PBeap failed:', err?.message ?? err)
         }

@@ -964,6 +964,14 @@ function connectToWebSocketServer(forceReconnect = false): Promise<boolean> {
               try { chrome.runtime.sendMessage({ type: 'ELECTRON_SELECTION_RESULT', kind, dataUrl }) } catch {}
             } else if (data.type === 'TRIGGERS_UPDATED') {
               try { chrome.runtime.sendMessage({ type: 'TRIGGERS_UPDATED' }) } catch {}
+            } else if (data.type === 'P2P_BEAP_RECEIVED') {
+              const handshakeId = typeof data.handshakeId === 'string' ? data.handshakeId : ''
+              console.log('[BG] P2P BEAP received notification', handshakeId)
+              try {
+                chrome.runtime.sendMessage({ type: 'P2P_BEAP_RECEIVED', handshakeId })
+              } catch {
+                /* no receiver (e.g. inbox not open) — 5s poll will catch pending rows */
+              }
             } else if (data.type === 'SHOW_TRIGGER_PROMPT') {
               console.log('📝 Received SHOW_TRIGGER_PROMPT from Electron:', data)
               chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {

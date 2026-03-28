@@ -20,6 +20,7 @@ import { getContextStoreByHandshake } from '../handshake/db'
 import { buildContextSyncCapsuleWithContent } from '../handshake/capsuleBuilder'
 import type { ContextBlockForCommitment } from '../handshake/contextCommitment'
 import type { SSOSession } from '../handshake/types'
+import { notifyBeapRecipientPending } from './beapRecipientNotify'
 import {
   setP2PHealthRelayPullSuccess,
   setP2PHealthRelayPullFailure,
@@ -157,6 +158,8 @@ export async function pullFromRelay(
         const capsuleJson = cap.capsule_json
         try {
           insertPendingP2PBeap(db, handshakeId, capsuleJson)
+          console.log('[P2P-RECV] BEAP message inserted into pending table (relay pull)', handshakeId)
+          notifyBeapRecipientPending(handshakeId)
           accepted++
           idsToAck.push(cap.id)
         } catch {

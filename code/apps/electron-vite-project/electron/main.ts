@@ -665,6 +665,7 @@ import { processOutboundQueue, setOutboundQueueAuthRefresh } from './main/handsh
 import { pullFromRelay } from './main/p2p/relayPull'
 import { createP2PServer } from './main/p2p/p2pServer'
 import { createCoordinationWsClient } from './main/p2p/coordinationWs'
+import { setBeapRecipientPendingNotifier } from './main/p2p/beapRecipientNotify'
 import { getP2PConfig, upsertP2PConfig, computeLocalP2PEndpoint } from './main/p2p/p2pConfig'
 import { getP2PHealth, setP2PHealthQueueCounts, setP2PHealthSelfTest, setP2PHealthRelayMode } from './main/p2p/p2pHealth'
 import { getQueueStatus, getQueueEntries } from './main/handshake/outboundQueue'
@@ -8498,6 +8499,10 @@ app.whenReady().then(async () => {
     let p2pServerStarted = false
     let coordinationWsClient: ReturnType<typeof createCoordinationWsClient> | null = null
     const getHandshakeDb = () => getLedgerDb() ?? (globalThis as any).__og_vault_service_ref?.getDb?.() ?? (globalThis as any).__og_vault_service_ref?.db ?? null
+
+    setBeapRecipientPendingNotifier((handshakeId) => {
+      broadcastToExtensions({ type: 'P2P_BEAP_RECEIVED', handshakeId })
+    })
 
     async function getOidcToken(): Promise<string | null> {
       try {

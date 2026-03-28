@@ -18,6 +18,7 @@ import { processHandshakeCapsule } from '../handshake/enforcement'
 import { buildDefaultReceiverPolicy } from '../handshake/types'
 import type { SSOSession } from '../handshake/types'
 import { computeLocalP2PEndpoint, type P2PConfig } from './p2pConfig'
+import { notifyBeapRecipientPending } from './beapRecipientNotify'
 import {
   checkIpLimit,
   checkHandshakeLimit,
@@ -210,6 +211,8 @@ function createP2PRequestHandler(
     if (isBeapMessagePackage(parsed)) {
       ensureHandshakeMigration(db)
       insertPendingP2PBeap(db, handshakeId, body)
+      console.log('[P2P-RECV] BEAP message inserted into pending table (local P2P HTTP)', handshakeId)
+      notifyBeapRecipientPending(handshakeId)
       res.writeHead(200, { 'Content-Type': 'application/json' })
       res.end(JSON.stringify({ accepted: true }))
       return
