@@ -3,7 +3,7 @@
  * Header (From, To, date, subject, actions), source badge, body, attachments, deletion notice.
  */
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { InboxMessage, InboxSourceType } from '../stores/useEmailInboxStore'
 import { useEmailInboxStore } from '../stores/useEmailInboxStore'
 import InboxAttachmentRow from './InboxAttachmentRow'
@@ -91,8 +91,14 @@ function extractBodyText(body: unknown): string {
   if (typeof body === 'object') {
     const o = body as Record<string, unknown>
     const nested =
-      o.text ?? o.content ?? o.message ?? o.body ?? o.plaintext ?? o.decrypted
-    if (typeof nested === 'string') return nested
+      o.text ??
+      o.content ??
+      o.message ??
+      o.plaintext ??
+      o.decrypted ??
+      (typeof o.body === 'string' ? o.body : null) ??
+      (o.body != null && typeof o.body === 'object' ? extractBodyText(o.body) : null)
+    if (typeof nested === 'string' && nested.trim()) return nested
     try {
       return JSON.stringify(body, null, 2)
     } catch {
@@ -102,6 +108,22 @@ function extractBodyText(body: unknown): string {
   return String(body)
 }
 
+function partyEmail(p: unknown): string | null {
+  if (!p || typeof p !== 'object') return null
+  const o = p as Record<string, unknown>
+  for (const k of ['email', 'sender_email', 'receiver_email'] as const) {
+    const v = o[k]
+    if (typeof v === 'string' && v.trim()) return v.trim()
+  }
+  return null
+}
+
+function strField(o: unknown, key: string): string | null {
+  if (!o || typeof o !== 'object') return null
+  const v = (o as Record<string, unknown>)[key]
+  return typeof v === 'string' && v.trim() ? v.trim() : null
+}
+
 /** Best-effort transport-visible text for native BEAP (avoid qBEAP ingestion placeholder). */
 function transportPlaintextFromBeapPackageJson(jsonStr: string | null): string {
   if (!jsonStr || typeof jsonStr !== 'string') return ''
@@ -109,6 +131,15 @@ function transportPlaintextFromBeapPackageJson(jsonStr: string | null): string {
     const pkg = JSON.parse(jsonStr) as Record<string, unknown>
     if (typeof pkg.transport_plaintext === 'string' && pkg.transport_plaintext.trim()) {
       return pkg.transport_plaintext.trim()
+    }
+    const capsule = pkg.capsule as Record<string, unknown> | undefined
+    if (capsule) {
+      if (typeof capsule.text === 'string' && capsule.text.trim()) {
+        return capsule.text.trim()
+      }
+      if (typeof capsule.transport_plaintext === 'string' && capsule.transport_plaintext.trim()) {
+        return capsule.transport_plaintext.trim()
+      }
     }
     const header = pkg.header as Record<string, unknown> | undefined
     if (header && typeof header.transport_plaintext === 'string' && header.transport_plaintext.trim()) {
@@ -185,6 +216,7 @@ export default function EmailMessageDetail({ message, selectedAttachmentId: sele
   const {
     selectedAttachmentId: storeSelectedAttachmentId,
     selectAttachment,
+    mergeMessageAttachments,
     toggleStar,
     archiveMessages,
     deleteMessages,
@@ -192,6 +224,7 @@ export default function EmailMessageDetail({ message, selectedAttachmentId: sele
     editingDraftForMessageId,
     setEditingDraftForMessageId,
   } = useEmailInboxStore()
+  const attachmentHydrateSettledRef = useRef<string | null>(null)
 
   const messageKind = message ? deriveInboxMessageKind(message) : 'depackaged'
   const isNativeBeap = messageKind === 'handshake'
@@ -214,11 +247,14 @@ export default function EmailMessageDetail({ message, selectedAttachmentId: sele
       setResolvedRecipient(null)
       return
     }
-    const needsSender = !(message.from_address || '').trim()
-    const needsRecipient =
-      !message.to_addresses ||
-      message.to_addresses.trim() === '' ||
-      message.to_addresses.trim() === '[]'
+    const rawFrom = (message.from_address || '').trim()
+    const fromLower = rawFrom.toLowerCase()
+    const needsSender =
+      !rawFrom ||
+      fromLower === 'unknown' ||
+      fromLower === 'unknown sender'
+    const rawTo = (message.to_addresses || '').trim()
+    const needsRecipient = !rawTo || rawTo === '' || rawTo === '[]'
     if (!needsSender && !needsRecipient) {
       setResolvedSender(null)
       setResolvedRecipient(null)
@@ -228,15 +264,38 @@ export default function EmailMessageDetail({ message, selectedAttachmentId: sele
     void (async () => {
       try {
         const list = await listHandshakes('all')
-        const rec = list.find((h) => h.handshake_id === message.handshake_id)
+        type HsRow = {
+          handshake_id: string
+          local_role: 'initiator' | 'acceptor'
+          initiator?: unknown
+          acceptor?: unknown
+          receiver_email?: string | null
+        }
+        const rec = list.find((h) => h.handshake_id === message.handshake_id) as HsRow | undefined
         if (!rec || cancelled) return
         const { initiator, acceptor, local_role } = rec
         const localParty = local_role === 'initiator' ? initiator : acceptor
         const peerParty = local_role === 'initiator' ? acceptor : initiator
-        if (needsSender) setResolvedSender(peerParty?.email ?? null)
-        if (needsRecipient) setResolvedRecipient(localParty?.email ?? null)
-      } catch {
-        /* ignore */
+        const counterparty =
+          strField(rec, 'counterparty_email') ||
+          strField(rec, 'their_email') ||
+          strField(rec, 'partner_email') ||
+          strField(rec, 'remote_email')
+        const peerResolved =
+          partyEmail(peerParty) ||
+          counterparty ||
+          (local_role === 'initiator' && rec.receiver_email ? String(rec.receiver_email).trim() : '') ||
+          null
+        const localResolved =
+          partyEmail(localParty) ||
+          (local_role === 'acceptor' && rec.receiver_email ? String(rec.receiver_email).trim() : '') ||
+          strField(rec, 'local_email') ||
+          strField(rec, 'my_email') ||
+          null
+        if (needsSender) setResolvedSender(peerResolved || message.handshake_id)
+        if (needsRecipient) setResolvedRecipient(localResolved || 'You')
+      } catch (e) {
+        console.warn('Handshake lookup failed:', e)
       }
     })()
     return () => {
@@ -248,7 +307,11 @@ export default function EmailMessageDetail({ message, selectedAttachmentId: sele
     if (!message || !isNativeBeap) return ''
     const bt = message.body_text || ''
     const placeholder =
-      bt.includes('open in extension') || bt.includes('Encrypted qBEAP')
+      bt.includes('open in extension') ||
+      bt.includes('Encrypted qBEAP') ||
+      bt.includes('(Encrypted qBEAP')
+    const fromPkg = transportPlaintextFromBeapPackageJson(message.beap_package_json)
+    if (fromPkg) return fromPkg
     if (parsedDepackaged) {
       const tp = parsedDepackaged.transport_plaintext
       if (typeof tp === 'string' && tp.trim()) return tp.trim()
@@ -257,8 +320,6 @@ export default function EmailMessageDetail({ message, selectedAttachmentId: sele
       const subj = parsedDepackaged.subject
       if (typeof subj === 'string' && subj.trim() && !placeholder) return subj.trim()
     }
-    const fromPkg = transportPlaintextFromBeapPackageJson(message.beap_package_json)
-    if (fromPkg) return fromPkg
     if (message.body_text && !placeholder) return message.body_text
     return ''
   }, [message, isNativeBeap, parsedDepackaged])
@@ -268,14 +329,22 @@ export default function EmailMessageDetail({ message, selectedAttachmentId: sele
     const combined =
       extractBodyText(parsedDepackaged.body) ||
       extractBodyText(parsedDepackaged.content) ||
-      extractBodyText(parsedDepackaged.decryptedBody)
+      extractBodyText(parsedDepackaged.decryptedBody) ||
+      extractBodyText(parsedDepackaged.encryptedMessage) ||
+      extractBodyText(parsedDepackaged.encrypted_message) ||
+      extractBodyText(parsedDepackaged.decrypted_body)
     return combined.trim()
   }, [parsedDepackaged])
 
   const fromDisplay = useMemo((): ReactNode => {
     if (!message) return '—'
     if (isNativeBeap) {
-      const sender = message.from_name || message.from_address || resolvedSender
+      const rawAddr = (message.from_address || '').trim()
+      const addrLower = rawAddr.toLowerCase()
+      const addrIsUnknown =
+        !rawAddr || addrLower === 'unknown' || addrLower === 'unknown sender'
+      const sender =
+        message.from_name || (!addrIsUnknown ? message.from_address : null) || resolvedSender
       return (
         <span>
           {sender || (message.handshake_id ? 'Resolving…' : 'Unknown sender')}
@@ -295,9 +364,10 @@ export default function EmailMessageDetail({ message, selectedAttachmentId: sele
   const toDisplay = useMemo((): ReactNode => {
     if (!message) return '—'
     if (isNativeBeap) {
+      if (resolvedRecipient) return resolvedRecipient
       const raw = message.to_addresses
       if (raw && raw.trim() && raw.trim() !== '[]') return formatToLine(raw)
-      return resolvedRecipient || 'You (local identity)'
+      return 'You'
     }
     return message.to_addresses || '—'
   }, [isNativeBeap, message, resolvedRecipient])
@@ -306,6 +376,41 @@ export default function EmailMessageDetail({ message, selectedAttachmentId: sele
     setImportingSession(null)
     setImportStatus({})
   }, [message?.id])
+
+  /** List rows sometimes omit attachment rows while `has_attachments` is set — hydrate like BulkInboxAttachmentsStrip. */
+  useEffect(() => {
+    const mid = message?.id
+    if (!mid) return
+    if (message.has_attachments !== 1) {
+      attachmentHydrateSettledRef.current = null
+      return
+    }
+    const atts = message.attachments
+    if (atts && atts.length > 0) {
+      attachmentHydrateSettledRef.current = null
+      return
+    }
+    if (attachmentHydrateSettledRef.current === mid) return
+
+    const p = window.emailInbox?.getMessage?.(mid)
+    if (!p || typeof p.then !== 'function') {
+      attachmentHydrateSettledRef.current = mid
+      return
+    }
+    let cancelled = false
+    p.then((res) => {
+      if (cancelled) return
+      attachmentHydrateSettledRef.current = mid
+      if (!res?.ok || !res.data) return
+      const row = res.data as InboxMessage
+      mergeMessageAttachments(mid, row.attachments ?? [])
+    }).catch(() => {
+      if (!cancelled) attachmentHydrateSettledRef.current = mid
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [message?.id, message?.has_attachments, message?.attachments, mergeMessageAttachments])
 
   const handleSessionImport = useCallback(async (raw: Record<string, unknown>) => {
     const sessionId = typeof raw.sessionId === 'string' ? raw.sessionId : String(raw.sessionId ?? '')
@@ -579,19 +684,25 @@ export default function EmailMessageDetail({ message, selectedAttachmentId: sele
               {publicMessageText.trim() ? (
                 <div className="beap-body-section">
                   <div className="beap-body-label">📨 Public Message (pBEAP)</div>
-                  <div className="beap-body-content beap-body-content--public">
-                    <pre style={{ whiteSpace: 'pre-wrap', margin: 0, fontFamily: 'inherit' }}>
-                      {publicMessageText}
-                    </pre>
-                  </div>
+                  <pre
+                    className="beap-body-pre beap-body-content beap-body-content--public"
+                    style={{ whiteSpace: 'pre-wrap', margin: 0, fontFamily: 'inherit' }}
+                  >
+                    {publicMessageText}
+                  </pre>
                 </div>
               ) : null}
 
               {encryptedBodyText ? (
                 <div className="beap-body-section">
-                  <div className="beap-body-label beap-body-label--confidential">🔒 End-to-End Encrypted (qBEAP)</div>
-                  <div className="beap-body-content beap-body-content--confidential">
-                    <pre className="beap-ui-body-pre" style={{ whiteSpace: 'pre-wrap', margin: 0, fontFamily: 'inherit' }}>
+                  <div className="beap-body-label beap-body-label--encrypted beap-body-label--confidential">
+                    🔒 End-to-End Encrypted (qBEAP)
+                  </div>
+                  <div className="beap-body-content--encrypted beap-body-content beap-body-content--confidential">
+                    <pre
+                      className="beap-body-pre"
+                      style={{ whiteSpace: 'pre-wrap', margin: 0, fontFamily: 'inherit' }}
+                    >
                       {encryptedBodyText}
                     </pre>
                   </div>
