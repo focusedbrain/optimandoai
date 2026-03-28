@@ -365,10 +365,28 @@ export interface HandshakeRecord {
   peer_x25519_public_key_b64?: string | null;
   /** Peer's ML-KEM-768 public key (base64) for post-quantum key agreement. Extracted from initiate/accept capsule. */
   peer_mlkem768_public_key_b64?: string | null;
+  /** Local X25519 private key (base64, 32 bytes) for qBEAP receive — persisted when generated in main (initiate/accept). */
+  local_x25519_private_key_b64?: string | null;
+  /** Local X25519 public key (base64) matching the capsule wire key for this party. */
+  local_x25519_public_key_b64?: string | null;
+  /** Local ML-KEM-768 secret key (base64) for hybrid qBEAP decapsulation — persisted when generated in main. */
+  local_mlkem768_secret_key_b64?: string | null;
+  /** Local ML-KEM-768 public key (base64) matching the capsule wire key for this party. */
+  local_mlkem768_public_key_b64?: string | null;
   /** True when context_sync was deferred (vault locked); cleared on successful enqueue */
   context_sync_pending?: boolean;
   /** AI policy: ai_processing_mode (new) or legacy cloud_ai/internal_ai. Parsed from JSON. */
   policy_selections?: { ai_processing_mode?: string } | { cloud_ai?: boolean; internal_ai?: boolean };
+}
+
+/** Material returned from `ensureKeyAgreementKeys` / persisted on `handshakes` for qBEAP. */
+export interface BeapKeyAgreementMaterial {
+  sender_x25519_public_key_b64: string
+  sender_mlkem768_public_key_b64: string
+  /** Present when keys were generated in main; null if caller supplied X25519 public only. */
+  sender_x25519_private_key_b64: string | null
+  /** Present when ML-KEM keypair was generated in main; null for hybrid decrypt if only peer-provided ML-KEM public. */
+  sender_mlkem768_secret_key_b64: string | null
 }
 
 // ── Context Block (persisted) ──

@@ -55,6 +55,9 @@ importers:
 
   apps/electron-vite-project:
     dependencies:
+      '@noble/curves':
+        specifier: ^1.9.7
+        version: 1.9.7
       '@noble/post-quantum':
         specifier: ^0.2.1
         version: 0.2.1
@@ -6660,14 +6663,6 @@ snapshots:
       chai: 5.3.3
       tinyrainbow: 1.2.0
 
-  '@vitest/mocker@2.1.9(vite@5.4.20(@types/node@20.19.11))':
-    dependencies:
-      '@vitest/spy': 2.1.9
-      estree-walker: 3.0.3
-      magic-string: 0.30.18
-    optionalDependencies:
-      vite: 5.4.20(@types/node@20.19.11)
-
   '@vitest/mocker@2.1.9(vite@5.4.20(@types/node@24.3.0))':
     dependencies:
       '@vitest/spy': 2.1.9
@@ -10089,7 +10084,7 @@ snapshots:
   vitest@2.1.9(@types/node@20.19.11)(happy-dom@20.8.7)(jsdom@26.1.0(canvas@3.2.0)):
     dependencies:
       '@vitest/expect': 2.1.9
-      '@vitest/mocker': 2.1.9(vite@5.4.20(@types/node@20.19.11))
+      '@vitest/mocker': 2.1.9(vite@5.4.20(@types/node@24.3.0))
       '@vitest/pretty-format': 2.1.9
       '@vitest/runner': 2.1.9
       '@vitest/snapshot': 2.1.9

@@ -4,7 +4,7 @@
  * Extension sandbox (`verifyImportedMessage` / `sandboxDepackage`) is not available
  * in the Electron main process. This module performs a **main-process equivalent**:
  * - **pBEAP**: base64-decode `payload` → capsule JSON → body / title / attachments (no signature verification).
- * - **qBEAP**: metadata + email body excerpt only (cannot decrypt without keys).
+ * - **qBEAP**: decrypt in main when local BEAP keys exist on `handshakes` (schema v50); else metadata excerpt.
  * - **Handshake capsules** (schema_version + capsule_type): structural preview for inbox UI.
  *
  * Updates matching `inbox_messages` rows (`beap_package_json` match). When no row exists
@@ -14,10 +14,13 @@
  * @version 1.0.0
  */
 
-import { randomUUID } from 'crypto'
+import { createHash, randomUUID } from 'crypto'
 
+import { decryptQBeapPackage } from '../beap/decryptQBeapPackage'
 import { evaluateAutoresponder } from '../beap/autoresponderEvaluator'
 import { logAutoresponderDecision } from '../beap/autoresponderAudit'
+import { writeEncryptedAttachmentFile } from './attachmentBlobCrypto'
+import { makeInboxAttachmentStorageId } from './messageRouter'
 
 const BATCH_SIZE = 100
 
@@ -428,7 +431,7 @@ export function beapPackageToMainProcessDepackaged(
  * Process pending rows in `p2p_pending_beap` in batches until drained.
  * Matches `inbox_messages` via `beap_package_json` = `package_json`; if none, inserts `direct_beap`.
  */
-export function processPendingP2PBeapEmails(db: any): number {
+export async function processPendingP2PBeapEmails(db: any): Promise<number> {
   if (!db) return 0
 
   let drained = 0
@@ -448,6 +451,27 @@ export function processPendingP2PBeapEmails(db: any): number {
   const updateInbox = db.prepare(
     `UPDATE inbox_messages SET depackaged_json = ?, embedding_status = 'pending' WHERE id = ?`,
   )
+
+  const updateInboxDecrypted = db.prepare(`
+    UPDATE inbox_messages SET
+      depackaged_json = ?,
+      body_text = ?,
+      subject = ?,
+      has_attachments = ?,
+      attachment_count = ?,
+      embedding_status = 'pending'
+    WHERE id = ?
+  `)
+
+  const deleteAttForMessage = db.prepare(`DELETE FROM inbox_attachments WHERE message_id = ?`)
+  const insertAtt = db.prepare(`
+    INSERT INTO inbox_attachments (id, message_id, filename, content_type, size_bytes, content_id, storage_path, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `)
+  const updateAttEnc = db.prepare(`
+    UPDATE inbox_attachments SET encryption_key = ?, encryption_iv = ?, encryption_tag = ?, storage_encrypted = ? WHERE id = ?
+  `)
+  const updateAttSha = db.prepare(`UPDATE inbox_attachments SET content_sha256 = ? WHERE id = ?`)
 
   const insertDirectBeap = db.prepare(`
     INSERT INTO inbox_messages (
@@ -541,8 +565,68 @@ export function processPendingP2PBeapEmails(db: any): number {
             ensureAttachmentsForInboxMessage(inbox.id)
           }
 
-          const depackagedJson = beapPackageToMainProcessDepackaged(pkg, inbox)
-          updateInbox.run(depackagedJson, inbox.id)
+          let depackagedJson = beapPackageToMainProcessDepackaged(pkg, inbox)
+          let qbeapDecrypted = false
+
+          try {
+            const hdr = JSON.parse(pkg) as { header?: { encoding?: string } }
+            if (hdr.header?.encoding === 'qBEAP' && row.handshake_id) {
+              const dec = await decryptQBeapPackage(pkg, row.handshake_id, db)
+              if (dec) {
+                qbeapDecrypted = true
+                depackagedJson = JSON.stringify({
+                  schema_version: '1.0.0',
+                  format: 'beap_qbeap_decrypted',
+                  encoding: 'qBEAP',
+                  subject: dec.subject,
+                  body: { text: dec.body },
+                  transport_plaintext: dec.transport_plaintext,
+                  automation: dec.automation,
+                  metadata: { source: 'main_process_qbeap_decrypt' },
+                })
+                deleteAttForMessage.run(inbox.id)
+                const nowIso = new Date().toISOString()
+                for (const att of dec.attachments) {
+                  if (!att.bytes || att.bytes.length === 0) continue
+                  const rowAttId = makeInboxAttachmentStorageId(inbox.id, att.id)
+                  try {
+                    const w = writeEncryptedAttachmentFile(inbox.id, att.id, att.filename, att.bytes)
+                    insertAtt.run(
+                      rowAttId,
+                      inbox.id,
+                      att.filename.slice(0, 500),
+                      att.contentType.slice(0, 200),
+                      att.size,
+                      att.id,
+                      w.storagePath,
+                      nowIso,
+                    )
+                    updateAttEnc.run(w.encryptionKeyStored, w.ivB64, w.tagB64, 1, rowAttId)
+                    updateAttSha.run(createHash('sha256').update(att.bytes).digest('hex'), rowAttId)
+                  } catch (attErr) {
+                    console.warn('[BEAP-INBOX] Attachment write failed:', (attErr as Error)?.message)
+                  }
+                }
+                const attCount = dec.attachments.filter((a) => a.bytes && a.bytes.length > 0).length
+                const bodyText = dec.transport_plaintext || dec.body || inbox.body_text || ''
+                const subj = dec.subject || inbox.subject || ''
+                updateInboxDecrypted.run(
+                  depackagedJson,
+                  bodyText,
+                  subj,
+                  attCount > 0 ? 1 : 0,
+                  attCount,
+                  inbox.id,
+                )
+              }
+            }
+          } catch (decErr) {
+            console.warn('[BEAP-INBOX] qBEAP decrypt skipped:', (decErr as Error)?.message ?? decErr)
+          }
+
+          if (!qbeapDecrypted) {
+            updateInbox.run(depackagedJson, inbox.id)
+          }
 
           try {
             const evaluation = evaluateAutoresponder({

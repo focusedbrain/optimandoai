@@ -12,7 +12,7 @@
 
 import type { HandshakeCapsuleWire } from './capsuleBuilder'
 import type { SigningKeypair } from './signatureKeys'
-import type { SSOSession, HandshakeRecord } from './types'
+import type { SSOSession, HandshakeRecord, BeapKeyAgreementMaterial } from './types'
 import type { ContextBlockForCommitment } from './contextCommitment'
 import { HandshakeState as HS, INPUT_LIMITS } from './types'
 import { buildDefaultReceiverPolicy } from './types'
@@ -45,6 +45,7 @@ export function persistInitiatorHandshakeRecord(
   keypair: SigningKeypair,
   policySelections?: { ai_processing_mode?: AiProcessingMode } | { cloud_ai?: boolean; internal_ai?: boolean },
   blockPolicyMap?: Map<string, { ai_processing_mode?: AiProcessingMode } | { cloud_ai?: boolean; internal_ai?: boolean }>,
+  beapKeys?: BeapKeyAgreementMaterial | null,
 ): PersistInitiatorResult {
   try {
     const tierDecision = classifyHandshakeTier({
@@ -108,6 +109,14 @@ export function persistInitiatorHandshakeRecord(
       local_public_key: keypair.publicKey,
       local_private_key: keypair.privateKey,
       receiver_email: capsule.receiver_email ?? null,
+      ...(beapKeys
+        ? {
+            local_x25519_private_key_b64: beapKeys.sender_x25519_private_key_b64,
+            local_x25519_public_key_b64: beapKeys.sender_x25519_public_key_b64,
+            local_mlkem768_secret_key_b64: beapKeys.sender_mlkem768_secret_key_b64,
+            local_mlkem768_public_key_b64: beapKeys.sender_mlkem768_public_key_b64,
+          }
+        : {}),
     }
 
     insertHandshakeRecord(db, record)

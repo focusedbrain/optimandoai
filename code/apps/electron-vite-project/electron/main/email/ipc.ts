@@ -2538,7 +2538,7 @@ Rules:
       console.warn('[Inbox] Plain email post-sync processing:', e?.message)
     }
     try {
-      const beapDrained = processPendingP2PBeapEmails(db)
+      const beapDrained = await processPendingP2PBeapEmails(db)
       if (beapDrained > 0) notifyBeapInboxDashboard(null)
     } catch (e: any) {
       console.warn('[Inbox] BEAP post-sync processing:', e?.message)

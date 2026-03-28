@@ -148,9 +148,10 @@ function isPlaceholder(s: string): boolean {
   )
 }
 
-/** Main-process ingest placeholder before extension Stage-5 merge. */
+/** Main-process ingest placeholder before extension Stage-5 merge or native decrypt. */
 function isPendingQbeapDepackaged(dp: Record<string, unknown> | null): boolean {
   if (!dp) return false
+  if (dp.format === 'beap_qbeap_decrypted') return false
   return dp.format === 'beap_qbeap_pending_main'
 }
 

@@ -996,7 +996,7 @@ export function startAutoSync(
 
       const result = await syncAccountEmails(db, { accountId })
       processPendingPlainEmails(db)
-      const beapDrained = processPendingP2PBeapEmails(db)
+      const beapDrained = await processPendingP2PBeapEmails(db)
       if (beapDrained > 0) notifyBeapInboxDashboard(null)
       try {
         if (result.newInboxMessageIds.length > 0) {

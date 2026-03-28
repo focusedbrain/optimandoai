@@ -920,6 +920,16 @@ const HANDSHAKE_MIGRATIONS: Array<{
       `ALTER TABLE outbound_capsule_queue ADD COLUMN failure_class TEXT`,
     ],
   },
+  {
+    version: 50,
+    description: 'Schema v50: local BEAP key material (X25519 + ML-KEM-768) for Electron qBEAP decrypt',
+    sql: [
+      `ALTER TABLE handshakes ADD COLUMN local_x25519_private_key_b64 TEXT`,
+      `ALTER TABLE handshakes ADD COLUMN local_x25519_public_key_b64 TEXT`,
+      `ALTER TABLE handshakes ADD COLUMN local_mlkem768_secret_key_b64 TEXT`,
+      `ALTER TABLE handshakes ADD COLUMN local_mlkem768_public_key_b64 TEXT`,
+    ],
+  },
 ]
 
 /**
@@ -1220,6 +1230,10 @@ export function serializeHandshakeRecord(record: HandshakeRecord): any {
     receiver_email: record.receiver_email ?? null,
     peer_x25519_public_key_b64: record.peer_x25519_public_key_b64 ?? null,
     peer_mlkem768_public_key_b64: record.peer_mlkem768_public_key_b64 ?? null,
+    local_x25519_private_key_b64: record.local_x25519_private_key_b64 ?? null,
+    local_x25519_public_key_b64: record.local_x25519_public_key_b64 ?? null,
+    local_mlkem768_secret_key_b64: record.local_mlkem768_secret_key_b64 ?? null,
+    local_mlkem768_public_key_b64: record.local_mlkem768_public_key_b64 ?? null,
   }
 }
 
@@ -1260,6 +1274,10 @@ export function deserializeHandshakeRecord(row: any): HandshakeRecord {
     receiver_email: row.receiver_email ?? null,
     peer_x25519_public_key_b64: row.peer_x25519_public_key_b64 ?? null,
     peer_mlkem768_public_key_b64: row.peer_mlkem768_public_key_b64 ?? null,
+    local_x25519_private_key_b64: row.local_x25519_private_key_b64 ?? null,
+    local_x25519_public_key_b64: row.local_x25519_public_key_b64 ?? null,
+    local_mlkem768_secret_key_b64: row.local_mlkem768_secret_key_b64 ?? null,
+    local_mlkem768_public_key_b64: row.local_mlkem768_public_key_b64 ?? null,
     context_sync_pending: !!(row.context_sync_pending),
     policy_selections: parsePolicySelections(row.policy_selections),
   }
@@ -1326,7 +1344,8 @@ export function insertHandshakeRecord(db: any, record: HandshakeRecord): void {
     acceptor_wrdesk_policy_hash, acceptor_wrdesk_policy_version,
     initiator_context_commitment, acceptor_context_commitment, p2p_endpoint, counterparty_p2p_token,
     local_public_key, local_private_key, counterparty_public_key, receiver_email,
-    peer_x25519_public_key_b64, peer_mlkem768_public_key_b64
+    peer_x25519_public_key_b64, peer_mlkem768_public_key_b64,
+    local_x25519_private_key_b64, local_x25519_public_key_b64, local_mlkem768_secret_key_b64, local_mlkem768_public_key_b64
   ) VALUES (
     @handshake_id, @relationship_id, @state, @initiator_json, @acceptor_json,
     @local_role, @sharing_mode, @reciprocal_allowed,
@@ -1338,7 +1357,8 @@ export function insertHandshakeRecord(db: any, record: HandshakeRecord): void {
     @acceptor_wrdesk_policy_hash, @acceptor_wrdesk_policy_version,
     @initiator_context_commitment, @acceptor_context_commitment, @p2p_endpoint, @counterparty_p2p_token,
     @local_public_key, @local_private_key, @counterparty_public_key, @receiver_email,
-    @peer_x25519_public_key_b64, @peer_mlkem768_public_key_b64
+    @peer_x25519_public_key_b64, @peer_mlkem768_public_key_b64,
+    @local_x25519_private_key_b64, @local_x25519_public_key_b64, @local_mlkem768_secret_key_b64, @local_mlkem768_public_key_b64
   )`).run(s)
 }
 
@@ -1367,7 +1387,11 @@ export function updateHandshakeRecord(db: any, record: HandshakeRecord): void {
     counterparty_public_key = @counterparty_public_key,
     receiver_email = @receiver_email,
     peer_x25519_public_key_b64 = @peer_x25519_public_key_b64,
-    peer_mlkem768_public_key_b64 = @peer_mlkem768_public_key_b64
+    peer_mlkem768_public_key_b64 = @peer_mlkem768_public_key_b64,
+    local_x25519_private_key_b64 = @local_x25519_private_key_b64,
+    local_x25519_public_key_b64 = @local_x25519_public_key_b64,
+    local_mlkem768_secret_key_b64 = @local_mlkem768_secret_key_b64,
+    local_mlkem768_public_key_b64 = @local_mlkem768_public_key_b64
   WHERE handshake_id = @handshake_id`).run(s)
 }
 

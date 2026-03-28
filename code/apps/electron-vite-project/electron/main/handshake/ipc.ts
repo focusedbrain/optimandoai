@@ -5,7 +5,8 @@
  * HTTP routes: /api/handshake/*
  */
 
-import type { HandshakeState, SSOSession, HandshakeRecord } from './types'
+import type { HandshakeState, SSOSession, HandshakeRecord, BeapKeyAgreementMaterial } from './types'
+import { x25519 } from '@noble/curves/ed25519'
 import type { ContextBlockProof } from './canonicalRebuild'
 import { ReasonCode, HandshakeState as HS } from './types'
 // Context resolution imports removed — content enters only via the BEAP-Capsule pipeline
@@ -14,6 +15,7 @@ import {
   listHandshakeRecords,
   deleteHandshakeRecord,
   updateHandshakeSigningKeys,
+  updateHandshakeRecord,
   getPendingP2PBeapMessages,
   markP2PPendingBeapProcessed,
   getPendingPlainEmails,
@@ -58,7 +60,7 @@ import {
 import { tryEnqueueContextSync } from './contextSyncEnqueue'
 import { deriveRelationshipId } from './relationshipId'
 import { enqueueOutboundCapsule, processOutboundQueue, type ProcessOutboundQueueResult } from './outboundQueue'
-import { randomBytes, randomUUID, generateKeyPairSync } from 'crypto'
+import { randomBytes, randomUUID } from 'crypto'
 import { getP2PConfig, getEffectiveRelayEndpoint } from '../p2p/p2pConfig'
 import { registerHandshakeWithRelay } from '../p2p/relaySync'
 import { processIncomingInput } from '../ingestion/ingestionPipeline'
@@ -74,20 +76,34 @@ import { USER_PACKAGE_BUILDER_SEND_SOURCE } from '../email/mergeExtensionDepacka
 async function ensureKeyAgreementKeys(params: {
   sender_x25519_public_key_b64?: string | null
   sender_mlkem768_public_key_b64?: string | null
-}): Promise<{ sender_x25519_public_key_b64: string; sender_mlkem768_public_key_b64: string }> {
-  let x25519 = params.sender_x25519_public_key_b64?.trim()
-  let mlkem = params.sender_mlkem768_public_key_b64?.trim()
-  if (!x25519 || x25519.length < 32) {
-    const { publicKey } = generateKeyPairSync('x25519')
-    const raw = publicKey.export({ type: 'spki', format: 'der' }) as Buffer
-    x25519 = raw.subarray(-32).toString('base64')
-  }
-  if (!mlkem || mlkem.length < 100) {
+}): Promise<BeapKeyAgreementMaterial> {
+  let mlkemPub = params.sender_mlkem768_public_key_b64?.trim()
+  let mlkemSecret: string | null = null
+  if (!mlkemPub || mlkemPub.length < 100) {
     const pq = await import('@noble/post-quantum/ml-kem')
     const keypair = pq.ml_kem768.keygen()
-    mlkem = Buffer.from(keypair.publicKey).toString('base64')
+    mlkemPub = Buffer.from(keypair.publicKey).toString('base64')
+    mlkemSecret = Buffer.from(keypair.secretKey).toString('base64')
   }
-  return { sender_x25519_public_key_b64: x25519, sender_mlkem768_public_key_b64: mlkem }
+
+  let x25519Pub = params.sender_x25519_public_key_b64?.trim()
+  let x25519Priv: string | null = null
+  if (!x25519Pub || x25519Pub.length < 32) {
+    const priv = x25519.utils.randomPrivateKey()
+    const pub = x25519.getPublicKey(priv)
+    x25519Priv = Buffer.from(priv).toString('base64')
+    x25519Pub = Buffer.from(pub).toString('base64')
+  } else {
+    // Caller supplied public only (e.g. extension) — no local private for Electron qBEAP decrypt
+    x25519Priv = null
+  }
+
+  return {
+    sender_x25519_public_key_b64: x25519Pub,
+    sender_mlkem768_public_key_b64: mlkemPub,
+    sender_x25519_private_key_b64: x25519Priv,
+    sender_mlkem768_secret_key_b64: mlkemSecret,
+  }
 }
 
 // ── Context Block Helpers ──
@@ -770,7 +786,16 @@ export async function handleHandshakeRPC(
       if (db) {
         // Initiator persists own record via direct insert — NOT the receive pipeline.
         // The pipeline rejects when senderId === localUserId (ownership check).
-        localResult = persistInitiatorHandshakeRecord(db, capsule, session, localBlocks, keypair, initPolicySelections, canonicalBlockPolicyMap)
+        localResult = persistInitiatorHandshakeRecord(
+          db,
+          capsule,
+          session,
+          localBlocks,
+          keypair,
+          initPolicySelections,
+          canonicalBlockPolicyMap,
+          keyAgreement,
+        )
         if (localResult.success && (p2pAuthToken || getP2PConfig(db).use_coordination) && receiverEmail) {
           setImmediate(async () => {
             const p2pConfig = getP2PConfig(db)
@@ -890,7 +915,16 @@ export async function handleHandshakeRPC(
         }
       }
 
-      const buildLocalResult = persistInitiatorHandshakeRecord(db, capsule, session, localBlocks, keypair, dlPolicySelections, dlCanonicalBlockPolicyMap)
+      const buildLocalResult = persistInitiatorHandshakeRecord(
+        db,
+        capsule,
+        session,
+        localBlocks,
+        keypair,
+        dlPolicySelections,
+        dlCanonicalBlockPolicyMap,
+        dlKeyAgreement,
+      )
       if (!buildLocalResult.success) {
         return {
           type: 'handshake-build-result',
@@ -1055,6 +1089,19 @@ export async function handleHandshakeRPC(
         local_public_key: keypair.publicKey,
         local_private_key: keypair.privateKey,
       })
+
+      const recBeapMerge = getHandshakeRecord(db, handshake_id)
+      if (recBeapMerge) {
+        updateHandshakeRecord(db, {
+          ...recBeapMerge,
+          local_x25519_private_key_b64:
+            acceptKeyAgreement.sender_x25519_private_key_b64 ?? recBeapMerge.local_x25519_private_key_b64 ?? null,
+          local_x25519_public_key_b64: acceptKeyAgreement.sender_x25519_public_key_b64,
+          local_mlkem768_secret_key_b64:
+            acceptKeyAgreement.sender_mlkem768_secret_key_b64 ?? recBeapMerge.local_mlkem768_secret_key_b64 ?? null,
+          local_mlkem768_public_key_b64: acceptKeyAgreement.sender_mlkem768_public_key_b64,
+        })
+      }
 
       // 4. Store initiator block stubs (content NULL, status pending) + receiver blocks (content + pending_delivery)
       const hasAcceptPolicy = acceptPolicySelections && (

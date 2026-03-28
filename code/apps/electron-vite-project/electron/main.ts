@@ -8741,8 +8741,9 @@ app.whenReady().then(async () => {
       const db = getHandshakeDb()
       if (!db) return
       try {
-        const n = processPendingP2PBeapEmails(db)
-        if (n > 0) notifyBeapInboxDashboard(handshakeId)
+        void processPendingP2PBeapEmails(db).then((n) => {
+          if (n > 0) notifyBeapInboxDashboard(handshakeId)
+        })
       } catch (e: unknown) {
         console.error('[BEAP-INBOX] Import failed:', (e as Error)?.message ?? e)
       }
@@ -8763,8 +8764,9 @@ app.whenReady().then(async () => {
         return // Ledger not ready yet — will retry in 10s
       }
       try {
-        const drained = processPendingP2PBeapEmails(handshakeDb)
-        if (drained > 0) notifyBeapInboxDashboard(null)
+        void processPendingP2PBeapEmails(handshakeDb).then((drained) => {
+          if (drained > 0) notifyBeapInboxDashboard(null)
+        })
       } catch (e: unknown) {
         console.error('[BEAP-INBOX] Import failed:', (e as Error)?.message ?? e)
       }
