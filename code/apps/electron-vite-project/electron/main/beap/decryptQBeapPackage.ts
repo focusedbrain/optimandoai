@@ -286,6 +286,24 @@ export async function decryptQBeapPackage(
     peerX25519PubLen: hs.peer_x25519_public_key_b64?.length,
     peerMlkemPubLen: hs.peer_mlkem768_public_key_b64?.length,
   })
+  // === DIAGNOSTIC: Compare sender's peer key to our local key ===
+  // The sender encrypted using their peer_x25519_public_key_b64 for us
+  // which should equal our local_x25519_public_key_b64.
+  // The sender put their OWN device public key in the header.
+  // We don't have the sender's peer_* here, but we can check what
+  // the sender SHOULD have used by looking at our own local public key
+  // and the handshake state.
+  console.log('[qBEAP-decrypt] KEY IDENTITY CHECK:', JSON.stringify({
+    ourLocalX25519Pub: hs.local_x25519_public_key_b64?.substring(0, 24),
+    ourLocalX25519PrivExists: !!hs.local_x25519_private_key_b64,
+    ourLocalMlkemPub: hs.local_mlkem768_public_key_b64?.substring(0, 24),
+    ourLocalMlkemSecExists: !!hs.local_mlkem768_secret_key_b64,
+    theirPeerX25519Pub: hs.peer_x25519_public_key_b64?.substring(0, 24),
+    theirPeerMlkemPub: hs.peer_mlkem768_public_key_b64?.substring(0, 24),
+    headerSenderX25519: senderX25519PubB64 ? senderX25519PubB64.substring(0, 24) : undefined,
+    handshakeId,
+    ourRole: hs.local_role || (hs as { role?: string }).role || 'unknown',
+  }))
   console.log('[qBEAP-decrypt] Key match check:', {
     receiverX25519InHeader: receiverX25519InHeader ? `${receiverX25519InHeader.slice(0, 12)}…` : 'NOT IN HEADER',
     ourLocalX25519PubLen: hs.local_x25519_public_key_b64?.length,

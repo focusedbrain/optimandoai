@@ -1105,6 +1105,13 @@ async function buildQBeapPackage(config: BeapPackageConfig): Promise<PackageBuil
   // Get sender's X25519 public key for inclusion in header
   // Per canon A.3.054.10: receiver needs this for ECDH key agreement
   const senderX25519PublicKeyB64 = await getDeviceX25519PublicKey()
+
+  console.log('[BEAP-BUILD] KEY IDENTITY CHECK:', JSON.stringify({
+    recipientPeerX25519: recipient.peerX25519PublicKey?.substring(0, 24),
+    recipientPeerMlkem: recipient.peerPQPublicKey?.substring(0, 24),
+    ourDeviceX25519Pub: senderX25519PublicKeyB64?.substring(0, 24),
+    handshakeId: recipient.handshake_id ?? config.selectedRecipient?.handshake_id,
+  }))
   
   // Step 1: X25519 ECDH (classical component)
   const ecdhResult = await deriveSharedSecretX25519(recipient.peerX25519PublicKey!)
