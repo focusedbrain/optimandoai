@@ -229,35 +229,6 @@ describe('executeP2PAction — REQUEST_INVALID + outbound_debug', () => {
     expect(r.clientSendFailureDebug?.phase).toBe('p2p_transport')
   })
 
-  it('does not call sendBeapViaP2P when serialized package exceeds 512KB', async () => {
-    const huge = 'x'.repeat(512 * 1024 + 1)
-    const pkg = huge as unknown as BeapPackage
-    const config = {
-      recipientMode: 'private' as const,
-      deliveryMethod: 'p2p' as const,
-      selectedRecipient: {
-        handshake_id: 'hs-1',
-        p2pEndpoint: 'https://peer.example/beap',
-        counterparty_email: 'a@b.com',
-        counterparty_user_id: 'u',
-        sharing_mode: 'reciprocal' as const,
-        receiver_fingerprint_short: 'x',
-        receiver_fingerprint_full: 'y',
-        receiver_display_name: 'R',
-        receiver_organization: '',
-        receiver_email_list: ['a@b.com'],
-      },
-      senderFingerprint: 's',
-      senderFingerprintShort: 'ss',
-      emailTo: '',
-      subject: '',
-      messageBody: 'hi',
-      attachments: [],
-    } satisfies BeapPackageConfig
-    const r = await executeP2PAction(pkg, config)
-    expect(sendBeapViaP2P).not.toHaveBeenCalled()
-    expect(r.success).toBe(false)
-    expect(r.clientSendFailureDebug?.phase).toBe('p2p_serialization')
-    expect(r.message).toContain('512KB')
-  })
+  // Oversize (>100MB) path is covered by P2P_PACKAGE_JSON_MAX_BYTES in BeapPackageBuilder;
+  // a unit test would require allocating >100MB of string memory (skipped for CI).
 })

@@ -2075,7 +2075,7 @@ export async function executeDownloadAction(
 }
 
 /** IPC / relay cap for a single BEAP JSON payload (matches preload `handshakeView.sendBeapViaP2P`). */
-const P2P_PACKAGE_JSON_MAX_BYTES = 512 * 1024
+const P2P_PACKAGE_JSON_MAX_BYTES = 100 * 1024 * 1024
 
 /**
  * Serialize a built package for P2P transport. Ensures a non-empty string and surfaces
@@ -2152,7 +2152,7 @@ export async function executeP2PAction(
       }
     }
     if (serialized.json.length > P2P_PACKAGE_JSON_MAX_BYTES) {
-      const msg = `P2P: package is ${serialized.json.length} bytes; maximum allowed is ${P2P_PACKAGE_JSON_MAX_BYTES} bytes (512KB). Reduce attachments or use email delivery.`
+      const msg = `P2P: package is ${serialized.json.length} bytes; maximum allowed is ${P2P_PACKAGE_JSON_MAX_BYTES} bytes (100MB). Reduce attachments or use email delivery.`
       return {
         success: false,
         action: 'sent',

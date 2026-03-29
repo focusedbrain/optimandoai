@@ -440,7 +440,7 @@ contextBridge.exposeInMainWorld('handshakeView', {
   },
   sendBeapViaP2P: (handshakeId: unknown, packageJson: unknown) => {
     const id = assertString(handshakeId, 'handshakeId')
-    const P2P_MAX = 512 * 1024
+    const P2P_MAX = 100 * 1024 * 1024
     let json: string
     if (typeof packageJson === 'string') {
       json = packageJson

@@ -4354,7 +4354,11 @@ app.whenReady().then(async () => {
     console.log('[MAIN] WebSocketServer available:', !!WebSocketServer)
     if (WebSocketServer) {
       console.log('[MAIN] Creating WebSocket server on 127.0.0.1:', WS_PORT)
-      const wss = new WebSocketServer({ host: '127.0.0.1', port: WS_PORT })
+      const wss = new WebSocketServer({
+        host: '127.0.0.1',
+        port: WS_PORT,
+        maxPayload: 100 * 1024 * 1024,
+      })
       console.log('[MAIN] WebSocket server created!')
       console.log('[MAIN] WebSocket server listening and ready for connections')
       
@@ -5285,7 +5289,7 @@ app.whenReady().then(async () => {
   try {
     console.log('[MAIN] ===== STARTING HTTP API SERVER =====')
     const httpApp = express()
-    httpApp.use(express.json({ limit: '50mb' }))
+    httpApp.use(express.json({ limit: '100mb' }))
     
     // ========================================================================
     // SECURITY: Per-launch secret is defined at module scope (LAUNCH_SECRET_BUF).
