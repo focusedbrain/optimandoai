@@ -440,12 +440,35 @@ contextBridge.exposeInMainWorld('handshakeView', {
   },
   sendBeapViaP2P: (handshakeId: unknown, packageJson: unknown) => {
     const id = assertString(handshakeId, 'handshakeId')
-    if (typeof packageJson !== 'string' || packageJson.length === 0 || packageJson.length > 512 * 1024) {
-      throw new Error('packageJson: expected non-empty string (max 512KB)')
+    const P2P_MAX = 512 * 1024
+    let json: string
+    if (typeof packageJson === 'string') {
+      json = packageJson
+    } else if (packageJson !== null && typeof packageJson === 'object') {
+      try {
+        const s = JSON.stringify(packageJson)
+        if (typeof s !== 'string') {
+          throw new Error('packageJson: object did not serialize to a string')
+        }
+        json = s
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e)
+        throw new Error(`packageJson: failed to serialize (${msg})`)
+      }
+    } else {
+      throw new Error(
+        `packageJson: expected string or serializable object, got ${packageJson === null ? 'null' : typeof packageJson}`,
+      )
+    }
+    if (json.length === 0) {
+      throw new Error('packageJson: empty string')
+    }
+    if (json.length > P2P_MAX) {
+      throw new Error(`packageJson: exceeds ${P2P_MAX} bytes (got ${json.length})`)
     }
     return ipcRenderer.invoke('handshake:sendBeapViaP2P', {
       handshakeId: id,
-      packageJson,
+      packageJson: json,
       sendSource: 'user_package_builder',
     })
   },

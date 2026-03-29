@@ -2074,6 +2074,37 @@ export async function executeDownloadAction(
   }
 }
 
+/** IPC / relay cap for a single BEAP JSON payload (matches preload `handshakeView.sendBeapViaP2P`). */
+const P2P_PACKAGE_JSON_MAX_BYTES = 512 * 1024
+
+/**
+ * Serialize a built package for P2P transport. Ensures a non-empty string and surfaces
+ * stringify failures (e.g. BigInt) instead of passing `undefined` into IPC.
+ */
+function packageToP2PJsonString(pkg: BeapPackage): { ok: true; json: string } | { ok: false; message: string } {
+  try {
+    if (typeof (pkg as unknown) === 'string') {
+      const json = pkg as unknown as string
+      if (json.length === 0) {
+        return { ok: false, message: 'P2P: package is an empty string; cannot send' }
+      }
+      return { ok: true, json }
+    }
+    const json = JSON.stringify(pkg)
+    if (typeof json !== 'string' || json.length === 0) {
+      return {
+        ok: false,
+        message:
+          'P2P: package JSON serialization produced empty or invalid output (cannot send via P2P)',
+      }
+    }
+    return { ok: true, json }
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    return { ok: false, message: `P2P: failed to serialize package: ${msg}` }
+  }
+}
+
 /**
  * P2P action - Send package via P2P relay
  */
@@ -2107,9 +2138,34 @@ export async function executeP2PAction(
     }
   }
   try {
+    const serialized = packageToP2PJsonString(pkg)
+    if (!serialized.ok) {
+      return {
+        success: false,
+        action: 'sent',
+        message: serialized.message,
+        clientSendFailureDebug: {
+          kind: 'client_send_failure',
+          phase: 'p2p_serialization',
+          message: serialized.message,
+        },
+      }
+    }
+    if (serialized.json.length > P2P_PACKAGE_JSON_MAX_BYTES) {
+      const msg = `P2P: package is ${serialized.json.length} bytes; maximum allowed is ${P2P_PACKAGE_JSON_MAX_BYTES} bytes (512KB). Reduce attachments or use email delivery.`
+      return {
+        success: false,
+        action: 'sent',
+        message: msg,
+        clientSendFailureDebug: {
+          kind: 'client_send_failure',
+          phase: 'p2p_serialization',
+          message: msg,
+        },
+      }
+    }
     const { sendBeapViaP2P } = await import('../../handshake/handshakeRpc')
-    const packageJson = JSON.stringify(pkg)
-    const result = await sendBeapViaP2P(handshakeId, packageJson)
+    const result = await sendBeapViaP2P(handshakeId, serialized.json)
     const rpc = result as SendBeapViaP2PResult & { outbound_debug?: OutboundRequestDebugSnapshot }
     if (rpc.success === true && rpc.delivered === undefined) {
       console.warn(
