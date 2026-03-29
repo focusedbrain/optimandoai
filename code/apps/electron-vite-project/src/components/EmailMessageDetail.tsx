@@ -153,6 +153,7 @@ function isPlaceholder(s: string): boolean {
 function isPendingQbeapDepackaged(dp: Record<string, unknown> | null): boolean {
   if (!dp) return false
   if (dp.format === 'beap_qbeap_decrypted') return false
+  if (dp.format === 'beap_qbeap_outbound') return false
   return dp.format === 'beap_qbeap_pending_main'
 }
 
@@ -559,6 +560,9 @@ export default function EmailMessageDetail({ message, selectedAttachmentId: sele
   const automationTags = parsedDepackaged ? getAutomationTags(parsedDepackaged) : []
   const sessionRefsList = parsedDepackaged ? getSessionRefs(parsedDepackaged) : []
 
+  const isOutboundQbeap =
+    isNativeBeap && parsedDepackaged && parsedDepackaged.format === 'beap_qbeap_outbound'
+
   const handleStar = useCallback(() => {
     toggleStar(message.id)
   }, [message.id, toggleStar])
@@ -732,11 +736,11 @@ export default function EmailMessageDetail({ message, selectedAttachmentId: sele
             >
               Delete
             </button>
-            {onReply && (
+            {onReply && (message.source_type === 'email_plain' || message.source_type === 'depackaged') && (
               <button
                 type="button"
                 onClick={handleReply}
-                title={isBeap ? 'Reply with BEAP' : 'Reply with email'}
+                title="Reply with email"
                 style={{
                   padding: '6px 10px',
                   fontSize: 11,
@@ -748,6 +752,18 @@ export default function EmailMessageDetail({ message, selectedAttachmentId: sele
               >
                 Reply
               </button>
+            )}
+            {onReply && (message.source_type === 'direct_beap' || message.source_type === 'email_beap') && (
+              <span
+                style={{
+                  fontSize: 11,
+                  color: 'var(--color-text-muted, #6b7280)',
+                  fontStyle: 'italic',
+                  alignSelf: 'center',
+                }}
+              >
+                Reply using capsule fields →
+              </span>
             )}
           </div>
           <div style={{ fontSize: 12, color: 'var(--color-text-muted, #94a3b8)' }}>
@@ -776,46 +792,64 @@ export default function EmailMessageDetail({ message, selectedAttachmentId: sele
         <div style={{ marginBottom: 20 }}>
           {isNativeBeap ? (
             <div className="native-beap-body">
-              {publicBody ? (
-                <div className="beap-body-section">
-                  <div className="beap-body-label">📨 Public Message (pBEAP)</div>
-                  <pre
-                    className="beap-body-pre beap-body-content beap-body-content--public"
-                    style={{ whiteSpace: 'pre-wrap', margin: 0, fontFamily: 'inherit' }}
-                  >
-                    {publicBody}
-                  </pre>
+              {isOutboundQbeap ? (
+                <div
+                  style={{
+                    padding: 24,
+                    textAlign: 'center',
+                    color: 'var(--color-text-muted, #6b7280)',
+                    fontStyle: 'italic',
+                    fontSize: 14,
+                    lineHeight: 1.5,
+                  }}
+                >
+                  📤 You sent this message. Content is encrypted for the recipient and cannot be viewed here. Check the{' '}
+                  <strong>Sent</strong> tab for your copy.
                 </div>
-              ) : null}
+              ) : (
+                <>
+                  {publicBody ? (
+                    <div className="beap-body-section">
+                      <div className="beap-body-label">📨 Public Message (pBEAP)</div>
+                      <pre
+                        className="beap-body-pre beap-body-content beap-body-content--public"
+                        style={{ whiteSpace: 'pre-wrap', margin: 0, fontFamily: 'inherit' }}
+                      >
+                        {publicBody}
+                      </pre>
+                    </div>
+                  ) : null}
 
-              {encryptedBody ? (
-                <div className="beap-body-section">
-                  <div className="beap-body-label beap-body-label--encrypted beap-body-label--confidential">
-                    🔒 End-to-End Encrypted (qBEAP)
-                  </div>
-                  <div className="beap-body-content--encrypted beap-body-content beap-body-content--confidential">
-                    <pre
-                      className="beap-body-pre"
-                      style={{ whiteSpace: 'pre-wrap', margin: 0, fontFamily: 'inherit' }}
-                    >
-                      {encryptedBody}
-                    </pre>
-                  </div>
-                </div>
-              ) : null}
+                  {encryptedBody ? (
+                    <div className="beap-body-section">
+                      <div className="beap-body-label beap-body-label--encrypted beap-body-label--confidential">
+                        🔒 End-to-End Encrypted (qBEAP)
+                      </div>
+                      <div className="beap-body-content--encrypted beap-body-content beap-body-content--confidential">
+                        <pre
+                          className="beap-body-pre"
+                          style={{ whiteSpace: 'pre-wrap', margin: 0, fontFamily: 'inherit' }}
+                        >
+                          {encryptedBody}
+                        </pre>
+                      </div>
+                    </div>
+                  ) : null}
 
-              {!publicBody && !encryptedBody ? (
-                <div className="beap-body-section" style={{ opacity: 0.5 }}>
-                  {parsedDepackaged && isPendingQbeapDepackaged(parsedDepackaged) ? (
-                    <>
-                      Waiting for decryption… Content will appear when the extension processes this message (merge into
-                      the desktop inbox).
-                    </>
-                  ) : (
-                    'Content not yet decrypted on this device.'
-                  )}
-                </div>
-              ) : null}
+                  {!publicBody && !encryptedBody ? (
+                    <div className="beap-body-section" style={{ opacity: 0.5 }}>
+                      {parsedDepackaged && isPendingQbeapDepackaged(parsedDepackaged) ? (
+                        <>
+                          Waiting for decryption… Content will appear when the extension processes this message (merge into
+                          the desktop inbox).
+                        </>
+                      ) : (
+                        'Content not yet decrypted on this device.'
+                      )}
+                    </div>
+                  ) : null}
+                </>
+              )}
 
               {parsedDepackaged && automationTags.length > 0 ? (
                 <div className="beap-body-section">

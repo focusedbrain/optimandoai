@@ -17,6 +17,7 @@
 import { createHash, randomUUID } from 'crypto'
 
 import { decryptQBeapPackage } from '../beap/decryptQBeapPackage'
+import { getHandshakeRecord } from '../handshake/db'
 import { evaluateAutoresponder } from '../beap/autoresponderEvaluator'
 import { logAutoresponderDecision } from '../beap/autoresponderAudit'
 import { writeEncryptedAttachmentFile } from './attachmentBlobCrypto'
@@ -26,6 +27,73 @@ const BATCH_SIZE = 100
 
 /** Sentinel account_id for P2P-ingested rows (no email account). */
 const P2P_BEAP_ACCOUNT_ID = '__p2p_beap__'
+
+const OUTBOUND_QBEAP_BODY_PLACEHOLDER = '(Sent qBEAP message — see Sent tab for details)'
+
+/**
+ * Relay echo of our own qBEAP send: `header.sender_fingerprint` matches Ed25519 `handshakes.local_public_key`.
+ * Decrypt would fail (payload encrypted for recipient); skip decrypt and mark outbound for UI.
+ */
+export function isOutboundQbeapEcho(
+  packageJson: string,
+  handshakeId: string | null | undefined,
+  db: unknown,
+): boolean {
+  if (!db || !handshakeId?.trim()) return false
+  let p: Record<string, unknown>
+  try {
+    p = JSON.parse(packageJson.trim()) as Record<string, unknown>
+  } catch {
+    return false
+  }
+  const header = p.header as Record<string, unknown> | undefined
+  if (!header || header.encoding !== 'qBEAP') return false
+  const senderFp =
+    typeof header.sender_fingerprint === 'string' ? header.sender_fingerprint.trim() : ''
+  if (!senderFp) return false
+  const hs = getHandshakeRecord(db as any, handshakeId.trim())
+  const localPub = hs?.local_public_key?.trim()
+  if (!localPub) return false
+  return senderFp === localPub
+}
+
+/** depackaged_json for sender's own qBEAP echo (not decryptable locally). */
+export function buildOutboundQbeapDepackagedJson(packageJson: string, fallback: InboxRowFallback): string {
+  let senderFingerprint: string | undefined
+  let contentHash: string | undefined
+  let version: unknown
+  try {
+    const p = JSON.parse(packageJson.trim()) as Record<string, unknown>
+    const header = p.header as Record<string, unknown> | undefined
+    if (header && typeof header === 'object') {
+      senderFingerprint =
+        typeof header.sender_fingerprint === 'string' ? header.sender_fingerprint : undefined
+      contentHash = typeof header.content_hash === 'string' ? header.content_hash : undefined
+      version = header.version
+    }
+  } catch {
+    /* keep defaults */
+  }
+  return JSON.stringify({
+    schema_version: '1.0.0',
+    format: 'beap_qbeap_outbound',
+    encoding: 'qBEAP',
+    note: 'Outbound message — encrypted for recipient, not decryptable by sender',
+    header_summary: {
+      sender_fingerprint: senderFingerprint,
+      content_hash: contentHash,
+      version,
+    },
+    body: { text: (fallback.body_text ?? '').slice(0, 12_000) },
+    email_fallback_header: {
+      subject: fallback.subject ?? '',
+      from: fallback.from_address ?? '',
+    },
+    metadata: {
+      source: 'main_process_p2p_outbound_echo',
+    },
+  })
+}
 
 function getHandshakePartyEmails(
   db: any,
@@ -565,6 +633,10 @@ export async function retryPendingQbeapDecrypt(db: any): Promise<number> {
 
     const stmts = createQbeapDecryptInboxStmts(db)
 
+    const updateOutboundRow = db.prepare(
+      `UPDATE inbox_messages SET depackaged_json = ?, body_text = ?, embedding_status = 'pending' WHERE id = ?`,
+    )
+
     for (const row of rows) {
       const pkg = String(row.beap_package_json ?? '').trim()
       if (!pkg) continue
@@ -575,6 +647,13 @@ export async function retryPendingQbeapDecrypt(db: any): Promise<number> {
         body_text: row.body_text,
       }
       try {
+        if (isOutboundQbeapEcho(pkg, row.handshake_id, db)) {
+          const outboundDp = buildOutboundQbeapDepackagedJson(pkg, inbox)
+          updateOutboundRow.run(outboundDp, OUTBOUND_QBEAP_BODY_PLACEHOLDER, row.id)
+          fixed++
+          console.log(`[RETRY-DECRYPT] Outbound qBEAP echo detected, skipping decrypt id=${row.id}`)
+          continue
+        }
         const q = await tryQbeapDecryptInbox(db, stmts, inbox, pkg, row.handshake_id)
         if (q.decrypted) {
           fixed++
@@ -629,6 +708,10 @@ export async function processPendingP2PBeapEmails(db: any): Promise<number> {
   `)
 
   const markProcessed = db.prepare(`UPDATE p2p_pending_beap SET processed = 1 WHERE id = ?`)
+
+  const updateInboxOutbound = db.prepare(
+    `UPDATE inbox_messages SET depackaged_json = ?, body_text = ?, embedding_status = 'pending' WHERE id = ?`,
+  )
 
   try {
     const pendingCountRow = db.prepare(`SELECT COUNT(*) as c FROM p2p_pending_beap WHERE processed = 0`).get() as { c: number }
@@ -708,6 +791,32 @@ export async function processPendingP2PBeapEmails(db: any): Promise<number> {
             }
           } else {
             ensureAttachmentsForInboxMessage(inbox.id)
+          }
+
+          if (row.handshake_id && isOutboundQbeapEcho(pkg, row.handshake_id, db)) {
+            const outboundDp = buildOutboundQbeapDepackagedJson(pkg, inbox)
+            updateInboxOutbound.run(outboundDp, OUTBOUND_QBEAP_BODY_PLACEHOLDER, inbox.id)
+            console.log('[BEAP-INBOX] Outbound message detected, skipping decrypt:', inbox.id)
+            try {
+              const evaluation = evaluateAutoresponder({
+                messageId: inbox.id,
+                handshakeId: row.handshake_id ?? null,
+                depackagedJson: outboundDp,
+              })
+              logAutoresponderDecision(evaluation)
+              if (evaluation.decision === 'policy-consent') {
+                console.log(
+                  '[Autoresponder] policy-consent detected; auto-send disabled (receiver authority / manual consent).',
+                  inbox.id,
+                )
+              }
+            } catch (evalErr: unknown) {
+              console.warn('[Autoresponder] evaluation failed:', (evalErr as Error)?.message ?? evalErr)
+            }
+            markProcessed.run(row.id)
+            drained++
+            console.log(`[BEAP-INBOX] Message imported: handshake=${row.handshake_id} messageId=${inbox.id}`)
+            continue
           }
 
           let depackagedJson = beapPackageToMainProcessDepackaged(pkg, inbox)
