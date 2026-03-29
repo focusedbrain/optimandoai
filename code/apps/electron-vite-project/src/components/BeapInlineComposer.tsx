@@ -47,8 +47,6 @@ import { ComposerAttachmentButton } from './ComposerAttachmentButton';
 
 import { DraftRefineLabel } from './DraftRefineLabel';
 
-const ORCHESTRATOR_HTTP_BASE = 'http://127.0.0.1:51248';
-
 export interface BeapInlineComposerProps {
   onClose: () => void;
 
@@ -283,20 +281,22 @@ export function BeapInlineComposer({
   useEffect(() => {
     const loadSessions = async () => {
       try {
-        await fetch(`${ORCHESTRATOR_HTTP_BASE}/api/orchestrator/connect`, { method: 'POST' });
+        if (typeof window.orchestrator?.connect === 'function') {
+          await window.orchestrator.connect();
+        }
       } catch {
         /* best-effort */
       }
 
       try {
-        const res = await fetch(`${ORCHESTRATOR_HTTP_BASE}/api/orchestrator/sessions`);
+        const json = (await window.orchestrator?.listSessions?.()) as
+          | {
+              success?: boolean;
+              data?: Array<{ id: string; name: string }>;
+            }
+          | undefined;
 
-        const json = (await res.json()) as {
-          success?: boolean;
-          data?: Array<{ id: string; name: string }>;
-        };
-
-        if (json.success && Array.isArray(json.data)) {
+        if (json?.success && Array.isArray(json.data)) {
           setSessions(json.data.map((s) => ({ id: s.id, name: s.name })));
         } else {
           setSessions([]);

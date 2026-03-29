@@ -72,6 +72,8 @@ interface OrchestratorBridge {
     sourceMessageId: string
     handshakeId: string | null
   }) => Promise<{ success: boolean; sessionId?: string; error?: string }>
+  /** Opens orchestrator SQLite (same as POST /api/orchestrator/connect). */
+  connect: () => Promise<{ success: boolean; data?: unknown; error?: string }>
   listSessions: () => Promise<{ success: boolean; data?: unknown[]; error?: string }>
 }
 

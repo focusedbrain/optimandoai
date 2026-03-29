@@ -337,6 +337,7 @@ contextBridge.exposeInMainWorld('orchestrator', {
     const validated = assertBeapSessionImportPayload(payload)
     return ipcRenderer.invoke('orchestrator:importSessionFromBeap', validated)
   },
+  connect: () => ipcRenderer.invoke('orchestrator:connect'),
   listSessions: () => ipcRenderer.invoke('orchestrator:listSessions'),
 })
 

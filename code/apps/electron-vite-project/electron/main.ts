@@ -2687,6 +2687,20 @@ app.whenReady().then(async () => {
       void _ctx
     }
 
+    /** Same as POST /api/orchestrator/connect — renderer must use IPC (avoids CORS from Vite dev origin). */
+    ipcMain.handle('orchestrator:connect', async () => {
+      try {
+        const { getOrchestratorService } = await import('./main/orchestrator-db/service')
+        const service = getOrchestratorService()
+        await service.connect()
+        const status = service.getStatus()
+        return { success: true, data: status }
+      } catch (err: any) {
+        console.error('[MAIN] orchestrator:connect', err?.message ?? err)
+        return { success: false, error: err?.message ?? 'CONNECT_FAILED' }
+      }
+    })
+
     ipcMain.handle('orchestrator:listSessions', async () => {
       try {
         const { getOrchestratorService } = await import('./main/orchestrator-db/service')
