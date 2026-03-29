@@ -6,6 +6,7 @@ import { useDraftRefineStore } from '../stores/useDraftRefineStore'
 import { useEmailInboxStore } from '../stores/useEmailInboxStore'
 import { useAiDraftContextStore } from '../stores/useAiDraftContextStore'
 import { ingestAiContextFiles } from '../lib/ingestAiContextFiles'
+import { UI_BADGE } from '../styles/uiContrastTokens'
 
 /** Derived focus context for inbox — distinguishes message vs draft vs attachment above chat. */
 export type UiFocusContext =
@@ -717,25 +718,48 @@ export default function HybridSearch({
   return (
     <div className="hs-root" ref={containerRef}>
       {selectedHandshakeId && selectedHandshakeEmail && (
-        <div style={{
-          fontSize: '10px', fontWeight: 600, color: 'var(--purple-accent, #a78bfa)',
-          marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '4px',
-        }}>
+        <div
+          style={{
+            fontSize: '10px',
+            fontWeight: 600,
+            marginBottom: '6px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '4px',
+            padding: '4px 8px',
+            borderRadius: '6px',
+            width: 'fit-content',
+            maxWidth: '100%',
+            ...UI_BADGE.purple,
+          }}
+        >
           Scope: Handshake → {selectedHandshakeEmail}
         </div>
       )}
       {(selectedMessageId || (draftRefineConnected && draftRefineMessageId === null && selectedMessageId == null)) && (
-        <div style={{
-          fontSize: '10px', fontWeight: 600, color: 'var(--purple-accent, #a78bfa)',
-          marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap',
-        }}>
+        <div
+          style={{
+            fontSize: '10px',
+            fontWeight: 600,
+            marginBottom: '6px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px',
+            flexWrap: 'wrap',
+          }}
+        >
           {uiFocusContext.kind === 'draft' ? (
-            <span style={{
-              display: 'inline-flex', alignItems: 'center', gap: '4px',
-              padding: '2px 8px', borderRadius: '6px',
-              background: 'rgba(34,197,94,0.15)', border: '1px solid rgba(34,197,94,0.4)',
-              color: '#15803d',
-            }} title={draftRefineChipTitle}>
+            <span
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '4px',
+                padding: '2px 8px',
+                borderRadius: '6px',
+                ...UI_BADGE.green,
+              }}
+              title={draftRefineChipTitle}
+            >
               ✏️ Draft{draftRefineScopeSuffix}
               {draftRefineMessageSubject
                 ? ` · ${draftRefineMessageSubject.length > 40 ? draftRefineMessageSubject.slice(0, 40) + '…' : draftRefineMessageSubject}`
@@ -753,11 +777,17 @@ export default function HybridSearch({
               </button>
             </span>
           ) : uiFocusContext.kind === 'attachment' ? (
-            <span style={{
-              display: 'inline-flex', alignItems: 'center', gap: '4px',
-              padding: '2px 8px', borderRadius: '6px',
-              background: 'rgba(139,92,246,0.15)', border: '1px solid rgba(139,92,246,0.3)',
-            }} title="Chat scoped to attachment">
+            <span
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '4px',
+                padding: '2px 8px',
+                borderRadius: '6px',
+                ...UI_BADGE.amber,
+              }}
+              title="Chat scoped to attachment"
+            >
               📎 Attachment
               {onClearMessageSelection && (
                 <button
@@ -774,11 +804,17 @@ export default function HybridSearch({
               )}
             </span>
           ) : (
-            <span style={{
-              display: 'inline-flex', alignItems: 'center', gap: '4px',
-              padding: '2px 8px', borderRadius: '6px',
-              background: 'rgba(139,92,246,0.15)', border: '1px solid rgba(139,92,246,0.3)',
-            }} title="Chat scoped to message">
+            <span
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '4px',
+                padding: '2px 8px',
+                borderRadius: '6px',
+                ...UI_BADGE.blue,
+              }}
+              title="Chat scoped to message"
+            >
               📨 Message
               {selectedAttachmentId && <span>→ Attachment</span>}
               {onClearMessageSelection && (
@@ -871,13 +907,18 @@ export default function HybridSearch({
 
         {/* ── Centre: main input ── */}
         {selectedHandshakeId && (
-          <span style={{ marginRight: '6px', fontSize: '16px', color: 'var(--purple-accent, #a78bfa)', lineHeight: 1, flexShrink: 0, cursor: 'default' }} title="Chat scoped to selected handshake">👉</span>
+          <span
+            style={{ marginRight: '6px', fontSize: '16px', color: '#4c1d95', lineHeight: 1, flexShrink: 0, cursor: 'default' }}
+            title="Chat scoped to selected handshake"
+          >
+            👉
+          </span>
         )}
         {((selectedMessageId || (draftRefineConnected && draftRefineMessageId === null && selectedMessageId == null)) && !selectedHandshakeId) && (
           <span
             style={{
               marginRight: '6px', fontSize: '16px', lineHeight: 1, flexShrink: 0, cursor: 'default',
-              color: uiFocusContext.kind === 'draft' ? '#15803d' : 'var(--purple-accent, #a78bfa)',
+              color: uiFocusContext.kind === 'draft' ? '#166534' : '#1e40af',
             }}
             title={
               uiFocusContext.kind === 'draft'
@@ -1413,39 +1454,61 @@ function ResultRow({
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
         <div className="hs-result-row__title">{result.title}</div>
         {result.structured_result && (
-          <span className="hs-result-badge" style={{
-            fontSize: '9px', padding: '1px 5px', borderRadius: '3px',
-            background: 'rgba(34,197,94,0.12)', color: '#22c55e',
-            fontWeight: 600, flexShrink: 0,
-          }}>
+          <span
+            className="hs-result-badge"
+            style={{
+              fontSize: '9px',
+              padding: '1px 5px',
+              borderRadius: '3px',
+              fontWeight: 600,
+              flexShrink: 0,
+              ...UI_BADGE.green,
+            }}
+          >
             Context
           </span>
         )}
         {result.data_classification && (
-          <span className="hs-result-badge" style={{
-            fontSize: '9px', padding: '1px 5px', borderRadius: '3px',
-            background: 'rgba(107,114,128,0.15)', color: 'var(--text-muted)',
-            fontWeight: 600, flexShrink: 0,
-          }}>
+          <span
+            className="hs-result-badge"
+            style={{
+              fontSize: '9px',
+              padding: '1px 5px',
+              borderRadius: '3px',
+              fontWeight: 600,
+              flexShrink: 0,
+              ...UI_BADGE.gray,
+            }}
+          >
             {result.data_classification}
           </span>
         )}
         {result.governance_summary && (
-          <span className="hs-result-badge" style={{
-            fontSize: '9px', padding: '1px 5px', borderRadius: '3px',
-            background: 'rgba(139,92,246,0.12)', color: '#a78bfa',
-            fontWeight: 600, flexShrink: 0,
-          }}>
+          <span
+            className="hs-result-badge"
+            style={{
+              fontSize: '9px',
+              padding: '1px 5px',
+              borderRadius: '3px',
+              fontWeight: 600,
+              flexShrink: 0,
+              ...UI_BADGE.purple,
+            }}
+          >
             {result.governance_summary}
           </span>
         )}
         {result.timestamp && (
-          <span style={{
-            fontSize: '9px', padding: '1px 5px', borderRadius: '3px',
-            background: result.timestamp.startsWith('↓') ? 'rgba(139,92,246,0.15)' : 'rgba(34,197,94,0.1)',
-            color: result.timestamp.startsWith('↓') ? '#a78bfa' : '#22c55e',
-            fontWeight: 600, flexShrink: 0,
-          }}>
+          <span
+            style={{
+              fontSize: '9px',
+              padding: '1px 5px',
+              borderRadius: '3px',
+              fontWeight: 600,
+              flexShrink: 0,
+              ...(result.timestamp.startsWith('↓') ? UI_BADGE.purple : UI_BADGE.green),
+            }}
+          >
             {result.timestamp}
           </span>
         )}
@@ -1475,10 +1538,13 @@ function ResultRow({
               onClick={handleCopyResult}
               title={copied ? 'Copied to clipboard' : 'Copy result to clipboard'}
               style={{
-                marginLeft: 'auto', fontSize: '10px', padding: '2px 6px',
-                background: 'var(--purple-accent-muted)', color: 'var(--purple-accent)',
-                border: '1px solid rgba(147,51,234,0.2)', borderRadius: '4px',
-                cursor: 'pointer', fontWeight: 600,
+                marginLeft: 'auto',
+                fontSize: '10px',
+                padding: '2px 6px',
+                borderRadius: '4px',
+                cursor: 'pointer',
+                fontWeight: 600,
+                ...UI_BADGE.purple,
               }}
             >
               {ctaLabel}

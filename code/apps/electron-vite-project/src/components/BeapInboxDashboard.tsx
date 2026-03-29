@@ -32,11 +32,11 @@ const URGENCY_DOT: Record<UrgencyLevel, { color: string } | null> = {
   irrelevant: { color: '#6b7280' },
 }
 
-const TRUST_BADGE: Record<TrustLevel, { label: string; color: string; bg: string }> = {
-  enterprise: { label: 'Enterprise', color: '#b45309', bg: 'rgba(245,158,11,0.15)' },
-  pro: { label: 'Pro', color: '#2563eb', bg: 'rgba(59,130,246,0.15)' },
-  standard: { label: 'Standard', color: '#16a34a', bg: 'rgba(34,197,94,0.15)' },
-  depackaged: { label: 'Email', color: '#6b7280', bg: 'rgba(107,114,128,0.12)' },
+const TRUST_BADGE: Record<TrustLevel, { label: string; color: string; bg: string; border: string }> = {
+  enterprise: { label: 'Enterprise', color: '#92400e', bg: '#fef3c7', border: '1px solid #fcd34d' },
+  pro: { label: 'Pro', color: '#1e40af', bg: '#dbeafe', border: '1px solid #93c5fd' },
+  standard: { label: 'Standard', color: '#166534', bg: '#dcfce7', border: '1px solid #86efac' },
+  depackaged: { label: 'Email', color: '#374151', bg: '#f3f4f6', border: '1px solid #d1d5db' },
 }
 
 function formatRelativeTime(timestamp: number): string {
@@ -493,6 +493,7 @@ export default function BeapInboxDashboard({
                         borderRadius: 4,
                         color: trustConfig.color,
                         background: trustConfig.bg,
+                        border: trustConfig.border,
                       }}>
                         {trustConfig.label}
                       </span>

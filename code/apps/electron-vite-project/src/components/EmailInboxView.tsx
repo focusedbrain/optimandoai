@@ -31,6 +31,7 @@ import { executeDeliveryAction, type BeapPackageConfig } from '@ext/beap-message
 import { getSigningKeyPair } from '@ext/beap-messages/services/beapCrypto'
 import { hasHandshakeKeyMaterial, type SelectedHandshakeRecipient } from '@ext/handshake/rpcTypes'
 import { listHandshakes } from '../shims/handshakeRpc'
+import { UI_BADGE } from '../styles/uiContrastTokens'
 
 /** Local HTTP API for orchestrator DB (matches `HTTP_PORT` in electron/main.ts). */
 
@@ -2573,9 +2574,15 @@ export default function EmailInboxView({
                 const subj = String(row.subject ?? 'BEAP™ Message')
                 const preview = String(row.public_body_preview ?? '')
                 const createdAt = String(row.created_at ?? '')
-                const dm = String(row.delivery_method ?? '')
+                const dm = String(row.delivery_method ?? '').toLowerCase()
                 const ds = String(row.delivery_status ?? 'sent')
                 const hasEnc = row.has_encrypted_inner === 1
+                const deliveryBadge =
+                  dm === 'p2p'
+                    ? UI_BADGE.blue
+                    : dm === 'email'
+                      ? UI_BADGE.amber
+                      : UI_BADGE.gray
                 return (
                   <div
                     key={sid}
@@ -2613,8 +2620,7 @@ export default function EmailInboxView({
                           fontSize: 10,
                           padding: '1px 6px',
                           borderRadius: 8,
-                          background: dm === 'p2p' ? 'rgba(59,130,246,0.2)' : 'rgba(251,191,36,0.15)',
-                          color: dm === 'p2p' ? '#93c5fd' : '#fcd34d',
+                          ...deliveryBadge,
                         }}
                       >
                         {dm.toUpperCase() || '—'}
@@ -2624,16 +2630,33 @@ export default function EmailInboxView({
                           fontSize: 10,
                           padding: '1px 6px',
                           borderRadius: 8,
-                          background: ds === 'sent' ? 'rgba(34,197,94,0.2)' : 'rgba(239,68,68,0.2)',
-                          color: ds === 'sent' ? '#86efac' : '#fca5a5',
+                          ...(ds === 'sent' ? UI_BADGE.green : UI_BADGE.red),
                         }}
                       >
                         {ds === 'sent' ? '✅ Sent' : `❌ ${ds}`}
                       </span>
                       {hasEnc ? (
-                        <span style={{ fontSize: 10, color: '#c4b5fd' }}>🔒 qBEAP</span>
+                        <span
+                          style={{
+                            fontSize: 10,
+                            padding: '1px 6px',
+                            borderRadius: 8,
+                            ...UI_BADGE.purple,
+                          }}
+                        >
+                          🔒 qBEAP
+                        </span>
                       ) : (
-                        <span style={{ fontSize: 10, color: '#94a3b8' }}>📨 pBEAP</span>
+                        <span
+                          style={{
+                            fontSize: 10,
+                            padding: '1px 6px',
+                            borderRadius: 8,
+                            ...UI_BADGE.gray,
+                          }}
+                        >
+                          📨 pBEAP
+                        </span>
                       )}
                     </div>
                   </div>

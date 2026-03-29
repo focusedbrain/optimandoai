@@ -8,6 +8,7 @@ import { useState } from 'react'
 import type { VerifiedContextBlock } from './contextEscaping'
 import PolicyRadioGroup, { type PolicySelection } from './PolicyRadioGroup'
 import ContextItemEditor, { type ContextItemGovernanceEdit } from './ContextItemEditor'
+import { UI_BADGE, UI_BUTTON } from '../styles/uiContrastTokens'
 
 interface HandshakeRecord {
   handshake_id: string
@@ -107,6 +108,7 @@ function ContextBlockCard({
           <span style={{
             fontSize: '9px', fontWeight: 600, padding: '2px 6px',
             borderRadius: '3px', background: sensColors.bg, color: sensColors.text,
+            border: sensColors.border,
             textTransform: 'uppercase', flexShrink: 0,
           }}>
             {sensitivity}
@@ -115,9 +117,8 @@ function ContextBlockCard({
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
           <span style={{
             fontSize: '9px', padding: '2px 6px', borderRadius: '3px',
-            background: isReceived ? 'rgba(139,92,246,0.15)' : 'rgba(34,197,94,0.1)',
-            color: isReceived ? '#a78bfa' : '#22c55e',
             fontWeight: 600,
+            ...(isReceived ? UI_BADGE.purple : UI_BADGE.green),
           }}>
             {isReceived ? '↓ Received' : '↑ Sent'}
           </span>
@@ -126,9 +127,9 @@ function ContextBlockCard({
               onClick={onEdit}
               style={{
                 padding: '3px 8px', fontSize: '10px',
-                background: 'rgba(59,130,246,0.15)', color: '#3b82f6',
-                border: '1px solid rgba(59,130,246,0.3)', borderRadius: '4px',
+                borderRadius: '4px',
                 cursor: 'pointer',
+                ...UI_BADGE.blue,
               }}
             >
               Edit
@@ -155,7 +156,7 @@ function ContextBlockCard({
               onClick={() => setExpanded(!expanded)}
               style={{
                 marginTop: '6px', padding: '0', border: 'none', background: 'transparent',
-                color: '#a78bfa', fontSize: '11px', cursor: 'pointer', fontWeight: 600,
+                color: '#4c1d95', fontSize: '11px', cursor: 'pointer', fontWeight: 600,
               }}
             >
               {expanded ? '↑ Show less' : '↓ Show more'}
@@ -211,11 +212,11 @@ function ContextBlockCard({
                 <>
                   <div>🔗 Included in counterparty&apos;s context commitment</div>
                   {payload ? (
-                    <div style={{ color: '#22c55e', marginTop: '2px' }}>
+                    <div style={{ color: '#166534', marginTop: '2px' }}>
                       ✓ Content verified against commitment hash
                     </div>
                   ) : (
-                    <div style={{ color: '#f59e0b', marginTop: '2px' }}>
+                    <div style={{ color: '#92400e', marginTop: '2px' }}>
                       ⏳ Hash committed — content awaiting delivery
                     </div>
                   )}
@@ -231,12 +232,12 @@ function ContextBlockCard({
           <PolicyPip label="Search" on={g?.usage_policy?.searchable ?? false} />
           <PolicyPip label="Export" on={g?.usage_policy?.export_allowed ?? false} />
           {block.embedding_status === 'complete' && (
-            <span style={{ fontSize: '9px', color: '#22c55e', marginLeft: 'auto' }}>
+            <span style={{ fontSize: '9px', color: '#166534', marginLeft: 'auto' }}>
               ✓ indexed
             </span>
           )}
           {block.embedding_status === 'pending' && (
-            <span style={{ fontSize: '9px', color: '#f59e0b', marginLeft: 'auto' }}>
+            <span style={{ fontSize: '9px', color: '#92400e', marginLeft: 'auto' }}>
               ⏳ indexing…
             </span>
           )}
@@ -267,8 +268,7 @@ function PolicyPip({ label, on }: { label: string; on: boolean }) {
   return (
     <span style={{
       fontSize: '9px', padding: '1px 5px', borderRadius: '3px',
-      background: on ? 'rgba(34,197,94,0.1)' : 'rgba(107,114,128,0.12)',
-      color: on ? '#22c55e' : '#4b5563',
+      ...(on ? UI_BADGE.green : UI_BADGE.gray),
     }}>
       {label}: {on ? '✓' : '—'}
     </span>
@@ -335,7 +335,7 @@ export default function HandshakeContextSection({
       }}>
         <span style={{ fontSize: '16px', flexShrink: 0 }}>🔒</span>
         <div>
-          <div style={{ fontSize: '12px', fontWeight: 600, color: '#3b82f6', marginBottom: '2px' }}>
+          <div style={{ fontSize: '12px', fontWeight: 600, color: '#1e40af', marginBottom: '2px' }}>
             Vault Locked
           </div>
           <div style={{ fontSize: '11px', color: 'var(--color-text-muted, #94a3b8)', lineHeight: 1.5 }}>
@@ -370,10 +370,10 @@ export default function HandshakeContextSection({
             title={!isVaultUnlocked ? 'Unlock vault to attach context data' : 'Attach context data'}
             style={{
               padding: '6px 14px', fontSize: '11px', fontWeight: 600,
-              background: 'rgba(139,92,246,0.2)', color: '#a78bfa',
-              border: '1px solid rgba(139,92,246,0.4)', borderRadius: '6px',
+              borderRadius: '6px',
               cursor: isVaultUnlocked ? 'pointer' : 'not-allowed',
               opacity: isVaultUnlocked ? 1 : 0.5,
+              ...UI_BUTTON.purpleSoft,
             }}
           >
             + Add Context
@@ -399,13 +399,20 @@ export default function HandshakeContextSection({
                 type="button"
                 onClick={() => setViewMode(mode)}
                 style={{
-                  flex: 1, padding: '6px 10px', fontSize: '11px', fontWeight: isActive ? 700 : 500,
-                  background: isActive ? 'rgba(139,92,246,0.2)' : 'transparent',
-                  border: isActive ? '1px solid rgba(139,92,246,0.35)' : '1px solid transparent',
+                  flex: 1,
+                  padding: '6px 10px',
+                  fontSize: '11px',
+                  fontWeight: isActive ? 700 : 500,
                   borderRadius: '5px',
-                  color: isActive ? '#a78bfa' : 'var(--color-text-muted, #94a3b8)',
                   cursor: 'pointer',
                   transition: 'all 0.15s',
+                  ...(isActive
+                    ? { background: '#7c3aed', color: '#ffffff', border: '1px solid #7c3aed' }
+                    : {
+                        background: 'transparent',
+                        color: 'var(--color-text-muted, #94a3b8)',
+                        border: '1px solid transparent',
+                      }),
                 }}
               >
                 {label} ({count})

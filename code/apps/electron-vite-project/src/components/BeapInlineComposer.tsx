@@ -884,8 +884,8 @@ export function BeapInlineComposer({
 
           <div
             style={{
-              background: 'rgba(59, 130, 246, 0.08)',
-              border: '1px solid rgba(59, 130, 246, 0.22)',
+              background: '#dbeafe',
+              border: '1px solid #93c5fd',
               borderRadius: 8,
               padding: 12,
             }}
@@ -896,7 +896,7 @@ export function BeapInlineComposer({
                 fontWeight: 600,
                 textTransform: 'uppercase',
                 letterSpacing: '0.5px',
-                color: '#3b82f6',
+                color: '#1e40af',
                 marginBottom: 6,
               }}
             >
@@ -1171,9 +1171,9 @@ export function BeapInlineComposer({
               }
               style={{
                 flexShrink: 0,
-                background: connected && refineTarget === 'capsule-public' ? '#7c3aed' : 'transparent',
-                color: connected && refineTarget === 'capsule-public' ? '#fff' : '#7c3aed',
-                border: '1px solid #7c3aed',
+                background: connected && refineTarget === 'capsule-public' ? '#7c3aed' : '#ffffff',
+                color: connected && refineTarget === 'capsule-public' ? '#ffffff' : '#374151',
+                border: connected && refineTarget === 'capsule-public' ? '1px solid #7c3aed' : '1px solid #d1d5db',
                 borderRadius: 4,
                 padding: '4px 10px',
                 fontSize: 10,
@@ -1267,9 +1267,10 @@ export function BeapInlineComposer({
                   style={{
                     flexShrink: 0,
                     background:
-                      connected && refineTarget === 'capsule-encrypted' ? '#7c3aed' : 'transparent',
-                    color: connected && refineTarget === 'capsule-encrypted' ? '#fff' : '#7c3aed',
-                    border: '1px solid #7c3aed',
+                      connected && refineTarget === 'capsule-encrypted' ? '#7c3aed' : '#ffffff',
+                    color: connected && refineTarget === 'capsule-encrypted' ? '#ffffff' : '#374151',
+                    border:
+                      connected && refineTarget === 'capsule-encrypted' ? '1px solid #7c3aed' : '1px solid #d1d5db',
                     borderRadius: 4,
                     padding: '4px 10px',
                     fontSize: 10,
@@ -1577,9 +1578,9 @@ export function BeapInlineComposer({
               style={{
                 padding: '12px 16px',
                 borderRadius: 8,
-                border: '1px solid #cbd5e1',
+                border: '1px solid #d1d5db',
                 background: '#ffffff',
-                color: textPrimary,
+                color: '#374151',
                 cursor: 'pointer',
               }}
             >

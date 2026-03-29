@@ -12,6 +12,7 @@ import { extractLinkParts } from '../utils/safeLinks'
 import { deriveInboxMessageKind } from '../lib/inboxMessageKind'
 import SessionImportDialog, { type SessionImportDialogSessionRef } from './SessionImportDialog'
 import { listHandshakes } from '../shims/handshakeRpc'
+import { UI_BADGE, UI_BUTTON } from '../styles/uiContrastTokens'
 
 export interface EmailMessageDetailProps {
   message: InboxMessage | null
@@ -621,10 +622,8 @@ export default function EmailMessageDetail({ message, selectedAttachmentId: sele
             style={{
               padding: 12,
               marginBottom: 16,
-              background: 'rgba(239,68,68,0.15)',
-              border: '1px solid rgba(239,68,68,0.4)',
               borderRadius: 8,
-              color: '#fca5a5',
+              ...UI_BADGE.red,
             }}
           >
             <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>
@@ -642,11 +641,9 @@ export default function EmailMessageDetail({ message, selectedAttachmentId: sele
                 padding: '6px 12px',
                 fontSize: 11,
                 fontWeight: 600,
-                background: 'rgba(34,197,94,0.2)',
-                border: '1px solid rgba(34,197,94,0.4)',
                 borderRadius: 6,
-                color: '#86efac',
                 cursor: 'pointer',
+                ...UI_BADGE.green,
               }}
             >
               Cancel Deletion
@@ -694,11 +691,13 @@ export default function EmailMessageDetail({ message, selectedAttachmentId: sele
                 padding: '6px 10px',
                 fontSize: 11,
                 fontWeight: 600,
-                background: message.starred === 1 ? 'rgba(139,92,246,0.2)' : 'rgba(255,255,255,0.06)',
-                border: '1px solid rgba(139,92,246,0.3)',
                 borderRadius: 6,
-                color: message.starred === 1 ? '#a78bfa' : 'var(--color-text-muted, #94a3b8)',
                 cursor: 'pointer',
+                ...(message.starred === 1 ? UI_BUTTON.purpleSoft : {
+                  background: 'rgba(255,255,255,0.06)',
+                  border: '1px solid rgba(255,255,255,0.12)',
+                  color: 'var(--color-text-muted, #94a3b8)',
+                }),
               }}
             >
               {message.starred === 1 ? '★ Starred' : '☆ Star'}
@@ -726,11 +725,9 @@ export default function EmailMessageDetail({ message, selectedAttachmentId: sele
                 padding: '6px 10px',
                 fontSize: 11,
                 fontWeight: 600,
-                background: 'rgba(239,68,68,0.1)',
-                border: '1px solid rgba(239,68,68,0.3)',
                 borderRadius: 6,
-                color: '#fca5a5',
                 cursor: 'pointer',
+                ...UI_BUTTON.danger,
               }}
             >
               Delete
@@ -744,11 +741,9 @@ export default function EmailMessageDetail({ message, selectedAttachmentId: sele
                   padding: '6px 10px',
                   fontSize: 11,
                   fontWeight: 600,
-                  background: 'rgba(139,92,246,0.15)',
-                  border: '1px solid rgba(139,92,246,0.3)',
                   borderRadius: 6,
-                  color: '#a78bfa',
                   cursor: 'pointer',
+                  ...UI_BUTTON.purpleSoft,
                 }}
               >
                 Reply
@@ -770,8 +765,7 @@ export default function EmailMessageDetail({ message, selectedAttachmentId: sele
               padding: '4px 8px',
               borderRadius: 4,
               fontWeight: 600,
-              background: isBeap ? 'rgba(139,92,246,0.2)' : 'rgba(107,114,128,0.2)',
-              color: isBeap ? '#a78bfa' : 'var(--color-text-muted, #94a3b8)',
+              ...(isBeap ? UI_BADGE.purple : UI_BADGE.gray),
             }}
           >
             {formatSourceBadge(message.source_type)}

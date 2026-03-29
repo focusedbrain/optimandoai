@@ -14,6 +14,7 @@ import { validateHsContextLink, linkEntityId } from '@shared/handshake/linkValid
 import ProtectedAccessWarningDialog from './ProtectedAccessWarningDialog'
 import StructuredHsContextPanel, { KNOWN_HS_CONTEXT_LINK_FIELDS } from './StructuredHsContextPanel'
 import HandshakeBeapMessages from './HandshakeBeapMessages'
+import { UI_BADGE, UI_BUTTON } from '../styles/uiContrastTokens'
 
 // ── Types ──
 
@@ -183,19 +184,19 @@ function blockTitle(block: ContextBlockWithVisibility): string {
 
 function StateBadge({ state }: { state: string }) {
   const colors: Record<string, { bg: string; text: string; border: string }> = {
-    ACTIVE: { bg: 'rgba(34,197,94,0.12)', text: '#22c55e', border: 'rgba(34,197,94,0.3)' },
-    ACCEPTED: { bg: 'rgba(59,130,246,0.12)', text: '#3b82f6', border: 'rgba(59,130,246,0.3)' },
-    PENDING_ACCEPT: { bg: 'rgba(245,158,11,0.12)', text: '#f59e0b', border: 'rgba(245,158,11,0.3)' },
-    PENDING_REVIEW: { bg: 'rgba(245,158,11,0.12)', text: '#f59e0b', border: 'rgba(245,158,11,0.3)' },
-    REVOKED: { bg: 'rgba(239,68,68,0.12)', text: '#ef4444', border: 'rgba(239,68,68,0.3)' },
-    EXPIRED: { bg: 'rgba(107,114,128,0.12)', text: '#6b7280', border: 'rgba(107,114,128,0.3)' },
+    ACTIVE: { bg: UI_BADGE.green.background, text: UI_BADGE.green.color, border: UI_BADGE.green.border },
+    ACCEPTED: { bg: UI_BADGE.blue.background, text: UI_BADGE.blue.color, border: UI_BADGE.blue.border },
+    PENDING_ACCEPT: { bg: UI_BADGE.amber.background, text: UI_BADGE.amber.color, border: UI_BADGE.amber.border },
+    PENDING_REVIEW: { bg: UI_BADGE.amber.background, text: UI_BADGE.amber.color, border: UI_BADGE.amber.border },
+    REVOKED: { bg: UI_BADGE.red.background, text: UI_BADGE.red.color, border: UI_BADGE.red.border },
+    EXPIRED: { bg: UI_BADGE.gray.background, text: UI_BADGE.gray.color, border: UI_BADGE.gray.border },
   }
   const c = colors[state] || colors.EXPIRED
   return (
     <span style={{
       fontSize: '11px', fontWeight: 700, padding: '3px 10px',
       borderRadius: '5px', background: c.bg, color: c.text,
-      border: `1px solid ${c.border}`, textTransform: 'uppercase',
+      border: c.border, textTransform: 'uppercase',
     }}>
       {state.replace('_', ' ')}
     </span>
@@ -214,9 +215,13 @@ function InlineFilterChip({ label, active, disabled, onClick }: { label: string;
         fontSize: '11px',
         padding: '2px 8px',
         borderRadius: '4px',
-        border: 'none',
-        backgroundColor: active ? 'rgba(124,58,237,0.4)' : 'transparent',
-        color: active ? '#fff' : (disabled ? 'var(--color-text-muted, #64748b)' : 'var(--color-text-muted, #94a3b8)'),
+        ...(active
+          ? { backgroundColor: '#7c3aed', color: '#ffffff', border: '1px solid #7c3aed' }
+          : {
+              backgroundColor: '#f9fafb',
+              color: disabled ? '#9ca3af' : '#6b7280',
+              border: '1px solid #e5e7eb',
+            }),
         cursor: disabled ? 'not-allowed' : 'pointer',
         opacity: disabled ? 0.6 : 1,
         flexShrink: 0,
@@ -991,9 +996,12 @@ export default function HandshakeWorkspace({
                         disabled={!vaultUnlocked}
                         title={!vaultUnlocked ? 'Unlock vault to attach context data' : 'Attach context data'}
                         style={{
-                          padding: '4px 10px', fontSize: '10px', fontWeight: 600,
-                          background: 'rgba(139,92,246,0.2)', color: '#a78bfa',
-                          border: '1px solid rgba(139,92,246,0.4)', borderRadius: '6px', cursor: 'pointer',
+                          padding: '4px 10px',
+                          fontSize: '10px',
+                          fontWeight: 600,
+                          borderRadius: '6px',
+                          cursor: 'pointer',
+                          ...UI_BUTTON.purpleSoft,
                         }}
                       >
                         Attach

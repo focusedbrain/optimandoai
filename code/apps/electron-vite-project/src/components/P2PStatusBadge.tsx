@@ -5,6 +5,7 @@
  */
 
 import { useEffect, useState } from 'react'
+import { UI_BADGE } from '../styles/uiContrastTokens'
 
 interface P2PHealthStatus {
   server_running: boolean
@@ -34,6 +35,12 @@ function isAuthRelatedError(err: string | null | undefined): boolean {
   return lower.includes('oidc') || lower.includes('log in') || lower.includes('auth') || lower.includes('401')
 }
 
+const chip = {
+  fontSize: '10px' as const,
+  padding: '2px 8px' as const,
+  borderRadius: '4px' as const,
+}
+
 export default function P2PStatusBadge() {
   const [health, setHealth] = useState<P2PHealthStatus | null>(null)
 
@@ -54,11 +61,7 @@ export default function P2PStatusBadge() {
   // Disabled: config says disabled
   if (health.enabled === false) {
     return (
-      <span title="P2P is disabled. Enable in settings for automatic context sync." style={{
-        fontSize: '10px', padding: '2px 8px', borderRadius: '4px',
-        background: 'rgba(107,114,128,0.15)', color: '#94a3b8',
-        border: '1px solid rgba(107,114,128,0.3)',
-      }}>
+      <span title="P2P is disabled. Enable in settings for automatic context sync." style={{ ...chip, ...UI_BADGE.gray }}>
         P2P disabled
       </span>
     )
@@ -67,11 +70,7 @@ export default function P2PStatusBadge() {
   // Error: server failed to start
   if (health.server_error) {
     return (
-      <span title={health.server_error} style={{
-        fontSize: '10px', padding: '2px 8px', borderRadius: '4px',
-        background: 'rgba(239,68,68,0.15)', color: '#ef4444',
-        border: '1px solid rgba(239,68,68,0.3)',
-      }}>
+      <span title={health.server_error} style={{ ...chip, ...UI_BADGE.red }}>
         P2P error
       </span>
     )
@@ -80,11 +79,7 @@ export default function P2PStatusBadge() {
   // Starting: enabled but server not running yet
   if (!health.server_running) {
     return (
-      <span style={{
-        fontSize: '10px', padding: '2px 8px', borderRadius: '4px',
-        background: 'rgba(107,114,128,0.15)', color: '#94a3b8',
-        border: '1px solid rgba(107,114,128,0.3)',
-      }}>
+      <span style={{ ...chip, ...UI_BADGE.gray }}>
         P2P starting…
       </span>
     )
@@ -93,11 +88,7 @@ export default function P2PStatusBadge() {
   // Warning: some deliveries failed
   if (health.failed_queue_count > 0) {
     return (
-      <span title="P2P active — some deliveries failed" style={{
-        fontSize: '10px', padding: '2px 8px', borderRadius: '4px',
-        background: 'rgba(245,158,11,0.15)', color: '#f59e0b',
-        border: '1px solid rgba(245,158,11,0.3)',
-      }}>
+      <span title="P2P active — some deliveries failed" style={{ ...chip, ...UI_BADGE.amber }}>
         P2P — some failed
       </span>
     )
@@ -109,12 +100,7 @@ export default function P2PStatusBadge() {
     return (
       <span
         title={authRequired ? `${health.pending_queue_count} item(s) pending — please log in to deliver` : 'P2P active — delivery pending'}
-        style={{
-          fontSize: '10px', padding: '2px 8px', borderRadius: '4px',
-          background: authRequired ? 'rgba(239,68,68,0.15)' : 'rgba(245,158,11,0.15)',
-          color: authRequired ? '#ef4444' : '#f59e0b',
-          border: `1px solid ${authRequired ? 'rgba(239,68,68,0.3)' : 'rgba(245,158,11,0.3)'}`,
-        }}
+        style={{ ...chip, ...(authRequired ? UI_BADGE.red : UI_BADGE.amber) }}
       >
         {authRequired ? 'Login required to sync' : 'P2P — pending'}
       </span>
@@ -127,11 +113,7 @@ export default function P2PStatusBadge() {
       return (
         <span
           title="Authentication failed — please log in again"
-          style={{
-            fontSize: '10px', padding: '2px 8px', borderRadius: '4px',
-            background: 'rgba(239,68,68,0.15)', color: '#ef4444',
-            border: '1px solid rgba(239,68,68,0.3)',
-          }}
+          style={{ ...chip, ...UI_BADGE.red }}
         >
           Auth failed — log in again
         </span>
@@ -141,11 +123,7 @@ export default function P2PStatusBadge() {
       return (
         <span
           title="Connected to wrdesk.com for instant delivery"
-          style={{
-            fontSize: '10px', padding: '2px 8px', borderRadius: '4px',
-            background: 'rgba(34,197,94,0.15)', color: '#22c55e',
-            border: '1px solid rgba(34,197,94,0.3)',
-          }}
+          style={{ ...chip, ...UI_BADGE.green }}
         >
           Connected to wrdesk.com
         </span>
@@ -154,11 +132,7 @@ export default function P2PStatusBadge() {
     return (
       <span
         title="Reconnecting to wrdesk.com…"
-        style={{
-          fontSize: '10px', padding: '2px 8px', borderRadius: '4px',
-          background: 'rgba(245,158,11,0.15)', color: '#f59e0b',
-          border: '1px solid rgba(245,158,11,0.3)',
-        }}
+        style={{ ...chip, ...UI_BADGE.amber }}
       >
         Reconnecting to wrdesk.com…
       </span>
@@ -173,11 +147,7 @@ export default function P2PStatusBadge() {
       return (
         <span
           title={isAuth ? 'Relay auth failed — check configuration' : `Relay unreachable — ${err}. Check your relay server.`}
-          style={{
-            fontSize: '10px', padding: '2px 8px', borderRadius: '4px',
-            background: 'rgba(239,68,68,0.15)', color: '#ef4444',
-            border: '1px solid rgba(239,68,68,0.3)',
-          }}
+          style={{ ...chip, ...UI_BADGE.red }}
         >
           {isAuth ? 'Relay auth failed' : 'Relay unreachable'}
         </span>
@@ -190,11 +160,7 @@ export default function P2PStatusBadge() {
     return (
       <span
         title={ago != null ? `Relay active — last sync ${ago}s ago` : 'Relay active'}
-        style={{
-          fontSize: '10px', padding: '2px 8px', borderRadius: '4px',
-          background: 'rgba(34,197,94,0.15)', color: '#22c55e',
-          border: '1px solid rgba(34,197,94,0.3)',
-        }}
+        style={{ ...chip, ...UI_BADGE.green }}
       >
         Relay active
       </span>
@@ -203,11 +169,7 @@ export default function P2PStatusBadge() {
 
   // Healthy (local mode)
   return (
-    <span title={`P2P active on port ${health.port}`} style={{
-      fontSize: '10px', padding: '2px 8px', borderRadius: '4px',
-      background: 'rgba(34,197,94,0.15)', color: '#22c55e',
-      border: '1px solid rgba(34,197,94,0.3)',
-    }}>
+    <span title={`P2P active on port ${health.port}`} style={{ ...chip, ...UI_BADGE.green }}>
       P2P active
     </span>
   )

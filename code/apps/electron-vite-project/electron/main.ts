@@ -727,7 +727,7 @@ import { pullFromRelay } from './main/p2p/relayPull'
 import { createP2PServer } from './main/p2p/p2pServer'
 import { createCoordinationWsClient } from './main/p2p/coordinationWs'
 import { setBeapRecipientPendingNotifier } from './main/p2p/beapRecipientNotify'
-import { processPendingP2PBeapEmails } from './main/email/beapEmailIngestion'
+import { processPendingP2PBeapEmails, retryPendingQbeapDecrypt } from './main/email/beapEmailIngestion'
 import { getAuditForMessage, getAutoresponderAuditLog } from './main/beap/autoresponderAudit'
 import { setBeapInboxDashboardNotifier, notifyBeapInboxDashboard } from './main/email/beapInboxDashboardNotify'
 import { getP2PConfig, upsertP2PConfig, computeLocalP2PEndpoint } from './main/p2p/p2pConfig'
@@ -8840,6 +8840,9 @@ app.whenReady().then(async () => {
       try {
         void processPendingP2PBeapEmails(db).then((n) => {
           if (n > 0) notifyBeapInboxDashboard(handshakeId)
+          void retryPendingQbeapDecrypt(db).then((r) => {
+            if (r > 0) notifyBeapInboxDashboard(handshakeId)
+          })
         })
       } catch (e: unknown) {
         console.error('[BEAP-INBOX] Import failed:', (e as Error)?.message ?? e)
@@ -8863,6 +8866,9 @@ app.whenReady().then(async () => {
       try {
         void processPendingP2PBeapEmails(handshakeDb).then((drained) => {
           if (drained > 0) notifyBeapInboxDashboard(null)
+          void retryPendingQbeapDecrypt(handshakeDb).then((r) => {
+            if (r > 0) notifyBeapInboxDashboard(null)
+          })
         })
       } catch (e: unknown) {
         console.error('[BEAP-INBOX] Import failed:', (e as Error)?.message ?? e)
