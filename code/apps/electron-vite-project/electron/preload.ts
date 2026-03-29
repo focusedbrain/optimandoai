@@ -603,6 +603,9 @@ contextBridge.exposeInMainWorld('handshakeView', {
       ? suggestedFilename : 'handshake.beap'
     return ipcRenderer.invoke('handshake:downloadCapsule', capsuleJson, name)
   },
+  /** Headers for authenticated POSTs to localhost PQ crypto routes (same secret as HTTP middleware). */
+  pqHeaders: () =>
+    ipcRenderer.invoke('crypto:getPqHeaders') as Promise<Record<string, string>>,
 })
 
 // ── BEAP capsule reply (optional IPC relay when package is pre-built in renderer) ──

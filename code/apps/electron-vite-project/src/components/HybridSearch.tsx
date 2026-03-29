@@ -410,16 +410,6 @@ export default function HybridSearch({
     if (draftRefineConnected) setMode('chat')
   }, [draftRefineConnected])
 
-  /* FIX-ISSUE-5: Focus chat input when entering draft refinement mode */
-  const prevDraftRefineConnected = useRef(false)
-  useEffect(() => {
-    if (draftRefineConnected && !prevDraftRefineConnected.current) {
-      prevDraftRefineConnected.current = true
-      requestAnimationFrame(() => inputRef.current?.focus())
-    }
-    if (!draftRefineConnected) prevDraftRefineConnected.current = false
-  }, [draftRefineConnected])
-
   useEffect(() => {
     if (!draftRefineConnected) setDraftRefineHistory([])
   }, [draftRefineConnected])

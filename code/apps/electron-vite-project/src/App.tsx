@@ -67,6 +67,20 @@ function App() {
     console.log('[APP] Theme applied:', extensionTheme, '-> CSS:', cssTheme)
   }, [extensionTheme])
 
+  /** Electron dashboard: PQ KEM HTTP to localhost requires X-Launch-Secret (extension gets it via WebSocket). */
+  useEffect(() => {
+    const chromeRuntime = typeof globalThis !== 'undefined' ? (globalThis as unknown as { chrome?: { runtime?: { sendMessage?: unknown } } }).chrome?.runtime : undefined
+    if (chromeRuntime?.sendMessage) return
+    void import('@ext/beap-messages/services/beapCrypto').then(({ setPqAuthHeadersProvider }) => {
+      setPqAuthHeadersProvider(async () => {
+        const fn = window.handshakeView?.pqHeaders
+        if (typeof fn !== 'function') return {}
+        const headers = await fn()
+        return headers && typeof headers === 'object' ? headers : {}
+      })
+    })
+  }, [])
+
   useEffect(() => {
     const cleanup = window.analysisDashboard?.onThemeChange((theme: string) => {
       console.log('[APP] Theme changed from extension:', theme)

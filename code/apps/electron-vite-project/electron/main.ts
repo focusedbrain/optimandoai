@@ -2301,6 +2301,14 @@ app.whenReady().then(async () => {
       }
     })
 
+    /**
+     * PQ HTTP auth for localhost orchestrator (e.g. POST /api/crypto/pq/mlkem768/encapsulate).
+     * Extension gets X-Launch-Secret via WebSocket; Electron renderer gets it only through this IPC + preload.
+     */
+    ipcMain.handle('crypto:getPqHeaders', async () => {
+      return { 'X-Launch-Secret': launchSecretHex() }
+    })
+
     /** Relay-only: forward pre-built package JSON to P2P pipeline (build happens in renderer via BeapPackageBuilder). */
     ipcMain.handle('beap:sendCapsuleReply', async (_e, payload: unknown) => {
       try {

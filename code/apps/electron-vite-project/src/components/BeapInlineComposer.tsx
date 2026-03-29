@@ -10,7 +10,7 @@ import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'r
 
 import { useDraftRefineStore } from '../stores/useDraftRefineStore';
 
-import { initBeapPqAuth, RecipientHandshakeSelect, RecipientModeSwitch } from '@ext/beap-messages';
+import { RecipientHandshakeSelect, RecipientModeSwitch } from '@ext/beap-messages';
 
 import {
   executeDeliveryAction,
@@ -197,14 +197,6 @@ export function BeapInlineComposer({
   }, [handshakeRows, recipientMode, selectedHandshakeId]);
 
   useEffect(() => {
-    try {
-      initBeapPqAuth();
-    } catch {
-      /* noop */
-    }
-  }, []);
-
-  useEffect(() => {
     const loadFp = async () => {
       try {
         const kp = await getSigningKeyPair();
@@ -254,7 +246,8 @@ export function BeapInlineComposer({
     }
   }, [replyToHandshakeId, handshakeRows]);
 
-  const handleFieldClick = useCallback(
+  /** AI Refine button only — textareas stay directly editable without toggling refine on click. */
+  const handleAiRefineToggle = useCallback(
     (field: 'public' | 'encrypted') => {
       const target = field === 'public' ? 'capsule-public' : 'capsule-encrypted';
 
@@ -1072,27 +1065,58 @@ export function BeapInlineComposer({
             }}
           />
 
-          <label
+          <div
             style={{
-              fontSize: 11,
-              fontWeight: 600,
-              color: muted,
-              textTransform: 'uppercase',
-              display: 'block',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              gap: 8,
               marginBottom: 6,
-              letterSpacing: '0.5px',
+              flexWrap: 'wrap',
             }}
           >
-            <DraftRefineLabel active={connected && refineTarget === 'capsule-public'}>
-              BEAP™ message (required)
-            </DraftRefineLabel>
-          </label>
+            <label
+              style={{
+                fontSize: 11,
+                fontWeight: 600,
+                color: muted,
+                textTransform: 'uppercase',
+                letterSpacing: '0.5px',
+                margin: 0,
+              }}
+            >
+              <DraftRefineLabel active={connected && refineTarget === 'capsule-public'}>
+                BEAP™ message (required)
+              </DraftRefineLabel>
+            </label>
+            <button
+              type="button"
+              onClick={() => handleAiRefineToggle('public')}
+              title={
+                connected && refineTarget === 'capsule-public'
+                  ? 'Disconnect AI refinement'
+                  : 'Connect top chat for AI refinement'
+              }
+              style={{
+                flexShrink: 0,
+                background: connected && refineTarget === 'capsule-public' ? '#7c3aed' : 'transparent',
+                color: connected && refineTarget === 'capsule-public' ? '#fff' : '#7c3aed',
+                border: '1px solid #7c3aed',
+                borderRadius: 4,
+                padding: '4px 10px',
+                fontSize: 10,
+                fontWeight: 600,
+                cursor: 'pointer',
+              }}
+            >
+              {connected && refineTarget === 'capsule-public' ? '✏️ AI connected' : '✏️ AI refine'}
+            </button>
+          </div>
 
           <textarea
             data-compose-field="public-message"
             value={publicMessage}
             onChange={(e) => setPublicMessage(e.target.value)}
-            onClick={() => handleFieldClick('public')}
             placeholder="Public capsule / transport-visible text"
             rows={14}
             style={{
@@ -1136,27 +1160,59 @@ export function BeapInlineComposer({
 
           {recipientMode === 'private' && (
             <>
-              <label
+              <div
                 style={{
-                  fontSize: 11,
-                  fontWeight: 600,
-                  color: muted,
-                  textTransform: 'uppercase',
-                  display: 'block',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  gap: 8,
                   marginBottom: 6,
-                  letterSpacing: '0.5px',
+                  flexWrap: 'wrap',
                 }}
               >
-                <DraftRefineLabel active={connected && refineTarget === 'capsule-encrypted'}>
-                  Encrypted message (private)
-                </DraftRefineLabel>
-              </label>
+                <label
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 600,
+                    color: muted,
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.5px',
+                    margin: 0,
+                  }}
+                >
+                  <DraftRefineLabel active={connected && refineTarget === 'capsule-encrypted'}>
+                    Encrypted message (private)
+                  </DraftRefineLabel>
+                </label>
+                <button
+                  type="button"
+                  onClick={() => handleAiRefineToggle('encrypted')}
+                  title={
+                    connected && refineTarget === 'capsule-encrypted'
+                      ? 'Disconnect AI refinement'
+                      : 'Connect top chat for AI refinement'
+                  }
+                  style={{
+                    flexShrink: 0,
+                    background:
+                      connected && refineTarget === 'capsule-encrypted' ? '#7c3aed' : 'transparent',
+                    color: connected && refineTarget === 'capsule-encrypted' ? '#fff' : '#7c3aed',
+                    border: '1px solid #7c3aed',
+                    borderRadius: 4,
+                    padding: '4px 10px',
+                    fontSize: 10,
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                  }}
+                >
+                  {connected && refineTarget === 'capsule-encrypted' ? '✏️ AI connected' : '✏️ AI refine'}
+                </button>
+              </div>
 
               <textarea
                 data-compose-field="encrypted-message"
                 value={encryptedMessage}
                 onChange={(e) => setEncryptedMessage(e.target.value)}
-                onClick={() => handleFieldClick('encrypted')}
                 placeholder="Private qBEAP payload (optional; authoritative when set)"
                 rows={12}
                 style={{
@@ -1482,8 +1538,8 @@ export function BeapInlineComposer({
               </p>
 
               <p style={{ margin: 0, color: '#0f172a' }}>
-                Click a message field to connect the top chat bar for AI draft refinement; click
-                again to disconnect.
+                Use ✏️ AI refine beside each field to connect the top chat for AI draft refinement; click
+                again to disconnect. You can always type directly in the fields.
               </p>
             </>
           }

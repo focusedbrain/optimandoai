@@ -1112,14 +1112,63 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
                             : ''
                         }`}
                       >
-                        <label className="capsule-field-label">
-                          📨 Public Message (pBEAP)
-                          {draftRefineConnected &&
-                          draftRefineMessageId === messageId &&
-                          draftRefineTarget === 'capsule-public'
-                            ? ' — connected to chat'
-                            : ''}
-                        </label>
+                        <div
+                          style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            gap: 8,
+                            flexWrap: 'wrap',
+                            marginBottom: 4,
+                          }}
+                        >
+                          <label className="capsule-field-label" style={{ marginBottom: 0 }}>
+                            📨 Public Message (pBEAP)
+                            {draftRefineConnected &&
+                            draftRefineMessageId === messageId &&
+                            draftRefineTarget === 'capsule-public'
+                              ? ' — connected to chat'
+                              : ''}
+                          </label>
+                          <button
+                            type="button"
+                            onClick={handleCapsulePublicRefineConnect}
+                            title={
+                              draftRefineConnected &&
+                              draftRefineMessageId === messageId &&
+                              draftRefineTarget === 'capsule-public'
+                                ? 'Disconnect AI refinement'
+                                : 'Connect top chat for AI refinement'
+                            }
+                            style={{
+                              flexShrink: 0,
+                              background:
+                                draftRefineConnected &&
+                                draftRefineMessageId === messageId &&
+                                draftRefineTarget === 'capsule-public'
+                                  ? '#7c3aed'
+                                  : 'transparent',
+                              color:
+                                draftRefineConnected &&
+                                draftRefineMessageId === messageId &&
+                                draftRefineTarget === 'capsule-public'
+                                  ? '#fff'
+                                  : '#7c3aed',
+                              border: '1px solid #7c3aed',
+                              borderRadius: 4,
+                              padding: '4px 10px',
+                              fontSize: 10,
+                              fontWeight: 600,
+                              cursor: 'pointer',
+                            }}
+                          >
+                            {draftRefineConnected &&
+                            draftRefineMessageId === messageId &&
+                            draftRefineTarget === 'capsule-public'
+                              ? '✏️ AI connected'
+                              : '✏️ AI refine'}
+                          </button>
+                        </div>
                         {draftRefineConnected &&
                           draftRefineMessageId === messageId &&
                           draftRefineTarget === 'capsule-public' && (
@@ -1138,10 +1187,8 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
                           placeholder="Public capsule text — transport-visible message body"
                           value={capsulePublicText}
                           onChange={(e) => setCapsulePublicText(e.target.value)}
-                          onClick={handleCapsulePublicRefineConnect}
                           onFocus={() => {
                             useEmailInboxStore.getState().setEditingDraftForMessageId(messageId)
-                            handleCapsulePublicRefineConnect()
                           }}
                           rows={3}
                         />
@@ -1155,14 +1202,63 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
                             : ''
                         }`}
                       >
-                        <label className="capsule-field-label capsule-field-label--encrypted">
-                          🔒 End-to-End Encrypted (qBEAP)
-                          {draftRefineConnected &&
-                          draftRefineMessageId === messageId &&
-                          draftRefineTarget === 'capsule-encrypted'
-                            ? ' — connected to chat'
-                            : ''}
-                        </label>
+                        <div
+                          style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            gap: 8,
+                            flexWrap: 'wrap',
+                            marginBottom: 4,
+                          }}
+                        >
+                          <label className="capsule-field-label capsule-field-label--encrypted" style={{ marginBottom: 0 }}>
+                            🔒 End-to-End Encrypted (qBEAP)
+                            {draftRefineConnected &&
+                            draftRefineMessageId === messageId &&
+                            draftRefineTarget === 'capsule-encrypted'
+                              ? ' — connected to chat'
+                              : ''}
+                          </label>
+                          <button
+                            type="button"
+                            onClick={handleCapsuleEncryptedRefineConnect}
+                            title={
+                              draftRefineConnected &&
+                              draftRefineMessageId === messageId &&
+                              draftRefineTarget === 'capsule-encrypted'
+                                ? 'Disconnect AI refinement'
+                                : 'Connect top chat for AI refinement'
+                            }
+                            style={{
+                              flexShrink: 0,
+                              background:
+                                draftRefineConnected &&
+                                draftRefineMessageId === messageId &&
+                                draftRefineTarget === 'capsule-encrypted'
+                                  ? '#7c3aed'
+                                  : 'transparent',
+                              color:
+                                draftRefineConnected &&
+                                draftRefineMessageId === messageId &&
+                                draftRefineTarget === 'capsule-encrypted'
+                                  ? '#fff'
+                                  : '#7c3aed',
+                              border: '1px solid #7c3aed',
+                              borderRadius: 4,
+                              padding: '4px 10px',
+                              fontSize: 10,
+                              fontWeight: 600,
+                              cursor: 'pointer',
+                            }}
+                          >
+                            {draftRefineConnected &&
+                            draftRefineMessageId === messageId &&
+                            draftRefineTarget === 'capsule-encrypted'
+                              ? '✏️ AI connected'
+                              : '✏️ AI refine'}
+                          </button>
+                        </div>
                         {draftRefineConnected &&
                           draftRefineMessageId === messageId &&
                           draftRefineTarget === 'capsule-encrypted' && (
@@ -1181,10 +1277,8 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
                           placeholder="Encrypted capsule-bound message — end-to-end encrypted, fully readable by you"
                           value={capsuleEncryptedText}
                           onChange={(e) => setCapsuleEncryptedText(e.target.value)}
-                          onClick={handleCapsuleEncryptedRefineConnect}
                           onFocus={() => {
                             useEmailInboxStore.getState().setEditingDraftForMessageId(messageId)
-                            handleCapsuleEncryptedRefineConnect()
                           }}
                           rows={4}
                         />

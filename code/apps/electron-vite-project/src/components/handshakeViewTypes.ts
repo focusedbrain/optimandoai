@@ -77,6 +77,8 @@ declare global {
         packageJson: string,
       ) => Promise<{ success: boolean; error?: string; delivered?: boolean; queued?: boolean; code?: string }>
       checkHandshakeSendReady?: (handshakeId: string) => Promise<{ ready: boolean; error?: string }>
+      /** Electron: X-Launch-Secret for localhost PQ KEM HTTP (beapCrypto pqEncapsulate). */
+      pqHeaders?: () => Promise<Record<string, string>>
     }
     /** Optional relay for pre-built BEAP packages (`beap:sendCapsuleReply`); inbox uses `executeDeliveryAction` in renderer. */
     beap?: {
