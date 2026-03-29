@@ -71,32 +71,21 @@ import { validateReceiverEmail } from '../../../../../packages/shared/src/handsh
 import { vaultService } from '../vault/rpc'
 import { USER_PACKAGE_BUILDER_SEND_SOURCE } from '../email/mergeExtensionDepackaged'
 
-// ── Key Agreement Helpers (fallback when extension does not provide keys) ──
+// ── Key Agreement: always generate paired keys in main process (qBEAP decrypt requires local secrets) ──
 
-async function ensureKeyAgreementKeys(params: {
+async function ensureKeyAgreementKeys(_params: {
   sender_x25519_public_key_b64?: string | null
   sender_mlkem768_public_key_b64?: string | null
 }): Promise<BeapKeyAgreementMaterial> {
-  let mlkemPub = params.sender_mlkem768_public_key_b64?.trim()
-  let mlkemSecret: string | null = null
-  if (!mlkemPub || mlkemPub.length < 100) {
-    const pq = await import('@noble/post-quantum/ml-kem')
-    const keypair = pq.ml_kem768.keygen()
-    mlkemPub = Buffer.from(keypair.publicKey).toString('base64')
-    mlkemSecret = Buffer.from(keypair.secretKey).toString('base64')
-  }
+  const pq = await import('@noble/post-quantum/ml-kem')
+  const mlkemKeypair = pq.ml_kem768.keygen()
+  const mlkemPub = Buffer.from(mlkemKeypair.publicKey).toString('base64')
+  const mlkemSecret = Buffer.from(mlkemKeypair.secretKey).toString('base64')
 
-  let x25519Pub = params.sender_x25519_public_key_b64?.trim()
-  let x25519Priv: string | null = null
-  if (!x25519Pub || x25519Pub.length < 32) {
-    const priv = x25519.utils.randomPrivateKey()
-    const pub = x25519.getPublicKey(priv)
-    x25519Priv = Buffer.from(priv).toString('base64')
-    x25519Pub = Buffer.from(pub).toString('base64')
-  } else {
-    // Caller supplied public only (e.g. extension) — no local private for Electron qBEAP decrypt
-    x25519Priv = null
-  }
+  const x25519PrivKey = x25519.utils.randomPrivateKey()
+  const x25519PubKey = x25519.getPublicKey(x25519PrivKey)
+  const x25519Priv = Buffer.from(x25519PrivKey).toString('base64')
+  const x25519Pub = Buffer.from(x25519PubKey).toString('base64')
 
   return {
     sender_x25519_public_key_b64: x25519Pub,
