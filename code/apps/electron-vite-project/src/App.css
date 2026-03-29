@@ -6303,15 +6303,20 @@ body {
 }
 
 .capsule-send-result {
-  font-size: 11px;
-  padding: 4px 8px;
-  border-radius: 4px;
-  margin-top: 4px;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 10px 16px;
+  border-radius: 6px;
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .capsule-send-result--success {
-  background: #ecfdf5;
-  color: #059669;
+  background: #dcfce7;
+  color: #166534;
+  border: 1px solid #86efac;
 }
 
 .capsule-send-result--error {

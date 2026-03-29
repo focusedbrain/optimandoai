@@ -6,7 +6,7 @@
 
  */
 
-import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 
 import { useDraftRefineStore } from '../stores/useDraftRefineStore';
 
@@ -38,6 +38,8 @@ import {
 } from '@ext/handshake/rpcTypes';
 
 import { listHandshakes } from '../shims/handshakeRpc';
+
+import './handshakeViewTypes';
 
 import { extractTextForPackagePreview } from '../lib/beapPackageAttachmentPreview';
 
@@ -174,6 +176,10 @@ export function BeapInlineComposer({
 
   const [sendError, setSendError] = useState<string | null>(null);
 
+  const [sendSuccess, setSendSuccess] = useState(false);
+
+  const sendSuccessCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const connect = useDraftRefineStore((s) => s.connect);
 
   const disconnect = useDraftRefineStore((s) => s.disconnect);
@@ -212,6 +218,15 @@ export function BeapInlineComposer({
     };
 
     void loadFp();
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (sendSuccessCloseTimerRef.current) {
+        clearTimeout(sendSuccessCloseTimerRef.current);
+        sendSuccessCloseTimerRef.current = null;
+      }
+    };
   }, []);
 
   const refreshHandshakes = useCallback(async () => {
@@ -504,6 +519,14 @@ export function BeapInlineComposer({
   const handleSend = useCallback(async () => {
     setSendError(null);
 
+    setSendSuccess(false);
+
+    if (sendSuccessCloseTimerRef.current) {
+      clearTimeout(sendSuccessCloseTimerRef.current);
+
+      sendSuccessCloseTimerRef.current = null;
+    }
+
     if (!publicMessage.trim()) {
       setSendError('Enter the public BEAP™ message text before sending.');
 
@@ -634,7 +657,54 @@ export function BeapInlineComposer({
       const result = await executeDeliveryAction(config);
 
       if (result.success) {
-        onSent();
+        try {
+          const counterpartyDisplay =
+            recipientMode === 'private'
+              ? selectedRecipient?.counterparty_email ||
+                selectedRecipient?.receiver_display_name ||
+                selectedHandshakeId ||
+                'Handshake'
+              : emailTo.trim() || 'Public';
+          const insertPayload: Record<string, unknown> = {
+            id: crypto.randomUUID(),
+            handshakeId: recipientMode === 'private' ? selectedHandshakeId ?? undefined : undefined,
+            counterpartyDisplay,
+            subject: subject.trim() || 'BEAP™ Message',
+            publicBodyPreview: publicMessage.slice(0, 500),
+            encryptedBodyPreview:
+              recipientMode === 'private' && encryptedMessage.trim()
+                ? encryptedMessage.trim().slice(0, 500)
+                : undefined,
+            hasEncryptedInner: recipientMode === 'private' && !!encryptedMessage.trim(),
+            deliveryMethod: deliveryMethod,
+            deliveryStatus: 'sent',
+            deliveryDetailJson: JSON.stringify({
+              action: result.action,
+              message: result.message,
+              coordinationRelayDelivery: result.coordinationRelayDelivery,
+              delivered: result.delivered,
+            }),
+            attachmentSummaryJson:
+              attachments.length > 0
+                ? JSON.stringify(attachments.map((f) => ({ name: f.name, size: f.size })))
+                : undefined,
+          };
+          void window.outbox?.insertSent?.(insertPayload)?.catch((err: unknown) =>
+            console.warn('[Outbox] insert failed:', err),
+          );
+        } catch {
+          /* fire-and-forget */
+        }
+
+        setSendSuccess(true);
+
+        sendSuccessCloseTimerRef.current = setTimeout(() => {
+          sendSuccessCloseTimerRef.current = null;
+
+          setSendSuccess(false);
+
+          onSent();
+        }, 2000);
       } else {
         setSendError(result.message || 'Send failed');
       }
@@ -659,6 +729,8 @@ export function BeapInlineComposer({
     recipientMode,
 
     selectedRecipient,
+
+    selectedHandshakeId,
 
     selectedEmailAccountId,
 
@@ -1441,6 +1513,25 @@ export function BeapInlineComposer({
             )}
           </div>
 
+          {sendSuccess && (
+            <div
+              style={{
+                background: '#dcfce7',
+                color: '#166534',
+                border: '1px solid #86efac',
+                borderRadius: 6,
+                padding: '10px 16px',
+                fontSize: 13,
+                fontWeight: 600,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+              }}
+            >
+              ✅ BEAP™ message sent successfully
+            </div>
+          )}
+
           {sendError && (
             <div
               style={{
@@ -1459,7 +1550,7 @@ export function BeapInlineComposer({
           <div style={{ display: 'flex', gap: 10, marginTop: 8 }}>
             <button
               type="button"
-              disabled={sending}
+              disabled={sending || sendSuccess}
               onClick={() => void handleSend()}
               style={{
                 padding: '12px 20px',

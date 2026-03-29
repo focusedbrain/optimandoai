@@ -653,6 +653,12 @@ contextBridge.exposeInMainWorld('beap', {
   },
 })
 
+// ── Sent BEAP outbox (ledger DB; previews only) ────────────────────────────
+contextBridge.exposeInMainWorld('outbox', {
+  insertSent: (record: unknown) => ipcRenderer.invoke('outbox:insertSent', record),
+  listSent: (opts?: unknown) => ipcRenderer.invoke('outbox:listSent', opts ?? {}),
+})
+
 // ── P2P Health & Queue ─────────────────────────────────────────────────────
 contextBridge.exposeInMainWorld('p2p', {
   getHealth: () => ipcRenderer.invoke('p2p:getHealth'),

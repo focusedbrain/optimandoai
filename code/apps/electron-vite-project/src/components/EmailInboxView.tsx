@@ -162,6 +162,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
   const [capsuleAttachments, setCapsuleAttachments] = useState<File[]>([])
   const [sendingCapsule, setSendingCapsule] = useState(false)
   const [sendResult, setSendResult] = useState<{ success: boolean; error?: string } | null>(null)
+  const capsuleSendSuccessTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const summaryRef = useRef<HTMLDivElement>(null)
   const draftRef = useRef<HTMLDivElement>(null)
   const draftTextareaRef = useRef<HTMLTextAreaElement>(null)
@@ -372,6 +373,10 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
 
   useEffect(() => {
     if (!messageId) return
+    if (capsuleSendSuccessTimerRef.current) {
+      clearTimeout(capsuleSendSuccessTimerRef.current)
+      capsuleSendSuccessTimerRef.current = null
+    }
     manualSummaryOverrideRef.current = null
     setAnalysisLoading(true)
     setAnalysis(null)
@@ -745,11 +750,44 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
       }
       const delivery = await executeDeliveryAction(config)
       if (delivery.success) {
+        try {
+          const subj =
+            message.subject?.startsWith('Re:') ? message.subject : `Re: ${message.subject || '(No subject)'}`
+          void window.outbox
+            ?.insertSent?.({
+              id: crypto.randomUUID(),
+              handshakeId: message.handshake_id ?? undefined,
+              counterpartyDisplay: message.from_address || message.from_name || 'Unknown',
+              subject: subj,
+              publicBodyPreview: pub.slice(0, 500),
+              encryptedBodyPreview: enc ? enc.slice(0, 500) : undefined,
+              hasEncryptedInner: !!enc,
+              deliveryMethod: 'p2p',
+              deliveryStatus: 'sent',
+              deliveryDetailJson: JSON.stringify({
+                action: delivery.action,
+                message: delivery.message,
+                coordinationRelayDelivery: delivery.coordinationRelayDelivery,
+                delivered: delivery.delivered,
+              }),
+            })
+            ?.catch((err: unknown) => console.warn('[Outbox] insert failed:', err))
+        } catch {
+          /* fire-and-forget */
+        }
         setSendResult({ success: true })
-        setCapsulePublicText('')
-        setCapsuleEncryptedText('')
-        setSelectedSessionId(null)
-        setCapsuleAttachments([])
+        if (capsuleSendSuccessTimerRef.current) {
+          clearTimeout(capsuleSendSuccessTimerRef.current)
+          capsuleSendSuccessTimerRef.current = null
+        }
+        capsuleSendSuccessTimerRef.current = setTimeout(() => {
+          capsuleSendSuccessTimerRef.current = null
+          setCapsulePublicText('')
+          setCapsuleEncryptedText('')
+          setSelectedSessionId(null)
+          setCapsuleAttachments([])
+          setSendResult(null)
+        }, 2000)
       } else {
         setSendResult({ success: false, error: delivery.message || 'Send failed' })
       }
@@ -759,7 +797,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
     } finally {
       setSendingCapsule(false)
     }
-  }, [message?.handshake_id, capsulePublicText, capsuleEncryptedText])
+  }, [message, capsulePublicText, capsuleEncryptedText])
 
   const handleSend = useCallback(async () => {
     if (!message || !onSendDraft) return
@@ -1343,6 +1381,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
                             onClick={() => void handleSendCapsuleReply()}
                             disabled={
                               sendingCapsule ||
+                              sendResult?.success === true ||
                               (!capsulePublicText.trim() && !capsuleEncryptedText.trim())
                             }
                           >
@@ -1352,6 +1391,10 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
                             type="button"
                             className="capsule-draft-clear"
                             onClick={() => {
+                              if (capsuleSendSuccessTimerRef.current) {
+                                clearTimeout(capsuleSendSuccessTimerRef.current)
+                                capsuleSendSuccessTimerRef.current = null
+                              }
                               setCapsulePublicText('')
                               setCapsuleEncryptedText('')
                               setSelectedSessionId(null)
@@ -1376,7 +1419,9 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
                               sendResult.success ? 'capsule-send-result--success' : 'capsule-send-result--error'
                             }`}
                           >
-                            {sendResult.success ? '✓ BEAP reply sent' : `✗ ${sendResult.error}`}
+                            {sendResult.success
+                              ? '✅ BEAP™ message sent successfully'
+                              : `✗ ${sendResult.error}`}
                           </div>
                         )}
                       </>
@@ -1819,6 +1864,29 @@ export default function EmailInboxView({
     body: string
     handshakeId?: string
   } | null>(null)
+
+  const [leftPanelTab, setLeftPanelTab] = useState<'inbox' | 'sent'>('inbox')
+  const [sentMessages, setSentMessages] = useState<Array<Record<string, unknown>>>([])
+  const [sentLoading, setSentLoading] = useState(false)
+
+  const loadSentMessages = useCallback(async () => {
+    setSentLoading(true)
+    try {
+      const result = await window.outbox?.listSent?.({ limit: 50, offset: 0 })
+      if (result?.success && Array.isArray(result.messages)) {
+        setSentMessages(result.messages as Array<Record<string, unknown>>)
+      }
+    } catch (e) {
+      console.warn('[Outbox] load failed:', e)
+    } finally {
+      setSentLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (leftPanelTab !== 'sent') return
+    void loadSentMessages()
+  }, [leftPanelTab, loadSentMessages])
 
   useEffect(() => {
     if (!composeMode) return
@@ -2423,6 +2491,48 @@ export default function EmailInboxView({
           }
         />
 
+        <div style={{ display: 'flex', gap: 4, margin: '8px 12px 4px', flexShrink: 0 }}>
+          <button
+            type="button"
+            onClick={() => {
+              setLeftPanelTab('inbox')
+            }}
+            style={{
+              padding: '4px 12px',
+              borderRadius: 4,
+              cursor: 'pointer',
+              background: leftPanelTab === 'inbox' ? '#7c3aed' : '#f3f4f6',
+              color: leftPanelTab === 'inbox' ? '#fff' : '#374151',
+              border: 'none',
+              fontSize: 12,
+              fontWeight: 600,
+            }}
+          >
+            Inbox ({tabCounts.all ?? total ?? 0})
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setLeftPanelTab('sent')
+              selectMessage(null)
+              onSelectMessage?.(null)
+              void loadSentMessages()
+            }}
+            style={{
+              padding: '4px 12px',
+              borderRadius: 4,
+              cursor: 'pointer',
+              background: leftPanelTab === 'sent' ? '#7c3aed' : '#f3f4f6',
+              color: leftPanelTab === 'sent' ? '#fff' : '#374151',
+              border: 'none',
+              fontSize: 12,
+              fontWeight: 600,
+            }}
+          >
+            Sent
+          </button>
+        </div>
+
         {lastSyncWarnings && lastSyncWarnings.length > 0 ? (
           <SyncFailureBanner
             warnings={lastSyncWarnings}
@@ -2433,7 +2543,104 @@ export default function EmailInboxView({
         ) : null}
 
         <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden' }}>
-          {loading ? (
+          {leftPanelTab === 'sent' ? (
+            sentLoading ? (
+              <div
+                style={{
+                  padding: 24,
+                  textAlign: 'center',
+                  fontSize: 12,
+                  color: 'var(--color-text-muted, #94a3b8)',
+                }}
+              >
+                Loading…
+              </div>
+            ) : sentMessages.length === 0 ? (
+              <div
+                style={{
+                  padding: 28,
+                  textAlign: 'center',
+                  color: 'var(--color-text-muted, #94a3b8)',
+                  fontSize: 12,
+                }}
+              >
+                No sent messages yet.
+              </div>
+            ) : (
+              sentMessages.map((row) => {
+                const sid = String(row.id ?? '')
+                const toLabel = String(row.counterparty_display ?? 'Unknown')
+                const subj = String(row.subject ?? 'BEAP™ Message')
+                const preview = String(row.public_body_preview ?? '')
+                const createdAt = String(row.created_at ?? '')
+                const dm = String(row.delivery_method ?? '')
+                const ds = String(row.delivery_status ?? 'sent')
+                const hasEnc = row.has_encrypted_inner === 1
+                return (
+                  <div
+                    key={sid}
+                    style={{
+                      padding: '10px 12px',
+                      borderBottom: '1px solid var(--color-border, rgba(255,255,255,0.08))',
+                      fontSize: 13,
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                      <span style={{ fontWeight: 600, fontSize: 12, color: 'var(--color-text, #e2e8f0)' }}>
+                        To: {toLabel}
+                      </span>
+                      <span style={{ fontSize: 10, color: '#94a3b8', flexShrink: 0 }}>
+                        {createdAt ? new Date(createdAt).toLocaleString() : ''}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: 12, color: 'var(--color-text, #e2e8f0)', marginTop: 2 }}>{subj}</div>
+                    <div
+                      style={{
+                        fontSize: 11,
+                        color: '#94a3b8',
+                        marginTop: 2,
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {preview ? preview.slice(0, 80) : '(no preview)'}
+                      {preview.length > 80 ? '…' : ''}
+                    </div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 4 }}>
+                      <span
+                        style={{
+                          fontSize: 10,
+                          padding: '1px 6px',
+                          borderRadius: 8,
+                          background: dm === 'p2p' ? 'rgba(59,130,246,0.2)' : 'rgba(251,191,36,0.15)',
+                          color: dm === 'p2p' ? '#93c5fd' : '#fcd34d',
+                        }}
+                      >
+                        {dm.toUpperCase() || '—'}
+                      </span>
+                      <span
+                        style={{
+                          fontSize: 10,
+                          padding: '1px 6px',
+                          borderRadius: 8,
+                          background: ds === 'sent' ? 'rgba(34,197,94,0.2)' : 'rgba(239,68,68,0.2)',
+                          color: ds === 'sent' ? '#86efac' : '#fca5a5',
+                        }}
+                      >
+                        {ds === 'sent' ? '✅ Sent' : `❌ ${ds}`}
+                      </span>
+                      {hasEnc ? (
+                        <span style={{ fontSize: 10, color: '#c4b5fd' }}>🔒 qBEAP</span>
+                      ) : (
+                        <span style={{ fontSize: 10, color: '#94a3b8' }}>📨 pBEAP</span>
+                      )}
+                    </div>
+                  </div>
+                )
+              })
+            )
+          ) : loading ? (
             <div
               style={{
                 padding: 24,
@@ -2495,7 +2702,9 @@ export default function EmailInboxView({
             borderTop: '1px solid var(--color-border, rgba(255,255,255,0.08))',
           }}
         >
-          {total} message(s) in this tab ({messages.length} loaded)
+          {leftPanelTab === 'sent'
+            ? `${sentMessages.length} sent (newest first)`
+            : `${total} message(s) in this tab (${messages.length} loaded)`}
         </div>
       </div>
       )}

@@ -930,6 +930,29 @@ const HANDSHAKE_MIGRATIONS: Array<{
       `ALTER TABLE handshakes ADD COLUMN local_mlkem768_public_key_b64 TEXT`,
     ],
   },
+  {
+    version: 51,
+    description: 'Schema v51: sent BEAP outbox ledger (previews + metadata only)',
+    sql: [
+      `CREATE TABLE IF NOT EXISTS sent_beap_outbox (
+        id TEXT PRIMARY KEY,
+        created_at TEXT NOT NULL,
+        handshake_id TEXT,
+        counterparty_display TEXT,
+        subject TEXT,
+        public_body_preview TEXT,
+        encrypted_body_preview TEXT,
+        has_encrypted_inner INTEGER NOT NULL DEFAULT 0,
+        delivery_method TEXT NOT NULL,
+        delivery_status TEXT NOT NULL DEFAULT 'sent',
+        delivery_detail_json TEXT,
+        attachment_summary_json TEXT,
+        package_content_hash TEXT,
+        outbound_queue_row_id INTEGER
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_sent_beap_outbox_created ON sent_beap_outbox(created_at DESC)`,
+    ],
+  },
 ]
 
 /**

@@ -41,6 +41,8 @@ export function EmailInlineComposer({ onClose, onSent, replyTo }: EmailInlineCom
   const [isLoadingAccounts, setIsLoadingAccounts] = useState(true)
   const [isSending, setIsSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [sendSuccess, setSendSuccess] = useState(false)
+  const emailSuccessCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const connect = useDraftRefineStore((s) => s.connect)
@@ -63,6 +65,15 @@ export function EmailInlineComposer({ onClose, onSent, replyTo }: EmailInlineCom
   }, [body, connected, refineTarget, updateDraftText])
 
   useEffect(() => () => disconnect(), [disconnect])
+
+  useEffect(() => {
+    return () => {
+      if (emailSuccessCloseTimerRef.current) {
+        clearTimeout(emailSuccessCloseTimerRef.current)
+        emailSuccessCloseTimerRef.current = null
+      }
+    }
+  }, [])
 
   useEffect(() => {
     if (replyTo) {
@@ -114,6 +125,11 @@ export function EmailInlineComposer({ onClose, onSent, replyTo }: EmailInlineCom
 
   const handleSend = useCallback(async () => {
     setError(null)
+    setSendSuccess(false)
+    if (emailSuccessCloseTimerRef.current) {
+      clearTimeout(emailSuccessCloseTimerRef.current)
+      emailSuccessCloseTimerRef.current = null
+    }
     const toTrimmed = to.trim()
     if (!toTrimmed) {
       setError('To is required')
@@ -181,9 +197,14 @@ export function EmailInlineComposer({ onClose, onSent, replyTo }: EmailInlineCom
         attachments: emailAttachments.length > 0 ? emailAttachments : undefined,
       })
       if (res.ok && res.data?.success) {
-        setAttachments([])
-        setPathAttachments([])
-        onSent()
+        setSendSuccess(true)
+        emailSuccessCloseTimerRef.current = setTimeout(() => {
+          emailSuccessCloseTimerRef.current = null
+          setSendSuccess(false)
+          setAttachments([])
+          setPathAttachments([])
+          onSent()
+        }, 2000)
       } else {
         setError(res.error || 'Failed to send')
       }
@@ -428,13 +449,32 @@ export function EmailInlineComposer({ onClose, onSent, replyTo }: EmailInlineCom
             </pre>
           </div>
 
+          {sendSuccess && (
+            <div
+              style={{
+                background: '#dcfce7',
+                color: '#166534',
+                border: '1px solid #86efac',
+                borderRadius: 6,
+                padding: '10px 16px',
+                fontSize: 13,
+                fontWeight: 600,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+              }}
+            >
+              ✅ Email sent successfully
+            </div>
+          )}
+
           {error && <div style={{ fontSize: 13, color: '#f87171' }}>{error}</div>}
 
           <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
             <button
               type="button"
               onClick={() => void handleSend()}
-              disabled={isSending || isLoadingAccounts || accounts.length === 0}
+              disabled={isSending || sendSuccess || isLoadingAccounts || accounts.length === 0}
               style={{
                 padding: '12px 20px',
                 fontSize: 14,

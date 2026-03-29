@@ -80,9 +80,14 @@ declare global {
       /** Electron: X-Launch-Secret for localhost PQ KEM HTTP (beapCrypto pqEncapsulate). */
       pqHeaders?: () => Promise<Record<string, string>>
     }
-    /** Optional relay for pre-built BEAP packages (`beap:sendCapsuleReply`); inbox uses `executeDeliveryAction` in renderer. */
-    beap?: {
-      sendCapsuleReply: (payload: Record<string, unknown>) => Promise<{ success: boolean; error?: string }>
+    /** Sent BEAP outbox (ledger DB; previews and metadata only). See `BeapBridge` in vite-env.d.ts for `window.beap`. */
+    outbox?: {
+      insertSent: (record: Record<string, unknown>) => Promise<{ success: boolean; error?: string }>
+      listSent: (opts?: { limit?: number; offset?: number }) => Promise<{
+        success: boolean
+        messages?: Array<Record<string, unknown>>
+        error?: string
+      }>
     }
     emailAccounts?: {
       listAccounts: () => Promise<{

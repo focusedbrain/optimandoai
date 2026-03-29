@@ -2321,6 +2321,67 @@ app.whenReady().then(async () => {
       }
     })
 
+    ipcMain.handle('outbox:insertSent', async (_e, record: unknown) => {
+      try {
+        const db = await getLedgerDbOrOpen()
+        if (!db) return { success: false, error: 'Database unavailable' }
+        if (!record || typeof record !== 'object') return { success: false, error: 'Invalid record' }
+        const r = record as Record<string, unknown>
+        const id = typeof r.id === 'string' && r.id.length > 0 && r.id.length <= 128 ? r.id : null
+        if (!id) return { success: false, error: 'id required' }
+        const deliveryMethod = typeof r.deliveryMethod === 'string' && r.deliveryMethod.length > 0 ? r.deliveryMethod : null
+        const deliveryStatus = typeof r.deliveryStatus === 'string' && r.deliveryStatus.length > 0 ? r.deliveryStatus : 'sent'
+        if (!deliveryMethod) return { success: false, error: 'deliveryMethod required' }
+        const hasEnc = r.hasEncryptedInner === true ? 1 : 0
+        db.prepare(
+          `INSERT INTO sent_beap_outbox
+           (id, created_at, handshake_id, counterparty_display, subject,
+            public_body_preview, encrypted_body_preview, has_encrypted_inner,
+            delivery_method, delivery_status, delivery_detail_json,
+            attachment_summary_json, package_content_hash, outbound_queue_row_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ).run(
+          id,
+          new Date().toISOString(),
+          typeof r.handshakeId === 'string' ? r.handshakeId : null,
+          typeof r.counterpartyDisplay === 'string' ? r.counterpartyDisplay.slice(0, 500) : null,
+          typeof r.subject === 'string' ? r.subject.slice(0, 500) : 'BEAP™ Message',
+          typeof r.publicBodyPreview === 'string' ? r.publicBodyPreview.slice(0, 500) : null,
+          typeof r.encryptedBodyPreview === 'string' ? r.encryptedBodyPreview.slice(0, 500) : null,
+          hasEnc,
+          deliveryMethod,
+          deliveryStatus,
+          typeof r.deliveryDetailJson === 'string' ? r.deliveryDetailJson.slice(0, 16000) : null,
+          typeof r.attachmentSummaryJson === 'string' ? r.attachmentSummaryJson.slice(0, 8000) : null,
+          typeof r.packageContentHash === 'string' ? r.packageContentHash.slice(0, 128) : null,
+          typeof r.outboundQueueRowId === 'number' && Number.isInteger(r.outboundQueueRowId) ? r.outboundQueueRowId : null,
+        )
+        return { success: true }
+      } catch (e: any) {
+        console.error('[Outbox] insertSent failed:', e)
+        return { success: false, error: e?.message ?? 'Insert failed' }
+      }
+    })
+
+    ipcMain.handle('outbox:listSent', async (_e, opts: unknown) => {
+      try {
+        const db = await getLedgerDbOrOpen()
+        if (!db) return { success: false, messages: [] as unknown[], error: 'Database unavailable' }
+        const o = opts && typeof opts === 'object' ? (opts as Record<string, unknown>) : {}
+        const limit = typeof o.limit === 'number' && o.limit > 0 && o.limit <= 200 ? Math.floor(o.limit) : 50
+        const offset = typeof o.offset === 'number' && o.offset >= 0 ? Math.floor(o.offset) : 0
+        const rows = db
+          .prepare(
+            `SELECT * FROM sent_beap_outbox ORDER BY datetime(created_at) DESC LIMIT ? OFFSET ?`,
+          )
+          .all(limit, offset) as Record<string, unknown>[]
+        return { success: true, messages: rows }
+      } catch (e: any) {
+        console.error('[Outbox] listSent failed:', e)
+        return { success: false, messages: [] as unknown[], error: e?.message ?? 'List failed' }
+      }
+    })
+
     /**
      * PQ HTTP auth for localhost orchestrator (e.g. POST /api/crypto/pq/mlkem768/encapsulate).
      * Extension gets X-Launch-Secret via WebSocket; Electron renderer gets it only through this IPC + preload.
