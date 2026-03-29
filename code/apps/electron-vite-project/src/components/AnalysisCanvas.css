@@ -41,16 +41,101 @@
   --da-selected-bg: var(--purple-accent-muted);
   --da-selected-border: var(--purple-accent);
   
-  /* Apply base styling */
+  /* Apply base styling — Analysis uses a dedicated light workspace (WR Desk™ standard) */
   display: flex;
   flex-direction: column;
   height: 100%;
   min-height: 0; /* Critical for flex child to scroll properly */
   box-sizing: border-box;
-  background: var(--da-surface-base);
-  color: var(--da-text-primary);
+  background: var(--bg-base-prof, #f8f9fb);
+  color: var(--text-primary-prof, #0f1419);
   padding: 0;
   overflow: hidden;
+}
+
+/* Analysis command center: summary strip + command grid (optimization | urgent + PoAE) */
+.analysis-canvas__dashboard {
+  /* Re-map theme tokens inside the dashboard so panels stay light/readable even when app chrome is Pro */
+  --text-primary: var(--text-primary-prof, #0f1419);
+  --text-secondary: var(--text-secondary-prof, #536471);
+  --text-muted: var(--text-muted-prof, #8899a6);
+  --border: var(--border-prof, #e1e8ed);
+  --border-subtle: var(--border-subtle-prof, #eef3f6);
+  --bg-base: var(--bg-base-prof, #f8f9fb);
+  --bg-elevated: var(--bg-elevated-prof, #ffffff);
+  --bg-surface: #fafbfc;
+  --bg-hover: #f0f4f7;
+  --success: var(--success-prof, #00ba7c);
+  --warning: var(--warning-prof, #f59e0b);
+  --danger: var(--danger-prof, #f4212e);
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
+  padding: 8px 0 16px;
+  box-sizing: border-box;
+  background: var(--bg-base-prof, #f8f9fb);
+}
+
+.analysis-dashboard__command-grid {
+  display: grid;
+  grid-template-columns: minmax(300px, 1.4fr) minmax(260px, 0.75fr);
+  gap: 12px;
+  align-items: start;
+  padding: 2px 10px 0;
+  box-sizing: border-box;
+}
+
+.analysis-dashboard__command-primary {
+  min-width: 0;
+  position: sticky;
+  top: 6px;
+  align-self: start;
+}
+
+.analysis-dashboard__ops-stack {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* Compact operational columns: both panels stay in view */
+.analysis-dashboard__ops-stack .urgent-triage__body {
+  max-height: min(26vh, 260px);
+}
+
+.analysis-dashboard__ops-stack .poae-artifact-registry__body {
+  max-height: min(26vh, 260px);
+}
+
+.analysis-dashboard__ops-stack .urgent-triage,
+.analysis-dashboard__ops-stack .poae-artifact-registry {
+  padding: 0.5rem 0.6rem;
+}
+
+.analysis-dashboard__ops-stack .poae-artifact-registry__head {
+  margin-bottom: 0.32rem;
+  padding-bottom: 0.28rem;
+}
+
+.analysis-dashboard__ops-stack .urgent-triage__head {
+  margin-bottom: 0.32rem;
+}
+
+@media (max-width: 1080px) {
+  .analysis-dashboard__command-grid {
+    grid-template-columns: 1fr;
+  }
+  .analysis-dashboard__command-primary {
+    position: static;
+  }
+  .analysis-dashboard__ops-stack .urgent-triage__body,
+  .analysis-dashboard__ops-stack .poae-artifact-registry__body {
+    max-height: min(32vh, 320px);
+  }
 }
 
 /* Header - Removed since we have the app header */
@@ -996,8 +1081,11 @@
    Default (Original) Theme Overrides
    ============================================================================= */
 
-[data-ui-theme="pro"] .analysis-canvas {
-  background: transparent;
+[data-ui-theme='pro'] .analysis-canvas,
+[data-ui-theme='dark'] .analysis-canvas {
+  /* Keep the analysis surface light; app header/chrome theming is unchanged */
+  background: var(--bg-base-prof, #f8f9fb);
+  color: var(--text-primary-prof, #0f1419);
 }
 
 [data-ui-theme="pro"] .phase-selector {
@@ -1038,13 +1126,13 @@
 }
 
 /* =============================================================================
-   MAIN DASHBOARD - 2-column layout (Hero 2fr + PoAE 1fr)
+   MAIN DASHBOARD — single column (PoAE is a separate section, not a side column)
    Must fit viewport height without internal scrolling in Hero
    ============================================================================= */
 
 .main-dashboard {
   display: grid;
-  grid-template-columns: 2fr 1fr;
+  grid-template-columns: 1fr;
   gap: 12px;
   flex-shrink: 0;
   /* Enforce height to fit viewport minus Activity strip and padding */

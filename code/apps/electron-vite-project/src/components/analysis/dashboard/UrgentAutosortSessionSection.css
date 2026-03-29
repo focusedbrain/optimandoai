@@ -1,0 +1,208 @@
+/* Compact urgent triage — latest completed Auto-Sort session only */
+
+.urgent-triage {
+  margin: 0;
+  padding: 0.55rem 0.65rem 0.5rem;
+  border: 1px solid var(--border, #e1e8ed);
+  border-radius: 8px;
+  background: var(--bg-elevated, #ffffff);
+  box-shadow: 0 1px 2px rgba(15, 20, 25, 0.04);
+}
+
+.urgent-triage__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.4rem;
+  flex-shrink: 0;
+}
+
+.urgent-triage__head-text {
+  min-width: 0;
+}
+
+.urgent-triage__title {
+  margin: 0;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-primary, #0f1419);
+  line-height: 1.2;
+}
+
+.urgent-triage__meta {
+  margin: 0.15rem 0 0;
+  font-size: 0.65rem;
+  color: var(--text-muted, #8899a6);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.3;
+}
+
+.urgent-triage__btn {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  padding: 0.22rem 0.5rem;
+  border-radius: 6px;
+  border: 1px solid var(--border, #e1e8ed);
+  background: var(--bg-elevated, #ffffff);
+  color: var(--text-primary, #0f1419);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.urgent-triage__btn:hover:not(:disabled) {
+  background: var(--bg-hover, #f0f4f7);
+}
+
+.urgent-triage__btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.urgent-triage__btn--ghost {
+  box-shadow: none;
+}
+
+.urgent-triage__body {
+  max-height: min(32vh, 280px);
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.urgent-triage__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.urgent-triage__row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.35rem 0.45rem;
+  align-items: start;
+  padding: 0.35rem 0.45rem;
+  border-radius: 6px;
+  border: 1px solid var(--border-subtle, #eef3f6);
+  background: var(--bg-surface, #fafbfc);
+}
+
+.urgent-triage__main {
+  min-width: 0;
+}
+
+.urgent-triage__row1 {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.35rem 0.5rem;
+  margin-bottom: 0.12rem;
+}
+
+.urgent-triage__who {
+  font-size: 0.75rem;
+  font-weight: 650;
+  color: var(--text-primary, #0f1419);
+  line-height: 1.25;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.urgent-triage__when {
+  font-size: 0.65rem;
+  font-weight: 500;
+  color: var(--text-secondary, #536471);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.urgent-triage__subj {
+  margin: 0 0 0.18rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-primary, #0f1419);
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.urgent-triage__reason {
+  margin: 0 0 0.1rem;
+  font-size: 0.68rem;
+  line-height: 1.35;
+  color: var(--text-secondary, #536471);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.urgent-triage__reason-k {
+  display: inline;
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-muted, #8899a6);
+  margin-right: 0.35rem;
+}
+
+.urgent-triage__flags {
+  margin: 0;
+  font-size: 0.625rem;
+  line-height: 1.3;
+  color: var(--text-muted, #8899a6);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.urgent-triage__action {
+  align-self: center;
+  padding-top: 0;
+}
+
+.urgent-triage__btn--open {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  padding: 0.28rem 0.55rem;
+  white-space: nowrap;
+  border-color: color-mix(in srgb, var(--purple-accent, #9333ea) 28%, var(--border, #e1e8ed) 72%);
+  background: color-mix(in srgb, var(--purple-accent, #9333ea) 6%, var(--bg-elevated, #fff) 94%);
+}
+
+.urgent-triage__btn--open:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--purple-accent, #9333ea) 11%, var(--bg-elevated, #fff) 89%);
+}
+
+.urgent-triage__empty,
+.urgent-triage__error {
+  font-size: 0.72rem;
+  line-height: 1.45;
+  color: var(--text-secondary, #536471);
+  margin: 0;
+  padding: 0.2rem 0;
+}
+
+.urgent-triage__error {
+  color: var(--danger, #f4212e);
+}
+
+.urgent-triage__hint {
+  font-size: 0.65rem;
+  color: var(--text-muted, #8899a6);
+  margin: 0.35rem 0 0;
+}
+
+.urgent-triage__cap {
+  margin: 0.35rem 0 0;
+  font-size: 0.6rem;
+  color: var(--text-muted, #8899a6);
+}

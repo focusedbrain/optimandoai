@@ -6,6 +6,9 @@ import { useDraftRefineStore } from '../stores/useDraftRefineStore'
 import { useEmailInboxStore } from '../stores/useEmailInboxStore'
 import { useAiDraftContextStore } from '../stores/useAiDraftContextStore'
 import { ingestAiContextFiles } from '../lib/ingestAiContextFiles'
+import { buildProjectSetupChatPrefix } from '../lib/buildProjectSetupChatPrefix'
+import { WRDESK_FOCUS_AI_CHAT_EVENT } from '../lib/wrdeskUiEvents'
+import { projectSetupChatHasBridgeableContent, useProjectSetupChatContextStore } from '../stores/useProjectSetupChatContextStore'
 import { UI_BADGE } from '../styles/uiContrastTokens'
 
 /** Derived focus context for inbox — distinguishes message vs draft vs attachment above chat. */
@@ -339,11 +342,23 @@ export default function HybridSearch({
   const removeContextDocument = useAiDraftContextStore((s) => s.removeDocument)
   const clearContextDocuments = useAiDraftContextStore((s) => s.clear)
 
+  const projectSetupIncludeInChat = useProjectSetupChatContextStore((s) => s.includeInChat)
+  const projectSetupHasContent = useProjectSetupChatContextStore(projectSetupChatHasBridgeableContent)
+
   const containerRef = useRef<HTMLDivElement>(null)
   const infoPopupRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const modelMenuRef = useRef<HTMLDivElement>(null)
   const uploadRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    const focusChat = () => {
+      setMode('chat')
+      queueMicrotask(() => inputRef.current?.focus())
+    }
+    window.addEventListener(WRDESK_FOCUS_AI_CHAT_EVENT, focusChat)
+    return () => window.removeEventListener(WRDESK_FOCUS_AI_CHAT_EVENT, focusChat)
+  }, [])
 
   const draftRefineConnected = useDraftRefineStore((s) => s.connected)
   const draftRefineMessageId = useDraftRefineStore((s) => s.messageId)
@@ -607,6 +622,14 @@ export default function HybridSearch({
           chatQuery = `Context:\n${ctxBlock}\n\n${chatQuery}`
         }
 
+        /** Analysis-only: prepend project setup drafts (never mixed into handshake draft-refine prompts). */
+        if (!isDraftRefine && activeView === 'analysis') {
+          const setupPrefix = buildProjectSetupChatPrefix(useProjectSetupChatContextStore.getState())
+          if (setupPrefix) {
+            chatQuery = `${setupPrefix}\n\n${chatQuery}`
+          }
+        }
+
         let result: Awaited<ReturnType<NonNullable<typeof window.handshakeView>['chatWithContextRag']>> | undefined
         try {
           result = await window.handshakeView?.chatWithContextRag?.({
@@ -684,7 +707,7 @@ export default function HybridSearch({
     } finally {
       setIsLoading(false)
     }
-  }, [query, mode, scope, selectedHandshakeId, selectedMessageId, selectedAttachmentId, selectedModel, availableModels, isLoading, response, selectedDocumentId, isDraftRefineSession, draftRefineDraftText, draftRefineTarget, draftRefineDeliverResponse, draftRefineAcceptRefinement])
+  }, [query, mode, scope, activeView, selectedHandshakeId, selectedMessageId, selectedAttachmentId, selectedModel, availableModels, isLoading, response, selectedDocumentId, isDraftRefineSession, draftRefineDraftText, draftRefineTarget, draftRefineDeliverResponse, draftRefineAcceptRefinement])
 
   const handleContextUpload = useCallback(async (e: ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || [])
@@ -900,9 +923,18 @@ export default function HybridSearch({
                 <div className="hs-info-popup-item"><strong>Chat:</strong> Chat with AI across the global BEAP Ecosystem when nothing is selected. When a handshake or BEAP Message is selected, the AI focuses on it while still using the related Context Graph and relationship context.</div>
                 <div className="hs-info-popup-item"><strong>Search:</strong> Search across the global BEAP Ecosystem, or narrow the search to the selected handshake or BEAP Message and its related context.</div>
                 <div className="hs-info-popup-item"><strong>Actions:</strong> Draft replies, analyze content, extract structured data into the Context Graph, or prepare automations based on the current selection.</div>
+                <div className="hs-info-popup-item"><strong>Analysis project drafts:</strong> On Analysis, optional setup drafts from the Projects card can be prepended to chat (no auto-save).</div>
               </div>
             )}
           </div>
+          {activeView === 'analysis' && mode === 'chat' && projectSetupIncludeInChat && projectSetupHasContent ? (
+            <span
+              className="hs-setup-bridge-chip"
+              title="Project setup drafts from the Analysis dashboard are prepended to this chat. Nothing is saved automatically—copy any suggestions back into the setup fields yourself."
+            >
+              Project drafts → chat
+            </span>
+          ) : null}
         </div>
 
         {/* ── Centre: main input ── */}

@@ -57,6 +57,25 @@
   box-shadow: 0 0 0 3px rgba(147, 51, 234, 0.18);
 }
 
+/* Analysis: project setup drafts prepended to chat (renderer-only) */
+.hs-setup-bridge-chip {
+  margin-left: 6px;
+  padding: 2px 7px;
+  border-radius: 6px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  color: #fef3c7;
+  background: color-mix(in srgb, #d97706 35%, #1e293b 65%);
+  border: 1px solid color-mix(in srgb, #fbbf24 55%, transparent);
+  flex-shrink: 0;
+}
+
+[data-ui-theme="pro"] .hs-setup-bridge-chip {
+  background: color-mix(in srgb, #d97706 42%, #0f172a 58%);
+}
+
 /* ── Left section: mode + scope inside the bar ── */
 
 .hs-bar-left {

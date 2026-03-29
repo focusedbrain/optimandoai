@@ -342,6 +342,10 @@ export interface EmailInboxBridge {
     offset?: number
     search?: string
   }) => Promise<{ ok: boolean; data?: { messages: unknown[]; total: number }; error?: string }>
+  /** Read-only Analysis dashboard aggregate (see `collectReadOnlyDashboardSnapshot`). */
+  dashboardSnapshot?: (options?: { urgentMessageLimit?: number }) => Promise<
+    { ok: true; data: import('../types/analysisDashboardSnapshot').InboxDashboardSnapshotWire } | { ok: false; error: string }
+  >
   listMessageIds: (options?: {
     filter?: string
     sourceType?: string

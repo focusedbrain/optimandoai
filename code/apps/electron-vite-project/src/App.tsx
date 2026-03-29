@@ -7,7 +7,7 @@ import HandshakeInitiateModal from './components/HandshakeInitiateModal'
 import SettingsView from './components/SettingsView'
 import EmailInboxView from './components/EmailInboxView'
 import EmailInboxBulkView from './components/EmailInboxBulkView'
-import { useEmailInboxStore } from './stores/useEmailInboxStore'
+import { useEmailInboxStore, type InboxFilter } from './stores/useEmailInboxStore'
 import { subscribeInboxNewMessagesBackgroundRefresh } from './utils/inboxNewMessagesBackgroundRefresh'
 import { type AnalysisOpenPayload, sanitizeAnalysisOpenPayload } from './components/analysis'
 import './components/handshakeViewTypes'
@@ -180,6 +180,21 @@ function App() {
     setSelectedAttachmentId(null)
   }, [])
 
+  /** Analysis dashboard → Inbox: select workflow tab then message (read-only navigation). */
+  const handleOpenInboxMessageFromDashboard = useCallback((payload: { messageId: string; workflowTab: InboxFilter['filter'] }) => {
+    setActiveView('beap-inbox')
+    setInboxBulkMode(false)
+    useEmailInboxStore.getState().setFilter({ filter: payload.workflowTab })
+    setSelectedMessageId(payload.messageId)
+    setSelectedAttachmentId(null)
+  }, [])
+
+  /** Analysis PoAE archive entry → Inbox (no message selection). */
+  const handleOpenInboxFromAnalysis = useCallback(() => {
+    setActiveView('beap-inbox')
+    setInboxBulkMode(false)
+  }, [])
+
   return (
     <div className="app-root">
       <header className="app-header">
@@ -289,6 +304,13 @@ function App() {
           <AnalysisCanvas 
             deepLinkPayload={deepLinkPayload ?? undefined}
             onDeepLinkConsumed={handleDeepLinkConsumed}
+            onOpenInboxMessage={handleOpenInboxMessageFromDashboard}
+            onOpenInbox={handleOpenInboxFromAnalysis}
+            emailAccounts={emailAccounts}
+            onOpenBulkInboxForAnalysis={() => {
+              setActiveView('beap-inbox')
+              setInboxBulkMode(true)
+            }}
           />
         )}
         {showInitiateModal && (

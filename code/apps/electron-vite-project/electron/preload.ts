@@ -851,6 +851,9 @@ contextBridge.exposeInMainWorld('emailInbox', {
     offset?: number
     search?: string
   }) => ipcRenderer.invoke('inbox:listMessages', options),
+  /** Read-only dashboard aggregate (inbox tab counts, message-kind totals, latest autosort + urgent rows). */
+  dashboardSnapshot: (options?: { urgentMessageLimit?: number }) =>
+    ipcRenderer.invoke('inbox:dashboardSnapshot', options ?? {}),
   listMessageIds: (options?: {
     filter?: string
     sourceType?: string
