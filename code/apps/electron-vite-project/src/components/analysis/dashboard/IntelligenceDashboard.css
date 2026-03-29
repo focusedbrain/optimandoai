@@ -1,0 +1,423 @@
+/*
+ * WR Desk™ — Intelligence Dashboard (top chart zone)
+ * Scoped to .intdash namespace. Composable with .dash-card, .dash-btn-* utilities.
+ * Depends on: dashboard-tokens.css (--ds-* variables)
+ */
+
+/* ============================================================================
+   WRAPPER + RESPONSIVE GRID
+   ============================================================================ */
+
+.intdash {
+  padding: 0 var(--ds-space-sm) var(--ds-space-sm);
+  box-sizing: border-box;
+}
+
+.intdash__grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--ds-space-sm);
+}
+
+@media (max-width: 1200px) {
+  .intdash__grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 800px) {
+  .intdash__grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ============================================================================
+   CARD ANIMATION — staggered fade-up on mount (CSS-only, no JS needed)
+   ============================================================================ */
+
+@keyframes intdash-fadein {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/*
+ * .intdash__card is always composed with .dash-card .dash-card--elevated.
+ * It adds: flex layout + entrance animation only — no padding override.
+ */
+.intdash__card {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  animation: intdash-fadein var(--ds-duration-slow) var(--ds-ease-out) both;
+}
+
+.intdash__card:nth-child(1) { animation-delay: 0ms; }
+.intdash__card:nth-child(2) { animation-delay: 55ms; }
+.intdash__card:nth-child(3) { animation-delay: 110ms; }
+
+/* ============================================================================
+   CARD HEADER
+   ============================================================================ */
+
+.intdash__card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--ds-space-sm);
+}
+
+.intdash__card-title {
+  margin: 0;
+  font-size: var(--ds-type-overline-size);
+  font-weight: var(--ds-type-overline-weight);
+  letter-spacing: var(--ds-type-overline-ls);
+  text-transform: uppercase;
+  color: var(--ds-text-muted);
+  line-height: var(--ds-type-overline-lh);
+}
+
+/* ============================================================================
+   KPI HERO DISPLAY
+   ============================================================================ */
+
+.intdash__kpi {
+  display: flex;
+  align-items: baseline;
+  gap: var(--ds-space-xs);
+  margin-bottom: var(--ds-space-2xs);
+}
+
+.intdash__kpi-value {
+  font-family: var(--ds-font-sans);
+  font-size: var(--ds-type-display-size);
+  font-weight: var(--ds-type-display-weight);
+  letter-spacing: var(--ds-type-display-ls);
+  line-height: var(--ds-type-display-lh);
+  color: var(--ds-text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Color variants for the KPI number */
+.intdash__kpi-value--threat {
+  color: var(--ds-status-threat-text);
+}
+
+.intdash__kpi-value--secure {
+  color: var(--ds-teal-400);
+}
+
+.intdash__kpi-label {
+  font-size: var(--ds-type-caption-size);
+  font-weight: var(--ds-type-caption-weight);
+  letter-spacing: var(--ds-type-caption-ls);
+  color: var(--ds-text-muted);
+  white-space: nowrap;
+}
+
+/* Secondary metric line below the KPI number */
+.intdash__kpi-secondary {
+  margin: 0 0 var(--ds-space-sm);
+  font-size: var(--ds-type-body-size);
+  color: var(--ds-text-secondary);
+  line-height: var(--ds-type-body-lh);
+}
+
+.intdash__kpi-secondary strong {
+  color: var(--ds-teal-300);
+  font-weight: 600;
+}
+
+/* ============================================================================
+   CHART AREAS
+   ============================================================================ */
+
+/* Shared chart wrapper — flex grows to fill remaining card space */
+.intdash__chart {
+  flex: 1;
+  min-height: 0;
+  margin-top: var(--ds-space-xs);
+}
+
+.intdash__chart--threat {
+  /* Fixed height for the horizontal bar chart */
+  height: 130px;
+  flex: none;
+}
+
+/* Donut chart stack: chart centered above legend */
+.intdash__chart--donut {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
+}
+
+/* Informational note below a chart (italicised caption) */
+.intdash__chart-note {
+  margin: var(--ds-space-xs) 0 0;
+  font-size: var(--ds-type-caption-size);
+  color: var(--ds-text-disabled);
+  font-style: italic;
+  line-height: var(--ds-type-caption-lh);
+}
+
+/* ============================================================================
+   DONUT LEGEND
+   ============================================================================ */
+
+.intdash__donut-legend {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-2xs);
+  margin-top: var(--ds-space-xs);
+}
+
+.intdash__donut-legend-row {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-xs);
+}
+
+.intdash__donut-legend-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.intdash__donut-legend-name {
+  flex: 1;
+  font-size: var(--ds-type-caption-size);
+  color: var(--ds-text-secondary);
+  text-transform: capitalize;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.intdash__donut-legend-count {
+  font-size: var(--ds-type-caption-size);
+  color: var(--ds-text-primary);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+/* ============================================================================
+   TRANSPORT RATIO
+   ============================================================================ */
+
+.intdash__transport {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-xs);
+}
+
+/* Stacked bar: two divs side-by-side */
+.intdash__transport-bar {
+  display: flex;
+  height: 6px;
+  border-radius: var(--ds-radius-pill);
+  overflow: hidden;
+  background: var(--ds-surface-04);
+}
+
+.intdash__transport-bar-fill {
+  height: 100%;
+  transition: width var(--ds-duration-slow) var(--ds-ease-out);
+  /* Always show at least a 3px sliver so an edge segment is visible */
+  min-width: 3px;
+}
+
+.intdash__transport-bar-fill--beap {
+  background: var(--ds-teal-500);
+}
+
+.intdash__transport-bar-fill--dep {
+  background: var(--ds-slate-400);
+}
+
+/* Two metric blocks left (BEAP) / right (depackaged) */
+.intdash__transport-metrics {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  margin-top: var(--ds-space-2xs);
+}
+
+.intdash__transport-metric {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.intdash__transport-metric--right {
+  text-align: right;
+}
+
+.intdash__transport-metric-value {
+  font-size: 18px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--ds-text-primary);
+  letter-spacing: -0.03em;
+  line-height: 1.15;
+}
+
+.intdash__transport-metric-value--beap {
+  color: var(--ds-teal-400);
+}
+
+.intdash__transport-metric-label {
+  font-size: var(--ds-type-caption-size);
+  color: var(--ds-text-muted);
+  letter-spacing: var(--ds-type-caption-ls);
+  white-space: nowrap;
+}
+
+.intdash__transport-pct {
+  font-size: var(--ds-type-caption-size);
+  color: var(--ds-text-disabled);
+  margin-top: var(--ds-space-2xs);
+}
+
+/* ============================================================================
+   INTRA-CARD DIVIDER
+   ============================================================================ */
+
+.intdash__inner-divider {
+  height: 1px;
+  background: var(--ds-border-00);
+  margin: var(--ds-space-sm) 0;
+  flex-shrink: 0;
+}
+
+/* ============================================================================
+   QUEUE VELOCITY ROWS
+   ============================================================================ */
+
+.intdash__queue-title {
+  margin: 0 0 var(--ds-space-xs);
+  font-size: var(--ds-type-overline-size);
+  font-weight: var(--ds-type-overline-weight);
+  letter-spacing: var(--ds-type-overline-ls);
+  text-transform: uppercase;
+  color: var(--ds-text-muted);
+}
+
+.intdash__queue-rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-2xs);
+}
+
+.intdash__queue-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--ds-space-xs) var(--ds-space-sm);
+  border-radius: var(--ds-radius-sharp);
+  border-left: 3px solid var(--ds-border-01);
+  background: var(--ds-surface-03);
+  font-size: var(--ds-type-body-size);
+  line-height: 1;
+}
+
+.intdash__queue-row--urgent {
+  border-left-color: var(--ds-red-500);
+  background: var(--ds-red-bg);
+}
+
+.intdash__queue-row--review {
+  border-left-color: var(--ds-amber-500);
+  background: var(--ds-amber-bg);
+}
+
+.intdash__queue-row--delete {
+  border-left-color: var(--ds-slate-400);
+}
+
+.intdash__queue-row-label {
+  color: var(--ds-text-secondary);
+}
+
+.intdash__queue-row-count {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  color: var(--ds-text-primary);
+  font-size: 13px;
+}
+
+.intdash__queue-row--urgent .intdash__queue-row-count {
+  color: var(--ds-red-400);
+}
+
+.intdash__queue-row--review .intdash__queue-row-count {
+  color: var(--ds-amber-400);
+}
+
+/* ============================================================================
+   EMPTY & ERROR STATES
+   ============================================================================ */
+
+.intdash__empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--ds-type-caption-size);
+  color: var(--ds-text-disabled);
+  padding: var(--ds-space-xl) 0;
+  text-align: center;
+}
+
+/* Inline error banner above the grid */
+.intdash__error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ds-space-sm);
+  padding: var(--ds-space-xs) var(--ds-space-md);
+  margin-bottom: var(--ds-space-xs);
+  background: var(--ds-red-bg);
+  border: 1px solid var(--ds-red-border);
+  border-radius: var(--ds-radius-md);
+  color: var(--ds-status-threat-text);
+  font-size: var(--ds-type-body-size);
+}
+
+/* ============================================================================
+   SKELETON CARD (loading state)
+   ============================================================================ */
+
+@keyframes intdash-skeleton-appear {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.intdash__skeleton-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-sm);
+  min-width: 0;
+  animation: intdash-skeleton-appear var(--ds-duration-normal) var(--ds-ease-out) both;
+  /* padding provided by .dash-card */
+}
+
+/* Stagger each skeleton card's entrance */
+.intdash__skeleton-card:nth-child(1) { animation-delay: 0ms;   }
+.intdash__skeleton-card:nth-child(2) { animation-delay: 80ms;  }
+.intdash__skeleton-card:nth-child(3) { animation-delay: 160ms; }
+
+/* Within each skeleton card, stagger the individual shimmer lines */
+.intdash__skeleton-card .dash-skeleton:nth-child(1) { animation-delay: 0ms;   }
+.intdash__skeleton-card .dash-skeleton:nth-child(2) { animation-delay: 60ms;  }
+.intdash__skeleton-card .dash-skeleton:nth-child(3) { animation-delay: 120ms; }
+.intdash__skeleton-card .dash-skeleton:nth-child(4) { animation-delay: 180ms; }

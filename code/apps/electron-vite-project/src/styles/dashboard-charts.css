@@ -1,0 +1,366 @@
+/*
+ * WR Desk™ — Enterprise Dashboard Recharts Overrides
+ *
+ * Scopes all recharts overrides to .ds-chart-root to avoid polluting
+ * other recharts instances. Wrap every dashboard chart in:
+ *
+ *   <div className="ds-chart-root">
+ *     <ResponsiveContainer ...>
+ *       <BarChart ...> / <LineChart ...> etc.
+ *     </ResponsiveContainer>
+ *   </div>
+ *
+ * Requires dashboard-tokens.css (--ds-* vars) loaded first.
+ */
+
+/* ============================================================================
+   ROOT CHART WRAPPER
+   ============================================================================ */
+
+.ds-chart-root {
+  /* Ensure charts clip cleanly */
+  position: relative;
+  overflow: hidden;
+}
+
+/* ============================================================================
+   SVG CANVAS
+   ============================================================================ */
+
+.ds-chart-root .recharts-surface {
+  overflow: visible;
+}
+
+/* ============================================================================
+   CARTESIAN GRID — subtle, non-distracting
+   ============================================================================ */
+
+.ds-chart-root .recharts-cartesian-grid-horizontal line,
+.ds-chart-root .recharts-cartesian-grid-vertical line {
+  stroke: var(--ds-chart-grid-color);
+  stroke-dasharray: none;
+  shape-rendering: crispEdges;
+}
+
+/* Remove the outer box formed by grid lines */
+.ds-chart-root .recharts-cartesian-grid-background {
+  display: none;
+}
+
+/* ============================================================================
+   AXES
+   ============================================================================ */
+
+/* Axis line */
+.ds-chart-root .recharts-cartesian-axis-line {
+  stroke: var(--ds-border-01);
+  shape-rendering: crispEdges;
+}
+
+/* Tick marks */
+.ds-chart-root .recharts-cartesian-axis-tick-line {
+  stroke: var(--ds-border-01);
+}
+
+/* Tick text */
+.ds-chart-root .recharts-cartesian-axis-tick text,
+.ds-chart-root .recharts-xAxis .recharts-cartesian-axis-tick-value,
+.ds-chart-root .recharts-yAxis .recharts-cartesian-axis-tick-value {
+  fill: var(--ds-chart-axis-color);
+  font-family: var(--ds-font-mono);
+  font-size: var(--ds-chart-tick-size);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Axis labels (optional <label> on axis) */
+.ds-chart-root .recharts-label {
+  fill: var(--ds-text-muted);
+  font-family: var(--ds-font-sans);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+/* ============================================================================
+   TOOLTIP — floating data readout
+   ============================================================================ */
+
+/*
+ * Recharts renders tooltips as a <div> outside the SVG. We override the
+ * inline style background/border that recharts injects by using !important
+ * only on background and border to avoid fighting other recharts styles.
+ */
+
+.ds-chart-root .recharts-tooltip-wrapper {
+  pointer-events: none;
+  z-index: 9999;
+  outline: none;
+}
+
+.ds-chart-root .recharts-default-tooltip {
+  background: var(--ds-chart-tooltip-bg) !important;
+  border: 1px solid var(--ds-border-02) !important;
+  border-radius: var(--ds-radius-md) !important;
+  box-shadow: var(--ds-shadow-03) !important;
+  padding: var(--ds-space-sm) var(--ds-space-md) !important;
+  backdrop-filter: blur(8px);
+}
+
+.ds-chart-root .recharts-tooltip-label {
+  font-family: var(--ds-font-sans) !important;
+  font-size: var(--ds-type-overline-size) !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.08em !important;
+  text-transform: uppercase !important;
+  color: var(--ds-text-muted) !important;
+  margin-bottom: var(--ds-space-xs) !important;
+}
+
+.ds-chart-root .recharts-tooltip-item {
+  font-family: var(--ds-font-mono) !important;
+  font-size: 12px !important;
+  font-variant-numeric: tabular-nums !important;
+  padding: 2px 0 !important;
+  color: var(--ds-text-primary) !important;
+}
+
+.ds-chart-root .recharts-tooltip-item-name {
+  color: var(--ds-text-secondary) !important;
+}
+
+.ds-chart-root .recharts-tooltip-item-value {
+  font-weight: 600 !important;
+  color: var(--ds-text-primary) !important;
+}
+
+.ds-chart-root .recharts-tooltip-item-separator {
+  color: var(--ds-text-muted) !important;
+  padding: 0 3px !important;
+}
+
+/* Custom tooltip component — preferred over default */
+.ds-tooltip {
+  background: var(--ds-surface-04);
+  border: 1px solid var(--ds-border-02);
+  border-radius: var(--ds-radius-md);
+  box-shadow: var(--ds-shadow-03);
+  padding: var(--ds-space-sm) var(--ds-space-md);
+  min-width: 140px;
+  max-width: 280px;
+  pointer-events: none;
+}
+
+.ds-tooltip__label {
+  display: block;
+  font-family: var(--ds-font-sans);
+  font-size: var(--ds-type-overline-size);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ds-text-muted);
+  margin-bottom: var(--ds-space-xs);
+  padding-bottom: var(--ds-space-xs);
+  border-bottom: 1px solid var(--ds-border-00);
+}
+
+.ds-tooltip__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ds-space-sm);
+  padding: 2px 0;
+}
+
+.ds-tooltip__name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--ds-font-sans);
+  font-size: 11px;
+  color: var(--ds-text-secondary);
+}
+
+.ds-tooltip__swatch {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.ds-tooltip__value {
+  font-family: var(--ds-font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--ds-text-primary);
+}
+
+/* ============================================================================
+   LEGEND
+   ============================================================================ */
+
+.ds-chart-root .recharts-legend-wrapper {
+  padding: var(--ds-space-xs) 0 0;
+}
+
+.ds-chart-root .recharts-default-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ds-space-sm);
+  padding: 0;
+  margin: 0;
+}
+
+.ds-chart-root .recharts-legend-item {
+  display: inline-flex !important;
+  align-items: center;
+  gap: 5px;
+  margin-right: 0 !important;
+  cursor: pointer;
+}
+
+.ds-chart-root .recharts-legend-item-text {
+  font-family: var(--ds-font-sans) !important;
+  font-size: 11px !important;
+  color: var(--ds-text-secondary) !important;
+  font-weight: 500 !important;
+}
+
+.ds-chart-root .recharts-legend-icon {
+  border-radius: 2px !important;
+}
+
+/* ============================================================================
+   BAR CHART
+   ============================================================================ */
+
+.ds-chart-root .recharts-bar-rectangle {
+  transition: opacity var(--ds-transition-fast);
+}
+
+/* Dim non-hovered bars when a legend item is focused */
+.ds-chart-root .recharts-bar--inactive .recharts-bar-rectangle {
+  opacity: 0.2;
+}
+
+/* Rounded top corners on bars — applied by setting radius prop on recharts
+   but we can reinforce the shape-rendering quality here */
+.ds-chart-root .recharts-bar-rectangle path {
+  shape-rendering: crispEdges;
+}
+
+/* ============================================================================
+   LINE CHART
+   ============================================================================ */
+
+.ds-chart-root .recharts-line-curve {
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* Active dot (hover indicator on line) */
+.ds-chart-root .recharts-active-dot circle {
+  stroke-width: 2;
+  stroke: var(--ds-surface-01);
+  r: 5;
+}
+
+/* Inactive line dim */
+.ds-chart-root .recharts-line--inactive {
+  opacity: 0.25;
+}
+
+/* ============================================================================
+   PIE / DONUT CHART
+   ============================================================================ */
+
+.ds-chart-root .recharts-pie-sector path {
+  stroke: var(--ds-surface-01);
+  stroke-width: 2;
+  transition: opacity var(--ds-transition-fast);
+}
+
+.ds-chart-root .recharts-pie-sector--inactive path {
+  opacity: 0.3;
+}
+
+/* ============================================================================
+   AREA CHART — fill gradient helper classes
+   ============================================================================ */
+
+/* Apply these stop colors in your linearGradient defs */
+.ds-chart-area-teal   { stop-color: var(--ds-chart-1); }
+.ds-chart-area-blue   { stop-color: var(--ds-chart-2); }
+.ds-chart-area-amber  { stop-color: var(--ds-chart-3); }
+.ds-chart-area-red    { stop-color: var(--ds-chart-4); }
+.ds-chart-area-lime   { stop-color: var(--ds-chart-5); }
+.ds-chart-area-violet { stop-color: var(--ds-chart-6); }
+
+/* ============================================================================
+   REFERENCE LINES — thresholds, targets
+   ============================================================================ */
+
+.ds-chart-root .recharts-reference-line line {
+  stroke-dasharray: 4 4;
+  stroke-opacity: 0.6;
+}
+
+.ds-chart-root .recharts-reference-line-label {
+  font-family: var(--ds-font-sans);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  fill: var(--ds-text-muted);
+}
+
+/* ============================================================================
+   RESPONSIVE CONTAINER — ensures chart fills parent without bleeding
+   ============================================================================ */
+
+.ds-chart-root .recharts-responsive-container {
+  outline: none;
+}
+
+/* Chart section wrapper with title, chart, and optional footer */
+.ds-chart-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-sm);
+}
+
+.ds-chart-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ds-space-sm);
+}
+
+.ds-chart-panel__title {
+  font-family: var(--ds-font-sans);
+  font-size: var(--ds-type-subheading-size);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--ds-text-secondary);
+  margin: 0;
+}
+
+.ds-chart-panel__meta {
+  font-family: var(--ds-font-sans);
+  font-size: var(--ds-type-caption-size);
+  color: var(--ds-text-muted);
+  letter-spacing: var(--ds-type-caption-ls);
+}
+
+.ds-chart-panel__body {
+  width: 100%;
+}
+
+.ds-chart-panel__footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ds-space-md);
+  padding-top: var(--ds-space-xs);
+  border-top: 1px solid var(--ds-border-00);
+}

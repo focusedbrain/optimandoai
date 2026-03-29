@@ -1,23 +1,52 @@
+/**
+ * WR Desk™ — Analysis Canvas
+ *
+ * Dashboard refactored: 2026-03-30
+ * New components: IntelligenceDashboard, ProjectOptimizationPanel, ActivityFeedColumn
+ * Business logic preserved: see DASHBOARD_ARCHITECTURE.md §8
+ *
+ * Layout (CSS grid — AnalysisCanvas.css):
+ *   ┌──────────────────────────────────────────┐
+ *   │  IntelligenceDashboard  (full width)      │
+ *   ├──────────────────────┬───────────────────┤
+ *   │  ProjectOptimization  │  ActivityFeed     │
+ *   │  Panel  (~60%)        │  Column  (~40%)   │
+ *   └──────────────────────┴───────────────────┘
+ *
+ * Untouched by this refactor:
+ *   - useAnalysisDashboardSnapshot  (data fetching + IPC)
+ *   - useEmailInboxStore            (auto-sync state)
+ *   - useProjectSetupChatContextStore
+ *   - buildProjectSetupChatPrefix
+ *   - collectReadOnlyDashboardSnapshot (electron main)
+ *   - All IPC handlers in electron/main/email/ipc.ts
+ */
+
 import { useCallback, useEffect, useState } from 'react'
+import '../styles/dashboard-tokens.css'
+import '../styles/dashboard-base.css'
 import './AnalysisCanvas.css'
+
+// ── Canvas state helpers ──────────────────────────────────────────────────────
 import { useCanvasState, type AnalysisOpenPayload, type DrawerTabId } from './analysis'
 import { StatusBadge } from './analysis/StatusBadge'
+
+// ── Dashboard components (all via barrel export) ──────────────────────────────
 import {
-  UrgentAutosortSessionSection,
+  IntelligenceDashboard,
+  ProjectOptimizationPanel,
+  ActivityFeedColumn,
+  type DashboardEmailAccountRow,
   type OpenInboxMessagePayload,
-} from './analysis/dashboard/UrgentAutosortSessionSection'
-import { DashboardTopCardsRow } from './analysis/dashboard/DashboardTopCardsRow'
-import { PoaeArchiveSection } from './analysis/dashboard/PoaeArchiveSection'
-import { ProjectSetupSection, type DashboardEmailAccountRow } from './analysis/dashboard/ProjectSetupSection'
+} from './analysis/dashboard'
+
+// ── Data layer ────────────────────────────────────────────────────────────────
 import { useAnalysisDashboardSnapshot } from '../lib/useAnalysisDashboardSnapshot'
 import { useEmailInboxStore } from '../stores/useEmailInboxStore'
 
-/**
- * Analysis command center: operational summary strip → Project AI Optimization (primary) + compact Urgent + PoAE stack.
- * App shell header lives in `App.tsx` — not duplicated here.
- *
- * Deep-link state below is reserved for future child consumers (consumed once via payload only today).
- */
+// ── Types ─────────────────────────────────────────────────────────────────────
+
+/** Reserved for future deep-link child consumers; consumed once via payload today. */
 interface DeepLinkState {
   traceId?: string
   eventId?: string
@@ -31,11 +60,13 @@ interface AnalysisCanvasProps {
   onOpenInboxMessage?: (payload: OpenInboxMessagePayload) => void
   /** Navigate to Inbox from PoAE / fallbacks (optional in embedded contexts). */
   onOpenInbox?: () => void
-  /** Mail accounts from app shell — Auto mode toggle */
+  /** Mail accounts from app shell — Auto mode toggle. */
   emailAccounts?: DashboardEmailAccountRow[]
-  /** After refresh, open Bulk Inbox for AI Auto-Sort */
+  /** After refresh, open Bulk Inbox for AI Auto-Sort. */
   onOpenBulkInboxForAnalysis?: () => void
 }
+
+// ── Component ─────────────────────────────────────────────────────────────────
 
 export default function AnalysisCanvas({
   deepLinkPayload,
@@ -45,16 +76,27 @@ export default function AnalysisCanvas({
   emailAccounts,
   onOpenBulkInboxForAnalysis,
 }: AnalysisCanvasProps) {
-  const { snapshot: dashboardSnapshot, loading: dashboardLoading, error: dashboardError, refresh: refreshDashboard } =
-    useAnalysisDashboardSnapshot({ urgentMessageLimit: 10 })
+  // ── Data layer — unchanged from original ──────────────────────────────────
+  const {
+    snapshot: dashboardSnapshot,
+    loading:  dashboardLoading,
+    error:    dashboardError,
+    refresh:  refreshDashboard,
+  } = useAnalysisDashboardSnapshot({ urgentMessageLimit: 10 })
 
+  /**
+   * Combined refresh: snapshot + inbox message list.
+   * Passed to ProjectOptimizationPanel.onRefreshOperations and ActivityFeedColumn.onRefresh.
+   */
   const refreshOperations = useCallback(async () => {
     await refreshDashboard()
     await useEmailInboxStore.getState().refreshMessages()
   }, [refreshDashboard])
 
+  // ── Canvas state (drives StatusBadge flags) — unchanged ───────────────────
   const [, , helpers] = useCanvasState()
 
+  // ── Deep-link handling — unchanged ─────────────────────────────────────────
   const [_liveDeepLink, setLiveDeepLink] = useState<DeepLinkState | null>(null)
   void _liveDeepLink
 
@@ -62,62 +104,68 @@ export default function AnalysisCanvas({
     if (!deepLinkPayload) return
 
     const childDeepLink: DeepLinkState = {}
-    if (deepLinkPayload.traceId) childDeepLink.traceId = deepLinkPayload.traceId
-    if (deepLinkPayload.eventId) childDeepLink.eventId = deepLinkPayload.eventId
+    if (deepLinkPayload.traceId)   childDeepLink.traceId   = deepLinkPayload.traceId
+    if (deepLinkPayload.eventId)   childDeepLink.eventId   = deepLinkPayload.eventId
     if (deepLinkPayload.drawerTab) childDeepLink.drawerTab = deepLinkPayload.drawerTab
-    if (deepLinkPayload.ruleId) childDeepLink.ruleId = deepLinkPayload.ruleId
+    if (deepLinkPayload.ruleId)    childDeepLink.ruleId    = deepLinkPayload.ruleId
 
     if (Object.keys(childDeepLink).length > 0) {
       const targetPhase = deepLinkPayload.phase || 'live'
-      if (targetPhase === 'live') {
-        setLiveDeepLink(childDeepLink)
-      }
+      if (targetPhase === 'live') setLiveDeepLink(childDeepLink)
     }
 
     queueMicrotask(() => onDeepLinkConsumed?.())
   }, [deepLinkPayload, onDeepLinkConsumed])
 
+  // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <div className="analysis-canvas">
+      {/* StatusBadge — hidden via CSS but preserved for canvas state flags */}
       <div className="analysis-header">
         <StatusBadge flags={helpers.currentFlags} size="medium" />
       </div>
 
       <div className="analysis-canvas__dashboard">
-        <DashboardTopCardsRow
-          snapshot={dashboardSnapshot}
-          loading={dashboardLoading}
-          error={dashboardError}
-          onRetry={refreshDashboard}
-        />
+        <div className="analysis-dashboard__main-grid">
 
-        <div className="analysis-dashboard__command-grid">
-          <div className="analysis-dashboard__command-primary" aria-label="Project AI optimization controls">
-            <ProjectSetupSection
-              projectSetup={dashboardSnapshot?.projectSetup ?? null}
+          {/* Row 1: Intelligence Dashboard — full-width top strip */}
+          <div className="analysis-dashboard__intel-area">
+            <IntelligenceDashboard
+              snapshot={dashboardSnapshot}
               loading={dashboardLoading}
-              emailAccounts={emailAccounts}
-              onRefreshOperations={refreshOperations}
-              onOpenBulkInboxForAnalysis={onOpenBulkInboxForAnalysis}
-              latestAutosortSession={dashboardSnapshot?.autosort?.latestSession ?? null}
+              error={dashboardError}
+              onRetry={refreshDashboard}
             />
           </div>
 
-          <div className="analysis-dashboard__ops-stack" aria-label="Urgent messages and artifact history">
-            <UrgentAutosortSessionSection
-              onOpenInboxMessage={onOpenInboxMessage}
+          {/* Row 2 left: Project AI Optimization (~60%) */}
+          <div
+            className="analysis-dashboard__project-area"
+            aria-label="Project AI optimization controls"
+          >
+            <ProjectOptimizationPanel
+              latestAutosortSession={dashboardSnapshot?.autosort?.latestSession ?? null}
+              emailAccounts={emailAccounts ?? []}
+              onRefreshOperations={refreshOperations}
+              onOpenBulkInboxForAnalysis={onOpenBulkInboxForAnalysis}
+            />
+          </div>
+
+          {/* Row 2 right: Activity Feed — Priority Inbox + PoAE Registry (~40%) */}
+          <div
+            className="analysis-dashboard__activity-area"
+            aria-label="Priority inbox and PoAE artifact history"
+          >
+            <ActivityFeedColumn
               snapshot={dashboardSnapshot}
               loading={dashboardLoading}
               error={dashboardError}
               onRefresh={refreshDashboard}
-            />
-            <PoaeArchiveSection
-              poae={dashboardSnapshot?.poae}
-              loading={dashboardLoading}
               onOpenInbox={onOpenInbox}
               onOpenInboxMessage={onOpenInboxMessage}
             />
           </div>
+
         </div>
       </div>
     </div>

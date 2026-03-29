@@ -1,0 +1,406 @@
+/*
+ * WR Desk™ — Urgent Messages Panel
+ * Prefix: .upm- (Urgent Messages Panel)
+ * Depends on: dashboard-tokens.css (--ds-* variables), dashboard-base.css
+ */
+
+/* ============================================================================
+   SECTION WRAPPER
+   ============================================================================ */
+
+.upm {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* ============================================================================
+   HEADER
+   ============================================================================ */
+
+.upm__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ds-space-sm);
+  margin-bottom: var(--ds-space-sm);
+}
+
+.upm__head-left {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-xs);
+  min-width: 0;
+}
+
+.upm__title {
+  margin: 0;
+  font-size: var(--ds-type-overline-size);
+  font-weight: var(--ds-type-overline-weight);
+  letter-spacing: var(--ds-type-overline-ls);
+  text-transform: uppercase;
+  color: var(--ds-text-muted);
+  white-space: nowrap;
+}
+
+.upm__badge {
+  padding: 1px 7px;
+  border-radius: var(--ds-radius-pill);
+  font-size: var(--ds-type-caption-size);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+
+.upm__badge--threat {
+  background: var(--ds-red-bg);
+  color: var(--ds-red-400);
+  border: 1px solid var(--ds-red-border);
+}
+
+.upm__badge--clear {
+  background: var(--ds-surface-04);
+  color: var(--ds-text-muted);
+  border: 1px solid var(--ds-border-00);
+}
+
+.upm__head-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2xs);
+  flex-shrink: 0;
+}
+
+.upm__refresh-btn {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: 1px solid var(--ds-border-01);
+  border-radius: var(--ds-radius-sharp);
+  color: var(--ds-text-muted);
+  cursor: pointer;
+  font-size: 13px;
+  transition:
+    color var(--ds-transition-fast),
+    border-color var(--ds-transition-fast),
+    transform var(--ds-duration-fast) var(--ds-ease-out);
+}
+
+.upm__refresh-btn:hover:not(:disabled) {
+  color: var(--ds-text-secondary);
+  border-color: var(--ds-border-02);
+}
+
+.upm__refresh-btn:active:not(:disabled) {
+  transform: rotate(180deg);
+}
+
+.upm__refresh-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* Continuous spin while loading is in progress */
+@keyframes upm-spin {
+  to { transform: rotate(360deg); }
+}
+
+.upm__refresh-btn--spinning {
+  animation: upm-spin 0.7s linear infinite;
+  opacity: 0.7;
+}
+
+/* ============================================================================
+   SESSION CONTEXT LINE
+   ============================================================================ */
+
+.upm__session-ctx {
+  display: flex;
+  align-items: baseline;
+  gap: var(--ds-space-xs);
+  margin-bottom: var(--ds-space-xs);
+  font-size: var(--ds-type-caption-size);
+  color: var(--ds-text-muted);
+  flex-wrap: wrap;
+}
+
+.upm__session-id {
+  font-family: var(--ds-font-mono);
+  color: var(--ds-text-secondary);
+  font-size: 11px;
+}
+
+.upm__session-sep {
+  color: var(--ds-border-02);
+}
+
+/* ============================================================================
+   MESSAGE LIST
+   ============================================================================ */
+
+.upm__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.upm__row {
+  display: flex;
+  align-items: stretch;
+  gap: var(--ds-space-sm);
+  padding: var(--ds-space-xs) var(--ds-space-sm);
+  border-radius: var(--ds-radius-sharp);
+  background: var(--ds-surface-02);
+  border: 1px solid var(--ds-border-00);
+  cursor: pointer;
+  transition:
+    background var(--ds-transition-fast),
+    border-color var(--ds-transition-fast),
+    transform var(--ds-duration-fast) var(--ds-ease-out),
+    box-shadow var(--ds-transition-fast);
+}
+
+.upm__row:hover {
+  background: var(--ds-surface-03);
+  border-color: var(--ds-border-01);
+  transform: translateY(-1px);
+  box-shadow: var(--ds-shadow-02);
+}
+
+.upm__row:focus-visible {
+  outline: none;
+  box-shadow: var(--ds-focus-ring);
+}
+
+.upm__row--disabled {
+  cursor: default;
+}
+
+.upm__row--disabled:hover {
+  transform: none;
+  box-shadow: none;
+}
+
+/* Critical rows (urgency score >= 8): subtle red glow pulse */
+@keyframes upm-critical-glow {
+  0%, 100% {
+    box-shadow: var(--ds-shadow-01);
+    border-color: var(--ds-red-border);
+  }
+  50% {
+    box-shadow: var(--ds-shadow-01), -3px 0 10px var(--ds-red-glow);
+    border-color: var(--ds-red-500);
+  }
+}
+
+.upm__row--critical {
+  background: var(--ds-red-bg);
+  border-color: var(--ds-red-border);
+  animation: upm-critical-glow 3.5s var(--ds-ease-in-out) infinite;
+}
+
+.upm__row--critical:hover {
+  background: var(--ds-red-bg-md);
+}
+
+/* Score bar column */
+.upm__score-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 3px;
+  flex-shrink: 0;
+  padding-top: 2px;
+  width: 24px;
+}
+
+.upm__score-bar-track {
+  width: 4px;
+  height: 36px;
+  background: var(--ds-surface-04);
+  border-radius: var(--ds-radius-pill);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+}
+
+.upm__score-bar-fill {
+  width: 100%;
+  border-radius: var(--ds-radius-pill);
+  transition: height var(--ds-transition-slow);
+}
+
+.upm__score-bar-fill--low {
+  background: var(--ds-teal-500);
+}
+
+.upm__score-bar-fill--mid {
+  background: var(--ds-amber-500);
+}
+
+.upm__score-bar-fill--high {
+  background: var(--ds-red-500);
+}
+
+.upm__score-num {
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  color: var(--ds-text-muted);
+  line-height: 1;
+}
+
+/* Main content column */
+.upm__content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.upm__row1 {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--ds-space-xs);
+}
+
+.upm__sender {
+  font-size: var(--ds-type-body-size);
+  font-weight: 600;
+  color: var(--ds-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+
+.upm__when {
+  font-size: 11px;
+  color: var(--ds-text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.upm__subject {
+  margin: 0;
+  font-size: var(--ds-type-body-size);
+  color: var(--ds-text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.upm__reason {
+  margin: 0;
+  font-size: 11px;
+  color: var(--ds-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.upm__reason-k {
+  font-weight: 700;
+  color: var(--ds-text-disabled);
+  text-transform: uppercase;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  margin-right: 4px;
+}
+
+.upm__flags {
+  margin: 0;
+  font-size: 10px;
+  color: var(--ds-amber-400);
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
+
+/* ============================================================================
+   TRUNCATION LINE
+   ============================================================================ */
+
+.upm__cap {
+  margin: var(--ds-space-xs) 0 0;
+  font-size: var(--ds-type-caption-size);
+  color: var(--ds-text-disabled);
+  text-align: center;
+}
+
+/* ============================================================================
+   EMPTY + ERROR STATES
+   ============================================================================ */
+
+.upm__empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--ds-space-xs);
+  padding: var(--ds-space-xl) 0;
+  text-align: center;
+}
+
+.upm__empty-icon {
+  font-size: 24px;
+  opacity: 0.3;
+}
+
+.upm__empty-text {
+  margin: 0;
+  font-size: var(--ds-type-body-size);
+  color: var(--ds-text-disabled);
+}
+
+.upm__error-text {
+  margin: 0;
+  font-size: var(--ds-type-body-size);
+  color: var(--ds-status-threat-text);
+  padding: var(--ds-space-sm) 0;
+}
+
+/* ============================================================================
+   SKELETON LOADING ROWS
+   ============================================================================ */
+
+.upm__skeleton-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.upm__skeleton-row {
+  display: flex;
+  gap: var(--ds-space-sm);
+  padding: var(--ds-space-xs) var(--ds-space-sm);
+  background: var(--ds-surface-02);
+  border: 1px solid var(--ds-border-00);
+  border-radius: var(--ds-radius-sharp);
+}
+
+.upm__skeleton-score {
+  width: 4px;
+  height: 36px;
+  flex-shrink: 0;
+}
+
+.upm__skeleton-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding-top: 3px;
+}

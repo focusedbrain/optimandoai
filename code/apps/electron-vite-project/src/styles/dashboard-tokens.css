@@ -1,0 +1,364 @@
+/*
+ * WR Desk™ — Enterprise Dashboard Design System Tokens
+ * Namespace: --ds-  (Dashboard System)
+ *
+ * Philosophy: security command center, not a marketing page.
+ * Bloomberg terminal meets modern enterprise SaaS.
+ * Dense, readable, confident. Data is the hero.
+ *
+ * DO NOT mix with the existing --bg-*, --text-*, --purple-* tokens.
+ * Import this file once and reference --ds-* everywhere in dashboard components.
+ */
+
+:root {
+
+  /* =========================================================================
+     SURFACE PALETTE — deep navy base, never pure black
+     ========================================================================= */
+
+  /* Ground — the canvas itself */
+  --ds-surface-00:  #0c1520;   /* deepest bg: scroll areas, page canvas         */
+  --ds-surface-01:  #0f1d2e;   /* primary app background                        */
+  --ds-surface-02:  #142235;   /* card background                               */
+  --ds-surface-03:  #1a2d44;   /* elevated card, panel                          */
+  --ds-surface-04:  #1f3550;   /* highest layer: modals, dropdowns              */
+  --ds-surface-05:  #244060;   /* interactive hover surface                     */
+
+  /* Border / divider stack */
+  --ds-border-00:   #1e2e42;   /* hairline divider — section separators         */
+  --ds-border-01:   #263d58;   /* card border                                   */
+  --ds-border-02:   #2e4d6e;   /* focused / highlighted border                  */
+  --ds-border-03:   #3a5f88;   /* strong border, active state                   */
+
+  /* =========================================================================
+     TEXT — calibrated for readability on dark surfaces
+     ========================================================================= */
+
+  --ds-text-primary:    #dce9f4;   /* primary reading text                      */
+  --ds-text-secondary:  #7fa4c0;   /* secondary / supporting                    */
+  --ds-text-muted:      #4e6e8a;   /* metadata, captions, disabled              */
+  --ds-text-disabled:   #2e4a60;   /* truly disabled, non-interactive            */
+  --ds-text-inverse:    #0f1d2e;   /* text on light/teal backgrounds            */
+
+  /* =========================================================================
+     TEAL / EMERALD — primary accent: active, secure, live, positive
+     Maps to: connected state, successful sort, sync on, PoAE verified
+     ========================================================================= */
+
+  --ds-teal-300:     #5eead4;   /* light: labels, inline decorations            */
+  --ds-teal-400:     #2dd4bf;   /* hover / highlight                            */
+  --ds-teal-500:     #14b8a6;   /* primary accent — buttons, active states      */
+  --ds-teal-600:     #0d9488;   /* pressed / deeper                             */
+  --ds-teal-700:     #0f766e;   /* very deep — structural accents               */
+
+  --ds-teal-bg:      rgba(20, 184, 166, 0.08);    /* tinted surface             */
+  --ds-teal-bg-md:   rgba(20, 184, 166, 0.14);    /* hover tinted surface       */
+  --ds-teal-border:  rgba(20, 184, 166, 0.22);    /* tinted card border         */
+  --ds-teal-glow:    rgba(20, 184, 166, 0.12);    /* box-shadow glow            */
+
+  /* =========================================================================
+     AMBER — warnings, pending review, sync paused, attention needed
+     ========================================================================= */
+
+  --ds-amber-300:    #fcd34d;
+  --ds-amber-400:    #fbbf24;
+  --ds-amber-500:    #f59e0b;   /* primary warning                              */
+  --ds-amber-600:    #d97706;
+
+  --ds-amber-bg:     rgba(245, 158, 11, 0.09);
+  --ds-amber-bg-md:  rgba(245, 158, 11, 0.15);
+  --ds-amber-border: rgba(245, 158, 11, 0.25);
+  --ds-amber-glow:   rgba(245, 158, 11, 0.10);
+
+  /* =========================================================================
+     CORAL-RED — threat, urgent, error, critical, delete
+     Slightly warm to distinguish from pure alarm red
+     ========================================================================= */
+
+  --ds-red-300:      #fca5a5;
+  --ds-red-400:      #f87171;
+  --ds-red-500:      #ef4444;   /* primary threat / urgent                      */
+  --ds-red-600:      #dc2626;
+
+  --ds-red-bg:       rgba(239, 68, 68, 0.09);
+  --ds-red-bg-md:    rgba(239, 68, 68, 0.15);
+  --ds-red-border:   rgba(239, 68, 68, 0.25);
+  --ds-red-glow:     rgba(239, 68, 68, 0.10);
+
+  /* =========================================================================
+     SLATE BLUE-GRAY — info, neutral, metadata, secondary actions
+     ========================================================================= */
+
+  --ds-slate-300:    #94a3b8;
+  --ds-slate-400:    #64748b;
+  --ds-slate-500:    #475569;
+
+  --ds-slate-bg:     rgba(100, 116, 139, 0.09);
+  --ds-slate-border: rgba(100, 116, 139, 0.22);
+
+  /* Cool blue — informational highlights only (not a dominant brand color) */
+  --ds-blue-400:     #60a5fa;
+  --ds-blue-500:     #3b82f6;
+  --ds-blue-bg:      rgba(59, 130, 246, 0.09);
+  --ds-blue-border:  rgba(59, 130, 246, 0.22);
+
+  /* =========================================================================
+     STATUS SEMANTIC ALIASES
+     ========================================================================= */
+
+  --ds-status-secure:         var(--ds-teal-500);
+  --ds-status-secure-bg:      var(--ds-teal-bg);
+  --ds-status-secure-border:  var(--ds-teal-border);
+  --ds-status-secure-text:    var(--ds-teal-300);
+
+  --ds-status-warning:        var(--ds-amber-500);
+  --ds-status-warning-bg:     var(--ds-amber-bg);
+  --ds-status-warning-border: var(--ds-amber-border);
+  --ds-status-warning-text:   var(--ds-amber-400);
+
+  --ds-status-threat:         var(--ds-red-500);
+  --ds-status-threat-bg:      var(--ds-red-bg);
+  --ds-status-threat-border:  var(--ds-red-border);
+  --ds-status-threat-text:    var(--ds-red-400);
+
+  --ds-status-info:           var(--ds-blue-400);
+  --ds-status-info-bg:        var(--ds-blue-bg);
+  --ds-status-info-border:    var(--ds-blue-border);
+  --ds-status-info-text:      var(--ds-blue-400);
+
+  --ds-status-neutral:        var(--ds-slate-300);
+  --ds-status-neutral-bg:     var(--ds-slate-bg);
+  --ds-status-neutral-border: var(--ds-slate-border);
+  --ds-status-neutral-text:   var(--ds-slate-300);
+
+  /* =========================================================================
+     TYPOGRAPHY TOKENS
+     ========================================================================= */
+
+  --ds-font-sans:  'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --ds-font-mono:  'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Consolas', 'Courier New', monospace;
+
+  /* Scale — use size + weight + letter-spacing together */
+
+  /* Display: chart titles, section heroes, large KPIs */
+  --ds-type-display-size:    22px;
+  --ds-type-display-weight:  600;
+  --ds-type-display-ls:      -0.035em;
+  --ds-type-display-lh:      1.2;
+
+  /* Heading: panel titles, card labels */
+  --ds-type-heading-size:    15px;
+  --ds-type-heading-weight:  600;
+  --ds-type-heading-ls:      -0.02em;
+  --ds-type-heading-lh:      1.3;
+
+  /* Subheading: section labels, group headers */
+  --ds-type-subheading-size:    12px;
+  --ds-type-subheading-weight:  600;
+  --ds-type-subheading-ls:      0.02em;
+  --ds-type-subheading-lh:      1.35;
+
+  /* Body: primary reading text, descriptions */
+  --ds-type-body-size:    13px;
+  --ds-type-body-weight:  400;
+  --ds-type-body-ls:      0em;
+  --ds-type-body-lh:      1.55;
+
+  /* Caption: metadata, timestamps, secondary labels */
+  --ds-type-caption-size:    11px;
+  --ds-type-caption-weight:  500;
+  --ds-type-caption-ls:      0.04em;
+  --ds-type-caption-lh:      1.4;
+
+  /* Overline: all-caps section category labels */
+  --ds-type-overline-size:    10px;
+  --ds-type-overline-weight:  700;
+  --ds-type-overline-ls:      0.10em;
+  --ds-type-overline-lh:      1.2;
+
+  /* Mono: counts, codes, IDs, numeric values */
+  --ds-type-mono-size:    12px;
+  --ds-type-mono-weight:  400;
+  --ds-type-mono-ls:      0em;
+  --ds-type-mono-lh:      1.5;
+
+  /* =========================================================================
+     SPACING SCALE — 4px base
+     ========================================================================= */
+
+  --ds-space-xs:   4px;
+  --ds-space-sm:   8px;
+  --ds-space-md:   16px;
+  --ds-space-lg:   24px;
+  --ds-space-xl:   32px;
+  --ds-space-xxl:  48px;
+
+  /* Compact variants for dense data cards */
+  --ds-space-2xs:  2px;
+  --ds-space-3xs:  1px;
+
+  /* =========================================================================
+     BORDER RADIUS
+     ========================================================================= */
+
+  --ds-radius-sharp:  4px;    /* data cards, metric cells, table rows          */
+  --ds-radius-md:     8px;    /* containers, panels, inputs                    */
+  --ds-radius-lg:     12px;   /* modals, large overlays                        */
+  --ds-radius-pill:   999px;  /* badges, tags, pills                           */
+
+  /* =========================================================================
+     ELEVATION — layered box-shadows with color tint (no pure-black)
+     ========================================================================= */
+
+  /* Level 1: Cards, inline panels — barely lifted */
+  --ds-shadow-01:
+    0 1px 2px rgba(0, 0, 0, 0.35),
+    0 0 0 1px rgba(255, 255, 255, 0.04);
+
+  /* Level 2: Elevated cards, dropdown triggers — clearly raised */
+  --ds-shadow-02:
+    0 2px 8px rgba(0, 0, 0, 0.45),
+    0 0 0 1px rgba(255, 255, 255, 0.05);
+
+  /* Level 3: Modals, popups, overlays — floating above content */
+  --ds-shadow-03:
+    0 8px 32px rgba(0, 0, 0, 0.55),
+    0 2px 8px rgba(0, 0, 0, 0.30),
+    0 0 0 1px rgba(255, 255, 255, 0.08);
+
+  /* Teal focus ring — for interactive elements */
+  --ds-focus-ring:
+    0 0 0 2px var(--ds-surface-01),
+    0 0 0 4px var(--ds-teal-500);
+
+  /* =========================================================================
+     TRANSITIONS
+     ========================================================================= */
+
+  --ds-duration-fast:   150ms;
+  --ds-duration-normal: 250ms;
+  --ds-duration-slow:   400ms;
+
+  /* Ease-out for UI micro-interactions — fast start, controlled finish */
+  --ds-ease-out:          cubic-bezier(0.16, 1, 0.3, 1);
+  /* Ease-in-out for larger movements */
+  --ds-ease-in-out:       cubic-bezier(0.45, 0, 0.55, 1);
+  /* Spring for badge/count updates */
+  --ds-ease-spring:       cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  --ds-transition-fast:   var(--ds-duration-fast)   var(--ds-ease-out);
+  --ds-transition-normal: var(--ds-duration-normal) var(--ds-ease-out);
+  --ds-transition-slow:   var(--ds-duration-slow)   var(--ds-ease-out);
+
+  /* =========================================================================
+     CHART COLOR PALETTE — 6 colors for dark backgrounds
+     Recharts-compatible; avoid over-saturated hues at small sizes
+     ========================================================================= */
+
+  --ds-chart-1: #2dd4bf;   /* teal — primary series                            */
+  --ds-chart-2: #60a5fa;   /* blue — secondary series                          */
+  --ds-chart-3: #fbbf24;   /* amber — warning series                           */
+  --ds-chart-4: #f87171;   /* red — threat/urgent series                       */
+  --ds-chart-5: #a3e635;   /* lime — efficiency/throughput series              */
+  --ds-chart-6: #c084fc;   /* violet — misc/other (used sparingly)             */
+
+  /* Grid + axis defaults for charts */
+  --ds-chart-grid-color:  rgba(255, 255, 255, 0.06);
+  --ds-chart-axis-color:  var(--ds-text-muted);
+  --ds-chart-tick-size:   10px;
+  --ds-chart-tooltip-bg:  var(--ds-surface-04);
+
+  /* =========================================================================
+     INTERACTIVE STATE TOKENS
+     ========================================================================= */
+
+  --ds-hover-bg:      var(--ds-surface-05);
+  --ds-active-bg:     var(--ds-surface-04);
+  --ds-selected-bg:   var(--ds-teal-bg);
+  --ds-selected-border: var(--ds-teal-500);
+
+  /* =========================================================================
+     SCROLLBAR — minimal, non-intrusive
+     ========================================================================= */
+
+  --ds-scrollbar-track: transparent;
+  --ds-scrollbar-thumb: rgba(255, 255, 255, 0.08);
+  --ds-scrollbar-thumb-hover: rgba(255, 255, 255, 0.14);
+}
+
+/* =============================================================================
+   LIGHT THEME — [data-ui-theme="light"] on any ancestor element.
+   Dark is the primary product look. Light is a professional alternative
+   for contexts that can't use a dark canvas (e.g. print, external embeds).
+   Only color/surface tokens are overridden — spacing and typography stay fixed.
+   ============================================================================= */
+
+[data-ui-theme="light"] {
+  /* Surfaces — warm white, never clinical */
+  --ds-surface-00:  #eef2f7;
+  --ds-surface-01:  #f5f8fc;
+  --ds-surface-02:  #ffffff;
+  --ds-surface-03:  #f1f5f9;
+  --ds-surface-04:  #e8edf4;
+  --ds-surface-05:  #dce3ec;
+
+  /* Borders */
+  --ds-border-00:   #e2e8f0;
+  --ds-border-01:   #cbd5e1;
+  --ds-border-02:   #94a3b8;
+  --ds-border-03:   #64748b;
+
+  /* Text — legible contrast on white */
+  --ds-text-primary:    #0f172a;
+  --ds-text-secondary:  #334155;
+  --ds-text-muted:      #64748b;
+  --ds-text-disabled:   #94a3b8;
+  --ds-text-inverse:    #f8fafc;
+
+  /* Accent tints — slightly more opaque on light to stay visible */
+  --ds-teal-bg:      rgba(20, 184, 166, 0.10);
+  --ds-teal-bg-md:   rgba(20, 184, 166, 0.18);
+  --ds-teal-border:  rgba(20, 184, 166, 0.30);
+  --ds-teal-glow:    rgba(20, 184, 166, 0.14);
+
+  --ds-amber-bg:     rgba(245, 158, 11, 0.09);
+  --ds-amber-bg-md:  rgba(245, 158, 11, 0.16);
+  --ds-amber-border: rgba(245, 158, 11, 0.32);
+  --ds-amber-glow:   rgba(245, 158, 11, 0.12);
+
+  --ds-red-bg:       rgba(239, 68, 68, 0.07);
+  --ds-red-bg-md:    rgba(239, 68, 68, 0.13);
+  --ds-red-border:   rgba(239, 68, 68, 0.26);
+  --ds-red-glow:     rgba(239, 68, 68, 0.10);
+
+  --ds-blue-bg:      rgba(59, 130, 246, 0.07);
+  --ds-blue-border:  rgba(59, 130, 246, 0.24);
+
+  --ds-slate-bg:     rgba(100, 116, 139, 0.07);
+  --ds-slate-border: rgba(100, 116, 139, 0.22);
+
+  /* Shadows — softer on white, no colour tint */
+  --ds-shadow-01:
+    0 1px 3px rgba(0, 0, 0, 0.09),
+    0 0 0 1px rgba(0, 0, 0, 0.05);
+  --ds-shadow-02:
+    0 2px 8px rgba(0, 0, 0, 0.11),
+    0 0 0 1px rgba(0, 0, 0, 0.06);
+  --ds-shadow-03:
+    0 8px 32px rgba(0, 0, 0, 0.13),
+    0 2px 8px rgba(0, 0, 0, 0.08),
+    0 0 0 1px rgba(0, 0, 0, 0.05);
+
+  /* Scrollbar */
+  --ds-scrollbar-thumb: rgba(0, 0, 0, 0.12);
+  --ds-scrollbar-thumb-hover: rgba(0, 0, 0, 0.22);
+
+  /* Chart grid on light */
+  --ds-chart-grid-color: rgba(0, 0, 0, 0.06);
+  --ds-chart-tooltip-bg: var(--ds-surface-04);
+}
+
+/* Dark theme is the :root default — alias exists only for explicit overrides */
+[data-ui-theme="dark"] {
+  /* All --ds-* defaults in :root are dark. No additional overrides needed. */
+}

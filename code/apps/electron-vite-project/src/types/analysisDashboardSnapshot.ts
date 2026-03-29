@@ -162,7 +162,115 @@ export interface AnalysisDashboardPoAESection {
   readonly truncated: boolean
 }
 
-// ── 4) Project / AI optimization (no persistence in V1) ─────────────────────
+// ── 4) Derived analytics (renderer-assembled from wire data) ─────────────────
+//
+// These sections are computed in `fetchAnalysisDashboardSnapshot` from the
+// existing wire payload. They do NOT require any new IPC or main-process changes.
+// `null` throughout means "not enough data to compute" — never treat as zero.
+
+/**
+ * Threat-adjacent message counts derived from `autosortCategoryCounts` on the
+ * latest completed session.
+ *
+ * Category mapping reality (as of V1 sort model):
+ *   - `spam`         → AI classified as delete-worthy / spam (stored via sortCategoryMap)
+ *   - `phish*`       → not a current model output; phishingDetected = 0 until model ships it
+ *   - `malicious*`   → not a current model output; maliciousAttachments = 0 until model ships it
+ *
+ * Consumers MUST treat `0` as "zero observed in latest session" and render it
+ * neutrally — not as "no threats possible". Trend is null until baseline exists.
+ */
+export interface AnalysisDashboardThreatMetrics {
+  /** Messages in categories matching phish/phishing patterns in latest session. */
+  readonly phishingDetected: number
+  /**
+   * Messages in spam/suspicious/junk/scam-matching categories in latest session.
+   * Includes the `spam` category produced by the sort model for delete-flagged mail.
+   */
+  readonly suspiciousSenders: number
+  /** Messages in malicious/virus/malware categories — 0 until model ships those labels. */
+  readonly maliciousAttachments: number
+  /** Sum of phishingDetected + suspiciousSenders + maliciousAttachments. */
+  readonly totalThreats: number
+  /**
+   * Percentage change vs prior session.
+   * `null` = no prior session available; do not render a trend arrow.
+   */
+  readonly threatTrend: number | null
+}
+
+/**
+ * Automation efficiency metrics derived from the latest completed autosort session.
+ *
+ * `accuracyRate` and `manualOverrides` require user feedback tracking — not yet
+ * persisted; both are null/0 until that feature ships.
+ * `timeSavedMinutes` is an estimate at 0.5 min (30 s) per message — clearly labelled
+ * as an estimate in the UI.
+ */
+export interface AnalysisDashboardAutomationMetrics {
+  /** `latestSession.totalMessages` — messages processed by the last run. */
+  readonly totalAutoSorted: number
+  /**
+   * Fraction of sort decisions not subsequently overridden by the user.
+   * `null` until feedback-loop tracking ships.
+   */
+  readonly accuracyRate: number | null
+  /**
+   * Count of messages the user manually re-categorised after a sort run.
+   * `0` means "not tracked yet" in V1 — render as N/A, not as a positive metric.
+   */
+  readonly manualOverrides: number
+  /**
+   * Estimated minutes saved: `totalAutoSorted × 0.5` (30 s per message).
+   * `null` when `totalAutoSorted === 0` (no session, or empty session).
+   * Always label this as an estimate in the UI.
+   */
+  readonly timeSavedMinutes: number | null
+}
+
+/**
+ * BEAP transport channel split for the main inbox (filter: 'all').
+ *
+ * Note: `nativeBeap + depackaged` does NOT necessarily equal `total` —
+ * the counts are independent queries (see `AnalysisDashboardMessageKindTotals` JSDoc).
+ * `total` here is simply the arithmetic sum of the two known slices.
+ */
+export interface AnalysisDashboardTransportRatio {
+  /** Count of native BEAP (handshake-sourced) messages. */
+  readonly nativeBeap: number
+  /** Count of depackaged email messages. */
+  readonly depackaged: number
+  /** Arithmetic sum: nativeBeap + depackaged (may be less than inbox `all` count). */
+  readonly total: number
+  /**
+   * `(nativeBeap / total) × 100`, rounded to one decimal place.
+   * `0` when total is 0 to avoid division by zero.
+   */
+  readonly nativePercent: number
+}
+
+/**
+ * Workflow queue pressure snapshot.
+ *
+ * `resolved24h` and `trend` require time-series history — not yet tracked
+ * per-session on the wire; both are null until that ships.
+ */
+export interface AnalysisDashboardQueueVelocity {
+  /** Current `pending_review` count from inbox tabs. */
+  readonly pending: number
+  /**
+   * Messages moved out of pending_review in the last 24 h.
+   * `null` = no time-series data available yet.
+   */
+  readonly resolved24h: number | null
+  /**
+   * Direction of pending queue relative to last snapshot.
+   * `null` = no prior baseline to compare against.
+   */
+  readonly trend: 'growing' | 'shrinking' | 'stable' | null
+}
+
+// ── 5) Project / AI optimization (no persistence in V1) ─────────────────────
 
 /**
  * No `projectId`, milestones, or “runs” — activation copy only until a real model exists.
@@ -173,7 +281,7 @@ export interface AnalysisDashboardProjectSetupSection {
   readonly body: string
 }
 
-// ── 5) Handshakes (optional, real handshake DB rows) ─────────────────────
+// ── 6) Handshakes (optional, real handshake DB rows) ─────────────────────
 
 export type AnalysisDashboardHandshakeState =
   | 'PENDING_ACCEPT'
@@ -245,6 +353,27 @@ export interface AnalysisDashboardSnapshot {
   readonly projectSetup: AnalysisDashboardProjectSetupSection
   /** Omitted from UI when `counts === null` (vault locked / error) */
   readonly handshakes: AnalysisDashboardHandshakeSection | null
+  /**
+   * Threat-adjacent message counts from the latest sort session.
+   * `null` when no completed session exists or `autosortCategoryCounts` is null.
+   * Derived entirely in the renderer — no new IPC required.
+   */
+  readonly threatMetrics: AnalysisDashboardThreatMetrics | null
+  /**
+   * Automation efficiency derived from the latest completed autosort session.
+   * `null` when no session exists.
+   */
+  readonly automationMetrics: AnalysisDashboardAutomationMetrics | null
+  /**
+   * BEAP channel split for the main inbox.
+   * `null` when the wire `messageKindOnMainInbox` data is unavailable.
+   */
+  readonly transportRatio: AnalysisDashboardTransportRatio | null
+  /**
+   * Workflow queue pressure snapshot.
+   * `null` when inbox tab counts are unavailable.
+   */
+  readonly queueVelocity: AnalysisDashboardQueueVelocity | null
 }
 
 /**

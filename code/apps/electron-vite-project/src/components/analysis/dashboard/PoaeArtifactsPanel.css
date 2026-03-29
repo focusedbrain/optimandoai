@@ -1,0 +1,288 @@
+/*
+ * WR Desk™ — PoAE Artifacts Panel
+ * Prefix: .pap- (PoAE Artifacts Panel)
+ * Depends on: dashboard-tokens.css (--ds-* variables), dashboard-base.css
+ */
+
+/* ============================================================================
+   SECTION WRAPPER
+   ============================================================================ */
+
+.pap {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* ============================================================================
+   HEADER
+   ============================================================================ */
+
+.pap__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ds-space-sm);
+  margin-bottom: var(--ds-space-sm);
+}
+
+.pap__head-left {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-xs);
+}
+
+.pap__title {
+  margin: 0;
+  font-size: var(--ds-type-overline-size);
+  font-weight: var(--ds-type-overline-weight);
+  letter-spacing: var(--ds-type-overline-ls);
+  text-transform: uppercase;
+  color: var(--ds-text-muted);
+  white-space: nowrap;
+}
+
+.pap__badge {
+  padding: 1px 7px;
+  border-radius: var(--ds-radius-pill);
+  font-size: var(--ds-type-caption-size);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  background: var(--ds-teal-bg);
+  color: var(--ds-teal-300);
+  border: 1px solid var(--ds-teal-border);
+  flex-shrink: 0;
+}
+
+.pap__badge--empty {
+  background: var(--ds-surface-04);
+  color: var(--ds-text-muted);
+  border-color: var(--ds-border-00);
+}
+
+/* ============================================================================
+   ARTIFACT LIST
+   ============================================================================ */
+
+.pap__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+/* Each artifact row */
+.pap__row {
+  display: flex;
+  gap: var(--ds-space-sm);
+  padding: var(--ds-space-xs) var(--ds-space-sm);
+  border-radius: var(--ds-radius-sharp);
+  background: var(--ds-surface-02);
+  border: 1px solid var(--ds-border-00);
+  /* Left border accent indicates artifact channel */
+  border-left-width: 3px;
+  transition:
+    background var(--ds-transition-fast),
+    border-color var(--ds-transition-fast);
+}
+
+.pap__row:hover {
+  background: var(--ds-surface-03);
+}
+
+/* Channel-specific left border colours */
+.pap__row--direct {
+  border-left-color: var(--ds-teal-500);
+}
+
+.pap__row--depackaged {
+  border-left-color: var(--ds-blue-400);
+}
+
+.pap__row--plain,
+.pap__row--other {
+  border-left-color: var(--ds-border-02);
+}
+
+.pap__main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* Row 1: protocol badge + timestamp */
+.pap__row1 {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ds-space-xs);
+}
+
+.pap__protocol {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.pap__protocol-beap {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  color: var(--ds-teal-300);
+  text-transform: uppercase;
+}
+
+.pap__protocol-sep {
+  color: var(--ds-border-02);
+  font-size: 11px;
+}
+
+.pap__protocol-ch {
+  font-size: 11px;
+  color: var(--ds-text-muted);
+}
+
+.pap__when {
+  font-size: 11px;
+  color: var(--ds-text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.pap__sender {
+  font-size: var(--ds-type-body-size);
+  font-weight: 600;
+  color: var(--ds-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pap__summary {
+  margin: 0;
+  font-size: var(--ds-type-body-size);
+  color: var(--ds-text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pap__refs {
+  margin: 0;
+  font-size: 11px;
+  font-family: var(--ds-font-mono);
+  color: var(--ds-text-disabled);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Action buttons column */
+.pap__actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-2xs);
+  align-items: flex-end;
+  flex-shrink: 0;
+  justify-content: center;
+}
+
+.pap__action-btn {
+  padding: 2px 10px;
+  border-radius: var(--ds-radius-sharp);
+  font-size: 11px;
+  font-weight: 600;
+  font-family: var(--ds-font-sans);
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    background var(--ds-transition-fast),
+    color var(--ds-transition-fast),
+    border-color var(--ds-transition-fast);
+}
+
+.pap__action-btn--copy {
+  background: none;
+  border: 1px solid var(--ds-border-01);
+  color: var(--ds-text-muted);
+}
+
+.pap__action-btn--copy:hover {
+  background: var(--ds-surface-04);
+  color: var(--ds-text-secondary);
+  border-color: var(--ds-border-02);
+}
+
+.pap__action-btn--open {
+  background: var(--ds-teal-bg);
+  border: 1px solid var(--ds-teal-border);
+  color: var(--ds-teal-300);
+}
+
+.pap__action-btn--open:hover {
+  background: var(--ds-teal-bg-md);
+  border-color: var(--ds-teal-400);
+}
+
+/* ============================================================================
+   TRUNCATION FOOTER
+   ============================================================================ */
+
+.pap__truncated {
+  margin: var(--ds-space-xs) 0 0;
+  font-size: var(--ds-type-caption-size);
+  color: var(--ds-text-disabled);
+  text-align: center;
+}
+
+/* ============================================================================
+   EMPTY / STATE
+   ============================================================================ */
+
+.pap__empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--ds-space-xs);
+  padding: var(--ds-space-xl) 0;
+  text-align: center;
+}
+
+.pap__empty-icon {
+  font-size: 22px;
+  opacity: 0.25;
+}
+
+.pap__empty-text {
+  margin: 0;
+  font-size: var(--ds-type-body-size);
+  color: var(--ds-text-disabled);
+}
+
+/* ============================================================================
+   SKELETON
+   ============================================================================ */
+
+.pap__skeleton-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.pap__skeleton-row {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: var(--ds-space-xs) var(--ds-space-sm);
+  background: var(--ds-surface-02);
+  border: 1px solid var(--ds-border-00);
+  border-left: 3px solid var(--ds-border-01);
+  border-radius: var(--ds-radius-sharp);
+}
