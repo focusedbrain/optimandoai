@@ -1,199 +1,231 @@
-# Post-Flight Report — Full Session (2026-03-29)
+# Post-Flight Report — qBEAP Decrypt Bug (One-Way / Role-Dependent)
 
-**Scope:** Comprehensive state snapshot after recent handshake / qBEAP work.  
-**Analysis only** — no code changes in this document.
-
----
-
-## 1. What Was Implemented This Session
-
-### 1A. Confirmed in this session (git + conversation)
-
-| Item | Files / evidence | Status |
-|------|------------------|--------|
-| **ensureKeyAgreementKeys paired key generation** | `apps/electron-vite-project/electron/main/handshake/ipc.ts` — `ensureKeyAgreementKeys` now **always** generates ML-KEM and X25519 keypairs in the main process; extension-supplied public-only material is ignored (`_params` unused). | **Implemented** — intended to fix acceptor `local_*` NULL and decrypt failure. |
-| **Analysis documentation** | `docs/analysis-acceptor-key-storage.md`, `docs/analysis-linux-decrypt-failure.md` | **Added** (committed with `fb74069b`). |
-| **Release workflow** | Build stamp **build5542** (already in `vite.config.ts` / `electron-builder.config.cjs`); extension + Electron rebuilt; `main` pushed to GitHub. | **Done** (operational). |
-
-### 1B. Broader inventory (repository state — not necessarily edited this session)
-
-The following appear in the codebase or prior commits; **this session did not necessarily modify each one**. Status reflects **code presence / docs**, not a full QA pass.
-
-| Feature / fix | Primary location(s) | Status (working / partial / unknown) |
-|---------------|---------------------|--------------------------------------|
-| **Inline BEAP composer (replaced popup)** | Extension BEAP UI / inline composer paths vs legacy popup | **Partial / product-dependent** — verify in UI. |
-| **Electron qBEAP decryption pipeline** | `electron/main/beap/decryptQBeapPackage.ts`, `beapEmailIngestion.ts` | **Working** when handshake row has correct `local_*` + inbound ciphertext; **was broken** on acceptor when `local_x25519_private_key_b64` was NULL (mitigated by paired-key fix). |
-| **AES-GCM tag handling** | `decryptQBeapPackage.ts` (payload / chunk decrypt) | **Unknown end-to-end** — failures reported at capsule chunk stage when keys or AAD diverge; see §2. |
-| **Outbox / Sent tab** | `sent_beap_outbox` migration v51, `main.ts` inserts/selects | **Present** — **unknown** Linux parity. |
-| **Send success feedback** | UI / P2P send paths | **Unknown** — not audited this session. |
-| **UI contrast fixes** | Various components | **Partial** (known issue list). |
-| **PQ auth (CORS + X-Launch-Secret)** | `main.ts` (CORS headers, launch secret), preload IPC for PQ | **Present in code**. |
-| **P2P size limit (100MB)** | `BeapPackageBuilder.ts` `P2P_PACKAGE_JSON_MAX_BYTES`, `ingestion/types.ts`, `preload.ts` | **Implemented** (100 × 1024 × 1024). |
-| **AI stream loop fix** | Orchestrator / stream handlers | **Partially fixed** (known issue). |
-| **Outbound message detection** | Inbox / depackaging | **Partial** — Linux doc notes outbound vs inbound decrypt confusion. |
-| **Reply button for native BEAP** | `EmailInboxView.tsx` — `handleReply` | **Broken / inert** for `direct_beap` / `email_beap` per `analysis-linux-decrypt-failure.md`. |
-| **Debug log native BEAP deletion** | Logging only | **Unknown** this session. |
-| **Context document upload in chat bar** | Feature-specific components | **Unknown** — not verified. |
-| **Field editability when selected for AI** | UI | **Unknown** — not verified. |
-| **force peer keys from accept capsule** | `enforcement.ts` (recent commits `3d7d3e96`, `950b8abc`) | **Implemented** on initiator side. |
+**Date:** 2026-03-29  
+**Scope:** Reproducible failure where **one party** cannot decrypt qBEAP while the **other** can, with direction determined by **handshake role** (initiator vs acceptor).  
+**Analysis only** — describes observed behavior, evidence, architecture, and ranked hypotheses. Not a substitute for a single confirmed root cause without sender-side logs or DB diff.
 
 ---
 
-## 2. The Critical Open Bug: AES-GCM / qBEAP Decrypt Failure
+## 1. The Bug (Observed)
 
-### 2A. Documented state (pre– and post–paired-key fix)
+| Direction | Decrypt |
+|-----------|---------|
+| **Initiator → Acceptor** | **Acceptor fails** to decrypt qBEAP (AES-GCM at capsule chunks). |
+| **Acceptor → Initiator** | **Initiator succeeds**. |
 
-**Before `ensureKeyAgreementKeys` always generated locals:**
+Flipping who initiated the handshake flips which side fails for inbound messages. This is **role-dependent**, not “random noise.”
 
-- Hybrid steps (ML-KEM, X25519, HKDF) could **appear** to run or **fail earlier** depending on branch; the **dominant acceptor failure** was **missing `local_x25519_private_key_b64` / ML-KEM secret** when the extension supplied **public-only** key material — see `docs/analysis-acceptor-key-storage.md`.
-- Symptom: **Initiator could decrypt** (correct `peer_*` = acceptor public from capsule); **acceptor could not** (no matching local private).
+**Symptom location:** Pipeline reports success through **ML-KEM decapsulation**, **X25519**, **hybrid concat**, and **HKDF** (capsule key material), then **AES-GCM decrypt fails** at the capsule chunk stage (`aes-gcm-capsule-chunks` / equivalent path in `decryptQBeapPackage.ts`).
 
-**After the paired-key fix (commit `fb74069b`):**
-
-- **Expected:** Acceptor DB rows created/updated on accept should have **non-NULL** `local_x25519_private_key_b64` and `local_mlkem768_secret_key_b64` for new handshakes.
-- **Not re-verified in this document:** Full **bidirectional** decrypt on Windows and Linux; testers should confirm **both directions** after **deleting old handshakes** and re-establishing.
-
-**If AES-GCM still fails at capsule chunk decrypt** after keys are present:
-
-- Suspects include **AAD mismatch**, **wrong chunk key**, **corrupt ciphertext**, or **header `receiver*` not matching** `local_*` public keys on the row (`decryptQBeapPackage` logs `Key match check`).
+**Important nuance:** If HKDF inputs are wrong, derived keys are wrong and GCM should fail — so “everything ✅ until GCM” must be interpreted carefully: either (a) the logged steps really use the same byte pipeline as GCM, or (b) some **additional** input (AAD, nonce scope, chunk index) diverges without changing the logged hybrid summary, or (c) instrumentation logs “success” at a coarse level while a subtle mismatch exists earlier. Treat **ML-KEM peer mismatch** and **AAD / chunk binding** as competing explanations until pinned by sender logs + DB equality checks.
 
 ---
 
-### 2B. Key flow problem — exact trace
+## 2. What the Evidence Says (Pipeline)
 
-#### SENDER (extension — `BeapPackageBuilder`)
+From field logs and code alignment:
 
-`BeapPackageBuilder.ts` uses `config.selectedRecipient` (lines ~980–1125):
+| Stage | Typical status in reports |
+|------|---------------------------|
+| ML-KEM-768 decapsulate | Reported ✅ (32-byte secret) |
+| X25519 DH | Reported ✅ (32-byte secret) |
+| Hybrid secret `SS_PQ \|\| SS_X25519` | Reported ✅ (64 bytes) |
+| HKDF → `capsuleKey` (and siblings) | Reported ✅ (32-byte keys) |
+| AES-GCM (capsule payload / chunks) | **❌** authentication failure or bad plaintext |
 
-1. **Recipient public keys** — `recipient.peerX25519PublicKey`, `recipient.peerPQPublicKey` (ML-KEM). Grep anchors:
+So the failure is **late** in the pipeline: either the **keys are wrong but logs are misleading**, or **keys are right** and **AAD / ciphertext binding** is wrong (canonical header bytes, chunk ordering, nonce reuse assumptions).
+
+---
+
+## 3. Evidence Collected (2026-03-29)
+
+### 3.1 Receiver (initiator) — `[qBEAP-decrypt] KEY IDENTITY CHECK`
+
+Captured when the **initiator** receives (working direction — message from **acceptor**):
 
 ```text
-1000:  const hasX25519KeyMaterial = hasValidX25519Key(recipient.peerX25519PublicKey)
-1110:  const ecdhResult = await deriveSharedSecretX25519(recipient.peerX25519PublicKey!)
-1118:    const peerMlkemPublicKey = recipient.peerPQPublicKey
-1125:    pqKemResult = await pqEncapsulate(peerMlkemPublicKey)
+ourLocalX25519Pub:   "qFvwysRDnwakepftKTKw7N+3"
+ourLocalMlkemPub:    "s9NwKhJpazotF3ik4wlxosOb"
+theirPeerX25519Pub:  "mTMw2FdT66+yXfByaMDlPkqd"
+theirPeerMlkemPub:   "ucCZ4pCOFkyJThlAMUlwy3EL"
+headerSenderX25519:  "i1Kk8xV/yZp89euor0/dwyjK"
+ourRole:             "initiator"
 ```
 
-2. **ML-KEM encapsulate** uses **`recipient.peerPQPublicKey`** (counterparty ML-KEM public).
+**How to read this row**
 
-3. **X25519 DH** uses **`recipient.peerX25519PublicKey`** (counterparty X25519 public).
+- **`ourLocal*`** — Initiator’s **handshake** key-agreement public keys (`local_*` on the initiator’s `handshakes` row). Used only for **identity / comparison logging** here; X25519 decrypt uses **private** `local_*` + header sender pub.
+- **`theirPeer*`** — On the initiator’s row, **`peer_*`** is “the counterparty” = **acceptor’s handshake public keys** (from the accept capsule / processing). So `theirPeerX25519Pub` / `theirPeerMlkemPub` are the **acceptor’s** published keys as seen by the initiator.
+- **`headerSenderX25519`** — For this inbound package, the **sender** (acceptor) placed their **device** X25519 public key in `header.crypto.senderX25519PublicKeyB64` (see `BeapPackageBuilder` + `x25519KeyAgreement.ts`).
 
-4. **Where from?** — Not from a separate extension-only SQL DB for BEAP keys. The extension’s `HandshakeRecord` is filled from **`normalizeRecord`** in `handshakeRpc.ts`:
+### 3.2 Handshake accept (initiator received accept capsule)
 
-```471:472:apps/extension-chromium/src/handshake/handshakeRpc.ts
-    peerX25519PublicKey: raw.peer_x25519_public_key_b64 ?? undefined,
-    peerPQPublicKey: raw.peer_mlkem768_public_key_b64 ?? undefined,
+```text
+senderX25519:  "mTMw2FdT66+yXfByaMDlPkqd"  (acceptor’s handshake X25519 public)
+senderMlkem:   "ucCZ4pCOFkyJThlAMUlwy3EL"  (acceptor’s handshake ML-KEM public)
 ```
 
-`raw` comes from **Electron main-process handshake records** over the **handshake RPC / IPC** path — i.e. **`peer_*` columns in the vault `handshakes` table**, projected to the extension.
+These **match** `theirPeerX25519Pub` / `theirPeerMlkemPub` on the initiator — consistent with `buildAcceptRecord` + `forcePeerKeysFromAcceptCapsule` persisting acceptor keys onto the initiator’s `peer_*` columns.
 
-5. **So for sending:** the builder encrypts to whatever **`peer_*`** the **local Electron DB** says is the counterparty for that `handshake_id`.
+### 3.3 Key observation — two public X25519 “identities” for the acceptor
 
-#### RECEIVER (Electron main — `decryptQBeapPackage`)
+- **`theirPeerX25519Pub`** = `"mTMw2FdT66+..."` — acceptor’s **handshake** X25519 public (what the initiator stores as `peer_x25519_public_key_b64`).
+- **`headerSenderX25519`** = `"i1Kk8xV/..."` — acceptor’s **device** X25519 public (what qBEAP puts in the wire header for **sending**).
 
-1. Loads **`getHandshakeRecord(db, handshakeId)`** — `local_x25519_private_key_b64`, `local_mlkem768_secret_key_b64`, `local_*_public_*`, etc.
-2. **ML-KEM decapsulate** — uses **`local_mlkem768_secret_key_b64`**.
-3. **X25519 DH** — uses **`local_x25519_private_key_b64`** with sender’s public from header.
-4. **HKDF** — derives **capsuleKey** (and related keys) from the hybrid secret.
+These **differ by design** in the current implementation: send path uses **device** keys for ECDH + header; handshake rows store **capsule / ensureKeyAgreementKeys** keys in `local_*` / `peer_*`. That **does not violate ECDH** by itself: hybrid X25519 uses **device private × peer public** on the sender and **local handshake private × sender device public** on the receiver (see `docs/analysis-x25519-key-identity.md`).
 
-#### THE QUESTION — same logical keying event?
+So **“two identities”** explains confusing logs; it is **not** alone proof of broken math.
 
-- **Source store:** Both **sender’s `peer_*`** (who I encrypt to) and **receiver’s `local_*`** (what I decrypt with) are intended to come from the **same canonical handshake row in the Electron vault DB**, synced to the extension for display/send.
-- **They are not independent random stores** — the extension **does not** generate a second unrelated keypair for `peer_*`; it displays what the main process persisted.
-- **Failure mode that *looked* like “different stores”:** **`peer_*` on the initiator** correctly held the acceptor’s **public** keys (from accept capsule), while **`local_*` on the acceptor** had **NULL private** (old `ensureKeyAgreementKeys` branch). Same handshake *logically*, but **incomplete local secret material** on the acceptor — **not** two different key generation events in two DBs.
+### 3.4 MISSING — sender-side `[BEAP-BUILD] KEYS`
 
-**After always-generating paired keys:** **`local_*` public and private on the acceptor** should match what goes into the **accept capsule** and thus what the **initiator** has as **`peer_*`** — **re-test required**.
+Diagnostic was added in `BeapPackageBuilder.ts` (renderer / extension bundle). **`console.log` from the extension does not appear in the Electron main-process terminal.** It appears in:
 
----
+- **Chrome DevTools** for the extension (service worker / offscreen / context where the builder runs), or  
+- Embedded extension console inside Electron if that path loads the extension with devtools.
 
-## 3. All Files Modified (inventory — recent `main`)
-
-From `git log` / session (not exhaustive for entire repo history):
-
-| File | Description |
-|------|-------------|
-| `code/apps/electron-vite-project/electron/main/handshake/ipc.ts` | `ensureKeyAgreementKeys` — always generate X25519 + ML-KEM pairs; ignore extension public-only keys. |
-| `code/docs/analysis-acceptor-key-storage.md` | Trace of accept flow, persistence, `peer_*` vs `local_*`. |
-| `code/docs/analysis-linux-decrypt-failure.md` | Linux qBEAP / Reply / outbound-vs-inbound analysis. |
-
-**Earlier related commits (same theme):** `enforcement.ts` / handshake pipeline — peer key force from accept capsule; build stamp churn — see `git log`.
+**Action:** Capture **`[BEAP-BUILD] KEYS`** from the **sender’s** DevTools when reproducing, or add a **main-process** log on the send IPC path if product allows.
 
 ---
 
-## 4. Database Schema Changes (handshake DB)
+## 4. Architecture — Where Keys Come From
 
-From `apps/electron-vite-project/electron/main/handshake/db.ts` migration descriptions:
+### 4.1 Sender (`BeapPackageBuilder.ts` — extension / renderer)
 
-| Version | Description |
-|---------|-------------|
-| **v50** | `local_x25519_private_key_b64`, `local_x25519_public_key_b64`, `local_mlkem768_secret_key_b64`, `local_mlkem768_public_key_b64` on `handshakes` (local BEAP material for Electron qBEAP decrypt). |
-| **v51** | `sent_beap_outbox` table + index (`sent_beap_outbox` ledger for previews/metadata). |
+1. **X25519:** `deriveSharedSecretX25519(recipient.peerX25519PublicKey)` uses **`getOrCreateDeviceKeypair()`** — **device** private key (`beap_x25519_device_keypair` in extension storage).
+2. **Header:** `senderX25519PublicKeyB64` = **`getDeviceX25519PublicKey()`** — same device keypair’s public key.
+3. **ML-KEM:** `pqEncapsulate(recipient.peerPQPublicKey)` — uses **`peer_mlkem768_public_key_b64`** projected as `peerPQPublicKey` from the **same handshake row** the UI selected (`handshakeRpc.ts` / shims).
 
-(Additional migrations exist for inbox, P2P, `peer_*` columns, etc. — full list in `db.ts` migration array.)
+So the sender always encrypts **to** whatever **`peer_*`** the **local** handshake projection says is the counterparty, while signing the classical leg with **device** X25519.
 
----
+### 4.2 Receiver (`decryptQBeapPackage.ts` — Electron main)
 
-## 5. Known Issues
+1. **X25519:** `x25519.getSharedSecret(localPriv, peerPub)` with `localPriv` = **`local_x25519_private_key_b64`**, `peerPub` from **`header.crypto.senderX25519PublicKeyB64`** (sender’s **device** public).
+2. **ML-KEM:** `ml_kem768.decapsulate(ciphertext, sk)` with `sk` = **`local_mlkem768_secret_key_b64`**.
+3. **HKDF / AES-GCM:** Derived from hybrid secret + salt; GCM uses **`computeEnvelopeAadBytes(header)`** for AAD (`beapEnvelopeAad`).
 
-| Issue | Notes |
-|-------|--------|
-| **AES-GCM / qBEAP decrypt on acceptor** | Mitigation: paired `ensureKeyAgreementKeys`; **confirm** on fresh handshakes. |
-| **AI-ANALYZE-STREAM infinite loop** | Reported as partially fixed; may still reproduce. |
-| **Ollama errors when not installed** | Log noise; suppress/filter TBD. |
-| **Extension inbox** | Reported broken in places — needs targeted QA. |
-| **UI contrast** | Audit done elsewhere; fixes partial. |
-| **Reply on native BEAP** | `handleReply` does not handle `direct_beap` / `email_beap` — **platform-independent** gap per analysis doc. |
+### 4.3 Handshake key generation (`ensureKeyAgreementKeys` in `ipc.ts`)
 
----
+Generates **fresh** X25519 + ML-KEM in the **main process**; persisted as **`local_*`** on the corresponding party’s row. Extension-supplied public-only hints in `_params` are **not** used to pick those bytes (by design in current code).
 
-## 6. Architecture Decisions (current)
+### 4.4 Peer keys on the initiator after accept (`enforcement.ts`)
 
-| Decision | Rationale |
-|----------|-----------|
-| **Electron-side decrypt** | Vault + SQLCipher + native crypto; extension does not merge private BEAP decrypt for inbox qBEAP in the same way. |
-| **Inline composers** | UX direction vs modal popups (degree of rollout varies). |
-| **Outbox as separate table** | `sent_beap_outbox` (v51) for sent BEAP metadata/previews without overloading inbox schema. |
-| **Always-generate paired keys in `ensureKeyAgreementKeys`** | Guarantees main process holds **both** public (for capsule) and private/secret (for DB) from the **same** keygen — fixes public-only extension path leaving NULL locals. |
+`forcePeerKeysFromAcceptCapsule` **UPDATE**s `peer_x25519_public_key_b64` and `peer_mlkem768_public_key_b64` from the accept capsule so the initiator’s row matches the acceptor’s published keys — mitigating drift from `buildAcceptRecord` alone.
 
 ---
 
-## 7. Test Results
+## 5. Gap Analysis — Why One Direction Fails
 
-**Note:** Values below reflect **reported / analytical** state, not a fresh automated run on 2026-03-29.
+### 5.1 What must be true for decrypt to succeed
 
-| Test | Windows | Linux |
-|------|---------|-------|
-| Send qBEAP (initiator → acceptor) | Expected ✅ after key fix | **?** |
-| Send qBEAP (acceptor → initiator) | **?** | **?** |
-| Decrypt received message | ✅ initiator (historically); acceptor **was** ❌ before fix | ❌ acceptor reported; outbound confusion documented |
-| Inline composer | ✅ reported | ✅ reported |
-| PQ encapsulation | ✅ reported | ✅ reported |
-| P2P delivery | ✅ reported | ✅ reported |
-| Outbox / Sent tab | ✅ reported | **?** |
-| Attachment display | ✅ initiator reported | ❌ acceptor reported |
+For party **R** decrypting a message from party **S**:
 
-**Action:** Re-run this matrix after installing a build that includes **`fb74069b`** and **new handshakes**.
+1. **ML-KEM:** `encapsulate(peer_mlkem_public_on_S_sender_machine)` must use the **same** ML-KEM **public** key as **R**’s **`local_mlkem768_public_key_b64`** on **R**’s machine. Otherwise decapsulate yields a different shared secret.
+2. **X25519:** **S** uses **device** private × **R**’s public from **S**’s `peer_x25519_public_key_b64`. **R** uses **handshake** private × **S**’s device public from header. This matches **iff** **S**’s `peer_x25519` for **R** equals **R**’s **`local_x25519_public_key_b64`** on **R**’s DB (see X25519 analysis doc).
+3. **AAD / chunks:** Builder and decrypt must agree on **canonical header bytes** and **chunk indices / nonces** for the same package version.
+
+### 5.2 Asymmetry of the data path
+
+- **Initiator → Acceptor (fails on acceptor):**  
+  **Sender** = initiator (extension on initiator). Sender reads **`peer_*` from the initiator’s Electron DB** (counterparty = acceptor).  
+  **Receiver** = acceptor (decrypt on acceptor). Receiver uses **`local_*` from the acceptor’s DB**.
+
+  For this to work, **initiator’s `peer_*`** must equal **acceptor’s `local_*` public keys** (same keygen event as stored on acceptor). If the initiator’s row has **stale or wrong** `peer_mlkem768_public_key_b64` / `peer_x25519_public_key_b64` for the acceptor while the acceptor’s **`local_*`** were **rotated** or **never synced** to the initiator’s view, **only this direction breaks**: the initiator encapsulates to the **wrong** ML-KEM public key → wrong hybrid → GCM fails on acceptor.
+
+- **Acceptor → Initiator (works on initiator):**  
+  **Sender** = acceptor; **`peer_*`** on **acceptor’s** row must match **initiator’s `local_*` public** keys. If that row stayed consistent (e.g. initiator keys stable, accept path wrote peer keys correctly), decrypt succeeds.
+
+So **one-way failure** is exactly what you expect when **`peer_*` on side A’s machine ≠ `local_*` public on side B’s machine**, while the **reverse** mapping is still correct. The bug is often **stale or asymmetric DB projection**, not necessarily “device vs handshake” in isolation.
+
+### 5.3 Why “device vs handshake” still matters for debugging
+
+Logs will show **different strings** for the same person (device pub in header vs handshake pub in `peer_*`). That is **expected** with current sender code. **Do not** treat inequality of `headerSenderX25519` vs `theirPeerX25519Pub` as proof of broken ECDH; **do** compare:
+
+- **Sender’s** `recipPeerMlkem` / `recipPeerX25519` (**`[BEAP-BUILD] KEYS`**) to **receiver’s** `ourLocalMlkemPub` / `ourLocalX25519Pub` on the **receiver** machine for the **same** `handshake_id`.
+
+### 5.4 Alternative — AAD / envelope parity
+
+If keys are verified equal but GCM still fails, next suspects are:
+
+- **`computeEnvelopeAadBytes`** differing between extension builder and main decrypt (field ordering, optional sections, version flags).
+- **Chunking:** index sorting, combined AAD per chunk vs single envelope AAD.
+- **Eligibility / inner envelope** if additional MAC layers exist on the payload path.
+
+These tend to be **symmetric** unless builder emits different header shapes per role — less likely than **peer/local mismatch**, but keep in the checklist.
 
 ---
 
-## 8. Next Steps (Priority Order)
+## 6. Root Cause Hypotheses (Ranked)
 
-1. **Runtime verification:** Initiator → acceptor and acceptor → initiator **decrypt** with **new** handshakes; confirm `local_*` non-NULL in SQLite and `[qBEAP-decrypt]` success on both sides.
-2. If GCM still fails with valid keys: **capture** `Key match check` logs + AAD/capsule chunk step — possible separate bug from key provisioning.
-3. **AI stream loop** — finish fix + tests.
-4. **Suppress Ollama** noise when service absent.
-5. **UI contrast** — complete remaining tokens.
-6. **Inline email composer** — as scheduled.
-7. **Context document upload** — as scheduled.
-8. **Extension inbox** — repair paths + regression tests.
-9. **Reply** — implement `direct_beap` / `email_beap` in `handleReply` (see Linux analysis doc).
+| Rank | Hypothesis | Falsify / confirm |
+|------|------------|-------------------|
+| 1 | **Initiator’s `peer_*` for the acceptor does not match acceptor’s current `local_*` public keys** (especially ML-KEM). Causes wrong encapsulation from initiator extension → wrong hybrid on acceptor. | Compare **`[BEAP-BUILD] KEYS`** on initiator send to **`ourLocal*`** on acceptor decrypt; SQL on both DBs for same `handshake_id`. |
+| 2 | **Stale handshake RPC / cached extension record** so UI send uses old `peerPQPublicKey`. | Hard-refresh extension, re-fetch handshakes, compare RPC payload to SQLite. |
+| 3 | **Second key rotation** on acceptor (re-accept, repair) without initiator ingesting new peer keys. | Audit logs for `ensureKeyAgreementKeys` / accept replay; compare `forcePeerKeysFromAcceptCapsule` runs. |
+| 4 | **AAD / chunk / header parity** bug (less likely if strictly one-way with same code version). | Binary diff of `computeEnvelopeAadBytes` input on both sides; enable verbose builder validation if present. |
+
+---
+
+## 7. What To Do Next (Operational)
+
+1. **Sender log (renderer):** Open **Chrome extension DevTools** (or Electron’s extension debugger) and capture **`[BEAP-BUILD] KEYS`** when **initiator sends** to acceptor.
+2. **Receiver log (main):** Keep **`[qBEAP-decrypt] KEY IDENTITY CHECK`** on acceptor when decrypt fails.
+3. **Compare (same handshake):**
+   - `recipPeerX25519` ↔ acceptor `ourLocalX25519Pub`
+   - `recipPeerMlkem` ↔ acceptor `ourLocalMlkemPub`
+   - `devicePub` ↔ `headerSenderX25519` (when acceptor is sender; when initiator is sender, same pattern with roles swapped)
+4. **SQL snapshot (both machines if possible):**
+
+```sql
+SELECT handshake_id, state, local_role,
+  substr(peer_x25519_public_key_b64, 1, 24) AS peer_x25519,
+  substr(peer_mlkem768_public_key_b64, 1, 24) AS peer_mlkem,
+  substr(local_x25519_public_key_b64, 1, 24) AS local_x25519,
+  substr(local_mlkem768_public_key_b64, 1, 24) AS local_mlkem
+FROM handshakes
+WHERE handshake_id = '<id>';
+```
+
+5. **If peer ≠ counterparty local public:** Trace why initiator’s row did not update after accept; confirm `forcePeerKeysFromAcceptCapsule` and handshake RPC normalization.
+
+---
+
+## 8. Files (Reference)
+
+| File | Role |
+|------|------|
+| `apps/extension-chromium/src/beap-messages/services/BeapPackageBuilder.ts` | qBEAP encrypt; `[BEAP-BUILD] KEYS` |
+| `apps/extension-chromium/src/beap-messages/services/x25519KeyAgreement.ts` | Device X25519 ECDH |
+| `apps/electron-vite-project/electron/main/beap/decryptQBeapPackage.ts` | qBEAP decrypt; KEY IDENTITY CHECK |
+| `apps/electron-vite-project/electron/main/beap/beapEnvelopeAad.ts` | AAD bytes for GCM |
+| `apps/electron-vite-project/electron/main/handshake/ipc.ts` | `ensureKeyAgreementKeys`, accept path |
+| `apps/electron-vite-project/electron/main/handshake/enforcement.ts` | `forcePeerKeysFromAcceptCapsule`, `buildAcceptRecord` |
+| `apps/extension-chromium/src/handshake/handshakeRpc.ts` | Maps DB `peer_*` → extension `peerX25519` / `peerPQ` |
+| `docs/analysis-x25519-key-identity.md` | Device vs handshake ECDH analysis |
+
+---
+
+## 9. Commits (Referenced in Investigation)
+
+- `fb74069b` — `ensureKeyAgreementKeys` always generates paired keys in main (addresses NULL `local_*` on acceptor).
+- `95a07271` — outbound qBEAP detection + Reply-related behavior (context from history).
+- `3d7d3e96` / `950b8abc` — `forcePeerKeysFromAcceptCapsule` and accept-path peer key alignment.
+
+---
+
+## 10. Session Inventory (Brief)
+
+Earlier session notes also tracked: inline composer, outbox v51, PQ auth, P2P limits, Linux decrypt / Reply gaps — see previous sections of this file’s history and `docs/analysis-linux-decrypt-failure.md`. They are **orthogonal** to the one-way qBEAP key-direction bug unless outbound routing picks the wrong handshake or message type.
+
+---
+
+## 11. Summary
+
+The **role-dependent** decrypt failure is consistent with **asymmetric wrong `peer_*` on the sender’s machine relative to the receiver’s `local_*` public keys**, especially **ML-KEM**, while the **reverse direction** still has a consistent peer/local pair. **Device X25519 in the header vs handshake X25519 in `peer_*`** is a **red herring** for ECDH correctness if the math and peer publics align; it **does** explain confusing logs. **Confirm with sender-side `[BEAP-BUILD] KEYS`** and cross-DB equality checks before changing crypto primitives.
 
 ---
 
 ## References
 
+- `docs/analysis-x25519-key-identity.md`
 - `docs/analysis-acceptor-key-storage.md`
 - `docs/analysis-linux-decrypt-failure.md`
-- `apps/extension-chromium/src/handshake/handshakeRpc.ts` — `normalizeRecord`
-- `apps/extension-chromium/src/beap-messages/services/BeapPackageBuilder.ts` — qBEAP hybrid encrypt
-- `apps/electron-vite-project/electron/main/beap/decryptQBeapPackage.ts` — qBEAP decrypt

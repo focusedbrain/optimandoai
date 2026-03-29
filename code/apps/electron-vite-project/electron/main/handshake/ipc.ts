@@ -623,6 +623,33 @@ export async function handleHandshakeRPC(
       } catch (err: any) {
         return { success: false, error: `Invalid package: ${err?.message ?? 'decode failed'}` }
       }
+      // Main-process diagnostic: compare DB peer_* / local_* to wire header (sender keys in package).
+      try {
+        const pkgAny = pkg as Record<string, unknown>
+        const header = pkgAny?.header as Record<string, unknown> | undefined
+        const hdr =
+          header?.crypto && typeof header.crypto === 'object' && header.crypto !== null
+            ? (header.crypto as Record<string, unknown>)
+            : pkgAny?.crypto && typeof pkgAny.crypto === 'object' && pkgAny.crypto !== null
+              ? (pkgAny.crypto as Record<string, unknown>)
+              : {}
+        const senderX25519B64 =
+          typeof hdr.senderX25519PublicKeyB64 === 'string' ? hdr.senderX25519PublicKeyB64 : ''
+        console.log(
+          '[P2P-SEND] SENDER KEY CHECK:',
+          JSON.stringify({
+            ourPeerX25519ForRecipient: record.peer_x25519_public_key_b64?.substring(0, 24) || 'NULL',
+            ourPeerMlkemForRecipient: record.peer_mlkem768_public_key_b64?.substring(0, 24) || 'NULL',
+            ourLocalX25519Pub: record.local_x25519_public_key_b64?.substring(0, 24) || 'NULL',
+            ourLocalMlkemPub: record.local_mlkem768_public_key_b64?.substring(0, 24) || 'NULL',
+            headerSenderX25519: senderX25519B64 ? senderX25519B64.substring(0, 24) : 'N/A',
+            handshakeId,
+            ourRole: record.local_role || 'unknown',
+          }),
+        )
+      } catch (e) {
+        console.log('[P2P-SEND] Key check parse error:', e)
+      }
       // `pkg` is parsed JSON: BEAP message package (header/metadata/envelope|payload) from the extension,
       // or a capsule envelope — coordination `/beap/capsule` accepts both (see coordination-service).
       console.log(`[P2P-SEND] Enqueuing capsule for handshake ${handshakeId} → ${targetEndpoint}`)
