@@ -1072,6 +1072,14 @@ export async function handleHandshakeRPC(
         sender_mlkem768_public_key_b64: (params as any).senderMlkem768PublicKeyB64 ?? (params as any).key_agreement?.mlkem768_public_key_b64,
       })
 
+      console.log('[HANDSHAKE-ACCEPT] Key agreement for accept capsule:', {
+        handshake_id,
+        hasX25519: !!acceptKeyAgreement.sender_x25519_public_key_b64?.trim(),
+        x25519Len: acceptKeyAgreement.sender_x25519_public_key_b64?.length ?? 0,
+        hasMlkem: !!acceptKeyAgreement.sender_mlkem768_public_key_b64?.trim(),
+        mlkemLen: acceptKeyAgreement.sender_mlkem768_public_key_b64?.length ?? 0,
+      })
+
       const { capsule, keypair } = buildAcceptCapsule(session, {
         handshake_id,
         initiatorUserId,

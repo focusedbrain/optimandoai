@@ -419,6 +419,17 @@ export function buildAcceptCapsule(
       ? signCapsuleHash(initiatorCapsuleHash, keypair.privateKey)
       : undefined
 
+  if (!opts.sender_x25519_public_key_b64?.trim()) {
+    console.error('[CAPSULE-BUILD] WARNING: accept capsule missing X25519 public key!', {
+      handshake_id: opts.handshake_id,
+    })
+  }
+  if (!opts.sender_mlkem768_public_key_b64?.trim()) {
+    console.error('[CAPSULE-BUILD] WARNING: accept capsule missing ML-KEM public key!', {
+      handshake_id: opts.handshake_id,
+    })
+  }
+
   const capsule: HandshakeCapsuleWire = {
     schema_version: 2,
     capsule_type: 'accept',

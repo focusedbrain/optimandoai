@@ -647,6 +647,15 @@ function buildAcceptRecord(
   senderX25519: string | null,
   senderMlkem768: string | null,
 ): HandshakeRecord {
+  console.log('[HANDSHAKE-ACCEPT-PROCESS] Storing peer keys on initiator:', {
+    handshakeId: existing.handshake_id,
+    localRole: existing.local_role,
+    senderX25519: senderX25519?.substring(0, 20) || 'NULL',
+    senderMlkem768: senderMlkem768?.substring(0, 20) || 'NULL',
+    existingPeerX25519: existing.peer_x25519_public_key_b64?.substring(0, 20) || 'NULL',
+    existingPeerMlkem: existing.peer_mlkem768_public_key_b64?.substring(0, 20) || 'NULL',
+  })
+
   return {
     ...existing,
     state: HS.ACCEPTED,  // ACTIVE only after context roundtrip (see buildContextSyncRecord)
@@ -705,6 +714,16 @@ function buildContextSyncRecord(
   const receivedContextSync = existing.state === HS.ACCEPTED && input.seq >= 1
   const ownSent = !existing.context_sync_pending
   const nextState = receivedContextSync && ownSent ? HS.ACTIVE : existing.state
+  if (nextState === HS.ACTIVE) {
+    if (!existing.peer_x25519_public_key_b64?.trim() || !existing.peer_mlkem768_public_key_b64?.trim()) {
+      console.error('[HANDSHAKE] CRITICAL: Handshake ACTIVE but missing peer BEAP keys!', {
+        handshakeId: existing.handshake_id,
+        localRole: existing.local_role,
+        hasPeerX25519: !!existing.peer_x25519_public_key_b64?.trim(),
+        hasPeerMlkem: !!existing.peer_mlkem768_public_key_b64?.trim(),
+      })
+    }
+  }
   return {
     ...existing,
     state: nextState,
