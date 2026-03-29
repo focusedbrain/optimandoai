@@ -33,7 +33,6 @@ import { hasHandshakeKeyMaterial, type SelectedHandshakeRecipient } from '@ext/h
 import { listHandshakes } from '../shims/handshakeRpc'
 
 /** Local HTTP API for orchestrator DB (matches `HTTP_PORT` in electron/main.ts). */
-const ORCHESTRATOR_HTTP_BASE = 'http://127.0.0.1:51248'
 
 /** Map ledger handshake row (main DB shape) to builder `SelectedHandshakeRecipient`. */
 function mapLedgerRecordToSelectedRecipient(raw: Record<string, unknown>): SelectedHandshakeRecipient {
@@ -585,21 +584,24 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
   useEffect(() => {
     if (!isNativeBeap) return
     const loadSessions = async () => {
-      try {
-        await fetch(`${ORCHESTRATOR_HTTP_BASE}/api/orchestrator/connect`, { method: 'POST' })
-      } catch {
-        /* best-effort — listSessions may still connect */
+      const api = window.orchestrator
+      if (typeof api?.connect !== 'function' || typeof api?.listSessions !== 'function') {
+        setAvailableSessions([])
+        return
       }
       try {
-        const res = await fetch(`${ORCHESTRATOR_HTTP_BASE}/api/orchestrator/sessions`)
-        const json = (await res.json()) as { success?: boolean; data?: Array<{ id: string; name: string }> }
+        await api.connect()
+        const json = (await api.listSessions()) as {
+          success?: boolean
+          data?: Array<{ id: string; name: string }>
+        }
         if (json.success && Array.isArray(json.data)) {
           setAvailableSessions(json.data.map((s) => ({ id: s.id, name: s.name })))
         } else {
           setAvailableSessions([])
         }
       } catch (e) {
-        console.warn('Failed to load orchestrator sessions:', e)
+        console.warn('Failed to load orchestrator sessions (IPC):', e)
         setAvailableSessions([])
       }
     }

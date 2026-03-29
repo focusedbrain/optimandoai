@@ -549,11 +549,31 @@ function orchestratorBuildMeta(): { orchestratorBuildStamp: string; orchestrator
 
 // CORS: Allowed origins for WRDesk (extension + website). No wildcard in production.
 const CORS_ALLOWED_ORIGINS = new Set(['https://wrdesk.com', 'https://www.wrdesk.com'])
+
+/**
+ * Electron renderer (Vite dev) runs at http://localhost:&lt;port&gt; or http://127.0.0.1:&lt;port&gt;.
+ * Extension library code (@ext/beapCrypto, BeapPackageBuilder) uses fetch to 127.0.0.1:51248 — without
+ * this, the browser blocks cross-origin requests from the dev server to the orchestrator HTTP port.
+ * Restrict to loopback + non-privileged ports only (not a public CORS *).
+ */
+function isLocalDevHttpOrigin(origin: string): boolean {
+  try {
+    const u = new URL(origin)
+    if (u.protocol !== 'http:') return false
+    if (u.hostname !== 'localhost' && u.hostname !== '127.0.0.1') return false
+    const port = u.port ? parseInt(u.port, 10) : 80
+    if (!Number.isFinite(port)) return false
+    return port >= 1024 && port <= 65535
+  } catch {
+    return false
+  }
+}
+
 function isCorsAllowedOrigin(origin: string | undefined): boolean {
   if (!origin) return false
   if (CORS_ALLOWED_ORIGINS.has(origin)) return true
   if (origin.startsWith('chrome-extension://')) return true
-  return false
+  return isLocalDevHttpOrigin(origin)
 }
 
 function corsPnaHeaders(origin: string | undefined, requestPrivateNetwork: boolean): Record<string, string> {
@@ -4283,10 +4303,9 @@ app.whenReady().then(async () => {
           return
         }
         const headers: Record<string, string> = {
-          'Content-Type': 'application/json',
           ...corsPnaHeaders(origin, requestPrivateNetwork),
         }
-        res.writeHead(200, headers)
+        res.writeHead(204, headers)
         res.end()
         return
       }
@@ -5304,7 +5323,7 @@ app.whenReady().then(async () => {
         }
         const headers = corsPnaHeaders(origin, requestPrivateNetwork)
         for (const [k, v] of Object.entries(headers)) res.setHeader(k, v)
-        res.status(200).end()
+        res.status(204).end()
         return
       }
 
