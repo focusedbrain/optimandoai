@@ -58,6 +58,51 @@ function mapCapsuleTypeToHandshake(type: string): 'handshake-initiate' | 'handsh
   }
 }
 
+/** Accept capsule may carry key agreement fields at top level or nested (relay / transport). */
+function extractAcceptCapsuleSenderKeyMaterial(capsuleObj: Record<string, any>): {
+  senderX25519: string | null
+  senderMlkem768: string | null
+} {
+  const pick = (o: any, k: string): string | null => {
+    if (!o || typeof o !== 'object') return null
+    const v = o[k]
+    return typeof v === 'string' && v.trim().length > 0 ? v.trim() : null
+  }
+  let senderX25519 = pick(capsuleObj, 'sender_x25519_public_key_b64')
+  let senderMlkem768 = pick(capsuleObj, 'sender_mlkem768_public_key_b64')
+  if (!senderX25519) senderX25519 = pick(capsuleObj?.capsule, 'sender_x25519_public_key_b64')
+  if (!senderMlkem768) senderMlkem768 = pick(capsuleObj?.capsule, 'sender_mlkem768_public_key_b64')
+  if (!senderX25519) senderX25519 = pick(capsuleObj?.payload, 'sender_x25519_public_key_b64')
+  if (!senderMlkem768) senderMlkem768 = pick(capsuleObj?.payload, 'sender_mlkem768_public_key_b64')
+  return { senderX25519, senderMlkem768 }
+}
+
+/**
+ * Direct UPDATE so `peer_*` match the accept capsule (acceptor's public keys on initiator row).
+ * Runs inside the same transaction as `updateHandshakeRecord` for accept.
+ */
+function forcePeerKeysFromAcceptCapsule(
+  db: any,
+  handshakeId: string,
+  peerX25519: string | null,
+  peerMlkem: string | null,
+): void {
+  if (peerX25519 && typeof peerX25519 === 'string' && peerX25519.trim().length > 20) {
+    db.prepare(`UPDATE handshakes SET peer_x25519_public_key_b64 = ? WHERE handshake_id = ?`).run(
+      peerX25519.trim(),
+      handshakeId,
+    )
+    console.log('[HANDSHAKE-FIX] Forced peer X25519 from accept:', peerX25519.substring(0, 20))
+  }
+  if (peerMlkem && typeof peerMlkem === 'string' && peerMlkem.trim().length > 100) {
+    db.prepare(`UPDATE handshakes SET peer_mlkem768_public_key_b64 = ? WHERE handshake_id = ?`).run(
+      peerMlkem.trim(),
+      handshakeId,
+    )
+    console.log('[HANDSHAKE-FIX] Forced peer ML-KEM from accept:', peerMlkem.substring(0, 20))
+  }
+}
+
 /**
  * Extract a VerifiedCapsuleInput from a ValidatedCapsule.
  * The ValidatedCapsule carries the validated payload as a generic object;
@@ -299,14 +344,30 @@ export function processHandshakeCapsule(
     (typeof capsuleObj?.p2p_auth_token === 'string' && capsuleObj.p2p_auth_token.trim().length > 0)
       ? capsuleObj.p2p_auth_token.trim()
       : null
-  const senderX25519: string | null =
-    (typeof capsuleObj?.sender_x25519_public_key_b64 === 'string' && capsuleObj.sender_x25519_public_key_b64.trim().length > 0)
-      ? capsuleObj.sender_x25519_public_key_b64.trim()
-      : null
-  const senderMlkem768: string | null =
-    (typeof capsuleObj?.sender_mlkem768_public_key_b64 === 'string' && capsuleObj.sender_mlkem768_public_key_b64.trim().length > 0)
-      ? capsuleObj.sender_mlkem768_public_key_b64.trim()
-      : null
+
+  let senderX25519: string | null
+  let senderMlkem768: string | null
+  if (input.capsuleType === 'handshake-accept') {
+    const ext = extractAcceptCapsuleSenderKeyMaterial(capsuleObj)
+    senderX25519 = ext.senderX25519
+    senderMlkem768 = ext.senderMlkem768
+    console.log('[HANDSHAKE-ACCEPT-RECV] Keys extracted from accept capsule:', {
+      x25519: senderX25519?.substring(0, 20) || 'NULL',
+      mlkem: senderMlkem768?.substring(0, 20) || 'NULL',
+      capsuleKeys: Object.keys(capsuleObj || {}).filter(
+        (k) => k.includes('x25519') || k.includes('mlkem') || k.includes('MLKEM'),
+      ),
+    })
+  } else {
+    senderX25519 =
+      typeof capsuleObj?.sender_x25519_public_key_b64 === 'string' && capsuleObj.sender_x25519_public_key_b64.trim().length > 0
+        ? capsuleObj.sender_x25519_public_key_b64.trim()
+        : null
+    senderMlkem768 =
+      typeof capsuleObj?.sender_mlkem768_public_key_b64 === 'string' && capsuleObj.sender_mlkem768_public_key_b64.trim().length > 0
+        ? capsuleObj.sender_mlkem768_public_key_b64.trim()
+        : null
+  }
 
   const tx = db.transaction(() => {
     if (input.capsuleType === 'handshake-initiate') {
@@ -315,6 +376,7 @@ export function processHandshakeCapsule(
     } else if (input.capsuleType === 'handshake-accept') {
       record = buildAcceptRecord(handshakeRecord!, input, ssoSession, tierDecision, effectivePolicy, senderP2PEndpoint, senderP2PAuthToken, senderPublicKey, senderX25519, senderMlkem768)
       updateHandshakeRecord(db, record)
+      forcePeerKeysFromAcceptCapsule(db, input.handshake_id, senderX25519, senderMlkem768)
     } else if (input.capsuleType === 'handshake-refresh') {
       record = buildRefreshRecord(handshakeRecord!, input, tierDecision)
       updateHandshakeRecord(db, record)
