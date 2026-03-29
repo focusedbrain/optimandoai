@@ -25,6 +25,7 @@
     "@noble/curves": "^1.9.7",
     "@noble/post-quantum": "^0.2.1",
     "@repo/ingestion-core": "workspace:*",
+    "@repo/shared-beap-ui": "workspace:*",
     "@types/express": "^5.0.5",
     "@types/fluent-ffmpeg": "^2.1.27",
     "@types/imap": "^0.8.42",

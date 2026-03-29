@@ -21,6 +21,7 @@
     "noFallthroughCasesInSwitch": true,
     "baseUrl": ".",
     "paths": {
+      "@repo/shared-beap-ui": ["../../packages/shared-beap-ui/src/index.ts"],
       "@ext/*": ["../extension-chromium/src/*"],
       "@ext/handshake/handshakeRpc": ["src/shims/handshakeRpc"],
       "@ext/vault/hsContextProfilesRpc": ["src/shims/hsContextProfilesRpc"],

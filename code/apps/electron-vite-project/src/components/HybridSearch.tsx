@@ -1,8 +1,11 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react'
+import type { ChangeEvent } from 'react'
 import './HybridSearch.css'
 import './handshakeViewTypes'
 import { useDraftRefineStore } from '../stores/useDraftRefineStore'
 import { useEmailInboxStore } from '../stores/useEmailInboxStore'
+import { useAiDraftContextStore } from '../stores/useAiDraftContextStore'
+import { ingestAiContextFiles } from '../lib/ingestAiContextFiles'
 
 /** Derived focus context for inbox — distinguishes message vs draft vs attachment above chat. */
 export type UiFocusContext =
@@ -331,11 +334,15 @@ export default function HybridSearch({
   const [modelMenuOpen, setModelMenuOpen] = useState(false)
   const [infoPopupOpen, setInfoPopupOpen] = useState(false)
   const [draftRefineHistory, setDraftRefineHistory] = useState<Array<{ role: 'user' | 'assistant'; content: string; showUseButton?: boolean; onUse?: () => void }>>([])
+  const contextDocuments = useAiDraftContextStore((s) => s.documents)
+  const removeContextDocument = useAiDraftContextStore((s) => s.removeDocument)
+  const clearContextDocuments = useAiDraftContextStore((s) => s.clear)
 
   const containerRef = useRef<HTMLDivElement>(null)
   const infoPopupRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const modelMenuRef = useRef<HTMLDivElement>(null)
+  const uploadRef = useRef<HTMLInputElement>(null)
 
   const draftRefineConnected = useDraftRefineStore((s) => s.connected)
   const draftRefineMessageId = useDraftRefineStore((s) => s.messageId)
@@ -343,8 +350,22 @@ export default function HybridSearch({
   const draftRefineTarget = useDraftRefineStore((s) => s.refineTarget)
   const inboxSubFocus = useEmailInboxStore((s) => (activeView === 'beap-inbox' ? s.subFocus : SUBFOCUS_NONE))
 
+  /** True when the chat bar should run draft-refine (inbox message or standalone compose with null ids). */
+  const isDraftRefineSession =
+    draftRefineConnected &&
+    (draftRefineMessageId === selectedMessageId ||
+      (draftRefineMessageId === null && selectedMessageId == null))
+
   /** Derived focus context — distinguishes outer message vs draft sub-focus vs attachment above chat. */
   const uiFocusContext: UiFocusContext = useMemo(() => {
+    if (
+      activeView === 'beap-inbox' &&
+      draftRefineConnected &&
+      draftRefineMessageId === null &&
+      selectedMessageId == null
+    ) {
+      return { kind: 'draft', messageId: '__compose__' }
+    }
     if (!selectedMessageId) return { kind: 'none' }
     const msgId = selectedMessageId
     if (activeView === 'beap-inbox') {
@@ -364,7 +385,7 @@ export default function HybridSearch({
 
   /** Shown after "✏️ Draft" when refine store targets a capsule field (not subFocus-only). */
   const draftRefineScopeSuffix =
-    draftRefineConnected && draftRefineMessageId === selectedMessageId
+    isDraftRefineSession
       ? draftRefineTarget === 'capsule-public'
         ? ' · Public (pBEAP)'
         : draftRefineTarget === 'capsule-encrypted'
@@ -375,7 +396,7 @@ export default function HybridSearch({
       : ''
 
   const draftRefineChipTitle =
-    uiFocusContext.kind === 'draft' && draftRefineConnected && draftRefineMessageId === selectedMessageId
+    uiFocusContext.kind === 'draft' && isDraftRefineSession
       ? draftRefineTarget === 'capsule-public'
         ? 'Chat scoped to public capsule draft — refine with AI'
         : draftRefineTarget === 'capsule-encrypted'
@@ -511,8 +532,9 @@ export default function HybridSearch({
           setResponse(prev => (prev ?? '') + tok)
         })
 
-        const isDraftRefine = draftRefineConnected && draftRefineMessageId === selectedMessageId
+        const isDraftRefine = isDraftRefineSession
         const currentDraft = isDraftRefine ? (useDraftRefineStore.getState().draftText || draftRefineDraftText || '') : ''
+        const contextDocs = useAiDraftContextStore.getState().documents
 
         if (isDraftRefine) {
           setDraftRefineHistory(prev => [...prev, { role: 'user', content: trimmed }])
@@ -575,6 +597,23 @@ export default function HybridSearch({
             }
           }
           chatQuery = inboxContext ? `${inboxContext}User question: ${trimmed}` : trimmed
+        }
+
+        if (contextDocs.length > 0 && isDraftRefine) {
+          const ctxBlock = contextDocs
+            .map(d => `[${d.name}]\n${d.text.slice(0, 8000)}`)
+            .join('\n\n')
+          chatQuery =
+            chatQuery +
+            '\n\n--- CONTEXT DOCUMENTS ---\n' +
+            ctxBlock +
+            '\n--- END CONTEXT ---\n\nUse specific details from context documents ' +
+            '(names, numbers, dates, amounts) to personalize the draft.'
+        }
+
+        if (contextDocs.length > 0 && !isDraftRefine) {
+          const ctxBlock = contextDocs.map(d => `[${d.name}]\n${d.text.slice(0, 8000)}`).join('\n\n')
+          chatQuery = `Context:\n${ctxBlock}\n\n${chatQuery}`
         }
 
         let result: Awaited<ReturnType<NonNullable<typeof window.handshakeView>['chatWithContextRag']>> | undefined
@@ -654,7 +693,13 @@ export default function HybridSearch({
     } finally {
       setIsLoading(false)
     }
-  }, [query, mode, scope, selectedHandshakeId, selectedMessageId, selectedAttachmentId, selectedModel, availableModels, isLoading, response, selectedDocumentId, draftRefineConnected, draftRefineMessageId, draftRefineDraftText, draftRefineTarget, draftRefineDeliverResponse, draftRefineAcceptRefinement])
+  }, [query, mode, scope, selectedHandshakeId, selectedMessageId, selectedAttachmentId, selectedModel, availableModels, isLoading, response, selectedDocumentId, isDraftRefineSession, draftRefineDraftText, draftRefineTarget, draftRefineDeliverResponse, draftRefineAcceptRefinement])
+
+  const handleContextUpload = useCallback(async (e: ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || [])
+    await ingestAiContextFiles(files)
+    if (uploadRef.current) uploadRef.current.value = ''
+  }, [])
 
   const showModelSelector = mode === 'chat' || mode === 'actions'
 
@@ -689,7 +734,7 @@ export default function HybridSearch({
           Scope: Handshake → {selectedHandshakeEmail}
         </div>
       )}
-      {selectedMessageId && (
+      {(selectedMessageId || (draftRefineConnected && draftRefineMessageId === null && selectedMessageId == null)) && (
         <div style={{
           fontSize: '10px', fontWeight: 600, color: 'var(--purple-accent, #a78bfa)',
           marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap',
@@ -765,7 +810,7 @@ export default function HybridSearch({
       )}
       <div
         className="hs-bar"
-        data-draft-refine={draftRefineConnected && draftRefineMessageId === selectedMessageId ? 'true' : undefined}
+        data-draft-refine={isDraftRefineSession ? 'true' : undefined}
       >
 
         {/* ── Left: mode toggle + scope ── */}
@@ -838,7 +883,7 @@ export default function HybridSearch({
         {selectedHandshakeId && (
           <span style={{ marginRight: '6px', fontSize: '16px', color: 'var(--purple-accent, #a78bfa)', lineHeight: 1, flexShrink: 0, cursor: 'default' }} title="Chat scoped to selected handshake">👉</span>
         )}
-        {selectedMessageId && !selectedHandshakeId && (
+        {((selectedMessageId || (draftRefineConnected && draftRefineMessageId === null && selectedMessageId == null)) && !selectedHandshakeId) && (
           <span
             style={{
               marginRight: '6px', fontSize: '16px', lineHeight: 1, flexShrink: 0, cursor: 'default',
@@ -846,7 +891,7 @@ export default function HybridSearch({
             }}
             title={
               uiFocusContext.kind === 'draft'
-                ? draftRefineConnected && draftRefineMessageId === selectedMessageId
+                ? isDraftRefineSession
                   ? draftRefineTarget === 'capsule-public'
                     ? 'Chat scoped to public capsule draft'
                     : draftRefineTarget === 'capsule-encrypted'
@@ -863,13 +908,41 @@ export default function HybridSearch({
             {uiFocusContext.kind === 'draft' ? '✏️' : '👉'}
           </span>
         )}
+        <button
+          type="button"
+          onClick={() => uploadRef.current?.click()}
+          title="Upload context document (AI drafting only — not sent as attachment)"
+          aria-label="Upload context document for AI drafting"
+          style={{
+            background: 'none',
+            border: 'none',
+            cursor: 'pointer',
+            fontSize: 16,
+            padding: '4px 8px',
+            opacity: contextDocuments.length > 0 ? 1 : 0.5,
+            flexShrink: 0,
+            lineHeight: 1,
+          }}
+        >
+          📎{contextDocuments.length > 0 ? ` ${contextDocuments.length}` : ''}
+        </button>
+        <input
+          ref={uploadRef}
+          type="file"
+          accept=".pdf,.txt,.md,.csv,.json"
+          multiple
+          style={{ display: 'none' }}
+          onChange={handleContextUpload}
+        />
         <input
           ref={inputRef}
           className="hs-input"
           type="text"
           placeholder={
-            draftRefineConnected && draftRefineMessageId === selectedMessageId
-              ? "Modify draft — e.g. 'make it shorter', 'add cancellation request'…"
+            isDraftRefineSession
+              ? draftRefineMessageId === null && selectedMessageId == null
+                ? 'Draft your message — type an instruction for AI'
+                : "Modify draft — e.g. 'make it shorter', 'add cancellation request'…"
               : mode === 'actions'
                 ? 'Describe an action to draft, analyze, or automate…'
                 : (selectedHandshakeId ? 'Ask a question about the context…' : selectedMessageId ? 'Ask a question about this BEAP message…' : 'AI Assistant across the BEAP Ecosystem')
@@ -980,6 +1053,53 @@ export default function HybridSearch({
         </div>
       </div>
 
+      {contextDocuments.length > 0 && (
+        <div
+          style={{
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: 4,
+            padding: '4px 8px',
+            borderTop: '1px solid var(--border-light, rgba(255,255,255,0.12))',
+            alignItems: 'center',
+          }}
+        >
+          {contextDocuments.map((d) => (
+            <span
+              key={d.id}
+              style={{
+                fontSize: 11,
+                background: 'var(--purple-accent-muted, rgba(147,51,234,0.12))',
+                color: 'var(--text-secondary, #cbd5e1)',
+                padding: '2px 8px',
+                borderRadius: 12,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 4,
+                border: '1px solid rgba(147,51,234,0.25)',
+              }}
+            >
+              📄 {d.name}
+              <button
+                type="button"
+                onClick={() => removeContextDocument(d.id)}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 10, color: 'inherit' }}
+                aria-label={`Remove ${d.name}`}
+              >
+                ✕
+              </button>
+            </span>
+          ))}
+          <button
+            type="button"
+            onClick={() => clearContextDocuments()}
+            style={{ fontSize: 10, color: 'var(--text-muted, #94a3b8)', background: 'none', border: 'none', cursor: 'pointer' }}
+          >
+            Clear all
+          </button>
+        </div>
+      )}
+
       {/* ── Results / Response panel ── */}
       {showPanel && (
         <div className="hs-panel" role="region" aria-label="Results">
@@ -1037,7 +1157,7 @@ export default function HybridSearch({
           )}
 
           {/* Draft refine history (when connected to draft) */}
-          {draftRefineConnected && draftRefineMessageId === selectedMessageId && (draftRefineHistory.length > 0 || response) && (
+          {isDraftRefineSession && (draftRefineHistory.length > 0 || response) && (
             <div className="hs-draft-refine-history" style={{ marginBottom: '16px' }}>
               {draftRefineHistory.map((msg, idx) => (
                 <div
@@ -1100,7 +1220,7 @@ export default function HybridSearch({
           )}
 
           {/* Chat response (skip when draft refine mode — we show draft history instead) */}
-          {lastMode === 'chat' && !(draftRefineConnected && draftRefineMessageId === selectedMessageId) && (response || contextBlocks.length > 0 || structuredResult) && (
+          {lastMode === 'chat' && !isDraftRefineSession && (response || contextBlocks.length > 0 || structuredResult) && (
             <div className="hs-response">
               {structuredResult && structuredResult.items.length > 0 && (
                 <div style={{ marginBottom: '16px' }}>

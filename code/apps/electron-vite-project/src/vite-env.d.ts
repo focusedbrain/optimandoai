@@ -75,6 +75,21 @@ interface OrchestratorBridge {
   listSessions: () => Promise<{ success: boolean; data?: unknown[]; error?: string }>
 }
 
+/** BEAP capsule / inline composer bridge (preload). */
+interface BeapBridge {
+  sendCapsuleReply: (payload: unknown) => Promise<unknown>
+  extractPdfText: (payload: {
+    attachmentId: string
+    base64: string
+  }) => Promise<{
+    success?: boolean
+    extractedText?: string
+    error?: string
+    pageCount?: number
+    pagesProcessed?: number
+  }>
+}
+
 interface Window {
   LETmeGIRAFFETHATFORYOU?: LmgtfyBridge
   analysisDashboard?: AnalysisDashboardBridge
@@ -82,4 +97,5 @@ interface Window {
   integrity?: IntegrityBridge
   debugLogs?: DebugLogsBridge
   orchestrator?: OrchestratorBridge
+  beap?: BeapBridge
 }

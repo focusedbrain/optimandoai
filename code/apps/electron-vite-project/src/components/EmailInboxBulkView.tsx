@@ -17,7 +17,8 @@ import {
 import { workflowFilterFromSessionReviewRow, type SessionReviewMessageRow } from '../lib/inboxSessionReviewOpen'
 import { useShallow } from 'zustand/react/shallow'
 import EmailMessageDetail from './EmailMessageDetail'
-import EmailComposeOverlay from './EmailComposeOverlay'
+import { BeapInlineComposer } from './BeapInlineComposer'
+import { EmailInlineComposer } from './EmailInlineComposer'
 import { EmailProvidersSection } from '@ext/wrguard/components/EmailProvidersSection'
 import { ConnectEmailLaunchSource, useConnectEmailFlow } from '@ext/shared/email/connectEmailFlow'
 import { pickDefaultEmailAccountRowId } from '@ext/shared/email/pickDefaultAccountRow'
@@ -1870,12 +1871,25 @@ export default function EmailInboxBulkView({
   const [aiSortOutcomeSummary, setAiSortOutcomeSummary] = useState<string | null>(null)
   /** Shown when user triggers Auto-Sort while a run is already active. */
   const [concurrentSortNotice, setConcurrentSortNotice] = useState<string | null>(null)
-  const [showEmailCompose, setShowEmailCompose] = useState(false)
-  const [replyToMessage, setReplyToMessage] = useState<InboxMessage | null>(null)
-  const [replyDraftBody, setReplyDraftBody] = useState<string>('')
-  const [draftAttachmentsForCompose, setDraftAttachmentsForCompose] = useState<Array<{ name: string; path: string; size: number }>>([])
+  const [composeMode, setComposeMode] = useState<'beap' | 'email' | null>(null)
+  const [composeReplyTo, setComposeReplyTo] = useState<{
+    to: string
+    subject: string
+    body: string
+    handshakeId?: string
+  } | null>(null)
   const [draftAttachmentsByMessage, setDraftAttachmentsByMessage] = useState<Record<string, Array<{ name: string; path: string; size: number }>>>({})
   const composeClickRef = useRef<number>(0)
+
+  useEffect(() => {
+    if (!composeMode) return
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setComposeMode(null)
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [composeMode])
+
   const [showWrExpertModal, setShowWrExpertModal] = useState(false)
   const [wrExpertContent, setWrExpertContent] = useState('')
   const [wrExpertSaving, setWrExpertSaving] = useState(false)
@@ -3156,6 +3170,8 @@ export default function EmailInboxBulkView({
   /** Session Review → inbox: align workflow tab + list paging with post-sort row, then sync App + store selection. */
   const handleOpenMessageFromSessionReview = useCallback(
     async (msg: SessionReviewMessageRow) => {
+      setComposeMode(null)
+      setComposeReplyTo(null)
       setShowSessionReview(null)
       const id = msg.id
       if (!id) return
@@ -3531,6 +3547,8 @@ export default function EmailInboxBulkView({
 
   const handleFocusPair = useCallback(
     (msg: InboxMessage) => {
+      setComposeMode(null)
+      setComposeReplyTo(null)
       const next = focusedMessageId === msg.id ? null : msg.id
       onSelectMessage?.(next)
       useEmailInboxStore.getState().setSubFocus({ kind: 'none' })
@@ -3540,6 +3558,8 @@ export default function EmailInboxBulkView({
 
   const handleExpandMessage = useCallback(
     (msg: InboxMessage) => {
+      setComposeMode(null)
+      setComposeReplyTo(null)
       setExpandedMessageId(msg.id)
       selectMessage(msg.id)
     },
@@ -3572,29 +3592,28 @@ export default function EmailInboxBulkView({
   }, [])
 
   const handleOpenEmailCompose = useCallback(() => {
-    if (typeof window.analysisDashboard?.openEmailCompose === 'function') {
-      window.analysisDashboard.openEmailCompose()
-    } else {
-      setReplyToMessage(null)
-      setShowEmailCompose(true)
-    }
-  }, [])
+    setComposeMode('email')
+    setComposeReplyTo(null)
+    onSelectMessage?.(null)
+    void selectMessage(null)
+  }, [onSelectMessage, selectMessage])
 
   const handleOpenBeapDraft = useCallback(() => {
-    if (typeof window.analysisDashboard?.openBeapDraft === 'function') {
-      window.analysisDashboard.openBeapDraft()
-    }
-  }, [])
+    setComposeMode('beap')
+    setComposeReplyTo(null)
+    onSelectMessage?.(null)
+    void selectMessage(null)
+  }, [onSelectMessage, selectMessage])
 
   const handleReply = useCallback((msg: InboxMessage) => {
-    const isDepackaged = msg.source_type === 'email_plain'
-    if (isDepackaged) {
-      const subject = msg.subject?.startsWith('Re:') ? msg.subject : `Re: ${msg.subject || '(No subject)'}`
-      setReplyToMessage({ ...msg, subject })
-      setReplyDraftBody('')
-      setShowEmailCompose(true)
-    } else {
-      window.analysisDashboard?.openBeapDraft?.()
+    const src = msg.source_type as string
+    if (src === 'email_plain' || src === 'depackaged') {
+      setComposeMode('email')
+      setComposeReplyTo({
+        to: msg.from_address || '',
+        subject: 'Re: ' + (msg.subject || ''),
+        body: '',
+      })
     }
   }, [])
 
@@ -3606,7 +3625,7 @@ export default function EmailInboxBulkView({
       const isDepackaged = msg.source_type === 'email_plain'
       if (!isDepackaged) {
         if (draftBody?.trim()) navigator.clipboard?.writeText(draftBody).catch(() => {})
-        window.analysisDashboard?.openBeapDraft?.()
+        setComposeMode('beap')
         return
       }
       const to = msg.from_address?.trim()
@@ -3662,7 +3681,7 @@ export default function EmailInboxBulkView({
         setSendEmailToast({ type: 'error', message: err instanceof Error ? err.message : 'Failed to send' })
       }
     },
-    [updateDraftReply, refreshMessages]
+    [updateDraftReply, refreshMessages, setComposeMode]
   )
 
   const handleAddDraftAttachment = useCallback(async (msgId: string) => {
@@ -4073,6 +4092,8 @@ export default function EmailInboxBulkView({
   const focusAdjacentRow = useCallback(
     (direction: 'next' | 'prev') => {
       if (sortedMessages.length === 0) return
+      setComposeMode(null)
+      setComposeReplyTo(null)
       const idx = focusedMessageId
         ? sortedMessages.findIndex((m) => m.id === focusedMessageId)
         : -1
@@ -4118,7 +4139,7 @@ export default function EmailInboxBulkView({
         }
         return
       }
-      if (pendingLinkUrl || showEmailCompose) return
+      if (pendingLinkUrl || composeMode) return
 
       const focusedMsg = focusedMessageId
         ? sortedMessages.find((m) => m.id === focusedMessageId)
@@ -4178,7 +4199,7 @@ export default function EmailInboxBulkView({
   }, [
     expandedMessageId,
     pendingLinkUrl,
-    showEmailCompose,
+    composeMode,
     handleCloseExpand,
     sortedMessages,
     focusedMessageId,
@@ -5122,7 +5143,7 @@ export default function EmailInboxBulkView({
       </div>
 
       {/* Content — list + chrome (scrolls with `.bulk-view-root`) */}
-      <div className="bulk-view-content">
+      <div className="bulk-view-content" style={{ position: 'relative' }}>
         {error ? (
           <div className="bulk-view-content-message bulk-view-empty-state" style={{ color: '#ef4444' }}>
             {error}
@@ -5559,6 +5580,61 @@ export default function EmailInboxBulkView({
             </div>
           </div>
         )}
+        {composeMode === 'beap' ? (
+          <div
+            style={{
+              position: 'absolute',
+              inset: 0,
+              zIndex: 60,
+              display: 'flex',
+              flexDirection: 'column',
+              minHeight: 0,
+              overflow: 'hidden',
+              background: 'var(--color-bg, #0f172a)',
+              fontFamily: 'inherit',
+            }}
+          >
+            <BeapInlineComposer
+              onClose={() => {
+                setComposeMode(null)
+                setComposeReplyTo(null)
+              }}
+              onSent={() => {
+                setComposeMode(null)
+                setComposeReplyTo(null)
+                void refreshMessages()
+              }}
+              replyToHandshakeId={composeReplyTo?.handshakeId}
+            />
+          </div>
+        ) : composeMode === 'email' ? (
+          <div
+            style={{
+              position: 'absolute',
+              inset: 0,
+              zIndex: 60,
+              display: 'flex',
+              flexDirection: 'column',
+              minHeight: 0,
+              overflow: 'hidden',
+              background: 'var(--color-bg, #0f172a)',
+              fontFamily: 'inherit',
+            }}
+          >
+            <EmailInlineComposer
+              onClose={() => {
+                setComposeMode(null)
+                setComposeReplyTo(null)
+              }}
+              onSent={() => {
+                setComposeMode(null)
+                setComposeReplyTo(null)
+                void refreshMessages()
+              }}
+              replyTo={composeReplyTo}
+            />
+          </div>
+        ) : null}
       </div>
 
       <LinkWarningDialog
@@ -5649,62 +5725,7 @@ export default function EmailInboxBulkView({
         </button>
       </div>
 
-      {/* Inline email compose overlay (fallback when analysisDashboard.openEmailCompose not available) */}
-      {showEmailCompose && (
-        <div
-          style={{
-            position: 'fixed',
-            inset: 0,
-            zIndex: 200,
-            background: 'rgba(0,0,0,0.5)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: 24,
-          }}
-          onClick={(e) => e.target === e.currentTarget && setShowEmailCompose(false)}
-        >
-          <div
-            style={{
-              width: '100%',
-              maxWidth: 520,
-              maxHeight: '90vh',
-              overflow: 'hidden',
-              background: 'var(--color-bg, #0f172a)',
-              borderRadius: 12,
-              boxShadow: '0 8px 32px rgba(0,0,0,0.4)',
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <EmailComposeOverlay
-              theme="default"
-              onClose={() => {
-                setShowEmailCompose(false)
-                setReplyToMessage(null)
-                setReplyDraftBody('')
-                setDraftAttachmentsForCompose([])
-              }}
-              onSent={() => {
-                setShowEmailCompose(false)
-                setReplyToMessage(null)
-                setReplyDraftBody('')
-                setDraftAttachmentsForCompose([])
-                refreshMessages()
-              }}
-              replyTo={
-                replyToMessage
-                  ? {
-                      to: replyToMessage.from_address ?? undefined,
-                      subject: replyToMessage.subject ?? undefined,
-                      body: replyDraftBody,
-                      initialAttachments: draftAttachmentsForCompose,
-                    }
-                  : undefined
-              }
-            />
-          </div>
-        </div>
-      )}
+      {/* EmailComposeOverlay removed — use EmailInlineComposer via composeMode (Prompt 3/6) */}
 
       {/* Full message modal — stays inside bulk mode */}
       {expandedMessageId && (

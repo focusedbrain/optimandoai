@@ -19,7 +19,7 @@ export interface EmailMessageDetailProps {
   selectedAttachmentId?: string | null
   /** When provided, called when user selects/deselects an attachment (for HybridSearch scope) */
   onSelectAttachment?: (attachmentId: string | null) => void
-  /** When provided, called when user clicks Reply — routes depackaged → EmailComposeOverlay, BEAP → openBeapDraft */
+  /** When provided, called when user clicks Reply — parent routes depackaged → inline email compose, BEAP → capsule reply */
   onReply?: (message: InboxMessage) => void
 }
 

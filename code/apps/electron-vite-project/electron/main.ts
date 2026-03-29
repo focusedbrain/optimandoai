@@ -8143,84 +8143,67 @@ app.whenReady().then(async () => {
       MAX_EXTRACTED_CHARS: 5 * 1024 * 1024, // 5MB of text
       MAX_INPUT_SIZE_MB: 100
     }
-    
-    // POST /api/parser/pdf/extract - Extract text from PDF (capsule-bound only)
-    httpApp.post('/api/parser/pdf/extract', async (req, res) => {
+
+    /**
+     * Shared PDF text extraction for HTTP (extension + X-Launch-Secret) and IPC (trusted Electron renderer).
+     * Renderer must NOT call HTTP without the secret — use ipcMain.invoke('parser:extractPdfText') instead.
+     */
+    async function extractPdfTextForIpc(
+      attachmentId: unknown,
+      base64: unknown
+    ): Promise<
+      | { ok: true; json: Record<string, unknown> }
+      | { ok: false; status: number; json: { success: false; error: string } }
+    > {
+      if (!attachmentId || typeof attachmentId !== 'string') {
+        return { ok: false, status: 400, json: { success: false, error: 'Missing or invalid attachmentId' } }
+      }
+      if (!base64 || typeof base64 !== 'string') {
+        return { ok: false, status: 400, json: { success: false, error: 'Missing or invalid base64 PDF data' } }
+      }
+      const inputSizeMB = (base64.length * 0.75) / (1024 * 1024)
+      if (inputSizeMB > PDF_PARSER_LIMITS.MAX_INPUT_SIZE_MB) {
+        return {
+          ok: false,
+          status: 400,
+          json: {
+            success: false,
+            error: `PDF too large: ${inputSizeMB.toFixed(1)}MB exceeds ${PDF_PARSER_LIMITS.MAX_INPUT_SIZE_MB}MB limit`,
+          },
+        }
+      }
       try {
-        const { attachmentId, base64 } = req.body
-        
-        if (!attachmentId || typeof attachmentId !== 'string') {
-          res.status(400).json({ success: false, error: 'Missing or invalid attachmentId' })
-          return
-        }
-        
-        if (!base64 || typeof base64 !== 'string') {
-          res.status(400).json({ success: false, error: 'Missing or invalid base64 PDF data' })
-          return
-        }
-        
-        // Check input size
-        const inputSizeMB = (base64.length * 0.75) / (1024 * 1024)
-        if (inputSizeMB > PDF_PARSER_LIMITS.MAX_INPUT_SIZE_MB) {
-          res.status(400).json({ 
-            success: false, 
-            error: `PDF too large: ${inputSizeMB.toFixed(1)}MB exceeds ${PDF_PARSER_LIMITS.MAX_INPUT_SIZE_MB}MB limit` 
-          })
-          return
-        }
-        
-        // Decode base64 to Uint8Array
         const binaryString = Buffer.from(base64, 'base64')
         const pdfData = new Uint8Array(binaryString)
-        
-        // Import PDF.js - bundled by vite (not externalized)
         const pdfjsLib = await import('pdfjs-dist')
-        
-        // Set worker source to bundled worker file (copied by vite plugin)
-        // Worker is at dist-electron/pdf.worker.mjs, same directory as main.js
         const { pathToFileURL } = await import('url')
         const path = await import('path')
         const workerPath = path.join(__dirname, 'pdf.worker.mjs')
         pdfjsLib.GlobalWorkerOptions.workerSrc = pathToFileURL(workerPath).href
-        
-        // Load PDF document
         const loadingTask = pdfjsLib.getDocument({ data: pdfData })
         const pdfDoc = await loadingTask.promise
-        
         const pageCount = pdfDoc.numPages
-        
-        // Check page limit
         const pagesToProcess = Math.min(pageCount, PDF_PARSER_LIMITS.MAX_PAGES)
         let truncatedPages = false
         if (pageCount > PDF_PARSER_LIMITS.MAX_PAGES) {
           truncatedPages = true
         }
-        
-        // Extract text from each page
         const textParts: string[] = []
         let totalChars = 0
         let truncatedChars = false
-        
         for (let pageNum = 1; pageNum <= pagesToProcess; pageNum++) {
           const page = await pdfDoc.getPage(pageNum)
           const textContent = await page.getTextContent()
-          
-          // Concatenate text items deterministically
           let pageText = ''
           for (const item of textContent.items) {
             if ('str' in item && typeof item.str === 'string') {
               pageText += item.str
-              // Add space if item has EOL flag or width suggests word break
               if ('hasEOL' in item && item.hasEOL) {
                 pageText += '\n'
               }
             }
           }
-          
-          // Normalize line endings
           pageText = pageText.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
-          
-          // Check character limit
           if (totalChars + pageText.length > PDF_PARSER_LIMITS.MAX_EXTRACTED_CHARS) {
             const remaining = PDF_PARSER_LIMITS.MAX_EXTRACTED_CHARS - totalChars
             if (remaining > 0) {
@@ -8229,15 +8212,10 @@ app.whenReady().then(async () => {
             truncatedChars = true
             break
           }
-          
           textParts.push(pageText)
           totalChars += pageText.length
         }
-        
-        // Build final text
         let extractedText = textParts.join('\n\n')
-        
-        // Add truncation warnings if needed
         const warnings: string[] = []
         if (truncatedPages) {
           warnings.push(`[TRUNCATED: Only first ${PDF_PARSER_LIMITS.MAX_PAGES} of ${pageCount} pages processed]`)
@@ -8245,36 +8223,49 @@ app.whenReady().then(async () => {
         if (truncatedChars) {
           warnings.push(`[TRUNCATED: Text exceeded ${PDF_PARSER_LIMITS.MAX_EXTRACTED_CHARS} character limit]`)
         }
-        
         if (warnings.length > 0) {
           extractedText = warnings.join('\n') + '\n\n' + extractedText
         }
-        
-        // Get PDF.js version for provenance
         const pdfjsVersion = pdfjsLib.version || 'unknown'
-        
-        // DO NOT log extracted text (security requirement)
         console.log(`[PDF-PARSER] Extracted ${totalChars} chars from ${pagesToProcess} pages (attachmentId: ${attachmentId})`)
-        
-        res.json({
-          success: true,
-          pageCount,
-          pagesProcessed: pagesToProcess,
-          extractedText,
-          truncated: truncatedPages || truncatedChars,
-          parser: {
-            engine: 'pdfjs',
-            version: pdfjsVersion
-          }
-        })
-        
+        return {
+          ok: true,
+          json: {
+            success: true,
+            pageCount,
+            pagesProcessed: pagesToProcess,
+            extractedText,
+            truncated: truncatedPages || truncatedChars,
+            parser: { engine: 'pdfjs', version: pdfjsVersion },
+          },
+        }
       } catch (error: any) {
         console.error('[PDF-PARSER] Error extracting PDF text:', error.message)
-        res.status(500).json({ 
-          success: false, 
-          error: error.message || 'Failed to extract PDF text'
-        })
+        return {
+          ok: false,
+          status: 500,
+          json: { success: false, error: error.message || 'Failed to extract PDF text' },
+        }
       }
+    }
+
+    // POST /api/parser/pdf/extract - Extract text from PDF (extension: requires X-Launch-Secret)
+    httpApp.post('/api/parser/pdf/extract', async (req, res) => {
+      const out = await extractPdfTextForIpc(req.body?.attachmentId, req.body?.base64)
+      if (!out.ok) {
+        res.status(out.status).json(out.json)
+        return
+      }
+      res.json(out.json)
+    })
+
+    ipcMain.handle('parser:extractPdfText', async (_e, payload: unknown) => {
+      const p = payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : {}
+      const out = await extractPdfTextForIpc(p.attachmentId, p.base64)
+      if (!out.ok) {
+        return { success: false, error: out.json.error }
+      }
+      return out.json
     })
     
     // =================================================================

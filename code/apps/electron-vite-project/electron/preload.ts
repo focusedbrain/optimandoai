@@ -608,6 +608,22 @@ contextBridge.exposeInMainWorld('handshakeView', {
 // ── BEAP capsule reply (optional IPC relay when package is pre-built in renderer) ──
 contextBridge.exposeInMainWorld('beap', {
   sendCapsuleReply: (payload: unknown) => ipcRenderer.invoke('beap:sendCapsuleReply', payload),
+  /**
+   * PDF text extract in main process (same engine as POST /api/parser/pdf/extract).
+   * Renderer cannot send X-Launch-Secret to localhost HTTP — use this IPC instead.
+   */
+  extractPdfText: (payload: { attachmentId: string; base64: string }) => {
+    if (!payload || typeof payload !== 'object') throw new Error('extractPdfText: expected object')
+    const id = typeof payload.attachmentId === 'string' ? payload.attachmentId : ''
+    const b64 = typeof payload.base64 === 'string' ? payload.base64 : ''
+    if (!id || id.length > 200) throw new Error('attachmentId: expected string 1–200 chars')
+    if (!b64 || b64.length > 120 * 1024 * 1024) throw new Error('base64: expected string (max ~120MB)')
+    return ipcRenderer.invoke('parser:extractPdfText', { attachmentId: id, base64: b64 }) as Promise<{
+      success?: boolean
+      extractedText?: string
+      error?: string
+    }>
+  },
 })
 
 // ── P2P Health & Queue ─────────────────────────────────────────────────────

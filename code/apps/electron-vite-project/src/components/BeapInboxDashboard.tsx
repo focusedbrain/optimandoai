@@ -20,6 +20,8 @@ import type { BeapMessage, UrgencyLevel, TrustLevel } from '@ext/beap-messages/b
 import { usePendingP2PBeapIngestion } from '@ext/handshake/usePendingP2PBeapIngestion'
 import BeapMessageImportZone from './BeapMessageImportZone'
 import BeapInboxFirstRun from './BeapInboxFirstRun'
+import { BeapInlineComposer } from './BeapInlineComposer'
+import { EmailInlineComposer } from './EmailInlineComposer'
 
 const THEME = 'professional' as const
 
@@ -112,6 +114,16 @@ export default function BeapInboxDashboard({
   const [isLoadingEmailAccounts, setIsLoadingEmailAccounts] = useState(true)
   const [selectedEmailAccountId, setSelectedEmailAccountId] = useState<string | null>(null)
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' | 'info' } | null>(null)
+  const [composeMode, setComposeMode] = useState<'beap' | 'email' | null>(null)
+
+  useEffect(() => {
+    if (!composeMode) return
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setComposeMode(null)
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [composeMode])
 
   const notify = useCallback((msg: string, type: 'success' | 'error' | 'info') => {
     setToast({ msg, type })
@@ -261,6 +273,7 @@ export default function BeapInboxDashboard({
 
   const handleSelect = useCallback(
     (id: string) => {
+      setComposeMode(null)
       const next = storeSelectedId === id ? null : id
       selectMessage(next)
       onMessageSelect(next)
@@ -289,7 +302,7 @@ export default function BeapInboxDashboard({
     }
   }, [])
 
-  const gridCols = effectiveSelectedId ? '280px 1fr' : '280px 1fr 320px'
+  const gridCols = composeMode || effectiveSelectedId ? '280px 1fr' : '280px 1fr 320px'
 
   const showFirstRun =
     messages.length === 0 &&
@@ -297,8 +310,16 @@ export default function BeapInboxDashboard({
     !isLoadingEmailAccounts
 
   const handleOpenBeapDraft = useCallback(() => {
-    handleComposeClick(() => window.analysisDashboard?.openBeapDraft?.())
-  }, [handleComposeClick])
+    setComposeMode('beap')
+    selectMessage(null)
+    onMessageSelect(null)
+  }, [selectMessage, onMessageSelect])
+
+  const handleOpenEmailCompose = useCallback(() => {
+    setComposeMode('email')
+    selectMessage(null)
+    onMessageSelect(null)
+  }, [selectMessage, onMessageSelect])
 
   if (showFirstRun) {
     return (
@@ -494,7 +515,38 @@ export default function BeapInboxDashboard({
         minWidth: 320,
         minHeight: 0,
       }}>
-        {effectiveSelectedId ? (
+        {composeMode === 'beap' ? (
+          <div
+            style={{
+              flex: 1,
+              minHeight: 0,
+              display: 'flex',
+              flexDirection: 'column',
+              overflow: 'hidden',
+              height: '100%',
+              fontFamily: 'inherit',
+            }}
+          >
+            <BeapInlineComposer
+              onClose={() => setComposeMode(null)}
+              onSent={() => setComposeMode(null)}
+            />
+          </div>
+        ) : composeMode === 'email' ? (
+          <div
+            style={{
+              flex: 1,
+              minHeight: 0,
+              display: 'flex',
+              flexDirection: 'column',
+              overflow: 'hidden',
+              height: '100%',
+              fontFamily: 'inherit',
+            }}
+          >
+            <EmailInlineComposer onClose={() => setComposeMode(null)} onSent={() => setComposeMode(null)} />
+          </div>
+        ) : effectiveSelectedId ? (
           <BeapMessageDetailPanel
             ref={detailPanelRef}
             theme={THEME}
@@ -536,7 +588,7 @@ export default function BeapInboxDashboard({
       </div>
 
       {/* ── Right Column (320px, only when no selection) ── */}
-      {!effectiveSelectedId && (
+      {!effectiveSelectedId && !composeMode && (
         <div style={{
           borderLeft: '1px solid var(--color-border, rgba(255,255,255,0.08))',
           display: 'flex',
@@ -583,7 +635,7 @@ export default function BeapInboxDashboard({
       {/* Compose buttons — bottom-right: [✉+] inner (left), [+ BEAP] outer (right) */}
       <div style={{ position: 'absolute', bottom: 20, right: 20, display: 'flex', gap: '8px', alignItems: 'center' }}>
         <button
-          onClick={() => handleComposeClick(() => window.analysisDashboard?.openEmailCompose?.())}
+          onClick={() => handleComposeClick(handleOpenEmailCompose)}
           style={{
             display: 'flex', alignItems: 'center', gap: '4px',
             padding: '10px 14px', borderRadius: '24px',
@@ -596,7 +648,7 @@ export default function BeapInboxDashboard({
           ✉️+
         </button>
         <button
-          onClick={() => handleComposeClick(() => window.analysisDashboard?.openBeapDraft?.())}
+          onClick={() => handleComposeClick(handleOpenBeapDraft)}
           style={{
             display: 'flex', alignItems: 'center', gap: '6px',
             padding: '10px 18px', borderRadius: '24px',

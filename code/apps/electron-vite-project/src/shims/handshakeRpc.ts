@@ -11,6 +11,65 @@ import type {
   HandshakeBuildForDownloadResponse,
 } from '@ext/handshake/rpcTypes'
 
+type LedgerParty = { email: string; wrdesk_user_id: string }
+
+/**
+ * Main-process `handshake:list` returns full ledger `HandshakeRecord` rows (initiator/acceptor,
+ * snake_case peer key fields). Map to extension `HandshakeRecord` for `RecipientHandshakeSelect`.
+ */
+export function mapLedgerHandshakeToRpc(raw: unknown): HandshakeRecord {
+  if (typeof raw === 'object' && raw !== null && 'counterparty_email' in raw && !('initiator' in raw)) {
+    return raw as HandshakeRecord
+  }
+
+  const r = raw as {
+    handshake_id: string
+    state: HandshakeRecord['state']
+    local_role: 'initiator' | 'acceptor'
+    initiator: LedgerParty
+    acceptor: LedgerParty | null
+    relationship_id: string
+    sharing_mode?: 'receive-only' | 'reciprocal' | null
+    created_at: string
+    activated_at?: string | null
+    expires_at?: string | null
+    p2p_endpoint?: string | null
+    receiver_email?: string | null
+    peer_x25519_public_key_b64?: string | null
+    peer_mlkem768_public_key_b64?: string | null
+  }
+
+  let counterparty_email = ''
+  let counterparty_user_id = ''
+  if (r.local_role === 'initiator') {
+    if (r.acceptor) {
+      counterparty_email = r.acceptor.email ?? ''
+      counterparty_user_id = r.acceptor.wrdesk_user_id ?? ''
+    } else {
+      counterparty_email = (r.receiver_email ?? '').trim()
+    }
+  } else {
+    counterparty_email = r.initiator?.email ?? ''
+    counterparty_user_id = r.initiator?.wrdesk_user_id ?? ''
+  }
+
+  return {
+    handshake_id: r.handshake_id,
+    state: r.state,
+    local_role: r.local_role,
+    counterparty_email,
+    counterparty_user_id,
+    relationship_id: r.relationship_id,
+    sharing_mode: r.sharing_mode ?? undefined,
+    created_at: r.created_at,
+    activated_at: r.activated_at ?? undefined,
+    expires_at: r.expires_at ?? null,
+    peerX25519PublicKey: r.peer_x25519_public_key_b64 ?? undefined,
+    peerPQPublicKey: r.peer_mlkem768_public_key_b64 ?? undefined,
+    p2pEndpoint: r.p2p_endpoint ?? null,
+  }
+}
+
 /**
  * Same filter mapping as extension `handshakeRpc.listHandshakes` (lines 88–99).
  * Preload passes this object to `ipcRenderer.invoke('handshake:list', arg)`; main wraps it as
@@ -30,7 +89,9 @@ export async function listHandshakes(
   const state = _filter ? stateMap[_filter] : undefined
   const ipcFilter = state !== undefined ? { state } : undefined
 
-  return window.handshakeView.listHandshakes(ipcFilter)
+  const rows = await window.handshakeView.listHandshakes(ipcFilter)
+  if (!Array.isArray(rows)) return []
+  return rows.map(mapLedgerHandshakeToRpc)
 }
 
 export async function getHandshake(_handshakeId: string): Promise<HandshakeRecord> {

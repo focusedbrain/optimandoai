@@ -19,7 +19,7 @@ interface DraftRefineState {
   refinedDraftText: string | null
   onResponse: ((text: string) => void) | null
   connect: (
-    messageId: string,
+    messageId: string | null,
     messageSubject: string | null,
     draftText: string,
     onResponse: (text: string) => void,

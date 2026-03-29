@@ -9,8 +9,10 @@ import { useEffect, useCallback, useState, useRef, useMemo } from 'react'
 import EmailInboxToolbar from './EmailInboxToolbar'
 import { emailInboxSyncWindowSelectValue } from './EmailInboxSyncControls'
 import EmailMessageDetail from './EmailMessageDetail'
-import EmailComposeOverlay, { type DraftAttachment } from './EmailComposeOverlay'
+import { type DraftAttachment } from './EmailComposeOverlay'
+import { EmailInlineComposer } from './EmailInlineComposer'
 import BeapMessageImportZone from './BeapMessageImportZone'
+import { BeapInlineComposer } from './BeapInlineComposer'
 import { EmailProvidersSection } from '@ext/wrguard/components/EmailProvidersSection'
 import { ConnectEmailLaunchSource, useConnectEmailFlow } from '@ext/shared/email/connectEmailFlow'
 import { SyncFailureBanner } from './SyncFailureBanner'
@@ -1712,12 +1714,24 @@ export default function EmailInboxView({
   >([])
   const [isLoadingProviderAccounts, setIsLoadingProviderAccounts] = useState(true)
   const [selectedProviderAccountId, setSelectedProviderAccountId] = useState<string | null>(null)
-  const [showEmailCompose, setShowEmailCompose] = useState(false)
-  const [replyToMessage, setReplyToMessage] = useState<InboxMessage | null>(null)
-  const [replyDraftBody, setReplyDraftBody] = useState<string>('')
-  const [replyDraftAttachments, setReplyDraftAttachments] = useState<DraftAttachment[]>([])
   const composeClickRef = useRef<number>(0)
   const [aiPanelCollapsed, setAiPanelCollapsed] = useState(false)
+  const [composeMode, setComposeMode] = useState<'beap' | 'email' | null>(null)
+  const [composeReplyTo, setComposeReplyTo] = useState<{
+    to: string
+    subject: string
+    body: string
+    handshakeId?: string
+  } | null>(null)
+
+  useEffect(() => {
+    if (!composeMode) return
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setComposeMode(null)
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [composeMode])
 
   const loadProviderAccounts = useCallback(async () => {
     if (typeof window.emailAccounts?.listAccounts !== 'function') {
@@ -1915,6 +1929,8 @@ export default function EmailInboxView({
 
   const handleSelectMessage = useCallback(
     (id: string) => {
+      setComposeMode(null)
+      setComposeReplyTo(null)
       const next = selectedMessageId === id ? null : id
       selectMessage(next)
       onSelectMessage?.(next)
@@ -2115,30 +2131,28 @@ export default function EmailInboxView({
   }, [])
 
   const handleOpenEmailCompose = useCallback(() => {
-    if (typeof window.analysisDashboard?.openEmailCompose === 'function') {
-      window.analysisDashboard.openEmailCompose()
-    } else {
-      setReplyToMessage(null)
-      setReplyDraftBody('')
-      setShowEmailCompose(true)
-    }
-  }, [])
+    setComposeMode('email')
+    setComposeReplyTo(null)
+    selectMessage(null)
+    onSelectMessage?.(null)
+  }, [selectMessage, onSelectMessage])
 
   const handleOpenBeapDraft = useCallback(() => {
-    if (typeof window.analysisDashboard?.openBeapDraft === 'function') {
-      window.analysisDashboard.openBeapDraft()
-    }
-  }, [])
+    setComposeMode('beap')
+    setComposeReplyTo(null)
+    selectMessage(null)
+    onSelectMessage?.(null)
+  }, [selectMessage, onSelectMessage])
 
   const handleReply = useCallback((msg: InboxMessage) => {
-    const isDepackaged = msg.source_type === 'email_plain'
-    if (isDepackaged) {
-      const subject = msg.subject?.startsWith('Re:') ? msg.subject : `Re: ${msg.subject || '(No subject)'}`
-      setReplyToMessage({ ...msg, subject })
-      setReplyDraftBody('')
-      setShowEmailCompose(true)
-    } else {
-      window.analysisDashboard?.openBeapDraft?.()
+    const src = msg.source_type as string
+    if (src === 'email_plain' || src === 'depackaged') {
+      setComposeMode('email')
+      setComposeReplyTo({
+        to: msg.from_address || '',
+        subject: 'Re: ' + (msg.subject || ''),
+        body: '',
+      })
     }
   }, [])
 
@@ -2149,7 +2163,7 @@ export default function EmailInboxView({
       const isDepackaged = msg.source_type === 'email_plain'
       if (!isDepackaged) {
         navigator.clipboard?.writeText(draft).catch(() => {})
-        window.analysisDashboard?.openBeapDraft?.()
+        setComposeMode('beap')
         return false
       }
       const to = msg.from_address?.trim()
@@ -2202,10 +2216,11 @@ export default function EmailInboxView({
         return false
       }
     },
-    [fetchMessages]
+    [fetchMessages, setComposeMode]
   )
 
-  const gridCols = selectedMessageId ? '320px 1fr' : '320px 1fr 320px'
+  /** Full-width compose: hide list column (see composer-audit Phase 1). Browse modes keep 320px list. */
+  const gridCols = composeMode ? '1fr' : selectedMessageId ? '320px 1fr' : '320px 1fr 320px'
 
   return (
     <div
@@ -2260,7 +2275,8 @@ export default function EmailInboxView({
           </button>
         </div>
       )}
-      {/* Left panel: toolbar + message list */}
+      {/* Left panel: toolbar + message list (hidden during compose — composer uses full main width) */}
+      {!composeMode && (
       <div
         style={{
           borderRight: '1px solid var(--color-border, rgba(255,255,255,0.08))',
@@ -2386,9 +2402,10 @@ export default function EmailInboxView({
           {total} message(s) in this tab ({messages.length} loaded)
         </div>
       </div>
+      )}
 
       {/* Center + Right when no message selected: provider area + capsule drop */}
-      {!selectedMessageId && (
+      {!selectedMessageId && !composeMode && (
         <>
           <div
             className="inbox-no-selection-center"
@@ -2508,8 +2525,34 @@ export default function EmailInboxView({
         </>
       )}
 
-      {/* Right panel: 50/50 message + AI workspace (only when message selected) */}
-      {selectedMessageId && (
+      {/* Compose placeholders or detail workspace */}
+      {composeMode === 'beap' ? (
+        <BeapInlineComposer
+          onClose={() => {
+            setComposeMode(null)
+            setComposeReplyTo(null)
+          }}
+          onSent={() => {
+            setComposeMode(null)
+            setComposeReplyTo(null)
+            void fetchMessages()
+          }}
+          replyToHandshakeId={composeReplyTo?.handshakeId}
+        />
+      ) : composeMode === 'email' ? (
+        <EmailInlineComposer
+          onClose={() => {
+            setComposeMode(null)
+            setComposeReplyTo(null)
+          }}
+          onSent={() => {
+            setComposeMode(null)
+            setComposeReplyTo(null)
+            void fetchMessages()
+          }}
+          replyTo={composeReplyTo}
+        />
+      ) : selectedMessageId && selectedMessage ? (
         <div
           className={`inbox-detail-workspace${aiPanelCollapsed ? ' inbox-detail-workspace--ai-collapsed' : ''}`}
           style={{ minHeight: 0 }}
@@ -2532,7 +2575,7 @@ export default function EmailInboxView({
             />
           </div>
         </div>
-      )}
+      ) : null}
 
       {connectEmailFlowModal}
 
@@ -2592,62 +2635,12 @@ export default function EmailInboxView({
         </button>
       </div>
 
-      {/* Inline email compose overlay (fallback when analysisDashboard.openEmailCompose not available) */}
-      {showEmailCompose && (
-        <div
-          style={{
-            position: 'fixed',
-            inset: 0,
-            zIndex: 200,
-            background: 'rgba(0,0,0,0.5)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: 24,
-          }}
-          onClick={(e) => e.target === e.currentTarget && setShowEmailCompose(false)}
-        >
-          <div
-            style={{
-              width: '100%',
-              maxWidth: 520,
-              maxHeight: '90vh',
-              overflow: 'hidden',
-              background: 'var(--color-bg, #0f172a)',
-              borderRadius: 12,
-              boxShadow: '0 8px 32px rgba(0,0,0,0.4)',
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <EmailComposeOverlay
-              theme="default"
-              onClose={() => {
-                setShowEmailCompose(false)
-                setReplyToMessage(null)
-                setReplyDraftBody('')
-                setReplyDraftAttachments([])
-              }}
-              onSent={() => {
-                setShowEmailCompose(false)
-                setReplyToMessage(null)
-                setReplyDraftBody('')
-                setReplyDraftAttachments([])
-                fetchMessages()
-              }}
-              replyTo={
-                replyToMessage
-                  ? {
-                      to: replyToMessage.from_address ?? undefined,
-                      subject: replyToMessage.subject ?? undefined,
-                      body: replyDraftBody || undefined,
-                      initialAttachments: replyDraftAttachments.length > 0 ? replyDraftAttachments : undefined,
-                    }
-                  : undefined
-              }
-            />
-          </div>
+      {/* EmailComposeOverlay disabled — use EmailInlineComposer via composeMode === 'email' (Prompt 3) */}
+      {/* {showEmailCompose && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 200, ... }}>
+          <EmailComposeOverlay ... />
         </div>
-      )}
+      )} */}
     </div>
   )
 }

@@ -10,6 +10,8 @@ import { BeapBulkInbox } from '@ext/beap-messages/components/BeapBulkInbox'
 import { createBeapReplyAiProvider } from '@ext/beap-messages/services/beapReplyAiProvider'
 import { EmailProvidersSection } from '@ext/wrguard/components/EmailProvidersSection'
 import { ConnectEmailLaunchSource, useConnectEmailFlow } from '@ext/shared/email/connectEmailFlow'
+import { BeapInlineComposer } from './BeapInlineComposer'
+import { EmailInlineComposer } from './EmailInlineComposer'
 
 interface BeapBulkInboxDashboardProps {
   onMessageSelect?: (messageId: string | null) => void
@@ -39,7 +41,17 @@ export default function BeapBulkInboxDashboard({
   const [isLoadingEmailAccounts, setIsLoadingEmailAccounts] = useState(true)
   const [selectedEmailAccountId, setSelectedEmailAccountId] = useState<string | null>(null)
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' | 'info' } | null>(null)
+  const [composeMode, setComposeMode] = useState<'beap' | 'email' | null>(null)
   const composeClickRef = useRef<number>(0)
+
+  useEffect(() => {
+    if (!composeMode) return
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setComposeMode(null)
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [composeMode])
 
   const handleComposeClick = useCallback((fn: () => void) => {
     const now = Date.now()
@@ -184,6 +196,14 @@ export default function BeapBulkInboxDashboard({
   )
 
   // Reply composer config: AI provider for Draft with AI + enhanced classification
+  const handleOpenEmailCompose = useCallback(() => {
+    setComposeMode('email')
+  }, [])
+
+  const handleOpenBeapDraft = useCallback(() => {
+    setComposeMode('beap')
+  }, [])
+
   const replyComposerConfig = useMemo(() => {
     const generate = async (prompt: string): Promise<string> => {
       const fn = (window as any).handshakeView?.generateDraft
@@ -258,7 +278,7 @@ export default function BeapBulkInboxDashboard({
         onUpdateImapCredentials={handleUpdateImapCredentials}
       />
 
-      <div style={{ flex: 1, overflow: 'hidden' }}>
+      <div style={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
         <BeapBulkInbox
           theme="professional"
           onSetSearchContext={onSetSearchContext}
@@ -268,12 +288,45 @@ export default function BeapBulkInboxDashboard({
           onClassificationComplete={(count) => notify(`Analysis complete — ${count} message${count === 1 ? '' : 's'} classified`, 'success')}
           onArchiveComplete={(count) => notify(`Archived ${count} message${count === 1 ? '' : 's'}`, 'success')}
         />
+        {composeMode === 'beap' ? (
+          <div
+            style={{
+              position: 'absolute',
+              inset: 0,
+              zIndex: 50,
+              display: 'flex',
+              flexDirection: 'column',
+              minHeight: 0,
+              overflow: 'hidden',
+              background: 'var(--color-bg, #0f172a)',
+              fontFamily: 'inherit',
+            }}
+          >
+            <BeapInlineComposer onClose={() => setComposeMode(null)} onSent={() => setComposeMode(null)} />
+          </div>
+        ) : composeMode === 'email' ? (
+          <div
+            style={{
+              position: 'absolute',
+              inset: 0,
+              zIndex: 50,
+              display: 'flex',
+              flexDirection: 'column',
+              minHeight: 0,
+              overflow: 'hidden',
+              background: 'var(--color-bg, #0f172a)',
+              fontFamily: 'inherit',
+            }}
+          >
+            <EmailInlineComposer onClose={() => setComposeMode(null)} onSent={() => setComposeMode(null)} />
+          </div>
+        ) : null}
       </div>
 
       {/* Compose buttons — bottom-right: [✉+] inner (left), [+ BEAP] outer (right) */}
       <div style={{ position: 'absolute', bottom: 20, right: 20, display: 'flex', gap: '8px', alignItems: 'center' }}>
         <button
-          onClick={() => handleComposeClick(() => window.analysisDashboard?.openEmailCompose?.())}
+          onClick={() => handleComposeClick(handleOpenEmailCompose)}
           style={{
             display: 'flex', alignItems: 'center', gap: '4px',
             padding: '10px 14px', borderRadius: '24px',
@@ -286,7 +339,7 @@ export default function BeapBulkInboxDashboard({
           ✉️+
         </button>
         <button
-          onClick={() => handleComposeClick(() => window.analysisDashboard?.openBeapDraft?.())}
+          onClick={() => handleComposeClick(handleOpenBeapDraft)}
           style={{
             display: 'flex', alignItems: 'center', gap: '6px',
             padding: '10px 18px', borderRadius: '24px',
