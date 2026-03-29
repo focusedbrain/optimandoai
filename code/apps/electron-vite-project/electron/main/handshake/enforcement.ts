@@ -376,7 +376,11 @@ export function processHandshakeCapsule(
     } else if (input.capsuleType === 'handshake-accept') {
       record = buildAcceptRecord(handshakeRecord!, input, ssoSession, tierDecision, effectivePolicy, senderP2PEndpoint, senderP2PAuthToken, senderPublicKey, senderX25519, senderMlkem768)
       updateHandshakeRecord(db, record)
-      forcePeerKeysFromAcceptCapsule(db, input.handshake_id, senderX25519, senderMlkem768)
+      // Only the initiator's DB row should force peer_* from the accept capsule (acceptor's pub keys).
+      // On the acceptor, peer_* must remain the initiator's keys — never run the UPDATE with acceptor sender material.
+      if (handshakeRecord!.local_role === 'initiator') {
+        forcePeerKeysFromAcceptCapsule(db, input.handshake_id, senderX25519, senderMlkem768)
+      }
     } else if (input.capsuleType === 'handshake-refresh') {
       record = buildRefreshRecord(handshakeRecord!, input, tierDecision)
       updateHandshakeRecord(db, record)
@@ -709,9 +713,17 @@ function buildAcceptRecord(
   senderX25519: string | null,
   senderMlkem768: string | null,
 ): HandshakeRecord {
-  console.log('[HANDSHAKE-ACCEPT-PROCESS] Storing peer keys on initiator:', {
+  // Accept capsule `sender_*` wire keys are the ACCEPTOR's handshake public keys.
+  // - Initiator row: peer_* MUST become those keys (counterparty is the acceptor).
+  // - Acceptor row: peer_* MUST stay the INITIATOR's keys from the initiate capsule.
+  //   Self-processing the accept capsule would wrongly set peer_* to our own public keys
+  //   (same as local_*), so qBEAP encrypt-to-peer uses the wrong recipient keys.
+  const shouldUpdatePeerFromAcceptCapsule = existing.local_role === 'initiator'
+
+  console.log('[HANDSHAKE-ACCEPT-PROCESS] Accept capsule peer key update:', {
     handshakeId: existing.handshake_id,
     localRole: existing.local_role,
+    shouldUpdatePeerFromAcceptCapsule,
     senderX25519: senderX25519?.substring(0, 20) || 'NULL',
     senderMlkem768: senderMlkem768?.substring(0, 20) || 'NULL',
     existingPeerX25519: existing.peer_x25519_public_key_b64?.substring(0, 20) || 'NULL',
@@ -746,8 +758,12 @@ function buildAcceptRecord(
     // processed via submitCapsuleViaRpc). Overwriting it with the acceptor's own key causes
     // SIGNATURE_INVALID when the initiator's context_sync later arrives.
     counterparty_public_key: existing.counterparty_public_key || senderPublicKey,
-    peer_x25519_public_key_b64: senderX25519 ?? existing.peer_x25519_public_key_b64 ?? null,
-    peer_mlkem768_public_key_b64: senderMlkem768 ?? existing.peer_mlkem768_public_key_b64 ?? null,
+    peer_x25519_public_key_b64: shouldUpdatePeerFromAcceptCapsule
+      ? (senderX25519 ?? existing.peer_x25519_public_key_b64 ?? null)
+      : (existing.peer_x25519_public_key_b64 ?? null),
+    peer_mlkem768_public_key_b64: shouldUpdatePeerFromAcceptCapsule
+      ? (senderMlkem768 ?? existing.peer_mlkem768_public_key_b64 ?? null)
+      : (existing.peer_mlkem768_public_key_b64 ?? null),
   }
 }
 
