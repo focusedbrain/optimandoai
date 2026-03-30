@@ -116,11 +116,16 @@ export default function AnalysisCanvas({
   }, [activeProjectId])
 
   /** Toggle Auto-Sync from the Status card — calls the same mechanism as ProjectOptimizationPanel. */
-  const handleToggleAutoSync = useCallback((enabled: boolean) => {
+  const handleToggleAutoSync = useCallback(async (enabled: boolean) => {
     const accounts   = emailAccounts ?? []
     const accountIds = activeEmailAccountIdsForSync(accounts)
-    const primaryId  = pickDefaultEmailAccountRowId(accounts) ?? null
-    void useEmailInboxStore.getState().toggleAutoSyncForActiveAccounts(enabled, accountIds, primaryId)
+    if (accountIds.length === 0) {
+      console.warn('[StatusCard] Cannot toggle auto-sync: no email accounts configured')
+      return
+    }
+    const primaryId = pickDefaultEmailAccountRowId(accounts) ?? null
+    await useEmailInboxStore.getState().toggleAutoSyncForActiveAccounts(enabled, accountIds, primaryId)
+    // toggleAutoSyncForActiveAccounts already calls refreshInboxSyncBackendState internally
   }, [emailAccounts])
 
   // ── Canvas state (drives StatusBadge flags) — unchanged ───────────────────

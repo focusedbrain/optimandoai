@@ -57,6 +57,7 @@ import { AttachmentStatusBadge } from '@ext/beap-builder/components/AttachmentSt
 import type { AttachmentParseStatus } from '@ext/beap-builder/components/AttachmentStatusBadge'
 import { ComposerAttachmentButton } from '../../ComposerAttachmentButton'
 import { extractTextForPackagePreview } from '../../../lib/beapPackageAttachmentPreview'
+import { StatusToggle } from './StatusToggle'
 import '../../../styles/dashboard-tokens.css'
 import '../../../styles/dashboard-base.css'
 import './ProjectOptimizationPanel.css'
@@ -652,17 +653,12 @@ export function ProjectOptimizationPanel({
 
         <div className="pop__controls-inline">
           <label className="pop__toggle-wrap">
-            <button
-              type="button"
-              role="switch"
-              aria-checked={autoOptOn}
-              className={`pop__toggle-switch${autoOptOn ? ' pop__toggle-switch--on' : ''}`}
+            <StatusToggle
+              enabled={autoOptOn}
+              onToggle={(v) => activeProject && setAutoOptimization(activeProject.id, v)}
               disabled={!activeProject}
-              onClick={() => activeProject && setAutoOptimization(activeProject.id, !autoOptOn)}
-              title="Automatically triggers analysis at set intervals"
-            >
-              <span className="pop__toggle-knob" />
-            </button>
+              label="Auto-Optimization"
+            />
             <span className="pop__toggle-text">Auto-Optimization</span>
             {autoOptOn && activeProject && (
               <span className="pop__interval-hint">

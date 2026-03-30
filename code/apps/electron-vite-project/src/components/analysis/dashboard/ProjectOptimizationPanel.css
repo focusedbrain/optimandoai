@@ -123,46 +123,25 @@
   user-select: none;
 }
 
+/* pop__toggle-switch / pop__toggle-knob replaced by StatusToggle component */
+/* Kept here as commented-out reference only — DO NOT USE in new code */
+
+/*
 .pop__toggle-switch {
-  width: 28px;
-  height: 14px;
-  border-radius: 7px;
-  background: #D4D4D1;
-  border: none;
-  padding: 2px;
-  position: relative;
-  cursor: pointer;
-  transition: background 150ms ease-out;
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  box-sizing: border-box;
+  width: 28px; height: 14px; border-radius: 7px; background: #D4D4D1;
+  border: none; padding: 2px; position: relative; cursor: pointer;
+  transition: background 150ms ease-out; flex-shrink: 0;
+  display: flex; align-items: center; box-sizing: border-box;
 }
-
-.pop__toggle-switch:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-
-.pop__toggle-switch--on {
-  background: #2563EB;
-}
-
+.pop__toggle-switch:disabled { opacity: 0.45; cursor: not-allowed; }
+.pop__toggle-switch--on { background: #2563EB; }
 .pop__toggle-knob {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: #FFFFFF;
-  position: absolute;
-  left: 2px;
-  transition: transform 150ms ease-out;
-  pointer-events: none;
-  flex-shrink: 0;
+  width: 10px; height: 10px; border-radius: 50%; background: #FFFFFF;
+  position: absolute; left: 2px; transition: transform 150ms ease-out;
+  pointer-events: none; flex-shrink: 0;
 }
-
-.pop__toggle-switch--on .pop__toggle-knob {
-  transform: translateX(14px);
-}
+.pop__toggle-switch--on .pop__toggle-knob { transform: translateX(14px); }
+*/
 
 .pop__toggle-text {
   font-size: 10px;

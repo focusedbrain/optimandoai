@@ -535,48 +535,7 @@
   border-color: #2563EB;
 }
 
-/* ── Mini toggle switch (Auto-Optimization / Auto-Sync rows) ── */
-.status-toggle {
-  position: relative;
-  width: 28px;
-  height: 14px;
-  border-radius: 7px;
-  background: #D4D4D1;
-  cursor: pointer;
-  transition: background 150ms ease-out;
-  border: none;
-  padding: 0;
-  flex-shrink: 0;
-  display: inline-block;
-  vertical-align: middle;
-}
-
-.status-toggle--active {
-  background: #2563EB;
-}
-
-.status-toggle::after {
-  content: '';
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: #FFFFFF;
-  transition: transform 150ms ease-out;
-  box-shadow: 0 1px 2px rgba(0,0,0,0.1);
-}
-
-.status-toggle--active::after {
-  transform: translateX(14px);
-}
-
-.status-toggle--disabled {
-  opacity: 0.35;
-  cursor: not-allowed;
-  pointer-events: none;
-}
+/* .status-toggle rules live in StatusToggle.css (imported via StatusToggle.tsx) */
 
 /* ─────────────────────────────────────────────
    ERROR STATE

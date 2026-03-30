@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import type { AnalysisDashboardSnapshot } from '../../../types/analysisDashboardSnapshot'
+import { StatusToggle } from './StatusToggle'
 import './IntelligenceDashboard.css'
 
 export interface IntelligenceDashboardProps {
@@ -352,7 +353,8 @@ function StatusCard({
   activeProjectId?: string | null
   onSelectProject?: (projectId: string | null) => void
 }) {
-  const autoOptDisabled = !activeProjectId
+  const autoOptDisabled  = !activeProjectId
+  const autoSyncDisabled = accountCount === 0
 
   const beapColor = unopenedBeapCount > 0 ? '#D97706' : '#9B9B96'
 
@@ -385,23 +387,14 @@ function StatusCard({
               Auto-Optimization
             </span>
           </div>
-          <button
-            type="button"
-            role="switch"
-            aria-checked={autoOptimizationEnabled}
-            className={[
-              'status-toggle',
-              autoOptimizationEnabled ? 'status-toggle--active'   : '',
-              autoOptDisabled         ? 'status-toggle--disabled' : '',
-            ].filter(Boolean).join(' ')}
+          <StatusToggle
+            enabled={autoOptimizationEnabled}
+            onToggle={(v) => onToggleAutoOptimization?.(v)}
             disabled={autoOptDisabled}
-            onClick={() => onToggleAutoOptimization?.(!autoOptimizationEnabled)}
-            title={
+            label={
               autoOptDisabled
-                ? 'Select a project first'
-                : autoOptimizationEnabled
-                  ? 'Disable Auto-Optimization'
-                  : 'Enable Auto-Optimization'
+                ? 'Auto-Optimization (select a project first)'
+                : 'Auto-Optimization'
             }
           />
         </div>
@@ -416,19 +409,34 @@ function StatusCard({
           <div className="ic-st__status-left">
             <div
               className="ic-st__status-dot"
-              style={{ background: autoSyncEnabled ? '#059669' : 'rgba(220,38,38,0.5)' }}
+              style={{
+                background: autoSyncEnabled ? '#059669' : 'rgba(220,38,38,0.5)',
+                opacity: autoSyncDisabled ? 0.45 : 1,
+              }}
             />
-            <span className="ic-st__status-label">Auto-Sync</span>
+            <span
+              className="ic-st__status-label"
+              style={{ opacity: autoSyncDisabled ? 0.45 : 1 }}
+            >
+              Auto-Sync
+            </span>
           </div>
-          <button
-            type="button"
-            role="switch"
-            aria-checked={autoSyncEnabled}
-            className={`status-toggle${autoSyncEnabled ? ' status-toggle--active' : ''}`}
-            onClick={() => onToggleAutoSync?.(!autoSyncEnabled)}
-            title={autoSyncEnabled ? 'Disable Auto-Sync' : 'Enable Auto-Sync'}
+          <StatusToggle
+            enabled={autoSyncEnabled}
+            onToggle={(v) => onToggleAutoSync?.(v)}
+            disabled={autoSyncDisabled}
+            label={
+              autoSyncDisabled
+                ? 'Auto-Sync (add an account first)'
+                : 'Auto-Sync'
+            }
           />
         </div>
+        {autoSyncDisabled && (
+          <div style={{ textAlign: 'right', fontSize: 8, color: '#D97706', marginTop: -2, marginBottom: 2 }}>
+            Add an account first
+          </div>
+        )}
 
         {/* Row 3: Sync — read-only status indicator */}
         <div className="ic-st__status-row">
