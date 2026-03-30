@@ -265,6 +265,8 @@ export function ProjectOptimizationPanel({
 
   // Single selected field — only one field connected to AI chat at a time
   const [selectedField, setSelectedField] = useState<'title' | 'description' | 'goals' | 'milestones' | null>(null)
+  const [quickEditMilestoneId, setQuickEditMilestoneId] = useState<string | null>(null)
+  const quickEditMilestoneIdRef = useRef<string | null>(null)
 
   const fileInputRef  = useRef<HTMLInputElement>(null)
   const titleInputRef = useRef<HTMLInputElement>(null)
@@ -473,13 +475,7 @@ export function ProjectOptimizationPanel({
   // ── Refs so event handlers always see latest state ────────────────────────
   const selectedFieldRef = useRef<'title' | 'description' | 'goals' | 'milestones' | null>(null)
   useEffect(() => { selectedFieldRef.current = selectedField }, [selectedField])
-
-  // Track which milestone triggered "Quick edit with AI" (so "Use" replaces it)
-  const [quickEditMilestoneId, setQuickEditMilestoneId] = useState<string | null>(null)
-  const quickEditMilestoneIdRef = useRef<string | null>(null)
   useEffect(() => { quickEditMilestoneIdRef.current = quickEditMilestoneId }, [quickEditMilestoneId])
-
-  // ── "Use in {field}" event from HybridSearch chat panel ───────────────────
   useEffect(() => {
     const handler = (e: Event) => {
       const { text, mode = 'replace' } = (e as CustomEvent<{ text: string; mode?: string }>).detail

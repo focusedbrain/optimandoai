@@ -14,7 +14,7 @@ const fs = require('fs')
 
 function getOutputDir() {
   if (process.platform === 'win32') {
-    return 'C:\\build-output\\build001'
+    return 'C:\\build-output\\build002'
   }
   // Linux and macOS: relative path avoids "path must not start with .." errors
   return path.join(__dirname, 'dist', 'release')
