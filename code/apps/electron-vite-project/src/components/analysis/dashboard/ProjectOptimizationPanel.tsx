@@ -408,22 +408,14 @@ export function ProjectOptimizationPanel({
       return
     }
 
-    // ── Specific milestone edit (Quick edit with AI →) ────────────────────
-    // Must run BEFORE the generic milestones branch — if a specific milestone
-    // is being edited, the pre-frame must only reference THAT milestone's text,
-    // not the entire milestones list or other fields.
+    // ── Specific milestone edit ────────────────────────────────────────────────
+    // Use a minimal content-only format so the AI doesn't paraphrase the
+    // instruction text. Just wrap the milestone content and let the user's
+    // request do the work.
     if (selectedField === 'milestones' && quickEditMilestoneId) {
       const milestone = formMilestones.find((m) => m.id === quickEditMilestoneId)
-      const milestoneText = milestone?.title || '(none yet)'
-      const preFrame = [
-        '=== INSTRUCTION: EDIT THIS MILESTONE ===',
-        "Refine or rewrite the milestone text based on the user's request.",
-        'Output only the updated milestone text. No headers, no numbering, no bullet points.',
-        '=== END INSTRUCTION ===',
-        '',
-        `Current milestone text:\n${milestoneText}`,
-      ].join('\n')
-      setSetupTextDraft(preFrame)
+      const milestoneText = milestone?.title ?? ''
+      setSetupTextDraft(`Text to edit:\n"""\n${milestoneText}\n"""\n`)
       setIncludeInChat(true)
       return
     }
@@ -606,18 +598,10 @@ export function ProjectOptimizationPanel({
     }
 
     // Build milestone-specific pre-frame directly (no useEffect needed)
+    // Minimal content-only format — NO verbose instruction headers that the AI
+    // might treat as text to rewrite. Just the content + user request is enough.
     const milestone = useProjectStore.getState().getActiveProject()?.milestones.find((m) => m.id === milestoneId)
-    store.setSetupTextDraft(
-      [
-        '=== INSTRUCTION: EDIT THIS MILESTONE ===',
-        "Refine or rewrite the milestone text based on the user's request.",
-        'Output only the updated milestone text.',
-        '=== END INSTRUCTION ===',
-        '',
-        'Current milestone text:',
-        milestone?.title ?? '',
-      ].join('\n')
-    )
+    store.setSetupTextDraft(`Text to edit:\n"""\n${milestone?.title ?? ''}\n"""\n`)
     store.setIncludeInChat(true)
 
     focusHeaderAiChat()
@@ -1102,19 +1086,6 @@ export function ProjectOptimizationPanel({
                 <span style={{ fontSize: 11, fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', margin: 0 }}>
                   Milestones
                 </span>
-                <button
-                  type="button"
-                  onClick={() => handleFieldSelect('milestones')}
-                  style={{
-                    flexShrink: 0,
-                    background: selectedField === 'milestones' ? '#7c3aed' : '#ffffff',
-                    color:      selectedField === 'milestones' ? '#ffffff' : '#374151',
-                    border:     selectedField === 'milestones' ? '1px solid #7c3aed' : '1px solid #d1d5db',
-                    borderRadius: 4, padding: '4px 10px', fontSize: 10, fontWeight: 600, cursor: 'pointer',
-                  }}
-                >
-                  {selectedField === 'milestones' && !quickEditMilestoneId ? '☞ AI connected' : 'Select for AI'}
-                </button>
               </div>
 
               {formMilestones.length > 0 && (
@@ -1122,7 +1093,7 @@ export function ProjectOptimizationPanel({
                   {formMilestones.map((m) => (
                     <li
                       key={m.id}
-                      className={`pop__form-ms-card${m.isActive ? ' pop__form-ms-card--active' : ''}`}
+                      className={`pop__form-ms-card${m.isActive ? ' pop__form-ms-card--active' : ''}${quickEditMilestoneId === m.id ? ' pop__form-ms-card--ai-connected' : ''}`}
                     >
                       <div className="pop__form-ms-card-header">
                         <button
@@ -1137,11 +1108,10 @@ export function ProjectOptimizationPanel({
                           <button
                             type="button"
                             className={`pop__form-ms-ai-toggle${quickEditMilestoneId === m.id ? ' pop__form-ms-ai-toggle--connected' : ''}`}
-                            title={quickEditMilestoneId === m.id ? 'AI connected to this milestone — click to disconnect' : 'Select this milestone for AI editing'}
+                            title={quickEditMilestoneId === m.id ? 'AI connected — click to disconnect' : 'Select this milestone for AI editing'}
                             onClick={() => {
                               if (quickEditMilestoneId === m.id) {
-                                // Deselect → switch back to general milestones mode
-                                handleFieldSelect('milestones')
+                                clearFormChatContext()
                               } else {
                                 handleQuickEditMilestone(m.id)
                               }
@@ -1193,6 +1163,14 @@ export function ProjectOptimizationPanel({
                   placeholder="Describe a new milestone…"
                 />
                 <div className="pop__form-ms-add-actions">
+                  <button
+                    type="button"
+                    className={`pop__form-ms-ai-toggle${selectedField === 'milestones' && !quickEditMilestoneId ? ' pop__form-ms-ai-toggle--connected' : ''}`}
+                    title={selectedField === 'milestones' && !quickEditMilestoneId ? 'AI connected — click to disconnect' : 'Use AI to suggest new milestones'}
+                    onClick={() => handleFieldSelect('milestones')}
+                  >
+                    {selectedField === 'milestones' && !quickEditMilestoneId ? '☞ AI' : 'AI'}
+                  </button>
                   <button type="button" className="pop__form-ms-add-btn" onClick={handleAddFormMilestone}>
                     Add milestone
                   </button>

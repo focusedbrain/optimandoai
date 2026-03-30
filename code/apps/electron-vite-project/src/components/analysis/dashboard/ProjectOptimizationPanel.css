@@ -969,33 +969,37 @@
 .pop__form-ms-ai-toggle {
   font-size: 9px;
   font-weight: 600;
-  color: #374151;
-  background: #ffffff;
-  border: 1px solid #d1d5db;
-  border-radius: 4px;
+  color: #9B9B96;
+  background: transparent;
+  border: 1px solid #E8E8E6;
+  border-radius: 3px;
   cursor: pointer;
   padding: 2px 6px;
   font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
   line-height: 1.4;
-  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+  transition: color 120ms ease, border-color 120ms ease, background 120ms ease;
   flex-shrink: 0;
 }
 
 .pop__form-ms-ai-toggle:hover {
-  border-color: #7c3aed;
-  color: #7c3aed;
+  color: #2563EB;
+  border-color: #2563EB;
 }
 
 .pop__form-ms-ai-toggle--connected {
-  background: #7c3aed;
-  color: #ffffff;
-  border-color: #7c3aed;
+  color: #2563EB;
+  background: rgba(37, 99, 235, 0.05);
+  border-color: #2563EB;
 }
 
 .pop__form-ms-ai-toggle--connected:hover {
-  background: #6d28d9;
-  border-color: #6d28d9;
-  color: #ffffff;
+  color: #1d4ed8;
+  border-color: #1d4ed8;
+}
+
+/* Blue border on milestone card when AI-connected */
+.pop__form-ms-card--ai-connected {
+  border-color: #2563EB !important;
 }
 
 /* ── Add milestone area — BEAP composer textarea style ── */
@@ -1036,6 +1040,7 @@
 .pop__form-ms-add-actions {
   display: flex;
   justify-content: flex-end;
+  align-items: center;
   gap: 6px;
 }
 

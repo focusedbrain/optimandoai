@@ -496,12 +496,13 @@ export default function HybridSearch({
     if (d.includes('OUTPUT ONLY A PROJECT TITLE') || d.includes('drafting a PROJECT TITLE')) {
       return 'Project Title'
     }
+    // New minimal format: Text to edit:\n"""\n...\n"""\n
+    if (d.startsWith('Text to edit:') || d.includes('\nText to edit:')) {
+      return 'Milestone'
+    }
+    // Legacy format (kept for backward compat)
     if (d.includes('EDIT THIS MILESTONE')) {
-      // Extract the milestone title preview from the pre-frame
-      const after = d.split('Current milestone text:\n')[1] ?? ''
-      const firstLine = after.split('\n')[0]
-      const preview = firstLine.slice(0, 30)
-      return preview ? `Milestone — ${preview}${firstLine.length > 30 ? '…' : ''}` : 'Milestone'
+      return 'Milestone'
     }
     if (d.includes('drafting a PROJECT DESCRIPTION')) return 'Description'
     if (d.includes('drafting PROJECT GOALS')) return 'Goals'
@@ -867,13 +868,22 @@ export default function HybridSearch({
         if (!isDraftRefine && activeView === 'analysis') {
           const storeState = useProjectSetupChatContextStore.getState()
           if (storeState.includeInChat && storeState.setupTextDraft.trim()) {
-            // Field-specific drafting: bypass buildProjectSetupChatPrefix for ALL fields.
-            // buildProjectSetupChatPrefix wraps content in XML tags AND appends
-            // "ASSISTANT_INSTRUCTIONS: Help refine goals, milestones, and setup text"
-            // which OVERRIDES the field-specific instruction in setupTextDraft for
-            // EVERY field (not just title). setupTextDraft already contains the
-            // complete, isolated, field-specific instruction — use it directly.
-            chatQuery = `${storeState.setupTextDraft.trim()}\n\nUser request: ${chatQuery}`
+            const draft = storeState.setupTextDraft.trim()
+            if (draft.includes('"""')) {
+              // Content-editing mode (milestone editing) — the draft contains the
+              // text to edit, wrapped in triple quotes. Do NOT add "User request:"
+              // prefix; just place the user's message directly after so the AI sees:
+              //   Text to edit:
+              //   """
+              //   <milestone content>
+              //   """
+              //   <user's request>
+              chatQuery = `${draft}\n\n${chatQuery}`
+            } else {
+              // Field drafting mode (title, description, goals, new milestones) —
+              // the draft contains the full instruction + context. Append user request.
+              chatQuery = `${draft}\n\nUser request: ${chatQuery}`
+            }
           }
         }
 
