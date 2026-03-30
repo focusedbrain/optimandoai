@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react'
-import type { ChangeEvent } from 'react'
+import type { ChangeEvent, CSSProperties } from 'react'
 import './HybridSearch.css'
 import './handshakeViewTypes'
 import { useDraftRefineStore } from '../stores/useDraftRefineStore'
@@ -308,6 +308,40 @@ const SCOPE_LABELS: Record<SearchScope, string> = {
   'all': 'All (Global)',
 }
 
+// ── Block parser for AI response picker ──────────────────────────────────────
+
+interface ResponseBlock {
+  id: string
+  type: 'text' | 'code' | 'list' | 'heading'
+  content: string
+  displayPreview: string
+}
+
+function parseResponseIntoBlocks(responseText: string): ResponseBlock[] {
+  const blocks: ResponseBlock[] = []
+  let blockId = 0
+  const segments = responseText.split(/\n{2,}/)
+  for (const segment of segments) {
+    const trimmed = segment.trim()
+    if (!trimmed) continue
+    let type: ResponseBlock['type'] = 'text'
+    if (trimmed.startsWith('```')) {
+      type = 'code'
+    } else if (/^#{1,3}\s/.test(trimmed)) {
+      type = 'heading'
+    } else if (/^[-*•]\s/.test(trimmed) || /^\d+[.)]\s/.test(trimmed)) {
+      type = 'list'
+    }
+    blocks.push({
+      id: `block-${blockId++}`,
+      type,
+      content: trimmed,
+      displayPreview: trimmed.slice(0, 80) + (trimmed.length > 80 ? '…' : ''),
+    })
+  }
+  return blocks
+}
+
 // ── Component ──
 
 export default function HybridSearch({
@@ -356,6 +390,23 @@ export default function HybridSearch({
       : projectSetupSetupTextDraft.includes('define project milestones')
         ? 'Milestones'
         : 'Project field'
+
+  /** Parsed response blocks for the AI draft block picker */
+  const aiResponseBlocks = useMemo(
+    () =>
+      activeView === 'analysis' && projectSetupIncludeInChat && response
+        ? parseResponseIntoBlocks(response)
+        : [],
+    [activeView, projectSetupIncludeInChat, response],
+  )
+
+  /** Track which individual blocks have already been inserted */
+  const [usedBlockIds, setUsedBlockIds] = useState<Set<string>>(new Set())
+
+  /** Reset inserted-state when a new response arrives */
+  useEffect(() => {
+    setUsedBlockIds(new Set())
+  }, [response])
 
   const containerRef = useRef<HTMLDivElement>(null)
   const infoPopupRef = useRef<HTMLDivElement>(null)
@@ -1372,18 +1423,106 @@ export default function HybridSearch({
                 <span className="hs-chip">{SCOPE_LABELS[scope]}</span>
                 <span className="hs-chip">{getModelLabel(selectedModel, availableModels)}</span>
               </div>
-              {/* Project AI draft "Use" button — inserts response into the selected project field */}
-              {activeView === 'analysis' && projectSetupIncludeInChat && !isDraftRefineSession && !isLoading && response && (
-                <button
-                  type="button"
-                  className="hs-use-draft-btn"
-                  onClick={() => {
-                    window.dispatchEvent(new CustomEvent('wrdesk:use-ai-draft', { detail: { text: response } }))
-                  }}
-                  title={`Use this response in project ${projectDraftFieldName} field`}
-                >
-                  Use in {projectDraftFieldName} ↓
-                </button>
+              {/* Project AI draft — block picker (replaces single "Use" button) */}
+              {activeView === 'analysis' && projectSetupIncludeInChat && !isDraftRefineSession && !isLoading && response && aiResponseBlocks.length > 0 && (
+                <div style={{ borderTop: '1px solid #F0F0EE', paddingTop: 8, marginTop: 8 }}>
+                  {/* Header */}
+                  <div style={{ fontSize: 10, fontWeight: 600, color: '#2563EB', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 6 }}>
+                    Insert into: {projectDraftFieldName}
+                  </div>
+
+                  {/* Block list */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    {aiResponseBlocks.map((block) => {
+                      const isUsed = usedBlockIds.has(block.id)
+                      const typeBadgeStyle: CSSProperties =
+                        block.type === 'list'    ? { background: '#EFF6FF', color: '#2563EB' } :
+                        block.type === 'code'    ? { background: '#F3F3F2', color: '#7C3AED' } :
+                        block.type === 'heading' ? { background: '#FFFBEB', color: '#D97706' } :
+                                                   { background: '#F3F3F2', color: '#6B6B66' }
+                      return (
+                        <div
+                          key={block.id}
+                          style={{
+                            display: 'flex', alignItems: 'flex-start', gap: 8,
+                            border: '1px solid #E8E8E6', borderRadius: 4,
+                            padding: '6px 8px', background: '#FAFAF9',
+                            transition: 'border-color 150ms ease-out, background 150ms ease-out',
+                          }}
+                          onMouseEnter={(e) => {
+                            if (!isUsed) {
+                              ;(e.currentTarget as HTMLDivElement).style.borderColor = '#D4D4D1'
+                              ;(e.currentTarget as HTMLDivElement).style.background  = '#F3F3F2'
+                            }
+                          }}
+                          onMouseLeave={(e) => {
+                            ;(e.currentTarget as HTMLDivElement).style.borderColor = '#E8E8E6'
+                            ;(e.currentTarget as HTMLDivElement).style.background  = '#FAFAF9'
+                          }}
+                        >
+                          {/* Left: type badge + preview */}
+                          <div style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <span style={{
+                              fontSize: 8, fontWeight: 600, padding: '1px 5px',
+                              borderRadius: 3, textTransform: 'uppercase', flexShrink: 0,
+                              ...typeBadgeStyle,
+                            }}>
+                              {block.type}
+                            </span>
+                            <span style={{ fontSize: 10, color: '#6B6B66', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {block.displayPreview}
+                            </span>
+                          </div>
+                          {/* Right: Use / Inserted */}
+                          <div style={{ flexShrink: 0 }}>
+                            {isUsed ? (
+                              <span style={{ fontSize: 9, color: '#059669' }}>✓ Inserted</span>
+                            ) : (
+                              <button
+                                type="button"
+                                style={{
+                                  padding: '2px 8px', fontSize: 9, fontWeight: 500,
+                                  color: '#2563EB', background: 'rgba(37,99,235,0.05)',
+                                  border: '1px solid rgba(37,99,235,0.3)', borderRadius: 3,
+                                  cursor: 'pointer',
+                                }}
+                                onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(37,99,235,0.1)' }}
+                                onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(37,99,235,0.05)' }}
+                                onClick={() => {
+                                  window.dispatchEvent(new CustomEvent('wrdesk:use-ai-draft', { detail: { text: block.content, mode: 'append' } }))
+                                  setUsedBlockIds((prev) => new Set([...prev, block.id]))
+                                }}
+                              >
+                                Use
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+
+                  {/* Use All */}
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 6 }}>
+                    <button
+                      type="button"
+                      style={{
+                        padding: '4px 12px', fontSize: 10, fontWeight: 600,
+                        color: '#FFFFFF', background: '#2563EB',
+                        borderRadius: 4, border: 'none', cursor: 'pointer',
+                      }}
+                      onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = '#1D4ED8' }}
+                      onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = '#2563EB' }}
+                      onClick={() => {
+                        const allContent = aiResponseBlocks.map((b) => b.content).join('\n\n')
+                        window.dispatchEvent(new CustomEvent('wrdesk:use-ai-draft', { detail: { text: allContent, mode: 'replace' } }))
+                        setUsedBlockIds(new Set(aiResponseBlocks.map((b) => b.id)))
+                      }}
+                    >
+                      Use All
+                    </button>
+                  </div>
+                </div>
               )}
               {chatGovernanceNote && (
                 <div style={{ marginTop: '12px', padding: '10px 12px', background: 'rgba(251,191,36,0.12)', border: '1px solid rgba(251,191,36,0.3)', borderRadius: '6px', fontSize: '12px', color: 'var(--text-secondary)' }}>

@@ -898,7 +898,7 @@
 /* Card body: editable textarea, always full height */
 .pop__form-ms-card-body {
   width: 100%;
-  min-height: 48px;
+  min-height: 64px;
   font-size: 13px;
   line-height: 1.5;
   color: #0f172a;
@@ -966,7 +966,7 @@
 }
 
 .pop__form-ms-add-textarea {
-  min-height: 48px;
+  min-height: 64px;
   font-size: 13px;
   line-height: 1.5;
   border: 1px solid #cbd5e1;
@@ -1024,4 +1024,14 @@
   opacity: 0.5;
   cursor: not-allowed;
   pointer-events: none;
+}
+
+/* ── AI insertion flash highlight ────────────────────────────────────────── */
+@keyframes field-inserted {
+  0%   { background-color: rgba(37, 99, 235, 0.08); }
+  100% { background-color: transparent; }
+}
+
+.project-field--just-inserted {
+  animation: field-inserted 650ms ease-out;
 }

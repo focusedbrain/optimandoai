@@ -365,21 +365,42 @@ export function ProjectOptimizationPanel({
   // ── "Use in {field}" event from HybridSearch chat panel ───────────────────
   useEffect(() => {
     const handler = (e: Event) => {
-      const { text } = (e as CustomEvent<{ text: string }>).detail
+      const { text, mode = 'replace' } = (e as CustomEvent<{ text: string; mode?: string }>).detail
       if (!text?.trim()) return
       const field = selectedFieldRef.current
+
+      /** Flash the target textarea to confirm insertion */
+      const flashField = (dataField: string) => {
+        requestAnimationFrame(() => {
+          const el = document.querySelector(`[data-field="${dataField}"]`) as HTMLTextAreaElement | null
+          if (!el) return
+          el.style.height = 'auto'
+          el.style.height = el.scrollHeight + 'px'
+          el.classList.add('project-field--just-inserted')
+          setTimeout(() => el.classList.remove('project-field--just-inserted'), 650)
+        })
+      }
+
       if (field === 'description') {
-        setFormDescription(text.trim())
+        if (mode === 'replace') {
+          setFormDescription(text.trim())
+        } else {
+          setFormDescription((prev) => (prev ? `${prev}\n\n${text.trim()}` : text.trim()))
+        }
+        flashField('description')
       } else if (field === 'goals') {
-        setFormGoals(text.trim())
+        if (mode === 'replace') {
+          setFormGoals(text.trim())
+        } else {
+          setFormGoals((prev) => (prev ? `${prev}\n\n${text.trim()}` : text.trim()))
+        }
+        flashField('goals')
       } else if (field === 'milestones') {
         const qmId = quickEditMilestoneIdRef.current
         if (qmId) {
-          // Replace specific milestone (from "Quick edit with AI →")
           setFormMilestones((prev) => prev.map((m) => m.id === qmId ? { ...m, title: text.trim() } : m))
           setQuickEditMilestoneId(null)
         } else {
-          // Append parsed lines as new milestones
           const newMs: ProjectMilestone[] = text
             .split('\n')
             .map((line) => line.replace(/^[-*•]\s*/, '').replace(/^\d+[.)]\s*/, '').trim())
@@ -774,6 +795,7 @@ export function ProjectOptimizationPanel({
               </div>
               <div className="pop__form-textarea-wrap">
                 <textarea
+                  data-field="description"
                   value={formDescription}
                   onChange={(e) => { setFormDescription(e.target.value); autoGrow(e.target) }}
                   onInput={(e) => autoGrow(e.target as HTMLTextAreaElement)}
@@ -782,7 +804,7 @@ export function ProjectOptimizationPanel({
                     width: '100%', boxSizing: 'border-box', padding: '12px 14px', borderRadius: 8,
                     border: selectedField === 'description' ? '2px solid #7c3aed' : '1px solid #cbd5e1',
                     outline: 'none', background: '#ffffff', color: '#0f172a', fontSize: 13,
-                    lineHeight: 1.5, resize: 'none', overflow: 'hidden', display: 'block', minHeight: 80,
+                    lineHeight: 1.6, resize: 'none', overflow: 'hidden', display: 'block', minHeight: 100,
                   }}
                   onFocus={(e) => { if (selectedField !== 'description') e.currentTarget.style.boxShadow = '0 0 0 2px rgba(99,102,241,0.4)' }}
                   onBlur={(e) => { e.currentTarget.style.boxShadow = 'none' }}
@@ -815,6 +837,7 @@ export function ProjectOptimizationPanel({
               </div>
               <div className="pop__form-textarea-wrap">
                 <textarea
+                  data-field="goals"
                   value={formGoals}
                   onChange={(e) => { setFormGoals(e.target.value); autoGrow(e.target) }}
                   onInput={(e) => autoGrow(e.target as HTMLTextAreaElement)}
@@ -823,7 +846,7 @@ export function ProjectOptimizationPanel({
                     width: '100%', boxSizing: 'border-box', padding: '12px 14px', borderRadius: 8,
                     border: selectedField === 'goals' ? '2px solid #7c3aed' : '1px solid #cbd5e1',
                     outline: 'none', background: '#ffffff', color: '#0f172a', fontSize: 13,
-                    lineHeight: 1.5, resize: 'none', overflow: 'hidden', display: 'block', minHeight: 80,
+                    lineHeight: 1.6, resize: 'none', overflow: 'hidden', display: 'block', minHeight: 100,
                   }}
                   onFocus={(e) => { if (selectedField !== 'goals') e.currentTarget.style.boxShadow = '0 0 0 2px rgba(99,102,241,0.4)' }}
                   onBlur={(e) => { e.currentTarget.style.boxShadow = 'none' }}
