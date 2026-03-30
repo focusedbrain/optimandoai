@@ -491,17 +491,23 @@ export default function HybridSearch({
   const projectSetupSetSetupTextDraft = useProjectSetupChatContextStore((s) => s.setSetupTextDraft)
 
   /** Derive which project field is currently selected for AI drafting */
-  const projectDraftFieldName =
-    projectSetupSetupTextDraft.includes('OUTPUT ONLY A PROJECT TITLE') ||
-    projectSetupSetupTextDraft.includes('drafting a PROJECT TITLE')
-      ? 'Project Title'
-      : projectSetupSetupTextDraft.includes('drafting a PROJECT DESCRIPTION')
-        ? 'Description'
-        : projectSetupSetupTextDraft.includes('drafting PROJECT GOALS')
-          ? 'Goals'
-          : projectSetupSetupTextDraft.includes('drafting PROJECT MILESTONES')
-            ? 'Milestones'
-            : 'Project field'
+  const projectDraftFieldName = (() => {
+    const d = projectSetupSetupTextDraft
+    if (d.includes('OUTPUT ONLY A PROJECT TITLE') || d.includes('drafting a PROJECT TITLE')) {
+      return 'Project Title'
+    }
+    if (d.includes('EDIT THIS MILESTONE')) {
+      // Extract the milestone title preview from the pre-frame
+      const after = d.split('Current milestone text:\n')[1] ?? ''
+      const firstLine = after.split('\n')[0]
+      const preview = firstLine.slice(0, 30)
+      return preview ? `Milestone — ${preview}${firstLine.length > 30 ? '…' : ''}` : 'Milestone'
+    }
+    if (d.includes('drafting a PROJECT DESCRIPTION')) return 'Description'
+    if (d.includes('drafting PROJECT GOALS')) return 'Goals'
+    if (d.includes('drafting PROJECT MILESTONES')) return 'New Milestones'
+    return 'Project field'
+  })()
 
   /** Parsed response blocks for the AI draft block picker */
   const aiResponseBlocks = useMemo(
@@ -860,23 +866,14 @@ export default function HybridSearch({
         /** Analysis-only: prepend project setup context (never mixed into handshake draft-refine prompts). */
         if (!isDraftRefine && activeView === 'analysis') {
           const storeState = useProjectSetupChatContextStore.getState()
-          if (storeState.includeInChat) {
-            if (projectDraftFieldName === 'Project Title') {
-              // Title field: bypass buildProjectSetupChatPrefix entirely.
-              // That function buries the instruction in XML tags then appends
-              // "ASSISTANT_INSTRUCTIONS: Help refine goals, milestones, setup text"
-              // which OVERRIDES the STRICT INSTRUCTION, causing the model to
-              // return the title unchanged. Use the raw setupTextDraft directly.
-              const titleInstruction = storeState.setupTextDraft.trim()
-              if (titleInstruction) {
-                chatQuery = `${titleInstruction}\n\nUser request: ${chatQuery}`
-              }
-            } else {
-              const setupPrefix = buildProjectSetupChatPrefix(storeState)
-              if (setupPrefix) {
-                chatQuery = `${setupPrefix}\n\n${chatQuery}`
-              }
-            }
+          if (storeState.includeInChat && storeState.setupTextDraft.trim()) {
+            // Field-specific drafting: bypass buildProjectSetupChatPrefix for ALL fields.
+            // buildProjectSetupChatPrefix wraps content in XML tags AND appends
+            // "ASSISTANT_INSTRUCTIONS: Help refine goals, milestones, and setup text"
+            // which OVERRIDES the field-specific instruction in setupTextDraft for
+            // EVERY field (not just title). setupTextDraft already contains the
+            // complete, isolated, field-specific instruction — use it directly.
+            chatQuery = `${storeState.setupTextDraft.trim()}\n\nUser request: ${chatQuery}`
           }
         }
 

@@ -371,28 +371,62 @@ export function ProjectOptimizationPanel({
       return
     }
 
-    // ── Non-title fields: include full project context ────────────────────
-    const projectContext = [
-      formTitle       ? `Project title: "${formTitle}"` : null,
-      formDescription ? `Description: ${formDescription}` : null,
-      formGoals       ? `Goals: ${formGoals}` : null,
-      formMilestones.length > 0
-        ? `Milestones:\n${formMilestones.map((m) => `${m.isActive ? '● ' : '○ '}${m.completed ? '[DONE] ' : ''}${m.title}`).join('\n')}`
-        : null,
-      formAttachments.length > 0
-        ? `Attached context:\n${formAttachments
-            .filter((a) => a.content && a.content.length > 0)
-            .map((a) => `[Attachment: ${a.filename}]\n${a.content.slice(0, 2000)}`)
-            .join('\n\n')}`
-        : null,
-    ].filter(Boolean).join('\n\n') || '(No project context yet — user is starting fresh)'
+    // ── Specific milestone edit (Quick edit with AI →) ────────────────────
+    // Must run BEFORE the generic milestones branch — if a specific milestone
+    // is being edited, the pre-frame must only reference THAT milestone's text,
+    // not the entire milestones list or other fields.
+    if (selectedField === 'milestones' && quickEditMilestoneId) {
+      const milestone = formMilestones.find((m) => m.id === quickEditMilestoneId)
+      const milestoneText = milestone?.title || '(none yet)'
+      const preFrame = [
+        '=== INSTRUCTION: EDIT THIS MILESTONE ===',
+        "Refine or rewrite the milestone text based on the user's request.",
+        'Output only the updated milestone text. No headers, no numbering, no bullet points.',
+        '=== END INSTRUCTION ===',
+        '',
+        `Current milestone text:\n${milestoneText}`,
+      ].join('\n')
+      setSetupTextDraft(preFrame)
+      setIncludeInChat(true)
+      return
+    }
+
+    // ── Non-title fields: FIELD-SPECIFIC context only ─────────────────────
+    // CRITICAL: Never include formAttachments here. Attachments are stored
+    // in the project record (useProjectStore) and their parsed text must NOT
+    // leak into every AI request. The user must explicitly drop files into
+    // the chat drop zone if they want the AI to use attachment content.
+    // Each field only receives context that is directly relevant to it.
+    let projectContext: string
+    if (selectedField === 'description') {
+      projectContext = [
+        formTitle       ? `Project title: "${formTitle}"` : null,
+        formDescription ? `Current description:\n${formDescription}` : 'Current description: (none yet)',
+      ].filter(Boolean).join('\n\n')
+    } else if (selectedField === 'goals') {
+      projectContext = [
+        formTitle       ? `Project title: "${formTitle}"` : null,
+        formDescription ? `Description: ${formDescription}` : null,
+        formGoals       ? `Current goals:\n${formGoals}` : 'Current goals: (none yet)',
+      ].filter(Boolean).join('\n\n')
+    } else {
+      // milestones — only title + goals + current milestones (no description, no attachments)
+      const milestoneList = formMilestones.length > 0
+        ? formMilestones.map((m) => `${m.isActive ? '● ' : '○ '}${m.completed ? '[DONE] ' : ''}${m.title}`).join('\n')
+        : '(none yet)'
+      projectContext = [
+        formTitle  ? `Project title: "${formTitle}"` : null,
+        formGoals  ? `Goals:\n${formGoals}` : null,
+        `Current milestones:\n${milestoneList}`,
+      ].filter(Boolean).join('\n\n')
+    }
 
     const setupText = `${preFrames[selectedField]}\n\n[PROJECT CONTEXT]\n${projectContext}`
     setSetupTextDraft(setupText)
     setIncludeInChat(true)
   }, [
-    setupMode, selectedField,
-    formTitle, formDescription, formGoals, formMilestones, formAttachments,
+    setupMode, selectedField, quickEditMilestoneId,
+    formTitle, formDescription, formGoals, formMilestones,
     setSetupTextDraft, setIncludeInChat,
   ])
 
@@ -415,6 +449,8 @@ export function ProjectOptimizationPanel({
       store.clearSnippets()
       store.setSetupTextDraft('')
       store.setIncludeInChat(false)
+      // Clicking the section header always means "general" mode (create new), not specific milestone edit
+      setQuickEditMilestoneId(null)
 
       // ── Clear drop-zone attachments and chat conversation in the chat panel ──
       // Attachments and conversation are field-specific — a PDF dropped while drafting goals
@@ -493,9 +529,32 @@ export function ProjectOptimizationPanel({
       } else if (field === 'milestones') {
         const qmId = quickEditMilestoneIdRef.current
         if (qmId) {
-          setFormMilestones((prev) => prev.map((m) => m.id === qmId ? { ...m, title: text.trim() } : m))
-          setQuickEditMilestoneId(null)
+          // A SPECIFIC milestone is selected → insert INTO that milestone only
+          setFormMilestones((prev) =>
+            prev.map((m) => {
+              if (m.id !== qmId) return m
+              const newTitle =
+                mode === 'replace' || !m.title
+                  ? text.trim()
+                  : `${m.title}\n\n${text.trim()}`
+              return { ...m, title: newTitle }
+            })
+          )
+          // Flash + auto-grow the specific milestone's textarea
+          requestAnimationFrame(() => {
+            const el = document.querySelector(
+              `[data-milestone-id="${qmId}"]`
+            ) as HTMLTextAreaElement | null
+            if (!el) return
+            el.style.height = 'auto'
+            el.style.height = el.scrollHeight + 'px'
+            el.classList.add('project-field--just-inserted')
+            setTimeout(() => el.classList.remove('project-field--just-inserted'), 650)
+          })
+          // Do NOT clear quickEditMilestoneId — the user may click "Use" on
+          // multiple blocks, all targeting the same milestone
         } else {
+          // NO specific milestone selected (section header mode) → create new milestones
           const newMs: ProjectMilestone[] = text
             .split('\n')
             .map((line) => line.replace(/^[-*•]\s*/, '').replace(/^\d+[.)]\s*/, '').trim())
@@ -518,6 +577,18 @@ export function ProjectOptimizationPanel({
 
   // ── Quick-edit a specific milestone from inside the card ──────────────────
   const handleQuickEditMilestone = useCallback((milestoneId: string) => {
+    // Clear ALL stale store draft data — same pattern as handleFieldSelect
+    const store = useProjectSetupChatContextStore.getState()
+    store.setGoalsDraft('')
+    store.setMilestonesDraft('')
+    store.clearSnippets()
+    store.setSetupTextDraft('')
+    store.setIncludeInChat(false)
+    // Clear drop-zone attachments and chat conversation so context is fresh
+    window.dispatchEvent(new CustomEvent('wrdesk:clear-chat-attachments'))
+    window.dispatchEvent(new CustomEvent('wrdesk:clear-chat-conversation'))
+    // Set the specific milestone; the context sync useEffect (which watches
+    // quickEditMilestoneId + selectedField) will build the milestone-specific pre-frame
     setQuickEditMilestoneId(milestoneId)
     setSelectedField('milestones')
     focusHeaderAiChat()
@@ -532,6 +603,7 @@ export function ProjectOptimizationPanel({
     store.clearSnippets()
     store.setIncludeInChat(false)
     setSelectedField(null)
+    setQuickEditMilestoneId(null)
     window.dispatchEvent(new CustomEvent('wrdesk:clear-chat-attachments'))
     window.dispatchEvent(new CustomEvent('wrdesk:clear-chat-conversation'))
   }, [])
@@ -1043,6 +1115,7 @@ export function ProjectOptimizationPanel({
                       </div>
 
                       <textarea
+                        data-milestone-id={m.id}
                         className={`pop__form-ms-card-body${m.completed ? ' pop__form-ms-card-body--done' : ''}`}
                         value={m.title}
                         onChange={(e) => { updateFormMilestoneTitle(m.id, e.target.value); autoGrow(e.target) }}
@@ -1234,12 +1307,10 @@ export function ProjectOptimizationPanel({
                   if (setupMode === 'collapsed') {
                     openEditMode()
                     setTimeout(() => {
-                      setSelectedField('milestones')
-                      focusHeaderAiChat()
+                      handleQuickEditMilestone(activeMilestone.id)
                     }, 60)
                   } else {
-                    setSelectedField('milestones')
-                    focusHeaderAiChat()
+                    handleQuickEditMilestone(activeMilestone.id)
                   }
                 }}
                 title="Open editor and select milestone field for AI editing"
