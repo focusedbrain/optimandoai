@@ -52,6 +52,11 @@ import {
   stopAutoOptimization,
   triggerSnapshotOptimization,
 } from '../../../lib/autoOptimizationEngine'
+import { BeapDocumentReaderModal } from '@ext/beap-builder/components/BeapDocumentReaderModal'
+import { AttachmentStatusBadge } from '@ext/beap-builder/components/AttachmentStatusBadge'
+import type { AttachmentParseStatus } from '@ext/beap-builder/components/AttachmentStatusBadge'
+import { ComposerAttachmentButton } from '../../ComposerAttachmentButton'
+import { extractTextForPackagePreview } from '../../../lib/beapPackageAttachmentPreview'
 import '../../../styles/dashboard-tokens.css'
 import '../../../styles/dashboard-base.css'
 import './ProjectOptimizationPanel.css'
@@ -249,6 +254,11 @@ export function ProjectOptimizationPanel({
   const [formLinkedSessionId, setFormLinkedSessionId]   = useState<string | null>(null)
   const [formIntervalMs, setFormIntervalMs]             = useState(300_000)
   const [newMilestoneInput, setNewMilestoneInput]       = useState('')
+
+  // Document reader modal (reuses BeapDocumentReaderModal)
+  const [readerOpen, setReaderOpen]         = useState(false)
+  const [readerFilename, setReaderFilename] = useState('')
+  const [readerText, setReaderText]         = useState('')
 
   // Single selected field — only one field connected to AI chat at a time
   const [selectedField, setSelectedField] = useState<'description' | 'goals' | 'milestones' | null>(null)
@@ -515,50 +525,56 @@ export function ProjectOptimizationPanel({
     el.style.height = `${el.scrollHeight}px`
   }, [])
 
-  // ── Form file upload — with basic PDF text extraction ─────────────────────
+  // ── Form file upload — uses the same BEAP parsing utility (IPC PDF extract) ─
   const handleFileSelect = useCallback(async (e: ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? [])
     for (const file of files) {
-      let content = ''
       const mimeType = file.type || 'text/plain'
+      const id = crypto.randomUUID()
+      const isPdf = mimeType === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')
 
-      if (mimeType === 'application/pdf') {
-        // V1: basic text extraction from PDF binary — works for text-based PDFs
-        // TODO: Replace with proper pdfjs-dist extraction when available:
-        // const pdf = await getDocument(buffer).promise
-        // for (let i = 1; i <= pdf.numPages; i++) { ... }
-        try {
-          const buffer = await file.arrayBuffer()
-          const uint8 = new Uint8Array(buffer)
-          const rawText = new TextDecoder('utf-8', { fatal: false }).decode(uint8)
-          content = rawText
-            .replace(/[^\x20-\x7E\n\r\t]/g, ' ')
-            .replace(/\s{3,}/g, ' ')
-            .trim()
-          if (content.length < 50) {
-            content = `[PDF: ${file.name} — text extraction failed. File may be scanned/image-based. Manual text entry or OCR needed.]`
-          }
-        } catch {
-          content = `[PDF: ${file.name} — could not parse]`
-        }
-      } else {
-        content = await file.text()
-      }
-
-      if (!content.trim()) content = `[Empty file: ${file.name}]`
-
+      // Insert attachment immediately with pending status for PDFs
       setFormAttachments((prev) => [
         ...prev,
         {
-          id: crypto.randomUUID(),
+          id,
           filename: file.name,
-          content,
+          content: '',
           mimeType,
           addedAt: new Date().toISOString(),
+          parseStatus: isPdf ? ('pending' as AttachmentParseStatus) : undefined,
         },
       ])
+
+      // Convert File to base64 then call the shared BEAP parsing utility
+      const buffer = await file.arrayBuffer()
+      const bytes  = new Uint8Array(buffer)
+      let binary   = ''
+      for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i])
+      const b64 = btoa(binary)
+
+      const extracted = await extractTextForPackagePreview({ name: file.name, mimeType, base64: b64 })
+
+      setFormAttachments((prev) =>
+        prev.map((a) =>
+          a.id === id
+            ? {
+                ...a,
+                content:     extracted.text || '',
+                parseStatus: (extracted.text ? 'success' : 'failed') as AttachmentParseStatus,
+              }
+            : a,
+        ),
+      )
     }
     if (e.target) e.target.value = ''
+  }, [])
+
+  // ── Attachment text reader ─────────────────────────────────────────────────
+  const openAttachmentReader = useCallback((att: { filename: string; content: string }) => {
+    setReaderFilename(att.filename)
+    setReaderText(att.content)
+    setReaderOpen(true)
   }, [])
 
   // ── Derived display values ─────────────────────────────────────────────────
@@ -675,75 +691,105 @@ export function ProjectOptimizationPanel({
         <>
           <div className="pop__divider" aria-hidden="true" />
 
-          <div className="pop__setup-form">
+          {/* BEAP-composer style form — mirrors BeapInlineComposer light theme */}
+          <div style={{ padding: '18px 20px', display: 'flex', flexDirection: 'column', gap: 20, background: '#f8fafc' }}>
 
             {/* Form header */}
-            <div className="pop__form-hdr">
-              <span className="pop__form-hdr-title">
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+              <span style={{ fontSize: 14, fontWeight: 600, color: '#0f172a' }}>
                 {setupMode === 'creating' ? 'New project' : `Edit: ${formTitle}`}
               </span>
               <button
                 type="button"
-                className="pop__form-cancel-link"
                 onClick={handleCancelForm}
                 tabIndex={-1}
+                style={{ fontSize: 12, color: '#64748b', background: 'none', border: 'none', cursor: 'pointer', padding: '2px 4px' }}
               >
                 Cancel
               </button>
             </div>
 
-            {/* Title + Session (side by side) */}
-            <div className="pop__form-field-row">
-              <div className="pop__form-field" style={{ flex: 1, minWidth: 0 }}>
-                <label className="pop__form-label" htmlFor="pop-form-title">Title</label>
-                <input
-                  ref={titleInputRef}
-                  id="pop-form-title"
-                  className="pop__form-input"
-                  type="text"
-                  value={formTitle}
-                  onChange={(e) => setFormTitle(e.target.value)}
-                  placeholder="Project title"
-                />
-              </div>
-              <div className="pop__form-field" style={{ width: 160, flexShrink: 0 }}>
-                <label className="pop__form-label" htmlFor="pop-form-session">Session</label>
-                <select
-                  id="pop-form-session"
-                  className="pop__form-select"
-                  value={formLinkedSessionId ?? ''}
-                  onChange={(e) => setFormLinkedSessionId(e.target.value || null)}
-                >
-                  <option value="">— No session —</option>
-                  {orchestratorSessions.length === 0
-                    ? <option value="" disabled>No sessions available</option>
-                    : orchestratorSessions.map((s) => (
-                        <option key={s.id} value={s.id}>{s.name}</option>
-                      ))
-                  }
-                </select>
-              </div>
+            {/* Title */}
+            <div>
+              <label
+                htmlFor="pop-form-title"
+                style={{ fontSize: 11, fontWeight: 600, color: '#64748b', textTransform: 'uppercase', display: 'block', marginBottom: 6, letterSpacing: '0.5px' }}
+              >
+                Title
+              </label>
+              <input
+                ref={titleInputRef}
+                id="pop-form-title"
+                type="text"
+                value={formTitle}
+                onChange={(e) => setFormTitle(e.target.value)}
+                placeholder="Project title"
+                style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: 8, background: '#ffffff', color: '#0f172a', border: '1px solid #cbd5e1', fontSize: 13, outline: 'none' }}
+                onFocus={(e) => { e.currentTarget.style.boxShadow = '0 0 0 2px rgba(99,102,241,0.4)' }}
+                onBlur={(e) => { e.currentTarget.style.boxShadow = 'none' }}
+              />
             </div>
 
-            {/* ── Description ── */}
-            <div className="pop__form-field pop__form-field--mt">
-              <div className="pop__form-label-row">
-                <span className="pop__form-label">Description</span>
+            {/* Session (optional) */}
+            <div>
+              <label
+                htmlFor="pop-form-session"
+                style={{ fontSize: 11, fontWeight: 600, color: '#64748b', textTransform: 'uppercase', display: 'block', marginBottom: 6, letterSpacing: '0.5px' }}
+              >
+                Session (optional)
+              </label>
+              <select
+                id="pop-form-session"
+                value={formLinkedSessionId ?? ''}
+                onChange={(e) => setFormLinkedSessionId(e.target.value || null)}
+                style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: 8, background: '#ffffff', color: '#0f172a', border: '1px solid #cbd5e1', fontSize: 13, outline: 'none' }}
+                onFocus={(e) => { e.currentTarget.style.boxShadow = '0 0 0 2px rgba(99,102,241,0.4)' }}
+                onBlur={(e) => { e.currentTarget.style.boxShadow = 'none' }}
+              >
+                <option value="">— No session —</option>
+                {orchestratorSessions.length === 0
+                  ? <option value="" disabled>No sessions available</option>
+                  : orchestratorSessions.map((s) => (
+                      <option key={s.id} value={s.id}>{s.name}</option>
+                    ))
+                }
+              </select>
+            </div>
+
+            {/* Description */}
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 11, fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', margin: 0 }}>
+                  Description
+                </span>
                 <button
                   type="button"
-                  className={`pop__form-ai-select-btn${selectedField === 'description' ? ' pop__form-ai-select-btn--active' : ''}`}
                   onClick={() => handleFieldSelect('description')}
+                  style={{
+                    flexShrink: 0,
+                    background: selectedField === 'description' ? '#7c3aed' : '#ffffff',
+                    color:      selectedField === 'description' ? '#ffffff' : '#374151',
+                    border:     selectedField === 'description' ? '1px solid #7c3aed' : '1px solid #d1d5db',
+                    borderRadius: 4, padding: '4px 10px', fontSize: 10, fontWeight: 600, cursor: 'pointer',
+                  }}
                 >
-                  {selectedField === 'description' ? '☞ Connected to AI' : 'Select for AI'}
+                  {selectedField === 'description' ? '☞ AI connected' : 'Select for AI'}
                 </button>
               </div>
               <div className="pop__form-textarea-wrap">
                 <textarea
-                  className={`pop__form-textarea pop__form-textarea--autogrow${selectedField === 'description' ? ' pop__form-textarea--selected' : ''}`}
                   value={formDescription}
                   onChange={(e) => { setFormDescription(e.target.value); autoGrow(e.target) }}
                   onInput={(e) => autoGrow(e.target as HTMLTextAreaElement)}
                   placeholder="What is this project about?"
+                  style={{
+                    width: '100%', boxSizing: 'border-box', padding: '12px 14px', borderRadius: 8,
+                    border: selectedField === 'description' ? '2px solid #7c3aed' : '1px solid #cbd5e1',
+                    outline: 'none', background: '#ffffff', color: '#0f172a', fontSize: 13,
+                    lineHeight: 1.5, resize: 'none', overflow: 'hidden', display: 'block', minHeight: 80,
+                  }}
+                  onFocus={(e) => { if (selectedField !== 'description') e.currentTarget.style.boxShadow = '0 0 0 2px rgba(99,102,241,0.4)' }}
+                  onBlur={(e) => { e.currentTarget.style.boxShadow = 'none' }}
                 />
                 {selectedField === 'description' && (
                   <span className="pop__form-field-pin" aria-hidden="true">☞</span>
@@ -751,25 +797,40 @@ export function ProjectOptimizationPanel({
               </div>
             </div>
 
-            {/* ── Goals ── */}
-            <div className="pop__form-field pop__form-field--mt">
-              <div className="pop__form-label-row">
-                <span className="pop__form-label">Goals</span>
+            {/* Goals */}
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 11, fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', margin: 0 }}>
+                  Goals
+                </span>
                 <button
                   type="button"
-                  className={`pop__form-ai-select-btn${selectedField === 'goals' ? ' pop__form-ai-select-btn--active' : ''}`}
                   onClick={() => handleFieldSelect('goals')}
+                  style={{
+                    flexShrink: 0,
+                    background: selectedField === 'goals' ? '#7c3aed' : '#ffffff',
+                    color:      selectedField === 'goals' ? '#ffffff' : '#374151',
+                    border:     selectedField === 'goals' ? '1px solid #7c3aed' : '1px solid #d1d5db',
+                    borderRadius: 4, padding: '4px 10px', fontSize: 10, fontWeight: 600, cursor: 'pointer',
+                  }}
                 >
-                  {selectedField === 'goals' ? '☞ Connected to AI' : 'Select for AI'}
+                  {selectedField === 'goals' ? '☞ AI connected' : 'Select for AI'}
                 </button>
               </div>
               <div className="pop__form-textarea-wrap">
                 <textarea
-                  className={`pop__form-textarea pop__form-textarea--autogrow${selectedField === 'goals' ? ' pop__form-textarea--selected' : ''}`}
                   value={formGoals}
                   onChange={(e) => { setFormGoals(e.target.value); autoGrow(e.target) }}
                   onInput={(e) => autoGrow(e.target as HTMLTextAreaElement)}
                   placeholder="What do you want to achieve?"
+                  style={{
+                    width: '100%', boxSizing: 'border-box', padding: '12px 14px', borderRadius: 8,
+                    border: selectedField === 'goals' ? '2px solid #7c3aed' : '1px solid #cbd5e1',
+                    outline: 'none', background: '#ffffff', color: '#0f172a', fontSize: 13,
+                    lineHeight: 1.5, resize: 'none', overflow: 'hidden', display: 'block', minHeight: 80,
+                  }}
+                  onFocus={(e) => { if (selectedField !== 'goals') e.currentTarget.style.boxShadow = '0 0 0 2px rgba(99,102,241,0.4)' }}
+                  onBlur={(e) => { e.currentTarget.style.boxShadow = 'none' }}
                 />
                 {selectedField === 'goals' && (
                   <span className="pop__form-field-pin" aria-hidden="true">☞</span>
@@ -777,28 +838,34 @@ export function ProjectOptimizationPanel({
               </div>
             </div>
 
-            {/* ── Milestones ── */}
-            <div className="pop__form-field pop__form-field--mt">
-              <div className="pop__form-label-row">
-                <span className="pop__form-label">Milestones</span>
+            {/* Milestones */}
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 11, fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', margin: 0 }}>
+                  Milestones
+                </span>
                 <button
                   type="button"
-                  className={`pop__form-ai-select-btn${selectedField === 'milestones' ? ' pop__form-ai-select-btn--active' : ''}`}
                   onClick={() => handleFieldSelect('milestones')}
+                  style={{
+                    flexShrink: 0,
+                    background: selectedField === 'milestones' ? '#7c3aed' : '#ffffff',
+                    color:      selectedField === 'milestones' ? '#ffffff' : '#374151',
+                    border:     selectedField === 'milestones' ? '1px solid #7c3aed' : '1px solid #d1d5db',
+                    borderRadius: 4, padding: '4px 10px', fontSize: 10, fontWeight: 600, cursor: 'pointer',
+                  }}
                 >
-                  {selectedField === 'milestones' ? '☞ Connected to AI' : 'Select for AI'}
+                  {selectedField === 'milestones' ? '☞ AI connected' : 'Select for AI'}
                 </button>
               </div>
 
-              {/* Milestone cards */}
               {formMilestones.length > 0 && (
-                <div className={`pop__form-milestones-wrap${selectedField === 'milestones' ? ' pop__form-milestones-wrap--selected' : ''}`}>
+                <ul style={{ margin: '0 0 8px', padding: 0, listStyle: 'none' }}>
                   {formMilestones.map((m) => (
-                    <div
+                    <li
                       key={m.id}
                       className={`pop__form-ms-card${m.isActive ? ' pop__form-ms-card--active' : ''}`}
                     >
-                      {/* Card header: active toggle — done checkbox — remove */}
                       <div className="pop__form-ms-card-header">
                         <button
                           type="button"
@@ -821,7 +888,7 @@ export function ProjectOptimizationPanel({
                             type="button"
                             className="pop__form-ms-del"
                             onClick={() => removeFormMilestone(m.id)}
-                            aria-label={`Remove milestone`}
+                            aria-label="Remove milestone"
                             title="Remove milestone"
                           >
                             ×
@@ -829,7 +896,6 @@ export function ProjectOptimizationPanel({
                         </div>
                       </div>
 
-                      {/* Card body: editable textarea — full text always visible */}
                       <textarea
                         className={`pop__form-ms-card-body${m.completed ? ' pop__form-ms-card-body--done' : ''}`}
                         value={m.title}
@@ -838,23 +904,21 @@ export function ProjectOptimizationPanel({
                         placeholder="Describe this milestone…"
                       />
 
-                      {/* Card footer: Quick edit with AI (visible on hover / when active) */}
                       <div className="pop__form-ms-card-footer">
                         <button
                           type="button"
                           className="pop__form-ms-quick-edit"
                           onClick={() => handleQuickEditMilestone(m.id)}
-                          title="Select this milestone for AI editing — click 'Use' in the chat response to replace its text"
+                          title="Select this milestone for AI editing"
                         >
                           Quick edit with AI →
                         </button>
                       </div>
-                    </div>
+                    </li>
                   ))}
-                </div>
+                </ul>
               )}
 
-              {/* Add new milestone — multi-line textarea */}
               <div className="pop__form-ms-add-area">
                 <textarea
                   className="pop__form-ms-add-textarea"
@@ -864,103 +928,130 @@ export function ProjectOptimizationPanel({
                   placeholder="Describe a new milestone…"
                 />
                 <div className="pop__form-ms-add-actions">
-                  <button
-                    type="button"
-                    className="pop__form-ms-add-btn"
-                    onClick={handleAddFormMilestone}
-                  >
+                  <button type="button" className="pop__form-ms-add-btn" onClick={handleAddFormMilestone}>
                     Add milestone
                   </button>
                 </div>
               </div>
             </div>
 
-            {/* ── Context Attachments ── */}
-            <div className="pop__form-field pop__form-field--mt">
-              <div className="pop__form-label-row">
-                <span className="pop__form-label">Context attachments</span>
+            {/* Attachments — identical to BEAP composer attachment section */}
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 600, color: '#64748b', textTransform: 'uppercase', marginBottom: 6, letterSpacing: '0.5px' }}>
+                Attachments
               </div>
-              <p className="pop__form-sub-label">Embedded as LLM context when project is active</p>
-              {formAttachments.length > 0 && (
-                <div className="pop__form-attachments">
-                  {formAttachments.map((att) => (
-                    <div key={att.id} className="pop__form-att-row">
-                      <div className="pop__form-att-info">
-                        <span className="pop__form-att-name">{att.filename}</span>
-                        <span className="pop__form-att-type">
-                          {getMimeLabel(att.mimeType, att.filename)}
-                        </span>
-                        {att.content && att.content.length > 0 && (
-                          <span className="pop__form-att-preview">
-                            {att.content.slice(0, 100)}{att.content.length > 100 ? '…' : ''}
-                          </span>
-                        )}
-                      </div>
-                      <button
-                        type="button"
-                        className="pop__form-ms-del"
-                        onClick={() =>
-                          setFormAttachments((prev) => prev.filter((a) => a.id !== att.id))
-                        }
-                        aria-label={`Remove ${att.filename}`}
-                      >
-                        ×
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-              <button
-                type="button"
-                className="pop__form-upload-btn"
+              <ComposerAttachmentButton
+                label="Add attachments"
                 onClick={() => fileInputRef.current?.click()}
-              >
-                Add file…
-              </button>
+              />
               <input
                 ref={fileInputRef}
                 type="file"
-                accept=".pdf,.txt,.md,.json"
+                accept=".pdf,.txt,.md,.json,.csv"
                 multiple
                 style={{ display: 'none' }}
                 onChange={(e) => void handleFileSelect(e)}
               />
+              {formAttachments.length > 0 && (
+                <ul style={{ margin: '10px 0 0', padding: 0, listStyle: 'none' }}>
+                  {formAttachments.map((att) => (
+                    <li
+                      key={att.id}
+                      style={{
+                        display: 'flex', flexDirection: 'column', gap: 6,
+                        padding: '8px 10px', marginBottom: 6,
+                        background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8,
+                        fontSize: 12, color: '#0f172a',
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, flex: 1 }}>
+                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {att.filename}
+                          </span>
+                          {att.parseStatus != null && (
+                            <AttachmentStatusBadge status={att.parseStatus} />
+                          )}
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                          {att.content?.trim() ? (
+                            <button
+                              type="button"
+                              onClick={() => openAttachmentReader(att)}
+                              style={{
+                                fontSize: 11, fontWeight: 600, padding: '4px 8px',
+                                borderRadius: 6, border: '1px solid #4f46e5',
+                                background: '#ffffff', color: '#1e1b4b', cursor: 'pointer',
+                              }}
+                            >
+                              View text
+                            </button>
+                          ) : null}
+                          <button
+                            type="button"
+                            onClick={() => setFormAttachments((prev) => prev.filter((a) => a.id !== att.id))}
+                            style={{ cursor: 'pointer', color: '#b91c1c', background: 'none', border: 'none', fontWeight: 600 }}
+                            aria-label={`Remove ${att.filename}`}
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      </div>
+                      {att.parseStatus === 'failed' && (
+                        <div style={{ fontSize: 11, color: '#b45309', lineHeight: 1.4 }}>
+                          Could not extract text from this file. It may be scanned/image-based.
+                        </div>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
 
-            {/* ── Auto-Optimization interval ── */}
-            <div className="pop__form-field pop__form-field--mt">
-              <label className="pop__form-label" htmlFor="pop-form-interval">
+            {/* Optimization interval */}
+            <div>
+              <label
+                htmlFor="pop-form-interval"
+                style={{ fontSize: 11, fontWeight: 600, color: '#64748b', textTransform: 'uppercase', display: 'block', marginBottom: 6, letterSpacing: '0.5px' }}
+              >
                 Optimization interval
               </label>
-              <div className="pop__form-interval-row">
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                 <select
                   id="pop-form-interval"
-                  className="pop__form-select pop__form-select--sm"
                   value={formIntervalMs}
                   onChange={(e) => setFormIntervalMs(Number(e.target.value))}
+                  style={{ width: 110, boxSizing: 'border-box', padding: '10px 12px', borderRadius: 8, background: '#ffffff', color: '#0f172a', border: '1px solid #cbd5e1', fontSize: 13, outline: 'none' }}
+                  onFocus={(e) => { e.currentTarget.style.boxShadow = '0 0 0 2px rgba(99,102,241,0.4)' }}
+                  onBlur={(e) => { e.currentTarget.style.boxShadow = 'none' }}
                 >
                   {AUTO_OPTIMIZATION_INTERVALS.map((i) => (
                     <option key={i.value} value={i.value}>{i.label}</option>
                   ))}
                 </select>
-                <span className="pop__form-interval-hint">when auto-optimization is enabled</span>
+                <span style={{ fontSize: 12, color: '#64748b' }}>when auto-optimization is enabled</span>
               </div>
             </div>
 
-            {/* ── Save / Cancel ── */}
-            <div className="pop__form-footer">
+            {/* Save / Cancel footer — mirrors BEAP composer button row */}
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', paddingTop: 4 }}>
               <button
                 type="button"
-                className="pop__form-footer-cancel"
                 onClick={handleCancelForm}
+                style={{ padding: '12px 16px', borderRadius: 8, border: '1px solid #d1d5db', background: '#ffffff', color: '#374151', cursor: 'pointer', fontSize: 13 }}
               >
                 Cancel
               </button>
               <button
                 type="button"
-                className="pop__form-footer-save"
                 disabled={!formTitle.trim()}
                 onClick={handleSaveForm}
+                style={{
+                  padding: '12px 20px', borderRadius: 8, border: 'none',
+                  background: formTitle.trim() ? '#7c3aed' : '#a78bfa',
+                  color: '#ffffff', fontWeight: 700,
+                  cursor: formTitle.trim() ? 'pointer' : 'not-allowed', fontSize: 13,
+                }}
               >
                 Save project
               </button>
@@ -1124,6 +1215,15 @@ export function ProjectOptimizationPanel({
           {autoSyncEnabled ? 'Sync on' : 'Sync off'}
         </button>
       </div>
+
+      {/* Document reader modal — reuses BEAP composer's BeapDocumentReaderModal */}
+      <BeapDocumentReaderModal
+        open={readerOpen}
+        onClose={() => setReaderOpen(false)}
+        filename={readerFilename}
+        semanticContent={readerText}
+        theme="standard"
+      />
 
     </section>
   )

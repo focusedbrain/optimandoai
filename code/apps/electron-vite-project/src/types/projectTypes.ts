@@ -34,6 +34,8 @@ export interface ProjectAttachment {
   /** MIME type, e.g. "application/pdf", "text/plain". */
   mimeType: string
   addedAt: IsoDateString
+  /** Extraction lifecycle badge — matches AttachmentParseStatus from beap-builder. */
+  parseStatus?: 'pending' | 'success' | 'failed'
 }
 
 // ── Project ───────────────────────────────────────────────────────────────────

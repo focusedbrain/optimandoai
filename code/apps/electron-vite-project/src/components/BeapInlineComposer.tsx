@@ -873,13 +873,17 @@ export function BeapInlineComposer({
             flex: 1,
             minHeight: 0,
             overflowY: 'auto',
-            padding: '18px 20px',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 20,
             background: surfacePage,
           }}
         >
+          <div
+            style={{
+              padding: '18px 20px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 20,
+            }}
+          >
           {/* Fingerprint + distribution order matches legacy builder; colors = light (popup standard branch) */}
 
           <div
@@ -1586,6 +1590,7 @@ export function BeapInlineComposer({
             >
               Cancel
             </button>
+          </div>
           </div>
         </div>
       </div>

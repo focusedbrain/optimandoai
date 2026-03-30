@@ -812,129 +812,26 @@
   position: relative;
 }
 
-.pop__form-textarea {
-  min-height: 80px;
-  max-height: 160px;
-  font-size: 12px;
-  border: 1px solid #E8E8E6;
-  border-radius: 4px;
-  padding: 8px 10px;
-  width: 100%;
-  resize: vertical;
-  background: #FFFFFF;
-  color: #1C1C1A;
-  box-sizing: border-box;
-  font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
-  line-height: 1.5;
-  transition: border-color 120ms ease, background 120ms ease;
-  display: block;
-}
-
-.pop__form-textarea::placeholder {
-  color: #C4C4C0;
-}
-
-.pop__form-textarea:focus {
-  outline: none;
-  border-color: #2563EB;
-}
-
-.pop__form-textarea--selected {
-  border-color: #2563EB;
-  background: rgba(37, 99, 235, 0.02);
-}
-
 /* Pointing finger icon — absolute overlay top-right of textarea */
 .pop__form-field-pin {
   position: absolute;
   top: 6px;
   right: 8px;
   font-size: 14px;
-  color: #2563EB;
+  color: #7c3aed;
   opacity: 0.5;
   pointer-events: none;
   line-height: 1;
   user-select: none;
 }
 
-/* "Paste from chat" button — appears below textarea when field is selected */
-.pop__form-paste-btn {
-  display: inline-block;
-  margin-top: 5px;
-  padding: 3px 10px;
-  font-size: 10px;
-  font-weight: 500;
-  color: #2563EB;
-  background: rgba(37, 99, 235, 0.05);
-  border: 1px solid #2563EB;
-  border-radius: 4px;
-  cursor: pointer;
-  font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
-  line-height: 1.6;
-  transition: background 100ms ease;
-  align-self: flex-start;
-}
-
-.pop__form-paste-btn:hover {
-  background: rgba(37, 99, 235, 0.1);
-}
-
-/* ── Select ── */
-.pop__form-select {
-  height: 28px;
-  font-size: 11px;
-  border: 1px solid #E8E8E6;
-  border-radius: 4px;
-  padding: 0 24px 0 8px;
-  width: 100%;
-  background: #FFFFFF;
-  color: #1C1C1A;
-  box-sizing: border-box;
-  font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
-  transition: border-color 120ms ease;
-  appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' fill='none'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%239B9B96' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 8px center;
-}
-
-.pop__form-select--sm {
-  width: 120px;
-}
-
-.pop__form-select:focus {
-  outline: none;
-  border-color: #2563EB;
-}
-
-/* Auto-grow textarea — no scrollbar, grows with content */
-.pop__form-textarea--autogrow {
-  resize: none;
-  overflow: hidden;
-  max-height: none;
-}
-
-/* ── Milestones wrapper (gets blue outline when field is selected) ── */
-.pop__form-milestones-wrap {
-  border: 1px solid transparent;
-  border-radius: 4px;
-  margin-top: 6px;
-  transition: border-color 120ms ease, background 120ms ease;
-}
-
-.pop__form-milestones-wrap--selected {
-  border-color: #2563EB;
-  background: rgba(37, 99, 235, 0.02);
-  padding: 4px 8px;
-}
-
-/* ── Milestone card ── */
+/* ── Milestone card — BEAP composer attachment-row style ── */
 .pop__form-ms-card {
-  border: 1px solid #F0F0EE;
-  border-radius: 4px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
   padding: 8px 10px;
   margin-bottom: 6px;
-  background: #FFFFFF;
+  background: #f8fafc;
   transition: border-color 120ms ease, background 120ms ease;
 }
 
@@ -953,7 +850,7 @@
 
 /* "○ Set active" / "● Active" text toggle */
 .pop__form-ms-active-toggle {
-  font-size: 9px;
+  font-size: 10px;
   color: #9B9B96;
   background: none;
   border: none;
@@ -982,7 +879,7 @@
 
 /* "Done" / "✓ Done" text toggle */
 .pop__form-ms-done-toggle {
-  font-size: 9px;
+  font-size: 10px;
   color: #9B9B96;
   background: none;
   border: none;
@@ -1002,7 +899,7 @@
   font-weight: 600;
 }
 
-/* Remove (×) button — always visible, subtle */
+/* Remove (×) button */
 .pop__form-ms-del {
   font-size: 14px;
   color: #C4C4C0;
@@ -1023,14 +920,14 @@
 .pop__form-ms-card-body {
   width: 100%;
   min-height: 48px;
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.5;
-  color: #1C1C1A;
+  color: #0f172a;
   border: none;
   border-bottom: 1px solid transparent;
   background: transparent;
   resize: none;
-  padding: 0;
+  padding: 2px 0;
   outline: none;
   box-sizing: border-box;
   font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
@@ -1040,15 +937,15 @@
 }
 
 .pop__form-ms-card-body:focus {
-  border-bottom-color: #E8E8E6;
+  border-bottom-color: #e2e8f0;
 }
 
 .pop__form-ms-card-body::placeholder {
-  color: #C4C4C0;
+  color: #cbd5e1;
 }
 
 .pop__form-ms-card-body--done {
-  color: #9B9B96;
+  color: #94a3b8;
 }
 
 /* Card footer: "Quick edit with AI →" — only shown on hover or when active */
@@ -1067,7 +964,7 @@
 
 .pop__form-ms-quick-edit {
   font-size: 9px;
-  color: #2563EB;
+  color: #7c3aed;
   background: transparent;
   border: none;
   cursor: pointer;
@@ -1081,9 +978,9 @@
   text-decoration: underline;
 }
 
-/* ── Add milestone area (multi-line textarea + button) ── */
+/* ── Add milestone area — BEAP composer textarea style ── */
 .pop__form-ms-add-area {
-  margin-top: 8px;
+  margin-top: 4px;
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -1091,29 +988,29 @@
 
 .pop__form-ms-add-textarea {
   min-height: 48px;
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.5;
-  border: 1px solid #E8E8E6;
-  border-radius: 4px;
-  padding: 8px 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 12px 14px;
   width: 100%;
-  resize: vertical;
-  background: #FFFFFF;
-  color: #1C1C1A;
+  resize: none;
+  background: #ffffff;
+  color: #0f172a;
   box-sizing: border-box;
   font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
   overflow: hidden;
-  transition: border-color 120ms ease;
+  outline: none;
   display: block;
+  transition: box-shadow 120ms ease;
 }
 
 .pop__form-ms-add-textarea:focus {
-  outline: none;
-  border-color: #2563EB;
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.4);
 }
 
 .pop__form-ms-add-textarea::placeholder {
-  color: #C4C4C0;
+  color: #cbd5e1;
 }
 
 .pop__form-ms-add-actions {
@@ -1122,156 +1019,25 @@
   gap: 6px;
 }
 
+/* "Add milestone" button — matches BEAP secondary button style */
 .pop__form-ms-add-btn {
-  padding: 4px 12px;
-  font-size: 11px;
+  padding: 8px 16px;
+  font-size: 12px;
   font-weight: 500;
-  background: #F3F3F2;
-  border: 1px solid #E8E8E6;
-  border-radius: 4px;
-  color: #6B6B66;
+  background: #ffffff;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  color: #374151;
   cursor: pointer;
   font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
   white-space: nowrap;
-  line-height: 1.6;
-  transition: background 100ms ease;
+  line-height: 1.4;
+  transition: background 100ms ease, border-color 100ms ease;
 }
 
 .pop__form-ms-add-btn:hover {
-  background: #E8E8E6;
-}
-
-/* ── Attachments list ── */
-.pop__form-attachments {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin-bottom: 6px;
-}
-
-.pop__form-att-row {
-  display: flex;
-  align-items: flex-start;
-  gap: 6px;
-  padding: 4px 0;
-}
-
-.pop__form-att-info {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  flex: 1;
-  min-width: 0;
-}
-
-.pop__form-att-name {
-  font-size: 10px;
-  color: #1C1C1A;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
-}
-
-.pop__form-att-type {
-  font-size: 9px;
-  color: #9B9B96;
-  font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
-  flex-shrink: 0;
-}
-
-/* Content preview below filename — first 100 chars of parsed text */
-.pop__form-att-preview {
-  font-size: 9px;
-  color: #9B9B96;
-  max-height: 28px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
-}
-
-.pop__form-upload-btn {
-  padding: 3px 10px;
-  font-size: 10px;
-  font-weight: 500;
-  background: #F3F3F2;
-  border: 1px solid #E8E8E6;
-  border-radius: 4px;
-  color: #6B6B66;
-  cursor: pointer;
-  font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
-  white-space: nowrap;
-  line-height: 1.6;
-  transition: background 100ms ease;
-  align-self: flex-start;
-}
-
-.pop__form-upload-btn:hover {
-  background: #E8E8E6;
-}
-
-/* ── Interval row ── */
-.pop__form-interval-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 3px;
-}
-
-.pop__form-interval-hint {
-  font-size: 9px;
-  color: #9B9B96;
-  font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
-  line-height: 1.4;
-}
-
-/* ── Save / Cancel footer ── */
-.pop__form-footer {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 12px;
-  padding-top: 10px;
-  border-top: 1px solid #F0F0EE;
-}
-
-.pop__form-footer-cancel {
-  font-size: 11px;
-  color: #6B6B66;
-  background: transparent;
-  border: 1px solid #E8E8E6;
-  border-radius: 4px;
-  padding: 4px 12px;
-  cursor: pointer;
-  font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
-  transition: background 100ms ease;
-}
-
-.pop__form-footer-cancel:hover {
-  background: #F3F3F2;
-}
-
-.pop__form-footer-save {
-  font-size: 11px;
-  font-weight: 600;
-  color: #FFFFFF;
-  background: #1C1C1A;
-  border: none;
-  border-radius: 4px;
-  padding: 4px 12px;
-  cursor: pointer;
-  font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
-  transition: background 100ms ease;
-}
-
-.pop__form-footer-save:hover:not(:disabled) {
-  background: #333333;
-}
-
-.pop__form-footer-save:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
+  background: #f9fafb;
+  border-color: #9ca3af;
 }
 
 /* Dimmed project selector when form is open */
