@@ -843,11 +843,26 @@ export default function HybridSearch({
           chatQuery = `Context:\n${ctxBlock}\n\n${chatQuery}`
         }
 
-        /** Analysis-only: prepend project setup drafts (never mixed into handshake draft-refine prompts). */
+        /** Analysis-only: prepend project setup context (never mixed into handshake draft-refine prompts). */
         if (!isDraftRefine && activeView === 'analysis') {
-          const setupPrefix = buildProjectSetupChatPrefix(useProjectSetupChatContextStore.getState())
-          if (setupPrefix) {
-            chatQuery = `${setupPrefix}\n\n${chatQuery}`
+          const storeState = useProjectSetupChatContextStore.getState()
+          if (storeState.includeInChat) {
+            if (projectDraftFieldName === 'Project Title') {
+              // Title field: bypass buildProjectSetupChatPrefix entirely.
+              // That function buries the instruction in XML tags then appends
+              // "ASSISTANT_INSTRUCTIONS: Help refine goals, milestones, setup text"
+              // which OVERRIDES the STRICT INSTRUCTION, causing the model to
+              // return the title unchanged. Use the raw setupTextDraft directly.
+              const titleInstruction = storeState.setupTextDraft.trim()
+              if (titleInstruction) {
+                chatQuery = `${titleInstruction}\n\nUser request: ${chatQuery}`
+              }
+            } else {
+              const setupPrefix = buildProjectSetupChatPrefix(storeState)
+              if (setupPrefix) {
+                chatQuery = `${setupPrefix}\n\n${chatQuery}`
+              }
+            }
           }
         }
 
