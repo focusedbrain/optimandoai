@@ -6,6 +6,7 @@ import { useDraftRefineStore } from '../stores/useDraftRefineStore'
 import { useEmailInboxStore } from '../stores/useEmailInboxStore'
 import { useAiDraftContextStore } from '../stores/useAiDraftContextStore'
 import { ingestAiContextFiles } from '../lib/ingestAiContextFiles'
+import { extractTextForPackagePreview } from '../lib/beapPackageAttachmentPreview'
 import { buildProjectSetupChatPrefix } from '../lib/buildProjectSetupChatPrefix'
 import { WRDESK_FOCUS_AI_CHAT_EVENT } from '../lib/wrdeskUiEvents'
 import { projectSetupChatHasBridgeableContent, useProjectSetupChatContextStore } from '../stores/useProjectSetupChatContextStore'
@@ -342,6 +343,32 @@ function parseResponseIntoBlocks(responseText: string): ResponseBlock[] {
   return blocks
 }
 
+// ── Chat attachment support ───────────────────────────────────────────────────
+
+interface ChatAttachment {
+  id: string
+  type: 'image' | 'pdf'
+  filename: string
+  /** For images: base64 data URL. For PDFs: extracted text content. */
+  data: string
+  /** Thumbnail preview (same as data for images). */
+  thumbnail?: string
+}
+
+const SUPPORTED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif']
+const MAX_IMAGE_SIZE  = 10 * 1024 * 1024  // 10 MB
+const MAX_PDF_SIZE    = 20 * 1024 * 1024  // 20 MB
+const MAX_CHAT_ATTACHMENTS = 5
+
+function fileToDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload  = () => resolve(reader.result as string)
+    reader.onerror = () => reject(new Error('Failed to read file'))
+    reader.readAsDataURL(file)
+  })
+}
+
 // ── Component ──
 
 export default function HybridSearch({
@@ -413,6 +440,11 @@ export default function HybridSearch({
   const inputRef = useRef<HTMLInputElement>(null)
   const modelMenuRef = useRef<HTMLDivElement>(null)
   const uploadRef = useRef<HTMLInputElement>(null)
+  const chatFileInputRef = useRef<HTMLInputElement>(null)
+
+  // ── Chat attachment state ──────────────────────────────────────────────────
+  const [chatAttachments, setChatAttachments] = useState<ChatAttachment[]>([])
+  const [isDragging, setIsDragging] = useState(false)
 
   useEffect(() => {
     const focusChat = () => {
@@ -693,6 +725,20 @@ export default function HybridSearch({
           }
         }
 
+        // ── Prepend chat attachments (PDF extracted text + image placeholders) ──
+        if (chatAttachments.length > 0) {
+          const parts: string[] = []
+          for (const att of chatAttachments) {
+            if (att.type === 'pdf') {
+              parts.push(`[Attached PDF: ${att.filename}]\n${att.data}\n[End of PDF]`)
+            } else {
+              // TODO: Pass images to LLM API for multi-modal models (e.g., Ollama images array)
+              parts.push(`[User attached image: ${att.filename}. Image analysis requires a multi-modal model.]`)
+            }
+          }
+          if (parts.length > 0) chatQuery = parts.join('\n\n') + '\n\n' + chatQuery
+        }
+
         let result: Awaited<ReturnType<NonNullable<typeof window.handshakeView>['chatWithContextRag']>> | undefined
         try {
           result = await window.handshakeView?.chatWithContextRag?.({
@@ -769,14 +815,106 @@ export default function HybridSearch({
       setResultType(null)
     } finally {
       setIsLoading(false)
+      setChatAttachments([])
     }
-  }, [query, mode, scope, activeView, selectedHandshakeId, selectedMessageId, selectedAttachmentId, selectedModel, availableModels, isLoading, response, selectedDocumentId, isDraftRefineSession, draftRefineDraftText, draftRefineTarget, draftRefineDeliverResponse, draftRefineAcceptRefinement])
+  }, [query, mode, scope, activeView, selectedHandshakeId, selectedMessageId, selectedAttachmentId, selectedModel, availableModels, isLoading, response, selectedDocumentId, isDraftRefineSession, draftRefineDraftText, draftRefineTarget, draftRefineDeliverResponse, draftRefineAcceptRefinement, chatAttachments])
 
   const handleContextUpload = useCallback(async (e: ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || [])
     await ingestAiContextFiles(files)
     if (uploadRef.current) uploadRef.current.value = ''
   }, [])
+
+  // ── Chat attachment handlers ───────────────────────────────────────────────
+
+  const processDroppedFile = useCallback(async (file: File) => {
+    const isImage = SUPPORTED_IMAGE_TYPES.includes(file.type)
+    const isPdf   = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')
+
+    if (!isImage && !isPdf) {
+      console.warn(`[Chat] Unsupported file type: ${file.type}`)
+      return
+    }
+    if (isImage && file.size > MAX_IMAGE_SIZE) {
+      console.warn(`[Chat] Image too large: ${(file.size / 1024 / 1024).toFixed(1)}MB (max 10MB)`)
+      return
+    }
+    if (isPdf && file.size > MAX_PDF_SIZE) {
+      console.warn(`[Chat] PDF too large: ${(file.size / 1024 / 1024).toFixed(1)}MB (max 20MB)`)
+      return
+    }
+
+    const id = crypto.randomUUID()
+
+    if (isImage) {
+      const dataUrl = await fileToDataUrl(file)
+      setChatAttachments((prev) =>
+        prev.length >= MAX_CHAT_ATTACHMENTS ? prev : [...prev, { id, type: 'image', filename: file.name, data: dataUrl, thumbnail: dataUrl }],
+      )
+    } else {
+      // Convert to base64 and reuse the BEAP PDF parser (IPC extract)
+      const buffer = await file.arrayBuffer()
+      const bytes  = new Uint8Array(buffer)
+      let binary = ''
+      for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i])
+      const b64 = btoa(binary)
+
+      const extracted = await extractTextForPackagePreview({
+        name: file.name,
+        mimeType: file.type || 'application/pdf',
+        base64: b64,
+      })
+
+      setChatAttachments((prev) =>
+        prev.length >= MAX_CHAT_ATTACHMENTS
+          ? prev
+          : [...prev, {
+              id,
+              type: 'pdf',
+              filename: file.name,
+              data: extracted.text || `[PDF: ${file.name} — could not extract text]`,
+            }],
+      )
+    }
+  }, [])
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragging(true)
+  }, [])
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+      setIsDragging(false)
+    }
+  }, [])
+
+  const handleDrop = useCallback(async (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragging(false)
+    const files = Array.from(e.dataTransfer.files).slice(0, MAX_CHAT_ATTACHMENTS)
+    for (const file of files) {
+      await processDroppedFile(file)
+    }
+  }, [processDroppedFile])
+
+  const handlePaste = useCallback(async (e: React.ClipboardEvent) => {
+    const items = Array.from(e.clipboardData.items)
+    for (const item of items) {
+      if (item.type.startsWith('image/')) {
+        e.preventDefault()
+        const file = item.getAsFile()
+        if (file) await processDroppedFile(file)
+      } else if (item.type === 'application/pdf') {
+        const file = item.getAsFile()
+        if (file) await processDroppedFile(file)
+      }
+    }
+  }, [processDroppedFile])
 
   const showModelSelector = mode === 'chat' || mode === 'actions'
 
@@ -802,7 +940,18 @@ export default function HybridSearch({
   }, [])
 
   return (
-    <div className="hs-root" ref={containerRef}>
+    <div
+      className="hs-root"
+      ref={containerRef}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={(e) => void handleDrop(e)}
+    >
+      {isDragging && (
+        <div className="chat-drop-zone__overlay">
+          <div className="chat-drop-zone__overlay-text">Drop images or PDFs here</div>
+        </div>
+      )}
       {selectedHandshakeId && selectedHandshakeEmail && (
         <div
           style={{
@@ -955,6 +1104,36 @@ export default function HybridSearch({
           </button>
         </div>
       )}
+      {/* ── Chat attachment preview strip ── */}
+      {chatAttachments.length > 0 && (
+        <div className="chat-attachments-strip">
+          {chatAttachments.map((att) => (
+            <div
+              key={att.id}
+              className={`chat-attachment-preview chat-attachment-preview--${att.type}`}
+            >
+              {att.type === 'image' && (
+                <img src={att.thumbnail ?? att.data} alt={att.filename} />
+              )}
+              {att.type === 'pdf' && (
+                <>
+                  <div className="chat-attachment-preview__filename">📄 {att.filename}</div>
+                  <div className="chat-attachment-preview__meta">PDF</div>
+                </>
+              )}
+              <button
+                type="button"
+                className="chat-attachment-preview__remove"
+                onClick={() => setChatAttachments((prev) => prev.filter((a) => a.id !== att.id))}
+                aria-label={`Remove ${att.filename}`}
+              >
+                ×
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
       <div
         className="hs-bar"
         data-draft-refine={isDraftRefineSession ? 'true' : undefined}
@@ -1087,6 +1266,38 @@ export default function HybridSearch({
           style={{ display: 'none' }}
           onChange={handleContextUpload}
         />
+        {/* ── Chat attachment file picker (images + PDFs) ── */}
+        <input
+          ref={chatFileInputRef}
+          type="file"
+          accept="image/png,image/jpeg,image/webp,image/gif,application/pdf"
+          multiple
+          style={{ display: 'none' }}
+          onChange={(e) => {
+            const files = Array.from(e.target.files ?? []).slice(0, MAX_CHAT_ATTACHMENTS)
+            files.forEach((f) => void processDroppedFile(f))
+            e.currentTarget.value = ''
+          }}
+        />
+        <button
+          type="button"
+          onClick={() => chatFileInputRef.current?.click()}
+          title="Attach images or PDFs to this message (drag & drop also works)"
+          aria-label="Attach images or PDFs"
+          style={{
+            background: 'none',
+            border: 'none',
+            cursor: 'pointer',
+            fontSize: 14,
+            padding: '4px 4px',
+            opacity: chatAttachments.length > 0 ? 1 : 0.4,
+            flexShrink: 0,
+            lineHeight: 1,
+            color: chatAttachments.length > 0 ? 'var(--purple-accent, #9333ea)' : undefined,
+          }}
+        >
+          🖼️{chatAttachments.length > 0 ? ` ${chatAttachments.length}` : ''}
+        </button>
         <input
           ref={inputRef}
           className="hs-input"
@@ -1103,6 +1314,7 @@ export default function HybridSearch({
           value={query}
           onChange={e => setQuery(e.target.value)}
           onKeyDown={handleKeyDown}
+          onPaste={(e) => void handlePaste(e)}
           onFocus={() => { if (results.length > 0 || response) setShowPanel(true) }}
           aria-label={mode === 'chat' ? 'Ask a question' : mode === 'search' ? 'Search' : 'Actions input'}
           autoComplete="off"

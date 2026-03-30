@@ -1033,3 +1033,114 @@
 .chat-use-btn:hover {
   opacity: 0.9;
 }
+
+/* ── Drag-and-drop overlay ───────────────────────────────────────────────── */
+
+.chat-drop-zone__overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(37, 99, 235, 0.06);
+  border: 2px dashed rgba(37, 99, 235, 0.4);
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+  pointer-events: none;
+}
+
+.chat-drop-zone__overlay-text {
+  font-size: 13px;
+  font-weight: 500;
+  color: #2563EB;
+  background: rgba(255, 255, 255, 0.9);
+  padding: 8px 16px;
+  border-radius: 6px;
+}
+
+/* ── Chat attachment preview strip ──────────────────────────────────────── */
+
+.chat-attachments-strip {
+  display: flex;
+  gap: 6px;
+  padding: 6px 8px;
+  overflow-x: auto;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
+  flex-shrink: 0;
+}
+
+/* Each attachment card */
+.chat-attachment-preview {
+  position: relative;
+  flex-shrink: 0;
+  border: 1px solid var(--border, rgba(255,255,255,0.15));
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--bg-surface, #fff);
+}
+
+/* Image thumbnail */
+.chat-attachment-preview--image {
+  width: 56px;
+  height: 56px;
+}
+
+.chat-attachment-preview--image img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+/* PDF card */
+.chat-attachment-preview--pdf {
+  width: auto;
+  min-width: 80px;
+  height: 56px;
+  padding: 6px 10px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.chat-attachment-preview__filename {
+  font-size: 9px;
+  font-weight: 500;
+  color: var(--text-primary, #1C1C1A);
+  max-width: 100px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-attachment-preview__meta {
+  font-size: 8px;
+  color: var(--text-muted, #9B9B96);
+  margin-top: 2px;
+}
+
+/* Remove × button */
+.chat-attachment-preview__remove {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.5);
+  color: #FFFFFF;
+  font-size: 10px;
+  line-height: 14px;
+  text-align: center;
+  cursor: pointer;
+  border: none;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.chat-attachment-preview__remove:hover {
+  background: rgba(220, 38, 38, 0.85);
+}
