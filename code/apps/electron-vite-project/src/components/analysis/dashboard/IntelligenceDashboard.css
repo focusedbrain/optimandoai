@@ -6,7 +6,7 @@
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 10px;
-  margin-bottom: 6px;
+  margin-bottom: 4px;
 }
 
 @media (max-width: 1100px) {

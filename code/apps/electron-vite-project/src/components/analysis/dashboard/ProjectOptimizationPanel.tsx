@@ -416,10 +416,11 @@ export function ProjectOptimizationPanel({
       store.setSetupTextDraft('')
       store.setIncludeInChat(false)
 
-      // ── Clear drop-zone attachments in the chat panel ─────────────────────
-      // Attachments are field-specific — a PDF dropped while drafting goals
+      // ── Clear drop-zone attachments and chat conversation in the chat panel ──
+      // Attachments and conversation are field-specific — a PDF dropped while drafting goals
       // must not carry over to title drafting.
       window.dispatchEvent(new CustomEvent('wrdesk:clear-chat-attachments'))
+      window.dispatchEvent(new CustomEvent('wrdesk:clear-chat-conversation'))
 
       if (selectedField === field) {
         // Deselect — stay cleared
@@ -462,7 +463,12 @@ export function ProjectOptimizationPanel({
       }
 
       if (field === 'title') {
-        const cleanTitle = text.split('\n')[0].replace(/^["']|["']$/g, '').trim()
+        const cleanTitle = text
+          .split('\n')[0]
+          .replace(/^[\d.)\-*\s]+/, '')
+          .replace(/^["'\u201C\u2018]|["'\u201D\u2019]$/g, '')
+          .replace(/\*\*/g, '')
+          .trim()
         setFormTitle(cleanTitle)
         requestAnimationFrame(() => {
           const el = document.querySelector('[data-field="title"]') as HTMLInputElement | null
@@ -527,6 +533,7 @@ export function ProjectOptimizationPanel({
     store.setIncludeInChat(false)
     setSelectedField(null)
     window.dispatchEvent(new CustomEvent('wrdesk:clear-chat-attachments'))
+    window.dispatchEvent(new CustomEvent('wrdesk:clear-chat-conversation'))
   }, [])
 
   const openCreateMode = useCallback(() => {

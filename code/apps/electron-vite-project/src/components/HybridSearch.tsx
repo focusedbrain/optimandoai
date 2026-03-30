@@ -351,12 +351,31 @@ function parseResponseIntoBlocks(responseText: string): ResponseBlock[] {
 function parseTitleResponse(responseText: string): ResponseBlock[] {
   const blocks: ResponseBlock[] = []
   let blockId = 0
+  const trimmed = responseText.trim()
+
+  // Short single-line response → the whole thing IS the title
+  const lines = trimmed.split('\n').filter(l => l.trim().length > 0)
+  if (lines.length === 1 && trimmed.length <= 80) {
+    const cleanTitle = trimmed
+      .replace(/^["'\u201C\u2018]|["'\u201D\u2019]$/g, '')
+      .replace(/^[\d.)\-*\s]+/, '')
+      .replace(/\*\*/g, '')
+      .trim()
+    blocks.push({
+      id: `block-${blockId++}`,
+      type: 'title-suggestion',
+      content: cleanTitle,
+      displayPreview: cleanTitle,
+    })
+    return blocks
+  }
+
   const extractedTitles: string[] = []
 
   // Match quoted strings: "…" or '…' or curly-quote variants
   const quotePattern = /["\u201C\u2018']([^"\u201D\u2019'\n]{3,80})["\u201D\u2019']/g
   let match: RegExpExecArray | null
-  while ((match = quotePattern.exec(responseText)) !== null) {
+  while ((match = quotePattern.exec(trimmed)) !== null) {
     const title = match[1].trim()
     if (title.length >= 3 && title.length <= 80 && !title.startsWith('http')) {
       extractedTitles.push(title)
@@ -364,7 +383,6 @@ function parseTitleResponse(responseText: string): ResponseBlock[] {
   }
 
   // Also look for numbered / bulleted suggestions: "1. Title" or "- Title"
-  const lines = responseText.split('\n')
   for (const line of lines) {
     const numbered = line.match(/^\s*(?:\d+[.)]\s*|[-*]\s+)(.{3,80})$/)
     if (numbered) {
@@ -389,8 +407,8 @@ function parseTitleResponse(responseText: string): ResponseBlock[] {
   blocks.push({
     id: `block-${blockId++}`,
     type: 'text',
-    content: responseText,
-    displayPreview: responseText.slice(0, 80) + (responseText.length > 80 ? '…' : ''),
+    content: trimmed,
+    displayPreview: trimmed.slice(0, 80) + (trimmed.length > 80 ? '…' : ''),
   })
 
   return blocks
@@ -406,6 +424,11 @@ interface ChatAttachment {
   data: string
   /** Thumbnail preview (same as data for images). */
   thumbnail?: string
+}
+
+interface ChatTurn {
+  role: 'user' | 'assistant'
+  content: string
 }
 
 const SUPPORTED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif']
@@ -452,6 +475,11 @@ export default function HybridSearch({
   const [modelMenuOpen, setModelMenuOpen] = useState(false)
   const [infoPopupOpen, setInfoPopupOpen] = useState(false)
   const [draftRefineHistory, setDraftRefineHistory] = useState<Array<{ role: 'user' | 'assistant'; content: string; showUseButton?: boolean; onUse?: () => void }>>([])
+
+  /** General chat conversation — user + assistant turns (non-draft-refine mode only) */
+  const [chatMessages, setChatMessages] = useState<ChatTurn[]>([])
+  const chatContainerRef = useRef<HTMLDivElement>(null)
+
   const contextDocuments = useAiDraftContextStore((s) => s.documents)
   const removeContextDocument = useAiDraftContextStore((s) => s.removeDocument)
   const clearContextDocuments = useAiDraftContextStore((s) => s.clear)
@@ -464,6 +492,7 @@ export default function HybridSearch({
 
   /** Derive which project field is currently selected for AI drafting */
   const projectDraftFieldName =
+    projectSetupSetupTextDraft.includes('OUTPUT ONLY A PROJECT TITLE') ||
     projectSetupSetupTextDraft.includes('drafting a PROJECT TITLE')
       ? 'Project Title'
       : projectSetupSetupTextDraft.includes('drafting a PROJECT DESCRIPTION')
@@ -638,7 +667,10 @@ export default function HybridSearch({
 
   // Clear chat attachments when the panel closes
   useEffect(() => {
-    if (!showPanel) setChatAttachments([])
+    if (!showPanel) {
+      setChatAttachments([])
+      setChatMessages([])
+    }
   }, [showPanel])
 
   // Clear chat attachments when ProjectOptimizationPanel switches fields
@@ -647,6 +679,19 @@ export default function HybridSearch({
     window.addEventListener('wrdesk:clear-chat-attachments', handler)
     return () => window.removeEventListener('wrdesk:clear-chat-attachments', handler)
   }, [])
+
+  // Clear chat conversation when fields switch (different topic)
+  useEffect(() => {
+    const handler = () => setChatMessages([])
+    window.addEventListener('wrdesk:clear-chat-conversation', handler)
+    return () => window.removeEventListener('wrdesk:clear-chat-conversation', handler)
+  }, [])
+
+  // Auto-scroll to bottom when chatMessages updates
+  useEffect(() => {
+    const el = chatContainerRef.current
+    if (el) el.scrollTop = el.scrollHeight
+  }, [chatMessages])
 
   // Close info popup on outside click or Escape
   useEffect(() => {
@@ -681,6 +726,17 @@ export default function HybridSearch({
     setChatSources([])
     setStructuredResult(null)
     setResultType(null)
+
+    // ── Chat conversation: push previous AI answer + current user message, clear input ──
+    if (mode === 'chat' && !isDraftRefineSession) {
+      setChatMessages(prev => {
+        const next = [...prev]
+        if (previousAnswer?.trim()) next.push({ role: 'assistant', content: previousAnswer.trim() })
+        next.push({ role: 'user', content: trimmed })
+        return next
+      })
+      setQuery('')
+    }
 
     try {
       const effectiveScope = selectedHandshakeId ?? selectedMessageId ?? scope
@@ -1166,8 +1222,9 @@ export default function HybridSearch({
               store.setGoalsDraft('')
               store.setMilestonesDraft('')
               store.clearSnippets()
-              // Clear drop-zone attachments — they are field-specific
+              // Clear drop-zone attachments and conversation — they are field-specific
               setChatAttachments([])
+              setChatMessages([])
             }}
             aria-label="Disconnect project drafting"
             title="Disconnect — stop sending project context to AI"
@@ -1666,7 +1723,31 @@ export default function HybridSearch({
           )}
 
           {/* Chat response (skip when draft refine mode — we show draft history instead) */}
-          {lastMode === 'chat' && !isDraftRefineSession && (response || contextBlocks.length > 0 || structuredResult) && (
+          {lastMode === 'chat' && !isDraftRefineSession && (
+            <>
+              {/* Conversation history — all completed turns */}
+              {chatMessages.length > 0 && (
+                <div className="chat-history" ref={chatContainerRef}>
+                  {chatMessages.map((msg, i) => (
+                    <div key={i} className={`chat-msg chat-msg--${msg.role}`}>
+                      {msg.role === 'user' ? (
+                        <>
+                          <span className="chat-msg__role-label">You</span>
+                          <p className="chat-msg__text">{msg.content}</p>
+                        </>
+                      ) : (
+                        <>
+                          <span className="chat-msg__role-label">AI</span>
+                          <p className="chat-msg__text">{msg.content}</p>
+                        </>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Current / streaming AI response */}
+              {(response || contextBlocks.length > 0 || structuredResult) && (
             <div className="hs-response">
               {structuredResult && structuredResult.items.length > 0 && (
                 <div style={{ marginBottom: '16px' }}>
@@ -1890,6 +1971,8 @@ export default function HybridSearch({
                 </details>
               )}
             </div>
+              )}
+            </>
           )}
         </div>
       )}
