@@ -95,13 +95,15 @@
 .analysis-dashboard__main-grid {
   display: grid;
   grid-template-columns: 1fr 340px;
+  grid-template-rows: auto 1fr;  /* intel row = content height; project/activity row fills rest */
   grid-template-areas:
     "intel   intel"
     "project activity";
-  gap: 0 10px;           /* row-gap=0 (margin-bottom on intel cards provides spacing); col-gap=10px */
+  gap: 0 10px;           /* row-gap=0; col-gap=10px */
   padding: 0 0 16px;
   box-sizing: border-box;
   align-items: stretch;  /* both columns fill the row height when form is collapsed */
+  align-content: start;  /* prevent leftover height from being distributed between rows */
   flex: 1;
   min-height: 0;
 }
