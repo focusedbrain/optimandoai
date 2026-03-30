@@ -665,11 +665,17 @@ export default function HybridSearch({
     return () => document.removeEventListener('mousedown', handleClick)
   }, [showPanel])
 
-  // Clear chat attachments when the panel closes
+  // Clear full chat state when the panel closes
   useEffect(() => {
     if (!showPanel) {
       setChatAttachments([])
       setChatMessages([])
+      setResponse(null)
+      setContextBlocks([])
+      setChatSources([])
+      setStructuredResult(null)
+      setResultType(null)
+      setUsedBlockIds(new Set())
     }
   }, [showPanel])
 
@@ -680,9 +686,17 @@ export default function HybridSearch({
     return () => window.removeEventListener('wrdesk:clear-chat-attachments', handler)
   }, [])
 
-  // Clear chat conversation when fields switch (different topic)
+  // Clear full chat state when fields switch (previous response is for a different field)
   useEffect(() => {
-    const handler = () => setChatMessages([])
+    const handler = () => {
+      setChatMessages([])
+      setResponse(null)
+      setContextBlocks([])
+      setChatSources([])
+      setStructuredResult(null)
+      setResultType(null)
+      setUsedBlockIds(new Set())
+    }
     window.addEventListener('wrdesk:clear-chat-conversation', handler)
     return () => window.removeEventListener('wrdesk:clear-chat-conversation', handler)
   }, [])
@@ -1237,9 +1251,15 @@ export default function HybridSearch({
               store.setGoalsDraft('')
               store.setMilestonesDraft('')
               store.clearSnippets()
-              // Clear drop-zone attachments and conversation — they are field-specific
+              // Clear drop-zone attachments, conversation, and last AI response — they are field-specific
               setChatAttachments([])
               setChatMessages([])
+              setResponse(null)
+              setContextBlocks([])
+              setChatSources([])
+              setStructuredResult(null)
+              setResultType(null)
+              setUsedBlockIds(new Set())
             }}
             aria-label="Disconnect project drafting"
             title="Disconnect — stop sending project context to AI"
