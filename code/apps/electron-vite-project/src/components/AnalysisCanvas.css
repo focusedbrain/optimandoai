@@ -46,9 +46,11 @@
   height: 100%;
   min-height: 0;
   box-sizing: border-box;
+  background: #F8F8F7;
   background: var(--dash-bg-page, #F8F8F7);
+  color: #1C1C1A;
   color: var(--dash-text-primary, #1C1C1A);
-  padding: 0;
+  padding: 8px;
   overflow: hidden;
 }
 
@@ -60,9 +62,11 @@
   overflow-x: hidden;
   display: flex;
   flex-direction: column;
-  padding: var(--dash-space-3, 12px) 0 var(--dash-space-8, 32px);
+  padding: 0;
   box-sizing: border-box;
+  background: #F8F8F7;
   background: var(--dash-bg-page, #F8F8F7);
+  color: #1C1C1A;
   color: var(--dash-text-primary, #1C1C1A);
   scrollbar-width: thin;
   scrollbar-color: rgba(0, 0, 0, 0.1) transparent;
@@ -90,12 +94,12 @@
 
 .analysis-dashboard__main-grid {
   display: grid;
-  grid-template-columns: 3fr 2fr;
+  grid-template-columns: 1fr 340px;
   grid-template-areas:
     "intel   intel"
     "project activity";
-  gap: var(--dash-space-4, 16px);
-  padding: 0 var(--dash-space-4, 16px) var(--dash-space-8, 32px);
+  gap: 10px;
+  padding: 0 0 16px;
   box-sizing: border-box;
   align-items: start;
 }
@@ -108,9 +112,6 @@
 .analysis-dashboard__project-area {
   grid-area: project;
   min-width: 0;
-  position: sticky;
-  top: var(--dash-space-3, 12px);
-  align-self: start;
 }
 
 .analysis-dashboard__activity-area {

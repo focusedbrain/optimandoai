@@ -1,10 +1,18 @@
 /*
- * WR Desk™ — PoAE Artifacts Panel
+ * WR Desk™ — PoAE Artifacts Panel (compact card)
  * Prefix: .pap-
- * Depends on: dashboard-tokens.css (--dash-* variables), dashboard-base.css
+ * Unified card treatment: #FFFFFF bg, 1px #E8E8E6 border, 6px radius, 12px 14px padding.
  */
 
+/* ── Card shell ── */
 .pap {
+  background: #FFFFFF;
+  background: var(--dash-bg-card, #FFFFFF);
+  border: 1px solid #E8E8E6;
+  border: 1px solid var(--dash-border-default, #E8E8E6);
+  border-radius: 6px;
+  padding: 12px 14px;
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -15,42 +23,68 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--dash-space-3);
-  margin-bottom: var(--dash-space-3);
+  gap: 8px;
+  margin-bottom: 6px;
 }
 
 .pap__head-left {
   display: flex;
   align-items: center;
-  gap: var(--dash-space-2);
+  gap: 6px;
 }
 
 .pap__title {
   margin: 0;
-  font-size: var(--dash-text-xs);
-  font-weight: var(--dash-weight-semibold);
-  letter-spacing: var(--dash-tracking-caps);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--dash-text-tertiary);
+  color: #9B9B96;
+  color: var(--dash-text-tertiary, #9B9B96);
   white-space: nowrap;
+  font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
 }
 
+/* Count badge — only shown when count > 0 */
 .pap__badge {
-  padding: 1px 7px;
-  border-radius: var(--dash-radius-pill);
-  font-size: var(--dash-text-xs);
-  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 14px;
+  padding: 0 5px;
+  border-radius: 7px;
+  font-size: 8px;
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
-  background: var(--dash-status-success-bg);
-  color: var(--dash-status-success);
-  border: 1px solid rgba(5, 150, 105, 0.2);
+  background: #2563EB;
+  color: #FFFFFF;
   flex-shrink: 0;
+  line-height: 1;
 }
 
-.pap__badge--empty {
-  background: var(--dash-bg-inset);
-  color: var(--dash-text-tertiary);
-  border-color: var(--dash-border-subtle);
+/* Inbox button */
+.pap__inbox-btn {
+  padding: 3px 10px;
+  font-size: 9px;
+  font-weight: 500;
+  background: #F3F3F2;
+  background: var(--dash-bg-inset, #F3F3F2);
+  border: 1px solid #E8E8E6;
+  border: 1px solid var(--dash-border-default, #E8E8E6);
+  border-radius: 4px;
+  color: #6B6B66;
+  color: var(--dash-text-secondary, #6B6B66);
+  cursor: pointer;
+  font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
+  transition: background 120ms ease;
+  white-space: nowrap;
+  line-height: 1.4;
+}
+
+.pap__inbox-btn:hover {
+  background: #E8E8E6;
+  border-color: #D4D4D1;
 }
 
 /* ── Artifact list ── */
@@ -60,102 +94,126 @@
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  gap: 0;
 }
 
 .pap__row {
   display: flex;
-  gap: var(--dash-space-3);
-  padding: var(--dash-space-2) var(--dash-space-3);
-  border-radius: var(--dash-radius-md);
-  background: var(--dash-bg-card);
-  border: 1px solid var(--dash-border-subtle);
-  border-left-width: 3px;
-  transition:
-    background var(--dash-duration-fast) var(--dash-ease-out),
-    border-color var(--dash-duration-fast) var(--dash-ease-out);
+  gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid #F0F0EE;
+  border-bottom: 1px solid var(--dash-border-subtle, #F0F0EE);
+  margin: 0 -14px;
+  padding-left: 14px;
+  padding-right: 14px;
+  transition: background 100ms ease;
+}
+
+.pap__row:last-child {
+  border-bottom: none;
 }
 
 .pap__row:hover {
-  background: var(--dash-bg-inset);
+  background: #F8F8F7;
+  background: var(--dash-bg-page, #F8F8F7);
 }
 
-.pap__row--direct     { border-left-color: var(--dash-status-success); }
-.pap__row--depackaged { border-left-color: var(--dash-status-info); }
-.pap__row--plain,
-.pap__row--other      { border-left-color: var(--dash-border-strong); }
+/* Left indicator bar (2px) */
+.pap__row::before {
+  content: '';
+  width: 2px;
+  border-radius: 1px;
+  flex-shrink: 0;
+  align-self: stretch;
+  min-height: 28px;
+  margin-right: 6px;
+  background: #2563EB;
+}
+
+.pap__row--depackaged::before { background: #6366F1; }
+.pap__row--plain::before,
+.pap__row--other::before      { background: #D4D4D1; }
 
 .pap__main {
   flex: 1;
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 1px;
 }
 
 .pap__row1 {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--dash-space-2);
+  gap: 6px;
 }
 
 .pap__protocol {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 3px;
   flex-shrink: 0;
 }
 
 .pap__protocol-beap {
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 800;
   letter-spacing: 0.05em;
-  color: var(--dash-status-success);
+  color: #2563EB;
   text-transform: uppercase;
 }
 
 .pap__protocol-sep {
-  color: var(--dash-border-strong);
-  font-size: 11px;
+  color: #D4D4D1;
+  font-size: 9px;
 }
 
 .pap__protocol-ch {
-  font-size: 11px;
-  color: var(--dash-text-tertiary);
+  font-size: 9px;
+  font-weight: 500;
+  color: #2563EB;
 }
 
 .pap__when {
-  font-size: 11px;
-  color: var(--dash-text-tertiary);
+  font-size: 8px;
+  color: #9B9B96;
+  color: var(--dash-text-tertiary, #9B9B96);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
   flex-shrink: 0;
+  font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
 }
 
 .pap__sender {
-  font-size: var(--dash-text-base);
-  font-weight: 600;
-  color: var(--dash-text-primary);
+  font-size: 10px;
+  font-weight: 500;
+  color: #1C1C1A;
+  color: var(--dash-text-primary, #1C1C1A);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
 }
 
 .pap__summary {
   margin: 0;
-  font-size: var(--dash-text-base);
-  color: var(--dash-text-secondary);
+  font-size: 9px;
+  color: #6B6B66;
+  color: var(--dash-text-secondary, #6B6B66);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
+  display: none;
 }
 
 .pap__refs {
   margin: 0;
-  font-size: 11px;
-  font-family: var(--dash-font-mono);
-  color: var(--dash-text-tertiary);
+  font-size: 8px;
+  font-family: var(--dash-font-mono, 'SF Mono', 'Fira Code', monospace);
+  color: #9B9B96;
+  color: var(--dash-text-tertiary, #9B9B96);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -165,77 +223,97 @@
 .pap__actions {
   display: flex;
   flex-direction: column;
-  gap: var(--dash-space-1);
+  gap: 3px;
   align-items: flex-end;
   flex-shrink: 0;
   justify-content: center;
 }
 
 .pap__action-btn {
-  padding: 2px 10px;
-  border-radius: var(--dash-radius-md);
-  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 3px;
+  font-size: 8px;
   font-weight: 600;
-  font-family: var(--dash-font-family);
+  font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
   cursor: pointer;
   white-space: nowrap;
-  transition:
-    background var(--dash-duration-fast) var(--dash-ease-out),
-    color var(--dash-duration-fast) var(--dash-ease-out),
-    border-color var(--dash-duration-fast) var(--dash-ease-out);
+  transition: background 120ms ease, border-color 120ms ease;
 }
 
 .pap__action-btn--copy {
   background: none;
-  border: 1px solid var(--dash-border-default);
-  color: var(--dash-text-tertiary);
+  border: 1px solid #E8E8E6;
+  border: 1px solid var(--dash-border-default, #E8E8E6);
+  color: #9B9B96;
+  color: var(--dash-text-tertiary, #9B9B96);
 }
 
 .pap__action-btn--copy:hover {
-  background: var(--dash-bg-inset);
-  color: var(--dash-text-secondary);
-  border-color: var(--dash-border-strong);
+  background: #F3F3F2;
+  background: var(--dash-bg-inset, #F3F3F2);
+  color: #6B6B66;
+  color: var(--dash-text-secondary, #6B6B66);
+  border-color: #D4D4D1;
 }
 
 .pap__action-btn--open {
-  background: var(--dash-status-success-bg);
-  border: 1px solid rgba(5, 150, 105, 0.2);
-  color: var(--dash-status-success);
+  background: rgba(37, 99, 235, 0.08);
+  border: 1px solid rgba(37, 99, 235, 0.2);
+  color: #2563EB;
 }
 
 .pap__action-btn--open:hover {
-  background: rgba(5, 150, 105, 0.12);
-  border-color: rgba(5, 150, 105, 0.35);
+  background: rgba(37, 99, 235, 0.14);
+  border-color: rgba(37, 99, 235, 0.4);
 }
 
-/* ── Truncation footer ── */
+/* ── View all footer ── */
+.pap__view-all {
+  margin-top: 6px;
+  padding: 0;
+  background: none;
+  border: none;
+  font-size: 9px;
+  color: #2563EB;
+  cursor: pointer;
+  font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
+  text-align: left;
+  width: 100%;
+}
+
+.pap__view-all:hover {
+  text-decoration: underline;
+}
+
+/* ── Truncation footer (legacy, same style) ── */
 .pap__truncated {
-  margin: var(--dash-space-2) 0 0;
-  font-size: var(--dash-text-sm);
-  color: var(--dash-text-tertiary);
+  margin: 6px 0 0;
+  font-size: 9px;
+  color: #9B9B96;
+  color: var(--dash-text-tertiary, #9B9B96);
   text-align: center;
+  font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
 }
 
 /* ── Empty state ── */
 .pap__empty {
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: var(--dash-space-2);
-  padding: var(--dash-space-8) 0;
+  padding: 12px 0;
   text-align: center;
 }
 
 .pap__empty-icon {
-  font-size: 22px;
-  opacity: 0.25;
+  display: none;
 }
 
 .pap__empty-text {
   margin: 0;
-  font-size: var(--dash-text-base);
-  color: var(--dash-text-tertiary);
+  font-size: 10px;
+  color: #9B9B96;
+  color: var(--dash-text-tertiary, #9B9B96);
+  font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
 }
 
 /* ── Skeleton ── */
@@ -248,10 +326,8 @@
 .pap__skeleton-row {
   display: flex;
   flex-direction: column;
-  gap: 5px;
-  padding: var(--dash-space-2) var(--dash-space-3);
-  background: var(--dash-bg-card);
-  border: 1px solid var(--dash-border-subtle);
-  border-left: 3px solid var(--dash-border-default);
-  border-radius: var(--dash-radius-md);
+  gap: 4px;
+  padding: 6px 0;
+  border-bottom: 1px solid #F0F0EE;
+  border-bottom: 1px solid var(--dash-border-subtle, #F0F0EE);
 }

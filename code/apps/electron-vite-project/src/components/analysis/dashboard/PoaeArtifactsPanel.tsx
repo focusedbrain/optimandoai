@@ -194,15 +194,14 @@ export function PoaeArtifactsPanel({
   onOpenInbox,
   onOpenInboxMessage,
 }: PoaeArtifactsPanelProps) {
-  const section = poae ?? EMPTY_POAE
-  const rows    = section.rows ?? []
-
-  const badgeLabel =
-    rows.length === 0
-      ? '0'
-      : section.truncated
-        ? `${rows.length}+`
-        : `${rows.length}`
+  const section    = poae ?? EMPTY_POAE
+  const allRows    = section.rows ?? []
+  const VISIBLE_CAP = 3
+  const rows       = allRows.slice(0, VISIBLE_CAP)
+  const hasMore    = allRows.length > VISIBLE_CAP || section.truncated
+  const totalCount = section.truncated
+    ? `${allRows.length}+`
+    : `${allRows.length}`
 
   return (
     <section className="pap" aria-labelledby="pap-heading">
@@ -210,17 +209,16 @@ export function PoaeArtifactsPanel({
       <div className="pap__head">
         <div className="pap__head-left">
           <h2 id="pap-heading" className="pap__title">PoAE™ Registry</h2>
-          <span
-            className={`pap__badge${rows.length === 0 ? ' pap__badge--empty' : ''}`}
-            aria-live="polite"
-          >
-            {loading && rows.length === 0 ? '…' : badgeLabel}
-          </span>
+          {allRows.length > 0 && (
+            <span className="pap__badge" aria-live="polite">
+              {loading && allRows.length === 0 ? '…' : totalCount}
+            </span>
+          )}
         </div>
         {onOpenInbox && (
           <button
             type="button"
-            className="dash-btn-ghost dash-btn-sm"
+            className="pap__inbox-btn"
             onClick={onOpenInbox}
           >
             Inbox
@@ -229,12 +227,11 @@ export function PoaeArtifactsPanel({
       </div>
 
       {/* ── Body ────────────────────────────────────────────────────────── */}
-      {loading && rows.length === 0 ? (
+      {loading && allRows.length === 0 ? (
         <SkeletonRows count={3} />
-      ) : rows.length === 0 ? (
+      ) : allRows.length === 0 ? (
         <div className="pap__empty">
-          <span className="pap__empty-icon" aria-hidden>📦</span>
-          <p className="pap__empty-text">No PoAE packages on file</p>
+          <p className="pap__empty-text">No PoAE artifacts received yet</p>
         </div>
       ) : (
         <>
@@ -248,10 +245,21 @@ export function PoaeArtifactsPanel({
               />
             ))}
           </ul>
-          {section.truncated && (
-            <p className="pap__truncated">
-              Showing {rows.length} — more packages available in Inbox
-            </p>
+          {hasMore && (
+            <button
+              type="button"
+              className="pap__view-all"
+              onClick={() => {
+                const first = rows[0]
+                if (first && onOpenInboxMessage) {
+                  onOpenInboxMessage({ messageId: first.messageId, workflowTab: 'all' })
+                } else {
+                  onOpenInbox?.()
+                }
+              }}
+            >
+              View all {allRows.length}{section.truncated ? '+' : ''} PoAE artifacts
+            </button>
           )}
         </>
       )}

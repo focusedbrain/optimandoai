@@ -36,7 +36,7 @@ export interface UrgentMessagesPanelProps {
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const VISIBLE_URGENT_CAP = 10
+const VISIBLE_URGENT_CAP = 5
 
 // ── Helpers (same logic as UrgentAutosortSessionSection) ──────────────────────
 
@@ -272,12 +272,10 @@ export function UrgentMessagesPanel({
         </div>
       ) : sessionId === null ? (
         <div className="upm__empty">
-          <span className="upm__empty-icon" aria-hidden>⚡</span>
           <p className="upm__empty-text">No sort session — run Auto-Sort first</p>
         </div>
       ) : messages.length === 0 ? (
         <div className="upm__empty">
-          <span className="upm__empty-icon" aria-hidden>✓</span>
           <p className="upm__empty-text">No urgent messages from latest sort</p>
         </div>
       ) : (
@@ -287,8 +285,20 @@ export function UrgentMessagesPanel({
               <MessageRow key={m.messageId} m={m} onOpen={onOpenInboxMessage} />
             ))}
           </ul>
-          {totalFetched >= VISIBLE_URGENT_CAP && (
-            <p className="upm__cap">Showing top {VISIBLE_URGENT_CAP} · ordered by urgency score</p>
+          {totalFetched > VISIBLE_URGENT_CAP && (
+            <button
+              type="button"
+              className="upm__view-all"
+              onClick={() => {
+                const first = messages[0]
+                if (first) {
+                  const tab = workflowFilterFromSessionReviewRow(toSessionReviewRow(first))
+                  onOpenInboxMessage?.({ messageId: first.messageId, workflowTab: tab })
+                }
+              }}
+            >
+              View all {totalFetched} urgent messages
+            </button>
           )}
         </>
       )}
