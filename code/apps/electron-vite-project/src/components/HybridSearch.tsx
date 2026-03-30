@@ -1823,7 +1823,7 @@ export default function HybridSearch({
                             className={`chat-response-block__use-btn${usedBlockIds.has(block.id) ? ' chat-response-block__use-btn--inserted' : ''}`}
                             onClick={() => {
                               if (usedBlockIds.has(block.id)) return
-                              window.dispatchEvent(new CustomEvent('wrdesk:use-ai-draft', { detail: { text: block.content, mode: 'append' } }))
+                              if (window.__wrdeskInsertDraft) window.__wrdeskInsertDraft(block.content, 'append')
                               setUsedBlockIds((prev) => new Set([...prev, block.id]))
                             }}
                           >
@@ -1837,7 +1837,7 @@ export default function HybridSearch({
                           className="chat-response-block__use-all-btn"
                           onClick={() => {
                             const allContent = aiResponseBlocks.map((b) => b.content).join('\n\n')
-                            window.dispatchEvent(new CustomEvent('wrdesk:use-ai-draft', { detail: { text: allContent, mode: 'replace' } }))
+                            if (window.__wrdeskInsertDraft) window.__wrdeskInsertDraft(allContent, 'replace')
                             setUsedBlockIds(new Set(aiResponseBlocks.map((b) => b.id)))
                           }}
                         >
@@ -1866,7 +1866,7 @@ export default function HybridSearch({
                             className={`chat-response-block__use-btn${usedBlockIds.has(block.id) ? ' chat-response-block__use-btn--inserted' : ''}`}
                             onClick={() => {
                               if (usedBlockIds.has(block.id)) return
-                              window.dispatchEvent(new CustomEvent('wrdesk:use-ai-draft', { detail: { text: block.content, mode: 'append' } }))
+                              if (window.__wrdeskInsertDraft) window.__wrdeskInsertDraft(block.content, 'append')
                               setUsedBlockIds((prev) => new Set([...prev, block.id]))
                             }}
                           >
@@ -1880,7 +1880,7 @@ export default function HybridSearch({
                           className="chat-response-block__use-all-btn"
                           onClick={() => {
                             const allContent = aiResponseBlocks.map((b) => b.content).join('\n\n')
-                            window.dispatchEvent(new CustomEvent('wrdesk:use-ai-draft', { detail: { text: allContent, mode: 'replace' } }))
+                            if (window.__wrdeskInsertDraft) window.__wrdeskInsertDraft(allContent, 'replace')
                             setUsedBlockIds(new Set(aiResponseBlocks.map((b) => b.id)))
                           }}
                         >

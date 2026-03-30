@@ -11,7 +11,7 @@
  *     3. Full pre-role prompt + project context pushed to useProjectSetupChatContextStore
  *     4. Header AI chat is focused so user can immediately draft
  *   When AI responds in HybridSearch, a "Use in {field}" button appears.
- *   Clicking "Use" dispatches 'wrdesk:use-ai-draft' → panel listens → inserts text.
+ *   Clicking "Use" calls window.__wrdeskInsertDraft (set when field is selected) → inserts text.
  *   No clipboard-paste required (Paste-from-chat buttons removed in 4C).
  *
  * MILESTONES (4C — card design):
@@ -61,6 +61,40 @@ import { StatusToggle } from './StatusToggle'
 import '../../../styles/dashboard-tokens.css'
 import '../../../styles/dashboard-base.css'
 import './ProjectOptimizationPanel.css'
+
+// ── Global draft-insertion callback ───────────────────────────────────────────
+// Set fresh every time the user selects a field or a specific milestone.
+// HybridSearch calls this directly instead of dispatching a DOM event, so
+// there is no stale-closure / ref-timing issue.
+declare global {
+  interface Window {
+    __wrdeskInsertDraft?: (text: string, mode: 'append' | 'replace') => void
+  }
+}
+
+/** Flash the element that has `data-field="<dataField>"` after insertion */
+function flashFieldEl(dataField: string) {
+  requestAnimationFrame(() => {
+    const el = document.querySelector(`[data-field="${dataField}"]`) as HTMLElement | null
+    if (!el) return
+    el.style.height = 'auto'
+    if (el instanceof HTMLTextAreaElement) el.style.height = el.scrollHeight + 'px'
+    el.classList.add('project-field--just-inserted')
+    setTimeout(() => el.classList.remove('project-field--just-inserted'), 650)
+  })
+}
+
+/** Flash the milestone textarea that has `data-milestone-id="<id>"` */
+function flashMilestoneEl(milestoneId: string) {
+  requestAnimationFrame(() => {
+    const el = document.querySelector(`[data-milestone-id="${milestoneId}"]`) as HTMLElement | null
+    if (!el) return
+    el.style.height = 'auto'
+    if (el instanceof HTMLTextAreaElement) el.style.height = el.scrollHeight + 'px'
+    el.classList.add('project-field--just-inserted')
+    setTimeout(() => el.classList.remove('project-field--just-inserted'), 650)
+  })
+}
 
 // ── Props ─────────────────────────────────────────────────────────────────────
 
@@ -265,6 +299,7 @@ export function ProjectOptimizationPanel({
 
   // Single selected field — only one field connected to AI chat at a time
   const [selectedField, setSelectedField] = useState<'title' | 'description' | 'goals' | 'milestones' | null>(null)
+  const selectedFieldRef = useRef<'title' | 'description' | 'goals' | 'milestones' | null>(null)
   const [quickEditMilestoneId, setQuickEditMilestoneId] = useState<string | null>(null)
   const quickEditMilestoneIdRef = useRef<string | null>(null)
 
@@ -438,141 +473,69 @@ export function ProjectOptimizationPanel({
     setProjectNameDraft(formTitle)
   }, [setupMode, formTitle, setProjectNameDraft])
 
-  // ── Field selection handler ────────────────────────────────────────────────
+  // Clean up the global callback on unmount so stale handlers don't leak
+  useEffect(() => {
+    return () => {
+      window.__wrdeskInsertDraft = undefined
+    }
+  }, [])
+
+  // ── Field selection handler — also sets window.__wrdeskInsertDraft ──────────
+  // When the user picks a field section header, we create a fresh insertion
+  // callback on window. That closure captures `field` at call-time, so it is
+  // always correct — no stale refs, no useEffect timing.
   const handleFieldSelect = useCallback(
     (field: 'title' | 'description' | 'goals' | 'milestones') => {
-      // ── Clear ALL stale store draft data before any state change ──────────
-      // goalsDraft / milestonesDraft / snippets in useProjectSetupChatContextStore
-      // are concatenated by buildProjectSetupChatPrefix — if they hold data from
-      // a previous session they will contaminate the new field's AI context.
+      // Clear stale store draft data
       const store = useProjectSetupChatContextStore.getState()
       store.setGoalsDraft('')
       store.setMilestonesDraft('')
       store.clearSnippets()
       store.setSetupTextDraft('')
       store.setIncludeInChat(false)
-      // Clicking the section header always means "general" mode (create new), not specific milestone edit
-      quickEditMilestoneIdRef.current = null
+      // Section header = general mode, not specific milestone edit
       setQuickEditMilestoneId(null)
-
-      // ── Clear drop-zone attachments and chat conversation in the chat panel ──
-      // Attachments and conversation are field-specific — a PDF dropped while drafting goals
-      // must not carry over to title drafting.
       window.dispatchEvent(new CustomEvent('wrdesk:clear-chat-attachments'))
       window.dispatchEvent(new CustomEvent('wrdesk:clear-chat-conversation'))
 
-      if (selectedField === field) {
-        // Deselect — stay cleared
+      if (selectedField === field && !quickEditMilestoneId) {
+        // Deselect entirely
         selectedFieldRef.current = null
         setSelectedField(null)
-      } else {
-        selectedFieldRef.current = field
-        setSelectedField(field)
-        // Context will be set by the sync useEffect on the next render tick
-        focusHeaderAiChat()
-      }
-    },
-    [selectedField],
-  )
-
-  // ── Refs so event handlers always see latest state ────────────────────────
-  const selectedFieldRef = useRef<'title' | 'description' | 'goals' | 'milestones' | null>(null)
-  useEffect(() => { selectedFieldRef.current = selectedField }, [selectedField])
-  useEffect(() => { quickEditMilestoneIdRef.current = quickEditMilestoneId }, [quickEditMilestoneId])
-  useEffect(() => {
-    const handler = (e: Event) => {
-      const { text, mode = 'replace' } = (e as CustomEvent<{ text: string; mode?: string }>).detail
-      if (!text?.trim()) return
-      const field = selectedFieldRef.current
-
-      /** Flash the target textarea to confirm insertion */
-      const flashField = (dataField: string) => {
-        requestAnimationFrame(() => {
-          const el = document.querySelector(`[data-field="${dataField}"]`) as HTMLTextAreaElement | null
-          if (!el) return
-          el.style.height = 'auto'
-          el.style.height = el.scrollHeight + 'px'
-          el.classList.add('project-field--just-inserted')
-          setTimeout(() => el.classList.remove('project-field--just-inserted'), 650)
-        })
+        window.__wrdeskInsertDraft = undefined
+        return
       }
 
-      if (field === 'title') {
-        const cleanTitle = text
-          .split('\n')[0]
-          .replace(/^[\d.)\-*\s]+/, '')
-          .replace(/^["'\u201C\u2018]|["'\u201D\u2019]$/g, '')
-          .replace(/\*\*/g, '')
-          .trim()
-        setFormTitle(cleanTitle)
-        requestAnimationFrame(() => {
-          const el = document.querySelector('[data-field="title"]') as HTMLInputElement | null
-          if (!el) return
-          el.classList.add('project-field--just-inserted')
-          setTimeout(() => el.classList.remove('project-field--just-inserted'), 650)
-        })
-      } else if (field === 'description') {
-        if (mode === 'replace') {
-          setFormDescription(text.trim())
-        } else {
-          setFormDescription((prev) => (prev ? `${prev}\n\n${text.trim()}` : text.trim()))
-        }
-        flashField('description')
-      } else if (field === 'goals') {
-        if (mode === 'replace') {
-          setFormGoals(text.trim())
-        } else {
-          setFormGoals((prev) => (prev ? `${prev}\n\n${text.trim()}` : text.trim()))
-        }
-        flashField('goals')
-      } else if (field === 'milestones') {
-        const qmId = quickEditMilestoneIdRef.current
-        console.log('[Use Draft] milestones branch — qmId:', qmId, 'mode:', mode)
+      selectedFieldRef.current = field
+      setSelectedField(field)
 
-        if (qmId) {
-          // ── SPECIFIC milestone selected → update THAT milestone only ─────────
-          // Read projectId from the store (not from closure — the closure has
-          // empty deps and cannot see Zustand-subscribed state changes)
-          const projectStore = useProjectStore.getState()
-          const projectId = projectStore.activeProjectId
-          if (!projectId) return
+      // SET fresh insertion callback for this field
+      window.__wrdeskInsertDraft = (text: string, mode: 'append' | 'replace') => {
+        const trimmed = text.trim()
+        if (!trimmed) return
+        console.log('[Insert Draft] field:', field, 'mode:', mode)
 
-          const project = projectStore.projects.find((p) => p.id === projectId)
-          if (!project) return
-
-          const existing = project.milestones.find((m) => m.id === qmId)
-          const newContent =
-            mode === 'replace' || !existing?.title
-              ? text.trim()
-              : `${existing.title}\n\n${text.trim()}`
-
-          // Persist to store
-          projectStore.updateProject(projectId, {
-            milestones: project.milestones.map((m) =>
-              m.id === qmId ? { ...m, title: newContent } : m
-            ),
-          })
-
-          // Mirror update in local form state so the textarea re-renders
-          setFormMilestones((prev) =>
-            prev.map((m) => (m.id === qmId ? { ...m, title: newContent } : m))
-          )
-
-          // Flash + auto-grow the specific milestone's textarea
-          requestAnimationFrame(() => {
-            const el = document.querySelector(
-              `[data-milestone-id="${qmId}"]`
-            ) as HTMLTextAreaElement | null
-            if (!el) return
-            el.style.height = 'auto'
-            el.style.height = el.scrollHeight + 'px'
-            el.classList.add('project-field--just-inserted')
-            setTimeout(() => el.classList.remove('project-field--just-inserted'), 650)
-          })
-        } else {
-          // ── NO specific milestone selected → create new milestones ────────────
-          console.log('[Use Draft] Creating new milestones from lines')
-          const newMs: ProjectMilestone[] = text
+        if (field === 'title') {
+          const clean = trimmed
+            .split('\n')[0]
+            .replace(/^[\d.)\-*\s]+/, '')
+            .replace(/^["'\u201C\u2018]|["'\u201D\u2019]$/g, '')
+            .replace(/\*\*/g, '')
+            .trim()
+          setFormTitle(clean)
+          flashFieldEl('title')
+        } else if (field === 'description') {
+          if (mode === 'replace') setFormDescription(trimmed)
+          else setFormDescription((prev) => (prev ? `${prev}\n\n${trimmed}` : trimmed))
+          flashFieldEl('description')
+        } else if (field === 'goals') {
+          if (mode === 'replace') setFormGoals(trimmed)
+          else setFormGoals((prev) => (prev ? `${prev}\n\n${trimmed}` : trimmed))
+          flashFieldEl('goals')
+        } else if (field === 'milestones') {
+          // General milestones section → create new milestones from lines
+          console.log('[Insert Draft] Creating NEW milestones')
+          const newMs: ProjectMilestone[] = trimmed
             .split('\n')
             .map((line) => line.replace(/^[-*•]\s*/, '').replace(/^\d+[.)]\s*/, '').trim())
             .filter((line) => line.length > 0)
@@ -587,29 +550,76 @@ export function ProjectOptimizationPanel({
           if (newMs.length > 0) setFormMilestones((prev) => [...prev, ...newMs])
         }
       }
-    }
-    window.addEventListener('wrdesk:use-ai-draft', handler)
-    return () => window.removeEventListener('wrdesk:use-ai-draft', handler)
-  }, [])
 
-  // ── Quick-edit a specific milestone from inside the card ──────────────────
+      // Context pre-frame is built by the context-sync useEffect on next tick
+      focusHeaderAiChat()
+    },
+    [selectedField, quickEditMilestoneId],
+  )
+
+  // ── Quick-edit a specific milestone — sets window.__wrdeskInsertDraft ───────
+  // No useCallback deps needed: the closure only captures `milestoneId` (the
+  // argument passed at call-time) and stable setState functions.
   const handleQuickEditMilestone = useCallback((milestoneId: string) => {
-    // Clear ALL stale store draft data — same pattern as handleFieldSelect
+    // Clear all stale store draft data
     const store = useProjectSetupChatContextStore.getState()
     store.setGoalsDraft('')
     store.setMilestonesDraft('')
     store.clearSnippets()
-    store.setSetupTextDraft('')
     store.setIncludeInChat(false)
-    // Clear drop-zone attachments and chat conversation so context is fresh
     window.dispatchEvent(new CustomEvent('wrdesk:clear-chat-attachments'))
     window.dispatchEvent(new CustomEvent('wrdesk:clear-chat-conversation'))
-    // Set the specific milestone; the context sync useEffect (which watches
-    // quickEditMilestoneId + selectedField) will build the milestone-specific pre-frame
-    quickEditMilestoneIdRef.current = milestoneId
+
     setQuickEditMilestoneId(milestoneId)
     selectedFieldRef.current = 'milestones'
     setSelectedField('milestones')
+
+    // Set the global callback — captures milestoneId right now (not stale)
+    window.__wrdeskInsertDraft = (text: string, mode: 'append' | 'replace') => {
+      const trimmed = text.trim()
+      if (!trimmed) return
+      console.log('[Insert Draft] SPECIFIC milestone:', milestoneId, 'mode:', mode)
+
+      const projectStore = useProjectStore.getState()
+      const projectId = projectStore.activeProjectId
+      if (!projectId) return
+      const project = projectStore.projects.find((p) => p.id === projectId)
+      if (!project) return
+
+      const existing = project.milestones.find((m) => m.id === milestoneId)
+      const newContent =
+        mode === 'replace' || !existing?.title
+          ? trimmed
+          : `${existing.title}\n\n${trimmed}`
+
+      // Persist to store
+      projectStore.updateProject(projectId, {
+        milestones: project.milestones.map((m) =>
+          m.id === milestoneId ? { ...m, title: newContent } : m
+        ),
+      })
+      // Mirror in local form state
+      setFormMilestones((prev) =>
+        prev.map((m) => (m.id === milestoneId ? { ...m, title: newContent } : m))
+      )
+      flashMilestoneEl(milestoneId)
+    }
+
+    // Build milestone-specific pre-frame directly (no useEffect needed)
+    const milestone = useProjectStore.getState().getActiveProject()?.milestones.find((m) => m.id === milestoneId)
+    store.setSetupTextDraft(
+      [
+        '=== INSTRUCTION: EDIT THIS MILESTONE ===',
+        "Refine or rewrite the milestone text based on the user's request.",
+        'Output only the updated milestone text.',
+        '=== END INSTRUCTION ===',
+        '',
+        'Current milestone text:',
+        milestone?.title ?? '',
+      ].join('\n')
+    )
+    store.setIncludeInChat(true)
+
     focusHeaderAiChat()
   }, [])
 
@@ -625,6 +635,7 @@ export function ProjectOptimizationPanel({
     selectedFieldRef.current = null
     setQuickEditMilestoneId(null)
     quickEditMilestoneIdRef.current = null
+    window.__wrdeskInsertDraft = undefined
     window.dispatchEvent(new CustomEvent('wrdesk:clear-chat-attachments'))
     window.dispatchEvent(new CustomEvent('wrdesk:clear-chat-conversation'))
   }, [])
@@ -642,6 +653,7 @@ export function ProjectOptimizationPanel({
     setSelectedField(null)
     quickEditMilestoneIdRef.current = null
     setQuickEditMilestoneId(null)
+    window.__wrdeskInsertDraft = undefined
     setSetupMode('creating')
   }, [])
 
@@ -660,6 +672,7 @@ export function ProjectOptimizationPanel({
     setSelectedField(null)
     quickEditMilestoneIdRef.current = null
     setQuickEditMilestoneId(null)
+    window.__wrdeskInsertDraft = undefined
     setSetupMode('editing')
   }, [])
 
@@ -1100,7 +1113,7 @@ export function ProjectOptimizationPanel({
                     borderRadius: 4, padding: '4px 10px', fontSize: 10, fontWeight: 600, cursor: 'pointer',
                   }}
                 >
-                  {selectedField === 'milestones' ? '☞ AI connected' : 'Select for AI'}
+                  {selectedField === 'milestones' && !quickEditMilestoneId ? '☞ AI connected' : 'Select for AI'}
                 </button>
               </div>
 
@@ -1121,6 +1134,21 @@ export function ProjectOptimizationPanel({
                           {m.isActive ? '● Active' : '○ Set active'}
                         </button>
                         <div className="pop__form-ms-card-right">
+                          <button
+                            type="button"
+                            className={`pop__form-ms-ai-toggle${quickEditMilestoneId === m.id ? ' pop__form-ms-ai-toggle--connected' : ''}`}
+                            title={quickEditMilestoneId === m.id ? 'AI connected to this milestone — click to disconnect' : 'Select this milestone for AI editing'}
+                            onClick={() => {
+                              if (quickEditMilestoneId === m.id) {
+                                // Deselect → switch back to general milestones mode
+                                handleFieldSelect('milestones')
+                              } else {
+                                handleQuickEditMilestone(m.id)
+                              }
+                            }}
+                          >
+                            {quickEditMilestoneId === m.id ? '☞ AI' : 'AI edit'}
+                          </button>
                           <button
                             type="button"
                             className={`pop__form-ms-done-toggle${m.completed ? ' pop__form-ms-done-toggle--done' : ''}`}
@@ -1150,16 +1178,7 @@ export function ProjectOptimizationPanel({
                         placeholder="Describe this milestone…"
                       />
 
-                      <div className="pop__form-ms-card-footer">
-                        <button
-                          type="button"
-                          className="pop__form-ms-quick-edit"
-                          onClick={() => handleQuickEditMilestone(m.id)}
-                          title="Select this milestone for AI editing"
-                        >
-                          Quick edit with AI →
-                        </button>
-                      </div>
+                      <div className="pop__form-ms-card-footer" style={{ display: 'none' }} />
                     </li>
                   ))}
                 </ul>
