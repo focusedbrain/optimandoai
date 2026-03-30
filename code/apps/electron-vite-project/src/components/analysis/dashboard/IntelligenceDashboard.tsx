@@ -1,532 +1,576 @@
-/**
- * IntelligenceDashboard — Premium 3-column intelligence zone for WR Desk™.
- *
- * Drop-in replacement for DashboardTopCardsRow with identical props interface.
- * Do NOT swap it into AnalysisCanvas.tsx until Prompt 5.
- *
- * Layout:
- *   Col 1 — Threat Detection   (sort-category bar chart, threat KPI)
- *   Col 2 — Automation         (sort-composition donut, msgs-sorted KPI)
- *   Col 3 — Transport & Queue  (BEAP ratio bar, workflow queue rows)
- *
- * Data contract: all fields read from AnalysisDashboardSnapshot only.
- * No invented data — null/empty states are rendered explicitly.
- */
-
-import { useEffect, useMemo, useRef, useState } from 'react'
-import {
-  BarChart, Bar, Cell, ResponsiveContainer, Tooltip,
-  XAxis, YAxis, PieChart, Pie,
-} from 'recharts'
+import type { ReactNode } from 'react'
 import type { AnalysisDashboardSnapshot } from '../../../types/analysisDashboardSnapshot'
-import '../../../styles/dashboard-tokens.css'
-import '../../../styles/dashboard-base.css'
-import '../../../styles/dashboard-charts.css'
 import './IntelligenceDashboard.css'
 
-// ── Props (identical to DashboardTopCardsRow) ─────────────────────────────────
-
-type Props = {
+export interface IntelligenceDashboardProps {
   snapshot: AnalysisDashboardSnapshot | null
   loading: boolean
   error: string | null
   onRetry: () => void
+  autoOptimizationEnabled?: boolean
+  autoSyncEnabled?: boolean
+  syncActive?: boolean
+  accountCount?: number
+  activeProjectName?: string | null
+  unopenedBeapCount?: number
 }
-
-// ── Constants ─────────────────────────────────────────────────────────────────
-
-/**
- * 6-colour palette drawn from dashboard-tokens.css `--ds-chart-*` values.
- * Kept as plain hex so they work inside Recharts SVG `fill` props.
- */
-const CHART_COLORS: readonly string[] = [
-  '#2dd4bf', // teal
-  '#60a5fa', // blue
-  '#fbbf24', // amber
-  '#f87171', // red
-  '#a3e635', // lime
-  '#c084fc', // violet
-]
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-/** Format a number or null as a locale string; returns '—' when null/undefined. */
-function fmt(n: number | null | undefined): string {
-  if (n === null || n === undefined) return '—'
-  return n.toLocaleString()
-}
-
-/**
- * Animates a numeric KPI from 0 → target on first mount, then from the
- * previous value on updates. Uses rAF timestamps for frame-perfect easing.
- * Returns '—' while target is null; returns the animated locale string otherwise.
- */
-function useCountUp(target: number | null, duration = 750): string {
-  const [current, setCurrent] = useState<number>(0)
-  const rafRef = useRef<number>(0)
-
-  useEffect(() => {
-    if (target === null) { setCurrent(0); return }
-
-    const end = target
-    let startTs: number | null = null
-
-    function step(ts: number) {
-      if (startTs === null) startTs = ts
-      const elapsed = ts - startTs
-      const progress = Math.min(elapsed / duration, 1)
-      // ease-out cubic — fast start, controlled deceleration
-      const eased = 1 - Math.pow(1 - progress, 3)
-      setCurrent(Math.round(end * eased))
-      if (progress < 1) rafRef.current = requestAnimationFrame(step)
-    }
-
-    cancelAnimationFrame(rafRef.current)
-    rafRef.current = requestAnimationFrame(step)
-    return () => cancelAnimationFrame(rafRef.current)
-  }, [target, duration])
-
-  if (target === null) return '—'
-  return current.toLocaleString()
-}
-
-/** Humanise a snake_case sort_category string for display. */
-function humanize(cat: string): string {
-  return cat.trim().replace(/_/g, ' ')
-}
-
-/** Abbreviate long sort-category labels for the compact Y-axis. */
-const ABBREV: Readonly<Record<string, string>> = {
-  'pending review': 'Review',
-  'pending delete': 'Delete',
-  'newsletter':     'News.',
-  'important':      'Impt.',
-  'normal':         'Normal',
-  'urgent':         'Urgent',
-  'spam':           'Spam',
-  'archive':        'Archive',
-  'archived':       'Archive',
-}
-
-function abbrevCat(cat: string): string {
-  const key = cat.trim().toLowerCase().replace(/_/g, ' ')
-  return ABBREV[key] ?? cat.replace(/_/g, ' ')
-}
-
-/**
- * Colour-code a sort_category for the threat bar chart.
- *
- * V1 sort model categories and their semantic colours:
- *   spam          → red    (junk/delete-worthy mail — the "threat" proxy today)
- *   urgent        → amber  (high-priority, not necessarily a security threat)
- *   pending_review / important / action_required → blue
- *   newsletter / archive → slate-gray
- *   normal / other → muted
- */
-function getCategoryColor(category: string): string {
-  const c = category.trim().toLowerCase()
-  if (c.includes('spam') || c.includes('phish') || c.includes('malicious') || c.includes('virus')) {
-    return '#f87171' // red  — threat-adjacent
+function formatDDMM(iso: string | null | undefined): string {
+  if (!iso) return '—'
+  try {
+    const d = new Date(iso)
+    const dd = String(d.getDate()).padStart(2, '0')
+    const mm = String(d.getMonth() + 1).padStart(2, '0')
+    return `${dd}.${mm}`
+  } catch {
+    return '—'
   }
-  if (c.includes('urgent')) {
-    return '#fbbf24' // amber — high-priority
-  }
-  if (c.includes('review') || c.includes('important') || c.includes('action')) {
-    return '#60a5fa' // blue  — needs attention
-  }
-  if (c.includes('newsletter') || c.includes('archive')) {
-    return '#64748b' // slate — low-signal mail
-  }
-  return '#2e4a60' // muted navy — unsorted / normal
 }
 
-// ── Custom Recharts tooltip ───────────────────────────────────────────────────
-
-// Typed loosely to avoid importing recharts internal types, while still
-// being fully safe at the call sites (Recharts injects these props).
-interface TooltipPayloadEntry {
-  name?: string | number
-  value?: number | string
-  color?: string
-  fill?: string
-  payload?: Record<string, unknown>
+function formatDateTime(iso: string | null | undefined): string {
+  if (!iso) return '—'
+  try {
+    const d = new Date(iso)
+    const dd = String(d.getDate()).padStart(2, '0')
+    const mm = String(d.getMonth() + 1).padStart(2, '0')
+    const yyyy = d.getFullYear()
+    const hh = String(d.getHours()).padStart(2, '0')
+    const min = String(d.getMinutes()).padStart(2, '0')
+    return `${dd}.${mm}.${yyyy}, ${hh}:${min}`
+  } catch {
+    return '—'
+  }
 }
 
-function ChartTooltip({
-  active,
-  payload,
-  label,
-}: {
-  active?: boolean
-  payload?: TooltipPayloadEntry[]
-  label?: string | number
-}) {
-  if (!active || !payload?.length) return null
-  const item = payload[0]
-  // Prefer the `fullName` stored in the recharts data object over the
-  // abbreviated axis name, so the tooltip reads clearly.
-  const name =
-    typeof item.payload?.fullName === 'string'
-      ? item.payload.fullName
-      : (item.name ?? label ?? '')
+function getCatColor(cat: string): string {
+  const k = cat.toLowerCase()
+  if (k.includes('pending_review') || k === 'review') return 'rgba(37,99,235,0.7)'
+  if (k.includes('spam'))       return 'rgba(220,38,38,0.7)'
+  if (k.includes('urgent'))     return 'rgba(217,119,6,0.7)'
+  if (k.includes('normal'))     return 'rgba(107,114,128,0.5)'
+  if (k.includes('newsletter')) return 'rgba(5,150,105,0.6)'
+  return 'rgba(155,155,150,0.4)'
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CARD 1 — Security
+// ─────────────────────────────────────────────────────────────────────────────
+
+function SecurityCard({ snapshot }: { snapshot: AnalysisDashboardSnapshot }) {
+  const phishing    = snapshot.threatMetrics?.phishingDetected ?? 0
+  const spam        = snapshot.threatMetrics?.suspiciousSenders ?? 0
+  // TODO: wire to a dedicated suspicious/malicious category once model ships those labels
+  const suspicious  = snapshot.threatMetrics?.maliciousAttachments ?? 0
+
+  const maxThreat = Math.max(phishing, spam, suspicious, 1)
+
+  // TODO: wire to real link-opened-off-band tracking when that feature ships
+  const linksOffBand = 0
+  // TODO: wire to real PDF-parsed-to-text count when that feature ships
+  const pdfsParsed   = 0
+
+  const session = snapshot.autosort?.latestSession
+  const footerText = session
+    ? `Last sort: ${formatDDMM(session.startedAt)} · ${session.totalMessages} msgs`
+    : 'No sort sessions yet'
+
+  const threatRows = [
+    { label: 'Phishing',   count: phishing,   fill: 'rgba(220,38,38,0.8)',  countColor: '#DC2626' },
+    { label: 'Spam',       count: spam,       fill: 'rgba(217,119,6,0.8)',  countColor: '#D97706' },
+    { label: 'Suspicious', count: suspicious, fill: 'rgba(155,155,150,0.5)', countColor: '#1C1C1A' },
+  ]
+
+  const protectRows = [
+    { label: 'Links opened off-band', count: linksOffBand, dot: 'rgba(37,99,235,0.7)' },
+    { label: 'PDFs parsed to text',   count: pdfsParsed,   dot: 'rgba(124,58,237,0.7)' },
+  ]
+
   return (
-    <div className="ds-tooltip">
-      <p className="ds-tooltip__label">{humanize(String(name))}</p>
-      {payload.map((p, i) => (
-        <p
-          key={i}
-          className="ds-tooltip__item"
-          style={{ color: p.fill ?? p.color ?? 'var(--ds-text-primary)' }}
-        >
-          {fmt(typeof p.value === 'number' ? p.value : null)}
-        </p>
-      ))}
+    <div className="intelligence-card">
+      <p className="intelligence-card__label">SECURITY</p>
+
+      <p className="ic-sec__sub-label ic-sec__sub-label--threats">THREATS</p>
+      <div className="ic-sec__threat-rows">
+        {threatRows.map(({ label, count, fill, countColor }) => (
+          <div key={label} className="ic-sec__threat-row">
+            <span className="ic-sec__threat-label">{label}</span>
+            <div className="ic-sec__bar-track">
+              <div
+                className="ic-sec__bar-fill"
+                style={{ width: `${(count / maxThreat) * 100}%`, background: fill }}
+              />
+            </div>
+            <span className="ic-sec__threat-count" style={{ color: countColor }}>
+              {count}
+            </span>
+          </div>
+        ))}
+      </div>
+
+      <hr className="ic-sec__divider" />
+
+      <p className="ic-sec__sub-label ic-sec__sub-label--protected">PROTECTED</p>
+      <div className="ic-sec__protect-rows">
+        {protectRows.map(({ label, count, dot }) => (
+          <div key={label} className="ic-sec__protect-row">
+            <span className="ic-sec__protect-dot" style={{ background: dot }} />
+            <span className="ic-sec__protect-label">{label}</span>
+            <span className="ic-sec__protect-count">{count}</span>
+          </div>
+        ))}
+      </div>
+
+      <hr className="ic-sec__footer" />
+      <p className="ic-sec__footer-text">{footerText}</p>
     </div>
   )
 }
 
-// ── Loading skeleton ──────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// CARD 2 — Autosort
+// ─────────────────────────────────────────────────────────────────────────────
 
-function CardSkeleton() {
-  return (
-    <div className="dash-card dash-card--elevated intdash__skeleton-card">
-      <span className="dash-skeleton" style={{ height: '10px', width: '40%' }} />
-      <span className="dash-skeleton dash-skeleton--metric" />
-      <span className="dash-skeleton" style={{ height: '10px', width: '25%' }} />
-      <span className="dash-skeleton" style={{ height: '110px', borderRadius: '6px' }} />
-    </div>
-  )
-}
+function AutosortCard({ snapshot }: { snapshot: AnalysisDashboardSnapshot }) {
+  const session = snapshot.autosort?.latestSession
+  const totalMessages = session?.totalMessages ?? 0
 
-// ── Column 1: Threat Detection ────────────────────────────────────────────────
+  const rawCats: Array<{ category: string; count: number }> =
+    (snapshot.top?.autosortCategoryCounts ?? []).filter(c => c.count > 0)
+  const sorted = [...rawCats].sort((a, b) => b.count - a.count)
+  const legendItems = sorted.slice(0, 6)
 
-function ThreatCard({ snapshot }: { snapshot: AnalysisDashboardSnapshot }) {
-  const { threatMetrics } = snapshot
-  const cats = snapshot.top?.autosortCategoryCounts ?? null
-
-  /**
-   * Bar chart data: ALL sort categories from the latest session, colour-coded
-   * by threat proximity. This gives real data from day 1 even when
-   * phishing/malicious categories don't yet exist in the V1 sort model.
-   */
-  const barData = useMemo(() => {
-    if (!cats || cats.length === 0) return []
-    return [...cats]
-      .sort((a, b) => b.count - a.count)
-      .slice(0, 6)
-      .map((c) => ({
-        name:     abbrevCat(c.category),
-        fullName: humanize(c.category),
-        value:    c.count,
-        fill:     getCategoryColor(c.category),
-      }))
-  }, [cats])
-
-  const totalThreats = threatMetrics?.totalThreats ?? null
-  const isThreatPositive = totalThreats !== null && totalThreats > 0
-  // Show the model-limitations note only when we have real data but the
-  // granular phishing/malicious labels are absent.
-  const showModelNote =
-    threatMetrics !== null &&
-    threatMetrics.phishingDetected === 0 &&
-    threatMetrics.maliciousAttachments === 0
-
-  const threatDisplay = useCountUp(totalThreats)
+  const hasSession = Boolean(session)
 
   return (
-    <article
-      className={`dash-card dash-card--elevated intdash__card${isThreatPositive ? ' dash-card--accent-threat' : ''}`}
-      aria-label="Threat detection"
-    >
-      <div className="intdash__card-header">
-        <h3 className="intdash__card-title">Threat Detection</h3>
+    <div className="intelligence-card">
+      <p className="intelligence-card__label">AUTOSORT</p>
+
+      <div className="ic-auto__kpi-row">
+        <span className="ic-auto__kpi-num">{totalMessages.toLocaleString()}</span>
+        <span className="ic-auto__kpi-unit">msgs sorted</span>
       </div>
 
-      <div className="intdash__kpi">
-        <span className={`intdash__kpi-value${isThreatPositive ? ' intdash__kpi-value--threat' : ''}`}>
-          {threatDisplay}
-        </span>
-        <span className="intdash__kpi-label">
-          {totalThreats === 1 ? 'threat flagged' : 'threats flagged'}
-        </span>
-      </div>
-
-      {barData.length > 0 ? (
-        <div className="intdash__chart intdash__chart--threat ds-chart-root">
-          <ResponsiveContainer width="100%" height={120}>
-            <BarChart
-              layout="vertical"
-              data={barData}
-              margin={{ top: 2, right: 22, bottom: 2, left: 0 }}
-              barCategoryGap="22%"
-            >
-              <XAxis type="number" hide domain={[0, 'dataMax']} />
-              <YAxis
-                type="category"
-                dataKey="name"
-                width={50}
-                tick={{
-                  fontSize:   10,
-                  fill:       'var(--ds-text-muted)',
-                  fontFamily: 'var(--ds-font-sans)',
-                }}
-                axisLine={false}
-                tickLine={false}
-              />
-              <Tooltip
-                content={<ChartTooltip />}
-                cursor={{ fill: 'rgba(255,255,255,0.04)' }}
-              />
-              <Bar dataKey="value" radius={[0, 3, 3, 0]} isAnimationActive animationDuration={600} animationEasing="ease-out">
-                {barData.map((entry, i) => (
-                  <Cell key={i} fill={entry.fill} />
-                ))}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
-
-          {showModelNote && (
-            <p className="intdash__chart-note">
-              Phishing &amp; malicious detail available after model update
-            </p>
-          )}
-        </div>
-      ) : (
-        <p className="intdash__empty">No sort session data</p>
-      )}
-    </article>
-  )
-}
-
-// ── Column 2: Automation Performance ─────────────────────────────────────────
-
-function AutomationCard({ snapshot }: { snapshot: AnalysisDashboardSnapshot }) {
-  const { automationMetrics } = snapshot
-  const cats = snapshot.top?.autosortCategoryCounts ?? null
-
-  /** Donut segments from the same sort-category counts as the bar chart. */
-  const donutData = useMemo(() => {
-    if (!cats || cats.length === 0) return []
-    const total = cats.reduce((s, c) => s + c.count, 0)
-    if (total === 0) return []
-    return [...cats]
-      .sort((a, b) => b.count - a.count)
-      .slice(0, 6)
-      .map((c, i) => ({
-        name:  humanize(c.category),
-        value: c.count,
-        color: CHART_COLORS[i % CHART_COLORS.length] as string,
-      }))
-  }, [cats])
-
-  const totalSorted = automationMetrics?.totalAutoSorted ?? null
-  const timeSaved   = automationMetrics?.timeSavedMinutes ?? null
-  const sortedDisplay = useCountUp(totalSorted)
-
-  return (
-    <article className="dash-card dash-card--elevated intdash__card" aria-label="Automation performance">
-      <div className="intdash__card-header">
-        <h3 className="intdash__card-title">Automation</h3>
-      </div>
-
-      <div className="intdash__kpi">
-        <span className="intdash__kpi-value intdash__kpi-value--secure">
-          {sortedDisplay}
-        </span>
-        <span className="intdash__kpi-label">
-          {totalSorted === 1 ? 'msg sorted' : 'msgs sorted'}
-        </span>
-      </div>
-
-      {timeSaved !== null && (
-        <p className="intdash__kpi-secondary">
-          <strong>~{timeSaved} min</strong> est. time saved
-        </p>
-      )}
-
-      {donutData.length > 0 ? (
-        <div className="intdash__chart intdash__chart--donut ds-chart-root">
-          {/* Responsive donut — uses percentage center so it scales with card width */}
-          <ResponsiveContainer width="100%" height={128}>
-            <PieChart>
-              <Pie
-                data={donutData}
-                cx="50%"
-                cy="50%"
-                innerRadius={34}
-                outerRadius={52}
-                dataKey="value"
-                stroke="var(--ds-surface-03)"
-                strokeWidth={2}
-                isAnimationActive
-                animationBegin={80}
-                animationDuration={700}
-                animationEasing="ease-out"
-              >
-                {donutData.map((entry, i) => (
-                  <Cell key={i} fill={entry.color} />
-                ))}
-              </Pie>
-              <Tooltip content={<ChartTooltip />} />
-            </PieChart>
-          </ResponsiveContainer>
-
-          {/* Compact inline legend below the donut */}
-          <div className="intdash__donut-legend">
-            {donutData.slice(0, 5).map((d, i) => (
-              <div key={i} className="intdash__donut-legend-row">
-                <span
-                  className="intdash__donut-legend-dot"
-                  style={{ backgroundColor: d.color }}
+      {hasSession && totalMessages > 0 && sorted.length > 0 ? (
+        <>
+          <div className="ic-auto__bar-wrap">
+            {sorted.map(({ category, count }, i) => {
+              const pct = (count / totalMessages) * 100
+              const isFirst = i === 0
+              const isLast  = i === sorted.length - 1
+              const radius = isFirst && isLast
+                ? '4px'
+                : isFirst ? '4px 0 0 4px'
+                : isLast  ? '0 4px 4px 0'
+                : '0'
+              return (
+                <div
+                  key={category}
+                  className="ic-auto__bar-seg"
+                  style={{
+                    width: `${pct}%`,
+                    background: getCatColor(category),
+                    borderRadius: radius,
+                  }}
                 />
-                <span className="intdash__donut-legend-name">{d.name}</span>
-                <span className="intdash__donut-legend-count">{d.value}</span>
+              )
+            })}
+          </div>
+
+          <div className="ic-auto__legend">
+            {legendItems.map(({ category, count }) => (
+              <div key={category} className="ic-auto__legend-item">
+                <span
+                  className="ic-auto__legend-dot"
+                  style={{ background: getCatColor(category) }}
+                />
+                <span className="ic-auto__legend-text">
+                  {category} {count}
+                </span>
               </div>
             ))}
           </div>
+        </>
+      ) : null}
+
+      <hr className="ic-auto__divider" />
+
+      {session ? (
+        <div className="ic-auto__session-ref">
+          <span className="ic-auto__session-id">
+            {session.sessionId.length > 12
+              ? `${session.sessionId.slice(0, 12)}…`
+              : session.sessionId}
+          </span>
+          <span className="ic-auto__session-date">
+            {formatDateTime(session.startedAt)}
+          </span>
         </div>
       ) : (
-        <p className="intdash__empty">
-          {automationMetrics === null ? 'No completed sort session' : 'No category data'}
-        </p>
+        <span className="ic-auto__no-session">No sort sessions</span>
       )}
-    </article>
+    </div>
   )
 }
 
-// ── Column 3: Transport & Queue ───────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// CARD 3 — Transport
+// ─────────────────────────────────────────────────────────────────────────────
 
-function TransportQueueCard({ snapshot }: { snapshot: AnalysisDashboardSnapshot }) {
-  const { transportRatio } = snapshot
+const RING_R  = 18
+const RING_C  = 2 * Math.PI * RING_R   // ≈ 113.097
 
-  // Use inbox tab counts directly (most reliable — always present when top !== null)
-  const tabs   = snapshot.top?.inboxTabs
-  const urgent = tabs?.urgent
-  const review = tabs?.pending_review
-  const del    = tabs?.pending_delete
+function TransportCard({ snapshot }: { snapshot: AnalysisDashboardSnapshot }) {
+  const nativeBeap    = snapshot.transportRatio?.nativeBeap    ?? 0
+  const depackaged    = snapshot.transportRatio?.depackaged    ?? 0
+  const nativePercent = snapshot.transportRatio?.nativePercent ?? 0
 
-  const pct     = transportRatio?.nativePercent ?? 0
-  const depPct  = transportRatio !== null ? 100 - pct : 0
+  const dash = (nativePercent / 100) * RING_C
+  const gap  = RING_C - dash
+
+  const inboxTabs = snapshot.top?.inboxTabs
+  const urgent        = inboxTabs?.urgent         ?? 0
+  const pendingReview = inboxTabs?.pending_review ?? 0
+  const pendingDelete = inboxTabs?.pending_delete ?? 0
+
+  const queueRows = [
+    { label: 'Urgent',         count: urgent,        color: '#DC2626' },
+    { label: 'Pending review', count: pendingReview, color: '#D97706' },
+    { label: 'Pending delete', count: pendingDelete, color: '#6B7280' },
+  ]
 
   return (
-    <article className="dash-card dash-card--elevated intdash__card" aria-label="Transport and queue">
-      {/* ── Transport section ─────────────────────────────────────────────── */}
-      <div className="intdash__card-header">
-        <h3 className="intdash__card-title">Transport</h3>
+    <div className="intelligence-card">
+      <p className="intelligence-card__label">TRANSPORT</p>
+
+      <div className="ic-tp__top">
+        <div className="ic-tp__ring-wrap">
+          <svg width="56" height="56" viewBox="0 0 56 56" aria-hidden="true">
+            <circle
+              cx="28" cy="28" r={RING_R}
+              fill="none"
+              stroke="#E8E8E6"
+              strokeWidth="2.5"
+            />
+            <circle
+              cx="28" cy="28" r={RING_R}
+              fill="none"
+              stroke="#059669"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              strokeDasharray={`${dash} ${gap}`}
+              transform="rotate(-90 28 28)"
+            />
+            <text
+              x="28" y="28"
+              fontSize="11"
+              fontWeight="600"
+              fill="#1C1C1A"
+              textAnchor="middle"
+              dominantBaseline="central"
+              fontFamily="'Inter', system-ui, sans-serif"
+              style={{ fontFeatureSettings: '"tnum"' }}
+            >
+              {nativePercent}%
+            </text>
+          </svg>
+          <span className="ic-tp__ring-sub">native</span>
+        </div>
+
+        <div className="ic-tp__counts">
+          <div className="ic-tp__count-block">
+            <span className="ic-tp__count-num">{nativeBeap.toLocaleString()}</span>
+            <span className="ic-tp__count-lbl">BEAP</span>
+          </div>
+          <div className="ic-tp__count-block">
+            <span className="ic-tp__count-num">{depackaged.toLocaleString()}</span>
+            <span className="ic-tp__count-lbl">Depack.</span>
+          </div>
+        </div>
       </div>
 
-      {transportRatio !== null ? (
-        <div className="intdash__transport">
-          {/* Stacked ratio bar */}
-          <div className="intdash__transport-bar" role="img" aria-label="BEAP transport ratio">
-            <div
-              className="intdash__transport-bar-fill intdash__transport-bar-fill--beap"
-              style={{ width: `${pct}%` }}
-            />
-            <div
-              className="intdash__transport-bar-fill intdash__transport-bar-fill--dep"
-              style={{ width: `${depPct}%` }}
-            />
-          </div>
+      <hr className="ic-tp__divider" />
 
-          {/* Metric blocks */}
-          <div className="intdash__transport-metrics">
-            <div className="intdash__transport-metric">
-              <span className="intdash__transport-metric-value intdash__transport-metric-value--beap">
-                {fmt(transportRatio.nativeBeap)}
-              </span>
-              <span className="intdash__transport-metric-label">Native BEAP</span>
+      <p className="ic-tp__queue-label">QUEUE</p>
+      <div className="ic-tp__queue-rows">
+        {queueRows.map(({ label, count, color }) => (
+          <div key={label} className="ic-tp__queue-row">
+            <div className="ic-tp__queue-left">
+              <div className="ic-tp__queue-bar" style={{ background: color }} />
+              <span className="ic-tp__queue-row-label">{label}</span>
             </div>
-            <div className="intdash__transport-metric intdash__transport-metric--right">
-              <span className="intdash__transport-metric-value">
-                {fmt(transportRatio.depackaged)}
-              </span>
-              <span className="intdash__transport-metric-label">Depackaged</span>
-            </div>
+            <span className="ic-tp__queue-count" style={{ color }}>
+              {count ?? 0}
+            </span>
           </div>
-
-          {transportRatio.total > 0 && (
-            <p className="intdash__transport-pct">
-              {pct.toFixed(1)}% native · {fmt(transportRatio.total)} total
-            </p>
-          )}
-        </div>
-      ) : (
-        <p className="intdash__empty" style={{ padding: 'var(--ds-space-md) 0' }}>
-          Transport data unavailable
-        </p>
-      )}
-
-      <div className="intdash__inner-divider" />
-
-      {/* ── Workflow queue section ────────────────────────────────────────── */}
-      <p className="intdash__queue-title">Workflow queue</p>
-      <div className="intdash__queue-rows">
-        <div className="intdash__queue-row intdash__queue-row--urgent">
-          <span className="intdash__queue-row-label">Urgent</span>
-          <span className="intdash__queue-row-count">{fmt(urgent)}</span>
-        </div>
-        <div className="intdash__queue-row intdash__queue-row--review">
-          <span className="intdash__queue-row-label">Pending review</span>
-          <span className="intdash__queue-row-count">{fmt(review)}</span>
-        </div>
-        <div className="intdash__queue-row intdash__queue-row--delete">
-          <span className="intdash__queue-row-label">Pending delete</span>
-          <span className="intdash__queue-row-count">{fmt(del)}</span>
-        </div>
+        ))}
       </div>
-    </article>
+    </div>
   )
 }
 
-// ── Main export ───────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// CARD 4 — Status
+// ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * IntelligenceDashboard
- *
- * Drop-in replacement for DashboardTopCardsRow.
- * Same props contract; do NOT swap into AnalysisCanvas.tsx until Prompt 5.
- */
-export function IntelligenceDashboard({ snapshot, loading, error, onRetry }: Props) {
-  // ── Loading ──────────────────────────────────────────────────────────────
-  if (loading) {
+function StatusCard({
+  autoOptimizationEnabled = false,
+  autoSyncEnabled         = false,
+  syncActive              = false,
+  accountCount            = 0,
+  activeProjectName       = null,
+  unopenedBeapCount       = 0,
+}: {
+  autoOptimizationEnabled?: boolean
+  autoSyncEnabled?: boolean
+  syncActive?: boolean
+  accountCount?: number
+  activeProjectName?: string | null
+  unopenedBeapCount?: number
+}) {
+  const statusRows = [
+    {
+      label: 'Auto-Optimization',
+      on:    autoOptimizationEnabled,
+      dot:   autoOptimizationEnabled ? '#059669' : 'rgba(220,38,38,0.5)',
+      stateText: autoOptimizationEnabled ? 'ON'  : 'OFF',
+      stateColor: autoOptimizationEnabled ? '#059669' : '#9B9B96',
+    },
+    {
+      label: 'Auto-Sync',
+      on:    autoSyncEnabled,
+      dot:   autoSyncEnabled ? '#059669' : 'rgba(220,38,38,0.5)',
+      stateText: autoSyncEnabled ? 'ON'  : 'OFF',
+      stateColor: autoSyncEnabled ? '#059669' : '#9B9B96',
+    },
+    {
+      label: 'Sync',
+      on:    syncActive,
+      dot:   syncActive ? '#2563EB' : '#9B9B96',
+      stateText: syncActive ? 'ACTIVE' : 'IDLE',
+      stateColor: syncActive ? '#2563EB' : '#9B9B96',
+    },
+  ]
+
+  const beapColor = unopenedBeapCount > 0 ? '#D97706' : '#9B9B96'
+
+  const accountLabel = accountCount === 0
+    ? 'No accounts'
+    : accountCount === 1
+      ? '1 account connected'
+      : `${accountCount} accounts connected`
+
+  return (
+    <div className="intelligence-card">
+      <p className="intelligence-card__label">STATUS</p>
+
+      <div className="ic-st__status-rows">
+        {statusRows.map(({ label, dot, stateText, stateColor }) => (
+          <div key={label} className="ic-st__status-row">
+            <div className="ic-st__status-left">
+              <div className="ic-st__status-dot" style={{ background: dot }} />
+              <span className="ic-st__status-label">{label}</span>
+            </div>
+            <span className="ic-st__status-state" style={{ color: stateColor }}>
+              {stateText}
+            </span>
+          </div>
+        ))}
+      </div>
+
+      <hr className="ic-st__divider" />
+
+      <div className="ic-st__beap-row">
+        <div className="ic-st__beap-left">
+          <div className="ic-st__beap-bar" />
+          <span className="ic-st__beap-label">Unopened BEAP</span>
+        </div>
+        <span
+          style={{
+            fontSize: 13,
+            fontWeight: 600,
+            color: beapColor,
+            fontFeatureSettings: '"tnum"',
+            fontFamily: 'var(--dash-font-family, "Inter", system-ui, sans-serif)',
+          }}
+        >
+          {unopenedBeapCount}
+        </span>
+      </div>
+
+      <div className="ic-st__account-row">
+        <div className="ic-st__account-dot" />
+        <span className="ic-st__account-text">{accountLabel}</span>
+      </div>
+
+      <hr className="ic-st__divider-sm" />
+
+      <p
+        className="ic-st__project-ref"
+        style={{ color: activeProjectName ? '#1C1C1A' : '#9B9B96' }}
+      >
+        {activeProjectName ?? 'No active project'}
+      </p>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Loading skeleton
+// ─────────────────────────────────────────────────────────────────────────────
+
+function SkeletonCard({
+  delay,
+  children,
+}: {
+  delay: number
+  children: ReactNode
+}) {
+  return (
+    <div className="intelligence-card" style={{ animationDelay: `${delay}ms` }}>
+      {children}
+    </div>
+  )
+}
+
+function LoadingSkeletons() {
+  const S = ({ w, h, circle }: { w: number | string; h: number; circle?: boolean }) => (
+    <div
+      className={`dash-skeleton${circle ? ' ic-skel__circle' : ''}`}
+      style={{
+        width: typeof w === 'number' ? w : w,
+        height: h,
+        borderRadius: circle ? '50%' : undefined,
+        flexShrink: 0,
+      }}
+    />
+  )
+
+  return (
+    <div className="intelligence-dashboard">
+      {/* Card 1 */}
+      <SkeletonCard delay={0}>
+        <S w={60}  h={10} />
+        <div style={{ height: 8 }} />
+        <S w={40}  h={10} />
+        <div style={{ height: 6 }} />
+        {[1, 2, 3].map(i => (
+          <div key={i} className="ic-skel__row" style={{ marginBottom: 2 }}>
+            <S w={50} h={8} /><S w="100%" h={8} /><S w={20} h={8} />
+          </div>
+        ))}
+        <div style={{ height: 10 }} />
+        <S w={50} h={10} />
+        <div style={{ height: 6 }} />
+        {[1, 2].map(i => (
+          <div key={i} className="ic-skel__row" style={{ marginBottom: 2 }}>
+            <S w={6} h={6} circle /><S w={100} h={10} /><S w={20} h={12} />
+          </div>
+        ))}
+      </SkeletonCard>
+
+      {/* Card 2 */}
+      <SkeletonCard delay={80}>
+        <S w={60} h={10} />
+        <div style={{ height: 8 }} />
+        <S w={80} h={24} />
+        <div style={{ height: 14 }} />
+        <S w="100%" h={12} />
+        <div style={{ height: 10 }} />
+        {[1, 2, 3, 4].map(i => (
+          <div key={i} className="ic-skel__row" style={{ marginBottom: 4 }}>
+            <S w={6} h={6} circle /><S w={80} h={8} />
+          </div>
+        ))}
+        <div style={{ height: 10 }} />
+        <S w={90} h={10} />
+        <div style={{ height: 4 }} />
+        <S w={90} h={10} />
+      </SkeletonCard>
+
+      {/* Card 3 */}
+      <SkeletonCard delay={160}>
+        <S w={60} h={10} />
+        <div style={{ height: 8 }} />
+        <div className="ic-skel__row" style={{ alignItems: 'flex-start' }}>
+          <S w={36} h={36} circle />
+          <div style={{ marginLeft: 16, display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <S w={30} h={15} /><S w={30} h={15} />
+          </div>
+        </div>
+        <div style={{ height: 10 }} />
+        {[1, 2, 3].map(i => (
+          <div key={i} className="ic-skel__row" style={{ marginBottom: 1 }}>
+            <S w={3} h={14} /><S w={80} h={10} /><S w={20} h={10} />
+          </div>
+        ))}
+      </SkeletonCard>
+
+      {/* Card 4 */}
+      <SkeletonCard delay={240}>
+        <S w={60} h={10} />
+        <div style={{ height: 8 }} />
+        {[1, 2, 3].map(i => (
+          <div key={i} className="ic-skel__row" style={{ marginBottom: 1 }}>
+            <S w={8} h={8} circle /><S w={90} h={10} /><S w={20} h={10} />
+          </div>
+        ))}
+        <div style={{ height: 10 }} />
+        <div className="ic-skel__row">
+          <S w={3} h={14} /><S w={80} h={10} /><S w={20} h={12} />
+        </div>
+        <div style={{ height: 4 }} />
+        <S w={100} h={10} />
+      </SkeletonCard>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Main export
+// ─────────────────────────────────────────────────────────────────────────────
+
+export function IntelligenceDashboard({
+  snapshot,
+  loading,
+  error,
+  onRetry,
+  autoOptimizationEnabled = false,
+  autoSyncEnabled         = false,
+  syncActive              = false,
+  accountCount            = 0,
+  activeProjectName       = null,
+  unopenedBeapCount       = 0,
+}: IntelligenceDashboardProps) {
+  if (error) {
     return (
-      <div className="intdash">
-        <div className="intdash__grid">
-          <CardSkeleton />
-          <CardSkeleton />
-          <CardSkeleton />
+      <div className="intelligence-dashboard intelligence-dashboard--error">
+        <div className="ic-error-card">
+          <p className="ic-error-text">Unable to load dashboard</p>
+          <button className="ic-error-btn" onClick={onRetry}>Retry</button>
         </div>
       </div>
     )
   }
 
-  // ── Error (inline, non-blocking) ─────────────────────────────────────────
-  if (error !== null || snapshot === null) {
-    return (
-      <div className="intdash">
-        <div className="intdash__error" role="alert">
-          <span>{error ?? 'Dashboard data unavailable'}</span>
-          <button
-            type="button"
-            className="dash-btn-ghost dash-btn-sm"
-            onClick={() => void onRetry()}
-          >
-            Retry
-          </button>
-        </div>
-      </div>
-    )
+  if (!snapshot || loading && !snapshot) {
+    return <LoadingSkeletons />
   }
 
-  // ── Loaded ────────────────────────────────────────────────────────────────
   return (
-    <div className="intdash">
-      <div className="intdash__grid">
-        <ThreatCard snapshot={snapshot} />
-        <AutomationCard snapshot={snapshot} />
-        <TransportQueueCard snapshot={snapshot} />
-      </div>
+    <div className="intelligence-dashboard">
+      <SecurityCard  snapshot={snapshot} />
+      <AutosortCard  snapshot={snapshot} />
+      <TransportCard snapshot={snapshot} />
+      <StatusCard
+        autoOptimizationEnabled={autoOptimizationEnabled}
+        autoSyncEnabled={autoSyncEnabled}
+        syncActive={syncActive}
+        accountCount={accountCount}
+        activeProjectName={activeProjectName}
+        unopenedBeapCount={unopenedBeapCount}
+      />
     </div>
   )
 }

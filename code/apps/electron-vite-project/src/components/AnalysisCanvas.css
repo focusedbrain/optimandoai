@@ -41,14 +41,13 @@
   --da-selected-bg: var(--purple-accent-muted);
   --da-selected-border: var(--purple-accent);
   
-  /* Dark command-center canvas — uses --ds-* design system tokens */
   display: flex;
   flex-direction: column;
   height: 100%;
-  min-height: 0; /* Critical for flex child to scroll properly */
+  min-height: 0;
   box-sizing: border-box;
-  background: var(--ds-surface-00, #0c1520);
-  color: var(--ds-text-primary, #dce9f4);
+  background: var(--dash-bg-page, #F8F8F7);
+  color: var(--dash-text-primary, #1C1C1A);
   padding: 0;
   overflow: hidden;
 }
@@ -61,12 +60,12 @@
   overflow-x: hidden;
   display: flex;
   flex-direction: column;
-  padding: var(--ds-space-sm, 8px) 0 var(--ds-space-xl, 32px);
+  padding: var(--dash-space-3, 12px) 0 var(--dash-space-8, 32px);
   box-sizing: border-box;
-  background: var(--ds-surface-00, #0c1520);
-  color: var(--ds-text-primary, #dce9f4);
+  background: var(--dash-bg-page, #F8F8F7);
+  color: var(--dash-text-primary, #1C1C1A);
   scrollbar-width: thin;
-  scrollbar-color: var(--ds-scrollbar-thumb, rgba(255,255,255,0.08)) transparent;
+  scrollbar-color: rgba(0, 0, 0, 0.1) transparent;
 }
 
 .analysis-canvas__dashboard::-webkit-scrollbar {
@@ -76,11 +75,11 @@
   background: transparent;
 }
 .analysis-canvas__dashboard::-webkit-scrollbar-thumb {
-  background: var(--ds-scrollbar-thumb, rgba(255,255,255,0.08));
+  background: rgba(0, 0, 0, 0.1);
   border-radius: 999px;
 }
 .analysis-canvas__dashboard::-webkit-scrollbar-thumb:hover {
-  background: var(--ds-scrollbar-thumb-hover, rgba(255,255,255,0.14));
+  background: rgba(0, 0, 0, 0.18);
 }
 
 /* =============================================================================
@@ -95,8 +94,8 @@
   grid-template-areas:
     "intel   intel"
     "project activity";
-  gap: var(--ds-space-md, 16px);
-  padding: 0 var(--ds-space-md, 16px) var(--ds-space-xl, 32px);
+  gap: var(--dash-space-4, 16px);
+  padding: 0 var(--dash-space-4, 16px) var(--dash-space-8, 32px);
   box-sizing: border-box;
   align-items: start;
 }
@@ -110,7 +109,7 @@
   grid-area: project;
   min-width: 0;
   position: sticky;
-  top: var(--ds-space-sm, 8px);
+  top: var(--dash-space-3, 12px);
   align-self: start;
 }
 
@@ -124,14 +123,14 @@
   max-height: min(30vh, 320px);
   overflow-y: auto;
   scrollbar-width: thin;
-  scrollbar-color: var(--ds-scrollbar-thumb, rgba(255,255,255,0.08)) transparent;
+  scrollbar-color: rgba(0, 0, 0, 0.1) transparent;
 }
 
 .analysis-dashboard__activity-area .pap__list {
   max-height: min(28vh, 280px);
   overflow-y: auto;
   scrollbar-width: thin;
-  scrollbar-color: var(--ds-scrollbar-thumb, rgba(255,255,255,0.08)) transparent;
+  scrollbar-color: rgba(0, 0, 0, 0.1) transparent;
 }
 
 @media (max-width: 900px) {

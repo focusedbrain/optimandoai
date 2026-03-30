@@ -119,7 +119,7 @@ export default function AnalysisCanvas({
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
-    <div className="analysis-canvas">
+    <div className="analysis-canvas" style={{ backgroundColor: '#F8F8F7', color: '#1C1C1A' }}>
       {/* StatusBadge — hidden via CSS but preserved for canvas state flags */}
       <div className="analysis-header">
         <StatusBadge flags={helpers.currentFlags} size="medium" />

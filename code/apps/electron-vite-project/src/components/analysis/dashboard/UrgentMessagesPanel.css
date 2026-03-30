@@ -1,12 +1,8 @@
 /*
  * WR Desk™ — Urgent Messages Panel
- * Prefix: .upm- (Urgent Messages Panel)
- * Depends on: dashboard-tokens.css (--ds-* variables), dashboard-base.css
+ * Prefix: .upm-
+ * Depends on: dashboard-tokens.css (--dash-* variables), dashboard-base.css
  */
-
-/* ============================================================================
-   SECTION WRAPPER
-   ============================================================================ */
 
 .upm {
   display: flex;
@@ -14,60 +10,57 @@
   min-height: 0;
 }
 
-/* ============================================================================
-   HEADER
-   ============================================================================ */
-
+/* ── Header ── */
 .upm__head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--ds-space-sm);
-  margin-bottom: var(--ds-space-sm);
+  gap: var(--dash-space-3);
+  margin-bottom: var(--dash-space-3);
 }
 
 .upm__head-left {
   display: flex;
   align-items: center;
-  gap: var(--ds-space-xs);
+  gap: var(--dash-space-2);
   min-width: 0;
 }
 
 .upm__title {
   margin: 0;
-  font-size: var(--ds-type-overline-size);
-  font-weight: var(--ds-type-overline-weight);
-  letter-spacing: var(--ds-type-overline-ls);
+  font-size: var(--dash-text-xs);
+  font-weight: var(--dash-weight-semibold);
+  letter-spacing: var(--dash-tracking-caps);
   text-transform: uppercase;
-  color: var(--ds-text-muted);
+  color: var(--dash-text-tertiary);
   white-space: nowrap;
 }
 
 .upm__badge {
   padding: 1px 7px;
-  border-radius: var(--ds-radius-pill);
-  font-size: var(--ds-type-caption-size);
+  border-radius: var(--dash-radius-pill);
+  font-size: var(--dash-text-xs);
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   flex-shrink: 0;
 }
 
 .upm__badge--threat {
-  background: var(--ds-red-bg);
-  color: var(--ds-red-400);
-  border: 1px solid var(--ds-red-border);
+  background: var(--dash-status-urgent-bg);
+  color: var(--dash-status-urgent);
+  border: 1px solid rgba(220, 38, 38, 0.2);
 }
 
 .upm__badge--clear {
-  background: var(--ds-surface-04);
-  color: var(--ds-text-muted);
-  border: 1px solid var(--ds-border-00);
+  background: var(--dash-bg-inset);
+  color: var(--dash-text-tertiary);
+  border: 1px solid var(--dash-border-subtle);
 }
 
 .upm__head-actions {
   display: flex;
   align-items: center;
-  gap: var(--ds-space-2xs);
+  gap: var(--dash-space-1);
   flex-shrink: 0;
 }
 
@@ -79,20 +72,20 @@
   align-items: center;
   justify-content: center;
   background: none;
-  border: 1px solid var(--ds-border-01);
-  border-radius: var(--ds-radius-sharp);
-  color: var(--ds-text-muted);
+  border: 1px solid var(--dash-border-default);
+  border-radius: var(--dash-radius-md);
+  color: var(--dash-text-tertiary);
   cursor: pointer;
   font-size: 13px;
   transition:
-    color var(--ds-transition-fast),
-    border-color var(--ds-transition-fast),
-    transform var(--ds-duration-fast) var(--ds-ease-out);
+    color var(--dash-duration-fast) var(--dash-ease-out),
+    border-color var(--dash-duration-fast) var(--dash-ease-out),
+    transform var(--dash-duration-fast) var(--dash-ease-out);
 }
 
 .upm__refresh-btn:hover:not(:disabled) {
-  color: var(--ds-text-secondary);
-  border-color: var(--ds-border-02);
+  color: var(--dash-text-secondary);
+  border-color: var(--dash-border-strong);
 }
 
 .upm__refresh-btn:active:not(:disabled) {
@@ -104,7 +97,6 @@
   cursor: default;
 }
 
-/* Continuous spin while loading is in progress */
 @keyframes upm-spin {
   to { transform: rotate(360deg); }
 }
@@ -114,34 +106,28 @@
   opacity: 0.7;
 }
 
-/* ============================================================================
-   SESSION CONTEXT LINE
-   ============================================================================ */
-
+/* ── Session context line ── */
 .upm__session-ctx {
   display: flex;
   align-items: baseline;
-  gap: var(--ds-space-xs);
-  margin-bottom: var(--ds-space-xs);
-  font-size: var(--ds-type-caption-size);
-  color: var(--ds-text-muted);
+  gap: var(--dash-space-2);
+  margin-bottom: var(--dash-space-2);
+  font-size: var(--dash-text-sm);
+  color: var(--dash-text-tertiary);
   flex-wrap: wrap;
 }
 
 .upm__session-id {
-  font-family: var(--ds-font-mono);
-  color: var(--ds-text-secondary);
+  font-family: var(--dash-font-mono);
+  color: var(--dash-text-secondary);
   font-size: 11px;
 }
 
 .upm__session-sep {
-  color: var(--ds-border-02);
+  color: var(--dash-border-strong);
 }
 
-/* ============================================================================
-   MESSAGE LIST
-   ============================================================================ */
-
+/* ── Message list ── */
 .upm__list {
   list-style: none;
   margin: 0;
@@ -154,29 +140,29 @@
 .upm__row {
   display: flex;
   align-items: stretch;
-  gap: var(--ds-space-sm);
-  padding: var(--ds-space-xs) var(--ds-space-sm);
-  border-radius: var(--ds-radius-sharp);
-  background: var(--ds-surface-02);
-  border: 1px solid var(--ds-border-00);
+  gap: var(--dash-space-3);
+  padding: var(--dash-space-2) var(--dash-space-3);
+  border-radius: var(--dash-radius-md);
+  background: var(--dash-bg-card);
+  border: 1px solid var(--dash-border-subtle);
   cursor: pointer;
   transition:
-    background var(--ds-transition-fast),
-    border-color var(--ds-transition-fast),
-    transform var(--ds-duration-fast) var(--ds-ease-out),
-    box-shadow var(--ds-transition-fast);
+    background var(--dash-duration-fast) var(--dash-ease-out),
+    border-color var(--dash-duration-fast) var(--dash-ease-out),
+    transform var(--dash-duration-fast) var(--dash-ease-out),
+    box-shadow var(--dash-duration-fast) var(--dash-ease-out);
 }
 
 .upm__row:hover {
-  background: var(--ds-surface-03);
-  border-color: var(--ds-border-01);
+  background: var(--dash-bg-inset);
+  border-color: var(--dash-border-default);
   transform: translateY(-1px);
-  box-shadow: var(--ds-shadow-02);
+  box-shadow: var(--dash-shadow-sm);
 }
 
 .upm__row:focus-visible {
   outline: none;
-  box-shadow: var(--ds-focus-ring);
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.3);
 }
 
 .upm__row--disabled {
@@ -188,26 +174,26 @@
   box-shadow: none;
 }
 
-/* Critical rows (urgency score >= 8): subtle red glow pulse */
+/* Critical rows (urgency score >= 8) */
 @keyframes upm-critical-glow {
   0%, 100% {
-    box-shadow: var(--ds-shadow-01);
-    border-color: var(--ds-red-border);
+    box-shadow: var(--dash-shadow-sm);
+    border-color: rgba(220, 38, 38, 0.2);
   }
   50% {
-    box-shadow: var(--ds-shadow-01), -3px 0 10px var(--ds-red-glow);
-    border-color: var(--ds-red-500);
+    box-shadow: var(--dash-shadow-sm), -3px 0 10px rgba(220, 38, 38, 0.12);
+    border-color: rgba(220, 38, 38, 0.4);
   }
 }
 
 .upm__row--critical {
-  background: var(--ds-red-bg);
-  border-color: var(--ds-red-border);
-  animation: upm-critical-glow 3.5s var(--ds-ease-in-out) infinite;
+  background: var(--dash-status-urgent-bg);
+  border-color: rgba(220, 38, 38, 0.2);
+  animation: upm-critical-glow 3.5s var(--dash-ease-in-out) infinite;
 }
 
 .upm__row--critical:hover {
-  background: var(--ds-red-bg-md);
+  background: rgba(220, 38, 38, 0.07);
 }
 
 /* Score bar column */
@@ -225,8 +211,8 @@
 .upm__score-bar-track {
   width: 4px;
   height: 36px;
-  background: var(--ds-surface-04);
-  border-radius: var(--ds-radius-pill);
+  background: var(--dash-bg-inset);
+  border-radius: var(--dash-radius-pill);
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -235,27 +221,19 @@
 
 .upm__score-bar-fill {
   width: 100%;
-  border-radius: var(--ds-radius-pill);
-  transition: height var(--ds-transition-slow);
+  border-radius: var(--dash-radius-pill);
+  transition: height var(--dash-duration-slow) var(--dash-ease-out);
 }
 
-.upm__score-bar-fill--low {
-  background: var(--ds-teal-500);
-}
-
-.upm__score-bar-fill--mid {
-  background: var(--ds-amber-500);
-}
-
-.upm__score-bar-fill--high {
-  background: var(--ds-red-500);
-}
+.upm__score-bar-fill--low  { background: var(--dash-status-success); }
+.upm__score-bar-fill--mid  { background: var(--dash-status-warning); }
+.upm__score-bar-fill--high { background: var(--dash-status-urgent); }
 
 .upm__score-num {
   font-size: 10px;
   font-variant-numeric: tabular-nums;
   font-weight: 700;
-  color: var(--ds-text-muted);
+  color: var(--dash-text-tertiary);
   line-height: 1;
 }
 
@@ -272,13 +250,13 @@
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  gap: var(--ds-space-xs);
+  gap: var(--dash-space-2);
 }
 
 .upm__sender {
-  font-size: var(--ds-type-body-size);
+  font-size: var(--dash-text-base);
   font-weight: 600;
-  color: var(--ds-text-primary);
+  color: var(--dash-text-primary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -288,7 +266,7 @@
 
 .upm__when {
   font-size: 11px;
-  color: var(--ds-text-muted);
+  color: var(--dash-text-tertiary);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
   flex-shrink: 0;
@@ -296,8 +274,8 @@
 
 .upm__subject {
   margin: 0;
-  font-size: var(--ds-type-body-size);
-  color: var(--ds-text-secondary);
+  font-size: var(--dash-text-base);
+  color: var(--dash-text-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -306,7 +284,7 @@
 .upm__reason {
   margin: 0;
   font-size: 11px;
-  color: var(--ds-text-muted);
+  color: var(--dash-text-tertiary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -314,7 +292,7 @@
 
 .upm__reason-k {
   font-weight: 700;
-  color: var(--ds-text-disabled);
+  color: var(--dash-text-tertiary);
   text-transform: uppercase;
   font-size: 10px;
   letter-spacing: 0.06em;
@@ -324,33 +302,27 @@
 .upm__flags {
   margin: 0;
   font-size: 10px;
-  color: var(--ds-amber-400);
+  color: var(--dash-status-warning);
   font-weight: 600;
   letter-spacing: 0.03em;
 }
 
-/* ============================================================================
-   TRUNCATION LINE
-   ============================================================================ */
-
+/* ── Truncation line ── */
 .upm__cap {
-  margin: var(--ds-space-xs) 0 0;
-  font-size: var(--ds-type-caption-size);
-  color: var(--ds-text-disabled);
+  margin: var(--dash-space-2) 0 0;
+  font-size: var(--dash-text-sm);
+  color: var(--dash-text-tertiary);
   text-align: center;
 }
 
-/* ============================================================================
-   EMPTY + ERROR STATES
-   ============================================================================ */
-
+/* ── Empty + Error states ── */
 .upm__empty {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: var(--ds-space-xs);
-  padding: var(--ds-space-xl) 0;
+  gap: var(--dash-space-2);
+  padding: var(--dash-space-8) 0;
   text-align: center;
 }
 
@@ -361,21 +333,18 @@
 
 .upm__empty-text {
   margin: 0;
-  font-size: var(--ds-type-body-size);
-  color: var(--ds-text-disabled);
+  font-size: var(--dash-text-base);
+  color: var(--dash-text-tertiary);
 }
 
 .upm__error-text {
   margin: 0;
-  font-size: var(--ds-type-body-size);
-  color: var(--ds-status-threat-text);
-  padding: var(--ds-space-sm) 0;
+  font-size: var(--dash-text-base);
+  color: var(--dash-status-urgent);
+  padding: var(--dash-space-3) 0;
 }
 
-/* ============================================================================
-   SKELETON LOADING ROWS
-   ============================================================================ */
-
+/* ── Skeleton loading rows ── */
 .upm__skeleton-list {
   display: flex;
   flex-direction: column;
@@ -384,11 +353,11 @@
 
 .upm__skeleton-row {
   display: flex;
-  gap: var(--ds-space-sm);
-  padding: var(--ds-space-xs) var(--ds-space-sm);
-  background: var(--ds-surface-02);
-  border: 1px solid var(--ds-border-00);
-  border-radius: var(--ds-radius-sharp);
+  gap: var(--dash-space-3);
+  padding: var(--dash-space-2) var(--dash-space-3);
+  background: var(--dash-bg-card);
+  border: 1px solid var(--dash-border-subtle);
+  border-radius: var(--dash-radius-md);
 }
 
 .upm__skeleton-score {

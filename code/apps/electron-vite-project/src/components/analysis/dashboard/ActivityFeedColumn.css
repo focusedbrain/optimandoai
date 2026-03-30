@@ -1,27 +1,17 @@
 /*
  * WR Desk™ — Activity Feed Column
- * Prefix: .afc- (Activity Feed Column)
- * Depends on: dashboard-tokens.css (--ds-* variables), dashboard-base.css
- *
- * A flex container stacking UrgentMessagesPanel and PoaeArtifactsPanel.
- * The column itself has no card — each panel brings its own .dash-card.
+ * Prefix: .afc-
+ * Depends on: dashboard-tokens.css (--dash-* variables), dashboard-base.css
  */
-
-/* ============================================================================
-   COLUMN LAYOUT
-   ============================================================================ */
 
 .afc {
   display: flex;
   flex-direction: column;
-  gap: var(--ds-space-md);
+  gap: var(--dash-space-4);
   min-height: 0;
 }
 
-/* ============================================================================
-   PANEL CARDS — staggered entrance animation
-   ============================================================================ */
-
+/* ── Panel entrance animation ── */
 @keyframes afc-panel-in {
   from {
     opacity: 0;
@@ -34,27 +24,22 @@
 }
 
 .afc__panel {
-  animation: afc-panel-in var(--ds-duration-slow) var(--ds-ease-out) both;
+  animation: afc-panel-in var(--dash-duration-slow) var(--dash-ease-out) both;
 }
 
 .afc__panel:nth-child(1) { animation-delay: 80ms;  }
 .afc__panel:nth-child(2) { animation-delay: 160ms; }
 
-/* Give the panels their card treatment */
 .afc__panel > section {
-  padding: var(--ds-space-md) var(--ds-space-md);
-  background: var(--ds-surface-01);
-  border: 1px solid var(--ds-border-01);
-  border-radius: var(--ds-radius-md);
-  box-shadow: var(--ds-shadow-01);
+  padding: var(--dash-space-4);
+  background: var(--dash-bg-card);
+  border: 1px solid var(--dash-border-default);
+  border-radius: var(--dash-radius-lg);
+  box-shadow: var(--dash-shadow-sm);
 }
-
-/* ============================================================================
-   RESPONSIVE — stack unchanged; panels already handle their own overflow
-   ============================================================================ */
 
 @media (max-width: 800px) {
   .afc {
-    gap: var(--ds-space-sm);
+    gap: var(--dash-space-3);
   }
 }

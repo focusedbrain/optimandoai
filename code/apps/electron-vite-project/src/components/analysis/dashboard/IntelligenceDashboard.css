@@ -1,423 +1,583 @@
-/*
- * WR Desk™ — Intelligence Dashboard (top chart zone)
- * Scoped to .intdash namespace. Composable with .dash-card, .dash-btn-* utilities.
- * Depends on: dashboard-tokens.css (--ds-* variables)
- */
+@import '../../../styles/dashboard-tokens.css';
+@import '../../../styles/dashboard-base.css';
 
-/* ============================================================================
-   WRAPPER + RESPONSIVE GRID
-   ============================================================================ */
-
-.intdash {
-  padding: 0 var(--ds-space-sm) var(--ds-space-sm);
-  box-sizing: border-box;
-}
-
-.intdash__grid {
+/* ── Container ── */
+.intelligence-dashboard {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: var(--ds-space-sm);
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+  margin-bottom: 20px;
 }
 
-@media (max-width: 1200px) {
-  .intdash__grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+@media (max-width: 1100px) {
+  .intelligence-dashboard {
+    grid-template-columns: repeat(2, 1fr);
   }
 }
 
-@media (max-width: 800px) {
-  .intdash__grid {
+@media (max-width: 600px) {
+  .intelligence-dashboard {
     grid-template-columns: 1fr;
   }
 }
 
-/* ============================================================================
-   CARD ANIMATION — staggered fade-up on mount (CSS-only, no JS needed)
-   ============================================================================ */
-
-@keyframes intdash-fadein {
-  from {
-    opacity: 0;
-    transform: translateY(12px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+/* ── Card shell ── */
+.intelligence-card {
+  background: var(--dash-bg-card, #FFFFFF);
+  border: 1px solid var(--dash-border-default, #E8E8E6);
+  border-radius: 8px;
+  padding: 16px 18px;
+  min-height: 190px;
+  box-sizing: border-box;
+  opacity: 0;
+  animation: dash-card-enter 300ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
-/*
- * .intdash__card is always composed with .dash-card .dash-card--elevated.
- * It adds: flex layout + entrance animation only — no padding override.
- */
-.intdash__card {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  animation: intdash-fadein var(--ds-duration-slow) var(--ds-ease-out) both;
+.intelligence-card:nth-child(1) { animation-delay: 0ms; }
+.intelligence-card:nth-child(2) { animation-delay: 60ms; }
+.intelligence-card:nth-child(3) { animation-delay: 80ms; }
+.intelligence-card:nth-child(4) { animation-delay: 120ms; }
+
+@keyframes dash-card-enter {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
 
-.intdash__card:nth-child(1) { animation-delay: 0ms; }
-.intdash__card:nth-child(2) { animation-delay: 55ms; }
-.intdash__card:nth-child(3) { animation-delay: 110ms; }
-
-/* ============================================================================
-   CARD HEADER
-   ============================================================================ */
-
-.intdash__card-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: var(--ds-space-sm);
-}
-
-.intdash__card-title {
-  margin: 0;
-  font-size: var(--ds-type-overline-size);
-  font-weight: var(--ds-type-overline-weight);
-  letter-spacing: var(--ds-type-overline-ls);
+/* ── Section label ── */
+.intelligence-card__label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--ds-text-muted);
-  line-height: var(--ds-type-overline-lh);
+  color: var(--dash-text-tertiary, #9B9B96);
+  margin: 0 0 12px 0;
+  line-height: 1;
+  font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
 }
 
-/* ============================================================================
-   KPI HERO DISPLAY
-   ============================================================================ */
+/* ─────────────────────────────────────────────
+   CARD 1: SECURITY
+   ───────────────────────────────────────────── */
 
-.intdash__kpi {
-  display: flex;
-  align-items: baseline;
-  gap: var(--ds-space-xs);
-  margin-bottom: var(--ds-space-2xs);
-}
-
-.intdash__kpi-value {
-  font-family: var(--ds-font-sans);
-  font-size: var(--ds-type-display-size);
-  font-weight: var(--ds-type-display-weight);
-  letter-spacing: var(--ds-type-display-ls);
-  line-height: var(--ds-type-display-lh);
-  color: var(--ds-text-primary);
-  font-variant-numeric: tabular-nums;
-}
-
-/* Color variants for the KPI number */
-.intdash__kpi-value--threat {
-  color: var(--ds-status-threat-text);
-}
-
-.intdash__kpi-value--secure {
-  color: var(--ds-teal-400);
-}
-
-.intdash__kpi-label {
-  font-size: var(--ds-type-caption-size);
-  font-weight: var(--ds-type-caption-weight);
-  letter-spacing: var(--ds-type-caption-ls);
-  color: var(--ds-text-muted);
-  white-space: nowrap;
-}
-
-/* Secondary metric line below the KPI number */
-.intdash__kpi-secondary {
-  margin: 0 0 var(--ds-space-sm);
-  font-size: var(--ds-type-body-size);
-  color: var(--ds-text-secondary);
-  line-height: var(--ds-type-body-lh);
-}
-
-.intdash__kpi-secondary strong {
-  color: var(--ds-teal-300);
+.ic-sec__sub-label {
+  font-size: 10px;
   font-weight: 600;
+  letter-spacing: 0.04em;
+  font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
+  margin-bottom: 8px;
 }
 
-/* ============================================================================
-   CHART AREAS
-   ============================================================================ */
+.ic-sec__sub-label--threats { color: #DC2626; }
+.ic-sec__sub-label--protected { color: #059669; margin-top: 2px; }
 
-/* Shared chart wrapper — flex grows to fill remaining card space */
-.intdash__chart {
-  flex: 1;
-  min-height: 0;
-  margin-top: var(--ds-space-xs);
-}
-
-.intdash__chart--threat {
-  /* Fixed height for the horizontal bar chart */
-  height: 130px;
-  flex: none;
-}
-
-/* Donut chart stack: chart centered above legend */
-.intdash__chart--donut {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 0;
-}
-
-/* Informational note below a chart (italicised caption) */
-.intdash__chart-note {
-  margin: var(--ds-space-xs) 0 0;
-  font-size: var(--ds-type-caption-size);
-  color: var(--ds-text-disabled);
-  font-style: italic;
-  line-height: var(--ds-type-caption-lh);
-}
-
-/* ============================================================================
-   DONUT LEGEND
-   ============================================================================ */
-
-.intdash__donut-legend {
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  gap: var(--ds-space-2xs);
-  margin-top: var(--ds-space-xs);
-}
-
-.intdash__donut-legend-row {
-  display: flex;
-  align-items: center;
-  gap: var(--ds-space-xs);
-}
-
-.intdash__donut-legend-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 2px;
-  flex-shrink: 0;
-}
-
-.intdash__donut-legend-name {
-  flex: 1;
-  font-size: var(--ds-type-caption-size);
-  color: var(--ds-text-secondary);
-  text-transform: capitalize;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.intdash__donut-legend-count {
-  font-size: var(--ds-type-caption-size);
-  color: var(--ds-text-primary);
-  font-variant-numeric: tabular-nums;
-  font-weight: 600;
-  flex-shrink: 0;
-}
-
-/* ============================================================================
-   TRANSPORT RATIO
-   ============================================================================ */
-
-.intdash__transport {
-  display: flex;
-  flex-direction: column;
-  gap: var(--ds-space-xs);
-}
-
-/* Stacked bar: two divs side-by-side */
-.intdash__transport-bar {
-  display: flex;
-  height: 6px;
-  border-radius: var(--ds-radius-pill);
-  overflow: hidden;
-  background: var(--ds-surface-04);
-}
-
-.intdash__transport-bar-fill {
-  height: 100%;
-  transition: width var(--ds-duration-slow) var(--ds-ease-out);
-  /* Always show at least a 3px sliver so an edge segment is visible */
-  min-width: 3px;
-}
-
-.intdash__transport-bar-fill--beap {
-  background: var(--ds-teal-500);
-}
-
-.intdash__transport-bar-fill--dep {
-  background: var(--ds-slate-400);
-}
-
-/* Two metric blocks left (BEAP) / right (depackaged) */
-.intdash__transport-metrics {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-end;
-  margin-top: var(--ds-space-2xs);
-}
-
-.intdash__transport-metric {
+/* Threat rows */
+.ic-sec__threat-rows {
   display: flex;
   flex-direction: column;
   gap: 2px;
 }
 
-.intdash__transport-metric--right {
+.ic-sec__threat-row {
+  display: flex;
+  align-items: center;
+  height: 24px;
+  gap: 6px;
+}
+
+.ic-sec__threat-label {
+  width: 70px;
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--dash-text-secondary, #6B6B66);
   text-align: right;
-}
-
-.intdash__transport-metric-value {
-  font-size: 18px;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  color: var(--ds-text-primary);
-  letter-spacing: -0.03em;
-  line-height: 1.15;
-}
-
-.intdash__transport-metric-value--beap {
-  color: var(--ds-teal-400);
-}
-
-.intdash__transport-metric-label {
-  font-size: var(--ds-type-caption-size);
-  color: var(--ds-text-muted);
-  letter-spacing: var(--ds-type-caption-ls);
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
+  font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
 }
 
-.intdash__transport-pct {
-  font-size: var(--ds-type-caption-size);
-  color: var(--ds-text-disabled);
-  margin-top: var(--ds-space-2xs);
+.ic-sec__bar-track {
+  flex: 1;
+  height: 8px;
+  background: var(--dash-bg-inset, #F3F3F2);
+  border-radius: 3px;
+  overflow: hidden;
 }
 
-/* ============================================================================
-   INTRA-CARD DIVIDER
-   ============================================================================ */
+.ic-sec__bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  min-width: 2px;
+  transition: width 500ms cubic-bezier(0.16, 1, 0.3, 1);
+}
 
-.intdash__inner-divider {
+.ic-sec__threat-count {
+  width: 28px;
+  flex-shrink: 0;
+  text-align: right;
+  font-size: 11px;
+  font-weight: 600;
+  font-feature-settings: 'tnum';
+  font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
+}
+
+/* Divider */
+.ic-sec__divider {
   height: 1px;
-  background: var(--ds-border-00);
-  margin: var(--ds-space-sm) 0;
+  background: var(--dash-border-subtle, #F0F0EE);
+  border: none;
+  margin: 10px 0;
+}
+
+/* Protection rows */
+.ic-sec__protect-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ic-sec__protect-row {
+  display: flex;
+  align-items: center;
+  height: 22px;
+}
+
+.ic-sec__protect-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
   flex-shrink: 0;
 }
 
-/* ============================================================================
-   QUEUE VELOCITY ROWS
-   ============================================================================ */
-
-.intdash__queue-title {
-  margin: 0 0 var(--ds-space-xs);
-  font-size: var(--ds-type-overline-size);
-  font-weight: var(--ds-type-overline-weight);
-  letter-spacing: var(--ds-type-overline-ls);
-  text-transform: uppercase;
-  color: var(--ds-text-muted);
+.ic-sec__protect-label {
+  font-size: 11px;
+  color: var(--dash-text-secondary, #6B6B66);
+  margin-left: 8px;
+  flex: 1;
+  font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
 }
 
-.intdash__queue-rows {
+.ic-sec__protect-count {
+  width: 32px;
+  text-align: right;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--dash-text-primary, #1C1C1A);
+  font-feature-settings: 'tnum';
+  font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
+}
+
+/* Footer */
+.ic-sec__footer {
+  height: 1px;
+  background: var(--dash-border-subtle, #F0F0EE);
+  border: none;
+  margin: 8px 0 6px 0;
+}
+
+.ic-sec__footer-text {
+  font-size: 10px;
+  color: var(--dash-text-tertiary, #9B9B96);
+  margin: 0;
+  font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
+}
+
+/* ─────────────────────────────────────────────
+   CARD 2: AUTOSORT
+   ───────────────────────────────────────────── */
+
+.ic-auto__kpi-row {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  margin-bottom: 14px;
+}
+
+.ic-auto__kpi-num {
+  font-size: 24px;
+  font-weight: 600;
+  color: var(--dash-text-primary, #1C1C1A);
+  line-height: 1;
+  font-feature-settings: 'tnum';
+  font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
+}
+
+.ic-auto__kpi-unit {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--dash-text-secondary, #6B6B66);
+  margin-left: 4px;
+  font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
+}
+
+.ic-auto__bar-wrap {
+  width: 100%;
+  height: 12px;
+  border-radius: 4px;
+  background: var(--dash-bg-inset, #F3F3F2);
+  overflow: hidden;
+  display: flex;
+  margin-bottom: 10px;
+}
+
+.ic-auto__bar-seg {
+  height: 100%;
+  min-width: 2px;
+}
+
+.ic-auto__legend {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  row-gap: 4px;
+  column-gap: 12px;
+  margin-bottom: 10px;
+}
+
+.ic-auto__legend-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+
+.ic-auto__legend-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.ic-auto__legend-text {
+  font-size: 9px;
+  color: var(--dash-text-secondary, #6B6B66);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
+}
+
+.ic-auto__divider {
+  height: 1px;
+  background: var(--dash-border-subtle, #F0F0EE);
+  border: none;
+  margin: 10px 0;
+}
+
+.ic-auto__session-ref {
   display: flex;
   flex-direction: column;
-  gap: var(--ds-space-2xs);
+  gap: 1px;
 }
 
-.intdash__queue-row {
+.ic-auto__session-id {
+  font-size: 10px;
+  font-family: var(--dash-font-mono, 'SF Mono', 'Fira Code', monospace);
+  color: var(--dash-text-tertiary, #9B9B96);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ic-auto__session-date {
+  font-size: 10px;
+  color: var(--dash-text-tertiary, #9B9B96);
+  font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
+}
+
+.ic-auto__no-session {
+  font-size: 10px;
+  color: var(--dash-text-tertiary, #9B9B96);
+  font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
+}
+
+/* ─────────────────────────────────────────────
+   CARD 3: TRANSPORT
+   ───────────────────────────────────────────── */
+
+.ic-tp__top {
+  display: flex;
+  align-items: flex-start;
+  margin-bottom: 10px;
+}
+
+.ic-tp__ring-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.ic-tp__ring-sub {
+  font-size: 9px;
+  color: var(--dash-text-tertiary, #9B9B96);
+  margin-top: 2px;
+  font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
+}
+
+.ic-tp__counts {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-left: 16px;
+  justify-content: center;
+  padding-top: 4px;
+}
+
+.ic-tp__count-block {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.ic-tp__count-num {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--dash-text-primary, #1C1C1A);
+  line-height: 1;
+  font-feature-settings: 'tnum';
+  font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
+}
+
+.ic-tp__count-lbl {
+  font-size: 9px;
+  color: var(--dash-text-tertiary, #9B9B96);
+  font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
+}
+
+.ic-tp__divider {
+  height: 1px;
+  background: var(--dash-border-subtle, #F0F0EE);
+  border: none;
+  margin: 10px 0;
+}
+
+.ic-tp__queue-label {
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--dash-text-tertiary, #9B9B96);
+  margin-bottom: 6px;
+  font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
+}
+
+.ic-tp__queue-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.ic-tp__queue-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: var(--ds-space-xs) var(--ds-space-sm);
-  border-radius: var(--ds-radius-sharp);
-  border-left: 3px solid var(--ds-border-01);
-  background: var(--ds-surface-03);
-  font-size: var(--ds-type-body-size);
-  line-height: 1;
+  height: 18px;
 }
 
-.intdash__queue-row--urgent {
-  border-left-color: var(--ds-red-500);
-  background: var(--ds-red-bg);
+.ic-tp__queue-left {
+  display: flex;
+  align-items: center;
 }
 
-.intdash__queue-row--review {
-  border-left-color: var(--ds-amber-500);
-  background: var(--ds-amber-bg);
+.ic-tp__queue-bar {
+  width: 3px;
+  height: 14px;
+  border-radius: 1px;
+  flex-shrink: 0;
 }
 
-.intdash__queue-row--delete {
-  border-left-color: var(--ds-slate-400);
+.ic-tp__queue-row-label {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--dash-text-secondary, #6B6B66);
+  margin-left: 6px;
+  font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
 }
 
-.intdash__queue-row-label {
-  color: var(--ds-text-secondary);
+.ic-tp__queue-count {
+  font-size: 11px;
+  font-weight: 600;
+  font-feature-settings: 'tnum';
+  font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
 }
 
-.intdash__queue-row-count {
-  font-variant-numeric: tabular-nums;
-  font-weight: 700;
-  color: var(--ds-text-primary);
-  font-size: 13px;
+/* ─────────────────────────────────────────────
+   CARD 4: STATUS
+   ───────────────────────────────────────────── */
+
+.ic-st__status-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin-bottom: 10px;
 }
 
-.intdash__queue-row--urgent .intdash__queue-row-count {
-  color: var(--ds-red-400);
+.ic-st__status-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 22px;
 }
 
-.intdash__queue-row--review .intdash__queue-row-count {
-  color: var(--ds-amber-400);
+.ic-st__status-left {
+  display: flex;
+  align-items: center;
 }
 
-/* ============================================================================
-   EMPTY & ERROR STATES
-   ============================================================================ */
+.ic-st__status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
 
-.intdash__empty {
-  flex: 1;
+.ic-st__status-label {
+  font-size: 11px;
+  color: var(--dash-text-secondary, #6B6B66);
+  margin-left: 8px;
+  font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
+}
+
+.ic-st__status-state {
+  font-size: 10px;
+  font-weight: 600;
+  font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
+}
+
+.ic-st__divider {
+  height: 1px;
+  background: var(--dash-border-subtle, #F0F0EE);
+  border: none;
+  margin: 10px 0;
+}
+
+/* Unopened BEAP row */
+.ic-st__beap-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 22px;
+}
+
+.ic-st__beap-left {
+  display: flex;
+  align-items: center;
+}
+
+.ic-st__beap-bar {
+  width: 3px;
+  height: 14px;
+  background: #D97706;
+  border-radius: 1px;
+  flex-shrink: 0;
+}
+
+.ic-st__beap-label {
+  font-size: 11px;
+  color: var(--dash-text-secondary, #6B6B66);
+  margin-left: 6px;
+  font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
+}
+
+/* Account row */
+.ic-st__account-row {
+  display: flex;
+  align-items: center;
+  height: 22px;
+  gap: 8px;
+}
+
+.ic-st__account-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--dash-text-tertiary, #9B9B96);
+  flex-shrink: 0;
+}
+
+.ic-st__account-text {
+  font-size: 11px;
+  color: var(--dash-text-secondary, #6B6B66);
+  font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
+}
+
+.ic-st__divider-sm {
+  height: 1px;
+  background: var(--dash-border-subtle, #F0F0EE);
+  border: none;
+  margin: 8px 0 4px 0;
+}
+
+.ic-st__project-ref {
+  font-size: 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
+}
+
+/* ─────────────────────────────────────────────
+   ERROR STATE
+   ───────────────────────────────────────────── */
+
+.intelligence-dashboard--error {
+  grid-template-columns: 1fr;
+}
+
+.ic-error-card {
+  grid-column: 1 / -1;
+  background: #FFFFFF;
+  border: 1px solid #E8E8E6;
+  border-radius: 8px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: var(--ds-type-caption-size);
-  color: var(--ds-text-disabled);
-  padding: var(--ds-space-xl) 0;
-  text-align: center;
+  flex-direction: column;
+  gap: 12px;
+  padding: 40px 24px;
 }
 
-/* Inline error banner above the grid */
-.intdash__error {
+.ic-error-text {
+  font-size: 13px;
+  color: var(--dash-text-secondary, #6B6B66);
+  margin: 0;
+  font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
+}
+
+.ic-error-btn {
+  background: #FFFFFF;
+  border: 1px solid #E8E8E6;
+  border-radius: 6px;
+  padding: 6px 14px;
+  font-size: 12px;
+  font-weight: 500;
+  color: #1C1C1A;
+  cursor: pointer;
+  font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+.ic-error-btn:hover {
+  background: #F3F3F2;
+  border-color: #D4D4D1;
+}
+
+/* ─────────────────────────────────────────────
+   SKELETON STATES
+   ───────────────────────────────────────────── */
+
+.ic-skel__row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: var(--ds-space-sm);
-  padding: var(--ds-space-xs) var(--ds-space-md);
-  margin-bottom: var(--ds-space-xs);
-  background: var(--ds-red-bg);
-  border: 1px solid var(--ds-red-border);
-  border-radius: var(--ds-radius-md);
-  color: var(--ds-status-threat-text);
-  font-size: var(--ds-type-body-size);
+  gap: 6px;
+  height: 24px;
 }
 
-/* ============================================================================
-   SKELETON CARD (loading state)
-   ============================================================================ */
-
-@keyframes intdash-skeleton-appear {
-  from { opacity: 0; transform: translateY(6px); }
-  to   { opacity: 1; transform: translateY(0); }
+.ic-skel__circle {
+  border-radius: 50% !important;
 }
 
-.intdash__skeleton-card {
-  display: flex;
-  flex-direction: column;
-  gap: var(--ds-space-sm);
-  min-width: 0;
-  animation: intdash-skeleton-appear var(--ds-duration-normal) var(--ds-ease-out) both;
-  /* padding provided by .dash-card */
+.ic-skel__full-ring {
+  border-radius: 50% !important;
 }
-
-/* Stagger each skeleton card's entrance */
-.intdash__skeleton-card:nth-child(1) { animation-delay: 0ms;   }
-.intdash__skeleton-card:nth-child(2) { animation-delay: 80ms;  }
-.intdash__skeleton-card:nth-child(3) { animation-delay: 160ms; }
-
-/* Within each skeleton card, stagger the individual shimmer lines */
-.intdash__skeleton-card .dash-skeleton:nth-child(1) { animation-delay: 0ms;   }
-.intdash__skeleton-card .dash-skeleton:nth-child(2) { animation-delay: 60ms;  }
-.intdash__skeleton-card .dash-skeleton:nth-child(3) { animation-delay: 120ms; }
-.intdash__skeleton-card .dash-skeleton:nth-child(4) { animation-delay: 180ms; }
