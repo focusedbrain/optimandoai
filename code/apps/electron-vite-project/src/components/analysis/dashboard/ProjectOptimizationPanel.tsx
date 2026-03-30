@@ -452,6 +452,7 @@ export function ProjectOptimizationPanel({
       store.setSetupTextDraft('')
       store.setIncludeInChat(false)
       // Clicking the section header always means "general" mode (create new), not specific milestone edit
+      quickEditMilestoneIdRef.current = null
       setQuickEditMilestoneId(null)
 
       // ── Clear drop-zone attachments and chat conversation in the chat panel ──
@@ -462,8 +463,10 @@ export function ProjectOptimizationPanel({
 
       if (selectedField === field) {
         // Deselect — stay cleared
+        selectedFieldRef.current = null
         setSelectedField(null)
       } else {
+        selectedFieldRef.current = field
         setSelectedField(field)
         // Context will be set by the sync useEffect on the next render tick
         focusHeaderAiChat()
@@ -585,7 +588,9 @@ export function ProjectOptimizationPanel({
     window.dispatchEvent(new CustomEvent('wrdesk:clear-chat-conversation'))
     // Set the specific milestone; the context sync useEffect (which watches
     // quickEditMilestoneId + selectedField) will build the milestone-specific pre-frame
+    quickEditMilestoneIdRef.current = milestoneId
     setQuickEditMilestoneId(milestoneId)
+    selectedFieldRef.current = 'milestones'
     setSelectedField('milestones')
     focusHeaderAiChat()
   }, [])
@@ -599,7 +604,9 @@ export function ProjectOptimizationPanel({
     store.clearSnippets()
     store.setIncludeInChat(false)
     setSelectedField(null)
+    selectedFieldRef.current = null
     setQuickEditMilestoneId(null)
+    quickEditMilestoneIdRef.current = null
     window.dispatchEvent(new CustomEvent('wrdesk:clear-chat-attachments'))
     window.dispatchEvent(new CustomEvent('wrdesk:clear-chat-conversation'))
   }, [])
@@ -613,7 +620,10 @@ export function ProjectOptimizationPanel({
     setFormLinkedSessionId(null)
     setFormIntervalMs(300_000)
     setNewMilestoneInput('')
+    selectedFieldRef.current = null
     setSelectedField(null)
+    quickEditMilestoneIdRef.current = null
+    setQuickEditMilestoneId(null)
     setSetupMode('creating')
   }, [])
 
@@ -628,7 +638,10 @@ export function ProjectOptimizationPanel({
     setFormLinkedSessionId(p.linkedSessionId)
     setFormIntervalMs(p.autoOptimizationIntervalMs)
     setNewMilestoneInput('')
+    selectedFieldRef.current = null
     setSelectedField(null)
+    quickEditMilestoneIdRef.current = null
+    setQuickEditMilestoneId(null)
     setSetupMode('editing')
   }, [])
 
