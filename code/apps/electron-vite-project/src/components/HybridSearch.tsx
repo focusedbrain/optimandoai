@@ -410,13 +410,16 @@ export default function HybridSearch({
   const projectSetupSetSetupTextDraft = useProjectSetupChatContextStore((s) => s.setSetupTextDraft)
 
   /** Derive which project field is currently selected for AI drafting */
-  const projectDraftFieldName = projectSetupSetupTextDraft.includes('write a project description')
-    ? 'Description'
-    : projectSetupSetupTextDraft.includes('define project goals')
-      ? 'Goals'
-      : projectSetupSetupTextDraft.includes('define project milestones')
-        ? 'Milestones'
-        : 'Project field'
+  const projectDraftFieldName =
+    projectSetupSetupTextDraft.includes('drafting a PROJECT TITLE')
+      ? 'Project Title'
+      : projectSetupSetupTextDraft.includes('drafting a PROJECT DESCRIPTION')
+        ? 'Description'
+        : projectSetupSetupTextDraft.includes('drafting PROJECT GOALS')
+          ? 'Goals'
+          : projectSetupSetupTextDraft.includes('drafting PROJECT MILESTONES')
+            ? 'Milestones'
+            : 'Project field'
 
   /** Parsed response blocks for the AI draft block picker */
   const aiResponseBlocks = useMemo(
@@ -576,6 +579,11 @@ export default function HybridSearch({
     }
     document.addEventListener('mousedown', handleClick)
     return () => document.removeEventListener('mousedown', handleClick)
+  }, [showPanel])
+
+  // Clear chat attachments when the panel closes
+  useEffect(() => {
+    if (!showPanel) setChatAttachments([])
   }, [showPanel])
 
   // Close info popup on outside click or Escape
@@ -908,10 +916,16 @@ export default function HybridSearch({
       if (item.type.startsWith('image/')) {
         e.preventDefault()
         const file = item.getAsFile()
-        if (file) await processDroppedFile(file)
+        if (file) {
+          await processDroppedFile(file)
+          setShowPanel(true)
+        }
       } else if (item.type === 'application/pdf') {
         const file = item.getAsFile()
-        if (file) await processDroppedFile(file)
+        if (file) {
+          await processDroppedFile(file)
+          setShowPanel(true)
+        }
       }
     }
   }, [processDroppedFile])
@@ -943,15 +957,7 @@ export default function HybridSearch({
     <div
       className="hs-root"
       ref={containerRef}
-      onDragOver={handleDragOver}
-      onDragLeave={handleDragLeave}
-      onDrop={(e) => void handleDrop(e)}
     >
-      {isDragging && (
-        <div className="chat-drop-zone__overlay">
-          <div className="chat-drop-zone__overlay-text">Drop images or PDFs here</div>
-        </div>
-      )}
       {selectedHandshakeId && selectedHandshakeEmail && (
         <div
           style={{
@@ -1104,36 +1110,6 @@ export default function HybridSearch({
           </button>
         </div>
       )}
-      {/* ── Chat attachment preview strip ── */}
-      {chatAttachments.length > 0 && (
-        <div className="chat-attachments-strip">
-          {chatAttachments.map((att) => (
-            <div
-              key={att.id}
-              className={`chat-attachment-preview chat-attachment-preview--${att.type}`}
-            >
-              {att.type === 'image' && (
-                <img src={att.thumbnail ?? att.data} alt={att.filename} />
-              )}
-              {att.type === 'pdf' && (
-                <>
-                  <div className="chat-attachment-preview__filename">📄 {att.filename}</div>
-                  <div className="chat-attachment-preview__meta">PDF</div>
-                </>
-              )}
-              <button
-                type="button"
-                className="chat-attachment-preview__remove"
-                onClick={() => setChatAttachments((prev) => prev.filter((a) => a.id !== att.id))}
-                aria-label={`Remove ${att.filename}`}
-              >
-                ×
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
-
       <div
         className="hs-bar"
         data-draft-refine={isDraftRefineSession ? 'true' : undefined}
@@ -1266,7 +1242,7 @@ export default function HybridSearch({
           style={{ display: 'none' }}
           onChange={handleContextUpload}
         />
-        {/* ── Chat attachment file picker (images + PDFs) ── */}
+        {/* ── Chat attachment file picker (images + PDFs) — inside the panel drop zone ── */}
         <input
           ref={chatFileInputRef}
           type="file"
@@ -1279,25 +1255,6 @@ export default function HybridSearch({
             e.currentTarget.value = ''
           }}
         />
-        <button
-          type="button"
-          onClick={() => chatFileInputRef.current?.click()}
-          title="Attach images or PDFs to this message (drag & drop also works)"
-          aria-label="Attach images or PDFs"
-          style={{
-            background: 'none',
-            border: 'none',
-            cursor: 'pointer',
-            fontSize: 14,
-            padding: '4px 4px',
-            opacity: chatAttachments.length > 0 ? 1 : 0.4,
-            flexShrink: 0,
-            lineHeight: 1,
-            color: chatAttachments.length > 0 ? 'var(--purple-accent, #9333ea)' : undefined,
-          }}
-        >
-          🖼️{chatAttachments.length > 0 ? ` ${chatAttachments.length}` : ''}
-        </button>
         <input
           ref={inputRef}
           className="hs-input"
@@ -1468,6 +1425,60 @@ export default function HybridSearch({
       {/* ── Results / Response panel ── */}
       {showPanel && (
         <div className="hs-panel" role="region" aria-label="Results">
+
+          {/* ── Attachment drop zone — always visible at top of panel ── */}
+          <div
+            className={[
+              'chat-dropzone',
+              isDragging ? 'chat-dropzone--dragover' : '',
+              chatAttachments.length > 0 ? 'chat-dropzone--has-files' : '',
+            ].filter(Boolean).join(' ')}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={(e) => void handleDrop(e)}
+            onClick={() => chatFileInputRef.current?.click()}
+            role="button"
+            tabIndex={0}
+            aria-label="Attach images or PDFs — click to browse or drag and drop"
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') chatFileInputRef.current?.click() }}
+          >
+            <div className="chat-dropzone__prompt">
+              <span className="chat-dropzone__prompt-icon">📎</span>
+              <span>Drop images or PDFs here, or click to browse</span>
+            </div>
+            {chatAttachments.length > 0 && (
+              <div className="chat-dropzone__files">
+                {chatAttachments.map((att) => (
+                  <div
+                    key={att.id}
+                    className={`chat-attachment-preview chat-attachment-preview--${att.type}`}
+                  >
+                    {att.type === 'image' && (
+                      <img src={att.thumbnail ?? att.data} alt={att.filename} />
+                    )}
+                    {att.type === 'pdf' && (
+                      <>
+                        <div className="chat-attachment-preview__filename">📄 {att.filename}</div>
+                        <div className="chat-attachment-preview__meta">PDF</div>
+                      </>
+                    )}
+                    <button
+                      type="button"
+                      className="chat-attachment-preview__remove"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setChatAttachments((prev) => prev.filter((a) => a.id !== att.id))
+                      }}
+                      aria-label={`Remove ${att.filename}`}
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
           <div className="hs-panel-header">
             <span className="hs-panel-meta">
               {lastMode === 'search'

@@ -1034,41 +1034,62 @@
   opacity: 0.9;
 }
 
-/* ── Drag-and-drop overlay ───────────────────────────────────────────────── */
+/* ── Drop zone inside chat panel ────────────────────────────────────────── */
 
-.chat-drop-zone__overlay {
-  position: absolute;
-  inset: 0;
-  background: rgba(37, 99, 235, 0.06);
-  border: 2px dashed rgba(37, 99, 235, 0.4);
-  border-radius: 8px;
+.chat-dropzone {
+  margin: 8px 8px 0 8px;
+  border: 1.5px dashed #E8E8E6;
+  border: 1.5px dashed var(--border, rgba(255,255,255,0.15));
+  border-radius: 6px;
+  padding: 8px 12px;
+  background: rgba(255,255,255,0.03);
+  transition: border-color 150ms ease-out, background 150ms ease-out;
+  cursor: pointer;
+  min-height: 36px;
+  outline: none;
+}
+
+.chat-dropzone:hover {
+  border-color: rgba(37,99,235,0.35);
+  background: rgba(37,99,235,0.02);
+}
+
+.chat-dropzone:focus-visible {
+  border-color: #2563EB;
+  box-shadow: 0 0 0 2px rgba(37,99,235,0.15);
+}
+
+.chat-dropzone--dragover {
+  border-color: #2563EB;
+  background: rgba(37,99,235,0.05);
+}
+
+.chat-dropzone--has-files {
+  border-style: solid;
+}
+
+.chat-dropzone__prompt {
   display: flex;
   align-items: center;
-  justify-content: center;
-  z-index: 10;
-  pointer-events: none;
+  gap: 6px;
+  font-size: 10px;
+  color: var(--text-muted, #9B9B96);
+  user-select: none;
 }
 
-.chat-drop-zone__overlay-text {
+.chat-dropzone__prompt-icon {
   font-size: 13px;
-  font-weight: 500;
-  color: #2563EB;
-  background: rgba(255, 255, 255, 0.9);
-  padding: 8px 16px;
-  border-radius: 6px;
+  opacity: 0.6;
 }
 
-/* ── Chat attachment preview strip ──────────────────────────────────────── */
-
-.chat-attachments-strip {
+.chat-dropzone__files {
   display: flex;
   gap: 6px;
-  padding: 6px 8px;
-  overflow-x: auto;
-  border-top: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(255, 255, 255, 0.04);
-  flex-shrink: 0;
+  margin-top: 6px;
+  flex-wrap: wrap;
 }
+
+/* ── Chat attachment thumbnails (used inside drop zone) ─────────────────── */
 
 /* Each attachment card */
 .chat-attachment-preview {

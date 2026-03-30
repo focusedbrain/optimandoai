@@ -283,50 +283,78 @@ export function ProjectOptimizationPanel({
       return
     }
 
-    // Gather all available project context
+    // Gather all available project context (rich format)
     const projectContext = [
-      formTitle ? `Project: "${formTitle}"` : null,
-      formDescription ? `Current description: ${formDescription}` : null,
-      formGoals ? `Current goals: ${formGoals}` : null,
+      formTitle       ? `Project title: "${formTitle}"` : null,
+      formDescription ? `Description: ${formDescription}` : null,
+      formGoals       ? `Goals: ${formGoals}` : null,
       formMilestones.length > 0
-        ? `Current milestones:\n${formMilestones.map((m) => `- ${m.title}`).join('\n')}`
+        ? `Milestones:\n${formMilestones.map((m) => `${m.isActive ? '● ' : '○ '}${m.completed ? '[DONE] ' : ''}${m.title}`).join('\n')}`
         : null,
       formAttachments.length > 0
-        ? `Attached context:\n${formAttachments.map((a) => `[${a.filename}]\n${a.content.slice(0, 2000)}`).join('\n---\n')}`
+        ? `Attached context:\n${formAttachments
+            .filter((a) => a.content && a.content.length > 0)
+            .map((a) => `[Attachment: ${a.filename}]\n${a.content.slice(0, 2000)}`)
+            .join('\n\n')}`
         : null,
-    ].filter(Boolean).join('\n\n')
+    ].filter(Boolean).join('\n\n') || '(No project context yet — user is starting fresh)'
 
-    // Field-specific pre-role (invisible to user — prepended via chat store)
-    const preRoles: Record<string, string> = {
+    // Field-specific pre-frames — highly specific so AI knows exactly what to produce
+    const preFrames: Record<string, string> = {
       title: [
-        '[ROLE: You are helping the user create a project title.',
-        'Based on the project context below, suggest a clear, concise project title.',
-        'The title should be short (3-8 words), descriptive, and professional.',
-        'Output ONLY the title text, nothing else. No quotes, no explanation.]',
+        '[INSTRUCTION: The user is drafting a PROJECT TITLE.',
+        "Based on the user's input and any attached context (images, PDFs),",
+        'generate a clear, concise project title.',
+        'Requirements:',
+        '- 3 to 8 words maximum',
+        '- Professional and descriptive',
+        '- No quotes, no punctuation at the end, no explanation',
+        '- Output ONLY the title text, nothing else',
+        'If the user provides a description or goals, derive the title from those.',
+        'If the user provides an image, describe what the image shows and derive a relevant project title.]',
       ].join(' '),
       description: [
-        '[ROLE: You are helping the user write a project description.',
-        'Generate a clear, concise project description based on the project context below.',
-        'The description should explain what the project is about, its scope, and its purpose.',
-        'Write in a professional tone. Output ONLY the description text, no headers or labels.]',
+        '[INSTRUCTION: The user is drafting a PROJECT DESCRIPTION.',
+        "Based on the user's input and any attached context (images, PDFs),",
+        'generate a clear, professional project description.',
+        'Requirements:',
+        '- 2 to 5 sentences',
+        '- Explain what the project is about, its scope, and its purpose',
+        '- Professional tone, suitable for stakeholder communication',
+        '- Output ONLY the description text',
+        '- Do NOT include headers, labels, or meta-commentary',
+        'If the user provides an image (e.g., a screenshot), analyze it and incorporate your observations.',
+        'If the user provides a PDF, use its content as project context.]',
       ].join(' '),
       goals: [
-        '[ROLE: You are helping the user define project goals.',
-        'Based on the project context below, generate specific, measurable, achievable goals.',
-        'Each goal should be actionable and clearly defined.',
-        'Write in a professional tone. Output ONLY the goals text, no headers or labels.]',
+        '[INSTRUCTION: The user is drafting PROJECT GOALS.',
+        "Based on the user's input and any attached context (images, PDFs),",
+        'generate specific, measurable, achievable project goals.',
+        'Requirements:',
+        '- 3 to 6 goals',
+        '- Each goal should be actionable and clearly defined',
+        '- Use numbered list format (1. 2. 3.)',
+        '- Professional tone',
+        '- Output ONLY the goals, no preamble or closing remarks',
+        'If the user provides an image, analyze what needs improvement and derive goals from that.',
+        'If the user provides a PDF, extract relevant objectives from its content.]',
       ].join(' '),
       milestones: [
-        '[ROLE: You are helping the user define project milestones.',
-        'Based on the project context below, suggest concrete milestones that mark',
-        'key progress points toward the project goals.',
-        'Output each milestone on a separate line, starting with "- ".',
-        'Each milestone should be a clear deliverable or checkpoint.',
-        'Keep each milestone title concise but descriptive (1-2 sentences max).]',
+        '[INSTRUCTION: The user is drafting PROJECT MILESTONES.',
+        "Based on the user's input, project goals, and any attached context,",
+        'generate concrete project milestones.',
+        'Requirements:',
+        '- 3 to 8 milestones',
+        '- Each milestone is a clear deliverable or checkpoint',
+        '- Each milestone should be 1-2 sentences describing what is achieved',
+        '- Use bullet list format (- or *) with each milestone on its own line',
+        '- Order them chronologically (first milestone first)',
+        '- Output ONLY the milestones, no preamble or closing remarks',
+        'If goals have been defined, ensure milestones align with and progress toward those goals.]',
       ].join(' '),
     }
 
-    const setupText = `${preRoles[selectedField]}\n\n${projectContext}`
+    const setupText = `${preFrames[selectedField]}\n\n[PROJECT CONTEXT]\n${projectContext}`
     setSetupTextDraft(setupText)
     setIncludeInChat(true)
   }, [
