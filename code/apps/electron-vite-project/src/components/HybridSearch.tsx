@@ -344,6 +344,18 @@ export default function HybridSearch({
 
   const projectSetupIncludeInChat = useProjectSetupChatContextStore((s) => s.includeInChat)
   const projectSetupHasContent = useProjectSetupChatContextStore(projectSetupChatHasBridgeableContent)
+  const projectSetupSetupTextDraft = useProjectSetupChatContextStore((s) => s.setupTextDraft)
+  const projectSetupSetIncludeInChat = useProjectSetupChatContextStore((s) => s.setIncludeInChat)
+  const projectSetupSetSetupTextDraft = useProjectSetupChatContextStore((s) => s.setSetupTextDraft)
+
+  /** Derive which project field is currently selected for AI drafting */
+  const projectDraftFieldName = projectSetupSetupTextDraft.includes('write a project description')
+    ? 'Description'
+    : projectSetupSetupTextDraft.includes('define project goals')
+      ? 'Goals'
+      : projectSetupSetupTextDraft.includes('define project milestones')
+        ? 'Milestones'
+        : 'Project field'
 
   const containerRef = useRef<HTMLDivElement>(null)
   const infoPopupRef = useRef<HTMLDivElement>(null)
@@ -857,6 +869,41 @@ export default function HybridSearch({
           )}
         </div>
       )}
+      {/* Project AI drafting context banner — Analysis only, takes zero horizontal space */}
+      {activeView === 'analysis' && projectSetupIncludeInChat && projectSetupHasContent && !isDraftRefineSession && (
+        <div
+          style={{
+            background: 'rgba(37, 99, 235, 0.05)',
+            border: '1px solid rgba(37, 99, 235, 0.15)',
+            borderRadius: '4px',
+            padding: '4px 8px',
+            marginBottom: '4px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '4px',
+          }}
+        >
+          <span style={{ fontSize: '10px', color: '#2563EB', fontWeight: 500 }}>
+            Drafting for: {projectDraftFieldName}
+          </span>
+          <button
+            type="button"
+            onClick={() => {
+              projectSetupSetIncludeInChat(false)
+              projectSetupSetSetupTextDraft('')
+            }}
+            aria-label="Disconnect project drafting"
+            title="Disconnect — stop sending project context to AI"
+            style={{
+              padding: 0, background: 'none', border: 'none',
+              cursor: 'pointer', color: '#2563EB', fontSize: '14px', lineHeight: 1, flexShrink: 0,
+            }}
+          >
+            ×
+          </button>
+        </div>
+      )}
       <div
         className="hs-bar"
         data-draft-refine={isDraftRefineSession ? 'true' : undefined}
@@ -927,14 +974,6 @@ export default function HybridSearch({
               </div>
             )}
           </div>
-          {activeView === 'analysis' && mode === 'chat' && projectSetupIncludeInChat && projectSetupHasContent ? (
-            <span
-              className="hs-setup-bridge-chip"
-              title="Project setup drafts from the Analysis dashboard are prepended to this chat. Nothing is saved automatically—copy any suggestions back into the setup fields yourself."
-            >
-              Project drafts → chat
-            </span>
-          ) : null}
         </div>
 
         {/* ── Centre: main input ── */}
@@ -1333,6 +1372,19 @@ export default function HybridSearch({
                 <span className="hs-chip">{SCOPE_LABELS[scope]}</span>
                 <span className="hs-chip">{getModelLabel(selectedModel, availableModels)}</span>
               </div>
+              {/* Project AI draft "Use" button — inserts response into the selected project field */}
+              {activeView === 'analysis' && projectSetupIncludeInChat && !isDraftRefineSession && !isLoading && response && (
+                <button
+                  type="button"
+                  className="hs-use-draft-btn"
+                  onClick={() => {
+                    window.dispatchEvent(new CustomEvent('wrdesk:use-ai-draft', { detail: { text: response } }))
+                  }}
+                  title={`Use this response in project ${projectDraftFieldName} field`}
+                >
+                  Use in {projectDraftFieldName} ↓
+                </button>
+              )}
               {chatGovernanceNote && (
                 <div style={{ marginTop: '12px', padding: '10px 12px', background: 'rgba(251,191,36,0.12)', border: '1px solid rgba(251,191,36,0.3)', borderRadius: '6px', fontSize: '12px', color: 'var(--text-secondary)' }}>
                   {chatGovernanceNote}

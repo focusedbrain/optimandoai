@@ -447,9 +447,66 @@
   white-space: nowrap;
 }
 
-/* ── Roadmap display (simple text, per PROMPT 4A spec) ── */
+/* ── Roadmap display (updated in PROMPT 4C — full text, no truncation) ── */
 .pop__roadmap-area {
   padding: 6px 0;
+}
+
+/* Header row: ● Active milestone label + progress count */
+.pop__roadmap-header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 4px;
+}
+
+.pop__roadmap-active-dot {
+  font-size: 10px;
+  color: #2563EB;
+  line-height: 1;
+}
+
+.pop__roadmap-active-label {
+  font-size: 10px;
+  color: #2563EB;
+  font-weight: 600;
+  font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
+}
+
+.pop__roadmap-progress-count {
+  font-size: 10px;
+  color: #9B9B96;
+  margin-left: 4px;
+  font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
+}
+
+/* Full active milestone text — no truncation */
+.pop__roadmap-content {
+  font-size: 12px;
+  color: #1C1C1A;
+  line-height: 1.5;
+  margin-top: 4px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
+}
+
+/* "Quick edit with AI →" link button in roadmap */
+.pop__roadmap-quick-edit {
+  font-size: 9px;
+  color: #2563EB;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  margin-top: 6px;
+  display: block;
+  font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
+  line-height: 1.4;
+}
+
+.pop__roadmap-quick-edit:hover {
+  text-decoration: underline;
 }
 
 .pop__roadmap-current {
@@ -850,6 +907,13 @@
   border-color: #2563EB;
 }
 
+/* Auto-grow textarea — no scrollbar, grows with content */
+.pop__form-textarea--autogrow {
+  resize: none;
+  overflow: hidden;
+  max-height: none;
+}
+
 /* ── Milestones wrapper (gets blue outline when field is selected) ── */
 .pop__form-milestones-wrap {
   border: 1px solid transparent;
@@ -864,151 +928,78 @@
   padding: 4px 8px;
 }
 
-/* ── Milestone row (dual-checkbox layout) ── */
-.pop__form-ms-row {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  min-height: 32px;
-  padding: 6px 0;
-  border-bottom: 1px solid #F0F0EE;
-}
-
-.pop__form-ms-row:last-child {
-  border-bottom: none;
-}
-
-/* Left side: Set-active checkbox + title */
-.pop__form-ms-left {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  flex: 1;
-  min-width: 0;
-  padding-top: 1px;
-}
-
-/* Right side: Done checkbox + remove button */
-.pop__form-ms-right {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-shrink: 0;
-  padding-top: 2px;
-}
-
-/* "Set active" checkbox group */
-.pop__form-ms-active-wrap {
-  display: flex;
-  align-items: center;
-  gap: 3px;
-  flex-shrink: 0;
-}
-
-.pop__form-ms-active-check {
-  width: 16px;
-  height: 16px;
-  border: 1.5px solid #D4D4D1;
-  border-radius: 3px;
+/* ── Milestone card ── */
+.pop__form-ms-card {
+  border: 1px solid #F0F0EE;
+  border-radius: 4px;
+  padding: 8px 10px;
+  margin-bottom: 6px;
   background: #FFFFFF;
-  cursor: pointer;
-  flex-shrink: 0;
-  padding: 0;
-  position: relative;
-  transition: background 100ms ease, border-color 100ms ease;
-  box-sizing: border-box;
+  transition: border-color 120ms ease, background 120ms ease;
 }
 
-.pop__form-ms-active-check--active {
-  background: #2563EB;
+.pop__form-ms-card--active {
   border-color: #2563EB;
+  background: rgba(37, 99, 235, 0.02);
 }
 
-.pop__form-ms-active-check--active::after {
-  content: '✓';
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%);
-  color: #FFFFFF;
-  font-size: 9px;
-  font-weight: 700;
-  line-height: 1;
-  pointer-events: none;
+/* Card header: active toggle + done/remove on right */
+.pop__form-ms-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
 }
 
-.pop__form-ms-active-label {
+/* "○ Set active" / "● Active" text toggle */
+.pop__form-ms-active-toggle {
   font-size: 9px;
+  color: #9B9B96;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
+  line-height: 1.4;
+  transition: color 100ms ease;
+}
+
+.pop__form-ms-active-toggle:hover {
+  color: #2563EB;
+}
+
+.pop__form-ms-active-toggle--active {
   color: #2563EB;
   font-weight: 600;
-  font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
-  white-space: nowrap;
 }
 
-/* "Done" checkbox group */
-.pop__form-ms-done-wrap {
+/* Right side: done toggle + remove */
+.pop__form-ms-card-right {
   display: flex;
   align-items: center;
-  gap: 3px;
-  flex-shrink: 0;
+  gap: 8px;
 }
 
-.pop__form-ms-done-check {
-  width: 16px;
-  height: 16px;
-  border: 1.5px solid #D4D4D1;
-  border-radius: 3px;
-  background: #FFFFFF;
-  cursor: pointer;
-  flex-shrink: 0;
-  padding: 0;
-  position: relative;
-  transition: background 100ms ease, border-color 100ms ease;
-  box-sizing: border-box;
-}
-
-.pop__form-ms-done-check--done {
-  background: #059669;
-  border-color: #059669;
-}
-
-.pop__form-ms-done-check--done::after {
-  content: '✓';
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%);
-  color: #FFFFFF;
+/* "Done" / "✓ Done" text toggle */
+.pop__form-ms-done-toggle {
   font-size: 9px;
-  font-weight: 700;
-  line-height: 1;
-  pointer-events: none;
-}
-
-.pop__form-ms-done-label {
-  font-size: 9px;
-  font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
-  white-space: nowrap;
-}
-
-.pop__form-ms-done-label--done    { color: #059669; }
-.pop__form-ms-done-label--pending { color: #9B9B96; }
-
-/* Milestone title — wraps naturally, no truncation */
-.pop__form-ms-title {
-  font-size: 12px;
-  color: #1C1C1A;
-  flex: 1;
-  min-width: 0;
-  word-wrap: break-word;
-  overflow-wrap: break-word;
-  line-height: 1.4;
-  font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
-}
-
-.pop__form-ms-title--done {
   color: #9B9B96;
-  text-decoration: line-through;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
+  line-height: 1.4;
+  transition: color 100ms ease;
+}
+
+.pop__form-ms-done-toggle:hover {
+  color: #059669;
+}
+
+.pop__form-ms-done-toggle--done {
+  color: #059669;
+  font-weight: 600;
 }
 
 /* Remove (×) button — always visible, subtle */
@@ -1028,12 +1019,107 @@
   color: #DC2626;
 }
 
-/* "Add milestone…" row */
-.pop__form-ms-add-row {
+/* Card body: editable textarea, always full height */
+.pop__form-ms-card-body {
+  width: 100%;
+  min-height: 48px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #1C1C1A;
+  border: none;
+  border-bottom: 1px solid transparent;
+  background: transparent;
+  resize: none;
+  padding: 0;
+  outline: none;
+  box-sizing: border-box;
+  font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
+  overflow: hidden;
+  display: block;
+  transition: border-color 100ms ease;
+}
+
+.pop__form-ms-card-body:focus {
+  border-bottom-color: #E8E8E6;
+}
+
+.pop__form-ms-card-body::placeholder {
+  color: #C4C4C0;
+}
+
+.pop__form-ms-card-body--done {
+  color: #9B9B96;
+}
+
+/* Card footer: "Quick edit with AI →" — only shown on hover or when active */
+.pop__form-ms-card-footer {
+  margin-top: 6px;
   display: flex;
-  gap: 8px;
-  align-items: center;
+  justify-content: flex-end;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.pop__form-ms-card:hover .pop__form-ms-card-footer,
+.pop__form-ms-card--active .pop__form-ms-card-footer {
+  opacity: 1;
+}
+
+.pop__form-ms-quick-edit {
+  font-size: 9px;
+  color: #2563EB;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
+  line-height: 1.4;
+  transition: opacity 100ms ease;
+}
+
+.pop__form-ms-quick-edit:hover {
+  text-decoration: underline;
+}
+
+/* ── Add milestone area (multi-line textarea + button) ── */
+.pop__form-ms-add-area {
   margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.pop__form-ms-add-textarea {
+  min-height: 48px;
+  font-size: 12px;
+  line-height: 1.5;
+  border: 1px solid #E8E8E6;
+  border-radius: 4px;
+  padding: 8px 10px;
+  width: 100%;
+  resize: vertical;
+  background: #FFFFFF;
+  color: #1C1C1A;
+  box-sizing: border-box;
+  font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
+  overflow: hidden;
+  transition: border-color 120ms ease;
+  display: block;
+}
+
+.pop__form-ms-add-textarea:focus {
+  outline: none;
+  border-color: #2563EB;
+}
+
+.pop__form-ms-add-textarea::placeholder {
+  color: #C4C4C0;
+}
+
+.pop__form-ms-add-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
 }
 
 .pop__form-ms-add-btn {
@@ -1047,7 +1133,6 @@
   cursor: pointer;
   font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
   white-space: nowrap;
-  flex-shrink: 0;
   line-height: 1.6;
   transition: background 100ms ease;
 }
@@ -1060,21 +1145,28 @@
 .pop__form-attachments {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 4px;
   margin-bottom: 6px;
 }
 
 .pop__form-att-row {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 6px;
-  height: 22px;
+  padding: 4px 0;
+}
+
+.pop__form-att-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
 }
 
 .pop__form-att-name {
   font-size: 10px;
   color: #1C1C1A;
-  flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1086,6 +1178,17 @@
   color: #9B9B96;
   font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
   flex-shrink: 0;
+}
+
+/* Content preview below filename — first 100 chars of parsed text */
+.pop__form-att-preview {
+  font-size: 9px;
+  color: #9B9B96;
+  max-height: 28px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
 }
 
 .pop__form-upload-btn {

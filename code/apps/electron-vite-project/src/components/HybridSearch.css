@@ -57,7 +57,7 @@
   box-shadow: 0 0 0 3px rgba(147, 51, 234, 0.18);
 }
 
-/* Analysis: project setup drafts prepended to chat (renderer-only) */
+/* Analysis: project setup drafts prepended to chat (renderer-only) — chip kept for legacy reference */
 .hs-setup-bridge-chip {
   margin-left: 6px;
   padding: 2px 7px;
@@ -74,6 +74,25 @@
 
 [data-ui-theme="pro"] .hs-setup-bridge-chip {
   background: color-mix(in srgb, #d97706 42%, #0f172a 58%);
+}
+
+/* Analysis: "Use in {field}" button — appears after AI response when project field is selected */
+.hs-use-draft-btn {
+  display: inline-flex;
+  align-items: center;
+  margin-top: 8px;
+  padding: 3px 10px;
+  font-size: 10px;
+  font-weight: 500;
+  color: #2563EB;
+  background: rgba(37, 99, 235, 0.05);
+  border: 1px solid #2563EB;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.hs-use-draft-btn:hover {
+  background: rgba(37, 99, 235, 0.1);
 }
 
 /* ── Left section: mode + scope inside the bar ── */
