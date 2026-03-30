@@ -1,19 +1,27 @@
 /**
- * ProjectOptimizationPanel — compact card with INLINE project setup (PROMPT 4A REVISED).
+ * ProjectOptimizationPanel — compact card with INLINE project setup (PROMPT 4A REVISED v2).
  *
- * CRITICAL DESIGN: No modal. The setup form renders inline within the card, expanding
- * it naturally. The header AI chat (HybridSearch) stays accessible at all times so
- * the user can click "AI Draft →" to switch to chat, draft content, then paste it back.
+ * CRITICAL DESIGN: No modal. The setup form renders inline within the card.
+ * The header AI chat (HybridSearch) stays accessible at all times.
+ *
+ * AI DRAFT PATTERN:
+ *   Only ONE field can be selected at a time. When selected:
+ *     1. Field highlights (blue border + faint bg)
+ *     2. Pointing finger icon (☞) appears in textarea top-right
+ *     3. Field content is pushed to useProjectSetupChatContextStore
+ *     4. Header AI chat is focused so user can immediately draft
+ *     5. "Paste from chat" button appears below the field
+ *   V1: Paste-from-chat uses navigator.clipboard.readText()
+ *   TODO V2: Auto-capture AI response via chat stream subscription
+ *
+ * MILESTONES (dual-checkbox per row):
+ *   LEFT: "Set active" checkbox — marks which milestone shows in dashboard (radio behavior)
+ *   RIGHT: "Done" checkbox — marks completion
  *
  * setupMode:
- *   'collapsed'  — normal view (selector, controls, roadmap, footer)
- *   'creating'   — card expands with a blank new-project form
- *   'editing'    — card expands pre-filled with the active project's data
- *
- * Chat context integration (same pattern as existing drafts/snippets):
- *   When a field is "selected", its content is written to useProjectSetupChatContextStore
- *   so the header AI chat prepends it as context via buildProjectSetupChatPrefix.
- *   On form close the setup text is cleared.
+ *   'collapsed' — normal view (selector, controls, roadmap, footer)
+ *   'creating'  — card expands with blank new-project form
+ *   'editing'   — card expands pre-filled with active project data
  *
  * PRESERVED:
  *   - useEmailInboxStore: autoSyncEnabled, toggleAutoSyncForActiveAccounts, refreshInboxSyncBackendState
@@ -82,8 +90,7 @@ function formatIntervalLabel(ms: number): string {
 function getMimeLabel(mimeType: string, filename: string): string {
   if (mimeType.includes('pdf')) return 'PDF'
   if (mimeType.includes('json')) return 'JSON'
-  const ext = filename.split('.').pop()?.toUpperCase() ?? ''
-  return ext || 'TXT'
+  return filename.split('.').pop()?.toUpperCase() ?? 'TXT'
 }
 
 // ── Main component ────────────────────────────────────────────────────────────
@@ -118,8 +125,12 @@ export function ProjectOptimizationPanel({
   // ── Roadmap derived values ─────────────────────────────────────────────────
   const completedCount  = activeProject?.milestones.filter((m) => m.completed).length ?? 0
   const totalCount      = activeProject?.milestones.length ?? 0
-  const activeMilestone = activeProject?.milestones.find((m) => !m.completed) ?? null
-  const allDone         = totalCount > 0 && completedCount === totalCount
+  // Active milestone: prefer isActive flag, fall back to first incomplete
+  const activeMilestone =
+    activeProject?.milestones.find((m) => m.isActive) ??
+    activeProject?.milestones.find((m) => !m.completed) ??
+    null
+  const allDone = totalCount > 0 && completedCount === totalCount
 
   // ── Email inbox store (preserved exactly) ─────────────────────────────────
   const accountIds       = useMemo(() => activeEmailAccountIdsForSync(emailAccounts), [emailAccounts])
@@ -235,11 +246,11 @@ export function ProjectOptimizationPanel({
   const [formLinkedSessionId, setFormLinkedSessionId]   = useState<string | null>(null)
   const [formIntervalMs, setFormIntervalMs]             = useState(300_000)
   const [newMilestoneInput, setNewMilestoneInput]       = useState('')
-  const [descriptionSelected, setDescriptionSelected]   = useState(false)
-  const [goalsSelected, setGoalsSelected]               = useState(false)
-  const [milestonesSelected, setMilestonesSelected]     = useState(false)
 
-  const fileInputRef = useRef<HTMLInputElement>(null)
+  // Single selected field — only one field connected to AI chat at a time
+  const [selectedField, setSelectedField] = useState<'description' | 'goals' | 'milestones' | null>(null)
+
+  const fileInputRef  = useRef<HTMLInputElement>(null)
   const titleInputRef = useRef<HTMLInputElement>(null)
 
   // Focus title input when form opens
@@ -250,40 +261,100 @@ export function ProjectOptimizationPanel({
     }
   }, [setupMode])
 
-  // ── Chat context sync from form field selections ───────────────────────────
+  // ── Chat context sync — one field at a time ────────────────────────────────
   useEffect(() => {
-    if (setupMode === 'collapsed') return
+    if (setupMode === 'collapsed' || selectedField === null) return
+
     let text = ''
-    if (descriptionSelected && formDescription.trim()) {
-      text += `[Project Description]\n${formDescription}\n\n`
+    if (selectedField === 'description') {
+      const content = formDescription.trim()
+      text = `[Project Description — draft this]\n${content || '(empty — write a description)'}\n\n`
+    } else if (selectedField === 'goals') {
+      const content = formGoals.trim()
+      text = `[Project Goals — draft this]\n${content || '(empty — suggest goals)'}\n\n`
+    } else if (selectedField === 'milestones') {
+      const lines = formMilestones.length > 0
+        ? formMilestones.map((m) => `${m.completed ? '✓' : '○'} ${m.title}`).join('\n')
+        : '(no milestones yet — suggest some)'
+      text = `[Milestones — draft this]\n${lines}\n\n`
     }
-    if (goalsSelected && formGoals.trim()) {
-      text += `[Project Goals]\n${formGoals}\n\n`
-    }
-    if (milestonesSelected && formMilestones.length > 0) {
-      const lines = formMilestones
-        .map((m) => `${m.completed ? '✓' : '○'} ${m.title}`)
-        .join('\n')
-      text += `[Milestones]\n${lines}\n\n`
-    }
+
     const trimmed = text.trim()
     setSetupTextDraft(trimmed)
     setIncludeInChat(trimmed.length > 0)
   }, [
-    setupMode,
-    descriptionSelected, formDescription,
-    goalsSelected, formGoals,
-    milestonesSelected, formMilestones,
+    setupMode, selectedField,
+    formDescription, formGoals, formMilestones,
     setSetupTextDraft, setIncludeInChat,
   ])
 
-  // Keep project name draft in sync so AI chat prefix shows the project title
+  // Keep project name draft in sync for AI chat prefix
   useEffect(() => {
     if (setupMode === 'collapsed') return
     setProjectNameDraft(formTitle)
   }, [setupMode, formTitle, setProjectNameDraft])
 
+  // ── Field selection handler ────────────────────────────────────────────────
+  const handleFieldSelect = useCallback(
+    (field: 'description' | 'goals' | 'milestones') => {
+      if (selectedField === field) {
+        // Deselect — clear chat context
+        setSelectedField(null)
+        setSetupTextDraft('')
+        setIncludeInChat(false)
+      } else {
+        setSelectedField(field)
+        // Chat context is updated by the effect above on next render
+        // Focus AI chat immediately so user can start drafting
+        focusHeaderAiChat()
+      }
+    },
+    [selectedField, setSetupTextDraft, setIncludeInChat],
+  )
+
+  // ── Paste from chat (V1: clipboard) ───────────────────────────────────────
+  const handlePasteFromChat = useCallback(
+    async (field: 'description' | 'goals' | 'milestones') => {
+      // TODO V2: Auto-capture AI response via chat stream subscription
+      try {
+        const text = await navigator.clipboard.readText()
+        if (!text.trim()) return
+        if (field === 'description') {
+          setFormDescription(text.trim())
+        } else if (field === 'goals') {
+          setFormGoals(text.trim())
+        } else if (field === 'milestones') {
+          // Parse each line as a new milestone; strip list markers
+          const newMilestones: ProjectMilestone[] = text
+            .split('\n')
+            .map((line) => line.replace(/^[-*•]\s*/, '').replace(/^\d+\.\s*/, '').trim())
+            .filter((line) => line.length > 0)
+            .map((title) => ({
+              id: crypto.randomUUID(),
+              title,
+              isActive: false,
+              completed: false,
+              createdAt: new Date().toISOString(),
+              completedAt: null,
+            }))
+          if (newMilestones.length > 0) {
+            setFormMilestones((prev) => [...prev, ...newMilestones])
+          }
+        }
+      } catch {
+        // Clipboard access denied — silently fail
+      }
+    },
+    [],
+  )
+
   // ── Open / cancel / save ──────────────────────────────────────────────────
+  const clearFormChatContext = useCallback(() => {
+    setSetupTextDraft('')
+    setIncludeInChat(false)
+    setSelectedField(null)
+  }, [setSetupTextDraft, setIncludeInChat])
+
   const openCreateMode = useCallback(() => {
     setFormTitle('')
     setFormDescription('')
@@ -293,9 +364,7 @@ export function ProjectOptimizationPanel({
     setFormLinkedSessionId(null)
     setFormIntervalMs(300_000)
     setNewMilestoneInput('')
-    setDescriptionSelected(false)
-    setGoalsSelected(false)
-    setMilestonesSelected(false)
+    setSelectedField(null)
     setSetupMode('creating')
   }, [])
 
@@ -310,16 +379,9 @@ export function ProjectOptimizationPanel({
     setFormLinkedSessionId(p.linkedSessionId)
     setFormIntervalMs(p.autoOptimizationIntervalMs)
     setNewMilestoneInput('')
-    setDescriptionSelected(false)
-    setGoalsSelected(false)
-    setMilestonesSelected(false)
+    setSelectedField(null)
     setSetupMode('editing')
   }, [])
-
-  const clearFormChatContext = useCallback(() => {
-    setSetupTextDraft('')
-    setIncludeInChat(false)
-  }, [setSetupTextDraft, setIncludeInChat])
 
   const handleCancelForm = useCallback(() => {
     clearFormChatContext()
@@ -330,7 +392,6 @@ export function ProjectOptimizationPanel({
     const trimmedTitle = formTitle.trim()
     if (!trimmedTitle) return
     const store = useProjectStore.getState()
-    // Preserve the current auto-opt toggle (it lives in the controls, not the form)
     const currentEnabled = store.getActiveProject()?.autoOptimizationEnabled ?? false
     const data = {
       title: trimmedTitle,
@@ -365,6 +426,7 @@ export function ProjectOptimizationPanel({
       {
         id: crypto.randomUUID(),
         title: t,
+        isActive: false,
         completed: false,
         createdAt: new Date().toISOString(),
         completedAt: null,
@@ -373,7 +435,11 @@ export function ProjectOptimizationPanel({
     setNewMilestoneInput('')
   }, [newMilestoneInput])
 
-  const toggleFormMilestone = useCallback((id: string) => {
+  const setFormMilestoneActive = useCallback((id: string) => {
+    setFormMilestones((prev) => prev.map((m) => ({ ...m, isActive: m.id === id })))
+  }, [])
+
+  const toggleFormMilestoneDone = useCallback((id: string) => {
     setFormMilestones((prev) =>
       prev.map((m) =>
         m.id === id
@@ -395,7 +461,7 @@ export function ProjectOptimizationPanel({
   const handleFileSelect = useCallback(async (e: ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? [])
     for (const file of files) {
-      // TODO V2: PDF text extraction via IPC. For now, readAsText works for txt/md/json.
+      // TODO V2: PDF text extraction via IPC. readAsText works for txt/md/json.
       const content = await new Promise<string>((resolve) => {
         const reader = new FileReader()
         reader.onload = (ev) => resolve((ev.target?.result as string) ?? '')
@@ -433,7 +499,7 @@ export function ProjectOptimizationPanel({
     ? `On · ${formatIntervalLabel(activeProject.autoOptimizationIntervalMs)}`
     : 'Off'
 
-  // Keep focusHeaderAiChat reachable in this scope (avoids lint warning)
+  // Keep focusHeaderAiChat reachable in scope (avoids lint warning)
   void focusHeaderAiChat
 
   // ── Render ────────────────────────────────────────────────────────────────
@@ -457,7 +523,7 @@ export function ProjectOptimizationPanel({
         )}
       </div>
 
-      {/* ── Selector + Controls (always visible) ────────────────────────────── */}
+      {/* ── Selector + Controls (always visible) ─────────────────────────────*/}
       <div className="pop__selector-group">
         <div className="pop__select-row">
           <select
@@ -579,125 +645,154 @@ export function ProjectOptimizationPanel({
               </div>
             </div>
 
-            {/* Description */}
+            {/* ── Description ── */}
             <div className="pop__form-field pop__form-field--mt">
               <div className="pop__form-label-row">
                 <span className="pop__form-label">Description</span>
-                <div className="pop__form-label-actions">
-                  <button
-                    type="button"
-                    className={`pop__form-select-btn${descriptionSelected ? ' pop__form-select-btn--active' : ''}`}
-                    onClick={() => setDescriptionSelected((v) => !v)}
-                  >
-                    {descriptionSelected ? 'Selected ✓' : 'Select'}
-                  </button>
-                  <button
-                    type="button"
-                    className="pop__form-ai-btn"
-                    onClick={focusHeaderAiChat}
-                    title="Focus AI chat to draft this field"
-                  >
-                    AI Draft →
-                  </button>
-                </div>
+                <button
+                  type="button"
+                  className={`pop__form-ai-select-btn${selectedField === 'description' ? ' pop__form-ai-select-btn--active' : ''}`}
+                  onClick={() => handleFieldSelect('description')}
+                >
+                  {selectedField === 'description' ? '☞ Connected to AI' : 'Select for AI'}
+                </button>
               </div>
-              <textarea
-                className={`pop__form-textarea${descriptionSelected ? ' pop__form-textarea--selected' : ''}`}
-                value={formDescription}
-                onChange={(e) => setFormDescription(e.target.value)}
-                placeholder="What is this project about?"
-                rows={3}
-              />
+              <div className="pop__form-textarea-wrap">
+                <textarea
+                  className={`pop__form-textarea${selectedField === 'description' ? ' pop__form-textarea--selected' : ''}`}
+                  value={formDescription}
+                  onChange={(e) => setFormDescription(e.target.value)}
+                  placeholder="What is this project about?"
+                  rows={4}
+                />
+                {selectedField === 'description' && (
+                  <span className="pop__form-field-pin" aria-hidden="true">☞</span>
+                )}
+              </div>
+              {selectedField === 'description' && (
+                <button
+                  type="button"
+                  className="pop__form-paste-btn"
+                  onClick={() => void handlePasteFromChat('description')}
+                  title="Paste the AI chat response into this field"
+                >
+                  Paste from chat
+                </button>
+              )}
             </div>
 
-            {/* Goals */}
+            {/* ── Goals ── */}
             <div className="pop__form-field pop__form-field--mt">
               <div className="pop__form-label-row">
                 <span className="pop__form-label">Goals</span>
-                <div className="pop__form-label-actions">
-                  <button
-                    type="button"
-                    className={`pop__form-select-btn${goalsSelected ? ' pop__form-select-btn--active' : ''}`}
-                    onClick={() => setGoalsSelected((v) => !v)}
-                  >
-                    {goalsSelected ? 'Selected ✓' : 'Select'}
-                  </button>
-                  <button
-                    type="button"
-                    className="pop__form-ai-btn"
-                    onClick={focusHeaderAiChat}
-                    title="Focus AI chat to draft this field"
-                  >
-                    AI Draft →
-                  </button>
-                </div>
+                <button
+                  type="button"
+                  className={`pop__form-ai-select-btn${selectedField === 'goals' ? ' pop__form-ai-select-btn--active' : ''}`}
+                  onClick={() => handleFieldSelect('goals')}
+                >
+                  {selectedField === 'goals' ? '☞ Connected to AI' : 'Select for AI'}
+                </button>
               </div>
-              <textarea
-                className={`pop__form-textarea${goalsSelected ? ' pop__form-textarea--selected' : ''}`}
-                value={formGoals}
-                onChange={(e) => setFormGoals(e.target.value)}
-                placeholder="What do you want to achieve?"
-                rows={3}
-              />
+              <div className="pop__form-textarea-wrap">
+                <textarea
+                  className={`pop__form-textarea${selectedField === 'goals' ? ' pop__form-textarea--selected' : ''}`}
+                  value={formGoals}
+                  onChange={(e) => setFormGoals(e.target.value)}
+                  placeholder="What do you want to achieve?"
+                  rows={4}
+                />
+                {selectedField === 'goals' && (
+                  <span className="pop__form-field-pin" aria-hidden="true">☞</span>
+                )}
+              </div>
+              {selectedField === 'goals' && (
+                <button
+                  type="button"
+                  className="pop__form-paste-btn"
+                  onClick={() => void handlePasteFromChat('goals')}
+                  title="Paste the AI chat response into this field"
+                >
+                  Paste from chat
+                </button>
+              )}
             </div>
 
-            {/* Milestones */}
+            {/* ── Milestones ── */}
             <div className="pop__form-field pop__form-field--mt">
               <div className="pop__form-label-row">
                 <span className="pop__form-label">Milestones</span>
-                <div className="pop__form-label-actions">
-                  <button
-                    type="button"
-                    className={`pop__form-select-btn${milestonesSelected ? ' pop__form-select-btn--active' : ''}`}
-                    onClick={() => setMilestonesSelected((v) => !v)}
-                  >
-                    {milestonesSelected ? 'Selected ✓' : 'Select'}
-                  </button>
-                  <button
-                    type="button"
-                    className="pop__form-ai-btn"
-                    onClick={focusHeaderAiChat}
-                    title="Focus AI chat to suggest milestones"
-                  >
-                    AI Draft →
-                  </button>
-                </div>
+                <button
+                  type="button"
+                  className={`pop__form-ai-select-btn${selectedField === 'milestones' ? ' pop__form-ai-select-btn--active' : ''}`}
+                  onClick={() => handleFieldSelect('milestones')}
+                >
+                  {selectedField === 'milestones' ? '☞ Connected to AI' : 'Select for AI'}
+                </button>
               </div>
+
               {formMilestones.length > 0 && (
-                <div className="pop__form-milestones">
+                <div className={`pop__form-milestones-wrap${selectedField === 'milestones' ? ' pop__form-milestones-wrap--selected' : ''}`}>
                   {formMilestones.map((m) => (
                     <div key={m.id} className="pop__form-ms-row">
-                      <button
-                        type="button"
-                        className={`pop__form-ms-check${m.completed ? ' pop__form-ms-check--done' : ''}`}
-                        onClick={() => toggleFormMilestone(m.id)}
-                        aria-label={m.completed ? 'Mark incomplete' : 'Mark complete'}
-                      />
-                      <span className={`pop__form-ms-title${m.completed ? ' pop__form-ms-title--done' : ''}`}>
-                        {m.title}
-                      </span>
-                      <button
-                        type="button"
-                        className="pop__form-ms-del"
-                        onClick={() => removeFormMilestone(m.id)}
-                        aria-label={`Remove milestone: ${m.title}`}
-                      >
-                        ×
-                      </button>
+
+                      {/* Left: Set-active checkbox + title */}
+                      <div className="pop__form-ms-left">
+                        <div className="pop__form-ms-active-wrap">
+                          <button
+                            type="button"
+                            className={`pop__form-ms-active-check${m.isActive ? ' pop__form-ms-active-check--active' : ''}`}
+                            onClick={() => setFormMilestoneActive(m.id)}
+                            aria-label={m.isActive ? 'Active milestone' : 'Set as active milestone'}
+                            title="Mark as the current active milestone shown in dashboard"
+                          />
+                          {m.isActive && (
+                            <span className="pop__form-ms-active-label">Active</span>
+                          )}
+                        </div>
+                        <span className={`pop__form-ms-title${m.completed ? ' pop__form-ms-title--done' : ''}`}>
+                          {m.title}
+                        </span>
+                      </div>
+
+                      {/* Right: Done checkbox + remove */}
+                      <div className="pop__form-ms-right">
+                        <div className="pop__form-ms-done-wrap">
+                          <button
+                            type="button"
+                            className={`pop__form-ms-done-check${m.completed ? ' pop__form-ms-done-check--done' : ''}`}
+                            onClick={() => toggleFormMilestoneDone(m.id)}
+                            aria-label={m.completed ? 'Mark incomplete' : 'Mark done'}
+                          />
+                          <span className={`pop__form-ms-done-label${m.completed ? ' pop__form-ms-done-label--done' : ' pop__form-ms-done-label--pending'}`}>
+                            Done
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          className="pop__form-ms-del"
+                          onClick={() => removeFormMilestone(m.id)}
+                          aria-label={`Remove milestone: ${m.title}`}
+                        >
+                          ×
+                        </button>
+                      </div>
+
                     </div>
                   ))}
                 </div>
               )}
+
+              {/* Add milestone input */}
               <div className="pop__form-ms-add-row">
                 <input
-                  className="pop__form-input pop__form-input--sm"
+                  className="pop__form-input pop__form-ms-input"
                   type="text"
                   value={newMilestoneInput}
                   onChange={(e) => setNewMilestoneInput(e.target.value)}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') { e.preventDefault(); handleAddFormMilestone() }
                   }}
-                  placeholder="Add milestone…"
+                  placeholder="Add a milestone…"
                 />
                 <button
                   type="button"
@@ -707,9 +802,20 @@ export function ProjectOptimizationPanel({
                   Add
                 </button>
               </div>
+
+              {selectedField === 'milestones' && (
+                <button
+                  type="button"
+                  className="pop__form-paste-btn"
+                  onClick={() => void handlePasteFromChat('milestones')}
+                  title="Paste AI-suggested milestones — each line becomes a milestone"
+                >
+                  Paste from chat
+                </button>
+              )}
             </div>
 
-            {/* Context Attachments */}
+            {/* ── Context Attachments ── */}
             <div className="pop__form-field pop__form-field--mt">
               <div className="pop__form-label-row">
                 <span className="pop__form-label">Context attachments</span>
@@ -754,7 +860,7 @@ export function ProjectOptimizationPanel({
               />
             </div>
 
-            {/* Auto-Optimization interval */}
+            {/* ── Auto-Optimization interval ── */}
             <div className="pop__form-field pop__form-field--mt">
               <label className="pop__form-label" htmlFor="pop-form-interval">
                 Optimization interval
@@ -774,7 +880,7 @@ export function ProjectOptimizationPanel({
               </div>
             </div>
 
-            {/* Save / Cancel */}
+            {/* ── Save / Cancel ── */}
             <div className="pop__form-footer">
               <button
                 type="button"
@@ -810,7 +916,7 @@ export function ProjectOptimizationPanel({
           ) : (
             <div>
               <p className="pop__roadmap-current">
-                Current: {activeMilestone?.title ?? ''}
+                Current: {activeMilestone?.title ?? '—'}
               </p>
               <p className="pop__roadmap-progress">
                 {completedCount}/{totalCount} milestones

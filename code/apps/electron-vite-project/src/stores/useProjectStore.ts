@@ -55,6 +55,8 @@ interface ProjectActions {
   // ── Milestones ────────────────────────────────────────────────────────────
   addMilestone: (projectId: string, title: string) => void
   toggleMilestoneComplete: (projectId: string, milestoneId: string) => void
+  /** Sets isActive = true for this milestone, false for all others in the project. */
+  setActiveMilestone: (projectId: string, milestoneId: string) => void
   removeMilestone: (projectId: string, milestoneId: string) => void
   /** Reorder milestones by supplying the full ordered array of IDs. */
   reorderMilestones: (projectId: string, milestoneIds: string[]) => void
@@ -135,6 +137,7 @@ export const useProjectStore = create<ProjectState & ProjectActions>()(
         const milestone: ProjectMilestone = {
           id: crypto.randomUUID(),
           title: title.trim(),
+          isActive: false,
           completed: false,
           completedAt: null,
           createdAt: now(),
@@ -161,6 +164,18 @@ export const useProjectStore = create<ProjectState & ProjectActions>()(
                   }
                 : m,
             ),
+            updatedAt: now(),
+          })),
+        })),
+
+      setActiveMilestone: (projectId, milestoneId) =>
+        set((s) => ({
+          projects: patchProject(s.projects, projectId, (p) => ({
+            ...p,
+            milestones: p.milestones.map((m) => ({
+              ...m,
+              isActive: m.id === milestoneId,
+            })),
             updatedAt: now(),
           })),
         })),
@@ -252,7 +267,11 @@ export const useProjectStore = create<ProjectState & ProjectActions>()(
         const { projects, activeProjectId } = get()
         if (!activeProjectId) return null
         const project = projects.find((p) => p.id === activeProjectId)
-        return project?.milestones.find((m) => !m.completed) ?? null
+        if (!project) return null
+        // Prefer explicitly set active milestone, fall back to first incomplete
+        return project.milestones.find((m) => m.isActive)
+          ?? project.milestones.find((m) => !m.completed)
+          ?? null
       },
     }),
     {
@@ -278,13 +297,17 @@ export function selectActiveProject(state: {
   return state.projects.find((p) => p.id === state.activeProjectId) ?? null
 }
 
-/** Returns the first incomplete milestone of the active project, or null. */
+/** Returns the active milestone of the active project.
+ *  Prefers isActive === true; falls back to first incomplete. */
 export function selectActiveMilestone(state: {
   projects: Project[]
   activeProjectId: string | null
 }): ProjectMilestone | null {
   const project = selectActiveProject(state)
-  return project?.milestones.find((m) => !m.completed) ?? null
+  if (!project) return null
+  return project.milestones.find((m) => m.isActive)
+    ?? project.milestones.find((m) => !m.completed)
+    ?? null
 }
 
 /**

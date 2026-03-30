@@ -687,59 +687,38 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 3px;
+  margin-bottom: 4px;
 }
 
-.pop__form-label-actions {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  flex-shrink: 0;
-}
-
-/* ── Select / AI Draft buttons ── */
-.pop__form-select-btn {
+/* ── "Select for AI" / "☞ Connected to AI" toggle button ── */
+.pop__form-ai-select-btn {
   font-size: 9px;
   color: #9B9B96;
   border: 1px solid #E8E8E6;
   background: transparent;
   border-radius: 3px;
-  padding: 1px 6px;
+  padding: 1px 7px;
   cursor: pointer;
   font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
   transition: color 100ms ease, border-color 100ms ease, background 100ms ease;
   line-height: 1.5;
   white-space: nowrap;
+  flex-shrink: 0;
 }
 
-.pop__form-select-btn--active {
+.pop__form-ai-select-btn--active {
   color: #2563EB;
   border-color: #2563EB;
-  background: rgba(37, 99, 235, 0.05);
+  background: rgba(37, 99, 235, 0.06);
+  font-weight: 500;
 }
 
-.pop__form-select-btn:hover:not(.pop__form-select-btn--active) {
+.pop__form-ai-select-btn:hover:not(.pop__form-ai-select-btn--active) {
   color: #6B6B66;
   border-color: #D4D4D1;
 }
 
-.pop__form-ai-btn {
-  font-size: 9px;
-  color: #2563EB;
-  background: transparent;
-  border: none;
-  cursor: pointer;
-  padding: 1px 4px;
-  font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
-  line-height: 1.5;
-  white-space: nowrap;
-}
-
-.pop__form-ai-btn:hover {
-  text-decoration: underline;
-}
-
-/* ── Input / Textarea / Select shared base ── */
+/* ── Input ── */
 .pop__form-input {
   height: 28px;
   font-size: 12px;
@@ -754,11 +733,6 @@
   transition: border-color 120ms ease;
 }
 
-.pop__form-input--sm {
-  height: 24px;
-  font-size: 11px;
-}
-
 .pop__form-input::placeholder {
   color: #C4C4C0;
 }
@@ -768,13 +742,26 @@
   border-color: #2563EB;
 }
 
+/* Milestone add input: taller to match larger row */
+.pop__form-ms-input {
+  height: 32px;
+  font-size: 12px;
+  flex: 1;
+  min-width: 0;
+}
+
+/* ── Textarea wrapper (relative for pointing finger overlay) ── */
+.pop__form-textarea-wrap {
+  position: relative;
+}
+
 .pop__form-textarea {
-  min-height: 48px;
-  max-height: 120px;
-  font-size: 11px;
+  min-height: 80px;
+  max-height: 160px;
+  font-size: 12px;
   border: 1px solid #E8E8E6;
   border-radius: 4px;
-  padding: 6px 8px;
+  padding: 8px 10px;
   width: 100%;
   resize: vertical;
   background: #FFFFFF;
@@ -783,6 +770,7 @@
   font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
   line-height: 1.5;
   transition: border-color 120ms ease, background 120ms ease;
+  display: block;
 }
 
 .pop__form-textarea::placeholder {
@@ -799,6 +787,42 @@
   background: rgba(37, 99, 235, 0.02);
 }
 
+/* Pointing finger icon — absolute overlay top-right of textarea */
+.pop__form-field-pin {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  font-size: 14px;
+  color: #2563EB;
+  opacity: 0.5;
+  pointer-events: none;
+  line-height: 1;
+  user-select: none;
+}
+
+/* "Paste from chat" button — appears below textarea when field is selected */
+.pop__form-paste-btn {
+  display: inline-block;
+  margin-top: 5px;
+  padding: 3px 10px;
+  font-size: 10px;
+  font-weight: 500;
+  color: #2563EB;
+  background: rgba(37, 99, 235, 0.05);
+  border: 1px solid #2563EB;
+  border-radius: 4px;
+  cursor: pointer;
+  font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
+  line-height: 1.6;
+  transition: background 100ms ease;
+  align-self: flex-start;
+}
+
+.pop__form-paste-btn:hover {
+  background: rgba(37, 99, 235, 0.1);
+}
+
+/* ── Select ── */
 .pop__form-select {
   height: 28px;
   font-size: 11px;
@@ -826,32 +850,66 @@
   border-color: #2563EB;
 }
 
-/* ── Milestones list ── */
-.pop__form-milestones {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin-top: 4px;
-  margin-bottom: 4px;
+/* ── Milestones wrapper (gets blue outline when field is selected) ── */
+.pop__form-milestones-wrap {
+  border: 1px solid transparent;
+  border-radius: 4px;
+  margin-top: 6px;
+  transition: border-color 120ms ease, background 120ms ease;
 }
 
+.pop__form-milestones-wrap--selected {
+  border-color: #2563EB;
+  background: rgba(37, 99, 235, 0.02);
+  padding: 4px 8px;
+}
+
+/* ── Milestone row (dual-checkbox layout) ── */
 .pop__form-ms-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-height: 32px;
+  padding: 6px 0;
+  border-bottom: 1px solid #F0F0EE;
+}
+
+.pop__form-ms-row:last-child {
+  border-bottom: none;
+}
+
+/* Left side: Set-active checkbox + title */
+.pop__form-ms-left {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  padding-top: 1px;
+}
+
+/* Right side: Done checkbox + remove button */
+.pop__form-ms-right {
   display: flex;
   align-items: center;
   gap: 6px;
-  height: 24px;
-  position: relative;
+  flex-shrink: 0;
+  padding-top: 2px;
 }
 
-.pop__form-ms-row:hover .pop__form-ms-del {
-  opacity: 1;
+/* "Set active" checkbox group */
+.pop__form-ms-active-wrap {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
 }
 
-.pop__form-ms-check {
-  width: 14px;
-  height: 14px;
-  border: 1px solid #D4D4D1;
-  border-radius: 2px;
+.pop__form-ms-active-check {
+  width: 16px;
+  height: 16px;
+  border: 1.5px solid #D4D4D1;
+  border-radius: 3px;
   background: #FFFFFF;
   cursor: pointer;
   flex-shrink: 0;
@@ -861,13 +919,12 @@
   box-sizing: border-box;
 }
 
-.pop__form-ms-check--done {
+.pop__form-ms-active-check--active {
   background: #2563EB;
   border-color: #2563EB;
 }
 
-/* Checkmark via ::after */
-.pop__form-ms-check--done::after {
+.pop__form-ms-active-check--active::after {
   content: '✓';
   position: absolute;
   left: 50%;
@@ -880,13 +937,72 @@
   pointer-events: none;
 }
 
+.pop__form-ms-active-label {
+  font-size: 9px;
+  color: #2563EB;
+  font-weight: 600;
+  font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
+  white-space: nowrap;
+}
+
+/* "Done" checkbox group */
+.pop__form-ms-done-wrap {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
+}
+
+.pop__form-ms-done-check {
+  width: 16px;
+  height: 16px;
+  border: 1.5px solid #D4D4D1;
+  border-radius: 3px;
+  background: #FFFFFF;
+  cursor: pointer;
+  flex-shrink: 0;
+  padding: 0;
+  position: relative;
+  transition: background 100ms ease, border-color 100ms ease;
+  box-sizing: border-box;
+}
+
+.pop__form-ms-done-check--done {
+  background: #059669;
+  border-color: #059669;
+}
+
+.pop__form-ms-done-check--done::after {
+  content: '✓';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  color: #FFFFFF;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+  pointer-events: none;
+}
+
+.pop__form-ms-done-label {
+  font-size: 9px;
+  font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
+  white-space: nowrap;
+}
+
+.pop__form-ms-done-label--done    { color: #059669; }
+.pop__form-ms-done-label--pending { color: #9B9B96; }
+
+/* Milestone title — wraps naturally, no truncation */
 .pop__form-ms-title {
-  font-size: 11px;
+  font-size: 12px;
   color: #1C1C1A;
   flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  min-width: 0;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  line-height: 1.4;
   font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
 }
 
@@ -895,16 +1011,16 @@
   text-decoration: line-through;
 }
 
+/* Remove (×) button — always visible, subtle */
 .pop__form-ms-del {
-  opacity: 0;
-  font-size: 13px;
-  color: #9B9B96;
+  font-size: 14px;
+  color: #C4C4C0;
   background: none;
   border: none;
   cursor: pointer;
-  padding: 0 2px;
+  padding: 0 3px;
   line-height: 1;
-  transition: color 100ms ease, opacity 100ms ease;
+  transition: color 100ms ease;
   flex-shrink: 0;
 }
 
@@ -915,19 +1031,14 @@
 /* "Add milestone…" row */
 .pop__form-ms-add-row {
   display: flex;
-  gap: 6px;
+  gap: 8px;
   align-items: center;
-  margin-top: 4px;
-}
-
-.pop__form-ms-add-row .pop__form-input--sm {
-  flex: 1;
-  min-width: 0;
+  margin-top: 8px;
 }
 
 .pop__form-ms-add-btn {
-  padding: 2px 8px;
-  font-size: 10px;
+  padding: 4px 12px;
+  font-size: 11px;
   font-weight: 500;
   background: #F3F3F2;
   border: 1px solid #E8E8E6;
@@ -958,10 +1069,6 @@
   align-items: center;
   gap: 6px;
   height: 22px;
-}
-
-.pop__form-att-row:hover .pop__form-ms-del {
-  opacity: 1;
 }
 
 .pop__form-att-name {
