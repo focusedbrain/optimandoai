@@ -195,7 +195,20 @@ export function PoaeArtifactsPanel({
   onOpenInboxMessage,
 }: PoaeArtifactsPanelProps) {
   const section    = poae ?? EMPTY_POAE
-  const allRows    = section.rows ?? []
+
+  // TODO: Replace with dedicated PoAE automation log IPC when available.
+  // The snapshot.poae field currently contains inbox_messages where
+  // beap_package_json IS NOT NULL — these are BEAP transport messages,
+  // NOT PoAE automation logs. Until a separate poae_logs table / query
+  // is implemented, no rows are shown here.
+  // Ref: DASHBOARD_ARCHITECTURE.md §3.6
+  const allRawRows = section.rows ?? []
+  const allRows    = allRawRows.filter(
+    (): boolean => false,
+    // TODO: return true when r.recordType === 'automation_log' or equivalent
+    // discriminator field is present in the poae_logs schema.
+  )
+
   const VISIBLE_CAP = 3
   const rows       = allRows.slice(0, VISIBLE_CAP)
   const hasMore    = allRows.length > VISIBLE_CAP || section.truncated
@@ -231,7 +244,7 @@ export function PoaeArtifactsPanel({
         <SkeletonRows count={3} />
       ) : allRows.length === 0 ? (
         <div className="pap__empty">
-          <p className="pap__empty-text">No PoAE artifacts received yet</p>
+          <p className="pap__empty-text">No PoAE artifacts generated yet</p>
         </div>
       ) : (
         <>

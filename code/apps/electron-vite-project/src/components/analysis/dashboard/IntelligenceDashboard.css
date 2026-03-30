@@ -248,7 +248,7 @@
 }
 
 .ic-auto__legend-text {
-  font-size: 9px;
+  font-size: 10px;
   color: var(--dash-text-secondary, #6B6B66);
   white-space: nowrap;
   overflow: hidden;
@@ -308,7 +308,7 @@
 }
 
 .ic-tp__ring-sub {
-  font-size: 8px;
+  font-size: 10px;
   color: var(--dash-text-tertiary, #9B9B96);
   margin-top: 2px;
   font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
@@ -339,7 +339,7 @@
 }
 
 .ic-tp__count-lbl {
-  font-size: 8px;
+  font-size: 10px;
   color: var(--dash-text-tertiary, #9B9B96);
   font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
 }
@@ -352,7 +352,7 @@
 }
 
 .ic-tp__queue-label {
-  font-size: 8px;
+  font-size: 9px;
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -439,7 +439,7 @@
 }
 
 .ic-st__status-state {
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 600;
   font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
 }
@@ -509,7 +509,7 @@
 }
 
 .ic-st__project-ref {
-  font-size: 9px;
+  font-size: 10px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

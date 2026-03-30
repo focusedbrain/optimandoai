@@ -13,12 +13,17 @@
 // ── Intelligence Dashboard (Prompt 2) ────────────────────────────────────────
 export { IntelligenceDashboard } from './IntelligenceDashboard'
 
-// ── Project Optimization Panel (Prompt 3) ────────────────────────────────────
+// ── Project Optimization Panel + Setup Modal (Prompts 3 + 4A) ────────────────
 export {
   ProjectOptimizationPanel,
   type DashboardEmailAccountRow,
   type ProjectOptimizationPanelProps,
 } from './ProjectOptimizationPanel'
+
+export {
+  ProjectSetupModal,
+  type ProjectSetupModalProps,
+} from './ProjectSetupModal'
 
 // ── Activity Feed Column + child panels (Prompt 4) ───────────────────────────
 export {

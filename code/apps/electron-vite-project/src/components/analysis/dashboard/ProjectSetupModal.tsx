@@ -1,45 +1,48 @@
 /**
- * ProjectSetupModal — multi-tab project setup for WR Desk™.
+ * ProjectSetupModal — project creation and editing for WR Desk™.
  *
- * Tabs:
- *   1. Project  — name, goal title, goal summary
- *   2. Milestones — add/reorder/remove milestones
- *   3. Session  — choose agent template, configure slots, link to project
- *   4. Context  — attachments, snippets, "Include in AI Chat" toggle
+ * Single scrollable form with fields:
+ *   1. Title + Linked session (side by side)
+ *   2. Description     (with "Include in AI Chat" toggle)
+ *   3. Goals           (with "Include in AI Chat" toggle)
+ *   4. Milestones      (with "Include in AI Chat" toggle)
+ *   5. Context attachments (file upload)
+ *   6. Auto-Optimization interval
  *
  * Store connections:
- *   - useProjectStore    → project/session CRUD (persisted to localStorage)
- *   - useProjectSetupChatContextStore → snippets + includeInChat (session-only)
+ *   - useProjectStore        → project CRUD, session linking, persisted
+ *   - useProjectSetupChatContextStore → setSetupTextDraft, setIncludeInChat
  *
- * DO NOT modify: useEmailInboxStore, useProjectSetupChatContextStore,
- * HybridSearch.tsx, buildProjectSetupChatPrefix.ts.
+ * DO NOT modify: useProjectSetupChatContextStore, buildProjectSetupChatPrefix.ts,
+ *   HybridSearch.tsx, any IPC handler, any electron/main code.
  */
 
-import { useCallback, useEffect, useState } from 'react'
-import { useShallow } from 'zustand/react/shallow'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { WRDESK_FOCUS_AI_CHAT_EVENT } from '../../../lib/wrdeskUiEvents'
 import { useProjectSetupChatContextStore } from '../../../stores/useProjectSetupChatContextStore'
+import { useProjectStore } from '../../../stores/useProjectStore'
 import {
-  useProjectStore,
-  buildNewProject,
-  buildNewSession,
-  SESSION_TEMPLATES,
-  selectActiveProject,
-} from '../../../stores/useProjectStore'
-import type { AttachmentType, MilestoneStatus, ProjectMilestone } from '../../../types/projectTypes'
-import '../../../styles/dashboard-tokens.css'
-import '../../../styles/dashboard-base.css'
+  AUTO_OPTIMIZATION_INTERVALS,
+} from '../../../types/projectTypes'
+import type { ProjectAttachment } from '../../../types/projectTypes'
 import './ProjectSetupModal.css'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-export type SetupTab = 'project' | 'milestones' | 'session' | 'context'
-
 export interface ProjectSetupModalProps {
   open: boolean
   onClose: () => void
-  /** When set, the modal opens in edit mode for this project. */
+  /** When set, modal opens in edit mode for this project. null/undefined = create. */
   activeProjectId?: string | null
+}
+
+/** Milestone as managed within the modal (before persisting to store). */
+type ModalMilestone = {
+  id: string
+  title: string
+  completed: boolean
+  createdAt: string
+  completedAt: string | null
 }
 
 // ── Helper ────────────────────────────────────────────────────────────────────
@@ -51,208 +54,205 @@ function focusHeaderAiChat() {
 // ── Modal ─────────────────────────────────────────────────────────────────────
 
 export function ProjectSetupModal({ open, onClose, activeProjectId }: ProjectSetupModalProps) {
-  const [tab, setTab] = useState<SetupTab>('project')
-
-  // ── Project store ──────────────────────────────────────────────────────────
-  const {
-    projects,
-    sessions,
-    addProject,
-    updateProject,
-    addMilestone,
-    updateMilestoneStatus,
-    moveMilestone,
-    removeMilestone,
-    addSession,
-    linkSessionToProject,
-    addAttachment,
-  } = useProjectStore(
-    useShallow((s) => ({
-      projects:              s.projects,
-      sessions:              s.sessions,
-      addProject:            s.addProject,
-      updateProject:         s.updateProject,
-      addMilestone:          s.addMilestone,
-      updateMilestoneStatus: s.updateMilestoneStatus,
-      moveMilestone:         s.moveMilestone,
-      removeMilestone:       s.removeMilestone,
-      addSession:            s.addSession,
-      linkSessionToProject:  s.linkSessionToProject,
-      addAttachment:         s.addAttachment,
-    })),
-  )
+  // ── Store access ───────────────────────────────────────────────────────────
+  const createProject       = useProjectStore((s) => s.createProject)
+  const updateProject       = useProjectStore((s) => s.updateProject)
+  const setActiveProject    = useProjectStore((s) => s.setActiveProject)
+  const orchestratorSessions = useProjectStore((s) => s.orchestratorSessions)
 
   const editingProject = useProjectStore((s) =>
-    activeProjectId ? (s.projects.find((p) => p.id === activeProjectId) ?? null) : selectActiveProject(s),
+    activeProjectId ? (s.projects.find((p) => p.id === activeProjectId) ?? null) : null,
   )
 
-  // ── Tab 1 — Project form state ─────────────────────────────────────────────
-  const [projectName, setProjectName]     = useState('')
-  const [goalTitle, setGoalTitle]         = useState('')
-  const [goalSummary, setGoalSummary]     = useState('')
+  const isEditMode = editingProject !== null
 
-  // ── Tab 2 — Milestone form state ───────────────────────────────────────────
-  const [newMilestoneTitle, setNewMilestoneTitle] = useState('')
-  const [newMilestoneDesc,  setNewMilestoneDesc]  = useState('')
+  // ── Form state ─────────────────────────────────────────────────────────────
+  const [title,              setTitle]              = useState('')
+  const [description,        setDescription]        = useState('')
+  const [goals,              setGoals]              = useState('')
+  const [milestones,         setMilestones]         = useState<ModalMilestone[]>([])
+  const [localAttachments,   setLocalAttachments]   = useState<ProjectAttachment[]>([])
+  const [linkedSessionId,    setLinkedSessionId]    = useState<string | null>(null)
+  const [intervalMs,         setIntervalMs]         = useState(300000)
+  const [newMilestoneInput,  setNewMilestoneInput]  = useState('')
 
-  // ── Tab 3 — Session form state ─────────────────────────────────────────────
-  type TemplateKey = keyof typeof SESSION_TEMPLATES
-  const [selectedTemplate, setSelectedTemplate] = useState<TemplateKey>('security')
-  const [sessionName, setSessionName]           = useState('')
+  // ── Chat inclusion toggles ─────────────────────────────────────────────────
+  const [includeDescription, setIncludeDescription] = useState(false)
+  const [includeGoals,       setIncludeGoals]       = useState(false)
+  const [includeMilestones,  setIncludeMilestones]  = useState(false)
 
-  // ── Tab 4 — Attachment form state ──────────────────────────────────────────
-  const [attachLabel, setAttachLabel]       = useState('')
-  const [attachContent, setAttachContent]   = useState('')
-  const [attachType, setAttachType]         = useState<AttachmentType>('context')
+  // ── File upload ────────────────────────────────────────────────────────────
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const titleInputRef = useRef<HTMLInputElement>(null)
 
-  // ── Chat context store (Tab 4 — snippets + includeInChat) ─────────────────
-  const {
-    includeInChat,
-    setIncludeInChat,
-    snippets,
-    addSnippet,
-    removeSnippet,
-  } = useProjectSetupChatContextStore(
-    useShallow((s) => ({
-      includeInChat:    s.includeInChat,
-      setIncludeInChat: s.setIncludeInChat,
-      snippets:         s.snippets,
-      addSnippet:       s.addSnippet,
-      removeSnippet:    s.removeSnippet,
-    })),
-  )
-
-  const [snippetLabel, setSnippetLabel] = useState('')
-  const [snippetText,  setSnippetText]  = useState('')
-
-  // ── Populate form when editing an existing project ─────────────────────────
+  // ── Populate form when modal opens ─────────────────────────────────────────
   useEffect(() => {
     if (!open) return
-    setTab('project')
     if (editingProject) {
-      setProjectName(editingProject.name)
-      setGoalTitle(editingProject.goal.title)
-      setGoalSummary(editingProject.goal.summary)
+      setTitle(editingProject.title)
+      setDescription(editingProject.description)
+      setGoals(editingProject.goals)
+      setMilestones(
+        editingProject.milestones.map((m) => ({
+          id: m.id,
+          title: m.title,
+          completed: m.completed,
+          createdAt: m.createdAt,
+          completedAt: m.completedAt,
+        })),
+      )
+      setLocalAttachments([...editingProject.attachments])
+      setLinkedSessionId(editingProject.linkedSessionId)
+      setIntervalMs(editingProject.autoOptimizationIntervalMs)
     } else {
-      setProjectName('')
-      setGoalTitle('')
-      setGoalSummary('')
+      setTitle('')
+      setDescription('')
+      setGoals('')
+      setMilestones([])
+      setLocalAttachments([])
+      setLinkedSessionId(null)
+      setIntervalMs(300000)
+      setNewMilestoneInput('')
+      setIncludeDescription(false)
+      setIncludeGoals(false)
+      setIncludeMilestones(false)
     }
+
+    // TODO: Replace with actual IPC call when available:
+    // const sessions = await window.emailInbox.getOrchestratorSessions?.()
+    // useProjectStore.getState().setOrchestratorSessions(sessions ?? [])
   }, [open, editingProject])
 
-  // ── Focus first input when tab 1 opens ────────────────────────────────────
-  useEffect(() => {
-    if (!open || tab !== 'project') return
-    const id = window.requestAnimationFrame(() => {
-      document.getElementById('psm-project-name')?.focus()
-    })
-    return () => window.cancelAnimationFrame(id)
-  }, [open, tab])
-
-  // ── Escape key ────────────────────────────────────────────────────────────
+  // ── Focus title input on open ──────────────────────────────────────────────
   useEffect(() => {
     if (!open) return
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    const id = window.requestAnimationFrame(() => titleInputRef.current?.focus())
+    return () => window.cancelAnimationFrame(id)
+  }, [open])
+
+  // ── Escape key ─────────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!open) return
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
   }, [open, onClose])
 
-  // ── Actions ───────────────────────────────────────────────────────────────
-
-  const handleSaveProject = useCallback(() => {
-    const name = projectName.trim()
-    if (!name) return
-    if (editingProject) {
-      updateProject(editingProject.id, {
-        name,
-        goal: {
-          ...editingProject.goal,
-          title: goalTitle.trim() || 'Project Goal',
-          summary: goalSummary.trim(),
-          updatedAt: new Date().toISOString(),
-        },
-      })
-    } else {
-      const project = buildNewProject(name, goalTitle, goalSummary)
-      addProject(project)
-      useProjectStore.getState().setActiveProjectId(project.id)
+  // ── Chat context sync ──────────────────────────────────────────────────────
+  useEffect(() => {
+    const chatStore = useProjectSetupChatContextStore.getState()
+    let setupText = ''
+    if (includeDescription && description.trim()) {
+      setupText += `[Project Description]\n${description.trim()}\n\n`
     }
-    setTab('milestones')
-  }, [projectName, goalTitle, goalSummary, editingProject, addProject, updateProject])
+    if (includeGoals && goals.trim()) {
+      setupText += `[Project Goals]\n${goals.trim()}\n\n`
+    }
+    if (includeMilestones && milestones.length > 0) {
+      const text = milestones.map((m) => `${m.completed ? '✓' : '○'} ${m.title}`).join('\n')
+      setupText += `[Milestones]\n${text}\n\n`
+    }
+    chatStore.setSetupTextDraft(setupText.trim())
+    chatStore.setIncludeInChat(setupText.trim().length > 0)
+  }, [includeDescription, description, includeGoals, goals, includeMilestones, milestones])
 
+  // ── Milestone actions ─────────────────────────────────────────────────────
   const handleAddMilestone = useCallback(() => {
-    const title = newMilestoneTitle.trim()
-    if (!title) return
-    const target = editingProject ?? projects[0]
-    if (!target) return
-    const order = target.milestones.length
-    const milestone: ProjectMilestone = {
-      id: crypto.randomUUID(),
-      title,
-      description: newMilestoneDesc.trim(),
-      status: 'pending',
-      order,
-      completedAt: null,
+    const t = newMilestoneInput.trim()
+    if (!t) return
+    setMilestones((prev) => [
+      ...prev,
+      {
+        id: crypto.randomUUID(),
+        title: t,
+        completed: false,
+        createdAt: new Date().toISOString(),
+        completedAt: null,
+      },
+    ])
+    setNewMilestoneInput('')
+  }, [newMilestoneInput])
+
+  const toggleMilestone = useCallback((id: string) => {
+    setMilestones((prev) =>
+      prev.map((m) =>
+        m.id === id
+          ? {
+              ...m,
+              completed: !m.completed,
+              completedAt: !m.completed ? new Date().toISOString() : null,
+            }
+          : m,
+      ),
+    )
+  }, [])
+
+  const removeLocalMilestone = useCallback((id: string) => {
+    setMilestones((prev) => prev.filter((m) => m.id !== id))
+  }, [])
+
+  // ── Attachment actions ────────────────────────────────────────────────────
+  const handleFileSelect = useCallback(
+    async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const files = Array.from(e.target.files ?? [])
+      for (const file of files) {
+        const content = await new Promise<string>((resolve) => {
+          const reader = new FileReader()
+          reader.onload = (ev) => resolve((ev.target?.result as string) ?? '')
+          // TODO: extract PDF text via IPC when mimeType is application/pdf
+          reader.readAsText(file)
+        })
+        setLocalAttachments((prev) => [
+          ...prev,
+          {
+            id: crypto.randomUUID(),
+            filename: file.name,
+            content,
+            mimeType: file.type || 'text/plain',
+            addedAt: new Date().toISOString(),
+          },
+        ])
+      }
+      if (e.target) e.target.value = ''
+    },
+    [],
+  )
+
+  const removeLocalAttachment = useCallback((id: string) => {
+    setLocalAttachments((prev) => prev.filter((a) => a.id !== id))
+  }, [])
+
+  // ── Save ──────────────────────────────────────────────────────────────────
+  const handleSave = useCallback(() => {
+    const trimmedTitle = title.trim()
+    if (!trimmedTitle) return
+
+    const projectData = {
+      title: trimmedTitle,
+      description: description.trim(),
+      goals: goals.trim(),
+      milestones,
+      attachments: localAttachments,
+      linkedSessionId,
+      autoOptimizationEnabled: editingProject?.autoOptimizationEnabled ?? false,
+      autoOptimizationIntervalMs: intervalMs,
     }
-    addMilestone(target.id, milestone)
-    setNewMilestoneTitle('')
-    setNewMilestoneDesc('')
-  }, [newMilestoneTitle, newMilestoneDesc, editingProject, projects, addMilestone])
 
-  const handleConnectSession = useCallback(() => {
-    const target = editingProject ?? projects[0]
-    if (!target) return
-    const name = sessionName.trim() || `${target.name} — ${selectedTemplate}`
-    const session = buildNewSession(name, selectedTemplate)
-    addSession(session)
-    linkSessionToProject(target.id, session.id)
-    setSessionName('')
-    setTab('context')
-  }, [sessionName, selectedTemplate, editingProject, projects, addSession, linkSessionToProject])
+    if (isEditMode && editingProject) {
+      updateProject(editingProject.id, projectData)
+    } else {
+      const newId = createProject(projectData)
+      setActiveProject(newId)
+    }
 
-  const handleAddAttachment = useCallback(() => {
-    const label = attachLabel.trim()
-    if (!label || !attachContent.trim()) return
-    const target = editingProject ?? projects[0]
-    if (!target) return
-    addAttachment(target.id, label, attachContent, attachType)
-    setAttachLabel('')
-    setAttachContent('')
-    setAttachType('context')
-  }, [attachLabel, attachContent, attachType, editingProject, projects, addAttachment])
-
-  const handleAddSnippet = useCallback(() => {
-    if (!snippetLabel.trim() && !snippetText.trim()) return
-    addSnippet({ label: snippetLabel, text: snippetText })
-    setSnippetLabel('')
-    setSnippetText('')
-  }, [snippetLabel, snippetText, addSnippet])
-
-  // ── Derived ───────────────────────────────────────────────────────────────
-
-  const targetProject = editingProject ?? (projects.length > 0 ? projects[projects.length - 1] : null)
-  const milestones = targetProject
-    ? [...targetProject.milestones].sort((a, b) => a.order - b.order)
-    : []
-  const linkedSession = targetProject?.linkedSessionId
-    ? (sessions.find((s) => s.id === targetProject.linkedSessionId) ?? null)
-    : null
+    onClose()
+  }, [
+    title, description, goals, milestones, localAttachments,
+    linkedSessionId, intervalMs, isEditMode, editingProject,
+    createProject, updateProject, setActiveProject, onClose,
+  ])
 
   if (!open) return null
-
-  const TABS: Array<[SetupTab, string]> = [
-    ['project',    'Project'],
-    ['milestones', 'Milestones'],
-    ['session',    'Session'],
-    ['context',    'Context'],
-  ]
-
-  const TEMPLATE_LABELS: Record<TemplateKey, string> = {
-    security: 'Security',
-    growth:   'Growth',
-    full:     'Full',
-    custom:   'Custom',
-  }
 
   return (
     <div
@@ -268,452 +268,253 @@ export function ProjectSetupModal({ open, onClose, activeProjectId }: ProjectSet
         aria-labelledby="psm-title"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* ── Header ────────────────────────────────────────────────────── */}
+        {/* ── Header ──────────────────────────────────────────────────────── */}
         <div className="psm__header">
-          <div>
-            <h2 id="psm-title" className="psm__title">
-              {editingProject ? `Edit — ${editingProject.name}` : 'New Project Setup'}
-            </h2>
-            <p className="psm__subtitle">
-              Project AI Optimization · persisted to local storage · V2 moves to cloud
-            </p>
-          </div>
-          <button type="button" className="psm__close" onClick={onClose} aria-label="Close modal">
+          <h2 id="psm-title" className="psm__title">
+            {isEditMode ? `Edit — ${editingProject.title}` : 'New Project'}
+          </h2>
+          <button
+            type="button"
+            className="psm__close"
+            onClick={onClose}
+            aria-label="Close modal"
+          >
             ×
           </button>
         </div>
 
-        {/* ── Tab bar ───────────────────────────────────────────────────── */}
-        <div className="psm__tabs" role="tablist" aria-label="Setup steps">
-          {TABS.map(([id, label]) => (
-            <button
-              key={id}
-              type="button"
-              role="tab"
-              aria-selected={tab === id}
-              className={`psm__tab${tab === id ? ' psm__tab--active' : ''}`}
-              onClick={() => setTab(id)}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-
-        {/* ── Body ──────────────────────────────────────────────────────── */}
+        {/* ── Body ────────────────────────────────────────────────────────── */}
         <div className="psm__body">
 
-          {/* ── TAB 1: Project ────────────────────────────────────────────*/}
-          {tab === 'project' && (
-            <>
-              <div className="psm__field">
-                <label className="psm__label" htmlFor="psm-project-name">
-                  Project name
-                  <button type="button" className="psm__label-action" onClick={focusHeaderAiChat}>
-                    Draft with AI ↗
-                  </button>
-                </label>
-                <input
-                  id="psm-project-name"
-                  className="psm__input"
-                  value={projectName}
-                  onChange={(e) => setProjectName(e.target.value)}
-                  placeholder="e.g. Q2 Security Hardening"
-                  autoComplete="off"
-                />
+          {/* ── Field 1: Title + Session (side by side) ── */}
+          <div className="psm__field-row">
+            <div className="psm__field-col psm__field-col--flex">
+              <div className="psm__label-row">
+                <label className="psm__label" htmlFor="psm-title">Project title</label>
               </div>
-
-              <div className="psm__field">
-                <label className="psm__label" htmlFor="psm-goal-title">
-                  Goal title
-                  <button type="button" className="psm__label-action" onClick={focusHeaderAiChat}>
-                    Draft with AI ↗
-                  </button>
-                </label>
-                <input
-                  id="psm-goal-title"
-                  className="psm__input"
-                  value={goalTitle}
-                  onChange={(e) => setGoalTitle(e.target.value)}
-                  placeholder="One-line goal headline"
-                  autoComplete="off"
-                />
+              <input
+                ref={titleInputRef}
+                id="psm-title"
+                className="psm__input"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder="Enter project title"
+                autoComplete="off"
+                onKeyDown={(e) => e.key === 'Enter' && handleSave()}
+              />
+            </div>
+            <div className="psm__field-col psm__field-col--fixed">
+              <div className="psm__label-row">
+                <label className="psm__label" htmlFor="psm-session">Linked session</label>
               </div>
-
-              <div className="psm__field">
-                <label className="psm__label" htmlFor="psm-goal-summary">
-                  Goal summary
-                  <button type="button" className="psm__label-action" onClick={focusHeaderAiChat}>
-                    Draft with AI ↗
-                  </button>
-                </label>
-                <textarea
-                  id="psm-goal-summary"
-                  className="psm__textarea"
-                  value={goalSummary}
-                  onChange={(e) => setGoalSummary(e.target.value)}
-                  placeholder="2–4 sentences: what optimized email handling should achieve for this initiative"
-                  rows={4}
-                />
-              </div>
-
-              <p className="psm__hint">
-                Project is saved locally. IPC/SQLite persistence arrives in V2.
-              </p>
-            </>
-          )}
-
-          {/* ── TAB 2: Milestones ─────────────────────────────────────────*/}
-          {tab === 'milestones' && (
-            <>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <p className="psm__section-title">Milestones</p>
-                <button type="button" className="psm__label-action" onClick={focusHeaderAiChat}>
-                  Suggest with AI ↗
-                </button>
-              </div>
-
-              {milestones.length > 0 ? (
-                <ul className="psm__milestone-list">
-                  {milestones.map((m, idx) => (
-                    <li key={m.id} className="psm__milestone-item">
-                      <div className="psm__milestone-arrows">
-                        <button
-                          type="button"
-                          className="psm__milestone-arrow"
-                          disabled={idx === 0 || !targetProject}
-                          onClick={() => targetProject && moveMilestone(targetProject.id, m.id, 'up')}
-                          aria-label="Move up"
-                        >▲</button>
-                        <button
-                          type="button"
-                          className="psm__milestone-arrow"
-                          disabled={idx === milestones.length - 1 || !targetProject}
-                          onClick={() => targetProject && moveMilestone(targetProject.id, m.id, 'down')}
-                          aria-label="Move down"
-                        >▼</button>
-                      </div>
-
-                      <span className="psm__milestone-item-title" title={m.description || m.title}>
-                        {m.title}
-                      </span>
-
-                      <button
-                        type="button"
-                        className={`psm__milestone-item-status psm__milestone-item-status--${m.status}`}
-                        onClick={() => {
-                          if (!targetProject) return
-                          const next: MilestoneStatus =
-                            m.status === 'pending' ? 'in_progress'
-                            : m.status === 'in_progress' ? 'completed'
-                            : 'pending'
-                          updateMilestoneStatus(targetProject.id, m.id, next)
-                        }}
-                        title="Click to cycle status"
-                      >
-                        {m.status.replace('_', ' ')}
-                      </button>
-
-                      <button
-                        type="button"
-                        className="psm__milestone-remove"
-                        disabled={!targetProject}
-                        onClick={() => targetProject && removeMilestone(targetProject.id, m.id)}
-                        aria-label={`Remove ${m.title}`}
-                      >×</button>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <div className="psm__empty">
-                  <p className="psm__empty-title">No milestones yet</p>
-                  <p className="psm__empty-body">Add your first checkpoint below</p>
-                </div>
-              )}
-
-              {/* Add milestone form */}
-              <div className="psm__field">
-                <label className="psm__label" htmlFor="psm-milestone-title">
-                  New milestone title
-                </label>
-                <input
-                  id="psm-milestone-title"
-                  className="psm__input"
-                  value={newMilestoneTitle}
-                  onChange={(e) => setNewMilestoneTitle(e.target.value)}
-                  placeholder="Checkpoint name"
-                  disabled={!targetProject}
-                  onKeyDown={(e) => e.key === 'Enter' && handleAddMilestone()}
-                />
-              </div>
-              <div className="psm__field">
-                <label className="psm__label" htmlFor="psm-milestone-desc">
-                  Description <span style={{ fontWeight: 400, color: 'var(--ds-text-disabled)' }}>(optional)</span>
-                </label>
-                <textarea
-                  id="psm-milestone-desc"
-                  className="psm__textarea"
-                  value={newMilestoneDesc}
-                  onChange={(e) => setNewMilestoneDesc(e.target.value)}
-                  placeholder="What does completing this milestone look like?"
-                  rows={2}
-                  disabled={!targetProject}
-                />
-              </div>
-
-              {!targetProject && (
-                <p className="psm__hint">Save a project on the Project tab first.</p>
-              )}
-            </>
-          )}
-
-          {/* ── TAB 3: Session / agent grid ────────────────────────────────*/}
-          {tab === 'session' && (
-            <>
-              <p className="psm__section-title">Agent template</p>
-
-              <div className="psm__templates">
-                {(Object.keys(SESSION_TEMPLATES) as TemplateKey[]).map((key) => (
-                  <button
-                    key={key}
-                    type="button"
-                    className={`psm__template-btn${selectedTemplate === key ? ' psm__template-btn--active' : ''}`}
-                    onClick={() => setSelectedTemplate(key)}
-                  >
-                    {TEMPLATE_LABELS[key]}
-                  </button>
+              <select
+                id="psm-session"
+                className="psm__select"
+                value={linkedSessionId ?? ''}
+                onChange={(e) => setLinkedSessionId(e.target.value || null)}
+              >
+                <option value="">— No session —</option>
+                {orchestratorSessions.length === 0 && (
+                  <option value="" disabled>No sessions available</option>
+                )}
+                {orchestratorSessions.map((s) => (
+                  <option key={s.id} value={s.id}>{s.name}</option>
                 ))}
-              </div>
+              </select>
+              <p className="psm__session-hint">Sessions from orchestrator history</p>
+            </div>
+          </div>
 
-              {/* Preview of selected template slots */}
-              {SESSION_TEMPLATES[selectedTemplate].length > 0 ? (
-                <ul className="psm__agent-list">
-                  {SESSION_TEMPLATES[selectedTemplate].map((a, i) => (
-                    <li key={i} className="psm__agent-item">
-                      <span className="psm__agent-item-label">{a.label}</span>
-                      <span className="psm__agent-item-enabled">
-                        {a.enabled ? (
-                          <span className="dash-badge dash-badge--secure">on</span>
-                        ) : (
-                          <span className="dash-badge">off</span>
-                        )}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <div className="psm__empty">
-                  <p className="psm__empty-title">Custom template</p>
-                  <p className="psm__empty-body">Connect the session — then add agent slots in Full Setup</p>
-                </div>
-              )}
-
-              {linkedSession ? (
-                <p className="psm__hint">
-                  Session already linked: <strong style={{ color: 'var(--ds-teal-300)' }}>{linkedSession.name}</strong>
-                  {' — '}to replace it, connect a new one below.
-                </p>
-              ) : null}
-
-              <div className="psm__field">
-                <label className="psm__label" htmlFor="psm-session-name">
-                  Session name <span style={{ fontWeight: 400, color: 'var(--ds-text-disabled)' }}>(optional)</span>
-                </label>
-                <input
-                  id="psm-session-name"
-                  className="psm__input"
-                  value={sessionName}
-                  onChange={(e) => setSessionName(e.target.value)}
-                  placeholder={targetProject ? `${targetProject.name} — ${selectedTemplate}` : 'Session name'}
-                  disabled={!targetProject}
-                />
-              </div>
-
-              {!targetProject && (
-                <p className="psm__hint">Save a project on the Project tab first.</p>
-              )}
-            </>
-          )}
-
-          {/* ── TAB 4: Context ─────────────────────────────────────────────*/}
-          {tab === 'context' && (
-            <>
-              {/* Include in AI Chat */}
-              <label className="dash-toggle" style={{ display: 'flex', alignItems: 'center', gap: 'var(--ds-space-sm)' }}>
-                <input
-                  type="checkbox"
-                  className="dash-toggle__input"
-                  checked={includeInChat}
-                  onChange={(e) => setIncludeInChat(e.target.checked)}
-                />
-                <span className="dash-toggle__track" />
-                <span style={{ fontSize: 'var(--ds-type-body-size)', color: 'var(--ds-text-secondary)' }}>
-                  Include context in header AI chats (Analysis view)
-                </span>
-              </label>
-
-              {/* Attachments */}
-              <p className="psm__section-title">Attachments</p>
-
-              {targetProject && targetProject.attachments.length > 0 ? (
-                <ul className="psm__milestone-list">
-                  {targetProject.attachments.map((att) => (
-                    <li key={att.id} className="psm__milestone-item">
-                      <span
-                        className={`pop__attachment-type pop__attachment-type--${att.type}`}
-                        style={{ fontSize: '10px', padding: '1px 6px', borderRadius: '999px', fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', background: 'var(--ds-surface-04)', color: 'var(--ds-text-muted)', flexShrink: 0 }}
-                      >
-                        {att.type}
-                      </span>
-                      <span className="psm__milestone-item-title" title={att.content}>
-                        {att.label}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <div className="psm__empty">
-                  <p className="psm__empty-body">No attachments yet</p>
-                </div>
-              )}
-
-              {/* Add attachment form */}
-              <div className="psm__attachment-add">
-                <div className="psm__attachment-type-row">
-                  {(['context', 'note', 'snippet'] as AttachmentType[]).map((t) => (
-                    <button
-                      key={t}
-                      type="button"
-                      className={`psm__type-btn${attachType === t ? ' psm__type-btn--active' : ''}`}
-                      onClick={() => setAttachType(t)}
-                    >
-                      {t}
-                    </button>
-                  ))}
-                </div>
-                <input
-                  className="psm__input"
-                  value={attachLabel}
-                  onChange={(e) => setAttachLabel(e.target.value)}
-                  placeholder="Label"
-                  disabled={!targetProject}
-                  aria-label="Attachment label"
-                />
-                <textarea
-                  className="psm__textarea"
-                  value={attachContent}
-                  onChange={(e) => setAttachContent(e.target.value)}
-                  placeholder="Paste context, policy text, or notes…"
-                  rows={3}
-                  disabled={!targetProject}
-                />
+          {/* ── Field 2: Description ── */}
+          <div>
+            <div className="psm__label-row">
+              <label className="psm__label" htmlFor="psm-description">Description</label>
+              <div className="psm__label-actions">
+                <button type="button" className="psm__ai-btn" onClick={focusHeaderAiChat}>
+                  Draft with AI →
+                </button>
                 <button
                   type="button"
-                  className="dash-btn-secondary dash-btn-sm"
-                  disabled={!targetProject || !attachLabel.trim() || !attachContent.trim()}
-                  onClick={handleAddAttachment}
+                  className={`psm__include-btn${includeDescription ? ' psm__include-btn--active' : ''}`}
+                  onClick={() => setIncludeDescription((v) => !v)}
                 >
-                  Add attachment
+                  {includeDescription ? 'Included in AI Chat ✓' : 'Include in AI Chat'}
                 </button>
               </div>
+            </div>
+            <textarea
+              id="psm-description"
+              className="psm__textarea"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="What is this project about?"
+              rows={3}
+            />
+          </div>
 
-              {/* Snippets (from useProjectSetupChatContextStore) */}
-              <p className="psm__section-title" style={{ marginTop: 'var(--ds-space-xs)' }}>
-                Context snippets (session-only)
-              </p>
-              {snippets.map((sn) => (
-                <div
-                  key={sn.id}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 'var(--ds-space-xs)',
-                    padding: 'var(--ds-space-xs) var(--ds-space-sm)',
-                    background: 'var(--ds-surface-02)',
-                    borderRadius: 'var(--ds-radius-sharp)',
-                    border: '1px solid var(--ds-border-00)',
-                  }}
+          {/* ── Field 3: Goals ── */}
+          <div>
+            <div className="psm__label-row">
+              <label className="psm__label" htmlFor="psm-goals">Goals</label>
+              <div className="psm__label-actions">
+                <button type="button" className="psm__ai-btn" onClick={focusHeaderAiChat}>
+                  Draft with AI →
+                </button>
+                <button
+                  type="button"
+                  className={`psm__include-btn${includeGoals ? ' psm__include-btn--active' : ''}`}
+                  onClick={() => setIncludeGoals((v) => !v)}
                 >
-                  <span style={{ flex: 1, fontSize: 'var(--ds-type-caption-size)', color: 'var(--ds-text-secondary)' }}>
-                    {sn.label || '(untitled)'}: {sn.text.slice(0, 60)}{sn.text.length > 60 ? '…' : ''}
+                  {includeGoals ? 'Included in AI Chat ✓' : 'Include in AI Chat'}
+                </button>
+              </div>
+            </div>
+            <textarea
+              id="psm-goals"
+              className="psm__textarea"
+              value={goals}
+              onChange={(e) => setGoals(e.target.value)}
+              placeholder="What do you want to achieve?"
+              rows={3}
+            />
+          </div>
+
+          {/* ── Field 4: Milestones ── */}
+          <div>
+            <div className="psm__label-row">
+              <label className="psm__label">Milestones</label>
+              <div className="psm__label-actions">
+                <button type="button" className="psm__ai-btn" onClick={focusHeaderAiChat}>
+                  Suggest with AI →
+                </button>
+                <button
+                  type="button"
+                  className={`psm__include-btn${includeMilestones ? ' psm__include-btn--active' : ''}`}
+                  onClick={() => setIncludeMilestones((v) => !v)}
+                >
+                  {includeMilestones ? 'Included in AI Chat ✓' : 'Include in AI Chat'}
+                </button>
+              </div>
+            </div>
+            <div className="psm__milestones">
+              {milestones.map((m) => (
+                <div key={m.id} className="psm__milestone-row">
+                  <button
+                    type="button"
+                    className={`psm__milestone-check${m.completed ? ' psm__milestone-check--done' : ''}`}
+                    onClick={() => toggleMilestone(m.id)}
+                    aria-label={m.completed ? 'Mark incomplete' : 'Mark complete'}
+                  >
+                    {m.completed ? '✓' : ''}
+                  </button>
+                  <span className={`psm__milestone-title${m.completed ? ' psm__milestone-title--done' : ''}`}>
+                    {m.title}
                   </span>
                   <button
                     type="button"
-                    style={{ background: 'none', border: 'none', color: 'var(--ds-text-muted)', cursor: 'pointer', fontSize: '14px' }}
-                    onClick={() => removeSnippet(sn.id)}
-                    aria-label={`Remove snippet ${sn.label}`}
-                  >×</button>
+                    className="psm__milestone-del"
+                    onClick={() => removeLocalMilestone(m.id)}
+                    aria-label={`Remove ${m.title}`}
+                  >
+                    ×
+                  </button>
                 </div>
               ))}
-
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--ds-space-2xs)' }}>
+              <div className="psm__milestone-add">
                 <input
-                  className="psm__input"
-                  value={snippetLabel}
-                  onChange={(e) => setSnippetLabel(e.target.value)}
-                  placeholder="Snippet label"
-                  aria-label="Snippet label"
+                  className="psm__input psm__input--sm"
+                  value={newMilestoneInput}
+                  onChange={(e) => setNewMilestoneInput(e.target.value)}
+                  placeholder="Add milestone..."
+                  onKeyDown={(e) => e.key === 'Enter' && handleAddMilestone()}
+                  aria-label="New milestone title"
                 />
-                <textarea
-                  className="psm__textarea"
-                  value={snippetText}
-                  onChange={(e) => setSnippetText(e.target.value)}
-                  placeholder="Reference text (session only, not persisted)"
-                  rows={2}
-                />
-                <button
-                  type="button"
-                  className="dash-btn-secondary dash-btn-sm"
-                  onClick={handleAddSnippet}
-                  style={{ alignSelf: 'flex-start' }}
-                >
-                  Add snippet
+                <button type="button" className="psm__add-btn" onClick={handleAddMilestone}>
+                  Add
                 </button>
               </div>
+            </div>
+          </div>
 
-              {!targetProject && (
-                <p className="psm__hint">Save a project on the Project tab first to add attachments.</p>
-              )}
-            </>
-          )}
-        </div>
+          {/* ── Field 5: Attachments ── */}
+          <div>
+            <div className="psm__label-row">
+              <label className="psm__label">Context attachments</label>
+            </div>
+            <p className="psm__sub-label">
+              PDFs and text files embedded as context when project is active
+            </p>
+            {localAttachments.length > 0 && (
+              <div className="psm__attachments">
+                {localAttachments.map((a) => (
+                  <div key={a.id} className="psm__attachment-row">
+                    <span className="psm__file-icon" aria-hidden="true">📄</span>
+                    <span className="psm__attachment-name" title={a.filename}>{a.filename}</span>
+                    <span className="psm__attachment-meta">{a.mimeType.split('/')[1] ?? a.mimeType}</span>
+                    <button
+                      type="button"
+                      className="psm__attachment-del"
+                      onClick={() => removeLocalAttachment(a.id)}
+                      aria-label={`Remove ${a.filename}`}
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".pdf,.txt,.md,.json"
+              multiple
+              style={{ display: 'none' }}
+              onChange={handleFileSelect}
+              aria-hidden="true"
+            />
+            <button
+              type="button"
+              className="psm__upload-btn"
+              onClick={() => fileInputRef.current?.click()}
+            >
+              Add attachment…
+            </button>
+          </div>
 
-        {/* ── Footer ────────────────────────────────────────────────────── */}
+          {/* ── Field 6: Auto-Optimization interval ── */}
+          <div>
+            <div className="psm__label-row">
+              <label className="psm__label" htmlFor="psm-interval">Auto-Optimization interval</label>
+            </div>
+            <p className="psm__sub-label">
+              How often to trigger the orchestration session when auto-optimization is on
+            </p>
+            <select
+              id="psm-interval"
+              className="psm__select psm__select--sm"
+              value={intervalMs}
+              onChange={(e) => setIntervalMs(Number(e.target.value))}
+            >
+              {AUTO_OPTIMIZATION_INTERVALS.map((opt) => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+            </select>
+          </div>
+
+        </div>{/* /body */}
+
+        {/* ── Footer ──────────────────────────────────────────────────────── */}
         <div className="psm__footer">
-          {tab === 'project' && (
-            <button
-              type="button"
-              className="dash-btn-primary"
-              disabled={!projectName.trim()}
-              onClick={handleSaveProject}
-            >
-              {editingProject ? 'Save changes' : 'Create project →'}
-            </button>
-          )}
-
-          {tab === 'milestones' && (
-            <button
-              type="button"
-              className="dash-btn-secondary"
-              disabled={!newMilestoneTitle.trim() || !targetProject}
-              onClick={handleAddMilestone}
-            >
-              Add milestone
-            </button>
-          )}
-
-          {tab === 'session' && (
-            <button
-              type="button"
-              className="dash-btn-primary"
-              disabled={!targetProject}
-              onClick={handleConnectSession}
-            >
-              Connect session →
-            </button>
-          )}
-
-          <button type="button" className="dash-btn-ghost" onClick={onClose}>
-            Close
+          <button type="button" className="psm__cancel-btn" onClick={onClose}>
+            Cancel
+          </button>
+          <button
+            type="button"
+            className="psm__save-btn"
+            disabled={!title.trim()}
+            onClick={handleSave}
+          >
+            {isEditMode ? 'Save changes' : 'Create project'}
           </button>
         </div>
       </div>

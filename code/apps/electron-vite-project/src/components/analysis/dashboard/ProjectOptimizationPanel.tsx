@@ -1,16 +1,22 @@
 /**
- * ProjectOptimizationPanel — compact card layout (PROMPT 3 refactor).
+ * ProjectOptimizationPanel — compact card layout (PROMPT 4A update).
  *
  * UI: 4-zone card — header, selector+controls, roadmap, status footer.
- * All business logic, store connections, and IPC calls are PRESERVED unchanged.
+ * All business logic, store connections, and IPC calls are PRESERVED.
  *
- * PRESERVED (exact store access patterns):
+ * Schema change notes (PROMPT 4A):
+ *   - Project.name → Project.title
+ *   - Project.autoOptimization → Project.autoOptimizationEnabled
+ *   - Milestones now use `completed: boolean` (was `status` enum)
+ *   - No more AnalysisSession or AgentSlot on projects
+ *   - useProjectStore actions updated: setActiveProject, setAutoOptimization
+ *
+ * PRESERVED:
  *   - useEmailInboxStore: autoSyncEnabled, toggleAutoSyncForActiveAccounts,
- *     refreshInboxSyncBackendState, accountIds, primaryAccountId
- *   - useProjectSetupChatContextStore: all draft fields, snippets, includeInChat
+ *     refreshInboxSyncBackendState
+ *   - useProjectSetupChatContextStore: all draft fields + snippets
  *   - focusHeaderAiChat() dispatch (WRDESK_FOCUS_AI_CHAT_EVENT)
  *   - handleRunAnalysisNow, onAutoToggle callbacks
- *   - useProjectStore: project/session CRUD, milestone roadmap, agent grid
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
@@ -22,11 +28,14 @@ import { useProjectSetupChatContextStore } from '../../../stores/useProjectSetup
 import {
   useProjectStore,
   selectActiveProject,
-  selectLinkedSession,
-  milestoneCompletionPct,
 } from '../../../stores/useProjectStore'
+import { AUTO_OPTIMIZATION_INTERVALS } from '../../../types/projectTypes'
 import type { AnalysisDashboardAutosortSessionMeta } from '../../../types/analysisDashboardSnapshot'
-import type { AgentSlot, Project, ProjectMilestone } from '../../../types/projectTypes'
+import {
+  startAutoOptimization,
+  stopAutoOptimization,
+  triggerSnapshotOptimization,
+} from '../../../lib/autoOptimizationEngine'
 import { ProjectSetupModal } from './ProjectSetupModal'
 import '../../../styles/dashboard-tokens.css'
 import '../../../styles/dashboard-base.css'
@@ -42,13 +51,9 @@ export type DashboardEmailAccountRow = {
 }
 
 export interface ProjectOptimizationPanelProps {
-  /** Latest completed autosort session from dashboard snapshot (read-only). */
   latestAutosortSession?: AnalysisDashboardAutosortSessionMeta | null
-  /** Connected mail accounts from the app shell — used for auto-sync toggle. */
   emailAccounts?: DashboardEmailAccountRow[]
-  /** Refresh dashboard snapshot + inbox list. */
   onRefreshOperations?: () => void | Promise<void>
-  /** Navigate to Bulk Inbox after refresh (for AI Auto-Sort). */
   onOpenBulkInboxForAnalysis?: () => void
 }
 
@@ -65,154 +70,9 @@ function formatStatusDate(iso: string | null | undefined): string {
   return d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
 }
 
-function sessionIdShort(id: string): string {
-  const t = id.trim()
-  if (t.length <= 12) return t
-  return `${t.slice(0, 10)}…`
-}
-
-function formatRelativeTime(iso: string | null | undefined): string {
-  if (!iso) return 'never'
-  const diff = Date.now() - new Date(iso).getTime()
-  if (diff < 60_000) return 'just now'
-  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`
-  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`
-  return `${Math.floor(diff / 86_400_000)}d ago`
-}
-
-// ── Sub-components ────────────────────────────────────────────────────────────
-
-function MilestoneRoadmap({ project }: { project: Project }) {
-  const { updateMilestoneStatus } = useProjectStore(
-    useShallow((s) => ({ updateMilestoneStatus: s.updateMilestoneStatus })),
-  )
-
-  const sorted = useMemo(
-    () => [...project.milestones].sort((a, b) => a.order - b.order),
-    [project.milestones],
-  )
-
-  const activeIndex = sorted.findIndex((m) => m.status === 'in_progress')
-  const activeMilestone: ProjectMilestone | null =
-    activeIndex >= 0
-      ? (sorted[activeIndex] ?? null)
-      : (sorted.find((m) => m.status === 'pending') ?? null)
-
-  function cycleStatus(m: ProjectMilestone) {
-    const next: ProjectMilestone['status'] =
-      m.status === 'pending' ? 'in_progress'
-      : m.status === 'in_progress' ? 'completed'
-      : 'pending'
-    updateMilestoneStatus(project.id, m.id, next)
-  }
-
-  if (sorted.length === 0) {
-    return (
-      <p className="pop__roadmap-empty">
-        No milestones · add them in Full Setup
-      </p>
-    )
-  }
-
-  return (
-    <div className="pop__roadmap">
-      <div className="pop__roadmap-track" role="list" aria-label="Milestone roadmap">
-        {sorted.slice(0, 9).map((m, i) => (
-          <span key={m.id} role="listitem" style={{ display: 'contents' }}>
-            {i > 0 && (
-              <div
-                className={`pop__roadmap-line${sorted[i - 1]?.status === 'completed' ? ' pop__roadmap-line--done' : ''}`}
-              />
-            )}
-            <button
-              type="button"
-              className={[
-                'pop__roadmap-node',
-                m.status === 'completed' ? 'pop__roadmap-node--completed' : '',
-                m.status === 'in_progress' ? 'pop__roadmap-node--active' : '',
-              ]
-                .filter(Boolean)
-                .join(' ')}
-              title={`${m.title} (${m.status}) — click to advance`}
-              aria-label={`${m.title}: ${m.status}`}
-              onClick={() => cycleStatus(m)}
-            >
-              {m.status === 'completed' && (
-                <span className="pop__roadmap-node-check" aria-hidden="true">✓</span>
-              )}
-            </button>
-          </span>
-        ))}
-      </div>
-
-      {activeMilestone && (
-        <p className="pop__roadmap-label">
-          <strong>
-            {activeMilestone.status === 'in_progress' ? 'In progress: ' : 'Up next: '}
-          </strong>
-          {activeMilestone.title}
-        </p>
-      )}
-    </div>
-  )
-}
-
-// ── Agent grid (used in hidden preservation section) ──────────────────────────
-
-function AgentGrid({ agents }: { agents: readonly AgentSlot[] }) {
-  const enabled = agents.filter((a) => a.enabled)
-
-  if (enabled.length === 0) {
-    return (
-      <div className="pop__agents-empty">
-        No active agent slots — configure them in Full Setup
-      </div>
-    )
-  }
-
-  return (
-    <div className="pop__agents-grid">
-      {enabled.map((agent) => {
-        const confidencePct =
-          agent.confidence !== null ? Math.round(agent.confidence * 100) : null
-        const fillClass =
-          confidencePct === null
-            ? ''
-            : confidencePct < 40
-              ? 'pop__agent-card__confidence-fill--critical'
-              : confidencePct < 65
-                ? 'pop__agent-card__confidence-fill--low'
-                : ''
-
-        return (
-          <div
-            key={agent.id}
-            className="pop__agent-card"
-            title={agent.lastOutput ?? 'No output yet'}
-          >
-            <span className="pop__agent-card__label">{agent.label}</span>
-            <span
-              className={`pop__agent-card__preview${!agent.lastOutput ? ' pop__agent-card__preview--empty' : ''}`}
-            >
-              {agent.lastOutput ?? 'No output yet'}
-            </span>
-            <div className="pop__agent-card__confidence" aria-hidden="true">
-              {confidencePct !== null && (
-                <div
-                  className={`pop__agent-card__confidence-fill ${fillClass}`}
-                  style={{ width: `${confidencePct}%` }}
-                />
-              )}
-            </div>
-            <span className="pop__agent-card__meta">
-              {confidencePct !== null ? `${confidencePct}% · ` : ''}
-              {formatRelativeTime(agent.lastRunAt)}
-            </span>
-          </div>
-        )
-      })}
-    </div>
-  )
+function formatIntervalLabel(ms: number): string {
+  const opt = AUTO_OPTIMIZATION_INTERVALS.find((i) => i.value === ms)
+  return opt ? `every ${opt.label}` : `every ${Math.round(ms / 60000)} min`
 }
 
 // ── Main component ────────────────────────────────────────────────────────────
@@ -227,23 +87,26 @@ export function ProjectOptimizationPanel({
   const {
     projects,
     activeProjectId,
-    setActiveProjectId,
-    toggleAutoOptimization,
-    toggleSnapshotCapture,
+    setActiveProject,
+    setAutoOptimization,
     removeAttachment,
   } = useProjectStore(
     useShallow((s) => ({
-      projects:               s.projects,
-      activeProjectId:        s.activeProjectId,
-      setActiveProjectId:     s.setActiveProjectId,
-      toggleAutoOptimization: s.toggleAutoOptimization,
-      toggleSnapshotCapture:  s.toggleSnapshotCapture,
-      removeAttachment:       s.removeAttachment,
+      projects:           s.projects,
+      activeProjectId:    s.activeProjectId,
+      setActiveProject:   s.setActiveProject,
+      setAutoOptimization: s.setAutoOptimization,
+      removeAttachment:   s.removeAttachment,
     })),
   )
 
   const activeProject = useProjectStore(selectActiveProject)
-  const activeSession = useProjectStore((s) => selectLinkedSession(s, activeProject))
+
+  // ── Roadmap derived values ─────────────────────────────────────────────────
+  const completedCount  = activeProject?.milestones.filter((m) => m.completed).length ?? 0
+  const totalCount      = activeProject?.milestones.length ?? 0
+  const activeMilestone = activeProject?.milestones.find((m) => !m.completed) ?? null
+  const allDone         = totalCount > 0 && completedCount === totalCount
 
   // ── Email inbox store (preserved exactly) ─────────────────────────────────
   const accountIds       = useMemo(() => activeEmailAccountIdsForSync(emailAccounts), [emailAccounts])
@@ -276,12 +139,31 @@ export function ProjectOptimizationPanel({
     [accountIds, primaryAccountId, toggleAutoSyncForActiveAccounts, autoToggleBusy],
   )
 
+  // ── Auto-optimization engine (V1 stub) ───────────────────────────────────
+  const autoOptEnabled  = activeProject?.autoOptimizationEnabled ?? false
+  const autoOptInterval = activeProject?.autoOptimizationIntervalMs ?? 300_000
+
+  useEffect(() => {
+    const project = useProjectStore.getState().getActiveProject()
+    if (project?.autoOptimizationEnabled) {
+      startAutoOptimization(project)
+    } else {
+      stopAutoOptimization()
+    }
+    return () => stopAutoOptimization()
+  // Re-run when the active project changes or auto-opt is toggled / interval changes
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeProjectId, autoOptEnabled, autoOptInterval])
+
   const [runBusy, setRunBusy] = useState(false)
 
   const handleRunAnalysisNow = useCallback(async () => {
     if (runBusy || !onRefreshOperations) return
     setRunBusy(true)
     try {
+      // V1: trigger optimization run (console log only; V2: orchestrator IPC)
+      const project = useProjectStore.getState().getActiveProject()
+      if (project) triggerSnapshotOptimization(project)
       await onRefreshOperations()
       onOpenBulkInboxForAnalysis?.()
     } finally {
@@ -322,9 +204,8 @@ export function ProjectOptimizationPanel({
     })),
   )
 
-  // ── Snippet add form ───────────────────────────────────────────────────────
   const [snippetLabel, setSnippetLabel] = useState('')
-  const [snippetText, setSnippetText]   = useState('')
+  const [snippetText,  setSnippetText]  = useState('')
 
   const handleAddSnippet = useCallback(() => {
     if (!snippetLabel.trim() && !snippetText.trim()) return
@@ -333,8 +214,12 @@ export function ProjectOptimizationPanel({
     setSnippetText('')
   }, [snippetLabel, snippetText, addSnippet])
 
-  // ── Modal ──────────────────────────────────────────────────────────────────
-  const [modalOpen, setModalOpen] = useState(false)
+  // ── Modal state (create vs edit) ──────────────────────────────────────────
+  const [modalOpen,   setModalOpen]   = useState(false)
+  const [modalEditId, setModalEditId] = useState<string | null>(null)
+
+  const openCreateModal = () => { setModalEditId(null); setModalOpen(true) }
+  const openEditModal   = () => { setModalEditId(activeProjectId); setModalOpen(true) }
 
   // ── Derived display values ────────────────────────────────────────────────
   const autoDisabled       = accountIds.length === 0
@@ -348,11 +233,12 @@ export function ProjectOptimizationPanel({
         ? `In progress · ${latestAutosortSession.status}`
         : '—'
 
-  // milestoneCompletionPct referenced to keep import live
-  void milestoneCompletionPct
-  // sessionIdShort referenced to keep import live
-  void sessionIdShort
-  // focusHeaderAiChat referenced to keep import live
+  const autoOptOn     = autoOptEnabled
+  const autoModeLabel = autoOptOn
+    ? `On · ${formatIntervalLabel(activeProject!.autoOptimizationIntervalMs)}`
+    : 'Off'
+
+  // Keep focusHeaderAiChat in scope (used by hidden section below)
   void focusHeaderAiChat
 
   // ── Render ────────────────────────────────────────────────────────────────
@@ -365,56 +251,65 @@ export function ProjectOptimizationPanel({
           <button
             type="button"
             className="pop__btn-sm"
-            onClick={() => setModalOpen(true)}
-            title="Open full project setup"
-          >
-            Setup
-          </button>
-          <button
-            type="button"
-            className="pop__btn-sm"
-            onClick={() => setModalOpen(true)}
+            onClick={openCreateModal}
             title="Create a new project"
           >
-            + New
+            + New Project
           </button>
         </div>
       </div>
 
-      {/* ── Selector + Controls (grouped, no divider between them) ──────────── */}
+      {/* ── Selector + Controls ─────────────────────────────────────────────── */}
       <div className="pop__selector-group">
-        {/* Project dropdown */}
-        <select
-          className={`pop__compact-select${activeProjectId ? ' pop__compact-select--has-value' : ''}`}
-          value={activeProjectId ?? ''}
-          onChange={(e) => setActiveProjectId(e.target.value || null)}
-          aria-label="Select active project"
-        >
-          <option value="">— No project selected —</option>
-          {projects.map((p) => (
-            <option key={p.id} value={p.id}>{p.name}</option>
-          ))}
-        </select>
+        {/* Project dropdown + optional edit button */}
+        <div className="pop__select-row">
+          <select
+            className={`pop__compact-select${activeProjectId ? ' pop__compact-select--has-value' : ''}`}
+            value={activeProjectId ?? ''}
+            onChange={(e) => setActiveProject(e.target.value || null)}
+            aria-label="Select active project"
+          >
+            <option value="">— No project selected —</option>
+            {projects.map((p) => (
+              <option key={p.id} value={p.id}>{p.title}</option>
+            ))}
+          </select>
+          {activeProjectId && (
+            <button
+              type="button"
+              className="pop__edit-btn"
+              onClick={openEditModal}
+              title="Edit this project"
+            >
+              Edit
+            </button>
+          )}
+        </div>
 
-        {/* Controls row: Auto-Optimization toggle + Snapshot-Optimization button */}
+        {/* Controls: Auto-Optimization toggle + Snapshot-Optimization button */}
         <div className="pop__controls-inline">
-          {/* Auto-Optimization toggle */}
           <label className="pop__toggle-wrap">
             <button
               type="button"
               role="switch"
-              aria-checked={activeProject?.autoOptimization ?? false}
-              className={`pop__toggle-switch${(activeProject?.autoOptimization ?? false) ? ' pop__toggle-switch--on' : ''}`}
+              aria-checked={autoOptOn}
+              className={`pop__toggle-switch${autoOptOn ? ' pop__toggle-switch--on' : ''}`}
               disabled={!activeProject}
-              onClick={() => activeProject && toggleAutoOptimization(activeProject.id)}
+              onClick={() =>
+                activeProject && setAutoOptimization(activeProject.id, !autoOptOn)
+              }
               title="Automatically triggers analysis at set intervals"
             >
               <span className="pop__toggle-knob" />
             </button>
             <span className="pop__toggle-text">Auto-Optimization</span>
+            {autoOptOn && activeProject && (
+              <span className="pop__interval-hint">
+                {formatIntervalLabel(activeProject.autoOptimizationIntervalMs)}
+              </span>
+            )}
           </label>
 
-          {/* Snapshot-Optimization button */}
           <div className="pop__action-group">
             <button
               type="button"
@@ -435,7 +330,22 @@ export function ProjectOptimizationPanel({
 
       {/* ── Roadmap area ────────────────────────────────────────────────────── */}
       {activeProject ? (
-        <MilestoneRoadmap project={activeProject} />
+        <div className="pop__roadmap-area">
+          {totalCount === 0 ? (
+            <p className="pop__roadmap-none">No milestones set</p>
+          ) : allDone ? (
+            <p className="pop__roadmap-done">All milestones complete ✓</p>
+          ) : (
+            <div>
+              <p className="pop__roadmap-current">
+                Current: {activeMilestone?.title ?? ''}
+              </p>
+              <p className="pop__roadmap-progress">
+                {completedCount}/{totalCount} milestones
+              </p>
+            </div>
+          )}
+        </div>
       ) : (
         <div className="pop__roadmap-placeholder">
           Select or create a project to see the goal and milestone roadmap
@@ -450,18 +360,12 @@ export function ProjectOptimizationPanel({
         <div className="pop__sfr">
           <span className="pop__sfr-key">Active project</span>
           <span className="pop__sfr-val">
-            {activeProject?.name ?? 'None · no project selected'}
+            {activeProject?.title ?? 'None · no project selected'}
           </span>
         </div>
         <div className="pop__sfr">
           <span className="pop__sfr-key">Auto mode</span>
-          <span className="pop__sfr-val">
-            {autoDisabled
-              ? 'Off · add Inbox account'
-              : autoSyncEnabled
-                ? 'On · background mail sync'
-                : 'Off · sync paused'}
-          </span>
+          <span className="pop__sfr-val">{autoModeLabel}</span>
         </div>
         <div className="pop__sfr">
           <span className="pop__sfr-key">Last sort</span>
@@ -527,13 +431,6 @@ export function ProjectOptimizationPanel({
         </div>
       </details>
 
-      {/* ── Agent grid (hidden — preserves activeSession + AgentGrid reference) ── */}
-      {activeSession && (
-        <div className="pop__hidden-preserve">
-          <AgentGrid agents={activeSession.agents} />
-        </div>
-      )}
-
       {/* ── Attachments (hidden — preserves removeAttachment reference) ────── */}
       {activeProject && activeProject.attachments.length > 0 && (
         <div className="pop__hidden-preserve">
@@ -542,24 +439,11 @@ export function ProjectOptimizationPanel({
               key={att.id}
               type="button"
               onClick={() => removeAttachment(activeProject.id, att.id)}
-              aria-label={`Remove ${att.label}`}
+              aria-label={`Remove ${att.filename}`}
             >
               ×
             </button>
           ))}
-        </div>
-      )}
-
-      {/* ── Snapshot Capture (hidden — preserves toggleSnapshotCapture reference) ── */}
-      {activeProject && (
-        <div className="pop__hidden-preserve">
-          <button
-            type="button"
-            onClick={() => toggleSnapshotCapture(activeProject.id)}
-            aria-label="Toggle snapshot capture"
-          >
-            Snapshot: {activeProject.snapshotCapture ? 'on' : 'off'}
-          </button>
         </div>
       )}
 
@@ -575,11 +459,11 @@ export function ProjectOptimizationPanel({
         </button>
       </div>
 
-      {/* ── Multi-tab setup modal ─────────────────────────────────────────── */}
+      {/* ── Project Setup Modal ─────────────────────────────────────────────── */}
       <ProjectSetupModal
         open={modalOpen}
         onClose={() => setModalOpen(false)}
-        activeProjectId={activeProjectId}
+        activeProjectId={modalEditId}
       />
     </section>
   )

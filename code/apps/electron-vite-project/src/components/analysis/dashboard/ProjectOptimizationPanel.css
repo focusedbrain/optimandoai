@@ -403,6 +403,91 @@
   flex: 1;
 }
 
+/* ── Select row (dropdown + optional edit button) ── */
+.pop__select-row {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.pop__select-row .pop__compact-select {
+  flex: 1;
+}
+
+.pop__edit-btn {
+  padding: 3px 10px;
+  font-size: 9px;
+  font-weight: 500;
+  background: #F3F3F2;
+  background: var(--dash-bg-inset, #F3F3F2);
+  border: 1px solid #E8E8E6;
+  border: 1px solid var(--dash-border-default, #E8E8E6);
+  border-radius: 4px;
+  color: #6B6B66;
+  color: var(--dash-text-secondary, #6B6B66);
+  cursor: pointer;
+  font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
+  transition: background 120ms ease, border-color 120ms ease;
+  white-space: nowrap;
+  flex-shrink: 0;
+  line-height: 1.4;
+}
+
+.pop__edit-btn:hover {
+  background: #E8E8E6;
+  border-color: #D4D4D1;
+}
+
+/* ── Interval hint (shown next to auto-optimization toggle when on) ── */
+.pop__interval-hint {
+  font-size: 9px;
+  color: #9B9B96;
+  color: var(--dash-text-tertiary, #9B9B96);
+  font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
+  white-space: nowrap;
+}
+
+/* ── Roadmap display (simple text, per PROMPT 4A spec) ── */
+.pop__roadmap-area {
+  padding: 6px 0;
+}
+
+.pop__roadmap-current {
+  font-size: 12px;
+  font-weight: 500;
+  color: #1C1C1A;
+  color: var(--dash-text-primary, #1C1C1A);
+  font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
+  margin: 0 0 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pop__roadmap-progress {
+  font-size: 10px;
+  color: #6B6B66;
+  color: var(--dash-text-secondary, #6B6B66);
+  font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
+  margin: 0;
+}
+
+.pop__roadmap-none {
+  font-size: 10px;
+  color: #9B9B96;
+  color: var(--dash-text-tertiary, #9B9B96);
+  font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
+  margin: 0;
+  font-style: italic;
+}
+
+.pop__roadmap-done {
+  font-size: 12px;
+  color: #059669;
+  font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
+  margin: 0;
+}
+
 /* ── Hidden sections (preserve store connections, not rendered visually) ── */
 .pop__drafts--hidden,
 .pop__hidden-preserve {

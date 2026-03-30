@@ -43,6 +43,7 @@ import {
 // ── Data layer ────────────────────────────────────────────────────────────────
 import { useAnalysisDashboardSnapshot } from '../lib/useAnalysisDashboardSnapshot'
 import { useEmailInboxStore } from '../stores/useEmailInboxStore'
+import { useProjectStore, selectActiveProject } from '../stores/useProjectStore'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -83,6 +84,10 @@ export default function AnalysisCanvas({
     error:    dashboardError,
     refresh:  refreshDashboard,
   } = useAnalysisDashboardSnapshot({ urgentMessageLimit: 10 })
+
+  // ── Project store (drives StatusCard wiring) ───────────────────────────────
+  const activeProject   = useProjectStore(selectActiveProject)
+  const autoSyncEnabled = useEmailInboxStore((s) => s.autoSyncEnabled)
 
   /**
    * Combined refresh: snapshot + inbox message list.
@@ -135,6 +140,12 @@ export default function AnalysisCanvas({
               loading={dashboardLoading}
               error={dashboardError}
               onRetry={refreshDashboard}
+              autoOptimizationEnabled={activeProject?.autoOptimizationEnabled ?? false}
+              autoSyncEnabled={autoSyncEnabled}
+              syncActive={false /* TODO: wire to real sync-in-progress state */}
+              accountCount={emailAccounts?.length ?? 0}
+              activeProjectName={activeProject?.title ?? null}
+              unopenedBeapCount={0 /* TODO: derive from snapshot or dedicated IPC */}
             />
           </div>
 

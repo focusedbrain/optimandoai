@@ -149,7 +149,7 @@ function AutosortCard({ snapshot }: { snapshot: AnalysisDashboardSnapshot }) {
 
       <div className="ic-auto__kpi-row">
         <span className="ic-auto__kpi-num">{totalMessages.toLocaleString()}</span>
-        <span className="ic-auto__kpi-unit">msgs sorted</span>
+        <span className="ic-auto__kpi-unit">messages sorted</span>
       </div>
 
       {hasSession && totalMessages > 0 && sorted.length > 0 ? (
@@ -285,7 +285,7 @@ function TransportCard({ snapshot }: { snapshot: AnalysisDashboardSnapshot }) {
           </div>
           <div className="ic-tp__count-block">
             <span className="ic-tp__count-num">{depackaged.toLocaleString()}</span>
-            <span className="ic-tp__count-lbl">Depack.</span>
+            <span className="ic-tp__count-lbl">Depackaged</span>
           </div>
         </div>
       </div>
