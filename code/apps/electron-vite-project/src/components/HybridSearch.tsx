@@ -641,6 +641,13 @@ export default function HybridSearch({
     if (!showPanel) setChatAttachments([])
   }, [showPanel])
 
+  // Clear chat attachments when ProjectOptimizationPanel switches fields
+  useEffect(() => {
+    const handler = () => setChatAttachments([])
+    window.addEventListener('wrdesk:clear-chat-attachments', handler)
+    return () => window.removeEventListener('wrdesk:clear-chat-attachments', handler)
+  }, [])
+
   // Close info popup on outside click or Escape
   useEffect(() => {
     if (!infoPopupOpen) return
@@ -1151,8 +1158,16 @@ export default function HybridSearch({
           <button
             type="button"
             onClick={() => {
-              projectSetupSetIncludeInChat(false)
-              projectSetupSetSetupTextDraft('')
+              // Clear all store draft fields — prevents stale goalsDraft / milestonesDraft
+              // from contaminating the next field selection
+              const store = useProjectSetupChatContextStore.getState()
+              store.setIncludeInChat(false)
+              store.setSetupTextDraft('')
+              store.setGoalsDraft('')
+              store.setMilestonesDraft('')
+              store.clearSnippets()
+              // Clear drop-zone attachments — they are field-specific
+              setChatAttachments([])
             }}
             aria-label="Disconnect project drafting"
             title="Disconnect — stop sending project context to AI"

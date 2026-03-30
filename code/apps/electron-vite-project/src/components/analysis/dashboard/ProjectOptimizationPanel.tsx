@@ -237,7 +237,6 @@ export function ProjectOptimizationPanel({
       removeSnippet:       s.removeSnippet,
     })),
   )
-
   const [snippetLabel, setSnippetLabel] = useState('')
   const [snippetText,  setSnippetText]  = useState('')
 
@@ -291,36 +290,35 @@ export function ProjectOptimizationPanel({
       return
     }
 
-    // Gather all available project context (rich format)
-    const projectContext = [
-      formTitle       ? `Project title: "${formTitle}"` : null,
-      formDescription ? `Description: ${formDescription}` : null,
-      formGoals       ? `Goals: ${formGoals}` : null,
-      formMilestones.length > 0
-        ? `Milestones:\n${formMilestones.map((m) => `${m.isActive ? '● ' : '○ '}${m.completed ? '[DONE] ' : ''}${m.title}`).join('\n')}`
-        : null,
-      formAttachments.length > 0
-        ? `Attached context:\n${formAttachments
-            .filter((a) => a.content && a.content.length > 0)
-            .map((a) => `[Attachment: ${a.filename}]\n${a.content.slice(0, 2000)}`)
-            .join('\n\n')}`
-        : null,
-    ].filter(Boolean).join('\n\n') || '(No project context yet — user is starting fresh)'
+    // ── ALWAYS wipe stale legacy draft fields before writing new context ──
+    // goalsDraft / milestonesDraft / snippets feed into buildProjectSetupChatPrefix
+    // alongside setupTextDraft — stale values from previous sessions contaminate
+    // the title (and every other) field if not cleared first.
+    const store = useProjectSetupChatContextStore.getState()
+    store.setGoalsDraft('')
+    store.setMilestonesDraft('')
+    store.clearSnippets()
 
-    // Field-specific pre-frames — highly specific so AI knows exactly what to produce
+    // ── Field-specific pre-frames ─────────────────────────────────────────
     const preFrames: Record<string, string> = {
+      // Title gets a SHORT, DOMINANT, RESTRICTIVE instruction.
+      // No full project context — giving the AI 2000+ chars of description /
+      // attachment text causes it to generate content about those instead of
+      // producing a short title.
       title: [
-        '[INSTRUCTION: The user is drafting a PROJECT TITLE.',
-        "Based on the user's input and any attached context (images, PDFs),",
-        'generate a clear, concise project title.',
-        'Requirements:',
-        '- 3 to 8 words maximum',
-        '- Professional and descriptive',
-        '- No quotes, no punctuation at the end, no explanation',
-        '- Output ONLY the title text, nothing else',
-        'If the user provides a description or goals, derive the title from those.',
-        'If the user provides an image, describe what the image shows and derive a relevant project title.]',
-      ].join(' '),
+        '=== STRICT INSTRUCTION ===',
+        'OUTPUT ONLY A PROJECT TITLE. Nothing else.',
+        'Rules:',
+        '- Maximum 10 words',
+        '- No quotes, no explanation, no description, no goals, no milestones',
+        '- No markdown formatting',
+        '- Just the title text on a single line',
+        '- If the user asks to "rewrite" or "make longer", output ONLY the revised title — still just the title, nothing else',
+        '=== END INSTRUCTION ===',
+        '',
+        `Current title: "${formTitle || '(none)'}"`,
+      ].join('\n'),
+
       description: [
         '[INSTRUCTION: The user is drafting a PROJECT DESCRIPTION.',
         "Based on the user's input and any attached context (images, PDFs),",
@@ -334,6 +332,7 @@ export function ProjectOptimizationPanel({
         'If the user provides an image (e.g., a screenshot), analyze it and incorporate your observations.',
         'If the user provides a PDF, use its content as project context.]',
       ].join(' '),
+
       goals: [
         '[INSTRUCTION: The user is drafting PROJECT GOALS.',
         "Based on the user's input and any attached context (images, PDFs),",
@@ -347,6 +346,7 @@ export function ProjectOptimizationPanel({
         'If the user provides an image, analyze what needs improvement and derive goals from that.',
         'If the user provides a PDF, extract relevant objectives from its content.]',
       ].join(' '),
+
       milestones: [
         '[INSTRUCTION: The user is drafting PROJECT MILESTONES.',
         "Based on the user's input, project goals, and any attached context,",
@@ -361,6 +361,31 @@ export function ProjectOptimizationPanel({
         'If goals have been defined, ensure milestones align with and progress toward those goals.]',
       ].join(' '),
     }
+
+    if (selectedField === 'title') {
+      // Title: ONLY the dominant instruction + current title value.
+      // Deliberately excludes description, goals, milestones, and attachment
+      // text — those overwhelm the model and cause it to generate non-title content.
+      setSetupTextDraft(preFrames.title)
+      setIncludeInChat(true)
+      return
+    }
+
+    // ── Non-title fields: include full project context ────────────────────
+    const projectContext = [
+      formTitle       ? `Project title: "${formTitle}"` : null,
+      formDescription ? `Description: ${formDescription}` : null,
+      formGoals       ? `Goals: ${formGoals}` : null,
+      formMilestones.length > 0
+        ? `Milestones:\n${formMilestones.map((m) => `${m.isActive ? '● ' : '○ '}${m.completed ? '[DONE] ' : ''}${m.title}`).join('\n')}`
+        : null,
+      formAttachments.length > 0
+        ? `Attached context:\n${formAttachments
+            .filter((a) => a.content && a.content.length > 0)
+            .map((a) => `[Attachment: ${a.filename}]\n${a.content.slice(0, 2000)}`)
+            .join('\n\n')}`
+        : null,
+    ].filter(Boolean).join('\n\n') || '(No project context yet — user is starting fresh)'
 
     const setupText = `${preFrames[selectedField]}\n\n[PROJECT CONTEXT]\n${projectContext}`
     setSetupTextDraft(setupText)
@@ -380,19 +405,32 @@ export function ProjectOptimizationPanel({
   // ── Field selection handler ────────────────────────────────────────────────
   const handleFieldSelect = useCallback(
     (field: 'title' | 'description' | 'goals' | 'milestones') => {
+      // ── Clear ALL stale store draft data before any state change ──────────
+      // goalsDraft / milestonesDraft / snippets in useProjectSetupChatContextStore
+      // are concatenated by buildProjectSetupChatPrefix — if they hold data from
+      // a previous session they will contaminate the new field's AI context.
+      const store = useProjectSetupChatContextStore.getState()
+      store.setGoalsDraft('')
+      store.setMilestonesDraft('')
+      store.clearSnippets()
+      store.setSetupTextDraft('')
+      store.setIncludeInChat(false)
+
+      // ── Clear drop-zone attachments in the chat panel ─────────────────────
+      // Attachments are field-specific — a PDF dropped while drafting goals
+      // must not carry over to title drafting.
+      window.dispatchEvent(new CustomEvent('wrdesk:clear-chat-attachments'))
+
       if (selectedField === field) {
-        // Deselect — clear chat context
+        // Deselect — stay cleared
         setSelectedField(null)
-        setSetupTextDraft('')
-        setIncludeInChat(false)
       } else {
         setSelectedField(field)
-        // Chat context is updated by the effect above on next render
-        // Focus AI chat immediately so user can start drafting
+        // Context will be set by the sync useEffect on the next render tick
         focusHeaderAiChat()
       }
     },
-    [selectedField, setSetupTextDraft, setIncludeInChat],
+    [selectedField],
   )
 
   // ── Refs so event handlers always see latest state ────────────────────────
@@ -481,10 +519,15 @@ export function ProjectOptimizationPanel({
 
   // ── Open / cancel / save ──────────────────────────────────────────────────
   const clearFormChatContext = useCallback(() => {
-    setSetupTextDraft('')
-    setIncludeInChat(false)
+    const store = useProjectSetupChatContextStore.getState()
+    store.setSetupTextDraft('')
+    store.setGoalsDraft('')
+    store.setMilestonesDraft('')
+    store.clearSnippets()
+    store.setIncludeInChat(false)
     setSelectedField(null)
-  }, [setSetupTextDraft, setIncludeInChat])
+    window.dispatchEvent(new CustomEvent('wrdesk:clear-chat-attachments'))
+  }, [])
 
   const openCreateMode = useCallback(() => {
     setFormTitle('')
