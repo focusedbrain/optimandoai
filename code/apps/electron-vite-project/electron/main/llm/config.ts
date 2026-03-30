@@ -215,6 +215,61 @@ export const MODEL_CATALOG: LlmModelConfig[] = [
     contextWindow: 131072,
     description: 'Latest Llama version with 128K context window. Improved performance.'
   },
+  {
+    id: 'qwen3:14b',
+    displayName: 'Qwen 3 14B (Q4)',
+    provider: 'Alibaba',
+    tier: 'performance',
+    minRamGb: 10,
+    recommendedRamGb: 14,
+    diskSizeGb: 9.0,
+    contextWindow: 131072,
+    description: '4-bit quantized. Qwen 3 14B; strong reasoning and general chat on capable hardware.'
+  },
+  {
+    id: 'phi4:14b',
+    displayName: 'Phi-4 14B (Q4)',
+    provider: 'Microsoft',
+    tier: 'performance',
+    minRamGb: 10,
+    recommendedRamGb: 14,
+    diskSizeGb: 9.0,
+    contextWindow: 16384,
+    description: '4-bit quantized. Microsoft Phi-4 14B; solid instruction following and reasoning.'
+  },
+  {
+    id: 'qwen2.5:14b',
+    displayName: 'Qwen 2.5 14B (Q4)',
+    provider: 'Alibaba',
+    tier: 'performance',
+    minRamGb: 10,
+    recommendedRamGb: 14,
+    diskSizeGb: 9.0,
+    contextWindow: 131072,
+    description: '4-bit quantized. Qwen 2.5 14B; high-quality multilingual conversational model.'
+  },
+  {
+    id: 'qwen2.5-coder:14b',
+    displayName: 'Qwen 2.5 Coder 14B (Q4)',
+    provider: 'Alibaba',
+    tier: 'performance',
+    minRamGb: 10,
+    recommendedRamGb: 14,
+    diskSizeGb: 9.0,
+    contextWindow: 131072,
+    description: '4-bit quantized. Code-focused Qwen 2.5 14B for software engineering tasks.'
+  },
+  {
+    id: 'gemma3:12b',
+    displayName: 'Gemma 3 12B (Q4)',
+    provider: 'Google',
+    tier: 'performance',
+    minRamGb: 9,
+    recommendedRamGb: 12,
+    diskSizeGb: 8.0,
+    contextWindow: 131072,
+    description: '4-bit quantized. Gemma 3 12B; long-context general model from Google.'
+  },
   
   // High-end models (16GB+ RAM)
   {
