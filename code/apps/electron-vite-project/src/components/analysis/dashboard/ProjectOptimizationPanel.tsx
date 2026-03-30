@@ -527,18 +527,37 @@ export function ProjectOptimizationPanel({
         flashField('goals')
       } else if (field === 'milestones') {
         const qmId = quickEditMilestoneIdRef.current
+        console.log('[Use Draft] milestones branch — qmId:', qmId, 'mode:', mode)
+
         if (qmId) {
-          // A SPECIFIC milestone is selected → insert INTO that milestone only
+          // ── SPECIFIC milestone selected → update THAT milestone only ─────────
+          // Read projectId from the store (not from closure — the closure has
+          // empty deps and cannot see Zustand-subscribed state changes)
+          const projectStore = useProjectStore.getState()
+          const projectId = projectStore.activeProjectId
+          if (!projectId) return
+
+          const project = projectStore.projects.find((p) => p.id === projectId)
+          if (!project) return
+
+          const existing = project.milestones.find((m) => m.id === qmId)
+          const newContent =
+            mode === 'replace' || !existing?.title
+              ? text.trim()
+              : `${existing.title}\n\n${text.trim()}`
+
+          // Persist to store
+          projectStore.updateProject(projectId, {
+            milestones: project.milestones.map((m) =>
+              m.id === qmId ? { ...m, title: newContent } : m
+            ),
+          })
+
+          // Mirror update in local form state so the textarea re-renders
           setFormMilestones((prev) =>
-            prev.map((m) => {
-              if (m.id !== qmId) return m
-              const newTitle =
-                mode === 'replace' || !m.title
-                  ? text.trim()
-                  : `${m.title}\n\n${text.trim()}`
-              return { ...m, title: newTitle }
-            })
+            prev.map((m) => (m.id === qmId ? { ...m, title: newContent } : m))
           )
+
           // Flash + auto-grow the specific milestone's textarea
           requestAnimationFrame(() => {
             const el = document.querySelector(
@@ -550,10 +569,9 @@ export function ProjectOptimizationPanel({
             el.classList.add('project-field--just-inserted')
             setTimeout(() => el.classList.remove('project-field--just-inserted'), 650)
           })
-          // Do NOT clear quickEditMilestoneId — the user may click "Use" on
-          // multiple blocks, all targeting the same milestone
         } else {
-          // NO specific milestone selected (section header mode) → create new milestones
+          // ── NO specific milestone selected → create new milestones ────────────
+          console.log('[Use Draft] Creating new milestones from lines')
           const newMs: ProjectMilestone[] = text
             .split('\n')
             .map((line) => line.replace(/^[-*•]\s*/, '').replace(/^\d+[.)]\s*/, '').trim())
