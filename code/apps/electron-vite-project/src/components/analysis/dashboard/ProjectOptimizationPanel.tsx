@@ -262,7 +262,7 @@ export function ProjectOptimizationPanel({
   const [readerText, setReaderText]         = useState('')
 
   // Single selected field — only one field connected to AI chat at a time
-  const [selectedField, setSelectedField] = useState<'description' | 'goals' | 'milestones' | null>(null)
+  const [selectedField, setSelectedField] = useState<'title' | 'description' | 'goals' | 'milestones' | null>(null)
 
   const fileInputRef  = useRef<HTMLInputElement>(null)
   const titleInputRef = useRef<HTMLInputElement>(null)
@@ -298,6 +298,12 @@ export function ProjectOptimizationPanel({
 
     // Field-specific pre-role (invisible to user — prepended via chat store)
     const preRoles: Record<string, string> = {
+      title: [
+        '[ROLE: You are helping the user create a project title.',
+        'Based on the project context below, suggest a clear, concise project title.',
+        'The title should be short (3-8 words), descriptive, and professional.',
+        'Output ONLY the title text, nothing else. No quotes, no explanation.]',
+      ].join(' '),
       description: [
         '[ROLE: You are helping the user write a project description.',
         'Generate a clear, concise project description based on the project context below.',
@@ -337,7 +343,7 @@ export function ProjectOptimizationPanel({
 
   // ── Field selection handler ────────────────────────────────────────────────
   const handleFieldSelect = useCallback(
-    (field: 'description' | 'goals' | 'milestones') => {
+    (field: 'title' | 'description' | 'goals' | 'milestones') => {
       if (selectedField === field) {
         // Deselect — clear chat context
         setSelectedField(null)
@@ -354,7 +360,7 @@ export function ProjectOptimizationPanel({
   )
 
   // ── Refs so event handlers always see latest state ────────────────────────
-  const selectedFieldRef = useRef<'description' | 'goals' | 'milestones' | null>(null)
+  const selectedFieldRef = useRef<'title' | 'description' | 'goals' | 'milestones' | null>(null)
   useEffect(() => { selectedFieldRef.current = selectedField }, [selectedField])
 
   // Track which milestone triggered "Quick edit with AI" (so "Use" replaces it)
@@ -381,7 +387,16 @@ export function ProjectOptimizationPanel({
         })
       }
 
-      if (field === 'description') {
+      if (field === 'title') {
+        const cleanTitle = text.split('\n')[0].replace(/^["']|["']$/g, '').trim()
+        setFormTitle(cleanTitle)
+        requestAnimationFrame(() => {
+          const el = document.querySelector('[data-field="title"]') as HTMLInputElement | null
+          if (!el) return
+          el.classList.add('project-field--just-inserted')
+          setTimeout(() => el.classList.remove('project-field--just-inserted'), 650)
+        })
+      } else if (field === 'description') {
         if (mode === 'replace') {
           setFormDescription(text.trim())
         } else {
@@ -728,23 +743,49 @@ export function ProjectOptimizationPanel({
 
             {/* Title */}
             <div>
-              <label
-                htmlFor="pop-form-title"
-                style={{ fontSize: 11, fontWeight: 600, color: '#64748b', textTransform: 'uppercase', display: 'block', marginBottom: 6, letterSpacing: '0.5px' }}
-              >
-                Title
-              </label>
-              <input
-                ref={titleInputRef}
-                id="pop-form-title"
-                type="text"
-                value={formTitle}
-                onChange={(e) => setFormTitle(e.target.value)}
-                placeholder="Project title"
-                style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: 8, background: '#ffffff', color: '#0f172a', border: '1px solid #cbd5e1', fontSize: 13, outline: 'none' }}
-                onFocus={(e) => { e.currentTarget.style.boxShadow = '0 0 0 2px rgba(99,102,241,0.4)' }}
-                onBlur={(e) => { e.currentTarget.style.boxShadow = 'none' }}
-              />
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
+                <label
+                  htmlFor="pop-form-title"
+                  style={{ fontSize: 11, fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', margin: 0 }}
+                >
+                  Title
+                </label>
+                <button
+                  type="button"
+                  onClick={() => handleFieldSelect('title')}
+                  style={{
+                    flexShrink: 0,
+                    background: selectedField === 'title' ? '#7c3aed' : '#ffffff',
+                    color:      selectedField === 'title' ? '#ffffff' : '#374151',
+                    border:     selectedField === 'title' ? '1px solid #7c3aed' : '1px solid #d1d5db',
+                    borderRadius: 4, padding: '4px 10px', fontSize: 10, fontWeight: 600, cursor: 'pointer',
+                  }}
+                >
+                  {selectedField === 'title' ? '☞ AI connected' : 'Select for AI'}
+                </button>
+              </div>
+              <div className="pop__form-textarea-wrap">
+                <input
+                  ref={titleInputRef}
+                  id="pop-form-title"
+                  data-field="title"
+                  type="text"
+                  value={formTitle}
+                  onChange={(e) => setFormTitle(e.target.value)}
+                  placeholder="Project title"
+                  style={{
+                    width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: 8,
+                    background: '#ffffff', color: '#0f172a',
+                    border: selectedField === 'title' ? '2px solid #7c3aed' : '1px solid #cbd5e1',
+                    fontSize: 13, outline: 'none',
+                  }}
+                  onFocus={(e) => { if (selectedField !== 'title') e.currentTarget.style.boxShadow = '0 0 0 2px rgba(99,102,241,0.4)' }}
+                  onBlur={(e) => { e.currentTarget.style.boxShadow = 'none' }}
+                />
+                {selectedField === 'title' && (
+                  <span className="pop__form-field-pin" aria-hidden="true">☞</span>
+                )}
+              </div>
             </div>
 
             {/* Session (optional) */}
