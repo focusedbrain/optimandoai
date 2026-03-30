@@ -131,6 +131,9 @@ export default function AnalysisCanvas({
   // ── Canvas state (drives StatusBadge flags) — unchanged ───────────────────
   const [, , helpers] = useCanvasState()
 
+  // ── Form editing state — drives layout modifier (stretch ↔ sticky right col) ──
+  const [isFormEditing, setIsFormEditing] = useState(false)
+
   // ── Deep-link handling — unchanged ─────────────────────────────────────────
   const [_liveDeepLink, setLiveDeepLink] = useState<DeepLinkState | null>(null)
   void _liveDeepLink
@@ -161,7 +164,7 @@ export default function AnalysisCanvas({
       </div>
 
       <div className="analysis-canvas__dashboard">
-        <div className="analysis-dashboard__main-grid">
+        <div className={['analysis-dashboard__main-grid', isFormEditing ? 'analysis-dashboard__main-grid--editing' : ''].filter(Boolean).join(' ')}>
 
           {/* Row 1: Intelligence Dashboard — full-width top strip */}
           <div className="analysis-dashboard__intel-area">
@@ -193,6 +196,7 @@ export default function AnalysisCanvas({
               emailAccounts={emailAccounts ?? []}
               onRefreshOperations={refreshOperations}
               onOpenBulkInboxForAnalysis={onOpenBulkInboxForAnalysis}
+              onSetupModeChange={setIsFormEditing}
             />
           </div>
 

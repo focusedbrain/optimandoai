@@ -98,10 +98,12 @@
   grid-template-areas:
     "intel   intel"
     "project activity";
-  gap: 10px;
+  gap: 0 10px;           /* row-gap=0 (margin-bottom on intel cards provides spacing); col-gap=10px */
   padding: 0 0 16px;
   box-sizing: border-box;
-  align-items: start;
+  align-items: stretch;  /* both columns fill the row height when form is collapsed */
+  flex: 1;
+  min-height: 0;
 }
 
 .analysis-dashboard__intel-area {
@@ -112,20 +114,37 @@
 .analysis-dashboard__project-area {
   grid-area: project;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Direct child of project area (ProjectOptimizationPanel) fills the grid cell */
+.analysis-dashboard__project-area > * {
+  flex: 1;
+  min-height: 0;
 }
 
 .analysis-dashboard__activity-area {
   grid-area: activity;
   min-width: 0;
-  /* Stays in view while left column (project form) grows on scroll */
+  display: flex;
+  flex-direction: column;
+}
+
+/* When editing (form open): right column sticks; left column can scroll freely */
+.analysis-dashboard__main-grid--editing {
+  align-items: start;
+}
+
+.analysis-dashboard__main-grid--editing .analysis-dashboard__activity-area {
   position: sticky;
   top: 8px;
   align-self: start;
 }
 
-/* Constrain activity feed list heights so both panels stay visible without scrolling the page */
+/* Priority Inbox list fills its card in stretch mode; PoAE list keeps max-height */
 .analysis-dashboard__activity-area .upm__list {
-  max-height: min(30vh, 320px);
+  flex: 1;
   overflow-y: auto;
   scrollbar-width: thin;
   scrollbar-color: rgba(0, 0, 0, 0.1) transparent;
@@ -138,6 +157,11 @@
   scrollbar-color: rgba(0, 0, 0, 0.1) transparent;
 }
 
+/* Priority Inbox card fills available column height */
+.analysis-dashboard__activity-area .upm {
+  flex: 1;
+}
+
 @media (max-width: 900px) {
   .analysis-dashboard__main-grid {
     grid-template-columns: 1fr;
@@ -145,20 +169,26 @@
       "intel"
       "project"
       "activity";
+    align-items: start;
   }
 
-  .analysis-dashboard__project-area {
-    position: static;
+  .analysis-dashboard__project-area > * {
+    flex: none;
   }
 
   .analysis-dashboard__activity-area {
-    position: static;
-    top: auto;
+    flex-direction: column;
   }
 
-  .analysis-dashboard__activity-area .upm__list,
-  .analysis-dashboard__activity-area .pap__list {
-    max-height: none;
+  .analysis-dashboard__activity-area .upm__list {
+    max-height: min(30vh, 320px);
+    flex: none;
+  }
+
+  .analysis-dashboard__main-grid--editing .analysis-dashboard__activity-area {
+    position: static;
+    top: auto;
+    align-self: auto;
   }
 }
 

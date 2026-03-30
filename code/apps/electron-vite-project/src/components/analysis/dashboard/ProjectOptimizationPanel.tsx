@@ -76,6 +76,8 @@ export interface ProjectOptimizationPanelProps {
   emailAccounts?: DashboardEmailAccountRow[]
   onRefreshOperations?: () => void | Promise<void>
   onOpenBulkInboxForAnalysis?: () => void
+  /** Called whenever the form opens or closes (editing ↔ collapsed). */
+  onSetupModeChange?: (editing: boolean) => void
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -109,6 +111,7 @@ export function ProjectOptimizationPanel({
   emailAccounts = [],
   onRefreshOperations,
   onOpenBulkInboxForAnalysis,
+  onSetupModeChange,
 }: ProjectOptimizationPanelProps) {
   // ── Project store ──────────────────────────────────────────────────────────
   const {
@@ -266,6 +269,11 @@ export function ProjectOptimizationPanel({
 
   const fileInputRef  = useRef<HTMLInputElement>(null)
   const titleInputRef = useRef<HTMLInputElement>(null)
+
+  // Notify parent when editing state changes (for sticky/stretch layout toggle)
+  useEffect(() => {
+    onSetupModeChange?.(setupMode !== 'collapsed')
+  }, [setupMode, onSetupModeChange])
 
   // Focus title input when form opens
   useEffect(() => {

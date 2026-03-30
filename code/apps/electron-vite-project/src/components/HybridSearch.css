@@ -165,6 +165,35 @@
   background: #1D4ED8;
 }
 
+/* ── Title suggestion pills (special blocks when field = 'title') ─────────── */
+
+.chat-response-block--title-suggestion {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  background: rgba(37, 99, 235, 0.04);
+  border: 1px solid rgba(37, 99, 235, 0.15);
+  border-radius: 4px;
+  margin: 3px 4px 3px 0;
+  width: auto;            /* override any flex-1 from the base rule */
+}
+
+.chat-response-block--title-suggestion .chat-response-block__content {
+  font-size: 12px;
+  font-weight: 500;
+  color: #1C1C1A;
+  color: var(--text-primary, #1C1C1A);
+  white-space: nowrap;
+  flex: none;
+}
+
+.chat-response-block--title-suggestion .chat-response-block__use-btn {
+  padding: 1px 6px;
+  font-size: 8px;
+  margin-top: 0;
+}
+
 /* ── Left section: mode + scope inside the bar ── */
 
 .hs-bar-left {

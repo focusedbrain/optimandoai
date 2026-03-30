@@ -217,6 +217,12 @@
   color: var(--dash-text-tertiary, #9B9B96);
   font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
   line-height: 1.4;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;               /* fills the card height when no project is selected */
+  min-height: 120px;     /* minimum even when empty */
+  box-sizing: border-box;
 }
 
 /* Milestone roadmap */
@@ -429,6 +435,8 @@
 /* ── Roadmap display (updated in PROMPT 4C — full text, no truncation) ── */
 .pop__roadmap-area {
   padding: 6px 0;
+  flex: 1;               /* grows to fill remaining card height */
+  min-height: 120px;     /* minimum even when empty */
 }
 
 /* Header row: ● Active milestone label + progress count */

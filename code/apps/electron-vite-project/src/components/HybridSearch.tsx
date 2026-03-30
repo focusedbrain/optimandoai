@@ -313,7 +313,7 @@ const SCOPE_LABELS: Record<SearchScope, string> = {
 
 interface ResponseBlock {
   id: string
-  type: 'text' | 'code' | 'list' | 'heading'
+  type: 'text' | 'code' | 'list' | 'heading' | 'title-suggestion'
   content: string
   displayPreview: string
 }
@@ -340,6 +340,59 @@ function parseResponseIntoBlocks(responseText: string): ResponseBlock[] {
       displayPreview: trimmed.slice(0, 80) + (trimmed.length > 80 ? '…' : ''),
     })
   }
+  return blocks
+}
+
+/**
+ * Title-specific parser: extracts quoted strings and numbered/bulleted
+ * suggestions as individual `title-suggestion` blocks, then appends the
+ * full response as a final `text` block for "Use All".
+ */
+function parseTitleResponse(responseText: string): ResponseBlock[] {
+  const blocks: ResponseBlock[] = []
+  let blockId = 0
+  const extractedTitles: string[] = []
+
+  // Match quoted strings: "…" or '…' or curly-quote variants
+  const quotePattern = /["\u201C\u2018']([^"\u201D\u2019'\n]{3,80})["\u201D\u2019']/g
+  let match: RegExpExecArray | null
+  while ((match = quotePattern.exec(responseText)) !== null) {
+    const title = match[1].trim()
+    if (title.length >= 3 && title.length <= 80 && !title.startsWith('http')) {
+      extractedTitles.push(title)
+    }
+  }
+
+  // Also look for numbered / bulleted suggestions: "1. Title" or "- Title"
+  const lines = responseText.split('\n')
+  for (const line of lines) {
+    const numbered = line.match(/^\s*(?:\d+[.)]\s*|[-*]\s+)(.{3,80})$/)
+    if (numbered) {
+      const title = numbered[1].replace(/[*_"'\u201C\u201D\u2018\u2019]/g, '').trim()
+      if (title.length >= 3 && !extractedTitles.includes(title)) {
+        extractedTitles.push(title)
+      }
+    }
+  }
+
+  // Individual pill blocks for each extracted title
+  for (const title of extractedTitles) {
+    blocks.push({
+      id: `block-${blockId++}`,
+      type: 'title-suggestion',
+      content: title,
+      displayPreview: title,
+    })
+  }
+
+  // Always include the full response as the final block (for "Use All")
+  blocks.push({
+    id: `block-${blockId++}`,
+    type: 'text',
+    content: responseText,
+    displayPreview: responseText.slice(0, 80) + (responseText.length > 80 ? '…' : ''),
+  })
+
   return blocks
 }
 
@@ -425,9 +478,11 @@ export default function HybridSearch({
   const aiResponseBlocks = useMemo(
     () =>
       activeView === 'analysis' && projectSetupIncludeInChat && response
-        ? parseResponseIntoBlocks(response)
+        ? projectDraftFieldName === 'Project Title'
+          ? parseTitleResponse(response)
+          : parseResponseIntoBlocks(response)
         : [],
-    [activeView, projectSetupIncludeInChat, response],
+    [activeView, projectSetupIncludeInChat, response, projectDraftFieldName],
   )
 
   /** Track which individual blocks have already been inserted */
@@ -1426,7 +1481,25 @@ export default function HybridSearch({
       {showPanel && (
         <div className="hs-panel" role="region" aria-label="Results">
 
-          {/* ── Attachment drop zone — always visible at top of panel ── */}
+          <div className="hs-panel-header">
+            <span className="hs-panel-meta">
+              {lastMode === 'search'
+                ? `Search · ${SCOPE_LABELS[scope]}`
+                : lastMode === 'actions'
+                ? `Actions · ${getModelLabel(selectedModel, availableModels)}`
+                : `Chat · ${getModelLabel(selectedModel, availableModels)} · ${SCOPE_LABELS[scope]}`}
+            </span>
+            <button
+              className="hs-panel-close"
+              onClick={() => setShowPanel(false)}
+              aria-label="Close results"
+              title="Close (Esc)"
+            >
+              ✕
+            </button>
+          </div>
+
+          {/* ── Attachment drop zone — below panel header, above response content ── */}
           <div
             className={[
               'chat-dropzone',
@@ -1477,24 +1550,6 @@ export default function HybridSearch({
                 ))}
               </div>
             )}
-          </div>
-
-          <div className="hs-panel-header">
-            <span className="hs-panel-meta">
-              {lastMode === 'search'
-                ? `Search · ${SCOPE_LABELS[scope]}`
-                : lastMode === 'actions'
-                ? `Actions · ${getModelLabel(selectedModel, availableModels)}`
-                : `Chat · ${getModelLabel(selectedModel, availableModels)} · ${SCOPE_LABELS[scope]}`}
-            </span>
-            <button
-              className="hs-panel-close"
-              onClick={() => setShowPanel(false)}
-              aria-label="Close results"
-              title="Close (Esc)"
-            >
-              ✕
-            </button>
           </div>
 
           {isLoading && !(lastMode === 'chat' && contextBlocks.length > 0) && (
@@ -1633,7 +1688,7 @@ export default function HybridSearch({
                   {aiResponseBlocks.length > 0 ? (
                     <div className="hs-response-text">
                       {aiResponseBlocks.map((block) => (
-                        <div key={block.id} className="chat-response-block">
+                        <div key={block.id} className={`chat-response-block${block.type === 'title-suggestion' ? ' chat-response-block--title-suggestion' : ''}`}>
                           <div className="chat-response-block__content">{block.content}</div>
                           <button
                             type="button"
@@ -1676,7 +1731,7 @@ export default function HybridSearch({
                   {aiResponseBlocks.length > 0 ? (
                     <div className="hs-response-text">
                       {aiResponseBlocks.map((block) => (
-                        <div key={block.id} className="chat-response-block">
+                        <div key={block.id} className={`chat-response-block${block.type === 'title-suggestion' ? ' chat-response-block--title-suggestion' : ''}`}>
                           <div className="chat-response-block__content">{block.content}</div>
                           <button
                             type="button"
