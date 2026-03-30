@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react'
-import type { ChangeEvent, CSSProperties } from 'react'
+import type { ChangeEvent } from 'react'
 import './HybridSearch.css'
 import './handshakeViewTypes'
 import { useDraftRefineStore } from '../stores/useDraftRefineStore'
@@ -1407,123 +1407,90 @@ export default function HybridSearch({
               {(response != null || contextBlocks.length > 0) && !(structuredResult && structuredResult.items.length > 0) && (
                 <>
                   <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-muted)', marginBottom: '6px' }}>Answer:</div>
-                  <div className="hs-response-text">
-                    {response ?? ''}
-                    {contextBlocks.length > 0 && response === '' && <span className="hs-stream-cursor" style={{ display: 'inline-block', width: '2px', height: '1em', background: 'var(--purple-accent)', marginLeft: '2px', animation: 'hs-blink 1s step-end infinite' }} />}
-                  </div>
+                  {aiResponseBlocks.length > 0 ? (
+                    <div className="hs-response-text">
+                      {aiResponseBlocks.map((block) => (
+                        <div key={block.id} className="chat-response-block">
+                          <div className="chat-response-block__content">{block.content}</div>
+                          <button
+                            type="button"
+                            className={`chat-response-block__use-btn${usedBlockIds.has(block.id) ? ' chat-response-block__use-btn--inserted' : ''}`}
+                            onClick={() => {
+                              if (usedBlockIds.has(block.id)) return
+                              window.dispatchEvent(new CustomEvent('wrdesk:use-ai-draft', { detail: { text: block.content, mode: 'append' } }))
+                              setUsedBlockIds((prev) => new Set([...prev, block.id]))
+                            }}
+                          >
+                            {usedBlockIds.has(block.id) ? '✓' : 'Use'}
+                          </button>
+                        </div>
+                      ))}
+                      <div className="chat-response-block__use-all">
+                        <button
+                          type="button"
+                          className="chat-response-block__use-all-btn"
+                          onClick={() => {
+                            const allContent = aiResponseBlocks.map((b) => b.content).join('\n\n')
+                            window.dispatchEvent(new CustomEvent('wrdesk:use-ai-draft', { detail: { text: allContent, mode: 'replace' } }))
+                            setUsedBlockIds(new Set(aiResponseBlocks.map((b) => b.id)))
+                          }}
+                        >
+                          Use All
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="hs-response-text">
+                      {response ?? ''}
+                      {contextBlocks.length > 0 && response === '' && <span className="hs-stream-cursor" style={{ display: 'inline-block', width: '2px', height: '1em', background: 'var(--purple-accent)', marginLeft: '2px', animation: 'hs-blink 1s step-end infinite' }} />}
+                    </div>
+                  )}
                 </>
               )}
               {structuredResult && structuredResult.items.length === 0 && response && (
                 <>
                   <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-muted)', marginBottom: '6px' }}>Answer:</div>
-                  <div className="hs-response-text">{response}</div>
+                  {aiResponseBlocks.length > 0 ? (
+                    <div className="hs-response-text">
+                      {aiResponseBlocks.map((block) => (
+                        <div key={block.id} className="chat-response-block">
+                          <div className="chat-response-block__content">{block.content}</div>
+                          <button
+                            type="button"
+                            className={`chat-response-block__use-btn${usedBlockIds.has(block.id) ? ' chat-response-block__use-btn--inserted' : ''}`}
+                            onClick={() => {
+                              if (usedBlockIds.has(block.id)) return
+                              window.dispatchEvent(new CustomEvent('wrdesk:use-ai-draft', { detail: { text: block.content, mode: 'append' } }))
+                              setUsedBlockIds((prev) => new Set([...prev, block.id]))
+                            }}
+                          >
+                            {usedBlockIds.has(block.id) ? '✓' : 'Use'}
+                          </button>
+                        </div>
+                      ))}
+                      <div className="chat-response-block__use-all">
+                        <button
+                          type="button"
+                          className="chat-response-block__use-all-btn"
+                          onClick={() => {
+                            const allContent = aiResponseBlocks.map((b) => b.content).join('\n\n')
+                            window.dispatchEvent(new CustomEvent('wrdesk:use-ai-draft', { detail: { text: allContent, mode: 'replace' } }))
+                            setUsedBlockIds(new Set(aiResponseBlocks.map((b) => b.id)))
+                          }}
+                        >
+                          Use All
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="hs-response-text">{response}</div>
+                  )}
                 </>
               )}
               <div className="hs-response-chips">
                 <span className="hs-chip">{SCOPE_LABELS[scope]}</span>
                 <span className="hs-chip">{getModelLabel(selectedModel, availableModels)}</span>
               </div>
-              {/* Project AI draft — block picker (replaces single "Use" button) */}
-              {activeView === 'analysis' && projectSetupIncludeInChat && !isDraftRefineSession && !isLoading && response && aiResponseBlocks.length > 0 && (
-                <div style={{ borderTop: '1px solid #F0F0EE', paddingTop: 8, marginTop: 8 }}>
-                  {/* Header */}
-                  <div style={{ fontSize: 10, fontWeight: 600, color: '#2563EB', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 6 }}>
-                    Insert into: {projectDraftFieldName}
-                  </div>
-
-                  {/* Block list */}
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                    {aiResponseBlocks.map((block) => {
-                      const isUsed = usedBlockIds.has(block.id)
-                      const typeBadgeStyle: CSSProperties =
-                        block.type === 'list'    ? { background: '#EFF6FF', color: '#2563EB' } :
-                        block.type === 'code'    ? { background: '#F3F3F2', color: '#7C3AED' } :
-                        block.type === 'heading' ? { background: '#FFFBEB', color: '#D97706' } :
-                                                   { background: '#F3F3F2', color: '#6B6B66' }
-                      return (
-                        <div
-                          key={block.id}
-                          style={{
-                            display: 'flex', alignItems: 'flex-start', gap: 8,
-                            border: '1px solid #E8E8E6', borderRadius: 4,
-                            padding: '6px 8px', background: '#FAFAF9',
-                            transition: 'border-color 150ms ease-out, background 150ms ease-out',
-                          }}
-                          onMouseEnter={(e) => {
-                            if (!isUsed) {
-                              ;(e.currentTarget as HTMLDivElement).style.borderColor = '#D4D4D1'
-                              ;(e.currentTarget as HTMLDivElement).style.background  = '#F3F3F2'
-                            }
-                          }}
-                          onMouseLeave={(e) => {
-                            ;(e.currentTarget as HTMLDivElement).style.borderColor = '#E8E8E6'
-                            ;(e.currentTarget as HTMLDivElement).style.background  = '#FAFAF9'
-                          }}
-                        >
-                          {/* Left: type badge + preview */}
-                          <div style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 6 }}>
-                            <span style={{
-                              fontSize: 8, fontWeight: 600, padding: '1px 5px',
-                              borderRadius: 3, textTransform: 'uppercase', flexShrink: 0,
-                              ...typeBadgeStyle,
-                            }}>
-                              {block.type}
-                            </span>
-                            <span style={{ fontSize: 10, color: '#6B6B66', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                              {block.displayPreview}
-                            </span>
-                          </div>
-                          {/* Right: Use / Inserted */}
-                          <div style={{ flexShrink: 0 }}>
-                            {isUsed ? (
-                              <span style={{ fontSize: 9, color: '#059669' }}>✓ Inserted</span>
-                            ) : (
-                              <button
-                                type="button"
-                                style={{
-                                  padding: '2px 8px', fontSize: 9, fontWeight: 500,
-                                  color: '#2563EB', background: 'rgba(37,99,235,0.05)',
-                                  border: '1px solid rgba(37,99,235,0.3)', borderRadius: 3,
-                                  cursor: 'pointer',
-                                }}
-                                onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(37,99,235,0.1)' }}
-                                onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(37,99,235,0.05)' }}
-                                onClick={() => {
-                                  window.dispatchEvent(new CustomEvent('wrdesk:use-ai-draft', { detail: { text: block.content, mode: 'append' } }))
-                                  setUsedBlockIds((prev) => new Set([...prev, block.id]))
-                                }}
-                              >
-                                Use
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      )
-                    })}
-                  </div>
-
-                  {/* Use All */}
-                  <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 6 }}>
-                    <button
-                      type="button"
-                      style={{
-                        padding: '4px 12px', fontSize: 10, fontWeight: 600,
-                        color: '#FFFFFF', background: '#2563EB',
-                        borderRadius: 4, border: 'none', cursor: 'pointer',
-                      }}
-                      onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = '#1D4ED8' }}
-                      onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = '#2563EB' }}
-                      onClick={() => {
-                        const allContent = aiResponseBlocks.map((b) => b.content).join('\n\n')
-                        window.dispatchEvent(new CustomEvent('wrdesk:use-ai-draft', { detail: { text: allContent, mode: 'replace' } }))
-                        setUsedBlockIds(new Set(aiResponseBlocks.map((b) => b.id)))
-                      }}
-                    >
-                      Use All
-                    </button>
-                  </div>
-                </div>
-              )}
               {chatGovernanceNote && (
                 <div style={{ marginTop: '12px', padding: '10px 12px', background: 'rgba(251,191,36,0.12)', border: '1px solid rgba(251,191,36,0.3)', borderRadius: '6px', fontSize: '12px', color: 'var(--text-secondary)' }}>
                   {chatGovernanceNote}

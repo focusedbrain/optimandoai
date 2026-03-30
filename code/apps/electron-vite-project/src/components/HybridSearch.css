@@ -76,7 +76,7 @@
   background: color-mix(in srgb, #d97706 42%, #0f172a 58%);
 }
 
-/* Analysis: "Use in {field}" button — appears after AI response when project field is selected */
+/* Analysis: "Use in {field}" button — kept for reference; inline variant used instead */
 .hs-use-draft-btn {
   display: inline-flex;
   align-items: center;
@@ -93,6 +93,76 @@
 }
 .hs-use-draft-btn:hover {
   background: rgba(37, 99, 235, 0.1);
+}
+
+/* ── Inline block "Use" buttons inside AI response (project drafting mode) ── */
+
+/* Each parsed block becomes a flex row: text left, Use button right */
+.chat-response-block {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.chat-response-block__content {
+  flex: 1;
+  min-width: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* "Use" button — compact, always visible */
+.chat-response-block__use-btn {
+  flex-shrink: 0;
+  padding: 2px 8px;
+  font-size: 9px;
+  font-weight: 500;
+  color: #2563EB;
+  background: rgba(37, 99, 235, 0.05);
+  border: 1px solid rgba(37, 99, 235, 0.25);
+  border-radius: 3px;
+  cursor: pointer;
+  white-space: nowrap;
+  margin-top: 2px;
+  transition: background 120ms ease-out, border-color 120ms ease-out, color 120ms ease-out;
+}
+.chat-response-block__use-btn:hover {
+  background: rgba(37, 99, 235, 0.12);
+  border-color: rgba(37, 99, 235, 0.4);
+}
+
+/* Inserted state — green checkmark, non-interactive */
+.chat-response-block__use-btn--inserted {
+  color: #059669;
+  background: rgba(5, 150, 105, 0.05);
+  border-color: rgba(5, 150, 105, 0.25);
+  cursor: default;
+  pointer-events: none;
+}
+
+/* "Use All" row at the bottom */
+.chat-response-block__use-all {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid #F0F0EE;
+}
+
+.chat-response-block__use-all-btn {
+  padding: 4px 14px;
+  font-size: 10px;
+  font-weight: 600;
+  color: #FFFFFF;
+  background: #2563EB;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 120ms ease-out;
+}
+.chat-response-block__use-all-btn:hover {
+  background: #1D4ED8;
 }
 
 /* ── Left section: mode + scope inside the bar ── */
