@@ -601,3 +601,472 @@
   color: var(--dash-text-tertiary, #9B9B96);
   font-style: italic;
 }
+
+/* ────────────────────────────────────────────────────────────────────────────
+   INLINE SETUP FORM
+   Renders inside the card when setupMode is 'creating' or 'editing'.
+   All colors are hardcoded hex to prevent global dark-theme overrides.
+   ──────────────────────────────────────────────────────────────────────────── */
+
+.pop__setup-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+/* Form header row: title + quick-cancel link */
+.pop__form-hdr {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.pop__form-hdr-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #1C1C1A;
+  font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pop__form-cancel-link {
+  font-size: 10px;
+  color: #9B9B96;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
+  flex-shrink: 0;
+  margin-left: 8px;
+}
+
+.pop__form-cancel-link:hover {
+  color: #6B6B66;
+}
+
+/* ── Field layout ── */
+.pop__form-field-row {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.pop__form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.pop__form-field--mt {
+  margin-top: 10px;
+}
+
+/* ── Labels ── */
+.pop__form-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: #6B6B66;
+  font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
+  display: block;
+}
+
+.pop__form-sub-label {
+  font-size: 9px;
+  color: #9B9B96;
+  font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
+  margin: 0 0 4px;
+  line-height: 1.4;
+}
+
+.pop__form-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 3px;
+}
+
+.pop__form-label-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+/* ── Select / AI Draft buttons ── */
+.pop__form-select-btn {
+  font-size: 9px;
+  color: #9B9B96;
+  border: 1px solid #E8E8E6;
+  background: transparent;
+  border-radius: 3px;
+  padding: 1px 6px;
+  cursor: pointer;
+  font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
+  transition: color 100ms ease, border-color 100ms ease, background 100ms ease;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+
+.pop__form-select-btn--active {
+  color: #2563EB;
+  border-color: #2563EB;
+  background: rgba(37, 99, 235, 0.05);
+}
+
+.pop__form-select-btn:hover:not(.pop__form-select-btn--active) {
+  color: #6B6B66;
+  border-color: #D4D4D1;
+}
+
+.pop__form-ai-btn {
+  font-size: 9px;
+  color: #2563EB;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 1px 4px;
+  font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
+  line-height: 1.5;
+  white-space: nowrap;
+}
+
+.pop__form-ai-btn:hover {
+  text-decoration: underline;
+}
+
+/* ── Input / Textarea / Select shared base ── */
+.pop__form-input {
+  height: 28px;
+  font-size: 12px;
+  border: 1px solid #E8E8E6;
+  border-radius: 4px;
+  padding: 0 8px;
+  width: 100%;
+  background: #FFFFFF;
+  color: #1C1C1A;
+  box-sizing: border-box;
+  font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
+  transition: border-color 120ms ease;
+}
+
+.pop__form-input--sm {
+  height: 24px;
+  font-size: 11px;
+}
+
+.pop__form-input::placeholder {
+  color: #C4C4C0;
+}
+
+.pop__form-input:focus {
+  outline: none;
+  border-color: #2563EB;
+}
+
+.pop__form-textarea {
+  min-height: 48px;
+  max-height: 120px;
+  font-size: 11px;
+  border: 1px solid #E8E8E6;
+  border-radius: 4px;
+  padding: 6px 8px;
+  width: 100%;
+  resize: vertical;
+  background: #FFFFFF;
+  color: #1C1C1A;
+  box-sizing: border-box;
+  font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
+  line-height: 1.5;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+
+.pop__form-textarea::placeholder {
+  color: #C4C4C0;
+}
+
+.pop__form-textarea:focus {
+  outline: none;
+  border-color: #2563EB;
+}
+
+.pop__form-textarea--selected {
+  border-color: #2563EB;
+  background: rgba(37, 99, 235, 0.02);
+}
+
+.pop__form-select {
+  height: 28px;
+  font-size: 11px;
+  border: 1px solid #E8E8E6;
+  border-radius: 4px;
+  padding: 0 24px 0 8px;
+  width: 100%;
+  background: #FFFFFF;
+  color: #1C1C1A;
+  box-sizing: border-box;
+  font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
+  transition: border-color 120ms ease;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' fill='none'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%239B9B96' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+}
+
+.pop__form-select--sm {
+  width: 120px;
+}
+
+.pop__form-select:focus {
+  outline: none;
+  border-color: #2563EB;
+}
+
+/* ── Milestones list ── */
+.pop__form-milestones {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 4px;
+  margin-bottom: 4px;
+}
+
+.pop__form-ms-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  position: relative;
+}
+
+.pop__form-ms-row:hover .pop__form-ms-del {
+  opacity: 1;
+}
+
+.pop__form-ms-check {
+  width: 14px;
+  height: 14px;
+  border: 1px solid #D4D4D1;
+  border-radius: 2px;
+  background: #FFFFFF;
+  cursor: pointer;
+  flex-shrink: 0;
+  padding: 0;
+  position: relative;
+  transition: background 100ms ease, border-color 100ms ease;
+  box-sizing: border-box;
+}
+
+.pop__form-ms-check--done {
+  background: #2563EB;
+  border-color: #2563EB;
+}
+
+/* Checkmark via ::after */
+.pop__form-ms-check--done::after {
+  content: '✓';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  color: #FFFFFF;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+  pointer-events: none;
+}
+
+.pop__form-ms-title {
+  font-size: 11px;
+  color: #1C1C1A;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
+}
+
+.pop__form-ms-title--done {
+  color: #9B9B96;
+  text-decoration: line-through;
+}
+
+.pop__form-ms-del {
+  opacity: 0;
+  font-size: 13px;
+  color: #9B9B96;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0 2px;
+  line-height: 1;
+  transition: color 100ms ease, opacity 100ms ease;
+  flex-shrink: 0;
+}
+
+.pop__form-ms-del:hover {
+  color: #DC2626;
+}
+
+/* "Add milestone…" row */
+.pop__form-ms-add-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin-top: 4px;
+}
+
+.pop__form-ms-add-row .pop__form-input--sm {
+  flex: 1;
+  min-width: 0;
+}
+
+.pop__form-ms-add-btn {
+  padding: 2px 8px;
+  font-size: 10px;
+  font-weight: 500;
+  background: #F3F3F2;
+  border: 1px solid #E8E8E6;
+  border-radius: 4px;
+  color: #6B6B66;
+  cursor: pointer;
+  font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
+  white-space: nowrap;
+  flex-shrink: 0;
+  line-height: 1.6;
+  transition: background 100ms ease;
+}
+
+.pop__form-ms-add-btn:hover {
+  background: #E8E8E6;
+}
+
+/* ── Attachments list ── */
+.pop__form-attachments {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-bottom: 6px;
+}
+
+.pop__form-att-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 22px;
+}
+
+.pop__form-att-row:hover .pop__form-ms-del {
+  opacity: 1;
+}
+
+.pop__form-att-name {
+  font-size: 10px;
+  color: #1C1C1A;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
+}
+
+.pop__form-att-type {
+  font-size: 9px;
+  color: #9B9B96;
+  font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
+  flex-shrink: 0;
+}
+
+.pop__form-upload-btn {
+  padding: 3px 10px;
+  font-size: 10px;
+  font-weight: 500;
+  background: #F3F3F2;
+  border: 1px solid #E8E8E6;
+  border-radius: 4px;
+  color: #6B6B66;
+  cursor: pointer;
+  font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
+  white-space: nowrap;
+  line-height: 1.6;
+  transition: background 100ms ease;
+  align-self: flex-start;
+}
+
+.pop__form-upload-btn:hover {
+  background: #E8E8E6;
+}
+
+/* ── Interval row ── */
+.pop__form-interval-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 3px;
+}
+
+.pop__form-interval-hint {
+  font-size: 9px;
+  color: #9B9B96;
+  font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
+  line-height: 1.4;
+}
+
+/* ── Save / Cancel footer ── */
+.pop__form-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid #F0F0EE;
+}
+
+.pop__form-footer-cancel {
+  font-size: 11px;
+  color: #6B6B66;
+  background: transparent;
+  border: 1px solid #E8E8E6;
+  border-radius: 4px;
+  padding: 4px 12px;
+  cursor: pointer;
+  font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
+  transition: background 100ms ease;
+}
+
+.pop__form-footer-cancel:hover {
+  background: #F3F3F2;
+}
+
+.pop__form-footer-save {
+  font-size: 11px;
+  font-weight: 600;
+  color: #FFFFFF;
+  background: #1C1C1A;
+  border: none;
+  border-radius: 4px;
+  padding: 4px 12px;
+  cursor: pointer;
+  font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
+  transition: background 100ms ease;
+}
+
+.pop__form-footer-save:hover:not(:disabled) {
+  background: #333333;
+}
+
+.pop__form-footer-save:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Dimmed project selector when form is open */
+.pop__compact-select--dimmed {
+  opacity: 0.5;
+  cursor: not-allowed;
+  pointer-events: none;
+}

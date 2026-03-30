@@ -117,6 +117,10 @@
 .analysis-dashboard__activity-area {
   grid-area: activity;
   min-width: 0;
+  /* Stays in view while left column (project form) grows on scroll */
+  position: sticky;
+  top: 8px;
+  align-self: start;
 }
 
 /* Constrain activity feed list heights so both panels stay visible without scrolling the page */
@@ -145,6 +149,11 @@
 
   .analysis-dashboard__project-area {
     position: static;
+  }
+
+  .analysis-dashboard__activity-area {
+    position: static;
+    top: auto;
   }
 
   .analysis-dashboard__activity-area .upm__list,

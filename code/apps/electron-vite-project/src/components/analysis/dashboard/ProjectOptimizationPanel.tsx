@@ -1,25 +1,29 @@
 /**
- * ProjectOptimizationPanel — compact card layout (PROMPT 4A update).
+ * ProjectOptimizationPanel — compact card with INLINE project setup (PROMPT 4A REVISED).
  *
- * UI: 4-zone card — header, selector+controls, roadmap, status footer.
- * All business logic, store connections, and IPC calls are PRESERVED.
+ * CRITICAL DESIGN: No modal. The setup form renders inline within the card, expanding
+ * it naturally. The header AI chat (HybridSearch) stays accessible at all times so
+ * the user can click "AI Draft →" to switch to chat, draft content, then paste it back.
  *
- * Schema change notes (PROMPT 4A):
- *   - Project.name → Project.title
- *   - Project.autoOptimization → Project.autoOptimizationEnabled
- *   - Milestones now use `completed: boolean` (was `status` enum)
- *   - No more AnalysisSession or AgentSlot on projects
- *   - useProjectStore actions updated: setActiveProject, setAutoOptimization
+ * setupMode:
+ *   'collapsed'  — normal view (selector, controls, roadmap, footer)
+ *   'creating'   — card expands with a blank new-project form
+ *   'editing'    — card expands pre-filled with the active project's data
+ *
+ * Chat context integration (same pattern as existing drafts/snippets):
+ *   When a field is "selected", its content is written to useProjectSetupChatContextStore
+ *   so the header AI chat prepends it as context via buildProjectSetupChatPrefix.
+ *   On form close the setup text is cleared.
  *
  * PRESERVED:
- *   - useEmailInboxStore: autoSyncEnabled, toggleAutoSyncForActiveAccounts,
- *     refreshInboxSyncBackendState
+ *   - useEmailInboxStore: autoSyncEnabled, toggleAutoSyncForActiveAccounts, refreshInboxSyncBackendState
  *   - useProjectSetupChatContextStore: all draft fields + snippets
  *   - focusHeaderAiChat() dispatch (WRDESK_FOCUS_AI_CHAT_EVENT)
  *   - handleRunAnalysisNow, onAutoToggle callbacks
+ *   - autoOptimizationEngine: startAutoOptimization, stopAutoOptimization, triggerSnapshotOptimization
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { type ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { pickDefaultEmailAccountRowId } from '@ext/shared/email/pickDefaultAccountRow'
 import { WRDESK_FOCUS_AI_CHAT_EVENT } from '../../../lib/wrdeskUiEvents'
@@ -30,13 +34,13 @@ import {
   selectActiveProject,
 } from '../../../stores/useProjectStore'
 import { AUTO_OPTIMIZATION_INTERVALS } from '../../../types/projectTypes'
+import type { ProjectAttachment, ProjectMilestone } from '../../../types/projectTypes'
 import type { AnalysisDashboardAutosortSessionMeta } from '../../../types/analysisDashboardSnapshot'
 import {
   startAutoOptimization,
   stopAutoOptimization,
   triggerSnapshotOptimization,
 } from '../../../lib/autoOptimizationEngine'
-import { ProjectSetupModal } from './ProjectSetupModal'
 import '../../../styles/dashboard-tokens.css'
 import '../../../styles/dashboard-base.css'
 import './ProjectOptimizationPanel.css'
@@ -75,6 +79,13 @@ function formatIntervalLabel(ms: number): string {
   return opt ? `every ${opt.label}` : `every ${Math.round(ms / 60000)} min`
 }
 
+function getMimeLabel(mimeType: string, filename: string): string {
+  if (mimeType.includes('pdf')) return 'PDF'
+  if (mimeType.includes('json')) return 'JSON'
+  const ext = filename.split('.').pop()?.toUpperCase() ?? ''
+  return ext || 'TXT'
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 
 export function ProjectOptimizationPanel({
@@ -87,16 +98,18 @@ export function ProjectOptimizationPanel({
   const {
     projects,
     activeProjectId,
+    orchestratorSessions,
     setActiveProject,
     setAutoOptimization,
     removeAttachment,
   } = useProjectStore(
     useShallow((s) => ({
-      projects:           s.projects,
-      activeProjectId:    s.activeProjectId,
-      setActiveProject:   s.setActiveProject,
-      setAutoOptimization: s.setAutoOptimization,
-      removeAttachment:   s.removeAttachment,
+      projects:             s.projects,
+      activeProjectId:      s.activeProjectId,
+      orchestratorSessions: s.orchestratorSessions,
+      setActiveProject:     s.setActiveProject,
+      setAutoOptimization:  s.setAutoOptimization,
+      removeAttachment:     s.removeAttachment,
     })),
   )
 
@@ -139,7 +152,7 @@ export function ProjectOptimizationPanel({
     [accountIds, primaryAccountId, toggleAutoSyncForActiveAccounts, autoToggleBusy],
   )
 
-  // ── Auto-optimization engine (V1 stub) ───────────────────────────────────
+  // ── Auto-optimization engine (V1 stub) ────────────────────────────────────
   const autoOptEnabled  = activeProject?.autoOptimizationEnabled ?? false
   const autoOptInterval = activeProject?.autoOptimizationIntervalMs ?? 300_000
 
@@ -151,7 +164,6 @@ export function ProjectOptimizationPanel({
       stopAutoOptimization()
     }
     return () => stopAutoOptimization()
-  // Re-run when the active project changes or auto-opt is toggled / interval changes
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeProjectId, autoOptEnabled, autoOptInterval])
 
@@ -161,7 +173,6 @@ export function ProjectOptimizationPanel({
     if (runBusy || !onRefreshOperations) return
     setRunBusy(true)
     try {
-      // V1: trigger optimization run (console log only; V2: orchestrator IPC)
       const project = useProjectStore.getState().getActiveProject()
       if (project) triggerSnapshotOptimization(project)
       await onRefreshOperations()
@@ -214,17 +225,201 @@ export function ProjectOptimizationPanel({
     setSnippetText('')
   }, [snippetLabel, snippetText, addSnippet])
 
-  // ── Modal state (create vs edit) ──────────────────────────────────────────
-  const [modalOpen,   setModalOpen]   = useState(false)
-  const [modalEditId, setModalEditId] = useState<string | null>(null)
+  // ── Inline setup form state ────────────────────────────────────────────────
+  const [setupMode, setSetupMode] = useState<'collapsed' | 'creating' | 'editing'>('collapsed')
+  const [formTitle, setFormTitle]                       = useState('')
+  const [formDescription, setFormDescription]           = useState('')
+  const [formGoals, setFormGoals]                       = useState('')
+  const [formMilestones, setFormMilestones]             = useState<ProjectMilestone[]>([])
+  const [formAttachments, setFormAttachments]           = useState<ProjectAttachment[]>([])
+  const [formLinkedSessionId, setFormLinkedSessionId]   = useState<string | null>(null)
+  const [formIntervalMs, setFormIntervalMs]             = useState(300_000)
+  const [newMilestoneInput, setNewMilestoneInput]       = useState('')
+  const [descriptionSelected, setDescriptionSelected]   = useState(false)
+  const [goalsSelected, setGoalsSelected]               = useState(false)
+  const [milestonesSelected, setMilestonesSelected]     = useState(false)
 
-  const openCreateModal = () => { setModalEditId(null); setModalOpen(true) }
-  const openEditModal   = () => { setModalEditId(activeProjectId); setModalOpen(true) }
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const titleInputRef = useRef<HTMLInputElement>(null)
 
-  // ── Derived display values ────────────────────────────────────────────────
+  // Focus title input when form opens
+  useEffect(() => {
+    if (setupMode !== 'collapsed') {
+      const t = setTimeout(() => titleInputRef.current?.focus(), 50)
+      return () => clearTimeout(t)
+    }
+  }, [setupMode])
+
+  // ── Chat context sync from form field selections ───────────────────────────
+  useEffect(() => {
+    if (setupMode === 'collapsed') return
+    let text = ''
+    if (descriptionSelected && formDescription.trim()) {
+      text += `[Project Description]\n${formDescription}\n\n`
+    }
+    if (goalsSelected && formGoals.trim()) {
+      text += `[Project Goals]\n${formGoals}\n\n`
+    }
+    if (milestonesSelected && formMilestones.length > 0) {
+      const lines = formMilestones
+        .map((m) => `${m.completed ? '✓' : '○'} ${m.title}`)
+        .join('\n')
+      text += `[Milestones]\n${lines}\n\n`
+    }
+    const trimmed = text.trim()
+    setSetupTextDraft(trimmed)
+    setIncludeInChat(trimmed.length > 0)
+  }, [
+    setupMode,
+    descriptionSelected, formDescription,
+    goalsSelected, formGoals,
+    milestonesSelected, formMilestones,
+    setSetupTextDraft, setIncludeInChat,
+  ])
+
+  // Keep project name draft in sync so AI chat prefix shows the project title
+  useEffect(() => {
+    if (setupMode === 'collapsed') return
+    setProjectNameDraft(formTitle)
+  }, [setupMode, formTitle, setProjectNameDraft])
+
+  // ── Open / cancel / save ──────────────────────────────────────────────────
+  const openCreateMode = useCallback(() => {
+    setFormTitle('')
+    setFormDescription('')
+    setFormGoals('')
+    setFormMilestones([])
+    setFormAttachments([])
+    setFormLinkedSessionId(null)
+    setFormIntervalMs(300_000)
+    setNewMilestoneInput('')
+    setDescriptionSelected(false)
+    setGoalsSelected(false)
+    setMilestonesSelected(false)
+    setSetupMode('creating')
+  }, [])
+
+  const openEditMode = useCallback(() => {
+    const p = useProjectStore.getState().getActiveProject()
+    if (!p) return
+    setFormTitle(p.title)
+    setFormDescription(p.description)
+    setFormGoals(p.goals)
+    setFormMilestones(p.milestones.map((m) => ({ ...m })))
+    setFormAttachments(p.attachments.map((a) => ({ ...a })))
+    setFormLinkedSessionId(p.linkedSessionId)
+    setFormIntervalMs(p.autoOptimizationIntervalMs)
+    setNewMilestoneInput('')
+    setDescriptionSelected(false)
+    setGoalsSelected(false)
+    setMilestonesSelected(false)
+    setSetupMode('editing')
+  }, [])
+
+  const clearFormChatContext = useCallback(() => {
+    setSetupTextDraft('')
+    setIncludeInChat(false)
+  }, [setSetupTextDraft, setIncludeInChat])
+
+  const handleCancelForm = useCallback(() => {
+    clearFormChatContext()
+    setSetupMode('collapsed')
+  }, [clearFormChatContext])
+
+  const handleSaveForm = useCallback(() => {
+    const trimmedTitle = formTitle.trim()
+    if (!trimmedTitle) return
+    const store = useProjectStore.getState()
+    // Preserve the current auto-opt toggle (it lives in the controls, not the form)
+    const currentEnabled = store.getActiveProject()?.autoOptimizationEnabled ?? false
+    const data = {
+      title: trimmedTitle,
+      description: formDescription.trim(),
+      goals: formGoals.trim(),
+      milestones: formMilestones,
+      attachments: formAttachments,
+      linkedSessionId: formLinkedSessionId,
+      autoOptimizationEnabled: currentEnabled,
+      autoOptimizationIntervalMs: formIntervalMs,
+    }
+    if (setupMode === 'editing' && activeProjectId) {
+      store.updateProject(activeProjectId, data)
+    } else {
+      const newId = store.createProject(data)
+      store.setActiveProject(newId)
+    }
+    clearFormChatContext()
+    setSetupMode('collapsed')
+  }, [
+    formTitle, formDescription, formGoals, formMilestones, formAttachments,
+    formLinkedSessionId, formIntervalMs, setupMode, activeProjectId,
+    clearFormChatContext,
+  ])
+
+  // ── Form milestone handlers ────────────────────────────────────────────────
+  const handleAddFormMilestone = useCallback(() => {
+    const t = newMilestoneInput.trim()
+    if (!t) return
+    setFormMilestones((prev) => [
+      ...prev,
+      {
+        id: crypto.randomUUID(),
+        title: t,
+        completed: false,
+        createdAt: new Date().toISOString(),
+        completedAt: null,
+      },
+    ])
+    setNewMilestoneInput('')
+  }, [newMilestoneInput])
+
+  const toggleFormMilestone = useCallback((id: string) => {
+    setFormMilestones((prev) =>
+      prev.map((m) =>
+        m.id === id
+          ? {
+              ...m,
+              completed: !m.completed,
+              completedAt: !m.completed ? new Date().toISOString() : null,
+            }
+          : m,
+      ),
+    )
+  }, [])
+
+  const removeFormMilestone = useCallback((id: string) => {
+    setFormMilestones((prev) => prev.filter((m) => m.id !== id))
+  }, [])
+
+  // ── Form file upload ───────────────────────────────────────────────────────
+  const handleFileSelect = useCallback(async (e: ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? [])
+    for (const file of files) {
+      // TODO V2: PDF text extraction via IPC. For now, readAsText works for txt/md/json.
+      const content = await new Promise<string>((resolve) => {
+        const reader = new FileReader()
+        reader.onload = (ev) => resolve((ev.target?.result as string) ?? '')
+        reader.readAsText(file)
+      })
+      setFormAttachments((prev) => [
+        ...prev,
+        {
+          id: crypto.randomUUID(),
+          filename: file.name,
+          content,
+          mimeType: file.type || 'text/plain',
+          addedAt: new Date().toISOString(),
+        },
+      ])
+    }
+    if (e.target) e.target.value = ''
+  }, [])
+
+  // ── Derived display values ─────────────────────────────────────────────────
   const autoDisabled       = accountIds.length === 0
   const hasRefreshHandler  = typeof onRefreshOperations === 'function'
   const runCommandDisabled = runBusy || !hasRefreshHandler
+  const isFormOpen         = setupMode !== 'collapsed'
 
   const lastAnalysisLine =
     latestAutosortSession?.completedAt != null
@@ -234,39 +429,46 @@ export function ProjectOptimizationPanel({
         : '—'
 
   const autoOptOn     = autoOptEnabled
-  const autoModeLabel = autoOptOn
-    ? `On · ${formatIntervalLabel(activeProject!.autoOptimizationIntervalMs)}`
+  const autoModeLabel = autoOptOn && activeProject
+    ? `On · ${formatIntervalLabel(activeProject.autoOptimizationIntervalMs)}`
     : 'Off'
 
-  // Keep focusHeaderAiChat in scope (used by hidden section below)
+  // Keep focusHeaderAiChat reachable in this scope (avoids lint warning)
   void focusHeaderAiChat
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <section className="pop" aria-labelledby="pop-heading">
+
       {/* ── Header ─────────────────────────────────────────────────────────── */}
       <div className="pop__head">
         <span id="pop-heading" className="pop__cap-label">PROJECT AI OPTIMIZATION</span>
-        <div className="pop__head-btns">
-          <button
-            type="button"
-            className="pop__btn-sm"
-            onClick={openCreateModal}
-            title="Create a new project"
-          >
-            + New Project
-          </button>
-        </div>
+        {!isFormOpen && (
+          <div className="pop__head-btns">
+            <button
+              type="button"
+              className="pop__btn-sm"
+              onClick={openCreateMode}
+              title="Create a new project"
+            >
+              + New Project
+            </button>
+          </div>
+        )}
       </div>
 
-      {/* ── Selector + Controls ─────────────────────────────────────────────── */}
+      {/* ── Selector + Controls (always visible) ────────────────────────────── */}
       <div className="pop__selector-group">
-        {/* Project dropdown + optional edit button */}
         <div className="pop__select-row">
           <select
-            className={`pop__compact-select${activeProjectId ? ' pop__compact-select--has-value' : ''}`}
+            className={[
+              'pop__compact-select',
+              activeProjectId ? 'pop__compact-select--has-value' : '',
+              isFormOpen      ? 'pop__compact-select--dimmed'    : '',
+            ].filter(Boolean).join(' ')}
             value={activeProjectId ?? ''}
-            onChange={(e) => setActiveProject(e.target.value || null)}
+            onChange={(e) => { if (!isFormOpen) setActiveProject(e.target.value || null) }}
+            disabled={isFormOpen}
             aria-label="Select active project"
           >
             <option value="">— No project selected —</option>
@@ -274,11 +476,11 @@ export function ProjectOptimizationPanel({
               <option key={p.id} value={p.id}>{p.title}</option>
             ))}
           </select>
-          {activeProjectId && (
+          {activeProjectId && !isFormOpen && (
             <button
               type="button"
               className="pop__edit-btn"
-              onClick={openEditModal}
+              onClick={openEditMode}
               title="Edit this project"
             >
               Edit
@@ -286,7 +488,6 @@ export function ProjectOptimizationPanel({
           )}
         </div>
 
-        {/* Controls: Auto-Optimization toggle + Snapshot-Optimization button */}
         <div className="pop__controls-inline">
           <label className="pop__toggle-wrap">
             <button
@@ -295,9 +496,7 @@ export function ProjectOptimizationPanel({
               aria-checked={autoOptOn}
               className={`pop__toggle-switch${autoOptOn ? ' pop__toggle-switch--on' : ''}`}
               disabled={!activeProject}
-              onClick={() =>
-                activeProject && setAutoOptimization(activeProject.id, !autoOptOn)
-              }
+              onClick={() => activeProject && setAutoOptimization(activeProject.id, !autoOptOn)}
               title="Automatically triggers analysis at set intervals"
             >
               <span className="pop__toggle-knob" />
@@ -325,10 +524,283 @@ export function ProjectOptimizationPanel({
         </div>
       </div>
 
+      {/* ── Inline Setup Form ───────────────────────────────────────────────── */}
+      {isFormOpen && (
+        <>
+          <div className="pop__divider" aria-hidden="true" />
+
+          <div className="pop__setup-form">
+
+            {/* Form header */}
+            <div className="pop__form-hdr">
+              <span className="pop__form-hdr-title">
+                {setupMode === 'creating' ? 'New project' : `Edit: ${formTitle}`}
+              </span>
+              <button
+                type="button"
+                className="pop__form-cancel-link"
+                onClick={handleCancelForm}
+                tabIndex={-1}
+              >
+                Cancel
+              </button>
+            </div>
+
+            {/* Title + Session (side by side) */}
+            <div className="pop__form-field-row">
+              <div className="pop__form-field" style={{ flex: 1, minWidth: 0 }}>
+                <label className="pop__form-label" htmlFor="pop-form-title">Title</label>
+                <input
+                  ref={titleInputRef}
+                  id="pop-form-title"
+                  className="pop__form-input"
+                  type="text"
+                  value={formTitle}
+                  onChange={(e) => setFormTitle(e.target.value)}
+                  placeholder="Project title"
+                />
+              </div>
+              <div className="pop__form-field" style={{ width: 160, flexShrink: 0 }}>
+                <label className="pop__form-label" htmlFor="pop-form-session">Session</label>
+                <select
+                  id="pop-form-session"
+                  className="pop__form-select"
+                  value={formLinkedSessionId ?? ''}
+                  onChange={(e) => setFormLinkedSessionId(e.target.value || null)}
+                >
+                  <option value="">— No session —</option>
+                  {orchestratorSessions.length === 0
+                    ? <option value="" disabled>No sessions available</option>
+                    : orchestratorSessions.map((s) => (
+                        <option key={s.id} value={s.id}>{s.name}</option>
+                      ))
+                  }
+                </select>
+              </div>
+            </div>
+
+            {/* Description */}
+            <div className="pop__form-field pop__form-field--mt">
+              <div className="pop__form-label-row">
+                <span className="pop__form-label">Description</span>
+                <div className="pop__form-label-actions">
+                  <button
+                    type="button"
+                    className={`pop__form-select-btn${descriptionSelected ? ' pop__form-select-btn--active' : ''}`}
+                    onClick={() => setDescriptionSelected((v) => !v)}
+                  >
+                    {descriptionSelected ? 'Selected ✓' : 'Select'}
+                  </button>
+                  <button
+                    type="button"
+                    className="pop__form-ai-btn"
+                    onClick={focusHeaderAiChat}
+                    title="Focus AI chat to draft this field"
+                  >
+                    AI Draft →
+                  </button>
+                </div>
+              </div>
+              <textarea
+                className={`pop__form-textarea${descriptionSelected ? ' pop__form-textarea--selected' : ''}`}
+                value={formDescription}
+                onChange={(e) => setFormDescription(e.target.value)}
+                placeholder="What is this project about?"
+                rows={3}
+              />
+            </div>
+
+            {/* Goals */}
+            <div className="pop__form-field pop__form-field--mt">
+              <div className="pop__form-label-row">
+                <span className="pop__form-label">Goals</span>
+                <div className="pop__form-label-actions">
+                  <button
+                    type="button"
+                    className={`pop__form-select-btn${goalsSelected ? ' pop__form-select-btn--active' : ''}`}
+                    onClick={() => setGoalsSelected((v) => !v)}
+                  >
+                    {goalsSelected ? 'Selected ✓' : 'Select'}
+                  </button>
+                  <button
+                    type="button"
+                    className="pop__form-ai-btn"
+                    onClick={focusHeaderAiChat}
+                    title="Focus AI chat to draft this field"
+                  >
+                    AI Draft →
+                  </button>
+                </div>
+              </div>
+              <textarea
+                className={`pop__form-textarea${goalsSelected ? ' pop__form-textarea--selected' : ''}`}
+                value={formGoals}
+                onChange={(e) => setFormGoals(e.target.value)}
+                placeholder="What do you want to achieve?"
+                rows={3}
+              />
+            </div>
+
+            {/* Milestones */}
+            <div className="pop__form-field pop__form-field--mt">
+              <div className="pop__form-label-row">
+                <span className="pop__form-label">Milestones</span>
+                <div className="pop__form-label-actions">
+                  <button
+                    type="button"
+                    className={`pop__form-select-btn${milestonesSelected ? ' pop__form-select-btn--active' : ''}`}
+                    onClick={() => setMilestonesSelected((v) => !v)}
+                  >
+                    {milestonesSelected ? 'Selected ✓' : 'Select'}
+                  </button>
+                  <button
+                    type="button"
+                    className="pop__form-ai-btn"
+                    onClick={focusHeaderAiChat}
+                    title="Focus AI chat to suggest milestones"
+                  >
+                    AI Draft →
+                  </button>
+                </div>
+              </div>
+              {formMilestones.length > 0 && (
+                <div className="pop__form-milestones">
+                  {formMilestones.map((m) => (
+                    <div key={m.id} className="pop__form-ms-row">
+                      <button
+                        type="button"
+                        className={`pop__form-ms-check${m.completed ? ' pop__form-ms-check--done' : ''}`}
+                        onClick={() => toggleFormMilestone(m.id)}
+                        aria-label={m.completed ? 'Mark incomplete' : 'Mark complete'}
+                      />
+                      <span className={`pop__form-ms-title${m.completed ? ' pop__form-ms-title--done' : ''}`}>
+                        {m.title}
+                      </span>
+                      <button
+                        type="button"
+                        className="pop__form-ms-del"
+                        onClick={() => removeFormMilestone(m.id)}
+                        aria-label={`Remove milestone: ${m.title}`}
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div className="pop__form-ms-add-row">
+                <input
+                  className="pop__form-input pop__form-input--sm"
+                  type="text"
+                  value={newMilestoneInput}
+                  onChange={(e) => setNewMilestoneInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') { e.preventDefault(); handleAddFormMilestone() }
+                  }}
+                  placeholder="Add milestone…"
+                />
+                <button
+                  type="button"
+                  className="pop__form-ms-add-btn"
+                  onClick={handleAddFormMilestone}
+                >
+                  Add
+                </button>
+              </div>
+            </div>
+
+            {/* Context Attachments */}
+            <div className="pop__form-field pop__form-field--mt">
+              <div className="pop__form-label-row">
+                <span className="pop__form-label">Context attachments</span>
+              </div>
+              <p className="pop__form-sub-label">Embedded as LLM context when project is active</p>
+              {formAttachments.length > 0 && (
+                <div className="pop__form-attachments">
+                  {formAttachments.map((att) => (
+                    <div key={att.id} className="pop__form-att-row">
+                      <span className="pop__form-att-name">{att.filename}</span>
+                      <span className="pop__form-att-type">
+                        {getMimeLabel(att.mimeType, att.filename)}
+                      </span>
+                      <button
+                        type="button"
+                        className="pop__form-ms-del"
+                        onClick={() =>
+                          setFormAttachments((prev) => prev.filter((a) => a.id !== att.id))
+                        }
+                        aria-label={`Remove ${att.filename}`}
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <button
+                type="button"
+                className="pop__form-upload-btn"
+                onClick={() => fileInputRef.current?.click()}
+              >
+                Add file…
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".pdf,.txt,.md,.json"
+                multiple
+                style={{ display: 'none' }}
+                onChange={(e) => void handleFileSelect(e)}
+              />
+            </div>
+
+            {/* Auto-Optimization interval */}
+            <div className="pop__form-field pop__form-field--mt">
+              <label className="pop__form-label" htmlFor="pop-form-interval">
+                Optimization interval
+              </label>
+              <div className="pop__form-interval-row">
+                <select
+                  id="pop-form-interval"
+                  className="pop__form-select pop__form-select--sm"
+                  value={formIntervalMs}
+                  onChange={(e) => setFormIntervalMs(Number(e.target.value))}
+                >
+                  {AUTO_OPTIMIZATION_INTERVALS.map((i) => (
+                    <option key={i.value} value={i.value}>{i.label}</option>
+                  ))}
+                </select>
+                <span className="pop__form-interval-hint">when auto-optimization is enabled</span>
+              </div>
+            </div>
+
+            {/* Save / Cancel */}
+            <div className="pop__form-footer">
+              <button
+                type="button"
+                className="pop__form-footer-cancel"
+                onClick={handleCancelForm}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="pop__form-footer-save"
+                disabled={!formTitle.trim()}
+                onClick={handleSaveForm}
+              >
+                Save project
+              </button>
+            </div>
+
+          </div>
+        </>
+      )}
+
       {/* ── Divider ─────────────────────────────────────────────────────────── */}
       <div className="pop__divider" aria-hidden="true" />
 
-      {/* ── Roadmap area ────────────────────────────────────────────────────── */}
+      {/* ── Roadmap area (always visible, pushed down when form is open) ──────── */}
       {activeProject ? (
         <div className="pop__roadmap-area">
           {totalCount === 0 ? (
@@ -355,7 +827,7 @@ export function ProjectOptimizationPanel({
       {/* ── Divider ─────────────────────────────────────────────────────────── */}
       <div className="pop__divider" aria-hidden="true" />
 
-      {/* ── Status footer (3 rows) ──────────────────────────────────────────── */}
+      {/* ── Status footer (3 compact rows) ──────────────────────────────────── */}
       <div className="pop__status-footer" role="status" aria-live="polite">
         <div className="pop__sfr">
           <span className="pop__sfr-key">Active project</span>
@@ -431,7 +903,7 @@ export function ProjectOptimizationPanel({
         </div>
       </details>
 
-      {/* ── Attachments (hidden — preserves removeAttachment reference) ────── */}
+      {/* ── Attachments (hidden — preserves removeAttachment store reference) ── */}
       {activeProject && activeProject.attachments.length > 0 && (
         <div className="pop__hidden-preserve">
           {activeProject.attachments.map((att) => (
@@ -447,7 +919,7 @@ export function ProjectOptimizationPanel({
         </div>
       )}
 
-      {/* ── Mail sync handler (hidden — preserves onAutoToggle + store bindings) ── */}
+      {/* ── Mail sync (hidden — preserves onAutoToggle + store bindings) ──────── */}
       <div className="pop__hidden-preserve">
         <button
           type="button"
@@ -459,12 +931,6 @@ export function ProjectOptimizationPanel({
         </button>
       </div>
 
-      {/* ── Project Setup Modal ─────────────────────────────────────────────── */}
-      <ProjectSetupModal
-        open={modalOpen}
-        onClose={() => setModalOpen(false)}
-        activeProjectId={modalEditId}
-      />
     </section>
   )
 }
