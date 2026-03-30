@@ -7,12 +7,27 @@ export interface IntelligenceDashboardProps {
   loading: boolean
   error: string | null
   onRetry: () => void
+
+  // Status card — project selector
+  projects?: Array<{ id: string; title: string }>
+  activeProjectId?: string | null
+  onSelectProject?: (projectId: string | null) => void
+
+  // Status card — Auto-Optimization toggle
   autoOptimizationEnabled?: boolean
+  onToggleAutoOptimization?: (enabled: boolean) => void
+
+  // Status card — Auto-Sync toggle
   autoSyncEnabled?: boolean
+  onToggleAutoSync?: (enabled: boolean) => void
+
+  // Status card — read-only
   syncActive?: boolean
   accountCount?: number
-  activeProjectName?: string | null
   unopenedBeapCount?: number
+
+  /** @deprecated Pass activeProjectId + projects instead; kept for backward compat. */
+  activeProjectName?: string | null
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -315,43 +330,29 @@ function TransportCard({ snapshot }: { snapshot: AnalysisDashboardSnapshot }) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function StatusCard({
-  autoOptimizationEnabled = false,
-  autoSyncEnabled         = false,
-  syncActive              = false,
-  accountCount            = 0,
-  activeProjectName       = null,
-  unopenedBeapCount       = 0,
+  autoOptimizationEnabled  = false,
+  onToggleAutoOptimization,
+  autoSyncEnabled          = false,
+  onToggleAutoSync,
+  syncActive               = false,
+  accountCount             = 0,
+  unopenedBeapCount        = 0,
+  projects                 = [],
+  activeProjectId          = null,
+  onSelectProject,
 }: {
   autoOptimizationEnabled?: boolean
+  onToggleAutoOptimization?: (enabled: boolean) => void
   autoSyncEnabled?: boolean
+  onToggleAutoSync?: (enabled: boolean) => void
   syncActive?: boolean
   accountCount?: number
-  activeProjectName?: string | null
   unopenedBeapCount?: number
+  projects?: Array<{ id: string; title: string }>
+  activeProjectId?: string | null
+  onSelectProject?: (projectId: string | null) => void
 }) {
-  const statusRows = [
-    {
-      label: 'Auto-Optimization',
-      on:    autoOptimizationEnabled,
-      dot:   autoOptimizationEnabled ? '#059669' : 'rgba(220,38,38,0.5)',
-      stateText: autoOptimizationEnabled ? 'ON'  : 'OFF',
-      stateColor: autoOptimizationEnabled ? '#059669' : '#9B9B96',
-    },
-    {
-      label: 'Auto-Sync',
-      on:    autoSyncEnabled,
-      dot:   autoSyncEnabled ? '#059669' : 'rgba(220,38,38,0.5)',
-      stateText: autoSyncEnabled ? 'ON'  : 'OFF',
-      stateColor: autoSyncEnabled ? '#059669' : '#9B9B96',
-    },
-    {
-      label: 'Sync',
-      on:    syncActive,
-      dot:   syncActive ? '#2563EB' : '#9B9B96',
-      stateText: syncActive ? 'ACTIVE' : 'IDLE',
-      stateColor: syncActive ? '#2563EB' : '#9B9B96',
-    },
-  ]
+  const autoOptDisabled = !activeProjectId
 
   const beapColor = unopenedBeapCount > 0 ? '#D97706' : '#9B9B96'
 
@@ -366,17 +367,86 @@ function StatusCard({
       <p className="intelligence-card__label">STATUS</p>
 
       <div className="ic-st__status-rows">
-        {statusRows.map(({ label, dot, stateText, stateColor }) => (
-          <div key={label} className="ic-st__status-row">
-            <div className="ic-st__status-left">
-              <div className="ic-st__status-dot" style={{ background: dot }} />
-              <span className="ic-st__status-label">{label}</span>
-            </div>
-            <span className="ic-st__status-state" style={{ color: stateColor }}>
-              {stateText}
+
+        {/* Row 1: Auto-Optimization — interactive toggle */}
+        <div className="ic-st__status-row">
+          <div className="ic-st__status-left">
+            <div
+              className="ic-st__status-dot"
+              style={{
+                background: autoOptimizationEnabled ? '#059669' : 'rgba(220,38,38,0.5)',
+                opacity: autoOptDisabled ? 0.45 : 1,
+              }}
+            />
+            <span
+              className="ic-st__status-label"
+              style={{ opacity: autoOptDisabled ? 0.45 : 1 }}
+            >
+              Auto-Optimization
             </span>
           </div>
-        ))}
+          <button
+            type="button"
+            role="switch"
+            aria-checked={autoOptimizationEnabled}
+            className={[
+              'status-toggle',
+              autoOptimizationEnabled ? 'status-toggle--active'   : '',
+              autoOptDisabled         ? 'status-toggle--disabled' : '',
+            ].filter(Boolean).join(' ')}
+            disabled={autoOptDisabled}
+            onClick={() => onToggleAutoOptimization?.(!autoOptimizationEnabled)}
+            title={
+              autoOptDisabled
+                ? 'Select a project first'
+                : autoOptimizationEnabled
+                  ? 'Disable Auto-Optimization'
+                  : 'Enable Auto-Optimization'
+            }
+          />
+        </div>
+        {autoOptDisabled && (
+          <div style={{ textAlign: 'right', fontSize: 8, color: '#D97706', marginTop: -2, marginBottom: 2 }}>
+            Select a project first
+          </div>
+        )}
+
+        {/* Row 2: Auto-Sync — interactive toggle */}
+        <div className="ic-st__status-row">
+          <div className="ic-st__status-left">
+            <div
+              className="ic-st__status-dot"
+              style={{ background: autoSyncEnabled ? '#059669' : 'rgba(220,38,38,0.5)' }}
+            />
+            <span className="ic-st__status-label">Auto-Sync</span>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={autoSyncEnabled}
+            className={`status-toggle${autoSyncEnabled ? ' status-toggle--active' : ''}`}
+            onClick={() => onToggleAutoSync?.(!autoSyncEnabled)}
+            title={autoSyncEnabled ? 'Disable Auto-Sync' : 'Enable Auto-Sync'}
+          />
+        </div>
+
+        {/* Row 3: Sync — read-only status indicator */}
+        <div className="ic-st__status-row">
+          <div className="ic-st__status-left">
+            <div
+              className="ic-st__status-dot"
+              style={{ background: syncActive ? '#2563EB' : '#9B9B96' }}
+            />
+            <span className="ic-st__status-label">Sync</span>
+          </div>
+          <span
+            className="ic-st__status-state"
+            style={{ color: syncActive ? '#2563EB' : '#9B9B96' }}
+          >
+            {syncActive ? 'ACTIVE' : 'IDLE'}
+          </span>
+        </div>
+
       </div>
 
       <hr className="ic-st__divider" />
@@ -406,12 +476,18 @@ function StatusCard({
 
       <hr className="ic-st__divider-sm" />
 
-      <p
-        className="ic-st__project-ref"
-        style={{ color: activeProjectName ? '#1C1C1A' : '#9B9B96' }}
+      {/* Project selector — replaces the static project name text */}
+      <select
+        value={activeProjectId ?? ''}
+        onChange={(e) => onSelectProject?.(e.target.value || null)}
+        className="ic-st__project-select"
+        aria-label="Active project"
       >
-        {activeProjectName ?? 'No active project'}
-      </p>
+        <option value="">— No project —</option>
+        {projects.map((p) => (
+          <option key={p.id} value={p.id}>{p.title}</option>
+        ))}
+      </select>
     </div>
   )
 }
@@ -536,12 +612,16 @@ export function IntelligenceDashboard({
   loading,
   error,
   onRetry,
-  autoOptimizationEnabled = false,
-  autoSyncEnabled         = false,
-  syncActive              = false,
-  accountCount            = 0,
-  activeProjectName       = null,
-  unopenedBeapCount       = 0,
+  projects                 = [],
+  activeProjectId          = null,
+  onSelectProject,
+  autoOptimizationEnabled  = false,
+  onToggleAutoOptimization,
+  autoSyncEnabled          = false,
+  onToggleAutoSync,
+  syncActive               = false,
+  accountCount             = 0,
+  unopenedBeapCount        = 0,
 }: IntelligenceDashboardProps) {
   if (error) {
     return (
@@ -565,10 +645,14 @@ export function IntelligenceDashboard({
       <TransportCard snapshot={snapshot} />
       <StatusCard
         autoOptimizationEnabled={autoOptimizationEnabled}
+        onToggleAutoOptimization={onToggleAutoOptimization}
         autoSyncEnabled={autoSyncEnabled}
+        onToggleAutoSync={onToggleAutoSync}
         syncActive={syncActive}
         accountCount={accountCount}
-        activeProjectName={activeProjectName}
+        projects={projects}
+        activeProjectId={activeProjectId}
+        onSelectProject={onSelectProject}
         unopenedBeapCount={unopenedBeapCount}
       />
     </div>

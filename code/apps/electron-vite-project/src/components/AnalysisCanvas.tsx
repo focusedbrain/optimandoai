@@ -42,8 +42,9 @@ import {
 
 // ── Data layer ────────────────────────────────────────────────────────────────
 import { useAnalysisDashboardSnapshot } from '../lib/useAnalysisDashboardSnapshot'
-import { useEmailInboxStore } from '../stores/useEmailInboxStore'
+import { activeEmailAccountIdsForSync, useEmailInboxStore } from '../stores/useEmailInboxStore'
 import { useProjectStore, selectActiveProject } from '../stores/useProjectStore'
+import { pickDefaultEmailAccountRowId } from '@ext/shared/email/pickDefaultAccountRow'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -87,6 +88,9 @@ export default function AnalysisCanvas({
 
   // ── Project store (drives StatusCard wiring) ───────────────────────────────
   const activeProject   = useProjectStore(selectActiveProject)
+  const projects        = useProjectStore((s) => s.projects)
+  const activeProjectId = useProjectStore((s) => s.activeProjectId)
+  const setActiveProject = useProjectStore((s) => s.setActiveProject)
   const autoSyncEnabled = useEmailInboxStore((s) => s.autoSyncEnabled)
 
   /**
@@ -97,6 +101,27 @@ export default function AnalysisCanvas({
     await refreshDashboard()
     await useEmailInboxStore.getState().refreshMessages()
   }, [refreshDashboard])
+
+  // ── Status card callbacks (bidirectional sync via Zustand) ─────────────────
+
+  /** Select a project in the Status card — syncs with ProjectOptimizationPanel. */
+  const handleSelectProject = useCallback((projectId: string | null) => {
+    setActiveProject(projectId)
+  }, [setActiveProject])
+
+  /** Toggle Auto-Optimization from the Status card — calls the same store action. */
+  const handleToggleAutoOptimization = useCallback((enabled: boolean) => {
+    if (!activeProjectId) return
+    useProjectStore.getState().setAutoOptimization(activeProjectId, enabled)
+  }, [activeProjectId])
+
+  /** Toggle Auto-Sync from the Status card — calls the same mechanism as ProjectOptimizationPanel. */
+  const handleToggleAutoSync = useCallback((enabled: boolean) => {
+    const accounts   = emailAccounts ?? []
+    const accountIds = activeEmailAccountIdsForSync(accounts)
+    const primaryId  = pickDefaultEmailAccountRowId(accounts) ?? null
+    void useEmailInboxStore.getState().toggleAutoSyncForActiveAccounts(enabled, accountIds, primaryId)
+  }, [emailAccounts])
 
   // ── Canvas state (drives StatusBadge flags) — unchanged ───────────────────
   const [, , helpers] = useCanvasState()
@@ -140,11 +165,15 @@ export default function AnalysisCanvas({
               loading={dashboardLoading}
               error={dashboardError}
               onRetry={refreshDashboard}
+              projects={projects.map((p) => ({ id: p.id, title: p.title }))}
+              activeProjectId={activeProjectId}
+              onSelectProject={handleSelectProject}
               autoOptimizationEnabled={activeProject?.autoOptimizationEnabled ?? false}
+              onToggleAutoOptimization={handleToggleAutoOptimization}
               autoSyncEnabled={autoSyncEnabled}
+              onToggleAutoSync={handleToggleAutoSync}
               syncActive={false /* TODO: wire to real sync-in-progress state */}
               accountCount={emailAccounts?.length ?? 0}
-              activeProjectName={activeProject?.title ?? null}
               unopenedBeapCount={0 /* TODO: derive from snapshot or dedicated IPC */}
             />
           </div>
