@@ -972,6 +972,26 @@ contextBridge.exposeInMainWorld('integrity', {
   getStatus: () => ipcRenderer.invoke('integrity:status'),
 })
 
+// ── Local LLM (Ollama) — status + active model (shared with Backend Configuration persistence) ──
+contextBridge.exposeInMainWorld('llm', {
+  getStatus: () => ipcRenderer.invoke('llm:getStatus'),
+  setActiveModel: (modelId: string) => {
+    assertString(modelId, 'modelId')
+    return ipcRenderer.invoke('llm:setActiveModel', modelId)
+  },
+  onActiveModelChanged: (handler: (data: { modelId: string }) => void) => {
+    const fn = (_e: Electron.IpcRendererEvent, data: unknown) => {
+      if (!data || typeof data !== 'object') return
+      const m = (data as Record<string, unknown>).modelId
+      if (typeof m === 'string' && m.length > 0) handler({ modelId: m })
+    }
+    ipcRenderer.on('llm:activeModelChanged', fn)
+    return () => {
+      ipcRenderer.removeListener('llm:activeModelChanged', fn)
+    }
+  },
+})
+
 // ── Lifecycle (main→renderer notifications) ──────────────────────────────
 contextBridge.exposeInMainWorld('lifecycle', {
   onMainProcessMessage: (cb: (message: string) => void) => {

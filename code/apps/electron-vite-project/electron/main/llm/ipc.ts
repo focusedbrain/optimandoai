@@ -7,6 +7,7 @@ import { ipcMain, IpcMainInvokeEvent } from 'electron'
 import { hardwareService } from './hardware'
 import { ollamaManager } from './ollama-manager'
 import { DEBUG_ACTIVE_OLLAMA_MODEL } from './activeOllamaModelStore'
+import { broadcastActiveOllamaModelChanged } from './broadcastActiveModel'
 import { MODEL_CATALOG, getModelConfig } from './config'
 import { ChatRequest } from './types'
 
@@ -139,6 +140,7 @@ export function registerLlmHandlers() {
     try {
       if (DEBUG_ACTIVE_OLLAMA_MODEL) console.warn('[LLM IPC] setActiveModel requested:', modelId)
       const result = await ollamaManager.setActiveModelPreference(modelId)
+      if (result.ok) broadcastActiveOllamaModelChanged(modelId)
       if (DEBUG_ACTIVE_OLLAMA_MODEL && result.ok) console.warn('[LLM IPC] setActiveModel persisted:', modelId?.trim())
       return result
     } catch (error: any) {

@@ -7582,6 +7582,8 @@ app.whenReady().then(async () => {
           res.status(400).json({ ok: false, error: result.error })
           return
         }
+        const { broadcastActiveOllamaModelChanged } = await import('./main/llm/broadcastActiveModel')
+        broadcastActiveOllamaModelChanged(modelId)
         if (DEBUG_ACTIVE_OLLAMA_MODEL) {
           console.warn('[HTTP-LLM] Set active model persisted:', modelId.trim())
         }

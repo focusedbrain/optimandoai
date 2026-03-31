@@ -52,6 +52,28 @@ interface IntegrityBridge {
   getStatus: () => Promise<IntegrityStatus>
 }
 
+/** Ollama status payload from `ollamaManager.getStatus()` / `llm:getStatus`. */
+interface LlmOllamaStatus {
+  installed: boolean
+  running: boolean
+  version?: string
+  port: number
+  modelsInstalled: Array<{
+    name: string
+    size: number
+    modified: string
+    digest?: string
+    isActive?: boolean
+  }>
+  activeModel?: string
+}
+
+interface LlmBridge {
+  getStatus: () => Promise<{ ok: true; data: LlmOllamaStatus } | { ok: false; error: string }>
+  setActiveModel: (modelId: string) => Promise<{ ok: true } | { ok: false; error: string }>
+  onActiveModelChanged: (cb: (data: { modelId: string }) => void) => () => void
+}
+
 /** TEMPORARY — main process log viewer (remove before production) */
 interface MainProcessLogEntry {
   ts: string
@@ -100,4 +122,6 @@ interface Window {
   debugLogs?: DebugLogsBridge
   orchestrator?: OrchestratorBridge
   beap?: BeapBridge
+  /** Preload: local Ollama status and persisted active model (same store as Backend Configuration). */
+  llm?: LlmBridge
 }

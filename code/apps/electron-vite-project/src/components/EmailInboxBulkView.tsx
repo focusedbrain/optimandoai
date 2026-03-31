@@ -46,6 +46,7 @@ import { AutoSortSessionHistory } from './AutoSortSessionHistory'
 import { InboxHandshakeNavIconButton } from './InboxHandshakeNavIcon'
 import '../components/handshakeViewTypes'
 import { DEBUG_AUTOSORT_DIAGNOSTICS, autosortDiagLog, setAutosortDiagRunId } from '../lib/autosortDiagnostics'
+import { BulkOllamaModelSelect } from './BulkOllamaModelSelect'
 
 const MUTED = '#64748b'
 
@@ -4660,6 +4661,7 @@ export default function EmailInboxBulkView({
                 style={{ width: 72, cursor: 'pointer', accentColor: '#7c3aed' }}
               />
             </label>
+            <BulkOllamaModelSelect variant="toolbar" />
             <span className="bulk-view-selection-group-count selected-count">{selectedCount} selected</span>
           </div>
 
@@ -5586,6 +5588,7 @@ export default function EmailInboxBulkView({
                             >
                               ⏹ Stop
                             </button>
+                            <BulkOllamaModelSelect variant="progress" />
                             <label
                               style={{
                                 display: 'flex',
@@ -5626,8 +5629,10 @@ export default function EmailInboxBulkView({
                               maxWidth: 520,
                             }}
                           >
-                            Higher can be faster on strong hardware, but slower on weaker hardware. Changes apply
-                            starting with the next batch (current batch is not resized mid-flight).
+                            Higher can be faster on strong hardware, but slower on weaker hardware. Changes to
+                            concurrency apply starting with the next batch (the current batch is not resized
+                            mid-flight). Changing the Ollama model applies the same way: the current chunk keeps
+                            its already-resolved model; the next chunk uses the newly selected model.
                           </p>
                         </div>
                       )}

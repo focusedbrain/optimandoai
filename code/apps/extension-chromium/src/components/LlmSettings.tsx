@@ -3,7 +3,7 @@
  * Can be used in both Extension (HTTP bridge) and Electron app (IPC bridge)
  */
 
-import React, { useState, useEffect, useMemo } from 'react'
+import React, { useState, useEffect, useMemo, useRef } from 'react'
 import { electronRpc, type RpcMethod } from '../rpc/electronRpc'
 import { getThemeTokens } from '../shared/ui/lightboxTheme'
 
@@ -215,6 +215,26 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
       setLoading(false)
     }
   }
+
+  const loadDataRef = useRef(loadData)
+  loadDataRef.current = loadData
+
+  // When the Electron app changes the active model elsewhere (e.g. inbox bulk toolbar), refresh this
+  // panel on focus/visibility so it matches the same persisted preference as HTTP `llm.status`.
+  useEffect(() => {
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') void loadDataRef.current()
+    }
+    const onFocus = () => {
+      void loadDataRef.current()
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+    window.addEventListener('focus', onFocus)
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility)
+      window.removeEventListener('focus', onFocus)
+    }
+  }, [bridge])
   
   const handleStartOllama = async () => {
     try {
