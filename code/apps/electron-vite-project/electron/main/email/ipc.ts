@@ -216,7 +216,7 @@ import { reconcileAnalyzeTriage, reconcileInboxClassification } from '../../../s
 import { formatSourceWeightingForPrompt, sortSourceWeightingFromMessageRow } from '../../../src/lib/inboxSortSourceWeighting'
 import { extractPdfText, isPdfFile, resolveInboxPdfExtractionStatus } from './pdf-extractor'
 import { readDecryptedAttachmentBuffer, type AttachmentRowCrypto } from './attachmentBlobCrypto'
-import { inboxLlmChat, isLlmAvailable, inboxSupportsOllamaStream, INBOX_LLM_TIMEOUT_MS } from './inboxLlmChat'
+import { inboxLlmChat, isLlmAvailable, INBOX_LLM_TIMEOUT_MS, resolveInboxLlmSettings } from './inboxLlmChat'
 
 /** Per-page strings from DB `extracted_text` (extraction joins pages with \\n\\n). */
 function inboxPagesFromStoredExtractedText(text: string): string[] {
@@ -267,14 +267,19 @@ const OLLAMA_BASE_URL = 'http://127.0.0.1:11434'
 /** @deprecated Ollama-only stream; retained for advisory analyze when unified provider is local Ollama. */
 async function* callInboxOllamaChatStream(
   systemPrompt: string,
-  userPrompt: string
+  userPrompt: string,
+  /** When set, skips `listModels()` (caller already fetched models once). */
+  modelIdFromPrecheck?: string,
 ): AsyncGenerator<string> {
-  const { ollamaManager } = await import('../llm/ollama-manager')
-  const models = await ollamaManager.listModels()
-  if (models.length === 0) {
-    throw new Error('No LLM model installed. Install a model in LLM Settings first.')
+  let modelId = modelIdFromPrecheck
+  if (!modelId) {
+    const { ollamaManager } = await import('../llm/ollama-manager')
+    const models = await ollamaManager.listModels()
+    if (models.length === 0) {
+      throw new Error('No LLM model installed. Install a model in LLM Settings first.')
+    }
+    modelId = models[0].name
   }
-  const modelId = models[0].name
   const controller = new AbortController()
   const timeoutId = setTimeout(() => controller.abort(), INBOX_LLM_TIMEOUT_MS)
   try {
@@ -3592,6 +3597,7 @@ Respond ONLY with valid JSON. No markdown, no backticks, no preamble, no explana
     }
     activeAiAnalyzeMessageStreams.add(messageId)
     console.log('[AI-ANALYZE-STREAM] Starting for message:', messageId)
+    let streamStartedOk = false
     try {
       const db = await resolveDb()
       if (!db) {
@@ -3620,14 +3626,30 @@ Respond ONLY with valid JSON. No markdown, no backticks, no preamble, no explana
         return { started: false }
       }
 
-      const available = await isLlmAvailable()
-      if (!available) {
-        event.sender.send('inbox:aiAnalyzeMessageError', {
-          messageId,
-          error: 'llm_error',
-          message: 'No AI provider available. Check Backend settings (local model or cloud API key).',
-        })
-        return { started: false }
+      const settings = resolveInboxLlmSettings()
+      let ollamaModelForStream: string | undefined
+      if (settings.provider.toLowerCase() === 'ollama') {
+        const { ollamaManager } = await import('../llm/ollama-manager')
+        const models = await ollamaManager.listModels()
+        if (models.length === 0) {
+          event.sender.send('inbox:aiAnalyzeMessageError', {
+            messageId,
+            error: 'llm_error',
+            message: 'No AI provider available. Check Backend settings (local model or cloud API key).',
+          })
+          return { started: false }
+        }
+        ollamaModelForStream = models[0].name
+      } else {
+        const available = await isLlmAvailable()
+        if (!available) {
+          event.sender.send('inbox:aiAnalyzeMessageError', {
+            messageId,
+            error: 'llm_error',
+            message: 'No AI provider available. Check Backend settings (local model or cloud API key).',
+          })
+          return { started: false }
+        }
       }
 
       const isNativeBeapStream =
@@ -3666,8 +3688,8 @@ Respond ONLY with valid JSON. No markdown, no backticks, no preamble.`
       if (sortRules) systemPrompt += `\n\nUser custom sorting rules: ${sortRules}`
       if (contextBlock) systemPrompt += contextBlock
 
-      if (await inboxSupportsOllamaStream()) {
-        const stream = callInboxOllamaChatStream(systemPrompt, userPrompt)
+      if (ollamaModelForStream) {
+        const stream = callInboxOllamaChatStream(systemPrompt, userPrompt, ollamaModelForStream)
         for await (const chunk of stream) {
           if (event.sender.isDestroyed()) break
           event.sender.send('inbox:aiAnalyzeMessageChunk', { messageId, chunk })
@@ -3680,21 +3702,24 @@ Respond ONLY with valid JSON. No markdown, no backticks, no preamble.`
       }
       if (!event.sender.isDestroyed()) {
         event.sender.send('inbox:aiAnalyzeMessageDone', { messageId })
+        streamStartedOk = true
       }
-    } catch (err: any) {
-      console.error('[Inbox IPC] aiAnalyzeMessageStream error:', err)
-      const isTimeout = err?.message?.startsWith('LLM_TIMEOUT')
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err)
+      const stack = err instanceof Error ? err.stack : undefined
+      console.error('[Inbox IPC] aiAnalyzeMessageStream error:', msg, stack ?? err)
+      const isTimeout = msg.startsWith('LLM_TIMEOUT')
       if (!event.sender.isDestroyed()) {
         event.sender.send('inbox:aiAnalyzeMessageError', {
           messageId,
           error: isTimeout ? 'timeout' : 'llm_error',
-          message: err?.message ?? 'Unknown error',
+          message: msg || 'Unknown error',
         })
       }
     } finally {
       activeAiAnalyzeMessageStreams.delete(messageId)
     }
-    return { started: true }
+    return { started: streamStartedOk }
   })
 
   /** Per-message classification — used by both aiClassifySingle and aiCategorize. */

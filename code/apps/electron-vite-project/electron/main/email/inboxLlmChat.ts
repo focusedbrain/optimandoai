@@ -32,6 +32,7 @@ function firstCloudRagSettings(): UserRagSettings | null {
 
 /**
  * Resolve provider/model for inbox using Backend (OCR) cloud preference + API keys, with Ollama fallback.
+ * Exported for IPC paths that need a single `listModels` pass (e.g. advisory stream).
  */
 export function resolveInboxLlmSettings(): UserRagSettings {
   const cfg = ocrRouter.getCloudConfig()

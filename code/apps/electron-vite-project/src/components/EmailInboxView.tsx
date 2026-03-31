@@ -168,6 +168,8 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
   const draftRef = useRef<HTMLDivElement>(null)
   const draftTextareaRef = useRef<HTMLTextAreaElement>(null)
   const streamCleanupRef = useRef<(() => void) | null>(null)
+  /** Stops auto re-entry: effect re-runs after stream error (e.g. Zustand or StrictMode) must not call analyze again. */
+  const autoAnalyzeStreamFailedRef = useRef<Set<string>>(new Set())
   /**
    * When the user runs manual Summarize while the analysis stream is still running (or before it finishes),
    * stream chunks / completion must not overwrite that summary. Cleared on message change and when a fresh stream starts (e.g. Retry).
@@ -200,6 +202,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
     const skipEmailDraft = !!(msg && deriveInboxMessageKind(msg) === 'handshake')
     const cached = useEmailInboxStore.getState().analysisCache[messageId]
     if (cached) {
+      autoAnalyzeStreamFailedRef.current.delete(messageId)
       const tri = reconcileAnalyzeTriage(
         {
           urgencyScore: cached.urgencyScore,
@@ -346,12 +349,14 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
           }
         }
         useEmailInboxStore.getState().setAnalysisCache(messageId, adjusted)
+        autoAnalyzeStreamFailedRef.current.delete(messageId)
       }
       cleanup()
     })
 
     const unsubError = window.emailInbox.onAiAnalyzeError(({ messageId: mid, error }) => {
       if (mid !== messageId) return
+      autoAnalyzeStreamFailedRef.current.add(messageId)
       setAnalysisLoading(false)
       setAnalysisError(
         error === 'timeout'
@@ -365,8 +370,19 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
 
     try {
       console.warn('⚡ EmailInboxView calling aiAnalyzeMessageStream', new Date().toISOString(), { messageId })
-      await window.emailInbox.aiAnalyzeMessageStream(messageId)
+      const res = await window.emailInbox.aiAnalyzeMessageStream(messageId)
+      const deduped =
+        res &&
+        res.started === false &&
+        (res as { reason?: string }).reason === 'already-running'
+      if (res?.started === false && !deduped) {
+        autoAnalyzeStreamFailedRef.current.add(messageId)
+        setAnalysisLoading(false)
+        setAnalysisError('Analysis failed. Check that Ollama is running.')
+        cleanup()
+      }
     } catch {
+      autoAnalyzeStreamFailedRef.current.add(messageId)
       setAnalysisLoading(false)
       setAnalysisError('Analysis failed. Check that Ollama is running.')
       cleanup()
@@ -380,6 +396,13 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
       capsuleSendSuccessTimerRef.current = null
     }
     manualSummaryOverrideRef.current = null
+    useDraftRefineStore.getState().disconnect()
+    if (autoAnalyzeStreamFailedRef.current.has(messageId)) {
+      return () => {
+        streamCleanupRef.current?.()
+      }
+    }
+    setAnalysisError(null)
     setAnalysisLoading(true)
     setAnalysis(null)
     setReceivedFields(new Set())
@@ -398,12 +421,11 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
     setSendingCapsule(false)
     setAvailableSessions([])
     draftFallbackAttemptedRef.current = false
-    draftRefineDisconnect()
     runAnalysisStream()
     return () => {
       streamCleanupRef.current?.()
     }
-  }, [messageId, runAnalysisStream, draftRefineDisconnect])
+  }, [messageId, runAnalysisStream])
 
   /** FIX-H6: Clear draft-edit indicator when switching to a different message. */
   useEffect(() => {
@@ -844,9 +866,10 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
   }, [onDelete, messageId])
 
   const handleRetryAnalysis = useCallback(() => {
+    autoAnalyzeStreamFailedRef.current.delete(messageId)
     setAnalysisError(null)
     runAnalysisStream()
-  }, [runAnalysisStream])
+  }, [messageId, runAnalysisStream])
 
   const handleRetryDraft = useCallback(() => {
     setDraftError(false)
