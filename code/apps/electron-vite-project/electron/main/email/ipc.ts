@@ -342,18 +342,44 @@ async function* callInboxOllamaChatStream(
 
 /** Robust JSON parsing for LLM responses — strips markdown fences and preamble. */
 function parseAiJson(raw: string): Record<string, unknown> {
-  let cleaned = raw.trim()
-  cleaned = cleaned.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '')
-  const start = cleaned.indexOf('{')
-  const end = cleaned.lastIndexOf('}')
-  if (start !== -1 && end !== -1 && end > start) {
-    cleaned = cleaned.substring(start, end + 1)
+  // 1. Try markdown code block content first (model wrapped output in ```json...```)
+  const cbMatch = raw.match(/```(?:json)?\s*\n?([\s\S]*?)\n?\s*```/)
+  const fromBlock = cbMatch?.[1]?.trim()
+  if (fromBlock) {
+    try { return JSON.parse(fromBlock) as Record<string, unknown> } catch {}
   }
-  try {
-    return JSON.parse(cleaned) as Record<string, unknown>
-  } catch {
-    return {}
+
+  const text = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim()
+
+  // 2. Direct parse (model returned clean JSON with no prose)
+  try { return JSON.parse(text) as Record<string, unknown> } catch {}
+
+  // 3. Brace-depth scan: extract the first complete JSON object even when the model
+  //    adds explanatory prose that itself contains { } characters before the real JSON.
+  //    Simple indexOf('{') is NOT enough — it picks up {email system}, {company}, etc.
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] !== '{') continue
+    let depth = 0
+    let inString = false
+    let escape = false
+    for (let j = i; j < text.length; j++) {
+      const ch = text[j]
+      if (escape) { escape = false; continue }
+      if (ch === '\\' && inString) { escape = true; continue }
+      if (ch === '"') { inString = !inString; continue }
+      if (inString) continue
+      if (ch === '{') depth++
+      else if (ch === '}') {
+        depth--
+        if (depth === 0) {
+          try { return JSON.parse(text.substring(i, j + 1)) as Record<string, unknown> } catch {}
+          break
+        }
+      }
+    }
   }
+
+  return {}
 }
 
 /**
@@ -3804,17 +3830,20 @@ Respond ONLY with valid JSON. No markdown, no backticks, no preamble.`
     }
 
     const userRules = getInboxAiRulesForPrompt()
-    const systemPrompt = `${userRules}
+    const systemPrompt = `You are an inbox classifier. Return ONLY a raw JSON object — no prose, no explanation, no markdown fences.
 
-Return ONLY a JSON object with this exact shape — no explanation, no markdown:
+REQUIRED OUTPUT FORMAT (use exactly this shape, nothing else):
 {
   "category": "pending_delete" | "pending_review" | "archive" | "urgent" | "action_required" | "normal",
-  "urgency": <number 1-10>,
-  "needsReply": <boolean>,
+  "urgency": <integer 1-10>,
+  "needsReply": <true|false>,
   "summary": "<one sentence>",
   "reason": "<one sentence>",
-  "draftReply": "<draft reply or null>"
-}`
+  "draftReply": "<reply text or null>"
+}
+
+CLASSIFICATION RULES:
+${userRules}`
 
     const from = row.from_name ? `${row.from_name} <${row.from_address || ''}>` : (row.from_address || 'Unknown')
     const attCount = typeof row.attachment_count === 'number' ? row.attachment_count : 0
