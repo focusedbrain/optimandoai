@@ -131,6 +131,7 @@ export type AutosortRetainKind =
 export type AutosortFailureReason =
   | 'timeout'
   | 'llm_error'
+  | 'llm_unavailable'
   | 'move_failed'
   | 'parse_failed'
   /** Targeted in a run but never reached a terminal outcome (e.g. dropped between passes). */

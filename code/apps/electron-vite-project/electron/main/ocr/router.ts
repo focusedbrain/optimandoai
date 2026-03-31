@@ -33,6 +33,11 @@ export class OCRRouter {
   /**
    * Update cloud AI configuration
    */
+  /** Read current cloud prefs + keys (e.g. inbox LLM routing). */
+  getCloudConfig(): CloudAIConfig | null {
+    return this.cloudConfig
+  }
+
   setCloudConfig(config: CloudAIConfig): void {
     this.cloudConfig = config
     console.log('[OCR Router] Cloud config updated:', {

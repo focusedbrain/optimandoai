@@ -216,6 +216,7 @@ import { reconcileAnalyzeTriage, reconcileInboxClassification } from '../../../s
 import { formatSourceWeightingForPrompt, sortSourceWeightingFromMessageRow } from '../../../src/lib/inboxSortSourceWeighting'
 import { extractPdfText, isPdfFile, resolveInboxPdfExtractionStatus } from './pdf-extractor'
 import { readDecryptedAttachmentBuffer, type AttachmentRowCrypto } from './attachmentBlobCrypto'
+import { inboxLlmChat, isLlmAvailable, inboxSupportsOllamaStream, INBOX_LLM_TIMEOUT_MS } from './inboxLlmChat'
 
 /** Per-page strings from DB `extracted_text` (extraction joins pages with \\n\\n). */
 function inboxPagesFromStoredExtractedText(text: string): string[] {
@@ -228,9 +229,7 @@ function inboxPagesFromStoredExtractedText(text: string): string[] {
 
 // ── Inbox: active auto-sync loops ──
 
-const INBOX_LLM_TIMEOUT_MS = 45_000
-
-/** Use ollamaManager.chat (same path as main app HTTP chat) — avoids aiProviders fetch path that can return 404. */
+/** @deprecated Use `inboxLlmChat` from `./inboxLlmChat` (unified provider). Kept for Ollama NDJSON stream path. */
 async function callInboxOllamaChat(systemPrompt: string, userPrompt: string): Promise<string> {
   const { ollamaManager } = await import('../llm/ollama-manager')
   const models = await ollamaManager.listModels()
@@ -252,7 +251,7 @@ async function callInboxOllamaChat(systemPrompt: string, userPrompt: string): Pr
   return response?.content?.trim() ?? 'No response from model.'
 }
 
-/** Check if Ollama has at least one model (same resolution as chat). */
+/** @deprecated Use `isLlmAvailable` from `./inboxLlmChat`. */
 async function isOllamaAvailable(): Promise<boolean> {
   try {
     const { ollamaManager } = await import('../llm/ollama-manager')
@@ -265,7 +264,7 @@ async function isOllamaAvailable(): Promise<boolean> {
 
 const OLLAMA_BASE_URL = 'http://127.0.0.1:11434'
 
-/** Stream LLM response token-by-token. Yields content chunks. 45s timeout via AbortController. */
+/** @deprecated Ollama-only stream; retained for advisory analyze when unified provider is local Ollama. */
 async function* callInboxOllamaChatStream(
   systemPrompt: string,
   userPrompt: string
@@ -1617,15 +1616,7 @@ Rules:
     const userPrompt = `AutoSort batch — ${messages.length} messages:\n\n${lines}`
 
     try {
-      const { ollamaManager } = await import('../llm/ollama-manager')
-      const models = await ollamaManager.listModels()
-      if (!models.length) throw new Error('No Ollama models available')
-
-      const chatRes = await ollamaManager.chat(models[0].name, [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt },
-      ])
-      const rawStr = chatRes?.content?.trim() ?? ''
+      const rawStr = (await inboxLlmChat({ system: systemPrompt, user: userPrompt })).trim()
       const parsed = parseAiJson(rawStr)
       if (!parsed || Object.keys(parsed).length === 0) throw new Error('Failed to parse summary JSON')
 
@@ -3236,9 +3227,12 @@ Rules:
       if (!row) return { ok: false, error: 'Message not found' }
       console.log('[AI-SUMMARIZE] Message fetched:', { from: row.from_address, subject: row.subject, bodyLength: (row.body_text ?? '').length })
 
-      const available = await isOllamaAvailable()
+      const available = await isLlmAvailable()
       if (!available) {
-        return { ok: true, data: { summary: 'Error: LLM not available. Check Ollama status.', error: true } }
+        return {
+          ok: true,
+          data: { summary: 'Error: No AI provider available. Check Backend settings (local model or cloud API key).', error: true },
+        }
       }
 
       const sender = row.from_name ? `${row.from_name} <${row.from_address || ''}>` : (row.from_address || 'Unknown')
@@ -3248,7 +3242,7 @@ Rules:
       const systemPrompt = 'You are an AI assistant for WR Desk inbox. Summarize the following email concisely in 2-3 sentences. Focus on: who sent it, what they want, and any action required.'
       console.log('[AI-SUMMARIZE] System prompt length:', systemPrompt.length)
       console.log('[AI-SUMMARIZE] Calling LLM...')
-      const summary = await callInboxOllamaChat(systemPrompt, userPrompt)
+      const summary = await inboxLlmChat({ system: systemPrompt, user: userPrompt })
       console.log('[AI-SUMMARIZE] Raw LLM response:', summary.substring(0, 500))
 
       /** Persist to ai_analysis_json so analysis survives clearBulkAiOutputsForIds. */
@@ -3302,7 +3296,7 @@ Rules:
       isNativeBeap =
         row.source_type === 'direct_beap' || (!!row.handshake_id && row.source_type !== 'email_plain')
 
-      const available = await isOllamaAvailable()
+      const available = await isLlmAvailable()
       if (!available) {
         if (isNativeBeap) {
           return {
@@ -3315,7 +3309,10 @@ Rules:
             },
           }
         }
-        return { ok: true, data: { draft: 'Error: LLM not available. Check Ollama status.', error: true } }
+        return {
+          ok: true,
+          data: { draft: 'Error: No AI provider available. Check Backend settings (local model or cloud API key).', error: true },
+        }
       }
 
       if (isNativeBeap) {
@@ -3342,7 +3339,7 @@ Match the language of the original message.
 Original message:
 ${messageContent}`
 
-        const fullReply = (await callInboxOllamaChat(systemFull, fullUserPrompt)).trim().slice(0, 8000)
+        const fullReply = (await inboxLlmChat({ system: systemFull, user: fullUserPrompt })).trim().slice(0, 8000)
         console.log('[AI-DRAFT] Native BEAP full reply length:', fullReply.length)
 
         const summaryUserPrompt = `Summarize this reply in 1-2 sentences for a preview.
@@ -3351,7 +3348,7 @@ Output ONLY the summary text. No JSON, no formatting.
 Reply being summarized:
 ${fullReply}`
 
-        const summary = (await callInboxOllamaChat(systemSummary, summaryUserPrompt)).trim().slice(0, 4000)
+        const summary = (await inboxLlmChat({ system: systemSummary, user: summaryUserPrompt })).trim().slice(0, 4000)
         console.log('[AI-DRAFT] Native BEAP summary length:', summary.length)
 
         const capsuleDraft = {
@@ -3397,7 +3394,7 @@ ${fullReply}`
       if (contextBlock) systemPrompt += contextBlock
       console.log('[AI-DRAFT] System prompt length:', systemPrompt.length)
       console.log('[AI-DRAFT] Calling LLM...')
-      const draft = await callInboxOllamaChat(systemPrompt, userPrompt)
+      const draft = await inboxLlmChat({ system: systemPrompt, user: userPrompt })
       console.log('[AI-DRAFT] Raw LLM response:', draft.substring(0, 500))
 
       /** Persist to ai_analysis_json so analysis survives clearBulkAiOutputsForIds. */
@@ -3459,9 +3456,9 @@ ${fullReply}`
       if (!row) return { ok: false, error: 'Message not found' }
       console.log('[AI-ANALYZE] Message fetched:', { from: row.from_address, subject: row.subject, bodyLength: (row.body_text ?? '').length })
 
-      const available = await isOllamaAvailable()
+      const available = await isLlmAvailable()
       if (!available) {
-        return { ok: true, data: { error: 'LLM not available. Check Ollama status.' } }
+        return { ok: true, data: { error: 'No AI provider available. Check Backend settings (local model or cloud API key).' } }
       }
 
       const isNativeBeap =
@@ -3509,7 +3506,7 @@ Respond ONLY with valid JSON. No markdown, no backticks, no preamble, no explana
 
       console.log('[AI-ANALYZE] System prompt length:', systemPrompt.length)
       console.log('[AI-ANALYZE] Calling LLM...')
-      const raw = await callInboxOllamaChat(systemPrompt, userPrompt)
+      const raw = await inboxLlmChat({ system: systemPrompt, user: userPrompt })
       console.log('[AI-ANALYZE] Raw LLM response:', raw.substring(0, 500))
       const parsed = parseAiJson(raw) as {
         needsReply?: boolean
@@ -3620,9 +3617,13 @@ Respond ONLY with valid JSON. No markdown, no backticks, no preamble, no explana
         return { started: false }
       }
 
-      const available = await isOllamaAvailable()
+      const available = await isLlmAvailable()
       if (!available) {
-        event.sender.send('inbox:aiAnalyzeMessageError', { messageId, error: 'llm_error', message: 'LLM not available. Check Ollama status.' })
+        event.sender.send('inbox:aiAnalyzeMessageError', {
+          messageId,
+          error: 'llm_error',
+          message: 'No AI provider available. Check Backend settings (local model or cloud API key).',
+        })
         return { started: false }
       }
 
@@ -3662,10 +3663,17 @@ Respond ONLY with valid JSON. No markdown, no backticks, no preamble.`
       if (sortRules) systemPrompt += `\n\nUser custom sorting rules: ${sortRules}`
       if (contextBlock) systemPrompt += contextBlock
 
-      const stream = callInboxOllamaChatStream(systemPrompt, userPrompt)
-      for await (const chunk of stream) {
-        if (event.sender.isDestroyed()) break
-        event.sender.send('inbox:aiAnalyzeMessageChunk', { messageId, chunk })
+      if (await inboxSupportsOllamaStream()) {
+        const stream = callInboxOllamaChatStream(systemPrompt, userPrompt)
+        for await (const chunk of stream) {
+          if (event.sender.isDestroyed()) break
+          event.sender.send('inbox:aiAnalyzeMessageChunk', { messageId, chunk })
+        }
+      } else {
+        const text = await inboxLlmChat({ system: systemPrompt, user: userPrompt })
+        if (!event.sender.isDestroyed() && text) {
+          event.sender.send('inbox:aiAnalyzeMessageChunk', { messageId, chunk: text })
+        }
       }
       if (!event.sender.isDestroyed()) {
         event.sender.send('inbox:aiAnalyzeMessageDone', { messageId })
@@ -3731,7 +3739,7 @@ Respond ONLY with valid JSON. No markdown, no backticks, no preamble.`
       }
     }
 
-    const available = await isOllamaAvailable()
+    const available = await isLlmAvailable()
     if (!available) return { messageId, error: 'llm_unavailable' }
 
     const userRules = getInboxAiRulesForPrompt()
@@ -3765,12 +3773,7 @@ Body (first 500 chars): ${(row.body_text ?? '').slice(0, 500)}
 ${formatSourceWeightingForPrompt(sortWeight)}`
 
     try {
-      const raw = await Promise.race([
-        callInboxOllamaChat(systemPrompt, userPrompt),
-        new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error('LLM_TIMEOUT')), INBOX_LLM_TIMEOUT_MS)
-        ),
-      ])
+      const raw = await inboxLlmChat({ system: systemPrompt, user: userPrompt })
       const parsed = parseAiJson(raw) as {
         category?: string
         urgency?: number
@@ -3960,9 +3963,9 @@ ${formatSourceWeightingForPrompt(sortWeight)}`
       const db = await resolveDb()
       if (!db) return { ok: false, error: 'Database unavailable' }
 
-      const available = await isOllamaAvailable()
+      const available = await isLlmAvailable()
       if (!available) {
-        const errMsg = 'LLM not available. Check Ollama status.'
+        const errMsg = 'No AI provider available. Check Backend settings (local model or cloud API key).'
         return {
           ok: true,
           data: {
@@ -4013,11 +4016,23 @@ ${formatSourceWeightingForPrompt(sortWeight)}`
               id: r.messageId,
               category: 'normal',
               summary: '',
-              reason: r.error === 'timeout' ? 'Timed out.' : r.error === 'parse_failed' ? 'AI analysis returned no result for this message.' : r.error === 'not_found' ? 'Message not found.' : 'Analysis failed.',
+              reason:
+                r.error === 'timeout'
+                  ? 'Timed out.'
+                  : r.error === 'parse_failed'
+                    ? 'AI analysis returned no result for this message.'
+                    : r.error === 'not_found'
+                      ? 'Message not found.'
+                      : r.error === 'llm_unavailable'
+                        ? 'No AI provider available. Check Backend settings (local model or cloud API key).'
+                        : 'Analysis failed.',
               needs_reply: false,
               needs_reply_reason: 'No result from AI.',
               urgency_score: 5,
-              urgency_reason: 'Analysis failed.',
+              urgency_reason:
+                r.error === 'llm_unavailable'
+                  ? 'No AI provider available. Check Backend settings (local model or cloud API key).'
+                  : 'Analysis failed.',
               recommended_action: 'keep_for_manual_action',
               action_explanation: 'AI did not return a result. Use Summarize or Draft below to retry.',
               action_items: [],

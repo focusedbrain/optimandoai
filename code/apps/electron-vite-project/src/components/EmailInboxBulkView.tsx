@@ -2533,7 +2533,7 @@ export default function EmailInboxBulkView({
           phase: 'sorting',
         })
       }
-      /** Parallel IPC calls — Ollama queues; 5 keeps GPU fed without huge bursts (was 3). */
+      /** Parallel IPC calls — local or cloud LLM; 5 concurrent requests (was 3). */
       const CONCURRENCY = 5
       const VALID_ACTIONS: BulkRecommendedAction[] = ['pending_delete', 'pending_review', 'archive', 'keep_for_manual_action', 'draft_reply_ready']
       const VALID_CATEGORIES: SortCategory[] = ['urgent', 'important', 'normal', 'newsletter', 'spam', 'irrelevant', 'pending_review']
@@ -2565,7 +2565,9 @@ export default function EmailInboxBulkView({
                     ? ('timeout' as const)
                     : result.error === 'parse_failed'
                       ? ('parse_failed' as const)
-                      : ('llm_error' as const)
+                      : result.error === 'llm_unavailable'
+                        ? ('llm_unavailable' as const)
+                        : ('llm_error' as const)
                 setBulkAiOutputs((prev) => ({
                   ...prev,
                   [messageId]: {
@@ -2574,7 +2576,9 @@ export default function EmailInboxBulkView({
                         ? 'Timed out.'
                         : failureReason === 'parse_failed'
                           ? 'AI returned a result that could not be read.'
-                          : 'Analysis failed.',
+                          : failureReason === 'llm_unavailable'
+                            ? 'No AI provider available. Check your AI settings and ensure a model or API key is configured.'
+                            : 'Analysis failed.',
                     autosortFailure: true,
                     failureReason,
                     autosortOutcome: 'failed',
@@ -3021,7 +3025,7 @@ export default function EmailInboxBulkView({
             [messageId]: {
               ...base,
               summary: streamFailed
-                ? 'Analysis failed. Check that Ollama is running and try again.'
+                ? 'Analysis failed. Check your AI settings and try again.'
                 : base.summary,
             },
           }
@@ -3472,7 +3476,7 @@ export default function EmailInboxBulkView({
               summary: data?.summary ?? (isError ? 'Summarize failed.' : ''),
               summaryError: isError,
               summaryErrorMessage: isError
-                ? 'Couldn’t generate a summary. Check that Ollama is running, then Retry.'
+                ? 'Couldn’t generate a summary. Check your AI settings, then Retry.'
                 : undefined,
               status: existing.status ?? 'classified',
               loading: undefined,
@@ -3789,6 +3793,7 @@ export default function EmailInboxBulkView({
         const isMoveFailed = fr === 'move_failed'
         const isParseFailed = fr === 'parse_failed'
         const isIncomplete = fr === 'processing_incomplete'
+        const isNoProvider = fr === 'llm_unavailable'
         const failTitle = isTimeout
           ? 'Timed out'
           : isMoveFailed
@@ -3797,7 +3802,9 @@ export default function EmailInboxBulkView({
               ? 'Could not parse AI result'
               : isIncomplete
                 ? 'Sort incomplete'
-                : 'Analysis failed'
+                : isNoProvider
+                  ? 'No AI provider'
+                  : 'Analysis failed'
         const failDetail =
           output.summary ||
           (isTimeout
@@ -3808,7 +3815,9 @@ export default function EmailInboxBulkView({
                 ? 'The classifier returned an unreadable response.'
                 : isIncomplete
                   ? 'This message was targeted but did not finish in the last bulk run.'
-                  : 'No usable result from AI for this message.')
+                  : isNoProvider
+                    ? 'Configure a local model or cloud API key in Backend settings.'
+                    : 'No usable result from AI for this message.')
         return (
           <div className="bulk-action-card bulk-action-card--failure">
             <div className="bulk-action-card-body">
