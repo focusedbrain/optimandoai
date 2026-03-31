@@ -49,8 +49,8 @@ export class OllamaManager {
   /** Epoch snapshot for the data currently in `_modelsCache`. */
   private _modelsCacheValidEpoch = -1
   private _modelsInFlight: Promise<InstalledModel[]> | null = null
-  /** Long enough that bulk Auto-Sort chunks do not re-hit `/api/tags` every ~30s (tags rarely change mid-run). */
-  private readonly MODELS_CACHE_TTL_MS = 120_000
+  /** Long enough that bulk Auto-Sort chunks do not re-hit `/api/tags` mid-run (tags rarely change; invalidateModelsCache handles explicit changes). */
+  private readonly MODELS_CACHE_TTL_MS = 600_000
   
   constructor() {
     this.ollamaPort = 11434

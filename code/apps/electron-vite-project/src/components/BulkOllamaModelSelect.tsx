@@ -72,14 +72,6 @@ export function BulkOllamaModelSelect({
     })
   }, [refresh])
 
-  useEffect(() => {
-    const onFocus = () => {
-      void refresh()
-    }
-    window.addEventListener('focus', onFocus)
-    return () => window.removeEventListener('focus', onFocus)
-  }, [refresh])
-
   const api = typeof window !== 'undefined' ? window.llm : undefined
   if (!api?.getStatus || !api.setActiveModel) return null
 

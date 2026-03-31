@@ -64,6 +64,11 @@ import { BulkOllamaModelSelect } from './BulkOllamaModelSelect'
 
 const MUTED = '#64748b'
 
+/** Local full reset is safe for “connected but broken sync” — not only strictly `active`. */
+function accountEligibleForInboxFullReset(a: { status: string }): boolean {
+  return a.status === 'active' || a.status === 'error' || a.status === 'auth_error'
+}
+
 /** Persisted bulk Auto-Sort **messages per IPC chunk** (1–8). Toolbar only — not Ollama in-flight cap. */
 const SORT_CONCURRENCY_STORAGE_KEY = 'wrdesk_sortConcurrency'
 /** Persisted max concurrent local Ollama classifies **inside** each chunk (1–8). Progress bar only; env can override. */
@@ -2292,9 +2297,9 @@ export default function EmailInboxBulkView({
   )
 
   const handleFullResetAllAccounts = useCallback(async () => {
-    const active = providerAccounts.filter((a) => a.status === 'active')
+    const active = providerAccounts.filter(accountEligibleForInboxFullReset)
     if (active.length === 0) {
-      addRemoteSyncLog('Full reset ALL: no active accounts')
+      addRemoteSyncLog('Full reset ALL: no eligible connected accounts (active / error / auth_error)')
       return
     }
     if (
@@ -3539,7 +3544,6 @@ export default function EmailInboxBulkView({
 
       let targetIds: string[]
       if (bulkBatchSize === 'all') {
-        await useEmailInboxStore.getState().fetchAllMessages({ soft: true })
         targetIds = [...new Set(await useEmailInboxStore.getState().fetchMatchingIdsForCurrentFilter())]
       } else {
         targetIds = Array.from(new Set(multiSelectIds)).filter((id): id is string => !!id && typeof id === 'string')
@@ -3597,7 +3601,7 @@ export default function EmailInboxBulkView({
         `Auto-Sort finished: ${nOkAnalyze} analyzed with DB applied · ${nMoved} moved (archive / pending delete / pending review) · ${nRetained} retained in inbox by policy · ${nFail} failed.`,
       )
 
-      if (sessionId && sessionApi?.getSessionMessages && sessionApi.finalize && sessionApi.generateSummary) {
+      if (sessionId && sessionApi?.getSessionMessages && sessionApi.finalize) {
         const sessionMessages = await sessionApi.getSessionMessages(sessionId)
         const stats = {
           total: sessionMessages.length,
@@ -3613,17 +3617,9 @@ export default function EmailInboxBulkView({
           durationMs: Date.now() - startTime,
         }
         await sessionApi.finalize(sessionId, stats)
-        setAiSortProgress((prev) => ({
-          done: stats.total,
-          total: stats.total,
-          label: '✦ Generating session summary…',
-          phase: 'summarizing',
-          statsDetail: prev?.statsDetail,
-          activeClassifyModel: prev?.activeClassifyModel,
-          activeClassifyProvider: prev?.activeClassifyProvider,
-          activeClassifyPreResolveMs: prev?.activeClassifyPreResolveMs,
-        }))
-        await sessionApi.generateSummary(sessionId)
+        // generateSummary deferred: fire-and-forget so it does not block run completion.
+        // The session review UI loads the summary on demand when the user opens it.
+        void sessionApi.generateSummary?.(sessionId)
         setAutosortReviewBanner({ sessionId, fading: false })
       }
     } catch (err) {
@@ -5349,7 +5345,10 @@ export default function EmailInboxBulkView({
                       <div style={{ fontWeight: 600 }}>Connected accounts — full reset (local DB)</div>
                       <button
                         type="button"
-                        disabled={remoteDebugLoading || providerAccounts.filter((a) => a.status === 'active').length === 0}
+                        disabled={
+                          remoteDebugLoading ||
+                          providerAccounts.filter(accountEligibleForInboxFullReset).length === 0
+                        }
                         onClick={() => void handleFullResetAllAccounts()}
                         style={{
                           fontSize: 11,
@@ -5367,12 +5366,14 @@ export default function EmailInboxBulkView({
                     <div style={{ fontSize: 10, color: MUTED, marginBottom: 8, lineHeight: 1.45 }}>
                       Removes inbox rows and sync state for this device only. Does not disconnect the account in the gateway.
                     </div>
-                    {providerAccounts.filter((a) => a.status === 'active').length === 0 ? (
-                      <div style={{ color: MUTED, fontSize: 11 }}>No active connected accounts.</div>
+                    {providerAccounts.filter(accountEligibleForInboxFullReset).length === 0 ? (
+                      <div style={{ color: MUTED, fontSize: 11 }}>
+                        No eligible accounts for full reset (need active, error, or auth_error).
+                      </div>
                     ) : (
                       <ul style={{ margin: 0, paddingLeft: 16, lineHeight: 1.6 }}>
                         {providerAccounts
-                          .filter((a) => a.status === 'active')
+                          .filter(accountEligibleForInboxFullReset)
                           .map((a) => (
                             <li key={a.id} style={{ marginBottom: 8, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
                               <span>

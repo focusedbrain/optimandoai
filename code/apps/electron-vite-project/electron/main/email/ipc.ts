@@ -171,7 +171,7 @@ function getInboxAiRulesForPrompt(): string {
 }
 import { emailGateway } from './gateway'
 import { pickOauthDebugFromError } from './gmailOAuthConnectDebug'
-import { DIAGNOSE_IMAP_IPC_DEV, emailDebugLog, gmailPersistenceDebugLog } from './emailDebug'
+import { DIAGNOSE_IMAP_IPC_DEV, EMAIL_DEBUG, emailDebugLog, gmailPersistenceDebugLog } from './emailDebug'
 import { runDiagnoseImapStandalone } from './diagnoseImapStandalone'
 import { pickDefaultEmailAccountRowId } from './domain/accountRowPicker'
 import { checkExistingCredentials, saveCredentials, isVaultUnlocked } from './credentials'
@@ -212,7 +212,7 @@ import {
   setSimpleOrchestratorRemoteDrainPrimary,
   BATCH as ORCHESTRATOR_REMOTE_QUEUE_BATCH,
 } from './inboxOrchestratorRemoteQueue'
-import { clearAllPullActiveLocks } from './syncPullLock'
+import { clearAllPullActiveLocks, markPullInactive } from './syncPullLock'
 import { runInboxLifecycleTick } from './inboxLifecycleEngine'
 import { reconcileImapLifecycleFromLocalState } from './imapLifecycleReconcile'
 import type {
@@ -2820,15 +2820,50 @@ Rules:
     }
     if (!db) return { ok: false, error: 'Database unavailable' }
 
+    emailDebugLog('[FULL-RESET] requested', { accountId })
+
+    /** Stale pull locks defer orchestrator work indefinitely — clear before touching the DB. */
+    markPullInactive(accountId)
+
     const sqliteIdent = (name: string) => `"${String(name).replace(/"/g, '""')}"`
     const results: string[] = []
 
+    const safeRun = (label: string, fn: () => { changes: number } | void) => {
+      try {
+        const r = fn()
+        const ch = r && typeof r.changes === 'number' ? r.changes : 0
+        results.push(`${label}: ${ch}`)
+      } catch (e: any) {
+        results.push(`${label}: error - ${e?.message ?? String(e)}`)
+      }
+    }
+
     try {
+      /** Must run outside an active transaction (SQLite). */
       db.exec('PRAGMA foreign_keys = OFF')
+      db.exec('BEGIN IMMEDIATE')
+
+      /** Child rows do not have account_id; with foreign_keys OFF, CASCADE may not run — delete explicitly. */
+      safeRun('inbox_embeddings', () =>
+        db
+          .prepare(
+            `DELETE FROM inbox_embeddings WHERE message_id IN (SELECT id FROM inbox_messages WHERE account_id = ?)`,
+          )
+          .run(accountId),
+      )
+      safeRun('inbox_attachments', () =>
+        db
+          .prepare(
+            `DELETE FROM inbox_attachments WHERE message_id IN (SELECT id FROM inbox_messages WHERE account_id = ?)`,
+          )
+          .run(accountId),
+      )
+
       const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as { name: string }[]
       const tableNames = tables.map((t) => t.name).filter((n) => n && !n.startsWith('sqlite_'))
 
       for (const table of tableNames) {
+        if (table === 'email_sync_state') continue
         try {
           const cols = db.prepare(`PRAGMA table_info(${sqliteIdent(table)})`).all() as { name: string }[]
           const hasAccountId = cols.some((c) => c.name === 'account_id')
@@ -2841,25 +2876,54 @@ Rules:
         }
       }
 
-      // Also try common sync state tables with different key column names (last_sync_at survives if key isn't account_id)
-      const syncStateTables = [
-        { table: 'email_sync_state', keyCol: 'account_id' },
-        { table: 'email_sync_state', keyCol: 'id' },
-        { table: 'email_sync_state', keyCol: 'accountId' },
-        { table: 'sync_state', keyCol: 'account_id' },
-        { table: 'sync_state', keyCol: 'id' },
-      ]
-
-      for (const { table, keyCol } of syncStateTables) {
+      /**
+       * Preserve auto_sync_enabled, sync_interval_ms, imap_folders_consolidated — only clear pull cursors/errors.
+       * Deleting the whole row (old behavior) reset auto_sync to 0 and felt like a broken recovery path.
+       */
+      let syncClear = 0
+      try {
+        const up = db
+          .prepare(
+            `UPDATE email_sync_state SET
+               last_sync_at = NULL,
+               last_uid = NULL,
+               sync_cursor = NULL,
+               total_synced = 0,
+               last_error = NULL,
+               last_error_at = NULL
+             WHERE account_id = ?`,
+          )
+          .run(accountId)
+        syncClear = typeof up?.changes === 'number' ? up.changes : 0
+      } catch (e: any) {
+        results.push(`email_sync_state: error - ${e?.message ?? String(e)}`)
+      }
+      if (syncClear > 0) {
+        results.push(`email_sync_state: ${syncClear} row(s) — cursors cleared, prefs preserved`)
+      } else {
         try {
-          const del = db.prepare(`DELETE FROM ${sqliteIdent(table)} WHERE ${sqliteIdent(keyCol)} = ?`).run(accountId)
-          if (del.changes > 0) {
-            results.push(`${table} (key=${keyCol}): ${del.changes} rows deleted`)
-          }
-        } catch {
-          /* table or column may not exist */
+          db.prepare(
+            `INSERT INTO email_sync_state (account_id, last_sync_at, last_uid, sync_cursor, auto_sync_enabled, sync_interval_ms, total_synced, last_error, last_error_at)
+             VALUES (?, NULL, NULL, NULL, 0, 30000, 0, NULL, NULL)`,
+          ).run(accountId)
+          results.push('email_sync_state: new row inserted (defaults)')
+        } catch (e2: any) {
+          results.push(`email_sync_state: no row to update; insert failed - ${e2?.message ?? String(e2)}`)
         }
       }
+
+      db.exec('COMMIT')
+    } catch (e: any) {
+      try {
+        db.exec('ROLLBACK')
+      } catch {
+        /* noop */
+      }
+      emailDebugLog('[FULL-RESET] transaction failed', { accountId, message: e?.message })
+      if (EMAIL_DEBUG) {
+        console.error('[FULL-RESET] transaction failed:', e)
+      }
+      return { ok: false, error: e?.message ?? String(e), results }
     } finally {
       try {
         db.exec('PRAGMA foreign_keys = ON')
@@ -2874,8 +2938,31 @@ Rules:
       /* noop */
     }
 
-    console.log('[FULL-RESET] Account', accountId, 'reset results:', results)
-    return { ok: true, results }
+    emailDebugLog('[FULL-RESET] committed', { accountId, results })
+
+    void (async () => {
+      try {
+        const r = await syncAccountEmails(db, { accountId })
+        emailDebugLog('[FULL-RESET] post-reset pull finished', {
+          accountId,
+          newMessages: r.newMessages,
+          ok: r.ok,
+          errors: r.errors?.length ?? 0,
+        })
+        if (r.ok) {
+          try {
+            sendToRenderer('inbox:newMessages', r)
+          } catch (err: any) {
+            console.warn('[FULL-RESET] sendToRenderer inbox:newMessages:', err?.message)
+          }
+        }
+      } catch (e: any) {
+        console.warn('[FULL-RESET] post-reset syncAccountEmails:', e?.message ?? e)
+        emailDebugLog('[FULL-RESET] post-reset pull threw', { accountId, message: e?.message })
+      }
+    })()
+
+    return { ok: true, results, kickedFollowUpPull: true as const }
   })
 
   ipcMain.handle('inbox:debugDumpSyncState', async () => {
@@ -4375,7 +4462,12 @@ ${formatSourceWeightingForPrompt(sortWeight)}`
 
     let ollamaPrewarm: OllamaBulkPrewarmDiag | undefined
     if (resolvedLlm.provider.toLowerCase() === 'ollama') {
-      ollamaPrewarm = await maybePrewarmOllamaForBulkClassify(resolvedLlm.model, { chunkIndex })
+      if (chunkIndex == null || chunkIndex === 1) {
+        // Fire-and-forget: model loads in background while first classify prepares.
+        // Previously awaited here, which blocked the entire first chunk for 10–20 s on a cold model.
+        void maybePrewarmOllamaForBulkClassify(resolvedLlm.model, { chunkIndex })
+        ollamaPrewarm = undefined
+      }
       if (DEBUG_AUTOSORT_TIMING) {
         autosortTimingLog('aiClassifyBatch:ollamaPrewarm', {
           model: resolvedLlm.model,
