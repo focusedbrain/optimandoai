@@ -867,43 +867,23 @@ export default function HybridSearch({
           chatQuery = `Context:\n${ctxBlock}\n\n${chatQuery}`
         }
 
-        /** Analysis-only: field-drafting context — builds a self-contained editing prompt
-         *  so the LLM always has the field content to work with, even when RAG finds no
-         *  matching documents.  Pattern mirrors isDraftRefine so the model understands
-         *  it should output revised text, not search for information. */
+        /** Analysis-only: field-drafting context — inject the selected field content as a
+         *  named context block (same format as RAG docs) so the model treats it as the
+         *  thing to work with.  The user's message remains clean.  No instruction framing
+         *  is added — that avoids the AI paraphrasing or echoing system text. */
         if (!isDraftRefine && activeView === 'analysis') {
           const storeState = useProjectSetupChatContextStore.getState()
           if (storeState.includeInChat && storeState.setupTextDraft.trim()) {
             const draft = storeState.setupTextDraft.trim()
-            // All field drafts are stored as "[field:<name>]\n<content>".
             const fieldTagMatch = draft.match(/^\[field:([^\]]+)\]\n?/)
             const fieldName = fieldTagMatch ? fieldTagMatch[1] : 'content'
             const content = fieldTagMatch
               ? draft.slice(fieldTagMatch[0].length).trim()
               : draft.trim()
             if (content) {
-              // Embed field content directly in the prompt so the model sees it as
-              // the thing to edit — not as a RAG search term.
-              chatQuery = [
-                `You are editing a project ${fieldName}. Here is the current text:`,
-                '',
-                '---',
-                content,
-                '---',
-                '',
-                `User instruction: ${chatQuery}`,
-                '',
-                'Output ONLY the revised text. No explanation, no preamble.',
-              ].join('\n')
-            } else {
-              // No existing content — ask for a draft from scratch
-              chatQuery = [
-                `You are drafting a project ${fieldName} from scratch.`,
-                '',
-                `User instruction: ${chatQuery}`,
-                '',
-                'Output ONLY the draft text. No explanation, no preamble.',
-              ].join('\n')
+              // Prepend as a labelled context block — mirrors the contextDocs format so
+              // the model treats it as content to operate on, not a question to answer.
+              chatQuery = `Context:\n[Current ${fieldName}]\n${content}\n\n${chatQuery}`
             }
           }
         }
