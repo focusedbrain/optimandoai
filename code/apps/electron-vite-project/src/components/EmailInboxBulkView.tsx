@@ -2565,8 +2565,8 @@ export default function EmailInboxBulkView({
       const failedIds: string[] = []
       const movedIds: string[] = []
       const retainedCounts = emptyRetainedCounts()
-      // Reset stop flag at the start of each run (pause state is user-toggled externally)
-      sortStopRequestedRef.current = false
+      // NOTE: sortStopRequestedRef is reset only by handleAiAutoSort (user-initiated run).
+      // Recursive retry calls must NOT reset it so Stop works end-to-end.
       try {
       /**
        * Bulk classify with one IPC call per batch chunk — eliminates the N-way process-boundary
@@ -2837,7 +2837,7 @@ export default function EmailInboxBulkView({
         let finalRetainedCounts = { ...retainedCounts }
         if (toRetry.length === 0) {
           console.log('[SORT] All targeted messages reached a terminal outcome in one pass')
-        } else if (!isRetry) {
+        } else if (!isRetry && !sortStopRequestedRef.current) {
           if (missedIdsPass1.length > 0) console.warn('[SORT] Pass-1 missed (will retry):', missedIdsPass1)
           const retryResult = await runAiCategorizeForIds(toRetry, false, true, {
             manageConcurrencyLock: false,
@@ -3160,6 +3160,10 @@ export default function EmailInboxBulkView({
         phase: 'sorting',
       })
       console.log('[SORT] Start. Batch:', bulkBatchSize, 'Target:', targetIds.length)
+      // Reset stop/pause flags so a fresh run always starts clean
+      sortStopRequestedRef.current = false
+      sortPausedRef.current = false
+      setSortPaused(false)
       await runAiCategorizeForIds(
         targetIds,
         true,
