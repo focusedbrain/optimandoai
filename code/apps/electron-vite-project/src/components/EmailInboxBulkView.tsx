@@ -2504,6 +2504,8 @@ export default function EmailInboxBulkView({
       opts?: { manageConcurrencyLock?: boolean; suppressGlobalSortingUi?: boolean; skipEndRefresh?: boolean },
       sessionId?: string
     ): Promise<BulkSortRunAggregate> => {
+      // ⚡ DIAGNOSTIC: visible on every classify invocation — shows ids and isRetry so we can tell a new run from a retry pass.
+      console.warn('⚡ runAiCategorizeForIds CALLED', new Date().toISOString(), { ids: ids.slice(0, 5), total: ids.length, isRetry })
       const manageConcurrencyLock = opts?.manageConcurrencyLock !== false
       const suppressGlobalSortingUi = opts?.suppressGlobalSortingUi === true
       const skipEndRefresh = opts?.skipEndRefresh === true
@@ -3056,6 +3058,8 @@ export default function EmailInboxBulkView({
 
   /** Toolbar Auto-Sort: “All” = full tab ID drain; paged = current selection only. */
   const handleAiAutoSort = useCallback(async () => {
+    // ⚡ DIAGNOSTIC: log every entry with stack trace to detect any non-user-click caller.
+    console.warn('⚡ handleAiAutoSort CALLED', new Date().toISOString(), new Error('caller').stack)
     if (isSortingRef.current || useEmailInboxStore.getState().isSortingActive) {
       console.warn('[SORT] Auto-Sort click ignored: a run is already in progress', {
         isSortingRef: isSortingRef.current,

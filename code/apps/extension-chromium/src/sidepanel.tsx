@@ -960,11 +960,15 @@ function SidepanelOrchestrator() {
     fetchFirstAvailableModel()
   }, [llmRefreshTrigger])
   
-  // Periodic check for newly installed models (every 10 seconds)
+  // Periodic fallback check for newly installed models.
+  // Model-install events are already handled by the chrome.storage listener below;
+  // this only covers out-of-band changes (e.g. terminal ollama pull). 2-minute cadence
+  // keeps /api/llm/status → ollamaManager.listModels() from running every 10 s and
+  // keeping Gemma/Llama hot in VRAM while the user is idle.
   useEffect(() => {
     const interval = setInterval(() => {
       refreshAvailableModels()
-    }, 10000) // Check every 10 seconds
+    }, 120000) // 2 minutes — was 10 s (caused continuous listModels spam)
     
     return () => clearInterval(interval)
   }, [])
