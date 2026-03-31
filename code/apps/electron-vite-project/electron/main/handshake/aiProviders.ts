@@ -6,6 +6,7 @@
  */
 
 import type { LocalEmbeddingService } from './embeddings'
+import { DEBUG_AUTOSORT_DIAGNOSTICS, autosortDiagLog } from '../autosortDiagnostics'
 
 /**
  * Set true only during local debugging.
@@ -25,6 +26,8 @@ export interface GenerateChatOptions {
   stream?: boolean
   /** When stream=true, used to send tokens to the client. */
   send?: StreamSender
+  /** When aborted (e.g. inbox LLM outer timeout), non-stream fetches cancel immediately. */
+  signal?: AbortSignal
 }
 
 export interface AIProvider {
@@ -82,26 +85,80 @@ export class OllamaProvider implements AIProvider {
       const { streamOllamaChat } = await import('./llmStream')
       const systemMsg = messages.find(m => m.role === 'system')?.content ?? ''
       const userMsg = messages.find(m => m.role === 'user')?.content ?? ''
-      return streamOllamaChat(model, systemMsg, userMsg, send)
+      const _pc = systemMsg.length + userMsg.length
+      const _tStream = Date.now()
+      if (DEBUG_AUTOSORT_DIAGNOSTICS) {
+        autosortDiagLog('OllamaProvider.generateChat:stream-start', { model, promptCharsApprox: _pc })
+      }
+      try {
+        return await streamOllamaChat(model, systemMsg, userMsg, send)
+      } finally {
+        if (DEBUG_AUTOSORT_DIAGNOSTICS) {
+          autosortDiagLog('OllamaProvider.generateChat:stream-end', {
+            model,
+            durationMs: Date.now() - _tStream,
+            outcome: 'stream_completed_or_threw',
+            promptCharsApprox: _pc,
+          })
+        }
+      }
     }
 
     const _t0 = Date.now()
-    const res = await fetch(`${this.baseUrl}/api/chat`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model,
-        stream: false,
-        keep_alive: '2m',
-        messages: messages.map(m => ({ role: m.role, content: m.content })),
-      }),
-    })
-    if (!res.ok) throw new Error(`Ollama ${res.status}: ${res.statusText}`)
-    const data = await res.json()
-    // Always log inference latency — one line per call, essential for diagnosing slowdowns.
     const _promptChars = messages.reduce((s, m) => s + m.content.length, 0)
-    console.log(`[LLM] ${model}: ${Date.now() - _t0}ms, ~${_promptChars}ch prompt`)
-    return data.message?.content ?? 'No response from model.'
+    let outcome: 'completed' | 'http_error' | 'aborted' | 'error' = 'completed'
+    if (DEBUG_AUTOSORT_DIAGNOSTICS) {
+      autosortDiagLog('OllamaProvider.generateChat:fetch-start', {
+        model,
+        promptCharsApprox: _promptChars,
+        hasAbortSignal: !!options?.signal,
+      })
+    }
+    try {
+      const res = await fetch(`${this.baseUrl}/api/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal: options?.signal,
+        body: JSON.stringify({
+          model,
+          stream: false,
+          keep_alive: '2m',
+          messages: messages.map(m => ({ role: m.role, content: m.content })),
+        }),
+      })
+      if (!res.ok) {
+        outcome = 'http_error'
+        throw new Error(`Ollama ${res.status}: ${res.statusText}`)
+      }
+      const data = await res.json()
+      if (DEBUG_AI_DIAGNOSTICS) {
+        console.log(`[LLM] ${model}: ${Date.now() - _t0}ms, ~${_promptChars}ch prompt`)
+      }
+      return data.message?.content ?? 'No response from model.'
+    } catch (e: unknown) {
+      if (outcome === 'completed') {
+        const name = e && typeof e === 'object' && 'name' in e ? String((e as Error).name) : ''
+        if (name === 'AbortError') {
+          outcome = 'aborted'
+          if (DEBUG_AUTOSORT_DIAGNOSTICS) {
+            autosortDiagLog('OllamaProvider.generateChat:fetch-aborted', { model, durationMs: Date.now() - _t0 })
+          }
+        } else outcome = 'error'
+      }
+      throw e
+    } finally {
+      if (DEBUG_AUTOSORT_DIAGNOSTICS) {
+        const end = Date.now()
+        autosortDiagLog('OllamaProvider.generateChat', {
+          model,
+          startMs: _t0,
+          endMs: end,
+          durationMs: end - _t0,
+          outcome,
+          promptCharsApprox: _promptChars,
+        })
+      }
+    }
   }
 
   async isAvailable(): Promise<boolean> {
@@ -189,17 +246,18 @@ export class CloudAIProvider implements AIProvider {
       throw new Error(`No API key for ${provider}`)
     }
 
+    const signal = options?.signal
     if (provider === 'openai') {
-      return this._chatOpenAI(messages, model, apiKey, stream, send)
+      return this._chatOpenAI(messages, model, apiKey, stream, send, signal)
     }
     if (provider === 'anthropic') {
-      return this._chatAnthropic(messages, model, apiKey, stream, send)
+      return this._chatAnthropic(messages, model, apiKey, stream, send, signal)
     }
     if (provider === 'google') {
-      return this._chatGoogle(messages, model, apiKey, stream, send)
+      return this._chatGoogle(messages, model, apiKey, stream, send, signal)
     }
     if (provider === 'xai') {
-      return this._chatXai(messages, model, apiKey, stream, send)
+      return this._chatXai(messages, model, apiKey, stream, send, signal)
     }
     throw new Error(`Unsupported cloud provider: ${provider}`)
   }
@@ -209,7 +267,8 @@ export class CloudAIProvider implements AIProvider {
     model: string,
     apiKey: string,
     stream: boolean,
-    send: StreamSender
+    send: StreamSender,
+    signal?: AbortSignal,
   ): Promise<string> {
     if (stream && send) {
       const { streamOpenAIChat } = await import('./llmStream')
@@ -221,6 +280,7 @@ export class CloudAIProvider implements AIProvider {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
       body: JSON.stringify({ model, messages: messages.map(m => ({ role: m.role, content: m.content })) }),
+      ...(signal ? { signal } : {}),
     })
     if (!res.ok) throw new Error(`OpenAI ${res.status}: ${await res.text()}`)
     const data = await res.json()
@@ -232,7 +292,8 @@ export class CloudAIProvider implements AIProvider {
     model: string,
     apiKey: string,
     stream: boolean,
-    send: StreamSender
+    send: StreamSender,
+    signal?: AbortSignal,
   ): Promise<string> {
     const systemMsg = messages.find(m => m.role === 'system')?.content ?? ''
     const userMsg = messages.find(m => m.role === 'user')?.content ?? ''
@@ -250,6 +311,7 @@ export class CloudAIProvider implements AIProvider {
         max_tokens: 1024,
         messages: [{ role: 'user', content: combined }],
       }),
+      ...(signal ? { signal } : {}),
     })
     if (!res.ok) throw new Error(`Anthropic ${res.status}: ${await res.text()}`)
     const data = await res.json()
@@ -261,7 +323,8 @@ export class CloudAIProvider implements AIProvider {
     model: string,
     apiKey: string,
     stream: boolean,
-    send: StreamSender
+    send: StreamSender,
+    signal?: AbortSignal,
   ): Promise<string> {
     const systemMsg = messages.find(m => m.role === 'system')?.content ?? ''
     const userMsg = messages.find(m => m.role === 'user')?.content ?? ''
@@ -280,6 +343,7 @@ export class CloudAIProvider implements AIProvider {
           contents: [{ role: 'user', parts: [{ text: combined }] }],
           generationConfig: { maxOutputTokens: 1024 },
         }),
+        ...(signal ? { signal } : {}),
       }
     )
     if (!res.ok) throw new Error(`Gemini ${res.status}: ${await res.text()}`)
@@ -292,7 +356,8 @@ export class CloudAIProvider implements AIProvider {
     model: string,
     apiKey: string,
     stream: boolean,
-    send: StreamSender
+    send: StreamSender,
+    signal?: AbortSignal,
   ): Promise<string> {
     if (stream && send) {
       const { streamXaiChat } = await import('./llmStream')
@@ -304,6 +369,7 @@ export class CloudAIProvider implements AIProvider {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
       body: JSON.stringify({ model, messages: messages.map(m => ({ role: m.role, content: m.content })) }),
+      ...(signal ? { signal } : {}),
     })
     if (!res.ok) throw new Error(`xAI ${res.status}: ${await res.text()}`)
     const data = await res.json()

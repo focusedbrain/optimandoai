@@ -4,6 +4,7 @@
 
 import { getProvider, type UserRagSettings } from '../handshake/aiProviders'
 import { ocrRouter } from '../ocr/router'
+import { DEBUG_AUTOSORT_DIAGNOSTICS, autosortDiagLog } from '../autosortDiagnostics'
 import type { VisionProvider } from '../ocr/types'
 
 export const INBOX_LLM_TIMEOUT_MS = 45_000
@@ -15,6 +16,12 @@ export const INBOX_LLM_TIMEOUT_MS = 45_000
 const DEBUG_AI_DIAGNOSTICS = false
 
 const LLM_TIMEOUT_PREFIX = 'LLM_TIMEOUT'
+
+function isAbortError(e: unknown): boolean {
+  if (!e || typeof e !== 'object') return false
+  const name = 'name' in e ? String((e as Error).name) : ''
+  return name === 'AbortError'
+}
 
 export class InboxLlmTimeoutError extends Error {
   constructor(message = `${LLM_TIMEOUT_PREFIX}: inbox LLM exceeded ${INBOX_LLM_TIMEOUT_MS}ms`) {
@@ -186,16 +193,49 @@ export async function inboxLlmChat(params: InboxLlmChatParams): Promise<string> 
     { role: 'user' as const, content: user },
   ]
 
-  const chatWork = provider.generateChat(messages, {
-    model: modelOverride,
-    stream: false,
-  })
+  const ac = new AbortController()
+  let outerTimeoutFired = false
+  const timeoutId = setTimeout(() => {
+    outerTimeoutFired = true
+    if (DEBUG_AUTOSORT_DIAGNOSTICS) {
+      autosortDiagLog('inboxLlmChat:outer-timeout', { timeoutMs, action: 'AbortController.abort' })
+    }
+    ac.abort()
+  }, timeoutMs)
 
-  const timeoutWork = new Promise<never>((_, reject) => {
-    setTimeout(() => reject(new InboxLlmTimeoutError()), timeoutMs)
-  })
+  if (DEBUG_AUTOSORT_DIAGNOSTICS) {
+    autosortDiagLog('inboxLlmChat:fetch-started', { timeoutMs, providerId: provider.id })
+  }
 
-  const text = await Promise.race([chatWork, timeoutWork])
-  const trimmed = typeof text === 'string' ? text.trim() : ''
-  return trimmed || 'No response from model.'
+  try {
+    const text = await provider.generateChat(messages, {
+      model: modelOverride,
+      stream: false,
+      signal: ac.signal,
+    })
+    clearTimeout(timeoutId)
+    if (DEBUG_AUTOSORT_DIAGNOSTICS) {
+      autosortDiagLog('inboxLlmChat:completed', {
+        providerId: provider.id,
+        signalAborted: ac.signal.aborted,
+      })
+    }
+    const trimmed = typeof text === 'string' ? text.trim() : ''
+    return trimmed || 'No response from model.'
+  } catch (e) {
+    clearTimeout(timeoutId)
+    const abortErr = isAbortError(e)
+    if (DEBUG_AUTOSORT_DIAGNOSTICS) {
+      autosortDiagLog('inboxLlmChat:settled', {
+        outerTimeoutFired,
+        isAbortError: abortErr,
+        signalAborted: ac.signal.aborted,
+        mapsToInboxTimeout: ac.signal.aborted && (abortErr || outerTimeoutFired),
+      })
+    }
+    if (ac.signal.aborted && (abortErr || outerTimeoutFired)) {
+      throw new InboxLlmTimeoutError()
+    }
+    throw e
+  }
 }

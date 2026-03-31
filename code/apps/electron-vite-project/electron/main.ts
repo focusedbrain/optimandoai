@@ -7,6 +7,15 @@ import {
   UNKNOWN_TIER,
   type Tier
 } from '../src/auth/capabilities'
+import {
+  DEBUG_AUTOSORT_DIAGNOSTICS,
+  autosortDiagLog,
+  getAutosortDiagMainState,
+  recordVaultLock,
+} from './main/autosortDiagnostics'
+
+/** When true, log every `GET /api/auth/status` request and response summary (verbose). */
+const DEBUG_AUTH_STATUS_HTTP = false
 
 // === TEMPORARY DEBUG LOG CAPTURE (remove before production) ===
 const _originalLog = console.log
@@ -62,7 +71,7 @@ function logoutFast(): void {
   console.log(`[AUTH][t0] logoutFast() - Locking UI immediately`)
   
   // 1. Lock vault FIRST — clears KEK/DEK from memory before anything else
-  lockVaultIfLoaded()
+  lockVaultIfLoaded('logoutFast')
   console.log(`[AUTH][t+${Date.now() - t0}ms] Vault lock requested`)
 
   // 1b. Close handshake ledger — discards the session-derived key from memory
@@ -240,8 +249,23 @@ let _vaultServiceRef: {
 /**
  * Lock the vault synchronously if the module has been loaded.
  * Safe to call at any time — no-op if vault was never imported.
+ * @param reason Optional caller label for autosort diagnostics (no effect when DEBUG_AUTOSORT_DIAGNOSTICS is false).
  */
-function lockVaultIfLoaded(): void {
+function lockVaultIfLoaded(reason?: string): void {
+  recordVaultLock(reason)
+  const ctx = getAutosortDiagMainState()
+  if (ctx.bulkSortActive) {
+    console.warn('[AUTH][AUTOSORT] Vault lock while bulk auto-sort is active:', reason ?? '(no reason)')
+  }
+  if (DEBUG_AUTOSORT_DIAGNOSTICS) {
+    autosortDiagLog('lockVaultIfLoaded', {
+      reason: reason ?? '(unspecified)',
+      ts: new Date().toISOString(),
+      bulkSortActive: ctx.bulkSortActive,
+      sessionRunId: ctx.runId,
+      vaultModuleLoaded: !!_vaultServiceRef,
+    })
+  }
   if (_vaultServiceRef) {
     try {
       _vaultServiceRef.lock()
@@ -5311,12 +5335,20 @@ app.whenReady().then(async () => {
             if (msg.type === 'AUTH_STATUS') {
               console.log('[AUTH] ===== AUTH_STATUS (WebSocket) =====')
               try {
-                const session = await ensureSession()
-                const loggedIn = session.accessToken !== null
-                
+                let session = await ensureSession()
+                let loggedIn = session.accessToken !== null
+
+                // During bulk auto-sort, a transient refresh failure should not immediately tear down
+                // the vault if a forced retry can recover (renderer flags bulk via autosortDiagSync).
+                if (!loggedIn && hasValidSession && getAutosortDiagMainState().bulkSortActive) {
+                  console.warn('[AUTH] ws:AUTH_STATUS: session missing during bulk auto-sort — retrying ensureSession(true) once')
+                  session = await ensureSession(true)
+                  loggedIn = session.accessToken !== null
+                }
+
                 // If session expired, lock vault to clear KEK/DEK from memory
                 if (!loggedIn && hasValidSession) {
-                  lockVaultIfLoaded()
+                  lockVaultIfLoaded('ws:AUTH_STATUS session expired')
                 }
 
                 // Update hasValidSession flag
@@ -5836,13 +5868,33 @@ app.whenReady().then(async () => {
     // Returns: { ok, loggedIn, tier?, displayName?, email?, initials? }
     httpApp.get('/api/auth/status', async (_req, res) => {
       try {
-        console.log('[HTTP] GET /api/auth/status')
-        const session = await ensureSession()
-        const loggedIn = session.accessToken !== null
-        
+        const statusReqTs = new Date().toISOString()
+        if (DEBUG_AUTH_STATUS_HTTP) console.log('[HTTP] GET /api/auth/status')
+        const hadSessionBefore = hasValidSession
+        let session = await ensureSession()
+        let loggedIn = session.accessToken !== null
+        let vaultLockForExpire = !loggedIn && hadSessionBefore
+
+        if (vaultLockForExpire && getAutosortDiagMainState().bulkSortActive) {
+          console.warn('[AUTH] GET /api/auth/status: session missing during bulk auto-sort — retrying ensureSession(true) once')
+          session = await ensureSession(true)
+          loggedIn = session.accessToken !== null
+          vaultLockForExpire = !loggedIn && hadSessionBefore
+        }
+
+        if (DEBUG_AUTOSORT_DIAGNOSTICS) {
+          autosortDiagLog('http:GET /api/auth/status', {
+            ts: statusReqTs,
+            source: 'http:GET /api/auth/status',
+            hadSessionBefore,
+            loggedInAfterEnsureSession: loggedIn,
+            vaultLockForSessionExpiry: vaultLockForExpire,
+          })
+        }
+
         // If session expired, lock vault to clear KEK/DEK from memory
-        if (!loggedIn && hasValidSession) {
-          lockVaultIfLoaded()
+        if (vaultLockForExpire) {
+          lockVaultIfLoaded('http:GET /api/auth/status session expired')
         }
 
         // Update hasValidSession flag based on current session state
@@ -5856,8 +5908,9 @@ app.whenReady().then(async () => {
             session.userInfo.sso_tier,
           )
         }
-        // [CHECKPOINT B] Log HTTP status response (no secrets)
-        console.log('[HTTP][B] Auth status response: loggedIn=' + loggedIn + ', tier=' + currentTier + ', hasUserInfo=' + !!session.userInfo)
+        if (DEBUG_AUTH_STATUS_HTTP) {
+          console.log('[HTTP][B] Auth status response: loggedIn=' + loggedIn + ', tier=' + currentTier + ', hasUserInfo=' + !!session.userInfo)
+        }
         // Include user info and tier for UI display
         const response: Record<string, unknown> = { ok: true, loggedIn }
         if (loggedIn) {

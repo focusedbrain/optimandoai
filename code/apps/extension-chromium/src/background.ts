@@ -418,6 +418,27 @@ startHealthMonitor();
 
 const ELECTRON_BASE_URL = 'http://127.0.0.1:51248';
 
+/** Verbose AUTH_STATUS / HTTP auth logging (default off). */
+const DEBUG_AUTH_STATUS_LOG = false
+
+/**
+ * Coalesce duplicate `AUTH_STATUS` IPC from sidepanel + BackendSwitcherInline + popup polling
+ * into at most one `GET /api/auth/status` per window. `forceRefresh` (after login, tab focus) bypasses.
+ */
+const AUTH_STATUS_CACHE_OK_MS = 45_000
+const AUTH_STATUS_CACHE_ERR_MS = 10_000
+
+type AuthStatusResponsePayload = {
+  loggedIn: boolean
+  tier: string | null
+  displayName: string | null
+  email: string | null
+  initials: string | null
+  picture: string | null
+}
+
+let authStatusHttpCache: { at: number; ok: boolean; payload: AuthStatusResponsePayload } | null = null
+
 /**
  * Build headers for a direct fetch() call to the Electron HTTP API.
  * Automatically injects the per-launch auth secret (X-Launch-Secret).
@@ -2251,6 +2272,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         console.log('[BG] AUTH_LOGIN response:', waitData);
         
         if (waitData.ok) {
+          authStatusHttpCache = null
           // Store auth state including tier
           await chrome.storage.local.set({ 
             authLoggedIn: true,
@@ -2278,8 +2300,29 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   // Handle auth status check
   // Returns: { loggedIn, role?, displayName?, email?, initials? }
   if (msg && msg.type === 'AUTH_STATUS') {
-    console.log('[BG] AUTH_STATUS request received');
-    (async () => {
+    const forceRefresh = !!(msg as { forceRefresh?: boolean }).forceRefresh
+    const now = Date.now()
+    if (!forceRefresh && authStatusHttpCache) {
+      const ttl = authStatusHttpCache.ok ? AUTH_STATUS_CACHE_OK_MS : AUTH_STATUS_CACHE_ERR_MS
+      if (now - authStatusHttpCache.at < ttl) {
+        if (DEBUG_AUTH_STATUS_LOG) {
+          console.log('[BG] AUTH_STATUS cache hit (age ms=' + (now - authStatusHttpCache.at) + ', ok=' + authStatusHttpCache.ok + ')')
+        }
+        const p = authStatusHttpCache.payload
+        sendResponse({
+          loggedIn: p.loggedIn,
+          tier: p.tier ?? undefined,
+          displayName: p.displayName ?? undefined,
+          email: p.email ?? undefined,
+          initials: p.initials ?? undefined,
+          picture: p.picture ?? undefined,
+        })
+        return true
+      }
+    }
+
+    if (DEBUG_AUTH_STATUS_LOG) console.log('[BG] AUTH_STATUS → GET /api/auth/status' + (forceRefresh ? ' (force)' : ''))
+    ;(async () => {
       try {
         // Ensure launch secret is available (may need WebSocket handshake)
         await ensureLaunchSecret(3000);
@@ -2290,31 +2333,47 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           signal: AbortSignal.timeout(5000),
         });
         const data = await response.json();
-        // [CHECKPOINT B] Log status response (no secrets)
-        console.log('[BG][B] AUTH_STATUS response: loggedIn=' + data.loggedIn + ', tier=' + (data.tier ?? 'null') + ', hasDisplayName=' + !!data.displayName);
+        if (DEBUG_AUTH_STATUS_LOG) {
+          console.log('[BG][B] AUTH_STATUS response: loggedIn=' + data.loggedIn + ', tier=' + (data.tier ?? 'null') + ', hasDisplayName=' + !!data.displayName);
+        }
+        const payload: AuthStatusResponsePayload = {
+          loggedIn: !!data.loggedIn,
+          tier: data.tier ?? null,
+          displayName: data.displayName ?? null,
+          email: data.email ?? null,
+          initials: data.initials ?? null,
+          picture: data.picture ?? null,
+        }
+        authStatusHttpCache = { at: Date.now(), ok: true, payload }
         // Update stored state (including user info, tier, and picture for cached display)
         await chrome.storage.local.set({ 
-          authLoggedIn: data.loggedIn,
-          authTier: data.tier || null,
-          authDisplayName: data.displayName || null,
-          authEmail: data.email || null,
-          authInitials: data.initials || null,
-          authPicture: data.picture || null
+          authLoggedIn: payload.loggedIn,
+          authTier: payload.tier,
+          authDisplayName: payload.displayName,
+          authEmail: payload.email,
+          authInitials: payload.initials,
+          authPicture: payload.picture
         });
-        // Pass through all user info, tier, and picture
         sendResponse({ 
-          loggedIn: data.loggedIn,
-          tier: data.tier,
-          displayName: data.displayName,
-          email: data.email,
-          initials: data.initials,
-          picture: data.picture
+          loggedIn: payload.loggedIn,
+          tier: payload.tier ?? undefined,
+          displayName: payload.displayName ?? undefined,
+          email: payload.email ?? undefined,
+          initials: payload.initials ?? undefined,
+          picture: payload.picture ?? undefined,
         });
       } catch (e: any) {
-        console.log('[BG] AUTH_STATUS error (Electron not reachable):', e.message);
+        if (DEBUG_AUTH_STATUS_LOG) console.log('[BG] AUTH_STATUS error (Electron not reachable):', e.message);
+        const payload: AuthStatusResponsePayload = {
+          loggedIn: false,
+          tier: null,
+          displayName: null,
+          email: null,
+          initials: null,
+          picture: null,
+        }
+        authStatusHttpCache = { at: Date.now(), ok: false, payload }
         // FAIL-CLOSED: If we can't reach Electron, treat user as logged out.
-        // We cannot validate the session without Electron, so we don't trust cached state.
-        // Clear cached login state to prevent stale data issues.
         await chrome.storage.local.set({ 
           authLoggedIn: false,
           authTier: null
@@ -2336,6 +2395,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   // Clears session on backend and all cached auth state
   if (msg && msg.type === 'AUTH_LOGOUT') {
     console.log('[BG] AUTH_LOGOUT request received');
+    authStatusHttpCache = null
     // Immediately clear VSBT (fail-closed: no stale session survives logout)
     _cacheVsbt(null)
     ;(async () => {

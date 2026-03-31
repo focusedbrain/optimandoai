@@ -418,10 +418,14 @@ export interface EmailInboxBridge {
     remoteEnqueue?: { enqueued: number; skipped: number; skipReasons?: string[] }
     [key: string]: unknown
   }>
+  /** Mirror bulk sort run state to main process so auth/status paths can defer vault lock on transient refresh failures. */
+  autosortDiagSync?: (payload: { runId: string | null; bulkSortActive: boolean }) => Promise<{ ok: boolean }>
   /** Batch classify: one IPC call replaces N×aiClassifySingle for bulk Auto-Sort runs. */
   aiClassifyBatch?: (
     ids: string[],
     sessionId?: string,
+    /** Opaque id for Phase 0 diagnostics (same id for retry pass). */
+    runId?: string,
   ) => Promise<{
     results: Array<{
       messageId: string
@@ -430,9 +434,15 @@ export interface EmailInboxBridge {
       recommended_action?: string
       pending_delete?: boolean
       pending_review?: boolean
+      /** Main persisted in classify — bulk renderer applies local Zustand without 2nd IPC. */
+      pending_delete_at?: string | null
+      pending_review_at?: string | null
+      archived?: number
       remoteEnqueue?: { enqueued: number; skipped: number; skipReasons?: string[] }
       [key: string]: unknown
     }>
+    /** Present when the batch short-circuits (e.g. `vault_locked`, `database_unavailable`). */
+    batchError?: string
   }>
   /**
    * Re-enqueue remote folder moves from local lifecycle state + schedule background drain.

@@ -248,10 +248,12 @@ function SidepanelOrchestrator() {
   const [electronNotRunning, setElectronNotRunning] = useState(false)
   const [authUserInfo, setAuthUserInfo] = useState<{ displayName?: string; email?: string; initials?: string; picture?: string }>({})
   
-  // Check auth status on mount and periodically
+  // Check auth on mount, when the panel becomes visible (~session correctness), and on a slow poll.
+  // Background worker coalesces concurrent `AUTH_STATUS` → one `GET /api/auth/status` per ~45s unless `forceRefresh`.
+  const AUTH_STATUS_POLL_MS = 120_000
   useEffect(() => {
-    const checkAuthStatus = () => {
-      chrome.runtime.sendMessage({ type: 'AUTH_STATUS' }, (response: { loggedIn?: boolean; displayName?: string; email?: string; initials?: string; picture?: string } | undefined) => {
+    const checkAuthStatus = (forceRefresh = false) => {
+      chrome.runtime.sendMessage({ type: 'AUTH_STATUS', forceRefresh }, (response: { loggedIn?: boolean; displayName?: string; email?: string; initials?: string; picture?: string } | undefined) => {
         if (chrome.runtime.lastError) {
           console.warn('[AUTH] Sidepanel status check failed:', chrome.runtime.lastError.message);
           setIsLoggedIn(false);
@@ -272,10 +274,16 @@ function SidepanelOrchestrator() {
       });
     };
 
-    checkAuthStatus();
-    // Refresh auth status every 30 seconds (same as popup-chat)
-    const interval = setInterval(checkAuthStatus, 30000);
-    return () => clearInterval(interval);
+    checkAuthStatus(true);
+    const interval = setInterval(() => checkAuthStatus(false), AUTH_STATUS_POLL_MS);
+    const onVis = () => {
+      if (document.visibilityState === 'visible') checkAuthStatus(false);
+    };
+    document.addEventListener('visibilitychange', onVis);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVis);
+    };
   }, []);
   
   // Platform detection for Linux vs Windows copy and Start Desktop App button
@@ -314,7 +322,7 @@ function SidepanelOrchestrator() {
         setLoginError(null);
         setIsLoggedIn(true);
         // Fetch updated user info
-        chrome.runtime.sendMessage({ type: 'AUTH_STATUS' }, (statusResponse: { loggedIn?: boolean; displayName?: string; email?: string; initials?: string; picture?: string } | undefined) => {
+        chrome.runtime.sendMessage({ type: 'AUTH_STATUS', forceRefresh: true }, (statusResponse: { loggedIn?: boolean; displayName?: string; email?: string; initials?: string; picture?: string } | undefined) => {
           if (statusResponse?.loggedIn) {
             setAuthUserInfo({
               displayName: statusResponse.displayName,

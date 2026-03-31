@@ -9,6 +9,7 @@ import type { InboxMessage } from '../stores/useEmailInboxStore'
 import type { NormalInboxAiResult } from '../types/inboxAi'
 import { useEmailInboxStore } from '../stores/useEmailInboxStore'
 import { tryParseAnalysis } from '../utils/parseInboxAiJson'
+import { autosortDiagLog } from '../lib/autosortDiagnostics'
 
 // Background preload is OFF: continuous aiAnalyzeMessageStream for visible rows kept large models
 // (e.g. Gemma 12B) hot and caused thermal/GPU load while idle. Manual per-message Analyze and
@@ -153,6 +154,16 @@ export function useInboxPreloadQueue({
       } else {
         scheduleAdaptivePreloadRef.current()
       }
+      return
+    }
+
+    if (useEmailInboxStore.getState().isSortingActive) {
+      queueRef.current.unshift(messageId)
+      autosortDiagLog('aiAnalyzeMessageStream:preload-defer', {
+        messageId,
+        reason: 'bulk-sort-active',
+      })
+      scheduleAdaptivePreloadRef.current()
       return
     }
 

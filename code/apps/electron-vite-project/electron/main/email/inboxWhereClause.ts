@@ -30,9 +30,12 @@ export function buildInboxMessagesWhereClause(options: InboxListFilterOptions = 
       'deleted = 0',
       'archived = 0',
       '(pending_delete = 0 OR pending_delete IS NULL)',
-      'sort_category = ?',
+      '(' +
+        'sort_category IN (?, ?)' +
+        ' OR (pending_review_at IS NOT NULL AND TRIM(COALESCE(pending_review_at, \'\')) != \'\')' +
+        ')',
     )
-    params.push('pending_review')
+    params.push('pending_review', 'important')
   } else if (filter === 'urgent') {
     conditions.push(
       'deleted = 0',
@@ -47,29 +50,32 @@ export function buildInboxMessagesWhereClause(options: InboxListFilterOptions = 
       'archived = 0',
       'read_status = 0',
       '(pending_delete = 0 OR pending_delete IS NULL)',
-      '(sort_category IS NULL OR sort_category NOT IN (?, ?))',
+      '(sort_category IS NULL OR sort_category NOT IN (?, ?, ?))',
+      '(pending_review_at IS NULL OR TRIM(COALESCE(pending_review_at, \'\')) = \'\')',
     )
-    params.push('pending_review', 'urgent')
+    params.push('pending_review', 'urgent', 'important')
   } else if (filter === 'starred') {
     conditions.push(
       'deleted = 0',
       'archived = 0',
       'starred = 1',
       '(pending_delete = 0 OR pending_delete IS NULL)',
-      '(sort_category IS NULL OR sort_category NOT IN (?, ?))',
+      '(sort_category IS NULL OR sort_category NOT IN (?, ?, ?))',
+      '(pending_review_at IS NULL OR TRIM(COALESCE(pending_review_at, \'\')) = \'\')',
     )
-    params.push('pending_review', 'urgent')
+    params.push('pending_review', 'urgent', 'important')
   } else if (filter === 'archived') {
     conditions.push('archived = 1', 'deleted = 0')
   } else {
-    /* all: main inbox — exclude archived, deleted, pending_delete, pending_review, urgent */
+    /* all: main inbox — exclude workflow tabs (pending review, urgent, legacy important) and any row with pending_review_at */
     conditions.push(
       'deleted = 0',
       'archived = 0',
       '(pending_delete = 0 OR pending_delete IS NULL)',
-      '(sort_category IS NULL OR sort_category NOT IN (?, ?))',
+      '(sort_category IS NULL OR sort_category NOT IN (?, ?, ?))',
+      '(pending_review_at IS NULL OR TRIM(COALESCE(pending_review_at, \'\')) = \'\')',
     )
-    params.push('pending_review', 'urgent')
+    params.push('pending_review', 'urgent', 'important')
   }
   if (sourceType) {
     conditions.push('source_type = ?')

@@ -112,37 +112,51 @@ export function BackendSwitcherInline({ theme = 'standard', onLogout }: BackendS
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Check auth status on mount and periodically (fail-closed: treat as logged out on error)
+  // Hydrate from storage (updated by background on each real `AUTH_STATUS` fetch), one IPC on mount,
+  // then follow `chrome.storage` so we don’t duplicate the sidepanel/popup poll + /api/auth/status traffic.
   useEffect(() => {
-    const checkAuthStatus = () => {
-      chrome.runtime.sendMessage({ type: 'AUTH_STATUS' }, (response: AuthStatusResponse | undefined) => {
-        if (chrome.runtime.lastError) {
-          console.warn('[AUTH] Status check failed:', chrome.runtime.lastError.message);
-          // Fail-closed: treat as logged out
-          setIsLoggedIn(false);
-          setUserInfo({});
-          return;
-        }
-        if (response?.loggedIn) {
-          setIsLoggedIn(true);
-          setPictureError(false);  // Reset picture error on new status
-          setUserInfo({
-            displayName: response.displayName,
-            email: response.email,
-            initials: response.initials || getInitials(response.displayName || response.email),
-            picture: response.picture,
-          });
-        } else {
-          setIsLoggedIn(false);
-          setUserInfo({});
-        }
-      });
+    const applyFromStorage = async () => {
+      const s = await chrome.storage.local.get([
+        'authLoggedIn',
+        'authDisplayName',
+        'authEmail',
+        'authInitials',
+        'authPicture',
+      ]);
+      const li = !!s.authLoggedIn;
+      if (li) {
+        const dn = s.authDisplayName as string | undefined;
+        const em = s.authEmail as string | undefined;
+        setIsLoggedIn(true);
+        setPictureError(false);
+        setUserInfo({
+          displayName: dn,
+          email: em,
+          initials: (s.authInitials as string | undefined) || getInitials(dn || em),
+          picture: s.authPicture as string | undefined,
+        });
+      } else {
+        setIsLoggedIn(false);
+        setUserInfo({});
+      }
     };
 
-    checkAuthStatus();
-    // Refresh auth status every 60 seconds
-    const interval = setInterval(checkAuthStatus, 60000);
-    return () => clearInterval(interval);
+    void applyFromStorage();
+
+    const onStorage = (changes: { [key: string]: chrome.storage.StorageChange }, area: string) => {
+      if (area !== 'local') return;
+      if (
+        changes.authLoggedIn ||
+        changes.authDisplayName ||
+        changes.authEmail ||
+        changes.authInitials ||
+        changes.authPicture
+      ) {
+        void applyFromStorage();
+      }
+    };
+    chrome.storage.onChanged.addListener(onStorage);
+    return () => chrome.storage.onChanged.removeListener(onStorage);
   }, []);
 
   // Helper to generate initials from name or email
@@ -189,7 +203,7 @@ export function BackendSwitcherInline({ theme = 'standard', onLogout }: BackendS
           setPictureError(false);
           setElectronNotRunning(false);
           // Fetch user info after successful login
-          chrome.runtime.sendMessage({ type: 'AUTH_STATUS' }, (statusResponse: AuthStatusResponse | undefined) => {
+          chrome.runtime.sendMessage({ type: 'AUTH_STATUS', forceRefresh: true }, (statusResponse: AuthStatusResponse | undefined) => {
             if (statusResponse?.loggedIn) {
               setUserInfo({
                 displayName: statusResponse.displayName,

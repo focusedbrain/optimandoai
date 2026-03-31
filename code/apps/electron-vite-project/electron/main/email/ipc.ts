@@ -7,9 +7,19 @@
 
 import { ipcMain, BrowserWindow, shell, dialog, app } from 'electron'
 import { createHash, randomUUID } from 'crypto'
+import {
+  DEBUG_AUTOSORT_DIAGNOSTICS,
+  autosortDiagLog,
+  getAutosortDiagMainState,
+  isRecentVaultLock,
+  setAutosortDiagMainState,
+} from '../autosortDiagnostics'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
+
+/** Per-call ⚡ logs for `inbox:aiAnalyzeMessage` — keep false in production. */
+const DEBUG_INBOX_AI_IPC_VERBOSE = false
 
 // ── WRExpert.md: user-editable AI behaviour (userData, survives app updates) ──
 const RULES_PATH = path.join(app.getPath('userData'), 'WRExpert.md')
@@ -1461,7 +1471,7 @@ export function registerInboxHandlers(
     'inbox:markRead', 'inbox:toggleStar', 'inbox:archiveMessages', 'inbox:setCategory',
     'inbox:deleteMessages', 'inbox:cancelDeletion', 'inbox:getDeletedMessages', 'inbox:deleteAllDirectBeap',
     'inbox:getAttachment', 'inbox:getAttachmentText', 'inbox:openAttachmentOriginal', 'inbox:rasterAttachment',
-    'inbox:aiSummarize', 'inbox:aiDraftReply', 'inbox:aiAnalyzeMessage', 'inbox:aiAnalyzeMessageStream', 'inbox:aiClassifySingle', 'inbox:aiClassifyBatch', 'inbox:persistManualBulkAnalysis', 'inbox:aiCategorize', 'inbox:enqueueRemoteLifecycleMirror', 'inbox:enqueueRemoteSync', 'inbox:markPendingDelete', 'inbox:moveToPendingReview', 'inbox:cancelPendingDelete', 'inbox:cancelPendingReview', 'inbox:unarchive',
+    'inbox:aiSummarize', 'inbox:aiDraftReply', 'inbox:aiAnalyzeMessage', 'inbox:aiAnalyzeMessageStream', 'inbox:aiClassifySingle', 'inbox:aiClassifyBatch', 'inbox:persistManualBulkAnalysis', 'inbox:aiCategorize', 'inbox:enqueueRemoteLifecycleMirror', 'inbox:enqueueRemoteSync', 'inbox:markPendingDelete', 'inbox:moveToPendingReview', 'inbox:cancelPendingDelete', 'inbox:cancelPendingReview', 'inbox:unarchive', 'inbox:autosortDiagSync',
     'inbox:getInboxSettings', 'inbox:setInboxSettings', 'inbox:selectAndUploadContextDoc', 'inbox:deleteContextDoc', 'inbox:listContextDocs',
     'inbox:getAiRules', 'inbox:saveAiRules', 'inbox:getAiRulesDefault',
     'inbox:listRemoteOrchestratorQueue',
@@ -1527,7 +1537,24 @@ export function registerInboxHandlers(
   }
 
   /** Same DB accessor as all inbox handlers + drain; drives optional UI drain progress. */
-  const resolveDb = async () => (typeof getDb === 'function' ? await getDb() : getDb)
+  const resolveDbCore = async () => (typeof getDb === 'function' ? await getDb() : getDb)
+  const resolveDb = resolveDbCore
+
+  async function resolveDbWithDiag(handler: string): Promise<Awaited<ReturnType<typeof resolveDbCore>>> {
+    const db = await resolveDbCore()
+    if (DEBUG_AUTOSORT_DIAGNOSTICS) {
+      autosortDiagLog('resolveDb', { handler, result: db ? 'handle' : 'null' })
+    }
+    return db
+  }
+
+  ipcMain.handle(
+    'inbox:autosortDiagSync',
+    (_e, payload: { runId: string | null; bulkSortActive: boolean }) => {
+      setAutosortDiagMainState(payload)
+      return { ok: true as const }
+    },
+  )
 
   ensureImapBruteForceAutoSyncIntervalRegistered(getDb)
 
@@ -2205,7 +2232,8 @@ Rules:
         WHERE m.deleted = 0
           AND m.archived = 0
           AND (m.pending_delete = 0 OR m.pending_delete IS NULL)
-          AND (m.sort_category IS NULL OR m.sort_category != 'pending_review')
+          AND (m.sort_category IS NULL OR m.sort_category NOT IN ('pending_review', 'important', 'urgent'))
+          AND (m.pending_review_at IS NULL OR TRIM(COALESCE(m.pending_review_at, '')) = '')
           AND (m.source_type = 'email_plain' OR m.source_type = 'email_beap')
           AND (? IS NULL OR m.account_id = ?)
         ORDER BY datetime(COALESCE(m.received_at, m.ingested_at)) DESC
@@ -2931,7 +2959,7 @@ Rules:
 
   ipcMain.handle('inbox:archiveMessages', async (_e, messageIds: string[]) => {
     try {
-      const db = await resolveDb()
+      const db = await resolveDbWithDiag('inbox:archiveMessages')
       if (!db) return { ok: false, error: 'Database unavailable' }
       const ids = messageIds ?? []
       const stmt = db.prepare('UPDATE inbox_messages SET archived = 1 WHERE id = ?')
@@ -3464,8 +3492,10 @@ ${fullReply}`
   })
 
   ipcMain.handle('inbox:aiAnalyzeMessage', async (_e, messageId: string) => {
-    console.warn('⚡ aiAnalyzeMessage CALLED', new Date().toISOString(), { messageId })
-    console.log('[AI-ANALYZE] Starting for message:', messageId)
+    if (DEBUG_INBOX_AI_IPC_VERBOSE) {
+      console.warn('⚡ aiAnalyzeMessage CALLED', new Date().toISOString(), { messageId })
+      console.log('[AI-ANALYZE] Starting for message:', messageId)
+    }
     try {
       const db = await resolveDb()
       if (!db) return { ok: false, error: 'Database unavailable' }
@@ -3616,7 +3646,15 @@ Respond ONLY with valid JSON. No markdown, no backticks, no preamble, no explana
   })
 
   ipcMain.handle('inbox:aiAnalyzeMessageStream', async (event, messageId: string) => {
-    console.warn('⚡ aiAnalyzeMessageStream CALLED', new Date().toISOString(), { messageId })
+    if (DEBUG_AUTOSORT_DIAGNOSTICS) {
+      const st = getAutosortDiagMainState()
+      autosortDiagLog('aiAnalyzeMessageStream:invoke', {
+        messageId,
+        ts: new Date().toISOString(),
+        bulkSortActive: st.bulkSortActive,
+        diagRunId: st.runId,
+      })
+    }
     if (activeAiAnalyzeMessageStreams.has(messageId)) {
       console.log('[AI-ANALYZE-STREAM] Already running for:', messageId)
       return { started: false, reason: 'already-running' as const }
@@ -3625,7 +3663,7 @@ Respond ONLY with valid JSON. No markdown, no backticks, no preamble, no explana
     console.log('[AI-ANALYZE-STREAM] Starting for message:', messageId)
     let streamStartedOk = false
     try {
-      const db = await resolveDb()
+      const db = await resolveDbWithDiag('inbox:aiAnalyzeMessageStream')
       if (!db) {
         event.sender.send('inbox:aiAnalyzeMessageError', { messageId, error: 'llm_error', message: 'Database unavailable' })
         return { started: false }
@@ -3793,8 +3831,11 @@ Respond ONLY with valid JSON. No markdown, no backticks, no preamble.`
       ...(opts?.runId ? { runId: opts.runId } : {}),
       ...(opts?.batchIndex != null ? { batchIndex: opts.batchIndex } : {}),
     })
-    const db = await resolveDb()
-    if (!db) return { messageId, error: 'Database unavailable' }
+    const db = await resolveDbWithDiag(opts?.runId ? `classifySingleMessage:${opts.runId}` : 'classifySingleMessage')
+    if (!db) {
+      const errCode = isRecentVaultLock(120_000) ? 'vault_locked' : 'database_unavailable'
+      return { messageId, error: errCode }
+    }
     const row = db
       .prepare(
         'SELECT from_address, from_name, subject, body_text, has_attachments, attachment_count, source_type, handshake_id FROM inbox_messages WHERE id = ?',
@@ -3917,11 +3958,12 @@ ${formatSourceWeightingForPrompt(sortWeight)}`
         pending_review: 'pending_review',
         archive: 'newsletter',
         urgent: 'urgent',
-        action_required: 'important',
+        /** Must match workflow tabs: `filterByInboxFilter` / `buildInboxMessagesWhereClause` treat `pending_review` + `pending_review_at` as Pending Review; `important` was excluded from that tab and left rows on All. */
+        action_required: 'pending_review',
         normal: 'normal',
       }
       const sortCategory = sortCategoryMap[validCategory] ?? 'normal'
-      /** action_required → Pending Review locally (important) regardless of needsReply; reply-needed is metadata only. */
+      /** action_required → same persisted row shape as pending_review (`sort_category` + `pending_review_at`); recommendedAction stays `pending_review` for bulk moves. */
       const recommendedAction =
         validCategory === 'pending_delete' ? 'pending_delete'
         : validCategory === 'pending_review' ? 'pending_review'
@@ -4007,6 +4049,10 @@ ${formatSourceWeightingForPrompt(sortWeight)}`
         recommended_action: recommendedAction,
         pending_delete: pendingDelete,
         pending_review: pendingReview,
+        /** ISO timestamps / flags main wrote — renderer bulk Auto-Sort can sync Zustand without a second IPC. */
+        pending_delete_at: pendingDelete ? nowIso : null,
+        pending_review_at: pendingReview ? nowIso : null,
+        archived: validCategory === 'archive' ? 1 : 0,
         remoteEnqueue,
       }
     } catch (err: any) {
@@ -4039,8 +4085,21 @@ ${formatSourceWeightingForPrompt(sortWeight)}`
    *   - LLM pre-resolved once for the whole chunk (no per-message listModels call)
    *   - Results returned together so the renderer can apply one React state update per batch
    */
-  ipcMain.handle('inbox:aiClassifyBatch', async (_e, ids: string[], sessionId?: string) => {
+  ipcMain.handle('inbox:aiClassifyBatch', async (_e, ids: string[], sessionId?: string, runId?: string) => {
     if (!ids?.length) return { results: [] }
+
+    const dbFirst = await resolveDbCore()
+    if (DEBUG_AUTOSORT_DIAGNOSTICS) {
+      autosortDiagLog('resolveDb', {
+        handler: 'inbox:aiClassifyBatch',
+        result: dbFirst ? 'handle' : 'null',
+        runId: runId ?? null,
+      })
+    }
+    if (!dbFirst) {
+      const errCode = isRecentVaultLock(120_000) ? 'vault_locked' : 'database_unavailable'
+      return { results: ids.map((messageId) => ({ messageId, error: errCode })), batchError: errCode }
+    }
 
     // Resolve LLM once for the entire chunk — eliminates N×listModels
     const resolvedLlm = (await preResolveInboxLlm()) ?? undefined
@@ -4052,7 +4111,7 @@ ${formatSourceWeightingForPrompt(sortWeight)}`
 
     // Process all IDs in this chunk concurrently (chunk size is already controlled by the renderer)
     const results = await Promise.all(
-      ids.map((id, idx) => classifySingleMessage(id, sessionId, { resolvedLlm, batchIndex: idx }))
+      ids.map((id, idx) => classifySingleMessage(id, sessionId, { resolvedLlm, batchIndex: idx, runId }))
     )
 
     try {
@@ -4215,7 +4274,7 @@ ${formatSourceWeightingForPrompt(sortWeight)}`
 
   ipcMain.handle('inbox:markPendingDelete', async (_e, messageIds: string[]) => {
     try {
-      const db = await resolveDb()
+      const db = await resolveDbWithDiag('inbox:markPendingDelete')
       if (!db) return { ok: false, error: 'Database unavailable' }
       const ids = messageIds ?? []
       const now = new Date().toISOString()
@@ -4230,7 +4289,7 @@ ${formatSourceWeightingForPrompt(sortWeight)}`
 
   ipcMain.handle('inbox:moveToPendingReview', async (_e, ids: string[]) => {
     try {
-      const db = await resolveDb()
+      const db = await resolveDbWithDiag('inbox:moveToPendingReview')
       if (!db) return { ok: false, error: 'Database unavailable' }
       const idList = ids ?? []
       if (idList.length === 0) return { ok: true }

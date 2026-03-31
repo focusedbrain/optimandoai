@@ -234,7 +234,12 @@ export function AutoSortSessionReview({
       urgent: messages.filter(
         (m) => m.sort_category === 'urgent' || (m.urgency_score != null && m.urgency_score >= 7)
       ).length,
-      review: messages.filter((m) => m.sort_category === 'pending_review' || !!m.pending_review_at).length,
+      review: messages.filter(
+        (m) =>
+          m.sort_category === 'pending_review' ||
+          m.sort_category === 'important' ||
+          !!m.pending_review_at,
+      ).length,
       delete: messages.filter((m) => !!m.pending_delete).length,
       archived: messages.filter((m) => !!m.archived).length,
       errors: 0,
@@ -257,7 +262,8 @@ export function AutoSortSessionReview({
 
     for (const m of messages) {
       const isUrgent = m.sort_category === 'urgent' || (m.urgency_score != null && m.urgency_score >= 7)
-      const isPendingReview = m.sort_category === 'pending_review' || !!m.pending_review_at
+      const isPendingReview =
+        m.sort_category === 'pending_review' || m.sort_category === 'important' || !!m.pending_review_at
 
       if (isUrgent) {
         urgent.push(m)

@@ -178,10 +178,11 @@ function PopupChatApp() {
     return () => window.removeEventListener('vault-status-changed', h)
   }, [isLoggedIn])
 
-  // Check auth status on mount
+  // Auth on mount, when visible, and slow poll — background coalesces HTTP (see `background.ts`).
+  const AUTH_STATUS_POLL_MS = 120_000
   useEffect(() => {
-    const checkAuthStatus = () => {
-      chrome.runtime.sendMessage({ type: 'AUTH_STATUS' }, (response: AuthStatusResponse | undefined) => {
+    const checkAuthStatus = (forceRefresh = false) => {
+      chrome.runtime.sendMessage({ type: 'AUTH_STATUS', forceRefresh }, (response: AuthStatusResponse | undefined) => {
         if (chrome.runtime.lastError) {
           console.warn('[AUTH] Status check failed:', chrome.runtime.lastError.message);
           setIsLoggedIn(false);
@@ -205,10 +206,16 @@ function PopupChatApp() {
       });
     };
 
-    checkAuthStatus();
-    // Refresh auth status every 30 seconds
-    const interval = setInterval(checkAuthStatus, 30000);
-    return () => clearInterval(interval);
+    checkAuthStatus(true);
+    const interval = setInterval(() => checkAuthStatus(false), AUTH_STATUS_POLL_MS);
+    const onVis = () => {
+      if (document.visibilityState === 'visible') checkAuthStatus(false);
+    };
+    document.addEventListener('visibilitychange', onVis);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVis);
+    };
   }, []);
   
   // Platform detection for Linux vs Windows copy and Start Desktop App button
@@ -297,7 +304,7 @@ function PopupChatApp() {
         setIsLoggedIn(true);
         setPictureError(false);
         // Fetch updated user info
-        chrome.runtime.sendMessage({ type: 'AUTH_STATUS' }, (statusResponse: AuthStatusResponse | undefined) => {
+        chrome.runtime.sendMessage({ type: 'AUTH_STATUS', forceRefresh: true }, (statusResponse: AuthStatusResponse | undefined) => {
           if (statusResponse?.loggedIn) {
             setUserInfo({
               displayName: statusResponse.displayName,

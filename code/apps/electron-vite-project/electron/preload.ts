@@ -916,8 +916,11 @@ contextBridge.exposeInMainWorld('emailInbox', {
    * The renderer controls chunk size (BULK_CLASSIFY_CONCURRENCY); the main process
    * pre-resolves the LLM once and returns all results together.
    */
-  aiClassifyBatch: (ids: string[], sessionId?: string) =>
-    ipcRenderer.invoke('inbox:aiClassifyBatch', ids, sessionId),
+  aiClassifyBatch: (ids: string[], sessionId?: string, runId?: string) =>
+    ipcRenderer.invoke('inbox:aiClassifyBatch', ids, sessionId, runId),
+  /** Dev-only correlation: sync bulk Auto-Sort run id to main for lockVault / stream diagnostics. */
+  autosortDiagSync: (payload: { runId: string | null; bulkSortActive: boolean }) =>
+    ipcRenderer.invoke('inbox:autosortDiagSync', payload),
   enqueueRemoteLifecycleMirror: (messageIds: string[]) =>
     ipcRenderer.invoke('inbox:enqueueRemoteLifecycleMirror', messageIds),
   /** After Auto-Sort batch: enqueue remote moves from local lifecycle state + chained background drain. */

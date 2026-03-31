@@ -24,6 +24,7 @@ import { useInboxPreloadQueue } from '../hooks/useInboxPreloadQueue'
 import { tryParsePartialAnalysis, tryParseAnalysis, type NormalInboxAiResultKey } from '../utils/parseInboxAiJson'
 import { reconcileAnalyzeTriage } from '../lib/inboxClassificationReconcile'
 import { deriveInboxMessageKind } from '../lib/inboxMessageKind'
+import { autosortDiagLog, DEBUG_AUTOSORT_DIAGNOSTICS } from '../lib/autosortDiagnostics'
 import { InboxUrgencyMeter } from './InboxUrgencyMeter'
 import { InboxHandshakeNavIconButton } from './InboxHandshakeNavIcon'
 import '../components/handshakeViewTypes'
@@ -194,10 +195,16 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
 
   const messageKind = message ? deriveInboxMessageKind(message) : null
   const isNativeBeap = messageKind === 'handshake'
+  const isSortingActive = useEmailInboxStore((s) => s.isSortingActive)
+  /** Tracks prior `isSortingActive` so we can start deferred auto-analysis when bulk sort finishes. */
+  const prevSortingActiveRef = useRef(useEmailInboxStore.getState().isSortingActive)
 
-  const runAnalysisStream = useCallback(async () => {
+  const runAnalysisStream = useCallback(async (opts?: { manual?: boolean }) => {
+    const manual = !!opts?.manual
     const msg = messageRef.current
-    console.log('[ANALYSIS] runAnalysisStream triggered for:', messageId)
+    if (DEBUG_AUTOSORT_DIAGNOSTICS) {
+      console.log('[ANALYSIS] runAnalysisStream triggered for:', messageId)
+    }
     if (!window.emailInbox?.aiAnalyzeMessageStream || !window.emailInbox.onAiAnalyzeChunk) return
     const skipEmailDraft = !!(msg && deriveInboxMessageKind(msg) === 'handshake')
     const cached = useEmailInboxStore.getState().analysisCache[messageId]
@@ -243,6 +250,16 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
       setAnalysisLoading(false)
       return
     }
+
+    if (!manual && useEmailInboxStore.getState().isSortingActive) {
+      autosortDiagLog('aiAnalyzeMessageStream:skip-auto-inbox', {
+        messageId,
+        reason: 'bulk-sort-active',
+      })
+      setAnalysisLoading(false)
+      return
+    }
+
     streamCleanupRef.current?.()
     manualSummaryOverrideRef.current = null
     setAnalysisLoading(true)
@@ -369,7 +386,9 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
     streamCleanupRef.current = cleanup
 
     try {
-      console.warn('⚡ EmailInboxView calling aiAnalyzeMessageStream', new Date().toISOString(), { messageId })
+      if (DEBUG_AUTOSORT_DIAGNOSTICS) {
+        console.warn('⚡ EmailInboxView calling aiAnalyzeMessageStream', new Date().toISOString(), { messageId })
+      }
       const res = await window.emailInbox.aiAnalyzeMessageStream(messageId)
       const deduped =
         res &&
@@ -426,6 +445,16 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
       streamCleanupRef.current?.()
     }
   }, [messageId, runAnalysisStream])
+
+  /** When bulk auto-sort ends, run deferred advisory stream for the selected message (auto path only). */
+  useEffect(() => {
+    const wasSorting = prevSortingActiveRef.current
+    prevSortingActiveRef.current = isSortingActive
+    if (!wasSorting || isSortingActive || !messageId) return
+    if (autoAnalyzeStreamFailedRef.current.has(messageId)) return
+    if (useEmailInboxStore.getState().analysisCache[messageId]) return
+    void runAnalysisStream()
+  }, [isSortingActive, messageId, runAnalysisStream])
 
   /** FIX-H6: Clear draft-edit indicator when switching to a different message. */
   useEffect(() => {
@@ -868,7 +897,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
   const handleRetryAnalysis = useCallback(() => {
     autoAnalyzeStreamFailedRef.current.delete(messageId)
     setAnalysisError(null)
-    runAnalysisStream()
+    void runAnalysisStream({ manual: true })
   }, [messageId, runAnalysisStream])
 
   const handleRetryDraft = useCallback(() => {
@@ -942,7 +971,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
             const willShow = !visibleSections.has('analysis')
             toggleSection('analysis')
             if (willShow && !analysis && !analysisLoading) {
-              void runAnalysisStream()
+              void runAnalysisStream({ manual: true })
             }
           }}
           aria-pressed={visibleSections.has('analysis')}

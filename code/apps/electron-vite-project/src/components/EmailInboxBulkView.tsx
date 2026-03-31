@@ -45,8 +45,21 @@ import { AutoSortSessionReview } from './AutoSortSessionReview'
 import { AutoSortSessionHistory } from './AutoSortSessionHistory'
 import { InboxHandshakeNavIconButton } from './InboxHandshakeNavIcon'
 import '../components/handshakeViewTypes'
+import { DEBUG_AUTOSORT_DIAGNOSTICS, autosortDiagLog, setAutosortDiagRunId } from '../lib/autosortDiagnostics'
 
 const MUTED = '#64748b'
+
+/** Persisted bulk Auto-Sort parallelism (1–8). Shared by toolbar + live progress dock. */
+const SORT_CONCURRENCY_STORAGE_KEY = 'wrdesk_sortConcurrency'
+
+type AutosortDiagAcc = {
+  analyzed: number
+  moved: number
+  retained: number
+  failed: number
+  timeout: number
+  db_unavailable: number
+}
 
 /**
  * Set to true to enable verbose per-message diagnostic logs during Auto-Sort.
@@ -422,7 +435,7 @@ function classifierToSortCategory(cat: string): SortCategory {
     pending_review: 'pending_review',
     archive: 'newsletter',
     urgent: 'urgent',
-    action_required: 'important',
+    action_required: 'pending_review',
     normal: 'normal',
   }
   return m[cat] ?? 'normal'
@@ -1872,7 +1885,7 @@ export default function EmailInboxBulkView({
   /** User-adjustable concurrency for bulk AI classify (1–8). Persisted in localStorage. */
   const [sortConcurrency, setSortConcurrency] = useState<number>(() => {
     try {
-      const stored = localStorage?.getItem('wrdesk_sortConcurrency')
+      const stored = localStorage?.getItem(SORT_CONCURRENCY_STORAGE_KEY)
       const n = stored ? parseInt(stored, 10) : 3
       return n >= 1 && n <= 8 ? n : 3
     } catch {
@@ -1882,6 +1895,16 @@ export default function EmailInboxBulkView({
   /** Ref so runAiCategorizeForIds can read the latest value without being in its dep array. */
   const sortConcurrencyRef = useRef(sortConcurrency)
   sortConcurrencyRef.current = sortConcurrency
+
+  const handleSortConcurrencyChange = useCallback((raw: number) => {
+    const v = Math.max(1, Math.min(8, Math.round(raw)))
+    setSortConcurrency(v)
+    try {
+      localStorage?.setItem(SORT_CONCURRENCY_STORAGE_KEY, String(v))
+    } catch {
+      /* ignore */
+    }
+  }, [])
 
   /** Stop / Pause controls — written by button handlers, read inside runAiCategorizeForIds loop. */
   const sortStopRequestedRef = useRef(false)
@@ -1895,6 +1918,8 @@ export default function EmailInboxBulkView({
   const [aiSortOutcomeSummary, setAiSortOutcomeSummary] = useState<string | null>(null)
   /** Shown when user triggers Auto-Sort while a run is already active. */
   const [concurrentSortNotice, setConcurrentSortNotice] = useState<string | null>(null)
+  /** Set when vault lock / DB loss interrupts Auto-Sort — explicit copy, not a generic “analysis failed”. */
+  const [autosortVaultSessionBanner, setAutosortVaultSessionBanner] = useState<string | null>(null)
   const [composeMode, setComposeMode] = useState<'beap' | 'email' | null>(null)
   const [composeReplyTo, setComposeReplyTo] = useState<{
     to: string
@@ -2525,7 +2550,15 @@ export default function EmailInboxBulkView({
       ids: string[],
       clearSelection: boolean,
       isRetry = false,
-      opts?: { manageConcurrencyLock?: boolean; suppressGlobalSortingUi?: boolean; skipEndRefresh?: boolean },
+      opts?: {
+        manageConcurrencyLock?: boolean
+        suppressGlobalSortingUi?: boolean
+        skipEndRefresh?: boolean
+        /** Same run as outer Auto-Sort (retry pass shares this id). */
+        sortRunId?: string
+        /** Accumulate renderer-side diagnostic counters across recursive retry. */
+        diagAcc?: AutosortDiagAcc
+      },
       sessionId?: string
     ): Promise<BulkSortRunAggregate> => {
       // ⚡ DIAGNOSTIC: visible on every classify invocation — shows ids and isRetry so we can tell a new run from a retry pass.
@@ -2567,15 +2600,33 @@ export default function EmailInboxBulkView({
       const retainedCounts = emptyRetainedCounts()
       // NOTE: sortStopRequestedRef is reset only by handleAiAutoSort (user-initiated run).
       // Recursive retry calls must NOT reset it so Stop works end-to-end.
+      const runDiag: AutosortDiagAcc = opts?.diagAcc ?? {
+        analyzed: 0,
+        moved: 0,
+        retained: 0,
+        failed: 0,
+        timeout: 0,
+        db_unavailable: 0,
+      }
+      let sortRunId = opts?.sortRunId
+      if (!sortRunId) {
+        sortRunId = `as-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
+      }
+      if (DEBUG_AUTOSORT_DIAGNOSTICS && !opts?.diagAcc && !isRetry) {
+        setAutosortDiagRunId(sortRunId)
+      }
+      if (!opts?.diagAcc && !isRetry) {
+        void window.emailInbox?.autosortDiagSync?.({ runId: sortRunId, bulkSortActive: true })
+      }
       try {
       /**
        * Bulk classify with one IPC call per batch chunk — eliminates the N-way process-boundary
        * fan-out. Main process pre-resolves LLM once per chunk; results come back together so the
        * renderer can apply one React state update per batch rather than N separate setState calls.
        *
-       * chunkSize is read at the START of every iteration so slider adjustments take effect
-       * immediately at the next chunk without disrupting in-flight work.
-       * Stop/Pause checks also run at chunk boundaries.
+       * chunkSize is read at the START of every iteration (sortConcurrencyRef) so toolbar / progress-dock
+       * slider changes apply starting with the **next** chunk only — never mid-flight inside the current
+       * aiClassifyBatch IPC. Stop/Pause checks also run at chunk boundaries.
        */
       let _i = 0
       while (_i < ids.length) {
@@ -2608,14 +2659,42 @@ export default function EmailInboxBulkView({
             messageId: string; error?: string; category?: string; urgency?: number
             needsReply?: boolean; summary?: string; reason?: string; draftReply?: string | null
             recommended_action?: string; pending_delete?: boolean; pending_review?: boolean
+            /** Main wrote these in classifySingleMessage — bulk path uses them for local Zustand only (no 2nd IPC). */
+            pending_delete_at?: string | null
+            pending_review_at?: string | null
+            archived?: number
             remoteEnqueue?: { enqueued: number; skipped: number; skipReasons?: string[] }
           }
           let batchResults: BatchResult[]
           try {
-            const resp = await window.emailInbox!.aiClassifyBatch!(batch, sessionId)
+            const resp = await window.emailInbox!.aiClassifyBatch!(
+              batch,
+              sessionId,
+              sortRunId,
+            )
             batchResults = ((resp?.results ?? []) as BatchResult[]).filter((r) => !!r?.messageId)
             if (batchResults.length === 0) {
               batchResults = batch.map((id) => ({ messageId: id, error: 'llm_error' }))
+            }
+            const be = resp && typeof resp === 'object' && 'batchError' in resp ? (resp as { batchError?: string }).batchError : undefined
+            const dbInterrupt =
+              be === 'vault_locked' ||
+              be === 'database_unavailable' ||
+              batchResults.some((r) => r.error === 'vault_locked' || r.error === 'database_unavailable')
+            if (dbInterrupt) {
+              sortStopRequestedRef.current = true
+              const vaultCase =
+                be === 'vault_locked' || batchResults.some((r) => r.error === 'vault_locked')
+              setAutosortVaultSessionBanner(
+                vaultCase
+                  ? 'Vault locked or your session ended during Auto-Sort. Sign in, unlock the vault, then refresh the inbox. Messages processed before this point were saved while the database was still available.'
+                  : 'Local inbox database became unavailable during Auto-Sort. Unlock the vault if needed, then refresh. Partial results may already be in the list.',
+              )
+              setAiSortOutcomeSummary(
+                vaultCase
+                  ? 'Auto-Sort stopped: vault or session interrupted the run (see banner).'
+                  : 'Auto-Sort stopped: database unavailable (see banner).',
+              )
             }
           } catch (batchCallErr: unknown) {
             const msg = batchCallErr instanceof Error ? batchCallErr.message : String(batchCallErr ?? 'batch call failed')
@@ -2633,6 +2712,22 @@ export default function EmailInboxBulkView({
             try {
               if (result.error) {
                 failedIds.push(messageId)
+                runDiag.failed += 1
+                if (result.error === 'timeout') runDiag.timeout += 1
+                if (
+                  result.error === 'Database unavailable' ||
+                  result.error === 'database_unavailable' ||
+                  result.error === 'vault_locked'
+                )
+                  runDiag.db_unavailable += 1
+                if (DEBUG_AUTOSORT_DIAGNOSTICS) {
+                  autosortDiagLog('bulk-msg', {
+                    sortRunId,
+                    messageId,
+                    phase2: 'n/a',
+                    error: result.error,
+                  })
+                }
                 if (DEBUG_AI_DIAGNOSTICS) console.warn('[SORT] Failed to analyze message:', messageId, result.error)
                 const failureReason =
                   result.error === 'timeout'
@@ -2641,7 +2736,11 @@ export default function EmailInboxBulkView({
                       ? ('parse_failed' as const)
                       : result.error === 'llm_unavailable'
                         ? ('llm_unavailable' as const)
-                        : ('llm_error' as const)
+                        : result.error === 'vault_locked'
+                          ? ('vault_locked' as const)
+                          : result.error === 'database_unavailable' || result.error === 'Database unavailable'
+                            ? ('db_unavailable' as const)
+                            : ('llm_error' as const)
                 batchUiUpdates[messageId] = {
                   summary:
                     failureReason === 'timeout'
@@ -2650,7 +2749,11 @@ export default function EmailInboxBulkView({
                         ? 'AI returned a result that could not be read.'
                         : failureReason === 'llm_unavailable'
                           ? 'No AI provider available. Check your AI settings and ensure a model or API key is configured.'
-                          : 'Analysis failed.',
+                          : failureReason === 'vault_locked'
+                            ? 'Vault locked or session ended — cannot update the inbox database.'
+                            : failureReason === 'db_unavailable'
+                              ? 'Local inbox database unavailable.'
+                              : 'Analysis failed.',
                   autosortFailure: true,
                   failureReason,
                   autosortOutcome: 'failed',
@@ -2658,6 +2761,8 @@ export default function EmailInboxBulkView({
                 }
                 continue
               }
+
+              runDiag.analyzed += 1
 
               const category = (VALID_CATEGORIES.includes((result.category ?? '') as SortCategory) ? result.category : 'normal') as SortCategory
               const recommendedAction = (VALID_ACTIONS.includes((result.recommended_action ?? '') as BulkRecommendedAction)
@@ -2693,68 +2798,93 @@ export default function EmailInboxBulkView({
                 processedIds.push(messageId)
                 batchUiUpdates[messageId] = { ...entry }
                 inboxStore.removeBulkDraftManualCompose(messageId)
+                if (DEBUG_AUTOSORT_DIAGNOSTICS) {
+                  autosortDiagLog('bulk-msg', {
+                    sortRunId,
+                    messageId,
+                    category,
+                    recommendedAction,
+                    pending_delete: !!result.pending_delete,
+                    pending_review: !!result.pending_review,
+                    archiveIntent: recommendedAction === 'archive',
+                    phase2: 'n/a',
+                  })
+                }
                 continue
               }
 
+              /** DB already updated in main (`classifySingleMessage`) — sync Zustand only (no redundant markPendingDelete IPC). */
               if (result.pending_delete && recommendedAction === 'pending_delete') {
-                const moved = await inboxStore.markPendingDeleteImmediate([messageId])
-                if (moved) {
-                  processedIds.push(messageId)
-                  movedIds.push(messageId)
-                  batchUiUpdates[messageId] = { ...entry }
-                  inboxStore.removeBulkDraftManualCompose(messageId)
-                  continue
-                }
-                failedIds.push(messageId)
-                batchUiUpdates[messageId] = {
-                  ...entry,
-                  summary: 'Could not move to Pending Delete (server error). Retry Auto-Sort or use Recommended Action (Pending Delete).',
-                  autosortFailure: true,
-                  failureReason: 'move_failed',
-                  autosortOutcome: 'failed',
-                  status: 'classified',
+                inboxStore.applyBulkAutosortLocalPendingDelete(
+                  [messageId],
+                  result.pending_delete_at ?? null,
+                  result.category ?? category,
+                )
+                runDiag.moved += 1
+                processedIds.push(messageId)
+                movedIds.push(messageId)
+                batchUiUpdates[messageId] = { ...entry }
+                inboxStore.removeBulkDraftManualCompose(messageId)
+                if (DEBUG_AUTOSORT_DIAGNOSTICS) {
+                  autosortDiagLog('bulk-msg', {
+                    sortRunId,
+                    messageId,
+                    category,
+                    recommendedAction,
+                    pending_delete: true,
+                    pending_review: !!result.pending_review,
+                    archiveIntent: false,
+                    phase2: 'local',
+                  })
                 }
                 continue
               }
 
+              /** Same as above: main already persisted pending review / important — local rows + tab counts only. */
               if (result.pending_review && recommendedAction === 'pending_review') {
-                const moved = await inboxStore.moveToPendingReviewImmediate([messageId])
-                if (moved) {
-                  processedIds.push(messageId)
-                  movedIds.push(messageId)
-                  batchUiUpdates[messageId] = { ...entry }
-                  inboxStore.removeBulkDraftManualCompose(messageId)
-                  continue
-                }
-                failedIds.push(messageId)
-                batchUiUpdates[messageId] = {
-                  ...entry,
-                  summary: 'Could not move to Pending Review (server error). Retry or use the button below.',
-                  autosortFailure: true,
-                  failureReason: 'move_failed',
-                  autosortOutcome: 'failed',
-                  status: 'classified',
+                inboxStore.applyBulkAutosortLocalPendingReview(
+                  [messageId],
+                  result.category ?? category,
+                  result.pending_review_at ?? null,
+                )
+                runDiag.moved += 1
+                processedIds.push(messageId)
+                movedIds.push(messageId)
+                batchUiUpdates[messageId] = { ...entry }
+                inboxStore.removeBulkDraftManualCompose(messageId)
+                if (DEBUG_AUTOSORT_DIAGNOSTICS) {
+                  autosortDiagLog('bulk-msg', {
+                    sortRunId,
+                    messageId,
+                    category,
+                    recommendedAction,
+                    pending_delete: !!result.pending_delete,
+                    pending_review: true,
+                    archiveIntent: false,
+                    phase2: 'local',
+                  })
                 }
                 continue
               }
 
               if (recommendedAction === 'archive') {
-                const moved = await inboxStore.archiveMessages([messageId])
-                if (moved) {
-                  processedIds.push(messageId)
-                  movedIds.push(messageId)
-                  batchUiUpdates[messageId] = { ...entry }
-                  inboxStore.removeBulkDraftManualCompose(messageId)
-                  continue
-                }
-                failedIds.push(messageId)
-                batchUiUpdates[messageId] = {
-                  ...entry,
-                  summary: 'Could not archive (server error). Retry or use Archive below.',
-                  autosortFailure: true,
-                  failureReason: 'move_failed',
-                  autosortOutcome: 'failed',
-                  status: 'classified',
+                inboxStore.applyBulkAutosortLocalArchive([messageId])
+                runDiag.moved += 1
+                processedIds.push(messageId)
+                movedIds.push(messageId)
+                batchUiUpdates[messageId] = { ...entry }
+                inboxStore.removeBulkDraftManualCompose(messageId)
+                if (DEBUG_AUTOSORT_DIAGNOSTICS) {
+                  autosortDiagLog('bulk-msg', {
+                    sortRunId,
+                    messageId,
+                    category,
+                    recommendedAction,
+                    pending_delete: !!result.pending_delete,
+                    pending_review: !!result.pending_review,
+                    archiveIntent: true,
+                    phase2: 'local',
+                  })
                 }
                 continue
               }
@@ -2764,6 +2894,18 @@ export default function EmailInboxBulkView({
                 processedIds.push(messageId)
                 batchUiUpdates[messageId] = { ...entry }
                 inboxStore.removeBulkDraftManualCompose(messageId)
+                if (DEBUG_AUTOSORT_DIAGNOSTICS) {
+                  autosortDiagLog('bulk-msg', {
+                    sortRunId,
+                    messageId,
+                    category,
+                    recommendedAction,
+                    pending_delete: !!result.pending_delete,
+                    pending_review: !!result.pending_review,
+                    archiveIntent: false,
+                    phase2: 'n/a',
+                  })
+                }
                 continue
               }
 
@@ -2771,6 +2913,7 @@ export default function EmailInboxBulkView({
               let retained: BulkAiResultEntry
               if (recommendedAction === 'keep_for_manual_action') {
                 retainedCounts.keep_for_manual_action += 1
+                runDiag.retained += 1
                 retained = withAutosortRetained(
                   entry,
                   'keep_for_manual_action',
@@ -2778,6 +2921,7 @@ export default function EmailInboxBulkView({
                 )
               } else if (recommendedAction === 'pending_delete' && !result.pending_delete) {
                 retainedCounts.classified_no_auto_move += 1
+                runDiag.retained += 1
                 retained = withAutosortRetained(
                   entry,
                   'classified_no_auto_move',
@@ -2785,6 +2929,7 @@ export default function EmailInboxBulkView({
                 )
               } else if (recommendedAction === 'pending_review' && !result.pending_review) {
                 retainedCounts.classified_no_auto_move += 1
+                runDiag.retained += 1
                 retained = withAutosortRetained(
                   entry,
                   'classified_no_auto_move',
@@ -2792,6 +2937,7 @@ export default function EmailInboxBulkView({
                 )
               } else {
                 retainedCounts.classified_no_auto_move += 1
+                runDiag.retained += 1
                 retained = withAutosortRetained(
                   entry,
                   'classified_no_auto_move',
@@ -2800,9 +2946,23 @@ export default function EmailInboxBulkView({
               }
               batchUiUpdates[messageId] = retained
               inboxStore.removeBulkDraftManualCompose(messageId)
+              if (DEBUG_AUTOSORT_DIAGNOSTICS) {
+                autosortDiagLog('bulk-msg', {
+                  sortRunId,
+                  messageId,
+                  category,
+                  recommendedAction,
+                  pending_delete: !!result.pending_delete,
+                  pending_review: !!result.pending_review,
+                  archiveIntent: recommendedAction === 'archive',
+                  phase2: 'n/a',
+                  retained: true,
+                })
+              }
             } catch (sortErr: unknown) {
               const msg = sortErr instanceof Error ? sortErr.message : String(sortErr ?? 'unknown error')
               console.warn('[SORT] Classification or move failed:', messageId, msg)
+              runDiag.failed += 1
               failedIds.push(messageId)
               batchUiUpdates[messageId] = {
                 summary: `Auto-Sort error: ${msg.slice(0, 200)}`,
@@ -2839,11 +2999,19 @@ export default function EmailInboxBulkView({
           console.log('[SORT] All targeted messages reached a terminal outcome in one pass')
         } else if (!isRetry && !sortStopRequestedRef.current) {
           if (missedIdsPass1.length > 0) console.warn('[SORT] Pass-1 missed (will retry):', missedIdsPass1)
-          const retryResult = await runAiCategorizeForIds(toRetry, false, true, {
-            manageConcurrencyLock: false,
-            suppressGlobalSortingUi,
-            skipEndRefresh,
-          }, sessionId)
+          const retryResult = await runAiCategorizeForIds(
+            toRetry,
+            false,
+            true,
+            {
+              manageConcurrencyLock: false,
+              suppressGlobalSortingUi,
+              skipEndRefresh,
+              sortRunId,
+              diagAcc: runDiag,
+            },
+            sessionId,
+          )
           allProcessedIds = [...new Set([...processedIds, ...retryResult.processedIds])]
           allFailedIds = [...new Set([...failedIds, ...retryResult.failedIds])]
           allMovedIds = [...new Set([...movedIds, ...retryResult.movedIds])]
@@ -2922,7 +3090,16 @@ export default function EmailInboxBulkView({
         }
         if (clearSelection) clearMultiSelect()
         if (!skipEndRefresh) {
-          await refreshMessages()
+          try {
+            await refreshMessages()
+          } catch (refreshErr) {
+            console.warn('[SORT] Post-run inbox refresh failed:', refreshErr)
+            setAutosortVaultSessionBanner((prev) =>
+              prev
+                ? `${prev} Inbox refresh also failed — use Refresh after the vault is available.`
+                : 'Could not refresh the inbox after Auto-Sort. Try Refresh once the vault is unlocked.',
+            )
+          }
         }
         return {
           processedIds: allProcessedIds,
@@ -2952,6 +3129,21 @@ export default function EmailInboxBulkView({
           retainedCounts: emptyRetainedCounts(),
         }
       } finally {
+        if (DEBUG_AUTOSORT_DIAGNOSTICS && !isRetry && manageConcurrencyLock) {
+          autosortDiagLog('bulk-run-summary', {
+            sortRunId,
+            analyzed: runDiag.analyzed,
+            moved: runDiag.moved,
+            retained: runDiag.retained,
+            failed: runDiag.failed,
+            timeout: runDiag.timeout,
+            db_unavailable: runDiag.db_unavailable,
+          })
+          setAutosortDiagRunId(null)
+        }
+        if (!isRetry && manageConcurrencyLock) {
+          void window.emailInbox?.autosortDiagSync?.({ runId: null, bulkSortActive: false })
+        }
         useEmailInboxStore.getState().triggerAnalysisRestart()
         if (!isRetry && manageConcurrencyLock) {
           isSortingRef.current = false
@@ -3044,13 +3236,17 @@ export default function EmailInboxBulkView({
     try {
       let finalNormal: NormalInboxAiResult | null = null
       if (hasStream) {
-        console.warn('⚡ EmailInboxBulkView calling aiAnalyzeMessageStream', new Date().toISOString(), { messageId })
+        if (DEBUG_AI_DIAGNOSTICS) {
+          console.warn('⚡ EmailInboxBulkView calling aiAnalyzeMessageStream', new Date().toISOString(), { messageId })
+        }
         await bridge.aiAnalyzeMessageStream!(messageId)
         if (!streamFailed) {
           finalNormal = tryParseAnalysis(accumulatedText)
         }
       } else {
-        console.warn('⚡ EmailInboxBulkView calling aiAnalyzeMessage', new Date().toISOString(), { messageId })
+        if (DEBUG_AI_DIAGNOSTICS) {
+          console.warn('⚡ EmailInboxBulkView calling aiAnalyzeMessage', new Date().toISOString(), { messageId })
+        }
         const res = await bridge.aiAnalyzeMessage!(messageId)
         const data = res?.ok ? (res.data as NormalInboxAiResult & { error?: string } | undefined) : undefined
         if (data && !data.error) {
@@ -3120,6 +3316,7 @@ export default function EmailInboxBulkView({
     setConcurrentSortNotice(null)
     setAiSortOutcomeSummary(null)
     setAutosortReviewBanner(null)
+    setAutosortVaultSessionBanner(null)
     try {
       const sessionApi = window.autosortSession
       if (sessionApi?.create) {
@@ -3846,6 +4043,8 @@ export default function EmailInboxBulkView({
         const isParseFailed = fr === 'parse_failed'
         const isIncomplete = fr === 'processing_incomplete'
         const isNoProvider = fr === 'llm_unavailable'
+        const isVaultLocked = fr === 'vault_locked'
+        const isDbUnavailable = fr === 'db_unavailable'
         const failTitle = isTimeout
           ? 'Timed out'
           : isMoveFailed
@@ -3856,7 +4055,11 @@ export default function EmailInboxBulkView({
                 ? 'Sort incomplete'
                 : isNoProvider
                   ? 'No AI provider'
-                  : 'Analysis failed'
+                  : isVaultLocked
+                    ? 'Vault / session'
+                    : isDbUnavailable
+                      ? 'Database unavailable'
+                      : 'Analysis failed'
         const failDetail =
           output.summary ||
           (isTimeout
@@ -3869,7 +4072,11 @@ export default function EmailInboxBulkView({
                   ? 'This message was targeted but did not finish in the last bulk run.'
                   : isNoProvider
                     ? 'Configure a local model or cloud API key in Backend settings.'
-                    : 'No usable result from AI for this message.')
+                    : isVaultLocked
+                      ? 'The vault was locked or the session ended — the inbox database could not be updated.'
+                      : isDbUnavailable
+                        ? 'The local inbox database was not available for this step.'
+                        : 'No usable result from AI for this message.')
         return (
           <div className="bulk-action-card bulk-action-card--failure">
             <div className="bulk-action-card-body">
@@ -4422,21 +4629,18 @@ export default function EmailInboxBulkView({
                 userSelect: 'none',
                 marginLeft: 2,
               }}
-              title={`Parallel analyses per chunk: ${sortConcurrency} — lower = lighter on CPU/GPU, higher = faster on capable hardware`}
+              title={`Concurrent analyses per batch: ${sortConcurrency}. Higher can be faster on strong hardware, but slower on weaker hardware.`}
             >
-              <span style={{ whiteSpace: 'nowrap' }}>⚡ ×{sortConcurrency}</span>
+              <span style={{ whiteSpace: 'nowrap' }}>Concurrent analyses: {sortConcurrency}</span>
               <input
                 type="range"
                 min={1}
                 max={8}
                 step={1}
                 value={sortConcurrency}
-                onChange={(e) => {
-                  const v = Math.max(1, Math.min(8, Number(e.target.value)))
-                  setSortConcurrency(v)
-                  try { localStorage?.setItem('wrdesk_sortConcurrency', String(v)) } catch { /* ignore */ }
-                }}
-                style={{ width: 64, cursor: 'pointer', accentColor: '#7c3aed' }}
+                onChange={(e) => handleSortConcurrencyChange(Number(e.target.value))}
+                aria-label="Bulk Auto-Sort concurrent analyses"
+                style={{ width: 72, cursor: 'pointer', accentColor: '#7c3aed' }}
               />
             </label>
             <span className="bulk-view-selection-group-count selected-count">{selectedCount} selected</span>
@@ -5181,6 +5385,36 @@ export default function EmailInboxBulkView({
         </div>
       ) : null}
 
+      {autosortVaultSessionBanner ? (
+        <div
+          className="bulk-view-vault-session-banner"
+          role="alert"
+          style={{
+            margin: '0 12px 12px',
+            padding: '10px 12px',
+            borderRadius: 8,
+            background: '#fff7ed',
+            border: '1px solid #fdba74',
+            color: '#9a3412',
+            fontSize: 13,
+            lineHeight: 1.45,
+            display: 'flex',
+            alignItems: 'flex-start',
+            gap: 12,
+            justifyContent: 'space-between',
+          }}
+        >
+          <span>{autosortVaultSessionBanner}</span>
+          <button
+            type="button"
+            onClick={() => setAutosortVaultSessionBanner(null)}
+            style={{ flexShrink: 0, fontSize: 12, cursor: 'pointer' }}
+          >
+            Dismiss
+          </button>
+        </div>
+      ) : null}
+
       {lastSyncWarnings && lastSyncWarnings.length > 0 ? (
         <SyncFailureBanner
           warnings={lastSyncWarnings}
@@ -5286,54 +5520,98 @@ export default function EmailInboxBulkView({
                         <div
                           style={{
                             display: 'flex',
-                            alignItems: 'center',
-                            gap: 6,
-                            padding: '4px 2px',
+                            flexDirection: 'column',
+                            gap: 4,
+                            padding: '6px 2px 4px',
                             fontSize: 11,
                           }}
                         >
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const next = !sortPaused
-                              setSortPaused(next)
-                              sortPausedRef.current = next
-                            }}
+                          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const next = !sortPaused
+                                setSortPaused(next)
+                                sortPausedRef.current = next
+                              }}
+                              style={{
+                                padding: '2px 10px',
+                                borderRadius: 4,
+                                border: '1px solid #7c3aed',
+                                background: sortPaused ? '#7c3aed' : 'transparent',
+                                color: sortPaused ? '#fff' : '#7c3aed',
+                                cursor: 'pointer',
+                                fontSize: 11,
+                                fontWeight: 600,
+                              }}
+                              title={sortPaused ? 'Resume Auto-Sort' : 'Pause Auto-Sort after current chunk'}
+                            >
+                              {sortPaused ? '▶ Resume' : '⏸ Pause'}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                sortStopRequestedRef.current = true
+                                sortPausedRef.current = false
+                                setSortPaused(false)
+                              }}
+                              style={{
+                                padding: '2px 10px',
+                                borderRadius: 4,
+                                border: '1px solid #ef4444',
+                                background: 'transparent',
+                                color: '#ef4444',
+                                cursor: 'pointer',
+                                fontSize: 11,
+                                fontWeight: 600,
+                              }}
+                              title="Stop Auto-Sort after the current chunk finishes"
+                            >
+                              ⏹ Stop
+                            </button>
+                            <label
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 8,
+                                marginLeft: 'auto',
+                                color: MUTED,
+                                cursor: 'default',
+                                userSelect: 'none',
+                                minWidth: 0,
+                              }}
+                              title={`Concurrent analyses: ${sortConcurrency}. Applied starting with the next batch after this one finishes. Higher can be faster on strong hardware, but slower on weaker hardware.`}
+                            >
+                              <span style={{ whiteSpace: 'nowrap', fontWeight: 600, color: '#334155' }}>
+                                Concurrent analyses: {sortConcurrency}
+                              </span>
+                              <input
+                                type="range"
+                                min={1}
+                                max={8}
+                                step={1}
+                                value={sortConcurrency}
+                                onChange={(e) => handleSortConcurrencyChange(Number(e.target.value))}
+                                aria-label="Bulk Auto-Sort concurrent analyses (live; next chunk)"
+                                aria-valuemin={1}
+                                aria-valuemax={8}
+                                aria-valuenow={sortConcurrency}
+                                style={{ width: 120, maxWidth: '42vw', cursor: 'pointer', accentColor: '#7c3aed' }}
+                              />
+                            </label>
+                          </div>
+                          <p
                             style={{
-                              padding: '2px 10px',
-                              borderRadius: 4,
-                              border: '1px solid #7c3aed',
-                              background: sortPaused ? '#7c3aed' : 'transparent',
-                              color: sortPaused ? '#fff' : '#7c3aed',
-                              cursor: 'pointer',
-                              fontSize: 11,
-                              fontWeight: 600,
+                              margin: 0,
+                              fontSize: 10,
+                              lineHeight: 1.35,
+                              color: MUTED,
+                              maxWidth: 520,
                             }}
-                            title={sortPaused ? 'Resume Auto-Sort' : 'Pause Auto-Sort after current chunk'}
                           >
-                            {sortPaused ? '▶ Resume' : '⏸ Pause'}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              sortStopRequestedRef.current = true
-                              sortPausedRef.current = false
-                              setSortPaused(false)
-                            }}
-                            style={{
-                              padding: '2px 10px',
-                              borderRadius: 4,
-                              border: '1px solid #ef4444',
-                              background: 'transparent',
-                              color: '#ef4444',
-                              cursor: 'pointer',
-                              fontSize: 11,
-                              fontWeight: 600,
-                            }}
-                            title="Stop Auto-Sort after the current chunk finishes"
-                          >
-                            ⏹ Stop
-                          </button>
+                            Higher can be faster on strong hardware, but slower on weaker hardware. Changes apply
+                            starting with the next batch (current batch is not resized mid-flight).
+                          </p>
                         </div>
                       )}
                     </>

@@ -424,7 +424,9 @@ export class OllamaManager {
    * Chat with a model
    */
   async chat(modelId: string, messages: ChatMessage[]): Promise<ChatResponse> {
-    console.warn('⚡ ollamaManager.chat CALLED', new Date().toISOString(), { model: modelId || 'unknown' })
+    if (DEBUG_AI_DIAGNOSTICS) {
+      console.warn('⚡ ollamaManager.chat CALLED', new Date().toISOString(), { model: modelId || 'unknown' })
+    }
     try {
       const response = await fetch(`${this.baseUrl}/api/chat`, {
         method: 'POST',

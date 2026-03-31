@@ -15,6 +15,7 @@ import {
   messageMatchesKindFilter,
   type InboxMessageKindFilter,
 } from '../lib/inboxMessageKind'
+import { DEBUG_AUTOSORT_DIAGNOSTICS, autosortDiagLog, getAutosortDiagRunId } from '../lib/autosortDiagnostics'
 
 export type { InboxMessageKindFilter }
 export { coerceInboxMessageKindFilter, deriveInboxMessageKind, messageMatchesKindFilter } from '../lib/inboxMessageKind'
@@ -72,6 +73,8 @@ export interface InboxMessage {
   needs_reply: number | null
   pending_delete: number
   pending_delete_at: string | null
+  /** Set when message is in pending review workflow (matches DB). */
+  pending_review_at?: string | null
   ai_summary: string | null
   ai_draft_response: string | null
   /** Persisted AI analysis JSON from Auto-Sort — survives clearBulkAiOutputsForIds. */
@@ -258,6 +261,22 @@ interface EmailInboxState {
   markPendingDeleteImmediate: (ids: string[]) => Promise<boolean>
   /** Move messages to Pending Review (14-day grace in DB). Immediate IPC + local state. */
   moveToPendingReviewImmediate: (ids: string[]) => Promise<boolean>
+  /**
+   * Bulk Auto-Sort only: main already persisted in `classifySingleMessage` — sync local rows + tab counts
+   * without a second DB-writing IPC.
+   */
+  applyBulkAutosortLocalPendingDelete: (
+    ids: string[],
+    pendingDeleteAt?: string | null,
+    /** Same `sort_category` main wrote (e.g. spam). */
+    sortCategory?: string | null,
+  ) => void
+  applyBulkAutosortLocalPendingReview: (
+    ids: string[],
+    sortCategory: string,
+    pendingReviewAt?: string | null,
+  ) => void
+  applyBulkAutosortLocalArchive: (ids: string[]) => void
   cancelDeletion: (id: string) => Promise<void>
   setCategory: (ids: string[], category: string) => Promise<void>
   syncAccount: (accountId: string) => Promise<void>
@@ -379,26 +398,50 @@ function filterByInboxFilter(messages: InboxMessage[], inboxFilter: InboxFilter)
     } else if (fk === 'pending_delete') {
       if (m.deleted === 1 || m.pending_delete !== 1) return false
     } else if (fk === 'pending_review') {
-      if (m.deleted === 1 || m.archived === 1 || m.sort_category !== 'pending_review') return false
+      if (m.deleted === 1 || m.archived === 1 || m.pending_delete === 1) return false
+      const prAt = m.pending_review_at != null && String(m.pending_review_at).trim() !== ''
+      const sc = m.sort_category
+      if (sc !== 'pending_review' && sc !== 'important' && !prAt) return false
     } else if (fk === 'urgent') {
       if (m.deleted === 1 || m.archived === 1 || m.pending_delete === 1 || m.sort_category !== 'urgent')
         return false
     } else if (fk === 'unread') {
       if (m.deleted === 1 || m.archived === 1 || m.read_status !== 0) return false
       if (m.pending_delete === 1) return false
-      if (m.sort_category === 'pending_review' || m.sort_category === 'urgent') return false
+      if (
+        m.sort_category === 'pending_review' ||
+        m.sort_category === 'urgent' ||
+        m.sort_category === 'important' ||
+        (m.pending_review_at != null && String(m.pending_review_at).trim() !== '')
+      ) {
+        return false
+      }
     } else if (fk === 'starred') {
       if (m.deleted === 1 || m.archived === 1 || m.starred !== 1) return false
       if (m.pending_delete === 1) return false
-      if (m.sort_category === 'pending_review' || m.sort_category === 'urgent') return false
+      if (
+        m.sort_category === 'pending_review' ||
+        m.sort_category === 'urgent' ||
+        m.sort_category === 'important' ||
+        (m.pending_review_at != null && String(m.pending_review_at).trim() !== '')
+      ) {
+        return false
+      }
     } else if (fk === 'archived') {
       if (m.archived !== 1 || m.deleted === 1) return false
     } else {
-      /* all — main inbox */
+      /* all — main inbox (aligned with buildInboxMessagesWhereClause filter=all) */
       if (m.deleted === 1) return false
       if (m.archived === 1) return false
       if (m.pending_delete === 1) return false
-      if (m.sort_category === 'pending_review' || m.sort_category === 'urgent') return false
+      if (
+        m.sort_category === 'pending_review' ||
+        m.sort_category === 'urgent' ||
+        m.sort_category === 'important' ||
+        (m.pending_review_at != null && String(m.pending_review_at).trim() !== '')
+      ) {
+        return false
+      }
     }
 
     if (qLower) {
@@ -406,6 +449,143 @@ function filterByInboxFilter(messages: InboxMessage[], inboxFilter: InboxFilter)
       if (!hay.includes(qLower)) return false
     }
     return true
+  })
+}
+
+type EmailInboxSet = (
+  partial:
+    | EmailInboxState
+    | Partial<EmailInboxState>
+    | ((state: EmailInboxState) => EmailInboxState | Partial<EmailInboxState>),
+  replace?: boolean | undefined,
+) => void
+
+/**
+ * Local Zustand update only — DB must already match (bulk classify or post successful IPC).
+ * When `sortCategory` is set (bulk classify), row is aligned with `classifySingleMessage` columns.
+ */
+function commitPendingDeleteToLocalState(
+  set: EmailInboxSet,
+  ids: string[],
+  pendingDeleteAt?: string | null,
+  sortCategory?: string | null,
+): void {
+  if (!ids.length) return
+  const now = pendingDeleteAt ?? new Date().toISOString()
+  const idSet = new Set(ids)
+  set((s) => {
+    if (s.bulkMode) {
+      void fetchBulkTabCountsServer(s.filter).then((tc) => {
+        const fk = s.filter.filter as keyof typeof tc
+        set({ tabCounts: tc, total: tc[fk] ?? 0 })
+      })
+      const messages = s.messages
+        .map((m) => {
+          if (!idSet.has(m.id)) return m
+          if (sortCategory != null && sortCategory !== '') {
+            return {
+              ...m,
+              pending_delete: 1,
+              pending_delete_at: now,
+              pending_review_at: null,
+              archived: 0,
+              sort_category: sortCategory,
+            }
+          }
+          return { ...m, pending_delete: 1, pending_delete_at: now }
+        })
+        .filter((m) => filterByInboxFilter([m], s.filter).length > 0)
+      const removedInView = s.messages.length - messages.length
+      return {
+        allMessages: [],
+        messages,
+        total: Math.max(0, s.total - removedInView),
+        multiSelectIds: new Set([...s.multiSelectIds].filter((x) => !ids.includes(x))),
+        selectedMessageId: s.selectedMessageId && ids.includes(s.selectedMessageId) ? null : s.selectedMessageId,
+        selectedMessage: s.selectedMessage && ids.includes(s.selectedMessage.id) ? null : s.selectedMessage,
+      }
+    }
+    return {
+      messages: s.messages.filter((m) => !idSet.has(m.id)),
+      total: Math.max(0, s.total - ids.length),
+      multiSelectIds: new Set([...s.multiSelectIds].filter((x) => !ids.includes(x))),
+      selectedMessageId: s.selectedMessageId && ids.includes(s.selectedMessageId) ? null : s.selectedMessageId,
+      selectedMessage: s.selectedMessage && ids.includes(s.selectedMessage.id) ? null : s.selectedMessage,
+    }
+  })
+}
+
+function commitPendingReviewToLocalState(
+  set: EmailInboxSet,
+  ids: string[],
+  sortCategory: string,
+  pendingReviewAt?: string | null,
+  /** When true, match classifySingleMessage pending-review row (clears pending_delete, archived). */
+  alignWithClassify?: boolean,
+): void {
+  if (!ids.length) return
+  const idSet = new Set(ids)
+  set((s) => {
+    if (s.bulkMode) {
+      void fetchBulkTabCountsServer(s.filter).then((tc) => {
+        const fk = s.filter.filter as keyof typeof tc
+        set({ tabCounts: tc, total: tc[fk] ?? 0 })
+      })
+      const messages = s.messages
+        .map((m) => {
+          if (!idSet.has(m.id)) return m
+          if (alignWithClassify) {
+            return {
+              ...m,
+              sort_category: sortCategory,
+              pending_review_at: pendingReviewAt ?? null,
+              pending_delete: 0,
+              pending_delete_at: null,
+              archived: 0,
+            }
+          }
+          return { ...m, sort_category: sortCategory }
+        })
+        .filter((m) => filterByInboxFilter([m], s.filter).length > 0)
+      const removedInView = s.messages.length - messages.length
+      return {
+        allMessages: [],
+        messages,
+        total: Math.max(0, s.total - removedInView),
+        multiSelectIds: new Set([...s.multiSelectIds].filter((x) => !ids.includes(x))),
+        selectedMessageId: s.selectedMessageId && ids.includes(s.selectedMessageId) ? null : s.selectedMessageId,
+        selectedMessage: s.selectedMessage && ids.includes(s.selectedMessage.id) ? null : s.selectedMessage,
+      }
+    }
+    return {
+      messages: s.messages.filter((m) => !idSet.has(m.id)),
+      total: Math.max(0, s.total - ids.length),
+      multiSelectIds: new Set([...s.multiSelectIds].filter((x) => !ids.includes(x))),
+      selectedMessageId: s.selectedMessageId && ids.includes(s.selectedMessageId) ? null : s.selectedMessageId,
+      selectedMessage: s.selectedMessage && ids.includes(s.selectedMessage.id) ? null : s.selectedMessage,
+    }
+  })
+}
+
+function commitArchiveToLocalState(set: EmailInboxSet, ids: string[]): void {
+  if (!ids.length) return
+  const idSet = new Set(ids)
+  set((s) => {
+    const removedInView = s.messages.filter((m) => idSet.has(m.id)).length
+    if (s.bulkMode) {
+      void fetchBulkTabCountsServer(s.filter).then((tc) => {
+        const fk = s.filter.filter as keyof typeof tc
+        set({ tabCounts: tc, total: tc[fk] ?? 0 })
+      })
+    }
+    return {
+      allMessages: [],
+      messages: s.messages.filter((m) => !idSet.has(m.id)),
+      total: s.bulkMode ? Math.max(0, s.total - removedInView) : Math.max(0, s.total - ids.length),
+      multiSelectIds: new Set([...s.multiSelectIds].filter((x) => !ids.includes(x))),
+      selectedMessageId: s.selectedMessageId && ids.includes(s.selectedMessageId) ? null : s.selectedMessageId,
+      selectedMessage: s.selectedMessage && ids.includes(s.selectedMessage.id) ? null : s.selectedMessage,
+    }
   })
 }
 
@@ -1064,26 +1244,18 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
     const bridge = getBridge()
     if (!bridge?.archiveMessages || ids.length === 0) return false
     const res = await bridge.archiveMessages(ids)
-    if (!res.ok) return false
-    /** Keep bulkAiOutputs through this tick so Auto-Sort can show classification before row leaves; refresh reconciles. */
-    const idSet = new Set(ids)
-    set((s) => {
-      const removedInView = s.messages.filter((m) => idSet.has(m.id)).length
-      if (s.bulkMode) {
-        void fetchBulkTabCountsServer(s.filter).then((tc) => {
-          const fk = s.filter.filter as keyof typeof tc
-          set({ tabCounts: tc, total: tc[fk] ?? 0 })
+    if (!res.ok) {
+      if (DEBUG_AUTOSORT_DIAGNOSTICS) {
+        autosortDiagLog('archiveMessages:fail', {
+          messageIds: ids,
+          runId: getAutosortDiagRunId(),
+          ipcResult: res,
+          dbUnavailable: res.error === 'Database unavailable',
         })
       }
-      return {
-        allMessages: [],
-        messages: s.messages.filter((m) => !idSet.has(m.id)),
-        total: s.bulkMode ? Math.max(0, s.total - removedInView) : Math.max(0, s.total - ids.length),
-        multiSelectIds: new Set([...s.multiSelectIds].filter((x) => !ids.includes(x))),
-        selectedMessageId: s.selectedMessageId && ids.includes(s.selectedMessageId) ? null : s.selectedMessageId,
-        selectedMessage: s.selectedMessage && ids.includes(s.selectedMessage.id) ? null : s.selectedMessage,
-      }
-    })
+      return false
+    }
+    commitArchiveToLocalState(set, ids)
     return true
   },
 
@@ -1129,37 +1301,18 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
     const bridge = getBridge()
     if (!bridge?.markPendingDelete || ids.length === 0) return false
     const res = await bridge.markPendingDelete(ids)
-    if (!res.ok) return false
-    /** Do not clear bulk AI here — Bulk Auto-Sort paints classification first; fetch will align persisted rows. */
-    const now = new Date().toISOString()
-    const idSet = new Set(ids)
-    set((s) => {
-      if (s.bulkMode) {
-        void fetchBulkTabCountsServer(s.filter).then((tc) => {
-          const fk = s.filter.filter as keyof typeof tc
-          set({ tabCounts: tc, total: tc[fk] ?? 0 })
+    if (!res.ok) {
+      if (DEBUG_AUTOSORT_DIAGNOSTICS) {
+        autosortDiagLog('markPendingDeleteImmediate:fail', {
+          messageIds: ids,
+          runId: getAutosortDiagRunId(),
+          ipcResult: res,
+          dbUnavailable: res.error === 'Database unavailable',
         })
-        const messages = s.messages
-          .map((m) => (idSet.has(m.id) ? { ...m, pending_delete: 1, pending_delete_at: now } : m))
-          .filter((m) => filterByInboxFilter([m], s.filter).length > 0)
-        const removedInView = s.messages.length - messages.length
-        return {
-          allMessages: [],
-          messages,
-          total: Math.max(0, s.total - removedInView),
-          multiSelectIds: new Set([...s.multiSelectIds].filter((x) => !ids.includes(x))),
-          selectedMessageId: s.selectedMessageId && ids.includes(s.selectedMessageId) ? null : s.selectedMessageId,
-          selectedMessage: s.selectedMessage && ids.includes(s.selectedMessage.id) ? null : s.selectedMessage,
-        }
       }
-      return {
-        messages: s.messages.filter((m) => !idSet.has(m.id)),
-        total: Math.max(0, s.total - ids.length),
-        multiSelectIds: new Set([...s.multiSelectIds].filter((x) => !ids.includes(x))),
-        selectedMessageId: s.selectedMessageId && ids.includes(s.selectedMessageId) ? null : s.selectedMessageId,
-        selectedMessage: s.selectedMessage && ids.includes(s.selectedMessage.id) ? null : s.selectedMessage,
-      }
-    })
+      return false
+    }
+    commitPendingDeleteToLocalState(set, ids)
     return true
   },
 
@@ -1167,38 +1320,28 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
     const bridge = getBridge()
     if (!bridge?.moveToPendingReview || ids.length === 0) return false
     const res = await bridge.moveToPendingReview(ids)
-    if (!res.ok) return false
-    /** Keep per-row bulk output for live Auto-Sort feedback until refresh. */
-    const idSet = new Set(ids)
-    set((s) => {
-      if (s.bulkMode) {
-        void fetchBulkTabCountsServer(s.filter).then((tc) => {
-          const fk = s.filter.filter as keyof typeof tc
-          set({ tabCounts: tc, total: tc[fk] ?? 0 })
+    if (!res.ok) {
+      if (DEBUG_AUTOSORT_DIAGNOSTICS) {
+        autosortDiagLog('moveToPendingReviewImmediate:fail', {
+          messageIds: ids,
+          runId: getAutosortDiagRunId(),
+          ipcResult: res,
+          dbUnavailable: res.error === 'Database unavailable',
         })
-        const messages = s.messages
-          .map((m) => (idSet.has(m.id) ? { ...m, sort_category: 'pending_review' } : m))
-          .filter((m) => filterByInboxFilter([m], s.filter).length > 0)
-        const removedInView = s.messages.length - messages.length
-        return {
-          allMessages: [],
-          messages,
-          total: Math.max(0, s.total - removedInView),
-          multiSelectIds: new Set([...s.multiSelectIds].filter((x) => !ids.includes(x))),
-          selectedMessageId: s.selectedMessageId && ids.includes(s.selectedMessageId) ? null : s.selectedMessageId,
-          selectedMessage: s.selectedMessage && ids.includes(s.selectedMessage.id) ? null : s.selectedMessage,
-        }
       }
-      return {
-        messages: s.messages.filter((m) => !idSet.has(m.id)),
-        total: Math.max(0, s.total - ids.length),
-        multiSelectIds: new Set([...s.multiSelectIds].filter((x) => !ids.includes(x))),
-        selectedMessageId: s.selectedMessageId && ids.includes(s.selectedMessageId) ? null : s.selectedMessageId,
-        selectedMessage: s.selectedMessage && ids.includes(s.selectedMessage.id) ? null : s.selectedMessage,
-      }
-    })
+      return false
+    }
+    commitPendingReviewToLocalState(set, ids, 'pending_review', undefined, false)
     return true
   },
+
+  applyBulkAutosortLocalPendingDelete: (ids, pendingDeleteAt, sortCategory) =>
+    commitPendingDeleteToLocalState(set, ids, pendingDeleteAt, sortCategory),
+
+  applyBulkAutosortLocalPendingReview: (ids, sortCategory, pendingReviewAt) =>
+    commitPendingReviewToLocalState(set, ids, sortCategory, pendingReviewAt, true),
+
+  applyBulkAutosortLocalArchive: (ids) => commitArchiveToLocalState(set, ids),
 
   cancelDeletion: async (id) => {
     const bridge = getBridge()
