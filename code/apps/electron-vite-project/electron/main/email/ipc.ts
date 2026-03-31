@@ -3874,7 +3874,8 @@ ${formatSourceWeightingForPrompt(sortWeight)}`
       }
       if (!parsed?.category) return { messageId, error: 'parse_failed', reason: raw?.slice?.(0, 200) }
 
-      const cat = String(parsed.category).toLowerCase()
+      // Normalize: lowercase + collapse spaces/hyphens to underscores so "action required" → "action_required"
+      const cat = String(parsed.category).toLowerCase().replace(/[\s\-]+/g, '_')
       const VALID_NEW = ['pending_delete', 'pending_review', 'archive', 'urgent', 'action_required', 'normal'] as const
       let validCategory = VALID_NEW.includes(cat as any) ? cat : 'normal'
       let urgency = typeof parsed.urgency === 'number' ? Math.max(1, Math.min(10, parsed.urgency)) : 5
@@ -3941,6 +3942,7 @@ ${formatSourceWeightingForPrompt(sortWeight)}`
 
       /** Always write sort_category, urgency, needs_reply. For urgent: use 'urgent', never add pending_review_at. */
       const effectiveSortCategory = isUrgent ? 'urgent' : sortCategory
+      console.log(`[AutoSort] ${messageId}: raw=${cat} valid=${validCategory} → sortCat=${effectiveSortCategory} rec=${recommendedAction} urgency=${urgency} del=${pendingDelete} rev=${pendingReview}`)
       const nowIso = new Date().toISOString()
       if (isUrgent) {
         db.prepare(

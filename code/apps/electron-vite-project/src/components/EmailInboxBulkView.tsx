@@ -1882,6 +1882,11 @@ export default function EmailInboxBulkView({
   /** Ref so runAiCategorizeForIds can read the latest value without being in its dep array. */
   const sortConcurrencyRef = useRef(sortConcurrency)
   sortConcurrencyRef.current = sortConcurrency
+
+  /** Stop / Pause controls — written by button handlers, read inside runAiCategorizeForIds loop. */
+  const sortStopRequestedRef = useRef(false)
+  const sortPausedRef = useRef(false)
+  const [sortPaused, setSortPaused] = useState(false)
   /** Transient CTA after a successful Auto-Sort (not a persistent dock slot — fades out and unmounts). */
   const [autosortReviewBanner, setAutosortReviewBanner] = useState<AutosortReviewBannerState | null>(null)
   const [showSessionReview, setShowSessionReview] = useState<string | null>(null)
@@ -2554,25 +2559,42 @@ export default function EmailInboxBulkView({
           phase: 'sorting',
         })
       }
-      /**
-       * Bulk classify with one IPC call per batch chunk — eliminates the N-way process-boundary
-       * fan-out. Main process pre-resolves LLM once per chunk; results come back together so the
-       * renderer can apply one React state update per batch rather than N separate setState calls.
-       *
-       * chunkSize reads from sortConcurrencyRef so the user can adjust the slider mid-run;
-       * the new value takes effect at the start of each next chunk (no in-flight disruption).
-       */
-      const chunkSize = sortConcurrencyRef.current
       const VALID_ACTIONS: BulkRecommendedAction[] = ['pending_delete', 'pending_review', 'archive', 'keep_for_manual_action', 'draft_reply_ready']
       const VALID_CATEGORIES: SortCategory[] = ['urgent', 'important', 'normal', 'newsletter', 'spam', 'irrelevant', 'pending_review']
       const processedIds: string[] = []
       const failedIds: string[] = []
       const movedIds: string[] = []
       const retainedCounts = emptyRetainedCounts()
+      // Reset stop flag at the start of each run (pause state is user-toggled externally)
+      sortStopRequestedRef.current = false
       try {
-        for (let i = 0; i < ids.length; i += chunkSize) {
-          const batch = ids.slice(i, i + chunkSize)
-          const doneAfterBatch = Math.min(i + batch.length, ids.length)
+      /**
+       * Bulk classify with one IPC call per batch chunk — eliminates the N-way process-boundary
+       * fan-out. Main process pre-resolves LLM once per chunk; results come back together so the
+       * renderer can apply one React state update per batch rather than N separate setState calls.
+       *
+       * chunkSize is read at the START of every iteration so slider adjustments take effect
+       * immediately at the next chunk without disrupting in-flight work.
+       * Stop/Pause checks also run at chunk boundaries.
+       */
+      let _i = 0
+      while (_i < ids.length) {
+        // ── Stop / Pause boundary ────────────────────────────────────────
+        if (sortStopRequestedRef.current) break
+        while (sortPausedRef.current && !sortStopRequestedRef.current) {
+          if (!suppressGlobalSortingUi) {
+            setAiSortProgress((prev) =>
+              prev ? { ...prev, label: `Paused — ${_i}/${ids.length} done. Click Resume to continue.` } : prev,
+            )
+          }
+          await new Promise((r) => setTimeout(r, 200))
+        }
+        if (sortStopRequestedRef.current) break
+
+        const chunkSize = Math.max(1, sortConcurrencyRef.current)
+        const batch = ids.slice(_i, _i + chunkSize)
+        _i += batch.length
+        const doneAfterBatch = Math.min(_i, ids.length)
           if (!suppressGlobalSortingUi) {
             setAiSortProgress({
               done: doneAfterBatch,
@@ -2797,7 +2819,7 @@ export default function EmailInboxBulkView({
             setBulkAiOutputs((prev) => ({ ...prev, ...batchUiUpdates }))
             await sortFeedbackPaintDwell()
           }
-        }
+        } // end while (_i < ids.length)
         const missedIdsPass1 = ids.filter((id) => !processedIds.includes(id) && !failedIds.includes(id))
         const toRetry = ids.filter((id) => !processedIds.includes(id))
         console.log('[SORT] First pass.', {
@@ -5261,36 +5283,53 @@ export default function EmailInboxBulkView({
                           style={{
                             display: 'flex',
                             alignItems: 'center',
-                            gap: 8,
+                            gap: 6,
                             padding: '4px 2px',
                             fontSize: 11,
-                            color: '#64748b',
-                            userSelect: 'none',
                           }}
                         >
-                          <span style={{ whiteSpace: 'nowrap', fontWeight: 500 }}>
-                            Parallel analyses:
-                          </span>
-                          <input
-                            type="range"
-                            min={1}
-                            max={8}
-                            step={1}
-                            value={sortConcurrency}
-                            onChange={(e) => {
-                              const v = Math.max(1, Math.min(8, Number(e.target.value)))
-                              setSortConcurrency(v)
-                              try { localStorage?.setItem('wrdesk_sortConcurrency', String(v)) } catch { /* ignore */ }
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const next = !sortPaused
+                              setSortPaused(next)
+                              sortPausedRef.current = next
                             }}
-                            style={{ width: 100, cursor: 'pointer', accentColor: '#7c3aed' }}
-                            title={`Concurrent AI analyses: ${sortConcurrency} — lower = lighter on CPU/GPU, applies from next chunk`}
-                          />
-                          <span style={{ minWidth: 8, fontVariantNumeric: 'tabular-nums', fontWeight: 600, color: '#7c3aed' }}>
-                            {sortConcurrency}
-                          </span>
-                          <span style={{ color: '#94a3b8', fontSize: 10 }}>
-                            (applies from next chunk)
-                          </span>
+                            style={{
+                              padding: '2px 10px',
+                              borderRadius: 4,
+                              border: '1px solid #7c3aed',
+                              background: sortPaused ? '#7c3aed' : 'transparent',
+                              color: sortPaused ? '#fff' : '#7c3aed',
+                              cursor: 'pointer',
+                              fontSize: 11,
+                              fontWeight: 600,
+                            }}
+                            title={sortPaused ? 'Resume Auto-Sort' : 'Pause Auto-Sort after current chunk'}
+                          >
+                            {sortPaused ? '▶ Resume' : '⏸ Pause'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              sortStopRequestedRef.current = true
+                              sortPausedRef.current = false
+                              setSortPaused(false)
+                            }}
+                            style={{
+                              padding: '2px 10px',
+                              borderRadius: 4,
+                              border: '1px solid #ef4444',
+                              background: 'transparent',
+                              color: '#ef4444',
+                              cursor: 'pointer',
+                              fontSize: 11,
+                              fontWeight: 600,
+                            }}
+                            title="Stop Auto-Sort after the current chunk finishes"
+                          >
+                            ⏹ Stop
+                          </button>
                         </div>
                       )}
                     </>
