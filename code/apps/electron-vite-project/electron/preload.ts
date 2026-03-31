@@ -911,6 +911,13 @@ contextBridge.exposeInMainWorld('emailInbox', {
   aiCategorize: (ids: string[]) => ipcRenderer.invoke('inbox:aiCategorize', ids),
   aiClassifySingle: (messageId: string, sessionId?: string) =>
     ipcRenderer.invoke('inbox:aiClassifySingle', messageId, sessionId),
+  /**
+   * Batch classify: one IPC call for a chunk of message IDs.
+   * The renderer controls chunk size (BULK_CLASSIFY_CONCURRENCY); the main process
+   * pre-resolves the LLM once and returns all results together.
+   */
+  aiClassifyBatch: (ids: string[], sessionId?: string) =>
+    ipcRenderer.invoke('inbox:aiClassifyBatch', ids, sessionId),
   enqueueRemoteLifecycleMirror: (messageIds: string[]) =>
     ipcRenderer.invoke('inbox:enqueueRemoteLifecycleMirror', messageIds),
   /** After Auto-Sort batch: enqueue remote moves from local lifecycle state + chained background drain. */

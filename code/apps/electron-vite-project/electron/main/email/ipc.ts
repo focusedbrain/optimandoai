@@ -1435,7 +1435,7 @@ export function registerInboxHandlers(
     'inbox:markRead', 'inbox:toggleStar', 'inbox:archiveMessages', 'inbox:setCategory',
     'inbox:deleteMessages', 'inbox:cancelDeletion', 'inbox:getDeletedMessages', 'inbox:deleteAllDirectBeap',
     'inbox:getAttachment', 'inbox:getAttachmentText', 'inbox:openAttachmentOriginal', 'inbox:rasterAttachment',
-    'inbox:aiSummarize', 'inbox:aiDraftReply', 'inbox:aiAnalyzeMessage', 'inbox:aiAnalyzeMessageStream', 'inbox:aiClassifySingle', 'inbox:persistManualBulkAnalysis', 'inbox:aiCategorize', 'inbox:enqueueRemoteLifecycleMirror', 'inbox:enqueueRemoteSync', 'inbox:markPendingDelete', 'inbox:moveToPendingReview', 'inbox:cancelPendingDelete', 'inbox:cancelPendingReview', 'inbox:unarchive',
+    'inbox:aiSummarize', 'inbox:aiDraftReply', 'inbox:aiAnalyzeMessage', 'inbox:aiAnalyzeMessageStream', 'inbox:aiClassifySingle', 'inbox:aiClassifyBatch', 'inbox:persistManualBulkAnalysis', 'inbox:aiCategorize', 'inbox:enqueueRemoteLifecycleMirror', 'inbox:enqueueRemoteSync', 'inbox:markPendingDelete', 'inbox:moveToPendingReview', 'inbox:cancelPendingDelete', 'inbox:cancelPendingReview', 'inbox:unarchive',
     'inbox:getInboxSettings', 'inbox:setInboxSettings', 'inbox:selectAndUploadContextDoc', 'inbox:deleteContextDoc', 'inbox:listContextDocs',
     'inbox:getAiRules', 'inbox:saveAiRules', 'inbox:getAiRulesDefault',
     'inbox:listRemoteOrchestratorQueue',
@@ -3757,8 +3757,8 @@ Respond ONLY with valid JSON. No markdown, no backticks, no preamble.`
       messageId,
       model: opts?.resolvedLlm?.model ?? '(will resolve)',
       skipAvailabilityCheck: opts?.resolvedLlm != null,
-      runId: opts?.runId,
-      batchIndex: opts?.batchIndex,
+      ...(opts?.runId ? { runId: opts.runId } : {}),
+      ...(opts?.batchIndex != null ? { batchIndex: opts.batchIndex } : {}),
     })
     const db = await resolveDb()
     if (!db) return { messageId, error: 'Database unavailable' }
@@ -3990,6 +3990,41 @@ ${formatSourceWeightingForPrompt(sortWeight)}`
       console.warn('[Inbox] Post-aiClassifySingle remote schedule:', e?.message)
     }
     return out
+  })
+
+  /**
+   * Batch-classify handler for the renderer's Auto-Sort bulk loop.
+   *
+   * The renderer sends one chunk of IDs per batch (chunk size = BULK_CLASSIFY_CONCURRENCY).
+   * Compared with N×aiClassifySingle:
+   *   - 1 IPC round-trip instead of N
+   *   - LLM pre-resolved once for the whole chunk (no per-message listModels call)
+   *   - Results returned together so the renderer can apply one React state update per batch
+   */
+  ipcMain.handle('inbox:aiClassifyBatch', async (_e, ids: string[], sessionId?: string) => {
+    if (!ids?.length) return { results: [] }
+
+    // Resolve LLM once for the entire chunk — eliminates N×listModels
+    const resolvedLlm = (await preResolveInboxLlm()) ?? undefined
+    if (!resolvedLlm) {
+      return { results: ids.map((messageId) => ({ messageId, error: 'llm_unavailable' })) }
+    }
+
+    console.log('[AI-BATCH] classifying', ids.length, 'messages, model:', resolvedLlm.model)
+
+    // Process all IDs in this chunk concurrently (chunk size is already controlled by the renderer)
+    const results = await Promise.all(
+      ids.map((id, idx) => classifySingleMessage(id, sessionId, { resolvedLlm, batchIndex: idx }))
+    )
+
+    try {
+      const db = await resolveDb()
+      if (db) scheduleOrchestratorRemoteDrain(resolveDb)
+    } catch (e: any) {
+      console.warn('[Inbox] Post-aiClassifyBatch remote schedule:', e?.message)
+    }
+
+    return { results }
   })
 
   /**

@@ -8,6 +8,12 @@ import type { VisionProvider } from '../ocr/types'
 
 export const INBOX_LLM_TIMEOUT_MS = 45_000
 
+/**
+ * Set to true during debugging to see every isLlmAvailable / inboxLlmChat call in the console.
+ * Keep false in production — these fire once per message in every bulk classify run.
+ */
+const DEBUG_AI_DIAGNOSTICS = false
+
 const LLM_TIMEOUT_PREFIX = 'LLM_TIMEOUT'
 
 export class InboxLlmTimeoutError extends Error {
@@ -71,7 +77,7 @@ function visionForRagSettings(settings: UserRagSettings): VisionProvider | null 
 }
 
 export async function isLlmAvailable(): Promise<boolean> {
-  console.warn('⚡ isLlmAvailable CALLED', new Date().toISOString())
+  if (DEBUG_AI_DIAGNOSTICS) console.warn('⚡ isLlmAvailable CALLED', new Date().toISOString())
   const settings = resolveInboxLlmSettings()
   if (settings.provider.toLowerCase() === 'ollama') {
     const { ollamaManager } = await import('../llm/ollama-manager')
@@ -148,7 +154,7 @@ export interface InboxLlmChatParams {
  */
 export async function inboxLlmChat(params: InboxLlmChatParams): Promise<string> {
   const { system, user, timeoutMs = INBOX_LLM_TIMEOUT_MS, resolvedContext } = params
-  console.warn('⚡ inboxLlmChat CALLED', new Date().toISOString(), {
+  if (DEBUG_AI_DIAGNOSTICS) console.warn('⚡ inboxLlmChat CALLED', new Date().toISOString(), {
     caller: new Error().stack?.split('\n')[2]?.trim(),
     model: resolvedContext?.model ?? '(will resolve)',
     skipLookup: resolvedContext != null,

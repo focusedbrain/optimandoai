@@ -418,6 +418,22 @@ export interface EmailInboxBridge {
     remoteEnqueue?: { enqueued: number; skipped: number; skipReasons?: string[] }
     [key: string]: unknown
   }>
+  /** Batch classify: one IPC call replaces N×aiClassifySingle for bulk Auto-Sort runs. */
+  aiClassifyBatch?: (
+    ids: string[],
+    sessionId?: string,
+  ) => Promise<{
+    results: Array<{
+      messageId: string
+      category?: string
+      error?: string
+      recommended_action?: string
+      pending_delete?: boolean
+      pending_review?: boolean
+      remoteEnqueue?: { enqueued: number; skipped: number; skipReasons?: string[] }
+      [key: string]: unknown
+    }>
+  }>
   /**
    * Re-enqueue remote folder moves from local lifecycle state + schedule background drain.
    * Use after bulk Auto-Sort (parallel classify) so Microsoft 365 / IMAP mirrors reliably.

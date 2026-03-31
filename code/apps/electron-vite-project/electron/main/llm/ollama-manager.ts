@@ -12,6 +12,12 @@ import { OllamaStatus, InstalledModel, ChatMessage, ChatResponse, DownloadProgre
 
 const execAsync = promisify(exec)
 
+/**
+ * Set to true during debugging to see every listModels call, cache hit, and dedup in the console.
+ * Keep false in production — these lines fire on every classify message in a bulk run.
+ */
+const DEBUG_AI_DIAGNOSTICS = false
+
 export class OllamaManager {
   private ollamaPath: string = ''
   private ollamaPort: number = 11434
@@ -271,22 +277,22 @@ export class OllamaManager {
    *      get the cached result without a new HTTP round-trip.
    */
   async listModels(): Promise<InstalledModel[]> {
-    console.warn('⚡ ollamaManager.listModels CALLED', new Date().toISOString())
+    if (DEBUG_AI_DIAGNOSTICS) console.warn('⚡ ollamaManager.listModels CALLED', new Date().toISOString())
 
     // 1. TTL cache hit
     if (this._modelsCache !== null && Date.now() - this._modelsCacheTime < this.MODELS_CACHE_TTL_MS) {
-      console.warn('⚡ ollamaManager.listModels → CACHE HIT', new Date().toISOString())
+      if (DEBUG_AI_DIAGNOSTICS) console.warn('⚡ ollamaManager.listModels → CACHE HIT', new Date().toISOString())
       return this._modelsCache
     }
 
     // 2. In-flight dedup — join existing request instead of firing a new one
     if (this._modelsInFlight !== null) {
-      console.warn('⚡ ollamaManager.listModels → DEDUP (joining in-flight request)', new Date().toISOString())
+      if (DEBUG_AI_DIAGNOSTICS) console.warn('⚡ ollamaManager.listModels → DEDUP (joining in-flight request)', new Date().toISOString())
       return this._modelsInFlight
     }
 
     // 3. New fetch
-    console.warn('⚡ ollamaManager.listModels → FETCH /api/tags', new Date().toISOString())
+    if (DEBUG_AI_DIAGNOSTICS) console.warn('⚡ ollamaManager.listModels → FETCH /api/tags', new Date().toISOString())
     this._modelsInFlight = this.listModelsRaw().then(
       (models) => {
         this._modelsCache = models

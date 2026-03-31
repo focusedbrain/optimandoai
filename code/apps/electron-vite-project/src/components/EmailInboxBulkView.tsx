@@ -48,6 +48,12 @@ import '../components/handshakeViewTypes'
 
 const MUTED = '#64748b'
 
+/**
+ * Set to true to enable verbose per-message diagnostic logs during Auto-Sort.
+ * Keep false in production — these fire for every message in every bulk run.
+ */
+const DEBUG_AI_DIAGNOSTICS = false
+
 /** After Auto-Sort finishes, show "Review Session" briefly then fade out (see `autosortReviewBanner`). */
 const AUTOSORT_REVIEW_BANNER_VISIBLE_MS = 5500
 
@@ -2505,14 +2511,14 @@ export default function EmailInboxBulkView({
       sessionId?: string
     ): Promise<BulkSortRunAggregate> => {
       // ⚡ DIAGNOSTIC: visible on every classify invocation — shows ids and isRetry so we can tell a new run from a retry pass.
-      console.warn('⚡ runAiCategorizeForIds CALLED', new Date().toISOString(), { ids: ids.slice(0, 5), total: ids.length, isRetry })
+      if (DEBUG_AI_DIAGNOSTICS) console.warn('⚡ runAiCategorizeForIds CALLED', new Date().toISOString(), { ids: ids.slice(0, 5), total: ids.length, isRetry })
       const manageConcurrencyLock = opts?.manageConcurrencyLock !== false
       const suppressGlobalSortingUi = opts?.suppressGlobalSortingUi === true
       const skipEndRefresh = opts?.skipEndRefresh === true
       if (manageConcurrencyLock) {
         isSortingRef.current = true
       }
-      if (!ids.length || !window.emailInbox?.aiClassifySingle) {
+      if (!ids.length || !window.emailInbox?.aiClassifyBatch) {
         if (manageConcurrencyLock) {
           isSortingRef.current = false
           useEmailInboxStore.getState().setSortingActive(false)
@@ -2535,8 +2541,12 @@ export default function EmailInboxBulkView({
           phase: 'sorting',
         })
       }
-      /** Parallel IPC calls — local or cloud LLM; 5 concurrent requests (was 3). */
-      const CONCURRENCY = 5
+      /**
+       * Bulk classify with one IPC call per batch chunk — eliminates the N-way process-boundary
+       * fan-out. Main process pre-resolves LLM once per chunk; results come back together so the
+       * renderer can apply one React state update per batch rather than N separate setState calls.
+       */
+      const BULK_CLASSIFY_CONCURRENCY = 2 // lower = lighter on local LLM; raise for cloud providers
       const VALID_ACTIONS: BulkRecommendedAction[] = ['pending_delete', 'pending_review', 'archive', 'keep_for_manual_action', 'draft_reply_ready']
       const VALID_CATEGORIES: SortCategory[] = ['urgent', 'important', 'normal', 'newsletter', 'spam', 'irrelevant', 'pending_review']
       const processedIds: string[] = []
@@ -2544,8 +2554,8 @@ export default function EmailInboxBulkView({
       const movedIds: string[] = []
       const retainedCounts = emptyRetainedCounts()
       try {
-        for (let i = 0; i < ids.length; i += CONCURRENCY) {
-          const batch = ids.slice(i, i + CONCURRENCY)
+        for (let i = 0; i < ids.length; i += BULK_CLASSIFY_CONCURRENCY) {
+          const batch = ids.slice(i, i + BULK_CLASSIFY_CONCURRENCY)
           const doneAfterBatch = Math.min(i + batch.length, ids.length)
           if (!suppressGlobalSortingUi) {
             setAiSortProgress({
@@ -2555,14 +2565,37 @@ export default function EmailInboxBulkView({
               phase: 'sorting',
             })
           }
-          const settled = await Promise.allSettled(
-            batch.map(async (messageId) => {
-              try {
-              console.warn('⚡ EmailInboxBulkView calling aiClassifySingle', new Date().toISOString(), { messageId })
-              const result = await window.emailInbox!.aiClassifySingle(messageId, sessionId)
+          // One IPC call for the whole chunk — main process handles LLM resolution internally
+          type BatchResult = {
+            messageId: string; error?: string; category?: string; urgency?: number
+            needsReply?: boolean; summary?: string; reason?: string; draftReply?: string | null
+            recommended_action?: string; pending_delete?: boolean; pending_review?: boolean
+            remoteEnqueue?: { enqueued: number; skipped: number; skipReasons?: string[] }
+          }
+          let batchResults: BatchResult[]
+          try {
+            const resp = await window.emailInbox!.aiClassifyBatch!(batch, sessionId)
+            batchResults = ((resp?.results ?? []) as BatchResult[]).filter((r) => !!r?.messageId)
+            if (batchResults.length === 0) {
+              batchResults = batch.map((id) => ({ messageId: id, error: 'llm_error' }))
+            }
+          } catch (batchCallErr: unknown) {
+            const msg = batchCallErr instanceof Error ? batchCallErr.message : String(batchCallErr ?? 'batch call failed')
+            console.warn('[SORT] Batch IPC call failed:', msg)
+            batchResults = batch.map((id) => ({ messageId: id, error: 'llm_error' }))
+          }
+
+          // Collect UI state for the whole batch; apply in one React setState to minimise re-renders
+          const batchUiUpdates: AiOutputs = {}
+          const inboxStore = useEmailInboxStore.getState()
+
+          for (const result of batchResults) {
+            const messageId = result.messageId
+            if (!messageId) continue
+            try {
               if (result.error) {
                 failedIds.push(messageId)
-                console.warn('[SORT] Failed to analyze message:', messageId, result.error)
+                if (DEBUG_AI_DIAGNOSTICS) console.warn('[SORT] Failed to analyze message:', messageId, result.error)
                 const failureReason =
                   result.error === 'timeout'
                     ? ('timeout' as const)
@@ -2571,33 +2604,30 @@ export default function EmailInboxBulkView({
                       : result.error === 'llm_unavailable'
                         ? ('llm_unavailable' as const)
                         : ('llm_error' as const)
-                setBulkAiOutputs((prev) => ({
-                  ...prev,
-                  [messageId]: {
-                    summary:
-                      failureReason === 'timeout'
-                        ? 'Timed out.'
-                        : failureReason === 'parse_failed'
-                          ? 'AI returned a result that could not be read.'
-                          : failureReason === 'llm_unavailable'
-                            ? 'No AI provider available. Check your AI settings and ensure a model or API key is configured.'
-                            : 'Analysis failed.',
-                    autosortFailure: true,
-                    failureReason,
-                    autosortOutcome: 'failed',
-                    status: 'classified',
-                  },
-                }))
-                return
+                batchUiUpdates[messageId] = {
+                  summary:
+                    failureReason === 'timeout'
+                      ? 'Timed out.'
+                      : failureReason === 'parse_failed'
+                        ? 'AI returned a result that could not be read.'
+                        : failureReason === 'llm_unavailable'
+                          ? 'No AI provider available. Check your AI settings and ensure a model or API key is configured.'
+                          : 'Analysis failed.',
+                  autosortFailure: true,
+                  failureReason,
+                  autosortOutcome: 'failed',
+                  status: 'classified',
+                }
+                continue
               }
+
               const category = (VALID_CATEGORIES.includes((result.category ?? '') as SortCategory) ? result.category : 'normal') as SortCategory
               const recommendedAction = (VALID_ACTIONS.includes((result.recommended_action ?? '') as BulkRecommendedAction)
                 ? result.recommended_action
                 : 'keep_for_manual_action') as BulkRecommendedAction
-              const remoteEnq = (result as { remoteEnqueue?: { enqueued: number; skipped: number; skipReasons?: string[] } })
-                .remoteEnqueue
+              const remoteEnq = result.remoteEnqueue
               if (remoteEnq) {
-                useEmailInboxStore.getState().addRemoteSyncLog(
+                inboxStore.addRemoteSyncLog(
                   `Classified: ${category}, remote enqueue: ${remoteEnq.enqueued} enqueued / ${remoteEnq.skipped} skipped`,
                 )
               }
@@ -2617,33 +2647,15 @@ export default function EmailInboxBulkView({
                 status: 'classified',
               }
               if (result.draftReply && (result.needsReply || recommendedAction === 'draft_reply_ready')) {
-                entry.draftReply = result.draftReply.slice(0, 4000)
+                entry.draftReply = (result.draftReply as string).slice(0, 4000)
               }
-              const inboxStore = useEmailInboxStore.getState()
 
-              /** Urgent: main process sets sort_category + enqueues remote Urgent folder — no “retained in inbox” UX. */
+              /** Urgent: main process sets sort_category + enqueues remote Urgent folder — no "retained in inbox" UX. */
               if (result.category === 'urgent') {
                 processedIds.push(messageId)
-                setBulkAiOutputs((prev) => ({
-                  ...prev,
-                  [messageId]: { ...entry },
-                }))
-                await sortFeedbackPaintDwell()
+                batchUiUpdates[messageId] = { ...entry }
                 inboxStore.removeBulkDraftManualCompose(messageId)
-                return
-              }
-
-              const willAutoMoveFromInbox =
-                (result.pending_delete && recommendedAction === 'pending_delete') ||
-                (result.pending_review && recommendedAction === 'pending_review') ||
-                recommendedAction === 'archive'
-
-              if (willAutoMoveFromInbox) {
-                setBulkAiOutputs((prev) => ({
-                  ...prev,
-                  [messageId]: { ...entry },
-                }))
-                await sortFeedbackPaintDwell()
+                continue
               }
 
               if (result.pending_delete && recommendedAction === 'pending_delete') {
@@ -2651,66 +2663,70 @@ export default function EmailInboxBulkView({
                 if (moved) {
                   processedIds.push(messageId)
                   movedIds.push(messageId)
+                  batchUiUpdates[messageId] = { ...entry }
                   inboxStore.removeBulkDraftManualCompose(messageId)
-                  return
+                  continue
                 }
                 failedIds.push(messageId)
-                setBulkAiOutputs((prev) => ({
-                  ...prev,
-                  [messageId]: {
-                    ...entry,
-                    summary: 'Could not move to Pending Delete (server error). Retry Auto-Sort or use Recommended Action (Pending Delete).',
-                    autosortFailure: true,
-                    failureReason: 'move_failed',
-                    autosortOutcome: 'failed',
-                    status: 'classified',
-                  },
-                }))
-                return
+                batchUiUpdates[messageId] = {
+                  ...entry,
+                  summary: 'Could not move to Pending Delete (server error). Retry Auto-Sort or use Recommended Action (Pending Delete).',
+                  autosortFailure: true,
+                  failureReason: 'move_failed',
+                  autosortOutcome: 'failed',
+                  status: 'classified',
+                }
+                continue
               }
+
               if (result.pending_review && recommendedAction === 'pending_review') {
                 const moved = await inboxStore.moveToPendingReviewImmediate([messageId])
                 if (moved) {
                   processedIds.push(messageId)
                   movedIds.push(messageId)
+                  batchUiUpdates[messageId] = { ...entry }
                   inboxStore.removeBulkDraftManualCompose(messageId)
-                  return
+                  continue
                 }
                 failedIds.push(messageId)
-                setBulkAiOutputs((prev) => ({
-                  ...prev,
-                  [messageId]: {
-                    ...entry,
-                    summary: 'Could not move to Pending Review (server error). Retry or use the button below.',
-                    autosortFailure: true,
-                    failureReason: 'move_failed',
-                    autosortOutcome: 'failed',
-                    status: 'classified',
-                  },
-                }))
-                return
+                batchUiUpdates[messageId] = {
+                  ...entry,
+                  summary: 'Could not move to Pending Review (server error). Retry or use the button below.',
+                  autosortFailure: true,
+                  failureReason: 'move_failed',
+                  autosortOutcome: 'failed',
+                  status: 'classified',
+                }
+                continue
               }
+
               if (recommendedAction === 'archive') {
                 const moved = await inboxStore.archiveMessages([messageId])
                 if (moved) {
                   processedIds.push(messageId)
                   movedIds.push(messageId)
+                  batchUiUpdates[messageId] = { ...entry }
                   inboxStore.removeBulkDraftManualCompose(messageId)
-                  return
+                  continue
                 }
                 failedIds.push(messageId)
-                setBulkAiOutputs((prev) => ({
-                  ...prev,
-                  [messageId]: {
-                    ...entry,
-                    summary: 'Could not archive (server error). Retry or use Archive below.',
-                    autosortFailure: true,
-                    failureReason: 'move_failed',
-                    autosortOutcome: 'failed',
-                    status: 'classified',
-                  },
-                }))
-                return
+                batchUiUpdates[messageId] = {
+                  ...entry,
+                  summary: 'Could not archive (server error). Retry or use Archive below.',
+                  autosortFailure: true,
+                  failureReason: 'move_failed',
+                  autosortOutcome: 'failed',
+                  status: 'classified',
+                }
+                continue
+              }
+
+              /** draft_reply_ready: DB already updated in main; no local tab move. */
+              if (recommendedAction === 'draft_reply_ready') {
+                processedIds.push(messageId)
+                batchUiUpdates[messageId] = { ...entry }
+                inboxStore.removeBulkDraftManualCompose(messageId)
+                continue
               }
 
               processedIds.push(messageId)
@@ -2722,16 +2738,6 @@ export default function EmailInboxBulkView({
                   'keep_for_manual_action',
                   'AI recommends manual handling — Auto-Sort did not change local archive/delete/review; use actions below. Remote folders update via the sync queue / ☁ Sync Remote.'
                 )
-              } else if (recommendedAction === 'draft_reply_ready') {
-                /** Urgent + needsReply: DB already updated in main; no local tab move — same as urgent early return if duplicate. */
-                processedIds.push(messageId)
-                setBulkAiOutputs((prev) => ({
-                  ...prev,
-                  [messageId]: { ...entry },
-                }))
-                await sortFeedbackPaintDwell()
-                inboxStore.removeBulkDraftManualCompose(messageId)
-                return
               } else if (recommendedAction === 'pending_delete' && !result.pending_delete) {
                 retainedCounts.classified_no_auto_move += 1
                 retained = withAutosortRetained(
@@ -2754,29 +2760,26 @@ export default function EmailInboxBulkView({
                   'Classified; no automatic move applies for this recommendation.'
                 )
               }
-              setBulkAiOutputs((prev) => ({ ...prev, [messageId]: retained }))
+              batchUiUpdates[messageId] = retained
               inboxStore.removeBulkDraftManualCompose(messageId)
-              } catch (sortErr: unknown) {
-                const msg = sortErr instanceof Error ? sortErr.message : String(sortErr ?? 'unknown error')
-                console.warn('[SORT] Classification or move failed:', messageId, msg)
-                failedIds.push(messageId)
-                setBulkAiOutputs((prev) => ({
-                  ...prev,
-                  [messageId]: {
-                    summary: `Auto-Sort error: ${msg.slice(0, 200)}`,
-                    autosortFailure: true,
-                    failureReason: 'llm_error',
-                    autosortOutcome: 'failed',
-                    status: 'classified',
-                  },
-                }))
+            } catch (sortErr: unknown) {
+              const msg = sortErr instanceof Error ? sortErr.message : String(sortErr ?? 'unknown error')
+              console.warn('[SORT] Classification or move failed:', messageId, msg)
+              failedIds.push(messageId)
+              batchUiUpdates[messageId] = {
+                summary: `Auto-Sort error: ${msg.slice(0, 200)}`,
+                autosortFailure: true,
+                failureReason: 'llm_error',
+                autosortOutcome: 'failed',
+                status: 'classified',
               }
-            }),
-          )
-          for (const s of settled) {
-            if (s.status === 'rejected') {
-              console.warn('[SORT] Batch promise rejected:', s.reason)
             }
+          }
+
+          // One React state update for all results in this chunk (was N separate setState calls)
+          if (Object.keys(batchUiUpdates).length > 0) {
+            setBulkAiOutputs((prev) => ({ ...prev, ...batchUiUpdates }))
+            await sortFeedbackPaintDwell()
           }
         }
         const missedIdsPass1 = ids.filter((id) => !processedIds.includes(id) && !failedIds.includes(id))
