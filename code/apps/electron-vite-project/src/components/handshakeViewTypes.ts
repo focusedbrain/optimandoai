@@ -467,6 +467,14 @@ export interface EmailInboxBridge {
       provider: string
       /** Wall time for LLM resolution inside this IPC handler (listModels / routing), not full chat. */
       preResolveMs: number
+      /** First-chunk Ollama warm-up (local only); see main `ollamaBulkPrewarm.ts`. */
+      ollamaPrewarm?: {
+        action: string
+        wallMs?: number
+        prewarmLoadDurationMs?: number
+        followingClassifyLikelyResident?: boolean
+        residentBeforePrewarm?: boolean
+      }
     }
   }>
   /**

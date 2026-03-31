@@ -235,11 +235,13 @@ export async function inboxLlmChat(params: InboxLlmChatParams): Promise<string> 
   }
 
   try {
+    const bulkOllamaAutosort = provider.id === 'ollama' && llmTrace?.source === 'bulk_autosort'
     const text = await provider.generateChat(messages, {
       model: modelOverride,
       stream: false,
       signal: ac.signal,
       runtimeTrace: llmTrace,
+      ...(bulkOllamaAutosort ? { ollamaKeepAlive: '15m' as const } : {}),
     })
     clearTimeout(timeoutId)
     if (DEBUG_AUTOSORT_DIAGNOSTICS) {

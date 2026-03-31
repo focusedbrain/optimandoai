@@ -13,6 +13,7 @@
  *   retry must not add a second snapshot (outer invocation only).
  * - **Outer run aggregates:** `outerClassifyIpcSumMs` / `outerChunkWallSumMs` / `outerRendererNonIpcSumMs`, `completenessRetryInvoked`, `postRunTailMs`.
  * - **`run-tuning-one-line`** (renderer): quick compare of classify vs renderer-non-IPC vs tail; main **`run-tuning-main`** follows on **`autosortDiagSync`** (cap + run max in-flight).
+ * - Main **`aiClassifyBatch:ollamaPrewarm`** — first-chunk tiny `/api/chat` (`action`, `prewarmLoadDurationMs`, cooldown/skip); compare to **`aiClassifyBatch:perMessage`** load for first vs later messages.
  */
 
 export const DEBUG_AUTOSORT_DIAGNOSTICS = false

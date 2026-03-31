@@ -24,6 +24,7 @@ import {
   ollamaRuntimeRecordChatTiming,
 } from './ollamaRuntimeDiagnostics'
 import { buildLocalLlmRuntimeInfo } from './localLlmRuntimeStatus'
+import { noteOllamaActiveModelChangedForBulkPrewarm } from './ollamaBulkPrewarm'
 
 const execAsync = promisify(exec)
 
@@ -418,6 +419,7 @@ export class OllamaManager {
     }
 
     setStoredActiveOllamaModelId(trimmed)
+    noteOllamaActiveModelChangedForBulkPrewarm(trimmed)
     /** Single bump: next `listModels` sees new installs; avoid double-invalidate + double `/api/tags` on switch. */
     this.invalidateModelsCache()
     if (DEBUG_ACTIVE_OLLAMA_MODEL) {

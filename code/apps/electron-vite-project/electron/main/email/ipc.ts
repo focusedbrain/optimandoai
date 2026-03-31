@@ -234,6 +234,7 @@ import { formatSourceWeightingForPrompt, sortSourceWeightingFromMessageRow } fro
 import { extractPdfText, isPdfFile, resolveInboxPdfExtractionStatus } from './pdf-extractor'
 import { readDecryptedAttachmentBuffer, type AttachmentRowCrypto } from './attachmentBlobCrypto'
 import { inboxLlmChat, isLlmAvailable, INBOX_LLM_TIMEOUT_MS, resolveInboxLlmSettings, preResolveInboxLlm, type ResolvedLlmContext } from './inboxLlmChat'
+import { maybePrewarmOllamaForBulkClassify, type OllamaBulkPrewarmDiag } from '../llm/ollamaBulkPrewarm'
 
 /** Per-page strings from DB `extracted_text` (extraction joins pages with \\n\\n). */
 function inboxPagesFromStoredExtractedText(text: string): string[] {
@@ -4296,6 +4297,19 @@ ${formatSourceWeightingForPrompt(sortWeight)}`
       return { results: ids.map((messageId) => ({ messageId, error: 'llm_unavailable' })), batchRuntime: undefined }
     }
 
+    let ollamaPrewarm: OllamaBulkPrewarmDiag | undefined
+    if (resolvedLlm.provider.toLowerCase() === 'ollama') {
+      ollamaPrewarm = await maybePrewarmOllamaForBulkClassify(resolvedLlm.model, { chunkIndex })
+      if (DEBUG_AUTOSORT_TIMING) {
+        autosortTimingLog('aiClassifyBatch:ollamaPrewarm', {
+          model: resolvedLlm.model,
+          chunkIndex: chunkIndex ?? null,
+          runId: runId ?? null,
+          ...ollamaPrewarm,
+        })
+      }
+    }
+
     // Resolved once per chunk so mid-chunk UI changes never alter this IPC's in-flight cap (next chunk picks up new UI).
     const ollamaResolved = resolveBulkOllamaClassifyCap(ollamaMaxConcurrentFromUi)
     lastBulkOllamaResolve = ollamaResolved
@@ -4335,6 +4349,7 @@ ${formatSourceWeightingForPrompt(sortWeight)}`
       autosortTimingLog('aiClassifyBatch:ipc', {
         wallMs: Math.round(performance.now() - ipcWallT0),
         preResolveMs: preResolveMs ?? null,
+        ollamaPrewarm: ollamaPrewarm ?? null,
         resolvedModel: resolvedLlm.model,
         resolvedProvider: resolvedLlm.provider,
         chunkIndex: chunkIndex ?? null,
@@ -4361,6 +4376,7 @@ ${formatSourceWeightingForPrompt(sortWeight)}`
         model: resolvedLlm.model,
         provider: resolvedLlm.provider,
         preResolveMs,
+        ...(ollamaPrewarm ? { ollamaPrewarm } : {}),
       },
     }
   },

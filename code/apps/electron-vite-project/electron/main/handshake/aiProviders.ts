@@ -39,6 +39,11 @@ export interface GenerateChatOptions {
   signal?: AbortSignal
   /** Inbox bulk classify correlation when `DEBUG_OLLAMA_RUNTIME_TRACE`. */
   runtimeTrace?: OllamaRuntimeRequestTrace
+  /**
+   * Ollama `/api/chat` `keep_alive` (default `'2m'`). Bulk autosort passes longer TTL so
+   * pauses between chunks are less likely to unload the model from GPU/RAM.
+   */
+  ollamaKeepAlive?: string
 }
 
 export interface AIProvider {
@@ -153,7 +158,7 @@ export class OllamaProvider implements AIProvider {
         body: JSON.stringify({
           model,
           stream: false,
-          keep_alive: '2m',
+          keep_alive: options?.ollamaKeepAlive ?? '2m',
           messages: messages.map(m => ({ role: m.role, content: m.content })),
         }),
       })
