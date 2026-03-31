@@ -3,6 +3,10 @@
  * vault lock, IPC second phase, LLM timeouts, and concurrent analyze streams.
  *
  * Renderer logs use `src/lib/autosortDiagnostics.ts` — flip that flag too when enabling traces.
+ *
+ * **Bulk tuning (`DEBUG_AUTOSORT_TIMING`):** After a run, the main process logs **`[AUTOSORT-TIMING] run-tuning-main`**
+ * when the renderer sets `bulkSortActive: false` — includes **`ollamaCapEffective`**, **`ollamaCapSource`**, **`maxInFlightSeenAcrossChunks`**, and a short **`parallelHint`**.
+ * Per chunk, see **`aiClassifyBatch:ipc`** (`wallMs`, **`maxInFlightSeenDuringChunk`**) and **`aiClassifyBatch:perMessage`** (**`sumMs` overlaps parallel work**).
  */
 
 export const DEBUG_AUTOSORT_DIAGNOSTICS = false

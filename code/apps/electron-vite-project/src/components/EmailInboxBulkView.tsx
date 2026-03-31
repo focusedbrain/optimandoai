@@ -10,6 +10,7 @@ import { useEffect, useState, useCallback, useRef, useMemo, type ReactNode } fro
 import {
   useEmailInboxStore,
   activeEmailAccountIdsForSync,
+  type ClassifyMainRowPayload,
   type InboxMessage,
   type InboxFilter,
   type SubFocus,
@@ -49,22 +50,29 @@ import {
   DEBUG_AUTOSORT_DIAGNOSTICS,
   DEBUG_AUTOSORT_TIMING,
   autosortDiagLog,
+  autosortTimingAccumulateOuterChunk,
   autosortTimingBump,
   autosortTimingLog,
+  autosortTimingNoteCompletenessRetry,
   autosortTimingRunActive,
   autosortTimingRunEnd,
   autosortTimingRunStart,
+  autosortTimingSetPostRunTailMs,
   setAutosortDiagRunId,
 } from '../lib/autosortDiagnostics'
 import { BulkOllamaModelSelect } from './BulkOllamaModelSelect'
 
 const MUTED = '#64748b'
 
-/** Persisted bulk Auto-Sort parallelism (1–8). Shared by toolbar + live progress dock. */
+/** Persisted bulk Auto-Sort **messages per IPC chunk** (1–8). Toolbar only — not Ollama in-flight cap. */
 const SORT_CONCURRENCY_STORAGE_KEY = 'wrdesk_sortConcurrency'
+/** Persisted max concurrent local Ollama classifies **inside** each chunk (1–8). Progress bar only; env can override. */
+const BULK_OLLAMA_PARALLEL_STORAGE_KEY = 'wrdesk_bulkOllamaParallel'
 
 type AutosortDiagAcc = {
   analyzed: number
+  /** Classify + DB succeeded but the id was not on the current bulk list page — Zustand apply is deferred until refresh (DB is still authoritative). */
+  notInViewClassified: number
   moved: number
   retained: number
   failed: number
@@ -82,11 +90,9 @@ const DEBUG_AI_DIAGNOSTICS = false
 const AUTOSORT_REVIEW_BANNER_VISIBLE_MS = 5500
 
 /**
- * Workflow tab totals during bulk Auto-Sort: refresh every N renderer chunks (each refresh is 5× listMessages).
- * The last chunk always refreshes (`doneAfterBatch >= ids.length`) so counts match the completed run.
- * Set to `1` to restore every-chunk refreshes.
+ * Mid-run: no tab-count IPC (was every ~2 chunks + duplicated end snapshot). Tab badges refresh via
+ * `fetchAllMessages` snapshot at end, or `refreshBulkTabCountsFromServer` once when `skipEndRefresh`.
  */
-const BULK_AUTOSORT_TAB_COUNT_EVERY_N_CHUNKS = 2
 
 type AutosortReviewBannerState = { sessionId: string; fading: boolean }
 
@@ -204,23 +210,6 @@ function formatDrainEtaLine(history: RemoteDrainSample[], pending: number, proce
  * Kept in sync with “Time-sensitive” in getUrgencyBadgeText.
  */
 const BULK_AUTO_SORT_URGENCY_THRESHOLD = 7
-
-/** Brief pause after painting classification so auto-moved rows read as “sorted” before they leave (not a 5s preview). */
-const SORT_LIVE_FEEDBACK_DWELL_MS = 72
-
-function sortFeedbackPaintDwell(): Promise<void> {
-  return new Promise((resolve) => {
-    if (typeof window === 'undefined') {
-      resolve()
-      return
-    }
-    window.requestAnimationFrame(() => {
-      window.requestAnimationFrame(() => {
-        window.setTimeout(resolve, SORT_LIVE_FEEDBACK_DWELL_MS)
-      })
-    })
-  })
-}
 
 /** Mark a classified row as intentionally left in the inbox after Auto-Sort (not a failure). */
 function withAutosortRetained(
@@ -1903,7 +1892,7 @@ export default function EmailInboxBulkView({
 
   const [pendingLinkUrl, setPendingLinkUrl] = useState<string | null>(null)
   const [aiSortProgress, setAiSortProgress] = useState<AiSortProgressState | null>(null)
-  /** User-adjustable concurrency for bulk AI classify (1–8). Persisted in localStorage. */
+  /** Messages per `aiClassifyBatch` chunk (1–8). Persisted; read at each chunk boundary — changes apply from the next chunk. */
   const [sortConcurrency, setSortConcurrency] = useState<number>(() => {
     try {
       const stored = localStorage?.getItem(SORT_CONCURRENCY_STORAGE_KEY)
@@ -1922,6 +1911,32 @@ export default function EmailInboxBulkView({
     setSortConcurrency(v)
     try {
       localStorage?.setItem(SORT_CONCURRENCY_STORAGE_KEY, String(v))
+    } catch {
+      /* ignore */
+    }
+  }, [])
+
+  /**
+   * Local Ollama: max in-flight classifies per chunk (1–8). Separate from `sortConcurrency` (batch width).
+   * Persisted; ref read at each chunk boundary only — current chunk keeps the cap it started with.
+   */
+  const [bulkOllamaParallel, setBulkOllamaParallel] = useState<number>(() => {
+    try {
+      const stored = localStorage?.getItem(BULK_OLLAMA_PARALLEL_STORAGE_KEY)
+      const n = stored ? parseInt(stored, 10) : 4
+      return n >= 1 && n <= 8 ? n : 4
+    } catch {
+      return 4
+    }
+  })
+  const bulkOllamaParallelRef = useRef(bulkOllamaParallel)
+  bulkOllamaParallelRef.current = bulkOllamaParallel
+
+  const handleBulkOllamaParallelChange = useCallback((raw: number) => {
+    const v = Math.max(1, Math.min(8, Math.round(raw)))
+    setBulkOllamaParallel(v)
+    try {
+      localStorage?.setItem(BULK_OLLAMA_PARALLEL_STORAGE_KEY, String(v))
     } catch {
       /* ignore */
     }
@@ -2623,6 +2638,7 @@ export default function EmailInboxBulkView({
       // Recursive retry calls must NOT reset it so Stop works end-to-end.
       const runDiag: AutosortDiagAcc = opts?.diagAcc ?? {
         analyzed: 0,
+        notInViewClassified: 0,
         moved: 0,
         retained: 0,
         failed: 0,
@@ -2648,9 +2664,9 @@ export default function EmailInboxBulkView({
        * fan-out. Main process pre-resolves LLM once per chunk; results come back together so the
        * renderer can apply one React state update per batch rather than N separate setState calls.
        *
-       * chunkSize is read at the START of every iteration (sortConcurrencyRef) so toolbar / progress-dock
-       * slider changes apply starting with the **next** chunk only — never mid-flight inside the current
-       * aiClassifyBatch IPC. Stop/Pause checks also run at chunk boundaries.
+       * chunkSize is read at the START of every iteration (`sortConcurrencyRef`); Ollama parallelism at
+       * (`bulkOllamaParallelRef`) — both apply starting with the **next** chunk only — never mid-flight
+       * inside the current aiClassifyBatch IPC. Stop/Pause checks also run at chunk boundaries.
        */
       let _i = 0
       let autosortChunkNumber = 0
@@ -2672,10 +2688,6 @@ export default function EmailInboxBulkView({
         _i += batch.length
         const doneAfterBatch = Math.min(_i, ids.length)
         autosortChunkNumber += 1
-        const refreshTabCountsThisChunk =
-          BULK_AUTOSORT_TAB_COUNT_EVERY_N_CHUNKS <= 1 ||
-          autosortChunkNumber % BULK_AUTOSORT_TAB_COUNT_EVERY_N_CHUNKS === 0 ||
-          doneAfterBatch >= ids.length
         const chunkT0 = DEBUG_AUTOSORT_TIMING ? performance.now() : 0
           let tAfterBatchIpc = chunkT0
           // One IPC call for the whole chunk — main process handles LLM resolution internally
@@ -2696,6 +2708,7 @@ export default function EmailInboxBulkView({
               sessionId,
               sortRunId,
               autosortChunkNumber,
+              bulkOllamaParallelRef.current,
             )
             if (DEBUG_AUTOSORT_TIMING) tAfterBatchIpc = performance.now()
             batchResults = ((resp?.results ?? []) as BatchResult[]).filter((r) => !!r?.messageId)
@@ -2732,6 +2745,7 @@ export default function EmailInboxBulkView({
           // Collect UI state for the whole batch; apply in one React setState to minimise re-renders
           const batchUiUpdates: AiOutputs = {}
           const inboxStore = useEmailInboxStore.getState()
+          const chunkClassifyApplies: ClassifyMainRowPayload[] = []
 
           for (const result of batchResults) {
             const messageId = result.messageId
@@ -2791,10 +2805,13 @@ export default function EmailInboxBulkView({
 
               runDiag.analyzed += 1
 
-              /** Single local sync from main classify row (DB already updated in `classifySingleMessage`). */
-              inboxStore.applyClassifyMainResultToLocalState({
+              /** Batched local sync from main classify row (DB already updated in `classifySingleMessage`). */
+              const reasonTrim =
+                result.reason != null && String(result.reason).trim() !== '' ? String(result.reason).slice(0, 4000) : undefined
+              chunkClassifyApplies.push({
                 messageId: result.messageId,
                 category: result.category,
+                ...(reasonTrim !== undefined ? { sortReason: reasonTrim } : {}),
                 urgency: result.urgency,
                 needsReply: result.needsReply,
                 pending_delete: result.pending_delete,
@@ -2802,7 +2819,6 @@ export default function EmailInboxBulkView({
                 pending_delete_at: result.pending_delete_at ?? null,
                 pending_review_at: result.pending_review_at ?? null,
                 archived: result.archived,
-                /** One `refreshBulkTabCountsFromServer` per chunk — not 5× listMessages per message. */
                 skipBulkTabCountRefresh: true,
               })
 
@@ -3020,20 +3036,41 @@ export default function EmailInboxBulkView({
             }
           }
 
-          const tBeforeTabRefresh = DEBUG_AUTOSORT_TIMING ? performance.now() : 0
-          if (refreshTabCountsThisChunk) {
-            await useEmailInboxStore.getState().refreshBulkTabCountsFromServer()
+          const tAfterProcessLoop = DEBUG_AUTOSORT_TIMING ? performance.now() : 0
+          if (chunkClassifyApplies.length > 0) {
+            const { missingFromCurrentPage } =
+              inboxStore.applyBulkClassifyMainResultsToLocalState(chunkClassifyApplies)
+            runDiag.notInViewClassified += missingFromCurrentPage.length
+            if (DEBUG_AUTOSORT_DIAGNOSTICS && missingFromCurrentPage.length > 0) {
+              autosortDiagLog('bulk-chunk:classify-off-page', {
+                sortRunId,
+                missingCount: missingFromCurrentPage.length,
+                sampleIds: missingFromCurrentPage.slice(0, 6),
+              })
+            }
           }
-          const tAfterTabRefresh = DEBUG_AUTOSORT_TIMING ? performance.now() : 0
+          const tAfterZustandApply = DEBUG_AUTOSORT_TIMING ? performance.now() : 0
 
           // One React state update for all results in this chunk (was N separate setState calls)
           if (Object.keys(batchUiUpdates).length > 0) {
             setBulkAiOutputs((prev) => ({ ...prev, ...batchUiUpdates }))
-            await sortFeedbackPaintDwell()
           }
+          const tAfterReactOutputs = DEBUG_AUTOSORT_TIMING ? performance.now() : 0
           if (!suppressGlobalSortingUi) {
             const d = runDiag
-            const statLine = `Analyzed ${d.analyzed} · Applied moves ${d.moved} · Retained ${d.retained} · Failed ${d.failed}`
+            const inList = Math.max(0, d.analyzed - d.notInViewClassified)
+            const statLine = [
+              `Analyzed ${d.analyzed}`,
+              `List updated ${inList}`,
+              d.notInViewClassified > 0 ? `Off-page ${d.notInViewClassified} (DB)` : null,
+              `Moved ${d.moved}`,
+              `Retained ${d.retained}`,
+              `Failed ${d.failed}`,
+              d.timeout > 0 ? `Timeouts ${d.timeout}` : null,
+              d.db_unavailable > 0 ? `DB/vault ${d.db_unavailable}` : null,
+            ]
+              .filter(Boolean)
+              .join(' · ')
             setAiSortProgress({
               done: doneAfterBatch,
               total: ids.length,
@@ -3044,37 +3081,48 @@ export default function EmailInboxBulkView({
           }
           if (DEBUG_AUTOSORT_TIMING) {
             const tChunkEnd = performance.now()
+            const ipcMs = Math.round(tAfterBatchIpc - chunkT0)
+            const chunkTotalMs = Math.round(tChunkEnd - chunkT0)
             autosortTimingLog('renderer:chunk', {
               doneAfterBatch,
               batchLen: batch.length,
               autosortChunkNumber,
-              tabCountsRefreshed: refreshTabCountsThisChunk,
-              ipcMs: Math.round(tAfterBatchIpc - chunkT0),
-              applyResultsMs: Math.round(tBeforeTabRefresh - tAfterBatchIpc),
-              tabCountsMs: Math.round(tAfterTabRefresh - tBeforeTabRefresh),
-              chunkTotalMs: Math.round(tChunkEnd - chunkT0),
+              ipcMs,
+              processLoopMs: Math.round(tAfterProcessLoop - tAfterBatchIpc),
+              zustandApplyMs: Math.round(tAfterZustandApply - tAfterProcessLoop),
+              reactBulkOutputsMs: Math.round(tAfterReactOutputs - tAfterZustandApply),
+              chunkTotalMs,
+              tuningNote: 'ipcMs tracks main aiClassifyBatch; chunkTotalMs adds renderer apply + React outputs.',
             })
+            if (manageConcurrencyLock) {
+              autosortTimingAccumulateOuterChunk(ipcMs, chunkTotalMs)
+            }
           }
         } // end while (_i < ids.length)
         /** Only retry ids that never got a per-message result (completeness gap). Do not re-run LLM for explicit failures — that duplicated work and could mask pipeline bugs. */
         const missedIdsPass1 = ids.filter((id) => !processedIds.includes(id) && !failedIds.includes(id))
         const toRetry = missedIdsPass1
-        console.log('[SORT] First pass.', {
-          targeted: ids.length,
-          processed: processedIds.length,
-          failed: failedIds.length,
-          moved: movedIds.length,
-          missed: missedIdsPass1.length,
-          toRetry: toRetry.length,
-          retainedBreakdown: { ...retainedCounts },
-        })
+        if (DEBUG_AI_DIAGNOSTICS || missedIdsPass1.length > 0 || failedIds.length > 0) {
+          console[missedIdsPass1.length > 0 || failedIds.length > 0 ? 'warn' : 'log']('[SORT] First pass.', {
+            targeted: ids.length,
+            processed: processedIds.length,
+            failed: failedIds.length,
+            moved: movedIds.length,
+            missed: missedIdsPass1.length,
+            toRetry: toRetry.length,
+            retainedBreakdown: { ...retainedCounts },
+          })
+        }
         let allProcessedIds = [...processedIds]
         let allFailedIds = [...failedIds]
         let allMovedIds = [...movedIds]
         let finalRetainedCounts = { ...retainedCounts }
         if (toRetry.length === 0) {
-          console.log('[SORT] All targeted messages reached a terminal outcome in one pass (no missed ids)')
+          if (DEBUG_AI_DIAGNOSTICS) {
+            console.log('[SORT] All targeted messages reached a terminal outcome in one pass (no missed ids)')
+          }
         } else if (!isRetry && !sortStopRequestedRef.current) {
+          if (DEBUG_AUTOSORT_TIMING && manageConcurrencyLock) autosortTimingNoteCompletenessRetry()
           console.warn('[SORT] Completeness retry (missed ids only):', toRetry)
           const retryResult = await runAiCategorizeForIds(
             toRetry,
@@ -3083,7 +3131,8 @@ export default function EmailInboxBulkView({
             {
               manageConcurrencyLock: false,
               suppressGlobalSortingUi,
-              skipEndRefresh,
+              /** Nested pass must not run `fetchAllMessages` — outer invocation owns the single end snapshot (avoids 2× 6 list IPC when retry runs). */
+              skipEndRefresh: true,
               sortRunId,
               diagAcc: runDiag,
             },
@@ -3093,13 +3142,26 @@ export default function EmailInboxBulkView({
           allFailedIds = [...new Set([...failedIds, ...retryResult.failedIds])]
           allMovedIds = [...new Set([...movedIds, ...retryResult.movedIds])]
           finalRetainedCounts = mergeRetainedCounts(retainedCounts, retryResult.retainedCounts)
-          console.log('[SORT] Missed-id retry pass.', {
-            retryTargeted: toRetry.length,
-            processed: retryResult.processedIds.length,
-            failed: retryResult.failedIds.length,
-            moved: retryResult.movedIds.length,
-            retainedBreakdown: retryResult.retainedCounts,
-          })
+          if (DEBUG_AI_DIAGNOSTICS || retryResult.failedIds.length > 0 || retryResult.processedIds.length < toRetry.length) {
+            console.log('[SORT] Missed-id retry pass.', {
+              retryTargeted: toRetry.length,
+              processed: retryResult.processedIds.length,
+              failed: retryResult.failedIds.length,
+              moved: retryResult.movedIds.length,
+              retainedBreakdown: retryResult.retainedCounts,
+            })
+          }
+        }
+        /**
+         * If the run skips end refresh, tab badges still need one server pass (5× listMessages).
+         * Otherwise `fetchAllMessages` without skipTabCountFetch performs tab counts + first page together (no duplicate 5×).
+         */
+        if (manageConcurrencyLock && skipEndRefresh && useEmailInboxStore.getState().bulkMode) {
+          const tTab0 = DEBUG_AUTOSORT_TIMING ? performance.now() : 0
+          await useEmailInboxStore.getState().refreshBulkTabCountsFromServer()
+          if (DEBUG_AUTOSORT_TIMING) {
+            autosortTimingLog('renderer:tabCounts-after-all-chunks', { ms: Math.round(performance.now() - tTab0) })
+          }
         }
         let finalMissed = ids.filter((id) => !allProcessedIds.includes(id) && !allFailedIds.includes(id))
         if (finalMissed.length > 0) {
@@ -3123,15 +3185,17 @@ export default function EmailInboxBulkView({
           finalMissed = []
         }
         const retainedInInbox = allProcessedIds.filter((id) => !allMovedIds.includes(id)).length
-        console.log('[SORT] Run complete.', {
-          targeted: ids.length,
-          moved: allMovedIds.length,
-          retainedInInbox,
-          failed: allFailedIds.length,
-          retainedByKind: finalRetainedCounts,
-          movedIds: allMovedIds,
-          failedIds: allFailedIds,
-        })
+        if (DEBUG_AI_DIAGNOSTICS || allFailedIds.length > 0) {
+          console.log('[SORT] Run complete.', {
+            targeted: ids.length,
+            moved: allMovedIds.length,
+            retainedInInbox,
+            failed: allFailedIds.length,
+            retainedByKind: finalRetainedCounts,
+            movedIds: allMovedIds,
+            failedIds: allFailedIds,
+          })
+        }
         const tPostClassifyDone = DEBUG_AUTOSORT_TIMING ? performance.now() : 0
         /**
          * Remote IMAP/M365 mirror runs in the background so Auto-Sort does not block on a second-phase
@@ -3186,10 +3250,11 @@ export default function EmailInboxBulkView({
           }
         }
         if (clearSelection) clearMultiSelect()
+        const tFetch0 = DEBUG_AUTOSORT_TIMING && !skipEndRefresh ? performance.now() : 0
         if (!skipEndRefresh) {
           try {
-            /** Tab totals already refreshed per chunk; reload first page only (saves 5× listMessages vs full snapshot). */
-            await useEmailInboxStore.getState().fetchAllMessages({ soft: true, skipTabCountFetch: true })
+            /** One snapshot: tab totals + first page (avoids a separate 5× tab-only pass before this). */
+            await useEmailInboxStore.getState().fetchAllMessages({ soft: true, skipTabCountFetch: false })
           } catch (refreshErr) {
             console.warn('[SORT] Post-run inbox refresh failed:', refreshErr)
             setAutosortVaultSessionBanner((prev) =>
@@ -3200,8 +3265,12 @@ export default function EmailInboxBulkView({
           }
         }
         if (DEBUG_AUTOSORT_TIMING && tPostClassifyDone > 0 && manageConcurrencyLock && !isRetry) {
+          const tailEnd = performance.now()
+          const tailMs = Math.round(tailEnd - tPostClassifyDone)
+          autosortTimingSetPostRunTailMs(tailMs)
           autosortTimingLog('renderer:postClassifyTail', {
-            ms: Math.round(performance.now() - tPostClassifyDone),
+            ms: tailMs,
+            fetchAllMessagesMs: tFetch0 > 0 ? Math.round(tailEnd - tFetch0) : undefined,
             skipEndRefresh,
             hadRemoteIds: classifiedIdsForRemote.length > 0,
           })
@@ -3246,6 +3315,7 @@ export default function EmailInboxBulkView({
             autosortDiagLog('bulk-run-summary', {
               sortRunId,
               analyzed: runDiag.analyzed,
+              notInViewClassified: runDiag.notInViewClassified,
               moved: runDiag.moved,
               retained: runDiag.retained,
               failed: runDiag.failed,
@@ -3257,7 +3327,11 @@ export default function EmailInboxBulkView({
           })()
         }
         if (DEBUG_AUTOSORT_TIMING && !isRetry && manageConcurrencyLock) {
-          autosortTimingRunEnd({ sortRunId })
+          autosortTimingRunEnd({
+            sortRunId,
+            uiOllamaParallel: bulkOllamaParallelRef.current,
+            uiMessagesPerBatch: sortConcurrencyRef.current,
+          })
         }
         if (!isRetry && manageConcurrencyLock) {
           void window.emailInbox?.autosortDiagSync?.({ runId: null, bulkSortActive: false })
@@ -4791,9 +4865,9 @@ export default function EmailInboxBulkView({
                 userSelect: 'none',
                 marginLeft: 2,
               }}
-              title={`Concurrent analyses per batch: ${sortConcurrency}. Higher can be faster on strong hardware, but slower on weaker hardware.`}
+              title={`Messages per batch: ${sortConcurrency}. How many inbox items are sent in one classify request. During Auto-Sort you can change Local parallelism in the progress bar (separate control). Next chunk picks up changes.`}
             >
-              <span style={{ whiteSpace: 'nowrap' }}>Concurrent analyses: {sortConcurrency}</span>
+              <span style={{ whiteSpace: 'nowrap' }}>Per batch: {sortConcurrency}</span>
               <input
                 type="range"
                 min={1}
@@ -4801,7 +4875,7 @@ export default function EmailInboxBulkView({
                 step={1}
                 value={sortConcurrency}
                 onChange={(e) => handleSortConcurrencyChange(Number(e.target.value))}
-                aria-label="Bulk Auto-Sort concurrent analyses"
+                aria-label="Bulk Auto-Sort messages per batch"
                 style={{ width: 72, cursor: 'pointer', accentColor: '#7c3aed' }}
               />
             </label>
@@ -5770,22 +5844,22 @@ export default function EmailInboxBulkView({
                                 userSelect: 'none',
                                 minWidth: 0,
                               }}
-                              title={`Concurrent analyses: ${sortConcurrency}. Applied starting with the next batch after this one finishes. Higher can be faster on strong hardware, but slower on weaker hardware.`}
+                              title={`Parallelism: ${bulkOllamaParallel} concurrent local analyses max (inside each batch). Applied starting with the next chunk. On local Ollama or a single GPU, higher values are not always faster — try 2–4 if runs feel slower.`}
                             >
                               <span style={{ whiteSpace: 'nowrap', fontWeight: 600, color: '#334155' }}>
-                                Concurrent analyses: {sortConcurrency}
+                                Parallelism: {bulkOllamaParallel}
                               </span>
                               <input
                                 type="range"
                                 min={1}
                                 max={8}
                                 step={1}
-                                value={sortConcurrency}
-                                onChange={(e) => handleSortConcurrencyChange(Number(e.target.value))}
-                                aria-label="Bulk Auto-Sort concurrent analyses (live; next chunk)"
+                                value={bulkOllamaParallel}
+                                onChange={(e) => handleBulkOllamaParallelChange(Number(e.target.value))}
+                                aria-label="Bulk Auto-Sort Ollama parallelism (live; next chunk)"
                                 aria-valuemin={1}
                                 aria-valuemax={8}
-                                aria-valuenow={sortConcurrency}
+                                aria-valuenow={bulkOllamaParallel}
                                 style={{ width: 120, maxWidth: '42vw', cursor: 'pointer', accentColor: '#7c3aed' }}
                               />
                             </label>
@@ -5799,10 +5873,10 @@ export default function EmailInboxBulkView({
                               maxWidth: 520,
                             }}
                           >
-                            Higher can be faster on strong hardware, but slower on weaker hardware. Changes to
-                            concurrency apply starting with the next batch (the current batch is not resized
-                            mid-flight). Changing the Ollama model applies the same way: the current chunk keeps
-                            its already-resolved model; the next chunk uses the newly selected model.
+                            Per batch (toolbar): how many messages each classify request includes. Parallelism
+                            (here): how many local Ollama analyses can run at once inside each batch — higher
+                            is not always faster on one GPU. Values apply from the next chunk (the in-flight
+                            chunk is unchanged). Model selection follows the same rule.
                           </p>
                         </div>
                       )}

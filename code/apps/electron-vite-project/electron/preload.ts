@@ -913,11 +913,16 @@ contextBridge.exposeInMainWorld('emailInbox', {
     ipcRenderer.invoke('inbox:aiClassifySingle', messageId, sessionId),
   /**
    * Batch classify: one IPC call for a chunk of message IDs.
-   * The renderer controls chunk size (BULK_CLASSIFY_CONCURRENCY); the main process
-   * pre-resolves the LLM once and returns all results together.
+   * The renderer controls chunk size (`sortConcurrency`); optional `ollamaMaxConcurrent` caps in-flight
+   * local Ollama classifies per chunk (env `WRDESK_OLLAMA_CLASSIFY_MAX_CONCURRENT` overrides when set).
    */
-  aiClassifyBatch: (ids: string[], sessionId?: string, runId?: string, chunkIndex?: number) =>
-    ipcRenderer.invoke('inbox:aiClassifyBatch', ids, sessionId, runId, chunkIndex),
+  aiClassifyBatch: (
+    ids: string[],
+    sessionId?: string,
+    runId?: string,
+    chunkIndex?: number,
+    ollamaMaxConcurrent?: number,
+  ) => ipcRenderer.invoke('inbox:aiClassifyBatch', ids, sessionId, runId, chunkIndex, ollamaMaxConcurrent),
   /** Dev-only correlation: sync bulk Auto-Sort run id to main for lockVault / stream diagnostics. */
   autosortDiagSync: (payload: { runId: string | null; bulkSortActive: boolean }) =>
     ipcRenderer.invoke('inbox:autosortDiagSync', payload),

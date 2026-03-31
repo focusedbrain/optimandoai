@@ -3,6 +3,15 @@
  *
  * For performance traces (`DEBUG_AUTOSORT_TIMING`), enable in **both** this file and
  * `electron/main/autosortDiagnostics.ts` so main (`inbox:aiClassifyBatch`) and renderer logs align.
+ *
+ * **Bulk Auto-Sort validation (outer run, `skipEndRefresh: false`):**
+ * - `[AUTOSORT-TIMING] renderer:chunk` — `ipcMs` ≈ main `aiClassifyBatch:ipc` wall time; `processLoopMs` + `zustandApplyMs`
+ *   + `reactBulkOutputsMs` should stay small vs `ipcMs` (no per-chunk dwell or mid-run tab recounts on the hot path).
+ * - `[AUTOSORT-TIMING] run-summary` — `listMessagesCalls`: expect **6** per end snapshot (five tab total queries + first page);
+ *   `refreshBulkTabCountsFromServerCalls`: **0** unless the run uses `skipEndRefresh` (then **1** without end fetch). Nested missed-id
+ *   retry must not add a second snapshot (outer invocation only).
+ * - **Outer run aggregates:** `outerClassifyIpcSumMs` / `outerChunkWallSumMs` / `outerRendererNonIpcSumMs`, `completenessRetryInvoked`, `postRunTailMs`.
+ * - **`run-tuning-one-line`** (renderer): quick compare of classify vs renderer-non-IPC vs tail; main **`run-tuning-main`** follows on **`autosortDiagSync`** (cap + run max in-flight).
  */
 
 export const DEBUG_AUTOSORT_DIAGNOSTICS = false
@@ -34,11 +43,23 @@ const emptyCounters = (): AutosortTimingCounters => ({
 let _timingRunActive = false
 let _timingCounters: AutosortTimingCounters = emptyCounters()
 
+/** Outer `runAiCategorizeForIds` only (`manageConcurrencyLock` chunks — excludes nested missed-id retry chunks). */
+let _outerChunkCount = 0
+let _outerIpcSumMs = 0
+let _outerChunkWallSumMs = 0
+let _postRunTailMs: number | undefined
+let _completenessRetryInvoked = false
+
 /** Start counting IPC-style work for one toolbar Auto-Sort run (outer pass only). */
 export function autosortTimingRunStart(): void {
   if (!DEBUG_AUTOSORT_TIMING) return
   _timingRunActive = true
   _timingCounters = emptyCounters()
+  _outerChunkCount = 0
+  _outerIpcSumMs = 0
+  _outerChunkWallSumMs = 0
+  _postRunTailMs = undefined
+  _completenessRetryInvoked = false
 }
 
 export function autosortTimingRunActive(): boolean {
@@ -50,12 +71,58 @@ export function autosortTimingBump<K extends keyof AutosortTimingCounters>(key: 
   _timingCounters[key] += delta
 }
 
+/** Sum outer-chunk `renderer:chunk` metrics (call with `manageConcurrencyLock` only). */
+export function autosortTimingAccumulateOuterChunk(ipcMs: number, chunkWallMs: number): void {
+  if (!DEBUG_AUTOSORT_TIMING || !_timingRunActive) return
+  _outerChunkCount += 1
+  _outerIpcSumMs += ipcMs
+  _outerChunkWallSumMs += chunkWallMs
+}
+
+export function autosortTimingNoteCompletenessRetry(): void {
+  if (!DEBUG_AUTOSORT_TIMING || !_timingRunActive) return
+  _completenessRetryInvoked = true
+}
+
+/** End-of-run tail from `tPostClassifyDone` (remote scheduling + clear selection + optional `fetchAllMessages`). */
+export function autosortTimingSetPostRunTailMs(ms: number): void {
+  if (!DEBUG_AUTOSORT_TIMING || !_timingRunActive) return
+  _postRunTailMs = ms
+}
+
 /** Log accumulated counters and end the run (outer `finally` only). */
 export function autosortTimingRunEnd(extra?: Record<string, unknown>): void {
   if (!DEBUG_AUTOSORT_TIMING || !_timingRunActive) return
   _timingRunActive = false
-  const payload = Object.keys(_timingCounters).length ? { ..._timingCounters, ...extra } : extra
-  console.log('[AUTOSORT-TIMING] run-summary', payload ?? {})
+  const derived =
+    _outerChunkCount > 0
+      ? {
+          outerChunkCount: _outerChunkCount,
+          outerClassifyIpcSumMs: _outerIpcSumMs,
+          outerChunkWallSumMs: _outerChunkWallSumMs,
+          outerRendererNonIpcSumMs: _outerChunkWallSumMs - _outerIpcSumMs,
+          avgRendererChunkWallMs: Math.round(_outerChunkWallSumMs / _outerChunkCount),
+          avgClassifyIpcMsPerChunk: Math.round(_outerIpcSumMs / _outerChunkCount),
+          completenessRetryInvoked: _completenessRetryInvoked,
+          postRunTailMs: _postRunTailMs,
+        }
+      : {
+          completenessRetryInvoked: _completenessRetryInvoked,
+          postRunTailMs: _postRunTailMs,
+        }
+  const merged = { ..._timingCounters, ...derived, ...extra }
+  console.log('[AUTOSORT-TIMING] run-summary', merged)
+
+  const wall = _outerChunkWallSumMs
+  const classifyMs = _outerIpcSumMs
+  const renderNonIpc = wall > 0 ? wall - classifyMs : 0
+  const pctClassify = wall > 0 ? Math.round((100 * classifyMs) / wall) : 0
+  const pctRenderNonIpc = wall > 0 ? Math.round((100 * renderNonIpc) / wall) : 0
+  const tailStr = _postRunTailMs != null ? `${_postRunTailMs}ms` : 'n/a'
+  console.log(
+    '[AUTOSORT-TIMING] run-tuning-one-line',
+    `classifyIPC=${classifyMs}ms (${pctClassify}% of ΣchunkWall=${wall}ms) rendererNonIpc=${renderNonIpc}ms (${pctRenderNonIpc}%) tail=${tailStr} retries=${_completenessRetryInvoked} listMsg=${_timingCounters.listMessagesCalls} outerChunks=${_outerChunkCount} | main: next [AUTOSORT-TIMING] run-tuning-main → cap & maxInFlight across chunks`,
+  )
 }
 
 export function autosortTimingLog(tag: string, data?: Record<string, unknown>): void {

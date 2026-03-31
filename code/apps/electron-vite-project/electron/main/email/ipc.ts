@@ -16,7 +16,11 @@ import {
   isRecentVaultLock,
   setAutosortDiagMainState,
 } from '../autosortDiagnostics'
-import { ollamaRuntimeBeginBatch, ollamaRuntimeEndBatch } from '../llm/ollamaRuntimeDiagnostics'
+import {
+  ollamaRuntimeBeginBatch,
+  ollamaRuntimeEndBatch,
+  type OllamaClassifyBatchChunkDiag,
+} from '../llm/ollamaRuntimeDiagnostics'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
@@ -1555,9 +1559,77 @@ export function registerInboxHandlers(
     return db
   }
 
+  /**
+   * Effective max concurrent Ollama `/api/chat` calls per `aiClassifyBatch` chunk.
+   * - **Normal path:** renderer sends `ollamaMaxConcurrentFromUi` (1–8) from bulk progress **Parallelism** control (persisted).
+   * - **Developer override:** `WRDESK_OLLAMA_CLASSIFY_MAX_CONCURRENT` — when set (valid int), **wins** over UI for that process.
+   * - **Fallback** when env unset and UI omitted: **4**.
+   * Chunk **batch size** (how many message IDs per IPC) is separate — renderer `sortConcurrency`; this cap only limits in-flight Ollama classifies **inside** each batch.
+   */
+  let _ollamaCapEnvRangeWarned = false
+  function resolveBulkOllamaClassifyCap(fromUi?: number | null): { cap: number; source: 'env' | 'ui' | 'default' } {
+    const envRaw = process.env.WRDESK_OLLAMA_CLASSIFY_MAX_CONCURRENT
+    if (envRaw != null && String(envRaw).trim() !== '') {
+      const parsed = Number.parseInt(String(envRaw), 10)
+      if (Number.isFinite(parsed)) {
+        const clamped = Math.max(1, Math.min(8, Math.floor(parsed)))
+        if (
+          !_ollamaCapEnvRangeWarned &&
+          (parsed < 1 || parsed > 8 || Math.floor(parsed) !== clamped)
+        ) {
+          _ollamaCapEnvRangeWarned = true
+          console.warn(
+            '[AutoSort] WRDESK_OLLAMA_CLASSIFY_MAX_CONCURRENT must be integer 1–8; using',
+            clamped,
+            `(raw=${JSON.stringify(envRaw)})`,
+          )
+        }
+        return { cap: clamped, source: 'env' }
+      }
+    }
+    if (typeof fromUi === 'number' && Number.isFinite(fromUi)) {
+      return { cap: Math.max(1, Math.min(8, Math.floor(fromUi))), source: 'ui' }
+    }
+    return { cap: 4, source: 'default' }
+  }
+
+  /** Last resolved cap for tuning logs (updated each successful `aiClassifyBatch`; reset when bulk starts). */
+  let lastBulkOllamaResolve: { cap: number; source: 'env' | 'ui' | 'default' } = { cap: 4, source: 'default' }
+
+  /** Peak `maxInFlightSeenDuringChunk` across chunks in the current bulk run (updated in `aiClassifyBatch`; reset when bulk starts). */
+  let autosortBulkRunMaxInFlight = 0
+  /** True if any chunk used local Ollama (`run-tuning-main` in-flight hints apply only then). */
+  let autosortBulkRunUsedOllama = false
+
   ipcMain.handle(
     'inbox:autosortDiagSync',
     (_e, payload: { runId: string | null; bulkSortActive: boolean }) => {
+      if (payload.bulkSortActive) {
+        autosortBulkRunMaxInFlight = 0
+        autosortBulkRunUsedOllama = false
+        lastBulkOllamaResolve = { cap: 4, source: 'default' }
+      } else if (DEBUG_AUTOSORT_TIMING) {
+        const cap = lastBulkOllamaResolve.cap
+        if (autosortBulkRunUsedOllama) {
+          autosortTimingLog('run-tuning-main', {
+            ollamaCapEffective: cap,
+            ollamaCapSource: lastBulkOllamaResolve.source,
+            maxInFlightSeenAcrossChunks: autosortBulkRunMaxInFlight,
+            parallelHint:
+              cap >= 2 && autosortBulkRunMaxInFlight <= 1
+                ? 'maxInFlight<=1 with cap>=2: Ollama often serializing server-side — try cap 2 vs 4 vs 6 on wallMs, not sumMs.'
+                : autosortBulkRunMaxInFlight >= cap
+                  ? 'maxInFlight reached cap (requests overlapped on client).'
+                  : 'maxInFlight below cap (small last chunks or short overlaps).',
+          })
+        } else {
+          autosortTimingLog('run-tuning-main', {
+            ollamaCapEffective: cap,
+            ollamaCapSource: lastBulkOllamaResolve.source,
+            note: 'No Ollama classify in this bulk run — cap / maxInFlight above are N/A for cloud-only classifies.',
+          })
+        }
+      }
       setAutosortDiagMainState(payload)
       return { ok: true as const }
     },
@@ -3963,10 +4035,12 @@ ${formatSourceWeightingForPrompt(sortWeight)}`
       if (hasAttachments) {
         const lowPriorityCategories = ['archive', 'pending_delete', 'spam', 'irrelevant', 'newsletter'] as const
         if ((lowPriorityCategories as readonly string[]).includes(validCategory)) {
-          console.log(
-            `[AutoSort] Attachment guard: bumping "${validCategory}" → "pending_review" for message with attachments:`,
-            messageId,
-          )
+          if (DEBUG_AI_DIAGNOSTICS) {
+            console.log(
+              `[AutoSort] Attachment guard: bumping "${validCategory}" → "pending_review" for message with attachments:`,
+              messageId,
+            )
+          }
           validCategory = 'pending_review'
           reason = ((reason || '') + ' [Bumped to review: has attachments]').slice(0, 500)
           if (urgency < 5) {
@@ -4006,7 +4080,11 @@ ${formatSourceWeightingForPrompt(sortWeight)}`
 
       /** Always write sort_category, urgency, needs_reply. For urgent: use 'urgent', never add pending_review_at. */
       const effectiveSortCategory = isUrgent ? 'urgent' : sortCategory
-      console.log(`[AutoSort] ${messageId}: raw=${cat} valid=${validCategory} → sortCat=${effectiveSortCategory} rec=${recommendedAction} urgency=${urgency} del=${pendingDelete} rev=${pendingReview}`)
+      if (DEBUG_AI_DIAGNOSTICS) {
+        console.log(
+          `[AutoSort] ${messageId}: raw=${cat} valid=${validCategory} → sortCat=${effectiveSortCategory} rec=${recommendedAction} urgency=${urgency} del=${pendingDelete} rev=${pendingReview}`,
+        )
+      }
       const nowIso = new Date().toISOString()
       if (isUrgent) {
         db.prepare(
@@ -4086,25 +4164,21 @@ ${formatSourceWeightingForPrompt(sortWeight)}`
     }
   }
 
-  /**
-   * Local Ollama often queues concurrent `/api/chat` work instead of true parallel speedup.
-   * Keep renderer batch sizing but cap in-flight classify calls on the main process for Ollama only.
-   */
-  const INBOX_AI_CLASSIFY_BATCH_OLLAMA_MAX_CONCURRENT = 3
-
   async function runClassifyBatchWithOptionalOllamaCap(
     batchIds: string[],
     sessionId: string | undefined,
     resolvedLlm: ResolvedLlmContext,
     runId: string | undefined,
     chunkIndex: number | undefined,
-  ): Promise<Awaited<ReturnType<typeof classifySingleMessage>>[]> {
+    ollamaParallelCap: number,
+  ): Promise<{
+    results: Awaited<ReturnType<typeof classifySingleMessage>>[]
+    ollamaChunkDiag: OllamaClassifyBatchChunkDiag | null
+  }> {
+    const ollamaMax = ollamaParallelCap
     const ollama = resolvedLlm.provider.toLowerCase() === 'ollama'
-    const capped = ollama && batchIds.length > INBOX_AI_CLASSIFY_BATCH_OLLAMA_MAX_CONCURRENT
-    const effectiveConcurrency =
-      !ollama || batchIds.length <= INBOX_AI_CLASSIFY_BATCH_OLLAMA_MAX_CONCURRENT
-        ? batchIds.length
-        : INBOX_AI_CLASSIFY_BATCH_OLLAMA_MAX_CONCURRENT
+    const capped = ollama && batchIds.length > ollamaMax
+    const effectiveConcurrency = !ollama || batchIds.length <= ollamaMax ? batchIds.length : ollamaMax
     ollamaRuntimeBeginBatch({
       runId,
       chunkIndex,
@@ -4112,6 +4186,8 @@ ${formatSourceWeightingForPrompt(sortWeight)}`
       capped,
       effectiveConcurrency,
     })
+    let results: Awaited<ReturnType<typeof classifySingleMessage>>[] = []
+    let ollamaChunkDiag: OllamaClassifyBatchChunkDiag | null = null
     try {
       const perIdMs: number[] = []
       const runOne = async (id: string, idx: number) => {
@@ -4125,8 +4201,7 @@ ${formatSourceWeightingForPrompt(sortWeight)}`
         if (DEBUG_AUTOSORT_TIMING) perIdMs.push(Math.round(performance.now() - t0))
         return r
       }
-      let results: Awaited<ReturnType<typeof classifySingleMessage>>[]
-      if (!ollama || batchIds.length <= INBOX_AI_CLASSIFY_BATCH_OLLAMA_MAX_CONCURRENT) {
+      if (!ollama || batchIds.length <= ollamaMax) {
         results = await Promise.all(batchIds.map((id, idx) => runOne(id, idx)))
       } else {
         results = new Array(batchIds.length)
@@ -4138,9 +4213,7 @@ ${formatSourceWeightingForPrompt(sortWeight)}`
             results[idx] = await runOne(batchIds[idx], idx)
           }
         }
-        await Promise.all(
-          Array.from({ length: INBOX_AI_CLASSIFY_BATCH_OLLAMA_MAX_CONCURRENT }, () => worker()),
-        )
+        await Promise.all(Array.from({ length: ollamaMax }, () => worker()))
       }
       if (DEBUG_AUTOSORT_TIMING && perIdMs.length > 0) {
         const sum = perIdMs.reduce((a, b) => a + b, 0)
@@ -4150,13 +4223,15 @@ ${formatSourceWeightingForPrompt(sortWeight)}`
           maxMs: Math.max(...perIdMs),
           avgMs: Math.round(sum / perIdMs.length),
           ollamaCapped: capped,
-          ollamaMaxConcurrent: INBOX_AI_CLASSIFY_BATCH_OLLAMA_MAX_CONCURRENT,
+          ollamaParallelCapEffective: ollamaMax,
+          tuningNote:
+            'sumMs sums overlapping per-message walls (can exceed chunk wallMs). Use aiClassifyBatch:ipc.wallMs for real chunk time; use maxInFlightSeenDuringChunk on the ipc line for parallelism.',
         })
       }
-      return results
     } finally {
-      ollamaRuntimeEndBatch()
+      ollamaChunkDiag = ollamaRuntimeEndBatch()
     }
+    return { results, ollamaChunkDiag }
   }
 
   ipcMain.handle('inbox:aiClassifySingle', async (_e, messageId: string, sessionId?: string) => {
@@ -4180,12 +4255,19 @@ ${formatSourceWeightingForPrompt(sortWeight)}`
    *   - 1 IPC round-trip instead of N
    *   - LLM pre-resolved once for the whole chunk (no per-message listModels call)
    *   - Results returned together so the renderer can apply one React state update per batch
-   * Ollama: see `runClassifyBatchWithOptionalOllamaCap` — max 3 in-flight classifies per batch invoke
-   * (cloud APIs still run the full chunk in parallel).
+   * Optional 6th arg: **Ollama parallelism** (1–8) from bulk progress UI; `WRDESK_OLLAMA_CLASSIFY_MAX_CONCURRENT` overrides when set.
+   * (cloud APIs still run the full chunk in parallel regardless of this cap).
    */
   ipcMain.handle(
     'inbox:aiClassifyBatch',
-    async (_e, ids: string[], sessionId?: string, runId?: string, chunkIndex?: number) => {
+    async (
+      _e,
+      ids: string[],
+      sessionId?: string,
+      runId?: string,
+      chunkIndex?: number,
+      ollamaMaxConcurrentFromUi?: number,
+    ) => {
     const ipcWallT0 = DEBUG_AUTOSORT_TIMING ? performance.now() : 0
     if (!ids?.length) return { results: [] }
 
@@ -4208,16 +4290,27 @@ ${formatSourceWeightingForPrompt(sortWeight)}`
       return { results: ids.map((messageId) => ({ messageId, error: 'llm_unavailable' })) }
     }
 
+    // Resolved once per chunk so mid-chunk UI changes never alter this IPC's in-flight cap (next chunk picks up new UI).
+    const ollamaResolved = resolveBulkOllamaClassifyCap(ollamaMaxConcurrentFromUi)
+    lastBulkOllamaResolve = ollamaResolved
+
     if (DEBUG_AI_DIAGNOSTICS) {
       console.log('[AI-BATCH] classifying', ids.length, 'messages, model:', resolvedLlm.model, {
         provider: resolvedLlm.provider,
-        ollamaCap:
-          resolvedLlm.provider.toLowerCase() === 'ollama' ? INBOX_AI_CLASSIFY_BATCH_OLLAMA_MAX_CONCURRENT : null,
+        ollamaCap: resolvedLlm.provider.toLowerCase() === 'ollama' ? ollamaResolved.cap : null,
+        ollamaCapSource: resolvedLlm.provider.toLowerCase() === 'ollama' ? ollamaResolved.source : null,
       })
     }
 
     // Cloud: full chunk parallelism. Ollama: cap in-flight chats (see `runClassifyBatchWithOptionalOllamaCap`).
-    const results = await runClassifyBatchWithOptionalOllamaCap(ids, sessionId, resolvedLlm, runId, chunkIndex)
+    const { results, ollamaChunkDiag } = await runClassifyBatchWithOptionalOllamaCap(
+      ids,
+      sessionId,
+      resolvedLlm,
+      runId,
+      chunkIndex,
+      ollamaResolved.cap,
+    )
 
     try {
       const db = await resolveDb()
@@ -4228,13 +4321,24 @@ ${formatSourceWeightingForPrompt(sortWeight)}`
 
     if (DEBUG_AUTOSORT_TIMING) {
       const ollama = resolvedLlm.provider.toLowerCase() === 'ollama'
+      if (ollama) autosortBulkRunUsedOllama = true
+      const maxFlight = ollamaChunkDiag?.maxInFlightSeenDuringChunk ?? null
+      if (ollama && typeof maxFlight === 'number' && maxFlight >= 0) {
+        autosortBulkRunMaxInFlight = Math.max(autosortBulkRunMaxInFlight, maxFlight)
+      }
       autosortTimingLog('aiClassifyBatch:ipc', {
         wallMs: Math.round(performance.now() - ipcWallT0),
         chunkIndex: chunkIndex ?? null,
         chunkSize: ids.length,
         provider: resolvedLlm.provider,
-        ollamaConcurrencyCapped: ollama && ids.length > INBOX_AI_CLASSIFY_BATCH_OLLAMA_MAX_CONCURRENT,
+        ollamaConcurrencyCapped: ollama && ids.length > ollamaResolved.cap,
+        ollamaCapEffective: ollamaResolved.cap,
+        ollamaCapSource: ollamaResolved.source,
+        maxInFlightSeenDuringChunk: maxFlight,
+        effectiveOllamaConcurrency: ollamaChunkDiag?.effectiveConcurrency ?? null,
         runId: runId ?? null,
+        tuningNote:
+          'wallMs=true chunk duration. maxInFlightSeenDuringChunk shows real overlap (if 1 with cap>1, Ollama serializes). High cap can still hurt on single-GPU.',
       })
     }
 

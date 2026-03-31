@@ -439,6 +439,8 @@ export interface EmailInboxBridge {
     runId?: string,
     /** 1-based bulk Auto-Sort renderer chunk (optional; Ollama runtime trace). */
     chunkIndex?: number,
+    /** Bulk progress **Parallelism** (1–8): max concurrent Ollama classifies inside this chunk; env can override. */
+    ollamaMaxConcurrent?: number,
   ) => Promise<{
     results: Array<{
       messageId: string

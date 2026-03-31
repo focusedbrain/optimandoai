@@ -1,7 +1,12 @@
 /**
  * Optional traces for local Ollama HTTP calls (GPU use is decided by the Ollama server, not this app).
  * Flip `DEBUG_OLLAMA_RUNTIME_TRACE` only while correlating with `nvidia-smi` / Task Manager / Ollama logs.
+ *
+ * **Concurrency:** Ollama often serializes or queues multiple concurrent `/api/chat` requests. Higher in-flight counts
+ * can *increase* wall time per message on a single-GPU box. Tune with `WRDESK_OLLAMA_CLASSIFY_MAX_CONCURRENT` in ipc.
  */
+
+import { DEBUG_AUTOSORT_TIMING } from '../autosortDiagnostics'
 
 export const DEBUG_OLLAMA_RUNTIME_TRACE = false
 
@@ -28,10 +33,22 @@ type BatchScope = {
 
 let batchScope: BatchScope | null = null
 
+const trackBatchScope = (): boolean => DEBUG_AUTOSORT_TIMING || DEBUG_OLLAMA_RUNTIME_TRACE
+
 function touchBatchMaxInFlight(): void {
   if (!batchScope) return
   const n = inFlightChatRequests
   if (n > batchScope.maxInFlight) batchScope.maxInFlight = n
+}
+
+export type OllamaClassifyBatchChunkDiag = {
+  runId?: string
+  chunkIndex?: number
+  chunkSize: number
+  capped: boolean
+  effectiveConcurrency: number
+  /** Peak concurrent Ollama `/api/chat` requests seen during this chunk (`ollamaRuntimeInFlightDelta`). */
+  maxInFlightSeenDuringChunk: number
 }
 
 /** Call at start of `inbox:aiClassifyBatch` local LLM work (once per IPC chunk). */
@@ -42,7 +59,7 @@ export function ollamaRuntimeBeginBatch(meta: {
   capped: boolean
   effectiveConcurrency: number
 }): void {
-  if (!DEBUG_OLLAMA_RUNTIME_TRACE) return
+  if (!trackBatchScope()) return
   batchScope = {
     runId: meta.runId,
     chunkIndex: meta.chunkIndex,
@@ -53,20 +70,32 @@ export function ollamaRuntimeBeginBatch(meta: {
   }
 }
 
-/** Logs batch summary; clears scope. */
-export function ollamaRuntimeEndBatch(): void {
-  if (!DEBUG_OLLAMA_RUNTIME_TRACE || !batchScope) return
+/**
+ * Ends batch scope; logs when `DEBUG_OLLAMA_RUNTIME_TRACE`. Returns diag for `DEBUG_AUTOSORT_TIMING` merge in ipc.
+ */
+export function ollamaRuntimeEndBatch(): OllamaClassifyBatchChunkDiag | null {
   const s = batchScope
   batchScope = null
-  ollamaRuntimeLog('ollamaRuntime:aiClassifyBatch_chunk', {
-    runId: s.runId ?? null,
-    chunkIndex: s.chunkIndex ?? null,
+  if (!s) return null
+  if (DEBUG_OLLAMA_RUNTIME_TRACE) {
+    ollamaRuntimeLog('ollamaRuntime:aiClassifyBatch_chunk', {
+      runId: s.runId ?? null,
+      chunkIndex: s.chunkIndex ?? null,
+      chunkSize: s.chunkSize,
+      ollamaConcurrencyCapped: s.capped,
+      requestsConcurrencyCapped: s.capped,
+      effectiveConcurrency: s.effectiveConcurrency,
+      maxInFlightSeenDuringChunk: s.maxInFlight,
+    })
+  }
+  return {
+    runId: s.runId,
+    chunkIndex: s.chunkIndex,
     chunkSize: s.chunkSize,
-    ollamaConcurrencyCapped: s.capped,
-    requestsConcurrencyCapped: s.capped,
+    capped: s.capped,
     effectiveConcurrency: s.effectiveConcurrency,
     maxInFlightSeenDuringChunk: s.maxInFlight,
-  })
+  }
 }
 
 export function ollamaRuntimeInFlightDelta(delta: 1 | -1): number {

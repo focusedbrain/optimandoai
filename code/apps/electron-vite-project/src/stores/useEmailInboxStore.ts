@@ -96,6 +96,8 @@ export interface InboxMessage {
 export type ClassifyMainRowPayload = {
   messageId: string
   category?: string
+  /** Mirrors DB `sort_reason` from classify (keeps list row aligned with persistence). */
+  sortReason?: string | null
   urgency?: number
   needsReply?: boolean
   pending_delete?: boolean
@@ -303,6 +305,13 @@ interface EmailInboxState {
   applyBulkAutosortLocalArchive: (ids: string[]) => void
   /** Apply authoritative classify row from main (bulk batch) — mirrors DB without a second DB IPC. */
   applyClassifyMainResultToLocalState: (r: ClassifyMainRowPayload) => void
+  /**
+   * Bulk Auto-Sort: apply every successful classify in this chunk in **one** Zustand transaction (atomic list + totals).
+   * DB is already updated in main; ids not on the current page are omitted from the list (end-of-run refresh loads truth).
+   */
+  applyBulkClassifyMainResultsToLocalState: (
+    rows: ClassifyMainRowPayload[],
+  ) => { missingFromCurrentPage: string[] }
   /**
    * Bulk mode: one server tab-total refresh (5× `listMessages`). Use after chunked applies with
    * `skipBulkTabCountRefresh` so badge counts stay correct without per-message IPC.
@@ -625,6 +634,12 @@ function inboxMessageAfterClassifyMain(m: InboxMessage, r: ClassifyMainRowPayloa
   return {
     ...m,
     sort_category,
+    sort_reason:
+      r.sortReason === null
+        ? null
+        : r.sortReason !== undefined && String(r.sortReason).trim() !== ''
+          ? String(r.sortReason)
+          : m.sort_reason,
     urgency_score: typeof r.urgency === 'number' ? Math.max(1, Math.min(10, r.urgency)) : m.urgency_score,
     needs_reply: r.needsReply !== undefined ? (r.needsReply ? 1 : 0) : m.needs_reply,
     pending_delete,
@@ -635,16 +650,37 @@ function inboxMessageAfterClassifyMain(m: InboxMessage, r: ClassifyMainRowPayloa
 }
 
 /**
- * After bulk `aiClassifyBatch`, apply main-process classify result to the local message row
- * (no second DB-writing IPC). Removes the row from the current tab when it no longer matches
- * `filter` (same as manual Pending Delete / Review / Archive local commits).
+ * After bulk `aiClassifyBatch`, apply main-process classify results to local rows in one transaction
+ * (no second DB-writing IPC). Rows leave the current tab when they no longer match `filter`.
  */
-function commitClassifyMainResultToLocalState(set: EmailInboxSet, r: ClassifyMainRowPayload): void {
-  const id = r.messageId
-  if (!id) return
-  const { skipBulkTabCountRefresh, ...rowRest } = r
+function commitBulkClassifyMainResultsToLocalState(
+  set: EmailInboxSet,
+  rows: ClassifyMainRowPayload[],
+): { missingFromCurrentPage: string[] } {
+  if (!rows.length) return { missingFromCurrentPage: [] }
+
+  const byId = new Map<string, Omit<ClassifyMainRowPayload, 'skipBulkTabCountRefresh'>>()
+  let skipBulkTabCountRefresh = true
+  for (const r of rows) {
+    if (r.skipBulkTabCountRefresh !== true) skipBulkTabCountRefresh = false
+    if (!r.messageId) continue
+    const { skipBulkTabCountRefresh: _sk, ...rowRest } = r
+    byId.set(r.messageId, rowRest)
+  }
+  if (byId.size === 0) return { missingFromCurrentPage: [] }
+
+  const missingFromCurrentPage: string[] = []
+
   set((s) => {
-    const mapRow = (m: InboxMessage) => (m.id === id ? inboxMessageAfterClassifyMain(m, rowRest) : m)
+    const inList = new Set(s.messages.map((m) => m.id))
+    for (const id of byId.keys()) {
+      if (!inList.has(id)) missingFromCurrentPage.push(id)
+    }
+
+    const mapRow = (m: InboxMessage) => {
+      const row = byId.get(m.id)
+      return row ? inboxMessageAfterClassifyMain(m, { ...row, messageId: m.id }) : m
+    }
     const applyFilter = (messages: InboxMessage[]) =>
       messages.filter((m) => filterByInboxFilter([m], s.filter).length > 0)
 
@@ -653,43 +689,61 @@ function commitClassifyMainResultToLocalState(set: EmailInboxSet, r: ClassifyMai
         const fk = s.filter.filter as keyof typeof tc
         set({ tabCounts: tc, total: tc[fk] ?? 0 })
       })
-      const messages = applyFilter(s.messages.map(mapRow))
-      const removedInView = s.messages.length - messages.length
-      if (DEBUG_AUTOSORT_DIAGNOSTICS) {
-        autosortDiagLog('applyClassifyMainResultToLocalState', {
-          messageId: id,
-          sort_category: rowRest.category,
-          pending_delete: !!rowRest.pending_delete,
-          pending_review: !!rowRest.pending_review,
-          archived: rowRest.archived,
-          removedFromCurrentTab: removedInView > 0,
-          skipBulkTabCountRefresh: !!skipBulkTabCountRefresh,
-        })
-      }
-      return {
-        allMessages: [],
-        messages,
-        total: Math.max(0, s.total - removedInView),
-        multiSelectIds: new Set([...s.multiSelectIds].filter((x) => x !== id || messages.some((m) => m.id === x))),
-        selectedMessageId:
-          s.selectedMessageId === id && !messages.some((m) => m.id === id) ? null : s.selectedMessageId,
-        selectedMessage:
-          s.selectedMessage?.id === id ? messages.find((m) => m.id === id) ?? null : s.selectedMessage,
-      }
     }
 
     const messages = applyFilter(s.messages.map(mapRow))
     const removedInView = s.messages.length - messages.length
+
+    if (DEBUG_AUTOSORT_DIAGNOSTICS) {
+      autosortDiagLog('applyBulkClassifyMainResultsToLocalState', {
+        count: byId.size,
+        missingFromCurrentPage: missingFromCurrentPage.length,
+        sampleMissingIds: missingFromCurrentPage.slice(0, 4),
+        skipBulkTabCountRefresh,
+        removedInViewCount: removedInView,
+      })
+    }
+
+    const multiSelectIds = new Set(
+      [...s.multiSelectIds].filter((x) => !byId.has(x) || messages.some((m) => m.id === x)),
+    )
+
+    let selectedMessageId = s.selectedMessageId
+    let selectedMessage = s.selectedMessage
+    if (selectedMessageId && byId.has(selectedMessageId)) {
+      if (!messages.some((m) => m.id === selectedMessageId)) {
+        selectedMessageId = null
+        selectedMessage = null
+      } else {
+        selectedMessage = messages.find((m) => m.id === selectedMessageId) ?? null
+      }
+    }
+
+    if (s.bulkMode && !skipBulkTabCountRefresh) {
+      return {
+        allMessages: [],
+        messages,
+        total: Math.max(0, s.total - removedInView),
+        multiSelectIds,
+        selectedMessageId,
+        selectedMessage,
+      }
+    }
+
     return {
       messages,
       total: Math.max(0, s.total - removedInView),
-      multiSelectIds: new Set([...s.multiSelectIds].filter((x) => x !== id || messages.some((m) => m.id === x))),
-      selectedMessageId:
-        s.selectedMessageId === id && !messages.some((m) => m.id === id) ? null : s.selectedMessageId,
-      selectedMessage:
-        s.selectedMessage?.id === id ? messages.find((m) => m.id === id) ?? null : s.selectedMessage,
+      multiSelectIds,
+      selectedMessageId,
+      selectedMessage,
     }
   })
+
+  return { missingFromCurrentPage }
+}
+
+function commitClassifyMainResultToLocalState(set: EmailInboxSet, r: ClassifyMainRowPayload): void {
+  commitBulkClassifyMainResultsToLocalState(set, [r])
 }
 
 function commitArchiveToLocalState(set: EmailInboxSet, ids: string[]): void {
@@ -1523,6 +1577,8 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
   applyBulkAutosortLocalArchive: (ids) => commitArchiveToLocalState(set, ids),
 
   applyClassifyMainResultToLocalState: (r) => commitClassifyMainResultToLocalState(set, r),
+
+  applyBulkClassifyMainResultsToLocalState: (rows) => commitBulkClassifyMainResultsToLocalState(set, rows),
 
   refreshBulkTabCountsFromServer: async () => {
     const s = get()
