@@ -842,7 +842,7 @@ export function registerEmailHandlers(getInboxDb?: () => Promise<any> | any): vo
           { clientId: clientId.trim(), clientSecret: clientSecret?.trim() },
           storeInVault,
         )
-        return { ok: result.ok, savedToVault: result.savedToVault }
+        return { ok: result.ok, savedToVault: result.savedToVault, error: result.error }
       } catch (error: any) {
         console.error('[Email IPC] setGmailCredentials error:', error)
         return { ok: false, error: error.message }
@@ -1001,7 +1001,7 @@ export function registerEmailHandlers(getInboxDb?: () => Promise<any> | any): vo
   ipcMain.handle('email:setOutlookCredentials', async (_e, clientId: string, clientSecret?: string, tenantId?: string, storeInVault: boolean = true) => {
     try {
       const result = await saveCredentials('outlook', { clientId, clientSecret, tenantId }, storeInVault)
-      return { ok: result.ok, savedToVault: result.savedToVault }
+      return { ok: result.ok, savedToVault: result.savedToVault, error: result.error }
     } catch (error: any) {
       console.error('[Email IPC] setOutlookCredentials error:', error)
       return { ok: false, error: error.message }
@@ -1049,7 +1049,7 @@ export function registerEmailHandlers(getInboxDb?: () => Promise<any> | any): vo
           },
           storeInVault,
         )
-        return { ok: result.ok, savedToVault: result.savedToVault }
+        return { ok: result.ok, savedToVault: result.savedToVault, error: result.error }
       } catch (error: any) {
         console.error('[Email IPC] setZohoCredentials error:', error)
         return { ok: false, error: error.message }
@@ -4269,7 +4269,7 @@ ${formatSourceWeightingForPrompt(sortWeight)}`
       ollamaMaxConcurrentFromUi?: number,
     ) => {
     const ipcWallT0 = DEBUG_AUTOSORT_TIMING ? performance.now() : 0
-    if (!ids?.length) return { results: [] }
+    if (!ids?.length) return { results: [], batchRuntime: undefined }
 
     const dbFirst = await resolveDbCore()
     if (DEBUG_AUTOSORT_DIAGNOSTICS) {
@@ -4281,13 +4281,19 @@ ${formatSourceWeightingForPrompt(sortWeight)}`
     }
     if (!dbFirst) {
       const errCode = isRecentVaultLock(120_000) ? 'vault_locked' : 'database_unavailable'
-      return { results: ids.map((messageId) => ({ messageId, error: errCode })), batchError: errCode }
+      return {
+        results: ids.map((messageId) => ({ messageId, error: errCode })),
+        batchError: errCode,
+        batchRuntime: undefined,
+      }
     }
 
-    // Resolve LLM once for the entire chunk — eliminates N×listModels
+    // Resolve LLM once for the entire chunk — eliminates N×listModels / redundant dynamic import churn.
+    const preResolveT0 = performance.now()
     const resolvedLlm = (await preResolveInboxLlm()) ?? undefined
+    const preResolveMs = Math.round(performance.now() - preResolveT0)
     if (!resolvedLlm) {
-      return { results: ids.map((messageId) => ({ messageId, error: 'llm_unavailable' })) }
+      return { results: ids.map((messageId) => ({ messageId, error: 'llm_unavailable' })), batchRuntime: undefined }
     }
 
     // Resolved once per chunk so mid-chunk UI changes never alter this IPC's in-flight cap (next chunk picks up new UI).
@@ -4328,6 +4334,9 @@ ${formatSourceWeightingForPrompt(sortWeight)}`
       }
       autosortTimingLog('aiClassifyBatch:ipc', {
         wallMs: Math.round(performance.now() - ipcWallT0),
+        preResolveMs: preResolveMs ?? null,
+        resolvedModel: resolvedLlm.model,
+        resolvedProvider: resolvedLlm.provider,
         chunkIndex: chunkIndex ?? null,
         chunkSize: ids.length,
         ollamaParallelFromUi:
@@ -4346,7 +4355,14 @@ ${formatSourceWeightingForPrompt(sortWeight)}`
       })
     }
 
-    return { results }
+    return {
+      results,
+      batchRuntime: {
+        model: resolvedLlm.model,
+        provider: resolvedLlm.provider,
+        preResolveMs,
+      },
+    }
   },
   )
 

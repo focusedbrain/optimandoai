@@ -54,12 +54,13 @@ import {
   generateSnippet
 } from './sanitizer'
 import { extractPdfText, isPdfFile, supportsTextExtraction } from './pdf-extractor'
-import { 
-  encryptOAuthTokens, 
-  decryptOAuthTokens, 
+import {
+  encryptOAuthTokens,
+  decryptOAuthTokens,
   isSecureStorageAvailable,
   encryptValue,
-  decryptValue
+  decryptValue,
+  SecureStorageUnavailableError,
 } from './secure-storage'
 import { getProviderAccountCapabilities } from './domain/capabilitiesRegistry'
 import { getFoldersForAccountOperation, resolveMailboxesForAccount } from './domain/mailboxResolution'
@@ -89,6 +90,8 @@ export type EmailAccountsPersistenceDiagnostics = {
   lastPersistOk: boolean | null
   lastPersistError: string | null
   lastPersistAtMs: number | null
+  /** `safeStorage.isEncryptionAvailable()` at list time — new encrypted saves require `true`. */
+  secureStorageAvailable: boolean
 }
 
 let emailAccountsPersistenceDiagnostics: EmailAccountsPersistenceDiagnostics = {
@@ -275,7 +278,6 @@ function mergeImapSmtpCredentials<T extends Record<string, unknown>>(prev: T, pa
 
 function encryptImapSmtpPasswordsForDisk(account: EmailAccountConfig): EmailAccountConfig {
   if (account.provider !== 'imap' || !account.imap) return account
-  const encAvail = isSecureStorageAvailable()
 
   /**
    * Successful load sets `_encrypted: false` with plaintext in memory before save.
@@ -301,9 +303,7 @@ function encryptImapSmtpPasswordsForDisk(account: EmailAccountConfig): EmailAcco
     }
     const imapEncrypted = encryptValue(imapPlain)
     console.log(
-      '[Gateway] IMAP encrypt: encAvail=',
-      encAvail,
-      'password length=',
+      '[Gateway] IMAP encrypt: password length=',
       imapPlain.length,
       'encrypted length=',
       imapEncrypted.length,
@@ -314,7 +314,7 @@ function encryptImapSmtpPasswordsForDisk(account: EmailAccountConfig): EmailAcco
       security: account.imap.security,
       username: account.imap.username,
       password: imapEncrypted,
-      _encrypted: encAvail,
+      _encrypted: true,
     }
   }
 
@@ -334,9 +334,7 @@ function encryptImapSmtpPasswordsForDisk(account: EmailAccountConfig): EmailAcco
       const smtpPlain = String(account.smtp.password ?? '')
       const smtpEncrypted = encryptValue(smtpPlain)
       console.log(
-        '[Gateway] SMTP encrypt: encAvail=',
-        encAvail,
-        'password length=',
+        '[Gateway] SMTP encrypt: password length=',
         smtpPlain.length,
         'encrypted length=',
         smtpEncrypted.length,
@@ -347,7 +345,7 @@ function encryptImapSmtpPasswordsForDisk(account: EmailAccountConfig): EmailAcco
         security: account.smtp.security,
         username: account.smtp.username,
         password: smtpEncrypted,
-        _encrypted: encAvail,
+        _encrypted: true,
       }
     }
   } else {
@@ -518,16 +516,33 @@ function persistEmailAccounts(accounts: EmailAccountConfig[]): void {
     /* ignore — best-effort restore source */
   }
 
-  const encryptedAccounts = accounts.map((account) => {
-    let next = account
-    if (account.oauth) {
-      next = {
-        ...account,
-        oauth: encryptOAuthTokens(account.oauth),
+  let encryptedAccounts: EmailAccountConfig[]
+  try {
+    encryptedAccounts = accounts.map((account) => {
+      let next = account
+      if (account.oauth) {
+        next = {
+          ...account,
+          oauth: encryptOAuthTokens(account.oauth),
+        }
       }
-    }
-    return encryptImapSmtpPasswordsForDisk(next)
-  })
+      return encryptImapSmtpPasswordsForDisk(next)
+    })
+  } catch (e) {
+    const msg =
+      e instanceof SecureStorageUnavailableError
+        ? e.message
+        : e instanceof Error
+          ? e.message
+          : String(e)
+    emailAccountsDebugLog('persistEmailAccounts: secure encryption required — aborted:', msg)
+    emailAccountsPersistenceDiagnostics.lastPersistOk = false
+    emailAccountsPersistenceDiagnostics.lastPersistError = msg
+    emailAccountsPersistenceDiagnostics.lastPersistAtMs = Date.now()
+    throw new Error(
+      `${e instanceof SecureStorageUnavailableError ? '[SecureStorage] ' : ''}Cannot save email accounts: ${msg}`,
+    )
+  }
 
   for (let i = 0; i < encryptedAccounts.length; i++) {
     const enc = encryptedAccounts[i]
@@ -664,6 +679,7 @@ class EmailGateway implements IEmailGateway {
       ...emailAccountsPersistenceDiagnostics,
       accountsFilePath: getAccountsPath(),
       credentialDecryptIssues: [...emailAccountsPersistenceDiagnostics.credentialDecryptIssues],
+      secureStorageAvailable: isSecureStorageAvailable(),
     }
   }
   

@@ -4,6 +4,7 @@
 
 import { getProvider, type UserRagSettings } from '../handshake/aiProviders'
 import { ocrRouter } from '../ocr/router'
+import { ollamaManager } from '../llm/ollama-manager'
 import { DEBUG_AUTOSORT_DIAGNOSTICS, autosortDiagLog } from '../autosortDiagnostics'
 import type { VisionProvider } from '../ocr/types'
 import { DEBUG_ACTIVE_OLLAMA_MODEL } from '../llm/activeOllamaModelStore'
@@ -93,7 +94,6 @@ export async function isLlmAvailable(): Promise<boolean> {
   if (DEBUG_AI_DIAGNOSTICS) console.warn('⚡ isLlmAvailable CALLED', new Date().toISOString())
   const settings = resolveInboxLlmSettings()
   if (settings.provider.toLowerCase() === 'ollama') {
-    const { ollamaManager } = await import('../llm/ollama-manager')
     const models = await ollamaManager.listModels()
     return models.length > 0
   }
@@ -141,7 +141,6 @@ export async function preResolveInboxLlm(): Promise<ResolvedLlmContext | null> {
   const providerLower = settings.provider.toLowerCase()
 
   if (providerLower === 'ollama') {
-    const { ollamaManager } = await import('../llm/ollama-manager')
     const model = await ollamaManager.getEffectiveChatModelName()
     if (!model) return null
     if (DEBUG_ACTIVE_OLLAMA_MODEL) {
@@ -194,7 +193,6 @@ export async function inboxLlmChat(params: InboxLlmChatParams): Promise<string> 
     // Fast path: caller already did the listModels() lookup — skip it entirely.
     modelOverride = resolvedContext.model
   } else if (provider.id === 'ollama') {
-    const { ollamaManager } = await import('../llm/ollama-manager')
     const resolved = await ollamaManager.getEffectiveChatModelName()
     if (!resolved) {
       throw new Error('No LLM model installed. Install a local model or configure a cloud API key in Backend settings.')

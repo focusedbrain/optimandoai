@@ -1,73 +1,82 @@
 /**
  * Secure Storage for Email OAuth Tokens
- * 
- * Uses Electron's safeStorage API to encrypt sensitive data using the OS keychain.
- * This provides secure, persistent storage for OAuth tokens across app restarts.
- * 
- * On Windows: Uses Windows Credential Manager (DPAPI)
- * On macOS: Uses Keychain
- * On Linux: Uses libsecret/kwallet
+ *
+ * Uses Electron's safeStorage API (Windows DPAPI, macOS Keychain, etc.).
+ * **Persists secrets only when encryption is available** — no silent plaintext fallback.
+ *
+ * Enable verbose probes: `DEBUG_EMAIL_SECURE_STORAGE=1`
  */
 
-import { safeStorage, dialog } from 'electron'
+import { safeStorage } from 'electron'
 
-/** One-shot UX + log when persisting secrets without OS encryption. */
-let safeStorageUnavailableWarningShown = false
+/** Gated diagnostics for DPAPI / safeStorage issues on Windows and other platforms. */
+export const DEBUG_EMAIL_SECURE_STORAGE = process.env.DEBUG_EMAIL_SECURE_STORAGE === '1'
 
-// Check if encryption is available
-let encryptionAvailable: boolean | null = null
+export function secureStorageDebug(tag: string, data?: Record<string, unknown>): void {
+  if (!DEBUG_EMAIL_SECURE_STORAGE) return
+  // eslint-disable-next-line no-console -- gated diagnostic
+  console.log('[SecureStorageDebug]', tag, data ?? {})
+}
 
-/**
- * Check if secure storage is available on this system
- */
-export function isSecureStorageAvailable(): boolean {
-  if (encryptionAvailable === null) {
-    try {
-      encryptionAvailable = safeStorage.isEncryptionAvailable()
-      console.log('[SecureStorage] isSecureStorageAvailable() =>', encryptionAvailable)
-    } catch (err) {
-      console.error('[SecureStorage] Error checking encryption availability:', err)
-      encryptionAvailable = false
-      console.log('[SecureStorage] isSecureStorageAvailable() =>', false)
-    }
+/** Thrown when secrets cannot be encrypted for disk persistence — callers must fail closed. */
+export class SecureStorageUnavailableError extends Error {
+  readonly code = 'SECURE_STORAGE_UNAVAILABLE' as const
+  constructor(message = 'OS secure storage (e.g. Windows DPAPI) is not available. Email secrets cannot be saved safely.') {
+    super(message)
+    this.name = 'SecureStorageUnavailableError'
   }
-  return encryptionAvailable ?? false
 }
 
 /**
- * Encrypt a string value using the OS keychain
- * Returns base64-encoded encrypted data
+ * Live check — do **not** cache: Electron may report unavailable briefly at startup, and
+ * caching `false` would force plaintext paths for the whole session (regression).
+ */
+export function isSecureStorageAvailable(): boolean {
+  try {
+    const available = safeStorage.isEncryptionAvailable()
+    secureStorageDebug('isEncryptionAvailable', { available })
+    return available
+  } catch (err) {
+    secureStorageDebug('isEncryptionAvailable threw', {
+      error: err instanceof Error ? err.message : String(err),
+    })
+    return false
+  }
+}
+
+/** One-shot boot probe — call from `app.whenReady()` when diagnostics enabled. */
+export function logSecureStorageProbe(context: string): void {
+  const available = isSecureStorageAvailable()
+  const line = `[SecureStorage] probe (${context}): isEncryptionAvailable=${available}`
+  if (available) {
+    console.log(line)
+  } else {
+    console.error(`${line} — email account persistence will fail until DPAPI/keychain works for this user session.`)
+  }
+  secureStorageDebug('probe', { context, available })
+}
+
+/**
+ * Encrypt a string for persistence. **Throws** {@link SecureStorageUnavailableError} if encryption is not available,
+ * or if `encryptString` fails (no plaintext fallback).
  */
 export function encryptValue(plaintext: string | undefined | null): string {
   const p = plaintext ?? ''
   if (!isSecureStorageAvailable()) {
-    if (!safeStorageUnavailableWarningShown) {
-      safeStorageUnavailableWarningShown = true
-      console.error(
-        '[SecureStorage] OS secure storage is not available. Email credentials will be stored WITHOUT encryption. This is a security risk.',
-      )
-      setImmediate(() => {
-        try {
-          void dialog.showMessageBox({
-            type: 'warning',
-            title: 'Secure storage unavailable',
-            message:
-              'OS secure storage is not available on this session. Email account secrets may be saved to disk without encryption. Reconnect accounts on a trusted device or fix keychain / DPAPI access if this is unexpected.',
-          })
-        } catch (e) {
-          console.warn('[SecureStorage] Could not show secure-storage warning dialog:', e)
-        }
-      })
-    }
-    return p
+    secureStorageDebug('encryptValue aborted', { reason: 'isEncryptionAvailable_false' })
+    throw new SecureStorageUnavailableError()
   }
 
   try {
     const encrypted = safeStorage.encryptString(p)
     return encrypted.toString('base64')
   } catch (err) {
-    console.error('[SecureStorage] Encryption failed:', err)
-    return p
+    const msg = err instanceof Error ? err.message : String(err)
+    console.error('[SecureStorage] encryptString failed:', msg)
+    secureStorageDebug('encryptString failed', { message: msg })
+    throw new SecureStorageUnavailableError(
+      `Could not encrypt secret for storage: ${msg}. Your OS secure storage may be misconfigured.`,
+    )
   }
 }
 
@@ -75,68 +84,50 @@ export function encryptValue(plaintext: string | undefined | null): string {
  * Check if a string looks like unencrypted token data
  */
 function isUnencryptedToken(value: string): boolean {
-  // JWT tokens start with 'ey' (base64 of '{"')
   if (value.startsWith('ey')) return true
-  // Refresh tokens from Microsoft often start with specific patterns
   if (value.startsWith('M.') || value.startsWith('0.')) return true
-  // OAuth tokens from Google
   if (value.startsWith('1//') || value.startsWith('ya29.')) return true
-  // If it contains typical JWT separators (two dots for header.payload.signature)
   if (/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(value)) return true
-  // If it's a long alphanumeric string (typical for tokens)
   if (/^[A-Za-z0-9_-]{20,}$/.test(value)) return true
   return false
 }
 
 /**
- * Decrypt a base64-encoded encrypted value
+ * Decrypt a base64-encoded encrypted value. For **loads** only: supports legacy plaintext when marked `_encrypted: false`.
  */
 export function decryptValue(encrypted: string | undefined | null): string {
   if (encrypted == null || encrypted === '') {
     return ''
   }
   if (!isSecureStorageAvailable()) {
-    // If encryption wasn't available during save, data is unencrypted
+    secureStorageDebug('decryptValue passthrough', { reason: 'no_encryption_available_assume_legacy_plain' })
     return encrypted
   }
 
-  // First, check if this looks like unencrypted token data (legacy)
   if (isUnencryptedToken(encrypted)) {
     console.log('[SecureStorage] Found unencrypted legacy token, returning as-is')
     return encrypted
   }
-  
+
   try {
-    // Try to decrypt - if it fails, the data might be unencrypted legacy data
     const buffer = Buffer.from(encrypted, 'base64')
     return safeStorage.decryptString(buffer)
   } catch (err) {
-    // Decryption failed - might be legacy unencrypted data
     console.log('[SecureStorage] Decryption failed, treating as legacy unencrypted data')
     return encrypted
   }
 }
 
-/**
- * Encrypt OAuth token object
- */
 export interface OAuthTokens {
   accessToken: string
   refreshToken: string
   expiresAt: number
   scope?: string
-  /** Gmail: client id used when the refresh token was issued (not encrypted). */
   oauthClientId?: string
-  /** Gmail: legacy OAuth app used client_secret on refresh (not encrypted). */
   gmailRefreshUsesSecret?: boolean
-  /** Gmail: Desktop PKCE built-in client_secret for token refresh (encrypted at rest when safeStorage works). */
   gmailOAuthClientSecret?: string
 }
 
-/**
- * Encrypt OAuth tokens for secure storage
- * Returns an object with encrypted token strings
- */
 export function encryptOAuthTokens(tokens: OAuthTokens): {
   accessToken: string
   refreshToken: string
@@ -159,13 +150,10 @@ export function encryptOAuthTokens(tokens: OAuthTokens): {
     oauthClientId: tokens.oauthClientId,
     gmailRefreshUsesSecret: tokens.gmailRefreshUsesSecret,
     ...(gmailOAuthClientSecret ? { gmailOAuthClientSecret } : {}),
-    _encrypted: isSecureStorageAvailable()
+    _encrypted: true,
   }
 }
 
-/**
- * Decrypt OAuth tokens from secure storage
- */
 export function decryptOAuthTokens(stored: {
   accessToken: string
   refreshToken: string
@@ -181,7 +169,6 @@ export function decryptOAuthTokens(stored: {
     return decryptValue(v)
   }
 
-  // If explicitly marked as not encrypted, return as-is
   if (stored._encrypted === false) {
     console.log('[SecureStorage] Tokens marked as unencrypted, returning as-is')
     return {
@@ -194,9 +181,7 @@ export function decryptOAuthTokens(stored: {
       gmailOAuthClientSecret: stored.gmailOAuthClientSecret,
     }
   }
-  
-  // If _encrypted is undefined, this is legacy data - try to decrypt but handle gracefully
-  // The decryptValue function will detect and handle unencrypted legacy tokens
+
   console.log('[SecureStorage] Decrypting tokens, _encrypted:', stored._encrypted)
   return {
     accessToken: decryptValue(stored.accessToken),
@@ -208,12 +193,3 @@ export function decryptOAuthTokens(stored: {
     gmailOAuthClientSecret: decryptOptionalSecret(stored.gmailOAuthClientSecret),
   }
 }
-
-
-
-
-
-
-
-
-

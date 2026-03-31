@@ -134,6 +134,7 @@ declare global {
           lastPersistOk: boolean | null
           lastPersistError: string | null
           lastPersistAtMs: number | null
+          secureStorageAvailable?: boolean
         }
       }>
       sendEmail: (
@@ -458,6 +459,15 @@ export interface EmailInboxBridge {
     }>
     /** Present when the batch short-circuits (e.g. `vault_locked`, `database_unavailable`). */
     batchError?: string
+    /**
+     * Actual provider/model used for this chunk after main `preResolveInboxLlm()` (not renderer picker state).
+     */
+    batchRuntime?: {
+      model: string
+      provider: string
+      /** Wall time for LLM resolution inside this IPC handler (listModels / routing), not full chat. */
+      preResolveMs: number
+    }
   }>
   /**
    * Re-enqueue remote folder moves from local lifecycle state + schedule background drain.

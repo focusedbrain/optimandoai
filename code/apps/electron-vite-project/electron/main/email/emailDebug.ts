@@ -2,6 +2,7 @@
  * Verbose IMAP / sync logging ([IMAP-DEBUG], [SYNC-DEBUG], diagnoseImap stream).
  * Production IMAP pull timelines: grep main-process logs for `[IMAP-SYNC-PHASE]` (see `imapSyncTelemetry.ts`).
  * Enable with `EMAIL_DEBUG=1` or a Vite dev build (`import.meta.env.DEV`).
+ * For OS DPAPI / `safeStorage` availability: `DEBUG_EMAIL_SECURE_STORAGE=1` (see `secure-storage.ts`).
  *
  * Main-process bundle: avoid bare `import.meta` / `typeof import.meta` at top level — some
  * toolchains or runtimes can throw; a failed import here breaks the entire email IPC tree.

@@ -48,7 +48,8 @@ export class OllamaManager {
   /** Epoch snapshot for the data currently in `_modelsCache`. */
   private _modelsCacheValidEpoch = -1
   private _modelsInFlight: Promise<InstalledModel[]> | null = null
-  private readonly MODELS_CACHE_TTL_MS = 30_000
+  /** Long enough that bulk Auto-Sort chunks do not re-hit `/api/tags` every ~30s (tags rarely change mid-run). */
+  private readonly MODELS_CACHE_TTL_MS = 120_000
   
   constructor() {
     this.ollamaPort = 11434
@@ -407,7 +408,6 @@ export class OllamaManager {
 
     const running = await this.isRunning()
     if (running) {
-      this.invalidateModelsCache()
       const models = await this.listModels()
       if (!models.some((m) => m.name === trimmed)) {
         return {
@@ -418,6 +418,7 @@ export class OllamaManager {
     }
 
     setStoredActiveOllamaModelId(trimmed)
+    /** Single bump: next `listModels` sees new installs; avoid double-invalidate + double `/api/tags` on switch. */
     this.invalidateModelsCache()
     if (DEBUG_ACTIVE_OLLAMA_MODEL) {
       console.warn('[Ollama] setActiveModelPreference persisted:', trimmed, { ollamaRunning: running })

@@ -2137,6 +2137,14 @@ app.whenReady().then(async () => {
       pid: process.pid,
     }
     console.log('[BOOT] Boot info:', JSON.stringify(bootInfo))
+    if (process.env.DEBUG_EMAIL_SECURE_STORAGE === '1') {
+      try {
+        const { logSecureStorageProbe } = await import('./main/email/secure-storage')
+        logSecureStorageProbe('app.whenReady')
+      } catch (e: any) {
+        console.warn('[SecureStorage] DEBUG probe failed:', e?.message)
+      }
+    }
     try {
       const fs = await import('fs')
       const bootLogDir = path.join(os.homedir(), '.opengiraffe', 'logs')
@@ -7807,7 +7815,7 @@ app.whenReady().then(async () => {
           { clientId, clientSecret: typeof clientSecret === 'string' ? clientSecret : undefined },
           storeInVault,
         )
-        res.json({ ok: result.ok, savedToVault: result.savedToVault })
+        res.json({ ok: result.ok, savedToVault: result.savedToVault, error: result.error })
       } catch (error: any) {
         console.error('[HTTP-EMAIL] Error saving Gmail credentials:', error)
         res.status(500).json({ ok: false, error: error.message })
@@ -7849,7 +7857,7 @@ app.whenReady().then(async () => {
         const { saveCredentials } = await import('./main/email/credentials')
         const storeInVault = req.body.storeInVault !== false
         const result = await saveCredentials('outlook', { clientId, clientSecret, tenantId }, storeInVault)
-        res.json({ ok: result.ok, savedToVault: result.savedToVault })
+        res.json({ ok: result.ok, savedToVault: result.savedToVault, error: result.error })
       } catch (error: any) {
         console.error('[HTTP-EMAIL] Error saving Outlook credentials:', error)
         res.status(500).json({ ok: false, error: error.message })
@@ -7899,7 +7907,7 @@ app.whenReady().then(async () => {
           },
           storeInVault,
         )
-        res.json({ ok: result.ok, savedToVault: result.savedToVault })
+        res.json({ ok: result.ok, savedToVault: result.savedToVault, error: result.error })
       } catch (error: any) {
         console.error('[HTTP-EMAIL] Error saving Zoho credentials:', error)
         res.status(500).json({ ok: false, error: error.message })

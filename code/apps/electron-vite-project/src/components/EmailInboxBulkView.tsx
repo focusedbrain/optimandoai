@@ -1513,6 +1513,9 @@ function sortMessagesByCategory(msgs: InboxMessage[]): InboxMessage[] {
 }
 
 /** Auto-Sort toolbar progress (animated bar + optional session phases). */
+/** Mirrors main `inbox:aiClassifyBatch` `batchRuntime` payload. */
+type ClassifyBatchRuntimeMeta = { model: string; provider: string; preResolveMs: number }
+
 export interface AiSortProgressState {
   done: number
   total: number
@@ -1520,6 +1523,10 @@ export interface AiSortProgressState {
   /** Honest breakdown: analyzed vs moved/applied vs retained vs failed (not “all success” when only LLM ran). */
   statsDetail?: string
   phase: 'sorting' | 'summarizing' | 'complete'
+  /** Last chunk’s main-process resolved classify target (`aiClassifyBatch.batchRuntime`), not the UI model picker. */
+  activeClassifyModel?: string
+  activeClassifyProvider?: string
+  activeClassifyPreResolveMs?: number
 }
 
 export interface EmailInboxBulkViewProps {
@@ -2705,6 +2712,7 @@ export default function EmailInboxBulkView({
             remoteEnqueue?: { enqueued: number; skipped: number; skipReasons?: string[] }
           }
           let batchResults: BatchResult[]
+          let chunkBatchRuntime: ClassifyBatchRuntimeMeta | undefined
           try {
             const resp = await window.emailInbox!.aiClassifyBatch!(
               batch,
@@ -2714,6 +2722,10 @@ export default function EmailInboxBulkView({
               uiOllamaParallelThisChunk,
             )
             if (DEBUG_AUTOSORT_TIMING) tAfterBatchIpc = performance.now()
+            chunkBatchRuntime =
+              resp && typeof resp === 'object' && 'batchRuntime' in resp
+                ? (resp as { batchRuntime?: ClassifyBatchRuntimeMeta }).batchRuntime
+                : undefined
             batchResults = ((resp?.results ?? []) as BatchResult[]).filter((r) => !!r?.messageId)
             if (batchResults.length === 0) {
               batchResults = batch.map((id) => ({ messageId: id, error: 'llm_error' }))
@@ -2740,6 +2752,7 @@ export default function EmailInboxBulkView({
             }
           } catch (batchCallErr: unknown) {
             if (DEBUG_AUTOSORT_TIMING) tAfterBatchIpc = performance.now()
+            chunkBatchRuntime = undefined
             const msg = batchCallErr instanceof Error ? batchCallErr.message : String(batchCallErr ?? 'batch call failed')
             console.warn('[SORT] Batch IPC call failed:', msg)
             batchResults = batch.map((id) => ({ messageId: id, error: 'llm_error' }))
@@ -3074,13 +3087,16 @@ export default function EmailInboxBulkView({
             ]
               .filter(Boolean)
               .join(' · ')
-            setAiSortProgress({
+            setAiSortProgress((prev) => ({
               done: doneAfterBatch,
               total: ids.length,
               label: `Auto-Sort ${doneAfterBatch}/${ids.length} (classify + DB apply per chunk)`,
               statsDetail: statLine,
               phase: 'sorting',
-            })
+              activeClassifyModel: chunkBatchRuntime?.model ?? prev?.activeClassifyModel,
+              activeClassifyProvider: chunkBatchRuntime?.provider ?? prev?.activeClassifyProvider,
+              activeClassifyPreResolveMs: chunkBatchRuntime?.preResolveMs ?? prev?.activeClassifyPreResolveMs,
+            }))
           }
           if (DEBUG_AUTOSORT_TIMING) {
             const tChunkEnd = performance.now()
@@ -3597,12 +3613,16 @@ export default function EmailInboxBulkView({
           durationMs: Date.now() - startTime,
         }
         await sessionApi.finalize(sessionId, stats)
-        setAiSortProgress({
+        setAiSortProgress((prev) => ({
           done: stats.total,
           total: stats.total,
           label: '✦ Generating session summary…',
           phase: 'summarizing',
-        })
+          statsDetail: prev?.statsDetail,
+          activeClassifyModel: prev?.activeClassifyModel,
+          activeClassifyProvider: prev?.activeClassifyProvider,
+          activeClassifyPreResolveMs: prev?.activeClassifyPreResolveMs,
+        }))
         await sessionApi.generateSummary(sessionId)
         setAutosortReviewBanner({ sessionId, fading: false })
       }
@@ -3746,6 +3766,11 @@ export default function EmailInboxBulkView({
       ) {
         loadHints.push(
           `${persistence.credentialDecryptIssues.length} account(s) have stored credentials that could not be decrypted — reconnect those providers.`,
+        )
+      }
+      if (persistence?.secureStorageAvailable === false) {
+        loadHints.push(
+          'OS secure storage is unavailable (e.g. Windows DPAPI). Adding or updating email accounts will fail until you use a normal interactive user session or fix the OS profile.',
         )
       }
       if (!Array.isArray(res.data)) {
@@ -5783,6 +5808,31 @@ export default function EmailInboxBulkView({
                               {aiSortProgress.statsDetail}
                             </span>
                           ) : null}
+                          {aiSortProgress.phase === 'summarizing' && aiSortProgress.activeClassifyModel ? (
+                            <span
+                              title={
+                                aiSortProgress.activeClassifyProvider &&
+                                aiSortProgress.activeClassifyPreResolveMs != null
+                                  ? `${aiSortProgress.activeClassifyProvider} · ${aiSortProgress.activeClassifyModel} · main preResolve ${aiSortProgress.activeClassifyPreResolveMs}ms`
+                                  : aiSortProgress.activeClassifyModel
+                              }
+                              style={{
+                                fontSize: 10,
+                                fontWeight: 600,
+                                color: '#14532d',
+                                padding: '1px 8px',
+                                borderRadius: 4,
+                                background: 'rgba(34,197,94,0.18)',
+                                border: '1px solid rgba(22,163,74,0.35)',
+                                maxWidth: 'min(220px, 90vw)',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap',
+                              }}
+                            >
+                              Active: {aiSortProgress.activeClassifyModel}
+                            </span>
+                          ) : null}
                         </div>
                       </div>
                       {aiSortProgress.phase !== 'summarizing' && (
@@ -5839,6 +5889,33 @@ export default function EmailInboxBulkView({
                               ⏹ Stop
                             </button>
                             <BulkOllamaModelSelect variant="progress" />
+                            {aiSortProgress.activeClassifyModel ? (
+                              <span
+                                title={
+                                  aiSortProgress.activeClassifyProvider &&
+                                  aiSortProgress.activeClassifyPreResolveMs != null
+                                    ? `${aiSortProgress.activeClassifyProvider} · ${aiSortProgress.activeClassifyModel} · main preResolve ${aiSortProgress.activeClassifyPreResolveMs}ms`
+                                    : aiSortProgress.activeClassifyModel
+                                }
+                                style={{
+                                  display: 'inline-block',
+                                  maxWidth: 'min(200px, 38vw)',
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis',
+                                  whiteSpace: 'nowrap',
+                                  padding: '1px 8px',
+                                  borderRadius: 4,
+                                  fontSize: 10,
+                                  fontWeight: 600,
+                                  color: '#14532d',
+                                  background: 'rgba(34,197,94,0.18)',
+                                  border: '1px solid rgba(22,163,74,0.35)',
+                                  verticalAlign: 'middle',
+                                }}
+                              >
+                                Active: {aiSortProgress.activeClassifyModel}
+                              </span>
+                            ) : null}
                             <label
                               style={{
                                 display: 'flex',

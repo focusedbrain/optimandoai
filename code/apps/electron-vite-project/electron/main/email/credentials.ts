@@ -1,10 +1,11 @@
 /**
  * Email OAuth Credential Storage — vault + safeStorage-encrypted file backup
  *
- * Storage hierarchy (most secure → fallback):
- *   1. WR Vault (AES-GCM, unlocked by user PIN/password)
- *   2. safeStorage-encrypted backup file (DPAPI / Keychain / libsecret)
- *   3. Plain JSON file (last resort when OS encryption is unavailable)
+ * Storage hierarchy:
+ *   1. WR Vault (AES-GCM, unlocked by user PIN/password), when requested and vault unlocked
+ *   2. safeStorage-encrypted backup file (DPAPI / Keychain / libsecret) — **required** for saves; no plaintext fallback
+ *
+ * Legacy reads may still load Tier-3 plain JSON (`email-oauth-config.json`, etc.) from older builds; new saves do not write those when Encrypted backup suffices.
  *
  * Honest source tracking: the UI must never claim "from vault" when
  * credentials came from file.
@@ -17,7 +18,12 @@
 import { app } from 'electron'
 import * as fs from 'fs'
 import * as path from 'path'
-import { encryptValue, decryptValue, isSecureStorageAvailable } from './secure-storage'
+import {
+  encryptValue,
+  decryptValue,
+  isSecureStorageAvailable,
+  SecureStorageUnavailableError,
+} from './secure-storage'
 import { loadOAuthConfig, saveOAuthConfig } from './providers/gmail'
 import { isBuiltinGmailOAuthConfigured } from './googleOAuthBuiltin'
 import { loadOutlookOAuthConfig, saveOutlookOAuthConfig } from './providers/outlook'
@@ -90,20 +96,13 @@ function getBackupPath(provider: 'gmail' | 'outlook' | 'zoho'): string {
 // ── safeStorage-encrypted backup helpers ─────────────────────────────────────
 
 /**
- * Write credentials to an OS-encrypted backup file.
- * Falls back to plain JSON only when safeStorage is unavailable (rare, user-warned
- * by secure-storage.ts).  The `_e` wrapper distinguishes encrypted from plain.
+ * Write credentials to an OS-encrypted backup file (`{ "_e": "<safeStorage ciphertext>" }`).
+ * **Throws** {@link SecureStorageUnavailableError} (or other errors) — never writes plaintext secrets.
  */
 function writeBackupFile(provider: 'gmail' | 'outlook' | 'zoho', creds: EmailCreds): void {
-  try {
-    const json = JSON.stringify(creds)
-    const payload = isSecureStorageAvailable()
-      ? JSON.stringify({ _e: encryptValue(json) })
-      : json
-    fs.writeFileSync(getBackupPath(provider), payload, 'utf-8')
-  } catch (err) {
-    credLog(`writeBackupFile(${provider}) error:`, err)
-  }
+  const json = JSON.stringify(creds)
+  const payload = JSON.stringify({ _e: encryptValue(json) })
+  fs.writeFileSync(getBackupPath(provider), payload, 'utf-8')
 }
 
 /**
@@ -356,9 +355,8 @@ export async function checkExistingCredentials(
       const backupCreds = readBackupFile(provider)
       const fileCreds = backupCreds ?? loadFromFile(provider)
       if (fileCreds) {
-        const vaultSaveOk = await saveToVault(provider, fileCreds)
-        // Always (re)write the encrypted backup regardless of vault save result
         writeBackupFile(provider, fileCreds)
+        const vaultSaveOk = await saveToVault(provider, fileCreds)
         const clientId = 'clientId' in fileCreds ? fileCreds.clientId : ''
         const hasSecret = !!(fileCreds as any).clientSecret
         credLog(`checkExistingCredentials(${provider}): migrated from file to vault (vault=${vaultSaveOk})`)
@@ -438,41 +436,34 @@ export async function saveCredentials(
   provider: 'gmail' | 'outlook' | 'zoho',
   creds: GmailCreds | OutlookCreds | ZohoCreds,
   storeInVault: boolean = true,
-): Promise<{ ok: boolean; savedToVault: boolean }> {
+): Promise<{ ok: boolean; savedToVault: boolean; error?: string }> {
   const vaultUnlocked = isVaultUnlocked()
   let savedToVault = false
 
-  // Always write the encrypted backup file first so it's never missing
-  writeBackupFile(provider, creds)
+  try {
+    writeBackupFile(provider, creds)
+  } catch (e) {
+    const msg =
+      e instanceof SecureStorageUnavailableError
+        ? e.message
+        : e instanceof Error
+          ? e.message
+          : String(e)
+    credLog(`saveCredentials(${provider}): encrypted backup failed — aborting (no plaintext fallback):`, e)
+    return { ok: false, savedToVault: false, error: msg }
+  }
 
   if (storeInVault && vaultUnlocked) {
     savedToVault = await saveToVault(provider, creds)
     if (!savedToVault) {
-      credLog(`saveCredentials(${provider}): vault save failed, backup file is the secure copy`)
+      credLog(`saveCredentials(${provider}): vault save failed, encrypted backup file is the secure copy`)
     }
   }
 
-  if (!savedToVault) {
-    // Also write legacy plain file as last-resort fallback
-    if (provider === 'gmail') {
-      const g = creds as GmailCreds
-      saveOAuthConfig(g.clientId, g.clientSecret)
-    } else if (provider === 'zoho') {
-      const z = creds as ZohoCreds
-      saveZohoOAuthConfig(z.clientId, z.clientSecret, z.datacenter === 'eu' ? 'eu' : 'com')
-    } else {
-      saveOutlookOAuthConfig(
-        (creds as OutlookCreds).clientId,
-        (creds as OutlookCreds).clientSecret,
-        (creds as OutlookCreds).tenantId,
-      )
-    }
-    if (storeInVault && !vaultUnlocked) {
-      credLog(
-        `saveCredentials(${provider}): vault is locked — credentials saved to encrypted backup ` +
-          `file and plain file. Unlock the vault to move them to encrypted vault storage.`,
-      )
-    }
+  if (storeInVault && !vaultUnlocked) {
+    credLog(
+      `saveCredentials(${provider}): vault is locked — OAuth client credentials are only in the encrypted backup file. Unlock the vault to also store them in WR Vault.`,
+    )
   }
 
   credLog(`saveCredentials(${provider}): ok=true, savedToVault=${savedToVault}`)
