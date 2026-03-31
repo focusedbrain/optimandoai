@@ -3728,6 +3728,13 @@ Respond ONLY with valid JSON. No markdown, no backticks, no preamble.`
    * and inboxLlmChat, so a batch of N parallel messages causes exactly 1 shared /api/tags
    * request rather than 2N.
    */
+
+  /**
+   * Set true only during local debugging.
+   * In production these lines fire once per message in every bulk run — keep them silent.
+   */
+  const DEBUG_AI_DIAGNOSTICS = false
+
   interface ClassifySingleMessageOptions {
     /** Pre-resolved LLM context for the batch run. Skips isLlmAvailable + listModels per message. */
     resolvedLlm?: ResolvedLlmContext
@@ -3753,7 +3760,7 @@ Respond ONLY with valid JSON. No markdown, no backticks, no preamble.`
     /** Present when classify succeeded and remote lifecycle enqueue ran (all categories, including urgent). */
     remoteEnqueue?: { enqueued: number; skipped: number; skipReasons: string[] }
   }> {
-    console.warn('⚡ classifySingleMessage CALLED', new Date().toISOString(), {
+    if (DEBUG_AI_DIAGNOSTICS) console.warn('⚡ classifySingleMessage CALLED', new Date().toISOString(), {
       messageId,
       model: opts?.resolvedLlm?.model ?? '(will resolve)',
       skipAvailabilityCheck: opts?.resolvedLlm != null,
@@ -4010,7 +4017,7 @@ ${formatSourceWeightingForPrompt(sortWeight)}`
       return { results: ids.map((messageId) => ({ messageId, error: 'llm_unavailable' })) }
     }
 
-    console.log('[AI-BATCH] classifying', ids.length, 'messages, model:', resolvedLlm.model)
+    if (DEBUG_AI_DIAGNOSTICS) console.log('[AI-BATCH] classifying', ids.length, 'messages, model:', resolvedLlm.model)
 
     // Process all IDs in this chunk concurrently (chunk size is already controlled by the renderer)
     const results = await Promise.all(

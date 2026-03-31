@@ -7,6 +7,12 @@
 
 import type { LocalEmbeddingService } from './embeddings'
 
+/**
+ * Set true only during local debugging.
+ * In production these lines run once per LLM call — keep them silent.
+ */
+const DEBUG_AI_DIAGNOSTICS = false
+
 export interface Message {
   role: 'system' | 'user' | 'assistant'
   content: string
@@ -67,7 +73,7 @@ export class OllamaProvider implements AIProvider {
   }
 
   async generateChat(messages: Message[], options?: GenerateChatOptions): Promise<string> {
-    console.warn('⚡ OllamaProvider.generateChat CALLED', new Date().toISOString())
+    if (DEBUG_AI_DIAGNOSTICS) console.warn('⚡ OllamaProvider.generateChat CALLED', new Date().toISOString())
     const model = options?.model ?? this.chatModel
     const stream = options?.stream ?? false
     const send = options?.send ?? (() => {})
@@ -79,6 +85,7 @@ export class OllamaProvider implements AIProvider {
       return streamOllamaChat(model, systemMsg, userMsg, send)
     }
 
+    const _t0 = Date.now()
     const res = await fetch(`${this.baseUrl}/api/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -91,6 +98,9 @@ export class OllamaProvider implements AIProvider {
     })
     if (!res.ok) throw new Error(`Ollama ${res.status}: ${res.statusText}`)
     const data = await res.json()
+    // Always log inference latency — one line per call, essential for diagnosing slowdowns.
+    const _promptChars = messages.reduce((s, m) => s + m.content.length, 0)
+    console.log(`[LLM] ${model}: ${Date.now() - _t0}ms, ~${_promptChars}ch prompt`)
     return data.message?.content ?? 'No response from model.'
   }
 
@@ -166,7 +176,7 @@ export class CloudAIProvider implements AIProvider {
   }
 
   async generateChat(messages: Message[], options?: GenerateChatOptions): Promise<string> {
-    console.warn('⚡ CloudAIProvider.generateChat CALLED', new Date().toISOString())
+    if (DEBUG_AI_DIAGNOSTICS) console.warn('⚡ CloudAIProvider.generateChat CALLED', new Date().toISOString())
     const model = options?.model ?? this.chatModel
     const stream = options?.stream ?? false
     const send = options?.send ?? (() => {})

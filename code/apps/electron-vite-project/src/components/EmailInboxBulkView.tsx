@@ -1869,6 +1869,19 @@ export default function EmailInboxBulkView({
 
   const [pendingLinkUrl, setPendingLinkUrl] = useState<string | null>(null)
   const [aiSortProgress, setAiSortProgress] = useState<AiSortProgressState | null>(null)
+  /** User-adjustable concurrency for bulk AI classify (1–8). Persisted in localStorage. */
+  const [sortConcurrency, setSortConcurrency] = useState<number>(() => {
+    try {
+      const stored = localStorage?.getItem('wrdesk_sortConcurrency')
+      const n = stored ? parseInt(stored, 10) : 3
+      return n >= 1 && n <= 8 ? n : 3
+    } catch {
+      return 3
+    }
+  })
+  /** Ref so runAiCategorizeForIds can read the latest value without being in its dep array. */
+  const sortConcurrencyRef = useRef(sortConcurrency)
+  sortConcurrencyRef.current = sortConcurrency
   /** Transient CTA after a successful Auto-Sort (not a persistent dock slot — fades out and unmounts). */
   const [autosortReviewBanner, setAutosortReviewBanner] = useState<AutosortReviewBannerState | null>(null)
   const [showSessionReview, setShowSessionReview] = useState<string | null>(null)
@@ -2545,8 +2558,11 @@ export default function EmailInboxBulkView({
        * Bulk classify with one IPC call per batch chunk — eliminates the N-way process-boundary
        * fan-out. Main process pre-resolves LLM once per chunk; results come back together so the
        * renderer can apply one React state update per batch rather than N separate setState calls.
+       *
+       * chunkSize reads from sortConcurrencyRef so the user can adjust the slider mid-run;
+       * the new value takes effect at the start of each next chunk (no in-flight disruption).
        */
-      const BULK_CLASSIFY_CONCURRENCY = 2 // lower = lighter on local LLM; raise for cloud providers
+      const chunkSize = sortConcurrencyRef.current
       const VALID_ACTIONS: BulkRecommendedAction[] = ['pending_delete', 'pending_review', 'archive', 'keep_for_manual_action', 'draft_reply_ready']
       const VALID_CATEGORIES: SortCategory[] = ['urgent', 'important', 'normal', 'newsletter', 'spam', 'irrelevant', 'pending_review']
       const processedIds: string[] = []
@@ -2554,8 +2570,8 @@ export default function EmailInboxBulkView({
       const movedIds: string[] = []
       const retainedCounts = emptyRetainedCounts()
       try {
-        for (let i = 0; i < ids.length; i += BULK_CLASSIFY_CONCURRENCY) {
-          const batch = ids.slice(i, i + BULK_CLASSIFY_CONCURRENCY)
+        for (let i = 0; i < ids.length; i += chunkSize) {
+          const batch = ids.slice(i, i + chunkSize)
           const doneAfterBatch = Math.min(i + batch.length, ids.length)
           if (!suppressGlobalSortingUi) {
             setAiSortProgress({
@@ -3062,7 +3078,7 @@ export default function EmailInboxBulkView({
   /** Toolbar Auto-Sort: “All” = full tab ID drain; paged = current selection only. */
   const handleAiAutoSort = useCallback(async () => {
     // ⚡ DIAGNOSTIC: log every entry with stack trace to detect any non-user-click caller.
-    console.warn('⚡ handleAiAutoSort CALLED', new Date().toISOString(), new Error('caller').stack)
+    if (DEBUG_AI_DIAGNOSTICS) console.warn('⚡ handleAiAutoSort CALLED', new Date().toISOString(), new Error('caller').stack)
     if (isSortingRef.current || useEmailInboxStore.getState().isSortingActive) {
       console.warn('[SORT] Auto-Sort click ignored: a run is already in progress', {
         isSortingRef: isSortingRef.current,
@@ -4369,6 +4385,34 @@ export default function EmailInboxBulkView({
             >
               ⚡AI Auto-Sort
             </button>
+            <label
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 4,
+                fontSize: 11,
+                color: '#64748b',
+                cursor: 'default',
+                userSelect: 'none',
+                marginLeft: 2,
+              }}
+              title={`Parallel analyses per chunk: ${sortConcurrency} — lower = lighter on CPU/GPU, higher = faster on capable hardware`}
+            >
+              <span style={{ whiteSpace: 'nowrap' }}>⚡ ×{sortConcurrency}</span>
+              <input
+                type="range"
+                min={1}
+                max={8}
+                step={1}
+                value={sortConcurrency}
+                onChange={(e) => {
+                  const v = Math.max(1, Math.min(8, Number(e.target.value)))
+                  setSortConcurrency(v)
+                  try { localStorage?.setItem('wrdesk_sortConcurrency', String(v)) } catch { /* ignore */ }
+                }}
+                style={{ width: 64, cursor: 'pointer', accentColor: '#7c3aed' }}
+              />
+            </label>
             <span className="bulk-view-selection-group-count selected-count">{selectedCount} selected</span>
           </div>
 
@@ -5195,22 +5239,61 @@ export default function EmailInboxBulkView({
               {showBulkStatusDock ? (
                 <div className="bulk-view-status-dock" role="region" aria-label="Bulk inbox status">
                   {aiSortProgress ? (
-                    <div className="autosort-progress-container" role="status">
-                      <div
-                        className="autosort-progress-fill"
-                        style={{
-                          width:
-                            aiSortProgress.phase === 'summarizing'
-                              ? '100%'
-                              : `${Math.round((aiSortProgress.done / Math.max(aiSortProgress.total, 1)) * 100)}%`,
-                        }}
-                      />
-                      <span className="autosort-progress-text">
-                        {aiSortProgress.phase === 'summarizing'
-                          ? '✦ Generating session summary…'
-                          : aiSortProgress.label}
-                      </span>
-                    </div>
+                    <>
+                      <div className="autosort-progress-container" role="status">
+                        <div
+                          className="autosort-progress-fill"
+                          style={{
+                            width:
+                              aiSortProgress.phase === 'summarizing'
+                                ? '100%'
+                                : `${Math.round((aiSortProgress.done / Math.max(aiSortProgress.total, 1)) * 100)}%`,
+                          }}
+                        />
+                        <span className="autosort-progress-text">
+                          {aiSortProgress.phase === 'summarizing'
+                            ? '✦ Generating session summary…'
+                            : aiSortProgress.label}
+                        </span>
+                      </div>
+                      {aiSortProgress.phase !== 'summarizing' && (
+                        <div
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 8,
+                            padding: '4px 2px',
+                            fontSize: 11,
+                            color: '#64748b',
+                            userSelect: 'none',
+                          }}
+                        >
+                          <span style={{ whiteSpace: 'nowrap', fontWeight: 500 }}>
+                            Parallel analyses:
+                          </span>
+                          <input
+                            type="range"
+                            min={1}
+                            max={8}
+                            step={1}
+                            value={sortConcurrency}
+                            onChange={(e) => {
+                              const v = Math.max(1, Math.min(8, Number(e.target.value)))
+                              setSortConcurrency(v)
+                              try { localStorage?.setItem('wrdesk_sortConcurrency', String(v)) } catch { /* ignore */ }
+                            }}
+                            style={{ width: 100, cursor: 'pointer', accentColor: '#7c3aed' }}
+                            title={`Concurrent AI analyses: ${sortConcurrency} — lower = lighter on CPU/GPU, applies from next chunk`}
+                          />
+                          <span style={{ minWidth: 8, fontVariantNumeric: 'tabular-nums', fontWeight: 600, color: '#7c3aed' }}>
+                            {sortConcurrency}
+                          </span>
+                          <span style={{ color: '#94a3b8', fontSize: 10 }}>
+                            (applies from next chunk)
+                          </span>
+                        </div>
+                      )}
+                    </>
                   ) : null}
                   {!aiSortProgress && autosortReviewBanner ? (
                     <div
