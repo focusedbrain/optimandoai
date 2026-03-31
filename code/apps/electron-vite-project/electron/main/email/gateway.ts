@@ -71,7 +71,34 @@ import type {
 import { orchestratorRemoteFromImapLifecycleFields } from './domain/mailboxLifecycleMapping'
 import { validateCustomImapSmtpPayload } from './domain/customImapSmtpPayloadValidation'
 import { normalizeSecurityMode } from './domain/securityModeNormalize'
-import { emailDebugLog } from './emailDebug'
+import { emailAccountsDebugLog, emailDebugLog } from './emailDebug'
+
+/** Surface to listAccounts IPC/HTTP — not a second store; mirrors last load + last save attempt. */
+export type EmailAccountsCredentialDecryptIssue = {
+  accountId: string
+  kind: 'oauth' | 'imap' | 'smtp'
+  message: string
+}
+
+export type EmailAccountsPersistenceDiagnostics = {
+  accountsFilePath: string
+  load:
+    | { ok: true; fileMissing?: boolean }
+    | { ok: false; phase: 'read' | 'parse'; message: string }
+  credentialDecryptIssues: EmailAccountsCredentialDecryptIssue[]
+  lastPersistOk: boolean | null
+  lastPersistError: string | null
+  lastPersistAtMs: number | null
+}
+
+let emailAccountsPersistenceDiagnostics: EmailAccountsPersistenceDiagnostics = {
+  accountsFilePath: '',
+  load: { ok: true },
+  credentialDecryptIssues: [],
+  lastPersistOk: null,
+  lastPersistError: null,
+  lastPersistAtMs: null,
+}
 
 /** New-account sync defaults; `syncWindowDays` 0 = all mail, else clamp to a sane range. */
 function normalizeNewAccountSyncWindowDays(syncWindowDays?: number): number {
@@ -337,7 +364,7 @@ function encryptImapSmtpPasswordsForDisk(account: EmailAccountConfig): EmailAcco
 function getAccountsPath(): string {
   const userData = app.getPath('userData')
   const accountsPath = path.join(userData, 'email-accounts.json')
-  console.log('[EmailGateway] getAccountsPath() =', accountsPath)
+  emailAccountsDebugLog('getAccountsPath() =', accountsPath)
   return accountsPath
 }
 
@@ -345,196 +372,270 @@ function getAccountsPath(): string {
  * Load accounts from disk with decryption of OAuth tokens
  */
 function loadAccounts(): EmailAccountConfig[] {
-  try {
-    const accountsPath = getAccountsPath()
-    console.log('[EmailGateway] Loading accounts from:', accountsPath)
-    console.log('[EmailGateway] Secure storage available:', isSecureStorageAvailable())
-    
-    if (fs.existsSync(accountsPath)) {
-      const data = JSON.parse(fs.readFileSync(accountsPath, 'utf-8'))
-      const accounts = data.accounts || []
-      console.log('[EmailGateway] Loaded', accounts.length, 'accounts from disk')
-      
-      // Decrypt OAuth tokens and IMAP/SMTP passwords for each account
-      const loaded = accounts.map((account: EmailAccountConfig) => {
-        let next: EmailAccountConfig = account
-        if (account.oauth) {
-          try {
-            const decrypted = decryptOAuthTokens(account.oauth as any)
-            const oauth: NonNullable<EmailAccountConfig['oauth']> = {
-              accessToken: decrypted.accessToken,
-              refreshToken: decrypted.refreshToken,
-              expiresAt: decrypted.expiresAt,
-              scope: decrypted.scope ?? '',
-              oauthClientId: decrypted.oauthClientId,
-              gmailRefreshUsesSecret: decrypted.gmailRefreshUsesSecret,
-              ...(decrypted.gmailOAuthClientSecret
-                ? { gmailOAuthClientSecret: decrypted.gmailOAuthClientSecret }
-                : {}),
-            }
-            next = { ...next, oauth }
-          } catch (err) {
-            console.error('[EmailGateway] Failed to decrypt tokens for account:', account.id, err)
-            next = {
-              ...account,
-              oauth: undefined,
-              status: 'error' as const,
-              lastError: 'Failed to decrypt stored credentials. Please reconnect.'
-            }
-          }
-        }
-        const withImap = decryptImapSmtpPasswords(next)
-        /** Only strict `true` means paused — clear legacy truthy garbage so resume/sync gates stay predictable. */
-        return {
-          ...withImap,
-          ...(withImap.processingPaused === true ? { processingPaused: true } : { processingPaused: undefined }),
-        }
-      })
+  const accountsPath = getAccountsPath()
+  emailAccountsPersistenceDiagnostics.accountsFilePath = accountsPath
+  emailAccountsPersistenceDiagnostics.credentialDecryptIssues = []
+  emailAccountsPersistenceDiagnostics.load = { ok: true }
 
-      for (const acc of loaded) {
-        if (acc.provider === 'imap') {
-          console.log('[IMAP-DIAG] Loaded account:', {
-            id: acc.id,
-            email: acc.email,
-            status: acc.status,
-            lastError: acc.lastError,
-            hasImapPassword: !!(acc.imap?.password && String(acc.imap.password).trim().length > 0),
-            imapEncrypted: acc.imap?._encrypted,
-          })
+  emailAccountsDebugLog('Loading accounts from:', accountsPath, 'secure storage:', isSecureStorageAvailable())
+
+  if (!fs.existsSync(accountsPath)) {
+    emailAccountsPersistenceDiagnostics.load = { ok: true, fileMissing: true }
+    emailAccountsDebugLog('No accounts file found, starting fresh')
+    return []
+  }
+
+  let rawText: string
+  try {
+    rawText = fs.readFileSync(accountsPath, 'utf-8')
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    emailAccountsPersistenceDiagnostics.load = { ok: false, phase: 'read', message: msg }
+    console.error('[EmailGateway] Error reading accounts file:', err)
+    emailAccountsDebugLog('loadAccounts read failure:', msg)
+    return []
+  }
+
+  let data: { accounts?: EmailAccountConfig[] }
+  try {
+    data = JSON.parse(rawText) as { accounts?: EmailAccountConfig[] }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    emailAccountsPersistenceDiagnostics.load = { ok: false, phase: 'parse', message: msg }
+    console.error('[EmailGateway] Error parsing accounts JSON:', err)
+    emailAccountsDebugLog('loadAccounts parse failure:', msg)
+    return []
+  }
+
+  const accounts = data.accounts || []
+  emailAccountsDebugLog('Parsed', accounts.length, 'account rows from disk')
+
+  const loaded = accounts.map((account: EmailAccountConfig) => {
+    let next: EmailAccountConfig = account
+    if (account.oauth) {
+      try {
+        const decrypted = decryptOAuthTokens(account.oauth as any)
+        const oauth: NonNullable<EmailAccountConfig['oauth']> = {
+          accessToken: decrypted.accessToken,
+          refreshToken: decrypted.refreshToken,
+          expiresAt: decrypted.expiresAt,
+          scope: decrypted.scope ?? '',
+          oauthClientId: decrypted.oauthClientId,
+          gmailRefreshUsesSecret: decrypted.gmailRefreshUsesSecret,
+          ...(decrypted.gmailOAuthClientSecret
+            ? { gmailOAuthClientSecret: decrypted.gmailOAuthClientSecret }
+            : {}),
+        }
+        next = { ...next, oauth }
+      } catch (err) {
+        console.error('[EmailGateway] Failed to decrypt tokens for account:', account.id, err)
+        emailAccountsPersistenceDiagnostics.credentialDecryptIssues.push({
+          accountId: account.id,
+          kind: 'oauth',
+          message: 'OAuth tokens could not be decrypted; please reconnect.',
+        })
+        emailAccountsDebugLog('OAuth decrypt failure for account', account.id, err)
+        next = {
+          ...account,
+          oauth: undefined,
+          status: 'error' as const,
+          lastError: 'Failed to decrypt stored credentials. Please reconnect.',
         }
       }
-
-      return loaded
-    } else {
-      console.log('[EmailGateway] No accounts file found, starting fresh')
     }
-  } catch (err) {
-    console.error('[EmailGateway] Error loading accounts:', err)
+    const withImap = decryptImapSmtpPasswords(next)
+    if (
+      withImap.lastError?.includes('IMAP credentials') ||
+      withImap.lastError?.includes('decrypt stored IMAP')
+    ) {
+      recordLoadCredentialDecryptIssue(withImap.id, 'imap', withImap.lastError!)
+    }
+    if (withImap.lastError?.includes('SMTP credentials') || withImap.lastError?.includes('decrypt stored SMTP')) {
+      recordLoadCredentialDecryptIssue(withImap.id, 'smtp', withImap.lastError!)
+    }
+    /** Only strict `true` means paused — clear legacy truthy garbage so resume/sync gates stay predictable. */
+    return {
+      ...withImap,
+      ...(withImap.processingPaused === true ? { processingPaused: true } : { processingPaused: undefined }),
+    }
+  })
+
+  for (const acc of loaded) {
+    if (acc.provider === 'imap') {
+      console.log('[IMAP-DIAG] Loaded account:', {
+        id: acc.id,
+        email: acc.email,
+        status: acc.status,
+        lastError: acc.lastError,
+        hasImapPassword: !!(acc.imap?.password && String(acc.imap.password).trim().length > 0),
+        imapEncrypted: acc.imap?._encrypted,
+      })
+    }
   }
-  return []
+
+  emailAccountsDebugLog('loadAccounts finished; decrypt issue count:', emailAccountsPersistenceDiagnostics.credentialDecryptIssues.length)
+  return loaded
+}
+
+function recordLoadCredentialDecryptIssue(accountId: string, kind: 'imap' | 'smtp', message: string): void {
+  emailAccountsPersistenceDiagnostics.credentialDecryptIssues.push({ accountId, kind, message })
+}
+
+function isAccountIdPresentOnDisk(accountId: string): boolean {
+  try {
+    const p = getAccountsPath()
+    if (!fs.existsSync(p)) return false
+    const raw = JSON.parse(fs.readFileSync(p, 'utf-8')) as { accounts?: { id?: string }[] }
+    const arr = raw.accounts
+    return Array.isArray(arr) && arr.some((a) => a?.id === accountId)
+  } catch {
+    return false
+  }
 }
 
 /**
- * Save accounts to disk with encryption of OAuth tokens.
+ * Persist accounts to disk with encryption of OAuth tokens.
  * Does **not** mutate the `accounts` array — in-memory rows keep plaintext IMAP/SMTP passwords after write.
+ * @throws If the JSON file cannot be written safely (callers must roll back in-memory mutations).
  */
-function saveAccounts(accounts: EmailAccountConfig[]): void {
+function persistEmailAccounts(accounts: EmailAccountConfig[]): void {
+  const accountsPath = getAccountsPath()
+  emailAccountsPersistenceDiagnostics.accountsFilePath = accountsPath
+  emailAccountsDebugLog('Saving', accounts.length, 'accounts to:', accountsPath, 'encrypt:', isSecureStorageAvailable())
+
+  const dir = path.dirname(accountsPath)
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true })
+  }
+
+  let previousDiskAccounts: EmailAccountConfig[] = []
   try {
-    const accountsPath = getAccountsPath()
-    console.log('[EmailGateway] Saving', accounts.length, 'accounts to:', accountsPath)
-    console.log('[EmailGateway] Encrypting tokens:', isSecureStorageAvailable())
-    
-    // Ensure directory exists
-    const dir = path.dirname(accountsPath)
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true })
+    if (fs.existsSync(accountsPath)) {
+      const raw = JSON.parse(fs.readFileSync(accountsPath, 'utf-8'))
+      previousDiskAccounts = Array.isArray(raw.accounts) ? raw.accounts : []
     }
+  } catch {
+    /* ignore — best-effort restore source */
+  }
 
-    let previousDiskAccounts: EmailAccountConfig[] = []
-    try {
-      if (fs.existsSync(accountsPath)) {
-        const raw = JSON.parse(fs.readFileSync(accountsPath, 'utf-8'))
-        previousDiskAccounts = Array.isArray(raw.accounts) ? raw.accounts : []
+  const encryptedAccounts = accounts.map((account) => {
+    let next = account
+    if (account.oauth) {
+      next = {
+        ...account,
+        oauth: encryptOAuthTokens(account.oauth),
       }
-    } catch {
-      /* ignore — best-effort restore source */
     }
-    
-    // Encrypt OAuth tokens and IMAP/SMTP passwords before saving (encrypted snapshot only)
-    const encryptedAccounts = accounts.map(account => {
-      let next = account
-      if (account.oauth) {
-        next = {
-          ...account,
-          oauth: encryptOAuthTokens(account.oauth)
-        }
-      }
-      return encryptImapSmtpPasswordsForDisk(next)
-    })
+    return encryptImapSmtpPasswordsForDisk(next)
+  })
 
-    for (let i = 0; i < encryptedAccounts.length; i++) {
-      const enc = encryptedAccounts[i]
-      if (enc.provider !== 'imap') continue
+  for (let i = 0; i < encryptedAccounts.length; i++) {
+    const enc = encryptedAccounts[i]
+    if (enc.provider !== 'imap') continue
 
-      if (enc.imap) {
-        const pw = enc.imap.password
-        if (pw == null || String(pw).trim().length === 0) {
-          console.error('[Gateway] Save snapshot has empty IMAP password; attempting restore:', enc.id, enc.email)
-          const mem = accounts.find(a => a.id === enc.id)
-          const mPw = mem?.imap?.password
-          if (mPw != null && String(mPw).trim().length > 0) {
-            encryptedAccounts[i] = encryptImapSmtpPasswordsForDisk({
-              ...enc,
-              imap: { ...enc.imap, password: String(mPw), _encrypted: false },
-            })
-            console.warn('[Gateway] Restored in-memory IMAP password before save:', enc.id)
-          } else {
-            const prev = previousDiskAccounts.find(a => a.id === enc.id)
-            const prevImap = prev?.imap
-            if (prevImap?.password != null && String(prevImap.password).trim().length > 0) {
-              encryptedAccounts[i] = {
-                ...encryptedAccounts[i],
-                imap: {
-                  host: enc.imap.host,
-                  port: enc.imap.port,
-                  security: enc.imap.security,
-                  username: enc.imap.username,
-                  password: prevImap.password,
-                  _encrypted: prevImap._encrypted,
-                },
-              }
-              console.warn('[Gateway] Restored IMAP password from previous on-disk snapshot:', enc.id)
-            } else {
-              console.error('[Gateway] REFUSING to save account with empty IMAP password:', enc.id, enc.email)
-              throw new Error(`[EmailGateway] Refusing to persist IMAP account ${enc.id}: empty password`)
-            }
-          }
-        }
-      }
-
-      const rowForSmtp = encryptedAccounts[i]
-      if (rowForSmtp.smtp) {
-        const spw = rowForSmtp.smtp.password
-        if (spw != null && String(spw).trim().length > 0) continue
-
-        console.error('[Gateway] Save snapshot has empty SMTP password; attempting restore:', enc.id, enc.email)
-        const mem = accounts.find(a => a.id === enc.id)
-        const msPw = mem?.smtp?.password
-        if (msPw != null && String(msPw).trim().length > 0) {
+    if (enc.imap) {
+      const pw = enc.imap.password
+      if (pw == null || String(pw).trim().length === 0) {
+        console.error('[Gateway] Save snapshot has empty IMAP password; attempting restore:', enc.id, enc.email)
+        const mem = accounts.find((a) => a.id === enc.id)
+        const mPw = mem?.imap?.password
+        if (mPw != null && String(mPw).trim().length > 0) {
           encryptedAccounts[i] = encryptImapSmtpPasswordsForDisk({
-            ...encryptedAccounts[i],
-            smtp: { ...rowForSmtp.smtp, password: String(msPw), _encrypted: false },
+            ...enc,
+            imap: { ...enc.imap, password: String(mPw), _encrypted: false },
           })
-          console.warn('[Gateway] Restored in-memory SMTP password before save:', enc.id)
+          console.warn('[Gateway] Restored in-memory IMAP password before save:', enc.id)
         } else {
-          const prev = previousDiskAccounts.find(a => a.id === enc.id)
-          const prevSmtp = prev?.smtp
-          if (prevSmtp?.password != null && String(prevSmtp.password).trim().length > 0) {
+          const prev = previousDiskAccounts.find((a) => a.id === enc.id)
+          const prevImap = prev?.imap
+          if (prevImap?.password != null && String(prevImap.password).trim().length > 0) {
             encryptedAccounts[i] = {
               ...encryptedAccounts[i],
-              smtp: {
-                host: rowForSmtp.smtp.host,
-                port: rowForSmtp.smtp.port,
-                security: rowForSmtp.smtp.security,
-                username: rowForSmtp.smtp.username,
-                password: prevSmtp.password,
-                _encrypted: prevSmtp._encrypted,
+              imap: {
+                host: enc.imap.host,
+                port: enc.imap.port,
+                security: enc.imap.security,
+                username: enc.imap.username,
+                password: prevImap.password,
+                _encrypted: prevImap._encrypted,
               },
             }
-            console.warn('[Gateway] Restored SMTP password from previous on-disk snapshot:', enc.id)
+            console.warn('[Gateway] Restored IMAP password from previous on-disk snapshot:', enc.id)
           } else {
-            console.error('[Gateway] REFUSING to save account with empty SMTP password:', enc.id, enc.email)
-            throw new Error(`[EmailGateway] Refusing to persist IMAP account ${enc.id}: empty SMTP password`)
+            console.error('[Gateway] REFUSING to save account with empty IMAP password:', enc.id, enc.email)
+            throw new Error(`[EmailGateway] Refusing to persist IMAP account ${enc.id}: empty password`)
           }
         }
       }
     }
-    
-    fs.writeFileSync(accountsPath, JSON.stringify({ accounts: encryptedAccounts }, null, 2), 'utf-8')
-    console.log('[EmailGateway] Accounts saved successfully (tokens encrypted)')
-  } catch (err) {
-    console.error('[EmailGateway] Error saving accounts:', err)
+
+    const rowForSmtp = encryptedAccounts[i]
+    if (rowForSmtp.smtp) {
+      const spw = rowForSmtp.smtp.password
+      if (spw != null && String(spw).trim().length > 0) continue
+
+      console.error('[Gateway] Save snapshot has empty SMTP password; attempting restore:', enc.id, enc.email)
+      const mem = accounts.find((a) => a.id === enc.id)
+      const msPw = mem?.smtp?.password
+      if (msPw != null && String(msPw).trim().length > 0) {
+        encryptedAccounts[i] = encryptImapSmtpPasswordsForDisk({
+          ...encryptedAccounts[i],
+          smtp: { ...rowForSmtp.smtp, password: String(msPw), _encrypted: false },
+        })
+        console.warn('[Gateway] Restored in-memory SMTP password before save:', enc.id)
+      } else {
+        const prev = previousDiskAccounts.find((a) => a.id === enc.id)
+        const prevSmtp = prev?.smtp
+        if (prevSmtp?.password != null && String(prevSmtp.password).trim().length > 0) {
+          encryptedAccounts[i] = {
+            ...encryptedAccounts[i],
+            smtp: {
+              host: rowForSmtp.smtp.host,
+              port: rowForSmtp.smtp.port,
+              security: rowForSmtp.smtp.security,
+              username: rowForSmtp.smtp.username,
+              password: prevSmtp.password,
+              _encrypted: prevSmtp._encrypted,
+            },
+          }
+          console.warn('[Gateway] Restored SMTP password from previous on-disk snapshot:', enc.id)
+        } else {
+          console.error('[Gateway] REFUSING to save account with empty SMTP password:', enc.id, enc.email)
+          throw new Error(`[EmailGateway] Refusing to persist IMAP account ${enc.id}: empty SMTP password`)
+        }
+      }
+    }
   }
+
+  const json = JSON.stringify({ accounts: encryptedAccounts }, null, 2)
+  const base = path.basename(accountsPath)
+  const tmp = path.join(dir, `.${base}.${process.pid}.${Date.now()}.tmp`)
+
+  try {
+    fs.writeFileSync(tmp, json, 'utf-8')
+    if (process.platform === 'win32' && fs.existsSync(accountsPath)) {
+      fs.unlinkSync(accountsPath)
+    }
+    fs.renameSync(tmp, accountsPath)
+  } catch (err) {
+    try {
+      if (fs.existsSync(tmp)) fs.unlinkSync(tmp)
+    } catch {
+      /* ignore */
+    }
+    const msg = err instanceof Error ? err.message : String(err)
+    emailAccountsPersistenceDiagnostics.lastPersistOk = false
+    emailAccountsPersistenceDiagnostics.lastPersistError = msg
+    emailAccountsPersistenceDiagnostics.lastPersistAtMs = Date.now()
+    console.error('[EmailGateway] Error saving accounts:', err)
+    emailAccountsDebugLog('persistEmailAccounts failed:', msg)
+    throw err instanceof Error ? err : new Error(msg)
+  }
+
+  emailAccountsPersistenceDiagnostics.lastPersistOk = true
+  emailAccountsPersistenceDiagnostics.lastPersistError = null
+  emailAccountsPersistenceDiagnostics.lastPersistAtMs = Date.now()
+  emailAccountsDebugLog('Accounts saved successfully (tokens encrypted)')
 }
 
 /**
@@ -554,7 +655,16 @@ class EmailGateway implements IEmailGateway {
   // =================================================================
   
   async listAccounts(): Promise<EmailAccountInfo[]> {
-    return this.accounts.map(acc => this.toAccountInfo(acc))
+    return this.accounts.map((acc) => this.toAccountInfo(acc))
+  }
+
+  /** Last load/save/decrypt diagnostics for IPC/HTTP (not a second source of truth). */
+  getPersistenceDiagnostics(): EmailAccountsPersistenceDiagnostics {
+    return {
+      ...emailAccountsPersistenceDiagnostics,
+      accountsFilePath: getAccountsPath(),
+      credentialDecryptIssues: [...emailAccountsPersistenceDiagnostics.credentialDecryptIssues],
+    }
   }
   
   async getAccount(id: string): Promise<EmailAccountInfo | null> {
@@ -603,10 +713,17 @@ class EmailGateway implements IEmailGateway {
       console.log('[EmailGateway] Connection test successful')
       account.status = 'active'
     }
-    
-    saveAccounts(this.accounts)
+
+    try {
+      persistEmailAccounts(this.accounts)
+    } catch (e) {
+      if (!isAccountIdPresentOnDisk(account.id)) {
+        this.accounts.pop()
+      }
+      throw e
+    }
     console.log('[EmailGateway] Saved', this.accounts.length, 'accounts')
-    
+
     return this.toAccountInfo(account)
   }
   
@@ -641,8 +758,13 @@ class EmailGateway implements IEmailGateway {
 
     this.accounts[index] = merged
 
-    saveAccounts(this.accounts)
-    
+    try {
+      persistEmailAccounts(this.accounts)
+    } catch (e) {
+      this.accounts[index] = prev
+      throw e
+    }
+
     // Disconnect existing provider if connected
     const provider = this.providers.get(id)
     if (provider) {
@@ -672,12 +794,24 @@ class EmailGateway implements IEmailGateway {
       throw new Error('Account not found')
     }
     const account = this.accounts[index]
+    const prevPaused = account.processingPaused
+    const prevUpdated = account.updatedAt
     account.processingPaused = paused === true
     if (!account.processingPaused) {
       delete (account as { processingPaused?: boolean }).processingPaused
     }
     account.updatedAt = Date.now()
-    saveAccounts(this.accounts)
+    try {
+      persistEmailAccounts(this.accounts)
+    } catch (e) {
+      if (prevPaused === true) {
+        account.processingPaused = true
+      } else {
+        delete (account as { processingPaused?: boolean }).processingPaused
+      }
+      account.updatedAt = prevUpdated
+      throw e
+    }
     return this.toAccountInfo(account)
   }
   
@@ -694,8 +828,13 @@ class EmailGateway implements IEmailGateway {
       this.providers.delete(id)
     }
     
-    this.accounts.splice(index, 1)
-    saveAccounts(this.accounts)
+    const [removed] = this.accounts.splice(index, 1)
+    try {
+      persistEmailAccounts(this.accounts)
+    } catch (e) {
+      this.accounts.splice(index, 0, removed)
+      throw e
+    }
   }
   
   async testConnection(id: string): Promise<{ success: boolean; error?: string }> {
@@ -719,6 +858,10 @@ class EmailGateway implements IEmailGateway {
       const provider = await this.getProvider(account)
       const result = await provider.testConnection(account)
 
+      const prevStatus = account.status
+      const prevLastError = account.lastError
+      const prevUpdatedAt = account.updatedAt
+
       // Update account status — distinguish IMAP credential failures from generic errors
       if (result.success) {
         account.status = 'active'
@@ -732,16 +875,35 @@ class EmailGateway implements IEmailGateway {
           : result.error
       }
       account.updatedAt = Date.now()
-      saveAccounts(this.accounts)
+      try {
+        persistEmailAccounts(this.accounts)
+      } catch (persistErr) {
+        account.status = prevStatus
+        account.lastError = prevLastError
+        account.updatedAt = prevUpdatedAt
+        const pmsg = persistErr instanceof Error ? persistErr.message : String(persistErr)
+        return { success: false, error: `Could not save account status: ${pmsg}` }
+      }
 
       return result
     } catch (err: any) {
       const msg = err?.message ?? String(err)
       if (account.provider === 'imap' && isLikelyEmailAuthError(msg)) {
+        const prevStatus = account.status
+        const prevLastError = account.lastError
+        const prevUpdatedAt = account.updatedAt
         account.status = 'auth_error'
         account.lastError = 'Authentication failed — check credentials'
         account.updatedAt = Date.now()
-        saveAccounts(this.accounts)
+        try {
+          persistEmailAccounts(this.accounts)
+        } catch (persistErr) {
+          account.status = prevStatus
+          account.lastError = prevLastError
+          account.updatedAt = prevUpdatedAt
+          const pmsg = persistErr instanceof Error ? persistErr.message : String(persistErr)
+          return { success: false, error: `Could not save account status: ${pmsg}` }
+        }
       }
       return { success: false, error: msg }
     }
@@ -1123,14 +1285,21 @@ class EmailGateway implements IEmailGateway {
     if (index === -1) return
     const acc = this.accounts[index]
     if (acc.status !== 'error') return
+    const snapshot = { ...acc }
     this.accounts[index] = {
       ...acc,
       status: 'active',
       lastError: undefined,
       updatedAt: Date.now(),
     }
-    saveAccounts(this.accounts)
-    console.log('[EmailGateway] Cleared transient account error flag (orchestrator drain):', accountId)
+    try {
+      persistEmailAccounts(this.accounts)
+      console.log('[EmailGateway] Cleared transient account error flag (orchestrator drain):', accountId)
+    } catch (e) {
+      this.accounts[index] = snapshot
+      console.error('[EmailGateway] clearOrchestratorTransientAccountError: persist failed, reverted:', e)
+      emailAccountsDebugLog('clearOrchestratorTransientAccountError persist failed', e)
+    }
   }
 
   // =================================================================
@@ -1346,13 +1515,16 @@ class EmailGateway implements IEmailGateway {
   
   async syncAccount(accountId: string): Promise<SyncStatus> {
     const account = this.findAccount(accountId)
-    
+
     try {
       const provider = await this.getConnectedProvider(account)
-      
-      // Just test connection for now
+
       const testResult = await provider.testConnection(account)
-      
+
+      const prevStatus = account.status
+      const prevLastSync = account.lastSyncAt
+      const prevErr = account.lastError
+
       if (testResult.success) {
         account.status = 'active'
         account.lastSyncAt = Date.now()
@@ -1361,24 +1533,52 @@ class EmailGateway implements IEmailGateway {
         account.status = 'error'
         account.lastError = testResult.error
       }
-      
-      saveAccounts(this.accounts)
-      
+
+      try {
+        persistEmailAccounts(this.accounts)
+      } catch (persistErr) {
+        account.status = prevStatus
+        account.lastSyncAt = prevLastSync
+        account.lastError = prevErr
+        const pmsg = persistErr instanceof Error ? persistErr.message : String(persistErr)
+        return {
+          accountId,
+          status: 'error',
+          lastSyncAt: account.lastSyncAt,
+          error: `Could not save sync state: ${pmsg}`,
+        }
+      }
+
       return {
         accountId,
         status: testResult.success ? 'idle' : 'error',
         lastSyncAt: account.lastSyncAt,
-        error: account.lastError
+        error: account.lastError,
       }
     } catch (err: any) {
+      const prevStatus = account.status
+      const prevLastSync = account.lastSyncAt
+      const prevErr = account.lastError
       account.status = 'error'
       account.lastError = err.message
-      saveAccounts(this.accounts)
-      
+      try {
+        persistEmailAccounts(this.accounts)
+      } catch (persistErr) {
+        account.status = prevStatus
+        account.lastSyncAt = prevLastSync
+        account.lastError = prevErr
+        const pmsg = persistErr instanceof Error ? persistErr.message : String(persistErr)
+        return {
+          accountId,
+          status: 'error',
+          error: `Could not save sync state: ${pmsg}`,
+        }
+      }
+
       return {
         accountId,
         status: 'error',
-        error: err.message
+        error: err.message,
       }
     }
   }
@@ -1718,7 +1918,12 @@ class EmailGateway implements IEmailGateway {
       hasImapPassword: !!account.imap?.password,
       imapPasswordLength: account.imap?.password?.length ?? 0,
     })
-    saveAccounts(this.accounts)
+    try {
+      persistEmailAccounts(this.accounts)
+    } catch (e) {
+      this.accounts.pop()
+      throw e
+    }
 
     const saved = this.accounts.find((a) => a.id === account.id)
     if (saved?.provider === 'imap' && (!saved.imap?.password || String(saved.imap.password).trim() === '')) {
@@ -1727,7 +1932,12 @@ class EmailGateway implements IEmailGateway {
         saved.imap.password = imapPass
         if (saved.smtp) saved.smtp.password = smtpPass
       }
-      saveAccounts(this.accounts)
+      try {
+        persistEmailAccounts(this.accounts)
+      } catch (e) {
+        console.error('[EmailGateway] Second persist after IMAP password restore failed:', e)
+        throw e
+      }
     }
 
     console.log('[EmailGateway] Custom IMAP+SMTP account saved:', account.id, account.email)
@@ -1897,7 +2107,7 @@ class EmailGateway implements IEmailGateway {
    * **Config source:** The `account` object must be the in-memory row from `this.accounts` (normally
    * plaintext IMAP/SMTP after successful `loadAccounts()`; if decrypt failed, row may still be sealed — see
    * `assertImapCredentialsUsableForConnect`). This method does **not** reload
-   * accounts from disk; `saveAccounts()` only writes ciphertext to JSON and does not mutate `this.accounts`.
+   * accounts from disk; `persistEmailAccounts()` only writes ciphertext to JSON and does not mutate `this.accounts`.
    */
   private async getConnectedProvider(account: EmailAccountConfig): Promise<IEmailProvider> {
     if (account.provider === 'imap') {
@@ -1929,19 +2139,30 @@ class EmailGateway implements IEmailGateway {
       
       // Set up token refresh callback to persist new tokens
       if ('onTokenRefresh' in provider) {
-        (provider as any).onTokenRefresh = (newTokens: { accessToken: string; refreshToken: string; expiresAt: number }) => {
-          console.log('[EmailGateway] Token refreshed for account:', account.id)
-          // Update account in memory
+        (provider as any).onTokenRefresh = (newTokens: {
+          accessToken: string
+          refreshToken: string
+          expiresAt: number
+        }) => {
+          emailAccountsDebugLog('Token refreshed for account:', account.id)
+          const prevOauth = account.oauth ? { ...account.oauth } : undefined
+          const prevUpdated = account.updatedAt
           account.oauth = {
             ...account.oauth!,
             accessToken: newTokens.accessToken,
             refreshToken: newTokens.refreshToken,
-            expiresAt: newTokens.expiresAt
+            expiresAt: newTokens.expiresAt,
           }
           account.updatedAt = Date.now()
-          // Persist to disk
-          saveAccounts(this.accounts)
-          console.log('[EmailGateway] New tokens persisted to disk')
+          try {
+            persistEmailAccounts(this.accounts)
+            emailAccountsDebugLog('New tokens persisted for', account.id)
+          } catch (e) {
+            if (prevOauth) account.oauth = prevOauth
+            account.updatedAt = prevUpdated
+            console.error('[EmailGateway] Token refresh persist failed (reverted in memory):', e)
+            emailAccountsDebugLog('Token refresh persist failed', e)
+          }
         }
       }
 

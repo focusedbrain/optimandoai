@@ -769,10 +769,11 @@ function SidepanelOrchestrator() {
     id: string
     displayName: string
     email: string
-    provider: 'gmail' | 'microsoft365' | 'imap'
+    provider: 'gmail' | 'microsoft365' | 'zoho' | 'imap'
     status: 'active' | 'error' | 'disabled'
     lastError?: string
   }>>([])
+  const [emailAccountsLoadError, setEmailAccountsLoadError] = useState<string | null>(null)
   const defaultEmailAccountRowId = useMemo(
     () => pickDefaultEmailAccountRowId(emailAccounts),
     [emailAccounts],
@@ -813,20 +814,113 @@ function SidepanelOrchestrator() {
   // Load email accounts from Electron via WebSocket
   const loadEmailAccounts = async () => {
     setIsLoadingEmailAccounts(true)
+    setEmailAccountsLoadError(null)
     try {
-      // Send request to Electron via background script
-      const response = await chrome.runtime.sendMessage({ 
-        type: 'EMAIL_LIST_ACCOUNTS' 
+      const response = await chrome.runtime.sendMessage({
+        type: 'EMAIL_LIST_ACCOUNTS',
       })
-      if (response?.ok && response?.data) {
-        setEmailAccounts(response.data)
+      if (!response || typeof response !== 'object') {
+        setEmailAccountsLoadError('No response from the extension when loading email accounts.')
+        return
       }
+      if ('ok' in response && response.ok === false) {
+        const r = response as { error?: string; errorCode?: string }
+        const parts = [r.error, r.errorCode].filter((x): x is string => typeof x === 'string' && x.trim().length > 0)
+        setEmailAccountsLoadError(
+          parts.length ? parts.join(' — ') : 'Could not load accounts from WR Desk™ (desktop app unreachable or request failed).',
+        )
+        return
+      }
+      if (!('ok' in response) || response.ok !== true) {
+        setEmailAccountsLoadError('Unexpected response when loading email accounts.')
+        return
+      }
+      const persistence = (response as { persistence?: {
+        load: { ok: true; fileMissing?: boolean } | { ok: false; phase: string; message: string }
+        credentialDecryptIssues?: { accountId: string; kind: string; message: string }[]
+      } }).persistence
+      const hints: string[] = []
+      if (persistence?.load && !persistence.load.ok) {
+        const L = persistence.load as { phase: string; message: string }
+        hints.push(
+          L.phase === 'read'
+            ? `Could not read saved accounts file: ${L.message}`
+            : `Saved accounts file is invalid: ${L.message}`,
+        )
+      }
+      if (persistence?.credentialDecryptIssues?.length) {
+        hints.push(
+          `${persistence.credentialDecryptIssues.length} account(s) have credentials that could not be decrypted — reconnect in WR Desk™.`,
+        )
+      }
+      const rowsUnknown = (response as { data?: unknown }).data
+      if (!Array.isArray(rowsUnknown)) {
+        setEmailAccounts([])
+        setEmailAccountsLoadError(hints.join(' ') || 'WR Desk™ returned no account list.')
+        return
+      }
+      const rows = rowsUnknown as Array<{
+        id: string
+        displayName?: string
+        email: string
+        provider?: string
+        status?: string
+        lastError?: string
+      }>
+      setEmailAccounts(
+        rows.map((a) => {
+          const p = a.provider
+          const provider: 'gmail' | 'microsoft365' | 'zoho' | 'imap' =
+            p === 'gmail'
+              ? 'gmail'
+              : p === 'microsoft365'
+                ? 'microsoft365'
+                : p === 'zoho'
+                  ? 'zoho'
+                  : 'imap'
+          const st = a.status
+          const status: 'active' | 'error' | 'disabled' =
+            st === 'active' ? 'active' : st === 'disabled' ? 'disabled' : 'error'
+          return {
+            id: a.id,
+            displayName: a.displayName ?? a.email,
+            email: a.email,
+            provider,
+            status,
+            lastError: a.lastError,
+          }
+        }),
+      )
+      setEmailAccountsLoadError(hints.length ? hints.join(' ') : null)
     } catch (err) {
       console.error('[Sidepanel] Failed to load email accounts:', err)
+      setEmailAccountsLoadError(err instanceof Error ? err.message : 'Could not load email accounts.')
     } finally {
       setIsLoadingEmailAccounts(false)
     }
   }
+
+  const emailAccountsFetchErrorEl = useMemo(() => {
+    if (!emailAccountsLoadError?.trim() || isLoadingEmailAccounts) return null
+    const isStd = theme === 'standard'
+    return (
+      <div
+        style={{
+          marginBottom: 12,
+          padding: '10px 12px',
+          borderRadius: 8,
+          fontSize: 12,
+          lineHeight: 1.4,
+          background: isStd ? 'rgba(220,38,38,0.08)' : 'rgba(248,113,113,0.12)',
+          border: `1px solid ${isStd ? 'rgba(220,38,38,0.35)' : 'rgba(248,113,113,0.35)'}`,
+          color: isStd ? '#991b1b' : '#fecaca',
+        }}
+      >
+        <strong style={{ display: 'block', marginBottom: 4 }}>Could not refresh email accounts</strong>
+        {emailAccountsLoadError}
+      </div>
+    )
+  }, [emailAccountsLoadError, isLoadingEmailAccounts, theme])
 
   const { openConnectEmail, connectEmailFlowModal } = useConnectEmailFlow({
     onAfterConnected: loadEmailAccounts,
@@ -4994,6 +5088,8 @@ function SidepanelOrchestrator() {
                         <span>+</span> Connect Email
                       </button>
                     </div>
+
+                    {emailAccountsFetchErrorEl}
                     
                     {isLoadingEmailAccounts ? (
                       <div style={{ padding: '12px', textAlign: 'center', opacity: 0.6, fontSize: '12px' }}>
@@ -5008,7 +5104,11 @@ function SidepanelOrchestrator() {
                         textAlign: 'center'
                       }}>
                         <div style={{ fontSize: '24px', marginBottom: '8px' }}>📧</div>
-                        <div style={{ fontSize: '13px', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)', marginBottom: '4px' }}>No email accounts connected</div>
+                        <div style={{ fontSize: '13px', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)', marginBottom: '4px' }}>
+                          {emailAccountsLoadError?.trim()
+                            ? 'No accounts loaded (see message above).'
+                            : 'No email accounts connected'}
+                        </div>
                         <div style={{ fontSize: '11px', color: theme === 'standard' ? '#94a3b8' : 'rgba(255,255,255,0.5)' }}>
                           Connect your email account to send BEAP™ messages
                         </div>
@@ -5032,7 +5132,7 @@ function SidepanelOrchestrator() {
                           >
                             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                               <span style={{ fontSize: '18px' }}>
-                                {account.provider === 'gmail' ? '📧' : account.provider === 'microsoft365' ? '📨' : '✉️'}
+                                {account.provider === 'gmail' ? '📧' : account.provider === 'microsoft365' ? '📨' : account.provider === 'zoho' ? '📬' : '✉️'}
                               </span>
                               <div>
                                 <div style={{ fontSize: '13px', fontWeight: '500', color: theme === 'standard' ? '#0f172a' : 'white' }}>
@@ -6638,6 +6738,8 @@ height: '28px',
                       <span>+</span> Connect Email
                     </button>
                   </div>
+
+                  {emailAccountsFetchErrorEl}
                   
                   {isLoadingEmailAccounts ? (
                     <div style={{ padding: '12px', textAlign: 'center', opacity: 0.6, fontSize: '12px' }}>
@@ -6652,7 +6754,11 @@ height: '28px',
                       textAlign: 'center'
                     }}>
                       <div style={{ fontSize: '24px', marginBottom: '8px' }}>📧</div>
-                      <div style={{ fontSize: '13px', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)', marginBottom: '4px' }}>No email accounts connected</div>
+                      <div style={{ fontSize: '13px', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)', marginBottom: '4px' }}>
+                        {emailAccountsLoadError?.trim()
+                          ? 'No accounts loaded (see message above).'
+                          : 'No email accounts connected'}
+                      </div>
                       <div style={{ fontSize: '11px', color: theme === 'standard' ? '#94a3b8' : 'rgba(255,255,255,0.5)' }}>
                         Connect your email account to send BEAP™ messages
                       </div>
@@ -6676,7 +6782,7 @@ height: '28px',
                         >
                           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                             <span style={{ fontSize: '18px' }}>
-                              {account.provider === 'gmail' ? '📧' : account.provider === 'microsoft365' ? '📨' : '✉️'}
+                              {account.provider === 'gmail' ? '📧' : account.provider === 'microsoft365' ? '📨' : account.provider === 'zoho' ? '📬' : '✉️'}
                             </span>
                             <div>
                               <div style={{ fontSize: '13px', fontWeight: '500', color: theme === 'standard' ? '#0f172a' : 'white' }}>
@@ -7925,6 +8031,8 @@ height: '28px',
                       <span>+</span> Connect Email
                     </button>
                   </div>
+
+                  {emailAccountsFetchErrorEl}
                   
                   {isLoadingEmailAccounts ? (
                     <div style={{ padding: '12px', textAlign: 'center', opacity: 0.6, fontSize: '12px' }}>
@@ -7939,7 +8047,11 @@ height: '28px',
                       textAlign: 'center'
                     }}>
                       <div style={{ fontSize: '24px', marginBottom: '8px' }}>📧</div>
-                      <div style={{ fontSize: '13px', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)', marginBottom: '4px' }}>No email accounts connected</div>
+                      <div style={{ fontSize: '13px', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)', marginBottom: '4px' }}>
+                        {emailAccountsLoadError?.trim()
+                          ? 'No accounts loaded (see message above).'
+                          : 'No email accounts connected'}
+                      </div>
                       <div style={{ fontSize: '11px', color: theme === 'standard' ? '#94a3b8' : 'rgba(255,255,255,0.5)' }}>
                         Connect your email account to send BEAP™ messages
                       </div>
@@ -7963,7 +8075,7 @@ height: '28px',
                         >
                           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                             <span style={{ fontSize: '18px' }}>
-                              {account.provider === 'gmail' ? '📧' : account.provider === 'microsoft365' ? '📨' : '✉️'}
+                              {account.provider === 'gmail' ? '📧' : account.provider === 'microsoft365' ? '📨' : account.provider === 'zoho' ? '📬' : '✉️'}
                             </span>
                             <div>
                               <div style={{ fontSize: '13px', fontWeight: '500', color: theme === 'standard' ? '#0f172a' : 'white' }}>

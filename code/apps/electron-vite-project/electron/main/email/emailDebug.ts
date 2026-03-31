@@ -16,6 +16,10 @@ try {
 
 export const EMAIL_DEBUG = process.env.EMAIL_DEBUG === '1' || isDev
 
+/** Verbose email account persistence / list / decrypt traces — quiet unless DEBUG_EMAIL_ACCOUNTS=1 or dev. */
+export const EMAIL_ACCOUNTS_DEBUG =
+  process.env.DEBUG_EMAIL_ACCOUNTS === '1' || EMAIL_DEBUG
+
 /** Dev-only raw IMAP IPC (`email:diagnoseImap`) — production builds must not register the handler. */
 export const DIAGNOSE_IMAP_IPC_DEV = isDev
 
@@ -30,5 +34,12 @@ export function emailDebugWarn(...args: unknown[]): void {
   if (EMAIL_DEBUG) {
     // eslint-disable-next-line no-console -- gated diagnostic
     console.warn(...args)
+  }
+}
+
+export function emailAccountsDebugLog(...args: unknown[]): void {
+  if (EMAIL_ACCOUNTS_DEBUG) {
+    // eslint-disable-next-line no-console -- gated diagnostic
+    console.log('[EmailAccountsDebug]', ...args)
   }
 }

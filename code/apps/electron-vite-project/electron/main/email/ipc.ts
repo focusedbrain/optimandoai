@@ -671,7 +671,12 @@ export function registerEmailHandlers(getInboxDb?: () => Promise<any> | any): vo
   ipcMain.handle('email:listAccounts', async () => {
     try {
       const accounts = await emailGateway.listAccounts()
-      return { ok: true, data: accounts }
+      const persistence = emailGateway.getPersistenceDiagnostics()
+      emailDebugLog('[Email IPC] listAccounts', accounts.length, 'rows', {
+        loadOk: persistence.load.ok,
+        decryptIssues: persistence.credentialDecryptIssues.length,
+      })
+      return { ok: true, data: accounts, persistence }
     } catch (error: any) {
       console.error('[Email IPC] listAccounts error:', error)
       return { ok: false, error: error.message }
@@ -4006,8 +4011,9 @@ ${formatSourceWeightingForPrompt(sortWeight)}`
            sort_category = ?, sort_reason = ?, urgency_score = ?, needs_reply = ? WHERE id = ?`,
         ).run(nowIso, effectiveSortCategory, reason || null, urgency, needsReply ? 1 : 0, messageId)
       } else {
+        /** Clear `pending_review_at` whenever we leave the review workflow — otherwise rows stay excluded from the main inbox tab (`filter=all`) while `sort_category` reads `normal`, which looks like “analyzed but not sorted.” */
         db.prepare(
-          `UPDATE inbox_messages SET archived = 0, pending_delete = 0, pending_delete_at = NULL,
+          `UPDATE inbox_messages SET archived = 0, pending_delete = 0, pending_delete_at = NULL, pending_review_at = NULL,
            sort_category = ?, sort_reason = ?, urgency_score = ?, needs_reply = ? WHERE id = ?`,
         ).run(effectiveSortCategory, reason || null, urgency, needsReply ? 1 : 0, messageId)
       }

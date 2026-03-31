@@ -138,6 +138,8 @@ export interface EmailProvidersSectionProps {
   onUpdateImapCredentials?: (accountId: string) => void
   /** Pause/resume background mail sync (non-destructive; credentials stay saved). */
   onSetProcessingPaused?: (accountId: string, paused: boolean) => void | Promise<void>
+  /** Load/list/bridge failure — do not present as “no accounts” without context. */
+  listAccountsError?: string | null
 }
 
 export const EmailProvidersSection: React.FC<EmailProvidersSectionProps> = ({
@@ -150,6 +152,7 @@ export const EmailProvidersSection: React.FC<EmailProvidersSectionProps> = ({
   onSelectEmailAccount,
   onUpdateImapCredentials,
   onSetProcessingPaused,
+  listAccountsError,
 }) => {
   const defaultEmailAccountRowId = pickDefaultEmailAccountRowId(emailAccounts)
   const isLightTheme = theme === 'professional' || theme === 'standard'
@@ -196,6 +199,24 @@ export const EmailProvidersSection: React.FC<EmailProvidersSectionProps> = ({
           <span>+</span> Connect Email
         </button>
       </div>
+
+      {listAccountsError && String(listAccountsError).trim() && !isLoadingEmailAccounts ? (
+        <div
+          style={{
+            marginBottom: 12,
+            padding: '10px 12px',
+            borderRadius: 8,
+            fontSize: 12,
+            lineHeight: 1.4,
+            background: isLightTheme ? 'rgba(220,38,38,0.08)' : 'rgba(248,113,113,0.12)',
+            border: `1px solid ${isLightTheme ? 'rgba(220,38,38,0.35)' : 'rgba(248,113,113,0.35)'}`,
+            color: isLightTheme ? '#991b1b' : '#fecaca',
+          }}
+        >
+          <strong style={{ display: 'block', marginBottom: 4 }}>Could not refresh accounts</strong>
+          {listAccountsError}
+        </div>
+      ) : null}
       
       {/* Loading State */}
       {isLoadingEmailAccounts ? (
@@ -212,7 +233,11 @@ export const EmailProvidersSection: React.FC<EmailProvidersSectionProps> = ({
           textAlign: 'center'
         }}>
           <div style={{ fontSize: '24px', marginBottom: '8px' }}>📧</div>
-          <div style={{ fontSize: '13px', color: mutedColor, marginBottom: '4px' }}>No email accounts connected</div>
+          <div style={{ fontSize: '13px', color: mutedColor, marginBottom: '4px' }}>
+            {listAccountsError && String(listAccountsError).trim()
+              ? 'No accounts loaded (see message above).'
+              : 'No email accounts connected'}
+          </div>
           <div style={{ fontSize: '11px', color: isLightTheme ? '#94a3b8' : 'rgba(255,255,255,0.5)' }}>
             Connect your email account to use WRGuard email features
           </div>

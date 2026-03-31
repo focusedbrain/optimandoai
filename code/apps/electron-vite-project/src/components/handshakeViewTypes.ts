@@ -124,6 +124,17 @@ declare global {
           }>
         }>
         error?: string
+        /** Main-process email-accounts.json load/save diagnostics (same source of truth). */
+        persistence?: {
+          accountsFilePath: string
+          load:
+            | { ok: true; fileMissing?: boolean }
+            | { ok: false; phase: 'read' | 'parse'; message: string }
+          credentialDecryptIssues: Array<{ accountId: string; kind: string; message: string }>
+          lastPersistOk: boolean | null
+          lastPersistError: string | null
+          lastPersistAtMs: number | null
+        }
       }>
       sendEmail: (
         accountId: string,

@@ -7912,7 +7912,8 @@ app.whenReady().then(async () => {
         console.log('[HTTP-EMAIL] GET /api/email/accounts')
         const { emailGateway } = await import('./main/email/gateway')
         const accounts = await emailGateway.listAccounts()
-        res.json({ ok: true, data: accounts })
+        const persistence = emailGateway.getPersistenceDiagnostics()
+        res.json({ ok: true, data: accounts, persistence })
       } catch (error: any) {
         console.error('[HTTP-EMAIL] Error listing accounts:', error)
         res.status(500).json({ ok: false, error: error.message })

@@ -1511,6 +1511,8 @@ export interface AiSortProgressState {
   done: number
   total: number
   label: string
+  /** Honest breakdown: analyzed vs moved/applied vs retained vs failed (not “all success” when only LLM ran). */
+  statsDetail?: string
   phase: 'sorting' | 'summarizing' | 'complete'
 }
 
@@ -1874,6 +1876,7 @@ export default function EmailInboxBulkView({
     }>
   >([])
   const [isLoadingProviderAccounts, setIsLoadingProviderAccounts] = useState(true)
+  const [providerListError, setProviderListError] = useState<string | null>(null)
   const [selectedProviderAccountId, setSelectedProviderAccountId] = useState<string | null>(null)
   /** True when every listed account is IMAP — unified Sync runs pull only (no remote enqueue). */
   const bulkToolbarPullOnly = useMemo(
@@ -2647,14 +2650,6 @@ export default function EmailInboxBulkView({
         const batch = ids.slice(_i, _i + chunkSize)
         _i += batch.length
         const doneAfterBatch = Math.min(_i, ids.length)
-          if (!suppressGlobalSortingUi) {
-            setAiSortProgress({
-              done: doneAfterBatch,
-              total: ids.length,
-              label: `Analyzing ${doneAfterBatch}/${ids.length}…`,
-              phase: 'sorting',
-            })
-          }
           // One IPC call for the whole chunk — main process handles LLM resolution internally
           type BatchResult = {
             messageId: string; error?: string; category?: string; urgency?: number
@@ -2997,9 +2992,21 @@ export default function EmailInboxBulkView({
             setBulkAiOutputs((prev) => ({ ...prev, ...batchUiUpdates }))
             await sortFeedbackPaintDwell()
           }
+          if (!suppressGlobalSortingUi) {
+            const d = runDiag
+            const statLine = `Analyzed ${d.analyzed} · Applied moves ${d.moved} · Retained ${d.retained} · Failed ${d.failed}`
+            setAiSortProgress({
+              done: doneAfterBatch,
+              total: ids.length,
+              label: `Auto-Sort ${doneAfterBatch}/${ids.length} (classify + DB apply per chunk)`,
+              statsDetail: statLine,
+              phase: 'sorting',
+            })
+          }
         } // end while (_i < ids.length)
+        /** Only retry ids that never got a per-message result (completeness gap). Do not re-run LLM for explicit failures — that duplicated work and could mask pipeline bugs. */
         const missedIdsPass1 = ids.filter((id) => !processedIds.includes(id) && !failedIds.includes(id))
-        const toRetry = ids.filter((id) => !processedIds.includes(id))
+        const toRetry = missedIdsPass1
         console.log('[SORT] First pass.', {
           targeted: ids.length,
           processed: processedIds.length,
@@ -3014,9 +3021,9 @@ export default function EmailInboxBulkView({
         let allMovedIds = [...movedIds]
         let finalRetainedCounts = { ...retainedCounts }
         if (toRetry.length === 0) {
-          console.log('[SORT] All targeted messages reached a terminal outcome in one pass')
+          console.log('[SORT] All targeted messages reached a terminal outcome in one pass (no missed ids)')
         } else if (!isRetry && !sortStopRequestedRef.current) {
-          if (missedIdsPass1.length > 0) console.warn('[SORT] Pass-1 missed (will retry):', missedIdsPass1)
+          console.warn('[SORT] Completeness retry (missed ids only):', toRetry)
           const retryResult = await runAiCategorizeForIds(
             toRetry,
             false,
@@ -3034,7 +3041,7 @@ export default function EmailInboxBulkView({
           allFailedIds = [...new Set([...failedIds, ...retryResult.failedIds])]
           allMovedIds = [...new Set([...movedIds, ...retryResult.movedIds])]
           finalRetainedCounts = mergeRetainedCounts(retainedCounts, retryResult.retainedCounts)
-          console.log('[SORT] Retry pass.', {
+          console.log('[SORT] Missed-id retry pass.', {
             retryTargeted: toRetry.length,
             processed: retryResult.processedIds.length,
             failed: retryResult.failedIds.length,
@@ -3073,37 +3080,42 @@ export default function EmailInboxBulkView({
           movedIds: allMovedIds,
           failedIds: allFailedIds,
         })
-        /** Ensure M365/IMAP mirror for every successfully classified id (not raw batch targets). Re-upserts from DB + chained drain. */
+        /**
+         * Remote IMAP/M365 mirror runs in the background so Auto-Sort does not block on a second-phase
+         * round-trip after classify+local UI already applied. Local + SQLite are authoritative for workflow tabs.
+         */
         const classifiedIdsForRemote = [...new Set(allProcessedIds)]
         if (classifiedIdsForRemote.length > 0) {
           const syncFn = window.emailInbox?.enqueueRemoteSync ?? window.emailInbox?.enqueueRemoteLifecycleMirror
           if (syncFn) {
-            try {
-              const res = await syncFn(classifiedIdsForRemote)
-              if (!res?.ok) {
-                console.warn('[AutoSort] Remote enqueue failed:', res && 'error' in res ? res.error : res)
-              } else if ('enqueued' in res && (res.enqueued ?? 0) > 0) {
-                console.log('[AutoSort] Remote enqueue:', { enqueued: res.enqueued, skipped: res.skipped })
-              } else if ('data' in res && res.data?.enqueued) {
-                console.log('[AutoSort] Remote enqueue:', res.data)
+            void (async () => {
+              try {
+                const res = await syncFn(classifiedIdsForRemote)
+                if (!res?.ok) {
+                  console.warn('[AutoSort] Remote enqueue failed:', res && 'error' in res ? res.error : res)
+                } else if ('enqueued' in res && (res.enqueued ?? 0) > 0) {
+                  console.log('[AutoSort] Remote enqueue:', { enqueued: res.enqueued, skipped: res.skipped })
+                } else if ('data' in res && res.data?.enqueued) {
+                  console.log('[AutoSort] Remote enqueue:', res.data)
+                }
+              } catch (e) {
+                console.warn('[AutoSort] Remote enqueue failed:', e)
               }
-            } catch (e) {
-              console.warn('[AutoSort] Remote enqueue failed:', e)
-            }
             try {
-              const full = await window.emailInbox?.fullRemoteSyncForMessages?.(classifiedIdsForRemote)
-              if (full?.ok && (full.enqueued ?? 0) + (full.inboxRestoreNeeded ?? 0) > 0) {
-                console.log('[AutoSort] Full remote reconcile:', {
-                  enqueued: full.enqueued,
-                  skipped: full.skipped,
-                  inboxRestoreNeeded: full.inboxRestoreNeeded,
-                })
-              } else if (full && !full.ok) {
-                console.warn('[AutoSort] fullRemoteSyncForMessages:', full.error)
+                const full = await window.emailInbox?.fullRemoteSyncForMessages?.(classifiedIdsForRemote)
+                if (full?.ok && (full.enqueued ?? 0) + (full.inboxRestoreNeeded ?? 0) > 0) {
+                  console.log('[AutoSort] Full remote reconcile:', {
+                    enqueued: full.enqueued,
+                    skipped: full.skipped,
+                    inboxRestoreNeeded: full.inboxRestoreNeeded,
+                  })
+                } else if (full && !full.ok) {
+                  console.warn('[AutoSort] fullRemoteSyncForMessages:', full.error)
+                }
+              } catch (e) {
+                console.warn('[AutoSort] fullRemoteSyncForMessages failed:', e)
               }
-            } catch (e) {
-              console.warn('[AutoSort] fullRemoteSyncForMessages failed:', e)
-            }
+            })()
           }
         }
         if (clearSelection) clearMultiSelect()
@@ -3379,7 +3391,7 @@ export default function EmailInboxBulkView({
       sortStopRequestedRef.current = false
       sortPausedRef.current = false
       setSortPaused(false)
-      await runAiCategorizeForIds(
+      const sortAgg = await runAiCategorizeForIds(
         targetIds,
         true,
         false,
@@ -3387,6 +3399,18 @@ export default function EmailInboxBulkView({
           manageConcurrencyLock: false,
         },
         sessionId ?? undefined
+      )
+      const nMoved = sortAgg.movedIds.length
+      const nFail = sortAgg.failedIds.length
+      const rc = sortAgg.retainedCounts
+      const nRetained =
+        rc.keep_for_manual_action +
+        rc.classified_no_auto_move +
+        rc.urgent_threshold +
+        rc.draft_reply_ready
+      const nOkAnalyze = sortAgg.processedIds.length
+      setAiSortOutcomeSummary(
+        `Auto-Sort finished: ${nOkAnalyze} analyzed with DB applied · ${nMoved} moved (archive / pending delete / pending review) · ${nRetained} retained in inbox by policy · ${nFail} failed.`,
       )
 
       if (sessionId && sessionApi?.getSessionMessages && sessionApi.finalize && sessionApi.generateSummary) {
@@ -3524,63 +3548,95 @@ export default function EmailInboxBulkView({
 
   const loadProviderAccounts = useCallback(async () => {
     if (typeof window.emailAccounts?.listAccounts !== 'function') {
+      setProviderListError('Email accounts are not available in this context (bridge missing).')
       setIsLoadingProviderAccounts(false)
       return
     }
+    setIsLoadingProviderAccounts(true)
+    setProviderListError(null)
     try {
       const res = await window.emailAccounts.listAccounts()
-      if (res?.ok && res?.data) {
-        const data = res.data as Array<{
-          id: string
-          displayName?: string
-          email: string
-          provider?: string
-          status?: string
-          processingPaused?: boolean
-          lastError?: string
-        }>
-        setProviderAccounts(
-          data.map((a) => {
-            const p = a.provider
-            const provider: 'gmail' | 'microsoft365' | 'zoho' | 'imap' =
-              p === 'gmail'
-                ? 'gmail'
-                : p === 'microsoft365'
-                  ? 'microsoft365'
-                  : p === 'zoho'
-                    ? 'zoho'
-                    : 'imap'
-            const status: 'active' | 'auth_error' | 'error' | 'disabled' =
-              a.status === 'active'
-                ? 'active'
-                : a.status === 'auth_error'
-                  ? 'auth_error'
-                  : a.status === 'error'
-                    ? 'error'
-                    : 'disabled'
-            return {
-              id: a.id,
-              displayName: a.displayName ?? a.email,
-              email: a.email,
-              provider,
-              status,
-              processingPaused: a.processingPaused === true,
-              lastError: a.lastError,
-            }
-          }),
-        )
-        setSelectedProviderAccountId((prev) => {
-          if (prev && data.some((a: { id: string }) => a.id === prev)) return prev
-          const pick = pickDefaultEmailAccountRowId(
-            data.map((a) => ({ id: a.id, status: a.status })),
-          )
-          return pick ?? data[0]?.id ?? null
-        })
-      } else {
+      if (!res?.ok) {
         setProviderAccounts([])
+        setProviderListError(String(res?.error ?? '').trim() || 'Could not list email accounts.')
+        return
       }
-    } catch {
+      const persistence = res.persistence
+      const loadHints: string[] = []
+      if (persistence?.load && !persistence.load.ok) {
+        const L = persistence.load
+        loadHints.push(
+          L.phase === 'read'
+            ? `Could not read saved accounts file: ${L.message}`
+            : `Saved accounts file is not valid JSON: ${L.message}`,
+        )
+      }
+      if (
+        persistence &&
+        persistence.credentialDecryptIssues &&
+        persistence.credentialDecryptIssues.length > 0
+      ) {
+        loadHints.push(
+          `${persistence.credentialDecryptIssues.length} account(s) have stored credentials that could not be decrypted — reconnect those providers.`,
+        )
+      }
+      if (!Array.isArray(res.data)) {
+        setProviderAccounts([])
+        setProviderListError(
+          loadHints.join(' ') || 'Account list response was missing or invalid.',
+        )
+        return
+      }
+      const data = res.data as Array<{
+        id: string
+        displayName?: string
+        email: string
+        provider?: string
+        status?: string
+        processingPaused?: boolean
+        lastError?: string
+      }>
+      setProviderAccounts(
+        data.map((a) => {
+          const p = a.provider
+          const provider: 'gmail' | 'microsoft365' | 'zoho' | 'imap' =
+            p === 'gmail'
+              ? 'gmail'
+              : p === 'microsoft365'
+                ? 'microsoft365'
+                : p === 'zoho'
+                  ? 'zoho'
+                  : 'imap'
+          const status: 'active' | 'auth_error' | 'error' | 'disabled' =
+            a.status === 'active'
+              ? 'active'
+              : a.status === 'auth_error'
+                ? 'auth_error'
+                : a.status === 'error'
+                  ? 'error'
+                  : 'disabled'
+          return {
+            id: a.id,
+            displayName: a.displayName ?? a.email,
+            email: a.email,
+            provider,
+            status,
+            processingPaused: a.processingPaused === true,
+            lastError: a.lastError,
+          }
+        }),
+      )
+      setSelectedProviderAccountId((prev) => {
+        if (prev && data.some((a: { id: string }) => a.id === prev)) return prev
+        const pick = pickDefaultEmailAccountRowId(
+          data.map((a) => ({ id: a.id, status: a.status })),
+        )
+        return pick ?? data[0]?.id ?? null
+      })
+      setProviderListError(loadHints.length ? loadHints.join(' ') : null)
+    } catch (e) {
       setProviderAccounts([])
+      setProviderListError(e instanceof Error ? e.message : 'Could not list email accounts.')
     } finally {
       setIsLoadingProviderAccounts(false)
     }
@@ -4661,7 +4717,6 @@ export default function EmailInboxBulkView({
                 style={{ width: 72, cursor: 'pointer', accentColor: '#7c3aed' }}
               />
             </label>
-            <BulkOllamaModelSelect variant="toolbar" />
             <span className="bulk-view-selection-group-count selected-count">{selectedCount} selected</span>
           </div>
 
@@ -5479,6 +5534,7 @@ export default function EmailInboxBulkView({
               onSetProcessingPaused={handleSetProcessingPaused}
               onSelectEmailAccount={setSelectedProviderAccountId}
               onUpdateImapCredentials={handleUpdateImapCredentials}
+              listAccountsError={providerListError}
               />
           </div>
         )}
@@ -5529,11 +5585,37 @@ export default function EmailInboxBulkView({
                                 : `${Math.round((aiSortProgress.done / Math.max(aiSortProgress.total, 1)) * 100)}%`,
                           }}
                         />
-                        <span className="autosort-progress-text">
-                          {aiSortProgress.phase === 'summarizing'
-                            ? '✦ Generating session summary…'
-                            : aiSortProgress.label}
-                        </span>
+                        <div
+                          style={{
+                            position: 'relative',
+                            zIndex: 1,
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'center',
+                            gap: 2,
+                            maxWidth: '100%',
+                          }}
+                        >
+                          <span className="autosort-progress-text">
+                            {aiSortProgress.phase === 'summarizing'
+                              ? '✦ Generating session summary…'
+                              : aiSortProgress.label}
+                          </span>
+                          {aiSortProgress.phase !== 'summarizing' && aiSortProgress.statsDetail ? (
+                            <span
+                              className="autosort-progress-stats"
+                              style={{
+                                fontSize: 10,
+                                fontWeight: 500,
+                                color: '#475569',
+                                textAlign: 'center',
+                                lineHeight: 1.3,
+                              }}
+                            >
+                              {aiSortProgress.statsDetail}
+                            </span>
+                          ) : null}
+                        </div>
                       </div>
                       {aiSortProgress.phase !== 'summarizing' && (
                         <div

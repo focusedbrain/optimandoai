@@ -1908,6 +1908,7 @@ export default function EmailInboxView({
     }>
   >([])
   const [isLoadingProviderAccounts, setIsLoadingProviderAccounts] = useState(true)
+  const [providerListError, setProviderListError] = useState<string | null>(null)
   const [selectedProviderAccountId, setSelectedProviderAccountId] = useState<string | null>(null)
   const composeClickRef = useRef<number>(0)
   const [aiPanelCollapsed, setAiPanelCollapsed] = useState(false)
@@ -1953,71 +1954,105 @@ export default function EmailInboxView({
 
   const loadProviderAccounts = useCallback(async () => {
     if (typeof window.emailAccounts?.listAccounts !== 'function') {
+      setProviderListError('Email accounts are not available in this context (bridge missing).')
       setIsLoadingProviderAccounts(false)
       return
     }
+    setIsLoadingProviderAccounts(true)
+    setProviderListError(null)
     try {
       const res = await window.emailAccounts.listAccounts()
-      if (res?.ok && res?.data) {
-        const data = res.data as Array<{
-          id: string
-          displayName?: string
-          email: string
-          provider?: string
-          status?: string
-          processingPaused?: boolean
-          lastError?: string
-        }>
-        setProviderAccounts(
-          data.map((a) => {
-            const p = a.provider
-            const provider: 'gmail' | 'microsoft365' | 'zoho' | 'imap' =
-              p === 'gmail'
-                ? 'gmail'
-                : p === 'microsoft365'
-                  ? 'microsoft365'
-                  : p === 'zoho'
-                    ? 'zoho'
-                    : 'imap'
-            const status: 'active' | 'auth_error' | 'error' | 'disabled' =
-              a.status === 'active'
-                ? 'active'
-                : a.status === 'auth_error'
-                  ? 'auth_error'
-                  : a.status === 'error'
-                    ? 'error'
-                    : 'disabled'
-            return {
-              id: a.id,
-              displayName: a.displayName ?? a.email,
-              email: a.email,
-              provider,
-              status,
-              processingPaused: a.processingPaused === true,
-              lastError: a.lastError,
-            }
-          }),
-        )
-        setSelectedProviderAccountId((prev) => {
-          if (prev && data.some((a: { id: string }) => a.id === prev)) return prev
-          const pick = pickDefaultEmailAccountRowId(
-            data.map((a) => ({ id: a.id, status: a.status })),
-          )
-          return pick ?? data[0]?.id ?? null
-        })
-      } else {
+      if (!res?.ok) {
         setProviderAccounts([])
+        setProviderListError(String(res?.error ?? '').trim() || 'Could not list email accounts.')
+        return
       }
-    } catch {
+      const persistence = res.persistence
+      const loadHints: string[] = []
+      if (persistence?.load && !persistence.load.ok) {
+        const L = persistence.load
+        loadHints.push(
+          L.phase === 'read'
+            ? `Could not read saved accounts file: ${L.message}`
+            : `Saved accounts file is not valid JSON: ${L.message}`,
+        )
+      }
+      if (
+        persistence &&
+        persistence.credentialDecryptIssues &&
+        persistence.credentialDecryptIssues.length > 0
+      ) {
+        loadHints.push(
+          `${persistence.credentialDecryptIssues.length} account(s) have stored credentials that could not be decrypted — reconnect those providers.`,
+        )
+      }
+
+      if (!Array.isArray(res.data)) {
+        setProviderAccounts([])
+        setProviderListError(
+          loadHints.join(' ') || 'Account list response was missing or invalid.',
+        )
+        return
+      }
+
+      const data = res.data as Array<{
+        id: string
+        displayName?: string
+        email: string
+        provider?: string
+        status?: string
+        processingPaused?: boolean
+        lastError?: string
+      }>
+      setProviderAccounts(
+        data.map((a) => {
+          const p = a.provider
+          const provider: 'gmail' | 'microsoft365' | 'zoho' | 'imap' =
+            p === 'gmail'
+              ? 'gmail'
+              : p === 'microsoft365'
+                ? 'microsoft365'
+                : p === 'zoho'
+                  ? 'zoho'
+                  : 'imap'
+          const status: 'active' | 'auth_error' | 'error' | 'disabled' =
+            a.status === 'active'
+              ? 'active'
+              : a.status === 'auth_error'
+                ? 'auth_error'
+                : a.status === 'error'
+                  ? 'error'
+                  : 'disabled'
+          return {
+            id: a.id,
+            displayName: a.displayName ?? a.email,
+            email: a.email,
+            provider,
+            status,
+            processingPaused: a.processingPaused === true,
+            lastError: a.lastError,
+          }
+        }),
+      )
+      setSelectedProviderAccountId((prev) => {
+        if (prev && data.some((a: { id: string }) => a.id === prev)) return prev
+        const pick = pickDefaultEmailAccountRowId(
+          data.map((a) => ({ id: a.id, status: a.status })),
+        )
+        return pick ?? data[0]?.id ?? null
+      })
+      setProviderListError(loadHints.length ? loadHints.join(' ') : null)
+    } catch (e) {
       setProviderAccounts([])
+      setProviderListError(e instanceof Error ? e.message : 'Could not list email accounts.')
     } finally {
       setIsLoadingProviderAccounts(false)
     }
   }, [])
 
   useEffect(() => {
-    if (!selectedMessageId) loadProviderAccounts()
-  }, [selectedMessageId, loadProviderAccounts])
+    void loadProviderAccounts()
+  }, [loadProviderAccounts])
 
   useEffect(() => {
     const unsub = window.emailAccounts?.onAccountConnected?.(() => loadProviderAccounts())
@@ -2811,6 +2846,7 @@ export default function EmailInboxView({
               onSetProcessingPaused={handleSetProcessingPaused}
               onSelectEmailAccount={setSelectedProviderAccountId}
               onUpdateImapCredentials={handleUpdateImapCredentials}
+              listAccountsError={providerListError}
               />
               {primaryAccountId && window.emailInbox?.patchAccountSyncPreferences && (
                 <div

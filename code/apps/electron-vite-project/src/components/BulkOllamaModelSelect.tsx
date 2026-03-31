@@ -1,10 +1,9 @@
 /**
- * Compact active Ollama model switcher for bulk inbox AI (Auto-Sort / analyze).
- * Reads and writes the same persisted preference as Backend Configuration (`setActiveModelPreference`).
+ * Compact active Ollama model switcher — mounted only in the bulk Auto-Sort progress dock (not header).
+ * Reads/writes the same persisted preference as Backend Configuration (`setActiveModelPreference`).
  *
- * Bulk batch behavior: each main-process chunk calls `preResolveInboxLlm()` once; a model change
- * during a run applies to the *next* chunk (current chunk keeps its resolved model). Same idea as
- * the concurrent-analyses slider in this UI.
+ * Bulk Auto-Sort: each main-process chunk calls `preResolveInboxLlm()` once when handling `aiClassifyBatch`.
+ * Changing the model mid-run applies to the **next** chunk only; the in-flight chunk keeps its model.
  */
 import { useCallback, useEffect, useState, type ChangeEvent } from 'react'
 
