@@ -2880,11 +2880,10 @@ app.whenReady().then(async () => {
     ipcMain.handle('handshake:generateDraft', async (_e, prompt: string) => {
       try {
         const { ollamaManager } = await import('./main/llm/ollama-manager')
-        const models = await ollamaManager.listModels()
-        if (models.length === 0) {
+        const modelId = await ollamaManager.getEffectiveChatModelName()
+        if (!modelId) {
           return { success: false, error: 'No LLM model installed. Install a model in LLM Settings first.' }
         }
-        const modelId = models[0].name
         const response = await ollamaManager.chat(modelId, [{ role: 'user', content: prompt || '' }])
         return { success: true, answer: response?.content ?? '' }
       } catch (err: any) {
@@ -7569,13 +7568,23 @@ app.whenReady().then(async () => {
     httpApp.post('/api/llm/models/activate', async (req, res) => {
       try {
         const { modelId } = req.body
-        if (!modelId) {
+        if (!modelId || typeof modelId !== 'string') {
           res.status(400).json({ ok: false, error: 'modelId is required' })
           return
         }
-        
-        // TODO: Store in config
-        console.log('[HTTP-LLM] Set active model:', modelId)
+        const { ollamaManager } = await import('./main/llm/ollama-manager')
+        const { DEBUG_ACTIVE_OLLAMA_MODEL } = await import('./main/llm/activeOllamaModelStore')
+        if (DEBUG_ACTIVE_OLLAMA_MODEL) {
+          console.warn('[HTTP-LLM] Set active model requested:', modelId)
+        }
+        const result = await ollamaManager.setActiveModelPreference(modelId)
+        if (!result.ok) {
+          res.status(400).json({ ok: false, error: result.error })
+          return
+        }
+        if (DEBUG_ACTIVE_OLLAMA_MODEL) {
+          console.warn('[HTTP-LLM] Set active model persisted:', modelId.trim())
+        }
         res.json({ ok: true })
       } catch (error: any) {
         console.error('[HTTP-LLM] Error setting active model:', error)
@@ -7583,18 +7592,18 @@ app.whenReady().then(async () => {
       }
     })
     
-    // GET /api/llm/first-available - Get first available installed model
+    // GET /api/llm/first-available - Preferred chat model (persisted active or first installed)
     httpApp.get('/api/llm/first-available', async (_req, res) => {
       try {
         const { ollamaManager } = await import('./main/llm/ollama-manager')
-        const models = await ollamaManager.listModels()
+        const modelId = await ollamaManager.getEffectiveChatModelName()
         
-        if (models.length === 0) {
+        if (!modelId) {
           res.json({ ok: false, error: 'No models installed. Please install a model first.' })
           return
         }
         
-        res.json({ ok: true, data: { modelId: models[0].name } })
+        res.json({ ok: true, data: { modelId } })
       } catch (error: any) {
         console.error('[HTTP-LLM] Error getting first available model:', error)
         res.status(500).json({ ok: false, error: error.message })
@@ -7612,19 +7621,18 @@ app.whenReady().then(async () => {
         
         const { ollamaManager } = await import('./main/llm/ollama-manager')
         
-        // If no modelId specified, try to use first available model
+        // If no modelId specified, use persisted preference or first installed model
         let activeModelId = modelId
         if (!activeModelId) {
-          const models = await ollamaManager.listModels()
-          if (models.length === 0) {
+          const resolved = await ollamaManager.getEffectiveChatModelName()
+          if (!resolved) {
             res.status(400).json({ 
               ok: false, 
               error: 'No models installed. Please go to LLM Settings (Admin panel) and install a model first.' 
             })
             return
           }
-          activeModelId = models[0].name
-          console.log('[HTTP-LLM] Auto-selected first available model:', activeModelId)
+          activeModelId = resolved
         }
         
         const response = await ollamaManager.chat(activeModelId, messages)

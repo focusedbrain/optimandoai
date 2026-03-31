@@ -6,6 +6,7 @@
 import { ipcMain, IpcMainInvokeEvent } from 'electron'
 import { hardwareService } from './hardware'
 import { ollamaManager } from './ollama-manager'
+import { DEBUG_ACTIVE_OLLAMA_MODEL } from './activeOllamaModelStore'
 import { MODEL_CATALOG, getModelConfig } from './config'
 import { ChatRequest } from './types'
 
@@ -134,12 +135,12 @@ export function registerLlmHandlers() {
     }
   })
   
-  // Set active model (just store in config for now)
   ipcMain.handle('llm:setActiveModel', async (_event, modelId: string) => {
     try {
-      // TODO: Store in persistent config
-      console.log('[LLM IPC] Set active model:', modelId)
-      return { ok: true }
+      if (DEBUG_ACTIVE_OLLAMA_MODEL) console.warn('[LLM IPC] setActiveModel requested:', modelId)
+      const result = await ollamaManager.setActiveModelPreference(modelId)
+      if (DEBUG_ACTIVE_OLLAMA_MODEL && result.ok) console.warn('[LLM IPC] setActiveModel persisted:', modelId?.trim())
+      return result
     } catch (error: any) {
       console.error('[LLM IPC] Set active model failed:', error)
       return { ok: false, error: error.message }
@@ -149,7 +150,14 @@ export function registerLlmHandlers() {
   // Chat with model
   ipcMain.handle('llm:chat', async (_event, request: ChatRequest) => {
     try {
-      const modelId = request.modelId || 'mistral:7b-instruct-q4_0'
+      let modelId = request.modelId
+      if (!modelId) {
+        const resolved = await ollamaManager.getEffectiveChatModelName()
+        if (!resolved) {
+          return { ok: false, error: 'No models installed. Install a model in LLM Settings first.' }
+        }
+        modelId = resolved
+      }
       const response = await ollamaManager.chat(modelId, request.messages)
       return { ok: true, data: response }
     } catch (error: any) {

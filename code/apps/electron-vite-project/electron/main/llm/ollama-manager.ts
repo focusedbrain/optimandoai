@@ -9,6 +9,12 @@ import path from 'path'
 import fs from 'fs'
 import { app } from 'electron'
 import { OllamaStatus, InstalledModel, ChatMessage, ChatResponse, DownloadProgress } from './types'
+import {
+  DEBUG_ACTIVE_OLLAMA_MODEL,
+  getStoredActiveOllamaModelId,
+  resolveEffectiveOllamaModel,
+  setStoredActiveOllamaModelId,
+} from './activeOllamaModelStore'
 
 const execAsync = promisify(exec)
 
@@ -28,6 +34,10 @@ export class OllamaManager {
   // ── listModels cache + in-flight dedup ────────────────────────────────────
   private _modelsCache: InstalledModel[] | null = null
   private _modelsCacheTime = 0
+  /** Bumped on invalidate; cache/TTL only applies when this matches. */
+  private _listModelsCacheEpoch = 0
+  /** Epoch snapshot for the data currently in `_modelsCache`. */
+  private _modelsCacheValidEpoch = -1
   private _modelsInFlight: Promise<InstalledModel[]> | null = null
   private readonly MODELS_CACHE_TTL_MS = 30_000
   
@@ -217,11 +227,21 @@ export class OllamaManager {
     
     if (running) {
       modelsInstalled = await this.listModels()
-      // Active model would be stored in config
-      // For now, just mark first model as active if any exist
-      if (modelsInstalled.length > 0) {
-        modelsInstalled[0].isActive = true
-        activeModel = modelsInstalled[0].name
+      const stored = getStoredActiveOllamaModelId()
+      const names = modelsInstalled.map((m) => m.name)
+      const { model: effective, usedFallback, missingStored } = resolveEffectiveOllamaModel(names, stored)
+      if (effective) {
+        activeModel = effective
+        for (const m of modelsInstalled) {
+          m.isActive = m.name === effective
+        }
+        if (DEBUG_ACTIVE_OLLAMA_MODEL) {
+          console.warn('[ActiveOllamaModel] getStatus activeModel=', effective, {
+            storedPreference: stored,
+            usedFallback,
+            missingStored,
+          })
+        }
       }
     }
     
@@ -279,8 +299,14 @@ export class OllamaManager {
   async listModels(): Promise<InstalledModel[]> {
     if (DEBUG_AI_DIAGNOSTICS) console.warn('⚡ ollamaManager.listModels CALLED', new Date().toISOString())
 
-    // 1. TTL cache hit
-    if (this._modelsCache !== null && Date.now() - this._modelsCacheTime < this.MODELS_CACHE_TTL_MS) {
+    const epoch = this._listModelsCacheEpoch
+
+    // 1. TTL cache hit (only if not invalidated since this cache was written)
+    if (
+      this._modelsCache !== null &&
+      this._modelsCacheValidEpoch === epoch &&
+      Date.now() - this._modelsCacheTime < this.MODELS_CACHE_TTL_MS
+    ) {
       if (DEBUG_AI_DIAGNOSTICS) console.warn('⚡ ollamaManager.listModels → CACHE HIT', new Date().toISOString())
       return this._modelsCache
     }
@@ -293,10 +319,18 @@ export class OllamaManager {
 
     // 3. New fetch
     if (DEBUG_AI_DIAGNOSTICS) console.warn('⚡ ollamaManager.listModels → FETCH /api/tags', new Date().toISOString())
+    const fetchEpochAtStart = this._listModelsCacheEpoch
     this._modelsInFlight = this.listModelsRaw().then(
       (models) => {
+        if (fetchEpochAtStart !== this._listModelsCacheEpoch) {
+          if (DEBUG_ACTIVE_OLLAMA_MODEL) {
+            console.warn('[Ollama] listModels fetch settled stale (epoch bumped) — skipping cache write')
+          }
+          return models
+        }
         this._modelsCache = models
         this._modelsCacheTime = Date.now()
+        this._modelsCacheValidEpoch = fetchEpochAtStart
         this._modelsInFlight = null
         return models
       },
@@ -314,12 +348,68 @@ export class OllamaManager {
    * next call reflects the new state.
    */
   invalidateModelsCache(): void {
-    console.warn('[Ollama] listModels cache invalidated')
+    this._listModelsCacheEpoch++
     this._modelsCache = null
     this._modelsCacheTime = 0
-    // Leave _modelsInFlight alone — an in-flight request should still settle.
+    this._modelsCacheValidEpoch = -1
+    this._modelsInFlight = null
+    if (DEBUG_ACTIVE_OLLAMA_MODEL) {
+      console.warn('[Ollama] listModels cache invalidated (epoch=', this._listModelsCacheEpoch, ')')
+    } else {
+      console.warn('[Ollama] listModels cache invalidated')
+    }
   }
-  
+
+  /**
+   * Effective Ollama model for chat (inbox, HTTP /api/llm/chat): persisted preference
+   * when that tag exists, otherwise first installed model.
+   */
+  async getEffectiveChatModelName(): Promise<string | null> {
+    const models = await this.listModels()
+    const names = models.map((m) => m.name)
+    const stored = getStoredActiveOllamaModelId()
+    const { model, usedFallback, missingStored } = resolveEffectiveOllamaModel(names, stored)
+    if (DEBUG_ACTIVE_OLLAMA_MODEL && model) {
+      console.warn('[ActiveOllamaModel] getEffectiveChatModelName →', model, {
+        storedPreference: stored,
+        usedFallback,
+        missingStored,
+      })
+    }
+    return model
+  }
+
+  /**
+   * Persist active model. When Ollama is running, the name must exist in /api/tags.
+   * When not running, preference is still saved (verified on next request).
+   */
+  async setActiveModelPreference(
+    modelId: string,
+  ): Promise<{ ok: true } | { ok: false; error: string }> {
+    const trimmed = modelId?.trim()
+    if (!trimmed) return { ok: false, error: 'modelId is required' }
+    if (DEBUG_ACTIVE_OLLAMA_MODEL) console.warn('[ActiveOllamaModel] setActiveModelPreference requested:', trimmed)
+
+    const running = await this.isRunning()
+    if (running) {
+      this.invalidateModelsCache()
+      const models = await this.listModels()
+      if (!models.some((m) => m.name === trimmed)) {
+        return {
+          ok: false,
+          error: `Model "${trimmed}" is not installed. Install it first or use the exact name from ollama list.`,
+        }
+      }
+    }
+
+    setStoredActiveOllamaModelId(trimmed)
+    this.invalidateModelsCache()
+    if (DEBUG_ACTIVE_OLLAMA_MODEL) {
+      console.warn('[Ollama] setActiveModelPreference persisted:', trimmed, { ollamaRunning: running })
+    }
+    return { ok: true }
+  }
+
   /**
    * Pull/download a model
    */

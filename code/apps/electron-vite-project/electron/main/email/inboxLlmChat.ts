@@ -6,6 +6,7 @@ import { getProvider, type UserRagSettings } from '../handshake/aiProviders'
 import { ocrRouter } from '../ocr/router'
 import { DEBUG_AUTOSORT_DIAGNOSTICS, autosortDiagLog } from '../autosortDiagnostics'
 import type { VisionProvider } from '../ocr/types'
+import { DEBUG_ACTIVE_OLLAMA_MODEL } from '../llm/activeOllamaModelStore'
 
 export const INBOX_LLM_TIMEOUT_MS = 45_000
 
@@ -124,6 +125,11 @@ export interface ResolvedLlmContext {
  * Resolve the inbox LLM context once for an entire batch run.
  * Returns null if no LLM is available (no model installed, no API key).
  * Use the returned ResolvedLlmContext to avoid N×listModels() for N messages.
+ *
+ * **Active Ollama model:** Each call reads the current persisted preference (via
+ * `getEffectiveChatModelName`). A model switch applies to the **next** `preResolveInboxLlm()`
+ * invocation — e.g. the **next IPC batch chunk** or **next** single-message run — not to
+ * in-flight work already holding a `resolvedContext` from an earlier pre-resolve.
  */
 export async function preResolveInboxLlm(): Promise<ResolvedLlmContext | null> {
   const settings = resolveInboxLlmSettings()
@@ -131,9 +137,12 @@ export async function preResolveInboxLlm(): Promise<ResolvedLlmContext | null> {
 
   if (providerLower === 'ollama') {
     const { ollamaManager } = await import('../llm/ollama-manager')
-    const models = await ollamaManager.listModels()
-    if (models.length === 0) return null
-    return { model: models[0].name, provider: 'ollama' }
+    const model = await ollamaManager.getEffectiveChatModelName()
+    if (!model) return null
+    if (DEBUG_ACTIVE_OLLAMA_MODEL) {
+      console.warn('[ActiveOllamaModel] preResolveInboxLlm →', model)
+    }
+    return { model, provider: 'ollama' }
   }
 
   // Cloud provider: verify the API key is present
@@ -179,11 +188,14 @@ export async function inboxLlmChat(params: InboxLlmChatParams): Promise<string> 
     modelOverride = resolvedContext.model
   } else if (provider.id === 'ollama') {
     const { ollamaManager } = await import('../llm/ollama-manager')
-    const models = await ollamaManager.listModels()
-    if (models.length === 0) {
+    const resolved = await ollamaManager.getEffectiveChatModelName()
+    if (!resolved) {
       throw new Error('No LLM model installed. Install a local model or configure a cloud API key in Backend settings.')
     }
-    modelOverride = models[0].name
+    modelOverride = resolved
+    if (DEBUG_ACTIVE_OLLAMA_MODEL) {
+      console.warn('[ActiveOllamaModel] inboxLlmChat ollama model →', resolved)
+    }
   } else {
     modelOverride = settings.model
   }

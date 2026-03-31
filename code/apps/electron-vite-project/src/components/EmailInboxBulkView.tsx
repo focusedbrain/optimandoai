@@ -2764,10 +2764,40 @@ export default function EmailInboxBulkView({
 
               runDiag.analyzed += 1
 
-              const category = (VALID_CATEGORIES.includes((result.category ?? '') as SortCategory) ? result.category : 'normal') as SortCategory
+              /** Single local sync from main classify row (DB already updated in `classifySingleMessage`). */
+              inboxStore.applyClassifyMainResultToLocalState({
+                messageId: result.messageId,
+                category: result.category,
+                urgency: result.urgency,
+                needsReply: result.needsReply,
+                pending_delete: result.pending_delete,
+                pending_review: result.pending_review,
+                pending_delete_at: result.pending_delete_at ?? null,
+                pending_review_at: result.pending_review_at ?? null,
+                archived: result.archived,
+              })
+
+              let category = (VALID_CATEGORIES.includes((result.category ?? '') as SortCategory)
+                ? result.category
+                : 'normal') as SortCategory
               const recommendedAction = (VALID_ACTIONS.includes((result.recommended_action ?? '') as BulkRecommendedAction)
                 ? result.recommended_action
                 : 'keep_for_manual_action') as BulkRecommendedAction
+              if (
+                category === 'normal' &&
+                recommendedAction === 'pending_review' &&
+                (result.pending_review ||
+                  (result.pending_review_at != null && String(result.pending_review_at).trim() !== ''))
+              ) {
+                category = 'pending_review'
+              }
+              if (
+                category === 'important' &&
+                (result.pending_review ||
+                  (result.pending_review_at != null && String(result.pending_review_at).trim() !== ''))
+              ) {
+                category = 'pending_review'
+              }
               const remoteEnq = result.remoteEnqueue
               if (remoteEnq) {
                 inboxStore.addRemoteSyncLog(
@@ -2813,13 +2843,7 @@ export default function EmailInboxBulkView({
                 continue
               }
 
-              /** DB already updated in main (`classifySingleMessage`) — sync Zustand only (no redundant markPendingDelete IPC). */
               if (result.pending_delete && recommendedAction === 'pending_delete') {
-                inboxStore.applyBulkAutosortLocalPendingDelete(
-                  [messageId],
-                  result.pending_delete_at ?? null,
-                  result.category ?? category,
-                )
                 runDiag.moved += 1
                 processedIds.push(messageId)
                 movedIds.push(messageId)
@@ -2840,13 +2864,7 @@ export default function EmailInboxBulkView({
                 continue
               }
 
-              /** Same as above: main already persisted pending review / important — local rows + tab counts only. */
               if (result.pending_review && recommendedAction === 'pending_review') {
-                inboxStore.applyBulkAutosortLocalPendingReview(
-                  [messageId],
-                  result.category ?? category,
-                  result.pending_review_at ?? null,
-                )
                 runDiag.moved += 1
                 processedIds.push(messageId)
                 movedIds.push(messageId)
@@ -2868,7 +2886,6 @@ export default function EmailInboxBulkView({
               }
 
               if (recommendedAction === 'archive') {
-                inboxStore.applyBulkAutosortLocalArchive([messageId])
                 runDiag.moved += 1
                 processedIds.push(messageId)
                 movedIds.push(messageId)

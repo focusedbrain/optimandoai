@@ -86,6 +86,19 @@ export interface InboxMessage {
   remote_queue_operation?: string | null
 }
 
+/** Payload fields returned by main `classifySingleMessage` on success (authoritative DB row). */
+export type ClassifyMainRowPayload = {
+  messageId: string
+  category?: string
+  urgency?: number
+  needsReply?: boolean
+  pending_delete?: boolean
+  pending_review?: boolean
+  pending_delete_at?: string | null
+  pending_review_at?: string | null
+  archived?: number
+}
+
 export interface InboxFilter {
   filter: 'all' | 'unread' | 'starred' | 'deleted' | 'archived' | 'pending_delete' | 'pending_review' | 'urgent'
   sourceType: InboxSourceType | 'all'
@@ -277,6 +290,8 @@ interface EmailInboxState {
     pendingReviewAt?: string | null,
   ) => void
   applyBulkAutosortLocalArchive: (ids: string[]) => void
+  /** Apply authoritative classify row from main (bulk batch) — mirrors DB without a second DB IPC. */
+  applyClassifyMainResultToLocalState: (r: ClassifyMainRowPayload) => void
   cancelDeletion: (id: string) => Promise<void>
   setCategory: (ids: string[], category: string) => Promise<void>
   syncAccount: (accountId: string) => Promise<void>
@@ -563,6 +578,89 @@ function commitPendingReviewToLocalState(
       multiSelectIds: new Set([...s.multiSelectIds].filter((x) => !ids.includes(x))),
       selectedMessageId: s.selectedMessageId && ids.includes(s.selectedMessageId) ? null : s.selectedMessageId,
       selectedMessage: s.selectedMessage && ids.includes(s.selectedMessage.id) ? null : s.selectedMessage,
+    }
+  })
+}
+
+function inboxMessageAfterClassifyMain(m: InboxMessage, r: ClassifyMainRowPayload): InboxMessage {
+  const archived = r.archived === 1 ? 1 : 0
+  const pending_delete = r.pending_delete ? 1 : 0
+  const pending_delete_at = pending_delete
+    ? (r.pending_delete_at ?? m.pending_delete_at ?? new Date().toISOString())
+    : null
+  const pending_review = !!r.pending_review
+  const pending_review_at = pending_review
+    ? (r.pending_review_at ?? m.pending_review_at ?? new Date().toISOString())
+    : null
+  let sort_category = (r.category != null && r.category !== '' ? r.category : m.sort_category) as string | null
+  // Legacy rows + UI: align `important` with Pending Review when review workflow is active (see filterByInboxFilter pending_review / all).
+  if (sort_category === 'important' && pending_review && pending_review_at) {
+    sort_category = 'pending_review'
+  }
+  return {
+    ...m,
+    sort_category,
+    urgency_score: typeof r.urgency === 'number' ? Math.max(1, Math.min(10, r.urgency)) : m.urgency_score,
+    needs_reply: r.needsReply !== undefined ? (r.needsReply ? 1 : 0) : m.needs_reply,
+    pending_delete,
+    pending_delete_at,
+    pending_review_at,
+    archived,
+  }
+}
+
+/**
+ * After bulk `aiClassifyBatch`, apply main-process classify result to the local message row
+ * (no second DB-writing IPC). Removes the row from the current tab when it no longer matches
+ * `filter` (same as manual Pending Delete / Review / Archive local commits).
+ */
+function commitClassifyMainResultToLocalState(set: EmailInboxSet, r: ClassifyMainRowPayload): void {
+  const id = r.messageId
+  if (!id) return
+  set((s) => {
+    const mapRow = (m: InboxMessage) => (m.id === id ? inboxMessageAfterClassifyMain(m, r) : m)
+    const applyFilter = (messages: InboxMessage[]) =>
+      messages.filter((m) => filterByInboxFilter([m], s.filter).length > 0)
+
+    if (s.bulkMode) {
+      void fetchBulkTabCountsServer(s.filter).then((tc) => {
+        const fk = s.filter.filter as keyof typeof tc
+        set({ tabCounts: tc, total: tc[fk] ?? 0 })
+      })
+      const messages = applyFilter(s.messages.map(mapRow))
+      const removedInView = s.messages.length - messages.length
+      if (DEBUG_AUTOSORT_DIAGNOSTICS) {
+        autosortDiagLog('applyClassifyMainResultToLocalState', {
+          messageId: id,
+          sort_category: r.category,
+          pending_delete: !!r.pending_delete,
+          pending_review: !!r.pending_review,
+          archived: r.archived,
+          removedFromCurrentTab: removedInView > 0,
+        })
+      }
+      return {
+        allMessages: [],
+        messages,
+        total: Math.max(0, s.total - removedInView),
+        multiSelectIds: new Set([...s.multiSelectIds].filter((x) => x !== id || messages.some((m) => m.id === x))),
+        selectedMessageId:
+          s.selectedMessageId === id && !messages.some((m) => m.id === id) ? null : s.selectedMessageId,
+        selectedMessage:
+          s.selectedMessage?.id === id ? messages.find((m) => m.id === id) ?? null : s.selectedMessage,
+      }
+    }
+
+    const messages = applyFilter(s.messages.map(mapRow))
+    const removedInView = s.messages.length - messages.length
+    return {
+      messages,
+      total: Math.max(0, s.total - removedInView),
+      multiSelectIds: new Set([...s.multiSelectIds].filter((x) => x !== id || messages.some((m) => m.id === x))),
+      selectedMessageId:
+        s.selectedMessageId === id && !messages.some((m) => m.id === id) ? null : s.selectedMessageId,
+      selectedMessage:
+        s.selectedMessage?.id === id ? messages.find((m) => m.id === id) ?? null : s.selectedMessage,
     }
   })
 }
@@ -1342,6 +1440,8 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
     commitPendingReviewToLocalState(set, ids, sortCategory, pendingReviewAt, true),
 
   applyBulkAutosortLocalArchive: (ids) => commitArchiveToLocalState(set, ids),
+
+  applyClassifyMainResultToLocalState: (r) => commitClassifyMainResultToLocalState(set, r),
 
   cancelDeletion: async (id) => {
     const bridge = getBridge()

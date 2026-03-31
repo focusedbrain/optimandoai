@@ -242,11 +242,10 @@ function inboxPagesFromStoredExtractedText(text: string): string[] {
 /** @deprecated Use `inboxLlmChat` from `./inboxLlmChat` (unified provider). Kept for Ollama NDJSON stream path. */
 async function callInboxOllamaChat(systemPrompt: string, userPrompt: string): Promise<string> {
   const { ollamaManager } = await import('../llm/ollama-manager')
-  const models = await ollamaManager.listModels()
-  if (models.length === 0) {
+  const modelId = await ollamaManager.getEffectiveChatModelName()
+  if (!modelId) {
     throw new Error('No LLM model installed. Install a model in LLM Settings first.')
   }
-  const modelId = models[0].name
   const messages = [
     { role: 'system' as const, content: systemPrompt },
     { role: 'user' as const, content: userPrompt },
@@ -284,11 +283,11 @@ async function* callInboxOllamaChatStream(
   let modelId = modelIdFromPrecheck
   if (!modelId) {
     const { ollamaManager } = await import('../llm/ollama-manager')
-    const models = await ollamaManager.listModels()
-    if (models.length === 0) {
+    const resolved = await ollamaManager.getEffectiveChatModelName()
+    if (!resolved) {
       throw new Error('No LLM model installed. Install a model in LLM Settings first.')
     }
-    modelId = models[0].name
+    modelId = resolved
   }
   const controller = new AbortController()
   const timeoutId = setTimeout(() => controller.abort(), INBOX_LLM_TIMEOUT_MS)
@@ -3694,8 +3693,8 @@ Respond ONLY with valid JSON. No markdown, no backticks, no preamble, no explana
       let ollamaModelForStream: string | undefined
       if (settings.provider.toLowerCase() === 'ollama') {
         const { ollamaManager } = await import('../llm/ollama-manager')
-        const models = await ollamaManager.listModels()
-        if (models.length === 0) {
+        const resolved = await ollamaManager.getEffectiveChatModelName()
+        if (!resolved) {
           event.sender.send('inbox:aiAnalyzeMessageError', {
             messageId,
             error: 'llm_error',
@@ -3703,7 +3702,7 @@ Respond ONLY with valid JSON. No markdown, no backticks, no preamble, no explana
           })
           return { started: false }
         }
-        ollamaModelForStream = models[0].name
+        ollamaModelForStream = resolved
       } else {
         const available = await isLlmAvailable()
         if (!available) {

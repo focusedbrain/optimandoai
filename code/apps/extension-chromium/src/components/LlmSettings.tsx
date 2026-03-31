@@ -321,11 +321,22 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
   const handleActivateModel = async (modelId: string) => {
     try {
       const res = await api.setActiveModel(modelId)
-      if (res.ok && res.data?.ok) {
+      // IPC returns { ok, error? }; HTTP RPC wraps body in data: { ok, error? }
+      const innerOk = res.data && typeof res.data === 'object' && 'ok' in res.data
+        ? (res.data as { ok: boolean }).ok
+        : undefined
+      const success = !!res.ok && innerOk !== false
+      if (success) {
         showNotification(`Switched to ${modelId}`, 'success')
         await loadData()
       } else {
-        showNotification(res.data?.error || res.error || 'Failed to switch model', 'error')
+        const msg =
+          (res.data && typeof res.data === 'object' && 'error' in res.data
+            ? (res.data as { error?: string }).error
+            : undefined) ||
+          res.error ||
+          'Failed to switch model'
+        showNotification(msg, 'error')
       }
     } catch (error: any) {
       showNotification(error.message || 'Failed to switch model', 'error')
