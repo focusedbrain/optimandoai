@@ -542,44 +542,69 @@ export function EmailConnectWizard({
     [],
   )
 
-  const connectOutlook = useCallback(async (syncWindowDays?: number): Promise<{ ok: boolean; email?: string; error?: string }> => {
-    const days = typeof syncWindowDays === 'number' ? syncWindowDays : 30
-    if (isElectron()) {
-      const res = await (window as any).emailAccounts?.connectOutlook?.('Outlook Account', days)
-      return { ok: !!res?.ok, email: res?.data?.email, error: res?.error }
-    }
-    if (isExtension()) {
-      const res = await chrome.runtime.sendMessage({
-        type: 'EMAIL_CONNECT_OUTLOOK',
-        displayName: 'Outlook Account',
-        syncWindowDays: days,
-      })
-      return { ok: !!res?.ok, email: res?.data?.email, error: res?.error }
-    }
-    return { ok: false, error: 'Email connection requires the desktop app or extension.' }
-  }, [])
-
-  const connectZoho = useCallback(async (syncWindowDays?: number): Promise<{ ok: boolean; email?: string; error?: string }> => {
-    const days = typeof syncWindowDays === 'number' ? syncWindowDays : 30
-    if (isElectron()) {
-      const res = await (window as any).emailAccounts?.connectZoho?.('Zoho Mail', days)
-      return { ok: !!res?.ok, email: res?.data?.email, error: res?.error }
-    }
-    if (isExtension()) {
-      const res = await chrome.runtime.sendMessage({
-        type: 'EMAIL_CONNECT_ZOHO',
-        displayName: 'Zoho Mail',
-        syncWindowDays: days,
-      })
-      const inner = res?.data ?? res
-      return {
-        ok: !!(inner?.ok ?? res?.ok),
-        email: inner?.data?.email ?? inner?.email ?? res?.data?.email,
-        error: inner?.error ?? res?.error,
+  const connectOutlook = useCallback(
+    async (
+      syncWindowDays?: number,
+    ): Promise<{ ok: boolean; email?: string; error?: string; debug?: GmailConnectFailureDebug | null }> => {
+      const days = typeof syncWindowDays === 'number' ? syncWindowDays : 30
+      if (isElectron()) {
+        const res = await (window as any).emailAccounts?.connectOutlook?.('Outlook Account', days)
+        return {
+          ok: !!res?.ok,
+          email: res?.data?.email,
+          error: res?.error,
+          debug: (res?.debug ?? null) as GmailConnectFailureDebug | null,
+        }
       }
-    }
-    return { ok: false, error: 'Email connection requires the desktop app or extension.' }
-  }, [])
+      if (isExtension()) {
+        const res = await chrome.runtime.sendMessage({
+          type: 'EMAIL_CONNECT_OUTLOOK',
+          displayName: 'Outlook Account',
+          syncWindowDays: days,
+        })
+        return {
+          ok: !!res?.ok,
+          email: res?.data?.email,
+          error: res?.error,
+          debug: (res?.debug ?? null) as GmailConnectFailureDebug | null,
+        }
+      }
+      return { ok: false, error: 'Email connection requires the desktop app or extension.' }
+    },
+    [],
+  )
+
+  const connectZoho = useCallback(
+    async (
+      syncWindowDays?: number,
+    ): Promise<{ ok: boolean; email?: string; error?: string; debug?: GmailConnectFailureDebug | null }> => {
+      const days = typeof syncWindowDays === 'number' ? syncWindowDays : 30
+      if (isElectron()) {
+        const res = await (window as any).emailAccounts?.connectZoho?.('Zoho Mail', days)
+        return {
+          ok: !!res?.ok,
+          email: res?.data?.email,
+          error: res?.error,
+          debug: (res?.debug ?? null) as GmailConnectFailureDebug | null,
+        }
+      }
+      if (isExtension()) {
+        const res = await chrome.runtime.sendMessage({
+          type: 'EMAIL_CONNECT_ZOHO',
+          displayName: 'Zoho Mail',
+          syncWindowDays: days,
+        })
+        return {
+          ok: !!res?.ok,
+          email: res?.data?.email,
+          error: res?.error,
+          debug: (res?.debug ?? null) as GmailConnectFailureDebug | null,
+        }
+      }
+      return { ok: false, error: 'Email connection requires the desktop app or extension.' }
+    },
+    [],
+  )
 
   const connectCustomMailbox = useCallback(
     async (payload: Record<string, unknown>): Promise<{ ok: boolean; email?: string; error?: string }> => {
@@ -925,7 +950,7 @@ export function EmailConnectWizard({
         } else {
           setResult('failure')
           setResultError(res.error || 'Connection failed')
-          if (provider === 'gmail') {
+          if (provider === 'gmail' || provider === 'outlook' || provider === 'zoho') {
             setResultDebug(
               res.debug ??
                 ({
@@ -947,7 +972,7 @@ export function EmailConnectWizard({
         setResult('failure')
         setResultError(e?.message || 'Connection failed')
         setResultDebug(
-          provider === 'gmail'
+          provider === 'gmail' || provider === 'outlook' || provider === 'zoho'
             ? {
                 step: 'unknown',
                 httpStatus: null,

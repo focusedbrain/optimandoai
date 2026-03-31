@@ -135,6 +135,7 @@ declare global {
           lastPersistError: string | null
           lastPersistAtMs: number | null
           secureStorageAvailable?: boolean
+          rehydrateSnapshot?: { source: 'primary' | 'backup'; rowCount: number }
         }
       }>
       sendEmail: (
@@ -185,8 +186,18 @@ declare global {
         gmailOAuthCredentialSource?: 'builtin_public' | 'developer_saved',
       ) => Promise<{
         ok: boolean
-        data?: { id: string; email: string; provider: string }
+        /** Present when verification failed after OAuth — same shape as listAccounts row (no secrets). */
+        data?: {
+          id: string
+          email: string
+          provider: string
+          status?: string
+          lastError?: string
+          displayName?: string
+        }
         error?: string
+        /** True when account row exists but is not active — user can reconnect without losing the row. */
+        needsReconnect?: boolean
         debug?: {
           step: string
           httpStatus: number | null
@@ -194,16 +205,56 @@ declare global {
           googleErrorDescription: string | null
           responseBody: string | null
           raw?: string
-        }
+        } | null
       }>
       connectOutlook?: (
         displayName?: string,
         syncWindowDays?: number,
-      ) => Promise<{ ok: boolean; data?: { id: string; email: string; provider: string }; error?: string }>
+      ) => Promise<{
+        ok: boolean
+        data?: {
+          id: string
+          email: string
+          provider: string
+          status?: string
+          lastError?: string
+          displayName?: string
+        }
+        error?: string
+        needsReconnect?: boolean
+        debug?: {
+          step: string
+          httpStatus: number | null
+          googleError: string | null
+          googleErrorDescription: string | null
+          responseBody: string | null
+          raw?: string
+        } | null
+      }>
       connectZoho?: (
         displayName?: string,
         syncWindowDays?: number,
-      ) => Promise<{ ok: boolean; data?: { id: string; email: string; provider: string }; error?: string }>
+      ) => Promise<{
+        ok: boolean
+        data?: {
+          id: string
+          email: string
+          provider: string
+          status?: string
+          lastError?: string
+          displayName?: string
+        }
+        error?: string
+        needsReconnect?: boolean
+        debug?: {
+          step: string
+          httpStatus: number | null
+          googleError: string | null
+          googleErrorDescription: string | null
+          responseBody: string | null
+          raw?: string
+        } | null
+      }>
       setGmailCredentials?: (
         clientId: string,
         clientSecret?: string,

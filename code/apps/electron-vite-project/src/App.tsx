@@ -128,18 +128,24 @@ function App() {
     if (typeof window.emailAccounts?.listAccounts !== 'function') return
     try {
       const res = await window.emailAccounts.listAccounts()
-      if (res?.ok && res?.data) {
-        setEmailAccounts(
-          res.data.map((a: { id: string; email: string; status?: string; processingPaused?: boolean }) => ({
-            id: a.id,
-            email: a.email,
-            status: a.status,
-            processingPaused: a.processingPaused === true ? true : undefined,
-          })),
-        )
+      if (!res?.ok) {
+        setEmailAccounts([])
+        return
       }
+      if (!Array.isArray(res.data)) {
+        setEmailAccounts([])
+        return
+      }
+      setEmailAccounts(
+        res.data.map((a: { id: string; email: string; status?: string; processingPaused?: boolean }) => ({
+          id: a.id,
+          email: a.email,
+          status: a.status,
+          processingPaused: a.processingPaused === true ? true : undefined,
+        })),
+      )
     } catch {
-      /* ignore */
+      setEmailAccounts([])
     }
   }, [])
 

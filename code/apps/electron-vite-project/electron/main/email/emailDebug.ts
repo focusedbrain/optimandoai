@@ -21,6 +21,17 @@ export const EMAIL_DEBUG = process.env.EMAIL_DEBUG === '1' || isDev
 export const EMAIL_ACCOUNTS_DEBUG =
   process.env.DEBUG_EMAIL_ACCOUNTS === '1' || EMAIL_DEBUG
 
+/** Gmail connect / persist / rehydrate / list (quiet unless DEBUG_GMAIL_PERSISTENCE=1 or EMAIL_ACCOUNTS_DEBUG). */
+export const DEBUG_GMAIL_PERSISTENCE =
+  process.env.DEBUG_GMAIL_PERSISTENCE === '1' || EMAIL_ACCOUNTS_DEBUG
+
+export function gmailPersistenceDebugLog(...args: unknown[]): void {
+  if (DEBUG_GMAIL_PERSISTENCE) {
+    // eslint-disable-next-line no-console -- gated diagnostic
+    console.log('[GmailPersist]', ...args)
+  }
+}
+
 /** Dev-only raw IMAP IPC (`email:diagnoseImap`) — production builds must not register the handler. */
 export const DIAGNOSE_IMAP_IPC_DEV = isDev
 

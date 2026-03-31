@@ -3747,6 +3747,9 @@ export default function EmailInboxBulkView({
       if (!res?.ok) {
         setProviderAccounts([])
         setProviderListError(String(res?.error ?? '').trim() || 'Could not list email accounts.')
+        if (import.meta.env.DEV) {
+          console.debug('[EmailInboxBulkView] loadProviderAccounts IPC not ok', res?.error)
+        }
         return
       }
       const persistence = res.persistence
@@ -3826,10 +3829,37 @@ export default function EmailInboxBulkView({
         )
         return pick ?? data[0]?.id ?? null
       })
+      if (
+        data.length === 0 &&
+        persistence?.load &&
+        persistence.load.ok === true &&
+        persistence.load.fileMissing === true
+      ) {
+        loadHints.push('No saved accounts file yet — connect an account to create one.')
+      } else if (
+        data.length === 0 &&
+        persistence?.load &&
+        persistence.load.ok === true &&
+        !persistence.load.fileMissing
+      ) {
+        loadHints.push('Saved accounts file exists but lists no accounts.')
+      }
       setProviderListError(loadHints.length ? loadHints.join(' ') : null)
+      if (import.meta.env.DEV) {
+        console.debug('[EmailInboxBulkView] loadProviderAccounts', {
+          rows: data.length,
+          load: persistence?.load,
+          rehydrate: persistence?.rehydrateSnapshot,
+          decryptIssues: persistence?.credentialDecryptIssues?.length ?? 0,
+          hintCount: loadHints.length,
+        })
+      }
     } catch (e) {
       setProviderAccounts([])
       setProviderListError(e instanceof Error ? e.message : 'Could not list email accounts.')
+      if (import.meta.env.DEV) {
+        console.debug('[EmailInboxBulkView] loadProviderAccounts failed', e)
+      }
     } finally {
       setIsLoadingProviderAccounts(false)
     }

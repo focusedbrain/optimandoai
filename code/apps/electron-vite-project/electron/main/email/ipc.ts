@@ -171,7 +171,7 @@ function getInboxAiRulesForPrompt(): string {
 }
 import { emailGateway } from './gateway'
 import { pickOauthDebugFromError } from './gmailOAuthConnectDebug'
-import { DIAGNOSE_IMAP_IPC_DEV, emailDebugLog } from './emailDebug'
+import { DIAGNOSE_IMAP_IPC_DEV, emailDebugLog, gmailPersistenceDebugLog } from './emailDebug'
 import { runDiagnoseImapStandalone } from './diagnoseImapStandalone'
 import { pickDefaultEmailAccountRowId } from './domain/accountRowPicker'
 import { checkExistingCredentials, saveCredentials, isVaultUnlocked } from './credentials'
@@ -684,6 +684,13 @@ export function registerEmailHandlers(getInboxDb?: () => Promise<any> | any): vo
         loadOk: persistence.load.ok,
         decryptIssues: persistence.credentialDecryptIssues.length,
       })
+      gmailPersistenceDebugLog('listAccounts', accounts.length, 'rows', {
+        load: persistence.load,
+        rehydrate: persistence.rehydrateSnapshot,
+        decryptIssueCount: persistence.credentialDecryptIssues.length,
+        lastPersistOk: persistence.lastPersistOk,
+        secureStorageAvailable: persistence.secureStorageAvailable,
+      })
       return { ok: true, data: accounts, persistence }
     } catch (error: any) {
       console.error('[Email IPC] listAccounts error:', error)
@@ -937,17 +944,40 @@ export function registerEmailHandlers(getInboxDb?: () => Promise<any> | any): vo
       gmailOAuthCredentialSource?: 'builtin_public' | 'developer_saved',
     ) => {
     try {
+      gmailPersistenceDebugLog('connectGmail requested', { displayName, syncWindowDays, gmailOAuthCredentialSource })
       const account = await emailGateway.connectGmailAccount(displayName, syncWindowDays, {
         gmailOAuthCredentialSource,
       })
-      BrowserWindow.getAllWindows().forEach(win => {
-        win.webContents.send('email:accountConnected', { provider: 'gmail', email: account.email, accountId: account.id })
+      BrowserWindow.getAllWindows().forEach((win) => {
+        win.webContents.send('email:accountConnected', {
+          provider: 'gmail',
+          email: account.email,
+          accountId: account.id,
+        })
       })
-      void runPostEmailConnectFailedQueueCleanup({ id: account.id, email: account.email })
-      mirrorGlobalAutoSyncToNewAccount(account.id)
-      return { ok: true, data: account }
+      if (account.status === 'active') {
+        gmailPersistenceDebugLog('connectGmail persisted and verified', { id: account.id, email: account.email })
+        void runPostEmailConnectFailedQueueCleanup({ id: account.id, email: account.email })
+        mirrorGlobalAutoSyncToNewAccount(account.id)
+        return { ok: true, data: account }
+      }
+      gmailPersistenceDebugLog('connectGmail finished without active status', {
+        id: account.id,
+        status: account.status,
+        lastError: account.lastError,
+      })
+      return {
+        ok: false,
+        error:
+          account.lastError ||
+          'Gmail sign-in completed but verification failed. The account is on file — try Connect again or check the account status below.',
+        data: account,
+        needsReconnect: true,
+        debug: null,
+      }
     } catch (error: any) {
       console.error('[Email IPC] connectGmail error:', error)
+      gmailPersistenceDebugLog('connectGmail threw', error?.message)
       return {
         ok: false,
         error: error?.message != null ? String(error.message) : 'Unknown error',
@@ -1014,20 +1044,43 @@ export function registerEmailHandlers(getInboxDb?: () => Promise<any> | any): vo
    */
   ipcMain.handle('email:connectOutlook', async (_e, displayName?: string, syncWindowDays?: number) => {
     try {
+      gmailPersistenceDebugLog('connectOutlook requested', { displayName, syncWindowDays })
       const account = await emailGateway.connectOutlookAccount(displayName, syncWindowDays)
-      BrowserWindow.getAllWindows().forEach(win => {
+      BrowserWindow.getAllWindows().forEach((win) => {
         win.webContents.send('email:accountConnected', {
           provider: 'microsoft365',
           email: account.email,
           accountId: account.id,
         })
       })
-      void runPostEmailConnectFailedQueueCleanup({ id: account.id, email: account.email })
-      mirrorGlobalAutoSyncToNewAccount(account.id)
-      return { ok: true, data: account }
+      if (account.status === 'active') {
+        gmailPersistenceDebugLog('connectOutlook persisted and verified', { id: account.id, email: account.email })
+        void runPostEmailConnectFailedQueueCleanup({ id: account.id, email: account.email })
+        mirrorGlobalAutoSyncToNewAccount(account.id)
+        return { ok: true, data: account }
+      }
+      gmailPersistenceDebugLog('connectOutlook finished without active status', {
+        id: account.id,
+        status: account.status,
+        lastError: account.lastError,
+      })
+      return {
+        ok: false,
+        error:
+          account.lastError ||
+          'Microsoft 365 sign-in completed but verification failed. The account is on file — try Connect again.',
+        data: account,
+        needsReconnect: true,
+        debug: null,
+      }
     } catch (error: any) {
       console.error('[Email IPC] connectOutlook error:', error)
-      return { ok: false, error: error.message }
+      gmailPersistenceDebugLog('connectOutlook threw', error?.message)
+      return {
+        ok: false,
+        error: error?.message != null ? String(error.message) : 'Unknown error',
+        debug: pickOauthDebugFromError(error),
+      }
     }
   })
 
@@ -1060,20 +1113,43 @@ export function registerEmailHandlers(getInboxDb?: () => Promise<any> | any): vo
 
   ipcMain.handle('email:connectZoho', async (_e, displayName?: string, syncWindowDays?: number) => {
     try {
+      gmailPersistenceDebugLog('connectZoho requested', { displayName, syncWindowDays })
       const account = await emailGateway.connectZohoAccount(displayName, syncWindowDays)
-      BrowserWindow.getAllWindows().forEach(win => {
+      BrowserWindow.getAllWindows().forEach((win) => {
         win.webContents.send('email:accountConnected', {
           provider: 'zoho',
           email: account.email,
           accountId: account.id,
         })
       })
-      void runPostEmailConnectFailedQueueCleanup({ id: account.id, email: account.email })
-      mirrorGlobalAutoSyncToNewAccount(account.id)
-      return { ok: true, data: account }
+      if (account.status === 'active') {
+        gmailPersistenceDebugLog('connectZoho persisted and verified', { id: account.id, email: account.email })
+        void runPostEmailConnectFailedQueueCleanup({ id: account.id, email: account.email })
+        mirrorGlobalAutoSyncToNewAccount(account.id)
+        return { ok: true, data: account }
+      }
+      gmailPersistenceDebugLog('connectZoho finished without active status', {
+        id: account.id,
+        status: account.status,
+        lastError: account.lastError,
+      })
+      return {
+        ok: false,
+        error:
+          account.lastError ||
+          'Zoho sign-in completed but verification failed. The account is on file — try Connect again.',
+        data: account,
+        needsReconnect: true,
+        debug: null,
+      }
     } catch (error: any) {
       console.error('[Email IPC] connectZoho error:', error)
-      return { ok: false, error: error.message }
+      gmailPersistenceDebugLog('connectZoho threw', error?.message)
+      return {
+        ok: false,
+        error: error?.message != null ? String(error.message) : 'Unknown error',
+        debug: pickOauthDebugFromError(error),
+      }
     }
   })
   

@@ -5008,7 +5008,20 @@ app.whenReady().then(async () => {
                   undefined,
                   gmailOAuthCredentialSource !== undefined ? { gmailOAuthCredentialSource } : undefined,
                 )
-                socket.send(JSON.stringify({ id: msg.id, ok: true, data: account }))
+                if (account.status === 'active') {
+                  socket.send(JSON.stringify({ id: msg.id, ok: true, data: account }))
+                } else {
+                  socket.send(
+                    JSON.stringify({
+                      id: msg.id,
+                      ok: false,
+                      error:
+                        account.lastError ||
+                        'Gmail verification failed after sign-in. The account is saved — try again from Connect Email.',
+                      data: account,
+                    }),
+                  )
+                }
               } catch (err: any) {
                 console.error('[MAIN] Error connecting Gmail:', err)
                 socket.send(JSON.stringify({ id: msg.id, ok: false, error: err.message }))
@@ -7978,8 +7991,20 @@ app.whenReady().then(async () => {
             syncWindowDays,
             gmailOAuthCredentialSource !== undefined ? { gmailOAuthCredentialSource } : undefined,
           )
-          console.log('[HTTP-EMAIL] Gmail OAuth flow completed successfully')
-          res.json({ ok: true, data: account })
+          if (account.status === 'active') {
+            console.log('[HTTP-EMAIL] Gmail OAuth flow completed successfully')
+            res.json({ ok: true, data: account })
+          } else {
+            console.warn('[HTTP-EMAIL] Gmail OAuth finished but account not active:', account.status, account.lastError)
+            res.status(200).json({
+              ok: false,
+              error:
+                account.lastError ||
+                'Gmail sign-in completed but verification failed. The account is saved — reconnect from the app.',
+              data: account,
+              needsReconnect: true,
+            })
+          }
         } catch (credError: any) {
           console.log('[HTTP-EMAIL] OAuth error:', credError.message)
           if (credError.message?.includes('OAuth client credentials not configured')) {
@@ -7988,11 +8013,19 @@ app.whenReady().then(async () => {
             const { showGmailSetupDialog } = await import('./main/email/ipc')
             const result = await showGmailSetupDialog()
             if (result.success) {
-              // Try connecting again after setup
               const accounts = await emailGateway.listAccounts()
-              const gmailAccount = accounts.find(a => a.provider === 'gmail')
-              if (gmailAccount) {
+              const gmailAccount = accounts.find((a) => a.provider === 'gmail')
+              if (gmailAccount?.status === 'active') {
                 res.json({ ok: true, data: gmailAccount })
+              } else if (gmailAccount) {
+                res.status(200).json({
+                  ok: false,
+                  error:
+                    gmailAccount.lastError ||
+                    'Gmail credentials configured but the account is not active — reconnect from the app.',
+                  data: gmailAccount,
+                  needsReconnect: true,
+                })
               } else {
                 res.json({ ok: false, error: 'Setup completed but account not found' })
               }
@@ -8040,8 +8073,24 @@ app.whenReady().then(async () => {
         try {
           console.log('[HTTP-EMAIL] Starting Outlook OAuth flow...')
           const account = await emailGateway.connectOutlookAccount(displayName || 'Outlook Account', syncWindowDays)
-          console.log('[HTTP-EMAIL] Outlook OAuth flow completed successfully')
-          res.json({ ok: true, data: account })
+          if (account.status === 'active') {
+            console.log('[HTTP-EMAIL] Outlook OAuth flow completed successfully')
+            res.json({ ok: true, data: account })
+          } else {
+            console.warn(
+              '[HTTP-EMAIL] Outlook OAuth finished but account not active:',
+              account.status,
+              account.lastError,
+            )
+            res.status(200).json({
+              ok: false,
+              error:
+                account.lastError ||
+                'Microsoft 365 sign-in completed but verification failed. The account is saved — reconnect from the app.',
+              data: account,
+              needsReconnect: true,
+            })
+          }
         } catch (credError: any) {
           console.log('[HTTP-EMAIL] OAuth error:', credError.message)
           if (credError.message?.includes('OAuth client credentials not configured')) {
@@ -8050,11 +8099,19 @@ app.whenReady().then(async () => {
             const { showOutlookSetupDialog } = await import('./main/email/ipc')
             const result = await showOutlookSetupDialog()
             if (result.success) {
-              // Try connecting again after setup
               const accounts = await emailGateway.listAccounts()
-              const outlookAccount = accounts.find(a => a.provider === 'microsoft365')
-              if (outlookAccount) {
+              const outlookAccount = accounts.find((a) => a.provider === 'microsoft365')
+              if (outlookAccount?.status === 'active') {
                 res.json({ ok: true, data: outlookAccount })
+              } else if (outlookAccount) {
+                res.status(200).json({
+                  ok: false,
+                  error:
+                    outlookAccount.lastError ||
+                    'Microsoft 365 credentials configured but the account is not active — reconnect from the app.',
+                  data: outlookAccount,
+                  needsReconnect: true,
+                })
               } else {
                 res.json({ ok: false, error: 'Setup completed but account not found' })
               }
@@ -8067,7 +8124,12 @@ app.whenReady().then(async () => {
         }
       } catch (error: any) {
         console.error('[HTTP-EMAIL] Error connecting Outlook:', error)
-        res.status(500).json({ ok: false, error: error.message })
+        const { pickOauthDebugFromError } = await import('./main/email/gmailOAuthConnectDebug')
+        res.status(200).json({
+          ok: false,
+          error: error?.message != null ? String(error.message) : 'Unknown error',
+          debug: pickOauthDebugFromError(error),
+        })
       }
     })
 
@@ -8087,20 +8149,37 @@ app.whenReady().then(async () => {
         const { emailGateway } = await import('./main/email/gateway')
         try {
           const account = await emailGateway.connectZohoAccount(displayName || 'Zoho Mail', syncWindowDays)
-          res.json({ ok: true, data: account })
+          if (account.status === 'active') {
+            res.json({ ok: true, data: account })
+          } else {
+            console.warn('[HTTP-EMAIL] Zoho OAuth finished but account not active:', account.status, account.lastError)
+            res.status(200).json({
+              ok: false,
+              error:
+                account.lastError ||
+                'Zoho sign-in completed but verification failed. The account is saved — reconnect from the app.',
+              data: account,
+              needsReconnect: true,
+            })
+          }
         } catch (credError: any) {
           if (
             credError.message?.includes('not configured') ||
             credError.message?.includes('Client ID')
           ) {
-            res.json({ ok: false, error: credError.message })
+            res.status(200).json({ ok: false, error: credError.message })
           } else {
             throw credError
           }
         }
       } catch (error: any) {
         console.error('[HTTP-EMAIL] Error connecting Zoho:', error)
-        res.status(500).json({ ok: false, error: error.message })
+        const { pickOauthDebugFromError } = await import('./main/email/gmailOAuthConnectDebug')
+        res.status(200).json({
+          ok: false,
+          error: error?.message != null ? String(error.message) : 'Unknown error',
+          debug: pickOauthDebugFromError(error),
+        })
       }
     })
     

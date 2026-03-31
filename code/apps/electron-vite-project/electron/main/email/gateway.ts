@@ -72,7 +72,7 @@ import type {
 import { orchestratorRemoteFromImapLifecycleFields } from './domain/mailboxLifecycleMapping'
 import { validateCustomImapSmtpPayload } from './domain/customImapSmtpPayloadValidation'
 import { normalizeSecurityMode } from './domain/securityModeNormalize'
-import { emailAccountsDebugLog, emailDebugLog } from './emailDebug'
+import { emailAccountsDebugLog, emailDebugLog, gmailPersistenceDebugLog } from './emailDebug'
 
 /** Surface to listAccounts IPC/HTTP — not a second store; mirrors last load + last save attempt. */
 export type EmailAccountsCredentialDecryptIssue = {
@@ -92,6 +92,8 @@ export type EmailAccountsPersistenceDiagnostics = {
   lastPersistAtMs: number | null
   /** `safeStorage.isEncryptionAvailable()` at list time — new encrypted saves require `true`. */
   secureStorageAvailable: boolean
+  /** Last startup `loadAccounts()` result — primary file vs `.bak`, row count after decrypt. */
+  rehydrateSnapshot?: { source: 'primary' | 'backup'; rowCount: number }
 }
 
 let emailAccountsPersistenceDiagnostics: EmailAccountsPersistenceDiagnostics = {
@@ -101,6 +103,7 @@ let emailAccountsPersistenceDiagnostics: EmailAccountsPersistenceDiagnostics = {
   lastPersistOk: null,
   lastPersistError: null,
   lastPersistAtMs: null,
+  secureStorageAvailable: false,
 }
 
 /** New-account sync defaults; `syncWindowDays` 0 = all mail, else clamp to a sane range. */
@@ -366,6 +369,22 @@ function getAccountsPath(): string {
   return accountsPath
 }
 
+function getAccountsBackupPath(): string {
+  return `${getAccountsPath()}.bak`
+}
+
+/** Before overwriting email-accounts.json, copy prior file so a bad write or parse can be recovered. */
+function backupAccountsFileIfExists(): void {
+  const p = getAccountsPath()
+  if (!fs.existsSync(p)) return
+  try {
+    fs.copyFileSync(p, getAccountsBackupPath())
+    gmailPersistenceDebugLog('Backed up accounts file to .bak')
+  } catch (e) {
+    gmailPersistenceDebugLog('accounts .bak copy skipped:', e instanceof Error ? e.message : e)
+  }
+}
+
 /**
  * Load accounts from disk with decryption of OAuth tokens
  */
@@ -380,28 +399,89 @@ function loadAccounts(): EmailAccountConfig[] {
   if (!fs.existsSync(accountsPath)) {
     emailAccountsPersistenceDiagnostics.load = { ok: true, fileMissing: true }
     emailAccountsDebugLog('No accounts file found, starting fresh')
+    gmailPersistenceDebugLog('loadAccounts: no file (fresh install / no accounts saved yet)')
     return []
   }
 
-  let rawText: string
+  const tryParseAccountsFile = (
+    label: 'primary' | 'backup',
+    text: string,
+  ): { accounts?: EmailAccountConfig[] } | null => {
+    try {
+      return JSON.parse(text) as { accounts?: EmailAccountConfig[] }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      gmailPersistenceDebugLog(`loadAccounts parse failed (${label}):`, msg)
+      return null
+    }
+  }
+
+  let rawText: string | null = null
+  let loadSource: 'primary' | 'backup' = 'primary'
   try {
     rawText = fs.readFileSync(accountsPath, 'utf-8')
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
-    emailAccountsPersistenceDiagnostics.load = { ok: false, phase: 'read', message: msg }
-    console.error('[EmailGateway] Error reading accounts file:', err)
-    emailAccountsDebugLog('loadAccounts read failure:', msg)
+    emailAccountsDebugLog('loadAccounts read failure (primary):', msg)
+    const bak = getAccountsBackupPath()
+    if (fs.existsSync(bak)) {
+      try {
+        rawText = fs.readFileSync(bak, 'utf-8')
+        loadSource = 'backup'
+        gmailPersistenceDebugLog('Loaded accounts from .bak after primary read failed')
+        emailAccountsPersistenceDiagnostics.load = {
+          ok: false,
+          phase: 'read',
+          message: `Primary file unreadable (${msg}); recovered from backup.`,
+        }
+      } catch (bakErr) {
+        const bmsg = bakErr instanceof Error ? bakErr.message : String(bakErr)
+        emailAccountsPersistenceDiagnostics.load = { ok: false, phase: 'read', message: `${msg}; backup: ${bmsg}` }
+        console.error('[EmailGateway] Error reading accounts file and backup:', err, bakErr)
+        gmailPersistenceDebugLog('loadAccounts: read failed (primary and backup)', msg, bmsg)
+        return []
+      }
+    } else {
+      emailAccountsPersistenceDiagnostics.load = { ok: false, phase: 'read', message: msg }
+      console.error('[EmailGateway] Error reading accounts file:', err)
+      gmailPersistenceDebugLog('loadAccounts: read failed (no backup)', msg)
+      return []
+    }
+  }
+
+  if (rawText == null) {
+    emailAccountsPersistenceDiagnostics.load = { ok: false, phase: 'read', message: 'No account file content' }
     return []
   }
 
-  let data: { accounts?: EmailAccountConfig[] }
-  try {
-    data = JSON.parse(rawText) as { accounts?: EmailAccountConfig[] }
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err)
-    emailAccountsPersistenceDiagnostics.load = { ok: false, phase: 'parse', message: msg }
-    console.error('[EmailGateway] Error parsing accounts JSON:', err)
-    emailAccountsDebugLog('loadAccounts parse failure:', msg)
+  let data: { accounts?: EmailAccountConfig[] } | null = tryParseAccountsFile(loadSource, rawText)
+  if (!data && loadSource === 'primary') {
+    const msg = 'Invalid JSON in email-accounts.json'
+    const bak = getAccountsBackupPath()
+    if (fs.existsSync(bak)) {
+      try {
+        const bakText = fs.readFileSync(bak, 'utf-8')
+        data = tryParseAccountsFile('backup', bakText)
+        if (data) {
+          gmailPersistenceDebugLog('Recovered accounts from .bak after primary JSON parse failed')
+          emailAccountsPersistenceDiagnostics.load = {
+            ok: false,
+            phase: 'parse',
+            message: `${msg} — recovered from backup.`,
+          }
+        }
+      } catch (bakErr) {
+        console.error('[EmailGateway] Backup read after parse fail:', bakErr)
+      }
+    }
+    if (!data) {
+      emailAccountsPersistenceDiagnostics.load = { ok: false, phase: 'parse', message: msg }
+      console.error('[EmailGateway] Error parsing accounts JSON (primary; no usable backup)')
+      gmailPersistenceDebugLog('loadAccounts: parse failed (primary; no usable backup)')
+      return []
+    }
+  } else if (!data) {
+    emailAccountsPersistenceDiagnostics.load = { ok: false, phase: 'parse', message: 'Invalid JSON in backup' }
     return []
   }
 
@@ -471,7 +551,17 @@ function loadAccounts(): EmailAccountConfig[] {
     }
   }
 
+  emailAccountsPersistenceDiagnostics.rehydrateSnapshot = {
+    source: loadSource,
+    rowCount: loaded.length,
+  }
   emailAccountsDebugLog('loadAccounts finished; decrypt issue count:', emailAccountsPersistenceDiagnostics.credentialDecryptIssues.length)
+  gmailPersistenceDebugLog('loadAccounts rehydrate', {
+    source: loadSource,
+    rowCount: loaded.length,
+    loadState: emailAccountsPersistenceDiagnostics.load,
+    decryptIssueCount: emailAccountsPersistenceDiagnostics.credentialDecryptIssues.length,
+  })
   return loaded
 }
 
@@ -524,6 +614,22 @@ function persistEmailAccounts(accounts: EmailAccountConfig[]): void {
         next = {
           ...account,
           oauth: encryptOAuthTokens(account.oauth),
+        }
+      } else if (
+        (account.provider === 'gmail' ||
+          account.provider === 'microsoft365' ||
+          account.provider === 'zoho') &&
+        account.status === 'error'
+      ) {
+        /** Avoid wiping OAuth ciphertext after a decrypt-at-load failure (`oauth` stripped in memory). */
+        const prev = previousDiskAccounts.find((a) => a.id === account.id)
+        if (prev?.oauth && typeof prev.oauth === 'object') {
+          next = { ...account, oauth: prev.oauth as NonNullable<EmailAccountConfig['oauth']> }
+          gmailPersistenceDebugLog(
+            'persistEmailAccounts: retained on-disk OAuth envelope for',
+            account.id,
+            '(row in error, no plaintext tokens in memory)',
+          )
         }
       }
       return encryptImapSmtpPasswordsForDisk(next)
@@ -627,6 +733,7 @@ function persistEmailAccounts(accounts: EmailAccountConfig[]): void {
   const tmp = path.join(dir, `.${base}.${process.pid}.${Date.now()}.tmp`)
 
   try {
+    backupAccountsFileIfExists()
     fs.writeFileSync(tmp, json, 'utf-8')
     if (process.platform === 'win32' && fs.existsSync(accountsPath)) {
       fs.unlinkSync(accountsPath)
@@ -1687,6 +1794,27 @@ class EmailGateway implements IEmailGateway {
 
     /** `GET /gmail/v1/users/me/profile` — must not leave account.email empty in UI / dedupe. */
     const emailFromProfile = await gmailProvider.fetchProfileEmailAddress(oauth)
+    const norm = (emailFromProfile || '').trim().toLowerCase()
+    const existing = norm
+      ? this.accounts.find(
+          (a) => a.provider === 'gmail' && (a.email || '').trim().toLowerCase() === norm,
+        )
+      : undefined
+
+    if (existing) {
+      gmailPersistenceDebugLog('connectGmailAccount: updating existing Gmail row', existing.id, norm)
+      await this.updateAccount(existing.id, {
+        oauth,
+        email: emailFromProfile,
+        displayName: (displayName && displayName.trim()) || existing.displayName,
+        lastError: undefined,
+        status: 'active',
+      })
+      await this.testConnection(existing.id)
+      const row = this.accounts.find((a) => a.id === existing.id)
+      if (!row) throw new Error('Gmail account disappeared during reconnect')
+      return this.toAccountInfo(row)
+    }
 
     // Create account config
     const account: Omit<EmailAccountConfig, 'id' | 'createdAt' | 'updatedAt'> = {
@@ -1703,7 +1831,7 @@ class EmailGateway implements IEmailGateway {
       sync: newAccountSyncBlock(syncWindowDays),
       status: 'active'
     }
-    
+
     return this.addAccount(account)
   }
   
@@ -1712,8 +1840,29 @@ class EmailGateway implements IEmailGateway {
    */
   async connectOutlookAccount(displayName?: string, syncWindowDays?: number): Promise<EmailAccountInfo> {
     const { oauth, email } = await outlookProvider.startOAuthFlow()
-    
-    // Create account config
+    const norm = (email || '').trim().toLowerCase()
+    const existing = norm
+      ? this.accounts.find(
+          (a) =>
+            a.provider === 'microsoft365' && (a.email || '').trim().toLowerCase() === norm,
+        )
+      : undefined
+
+    if (existing) {
+      gmailPersistenceDebugLog('connectOutlookAccount: updating existing Microsoft 365 row', existing.id, norm)
+      await this.updateAccount(existing.id, {
+        oauth,
+        email: email || existing.email,
+        displayName: (displayName && displayName.trim()) || existing.displayName,
+        lastError: undefined,
+        status: 'active',
+      })
+      await this.testConnection(existing.id)
+      const row = this.accounts.find((a) => a.id === existing.id)
+      if (!row) throw new Error('Outlook account disappeared during reconnect')
+      return this.toAccountInfo(row)
+    }
+
     const account: Omit<EmailAccountConfig, 'id' | 'createdAt' | 'updatedAt'> = {
       displayName: displayName || 'Outlook Account',
       email: email,
@@ -1728,7 +1877,7 @@ class EmailGateway implements IEmailGateway {
       sync: newAccountSyncBlock(syncWindowDays),
       status: 'active'
     }
-    
+
     return this.addAccount(account)
   }
 
@@ -1737,6 +1886,29 @@ class EmailGateway implements IEmailGateway {
    */
   async connectZohoAccount(displayName?: string, syncWindowDays?: number): Promise<EmailAccountInfo> {
     const { oauth, email, folders, zohoDatacenter } = await zohoProvider.startOAuthFlow()
+    const norm = (email || '').trim().toLowerCase()
+    /** Dedupe only when Zoho returned a primary address; empty email would be ambiguous across accounts. */
+    const existing = norm
+      ? this.accounts.find((a) => a.provider === 'zoho' && (a.email || '').trim().toLowerCase() === norm)
+      : undefined
+
+    if (existing) {
+      gmailPersistenceDebugLog('connectZohoAccount: updating existing Zoho row', existing.id, norm)
+      await this.updateAccount(existing.id, {
+        oauth,
+        email: email || existing.email,
+        zohoDatacenter,
+        folders,
+        displayName: (displayName && displayName.trim()) || existing.displayName,
+        lastError: undefined,
+        status: 'active',
+      })
+      await this.testConnection(existing.id)
+      const row = this.accounts.find((a) => a.id === existing.id)
+      if (!row) throw new Error('Zoho account disappeared during reconnect')
+      return this.toAccountInfo(row)
+    }
+
     const account: Omit<EmailAccountConfig, 'id' | 'createdAt' | 'updatedAt'> = {
       displayName: displayName || 'Zoho Mail',
       email: email || '',

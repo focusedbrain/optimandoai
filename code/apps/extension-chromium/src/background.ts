@@ -658,7 +658,15 @@ async function electronRequest(
     timeoutMs?: number;
     checkHealthFirst?: boolean;
   } = {}
-): Promise<{ ok: boolean; data?: any; error?: string; errorCode?: string; debug?: any }> {
+): Promise<{
+  ok: boolean
+  data?: any
+  error?: string
+  errorCode?: string
+  debug?: any
+  needsReconnect?: boolean
+  persistence?: unknown
+}> {
   const {
     maxRetries = DEFAULT_RETRY_CONFIG.maxRetries,
     baseDelayMs = DEFAULT_RETRY_CONFIG.baseDelayMs,
@@ -770,6 +778,34 @@ async function electronRequest(
       }
 
       const data = await response.json();
+      /** WR Desk APIs use `{ ok: boolean, data?, error? }` with HTTP 200 — honor body.ok for truthful success. */
+      if (data && typeof data === 'object' && 'ok' in data && data.ok === false) {
+        const body = data as {
+          ok?: boolean
+          error?: string
+          data?: unknown
+          debug?: unknown
+          needsReconnect?: boolean
+        }
+        return {
+          ok: false,
+          error:
+            typeof body.error === 'string' && body.error.trim()
+              ? body.error
+              : 'Request failed',
+          ...(body.data !== undefined ? { data: body.data } : {}),
+          ...(body.debug !== undefined ? { debug: body.debug } : {}),
+          ...(body.needsReconnect === true ? { needsReconnect: true } : {}),
+        }
+      }
+      if (data && typeof data === 'object' && 'ok' in data && data.ok === true && 'data' in data) {
+        const body = data as { data: unknown; persistence?: unknown }
+        return {
+          ok: true,
+          data: body.data,
+          ...(body.persistence !== undefined ? { persistence: body.persistence } : {}),
+        }
+      }
       return { ok: true, data };
 
     } catch (err: any) {
@@ -811,7 +847,14 @@ async function electronRequest(
 async function electronOAuthRequest(
   endpoint: string,
   options: RequestInit = {}
-): Promise<{ ok: boolean; data?: any; error?: string; errorCode?: string; debug?: any }> {
+): Promise<{
+  ok: boolean
+  data?: any
+  error?: string
+  errorCode?: string
+  debug?: any
+  needsReconnect?: boolean
+}> {
   return electronRequest(endpoint, options, {
     ...OAUTH_RETRY_CONFIG,
     checkHealthFirst: true
@@ -3173,7 +3216,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         .then(result => {
           console.log('[BG] 📧 Email accounts response:', result.ok ? 'success' : result.error)
           if (result.ok) {
-            sendResponse(result.data)
+            sendResponse({
+              ok: true,
+              data: result.data,
+              ...(result.persistence !== undefined ? { persistence: result.persistence } : {}),
+            })
           } else {
             sendResponse({ ok: false, error: result.error, errorCode: result.errorCode })
           }
@@ -3203,13 +3250,15 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         .then(result => {
           console.log('[BG] 📧 Gmail connect response:', result.ok ? 'success' : result.error)
           if (result.ok) {
-            sendResponse(result.data)
+            sendResponse({ ok: true, data: result.data })
           } else {
             sendResponse({
               ok: false,
               error: result.error,
               errorCode: result.errorCode,
               ...(result.debug != null ? { debug: result.debug } : {}),
+              ...(result.data != null ? { data: result.data } : {}),
+              ...(result.needsReconnect === true ? { needsReconnect: true } : {}),
             })
           }
         })
@@ -3234,9 +3283,16 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         .then(result => {
           console.log('[BG] 📧 Outlook connect response:', result.ok ? 'success' : result.error)
           if (result.ok) {
-            sendResponse(result.data)
+            sendResponse({ ok: true, data: result.data })
           } else {
-            sendResponse({ ok: false, error: result.error, errorCode: result.errorCode })
+            sendResponse({
+              ok: false,
+              error: result.error,
+              errorCode: result.errorCode,
+              ...(result.debug != null ? { debug: result.debug } : {}),
+              ...(result.data != null ? { data: result.data } : {}),
+              ...(result.needsReconnect === true ? { needsReconnect: true } : {}),
+            })
           }
         })
       
@@ -3258,9 +3314,16 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         .then((result) => {
           console.log('[BG] 📧 Zoho connect response:', result.ok ? 'success' : result.error)
           if (result.ok) {
-            sendResponse(result.data)
+            sendResponse({ ok: true, data: result.data })
           } else {
-            sendResponse({ ok: false, error: result.error, errorCode: result.errorCode })
+            sendResponse({
+              ok: false,
+              error: result.error,
+              errorCode: result.errorCode,
+              ...(result.debug != null ? { debug: result.debug } : {}),
+              ...(result.data != null ? { data: result.data } : {}),
+              ...(result.needsReconnect === true ? { needsReconnect: true } : {}),
+            })
           }
         })
       return true

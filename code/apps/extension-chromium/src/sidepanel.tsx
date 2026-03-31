@@ -853,11 +853,31 @@ function SidepanelOrchestrator() {
           `${persistence.credentialDecryptIssues.length} account(s) have credentials that could not be decrypted — reconnect in WR Desk™.`,
         )
       }
+      if (persistence && 'secureStorageAvailable' in persistence && persistence.secureStorageAvailable === false) {
+        hints.push(
+          'OS secure storage is unavailable. Adding or updating accounts in WR Desk™ may fail until the OS profile allows DPAPI / keychain.',
+        )
+      }
       const rowsUnknown = (response as { data?: unknown }).data
       if (!Array.isArray(rowsUnknown)) {
         setEmailAccounts([])
         setEmailAccountsLoadError(hints.join(' ') || 'WR Desk™ returned no account list.')
         return
+      }
+      if (
+        rowsUnknown.length === 0 &&
+        persistence?.load &&
+        persistence.load.ok === true &&
+        persistence.load.fileMissing === true
+      ) {
+        hints.push('No saved accounts file in WR Desk™ yet — connect an account from the desktop app first.')
+      } else if (
+        rowsUnknown.length === 0 &&
+        persistence?.load &&
+        persistence.load.ok === true &&
+        !persistence.load.fileMissing
+      ) {
+        hints.push('WR Desk™ saved accounts file lists no accounts.')
       }
       const rows = rowsUnknown as Array<{
         id: string
