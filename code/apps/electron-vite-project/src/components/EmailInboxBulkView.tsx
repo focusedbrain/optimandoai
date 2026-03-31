@@ -2719,6 +2719,10 @@ export default function EmailInboxBulkView({
           let batchResults: BatchResult[]
           let chunkBatchRuntime: ClassifyBatchRuntimeMeta | undefined
           try {
+            if (autosortChunkNumber === 1) {
+              console.timeEnd('[AUTOSORT] first-chunk')
+              console.time('[AUTOSORT] classify-loop')
+            }
             const resp = await window.emailInbox!.aiClassifyBatch!(
               batch,
               sessionId,
@@ -3126,6 +3130,7 @@ export default function EmailInboxBulkView({
             }
           }
         } // end while (_i < ids.length)
+        console.timeEnd('[AUTOSORT] classify-loop')
         /** Only retry ids that never got a per-message result (completeness gap). Do not re-run LLM for explicit failures — that duplicated work and could mask pipeline bugs. */
         const missedIdsPass1 = ids.filter((id) => !processedIds.includes(id) && !failedIds.includes(id))
         const toRetry = missedIdsPass1
@@ -3528,6 +3533,8 @@ export default function EmailInboxBulkView({
       return
     }
     const startTime = Date.now()
+    console.time('[AUTOSORT] total')
+    console.time('[AUTOSORT] session-create')
     let sessionId: string | null = null
     isSortingRef.current = true
     useEmailInboxStore.getState().setSortingActive(true)
@@ -3541,10 +3548,16 @@ export default function EmailInboxBulkView({
       if (sessionApi?.create) {
         sessionId = await sessionApi.create()
       }
+      console.timeEnd('[AUTOSORT] session-create')
+      console.time('[AUTOSORT] fetchAllMessages')
+      console.timeEnd('[AUTOSORT] fetchAllMessages')
+      console.time('[AUTOSORT] fetchMatchingIds')
 
       let targetIds: string[]
       if (bulkBatchSize === 'all') {
         targetIds = [...new Set(await useEmailInboxStore.getState().fetchMatchingIdsForCurrentFilter())]
+        console.timeEnd('[AUTOSORT] fetchMatchingIds')
+        console.time('[AUTOSORT] first-chunk')
       } else {
         targetIds = Array.from(new Set(multiSelectIds)).filter((id): id is string => !!id && typeof id === 'string')
       }
@@ -3640,6 +3653,7 @@ export default function EmailInboxBulkView({
         }
       }
     } finally {
+      console.timeEnd('[AUTOSORT] total')
       isSortingRef.current = false
       useEmailInboxStore.getState().setSortingActive(false)
       setAiSortProgress(null)
