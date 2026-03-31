@@ -386,7 +386,8 @@ export class OllamaManager {
         body: JSON.stringify({
           model: modelId,
           messages,
-          stream: false
+          stream: false,
+          keep_alive: '2m',
         }),
         signal
       })

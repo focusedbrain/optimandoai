@@ -405,6 +405,8 @@ export interface EmailInboxBridge {
   onAiAnalyzeDone: (cb: (data: { messageId: string }) => void) => () => void
   onAiAnalyzeError: (cb: (data: { messageId: string; error: string; message: string }) => void) => () => void
   aiCategorize: (ids: string[]) => Promise<{ ok: boolean; data?: { classifications?: BulkClassification[] }; error?: string }>
+  /** Backend routing for bulk Auto-Sort concurrency (Ollama serial vs cloud parallel). */
+  getLlmProviderType: () => Promise<'ollama' | 'cloud'>
   aiClassifySingle?: (
     messageId: string,
     sessionId?: string,

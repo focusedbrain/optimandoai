@@ -911,6 +911,7 @@ contextBridge.exposeInMainWorld('emailInbox', {
   aiCategorize: (ids: string[]) => ipcRenderer.invoke('inbox:aiCategorize', ids),
   aiClassifySingle: (messageId: string, sessionId?: string) =>
     ipcRenderer.invoke('inbox:aiClassifySingle', messageId, sessionId),
+  getLlmProviderType: (): Promise<'ollama' | 'cloud'> => ipcRenderer.invoke('inbox:getLlmProviderType'),
   enqueueRemoteLifecycleMirror: (messageIds: string[]) =>
     ipcRenderer.invoke('inbox:enqueueRemoteLifecycleMirror', messageIds),
   /** After Auto-Sort batch: enqueue remote moves from local lifecycle state + chained background drain. */

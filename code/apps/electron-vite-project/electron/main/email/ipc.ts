@@ -1429,7 +1429,7 @@ export function registerInboxHandlers(
     'inbox:markRead', 'inbox:toggleStar', 'inbox:archiveMessages', 'inbox:setCategory',
     'inbox:deleteMessages', 'inbox:cancelDeletion', 'inbox:getDeletedMessages', 'inbox:deleteAllDirectBeap',
     'inbox:getAttachment', 'inbox:getAttachmentText', 'inbox:openAttachmentOriginal', 'inbox:rasterAttachment',
-    'inbox:aiSummarize', 'inbox:aiDraftReply', 'inbox:aiAnalyzeMessage', 'inbox:aiAnalyzeMessageStream', 'inbox:aiClassifySingle', 'inbox:persistManualBulkAnalysis', 'inbox:aiCategorize', 'inbox:enqueueRemoteLifecycleMirror', 'inbox:enqueueRemoteSync', 'inbox:markPendingDelete', 'inbox:moveToPendingReview', 'inbox:cancelPendingDelete', 'inbox:cancelPendingReview', 'inbox:unarchive',
+    'inbox:aiSummarize', 'inbox:aiDraftReply', 'inbox:aiAnalyzeMessage', 'inbox:aiAnalyzeMessageStream', 'inbox:aiClassifySingle', 'inbox:getLlmProviderType', 'inbox:persistManualBulkAnalysis', 'inbox:aiCategorize', 'inbox:enqueueRemoteLifecycleMirror', 'inbox:enqueueRemoteSync', 'inbox:markPendingDelete', 'inbox:moveToPendingReview', 'inbox:cancelPendingDelete', 'inbox:cancelPendingReview', 'inbox:unarchive',
     'inbox:getInboxSettings', 'inbox:setInboxSettings', 'inbox:selectAndUploadContextDoc', 'inbox:deleteContextDoc', 'inbox:listContextDocs',
     'inbox:getAiRules', 'inbox:saveAiRules', 'inbox:getAiRulesDefault',
     'inbox:listRemoteOrchestratorQueue',
@@ -1504,6 +1504,9 @@ export function registerInboxHandlers(
 
   // ── AutoSort sessions (autosort_sessions + inbox_messages.last_autosort_session_id) ──
   ipcMain.handle('autosort:createSession', async () => {
+    // Clear LLM provider cache so this session uses fresh settings
+    const { clearInboxLlmCache } = await import('./inboxLlmChat')
+    clearInboxLlmCache()
     const db = await resolveDb()
     if (!db) return null
     const id = randomUUID()
@@ -1526,6 +1529,8 @@ export function registerInboxHandlers(
         durationMs: number
       },
     ) => {
+      const { clearInboxLlmCache } = await import('./inboxLlmChat')
+      clearInboxLlmCache()
       const db = await resolveDb()
       if (!db) return
       db.prepare(
@@ -1544,6 +1549,16 @@ export function registerInboxHandlers(
       )
     },
   )
+
+  ipcMain.handle('inbox:getLlmProviderType', async (): Promise<'ollama' | 'cloud'> => {
+    try {
+      const { resolveInboxLlmSettings } = await import('./inboxLlmChat')
+      const settings = resolveInboxLlmSettings()
+      return settings.provider === 'ollama' ? 'ollama' : 'cloud'
+    } catch {
+      return 'ollama'
+    }
+  })
 
   ipcMain.handle('autosort:getSession', async (_e, sessionId: string) => {
     const db = await resolveDb()

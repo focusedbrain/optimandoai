@@ -87,6 +87,8 @@ export class OllamaProvider implements AIProvider {
       body: JSON.stringify({
         model,
         stream: false,
+        /** Let the model unload from GPU shortly after this request (Ollama server default keeps models loaded). */
+        keep_alive: '2m',
         messages: messages.map(m => ({ role: m.role, content: m.content })),
       }),
     })
