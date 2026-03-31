@@ -19,6 +19,8 @@ export interface GenerateChatOptions {
   stream?: boolean
   /** When stream=true, used to send tokens to the client. */
   send?: StreamSender
+  /** When set, aborts the underlying HTTP request (non-stream chat). */
+  signal?: AbortSignal
 }
 
 export interface AIProvider {
@@ -81,6 +83,7 @@ export class OllamaProvider implements AIProvider {
     const res = await fetch(`${this.baseUrl}/api/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      signal: options?.signal,
       body: JSON.stringify({
         model,
         stream: false,
@@ -176,17 +179,19 @@ export class CloudAIProvider implements AIProvider {
       throw new Error(`No API key for ${provider}`)
     }
 
+    const sig = options?.signal
+
     if (provider === 'openai') {
-      return this._chatOpenAI(messages, model, apiKey, stream, send)
+      return this._chatOpenAI(messages, model, apiKey, stream, send, sig)
     }
     if (provider === 'anthropic') {
-      return this._chatAnthropic(messages, model, apiKey, stream, send)
+      return this._chatAnthropic(messages, model, apiKey, stream, send, sig)
     }
     if (provider === 'google') {
-      return this._chatGoogle(messages, model, apiKey, stream, send)
+      return this._chatGoogle(messages, model, apiKey, stream, send, sig)
     }
     if (provider === 'xai') {
-      return this._chatXai(messages, model, apiKey, stream, send)
+      return this._chatXai(messages, model, apiKey, stream, send, sig)
     }
     throw new Error(`Unsupported cloud provider: ${provider}`)
   }
@@ -196,7 +201,8 @@ export class CloudAIProvider implements AIProvider {
     model: string,
     apiKey: string,
     stream: boolean,
-    send: StreamSender
+    send: StreamSender,
+    signal?: AbortSignal
   ): Promise<string> {
     if (stream && send) {
       const { streamOpenAIChat } = await import('./llmStream')
@@ -207,6 +213,7 @@ export class CloudAIProvider implements AIProvider {
     const res = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+      signal,
       body: JSON.stringify({ model, messages: messages.map(m => ({ role: m.role, content: m.content })) }),
     })
     if (!res.ok) throw new Error(`OpenAI ${res.status}: ${await res.text()}`)
@@ -219,7 +226,8 @@ export class CloudAIProvider implements AIProvider {
     model: string,
     apiKey: string,
     stream: boolean,
-    send: StreamSender
+    send: StreamSender,
+    signal?: AbortSignal
   ): Promise<string> {
     const systemMsg = messages.find(m => m.role === 'system')?.content ?? ''
     const userMsg = messages.find(m => m.role === 'user')?.content ?? ''
@@ -232,6 +240,7 @@ export class CloudAIProvider implements AIProvider {
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+      signal,
       body: JSON.stringify({
         model,
         max_tokens: 1024,
@@ -248,7 +257,8 @@ export class CloudAIProvider implements AIProvider {
     model: string,
     apiKey: string,
     stream: boolean,
-    send: StreamSender
+    send: StreamSender,
+    signal?: AbortSignal
   ): Promise<string> {
     const systemMsg = messages.find(m => m.role === 'system')?.content ?? ''
     const userMsg = messages.find(m => m.role === 'user')?.content ?? ''
@@ -263,6 +273,7 @@ export class CloudAIProvider implements AIProvider {
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        signal,
         body: JSON.stringify({
           contents: [{ role: 'user', parts: [{ text: combined }] }],
           generationConfig: { maxOutputTokens: 1024 },
@@ -279,7 +290,8 @@ export class CloudAIProvider implements AIProvider {
     model: string,
     apiKey: string,
     stream: boolean,
-    send: StreamSender
+    send: StreamSender,
+    signal?: AbortSignal
   ): Promise<string> {
     if (stream && send) {
       const { streamXaiChat } = await import('./llmStream')
@@ -290,6 +302,7 @@ export class CloudAIProvider implements AIProvider {
     const res = await fetch('https://api.x.ai/v1/chat/completions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+      signal,
       body: JSON.stringify({ model, messages: messages.map(m => ({ role: m.role, content: m.content })) }),
     })
     if (!res.ok) throw new Error(`xAI ${res.status}: ${await res.text()}`)

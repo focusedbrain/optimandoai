@@ -123,16 +123,25 @@ export async function inboxLlmChat(params: InboxLlmChatParams): Promise<string> 
     { role: 'user' as const, content: user },
   ]
 
-  const chatWork = provider.generateChat(messages, {
-    model: modelOverride,
-    stream: false,
-  })
-
-  const timeoutWork = new Promise<never>((_, reject) => {
-    setTimeout(() => reject(new InboxLlmTimeoutError()), timeoutMs)
-  })
-
-  const text = await Promise.race([chatWork, timeoutWork])
-  const trimmed = typeof text === 'string' ? text.trim() : ''
-  return trimmed || 'No response from model.'
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
+  try {
+    const text = await provider.generateChat(messages, {
+      model: modelOverride,
+      stream: false,
+      signal: controller.signal,
+    })
+    clearTimeout(timeoutId)
+    const trimmed = typeof text === 'string' ? text.trim() : ''
+    return trimmed || 'No response from model.'
+  } catch (err: unknown) {
+    clearTimeout(timeoutId)
+    const aborted =
+      controller.signal.aborted ||
+      (err instanceof Error && (err.name === 'AbortError' || /aborted/i.test(String(err.message))))
+    if (aborted) {
+      throw new InboxLlmTimeoutError()
+    }
+    throw err
+  }
 }

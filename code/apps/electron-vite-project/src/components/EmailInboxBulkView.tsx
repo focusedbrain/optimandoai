@@ -1907,6 +1907,8 @@ export default function EmailInboxBulkView({
   const prevFilterRef = useRef<string>(filter.filter)
   /** True while a bulk sort is in flight — synchronous guard before any await (store isSortingActive lags one frame). */
   const isSortingRef = useRef(false)
+  /** Set true from UI to stop scheduling further classify batches (current batch still finishes). */
+  const cancelSortRef = useRef(false)
   /** Per-message guard for explicit “Analyze” so double-clicks don’t start concurrent classify runs. */
   const bulkAnalyzeInFlightRef = useRef<Set<string>>(new Set())
   /** Unsubscribes `onAiAnalyzeChunk` / `onAiAnalyzeError` for per-row streaming. */
@@ -2533,16 +2535,57 @@ export default function EmailInboxBulkView({
           phase: 'sorting',
         })
       }
-      /** Parallel IPC calls — local or cloud LLM; 5 concurrent requests (was 3). */
-      const CONCURRENCY = 5
+      /** Parallel IPC — local or cloud LLM; capped at 2 concurrent to limit local thermal load. */
+      const CONCURRENCY = 2
+      const CIRCUIT_BREAKER_THRESHOLD = 3
+      let consecutiveFailures = 0
+      const CIRCUIT_LLM_ERRORS = new Set(['llm_unavailable', 'llm_error', 'timeout'])
       const VALID_ACTIONS: BulkRecommendedAction[] = ['pending_delete', 'pending_review', 'archive', 'keep_for_manual_action', 'draft_reply_ready']
       const VALID_CATEGORIES: SortCategory[] = ['urgent', 'important', 'normal', 'newsletter', 'spam', 'irrelevant', 'pending_review']
       const processedIds: string[] = []
       const failedIds: string[] = []
       const movedIds: string[] = []
       const retainedCounts = emptyRetainedCounts()
+      const markIdsSkipped = (startIndex: number, reason: 'circuit_breaker' | 'cancelled') => {
+        const summary =
+          reason === 'cancelled'
+            ? 'Auto-Sort was cancelled.'
+            : 'Auto-Sort paused after repeated AI failures. Try again when your model is available.'
+        const failureReason = reason === 'cancelled' ? ('processing_incomplete' as const) : ('llm_error' as const)
+        for (let j = startIndex; j < ids.length; j++) {
+          const id = ids[j]
+          if (processedIds.includes(id) || failedIds.includes(id)) continue
+          failedIds.push(id)
+          setBulkAiOutputs((prev) => ({
+            ...prev,
+            [id]: {
+              summary,
+              autosortFailure: true,
+              failureReason,
+              autosortOutcome: 'failed',
+              status: 'classified',
+            },
+          }))
+        }
+      }
       try {
         for (let i = 0; i < ids.length; i += CONCURRENCY) {
+          if (cancelSortRef.current) {
+            console.warn('[Auto-Sort] Cancelled by user. Skipping remaining messages.')
+            markIdsSkipped(i, 'cancelled')
+            break
+          }
+          if (consecutiveFailures >= CIRCUIT_BREAKER_THRESHOLD) {
+            console.warn(
+              '[Auto-Sort] Circuit breaker tripped after',
+              consecutiveFailures,
+              'consecutive LLM failures. Skipping',
+              ids.length - i,
+              'remaining IDs.'
+            )
+            markIdsSkipped(i, 'circuit_breaker')
+            break
+          }
           const batch = ids.slice(i, i + CONCURRENCY)
           const doneAfterBatch = Math.min(i + batch.length, ids.length)
           if (!suppressGlobalSortingUi) {
@@ -2554,7 +2597,7 @@ export default function EmailInboxBulkView({
             })
           }
           const settled = await Promise.allSettled(
-            batch.map(async (messageId) => {
+            batch.map(async (messageId): Promise<'ok' | 'llm_fail' | 'other_fail'> => {
               try {
               const result = await window.emailInbox!.aiClassifySingle(messageId, sessionId)
               if (result.error) {
@@ -2585,7 +2628,8 @@ export default function EmailInboxBulkView({
                     status: 'classified',
                   },
                 }))
-                return
+                const circuitFail = typeof result.error === 'string' && CIRCUIT_LLM_ERRORS.has(result.error)
+                return circuitFail ? 'llm_fail' : 'other_fail'
               }
               const category = (VALID_CATEGORIES.includes((result.category ?? '') as SortCategory) ? result.category : 'normal') as SortCategory
               const recommendedAction = (VALID_ACTIONS.includes((result.recommended_action ?? '') as BulkRecommendedAction)
@@ -2627,7 +2671,7 @@ export default function EmailInboxBulkView({
                 }))
                 await sortFeedbackPaintDwell()
                 inboxStore.removeBulkDraftManualCompose(messageId)
-                return
+                return 'ok'
               }
 
               const willAutoMoveFromInbox =
@@ -2649,7 +2693,7 @@ export default function EmailInboxBulkView({
                   processedIds.push(messageId)
                   movedIds.push(messageId)
                   inboxStore.removeBulkDraftManualCompose(messageId)
-                  return
+                  return 'ok'
                 }
                 failedIds.push(messageId)
                 setBulkAiOutputs((prev) => ({
@@ -2663,7 +2707,7 @@ export default function EmailInboxBulkView({
                     status: 'classified',
                   },
                 }))
-                return
+                return 'other_fail'
               }
               if (result.pending_review && recommendedAction === 'pending_review') {
                 const moved = await inboxStore.moveToPendingReviewImmediate([messageId])
@@ -2671,7 +2715,7 @@ export default function EmailInboxBulkView({
                   processedIds.push(messageId)
                   movedIds.push(messageId)
                   inboxStore.removeBulkDraftManualCompose(messageId)
-                  return
+                  return 'ok'
                 }
                 failedIds.push(messageId)
                 setBulkAiOutputs((prev) => ({
@@ -2685,7 +2729,7 @@ export default function EmailInboxBulkView({
                     status: 'classified',
                   },
                 }))
-                return
+                return 'other_fail'
               }
               if (recommendedAction === 'archive') {
                 const moved = await inboxStore.archiveMessages([messageId])
@@ -2693,7 +2737,7 @@ export default function EmailInboxBulkView({
                   processedIds.push(messageId)
                   movedIds.push(messageId)
                   inboxStore.removeBulkDraftManualCompose(messageId)
-                  return
+                  return 'ok'
                 }
                 failedIds.push(messageId)
                 setBulkAiOutputs((prev) => ({
@@ -2707,7 +2751,7 @@ export default function EmailInboxBulkView({
                     status: 'classified',
                   },
                 }))
-                return
+                return 'other_fail'
               }
 
               processedIds.push(messageId)
@@ -2728,7 +2772,7 @@ export default function EmailInboxBulkView({
                 }))
                 await sortFeedbackPaintDwell()
                 inboxStore.removeBulkDraftManualCompose(messageId)
-                return
+                return 'ok'
               } else if (recommendedAction === 'pending_delete' && !result.pending_delete) {
                 retainedCounts.classified_no_auto_move += 1
                 retained = withAutosortRetained(
@@ -2753,6 +2797,7 @@ export default function EmailInboxBulkView({
               }
               setBulkAiOutputs((prev) => ({ ...prev, [messageId]: retained }))
               inboxStore.removeBulkDraftManualCompose(messageId)
+              return 'ok'
               } catch (sortErr: unknown) {
                 const msg = sortErr instanceof Error ? sortErr.message : String(sortErr ?? 'unknown error')
                 console.warn('[SORT] Classification or move failed:', messageId, msg)
@@ -2767,35 +2812,51 @@ export default function EmailInboxBulkView({
                     status: 'classified',
                   },
                 }))
+                return 'llm_fail'
               }
             }),
           )
-          for (const s of settled) {
+          const batchOutcomes: Array<'ok' | 'llm_fail' | 'other_fail'> = settled.map((s) => {
             if (s.status === 'rejected') {
               console.warn('[SORT] Batch promise rejected:', s.reason)
+              return 'llm_fail'
             }
+            return s.value
+          })
+          for (const outcome of batchOutcomes) {
+            if (outcome === 'llm_fail') consecutiveFailures++
+            else consecutiveFailures = 0
+          }
+          if (consecutiveFailures >= CIRCUIT_BREAKER_THRESHOLD) {
+            console.warn(
+              '[Auto-Sort] Circuit breaker tripped after batch (',
+              consecutiveFailures,
+              'consecutive LLM failures). Skipping',
+              Math.max(0, ids.length - i - batch.length),
+              'remaining IDs.'
+            )
+            markIdsSkipped(i + batch.length, 'circuit_breaker')
+            break
           }
         }
         const missedIdsPass1 = ids.filter((id) => !processedIds.includes(id) && !failedIds.includes(id))
-        const toRetry = ids.filter((id) => !processedIds.includes(id))
         console.log('[SORT] First pass.', {
           targeted: ids.length,
           processed: processedIds.length,
           failed: failedIds.length,
           moved: movedIds.length,
           missed: missedIdsPass1.length,
-          toRetry: toRetry.length,
           retainedBreakdown: { ...retainedCounts },
         })
         let allProcessedIds = [...processedIds]
         let allFailedIds = [...failedIds]
         let allMovedIds = [...movedIds]
         let finalRetainedCounts = { ...retainedCounts }
-        if (toRetry.length === 0) {
+        if (missedIdsPass1.length === 0) {
           console.log('[SORT] All targeted messages reached a terminal outcome in one pass')
         } else if (!isRetry) {
-          if (missedIdsPass1.length > 0) console.warn('[SORT] Pass-1 missed (will retry):', missedIdsPass1)
-          const retryResult = await runAiCategorizeForIds(toRetry, false, true, {
+          console.warn('[SORT] Pass-1 missed (will retry):', missedIdsPass1)
+          const retryResult = await runAiCategorizeForIds(missedIdsPass1, false, true, {
             manageConcurrencyLock: false,
             suppressGlobalSortingUi,
             skipEndRefresh,
@@ -2805,7 +2866,7 @@ export default function EmailInboxBulkView({
           allMovedIds = [...new Set([...movedIds, ...retryResult.movedIds])]
           finalRetainedCounts = mergeRetainedCounts(retainedCounts, retryResult.retainedCounts)
           console.log('[SORT] Retry pass.', {
-            retryTargeted: toRetry.length,
+            retryTargeted: missedIdsPass1.length,
             processed: retryResult.processedIds.length,
             failed: retryResult.failedIds.length,
             moved: retryResult.movedIds.length,
@@ -3064,6 +3125,7 @@ export default function EmailInboxBulkView({
       window.setTimeout(() => setConcurrentSortNotice(null), 12_000)
       return
     }
+    cancelSortRef.current = false
     const startTime = Date.now()
     let sessionId: string | null = null
     isSortingRef.current = true
@@ -3124,6 +3186,12 @@ export default function EmailInboxBulkView({
 
       if (sessionId && sessionApi?.getSessionMessages && sessionApi.finalize && sessionApi.generateSummary) {
         const sessionMessages = await sessionApi.getSessionMessages(sessionId)
+        const hasSuccessfulClassifications = sessionMessages.some(
+          (m: { sort_category?: string | null }) =>
+            typeof m.sort_category === 'string' &&
+            m.sort_category.length > 0 &&
+            m.sort_category !== 'unknown'
+        )
         const stats = {
           total: sessionMessages.length,
           urgent: sessionMessages.filter(
@@ -3138,13 +3206,17 @@ export default function EmailInboxBulkView({
           durationMs: Date.now() - startTime,
         }
         await sessionApi.finalize(sessionId, stats)
-        setAiSortProgress({
-          done: stats.total,
-          total: stats.total,
-          label: '✦ Generating session summary…',
-          phase: 'summarizing',
-        })
-        await sessionApi.generateSummary(sessionId)
+        if (hasSuccessfulClassifications) {
+          setAiSortProgress({
+            done: stats.total,
+            total: stats.total,
+            label: '✦ Generating session summary…',
+            phase: 'summarizing',
+          })
+          await sessionApi.generateSummary(sessionId)
+        } else {
+          console.warn('[Auto-Sort] All classifications failed — skipping summary generation.')
+        }
         setAutosortReviewBanner({ sessionId, fading: false })
       }
     } catch (err) {
@@ -3165,6 +3237,7 @@ export default function EmailInboxBulkView({
         }
       }
     } finally {
+      cancelSortRef.current = false
       isSortingRef.current = false
       useEmailInboxStore.getState().setSortingActive(false)
       setAiSortProgress(null)
@@ -4359,6 +4432,18 @@ export default function EmailInboxBulkView({
             >
               ⚡AI Auto-Sort
             </button>
+            {isSortingActive ? (
+              <button
+                type="button"
+                className="bulk-view-ai-sort-cancel-btn"
+                onClick={() => {
+                  cancelSortRef.current = true
+                }}
+                title="Stop scheduling further messages (current batch may still finish)"
+              >
+                Cancel Auto-Sort
+              </button>
+            ) : null}
             <span className="bulk-view-selection-group-count selected-count">{selectedCount} selected</span>
           </div>
 
