@@ -18,6 +18,12 @@ export class OllamaManager {
   private process: ChildProcess | null = null
   private baseUrl: string = ''
   private downloadProgress: any = null
+
+  // ── listModels cache + in-flight dedup ────────────────────────────────────
+  private _modelsCache: InstalledModel[] | null = null
+  private _modelsCacheTime = 0
+  private _modelsInFlight: Promise<InstalledModel[]> | null = null
+  private readonly MODELS_CACHE_TTL_MS = 30_000
   
   constructor() {
     this.ollamaPort = 11434
@@ -224,24 +230,23 @@ export class OllamaManager {
   }
   
   /**
-   * List installed models
+   * Raw /api/tags fetch — no cache, no dedup. Used internally by listModels().
    */
-  async listModels(): Promise<InstalledModel[]> {
-    console.warn('⚡ ollamaManager.listModels CALLED', new Date().toISOString())
+  private async listModelsRaw(): Promise<InstalledModel[]> {
     try {
       const response = await fetch(`${this.baseUrl}/api/tags`, {
         method: 'GET',
         signal: AbortSignal.timeout(5000)
       })
-      
+
       if (!response.ok) {
         console.warn('[Ollama] Failed to list models:', response.statusText)
         return []
       }
-      
+
       const data = await response.json()
       const models = data.models || []
-      
+
       return models.map((m: any) => ({
         name: m.name,
         size: m.size || 0,
@@ -253,6 +258,60 @@ export class OllamaManager {
       console.error('[Ollama] Error listing models:', error)
       return []
     }
+  }
+
+  /**
+   * List installed models.
+   *
+   * Includes two storm-prevention layers so a bulk classify run with
+   * CONCURRENCY=5 causes at most 1 real /api/tags request:
+   *
+   *   1. In-flight dedup — concurrent callers join the same pending promise.
+   *   2. TTL cache (30 s) — callers that arrive after the promise resolves
+   *      get the cached result without a new HTTP round-trip.
+   */
+  async listModels(): Promise<InstalledModel[]> {
+    console.warn('⚡ ollamaManager.listModels CALLED', new Date().toISOString())
+
+    // 1. TTL cache hit
+    if (this._modelsCache !== null && Date.now() - this._modelsCacheTime < this.MODELS_CACHE_TTL_MS) {
+      console.warn('⚡ ollamaManager.listModels → CACHE HIT', new Date().toISOString())
+      return this._modelsCache
+    }
+
+    // 2. In-flight dedup — join existing request instead of firing a new one
+    if (this._modelsInFlight !== null) {
+      console.warn('⚡ ollamaManager.listModels → DEDUP (joining in-flight request)', new Date().toISOString())
+      return this._modelsInFlight
+    }
+
+    // 3. New fetch
+    console.warn('⚡ ollamaManager.listModels → FETCH /api/tags', new Date().toISOString())
+    this._modelsInFlight = this.listModelsRaw().then(
+      (models) => {
+        this._modelsCache = models
+        this._modelsCacheTime = Date.now()
+        this._modelsInFlight = null
+        return models
+      },
+      (err) => {
+        this._modelsInFlight = null
+        throw err
+      }
+    )
+    return this._modelsInFlight
+  }
+
+  /**
+   * Invalidate the listModels cache.
+   * Call after model install, model delete, or base-URL change so the
+   * next call reflects the new state.
+   */
+  invalidateModelsCache(): void {
+    console.warn('[Ollama] listModels cache invalidated')
+    this._modelsCache = null
+    this._modelsCacheTime = 0
+    // Leave _modelsInFlight alone — an in-flight request should still settle.
   }
   
   /**
@@ -323,6 +382,7 @@ export class OllamaManager {
       }
       
       console.log('[Ollama] Model pull completed:', modelId)
+      this.invalidateModelsCache()
     } catch (error) {
       console.error('[Ollama] Model pull failed:', error)
       throw error
@@ -347,6 +407,7 @@ export class OllamaManager {
       }
       
       console.log('[Ollama] Model deleted:', modelId)
+      this.invalidateModelsCache()
     } catch (error) {
       console.error('[Ollama] Model deletion failed:', error)
       throw error

@@ -93,26 +93,78 @@ export async function inboxSupportsOllamaStream(): Promise<boolean> {
   return models.length > 0
 }
 
+// ── Resolved LLM context (for bulk/batch callers) ────────────────────────────
+
+/**
+ * A pre-resolved LLM context — contains the model name and provider that a
+ * batch caller already looked up once. Pass this into inboxLlmChat() /
+ * classifySingleMessage() to skip redundant listModels() calls per message.
+ */
+export interface ResolvedLlmContext {
+  /** Model name as returned by Ollama (e.g. "gemma3:12b") or a cloud model id. */
+  model: string
+  /** Provider id — "ollama", "openai", "anthropic", "google", "xai", "cloudai", etc. */
+  provider: string
+}
+
+/**
+ * Resolve the inbox LLM context once for an entire batch run.
+ * Returns null if no LLM is available (no model installed, no API key).
+ * Use the returned ResolvedLlmContext to avoid N×listModels() for N messages.
+ */
+export async function preResolveInboxLlm(): Promise<ResolvedLlmContext | null> {
+  const settings = resolveInboxLlmSettings()
+  const providerLower = settings.provider.toLowerCase()
+
+  if (providerLower === 'ollama') {
+    const { ollamaManager } = await import('../llm/ollama-manager')
+    const models = await ollamaManager.listModels()
+    if (models.length === 0) return null
+    return { model: models[0].name, provider: 'ollama' }
+  }
+
+  // Cloud provider: verify the API key is present
+  const vp = visionForRagSettings(settings)
+  if (!vp) return null
+  const key = ocrRouter.getApiKey(vp)
+  if (typeof key !== 'string' || !key.trim()) return null
+  return { model: settings.model ?? '', provider: settings.provider }
+}
+
 export interface InboxLlmChatParams {
   system: string
   user: string
   timeoutMs?: number
+  /**
+   * When provided by a bulk caller (e.g. classifySingleMessage from aiCategorize),
+   * inboxLlmChat skips the listModels() lookup and uses this pre-resolved model/provider.
+   * This prevents N parallel messages from each firing their own /api/tags request.
+   */
+  resolvedContext?: ResolvedLlmContext
 }
 
 /**
  * Non-stream chat for inbox classify / summarize / draft / analyze.
  */
 export async function inboxLlmChat(params: InboxLlmChatParams): Promise<string> {
+  const { system, user, timeoutMs = INBOX_LLM_TIMEOUT_MS, resolvedContext } = params
   console.warn('⚡ inboxLlmChat CALLED', new Date().toISOString(), {
     caller: new Error().stack?.split('\n')[2]?.trim(),
+    model: resolvedContext?.model ?? '(will resolve)',
+    skipLookup: resolvedContext != null,
   })
-  const { system, user, timeoutMs = INBOX_LLM_TIMEOUT_MS } = params
-  const settings = resolveInboxLlmSettings()
+
+  const settings: UserRagSettings = resolvedContext
+    ? { provider: resolvedContext.provider }
+    : resolveInboxLlmSettings()
   const getApiKey = (p: string) => ocrRouter.getApiKey(p as VisionProvider)
   const provider = getProvider(settings, getApiKey)
 
   let modelOverride: string | undefined
-  if (provider.id === 'ollama') {
+  if (resolvedContext) {
+    // Fast path: caller already did the listModels() lookup — skip it entirely.
+    modelOverride = resolvedContext.model
+  } else if (provider.id === 'ollama') {
     const { ollamaManager } = await import('../llm/ollama-manager')
     const models = await ollamaManager.listModels()
     if (models.length === 0) {

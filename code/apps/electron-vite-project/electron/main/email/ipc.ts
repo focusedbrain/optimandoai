@@ -216,7 +216,7 @@ import { reconcileAnalyzeTriage, reconcileInboxClassification } from '../../../s
 import { formatSourceWeightingForPrompt, sortSourceWeightingFromMessageRow } from '../../../src/lib/inboxSortSourceWeighting'
 import { extractPdfText, isPdfFile, resolveInboxPdfExtractionStatus } from './pdf-extractor'
 import { readDecryptedAttachmentBuffer, type AttachmentRowCrypto } from './attachmentBlobCrypto'
-import { inboxLlmChat, isLlmAvailable, INBOX_LLM_TIMEOUT_MS, resolveInboxLlmSettings } from './inboxLlmChat'
+import { inboxLlmChat, isLlmAvailable, INBOX_LLM_TIMEOUT_MS, resolveInboxLlmSettings, preResolveInboxLlm, type ResolvedLlmContext } from './inboxLlmChat'
 
 /** Per-page strings from DB `extracted_text` (extraction joins pages with \\n\\n). */
 function inboxPagesFromStoredExtractedText(text: string): string[] {
@@ -3722,8 +3722,23 @@ Respond ONLY with valid JSON. No markdown, no backticks, no preamble.`
     return { started: streamStartedOk }
   })
 
+  /**
+   * Options for bulk-classify callers that have already resolved the LLM once for the run.
+   * Passing resolvedLlm skips isLlmAvailable() and listModels() inside classifySingleMessage
+   * and inboxLlmChat, so a batch of N parallel messages causes exactly 1 shared /api/tags
+   * request rather than 2N.
+   */
+  interface ClassifySingleMessageOptions {
+    /** Pre-resolved LLM context for the batch run. Skips isLlmAvailable + listModels per message. */
+    resolvedLlm?: ResolvedLlmContext
+    /** Opaque run identifier included in diagnostic logs. */
+    runId?: string
+    /** Zero-based message index within the current concurrent batch, for diagnostic logs. */
+    batchIndex?: number
+  }
+
   /** Per-message classification — used by both aiClassifySingle and aiCategorize. */
-  async function classifySingleMessage(messageId: string, sessionId?: string): Promise<{
+  async function classifySingleMessage(messageId: string, sessionId?: string, opts?: ClassifySingleMessageOptions): Promise<{
     messageId: string
     category?: string
     urgency?: number
@@ -3738,7 +3753,13 @@ Respond ONLY with valid JSON. No markdown, no backticks, no preamble.`
     /** Present when classify succeeded and remote lifecycle enqueue ran (all categories, including urgent). */
     remoteEnqueue?: { enqueued: number; skipped: number; skipReasons: string[] }
   }> {
-    console.warn('⚡ classifySingleMessage CALLED', new Date().toISOString(), { messageId })
+    console.warn('⚡ classifySingleMessage CALLED', new Date().toISOString(), {
+      messageId,
+      model: opts?.resolvedLlm?.model ?? '(will resolve)',
+      skipAvailabilityCheck: opts?.resolvedLlm != null,
+      runId: opts?.runId,
+      batchIndex: opts?.batchIndex,
+    })
     const db = await resolveDb()
     if (!db) return { messageId, error: 'Database unavailable' }
     const row = db
@@ -3768,8 +3789,12 @@ Respond ONLY with valid JSON. No markdown, no backticks, no preamble.`
       }
     }
 
-    const available = await isLlmAvailable()
-    if (!available) return { messageId, error: 'llm_unavailable' }
+    // Skip LLM availability check when the caller already resolved the model for this batch.
+    // This eliminates one listModels() → /api/tags call per message in a concurrent bulk run.
+    if (!opts?.resolvedLlm) {
+      const available = await isLlmAvailable()
+      if (!available) return { messageId, error: 'llm_unavailable' }
+    }
 
     const userRules = getInboxAiRulesForPrompt()
     const systemPrompt = `${userRules}
@@ -3802,7 +3827,7 @@ Body (first 500 chars): ${(row.body_text ?? '').slice(0, 500)}
 ${formatSourceWeightingForPrompt(sortWeight)}`
 
     try {
-      const raw = await inboxLlmChat({ system: systemPrompt, user: userPrompt })
+      const raw = await inboxLlmChat({ system: systemPrompt, user: userPrompt, resolvedContext: opts?.resolvedLlm })
       const parsed = parseAiJson(raw) as {
         category?: string
         urgency?: number
@@ -3992,8 +4017,10 @@ ${formatSourceWeightingForPrompt(sortWeight)}`
       const db = await resolveDb()
       if (!db) return { ok: false, error: 'Database unavailable' }
 
-      const available = await isLlmAvailable()
-      if (!available) {
+      // Pre-resolve LLM once for the entire batch — eliminates 2×CONCURRENCY /api/tags
+      // round-trips (one from isLlmAvailable + one from inboxLlmChat per message).
+      const resolvedLlm = await preResolveInboxLlm()
+      if (!resolvedLlm) {
         const errMsg = 'No AI provider available. Check Backend settings (local model or cloud API key).'
         return {
           ok: true,
@@ -4038,7 +4065,7 @@ ${formatSourceWeightingForPrompt(sortWeight)}`
 
       for (let i = 0; i < ids.length; i += CONCURRENCY) {
         const batch = ids.slice(i, i + CONCURRENCY)
-        const batchResults = await Promise.all(batch.map((id) => classifySingleMessage(id)))
+        const batchResults = await Promise.all(batch.map((id, idx) => classifySingleMessage(id, undefined, { resolvedLlm, batchIndex: i + idx })))
         for (const r of batchResults) {
           if (r.error) {
             classifications.push({
