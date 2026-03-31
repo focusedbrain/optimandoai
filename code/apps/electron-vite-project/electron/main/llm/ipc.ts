@@ -29,10 +29,19 @@ export function registerLlmHandlers() {
   })
   
   // Ollama status — same `data` shape as GET `/api/llm/status` (includes optional `localRuntime`)
+  // 3-second result cache: prevents 30+ rapid IPC calls (e.g. BulkOllamaModelSelect remounts during
+  // sort progress updates) from each spawning subprocess + HTTP calls to Ollama.
+  let _getStatusCache: { at: number; result: unknown } | null = null
+  const GET_STATUS_CACHE_TTL_MS = 3_000
   ipcMain.handle('llm:getStatus', async () => {
+    if (_getStatusCache && Date.now() - _getStatusCache.at < GET_STATUS_CACHE_TTL_MS) {
+      return _getStatusCache.result
+    }
     try {
       const status = await ollamaManager.getStatus()
-      return { ok: true, data: status }
+      const result = { ok: true, data: status }
+      _getStatusCache = { at: Date.now(), result }
+      return result
     } catch (error: any) {
       console.error('[LLM IPC] Get status failed:', error)
       return { ok: false, error: error.message }

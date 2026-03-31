@@ -107,17 +107,10 @@ export class HardwareCapabilityChecker {
     
     try {
       if (process.platform === 'win32') {
-        // Use WMIC to get CPU features
-        const { stdout: _stdout } = await execAsync('wmic cpu get Name,NumberOfCores,NumberOfLogicalProcessors /format:list', {
-          timeout: 5000,
-          windowsHide: true
-        })
-        
-        // Try to detect instruction sets via registry or feature flags
-        // Windows: Check via PowerShell
+        // Try to detect instruction sets via CPU name heuristics
         try {
           const { stdout: _psOutput } = await execAsync(
-            `powershell -Command "Get-WmiObject Win32_Processor | Select-Object Name, Manufacturer"`,
+            `powershell -NoProfile -Command "Get-CimInstance Win32_Processor | Select-Object Name, Manufacturer | ConvertTo-Json"`,
             { timeout: 5000, windowsHide: true }
           )
           
@@ -244,16 +237,16 @@ export class HardwareCapabilityChecker {
             type = 'HDD'
           }
           
-          // Alternative: Check via WMIC
+          // Alternative: Check via PowerShell Get-CimInstance (wmic removed from modern Windows 11)
           if (type === 'Unknown') {
-            const { stdout: wmicOutput } = await execAsync(
-              `wmic diskdrive get Model,MediaType /format:list`,
-              { timeout: 5000, windowsHide: true }
+            const { stdout: psOutput } = await execAsync(
+              `powershell -NoProfile -Command "Get-CimInstance Win32_DiskDrive | Select-Object Model, MediaType | ConvertTo-Json"`,
+              { timeout: 6000, windowsHide: true }
             )
-            
-            if (wmicOutput.toLowerCase().includes('ssd') || wmicOutput.toLowerCase().includes('solid state')) {
+            const lower = psOutput.toLowerCase()
+            if (lower.includes('ssd') || lower.includes('solid state')) {
               type = 'SSD'
-            } else if (wmicOutput.toLowerCase().includes('fixed') || wmicOutput.toLowerCase().includes('hard')) {
+            } else if (lower.includes('fixed') || lower.includes('hard')) {
               type = 'HDD'
             }
           }

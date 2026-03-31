@@ -193,16 +193,22 @@ export class HardwareService {
       const platform = os.platform()
       
       if (platform === 'win32') {
-        // Windows: Use wmic
-        const { stdout } = await execAsync('wmic path win32_VideoController get AdapterRAM')
-        const lines = stdout.split('\n').filter(l => l.trim() && l.trim() !== 'AdapterRAM')
-        if (lines.length > 0) {
-          const vramBytes = parseInt(lines[0].trim())
-          if (vramBytes > 0) {
-            return {
-              available: true,
-              vramGb: Math.round(vramBytes / (1024**3) * 10) / 10
-            }
+        // Windows: Use PowerShell Get-CimInstance (wmic removed from modern Windows 11)
+        const { stdout } = await execAsync(
+          'powershell -NoProfile -Command "Get-CimInstance Win32_VideoController | Select-Object Name, AdapterRAM | ConvertTo-Json"',
+          { timeout: 6000, windowsHide: true },
+        )
+        let gpus: { Name?: string; AdapterRAM?: number }[] = []
+        try {
+          const raw = JSON.parse(stdout.trim())
+          gpus = Array.isArray(raw) ? raw : [raw]
+        } catch { /* ignore parse failure */ }
+        const firstWithRam = gpus.find((g) => g.AdapterRAM && g.AdapterRAM > 0) ?? gpus[0]
+        const vramBytes = firstWithRam?.AdapterRAM ?? 0
+        if (vramBytes > 0) {
+          return {
+            available: true,
+            vramGb: Math.round(vramBytes / (1024 ** 3) * 10) / 10,
           }
         }
       } else if (platform === 'darwin') {
@@ -241,12 +247,17 @@ export class HardwareService {
       const platform = os.platform()
       
       if (platform === 'win32') {
-        // Windows: Get system drive free space
-        const { stdout } = await execAsync('wmic logicaldisk where "DeviceID=\'C:\'" get FreeSpace')
-        const lines = stdout.split('\n').filter(l => l.trim() && l.trim() !== 'FreeSpace')
-        if (lines.length > 0) {
-          return parseInt(lines[0].trim())
-        }
+        // Windows: Use PowerShell Get-CimInstance (wmic removed from modern Windows 11)
+        const { stdout } = await execAsync(
+          `powershell -NoProfile -Command "Get-CimInstance Win32_LogicalDisk -Filter \\"DeviceID='C:'\\" | Select-Object FreeSpace | ConvertTo-Json"`,
+          { timeout: 6000, windowsHide: true },
+        )
+        try {
+          const raw = JSON.parse(stdout.trim())
+          const disk = Array.isArray(raw) ? raw[0] : raw
+          const freeSpace = disk?.FreeSpace
+          if (typeof freeSpace === 'number' && freeSpace > 0) return freeSpace
+        } catch { /* ignore parse failure */ }
       } else {
         // macOS/Linux: Use df
         const { stdout } = await execAsync('df -k . | tail -1 | awk \'{print $4}\'')

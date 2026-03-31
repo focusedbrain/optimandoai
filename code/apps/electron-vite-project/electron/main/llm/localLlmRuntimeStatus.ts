@@ -38,11 +38,14 @@ function execOpts(timeoutMs: number): { timeout: number; windowsHide: boolean; m
   return { timeout: timeoutMs, windowsHide: true, maxBuffer: 512 * 1024 }
 }
 
-function linesFromWmicNames(stdout: string): string[] {
-  return stdout
-    .split(/\r?\n/)
-    .map((l) => l.trim())
-    .filter((l) => l && l !== 'Name')
+function parsePowershellVideoControllerNames(stdout: string): string[] {
+  try {
+    const raw = JSON.parse(stdout.trim())
+    const items: { Name?: string }[] = Array.isArray(raw) ? raw : [raw]
+    return items.map((i) => (i.Name ?? '').trim()).filter(Boolean)
+  } catch {
+    return []
+  }
 }
 
 async function tryNvidiaSmi(): Promise<boolean> {
@@ -79,8 +82,11 @@ async function detectGpuHintsUncached(): Promise<GpuHints> {
 
   try {
     if (platform === 'windows') {
-      const { stdout } = await execAsync('wmic path win32_VideoController get Name', execOpts(5000))
-      const lines = linesFromWmicNames(stdout)
+      const { stdout } = await execAsync(
+        'powershell -NoProfile -Command "Get-CimInstance Win32_VideoController | Select-Object Name | ConvertTo-Json"',
+        execOpts(6000),
+      )
+      const lines = parsePowershellVideoControllerNames(stdout)
       hints.adapterNamesSample = lines.slice(0, 6)
       const joined = lines.join(' | ')
       const lower = joined.toLowerCase()

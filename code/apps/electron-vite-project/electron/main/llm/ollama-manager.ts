@@ -393,6 +393,7 @@ export class OllamaManager {
         missingStored,
       })
     }
+    console.log('[MODEL-DEBUG] resolved:', model, { stored, installedNames: names, usedFallback, missingStored })
     return model
   }
 

@@ -118,32 +118,34 @@ export class HardwareDiagnosticsService {
   private async detectGPU() {
     try {
       if (process.platform === 'win32') {
-        // Use WMIC to get GPU info
+        // Use PowerShell Get-CimInstance (wmic removed from modern Windows 11)
         const { stdout } = await execAsync(
-          'wmic path win32_VideoController get name,AdapterCompatibility,AdapterRAM /format:csv',
-          { timeout: 5000 }
+          'powershell -NoProfile -Command "Get-CimInstance Win32_VideoController | Select-Object Name, AdapterCompatibility, AdapterRAM | ConvertTo-Json"',
+          { timeout: 6000 },
         )
-        
-        const lines = stdout.split('\n').filter(l => l.trim() && !l.startsWith('Node'))
-        
-        if (lines.length > 0) {
-          // Parse first GPU
-          const parts = lines[0].split(',')
-          const vendor = parts[1]?.trim() || ''
-          const name = parts[2]?.trim() || 'Unknown GPU'
-          
-          const isIntegrated = 
+        let gpus: { Name?: string; AdapterCompatibility?: string; AdapterRAM?: number }[] = []
+        try {
+          const raw = JSON.parse(stdout.trim())
+          gpus = Array.isArray(raw) ? raw : [raw]
+        } catch { /* ignore */ }
+
+        if (gpus.length > 0) {
+          const gpu = gpus[0]
+          const name = gpu.Name?.trim() || 'Unknown GPU'
+          const vendor = gpu.AdapterCompatibility?.trim() || ''
+
+          const isIntegrated =
             name.includes('Intel HD') ||
             name.includes('Intel UHD') ||
             name.includes('Intel Iris') ||
             name.includes('AMD Radeon(TM)') ||
             name.includes('Integrated')
-          
+
           return {
             detected: true,
             name,
             vendor,
-            isIntegratedGraphics: isIntegrated
+            isIntegratedGraphics: isIntegrated,
           }
         }
       }
