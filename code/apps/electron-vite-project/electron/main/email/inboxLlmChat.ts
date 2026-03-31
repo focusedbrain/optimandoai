@@ -2,34 +2,13 @@
  * Unified inbox LLM calls — same provider stack as handshake / hybrid search (aiProviders + ocrRouter keys).
  */
 
-import { getProvider, type AIProvider, type UserRagSettings } from '../handshake/aiProviders'
+import { getProvider, type UserRagSettings } from '../handshake/aiProviders'
 import { ocrRouter } from '../ocr/router'
 import type { VisionProvider } from '../ocr/types'
 
 export const INBOX_LLM_TIMEOUT_MS = 45_000
 
 const LLM_TIMEOUT_PREFIX = 'LLM_TIMEOUT'
-
-// ─── Session-scoped provider cache ───
-// Resolves config + constructs provider + resolves model once (Ollama: listModels),
-// then reuses for subsequent inbox LLM calls until TTL or clear.
-// Cleared at Auto-Sort session boundaries (see ipc `clearInboxLlmResolutionCache`).
-
-let _providerCache: {
-  instance: AIProvider
-  settings: UserRagSettings
-  modelName: string | null
-  cachedAt: number
-} | null = null
-
-const PROVIDER_CACHE_TTL_MS = 60_000
-
-export function clearInboxLlmResolutionCache(): void {
-  _providerCache = null
-}
-
-/** Alias for docs / callers that refer to “LLM cache” (same as `clearInboxLlmResolutionCache`). */
-export const clearInboxLlmCache = clearInboxLlmResolutionCache
 
 export class InboxLlmTimeoutError extends Error {
   constructor(message = `${LLM_TIMEOUT_PREFIX}: inbox LLM exceeded ${INBOX_LLM_TIMEOUT_MS}ms`) {
@@ -74,67 +53,42 @@ export function resolveInboxLlmSettings(): UserRagSettings {
   return { provider: 'ollama' }
 }
 
-async function getCachedProvider(): Promise<{
-  provider: AIProvider
-  settings: UserRagSettings
-  modelName: string | null
-}> {
-  const now = Date.now()
-  if (_providerCache && now - _providerCache.cachedAt < PROVIDER_CACHE_TTL_MS) {
-    return {
-      provider: _providerCache.instance,
-      settings: _providerCache.settings,
-      modelName: _providerCache.modelName,
-    }
+function visionForRagSettings(settings: UserRagSettings): VisionProvider | null {
+  const p = settings.provider.toLowerCase()
+  if (p === 'openai') return 'OpenAI'
+  if (p === 'anthropic') return 'Claude'
+  if (p === 'google') return 'Gemini'
+  if (p === 'xai') return 'Grok'
+  if (p === 'cloudai') {
+    const cp = (settings.chatProvider ?? 'openai').toLowerCase()
+    if (cp === 'openai') return 'OpenAI'
+    if (cp === 'anthropic') return 'Claude'
+    if (cp === 'google') return 'Gemini'
+    if (cp === 'xai') return 'Grok'
   }
-
-  const settings = resolveInboxLlmSettings()
-  const getApiKey = (p: string) => ocrRouter.getApiKey(p as VisionProvider)
-  const provider = getProvider(settings, getApiKey)
-
-  let modelName: string | null = null
-  if (settings.provider.toLowerCase() === 'ollama') {
-    const { ollamaManager } = await import('../llm/ollama-manager')
-    const models = await ollamaManager.listModels()
-    if (models.length === 0) {
-      throw new Error('No LLM model installed. Install a local model or configure a cloud API key in Backend settings.')
-    }
-    modelName = models[0].name
-  } else {
-    modelName = settings.model ?? null
-  }
-
-  _providerCache = {
-    instance: provider,
-    settings,
-    modelName,
-    cachedAt: now,
-  }
-
-  return { provider, settings, modelName }
+  return null
 }
 
 export async function isLlmAvailable(): Promise<boolean> {
-  try {
-    const { settings, modelName } = await getCachedProvider()
-    if (settings.provider.toLowerCase() === 'ollama') {
-      return modelName !== null
-    }
-    // Cloud: assume available if we built a provider (errors surface at call time)
-    return true
-  } catch {
-    return false
+  const settings = resolveInboxLlmSettings()
+  if (settings.provider.toLowerCase() === 'ollama') {
+    const { ollamaManager } = await import('../llm/ollama-manager')
+    const models = await ollamaManager.listModels()
+    return models.length > 0
   }
+  const vp = visionForRagSettings(settings)
+  if (!vp) return false
+  const key = ocrRouter.getApiKey(vp)
+  return typeof key === 'string' && key.trim().length > 0
 }
 
 /** True when advisory stream should use Ollama NDJSON (otherwise use one-shot unified chat). */
 export async function inboxSupportsOllamaStream(): Promise<boolean> {
-  try {
-    const { settings, modelName } = await getCachedProvider()
-    return settings.provider.toLowerCase() === 'ollama' && modelName !== null
-  } catch {
-    return false
-  }
+  const settings = resolveInboxLlmSettings()
+  if (settings.provider.toLowerCase() !== 'ollama') return false
+  const { ollamaManager } = await import('../llm/ollama-manager')
+  const models = await ollamaManager.listModels()
+  return models.length > 0
 }
 
 export interface InboxLlmChatParams {
@@ -148,32 +102,37 @@ export interface InboxLlmChatParams {
  */
 export async function inboxLlmChat(params: InboxLlmChatParams): Promise<string> {
   const { system, user, timeoutMs = INBOX_LLM_TIMEOUT_MS } = params
-  const { provider, modelName } = await getCachedProvider()
+  const settings = resolveInboxLlmSettings()
+  const getApiKey = (p: string) => ocrRouter.getApiKey(p as VisionProvider)
+  const provider = getProvider(settings, getApiKey)
+
+  let modelOverride: string | undefined
+  if (provider.id === 'ollama') {
+    const { ollamaManager } = await import('../llm/ollama-manager')
+    const models = await ollamaManager.listModels()
+    if (models.length === 0) {
+      throw new Error('No LLM model installed. Install a local model or configure a cloud API key in Backend settings.')
+    }
+    modelOverride = models[0].name
+  } else {
+    modelOverride = settings.model
+  }
 
   const messages = [
     { role: 'system' as const, content: system },
     { role: 'user' as const, content: user },
   ]
 
-  const controller = new AbortController()
-  const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
-  try {
-    const text = await provider.generateChat(messages, {
-      ...(modelName ? { model: modelName } : {}),
-      stream: false,
-      signal: controller.signal,
-    })
-    clearTimeout(timeoutId)
-    const trimmed = typeof text === 'string' ? text.trim() : ''
-    return trimmed || 'No response from model.'
-  } catch (err: unknown) {
-    clearTimeout(timeoutId)
-    const aborted =
-      controller.signal.aborted ||
-      (err instanceof Error && (err.name === 'AbortError' || /aborted/i.test(String(err.message))))
-    if (aborted) {
-      throw new InboxLlmTimeoutError()
-    }
-    throw err
-  }
+  const chatWork = provider.generateChat(messages, {
+    model: modelOverride,
+    stream: false,
+  })
+
+  const timeoutWork = new Promise<never>((_, reject) => {
+    setTimeout(() => reject(new InboxLlmTimeoutError()), timeoutMs)
+  })
+
+  const text = await Promise.race([chatWork, timeoutWork])
+  const trimmed = typeof text === 'string' ? text.trim() : ''
+  return trimmed || 'No response from model.'
 }

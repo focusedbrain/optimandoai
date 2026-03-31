@@ -18,11 +18,7 @@ export class OllamaManager {
   private process: ChildProcess | null = null
   private baseUrl: string = ''
   private downloadProgress: any = null
-
-  /** Short TTL cache for `/api/tags` — inbox classifies call `listModels` from multiple paths in parallel. */
-  private _modelsListCache: { models: InstalledModel[]; at: number } | null = null
-  private readonly MODEL_LIST_CACHE_TTL_MS = 10_000
-
+  
   constructor() {
     this.ollamaPort = 11434
     this.baseUrl = `http://127.0.0.1:${this.ollamaPort}`
@@ -231,13 +227,6 @@ export class OllamaManager {
    * List installed models
    */
   async listModels(): Promise<InstalledModel[]> {
-    const now = Date.now()
-    if (
-      this._modelsListCache &&
-      now - this._modelsListCache.at < this.MODEL_LIST_CACHE_TTL_MS
-    ) {
-      return this._modelsListCache.models
-    }
     try {
       const response = await fetch(`${this.baseUrl}/api/tags`, {
         method: 'GET',
@@ -246,25 +235,21 @@ export class OllamaManager {
       
       if (!response.ok) {
         console.warn('[Ollama] Failed to list models:', response.statusText)
-        this._modelsListCache = { models: [], at: now }
         return []
       }
       
       const data = await response.json()
       const models = data.models || []
       
-      const mapped = models.map((m: any) => ({
+      return models.map((m: any) => ({
         name: m.name,
         size: m.size || 0,
         modified: m.modified_at || new Date().toISOString(),
         digest: m.digest || '',
         isActive: false // Will be set by caller based on config
       }))
-      this._modelsListCache = { models: mapped, at: Date.now() }
-      return mapped
     } catch (error) {
       console.error('[Ollama] Error listing models:', error)
-      this._modelsListCache = { models: [], at: Date.now() }
       return []
     }
   }
@@ -369,27 +354,18 @@ export class OllamaManager {
   
   /**
    * Chat with a model
-   * @param options.signal Optional caller abort (e.g. inbox timeout); combined with a 2-minute ceiling when supported.
    */
-  async chat(modelId: string, messages: ChatMessage[], options?: { signal?: AbortSignal }): Promise<ChatResponse> {
+  async chat(modelId: string, messages: ChatMessage[]): Promise<ChatResponse> {
     try {
-      const ceiling = AbortSignal.timeout(120_000)
-      const userSig = options?.signal
-      const signal =
-        userSig && typeof AbortSignal !== 'undefined' && 'any' in AbortSignal
-          ? AbortSignal.any([userSig, ceiling])
-          : userSig ?? ceiling
-
       const response = await fetch(`${this.baseUrl}/api/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           model: modelId,
           messages,
-          stream: false,
-          keep_alive: '2m',
+          stream: false
         }),
-        signal
+        signal: AbortSignal.timeout(120000) // 2 minute timeout
       })
       
       if (!response.ok) {
