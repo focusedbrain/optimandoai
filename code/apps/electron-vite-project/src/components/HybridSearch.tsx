@@ -867,41 +867,6 @@ export default function HybridSearch({
           chatQuery = `Context:\n${ctxBlock}\n\n${chatQuery}`
         }
 
-        /** Analysis-only: field-drafting — replaces chatQuery with a self-contained
-         *  edit prompt identical to the isDraftRefine pattern (which is proven to work
-         *  without the model echoing instructions or ignoring content). */
-        if (!isDraftRefine && activeView === 'analysis') {
-          const storeState = useProjectSetupChatContextStore.getState()
-          if (storeState.includeInChat && storeState.setupTextDraft.trim()) {
-            const draft = storeState.setupTextDraft.trim()
-            const fieldTagMatch = draft.match(/^\[field:([^\]]+)\]\n?/)
-            const fieldName = fieldTagMatch ? fieldTagMatch[1] : 'content'
-            const content = fieldTagMatch
-              ? draft.slice(fieldTagMatch[0].length).trim()
-              : draft.trim()
-            if (content) {
-              chatQuery = [
-                `Here is the current ${fieldName}:`,
-                '',
-                '---',
-                content,
-                '---',
-                '',
-                `The user wants to modify it: "${chatQuery}"`,
-                '',
-                `Output ONLY the revised text. No explanation, no markdown.`,
-              ].join('\n')
-            } else {
-              chatQuery = [
-                `Write initial text for a project ${fieldName} based on this instruction:`,
-                `"${chatQuery}"`,
-                '',
-                `Output ONLY the text. No explanation, no preamble, no markdown formatting.`,
-              ].join('\n')
-            }
-          }
-        }
-
         // ── Prepend chat attachments (PDF extracted text + image placeholders) ──
         if (chatAttachments.length > 0) {
           const parts: string[] = []
@@ -909,26 +874,59 @@ export default function HybridSearch({
             if (att.type === 'pdf') {
               parts.push(`[Attached PDF: ${att.filename}]\n${att.data}\n[End of PDF]`)
             } else {
-              // TODO: Pass images to LLM API for multi-modal models (e.g., Ollama images array)
               parts.push(`[User attached image: ${att.filename}. Image analysis requires a multi-modal model.]`)
             }
           }
           if (parts.length > 0) chatQuery = parts.join('\n\n') + '\n\n' + chatQuery
         }
 
+        /** Detect field-drafting mode: when a project field is selected for AI editing,
+         *  bypass chatWithContextRag entirely and call chatDirect instead. This avoids
+         *  the RAG system prompt ("answer ONLY from context blocks") which conflicts
+         *  with field-editing tasks and causes the model to ignore or lose the field content. */
+        const fieldDraftState = (!isDraftRefine && activeView === 'analysis')
+          ? useProjectSetupChatContextStore.getState()
+          : null
+        const isFieldDrafting = !!(fieldDraftState?.includeInChat && fieldDraftState?.setupTextDraft.trim())
+
         let result: Awaited<ReturnType<NonNullable<typeof window.handshakeView>['chatWithContextRag']>> | undefined
         try {
-          result = await window.handshakeView?.chatWithContextRag?.({
-            query: chatQuery,
-            scope: effectiveScope,
-            model: selectedModel || 'llama3',
-            provider: modelInfo?.provider || 'ollama',
-            stream: true,
-            conversationContext: previousAnswer?.trim() ? { lastAnswer: previousAnswer } : undefined,
-            selectedDocumentId: selectedDocumentId ?? undefined,
-            selectedAttachmentId: selectedAttachmentId ?? undefined,
-            selectedMessageId: selectedMessageId ?? undefined,
-          })
+          if (isFieldDrafting && window.handshakeView?.chatDirect) {
+            const draft = fieldDraftState!.setupTextDraft.trim()
+            const fieldTagMatch = draft.match(/^\[field:([^\]]+)\]\n?/)
+            const fieldName = fieldTagMatch ? fieldTagMatch[1] : 'content'
+            const content = fieldTagMatch
+              ? draft.slice(fieldTagMatch[0].length).trim()
+              : draft.trim()
+
+            const systemPrompt = 'You are a helpful writing assistant. When the user provides text and asks you to modify, rewrite, or improve it, output ONLY the modified text. No explanations, no preamble, no markdown formatting unless the original text uses markdown. Match the language of the user\'s request.'
+            let userPrompt: string
+            if (content) {
+              userPrompt = `Here is the current ${fieldName}:\n\n${content}\n\nInstruction: ${chatQuery}`
+            } else {
+              userPrompt = `Write a ${fieldName} based on this instruction: ${chatQuery}`
+            }
+
+            result = await window.handshakeView.chatDirect({
+              model: selectedModel || 'llama3',
+              provider: modelInfo?.provider || 'ollama',
+              systemPrompt,
+              userPrompt,
+              stream: true,
+            })
+          } else {
+            result = await window.handshakeView?.chatWithContextRag?.({
+              query: chatQuery,
+              scope: effectiveScope,
+              model: selectedModel || 'llama3',
+              provider: modelInfo?.provider || 'ollama',
+              stream: true,
+              conversationContext: previousAnswer?.trim() ? { lastAnswer: previousAnswer } : undefined,
+              selectedDocumentId: selectedDocumentId ?? undefined,
+              selectedAttachmentId: selectedAttachmentId ?? undefined,
+              selectedMessageId: selectedMessageId ?? undefined,
+            })
+          }
         } finally {
           unsubStart?.()
           unsubToken?.()

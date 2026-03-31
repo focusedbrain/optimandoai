@@ -48,6 +48,12 @@ declare global {
       getAvailableModels?: () => Promise<{ success: boolean; error?: string; models?: Array<{ id: string; name: string; provider: string; type: 'local' | 'cloud' }> }>
       generateDraft?: (prompt: string) => Promise<{ success: boolean; answer?: string; error?: string }>
       chatWithContext?: (systemMessage: string, dataWrapper: string, userMessage: string) => Promise<string>
+      chatDirect?: (params: { model: string; provider: string; systemPrompt: string; userPrompt: string; stream?: boolean }) => Promise<{
+        success: boolean
+        error?: string
+        message?: string
+        answer?: string
+      }>
       chatWithContextRag?: (params: { query: string; scope?: string; model: string; provider: string; stream?: boolean; debug?: boolean; conversationContext?: { lastAnswer?: string }; selectedDocumentId?: string; selectedAttachmentId?: string; selectedMessageId?: string }) => Promise<{
         success: boolean
         error?: string

@@ -3638,6 +3638,39 @@ app.whenReady().then(async () => {
       }
     })
 
+    /** Direct LLM chat — bypasses RAG retrieval entirely.
+     *  Used for field-drafting where the renderer provides its own system + user prompt
+     *  and does NOT want the context-grounded RAG system prompt. */
+    ipcMain.handle('handshake:chatDirect', async (event, params: { model: string; provider: string; systemPrompt: string; userPrompt: string; stream?: boolean }) => {
+      const toIPC = (o: unknown) => { try { return JSON.parse(JSON.stringify(o)) } catch { return o } }
+      const send = (channel: string, data: unknown) => { try { event.sender.send(channel, toIPC(data)) } catch {} }
+      const doStream = params.stream === true
+      try {
+        const { getProvider } = await import('./main/handshake/aiProviders')
+        const { ocrRouter } = await import('./main/ocr/router')
+        const provider = getProvider(
+          { provider: params.provider ?? 'ollama', model: params.model },
+          (p) => ocrRouter.getApiKey(p as 'OpenAI' | 'Claude' | 'Gemini' | 'Grok')
+        )
+        if (doStream) {
+          send('handshake:chatStreamStart', { contextBlocks: [], sources: [] })
+        }
+        const messages = [
+          { role: 'system' as const, content: params.systemPrompt },
+          { role: 'user' as const, content: params.userPrompt },
+        ]
+        const answer = await provider.generateChat(messages, {
+          model: params.model,
+          stream: doStream,
+          send: doStream ? send : undefined,
+        })
+        return toIPC({ success: true, answer, contextBlocks: [], sources: [] })
+      } catch (err: any) {
+        console.error('[chatDirect] error:', err)
+        return toIPC({ success: false, error: 'model_execution_failed', message: err?.message ?? 'Unknown error' })
+      }
+    })
+
     // email:listAccounts is registered by registerEmailHandlers() — do not duplicate here
 
     ipcMain.handle('handshake:initiate', async (_e, receiverEmail: string, fromAccountId: string, contextOpts?: { skipVaultContext?: boolean; message?: string; context_blocks?: any[]; profile_ids?: string[]; profile_items?: any[]; policy_selections?: { cloud_ai?: boolean; internal_ai?: boolean } }) => {

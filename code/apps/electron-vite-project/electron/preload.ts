@@ -582,6 +582,18 @@ contextBridge.exposeInMainWorld('handshakeView', {
       selectedAttachmentId: typeof params.selectedAttachmentId === 'string' && params.selectedAttachmentId.trim() ? params.selectedAttachmentId.trim() : undefined,
     })
   },
+  chatDirect: (params: { model: string; provider: string; systemPrompt: string; userPrompt: string; stream?: boolean }) => {
+    if (!params || typeof params !== 'object' || typeof params.userPrompt !== 'string') {
+      throw new Error('chatDirect: expected { model, provider, systemPrompt, userPrompt }')
+    }
+    return ipcRenderer.invoke('handshake:chatDirect', {
+      model: typeof params.model === 'string' ? params.model : 'llama3',
+      provider: typeof params.provider === 'string' ? params.provider : 'ollama',
+      systemPrompt: typeof params.systemPrompt === 'string' ? params.systemPrompt : '',
+      userPrompt: typeof params.userPrompt === 'string' ? params.userPrompt : '',
+      stream: params.stream === true,
+    })
+  },
   onChatStreamStart: (callback: (data: { contextBlocks: string[]; sources: unknown[] }) => void) => {
     const handler = (_: unknown, data: unknown) => callback(data as { contextBlocks: string[]; sources: unknown[] })
     ipcRenderer.on('handshake:chatStreamStart', handler)
