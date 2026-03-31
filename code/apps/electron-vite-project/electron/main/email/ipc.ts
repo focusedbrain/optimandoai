@@ -284,6 +284,7 @@ async function* callInboxOllamaChatStream(
       body: JSON.stringify({
         model: modelId,
         stream: true,
+        keep_alive: '2m',
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userPrompt },
@@ -3432,6 +3433,7 @@ ${fullReply}`
   })
 
   ipcMain.handle('inbox:aiAnalyzeMessage', async (_e, messageId: string) => {
+    console.warn('⚡ aiAnalyzeMessage CALLED', new Date().toISOString(), { messageId })
     console.log('[AI-ANALYZE] Starting for message:', messageId)
     try {
       const db = await resolveDb()
@@ -3583,6 +3585,7 @@ Respond ONLY with valid JSON. No markdown, no backticks, no preamble, no explana
   })
 
   ipcMain.handle('inbox:aiAnalyzeMessageStream', async (event, messageId: string) => {
+    console.warn('⚡ aiAnalyzeMessageStream CALLED', new Date().toISOString(), { messageId })
     if (activeAiAnalyzeMessageStreams.has(messageId)) {
       console.log('[AI-ANALYZE-STREAM] Already running for:', messageId)
       return { started: false, reason: 'already-running' as const }
@@ -3710,6 +3713,7 @@ Respond ONLY with valid JSON. No markdown, no backticks, no preamble.`
     /** Present when classify succeeded and remote lifecycle enqueue ran (all categories, including urgent). */
     remoteEnqueue?: { enqueued: number; skipped: number; skipReasons: string[] }
   }> {
+    console.warn('⚡ classifySingleMessage CALLED', new Date().toISOString(), { messageId })
     const db = await resolveDb()
     if (!db) return { messageId, error: 'Database unavailable' }
     const row = db

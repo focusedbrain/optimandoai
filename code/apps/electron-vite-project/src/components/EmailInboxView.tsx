@@ -364,6 +364,7 @@ function InboxDetailAiPanel({ messageId, message, onSendDraft, onArchive, onDele
     streamCleanupRef.current = cleanup
 
     try {
+      console.warn('⚡ EmailInboxView calling aiAnalyzeMessageStream', new Date().toISOString(), { messageId })
       await window.emailInbox.aiAnalyzeMessageStream(messageId)
     } catch {
       setAnalysisLoading(false)

@@ -227,6 +227,7 @@ export class OllamaManager {
    * List installed models
    */
   async listModels(): Promise<InstalledModel[]> {
+    console.warn('⚡ ollamaManager.listModels CALLED', new Date().toISOString())
     try {
       const response = await fetch(`${this.baseUrl}/api/tags`, {
         method: 'GET',
@@ -356,6 +357,7 @@ export class OllamaManager {
    * Chat with a model
    */
   async chat(modelId: string, messages: ChatMessage[]): Promise<ChatResponse> {
+    console.warn('⚡ ollamaManager.chat CALLED', new Date().toISOString(), { model: modelId || 'unknown' })
     try {
       const response = await fetch(`${this.baseUrl}/api/chat`, {
         method: 'POST',
@@ -363,7 +365,8 @@ export class OllamaManager {
         body: JSON.stringify({
           model: modelId,
           messages,
-          stream: false
+          stream: false,
+          keep_alive: '2m',
         }),
         signal: AbortSignal.timeout(120000) // 2 minute timeout
       })

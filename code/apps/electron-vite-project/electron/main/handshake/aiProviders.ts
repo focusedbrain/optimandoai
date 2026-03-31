@@ -67,6 +67,7 @@ export class OllamaProvider implements AIProvider {
   }
 
   async generateChat(messages: Message[], options?: GenerateChatOptions): Promise<string> {
+    console.warn('⚡ OllamaProvider.generateChat CALLED', new Date().toISOString())
     const model = options?.model ?? this.chatModel
     const stream = options?.stream ?? false
     const send = options?.send ?? (() => {})
@@ -84,6 +85,7 @@ export class OllamaProvider implements AIProvider {
       body: JSON.stringify({
         model,
         stream: false,
+        keep_alive: '2m',
         messages: messages.map(m => ({ role: m.role, content: m.content })),
       }),
     })
@@ -164,6 +166,7 @@ export class CloudAIProvider implements AIProvider {
   }
 
   async generateChat(messages: Message[], options?: GenerateChatOptions): Promise<string> {
+    console.warn('⚡ CloudAIProvider.generateChat CALLED', new Date().toISOString())
     const model = options?.model ?? this.chatModel
     const stream = options?.stream ?? false
     const send = options?.send ?? (() => {})

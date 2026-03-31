@@ -70,6 +70,7 @@ function visionForRagSettings(settings: UserRagSettings): VisionProvider | null 
 }
 
 export async function isLlmAvailable(): Promise<boolean> {
+  console.warn('⚡ isLlmAvailable CALLED', new Date().toISOString())
   const settings = resolveInboxLlmSettings()
   if (settings.provider.toLowerCase() === 'ollama') {
     const { ollamaManager } = await import('../llm/ollama-manager')
@@ -101,6 +102,9 @@ export interface InboxLlmChatParams {
  * Non-stream chat for inbox classify / summarize / draft / analyze.
  */
 export async function inboxLlmChat(params: InboxLlmChatParams): Promise<string> {
+  console.warn('⚡ inboxLlmChat CALLED', new Date().toISOString(), {
+    caller: new Error().stack?.split('\n')[2]?.trim(),
+  })
   const { system, user, timeoutMs = INBOX_LLM_TIMEOUT_MS } = params
   const settings = resolveInboxLlmSettings()
   const getApiKey = (p: string) => ocrRouter.getApiKey(p as VisionProvider)

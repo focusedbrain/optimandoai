@@ -4714,12 +4714,13 @@ app.whenReady().then(async () => {
               })
             }
             
-            if (msg.type === 'ping') { 
-              console.log('[MAIN] Ping received, sending pong'); 
-              try { socket.send(JSON.stringify({ type: 'pong' })) } catch (e) {
+            if (msg.type === 'ping') {
+              try {
+                socket.send(JSON.stringify({ type: 'pong' }))
+              } catch (e) {
                 console.error('[MAIN] Error sending pong:', e)
               }
-              return // Don't process further handlers for ping
+              return
             }
             // ===== FOCUS DASHBOARD HANDLER =====
             if (msg.type === 'FOCUS_DASHBOARD') {
@@ -6734,14 +6735,11 @@ app.whenReady().then(async () => {
     // reopen) can bind to the existing session without re-entering the password.
     httpApp.post('/api/vault/status', async (_req, res) => {
       try {
-        console.log('[HTTP-VAULT] POST /api/vault/status')
         const tier = await getEffectiveTier({ refreshIfStale: true, caller: 'vault-status' })
         const vaultService = await getVaultService()
-        console.log('[HTTP-VAULT] Vault service imported successfully')
         const status = await vaultService.getStatus()
         const { canAccessRecordType } = await import('./main/vault/types')
         const canUseHsContextProfiles = canAccessRecordType(tier as any, 'handshake_context', 'share')
-        console.log('[HTTP-VAULT] Status retrieved:', { exists: status.exists, locked: status.locked, tier, canUseHsContextProfiles })
         // Attach tier and canUseHsContextProfiles for UI gating (HS Context = Publisher+ only).
         // Include sessionToken when unlocked so the client can bind to the existing session.
         const sessionToken = status.isUnlocked ? vaultService.getSessionToken() : null

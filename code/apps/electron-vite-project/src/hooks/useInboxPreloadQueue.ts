@@ -10,6 +10,11 @@ import type { NormalInboxAiResult } from '../types/inboxAi'
 import { useEmailInboxStore } from '../stores/useEmailInboxStore'
 import { tryParseAnalysis } from '../utils/parseInboxAiJson'
 
+// Background preload is OFF: continuous aiAnalyzeMessageStream for visible rows kept large models
+// (e.g. Gemma 12B) hot and caused thermal/GPU load while idle. Manual per-message Analyze and
+// Auto-Sort (aiClassifySingle) are unchanged. Re-enable only after product-owned throttling is proven.
+const BACKGROUND_PRELOAD_ANALYSIS_ENABLED = false
+
 const CONCURRENCY = 1
 
 // ─── Adaptive preload timing ───
@@ -88,6 +93,7 @@ export function useInboxPreloadQueue({
   }, [])
 
   const scheduleAdaptivePreload = useCallback(() => {
+    if (!BACKGROUND_PRELOAD_ANALYSIS_ENABLED) return
     const st = adaptiveRef.current
     if (adaptiveUnmountedRef.current) return
     if (st.consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) return
@@ -266,6 +272,7 @@ export function useInboxPreloadQueue({
   )
 
   useEffect(() => {
+    if (!BACKGROUND_PRELOAD_ANALYSIS_ENABLED) return
     const pending = computePendingVisible()
     const existingInQueue = new Set(queueRef.current)
     const toAdd = pending.filter((id) => !existingInQueue.has(id))
@@ -282,6 +289,8 @@ export function useInboxPreloadQueue({
   }, [messages, analysisCache, scheduleNext, scheduleAdaptivePreload, analysisRestartCounter, computePendingVisible])
 
   useEffect(() => {
+    if (!BACKGROUND_PRELOAD_ANALYSIS_ENABLED) return
+
     adaptiveUnmountedRef.current = false
     scheduleAdaptivePreload()
 

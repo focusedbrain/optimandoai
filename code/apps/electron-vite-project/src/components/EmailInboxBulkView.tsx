@@ -2556,6 +2556,7 @@ export default function EmailInboxBulkView({
           const settled = await Promise.allSettled(
             batch.map(async (messageId) => {
               try {
+              console.warn('⚡ EmailInboxBulkView calling aiClassifySingle', new Date().toISOString(), { messageId })
               const result = await window.emailInbox!.aiClassifySingle(messageId, sessionId)
               if (result.error) {
                 failedIds.push(messageId)
@@ -3000,11 +3001,13 @@ export default function EmailInboxBulkView({
     try {
       let finalNormal: NormalInboxAiResult | null = null
       if (hasStream) {
+        console.warn('⚡ EmailInboxBulkView calling aiAnalyzeMessageStream', new Date().toISOString(), { messageId })
         await bridge.aiAnalyzeMessageStream!(messageId)
         if (!streamFailed) {
           finalNormal = tryParseAnalysis(accumulatedText)
         }
       } else {
+        console.warn('⚡ EmailInboxBulkView calling aiAnalyzeMessage', new Date().toISOString(), { messageId })
         const res = await bridge.aiAnalyzeMessage!(messageId)
         const data = res?.ok ? (res.data as NormalInboxAiResult & { error?: string } | undefined) : undefined
         if (data && !data.error) {
