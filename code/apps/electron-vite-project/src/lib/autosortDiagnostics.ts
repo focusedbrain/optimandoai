@@ -5,8 +5,9 @@
  * `electron/main/autosortDiagnostics.ts` so main (`inbox:aiClassifyBatch`) and renderer logs align.
  *
  * **Bulk Auto-Sort validation (outer run, `skipEndRefresh: false`):**
- * - `[AUTOSORT-TIMING] renderer:chunk` — `ipcMs` ≈ main `aiClassifyBatch:ipc` wall time; `processLoopMs` + `zustandApplyMs`
- *   + `reactBulkOutputsMs` should stay small vs `ipcMs` (no per-chunk dwell or mid-run tab recounts on the hot path).
+ * - `[AUTOSORT-TIMING] renderer:chunk` — `ipcMs` ≈ main `aiClassifyBatch:ipc` wall time; includes **`uiMessagesPerBatch`** /
+ *   **`uiOllamaParallel`** (values for this chunk). `processLoopMs` + `zustandApplyMs` + `reactBulkOutputsMs` should stay
+ *   small vs `ipcMs` (no per-chunk dwell or mid-run tab recounts on the hot path).
  * - `[AUTOSORT-TIMING] run-summary` — `listMessagesCalls`: expect **6** per end snapshot (five tab total queries + first page);
  *   `refreshBulkTabCountsFromServerCalls`: **0** unless the run uses `skipEndRefresh` (then **1** without end fetch). Nested missed-id
  *   retry must not add a second snapshot (outer invocation only).
@@ -119,9 +120,13 @@ export function autosortTimingRunEnd(extra?: Record<string, unknown>): void {
   const pctClassify = wall > 0 ? Math.round((100 * classifyMs) / wall) : 0
   const pctRenderNonIpc = wall > 0 ? Math.round((100 * renderNonIpc) / wall) : 0
   const tailStr = _postRunTailMs != null ? `${_postRunTailMs}ms` : 'n/a'
+  const uiTail =
+    extra && typeof extra === 'object' && ('uiOllamaParallel' in extra || 'uiMessagesPerBatch' in extra)
+      ? ` uiParallel=${(extra as { uiOllamaParallel?: unknown }).uiOllamaParallel ?? 'n/a'} uiPerBatch=${(extra as { uiMessagesPerBatch?: unknown }).uiMessagesPerBatch ?? 'n/a'} (end-of-run slider snapshot)`
+      : ''
   console.log(
     '[AUTOSORT-TIMING] run-tuning-one-line',
-    `classifyIPC=${classifyMs}ms (${pctClassify}% of ΣchunkWall=${wall}ms) rendererNonIpc=${renderNonIpc}ms (${pctRenderNonIpc}%) tail=${tailStr} retries=${_completenessRetryInvoked} listMsg=${_timingCounters.listMessagesCalls} outerChunks=${_outerChunkCount} | main: next [AUTOSORT-TIMING] run-tuning-main → cap & maxInFlight across chunks`,
+    `classifyIPC=${classifyMs}ms (${pctClassify}% of ΣchunkWall=${wall}ms) rendererNonIpc=${renderNonIpc}ms (${pctRenderNonIpc}%) tail=${tailStr} retries=${_completenessRetryInvoked} listMsg=${_timingCounters.listMessagesCalls} outerChunks=${_outerChunkCount}${uiTail} | main: see run-tuning-main → cap & maxInFlight`,
   )
 }
 

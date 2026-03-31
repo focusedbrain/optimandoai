@@ -4330,6 +4330,10 @@ ${formatSourceWeightingForPrompt(sortWeight)}`
         wallMs: Math.round(performance.now() - ipcWallT0),
         chunkIndex: chunkIndex ?? null,
         chunkSize: ids.length,
+        ollamaParallelFromUi:
+          typeof ollamaMaxConcurrentFromUi === 'number' && Number.isFinite(ollamaMaxConcurrentFromUi)
+            ? Math.max(1, Math.min(8, Math.floor(ollamaMaxConcurrentFromUi)))
+            : null,
         provider: resolvedLlm.provider,
         ollamaConcurrencyCapped: ollama && ids.length > ollamaResolved.cap,
         ollamaCapEffective: ollamaResolved.cap,

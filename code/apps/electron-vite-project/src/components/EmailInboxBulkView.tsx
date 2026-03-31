@@ -2688,6 +2688,9 @@ export default function EmailInboxBulkView({
         _i += batch.length
         const doneAfterBatch = Math.min(_i, ids.length)
         autosortChunkNumber += 1
+        /** Snapshot at chunk boundary — same values sent on this `aiClassifyBatch` (slider changes mid-flight do not apply). */
+        const uiMessagesPerBatchThisChunk = chunkSize
+        const uiOllamaParallelThisChunk = bulkOllamaParallelRef.current
         const chunkT0 = DEBUG_AUTOSORT_TIMING ? performance.now() : 0
           let tAfterBatchIpc = chunkT0
           // One IPC call for the whole chunk — main process handles LLM resolution internally
@@ -2708,7 +2711,7 @@ export default function EmailInboxBulkView({
               sessionId,
               sortRunId,
               autosortChunkNumber,
-              bulkOllamaParallelRef.current,
+              uiOllamaParallelThisChunk,
             )
             if (DEBUG_AUTOSORT_TIMING) tAfterBatchIpc = performance.now()
             batchResults = ((resp?.results ?? []) as BatchResult[]).filter((r) => !!r?.messageId)
@@ -3087,12 +3090,15 @@ export default function EmailInboxBulkView({
               doneAfterBatch,
               batchLen: batch.length,
               autosortChunkNumber,
+              uiMessagesPerBatch: uiMessagesPerBatchThisChunk,
+              uiOllamaParallel: uiOllamaParallelThisChunk,
               ipcMs,
               processLoopMs: Math.round(tAfterProcessLoop - tAfterBatchIpc),
               zustandApplyMs: Math.round(tAfterZustandApply - tAfterProcessLoop),
               reactBulkOutputsMs: Math.round(tAfterReactOutputs - tAfterZustandApply),
               chunkTotalMs,
-              tuningNote: 'ipcMs tracks main aiClassifyBatch; chunkTotalMs adds renderer apply + React outputs.',
+              tuningNote:
+                'ipcMs ≈ main aiClassifyBatch wall; chunkTotalMs adds process loop + Zustand + React. Compare main aiClassifyBatch:ipc for maxInFlight vs uiOllamaParallel.',
             })
             if (manageConcurrencyLock) {
               autosortTimingAccumulateOuterChunk(ipcMs, chunkTotalMs)
@@ -4865,9 +4871,9 @@ export default function EmailInboxBulkView({
                 userSelect: 'none',
                 marginLeft: 2,
               }}
-              title={`Messages per batch: ${sortConcurrency}. How many inbox items are sent in one classify request. During Auto-Sort you can change Local parallelism in the progress bar (separate control). Next chunk picks up changes.`}
+              title={`Batch size: ${sortConcurrency} message(s) per classify request (one IPC chunk). Separate from “Ollama parallel” in the progress bar. Changes apply from the next chunk.`}
             >
-              <span style={{ whiteSpace: 'nowrap' }}>Per batch: {sortConcurrency}</span>
+              <span style={{ whiteSpace: 'nowrap' }}>Per batch: {sortConcurrency} msgs</span>
               <input
                 type="range"
                 min={1}
@@ -5844,10 +5850,10 @@ export default function EmailInboxBulkView({
                                 userSelect: 'none',
                                 minWidth: 0,
                               }}
-                              title={`Parallelism: ${bulkOllamaParallel} concurrent local analyses max (inside each batch). Applied starting with the next chunk. On local Ollama or a single GPU, higher values are not always faster — try 2–4 if runs feel slower.`}
+                              title={`Local Ollama only: up to ${bulkOllamaParallel} classify(ies) at once inside each batch (does not change how many messages are in the batch — use Per batch on the toolbar). Next chunk picks this up. On one GPU, higher is not always faster.`}
                             >
                               <span style={{ whiteSpace: 'nowrap', fontWeight: 600, color: '#334155' }}>
-                                Parallelism: {bulkOllamaParallel}
+                                Ollama parallel: {bulkOllamaParallel}
                               </span>
                               <input
                                 type="range"
@@ -5856,7 +5862,7 @@ export default function EmailInboxBulkView({
                                 step={1}
                                 value={bulkOllamaParallel}
                                 onChange={(e) => handleBulkOllamaParallelChange(Number(e.target.value))}
-                                aria-label="Bulk Auto-Sort Ollama parallelism (live; next chunk)"
+                                aria-label="Bulk Auto-Sort local Ollama parallel classifies per chunk (next chunk)"
                                 aria-valuemin={1}
                                 aria-valuemax={8}
                                 aria-valuenow={bulkOllamaParallel}
@@ -5873,10 +5879,9 @@ export default function EmailInboxBulkView({
                               maxWidth: 520,
                             }}
                           >
-                            Per batch (toolbar): how many messages each classify request includes. Parallelism
-                            (here): how many local Ollama analyses can run at once inside each batch — higher
-                            is not always faster on one GPU. Values apply from the next chunk (the in-flight
-                            chunk is unchanged). Model selection follows the same rule.
+                            Per batch (toolbar) = messages per classify request. Ollama parallel (here) = how
+                            many local classifies overlap inside that request (ignored for cloud APIs). Both
+                            apply from the next chunk. Model pick uses the same next-chunk rule.
                           </p>
                         </div>
                       )}
