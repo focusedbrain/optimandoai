@@ -867,21 +867,43 @@ export default function HybridSearch({
           chatQuery = `Context:\n${ctxBlock}\n\n${chatQuery}`
         }
 
-        /** Analysis-only: prepend project setup context (never mixed into handshake draft-refine prompts). */
+        /** Analysis-only: field-drafting context — builds a self-contained editing prompt
+         *  so the LLM always has the field content to work with, even when RAG finds no
+         *  matching documents.  Pattern mirrors isDraftRefine so the model understands
+         *  it should output revised text, not search for information. */
         if (!isDraftRefine && activeView === 'analysis') {
           const storeState = useProjectSetupChatContextStore.getState()
           if (storeState.includeInChat && storeState.setupTextDraft.trim()) {
             const draft = storeState.setupTextDraft.trim()
             // All field drafts are stored as "[field:<name>]\n<content>".
-            // Strip the tag, keep only the raw content, wrap in triple-quotes so
-            // the AI sees the content clearly separated from the user's request.
-            // This ensures NO instruction text ever leaks into the user query.
-            const fieldTagMatch = draft.match(/^\[field:[^\]]+\]\n?/)
+            const fieldTagMatch = draft.match(/^\[field:([^\]]+)\]\n?/)
+            const fieldName = fieldTagMatch ? fieldTagMatch[1] : 'content'
             const content = fieldTagMatch
               ? draft.slice(fieldTagMatch[0].length).trim()
               : draft.trim()
             if (content) {
-              chatQuery = `"""\n${content}\n"""\n\n${chatQuery}`
+              // Embed field content directly in the prompt so the model sees it as
+              // the thing to edit — not as a RAG search term.
+              chatQuery = [
+                `You are editing a project ${fieldName}. Here is the current text:`,
+                '',
+                '---',
+                content,
+                '---',
+                '',
+                `User instruction: ${chatQuery}`,
+                '',
+                'Output ONLY the revised text. No explanation, no preamble.',
+              ].join('\n')
+            } else {
+              // No existing content — ask for a draft from scratch
+              chatQuery = [
+                `You are drafting a project ${fieldName} from scratch.`,
+                '',
+                `User instruction: ${chatQuery}`,
+                '',
+                'Output ONLY the draft text. No explanation, no preamble.',
+              ].join('\n')
             }
           }
         }
