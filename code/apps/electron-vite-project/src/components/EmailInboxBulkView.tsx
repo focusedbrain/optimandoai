@@ -45,7 +45,17 @@ import { AutoSortSessionReview } from './AutoSortSessionReview'
 import { AutoSortSessionHistory } from './AutoSortSessionHistory'
 import { InboxHandshakeNavIconButton } from './InboxHandshakeNavIcon'
 import '../components/handshakeViewTypes'
-import { DEBUG_AUTOSORT_DIAGNOSTICS, autosortDiagLog, setAutosortDiagRunId } from '../lib/autosortDiagnostics'
+import {
+  DEBUG_AUTOSORT_DIAGNOSTICS,
+  DEBUG_AUTOSORT_TIMING,
+  autosortDiagLog,
+  autosortTimingBump,
+  autosortTimingLog,
+  autosortTimingRunActive,
+  autosortTimingRunEnd,
+  autosortTimingRunStart,
+  setAutosortDiagRunId,
+} from '../lib/autosortDiagnostics'
 import { BulkOllamaModelSelect } from './BulkOllamaModelSelect'
 
 const MUTED = '#64748b'
@@ -70,6 +80,13 @@ const DEBUG_AI_DIAGNOSTICS = false
 
 /** After Auto-Sort finishes, show "Review Session" briefly then fade out (see `autosortReviewBanner`). */
 const AUTOSORT_REVIEW_BANNER_VISIBLE_MS = 5500
+
+/**
+ * Workflow tab totals during bulk Auto-Sort: refresh every N renderer chunks (each refresh is 5× listMessages).
+ * The last chunk always refreshes (`doneAfterBatch >= ids.length`) so counts match the completed run.
+ * Set to `1` to restore every-chunk refreshes.
+ */
+const BULK_AUTOSORT_TAB_COUNT_EVERY_N_CHUNKS = 2
 
 type AutosortReviewBannerState = { sessionId: string; fading: boolean }
 
@@ -2619,6 +2636,9 @@ export default function EmailInboxBulkView({
       if (DEBUG_AUTOSORT_DIAGNOSTICS && !opts?.diagAcc && !isRetry) {
         setAutosortDiagRunId(sortRunId)
       }
+      if (DEBUG_AUTOSORT_TIMING && !opts?.diagAcc && !isRetry) {
+        autosortTimingRunStart()
+      }
       if (!opts?.diagAcc && !isRetry) {
         void window.emailInbox?.autosortDiagSync?.({ runId: sortRunId, bulkSortActive: true })
       }
@@ -2633,6 +2653,7 @@ export default function EmailInboxBulkView({
        * aiClassifyBatch IPC. Stop/Pause checks also run at chunk boundaries.
        */
       let _i = 0
+      let autosortChunkNumber = 0
       while (_i < ids.length) {
         // ── Stop / Pause boundary ────────────────────────────────────────
         if (sortStopRequestedRef.current) break
@@ -2650,6 +2671,13 @@ export default function EmailInboxBulkView({
         const batch = ids.slice(_i, _i + chunkSize)
         _i += batch.length
         const doneAfterBatch = Math.min(_i, ids.length)
+        autosortChunkNumber += 1
+        const refreshTabCountsThisChunk =
+          BULK_AUTOSORT_TAB_COUNT_EVERY_N_CHUNKS <= 1 ||
+          autosortChunkNumber % BULK_AUTOSORT_TAB_COUNT_EVERY_N_CHUNKS === 0 ||
+          doneAfterBatch >= ids.length
+        const chunkT0 = DEBUG_AUTOSORT_TIMING ? performance.now() : 0
+          let tAfterBatchIpc = chunkT0
           // One IPC call for the whole chunk — main process handles LLM resolution internally
           type BatchResult = {
             messageId: string; error?: string; category?: string; urgency?: number
@@ -2667,7 +2695,9 @@ export default function EmailInboxBulkView({
               batch,
               sessionId,
               sortRunId,
+              autosortChunkNumber,
             )
+            if (DEBUG_AUTOSORT_TIMING) tAfterBatchIpc = performance.now()
             batchResults = ((resp?.results ?? []) as BatchResult[]).filter((r) => !!r?.messageId)
             if (batchResults.length === 0) {
               batchResults = batch.map((id) => ({ messageId: id, error: 'llm_error' }))
@@ -2693,6 +2723,7 @@ export default function EmailInboxBulkView({
               )
             }
           } catch (batchCallErr: unknown) {
+            if (DEBUG_AUTOSORT_TIMING) tAfterBatchIpc = performance.now()
             const msg = batchCallErr instanceof Error ? batchCallErr.message : String(batchCallErr ?? 'batch call failed')
             console.warn('[SORT] Batch IPC call failed:', msg)
             batchResults = batch.map((id) => ({ messageId: id, error: 'llm_error' }))
@@ -2771,6 +2802,8 @@ export default function EmailInboxBulkView({
                 pending_delete_at: result.pending_delete_at ?? null,
                 pending_review_at: result.pending_review_at ?? null,
                 archived: result.archived,
+                /** One `refreshBulkTabCountsFromServer` per chunk — not 5× listMessages per message. */
+                skipBulkTabCountRefresh: true,
               })
 
               let category = (VALID_CATEGORIES.includes((result.category ?? '') as SortCategory)
@@ -2987,6 +3020,12 @@ export default function EmailInboxBulkView({
             }
           }
 
+          const tBeforeTabRefresh = DEBUG_AUTOSORT_TIMING ? performance.now() : 0
+          if (refreshTabCountsThisChunk) {
+            await useEmailInboxStore.getState().refreshBulkTabCountsFromServer()
+          }
+          const tAfterTabRefresh = DEBUG_AUTOSORT_TIMING ? performance.now() : 0
+
           // One React state update for all results in this chunk (was N separate setState calls)
           if (Object.keys(batchUiUpdates).length > 0) {
             setBulkAiOutputs((prev) => ({ ...prev, ...batchUiUpdates }))
@@ -3001,6 +3040,19 @@ export default function EmailInboxBulkView({
               label: `Auto-Sort ${doneAfterBatch}/${ids.length} (classify + DB apply per chunk)`,
               statsDetail: statLine,
               phase: 'sorting',
+            })
+          }
+          if (DEBUG_AUTOSORT_TIMING) {
+            const tChunkEnd = performance.now()
+            autosortTimingLog('renderer:chunk', {
+              doneAfterBatch,
+              batchLen: batch.length,
+              autosortChunkNumber,
+              tabCountsRefreshed: refreshTabCountsThisChunk,
+              ipcMs: Math.round(tAfterBatchIpc - chunkT0),
+              applyResultsMs: Math.round(tBeforeTabRefresh - tAfterBatchIpc),
+              tabCountsMs: Math.round(tAfterTabRefresh - tBeforeTabRefresh),
+              chunkTotalMs: Math.round(tChunkEnd - chunkT0),
             })
           }
         } // end while (_i < ids.length)
@@ -3080,6 +3132,7 @@ export default function EmailInboxBulkView({
           movedIds: allMovedIds,
           failedIds: allFailedIds,
         })
+        const tPostClassifyDone = DEBUG_AUTOSORT_TIMING ? performance.now() : 0
         /**
          * Remote IMAP/M365 mirror runs in the background so Auto-Sort does not block on a second-phase
          * round-trip after classify+local UI already applied. Local + SQLite are authoritative for workflow tabs.
@@ -3088,7 +3141,20 @@ export default function EmailInboxBulkView({
         if (classifiedIdsForRemote.length > 0) {
           const syncFn = window.emailInbox?.enqueueRemoteSync ?? window.emailInbox?.enqueueRemoteLifecycleMirror
           if (syncFn) {
-            void (async () => {
+            if (autosortTimingRunActive()) {
+              autosortTimingBump('remoteEnqueueCalls')
+              if (typeof window.emailInbox?.fullRemoteSyncForMessages === 'function') {
+                autosortTimingBump('fullRemoteSyncCalls')
+              }
+            }
+            if (DEBUG_AUTOSORT_TIMING) {
+              autosortTimingLog('renderer:remoteSync_deferred', {
+                idCount: classifiedIdsForRemote.length,
+                deferMs: 0,
+              })
+            }
+            setTimeout(() => {
+              void (async () => {
               try {
                 const res = await syncFn(classifiedIdsForRemote)
                 if (!res?.ok) {
@@ -3101,7 +3167,7 @@ export default function EmailInboxBulkView({
               } catch (e) {
                 console.warn('[AutoSort] Remote enqueue failed:', e)
               }
-            try {
+              try {
                 const full = await window.emailInbox?.fullRemoteSyncForMessages?.(classifiedIdsForRemote)
                 if (full?.ok && (full.enqueued ?? 0) + (full.inboxRestoreNeeded ?? 0) > 0) {
                   console.log('[AutoSort] Full remote reconcile:', {
@@ -3115,13 +3181,15 @@ export default function EmailInboxBulkView({
               } catch (e) {
                 console.warn('[AutoSort] fullRemoteSyncForMessages failed:', e)
               }
-            })()
+              })()
+            }, 0)
           }
         }
         if (clearSelection) clearMultiSelect()
         if (!skipEndRefresh) {
           try {
-            await refreshMessages()
+            /** Tab totals already refreshed per chunk; reload first page only (saves 5× listMessages vs full snapshot). */
+            await useEmailInboxStore.getState().fetchAllMessages({ soft: true, skipTabCountFetch: true })
           } catch (refreshErr) {
             console.warn('[SORT] Post-run inbox refresh failed:', refreshErr)
             setAutosortVaultSessionBanner((prev) =>
@@ -3130,6 +3198,13 @@ export default function EmailInboxBulkView({
                 : 'Could not refresh the inbox after Auto-Sort. Try Refresh once the vault is unlocked.',
             )
           }
+        }
+        if (DEBUG_AUTOSORT_TIMING && tPostClassifyDone > 0 && manageConcurrencyLock && !isRetry) {
+          autosortTimingLog('renderer:postClassifyTail', {
+            ms: Math.round(performance.now() - tPostClassifyDone),
+            skipEndRefresh,
+            hadRemoteIds: classifiedIdsForRemote.length > 0,
+          })
         }
         return {
           processedIds: allProcessedIds,
@@ -3160,16 +3235,29 @@ export default function EmailInboxBulkView({
         }
       } finally {
         if (DEBUG_AUTOSORT_DIAGNOSTICS && !isRetry && manageConcurrencyLock) {
-          autosortDiagLog('bulk-run-summary', {
-            sortRunId,
-            analyzed: runDiag.analyzed,
-            moved: runDiag.moved,
-            retained: runDiag.retained,
-            failed: runDiag.failed,
-            timeout: runDiag.timeout,
-            db_unavailable: runDiag.db_unavailable,
-          })
-          setAutosortDiagRunId(null)
+          void (async () => {
+            let localRuntime: unknown
+            try {
+              const st = await window.llm?.getStatus?.()
+              if (st && st.ok && st.data?.localRuntime) localRuntime = st.data.localRuntime
+            } catch {
+              /* ignore */
+            }
+            autosortDiagLog('bulk-run-summary', {
+              sortRunId,
+              analyzed: runDiag.analyzed,
+              moved: runDiag.moved,
+              retained: runDiag.retained,
+              failed: runDiag.failed,
+              timeout: runDiag.timeout,
+              db_unavailable: runDiag.db_unavailable,
+              localRuntime,
+            })
+            setAutosortDiagRunId(null)
+          })()
+        }
+        if (DEBUG_AUTOSORT_TIMING && !isRetry && manageConcurrencyLock) {
+          autosortTimingRunEnd({ sortRunId })
         }
         if (!isRetry && manageConcurrencyLock) {
           void window.emailInbox?.autosortDiagSync?.({ runId: null, bulkSortActive: false })
@@ -3182,7 +3270,7 @@ export default function EmailInboxBulkView({
         }
       }
     },
-    [clearMultiSelect, refreshMessages]
+    [clearMultiSelect]
   )
 
   /**

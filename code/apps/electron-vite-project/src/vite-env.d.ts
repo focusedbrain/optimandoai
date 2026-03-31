@@ -66,6 +66,13 @@ interface LlmOllamaStatus {
     isActive?: boolean
   }>
   activeModel?: string
+  /** Evidence-based local acceleration hints (optional for older backends). */
+  localRuntime?: {
+    classification: 'gpu_capable' | 'gpu_unconfirmed' | 'cpu_likely' | 'unknown'
+    summary: string
+    evidence?: string
+    runtimeObservation?: 'none' | 'recent_warm_loads'
+  }
 }
 
 interface LlmBridge {

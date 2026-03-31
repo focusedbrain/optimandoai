@@ -28,7 +28,7 @@ export function registerLlmHandlers() {
     }
   })
   
-  // Ollama status
+  // Ollama status — same `data` shape as GET `/api/llm/status` (includes optional `localRuntime`)
   ipcMain.handle('llm:getStatus', async () => {
     try {
       const status = await ollamaManager.getStatus()

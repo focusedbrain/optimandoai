@@ -437,6 +437,8 @@ export interface EmailInboxBridge {
     sessionId?: string,
     /** Opaque id for Phase 0 diagnostics (same id for retry pass). */
     runId?: string,
+    /** 1-based bulk Auto-Sort renderer chunk (optional; Ollama runtime trace). */
+    chunkIndex?: number,
   ) => Promise<{
     results: Array<{
       messageId: string

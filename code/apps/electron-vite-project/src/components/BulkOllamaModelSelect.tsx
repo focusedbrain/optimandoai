@@ -26,6 +26,7 @@ export function BulkOllamaModelSelect({
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [switching, setSwitching] = useState(false)
+  const [runtimeSummary, setRuntimeSummary] = useState<string | undefined>()
 
   const refresh = useCallback(async () => {
     const api = typeof window !== 'undefined' ? window.llm : undefined
@@ -41,16 +42,19 @@ export function BulkOllamaModelSelect({
         setModels([])
         setActive(undefined)
         setRunning(false)
+        setRuntimeSummary(undefined)
         return
       }
       const d = res.data
       setRunning(!!d.running)
+      setRuntimeSummary(d.localRuntime?.summary)
       const names = (d.modelsInstalled || []).map((m) => m.name).sort((a, b) => a.localeCompare(b))
       setModels(names)
       setActive(d.activeModel)
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Could not load Ollama status'
       setError(msg)
+      setRuntimeSummary(undefined)
     } finally {
       setLoading(false)
     }
@@ -80,7 +84,8 @@ export function BulkOllamaModelSelect({
   if (!api?.getStatus || !api.setActiveModel) return null
 
   const title =
-    'Local Ollama model for inbox AI (same setting as Backend Configuration). If you change it during Auto-Sort, the current batch chunk keeps its already-resolved model; the next chunk uses the new model (see preResolveInboxLlm).'
+    'Local Ollama model for inbox AI (same setting as Backend Configuration). If you change it during Auto-Sort, the current batch chunk keeps its already-resolved model; the next chunk uses the new model (see preResolveInboxLlm).' +
+    (runtimeSummary ? ` ${runtimeSummary}` : '')
 
   const onChange = async (e: ChangeEvent<HTMLSelectElement>) => {
     const next = e.target.value
@@ -116,7 +121,11 @@ export function BulkOllamaModelSelect({
     return (
       <span
         style={{ fontSize: compact ? 11 : 10, color: '#b45309', whiteSpace: 'nowrap' }}
-        title={title + ' Start Ollama from Backend Configuration or your system.'}
+        title={
+          title +
+          ' Start Ollama from Backend Configuration or your system.' +
+          (runtimeSummary ? ` ${runtimeSummary}` : '')
+        }
       >
         Ollama off
       </span>

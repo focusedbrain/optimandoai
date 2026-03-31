@@ -3,6 +3,13 @@
  * Supports Ollama (NDJSON), OpenAI (SSE), xAI (SSE), Anthropic (SSE), Google (SSE).
  */
 
+import {
+  DEBUG_OLLAMA_RUNTIME_TRACE,
+  ollamaRuntimeGetInFlight,
+  ollamaRuntimeInFlightDelta,
+  ollamaRuntimeLog,
+} from '../llm/ollamaRuntimeDiagnostics'
+
 export type StreamSender = (channel: string, payload: unknown) => void
 export type OnToken = (token: string) => void
 
@@ -13,6 +20,11 @@ export async function streamOllamaChat(
   userPrompt: string,
   send: StreamSender,
 ): Promise<string> {
+  const t0 = Date.now()
+  const inflightStart = ollamaRuntimeInFlightDelta(1)
+  if (DEBUG_OLLAMA_RUNTIME_TRACE) {
+    ollamaRuntimeLog('streamOllamaChat:start', { model, inFlight: inflightStart })
+  }
   try {
     const res = await fetch('http://127.0.0.1:11434/api/chat', {
       method: 'POST',
@@ -67,10 +79,27 @@ export async function streamOllamaChat(
         console.warn('Invalid NDJSON line skipped:', buffer.trim())
       }
     }
+    if (DEBUG_OLLAMA_RUNTIME_TRACE) {
+      ollamaRuntimeLog('streamOllamaChat:done', {
+        model,
+        wallMs: Date.now() - t0,
+        inFlight: ollamaRuntimeGetInFlight(),
+        promptCharsApprox: systemPrompt.length + userPrompt.length,
+      })
+    }
     return full || 'No response from model.'
   } catch (streamErr: any) {
+    if (DEBUG_OLLAMA_RUNTIME_TRACE) {
+      ollamaRuntimeLog('streamOllamaChat:error', {
+        model,
+        wallMs: Date.now() - t0,
+        err: streamErr instanceof Error ? streamErr.message : String(streamErr),
+      })
+    }
     console.error('Streaming error:', streamErr)
     throw new Error('ollama_stream_failed')
+  } finally {
+    ollamaRuntimeInFlightDelta(-1)
   }
 }
 

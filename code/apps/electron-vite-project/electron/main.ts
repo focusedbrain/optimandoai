@@ -7448,7 +7448,7 @@ app.whenReady().then(async () => {
       }
     })
     
-    // GET /api/llm/status - Get Ollama status
+    // GET /api/llm/status — same payload as IPC `llm:getStatus` (includes `localRuntime` when built).
     httpApp.get('/api/llm/status', async (_req, res) => {
       try {
         const { ollamaManager } = await import('./main/llm/ollama-manager')

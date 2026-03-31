@@ -53,6 +53,19 @@ export interface InstalledModel {
 }
 
 /**
+ * Evidence-based hint: whether the *machine* plausibly supports GPU-style local inference.
+ * The app cannot observe Ollama's actual CUDA/Metal choice per request.
+ */
+export type LocalLlmRuntimeClassification = 'gpu_capable' | 'gpu_unconfirmed' | 'cpu_likely' | 'unknown'
+
+export interface LocalLlmRuntimeInfo {
+  classification: LocalLlmRuntimeClassification
+  summary: string
+  evidence?: string
+  runtimeObservation?: 'none' | 'recent_warm_loads'
+}
+
+/**
  * Ollama runtime status
  */
 export interface OllamaStatus {
@@ -62,6 +75,8 @@ export interface OllamaStatus {
   port: number                  // Port Ollama is running on
   modelsInstalled: InstalledModel[]
   activeModel?: string          // Currently active model ID
+  /** Hardware/reachability hints — optional for backward compatibility with older payloads. */
+  localRuntime?: LocalLlmRuntimeInfo
 }
 
 /**

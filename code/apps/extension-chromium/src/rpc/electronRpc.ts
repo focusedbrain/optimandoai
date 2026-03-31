@@ -19,6 +19,14 @@
 
 import { z } from 'zod'
 
+/** Keep in sync with `electron/main/llm/types.ts` (`LocalLlmRuntimeInfo`). */
+export interface LlmLocalRuntimeInfo {
+  classification: 'gpu_capable' | 'gpu_unconfirmed' | 'cpu_likely' | 'unknown'
+  summary: string
+  evidence?: string
+  runtimeObservation?: 'none' | 'recent_warm_loads'
+}
+
 // ============================================================================
 // §1  RPC Method Registry
 // ============================================================================

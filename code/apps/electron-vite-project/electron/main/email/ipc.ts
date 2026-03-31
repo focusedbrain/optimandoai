@@ -9,11 +9,14 @@ import { ipcMain, BrowserWindow, shell, dialog, app } from 'electron'
 import { createHash, randomUUID } from 'crypto'
 import {
   DEBUG_AUTOSORT_DIAGNOSTICS,
+  DEBUG_AUTOSORT_TIMING,
   autosortDiagLog,
+  autosortTimingLog,
   getAutosortDiagMainState,
   isRecentVaultLock,
   setAutosortDiagMainState,
 } from '../autosortDiagnostics'
+import { ollamaRuntimeBeginBatch, ollamaRuntimeEndBatch } from '../llm/ollamaRuntimeDiagnostics'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
@@ -3808,6 +3811,8 @@ Respond ONLY with valid JSON. No markdown, no backticks, no preamble.`
     resolvedLlm?: ResolvedLlmContext
     /** Opaque run identifier included in diagnostic logs. */
     runId?: string
+    /** 1-based renderer Auto-Sort chunk index (bulk `aiClassifyBatch` invocation). */
+    chunkIndex?: number
     /** Zero-based message index within the current concurrent batch, for diagnostic logs. */
     batchIndex?: number
   }
@@ -3908,7 +3913,20 @@ Body (first 500 chars): ${(row.body_text ?? '').slice(0, 500)}
 ${formatSourceWeightingForPrompt(sortWeight)}`
 
     try {
-      const raw = await inboxLlmChat({ system: systemPrompt, user: userPrompt, resolvedContext: opts?.resolvedLlm })
+      const raw = await inboxLlmChat({
+        system: systemPrompt,
+        user: userPrompt,
+        resolvedContext: opts?.resolvedLlm,
+        llmTrace:
+          opts?.resolvedLlm != null
+            ? {
+                source: 'bulk_autosort',
+                runId: opts.runId,
+                chunkIndex: opts.chunkIndex,
+                batchIndex: opts.batchIndex ?? 0,
+              }
+            : undefined,
+      })
       const parsed = parseAiJson(raw) as {
         category?: string
         urgency?: number
@@ -4068,6 +4086,79 @@ ${formatSourceWeightingForPrompt(sortWeight)}`
     }
   }
 
+  /**
+   * Local Ollama often queues concurrent `/api/chat` work instead of true parallel speedup.
+   * Keep renderer batch sizing but cap in-flight classify calls on the main process for Ollama only.
+   */
+  const INBOX_AI_CLASSIFY_BATCH_OLLAMA_MAX_CONCURRENT = 3
+
+  async function runClassifyBatchWithOptionalOllamaCap(
+    batchIds: string[],
+    sessionId: string | undefined,
+    resolvedLlm: ResolvedLlmContext,
+    runId: string | undefined,
+    chunkIndex: number | undefined,
+  ): Promise<Awaited<ReturnType<typeof classifySingleMessage>>[]> {
+    const ollama = resolvedLlm.provider.toLowerCase() === 'ollama'
+    const capped = ollama && batchIds.length > INBOX_AI_CLASSIFY_BATCH_OLLAMA_MAX_CONCURRENT
+    const effectiveConcurrency =
+      !ollama || batchIds.length <= INBOX_AI_CLASSIFY_BATCH_OLLAMA_MAX_CONCURRENT
+        ? batchIds.length
+        : INBOX_AI_CLASSIFY_BATCH_OLLAMA_MAX_CONCURRENT
+    ollamaRuntimeBeginBatch({
+      runId,
+      chunkIndex,
+      chunkSize: batchIds.length,
+      capped,
+      effectiveConcurrency,
+    })
+    try {
+      const perIdMs: number[] = []
+      const runOne = async (id: string, idx: number) => {
+        const t0 = performance.now()
+        const r = await classifySingleMessage(id, sessionId, {
+          resolvedLlm,
+          batchIndex: idx,
+          runId,
+          chunkIndex,
+        })
+        if (DEBUG_AUTOSORT_TIMING) perIdMs.push(Math.round(performance.now() - t0))
+        return r
+      }
+      let results: Awaited<ReturnType<typeof classifySingleMessage>>[]
+      if (!ollama || batchIds.length <= INBOX_AI_CLASSIFY_BATCH_OLLAMA_MAX_CONCURRENT) {
+        results = await Promise.all(batchIds.map((id, idx) => runOne(id, idx)))
+      } else {
+        results = new Array(batchIds.length)
+        let cursor = 0
+        const worker = async () => {
+          for (;;) {
+            const idx = cursor++
+            if (idx >= batchIds.length) break
+            results[idx] = await runOne(batchIds[idx], idx)
+          }
+        }
+        await Promise.all(
+          Array.from({ length: INBOX_AI_CLASSIFY_BATCH_OLLAMA_MAX_CONCURRENT }, () => worker()),
+        )
+      }
+      if (DEBUG_AUTOSORT_TIMING && perIdMs.length > 0) {
+        const sum = perIdMs.reduce((a, b) => a + b, 0)
+        autosortTimingLog('aiClassifyBatch:perMessage', {
+          n: perIdMs.length,
+          sumMs: sum,
+          maxMs: Math.max(...perIdMs),
+          avgMs: Math.round(sum / perIdMs.length),
+          ollamaCapped: capped,
+          ollamaMaxConcurrent: INBOX_AI_CLASSIFY_BATCH_OLLAMA_MAX_CONCURRENT,
+        })
+      }
+      return results
+    } finally {
+      ollamaRuntimeEndBatch()
+    }
+  }
+
   ipcMain.handle('inbox:aiClassifySingle', async (_e, messageId: string, sessionId?: string) => {
     const out = await classifySingleMessage(messageId, sessionId)
     try {
@@ -4084,13 +4175,18 @@ ${formatSourceWeightingForPrompt(sortWeight)}`
   /**
    * Batch-classify handler for the renderer's Auto-Sort bulk loop.
    *
-   * The renderer sends one chunk of IDs per batch (chunk size = BULK_CLASSIFY_CONCURRENCY).
+   * The renderer sends one chunk of IDs per batch (chunk size = user sort concurrency).
    * Compared with N×aiClassifySingle:
    *   - 1 IPC round-trip instead of N
    *   - LLM pre-resolved once for the whole chunk (no per-message listModels call)
    *   - Results returned together so the renderer can apply one React state update per batch
+   * Ollama: see `runClassifyBatchWithOptionalOllamaCap` — max 3 in-flight classifies per batch invoke
+   * (cloud APIs still run the full chunk in parallel).
    */
-  ipcMain.handle('inbox:aiClassifyBatch', async (_e, ids: string[], sessionId?: string, runId?: string) => {
+  ipcMain.handle(
+    'inbox:aiClassifyBatch',
+    async (_e, ids: string[], sessionId?: string, runId?: string, chunkIndex?: number) => {
+    const ipcWallT0 = DEBUG_AUTOSORT_TIMING ? performance.now() : 0
     if (!ids?.length) return { results: [] }
 
     const dbFirst = await resolveDbCore()
@@ -4112,12 +4208,16 @@ ${formatSourceWeightingForPrompt(sortWeight)}`
       return { results: ids.map((messageId) => ({ messageId, error: 'llm_unavailable' })) }
     }
 
-    if (DEBUG_AI_DIAGNOSTICS) console.log('[AI-BATCH] classifying', ids.length, 'messages, model:', resolvedLlm.model)
+    if (DEBUG_AI_DIAGNOSTICS) {
+      console.log('[AI-BATCH] classifying', ids.length, 'messages, model:', resolvedLlm.model, {
+        provider: resolvedLlm.provider,
+        ollamaCap:
+          resolvedLlm.provider.toLowerCase() === 'ollama' ? INBOX_AI_CLASSIFY_BATCH_OLLAMA_MAX_CONCURRENT : null,
+      })
+    }
 
-    // Process all IDs in this chunk concurrently (chunk size is already controlled by the renderer)
-    const results = await Promise.all(
-      ids.map((id, idx) => classifySingleMessage(id, sessionId, { resolvedLlm, batchIndex: idx, runId }))
-    )
+    // Cloud: full chunk parallelism. Ollama: cap in-flight chats (see `runClassifyBatchWithOptionalOllamaCap`).
+    const results = await runClassifyBatchWithOptionalOllamaCap(ids, sessionId, resolvedLlm, runId, chunkIndex)
 
     try {
       const db = await resolveDb()
@@ -4126,8 +4226,21 @@ ${formatSourceWeightingForPrompt(sortWeight)}`
       console.warn('[Inbox] Post-aiClassifyBatch remote schedule:', e?.message)
     }
 
+    if (DEBUG_AUTOSORT_TIMING) {
+      const ollama = resolvedLlm.provider.toLowerCase() === 'ollama'
+      autosortTimingLog('aiClassifyBatch:ipc', {
+        wallMs: Math.round(performance.now() - ipcWallT0),
+        chunkIndex: chunkIndex ?? null,
+        chunkSize: ids.length,
+        provider: resolvedLlm.provider,
+        ollamaConcurrencyCapped: ollama && ids.length > INBOX_AI_CLASSIFY_BATCH_OLLAMA_MAX_CONCURRENT,
+        runId: runId ?? null,
+      })
+    }
+
     return { results }
-  })
+  },
+  )
 
   /**
    * Manual bulk “Analyze” only: persist advisory analysis JSON without touching sort_category,

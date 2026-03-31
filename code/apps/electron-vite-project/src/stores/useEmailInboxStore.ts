@@ -15,7 +15,13 @@ import {
   messageMatchesKindFilter,
   type InboxMessageKindFilter,
 } from '../lib/inboxMessageKind'
-import { DEBUG_AUTOSORT_DIAGNOSTICS, autosortDiagLog, getAutosortDiagRunId } from '../lib/autosortDiagnostics'
+import {
+  DEBUG_AUTOSORT_DIAGNOSTICS,
+  autosortDiagLog,
+  autosortTimingBump,
+  autosortTimingRunActive,
+  getAutosortDiagRunId,
+} from '../lib/autosortDiagnostics'
 
 export type { InboxMessageKindFilter }
 export { coerceInboxMessageKindFilter, deriveInboxMessageKind, messageMatchesKindFilter } from '../lib/inboxMessageKind'
@@ -97,6 +103,11 @@ export type ClassifyMainRowPayload = {
   pending_delete_at?: string | null
   pending_review_at?: string | null
   archived?: number
+  /**
+   * Bulk Auto-Sort: when true with `bulkMode`, skips `fetchBulkTabCountsServer` for this apply.
+   * Caller should call `refreshBulkTabCountsFromServer()` once per chunk (or at end of run).
+   */
+  skipBulkTabCountRefresh?: boolean
 }
 
 export interface InboxFilter {
@@ -241,7 +252,7 @@ interface EmailInboxState {
 
   fetchMessages: () => Promise<void>
   /** Bulk: first page (50) + tab counts. Soft refresh keeps grid mounted. */
-  fetchAllMessages: (options?: { soft?: boolean }) => Promise<void>
+  fetchAllMessages: (options?: { soft?: boolean; skipTabCountFetch?: boolean }) => Promise<void>
   /** Bulk: append next page (50) for the active tab. */
   loadMoreBulkMessages: () => Promise<void>
   /** All IDs matching the active filter (paginated drain). Same semantics as inbox tabs; ignores batch/page UI. */
@@ -292,6 +303,11 @@ interface EmailInboxState {
   applyBulkAutosortLocalArchive: (ids: string[]) => void
   /** Apply authoritative classify row from main (bulk batch) — mirrors DB without a second DB IPC. */
   applyClassifyMainResultToLocalState: (r: ClassifyMainRowPayload) => void
+  /**
+   * Bulk mode: one server tab-total refresh (5× `listMessages`). Use after chunked applies with
+   * `skipBulkTabCountRefresh` so badge counts stay correct without per-message IPC.
+   */
+  refreshBulkTabCountsFromServer: () => Promise<void>
   cancelDeletion: (id: string) => Promise<void>
   setCategory: (ids: string[], category: string) => Promise<void>
   syncAccount: (accountId: string) => Promise<void>
@@ -340,6 +356,15 @@ function pullStatsLine(
 
 function getBridge() {
   return typeof window !== 'undefined' ? window.emailInbox : undefined
+}
+
+/** Count `listMessages` during an active AUTOSORT-TIMING run. */
+function trackedListMessages(
+  bridge: NonNullable<ReturnType<typeof getBridge>>,
+  opts: Parameters<NonNullable<NonNullable<ReturnType<typeof getBridge>>['listMessages']>>[0],
+): ReturnType<NonNullable<NonNullable<ReturnType<typeof getBridge>>['listMessages']>> {
+  if (autosortTimingRunActive()) autosortTimingBump('listMessagesCalls')
+  return bridge.listMessages(opts)
 }
 
 /** All connected row ids to include on Pull (active first; excludes disabled/error when possible). */
@@ -617,12 +642,13 @@ function inboxMessageAfterClassifyMain(m: InboxMessage, r: ClassifyMainRowPayloa
 function commitClassifyMainResultToLocalState(set: EmailInboxSet, r: ClassifyMainRowPayload): void {
   const id = r.messageId
   if (!id) return
+  const { skipBulkTabCountRefresh, ...rowRest } = r
   set((s) => {
-    const mapRow = (m: InboxMessage) => (m.id === id ? inboxMessageAfterClassifyMain(m, r) : m)
+    const mapRow = (m: InboxMessage) => (m.id === id ? inboxMessageAfterClassifyMain(m, rowRest) : m)
     const applyFilter = (messages: InboxMessage[]) =>
       messages.filter((m) => filterByInboxFilter([m], s.filter).length > 0)
 
-    if (s.bulkMode) {
+    if (s.bulkMode && !skipBulkTabCountRefresh) {
       void fetchBulkTabCountsServer(s.filter).then((tc) => {
         const fk = s.filter.filter as keyof typeof tc
         set({ tabCounts: tc, total: tc[fk] ?? 0 })
@@ -632,11 +658,12 @@ function commitClassifyMainResultToLocalState(set: EmailInboxSet, r: ClassifyMai
       if (DEBUG_AUTOSORT_DIAGNOSTICS) {
         autosortDiagLog('applyClassifyMainResultToLocalState', {
           messageId: id,
-          sort_category: r.category,
-          pending_delete: !!r.pending_delete,
-          pending_review: !!r.pending_review,
-          archived: r.archived,
+          sort_category: rowRest.category,
+          pending_delete: !!rowRest.pending_delete,
+          pending_review: !!rowRest.pending_review,
+          archived: rowRest.archived,
           removedFromCurrentTab: removedInView > 0,
+          skipBulkTabCountRefresh: !!skipBulkTabCountRefresh,
         })
       }
       return {
@@ -708,7 +735,7 @@ async function fetchBulkTabCountsServer(baseFilter: InboxFilter): Promise<InboxT
   const out: Record<string, number> = {}
   try {
     for (const f of filters) {
-      const res = await bridge.listMessages({
+      const res = await trackedListMessages(bridge, {
         ...listBridgeOptionsFromFilter({ ...baseFilter, filter: f }),
         limit: 1,
         offset: 0,
@@ -740,7 +767,56 @@ async function loadBulkInboxSnapshotPaginated(get: () => EmailInboxState): Promi
   try {
     const filter = get().filter
     const tabCounts = await fetchBulkTabCountsServer(filter)
-    const res = await bridge.listMessages({
+    const res = await trackedListMessages(bridge, {
+      ...listBridgeOptionsFromFilter(filter),
+      limit: BULK_UI_PAGE_SIZE,
+      offset: 0,
+    })
+    if (!res?.ok || !res?.data) return null
+    const list = (res.data.messages ?? []) as InboxMessage[]
+    const total = typeof res.data.total === 'number' ? res.data.total : list.length
+    const bulkHasMore = list.length < total
+    const currentIds = new Set(list.map((m) => m.id))
+    const state = get()
+    const nextBulk: AiOutputs = {}
+    for (const [id, entry] of Object.entries(state.bulkAiOutputs)) {
+      if (currentIds.has(id)) nextBulk[id] = entry
+    }
+    const analysisCache = Object.fromEntries(
+      Object.entries(state.analysisCache).filter(([id]) => currentIds.has(id)),
+    )
+    return {
+      allMessages: [],
+      tabCounts,
+      messages: list,
+      total,
+      bulkAiOutputs: nextBulk,
+      analysisCache,
+      bulkHasMore,
+    }
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Bulk: reload first page only, keep existing `tabCounts` (e.g. after Auto-Sort chunks already refreshed counts).
+ */
+async function loadBulkInboxFirstPagePreserveTabCounts(get: () => EmailInboxState): Promise<{
+  allMessages: InboxMessage[]
+  tabCounts: InboxTabCounts
+  messages: InboxMessage[]
+  total: number
+  bulkAiOutputs: AiOutputs
+  analysisCache: Record<string, NormalInboxAiResult>
+  bulkHasMore: boolean
+} | null> {
+  const bridge = getBridge()
+  if (!bridge?.listMessages) return null
+  try {
+    const filter = get().filter
+    const tabCounts = { ...get().tabCounts }
+    const res = await trackedListMessages(bridge, {
       ...listBridgeOptionsFromFilter(filter),
       limit: BULK_UI_PAGE_SIZE,
       offset: 0,
@@ -789,7 +865,7 @@ async function loadPagedListSnapshot(get: () => EmailInboxState): Promise<{
     const { filter } = get()
     const [tabCounts, res] = await Promise.all([
       fetchBulkTabCountsServer(filter),
-      bridge.listMessages({
+      trackedListMessages(bridge, {
         ...listBridgeOptionsFromFilter(filter),
         limit: BULK_UI_PAGE_SIZE,
         offset: 0,
@@ -963,9 +1039,11 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
     }
   },
 
-  fetchAllMessages: async (options?: { soft?: boolean }) => {
+  fetchAllMessages: async (options?: { soft?: boolean; skipTabCountFetch?: boolean }) => {
     if (!get().bulkMode) return
     const soft = options?.soft === true
+    const skipTabCountFetch = options?.skipTabCountFetch === true
+    if (autosortTimingRunActive()) autosortTimingBump('fetchAllMessagesCalls')
     const bridge = getBridge()
     if (!bridge?.listMessages) {
       set({ error: 'Email inbox bridge not available' })
@@ -977,7 +1055,9 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
       set({ loading: true, error: null, bulkLoadingMore: false })
     }
     try {
-      const snapshot = await loadBulkInboxSnapshotPaginated(get)
+      const snapshot = skipTabCountFetch
+        ? await loadBulkInboxFirstPagePreserveTabCounts(get)
+        : await loadBulkInboxSnapshotPaginated(get)
       if (snapshot) {
         set({
           ...snapshot,
@@ -1014,7 +1094,7 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
     set({ bulkLoadingMore: true, error: null })
     try {
       const offset = messages.length
-      const res = await bridge.listMessages({
+      const res = await trackedListMessages(bridge, {
         ...listBridgeOptionsFromFilter(filter),
         limit: BULK_UI_PAGE_SIZE,
         offset,
@@ -1084,6 +1164,7 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
   },
 
   refreshMessages: async () => {
+    if (autosortTimingRunActive()) autosortTimingBump('refreshMessagesCalls')
     const { bulkMode } = get()
     if (bulkMode) await get().fetchAllMessages({ soft: true })
     else await get().fetchMessages()
@@ -1442,6 +1523,15 @@ export const useEmailInboxStore = create<EmailInboxState>((set, get) => ({
   applyBulkAutosortLocalArchive: (ids) => commitArchiveToLocalState(set, ids),
 
   applyClassifyMainResultToLocalState: (r) => commitClassifyMainResultToLocalState(set, r),
+
+  refreshBulkTabCountsFromServer: async () => {
+    const s = get()
+    if (!s.bulkMode) return
+    if (autosortTimingRunActive()) autosortTimingBump('refreshBulkTabCountsFromServerCalls')
+    const tc = await fetchBulkTabCountsServer(s.filter)
+    const fk = s.filter.filter as keyof typeof tc
+    set({ tabCounts: tc, total: tc[fk] ?? 0 })
+  },
 
   cancelDeletion: async (id) => {
     const bridge = getBridge()

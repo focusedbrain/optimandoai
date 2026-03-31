@@ -15,6 +15,15 @@ import {
   resolveEffectiveOllamaModel,
   setStoredActiveOllamaModelId,
 } from './activeOllamaModelStore'
+import {
+  DEBUG_OLLAMA_RUNTIME_TRACE,
+  nsToMs,
+  ollamaRuntimeGetInFlight,
+  ollamaRuntimeInFlightDelta,
+  ollamaRuntimeLog,
+  ollamaRuntimeRecordChatTiming,
+} from './ollamaRuntimeDiagnostics'
+import { buildLocalLlmRuntimeInfo } from './localLlmRuntimeStatus'
 
 const execAsync = promisify(exec)
 
@@ -244,14 +253,20 @@ export class OllamaManager {
         }
       }
     }
-    
+
+    const localRuntime = await buildLocalLlmRuntimeInfo({
+      ollamaRunning: running,
+      activeModel,
+    })
+
     return {
       installed,
       running,
       version: version || undefined,
       port: this.ollamaPort,
       modelsInstalled,
-      activeModel
+      activeModel,
+      localRuntime,
     }
   }
   
@@ -517,6 +532,15 @@ export class OllamaManager {
     if (DEBUG_AI_DIAGNOSTICS) {
       console.warn('⚡ ollamaManager.chat CALLED', new Date().toISOString(), { model: modelId || 'unknown' })
     }
+    const t0 = Date.now()
+    const inflightStart = ollamaRuntimeInFlightDelta(1)
+    if (DEBUG_OLLAMA_RUNTIME_TRACE) {
+      ollamaRuntimeLog('ollamaManager.chat:start', {
+        model: modelId,
+        baseUrl: this.baseUrl,
+        inFlight: inflightStart,
+      })
+    }
     try {
       const response = await fetch(`${this.baseUrl}/api/chat`, {
         method: 'POST',
@@ -535,8 +559,7 @@ export class OllamaManager {
       }
       
       const data = await response.json()
-      
-      return {
+      const out: ChatResponse = {
         content: data.message?.content || '',
         model: data.model || modelId,
         done: data.done || false,
@@ -545,9 +568,31 @@ export class OllamaManager {
         promptEvalCount: data.prompt_eval_count,
         evalCount: data.eval_count
       }
+      if (DEBUG_OLLAMA_RUNTIME_TRACE) {
+        ollamaRuntimeLog('ollamaManager.chat:done', {
+          model: modelId,
+          wallMs: Date.now() - t0,
+          inFlight: ollamaRuntimeGetInFlight(),
+          totalDurationMs: nsToMs(out.totalDuration),
+          loadDurationMs: nsToMs(out.loadDuration),
+          promptEvalCount: out.promptEvalCount,
+          evalCount: out.evalCount,
+        })
+      }
+      ollamaRuntimeRecordChatTiming(Date.now() - t0, out.totalDuration, out.loadDuration)
+      return out
     } catch (error) {
+      if (DEBUG_OLLAMA_RUNTIME_TRACE) {
+        ollamaRuntimeLog('ollamaManager.chat:error', {
+          model: modelId,
+          wallMs: Date.now() - t0,
+          err: error instanceof Error ? error.message : String(error),
+        })
+      }
       console.error('[Ollama] Chat failed:', error)
       throw error
+    } finally {
+      ollamaRuntimeInFlightDelta(-1)
     }
   }
   

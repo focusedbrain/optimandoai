@@ -7,6 +7,15 @@
 
 import type { LocalEmbeddingService } from './embeddings'
 import { DEBUG_AUTOSORT_DIAGNOSTICS, autosortDiagLog } from '../autosortDiagnostics'
+import {
+  DEBUG_OLLAMA_RUNTIME_TRACE,
+  nsToMs,
+  ollamaRuntimeGetInFlight,
+  ollamaRuntimeInFlightDelta,
+  ollamaRuntimeLog,
+  ollamaRuntimeRecordChatTiming,
+  type OllamaRuntimeRequestTrace,
+} from '../llm/ollamaRuntimeDiagnostics'
 
 /**
  * Set true only during local debugging.
@@ -28,6 +37,8 @@ export interface GenerateChatOptions {
   send?: StreamSender
   /** When aborted (e.g. inbox LLM outer timeout), non-stream fetches cancel immediately. */
   signal?: AbortSignal
+  /** Inbox bulk classify correlation when `DEBUG_OLLAMA_RUNTIME_TRACE`. */
+  runtimeTrace?: OllamaRuntimeRequestTrace
 }
 
 export interface AIProvider {
@@ -114,6 +125,26 @@ export class OllamaProvider implements AIProvider {
         hasAbortSignal: !!options?.signal,
       })
     }
+    const trace = options?.runtimeTrace
+    const inFlightBeforeThisRequest = ollamaRuntimeGetInFlight()
+    const inflightAfterStart = ollamaRuntimeInFlightDelta(1)
+    const tStartIso = new Date().toISOString()
+    if (DEBUG_OLLAMA_RUNTIME_TRACE) {
+      ollamaRuntimeLog('OllamaProvider.generateChat:start', {
+        tStart: tStartIso,
+        model,
+        providerId: this.id,
+        baseUrl: this.baseUrl,
+        inFlightAtRequestStart: inFlightBeforeThisRequest,
+        inFlightAfterThisStarts: inflightAfterStart,
+        promptCharsApprox: _promptChars,
+        hasAbortSignal: !!options?.signal,
+        bulkAutosort: trace?.source === 'bulk_autosort',
+        runId: trace?.runId ?? null,
+        chunkIndex: trace?.chunkIndex ?? null,
+        batchIndex: trace?.batchIndex ?? null,
+      })
+    }
     try {
       const res = await fetch(`${this.baseUrl}/api/chat`, {
         method: 'POST',
@@ -130,14 +161,64 @@ export class OllamaProvider implements AIProvider {
         outcome = 'http_error'
         throw new Error(`Ollama ${res.status}: ${res.statusText}`)
       }
-      const data = await res.json()
-      if (DEBUG_AI_DIAGNOSTICS) {
-        console.log(`[LLM] ${model}: ${Date.now() - _t0}ms, ~${_promptChars}ch prompt`)
+      const data = (await res.json()) as {
+        message?: { content?: string }
+        model?: string
+        total_duration?: number
+        load_duration?: number
+        prompt_eval_count?: number
+        eval_count?: number
       }
+      const wallMs = Date.now() - _t0
+      const inflightBeforeDec = ollamaRuntimeGetInFlight()
+      if (DEBUG_OLLAMA_RUNTIME_TRACE) {
+        ollamaRuntimeLog('OllamaProvider.generateChat:done', {
+          outcome: 'ok',
+          tStart: tStartIso,
+          tEnd: new Date().toISOString(),
+          model,
+          responseModel: data.model,
+          wallMs,
+          /** Still includes this request; see `inFlightAfterThisCompletes` on :flightEnd. */
+          inFlightBeforeDecode: inflightBeforeDec,
+          /** Ollama server time vs client wall clock (queue/wait ≈ wallMs − totalDurationMs when both defined). */
+          ollamaTotalDurationMs: nsToMs(data.total_duration),
+          ollamaLoadDurationMs: nsToMs(data.load_duration),
+          promptEvalCount: data.prompt_eval_count,
+          evalCount: data.eval_count,
+          bulkAutosort: trace?.source === 'bulk_autosort',
+          runId: trace?.runId ?? null,
+          chunkIndex: trace?.chunkIndex ?? null,
+          batchIndex: trace?.batchIndex ?? null,
+        })
+      }
+      if (DEBUG_AI_DIAGNOSTICS) {
+        console.log(`[LLM] ${model}: ${wallMs}ms, ~${_promptChars}ch prompt`)
+      }
+      ollamaRuntimeRecordChatTiming(wallMs, data.total_duration, data.load_duration)
       return data.message?.content ?? 'No response from model.'
     } catch (e: unknown) {
+      const name = e && typeof e === 'object' && 'name' in e ? String((e as Error).name) : ''
+      const fetchAborted = name === 'AbortError'
+      if (DEBUG_OLLAMA_RUNTIME_TRACE) {
+        ollamaRuntimeLog('OllamaProvider.generateChat:error', {
+          tStart: tStartIso,
+          tEnd: new Date().toISOString(),
+          model,
+          durationMs: Date.now() - _t0,
+          outcome: fetchAborted ? 'aborted_or_timeout' : outcome === 'http_error' ? 'http_error' : 'error',
+          fetchAborted,
+          /** True when `signal` aborted the client `fetch`; Ollama may still run briefly until it sees disconnect. */
+          httpClientAbortPropagated: fetchAborted,
+          err: e instanceof Error ? e.message : String(e),
+          bulkAutosort: trace?.source === 'bulk_autosort',
+          runId: trace?.runId ?? null,
+          chunkIndex: trace?.chunkIndex ?? null,
+          batchIndex: trace?.batchIndex ?? null,
+          inFlightAtError: ollamaRuntimeGetInFlight(),
+        })
+      }
       if (outcome === 'completed') {
-        const name = e && typeof e === 'object' && 'name' in e ? String((e as Error).name) : ''
         if (name === 'AbortError') {
           outcome = 'aborted'
           if (DEBUG_AUTOSORT_DIAGNOSTICS) {
@@ -147,6 +228,17 @@ export class OllamaProvider implements AIProvider {
       }
       throw e
     } finally {
+      ollamaRuntimeInFlightDelta(-1)
+      if (DEBUG_OLLAMA_RUNTIME_TRACE) {
+        ollamaRuntimeLog('OllamaProvider.generateChat:flightEnd', {
+          model,
+          inFlightAfterThisCompletes: ollamaRuntimeGetInFlight(),
+          bulkAutosort: trace?.source === 'bulk_autosort',
+          runId: trace?.runId ?? null,
+          chunkIndex: trace?.chunkIndex ?? null,
+          batchIndex: trace?.batchIndex ?? null,
+        })
+      }
       if (DEBUG_AUTOSORT_DIAGNOSTICS) {
         const end = Date.now()
         autosortDiagLog('OllamaProvider.generateChat', {

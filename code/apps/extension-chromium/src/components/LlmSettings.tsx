@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect, useMemo, useRef } from 'react'
-import { electronRpc, type RpcMethod } from '../rpc/electronRpc'
+import { electronRpc, type LlmLocalRuntimeInfo, type RpcMethod } from '../rpc/electronRpc'
 import { getThemeTokens } from '../shared/ui/lightboxTheme'
 
 // Types
@@ -39,6 +39,7 @@ interface OllamaStatus {
   port: number
   modelsInstalled: InstalledModel[]
   activeModel?: string
+  localRuntime?: LlmLocalRuntimeInfo
 }
 
 interface LlmModelConfig {
@@ -73,6 +74,37 @@ interface LlmSettingsProps {
 async function rpc(method: RpcMethod, params?: unknown): Promise<{ ok: boolean; data?: any; error?: string }> {
   const res = await electronRpc(method, params)
   return { ok: res.success, data: res.data, error: res.error }
+}
+
+/**
+ * IPC `llm:*` handlers return `{ ok, data: <entity> }`.
+ * HTTP bodies are the same shape, but `rpc()` nests them in `res.data`, so we often see `{ ok, data: { ok, data: <entity> } }`.
+ * Unwrap so `bridge="http"` and `bridge="ipc"` both populate state (including `localRuntime`).
+ */
+function unwrapLlmEnvelope<T>(res: { ok?: boolean; data?: unknown }, isEntity: (x: unknown) => x is T): T | null {
+  if (!res?.ok || res.data == null || typeof res.data !== 'object') return null
+  const inner = res.data as { ok?: unknown; data?: unknown }
+  if (inner.ok === true && inner.data !== undefined && isEntity(inner.data)) return inner.data
+  if (isEntity(res.data)) return res.data
+  return null
+}
+
+function isHardwareEntity(x: unknown): x is HardwareInfo {
+  return typeof x === 'object' && x !== null && 'totalRamGb' in x && 'cpuCores' in x
+}
+
+function isOllamaStatusEntity(x: unknown): x is OllamaStatus {
+  return (
+    typeof x === 'object' &&
+    x !== null &&
+    typeof (x as OllamaStatus).installed === 'boolean' &&
+    typeof (x as OllamaStatus).running === 'boolean' &&
+    Array.isArray((x as OllamaStatus).modelsInstalled)
+  )
+}
+
+function isCatalogEntity(x: unknown): x is LlmModelConfig[] {
+  return Array.isArray(x) && x.length > 0
 }
 
 // Hardcoded fallback catalog in case API is unavailable
@@ -197,10 +229,12 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
         })
       ])
       
-      // API returns { ok: true, data: {...} }, and proxy wraps it, so we need to unwrap
-      if (hwRes.ok && hwRes.data?.ok) setHardware(hwRes.data.data)
-      if (statusRes.ok && statusRes.data?.ok) setStatus(statusRes.data.data)
-      if (catalogRes.ok && catalogRes.data?.ok && catalogRes.data.data) setModelCatalog(catalogRes.data.data)
+      const hwEntity = unwrapLlmEnvelope(hwRes, isHardwareEntity)
+      if (hwEntity) setHardware(hwEntity)
+      const statusEntity = unwrapLlmEnvelope(statusRes, isOllamaStatusEntity)
+      if (statusEntity) setStatus(statusEntity)
+      const catalogEntity = unwrapLlmEnvelope(catalogRes, isCatalogEntity)
+      if (catalogEntity) setModelCatalog(catalogEntity)
       // else keep FALLBACK_CATALOG
       
       // If all APIs failed, show connection error but still allow UI to work
@@ -619,6 +653,14 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
             )}
             <span style={{ opacity: 0.7 }}>Port:</span>
             <span>{status.port}</span>
+            {status.localRuntime && (
+              <>
+                <span style={{ opacity: 0.7 }}>Runtime:</span>
+                <span title={status.localRuntime.evidence ?? status.localRuntime.summary}>
+                  {status.localRuntime.summary}
+                </span>
+              </>
+            )}
           </div>
           
           {!status.installed && (

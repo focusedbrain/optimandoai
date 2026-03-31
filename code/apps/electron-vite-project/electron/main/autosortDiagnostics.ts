@@ -7,6 +7,14 @@
 
 export const DEBUG_AUTOSORT_DIAGNOSTICS = false
 
+/** Main-process batch timing (`inbox:aiClassifyBatch`). Enable with renderer `DEBUG_AUTOSORT_TIMING` when comparing. */
+export const DEBUG_AUTOSORT_TIMING = false
+
+export function autosortTimingLog(tag: string, data?: Record<string, unknown>): void {
+  if (!DEBUG_AUTOSORT_TIMING) return
+  console.log(`[AUTOSORT-TIMING] ${tag}`, data ?? {})
+}
+
 /** Renderer → main sync so lockVaultIfLogged can print bulk-sort correlation. */
 export interface AutosortDiagMainState {
   runId: string | null

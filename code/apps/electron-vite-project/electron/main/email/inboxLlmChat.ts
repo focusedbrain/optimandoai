@@ -7,6 +7,11 @@ import { ocrRouter } from '../ocr/router'
 import { DEBUG_AUTOSORT_DIAGNOSTICS, autosortDiagLog } from '../autosortDiagnostics'
 import type { VisionProvider } from '../ocr/types'
 import { DEBUG_ACTIVE_OLLAMA_MODEL } from '../llm/activeOllamaModelStore'
+import {
+  DEBUG_OLLAMA_RUNTIME_TRACE,
+  ollamaRuntimeLog,
+  type OllamaRuntimeRequestTrace,
+} from '../llm/ollamaRuntimeDiagnostics'
 
 export const INBOX_LLM_TIMEOUT_MS = 45_000
 
@@ -163,13 +168,15 @@ export interface InboxLlmChatParams {
    * This prevents N parallel messages from each firing their own /api/tags request.
    */
   resolvedContext?: ResolvedLlmContext
+  /** Optional correlation for DEBUG_OLLAMA_RUNTIME_TRACE (bulk auto-sort). */
+  llmTrace?: OllamaRuntimeRequestTrace
 }
 
 /**
  * Non-stream chat for inbox classify / summarize / draft / analyze.
  */
 export async function inboxLlmChat(params: InboxLlmChatParams): Promise<string> {
-  const { system, user, timeoutMs = INBOX_LLM_TIMEOUT_MS, resolvedContext } = params
+  const { system, user, timeoutMs = INBOX_LLM_TIMEOUT_MS, resolvedContext, llmTrace } = params
   if (DEBUG_AI_DIAGNOSTICS) console.warn('⚡ inboxLlmChat CALLED', new Date().toISOString(), {
     caller: new Error().stack?.split('\n')[2]?.trim(),
     model: resolvedContext?.model ?? '(will resolve)',
@@ -212,6 +219,16 @@ export async function inboxLlmChat(params: InboxLlmChatParams): Promise<string> 
     if (DEBUG_AUTOSORT_DIAGNOSTICS) {
       autosortDiagLog('inboxLlmChat:outer-timeout', { timeoutMs, action: 'AbortController.abort' })
     }
+    if (DEBUG_OLLAMA_RUNTIME_TRACE) {
+      ollamaRuntimeLog('inboxLlmChat:timeout_abortSignal', {
+        timeoutMs,
+        providerId: provider.id,
+        model: modelOverride,
+        /** AbortController.abort() cancels the in-flight `fetch` to Ollama (client side). Server may still finish one request. */
+        httpClientAbort: true,
+        ...llmTrace,
+      })
+    }
     ac.abort()
   }, timeoutMs)
 
@@ -224,6 +241,7 @@ export async function inboxLlmChat(params: InboxLlmChatParams): Promise<string> 
       model: modelOverride,
       stream: false,
       signal: ac.signal,
+      runtimeTrace: llmTrace,
     })
     clearTimeout(timeoutId)
     if (DEBUG_AUTOSORT_DIAGNOSTICS) {
@@ -237,6 +255,18 @@ export async function inboxLlmChat(params: InboxLlmChatParams): Promise<string> 
   } catch (e) {
     clearTimeout(timeoutId)
     const abortErr = isAbortError(e)
+    if (DEBUG_OLLAMA_RUNTIME_TRACE && (abortErr || ac.signal.aborted)) {
+      ollamaRuntimeLog('inboxLlmChat:settled', {
+        outcome: outerTimeoutFired && abortErr ? 'timeout' : abortErr ? 'aborted' : 'error',
+        isAbortError: abortErr,
+        signalAborted: ac.signal.aborted,
+        outerTimeoutFired,
+        mapsToInboxTimeout: ac.signal.aborted && (abortErr || outerTimeoutFired),
+        providerId: provider.id,
+        model: modelOverride,
+        ...llmTrace,
+      })
+    }
     if (DEBUG_AUTOSORT_DIAGNOSTICS) {
       autosortDiagLog('inboxLlmChat:settled', {
         outerTimeoutFired,
