@@ -493,17 +493,20 @@ export default function HybridSearch({
   /** Derive which project field is currently selected for AI drafting */
   const projectDraftFieldName = (() => {
     const d = projectSetupSetupTextDraft
-    if (d.includes('OUTPUT ONLY A PROJECT TITLE') || d.includes('drafting a PROJECT TITLE')) {
-      return 'Project Title'
+    const fieldTagMatch = d.match(/^\[field:([^\]]+)\]/)
+    if (fieldTagMatch) {
+      const f = fieldTagMatch[1]
+      if (f === 'title')       return 'Project Title'
+      if (f === 'description') return 'Description'
+      if (f === 'goals')       return 'Goals'
+      if (f === 'milestone')   return 'Milestone'
+      if (f === 'milestones')  return 'New Milestones'
+      return f
     }
-    // New minimal format: Text to edit:\n"""\n...\n"""\n
-    if (d.startsWith('Text to edit:') || d.includes('\nText to edit:')) {
-      return 'Milestone'
-    }
-    // Legacy format (kept for backward compat)
-    if (d.includes('EDIT THIS MILESTONE')) {
-      return 'Milestone'
-    }
+    // Fallbacks for any legacy format still in the store
+    if (d.startsWith('Text to edit:') || d.includes('\nText to edit:')) return 'Milestone'
+    if (d.includes('EDIT THIS MILESTONE')) return 'Milestone'
+    if (d.includes('OUTPUT ONLY A PROJECT TITLE') || d.includes('drafting a PROJECT TITLE')) return 'Project Title'
     if (d.includes('drafting a PROJECT DESCRIPTION')) return 'Description'
     if (d.includes('drafting PROJECT GOALS')) return 'Goals'
     if (d.includes('drafting PROJECT MILESTONES')) return 'New Milestones'
@@ -869,20 +872,16 @@ export default function HybridSearch({
           const storeState = useProjectSetupChatContextStore.getState()
           if (storeState.includeInChat && storeState.setupTextDraft.trim()) {
             const draft = storeState.setupTextDraft.trim()
-            if (draft.includes('"""')) {
-              // Content-editing mode (milestone editing) — the draft contains the
-              // text to edit, wrapped in triple quotes. Do NOT add "User request:"
-              // prefix; just place the user's message directly after so the AI sees:
-              //   Text to edit:
-              //   """
-              //   <milestone content>
-              //   """
-              //   <user's request>
-              chatQuery = `${draft}\n\n${chatQuery}`
-            } else {
-              // Field drafting mode (title, description, goals, new milestones) —
-              // the draft contains the full instruction + context. Append user request.
-              chatQuery = `${draft}\n\nUser request: ${chatQuery}`
+            // All field drafts are stored as "[field:<name>]\n<content>".
+            // Strip the tag, keep only the raw content, wrap in triple-quotes so
+            // the AI sees the content clearly separated from the user's request.
+            // This ensures NO instruction text ever leaks into the user query.
+            const fieldTagMatch = draft.match(/^\[field:[^\]]+\]\n?/)
+            const content = fieldTagMatch
+              ? draft.slice(fieldTagMatch[0].length).trim()
+              : draft.trim()
+            if (content) {
+              chatQuery = `"""\n${content}\n"""\n\n${chatQuery}`
             }
           }
         }

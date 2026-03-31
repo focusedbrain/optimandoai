@@ -319,7 +319,11 @@ export function ProjectOptimizationPanel({
     }
   }, [setupMode])
 
-  // ── Chat context sync — full pre-role prompts per field ──────────────────
+  // ── Chat context sync — content-only, no instruction headers ─────────────
+  // setupTextDraft stores a lightweight tag + raw field content.
+  // Format: "[field:<name>]\n<content>"
+  // HybridSearch strips the tag, wraps content in triple-quotes, and appends
+  // the user's message — keeping ALL instruction framing OUT of the user query.
   useEffect(() => {
     if (setupMode === 'collapsed' || selectedField === null) {
       setSetupTextDraft('')
@@ -327,131 +331,57 @@ export function ProjectOptimizationPanel({
       return
     }
 
-    // ── ALWAYS wipe stale legacy draft fields before writing new context ──
-    // goalsDraft / milestonesDraft / snippets feed into buildProjectSetupChatPrefix
-    // alongside setupTextDraft — stale values from previous sessions contaminate
-    // the title (and every other) field if not cleared first.
+    // Wipe stale legacy draft fields to prevent cross-field contamination
     const store = useProjectSetupChatContextStore.getState()
     store.setGoalsDraft('')
     store.setMilestonesDraft('')
     store.clearSnippets()
 
-    // ── Field-specific pre-frames ─────────────────────────────────────────
-    const preFrames: Record<string, string> = {
-      // Title gets a SHORT, DOMINANT, RESTRICTIVE instruction.
-      // No full project context — giving the AI 2000+ chars of description /
-      // attachment text causes it to generate content about those instead of
-      // producing a short title.
-      title: [
-        '=== STRICT INSTRUCTION ===',
-        'OUTPUT ONLY A PROJECT TITLE. Nothing else.',
-        'Rules:',
-        '- Maximum 10 words',
-        '- No quotes, no explanation, no description, no goals, no milestones',
-        '- No markdown formatting',
-        '- Just the title text on a single line',
-        '- If the user asks to "rewrite" or "make longer", output ONLY the revised title — still just the title, nothing else',
-        '=== END INSTRUCTION ===',
-        '',
-        `Current title: "${formTitle || '(none)'}"`,
-      ].join('\n'),
-
-      description: [
-        '[INSTRUCTION: The user is drafting a PROJECT DESCRIPTION.',
-        "Based on the user's input and any attached context (images, PDFs),",
-        'generate a clear, professional project description.',
-        'Requirements:',
-        '- 2 to 5 sentences',
-        '- Explain what the project is about, its scope, and its purpose',
-        '- Professional tone, suitable for stakeholder communication',
-        '- Output ONLY the description text',
-        '- Do NOT include headers, labels, or meta-commentary',
-        'If the user provides an image (e.g., a screenshot), analyze it and incorporate your observations.',
-        'If the user provides a PDF, use its content as project context.]',
-      ].join(' '),
-
-      goals: [
-        '[INSTRUCTION: The user is drafting PROJECT GOALS.',
-        "Based on the user's input and any attached context (images, PDFs),",
-        'generate specific, measurable, achievable project goals.',
-        'Requirements:',
-        '- 3 to 6 goals',
-        '- Each goal should be actionable and clearly defined',
-        '- Use numbered list format (1. 2. 3.)',
-        '- Professional tone',
-        '- Output ONLY the goals, no preamble or closing remarks',
-        'If the user provides an image, analyze what needs improvement and derive goals from that.',
-        'If the user provides a PDF, extract relevant objectives from its content.]',
-      ].join(' '),
-
-      milestones: [
-        '[INSTRUCTION: The user is drafting PROJECT MILESTONES.',
-        "Based on the user's input, project goals, and any attached context,",
-        'generate concrete project milestones.',
-        'Requirements:',
-        '- 3 to 8 milestones',
-        '- Each milestone is a clear deliverable or checkpoint',
-        '- Each milestone should be 1-2 sentences describing what is achieved',
-        '- Use bullet list format (- or *) with each milestone on its own line',
-        '- Order them chronologically (first milestone first)',
-        '- Output ONLY the milestones, no preamble or closing remarks',
-        'If goals have been defined, ensure milestones align with and progress toward those goals.]',
-      ].join(' '),
-    }
-
     if (selectedField === 'title') {
-      // Title: ONLY the dominant instruction + current title value.
-      // Deliberately excludes description, goals, milestones, and attachment
-      // text — those overwhelm the model and cause it to generate non-title content.
-      setSetupTextDraft(preFrames.title)
+      setSetupTextDraft(`[field:title]\n${formTitle || ''}`)
       setIncludeInChat(true)
       return
     }
 
-    // ── Specific milestone edit ────────────────────────────────────────────────
-    // Use a minimal content-only format so the AI doesn't paraphrase the
-    // instruction text. Just wrap the milestone content and let the user's
-    // request do the work.
+    // Specific milestone edit — just the raw milestone text
     if (selectedField === 'milestones' && quickEditMilestoneId) {
       const milestone = formMilestones.find((m) => m.id === quickEditMilestoneId)
-      const milestoneText = milestone?.title ?? ''
-      setSetupTextDraft(`Text to edit:\n"""\n${milestoneText}\n"""\n`)
+      setSetupTextDraft(`[field:milestone]\n${milestone?.title ?? ''}`)
       setIncludeInChat(true)
       return
     }
 
-    // ── Non-title fields: FIELD-SPECIFIC context only ─────────────────────
-    // CRITICAL: Never include formAttachments here. Attachments are stored
-    // in the project record (useProjectStore) and their parsed text must NOT
-    // leak into every AI request. The user must explicitly drop files into
-    // the chat drop zone if they want the AI to use attachment content.
-    // Each field only receives context that is directly relevant to it.
-    let projectContext: string
     if (selectedField === 'description') {
-      projectContext = [
-        formTitle       ? `Project title: "${formTitle}"` : null,
+      const content = [
+        formTitle       ? `Project: "${formTitle}"` : null,
         formDescription ? `Current description:\n${formDescription}` : 'Current description: (none yet)',
       ].filter(Boolean).join('\n\n')
-    } else if (selectedField === 'goals') {
-      projectContext = [
-        formTitle       ? `Project title: "${formTitle}"` : null,
+      setSetupTextDraft(`[field:description]\n${content}`)
+      setIncludeInChat(true)
+      return
+    }
+
+    if (selectedField === 'goals') {
+      const content = [
+        formTitle       ? `Project: "${formTitle}"` : null,
         formDescription ? `Description: ${formDescription}` : null,
         formGoals       ? `Current goals:\n${formGoals}` : 'Current goals: (none yet)',
       ].filter(Boolean).join('\n\n')
-    } else {
-      // milestones — only title + goals + current milestones (no description, no attachments)
-      const milestoneList = formMilestones.length > 0
-        ? formMilestones.map((m) => `${m.isActive ? '● ' : '○ '}${m.completed ? '[DONE] ' : ''}${m.title}`).join('\n')
-        : '(none yet)'
-      projectContext = [
-        formTitle  ? `Project title: "${formTitle}"` : null,
-        formGoals  ? `Goals:\n${formGoals}` : null,
-        `Current milestones:\n${milestoneList}`,
-      ].filter(Boolean).join('\n\n')
+      setSetupTextDraft(`[field:goals]\n${content}`)
+      setIncludeInChat(true)
+      return
     }
 
-    const setupText = `${preFrames[selectedField]}\n\n[PROJECT CONTEXT]\n${projectContext}`
-    setSetupTextDraft(setupText)
+    // milestones — general (new milestone suggestions)
+    const milestoneList = formMilestones.length > 0
+      ? formMilestones.map((m) => `${m.isActive ? '● ' : '○ '}${m.completed ? '[DONE] ' : ''}${m.title}`).join('\n')
+      : '(none yet)'
+    const content = [
+      formTitle  ? `Project: "${formTitle}"` : null,
+      formGoals  ? `Goals:\n${formGoals}` : null,
+      `Current milestones:\n${milestoneList}`,
+    ].filter(Boolean).join('\n\n')
+    setSetupTextDraft(`[field:milestones]\n${content}`)
     setIncludeInChat(true)
   }, [
     setupMode, selectedField, quickEditMilestoneId,
@@ -601,7 +531,7 @@ export function ProjectOptimizationPanel({
     // Minimal content-only format — NO verbose instruction headers that the AI
     // might treat as text to rewrite. Just the content + user request is enough.
     const milestone = useProjectStore.getState().getActiveProject()?.milestones.find((m) => m.id === milestoneId)
-    store.setSetupTextDraft(`Text to edit:\n"""\n${milestone?.title ?? ''}\n"""\n`)
+    store.setSetupTextDraft(`[field:milestone]\n${milestone?.title ?? ''}`)
     store.setIncludeInChat(true)
 
     focusHeaderAiChat()
