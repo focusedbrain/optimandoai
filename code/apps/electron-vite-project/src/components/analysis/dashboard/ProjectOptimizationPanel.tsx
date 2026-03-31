@@ -447,12 +447,10 @@ export function ProjectOptimizationPanel({
           setFormTitle(clean)
           flashFieldEl('title')
         } else if (field === 'description') {
-          if (mode === 'replace') setFormDescription(trimmed)
-          else setFormDescription((prev) => (prev ? `${prev}\n\n${trimmed}` : trimmed))
+          setFormDescription(trimmed)
           flashFieldEl('description')
         } else if (field === 'goals') {
-          if (mode === 'replace') setFormGoals(trimmed)
-          else setFormGoals((prev) => (prev ? `${prev}\n\n${trimmed}` : trimmed))
+          setFormGoals(trimmed)
           flashFieldEl('goals')
         } else if (field === 'milestones') {
           // General milestones section → create new milestones from lines
@@ -508,11 +506,7 @@ export function ProjectOptimizationPanel({
       const project = projectStore.projects.find((p) => p.id === projectId)
       if (!project) return
 
-      const existing = project.milestones.find((m) => m.id === milestoneId)
-      const newContent =
-        mode === 'replace' || !existing?.title
-          ? trimmed
-          : `${existing.title}\n\n${trimmed}`
+      const newContent = trimmed
 
       // Persist to store
       projectStore.updateProject(projectId, {
