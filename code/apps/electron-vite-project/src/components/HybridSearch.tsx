@@ -867,10 +867,9 @@ export default function HybridSearch({
           chatQuery = `Context:\n${ctxBlock}\n\n${chatQuery}`
         }
 
-        /** Analysis-only: field-drafting context — inject the selected field content as a
-         *  named context block (same format as RAG docs) so the model treats it as the
-         *  thing to work with.  The user's message remains clean.  No instruction framing
-         *  is added — that avoids the AI paraphrasing or echoing system text. */
+        /** Analysis-only: field-drafting — replaces chatQuery with a self-contained
+         *  edit prompt identical to the isDraftRefine pattern (which is proven to work
+         *  without the model echoing instructions or ignoring content). */
         if (!isDraftRefine && activeView === 'analysis') {
           const storeState = useProjectSetupChatContextStore.getState()
           if (storeState.includeInChat && storeState.setupTextDraft.trim()) {
@@ -881,9 +880,24 @@ export default function HybridSearch({
               ? draft.slice(fieldTagMatch[0].length).trim()
               : draft.trim()
             if (content) {
-              // Prepend as a labelled context block — mirrors the contextDocs format so
-              // the model treats it as content to operate on, not a question to answer.
-              chatQuery = `Context:\n[Current ${fieldName}]\n${content}\n\n${chatQuery}`
+              chatQuery = [
+                `Here is the current ${fieldName}:`,
+                '',
+                '---',
+                content,
+                '---',
+                '',
+                `The user wants to modify it: "${chatQuery}"`,
+                '',
+                `Output ONLY the revised text. No explanation, no markdown.`,
+              ].join('\n')
+            } else {
+              chatQuery = [
+                `Write initial text for a project ${fieldName} based on this instruction:`,
+                `"${chatQuery}"`,
+                '',
+                `Output ONLY the text. No explanation, no preamble, no markdown formatting.`,
+              ].join('\n')
             }
           }
         }
