@@ -2666,79 +2666,6 @@ export default function EmailInboxView({
           />
         ) : null}
 
-        {/* Always show connected accounts in the list column — not only when no message is selected (center column is hidden when reading a message). */}
-        <div
-          className="inbox-provider-section inbox-left-provider-strip"
-          style={{
-            flexShrink: 0,
-            maxHeight: 'min(42vh, 360px)',
-            overflowY: 'auto',
-            overflowX: 'hidden',
-            borderBottom: '1px solid var(--color-border, rgba(255,255,255,0.08))',
-            background: 'rgba(15,23,42,0.35)',
-          }}
-        >
-          <EmailProvidersSection
-            theme="professional"
-            emailAccounts={providerAccounts}
-            isLoadingEmailAccounts={isLoadingProviderAccounts}
-            selectedEmailAccountId={selectedProviderAccountId}
-            onConnectEmail={handleConnectEmail}
-            onDisconnectEmail={handleDisconnectEmail}
-            onSetProcessingPaused={handleSetProcessingPaused}
-            onSelectEmailAccount={setSelectedProviderAccountId}
-            onUpdateImapCredentials={handleUpdateImapCredentials}
-            listAccountsError={providerListError}
-          />
-          {primaryAccountId && window.emailInbox?.patchAccountSyncPreferences && (
-            <div
-              style={{
-                padding: '12px 18px',
-                borderTop: '1px solid rgba(15,23,42,0.08)',
-                background: 'rgba(59,130,246,0.04)',
-              }}
-            >
-              <div style={{ fontSize: 11, fontWeight: 700, color: '#0f172a', marginBottom: 8 }}>Account sync</div>
-              <label
-                style={{
-                  display: 'flex',
-                  flexWrap: 'wrap',
-                  alignItems: 'center',
-                  gap: 8,
-                  fontSize: 12,
-                  color: '#0f172a',
-                }}
-              >
-                <span style={{ fontWeight: 600, whiteSpace: 'nowrap' }}>Sync window</span>
-                <select
-                  className="bulk-view-toolbar-sync-select"
-                  aria-label="Initial sync window"
-                  value={emailInboxSyncWindowSelectValue(accountSyncWindowDays)}
-                  onChange={(e) => {
-                    const v = parseInt(e.target.value, 10)
-                    if (!Number.isNaN(v)) void handleSyncWindowChange(v)
-                  }}
-                  style={{ fontSize: 12, padding: '6px 10px' }}
-                  title="How far back the first inbox pull reaches (same as Bulk Inbox toolbar)"
-                >
-                  <option value={7}>7d</option>
-                  <option value={30}>30d</option>
-                  <option value={90}>90d</option>
-                  <option value={365}>1y</option>
-                </select>
-              </label>
-              <div style={{ fontSize: 10, color: '#64748b', marginTop: 8, lineHeight: 1.45 }}>
-                Editable after connecting. Only recent mail syncs initially; expand the sync window to include older mail.
-                {accountSyncWindowDays === 0 ? (
-                  <span style={{ color: '#b45309', display: 'block', marginTop: 4 }}>
-                    Warning: syncing all mail may take a long time.
-                  </span>
-                ) : null}
-              </div>
-            </div>
-          )}
-        </div>
-
         <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden' }}>
           {leftPanelTab === 'sent' ? (
             sentLoading ? (
@@ -2943,6 +2870,67 @@ export default function EmailInboxView({
               borderRight: '1px solid var(--color-border, rgba(255,255,255,0.08))',
             }}
           >
+            <div className="inbox-provider-section">
+              <EmailProvidersSection
+                theme="professional"
+                emailAccounts={providerAccounts}
+                isLoadingEmailAccounts={isLoadingProviderAccounts}
+                selectedEmailAccountId={selectedProviderAccountId}
+                onConnectEmail={handleConnectEmail}
+                onDisconnectEmail={handleDisconnectEmail}
+                onSetProcessingPaused={handleSetProcessingPaused}
+                onSelectEmailAccount={setSelectedProviderAccountId}
+                onUpdateImapCredentials={handleUpdateImapCredentials}
+                listAccountsError={providerListError}
+              />
+              {primaryAccountId && window.emailInbox?.patchAccountSyncPreferences && (
+                <div
+                  style={{
+                    padding: '12px 18px',
+                    borderTop: '1px solid rgba(15,23,42,0.08)',
+                    background: 'rgba(59,130,246,0.04)',
+                  }}
+                >
+                  <div style={{ fontSize: 11, fontWeight: 700, color: '#0f172a', marginBottom: 8 }}>Account sync</div>
+                  <label
+                    style={{
+                      display: 'flex',
+                      flexWrap: 'wrap',
+                      alignItems: 'center',
+                      gap: 8,
+                      fontSize: 12,
+                      color: '#0f172a',
+                    }}
+                  >
+                    <span style={{ fontWeight: 600, whiteSpace: 'nowrap' }}>Sync window</span>
+                    <select
+                      className="bulk-view-toolbar-sync-select"
+                      aria-label="Initial sync window"
+                      value={emailInboxSyncWindowSelectValue(accountSyncWindowDays)}
+                      onChange={(e) => {
+                        const v = parseInt(e.target.value, 10)
+                        if (!Number.isNaN(v)) void handleSyncWindowChange(v)
+                      }}
+                      style={{ fontSize: 12, padding: '6px 10px' }}
+                      title="How far back the first inbox pull reaches (same as Bulk Inbox toolbar)"
+                    >
+                      <option value={7}>7d</option>
+                      <option value={30}>30d</option>
+                      <option value={90}>90d</option>
+                      <option value={365}>1y</option>
+                    </select>
+                  </label>
+                  <div style={{ fontSize: 10, color: '#64748b', marginTop: 8, lineHeight: 1.45 }}>
+                    Editable after connecting. Only recent mail syncs initially; expand the sync window to include older mail.
+                    {accountSyncWindowDays === 0 ? (
+                      <span style={{ color: '#b45309', display: 'block', marginTop: 4 }}>
+                        Warning: syncing all mail may take a long time.
+                      </span>
+                    ) : null}
+                  </div>
+                </div>
+              )}
+            </div>
             <div
               style={{
                 flex: 1,
