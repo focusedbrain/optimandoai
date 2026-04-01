@@ -1,4 +1,4 @@
-﻿/**
+/**
  * EmailInboxBulkView — Bulk grid view: [Message Card | AI Output Field] per row (50/50).
  * Toolbar: Select all, bulk actions, infinite scroll (next page). Batch size “All” = entire current tab (drained fetch + id list), not one page.
  * Collapsible provider section at top for account management.
@@ -29,6 +29,7 @@ import { InboxMessageKindSelect } from './InboxMessageKindSelect'
 import LinkWarningDialog from './LinkWarningDialog'
 import { extractLinkParts } from '../utils/safeLinks'
 import { BulkOllamaModelSelect } from './BulkOllamaModelSelect'
+import { AutosortRuntimeStatus } from './AutosortRuntimeStatus'
 import type {
   AiOutputs,
   AutosortRetainKind,
@@ -4972,39 +4973,12 @@ export default function EmailInboxBulkView({
             >
               ⚡AI Auto-Sort
             </button>
-            {!isSortingActive && (
-              <>
-                <BulkOllamaModelSelect
-                  variant="toolbar"
-                  showRuntimeChip
-                />
-                <label
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 4,
-                    fontSize: 11,
-                    color: '#64748b',
-                    cursor: 'default',
-                    userSelect: 'none',
-                    marginLeft: 2,
-                  }}
-                  title={`Batch size: ${sortConcurrency} message(s) per IPC chunk. Separate from Ollama parallel. Changes apply from the next chunk.`}
-                >
-                  <span style={{ whiteSpace: 'nowrap' }}>Batch: {sortConcurrency}</span>
-                  <input
-                    type="range"
-                    min={1}
-                    max={8}
-                    step={1}
-                    value={sortConcurrency}
-                    onChange={(e) => handleSortConcurrencyChange(Number(e.target.value))}
-                    aria-label="Bulk Auto-Sort messages per batch"
-                    style={{ width: 72, cursor: 'pointer', accentColor: '#7c3aed' }}
-                  />
-                </label>
-              </>
-            )}
+            <BulkOllamaModelSelect
+              variant="toolbar"
+              disabled={isSortingActive}
+              disabledReason="Autosort model cannot be changed during an active sort."
+              showRuntimeChip
+            />
             <span className="bulk-view-selection-group-count selected-count">{selectedCount} selected</span>
           </div>
 
@@ -5946,12 +5920,7 @@ export default function EmailInboxBulkView({
                           }}
                         >
                           <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginBottom: 2 }}>
-                            <BulkOllamaModelSelect
-                              variant="toolbar"
-                              disabled
-                              disabledReason="Autosort model cannot be changed during an active sort."
-                              showRuntimeChip
-                            />
+                            <AutosortRuntimeStatus />
                             <label
                               style={{
                                 display: 'flex',
