@@ -28,7 +28,6 @@ import EmailInboxSyncControls from './EmailInboxSyncControls'
 import { InboxMessageKindSelect } from './InboxMessageKindSelect'
 import LinkWarningDialog from './LinkWarningDialog'
 import { extractLinkParts } from '../utils/safeLinks'
-import { AutosortRuntimeStatus } from './AutosortRuntimeStatus'
 import { BulkOllamaModelSelect } from './BulkOllamaModelSelect'
 import type {
   AiOutputs,
@@ -4973,11 +4972,11 @@ export default function EmailInboxBulkView({
             >
               ⚡AI Auto-Sort
             </button>
-            <AutosortRuntimeStatus />
             <BulkOllamaModelSelect
               variant="toolbar"
               disabled={isSortingActive}
               disabledReason="Autosort model cannot be changed during an active sort."
+              showRuntimeChip
             />
             <label
               style={{
@@ -4992,7 +4991,7 @@ export default function EmailInboxBulkView({
               }}
               title={`Batch size: ${sortConcurrency} message(s) per classify request (one IPC chunk). Separate from “Ollama parallel” in the progress bar. Changes apply from the next chunk.`}
             >
-              <span style={{ whiteSpace: 'nowrap' }}>Per batch: {sortConcurrency} msgs</span>
+              <span style={{ whiteSpace: 'nowrap' }}>Batch: {sortConcurrency}</span>
               <input
                 type="range"
                 min={1}

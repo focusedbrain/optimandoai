@@ -3,6 +3,9 @@
  * Controls the active Ollama model used exclusively for inbox Auto-Sort.
  * Reads/writes the same persisted preference as Backend Configuration (`setActiveModelPreference`).
  *
+ * When `showRuntimeChip` is true, renders a compact GPU/blocked chip inline after the dropdown,
+ * replacing the need for a separate AutosortRuntimeStatus badge in the toolbar.
+ *
  * Separate from any chat model selector. Must be disabled while autosort is running to avoid
  * mid-run model switching that could cause VRAM contention or inconsistent chunk resolution.
  *
@@ -12,18 +15,54 @@ import { useCallback, useEffect, useState, type ChangeEvent } from 'react'
 
 const MUTED = '#64748b'
 
+const GPU_LABEL: Record<string, string> = {
+  gpu_capable: 'GPU',
+  gpu_unconfirmed: 'GPU?',
+  cpu_likely: 'CPU',
+  unknown: '?',
+}
+
+const GPU_COLOR: Record<string, string> = {
+  gpu_capable: '#15803d',
+  gpu_unconfirmed: '#92400e',
+  cpu_likely: '#991b1b',
+  unknown: '#64748b',
+}
+
+interface RuntimeChipState {
+  loading: boolean
+  allowed: boolean
+  gpu: string
+  blockMessage: string | null
+  blockReason: string | null
+}
+
+const CHIP_EMPTY: RuntimeChipState = {
+  loading: true,
+  allowed: false,
+  gpu: 'unknown',
+  blockMessage: null,
+  blockReason: null,
+}
+
 export type BulkOllamaModelSelectVariant = 'toolbar' | 'progress'
 
 export function BulkOllamaModelSelect({
   variant,
   disabled,
   disabledReason,
+  showRuntimeChip = false,
 }: {
   variant: BulkOllamaModelSelectVariant
   /** When true, selector is locked and shows a tooltip explaining why. */
   disabled?: boolean
   /** Tooltip text shown when disabled. Defaults to autosort-running message. */
   disabledReason?: string
+  /**
+   * When true, renders a compact GPU/blocked chip inline next to the dropdown,
+   * replacing the need for a separate AutosortRuntimeStatus element in the toolbar.
+   */
+  showRuntimeChip?: boolean
 }) {
   const compact = variant === 'toolbar'
   const [models, setModels] = useState<string[]>([])
@@ -33,6 +72,28 @@ export function BulkOllamaModelSelect({
   const [error, setError] = useState<string | null>(null)
   const [switching, setSwitching] = useState(false)
   const [runtimeSummary, setRuntimeSummary] = useState<string | undefined>()
+  const [chip, setChip] = useState<RuntimeChipState>(CHIP_EMPTY)
+
+  const refreshChip = useCallback(async () => {
+    if (!showRuntimeChip) return
+    const api = typeof window !== 'undefined' ? window.llm : undefined
+    if (!api?.resolveAutosortRuntime) {
+      setChip({ ...CHIP_EMPTY, loading: false })
+      return
+    }
+    try {
+      const res = await api.resolveAutosortRuntime()
+      if (!res.ok) {
+        setChip({ loading: false, allowed: false, gpu: 'unknown', blockMessage: res.error ?? 'Runtime check failed', blockReason: 'error' })
+        return
+      }
+      const d = res.data
+      setChip({ loading: false, allowed: d.autosortAllowed, gpu: d.gpuClassification, blockMessage: d.blockMessage, blockReason: d.blockReason ?? null })
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Runtime check failed'
+      setChip({ loading: false, allowed: false, gpu: 'unknown', blockMessage: msg, blockReason: 'error' })
+    }
+  }, [showRuntimeChip])
 
   const refresh = useCallback(async () => {
     const api = typeof window !== 'undefined' ? window.llm : undefined
@@ -63,8 +124,10 @@ export function BulkOllamaModelSelect({
       setRuntimeSummary(undefined)
     } finally {
       setLoading(false)
+      // Refresh chip after model list/status is updated
+      void refreshChip()
     }
-  }, [])
+  }, [refreshChip])
 
   useEffect(() => {
     void refresh()
@@ -155,6 +218,64 @@ export function BulkOllamaModelSelect({
   const storedMissing = !!active && !models.includes(active)
   const effectiveValue = storedMissing ? '' : (active ?? models[0])
 
+  // Runtime chip rendered inline after the selector
+  const runtimeChip = showRuntimeChip ? (() => {
+    if (chip.loading) {
+      return (
+        <span
+          style={{ fontSize: 9, color: '#94a3b8', padding: '1px 5px', borderRadius: 3, border: '1px solid #e2e8f0', whiteSpace: 'nowrap' }}
+          title="Checking autosort runtime…"
+        >
+          …
+        </span>
+      )
+    }
+    if (chip.allowed) {
+      const gpuColor = GPU_COLOR[chip.gpu] ?? '#64748b'
+      const gpuLabel = GPU_LABEL[chip.gpu] ?? '?'
+      return (
+        <span
+          style={{
+            fontSize: 9,
+            fontWeight: 700,
+            padding: '1px 5px',
+            borderRadius: 3,
+            background: gpuColor,
+            color: '#fff',
+            letterSpacing: '0.03em',
+            whiteSpace: 'nowrap',
+            cursor: 'default',
+          }}
+          title={`Auto-Sort ready · GPU: ${chip.gpu}`}
+        >
+          {gpuLabel}
+        </span>
+      )
+    }
+    return (
+      <span
+        style={{
+          fontSize: 9,
+          fontWeight: 700,
+          padding: '1px 5px',
+          borderRadius: 3,
+          background: 'rgba(220,38,38,0.12)',
+          border: '1px solid rgba(220,38,38,0.40)',
+          color: '#dc2626',
+          whiteSpace: 'nowrap',
+          cursor: 'default',
+          maxWidth: 120,
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          display: 'inline-block',
+        }}
+        title={chip.blockMessage ?? 'Auto-Sort blocked'}
+      >
+        ⚠ {chip.blockReason ?? 'blocked'}
+      </span>
+    )
+  })() : null
+
   return (
     <label
       style={{
@@ -171,7 +292,7 @@ export function BulkOllamaModelSelect({
       }}
       title={title}
     >
-      <span style={{ whiteSpace: 'nowrap', fontWeight: 600, color: '#334155' }}>Auto-Sort model</span>
+      <span style={{ whiteSpace: 'nowrap', fontWeight: 600, color: '#334155' }}>Auto-Sort</span>
       {storedMissing ? (
         <span
           style={{
@@ -217,6 +338,7 @@ export function BulkOllamaModelSelect({
           ))}
         </select>
       )}
+      {runtimeChip}
       {error ? (
         <span style={{ color: '#ef4444', fontSize: 10, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis' }} title={error}>
           {error}
