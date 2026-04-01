@@ -1,9 +1,12 @@
 /**
- * Compact active Ollama model switcher — mounted only in the bulk Auto-Sort progress dock (not header).
+ * Compact autosort model selector — placed in the autosort toolbar row.
+ * Controls the active Ollama model used exclusively for inbox Auto-Sort.
  * Reads/writes the same persisted preference as Backend Configuration (`setActiveModelPreference`).
  *
+ * Separate from any chat model selector. Must be disabled while autosort is running to avoid
+ * mid-run model switching that could cause VRAM contention or inconsistent chunk resolution.
+ *
  * Bulk Auto-Sort: each main-process chunk calls `preResolveInboxLlm()` once when handling `aiClassifyBatch`.
- * Changing the model mid-run applies to the **next** chunk only; the in-flight chunk keeps its model.
  */
 import { useCallback, useEffect, useState, type ChangeEvent } from 'react'
 
@@ -14,10 +17,13 @@ export type BulkOllamaModelSelectVariant = 'toolbar' | 'progress'
 export function BulkOllamaModelSelect({
   variant,
   disabled,
+  disabledReason,
 }: {
   variant: BulkOllamaModelSelectVariant
-  /** When true (e.g. sort running), still allow switching — next chunk picks up the new model. */
+  /** When true, selector is locked and shows a tooltip explaining why. */
   disabled?: boolean
+  /** Tooltip text shown when disabled. Defaults to autosort-running message. */
+  disabledReason?: string
 }) {
   const compact = variant === 'toolbar'
   const [models, setModels] = useState<string[]>([])
@@ -75,9 +81,17 @@ export function BulkOllamaModelSelect({
   const api = typeof window !== 'undefined' ? window.llm : undefined
   if (!api?.getStatus || !api.setActiveModel) return null
 
-  const title =
-    'Local Ollama model for inbox AI (same setting as Backend Configuration). If you change it during Auto-Sort, the current batch chunk keeps its already-resolved model; the next chunk uses the new model (see preResolveInboxLlm).' +
-    (runtimeSummary ? ` ${runtimeSummary}` : '')
+  const lockedMsg =
+    disabled && disabledReason
+      ? disabledReason
+      : disabled
+        ? 'Autosort model cannot be changed during an active sort.'
+        : null
+
+  const title = lockedMsg
+    ? lockedMsg
+    : 'Select the local Ollama model used for Auto-Sort. This setting is independent of any chat model.' +
+      (runtimeSummary ? ` ${runtimeSummary}` : '')
 
   const onChange = async (e: ChangeEvent<HTMLSelectElement>) => {
     const next = e.target.value
@@ -157,7 +171,7 @@ export function BulkOllamaModelSelect({
       }}
       title={title}
     >
-      <span style={{ whiteSpace: 'nowrap', fontWeight: 600, color: '#334155' }}>Ollama model</span>
+      <span style={{ whiteSpace: 'nowrap', fontWeight: 600, color: '#334155' }}>Auto-Sort model</span>
       {storedMissing ? (
         <span
           style={{

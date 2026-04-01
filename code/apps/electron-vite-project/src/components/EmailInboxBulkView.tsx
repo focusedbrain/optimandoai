@@ -29,6 +29,7 @@ import { InboxMessageKindSelect } from './InboxMessageKindSelect'
 import LinkWarningDialog from './LinkWarningDialog'
 import { extractLinkParts } from '../utils/safeLinks'
 import { AutosortRuntimeStatus } from './AutosortRuntimeStatus'
+import { BulkOllamaModelSelect } from './BulkOllamaModelSelect'
 import type {
   AiOutputs,
   AutosortRetainKind,
@@ -4973,6 +4974,11 @@ export default function EmailInboxBulkView({
               ⚡AI Auto-Sort
             </button>
             <AutosortRuntimeStatus />
+            <BulkOllamaModelSelect
+              variant="toolbar"
+              disabled={isSortingActive}
+              disabledReason="Autosort model cannot be changed during an active sort."
+            />
             <label
               style={{
                 display: 'flex',

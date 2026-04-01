@@ -557,6 +557,7 @@ export default function HybridSearch({
   const draftRefineMessageSubject = useDraftRefineStore((s) => s.messageSubject)
   const draftRefineTarget = useDraftRefineStore((s) => s.refineTarget)
   const inboxSubFocus = useEmailInboxStore((s) => (activeView === 'beap-inbox' ? s.subFocus : SUBFOCUS_NONE))
+  const isSortingActive = useEmailInboxStore((s) => s.isSortingActive)
 
   /** True when the chat bar should run draft-refine (inbox message or standalone compose with null ids). */
   const isDraftRefineSession =
@@ -662,6 +663,11 @@ export default function HybridSearch({
     document.addEventListener('mousedown', handleClick)
     return () => document.removeEventListener('mousedown', handleClick)
   }, [modelMenuOpen])
+
+  // Close chat model menu if autosort starts while it is open
+  useEffect(() => {
+    if (isSortingActive && modelMenuOpen) setModelMenuOpen(false)
+  }, [isSortingActive, modelMenuOpen])
 
   // Close panel on outside click
   useEffect(() => {
@@ -1483,11 +1489,12 @@ export default function HybridSearch({
             )}
           </button>
 
-          {/* Model picker — for Chat and Actions */}
+          {/* Model picker — Chat / Actions only. Does NOT affect Auto-Sort (autosort has its own selector in the inbox toolbar row). */}
           {showModelSelector && (
             <button
               className={`hs-model-selector${modelMenuOpen ? ' hs-model-caret--open' : ''}${mode === 'actions' ? ' hs-model-selector--actions' : ''}`}
               onClick={async () => {
+                if (isSortingActive) return
                 const next = !modelMenuOpen
                 setModelMenuOpen(next)
                 if (next) {
@@ -1501,8 +1508,13 @@ export default function HybridSearch({
                   } catch { /* ignore */ }
                 }
               }}
-              aria-label="Select LLM model"
-              title="Choose model (click to open)"
+              disabled={isSortingActive}
+              aria-label="Chat model"
+              title={
+                isSortingActive
+                  ? 'Chat model cannot be changed while Auto-Sort is running.'
+                  : 'Chat model — click to switch. This selector is for Chat/Actions only and does not affect Auto-Sort.'
+              }
               tabIndex={0}
             >
               <span className="hs-send-model">{getModelLabel(selectedModel, availableModels)}</span>
