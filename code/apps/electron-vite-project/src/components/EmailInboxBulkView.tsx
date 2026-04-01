@@ -5987,33 +5987,6 @@ export default function EmailInboxBulkView({
                             >
                               ⏹ Stop
                             </button>
-                            {aiSortProgress.activeClassifyModel ? (
-                              <span
-                                title={
-                                  aiSortProgress.activeClassifyProvider &&
-                                  aiSortProgress.activeClassifyPreResolveMs != null
-                                    ? `${aiSortProgress.activeClassifyProvider} · ${aiSortProgress.activeClassifyModel} · preResolve ${aiSortProgress.activeClassifyPreResolveMs}ms`
-                                    : aiSortProgress.activeClassifyModel
-                                }
-                                style={{
-                                  display: 'inline-block',
-                                  maxWidth: 'min(200px, 38vw)',
-                                  overflow: 'hidden',
-                                  textOverflow: 'ellipsis',
-                                  whiteSpace: 'nowrap',
-                                  padding: '1px 8px',
-                                  borderRadius: 4,
-                                  fontSize: 10,
-                                  fontWeight: 600,
-                                  color: '#14532d',
-                                  background: 'rgba(34,197,94,0.18)',
-                                  border: '1px solid rgba(22,163,74,0.35)',
-                                  verticalAlign: 'middle',
-                                }}
-                              >
-                                {aiSortProgress.activeClassifyModel}
-                              </span>
-                            ) : null}
                             <label
                               style={{
                                 display: 'flex',
@@ -6045,19 +6018,6 @@ export default function EmailInboxBulkView({
                               />
                             </label>
                           </div>
-                          <p
-                            style={{
-                              margin: 0,
-                              fontSize: 10,
-                              lineHeight: 1.35,
-                              color: MUTED,
-                              maxWidth: 520,
-                            }}
-                          >
-                            Per batch (toolbar) = messages per classify request. Ollama parallel (here) = how
-                            many local classifies overlap inside that request (ignored for cloud APIs). Both
-                            apply from the next chunk.
-                          </p>
                         </div>
                       )}
                     </>
