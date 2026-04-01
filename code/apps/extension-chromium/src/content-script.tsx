@@ -13216,6 +13216,15 @@ function initializeExtension() {
 
             
 
+            // Chain validation log (Listener -> Reasoning -> Execution)
+            const syncChainCaps = draft.capabilities || []
+            if (syncChainCaps.includes('reasoning') && !syncChainCaps.includes('listening')) {
+              console.warn('⚠️ CHAIN: Reasoning enabled without Listening — agent will not receive external input')
+            }
+            if (syncChainCaps.includes('execution') && !syncChainCaps.includes('reasoning')) {
+              console.warn('⚠️ CHAIN: Execution enabled without Reasoning — execution will not run')
+            }
+
             dataToSave = JSON.stringify(draft)
 
             previouslySavedData = draft
@@ -25078,6 +25087,49 @@ function initializeExtension() {
             eApplyFor: draft.execution?.applyFor,
             eApplyForList: draft.execution?.applyForList
           })
+          
+          // ============================================================
+          // STRICT CHAIN VALIDATION: Listener -> Reasoning -> Execution
+          // ============================================================
+          const chainWarnings: string[] = []
+          const caps = draft.capabilities || []
+          const hasListeningCap = caps.includes('listening')
+          const hasReasoningCap = caps.includes('reasoning')
+          const hasExecutionCap = caps.includes('execution')
+          
+          const hasAnyTrigger = (draft.listening?.unifiedTriggers?.length > 0)
+            || (draft.listening?.active?.triggers?.length > 0)
+            || (draft.listening?.passive?.triggers?.length > 0)
+            || (draft.listening?.triggers?.length > 0)
+          
+          if (hasReasoningCap && !hasListeningCap) {
+            chainWarnings.push('Reasoning is enabled but Listening is not. Reasoning can only receive input through a Listener trigger — this agent will not receive external input.')
+          }
+          if (hasExecutionCap && !hasReasoningCap) {
+            chainWarnings.push('Execution is enabled but Reasoning is not. Execution can only receive output from Reasoning — this agent\'s execution will not run.')
+          }
+          if (hasExecutionCap && !hasListeningCap) {
+            chainWarnings.push('Execution is enabled but Listening is not. Without a Listener, no external input reaches this agent.')
+          }
+          if (hasListeningCap && !hasAnyTrigger) {
+            chainWarnings.push('Listening is enabled but no triggers are defined. Add at least one trigger (e.g. WR Chat, Direct Tag) so the agent can receive input.')
+          }
+          
+          if (chainWarnings.length > 0) {
+            const warningMsg = 'Chain Warning (Listener → Reasoning → Execution):\n\n' + chainWarnings.map((w, i) => `${i + 1}. ${w}`).join('\n\n')
+            console.warn('⚠️ CHAIN VALIDATION:', warningMsg)
+            const proceed = confirm(warningMsg + '\n\nSave anyway?')
+            if (!proceed) {
+              const saveButton = document.getElementById('agent-config-save') as HTMLButtonElement
+              if (saveButton) {
+                saveButton.disabled = false
+                saveButton.style.opacity = '1'
+                saveButton.style.cursor = 'pointer'
+                saveButton.innerHTML = '💾 Save'
+              }
+              return
+            }
+          }
           
           dataToSave = JSON.stringify(draft)
 

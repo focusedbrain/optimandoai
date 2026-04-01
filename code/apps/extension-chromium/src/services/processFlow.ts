@@ -158,7 +158,7 @@ export interface AgentMatch {
   agentName: string
   agentIcon: string
   agentNumber?: number
-  matchReason: 'trigger' | 'expected_context' | 'apply_for' | 'default'
+  matchReason: 'trigger' | 'expected_context'
   matchDetails: string
   triggerName?: string
   triggerType?: 'passive' | 'active'

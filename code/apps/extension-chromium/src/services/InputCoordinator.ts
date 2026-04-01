@@ -56,8 +56,8 @@ interface ListenerEvaluation {
   matchedTriggerName?: string
   /** ALL matched trigger names */
   matchedTriggerNames?: string[]
-  /** Type of match */
-  matchType: 'passive_trigger' | 'active_trigger' | 'expected_context' | 'apply_for' | 'no_listener' | 'none'
+  /** Type of match — only Listener-derived match types are valid */
+  matchType: 'passive_trigger' | 'active_trigger' | 'expected_context' | 'none'
   /** Human-readable match details */
   matchDetails: string
 }
@@ -201,11 +201,16 @@ export class InputCoordinator {
   /**
    * Evaluate an agent's listener configuration against the input
    * 
-   * This is the core decision logic for each agent:
-   * - If no listener capability -> forward to reasoning (matchType = 'no_listener')
-   * - If listener capability but no listener active -> forward to reasoning (matchType = 'no_listener')
-   * - If listener active and trigger matches -> forward (matchType = trigger type)
-   * - If listener active but no match -> don't forward (matchType = 'none')
+   * STRICT CHAIN ENFORCEMENT: Listener -> Reasoning -> Execution
+   * 
+   * Only the Listener section may consume external triggers.
+   * Reasoning and Execution never listen to the outside world directly.
+   * If an agent has no active Listener, it does NOT receive external input.
+   * 
+   * Decision logic:
+   * - No listener capability or no active triggers -> reject (matchType = 'none')
+   * - Listener active and trigger matches -> forward (matchType = trigger type)
+   * - Listener active but no match -> reject (matchType = 'none')
    */
   evaluateAgentListener(
     agent: AgentConfig,
@@ -216,7 +221,6 @@ export class InputCoordinator {
     currentUrl?: string
   ): ListenerEvaluation {
     const listening = agent.listening
-    const reasoning = agent.reasoning
     
     // Check if agent has listener capability
     const hasListenerCapability = agent.capabilities?.includes('listening') ?? false
@@ -225,7 +229,7 @@ export class InputCoordinator {
     const passiveEnabled = listening?.passiveEnabled ?? false
     const activeEnabled = listening?.activeEnabled ?? false
     
-    // NEW: Also check for unified triggers (new format) - if any exist, listener is active
+    // Also check for unified triggers (new format) - if any exist, listener is active
     const hasUnifiedTriggers = (listening?.unifiedTriggers?.length ?? 0) > 0
     const hasLegacyTriggers = (listening?.triggers?.length ?? 0) > 0
     
@@ -234,17 +238,19 @@ export class InputCoordinator {
     
     this.log(`Agent "${agent.name}" - hasListenerCapability: ${hasListenerCapability}, isListenerActive: ${isListenerActive}, hasUnifiedTriggers: ${hasUnifiedTriggers}`)
 
-    // RULE: If no listener capability OR listener not active -> always forward to reasoning
+    // STRICT CHAIN: No listener capability or no active triggers -> agent cannot receive external input.
+    // Reasoning and Execution must never listen to the outside world directly.
     if (!hasListenerCapability || !isListenerActive) {
+      this.log(`Agent "${agent.name}" REJECTED: no active Listener — strict chain requires Listener -> Reasoning -> Execution`)
       return {
         hasListener: hasListenerCapability,
         isListenerActive: false,
         matchesPassiveTrigger: false,
         matchesActiveTrigger: false,
         matchesExpectedContext: false,
-        matchesApplyFor: true,
-        matchType: 'no_listener',
-        matchDetails: 'No listener active - forwarding all input to reasoning section'
+        matchesApplyFor: false,
+        matchType: 'none',
+        matchDetails: 'No active listener — external input requires a Listener trigger (Listener → Reasoning → Execution)'
       }
     }
 
@@ -396,24 +402,13 @@ export class InputCoordinator {
       }
     }
 
-    // Check applyFor (reasoning section input type matching)
-    if (reasoning?.applyFor && reasoning.applyFor !== '__any__') {
-      if (this.matchesApplyFor(reasoning.applyFor, inputType, hasImage)) {
-        this.log(`Agent "${agent.name}" matched applyFor: ${reasoning.applyFor}`)
-        return {
-          hasListener: true,
-          isListenerActive: true,
-          matchesPassiveTrigger: false,
-          matchesActiveTrigger: false,
-          matchesExpectedContext: false,
-          matchesApplyFor: true,
-          matchType: 'apply_for',
-          matchDetails: `ApplyFor "${reasoning.applyFor}" matched input type "${inputType}"`
-        }
-      }
-    }
+    // STRICT CHAIN: reasoning.applyFor is NOT checked here.
+    // Reasoning must never listen to external input directly.
+    // applyFor is an internal filter applied AFTER a Listener match,
+    // not an external trigger. Only the Listener layer gates external input.
 
-    // No match found
+    // No Listener trigger matched
+    this.log(`Agent "${agent.name}" — Listener active but no triggers matched this input`)
     return {
       hasListener: true,
       isListenerActive: true,
@@ -422,7 +417,7 @@ export class InputCoordinator {
       matchesExpectedContext: false,
       matchesApplyFor: false,
       matchType: 'none',
-      matchDetails: 'Listener active but no triggers/patterns matched'
+      matchDetails: 'Listener active but no triggers matched — input not forwarded'
     }
   }
 
@@ -544,7 +539,8 @@ export class InputCoordinator {
         currentUrl
       )
 
-      // Determine if we should forward to this agent
+      // STRICT CHAIN: Only forward if a Listener trigger actually matched.
+      // 'none' means no match — agent does not receive input.
       const shouldForward = evaluation.matchType !== 'none'
       
       if (shouldForward) {
@@ -552,16 +548,10 @@ export class InputCoordinator {
         const connectedBoxes = this.findAgentBoxesForAgent(agent, agentBoxes)
         const firstBox = connectedBoxes[0]
 
-        // Map matchType to matchReason
-        let matchReason: AgentMatch['matchReason'] = 'default'
-        if (evaluation.matchType === 'passive_trigger' || evaluation.matchType === 'active_trigger') {
-          matchReason = 'trigger'
-        } else if (evaluation.matchType === 'expected_context') {
+        // Map matchType to matchReason (only Listener-derived matches reach here)
+        let matchReason: AgentMatch['matchReason'] = 'trigger'
+        if (evaluation.matchType === 'expected_context') {
           matchReason = 'expected_context'
-        } else if (evaluation.matchType === 'apply_for') {
-          matchReason = 'apply_for'
-        } else if (evaluation.matchType === 'no_listener') {
-          matchReason = 'default'
         }
 
         matches.push({
@@ -712,14 +702,10 @@ export class InputCoordinator {
         title: primaryBox?.title
       }
 
-      // Determine match reason
-      let matchReason: AgentAllocation['matchReason'] = 'default'
-      if (evaluation.matchType === 'passive_trigger' || evaluation.matchType === 'active_trigger') {
-        matchReason = 'trigger'
-      } else if (evaluation.matchType === 'expected_context') {
+      // Map Listener match type to reason (only Listener-derived matches reach here)
+      let matchReason: AgentAllocation['matchReason'] = 'trigger'
+      if (evaluation.matchType === 'expected_context') {
         matchReason = 'expected_context'
-      } else if (evaluation.matchType === 'apply_for') {
-        matchReason = 'apply_for'
       }
 
       // Create allocation

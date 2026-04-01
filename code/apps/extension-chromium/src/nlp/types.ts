@@ -75,7 +75,7 @@ export interface AgentAllocation {
   /** Where the output will be displayed */
   outputSlot: OutputSlot
   /** How the agent was matched */
-  matchReason: 'trigger' | 'expected_context' | 'apply_for' | 'default'
+  matchReason: 'trigger' | 'expected_context'
   /** Human-readable match details */
   matchDetails: string
   /** Matched trigger name if applicable */
