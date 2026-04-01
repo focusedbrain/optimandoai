@@ -5,10 +5,10 @@
  * decision-making that was previously split between processFlow.ts and
  * the automation/ListenerManager.
  * 
- * Forwarding Rules:
+ * Strict Chain: Listener -> Reasoning -> Execution
  * 1. Active trigger clicked (e.g., #tag17) -> Forward to matched agent
  * 2. Passive trigger pattern matched -> Forward to matched agent
- * 3. No listener active on agent -> Always forward to reasoning section
+ * 3. No active listener on agent -> REJECT (agent does not receive external input)
  * 4. No match and listener active -> Butler response only
  */
 
@@ -687,7 +687,6 @@ export class InputCoordinator {
       const reasoning: AgentReasoning = {
         goals: agent.reasoning?.goals || '',
         role: agent.reasoning?.role || '',
-        rules: agent.reasoning?.rules || '',
         custom: agent.reasoning?.custom || [],
         applyFor: agent.reasoning?.applyFor
       }
@@ -1202,7 +1201,6 @@ export class InputCoordinator {
       applyFor: applicableSection.applyFor || '__any__',
       goals: applicableSection.goals || reasoning.goals || '',
       role: applicableSection.role || reasoning.role || '',
-      rules: applicableSection.rules || reasoning.rules || '',
       custom: applicableSection.custom || reasoning.custom || [],
       memoryContext: {
         sessionContext: {

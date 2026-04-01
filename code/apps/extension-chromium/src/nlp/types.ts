@@ -25,12 +25,10 @@ export interface ExtractedEntity {
  * Agent reasoning configuration extracted from agent config
  */
 export interface AgentReasoning {
-  /** Agent's goals */
+  /** Reasoning instructions for this agent */
   goals: string
   /** Agent's role description */
   role: string
-  /** Agent's rules/constraints */
-  rules: string
   /** Custom fields */
   custom?: Array<{ key: string; value: string }>
   /** Apply for specific input types */

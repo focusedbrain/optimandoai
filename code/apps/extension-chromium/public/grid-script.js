@@ -397,6 +397,17 @@ if (window.gridScriptLoaded) {
         '<button id="gs-finetune" style="background:transparent;border:0;color:#2563eb;text-decoration:underline;cursor:pointer;padding:0;font-size:12px">Finetune Model</button>' +
         '<div id="gs-finetune-fb" style="display:none;margin-top:6px;background:#fee2e2;color:#b91c1c;padding:6px 8px;border-radius:6px;font-size:12px">Finetuning is not available for this Model</div>' +
       '</div>' +
+      '<div style="margin-top:12px;margin-bottom:14px;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden">' +
+        '<div id="gs-experts-header" style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:#f8fafc;cursor:pointer;user-select:none">' +
+          '<span style="font-weight:600;color:#334155;font-size:13px">📚 WR Experts <span style="font-weight:400;color:#94a3b8;font-size:11px">(agent-level knowledge)</span></span>' +
+          '<span id="gs-experts-toggle" style="font-size:11px;color:#64748b">▼</span>' +
+        '</div>' +
+        '<div id="gs-experts-body" style="display:none;padding:12px;border-top:1px solid #e2e8f0">' +
+          '<div id="gs-experts-list" style="display:flex;flex-direction:column;gap:8px;margin-bottom:8px"></div>' +
+          '<button id="gs-add-expert" style="background:#eff6ff;border:1px solid #93c5fd;color:#2563eb;padding:6px 12px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:500">+ Add WR Expert</button>' +
+          '<div style="font-size:11px;color:#94a3b8;margin-top:6px">Text-only reusable expert knowledge attached to this agent.</div>' +
+        '</div>' +
+      '</div>' +
       '<div style="margin-top:8px;margin-bottom:14px;padding:12px;background:#f5f5f5;border-radius:8px;font-size:12px;color:#666">' +
         '<strong>Note:</strong> If no agent or LLM is selected, this box will use the global "Setup AI Agent" settings as fallback.' +
       '</div>' +
@@ -648,6 +659,83 @@ if (window.gridScriptLoaded) {
       }
     };
     
+    // WR Experts toggle
+    var expertsHeader = document.getElementById('gs-experts-header');
+    var expertsBody = document.getElementById('gs-experts-body');
+    var expertsToggle = document.getElementById('gs-experts-toggle');
+    if (expertsHeader) {
+      expertsHeader.onclick = function() {
+        var isOpen = expertsBody.style.display !== 'none';
+        expertsBody.style.display = isOpen ? 'none' : 'block';
+        expertsToggle.textContent = isOpen ? '▼' : '▲';
+      };
+    }
+    
+    // WR Experts state
+    var wrExperts = (cfg.wrExperts || []).slice();
+    
+    function renderExpertsList() {
+      var list = document.getElementById('gs-experts-list');
+      if (!list) return;
+      list.innerHTML = '';
+      wrExperts.forEach(function(expert, idx) {
+        var row = document.createElement('div');
+        row.style.cssText = 'padding:8px 10px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;display:flex;align-items:center;justify-content:space-between;gap:8px';
+        row.innerHTML = '<div style="flex:1;min-width:0"><div style="font-weight:600;font-size:12px;color:#334155">' + (expert.name || 'Untitled') + '</div>' +
+          (expert.description ? '<div style="font-size:11px;color:#94a3b8;margin-top:2px">' + expert.description.substring(0, 60) + '</div>' : '') +
+          '<div style="font-size:10px;color:#cbd5e1;margin-top:2px">' + (expert.content || '').length + ' chars</div></div>' +
+          '<div style="display:flex;gap:4px;flex-shrink:0">' +
+            '<button class="gs-edit-expert" data-idx="' + idx + '" style="background:#eff6ff;border:1px solid #93c5fd;color:#2563eb;padding:3px 8px;border-radius:4px;cursor:pointer;font-size:11px">Edit</button>' +
+            '<button class="gs-del-expert" data-idx="' + idx + '" style="background:#fef2f2;border:1px solid #fca5a5;color:#dc2626;padding:3px 8px;border-radius:4px;cursor:pointer;font-size:11px">×</button>' +
+          '</div>';
+        list.appendChild(row);
+      });
+      list.querySelectorAll('.gs-edit-expert').forEach(function(btn) {
+        btn.onclick = function() { openExpertEditor(parseInt(btn.dataset.idx)); };
+      });
+      list.querySelectorAll('.gs-del-expert').forEach(function(btn) {
+        btn.onclick = function() { wrExperts.splice(parseInt(btn.dataset.idx), 1); renderExpertsList(); };
+      });
+    }
+    
+    function openExpertEditor(idx) {
+      var isNew = idx === -1;
+      var expert = isNew ? { id: 'expert-' + Date.now(), name: '', content: '', description: '' } : wrExperts[idx];
+      var editorOverlay = document.createElement('div');
+      editorOverlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:100001;display:flex;align-items:center;justify-content:center';
+      editorOverlay.innerHTML = '<div style="background:#fff;border-radius:12px;width:90%;max-width:500px;max-height:80vh;display:flex;flex-direction:column;box-shadow:0 20px 40px rgba(0,0,0,0.2)">' +
+        '<h4 style="margin:0;padding:14px 16px;border-bottom:1px solid #eee;font-size:15px;color:#333">' + (isNew ? 'Add WR Expert' : 'Edit WR Expert') + '</h4>' +
+        '<div style="flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:10px">' +
+          '<div><label style="display:block;font-weight:600;font-size:12px;color:#444;margin-bottom:4px">Name</label>' +
+            '<input id="gs-expert-name" type="text" value="' + (expert.name || '').replace(/"/g, '&quot;') + '" placeholder="e.g. Invoice Rules" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:6px;font-size:13px"></div>' +
+          '<div><label style="display:block;font-weight:600;font-size:12px;color:#444;margin-bottom:4px">Description (optional)</label>' +
+            '<input id="gs-expert-desc" type="text" value="' + (expert.description || '').replace(/"/g, '&quot;') + '" placeholder="Brief description" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:6px;font-size:13px"></div>' +
+          '<div><label style="display:block;font-weight:600;font-size:12px;color:#444;margin-bottom:4px">Content (text only)</label>' +
+            '<textarea id="gs-expert-content" placeholder="Enter expert knowledge as plain text..." style="width:100%;min-height:150px;padding:8px;border:1px solid #ddd;border-radius:6px;font-size:13px;resize:vertical">' + (expert.content || '').replace(/</g, '&lt;') + '</textarea></div>' +
+        '</div>' +
+        '<div style="padding:12px 16px;border-top:1px solid #eee;display:flex;justify-content:flex-end;gap:8px">' +
+          '<button id="gs-expert-cancel" style="padding:8px 16px;background:#f0f0f0;border:none;border-radius:6px;cursor:pointer;font-size:13px">Cancel</button>' +
+          '<button id="gs-expert-ok" style="padding:8px 16px;background:#2196F3;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600">Save Expert</button>' +
+        '</div></div>';
+      document.body.appendChild(editorOverlay);
+      editorOverlay.querySelector('#gs-expert-cancel').onclick = function() { editorOverlay.remove(); };
+      editorOverlay.querySelector('#gs-expert-ok').onclick = function() {
+        var name = editorOverlay.querySelector('#gs-expert-name').value.trim();
+        var content = editorOverlay.querySelector('#gs-expert-content').value.trim();
+        if (!name) { alert('Name is required'); return; }
+        if (!content) { alert('Content is required (text only)'); return; }
+        var updated = { id: expert.id, name: name, content: content, description: editorOverlay.querySelector('#gs-expert-desc').value.trim(), updatedAt: new Date().toISOString() };
+        if (!updated.createdAt) updated.createdAt = expert.createdAt || new Date().toISOString();
+        if (isNew) { wrExperts.push(updated); } else { wrExperts[idx] = updated; }
+        renderExpertsList();
+        editorOverlay.remove();
+      };
+    }
+    
+    var addExpertBtn = document.getElementById('gs-add-expert');
+    if (addExpertBtn) { addExpertBtn.onclick = function() { openExpertEditor(-1); }; }
+    renderExpertsList();
+
     // Save button
     document.getElementById('gs-save').onclick = function() {
       var title = document.getElementById('gs-title').value || ('Display Port ' + slotId);
@@ -682,6 +770,7 @@ if (window.gridScriptLoaded) {
         agentNumber: agentNumParsed,
         identifier: identifier,
         tools: (cfg.tools || []),
+        wrExperts: wrExperts,
         locationId: locationId,
         locationLabel: locationLabel,
         gridSessionId: gridSessionId,
@@ -728,6 +817,7 @@ if (window.gridScriptLoaded) {
         provider: newConfig.provider,
         model: newConfig.model,
         tools: newConfig.tools || [],
+        wrExperts: newConfig.wrExperts || [],
         locationId: newConfig.locationId,
         locationLabel: newConfig.locationLabel,
         source: 'display_grid',

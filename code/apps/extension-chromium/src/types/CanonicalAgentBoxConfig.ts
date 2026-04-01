@@ -22,6 +22,27 @@
  */
 
 // =============================================================================
+// WR Expert — agent-level reusable text-only expert documents
+// =============================================================================
+
+/**
+ * A WR Expert is a reusable text document that provides domain-specific
+ * knowledge or guidance. WR Experts live at the agent level (managed via
+ * the Agent Box setup UI) and can later be attached to Reasoning or
+ * Execution sections.
+ * 
+ * WR Experts are NOT tools, triggers, workflow nodes, or binary files.
+ */
+export interface WRExpert {
+  id: string;
+  name: string;
+  content: string;
+  description?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+// =============================================================================
 // Enums
 // =============================================================================
 
@@ -131,6 +152,9 @@ export interface CanonicalAgentBoxConfig {
   
   /** Mini apps/tools attached to this box */
   tools?: string[];
+
+  /** Agent-level WR Experts — reusable text-only expert documents */
+  wrExperts?: WRExpert[];
 
   // ─────────────────────────────────────────────────────────────────────────
   // Location & Placement
@@ -255,6 +279,7 @@ export function toCanonicalAgentBox(raw: any): CanonicalAgentBoxConfig {
     provider: raw.provider || '',
     model: raw.model || 'auto',
     tools: Array.isArray(raw.tools) ? raw.tools : [],
+    wrExperts: Array.isArray(raw.wrExperts) ? raw.wrExperts : [],
     
     source: raw.source || 'master_tab',
     masterTabId: raw.masterTabId || '01',

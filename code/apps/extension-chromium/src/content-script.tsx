@@ -5993,6 +5993,18 @@ function initializeExtension() {
 
         
 
+        <div style="margin-top:12px;margin-bottom:14px;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden">
+          <div id="ab-experts-header" style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:#f8fafc;cursor:pointer;user-select:none">
+            <span style="font-weight:600;color:#334155;font-size:13px">📚 WR Experts <span style="font-weight:400;color:#94a3b8;font-size:11px">(agent-level knowledge)</span></span>
+            <span id="ab-experts-toggle" style="font-size:11px;color:#64748b">▼</span>
+          </div>
+          <div id="ab-experts-body" style="display:none;padding:12px;border-top:1px solid #e2e8f0">
+            <div id="ab-experts-list" style="display:flex;flex-direction:column;gap:8px;margin-bottom:8px"></div>
+            <button id="ab-add-expert" style="background:#eff6ff;border:1px solid #93c5fd;color:#2563eb;padding:6px 12px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:500">+ Add WR Expert</button>
+            <div style="font-size:11px;color:#94a3b8;margin-top:6px">Text-only reusable expert knowledge attached to this agent.</div>
+          </div>
+        </div>
+
         <div style="margin-top: 8px; margin-bottom: 14px; padding: 12px; background: #f5f5f5; border-radius: 8px; font-size: 12px; color: #666;">
 
           <strong>Note:</strong> If no agent or LLM is selected, this box will use the global "Setup AI Agent" settings as fallback.
@@ -6249,6 +6261,57 @@ function initializeExtension() {
 
       
 
+    // WR Experts toggle + state (Add dialog)
+    const abExpertsState: Array<{id:string;name:string;content:string;description?:string;createdAt?:string;updatedAt?:string}> = []
+    const abHeader = overlay.querySelector('#ab-experts-header')
+    const abBody = overlay.querySelector('#ab-experts-body') as HTMLElement
+    const abToggle = overlay.querySelector('#ab-experts-toggle')
+    if (abHeader && abBody) {
+      abHeader.addEventListener('click', () => {
+        const isOpen = abBody.style.display !== 'none'
+        abBody.style.display = isOpen ? 'none' : 'block'
+        if (abToggle) abToggle.textContent = isOpen ? '▼' : '▲'
+      })
+    }
+    function renderAbExperts() {
+      const list = overlay.querySelector('#ab-experts-list')
+      if (!list) return
+      list.innerHTML = ''
+      abExpertsState.forEach((exp, idx) => {
+        const row = document.createElement('div')
+        row.style.cssText = 'padding:8px 10px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;display:flex;align-items:center;justify-content:space-between;gap:8px'
+        row.innerHTML = `<div style="flex:1;min-width:0"><div style="font-weight:600;font-size:12px;color:#334155">${exp.name || 'Untitled'}</div>${exp.description ? `<div style="font-size:11px;color:#94a3b8;margin-top:2px">${exp.description.substring(0, 60)}</div>` : ''}<div style="font-size:10px;color:#cbd5e1;margin-top:2px">${(exp.content || '').length} chars</div></div><div style="display:flex;gap:4px;flex-shrink:0"><button class="ab-edit-expert" data-idx="${idx}" style="background:#eff6ff;border:1px solid #93c5fd;color:#2563eb;padding:3px 8px;border-radius:4px;cursor:pointer;font-size:11px">Edit</button><button class="ab-del-expert" data-idx="${idx}" style="background:#fef2f2;border:1px solid #fca5a5;color:#dc2626;padding:3px 8px;border-radius:4px;cursor:pointer;font-size:11px">×</button></div>`
+        list.appendChild(row)
+      })
+      list.querySelectorAll('.ab-edit-expert').forEach((btn: any) => {
+        btn.onclick = () => openAbExpertEditor(parseInt(btn.dataset.idx))
+      })
+      list.querySelectorAll('.ab-del-expert').forEach((btn: any) => {
+        btn.onclick = () => { abExpertsState.splice(parseInt(btn.dataset.idx), 1); renderAbExperts() }
+      })
+    }
+    function openAbExpertEditor(idx: number) {
+      const isNew = idx === -1
+      const expert = isNew ? { id: `expert-${Date.now()}`, name: '', content: '', description: '' } : abExpertsState[idx]
+      const editorOverlay = document.createElement('div')
+      editorOverlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:100001;display:flex;align-items:center;justify-content:center'
+      editorOverlay.innerHTML = `<div style="background:#fff;border-radius:12px;width:90%;max-width:500px;max-height:80vh;display:flex;flex-direction:column;box-shadow:0 20px 40px rgba(0,0,0,0.2)"><h4 style="margin:0;padding:14px 16px;border-bottom:1px solid #eee;font-size:15px;color:#333">${isNew ? 'Add WR Expert' : 'Edit WR Expert'}</h4><div style="flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:10px"><div><label style="display:block;font-weight:600;font-size:12px;color:#444;margin-bottom:4px">Name</label><input id="ab-expert-name" type="text" value="${(expert.name || '').replace(/"/g, '&quot;')}" placeholder="e.g. Invoice Rules" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:6px;font-size:13px"></div><div><label style="display:block;font-weight:600;font-size:12px;color:#444;margin-bottom:4px">Description (optional)</label><input id="ab-expert-desc" type="text" value="${(expert.description || '').replace(/"/g, '&quot;')}" placeholder="Brief description" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:6px;font-size:13px"></div><div><label style="display:block;font-weight:600;font-size:12px;color:#444;margin-bottom:4px">Content (text only)</label><textarea id="ab-expert-content" placeholder="Enter expert knowledge as plain text..." style="width:100%;min-height:150px;padding:8px;border:1px solid #ddd;border-radius:6px;font-size:13px;resize:vertical">${(expert.content || '').replace(/</g, '&lt;')}</textarea></div></div><div style="padding:12px 16px;border-top:1px solid #eee;display:flex;justify-content:flex-end;gap:8px"><button id="ab-expert-cancel" style="padding:8px 16px;background:#f0f0f0;border:none;border-radius:6px;cursor:pointer;font-size:13px">Cancel</button><button id="ab-expert-ok" style="padding:8px 16px;background:${csTheme().accentGrad};color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600">Save Expert</button></div></div>`
+      document.body.appendChild(editorOverlay)
+      editorOverlay.querySelector('#ab-expert-cancel')?.addEventListener('click', () => editorOverlay.remove())
+      editorOverlay.querySelector('#ab-expert-ok')?.addEventListener('click', () => {
+        const name = (editorOverlay.querySelector('#ab-expert-name') as HTMLInputElement)?.value.trim()
+        const content = (editorOverlay.querySelector('#ab-expert-content') as HTMLTextAreaElement)?.value.trim()
+        if (!name) { alert('Name is required'); return }
+        if (!content) { alert('Content is required (text only)'); return }
+        const updated = { id: expert.id, name, content, description: (editorOverlay.querySelector('#ab-expert-desc') as HTMLInputElement)?.value.trim(), createdAt: (expert as any).createdAt || new Date().toISOString(), updatedAt: new Date().toISOString() }
+        if (isNew) abExpertsState.push(updated); else abExpertsState[idx] = updated
+        renderAbExperts()
+        editorOverlay.remove()
+      })
+    }
+    overlay.querySelector('#ab-add-expert')?.addEventListener('click', () => openAbExpertEditor(-1))
+    renderAbExperts()
+
     // Cancel button
 
     overlay.querySelector('#cancel-add-agent')?.addEventListener('click', () => {
@@ -6401,6 +6464,8 @@ function initializeExtension() {
           model: model,
 
           tools: tools,  // ← Add tools array
+
+          wrExperts: abExpertsState,
 
           side: clickSide,  // ← Add side info for hybrid tabs
 
@@ -6716,6 +6781,18 @@ function initializeExtension() {
 
         
 
+        <div style="margin-top:12px;margin-bottom:14px;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden">
+          <div id="edit-experts-header" style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:#f8fafc;cursor:pointer;user-select:none">
+            <span style="font-weight:600;color:#334155;font-size:13px">📚 WR Experts <span style="font-weight:400;color:#94a3b8;font-size:11px">(agent-level knowledge)</span></span>
+            <span id="edit-experts-toggle" style="font-size:11px;color:#64748b">▼</span>
+          </div>
+          <div id="edit-experts-body" style="display:none;padding:12px;border-top:1px solid #e2e8f0">
+            <div id="edit-experts-list" style="display:flex;flex-direction:column;gap:8px;margin-bottom:8px"></div>
+            <button id="edit-add-expert" style="background:#eff6ff;border:1px solid #93c5fd;color:#2563eb;padding:6px 12px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:500">+ Add WR Expert</button>
+            <div style="font-size:11px;color:#94a3b8;margin-top:6px">Text-only reusable expert knowledge attached to this agent.</div>
+          </div>
+        </div>
+
         <div style="margin-bottom: 18px;">
 
           <label style="display: block; margin-bottom: 8px; color: #555; font-weight: bold;">Color:</label>
@@ -6984,6 +7061,57 @@ function initializeExtension() {
 
 
     
+    // WR Experts toggle + state (Edit dialog)
+    const editExpertsState: Array<{id:string;name:string;content:string;description?:string;createdAt?:string;updatedAt?:string}> = [...(agentBox.wrExperts || [])]
+    const editExHeader = overlay.querySelector('#edit-experts-header')
+    const editExBody = overlay.querySelector('#edit-experts-body') as HTMLElement
+    const editExToggle = overlay.querySelector('#edit-experts-toggle')
+    if (editExHeader && editExBody) {
+      editExHeader.addEventListener('click', () => {
+        const isOpen = editExBody.style.display !== 'none'
+        editExBody.style.display = isOpen ? 'none' : 'block'
+        if (editExToggle) editExToggle.textContent = isOpen ? '▼' : '▲'
+      })
+    }
+    function renderEditExperts() {
+      const list = overlay.querySelector('#edit-experts-list')
+      if (!list) return
+      list.innerHTML = ''
+      editExpertsState.forEach((exp, idx) => {
+        const row = document.createElement('div')
+        row.style.cssText = 'padding:8px 10px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;display:flex;align-items:center;justify-content:space-between;gap:8px'
+        row.innerHTML = `<div style="flex:1;min-width:0"><div style="font-weight:600;font-size:12px;color:#334155">${exp.name || 'Untitled'}</div>${exp.description ? `<div style="font-size:11px;color:#94a3b8;margin-top:2px">${exp.description.substring(0, 60)}</div>` : ''}<div style="font-size:10px;color:#cbd5e1;margin-top:2px">${(exp.content || '').length} chars</div></div><div style="display:flex;gap:4px;flex-shrink:0"><button class="edit-ex-edit" data-idx="${idx}" style="background:#eff6ff;border:1px solid #93c5fd;color:#2563eb;padding:3px 8px;border-radius:4px;cursor:pointer;font-size:11px">Edit</button><button class="edit-ex-del" data-idx="${idx}" style="background:#fef2f2;border:1px solid #fca5a5;color:#dc2626;padding:3px 8px;border-radius:4px;cursor:pointer;font-size:11px">×</button></div>`
+        list.appendChild(row)
+      })
+      list.querySelectorAll('.edit-ex-edit').forEach((btn: any) => {
+        btn.onclick = () => openEditExpertEditor(parseInt(btn.dataset.idx))
+      })
+      list.querySelectorAll('.edit-ex-del').forEach((btn: any) => {
+        btn.onclick = () => { editExpertsState.splice(parseInt(btn.dataset.idx), 1); renderEditExperts() }
+      })
+    }
+    function openEditExpertEditor(idx: number) {
+      const isNew = idx === -1
+      const expert = isNew ? { id: `expert-${Date.now()}`, name: '', content: '', description: '' } : editExpertsState[idx]
+      const editorOverlay = document.createElement('div')
+      editorOverlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:100001;display:flex;align-items:center;justify-content:center'
+      editorOverlay.innerHTML = `<div style="background:#fff;border-radius:12px;width:90%;max-width:500px;max-height:80vh;display:flex;flex-direction:column;box-shadow:0 20px 40px rgba(0,0,0,0.2)"><h4 style="margin:0;padding:14px 16px;border-bottom:1px solid #eee;font-size:15px;color:#333">${isNew ? 'Add WR Expert' : 'Edit WR Expert'}</h4><div style="flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:10px"><div><label style="display:block;font-weight:600;font-size:12px;color:#444;margin-bottom:4px">Name</label><input id="edit-expert-name" type="text" value="${(expert.name || '').replace(/"/g, '&quot;')}" placeholder="e.g. Invoice Rules" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:6px;font-size:13px"></div><div><label style="display:block;font-weight:600;font-size:12px;color:#444;margin-bottom:4px">Description (optional)</label><input id="edit-expert-desc" type="text" value="${(expert.description || '').replace(/"/g, '&quot;')}" placeholder="Brief description" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:6px;font-size:13px"></div><div><label style="display:block;font-weight:600;font-size:12px;color:#444;margin-bottom:4px">Content (text only)</label><textarea id="edit-expert-content" placeholder="Enter expert knowledge as plain text..." style="width:100%;min-height:150px;padding:8px;border:1px solid #ddd;border-radius:6px;font-size:13px;resize:vertical">${(expert.content || '').replace(/</g, '&lt;')}</textarea></div></div><div style="padding:12px 16px;border-top:1px solid #eee;display:flex;justify-content:flex-end;gap:8px"><button id="edit-expert-cancel" style="padding:8px 16px;background:#f0f0f0;border:none;border-radius:6px;cursor:pointer;font-size:13px">Cancel</button><button id="edit-expert-ok" style="padding:8px 16px;background:${csTheme().accentGrad};color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600">Save Expert</button></div></div>`
+      document.body.appendChild(editorOverlay)
+      editorOverlay.querySelector('#edit-expert-cancel')?.addEventListener('click', () => editorOverlay.remove())
+      editorOverlay.querySelector('#edit-expert-ok')?.addEventListener('click', () => {
+        const name = (editorOverlay.querySelector('#edit-expert-name') as HTMLInputElement)?.value.trim()
+        const content = (editorOverlay.querySelector('#edit-expert-content') as HTMLTextAreaElement)?.value.trim()
+        if (!name) { alert('Name is required'); return }
+        if (!content) { alert('Content is required (text only)'); return }
+        const updated = { id: expert.id, name, content, description: (editorOverlay.querySelector('#edit-expert-desc') as HTMLInputElement)?.value.trim(), createdAt: (expert as any).createdAt || new Date().toISOString(), updatedAt: new Date().toISOString() }
+        if (isNew) editExpertsState.push(updated); else editExpertsState[idx] = updated
+        renderEditExperts()
+        editorOverlay.remove()
+      })
+    }
+    overlay.querySelector('#edit-add-expert')?.addEventListener('click', () => openEditExpertEditor(-1))
+    renderEditExperts()
+
     // Handle cancel
 
     overlay.querySelector('#cancel-edit-agent')?.addEventListener('click', () => {
@@ -7119,7 +7247,9 @@ function initializeExtension() {
 
         model: model,
 
-        agentId: agentIdToSet // Set the allocated agent
+        agentId: agentIdToSet, // Set the allocated agent
+
+        wrExperts: editExpertsState
 
       })
 
@@ -7163,7 +7293,7 @@ function initializeExtension() {
 
 
 
-  function updateAgentBox(agentId: string, updates: { number?: number, title?: string, color?: string, provider?: string, model?: string, agentId?: string, agentNumber?: number }) {
+  function updateAgentBox(agentId: string, updates: { number?: number, title?: string, color?: string, provider?: string, model?: string, agentId?: string, agentNumber?: number, wrExperts?: any[] }) {
 
     const agentBoxIndex = currentTabData.agentBoxes.findIndex((box: any) => box.id === agentId)
 
@@ -10822,7 +10952,7 @@ function initializeExtension() {
 
         text += `    4. If match found → Forward to Reasoning section\n`
 
-        text += `    5. Reasoning wraps with Goals/Role/Rules\n`
+        text += `    5. Reasoning wraps with Role/Reasoning Instructions\n`
 
         text += `    6. Agent LLM processes (from AgentBox model)\n`
 
@@ -10894,11 +11024,11 @@ function initializeExtension() {
 
         
 
-        // Goals/Role/Rules
+        // Reasoning Instructions / Role
 
         if (agentData.reasoning.goals) {
 
-          text += `  Goals:\n`
+          text += `  Reasoning Instructions:\n`
 
           const goals = agentData.reasoning.goals.split('\n').filter((l: string) => l.trim())
 
@@ -10922,21 +11052,7 @@ function initializeExtension() {
 
         
 
-        if (agentData.reasoning.rules) {
-
-          text += `  Rules:\n`
-
-          const rules = agentData.reasoning.rules.split('\n').filter((l: string) => l.trim())
-
-          rules.forEach((line: string) => {
-
-            text += `    ${line}\n`
-
-          })
-
-          text += '\n'
-
-        }
+        // Rules field removed — use WR Experts for reusable constraints
 
         
 
@@ -12875,8 +12991,6 @@ function initializeExtension() {
 
                 role: (document.getElementById('R-role') as HTMLInputElement)?.value || '',
 
-                rules: (document.getElementById('R-rules') as HTMLTextAreaElement)?.value || '',
-
                 custom: [],
 
                 acceptFrom: accepts,
@@ -12979,7 +13093,6 @@ function initializeExtension() {
                   applyForList: sectionApplyForList.length > 0 ? sectionApplyForList : ['__any__'],
                   goals: (sec.querySelector('.R-goals') as HTMLTextAreaElement)?.value || '',
                   role: (sec.querySelector('.R-role') as HTMLInputElement)?.value || '',
-                  rules: (sec.querySelector('.R-rules') as HTMLTextAreaElement)?.value || '',
                   custom: [],
                   acceptFrom: sectionAccepts,
                   reasoningWorkflows: sectionWorkflows
@@ -14343,8 +14456,6 @@ function initializeExtension() {
 
               role: (document.getElementById('R-role') as HTMLInputElement)?.value || '',
 
-              rules: (document.getElementById('R-rules') as HTMLTextAreaElement)?.value || '',
-
               custom: [],
 
               acceptFrom: accepts,
@@ -14472,8 +14583,6 @@ function initializeExtension() {
                 goals: (sec.querySelector('.R-goals') as HTMLTextAreaElement)?.value || '',
 
                 role: (sec.querySelector('.R-role') as HTMLInputElement)?.value || '',
-
-                rules: (sec.querySelector('.R-rules') as HTMLTextAreaElement)?.value || '',
 
                 custom: [],
 
@@ -15949,7 +16058,7 @@ function initializeExtension() {
               <button id="R-add-workflow" style="background:${csTheme().accentGrad};border:none;color:#fff;padding:8px 14px;border-radius:6px;cursor:pointer;font-weight:500">+ Add Workflow</button>
             </div>
 
-            <label style="display:block;margin-top:12px;color:${afUi.heading};font-weight:600">Goals (System instructions)
+            <label style="display:block;margin-top:12px;color:${afUi.heading};font-weight:600">Reasoning Instructions
 
               <textarea id="R-goals" style="width:100%;min-height:90px;background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:8px;border-radius:6px"></textarea>
 
@@ -15958,12 +16067,6 @@ function initializeExtension() {
             <label style="display:block;color:${afUi.heading};font-weight:600">Role (optional)
 
               <input id="R-role" style="width:100%;background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:8px;border-radius:6px">
-
-            </label>
-
-            <label style="display:block;color:${afUi.heading};font-weight:600">Rules
-
-              <textarea id="R-rules" style="width:100%;min-height:70px;background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:8px;border-radius:6px"></textarea>
 
             </label>
 
@@ -19175,7 +19278,7 @@ function initializeExtension() {
               <button class="R-add-workflow-sub" style="background:${csTheme().accentGrad};border:none;color:#fff;padding:8px 14px;border-radius:6px;cursor:pointer;font-weight:500">+ Add Workflow</button>
             </div>
 
-            <label style="display:block;margin-top:12px">Goals (System instructions)
+            <label style="display:block;margin-top:12px">Reasoning Instructions
 
               <textarea class="R-goals" style="width:100%;min-height:90px;background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:8px;border-radius:6px"></textarea>
 
@@ -19184,12 +19287,6 @@ function initializeExtension() {
             <label style="display:block">Role (optional)
 
               <input class="R-role" style="width:100%;background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:8px;border-radius:6px">
-
-            </label>
-
-            <label style="display:block">Rules
-
-              <textarea class="R-rules" style="width:100%;min-height:70px;background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:8px;border-radius:6px"></textarea>
 
             </label>
 
@@ -20742,21 +20839,7 @@ function initializeExtension() {
 
             
 
-            // Restore Rules text
-
-            if (r.rules) {
-
-              const rulesTextarea = configOverlay.querySelector('#R-rules') as HTMLTextAreaElement
-
-              if (rulesTextarea) {
-
-                rulesTextarea.value = r.rules
-
-                console.log(`  ✏“ Restored Rules text (${r.rules.length} chars)`)
-
-              }
-
-            }
+            // Rules field removed — legacy data silently skipped
 
             
 
@@ -21089,15 +21172,7 @@ function initializeExtension() {
 
                       
 
-                      // Restore Rules
-
-                      if (rSection.rules) {
-
-                        const rulesTextarea = newSection.querySelector('.R-rules') as HTMLTextAreaElement
-
-                        if (rulesTextarea) rulesTextarea.value = rSection.rules
-
-                      }
+                      // Rules field removed
 
                       
 
@@ -21717,7 +21792,7 @@ function initializeExtension() {
 
           console.log('🔍 parsed has reasoning?:', !!parsed.reasoning)
 
-          console.log('🔍 parsed.reasoning.rules:', parsed.reasoning?.rules?.substring(0, 50) || '(none)')
+          console.log('🔍 parsed.reasoning.goals:', parsed.reasoning?.goals?.substring(0, 50) || '(none)')
 
           
 
@@ -21732,7 +21807,6 @@ function initializeExtension() {
             listeningExampleFiles: parsed.listening?.exampleFiles?.length || 0
 
           })
-
           
 
           // Set name, description and icon
@@ -22217,8 +22291,6 @@ function initializeExtension() {
 
                 const role = configOverlay.querySelector('#R-role') as HTMLInputElement
 
-                const rules = configOverlay.querySelector('#R-rules') as HTMLTextAreaElement
-
                 const apply = configOverlay.querySelector('#R-apply') as HTMLSelectElement
 
                 
@@ -22227,22 +22299,13 @@ function initializeExtension() {
 
                 if (role && baseSection.role) role.value = baseSection.role
 
-                if (rules && baseSection.rules) rules.value = baseSection.rules
-
                 if (apply && baseSection.applyFor) apply.value = baseSection.applyFor
 
-                
-
-                // Restore acceptFrom
-
-                if (baseSection.acceptFrom) {
-
+                // Restore Accept From
+                if (baseSection.acceptFrom && baseSection.acceptFrom.length > 0) {
                   baseSection.acceptFrom.forEach((target: string) => {
-
-                    const addBtn = configOverlay.querySelector('#R-accept-add') as HTMLButtonElement
-
+                    const addBtn = configOverlay.querySelector('#R-add-accept') as HTMLButtonElement
                     if (addBtn) {
-
                       addBtn.click()
 
                       const rows = configOverlay.querySelectorAll('#R-accept-list .acc-row')
@@ -22254,8 +22317,6 @@ function initializeExtension() {
                         const kindSel = lastRow.querySelector('.route-kind') as HTMLSelectElement
 
                         const specSel = lastRow.querySelector('.route-specific') as HTMLSelectElement
-
-                        // Parse target like "agent:summarize"
 
                         const [kind, spec] = target.split(':')
 
@@ -22499,7 +22560,7 @@ function initializeExtension() {
 
             console.log(`  🎯 Trigger Sources: ${JSON.stringify(parsed?.listening?.sources || [])}`)
 
-            console.log(`  📋 Rules: "${parsed?.reasoning?.rules?.substring(0, 50) || '(empty)'}${parsed?.reasoning?.rules?.length > 50 ? '...' : ''}"`)
+
 
             
 
@@ -22513,7 +22574,6 @@ function initializeExtension() {
 
               restoreFromMemory()
 
-              console.log('✅ restoreFromMemory() called after initial data load')
 
             }, 150)
 
@@ -22708,7 +22768,6 @@ function initializeExtension() {
             applyForList: normalizeApplyForList(sec.applyFor, sec.applyForList),
             goals: sec.goals || '',
             role: sec.role || '',
-            rules: sec.rules || '',
             custom: sec.custom || [],
             acceptFrom: sec.acceptFrom || [],
             memoryContext: {
@@ -22722,7 +22781,6 @@ function initializeExtension() {
           // Helper: create canonical execution section
           const toExecutionSection = (sec: any) => ({
             applyForList: normalizeApplyForList(sec.applyFor, sec.applyForList),
-            executionMode: sec.executionMode || 'agent_workflow',
             destinations: normalizeDestinations(sec.destinations, sec.specialDestinations),
             executionWorkflows: sec.executionWorkflows || [],
           })
@@ -22776,7 +22834,6 @@ function initializeExtension() {
               applyForList: (sec.applyForList || []).slice().sort(),
               goals: sec.goals || '',
               role: sec.role || '',
-              rules: sec.rules || '',
               memoryContext: sec.memoryContext || {},
               reasoningWorkflows: sec.reasoningWorkflows || []
             })
@@ -23391,7 +23448,6 @@ function initializeExtension() {
             applyForList: sec.applyForList || ['__any__'],
             goals: sec.goals || '',
             role: sec.role || '',
-            rules: sec.rules || '',
             custom: sec.custom || [],
             acceptFrom: sec.acceptFrom || [],
             memoryContext: sec.memoryContext || {},
@@ -23405,7 +23461,6 @@ function initializeExtension() {
             specialDestinations: sec.destinations || [],
             executionWorkflows: sec.executionWorkflows || [],
           })
-          
           // V2.1.0 Canonical format (normalized structure)
           if (schemaVersion === '2.1.0' && data.name) {
             console.log('📋 Processing canonical v2.1.0 format')
@@ -23544,7 +23599,7 @@ function initializeExtension() {
                   applyForList: extractVal(data.reasoning.applyForList),
                   goals: extractVal(data.reasoning.goals),
                   role: extractVal(data.reasoning.role),
-                  rules: extractVal(data.reasoning.rules),
+                  // rules removed — legacy field silently skipped
                   custom: extractVal(data.reasoning.custom),
                   acceptFrom: extractVal(data.reasoning.acceptFrom),
                   memoryContext: extractVal(data.reasoning.memoryContext),
@@ -23558,7 +23613,6 @@ function initializeExtension() {
               
               if (data.execution) {
                 agentData.execution = {
-                  applyFor: extractVal(data.execution.applyFor),
                   applyForList: extractVal(data.execution.applyForList),
                   executionMode: extractVal(data.execution.executionMode),
                   specialDestinations: extractVal(data.execution.specialDestinations),
@@ -23637,11 +23691,9 @@ function initializeExtension() {
             if (agentData.reasoning) {
               const goalsEl = document.getElementById('R-goals') as HTMLTextAreaElement
               const roleEl = document.getElementById('R-role') as HTMLInputElement
-              const rulesEl = document.getElementById('R-rules') as HTMLTextAreaElement
               
               if (goalsEl) goalsEl.value = agentData.reasoning.goals || ''
               if (roleEl) roleEl.value = agentData.reasoning.role || ''
-              if (rulesEl) rulesEl.value = agentData.reasoning.rules || ''
             }
           }, 100)
           
@@ -23651,13 +23703,10 @@ function initializeExtension() {
           const originalText = importBtn.innerHTML
           importBtn.innerHTML = '✅ Imported!'
           setTimeout(() => { importBtn.innerHTML = originalText }, 2000)
-          
-          // Reset file input for next import
-          importFile.value = ''
-          
         } catch (error: any) {
           console.error('❌ Import failed:', error)
           alert(`Import failed: ${error.message || 'Invalid file format'}`)
+        } finally {
           importFile.value = ''
         }
       }
@@ -24355,8 +24404,6 @@ function initializeExtension() {
 
             role: (document.getElementById('R-role') as HTMLInputElement)?.value || '',
 
-            rules: (document.getElementById('R-rules') as HTMLTextAreaElement)?.value || '',
-
             custom: [],
 
             acceptFrom: accepts,
@@ -24465,8 +24512,6 @@ function initializeExtension() {
 
               role: (sec.querySelector('.R-role') as HTMLInputElement)?.value || '',
 
-              rules: (sec.querySelector('.R-rules') as HTMLTextAreaElement)?.value || '',
-
               custom: [],
 
               acceptFrom: sectionAccepts,
@@ -24505,8 +24550,6 @@ function initializeExtension() {
 
             roleLength: base.role.length,
 
-            rulesLength: base.rules.length,
-
             customFieldsCount: base.custom.length,
 
             acceptFromCount: accepts.length,
@@ -24519,7 +24562,6 @@ function initializeExtension() {
 
         // Execution - ALWAYS save if section exists
 
-        const executionSection = document.getElementById('box-execution')
 
         if (executionSection) {
 
@@ -25211,7 +25253,7 @@ function initializeExtension() {
 
           console.log(`  Example Files: ${parsedData.listening?.exampleFiles?.length || 0}`)
 
-          console.log(`  📋 R-Rules: "${parsedData.reasoning?.rules?.substring(0, 50) || '(empty)'}${parsedData.reasoning?.rules?.length > 50 ? '...' : ''}"`)
+
 
           console.log(`  🔧 R-Custom Fields: ${parsedData.reasoning?.custom?.length || 0} field(s)`)
 
@@ -25225,7 +25267,6 @@ function initializeExtension() {
 
           console.log(`  📤 R-Report To: ${JSON.stringify(parsedData.reasoning?.reportTo || [])}`)
 
-          console.log(`  📚 Reasoning Sections: ${parsedData.reasoningSections?.length || 0} section(s)`)
 
           if (parsedData.reasoningSections?.length > 1) {
 
@@ -41255,7 +41296,7 @@ ${pageText}
         }
         
         // 🔥 CRITICAL: Restore the full config object including instructions
-        // This contains triggers, reasoning rules, execution settings, etc.
+        // This contains triggers, reasoning instructions, execution settings, etc.
         if (agentConfig.config) {
           console.log(`[restoreAgentConfigs] Agent "${identifier}" has config:`, Object.keys(agentConfig.config));
           

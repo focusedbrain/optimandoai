@@ -305,7 +305,8 @@ export interface CanonicalReasoning {
   
   goals: string;
   role: string;
-  rules: string;
+  /** @deprecated Rules removed — use WR Experts for reusable constraints. Preserved for migration only. */
+  rules?: string;
   custom: Array<{ key: string; value: string }>;
   acceptFrom: string[];
   memoryContext: {
@@ -525,7 +526,7 @@ function toCanonicalReasoningSection(sec: any): CanonicalReasoning {
     applyForList: normalizeApplyForList(sec.applyFor, sec.applyForList),
     goals: sec.goals || '',
     role: sec.role || '',
-    rules: sec.rules || '',
+    rules: sec.rules || undefined,
     custom: sec.custom || [],
     acceptFrom: sec.acceptFrom || [],
     memoryContext: {

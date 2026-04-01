@@ -370,14 +370,11 @@ export interface UnifiedReasoningConfig {
   /** Accept input from specific sources */
   acceptFrom?: string[]
   
-  /** Agent's goals/system instructions */
+  /** Reasoning instructions */
   goals?: string
   
   /** Agent's role description */
   role?: string
-  
-  /** Agent's rules/constraints */
-  rules?: string
   
   /** Custom key-value fields */
   custom?: Array<{ key: string; value: string }>
@@ -934,14 +931,11 @@ export interface ResolvedReasoningConfig {
   /** What this reasoning applies to (trigger ID or '__any__') */
   applyFor: string
   
-  /** Agent's goals/system instructions */
+  /** Reasoning instructions */
   goals: string
   
   /** Agent's role description */
   role: string
-  
-  /** Agent's rules/constraints */
-  rules: string
   
   /** Custom key-value fields */
   custom: Array<{ key: string; value: string }>

@@ -201,7 +201,6 @@ export interface AgentConfig {
     acceptFrom?: string[] // Sources to accept input from
     goals?: string
     role?: string
-    rules?: string
     custom?: Array<{ key: string; value: string }>
   }
   execution?: {
@@ -1051,7 +1050,7 @@ export async function routeEventTagInput(
  * 
  * This function takes a routing result and executes the complete flow:
  * 1. Collect sensor workflow context (if configured)
- * 2. Build the reasoning prompt (Goals, Role, Rules)
+ * 2. Build the reasoning prompt (Role, Reasoning Instructions)
  * 3. Call the LLM from the connected Agent Box
  * 4. Route output to the configured destinations (Report to)
  */
@@ -1084,12 +1083,11 @@ export async function processEventTagMatch(
   }
   
   // Build reasoning prompt from agent config
-  const { goals, role, rules, custom } = result.reasoningConfig
+  const { goals, role, custom } = result.reasoningConfig
   
   let systemPrompt = ''
   if (role) systemPrompt += `You are ${role}.\n\n`
-  if (goals) systemPrompt += `Goals:\n${goals}\n\n`
-  if (rules) systemPrompt += `Rules:\n${rules}\n\n`
+  if (goals) systemPrompt += `Instructions:\n${goals}\n\n`
   if (custom && custom.length > 0) {
     systemPrompt += 'Additional Context:\n'
     for (const field of custom) {
@@ -1107,9 +1105,8 @@ export async function processEventTagMatch(
   
   console.log('[ProcessFlow] Built reasoning prompt:', {
     systemPromptLength: systemPrompt.length,
-    hasGoals: !!goals,
+    hasInstructions: !!goals,
     hasRole: !!role,
-    hasRules: !!rules,
     customFields: custom?.length || 0
   })
   
@@ -1158,14 +1155,9 @@ export function wrapInputForAgent(
     wrappedInput += `[Role: ${reasoning.role}]\n\n`
   }
 
-  // Add goals
+  // Add reasoning instructions
   if (reasoning.goals) {
-    wrappedInput += `[Goals]\n${reasoning.goals}\n\n`
-  }
-
-  // Add rules
-  if (reasoning.rules) {
-    wrappedInput += `[Rules]\n${reasoning.rules}\n\n`
+    wrappedInput += `[Instructions]\n${reasoning.goals}\n\n`
   }
 
   // Add custom fields

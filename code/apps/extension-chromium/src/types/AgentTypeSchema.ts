@@ -839,7 +839,7 @@ export const ReasoningSectionSchema: SchemaNode = {
   id: 'agent.reasoning',
   humanLabel: 'Reasoning',
   machineKey: 'reasoning',
-  description: 'The Reasoning section configures how the agent processes and thinks about input. It defines the agent\'s goals, role, rules, memory access, and any workflows that should run to gather additional context before the main reasoning process.',
+  description: 'The Reasoning section configures how the agent processes and thinks about input. It defines the agent\'s reasoning instructions, role, memory access, and any workflows that should run to gather additional context before the main reasoning process.',
   type: 'object',
   required: false,
   parentId: 'agent',
@@ -871,14 +871,14 @@ export const ReasoningElementsSchema: Record<string, SchemaNode> = {
   
   goals: {
     id: 'agent.reasoning.goals',
-    humanLabel: 'Goals (System Instructions)',
+    humanLabel: 'Reasoning Instructions',
     machineKey: 'goals',
-    description: 'The main system instructions that guide this agent\'s behavior. Define what the agent should accomplish, how it should think, and what output format to use.',
+    description: 'Instructions for this reasoning block. Define what the agent should accomplish, how it should think, and what output format to use.',
     type: 'string',
     required: false,
     parentId: 'agent.reasoning',
     display: {
-      placeholder: 'You are an expert at... Analyze the input and...',
+      placeholder: 'Analyze the input and... Focus on...',
       helpIcon: true,
     },
   },
@@ -896,17 +896,15 @@ export const ReasoningElementsSchema: Record<string, SchemaNode> = {
     },
   },
   
+  // rules: REMOVED — use WR Experts for reusable constraints. Schema preserved for import compatibility.
   rules: {
     id: 'agent.reasoning.rules',
-    humanLabel: 'Rules',
+    humanLabel: 'Rules (deprecated)',
     machineKey: 'rules',
-    description: 'Explicit rules and constraints the agent must follow. These are treated as hard requirements.',
+    description: 'Deprecated — use WR Experts instead. Preserved for import/migration of legacy configs.',
     type: 'string',
     required: false,
     parentId: 'agent.reasoning',
-    display: {
-      placeholder: 'Always cite sources. Never make up facts...',
-    },
   },
   
   custom: {

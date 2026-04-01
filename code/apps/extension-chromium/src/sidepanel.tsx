@@ -2367,7 +2367,7 @@ function SidepanelOrchestrator() {
   //        |
   //        v (if matched or no listener)
   // +------------------+
-  // | Reasoning Wrap   |  <- Goals, Role, Rules from agent config
+  // | Reasoning Wrap   |  <- Reasoning Instructions, Role from agent config
   // +------------------+
   //        |
   //        v
@@ -2522,7 +2522,7 @@ function SidepanelOrchestrator() {
         return { success: false, error: `Agent ${match.agentName} not found` }
       }
       
-      // Wrap input with agent's reasoning instructions (Goals, Role, Rules)
+      // Wrap input with agent's reasoning instructions (Role, Reasoning Instructions)
       const reasoningContext = wrapInputForAgent(inputText, agent, ocrText)
       
       console.log('[Chat] Processing with agent:', {
