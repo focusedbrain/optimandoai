@@ -111,6 +111,7 @@ export type EventChannel =
  * - manual: Manual Triggers - command/button press activation
  */
 export type TriggerType = 
+  | 'wrchat'              // WR Chat Triggers (routes WR Chat input to this agent)
   | 'direct_tag'          // Event Triggers (direct user-driven)
   | 'workflow_condition'  // Condition Triggers (workflow-driven)
   | 'tag_and_condition'   // Gated Triggers (event + condition)

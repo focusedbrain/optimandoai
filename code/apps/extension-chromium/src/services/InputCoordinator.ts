@@ -303,7 +303,7 @@ export class InputCoordinator {
     // Track matched keywords for display
     const matchedKeywords: string[] = []
     
-    // Check unified triggers (new format)
+    // Check unified triggers (new format) — includes wrchat, direct_tag, etc.
     if (listening?.unifiedTriggers && inputTriggers.length > 0) {
       for (const trigger of listening.unifiedTriggers) {
         const triggerTag = trigger.tag?.replace('#', '') || trigger.tagName || ''
@@ -318,7 +318,8 @@ export class InputCoordinator {
             continue
           }
           
-          this.log(`Agent "${agent.name}" matched unified trigger: #${triggerTag}`)
+          const triggerTypeName = trigger.type === 'wrchat' ? 'WR Chat' : 'unified'
+          this.log(`Agent "${agent.name}" matched ${triggerTypeName} trigger: #${triggerTag}`)
           if (!matchedTriggers.includes(triggerTag)) {
             matchedTriggers.push(triggerTag)
           }

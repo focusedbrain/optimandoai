@@ -119,7 +119,7 @@ function csAgentFormUi() {
   return {
     card: `background:rgba(255,255,255,0.08);border:1px solid ${t.border};color:${t.text}`,
     label: `color:${t.text}`,
-    help: `font-size:11px;opacity:0.9;cursor:help;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.35);padding:0 5px;border-radius:50%;margin-left:4px`,
+    help: `font-size:11px;opacity:0.9;cursor:help;background:#e2e8f0;border:1px solid #94a3b8;padding:0 5px;border-radius:50%;margin-left:4px`,
     capLabel: `display:flex;align-items:center;gap:6px;color:${t.text};font-weight:600`,
     wrap: `background:rgba(255,255,255,0.08);padding:12px;border-radius:10px;border:1px solid ${t.border};color:${t.text}`,
     innerWell: `border:1px solid rgba(255,255,255,.25);border-radius:8px;padding:12px;background:rgba(255,255,255,0.04)`,
@@ -12536,6 +12536,20 @@ function initializeExtension() {
                 }
                 
                 // Collect type-specific fields
+                if (type === 'wrchat') {
+                  const tagValue = row.querySelector('.trigger-tag')?.value?.trim() || ''
+                  trigger.tag = tagValue.startsWith('#') ? tagValue : `#${tagValue}`
+                  trigger.channel = 'chat'
+                  trigger.tagName = tagValue.replace('#', '')
+                  const keywords = row.querySelector('.trigger-keywords')?.value?.trim() || ''
+                  if (keywords) {
+                    const keywordList = keywords.split(',').map((k: string) => k.trim()).filter(Boolean)
+                    if (keywordList.length > 0) {
+                      trigger.eventTagConditions = [{ type: 'body_keywords', keywords: keywordList, caseInsensitive: true }]
+                      trigger.expectedContext = keywords
+                    }
+                  }
+                }
                 if (type === 'direct_tag' || type === 'tag_and_condition') {
                   // New structured format for Event Tag triggers
                   const tagValue = row.querySelector('.trigger-tag')?.value?.trim() || ''
@@ -13729,7 +13743,7 @@ function initializeExtension() {
           </div>
           <div class="e-run-when-content">
             <div class="e-run-when-always" style="display:${runWhenType === 'always' ? 'block' : 'none'};padding:8px;background:rgba(34,197,94,0.1);border:1px solid rgba(34,197,94,0.25);border-radius:4px">
-              <span style="font-size:11px;color:rgba(255,255,255,0.8)">✏“ This workflow will always run when reached</span>
+              <span style="font-size:11px;color:#475569">✏“ This workflow will always run when reached</span>
             </div>
             <div class="e-run-when-boolean" style="display:${runWhenType === 'boolean' ? 'block' : 'none'}">
               <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
@@ -13743,14 +13757,14 @@ function initializeExtension() {
                 <span style="background:rgba(59,130,246,.2);border:1px solid rgba(59,130,246,.4);padding:5px 10px;border-radius:4px;font-weight:700;color:#3b82f6;font-size:12px">#</span>
                 <input type="text" placeholder="tag_name (e.g. create_chart)" class="e-run-tag" value="${conditions[0]?.tag?.replace('#', '') || ''}" style="flex:1;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:6px 10px;border-radius:4px;font-size:12px">
               </div>
-              <div style="font-size:10px;color:rgba(255,255,255,0.6);margin-top:4px">Runs when this exact tag is detected in reasoning output</div>
+              <div style="font-size:10px;color:#64748b;margin-top:4px">Runs when this exact tag is detected in reasoning output</div>
             </div>
             <div class="e-run-when-signal" style="display:${runWhenType === 'signal' ? 'block' : 'none'};padding:8px;background:rgba(255,255,255,0.03);border:1px solid ${csTheme().border};border-radius:4px">
               <div style="display:flex;align-items:center;gap:6px">
                 <span style="background:rgba(168,85,247,.2);border:1px solid rgba(168,85,247,.4);padding:5px 10px;border-radius:4px;font-weight:700;color:#a855f7;font-size:12px">⚡</span>
                 <input type="text" placeholder="signal_name (e.g. chart.ready)" class="e-run-signal" value="${conditions[0]?.signal || ''}" style="flex:1;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:6px 10px;border-radius:4px;font-size:12px">
               </div>
-              <div style="font-size:10px;color:rgba(255,255,255,0.6);margin-top:4px">Runs when this workflow signal is emitted</div>
+              <div style="font-size:10px;color:#64748b;margin-top:4px">Runs when this workflow signal is emitted</div>
             </div>
           </div>
         `
@@ -14054,6 +14068,20 @@ function initializeExtension() {
                 enabled: true 
               }
               
+              if (type === 'wrchat') {
+                const tagValue = row.querySelector('.trigger-tag')?.value?.trim() || ''
+                trigger.tag = tagValue.startsWith('#') ? tagValue : `#${tagValue}`
+                trigger.channel = 'chat'
+                trigger.tagName = tagValue.replace('#', '')
+                const keywords = row.querySelector('.trigger-keywords')?.value?.trim() || ''
+                if (keywords) {
+                  const keywordList = keywords.split(',').map((k: string) => k.trim()).filter(Boolean)
+                  if (keywordList.length > 0) {
+                    trigger.eventTagConditions = [{ type: 'body_keywords', keywords: keywordList, caseInsensitive: true }]
+                    trigger.expectedContext = keywords
+                  }
+                }
+              }
               if (type === 'direct_tag' || type === 'tag_and_condition') {
                 // New structured format for Event Tag triggers
                 const tagValue = row.querySelector('.trigger-tag')?.value?.trim() || ''
@@ -15018,7 +15046,7 @@ function initializeExtension() {
                 <option value="skip">Skip</option>
                 <option value="route">Route to...</option>
               </select>
-              <span title="Controls how the reasoning process continues once this condition matches." style="font-size:10px;opacity:0.7;cursor:help;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.35);padding:0 5px;border-radius:50%">?</span>
+              <span title="Controls how the reasoning process continues once this condition matches." style="font-size:10px;opacity:0.7;cursor:help;background:#e2e8f0;border:1px solid #94a3b8;padding:0 5px;border-radius:50%">?</span>
               <span style="opacity:0.7;white-space:nowrap;font-size:11px;margin-left:8px">→ Output:</span>
               <select style="background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:4px 8px;border-radius:3px;font-size:11px" class="r-wcond-output">
                 <option value="attach" selected>Attach to reasoning</option>
@@ -15027,7 +15055,7 @@ function initializeExtension() {
                 <option value="save_account">Save to Account memory</option>
                 <option value="emit">Emit signal</option>
               </select>
-              <span title="Defines how the workflow's output is used in the reasoning step." style="font-size:10px;opacity:0.7;cursor:help;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.35);padding:0 5px;border-radius:50%">?</span>
+              <span title="Defines how the workflow's output is used in the reasoning step." style="font-size:10px;opacity:0.7;cursor:help;background:#e2e8f0;border:1px solid #94a3b8;padding:0 5px;border-radius:50%">?</span>
             </div>
             <div class="r-wcond-route-container" style="display:none;padding-left:20px">
               <input type="text" placeholder="Workflow ID to route to" style="width:100%;background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:6px 10px;border-radius:4px;font-size:12px" class="r-wcond-route-id">
@@ -15037,7 +15065,7 @@ function initializeExtension() {
                 <span style="background:rgba(168,85,247,.2);border:1px solid rgba(168,85,247,.4);padding:4px 8px;border-radius:4px;font-weight:700;color:#a855f7;font-size:11px">⚡</span>
                 <input type="text" placeholder="signal_name" style="flex:1;background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:6px 10px;border-radius:4px;font-size:12px" class="r-wcond-signal-name">
               </div>
-              <div style="font-size:10px;color:rgba(255,255,255,0.6);margin-top:4px;padding-left:32px">Emits as internal event/tag for the trigger system</div>
+              <div style="font-size:10px;color:#64748b;margin-top:4px;padding-left:32px">Emits as internal event/tag for the trigger system</div>
             </div>
           `
           
@@ -15070,13 +15098,13 @@ function initializeExtension() {
               condFields.innerHTML = `
                 <span style="background:rgba(96,165,250,.2);border:1px solid rgba(96,165,250,.4);padding:5px 10px;border-radius:4px;font-weight:700;color:#60a5fa">#</span>
                 <input type="text" placeholder="tagname" style="flex:1;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:5px 8px;border-radius:4px;font-size:11px" class="r-wcond-tag">
-                <span style="font-size:10px;color:rgba(255,255,255,0.6)">Fires when tag is detected in content</span>
+                <span style="font-size:10px;color:#64748b">Fires when tag is detected in content</span>
               `
             } else if (type === 'signal') {
               condFields.innerHTML = `
                 <span style="background:rgba(168,85,247,.2);border:1px solid rgba(168,85,247,.4);padding:5px 10px;border-radius:4px;font-weight:700;color:#a855f7">⚡</span>
                 <input type="text" placeholder="signal_name" style="flex:1;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:5px 8px;border-radius:4px;font-size:11px" class="r-wcond-signal">
-                <span style="font-size:10px;color:rgba(255,255,255,0.6)">Fires when workflow emits this signal</span>
+                <span style="font-size:10px;color:#64748b">Fires when workflow emits this signal</span>
               `
             }
           }
@@ -15209,7 +15237,7 @@ function initializeExtension() {
 
           <div id="AC-content" style="display:none;margin-top:8px">
 
-            <label style="display:block;margin-bottom:6px;font-size:12px;color:rgba(255,255,255,0.8)">Upload context files (JSON / PDF / DOCX / MD)</label>
+            <label style="display:block;margin-bottom:6px;font-size:12px;color:#475569">Upload context files (JSON / PDF / DOCX / MD)</label>
 
             <input id="AC-files" type="file" multiple accept="application/json,application/pdf,.doc,.docx,text/markdown,.md,application/vnd.openxmlformats-officedocument.wordprocessingml.document" style="width:100%;background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:8px;border-radius:6px">
 
@@ -16342,7 +16370,7 @@ function initializeExtension() {
           const idRow = document.createElement('div')
           idRow.style.cssText = `display:flex;gap:8px;align-items:center;margin-bottom:8px;padding-bottom:8px;border-bottom:1px solid ${csTheme().border}`
           idRow.innerHTML = `
-            <span style="font-size:11px;color:rgba(255,255,255,0.6)">ID:</span>
+            <span style="font-size:11px;color:#64748b">ID:</span>
             <code class="trigger-id-display" style="font-size:11px;color:#60a5fa;background:rgba(96,165,250,0.1);padding:2px 8px;border-radius:4px;font-family:monospace">${triggerId}</code>
             <button class="trigger-temp-save" style="margin-left:auto;background:${csTheme().accentGrad};color:#fff;border:none;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:11px;font-weight:500">💾 Save</button>
           `
@@ -16391,6 +16419,7 @@ function initializeExtension() {
           typeSel.className = 'trigger-type'
           typeSel.style.cssText = 'background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:6px 10px;border-radius:6px;font-size:12px;flex:1'
           typeSel.innerHTML = `
+            <option value="wrchat">WR Chat</option>
             <option value="direct_tag">Event Trigger (Tag)</option>
             <option value="workflow_condition">Condition Trigger (Workflow)</option>
             <option value="tag_and_condition">Gated Trigger (Tag + Condition)</option>
@@ -16428,20 +16457,53 @@ function initializeExtension() {
           const renderFieldsForType = (type: string) => {
             fieldsContainer.innerHTML = ''
             
+            if (type === 'wrchat') {
+              // ========== WR CHAT TRIGGER ==========
+              const wrchatSection = document.createElement('div')
+              wrchatSection.className = 'trigger-section'
+              wrchatSection.style.cssText = 'margin-bottom:12px;padding:12px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px'
+              wrchatSection.innerHTML = `
+                <div style="font-weight:600;font-size:13px;color:#2563eb;margin-bottom:8px;display:flex;align-items:center;gap:6px">
+                  <span style="font-size:14px">💬</span> <span style="color:#0f172a">WR Chat Trigger</span>
+                </div>
+                <div style="font-size:12px;color:#334155;line-height:1.5;margin-bottom:12px;padding:8px;background:#dbeafe;border-radius:6px">
+                  When a user types into WR Chat, the Input Coordinator will check this trigger. If the input matches the tag or keywords, the chat input will be routed to this AI Agent for processing.
+                </div>
+                <div style="margin-bottom:10px">
+                  <label style="font-size:12px;color:#0f172a;display:block;margin-bottom:4px;font-weight:500">Tag <span style="color:#ef4444;font-size:10px">(required)</span></label>
+                  <div style="display:flex;gap:8px;align-items:center">
+                    <span style="background:#e2e8f0;border:1px solid #94a3b8;padding:6px 10px;border-radius:6px;font-weight:700;color:#0f172a">#</span>
+                    <input class="trigger-tag" placeholder="invoice" value="${init?.tag?.replace('#', '') || init?.tagName || ''}" style="flex:1;background:#fff;border:1px solid #cbd5e1;color:#0f172a;padding:8px 12px;border-radius:6px;font-size:13px">
+                  </div>
+                  <div style="font-size:11px;color:#475569;margin-top:4px">
+                    Type <strong>#tag</strong> in WR Chat to activate this agent (e.g. <em>#invoice</em>). The tag prefix is optional when keywords are set.
+                  </div>
+                </div>
+                <div>
+                  <label style="font-size:12px;color:#0f172a;display:block;margin-bottom:4px;font-weight:500">Keywords <span style="color:#6b7280;font-size:10px">(optional)</span></label>
+                  <input type="text" class="trigger-keywords" placeholder="urgent, payment, overdue" value="${(init?.eventTagConditions?.find?.((c: any) => c.type === 'body_keywords')?.keywords?.join(', ')) || init?.expectedContext || ''}" style="width:100%;background:#fff;border:1px solid #cbd5e1;color:#0f172a;padding:8px 10px;border-radius:6px;font-size:12px">
+                  <div style="font-size:11px;color:#475569;margin-top:4px">
+                    If set, at least one keyword must also appear in the chat input alongside the tag. Leave empty to match any input containing the tag.
+                  </div>
+                </div>
+              `
+              fieldsContainer.appendChild(wrchatSection)
+            }
+            
             if (type === 'direct_tag' || type === 'tag_and_condition') {
               // ========== SECTION 1: TAG (Required) ==========
               const tagSection = document.createElement('div')
               tagSection.className = 'trigger-section'
               tagSection.style.cssText = 'margin-bottom:12px;padding:10px;background:rgba(59,130,246,0.08);border:1px solid rgba(59,130,246,0.25);border-radius:8px'
               tagSection.innerHTML = `
-                <div style="font-weight:600;font-size:13px;color:#60a5fa;margin-bottom:6px;display:flex;align-items:center;gap:6px">
-                  <span style="font-size:14px">🏷️</span> Tag <span style="color:#ef4444;font-size:10px">(required)</span>
+                <div style="font-weight:600;font-size:13px;color:#3b82f6;margin-bottom:6px;display:flex;align-items:center;gap:6px">
+                  <span style="font-size:14px">🏷️</span> <span style="color:#0f172a">Tag</span> <span style="color:#ef4444;font-size:10px">(required)</span>
                 </div>
                 <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px">
-                  <span style="background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.35);padding:6px 10px;border-radius:6px;font-weight:700;color:#fff">#</span>
-                  <input class="trigger-tag" placeholder="invoice" value="${init?.tag?.replace('#', '') || init?.tagName || ''}" style="flex:1;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:8px 12px;border-radius:6px;font-size:13px">
+                  <span style="background:#e2e8f0;border:1px solid #94a3b8;padding:6px 10px;border-radius:6px;font-weight:700;color:#0f172a">#</span>
+                  <input class="trigger-tag" placeholder="invoice" value="${init?.tag?.replace('#', '') || init?.tagName || ''}" style="flex:1;background:#fff;border:1px solid #cbd5e1;color:#0f172a;padding:8px 12px;border-radius:6px;font-size:13px">
                 </div>
-                <div style="font-size:12px;color:#fff;opacity:0.9;line-height:1.4">
+                <div style="font-size:12px;color:#475569;line-height:1.4">
                   This tag must appear in the email subject/body or chat input to activate this trigger.
                 </div>
               `
@@ -16450,9 +16512,9 @@ function initializeExtension() {
               // ========== SECTION 2: CHANNEL ==========
               const channelSection = document.createElement('div')
               channelSection.className = 'trigger-section'
-              channelSection.style.cssText = 'margin-bottom:12px;padding:10px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.12);border-radius:8px'
+              channelSection.style.cssText = 'margin-bottom:12px;padding:10px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px'
               channelSection.innerHTML = `
-                <div style="font-weight:600;font-size:13px;color:rgba(255,255,255,0.9);margin-bottom:6px;display:flex;align-items:center;gap:6px">
+                <div style="font-weight:600;font-size:13px;color:#0f172a;margin-bottom:6px;display:flex;align-items:center;gap:6px">
                   <span style="font-size:14px">📡</span> Event Channel
                 </div>
                 <select class="trigger-channel" style="width:100%;background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:8px 10px;border-radius:6px;font-size:12px;margin-bottom:6px">
@@ -16472,14 +16534,14 @@ function initializeExtension() {
                   <option value="picture" ${init?.channel === 'picture' ? 'selected' : ''}>🖼️ Picture</option>
                   <option value="api" ${init?.channel === 'api' ? 'selected' : ''}>🔌 API Webhook</option>
                 </select>
-                <div style="font-size:12px;color:#fff;opacity:0.9;margin-top:4px">Where should this trigger listen for events?</div>
+                <div style="font-size:12px;color:#475569;margin-top:4px">Where should this trigger listen for events?</div>
               `
               fieldsContainer.appendChild(channelSection)
               
               // ========== SECTION 3: SOURCE & SECURITY (shown for email) ==========
               const securitySection = document.createElement('div')
               securitySection.className = 'trigger-section trigger-security-section'
-              securitySection.style.cssText = 'margin-bottom:12px;padding:10px;background:rgba(34,197,94,0.06);border:1px solid rgba(34,197,94,0.2);border-radius:8px'
+              securitySection.style.cssText = 'margin-bottom:12px;padding:10px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px'
               
               // Get existing conditions
               const existingConditions = init?.eventTagConditions || []
@@ -16493,16 +16555,16 @@ function initializeExtension() {
                 <div style="display:flex;flex-direction:column;gap:8px">
                   <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
                     <input type="checkbox" class="trigger-wrcode" ${wrcodeCondition?.required ? 'checked' : ''} style="width:16px;height:16px;cursor:pointer">
-                    <span style="font-size:12px;color:rgba(255,255,255,0.9)">Only accept WRCode-stamped emails</span>
+                    <span style="font-size:12px;color:#0f172a">Only accept WRCode-stamped emails</span>
                   </label>
-                  <div style="font-size:12px;color:#fff;opacity:0.9;padding-left:24px;margin-bottom:4px">
+                  <div style="font-size:12px;color:#475569;padding-left:24px;margin-bottom:4px">
                     Requires cryptographic verification of sender authenticity.
                   </div>
                   
                   <div style="margin-top:4px">
-                    <label style="font-size:12px;color:rgba(255,255,255,0.9);display:block;margin-bottom:4px">Allowed Senders (comma-separated)</label>
-                    <input type="text" class="trigger-sender-whitelist" placeholder="accounting@company.com, invoices@vendor.com" value="${senderCondition?.allowedSenders?.join(', ') || ''}" style="width:100%;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:8px 10px;border-radius:6px;font-size:12px">
-                    <div style="font-size:12px;color:#fff;opacity:0.9;margin-top:4px">
+                    <label style="font-size:12px;color:#0f172a;display:block;margin-bottom:4px">Allowed Senders (comma-separated)</label>
+                    <input type="text" class="trigger-sender-whitelist" placeholder="accounting@company.com, invoices@vendor.com" value="${senderCondition?.allowedSenders?.join(', ') || ''}" style="width:100%;background:#fff;border:1px solid #cbd5e1;color:#0f172a;padding:8px 10px;border-radius:6px;font-size:12px">
+                    <div style="font-size:12px;color:#475569;margin-top:4px">
                       Only emails from these addresses will be processed. Leave empty to allow all senders.
                     </div>
                   </div>
@@ -16514,15 +16576,15 @@ function initializeExtension() {
               const keywordsCondition = existingConditions.find((c: any) => c.type === 'body_keywords')
               const contextSection = document.createElement('div')
               contextSection.className = 'trigger-section'
-              contextSection.style.cssText = 'margin-bottom:12px;padding:10px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.12);border-radius:8px'
+              contextSection.style.cssText = 'margin-bottom:12px;padding:10px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px'
               contextSection.innerHTML = `
-                <div style="font-weight:600;font-size:13px;color:rgba(255,255,255,0.9);margin-bottom:6px;display:flex;align-items:center;gap:6px">
+                <div style="font-weight:600;font-size:13px;color:#0f172a;margin-bottom:6px;display:flex;align-items:center;gap:6px">
                   <span style="font-size:14px">🔍</span> Optional Context
                 </div>
                 <div>
-                  <label style="font-size:12px;color:rgba(255,255,255,0.9);display:block;margin-bottom:4px">Keywords (comma-separated)</label>
-                  <input type="text" class="trigger-keywords" placeholder="urgent, payment, overdue" value="${keywordsCondition?.keywords?.join(', ') || init?.expectedContext || ''}" style="width:100%;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:8px 10px;border-radius:6px;font-size:12px">
-                  <div style="font-size:12px;color:#fff;opacity:0.9;margin-top:4px">
+                  <label style="font-size:12px;color:#0f172a;display:block;margin-bottom:4px">Keywords (comma-separated)</label>
+                  <input type="text" class="trigger-keywords" placeholder="urgent, payment, overdue" value="${keywordsCondition?.keywords?.join(', ') || init?.expectedContext || ''}" style="width:100%;background:#fff;border:1px solid #cbd5e1;color:#0f172a;padding:8px 10px;border-radius:6px;font-size:12px">
+                  <div style="font-size:12px;color:#475569;margin-top:4px">
                     Use this to avoid triggering on every tag occurrence. At least one keyword must appear. Leave empty to match any content with the tag.
                   </div>
                 </div>
@@ -16536,12 +16598,12 @@ function initializeExtension() {
               websiteSection.style.cssText = 'margin-bottom:12px;padding:10px;background:rgba(168,85,247,0.06);border:1px solid rgba(168,85,247,0.2);border-radius:8px'
               websiteSection.innerHTML = `
                 <div style="font-weight:600;font-size:13px;color:#a855f7;margin-bottom:6px;display:flex;align-items:center;gap:6px">
-                  <span style="font-size:14px">🌐</span> Website Filter <span style="font-weight:400;font-size:11px;opacity:0.7">(optional)</span>
+                  <span style="font-size:14px">🌐</span> Website Filter <span style="font-weight:400;font-size:11px;color:#6b7280">(optional)</span>
                 </div>
                 <div>
-                  <label style="font-size:12px;color:rgba(255,255,255,0.9);display:block;margin-bottom:4px">URL Pattern</label>
-                  <input type="text" class="trigger-website" placeholder="*.example.com, https://app.domain.com/*" value="${websiteCondition?.patterns?.join(', ') || init?.websiteFilter || ''}" style="width:100%;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:8px 10px;border-radius:6px;font-size:12px">
-                  <div style="font-size:12px;color:#fff;opacity:0.9;margin-top:4px">
+                  <label style="font-size:12px;color:#0f172a;display:block;margin-bottom:4px">URL Pattern</label>
+                  <input type="text" class="trigger-website" placeholder="*.example.com, https://app.domain.com/*" value="${websiteCondition?.patterns?.join(', ') || init?.websiteFilter || ''}" style="width:100%;background:#fff;border:1px solid #cbd5e1;color:#0f172a;padding:8px 10px;border-radius:6px;font-size:12px">
+                  <div style="font-size:12px;color:#475569;margin-top:4px">
                     Restrict this trigger to specific websites. Use * as wildcard.
                   </div>
                 </div>
@@ -16551,20 +16613,20 @@ function initializeExtension() {
               // ========== SECTION 6: AGENT SELECTOR (for agent channel) ==========
               const agentSection = document.createElement('div')
               agentSection.className = 'trigger-section trigger-agent-section'
-              agentSection.style.cssText = 'margin-bottom:12px;padding:10px;background:rgba(59,130,246,0.08);border:1px solid rgba(59,130,246,0.25);border-radius:8px;display:none'
+              agentSection.style.cssText = 'margin-bottom:12px;padding:10px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;display:none'
               agentSection.innerHTML = `
                 <div style="font-weight:600;font-size:13px;color:#3b82f6;margin-bottom:6px;display:flex;align-items:center;gap:6px">
                   <span style="font-size:14px">🤖</span> Source Agent
                 </div>
                 <div>
-                  <label style="font-size:12px;color:rgba(255,255,255,0.9);display:block;margin-bottom:4px">Select Agent</label>
+                  <label style="font-size:12px;color:#0f172a;display:block;margin-bottom:4px">Select Agent</label>
                   <select class="trigger-agent-select" style="width:100%;background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:8px 10px;border-radius:6px;font-size:12px">
                     ${Array.from({length: 50}, (_, i) => {
                       const num = String(i + 1).padStart(2, '0')
                       return `<option value="${num}" ${init?.sourceAgent === num ? 'selected' : ''}>Agent ${num}</option>`
                     }).join('')}
                   </select>
-                  <div style="font-size:12px;color:#fff;opacity:0.9;margin-top:4px">
+                  <div style="font-size:12px;color:#475569;margin-top:4px">
                     Trigger will activate when this agent sends output.
                   </div>
                 </div>
@@ -16574,25 +16636,25 @@ function initializeExtension() {
               // ========== SECTION 7: MINI-APP CONFIG (for miniapp channel) ==========
               const miniappSection = document.createElement('div')
               miniappSection.className = 'trigger-section trigger-miniapp-section'
-              miniappSection.style.cssText = 'margin-bottom:12px;padding:10px;background:rgba(139,92,246,0.08);border:1px solid rgba(139,92,246,0.25);border-radius:8px;display:none'
+              miniappSection.style.cssText = 'margin-bottom:12px;padding:10px;background:#f5f3ff;border:1px solid #ddd6fe;border-radius:8px;display:none'
               miniappSection.innerHTML = `
                 <div style="font-weight:600;font-size:13px;color:#8b5cf6;margin-bottom:6px;display:flex;align-items:center;gap:6px">
                   <span style="font-size:14px">📱</span> Mini-App Configuration
                 </div>
                 <div style="margin-bottom:10px">
-                  <label style="font-size:12px;color:rgba(255,255,255,0.9);display:block;margin-bottom:4px">Mini-App ID</label>
-                  <input type="text" class="trigger-miniapp-id" placeholder="e.g. my-miniapp-123" value="${init?.miniAppId || ''}" style="width:100%;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:8px 10px;border-radius:6px;font-size:12px">
+                  <label style="font-size:12px;color:#0f172a;display:block;margin-bottom:4px">Mini-App ID</label>
+                  <input type="text" class="trigger-miniapp-id" placeholder="e.g. my-miniapp-123" value="${init?.miniAppId || ''}" style="width:100%;background:#fff;border:1px solid #cbd5e1;color:#0f172a;padding:8px 10px;border-radius:6px;font-size:12px">
                 </div>
                 <div style="margin-bottom:10px">
                   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
-                    <label style="font-size:12px;color:rgba(255,255,255,0.9)">UI Elements</label>
+                    <label style="font-size:12px;color:#0f172a">UI Elements</label>
                     <button class="miniapp-add-ui" style="background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:3px 8px;border-radius:4px;cursor:pointer;font-size:11px">+ Add UI Element</button>
                   </div>
                   <div class="miniapp-ui-list" style="display:flex;flex-direction:column;gap:6px"></div>
                 </div>
                 <div>
                   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
-                    <label style="font-size:12px;color:rgba(255,255,255,0.9)">Conditions</label>
+                    <label style="font-size:12px;color:#0f172a">Conditions</label>
                     <button class="miniapp-add-condition" style="background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:3px 8px;border-radius:4px;cursor:pointer;font-size:11px">+ Add Condition</button>
                   </div>
                   <div class="miniapp-condition-list" style="display:flex;flex-direction:column;gap:6px"></div>
@@ -16764,8 +16826,8 @@ function initializeExtension() {
               // Workflow selector
               const wfRow = document.createElement('div')
               wfRow.innerHTML = `
-                <label style="font-size:12px;color:rgba(255,255,255,0.9);display:block;margin-bottom:4px">Source Workflow</label>
-                <input class="trigger-workflow" placeholder="Workflow ID or name" value="${init?.workflowId || ''}" style="width:100%;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:6px 10px;border-radius:6px;font-size:12px">
+                <label style="font-size:12px;color:#0f172a;display:block;margin-bottom:4px">Source Workflow</label>
+                <input class="trigger-workflow" placeholder="Workflow ID or name" value="${init?.workflowId || ''}" style="width:100%;background:#fff;border:1px solid #cbd5e1;color:#0f172a;padding:6px 10px;border-radius:6px;font-size:12px">
               `
               fieldsContainer.appendChild(wfRow)
               
@@ -16775,7 +16837,7 @@ function initializeExtension() {
               condSection.style.cssText = `margin-top:10px;padding:10px;background:rgba(255,255,255,0.03);border-radius:8px;border:1px solid ${csTheme().border}`
               condSection.innerHTML = `
                 <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
-                  <span style="font-size:12px;color:rgba(255,255,255,0.9);font-weight:600">Conditions (when to activate)</span>
+                  <span style="font-size:12px;color:#0f172a;font-weight:600">Conditions (when to activate)</span>
                   <button class="add-condition-btn" style="background:rgba(96,165,250,.3);border:1px solid rgba(96,165,250,.5);color:#fff;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:11px;font-weight:500">+ Add Condition</button>
                 </div>
                 <div class="trigger-conditions" style="display:flex;flex-direction:column;gap:8px"></div>
@@ -16838,14 +16900,14 @@ function initializeExtension() {
                     condFields.innerHTML = `
                       <span style="background:rgba(96,165,250,.2);border:1px solid rgba(96,165,250,.4);padding:5px 10px;border-radius:4px;font-weight:700;color:#60a5fa">#</span>
                       <input type="text" placeholder="tagname" value="${initCond?.tag?.replace('#', '') || ''}" style="flex:1;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:5px 8px;border-radius:4px;font-size:11px" class="cond-tag">
-                      <span style="font-size:10px;color:rgba(255,255,255,0.6);margin-left:4px">Fires when tag is detected in content</span>
+                      <span style="font-size:10px;color:#64748b;margin-left:4px">Fires when tag is detected in content</span>
                     `
                   } else if (type === 'signal') {
                     // Workflow Signal: just signal name input
                     condFields.innerHTML = `
                       <span style="background:rgba(168,85,247,.2);border:1px solid rgba(168,85,247,.4);padding:5px 10px;border-radius:4px;font-weight:700;color:#a855f7">⚡</span>
                       <input type="text" placeholder="signal_name" value="${initCond?.signal || ''}" style="flex:1;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:5px 8px;border-radius:4px;font-size:11px" class="cond-signal">
-                      <span style="font-size:10px;color:rgba(255,255,255,0.6);margin-left:4px">Fires when workflow emits this signal</span>
+                      <span style="font-size:10px;color:#64748b;margin-left:4px">Fires when workflow emits this signal</span>
                     `
                   }
                 }
@@ -16885,7 +16947,7 @@ function initializeExtension() {
                   <span style="font-size:14px">🖱️</span> DOM Event Trigger
                 </div>
                 <div style="margin-bottom:8px">
-                  <label style="font-size:12px;color:rgba(255,255,255,0.9);display:block;margin-bottom:4px">Event Type</label>
+                  <label style="font-size:12px;color:#0f172a;display:block;margin-bottom:4px">Event Type</label>
                   <select class="trigger-dom-event" style="width:100%;background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:8px 10px;border-radius:6px;font-size:12px">
                     <option value="click" ${!init?.domEvent || init?.domEvent === 'click' ? 'selected' : ''}>Click</option>
                     <option value="dblclick" ${init?.domEvent === 'dblclick' ? 'selected' : ''}>Double Click</option>
@@ -16900,27 +16962,27 @@ function initializeExtension() {
                   </select>
                 </div>
                 <div style="margin-bottom:8px">
-                  <label style="font-size:12px;color:rgba(255,255,255,0.9);display:block;margin-bottom:4px">CSS Selector <span style="opacity:0.6">(optional - leave empty for document-level events)</span></label>
-                  <input class="trigger-dom-selector" placeholder="#button-id, .class-name, [data-attr]" value="${init?.domSelector || ''}" style="width:100%;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:8px 10px;border-radius:6px;font-size:12px">
+                  <label style="font-size:12px;color:#0f172a;display:block;margin-bottom:4px">CSS Selector <span style="opacity:0.6">(optional - leave empty for document-level events)</span></label>
+                  <input class="trigger-dom-selector" placeholder="#button-id, .class-name, [data-attr]" value="${init?.domSelector || ''}" style="width:100%;background:#fff;border:1px solid #cbd5e1;color:#0f172a;padding:8px 10px;border-radius:6px;font-size:12px">
                 </div>
                 <div style="margin-bottom:8px">
-                  <label style="font-size:12px;color:rgba(255,255,255,0.9);display:block;margin-bottom:4px">URL/Hostname Filter <span style="opacity:0.6">(optional)</span></label>
-                  <input class="trigger-dom-url-filter" placeholder="*.example.com, https://app.domain.com/*" value="${init?.domUrlFilter || ''}" style="width:100%;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:8px 10px;border-radius:6px;font-size:12px">
+                  <label style="font-size:12px;color:#0f172a;display:block;margin-bottom:4px">URL/Hostname Filter <span style="opacity:0.6">(optional)</span></label>
+                  <input class="trigger-dom-url-filter" placeholder="*.example.com, https://app.domain.com/*" value="${init?.domUrlFilter || ''}" style="width:100%;background:#fff;border:1px solid #cbd5e1;color:#0f172a;padding:8px 10px;border-radius:6px;font-size:12px">
                 </div>
                 <div>
-                  <label style="font-size:12px;color:rgba(255,255,255,0.9);display:block;margin-bottom:6px">Payload Options</label>
+                  <label style="font-size:12px;color:#0f172a;display:block;margin-bottom:6px">Payload Options</label>
                   <div style="display:flex;flex-wrap:wrap;gap:10px">
                     <label style="display:flex;align-items:center;gap:4px;cursor:pointer">
                       <input type="checkbox" class="trigger-dom-payload-selection" ${init?.domPayloadSelection ? 'checked' : ''} style="margin:0">
-                      <span style="font-size:11px;color:rgba(255,255,255,0.8)">Selection text</span>
+                      <span style="font-size:11px;color:#0f172a">Selection text</span>
                     </label>
                     <label style="display:flex;align-items:center;gap:4px;cursor:pointer">
                       <input type="checkbox" class="trigger-dom-payload-snippet" ${init?.domPayloadSnippet ? 'checked' : ''} style="margin:0">
-                      <span style="font-size:11px;color:rgba(255,255,255,0.8)">DOM snippet</span>
+                      <span style="font-size:11px;color:#0f172a">DOM snippet</span>
                     </label>
                     <label style="display:flex;align-items:center;gap:4px;cursor:pointer">
                       <input type="checkbox" class="trigger-dom-payload-url" ${init?.domPayloadUrl ? 'checked' : ''} style="margin:0">
-                      <span style="font-size:11px;color:rgba(255,255,255,0.8)">Page URL</span>
+                      <span style="font-size:11px;color:#0f172a">Page URL</span>
                     </label>
                   </div>
                 </div>
@@ -16938,10 +17000,10 @@ function initializeExtension() {
               parserSection.innerHTML = `
                 <div style="font-weight:600;font-size:13px;color:${csTheme().accent};margin-bottom:8px;display:flex;align-items:center;gap:6px">
                   <span style="font-size:14px">🔍</span> DOM Parser
-                  <span title="Parses the website DOM and checks for patterns, keywords, and content. Returns booleans, tags, or signals to trigger automations." style="font-size:10px;opacity:0.7;cursor:help;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.35);padding:0 5px;border-radius:50%">?</span>
+                  <span title="Parses the website DOM and checks for patterns, keywords, and content. Returns booleans, tags, or signals to trigger automations." style="font-size:10px;opacity:0.7;cursor:help;background:#e2e8f0;border:1px solid #94a3b8;padding:0 5px;border-radius:50%">?</span>
                 </div>
                 <div style="margin-bottom:8px">
-                  <label style="font-size:12px;color:rgba(255,255,255,0.9);display:block;margin-bottom:4px">Parse Trigger</label>
+                  <label style="font-size:12px;color:#0f172a;display:block;margin-bottom:4px">Parse Trigger</label>
                   <select class="trigger-parser-trigger" style="width:100%;background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:8px 10px;border-radius:6px;font-size:12px">
                     <option value="page_load" ${!init?.parserTrigger || init?.parserTrigger === 'page_load' ? 'selected' : ''}>On Page Load</option>
                     <option value="dom_change" ${init?.parserTrigger === 'dom_change' ? 'selected' : ''}>On DOM Change</option>
@@ -16951,9 +17013,9 @@ function initializeExtension() {
                   </select>
                 </div>
                 <div class="parser-interval-row" style="margin-bottom:8px;display:${init?.parserTrigger === 'interval' ? 'flex' : 'none'};align-items:center;gap:8px">
-                  <label style="font-size:12px;color:rgba(255,255,255,0.9)">Every</label>
-                  <input type="number" class="trigger-parser-interval" placeholder="5" value="${init?.parserInterval || '5'}" style="width:60px;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:6px 8px;border-radius:4px;font-size:12px">
-                  <span style="font-size:12px;color:rgba(255,255,255,0.9)">seconds</span>
+                  <label style="font-size:12px;color:#0f172a">Every</label>
+                  <input type="number" class="trigger-parser-interval" placeholder="5" value="${init?.parserInterval || '5'}" style="width:60px;background:#fff;border:1px solid #cbd5e1;color:#0f172a;padding:6px 8px;border-radius:4px;font-size:12px">
+                  <span style="font-size:12px;color:#0f172a">seconds</span>
                 </div>
                 <!-- ============================================================ -->
                 <!-- AI Chat Capture Panel - With Help Icons -->
@@ -16965,7 +17027,7 @@ function initializeExtension() {
                     <span style="font-size:15px">🤖</span> AI Chat Capture
                     <span title="Capture conversations from AI chat interfaces like ChatGPT, Claude, Gemini. When a user sends a message, this trigger captures both the question and the AI's response for analysis." style="font-size:10px;opacity:0.7;cursor:help;background:rgba(255,255,255,.2);border:1px solid ${csTheme().border};padding:0 5px;border-radius:50%">?</span>
                   </div>
-                  <div style="font-size:10px;color:rgba(255,255,255,0.6);margin-bottom:12px;line-height:1.4">
+                  <div style="font-size:10px;color:#64748b;margin-bottom:12px;line-height:1.4">
                     Capture conversations from AI chat interfaces (ChatGPT, Claude, Gemini, etc.)
                   </div>
 
@@ -16976,7 +17038,7 @@ function initializeExtension() {
                       <span title="Restrict capture to specific websites. Use glob patterns like *.openai.com/* to match domains. Leave empty to capture on all sites. Examples:&#10;• *.openai.com/* - all OpenAI pages&#10;• https://claude.ai/* - Claude AI&#10;• *gemini.google.com/* - Google Gemini" style="font-size:9px;opacity:0.6;cursor:help;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);padding:0 4px;border-radius:50%">?</span>
                     </div>
                     <textarea class="trigger-site-filters" placeholder="*.openai.com/*&#10;https://claude.ai/*&#10;*gemini.google.com/*" style="width:100%;min-height:45px;background:rgba(255,255,255,.9);border:1px solid rgba(255,255,255,.4);color:#1e293b;padding:6px 8px;border-radius:4px;font-size:10px;font-family:monospace;resize:vertical">${(init?.siteFilters || []).join('\n')}</textarea>
-                    <div style="font-size:9px;color:rgba(255,255,255,0.5);margin-top:2px">Only capture on these domains → one pattern per line. Leave empty to match all sites.</div>
+                    <div style="font-size:9px;color:#64748b;margin-top:2px">Only capture on these domains → one pattern per line. Leave empty to match all sites.</div>
                   </div>
 
                   <!-- ═══════════════ WHEN SHOULD CAPTURE START? ═══════════════ -->
@@ -16985,7 +17047,7 @@ function initializeExtension() {
                       When should capture start?
                       <span title="Define what triggers the capture. You can monitor send button clicks and/or Enter key presses. The capture starts the moment the user sends their message." style="font-size:9px;opacity:0.6;cursor:help;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);padding:0 4px;border-radius:50%">?</span>
                     </div>
-                    <div style="font-size:9px;color:rgba(255,255,255,0.55);margin-bottom:8px">
+                    <div style="font-size:9px;color:#475569;margin-bottom:8px">
                       We start capture when a send button is clicked or Enter is pressed in the input.
                     </div>
                     
@@ -16997,14 +17059,14 @@ function initializeExtension() {
                         <span title="Automatically discover selectors by scanning the page DOM.&#10;&#10;How it works:&#10;• Scans for common AI chat patterns (ChatGPT, Claude, Gemini)&#10;• Detects send buttons, input fields, and response areas&#10;• No interaction needed - just click the button&#10;&#10;Review results and apply to fields below." style="font-size:9px;opacity:0.6;cursor:help;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);padding:0 4px;border-radius:50%">?</span>
                       </label>
                       <div class="auto-detect-panel" style="display:${init?.autoDetectSelectors ? 'block' : 'none'};margin-top:8px">
-                        <div style="font-size:9px;color:rgba(255,255,255,0.5);margin-bottom:6px">Scans the page DOM for common AI chat UI patterns (ChatGPT, Claude, Gemini, etc.)</div>
+                        <div style="font-size:9px;color:#64748b;margin-bottom:6px">Scans the page DOM for common AI chat UI patterns (ChatGPT, Claude, Gemini, etc.)</div>
                         <button type="button" class="btn-run-auto-detect" style="background:rgba(251,191,36,0.2);border:1px solid rgba(251,191,36,0.4);color:#fbbf24;padding:5px 12px;border-radius:4px;cursor:pointer;font-size:10px;font-weight:500">
                           🔍 Scan Page for Selectors
                         </button>
                         <div class="auto-detect-status" style="display:none;margin-top:6px;padding:6px;background:rgba(0,0,0,0.15);border-radius:4px;font-size:9px;font-family:monospace"></div>
                         <div class="auto-detected-results" style="display:${init?.autoDetected ? 'block' : 'none'};margin-top:8px;padding:8px;background:rgba(34,197,94,0.1);border:1px solid rgba(34,197,94,0.2);border-radius:4px">
                           <div style="font-size:9px;color:#4ade80;font-weight:600;margin-bottom:6px">✏“ Detected Elements:</div>
-                          <div style="font-size:9px;color:rgba(255,255,255,0.7);font-family:monospace;line-height:1.6">
+                          <div style="font-size:9px;color:#475569;font-family:monospace;line-height:1.6">
                             <div style="display:flex;gap:4px"><span style="color:#a5b4fc;min-width:55px">Site:</span> <span class="detected-site-filter" style="word-break:break-all">${init?.autoDetected?.siteFilter || '—'}</span></div>
                             <div style="display:flex;gap:4px"><span style="color:#fbbf24;min-width:55px">Button:</span> <span class="detected-button-selector" style="word-break:break-all">${init?.autoDetected?.button || '—'}</span></div>
                             <div style="display:flex;gap:4px"><span style="color:#4ade80;min-width:55px">Input:</span> <span class="detected-input-selector" style="word-break:break-all">${init?.autoDetected?.input || '—'}</span></div>
@@ -17020,23 +17082,23 @@ function initializeExtension() {
                     
                     <div class="manual-selectors-section" style="opacity:${init?.autoDetectSelectors ? '0.7' : '1'}">
                       <div style="margin-bottom:8px">
-                        <label style="font-size:10px;color:rgba(255,255,255,0.85);display:flex;align-items:center;gap:4px;margin-bottom:3px">
+                        <label style="font-size:10px;color:#0f172a;display:flex;align-items:center;gap:4px;margin-bottom:3px">
                           Button Selectors
                           <span title="CSS selectors to find the Send button. Right-click the button in your browser → Inspect → copy a unique selector.&#10;&#10;Common examples:&#10;• button[data-testid='send-button'] - ChatGPT&#10;• button[aria-label='Send Message'] - Claude&#10;• .send-button, #submit - Generic&#10;&#10;One selector per line. First match is used." style="font-size:9px;opacity:0.6;cursor:help;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);padding:0 4px;border-radius:50%">?</span>
                         </label>
                         <textarea class="trigger-button-selectors" placeholder="button[data-testid=&quot;send-button&quot;]&#10;.send-btn&#10;button[aria-label=&quot;Send&quot;]" style="width:100%;min-height:40px;background:rgba(255,255,255,.9);border:1px solid rgba(255,255,255,.4);color:#1e293b;padding:6px 8px;border-radius:4px;font-size:10px;font-family:monospace;resize:vertical">${(init?.buttonSelectors || (init?.buttonSelector ? [init.buttonSelector] : [])).join('\n')}</textarea>
-                        <div style="font-size:9px;color:rgba(255,255,255,0.5);margin-top:2px">CSS selectors for send buttons. First match wins.</div>
+                        <div style="font-size:9px;color:#64748b;margin-top:2px">CSS selectors for send buttons. First match wins.</div>
                       </div>
                       
                       <div style="display:flex;flex-direction:column;gap:5px">
                         <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
                           <input type="checkbox" class="trigger-on-enter-key" ${init?.triggerOnEnterKey ? 'checked' : ''} style="margin:0">
-                          <span style="font-size:10px;color:rgba(255,255,255,0.9)">Also trigger on Enter key in input field</span>
+                          <span style="font-size:10px;color:#0f172a">Also trigger on Enter key in input field</span>
                           <span title="Enable this if the chat sends messages when you press Enter. Most AI chats (ChatGPT, Claude) work this way." style="font-size:9px;opacity:0.6;cursor:help;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);padding:0 4px;border-radius:50%">?</span>
                         </label>
                         <label class="enter-shift-option" style="display:flex;align-items:center;gap:6px;cursor:pointer;margin-left:18px;opacity:${init?.triggerOnEnterKey ? '1' : '0.4'}">
                           <input type="checkbox" class="trigger-enter-ignore-shift" ${init?.enterKeyIgnoreShift !== false ? 'checked' : ''} ${!init?.triggerOnEnterKey ? 'disabled' : ''} style="margin:0">
-                          <span style="font-size:10px;color:rgba(255,255,255,0.7)">Ignore Shift+Enter (allows newlines)</span>
+                          <span style="font-size:10px;color:#475569">Ignore Shift+Enter (allows newlines)</span>
                           <span title="When checked, Shift+Enter creates a new line instead of sending. Only plain Enter triggers capture." style="font-size:9px;opacity:0.5;cursor:help;background:rgba(255,255,255,.12);border:1px solid ${csTheme().border};padding:0 4px;border-radius:50%">?</span>
                         </label>
                       </div>
@@ -17052,17 +17114,17 @@ function initializeExtension() {
                       </div>
                       <label style="display:flex;align-items:center;gap:4px;cursor:pointer">
                         <input type="checkbox" class="trigger-capture-input" ${init?.captureInput !== false ? 'checked' : ''} style="margin:0">
-                        <span style="font-size:9px;color:rgba(255,255,255,0.7)">Enabled</span>
+                        <span style="font-size:9px;color:#475569">Enabled</span>
                       </label>
                     </div>
                     
                     <div class="input-capture-fields" style="display:${init?.captureInput !== false ? 'block' : 'none'}">
-                      <label style="font-size:10px;color:rgba(255,255,255,0.85);display:flex;align-items:center;gap:4px;margin-bottom:3px">
+                      <label style="font-size:10px;color:#0f172a;display:flex;align-items:center;gap:4px;margin-bottom:3px">
                         Input Selectors
                         <span title="CSS selectors to find the text input/textarea where users type their message.&#10;&#10;Common examples:&#10;• textarea[data-id='root'] - ChatGPT&#10;• #prompt-textarea - Generic&#10;• [contenteditable='true'] - Rich text editors&#10;&#10;First selector with content is used." style="font-size:9px;opacity:0.6;cursor:help;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);padding:0 4px;border-radius:50%">?</span>
                       </label>
                       <textarea class="trigger-input-selectors" placeholder="textarea[data-id=&quot;root&quot;]&#10;#prompt-textarea&#10;.chat-input" style="width:100%;min-height:36px;background:rgba(255,255,255,.9);border:1px solid rgba(255,255,255,.4);color:#1e293b;padding:6px 8px;border-radius:4px;font-size:10px;font-family:monospace;resize:vertical">${(init?.inputSelectors || (init?.inputSelector ? [init.inputSelector] : [])).join('\n')}</textarea>
-                      <div style="font-size:9px;color:rgba(255,255,255,0.5);margin-top:2px">First selector matching a non-empty input field is used as the prompt source.</div>
+                      <div style="font-size:9px;color:#64748b;margin-top:2px">First selector matching a non-empty input field is used as the prompt source.</div>
                     </div>
                   </div>
 
@@ -17075,24 +17137,24 @@ function initializeExtension() {
                       </div>
                       <label style="display:flex;align-items:center;gap:4px;cursor:pointer">
                         <input type="checkbox" class="trigger-capture-output" ${init?.captureOutput ? 'checked' : ''} style="margin:0">
-                        <span style="font-size:9px;color:rgba(255,255,255,0.7)">Enabled</span>
+                        <span style="font-size:9px;color:#475569">Enabled</span>
                       </label>
                     </div>
-                    <div style="font-size:9px;color:rgba(255,255,255,0.5);margin-bottom:6px">Uses built-in defaults to detect AI responses in the chat area.</div>
+                    <div style="font-size:9px;color:#64748b;margin-bottom:6px">Uses built-in defaults to detect AI responses in the chat area.</div>
                     
                     <div class="output-capture-fields" style="display:${init?.captureOutput ? 'block' : 'none'}">
                       <div style="margin-bottom:8px">
-                        <label style="font-size:10px;color:rgba(255,255,255,0.85);display:flex;align-items:center;gap:4px;margin-bottom:3px">
+                        <label style="font-size:10px;color:#0f172a;display:flex;align-items:center;gap:4px;margin-bottom:3px">
                           Output Selectors
                           <span title="CSS selectors to find the AI's response messages.&#10;&#10;Common examples:&#10;• [data-message-author-role='assistant'] - ChatGPT&#10;• .markdown-body - Rendered markdown&#10;• .response-content, .assistant-message - Generic&#10;&#10;The LAST matching element (most recent response) is captured." style="font-size:9px;opacity:0.6;cursor:help;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);padding:0 4px;border-radius:50%">?</span>
                         </label>
                         <textarea class="trigger-output-selectors" placeholder="[data-message-author-role=&quot;assistant&quot;]&#10;.markdown-body&#10;.response-content" style="width:100%;min-height:36px;background:rgba(255,255,255,.9);border:1px solid rgba(255,255,255,.4);color:#1e293b;padding:6px 8px;border-radius:4px;font-size:10px;font-family:monospace;resize:vertical">${(init?.outputSelectors || (init?.outputSelector ? [init.outputSelector] : [])).join('\n')}</textarea>
-                        <div style="font-size:9px;color:rgba(255,255,255,0.5);margin-top:2px">Capture when first matching output element becomes non-empty or changes.</div>
+                        <div style="font-size:9px;color:#64748b;margin-top:2px">Capture when first matching output element becomes non-empty or changes.</div>
                       </div>
                       
                       <!-- Response Detection -->
                       <div style="padding:8px;background:rgba(255,255,255,0.03);border-radius:4px">
-                        <div style="font-size:10px;color:rgba(255,255,255,0.75);margin-bottom:5px;display:flex;align-items:center;gap:4px">
+                        <div style="font-size:10px;color:#475569;margin-bottom:5px;display:flex;align-items:center;gap:4px">
                           Response ready when:
                           <span title="How to know when the AI has finished responding:&#10;&#10;• First change: Capture as soon as any response appears (fastest, may be incomplete)&#10;• Quiet period: Wait until text stops changing for X milliseconds (good for streaming)&#10;• Signal element: Wait for a specific element like 'Copy' button to appear (most reliable)" style="font-size:9px;opacity:0.6;cursor:help;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);padding:0 4px;border-radius:50%">?</span>
                         </div>
@@ -17106,24 +17168,24 @@ function initializeExtension() {
                         </div>
                         
                         <div class="quiet-period-options" style="display:${init?.responseReadyMode === 'quiet_period' ? 'flex' : 'none'};gap:6px;align-items:center;margin-bottom:5px">
-                          <span style="font-size:10px;color:rgba(255,255,255,0.6)">Wait</span>
+                          <span style="font-size:10px;color:#64748b">Wait</span>
                           <input type="number" class="trigger-quiet-period-ms" value="${init?.quietPeriodMs || '1500'}" style="width:60px;background:rgba(255,255,255,.9);border:1px solid rgba(255,255,255,.4);color:#1e293b;padding:3px 6px;border-radius:3px;font-size:10px">
-                          <span style="font-size:10px;color:rgba(255,255,255,0.6)">ms with no changes</span>
+                          <span style="font-size:10px;color:#64748b">ms with no changes</span>
                           <span title="Time to wait after the last text change before considering the response complete. 1500ms (1.5 seconds) works well for most AI chats." style="font-size:9px;opacity:0.5;cursor:help;background:rgba(255,255,255,.12);border:1px solid ${csTheme().border};padding:0 4px;border-radius:50%">?</span>
                         </div>
                         
                         <div class="selector-signal-options" style="display:${init?.responseReadyMode === 'selector_signal' ? 'block' : 'none'};margin-bottom:5px">
                           <div style="display:flex;align-items:center;gap:4px;margin-bottom:2px">
-                            <span style="font-size:10px;color:rgba(255,255,255,0.6)">Signal selector:</span>
+                            <span style="font-size:10px;color:#64748b">Signal selector:</span>
                             <span title="CSS selector for an element that appears ONLY when the response is complete. Common examples:&#10;• button[aria-label='Copy'] - Copy button&#10;• .feedback-buttons - Thumbs up/down&#10;• .message-complete - Completion indicator" style="font-size:9px;opacity:0.5;cursor:help;background:rgba(255,255,255,.12);border:1px solid ${csTheme().border};padding:0 4px;border-radius:50%">?</span>
                           </div>
                           <input class="trigger-response-signal-selector" placeholder="button[aria-label=&quot;Copy&quot;], .feedback-buttons" value="${init?.responseSignalSelector || ''}" style="width:100%;background:rgba(255,255,255,.9);border:1px solid rgba(255,255,255,.4);color:#1e293b;padding:4px 8px;border-radius:3px;font-size:10px">
                         </div>
                         
                         <div style="display:flex;gap:6px;align-items:center">
-                          <span style="font-size:10px;color:rgba(255,255,255,0.6)">Max wait:</span>
+                          <span style="font-size:10px;color:#64748b">Max wait:</span>
                           <input type="number" class="trigger-max-wait-time-ms" value="${init?.maxWaitTimeMs || '60000'}" style="width:70px;background:rgba(255,255,255,.9);border:1px solid rgba(255,255,255,.4);color:#1e293b;padding:3px 6px;border-radius:3px;font-size:10px">
-                          <span style="font-size:10px;color:rgba(255,255,255,0.6)">ms</span>
+                          <span style="font-size:10px;color:#64748b">ms</span>
                           <span title="Maximum time to wait for response. If exceeded, capture proceeds with whatever content is available. Default: 60000ms (1 minute)." style="font-size:9px;opacity:0.5;cursor:help;background:rgba(255,255,255,.12);border:1px solid ${csTheme().border};padding:0 4px;border-radius:50%">?</span>
                         </div>
                       </div>
@@ -17140,18 +17202,18 @@ function initializeExtension() {
                     <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:6px">
                       <label style="display:flex;align-items:center;gap:4px;cursor:pointer">
                         <input type="checkbox" class="trigger-capture-url" ${init?.captureUrl !== false ? 'checked' : ''} style="margin:0">
-                        <span style="font-size:10px;color:rgba(255,255,255,0.8)">Page URL</span>
+                        <span style="font-size:10px;color:#0f172a">Page URL</span>
                         <span title="Include the full page URL in captured data (e.g., https://chat.openai.com/c/abc123)" style="font-size:8px;opacity:0.5;cursor:help;background:rgba(255,255,255,.1);padding:0 3px;border-radius:50%">?</span>
                       </label>
                       <label style="display:flex;align-items:center;gap:4px;cursor:pointer">
                         <input type="checkbox" class="trigger-capture-page-title" ${init?.capturePageTitle ? 'checked' : ''} style="margin:0">
-                        <span style="font-size:10px;color:rgba(255,255,255,0.8)">Page Title</span>
+                        <span style="font-size:10px;color:#0f172a">Page Title</span>
                         <span title="Include the browser tab title (e.g., 'ChatGPT - My Conversation')" style="font-size:8px;opacity:0.5;cursor:help;background:rgba(255,255,255,.1);padding:0 3px;border-radius:50%">?</span>
                       </label>
                     </div>
                     
                     <div>
-                      <label style="font-size:10px;color:rgba(255,255,255,0.75);display:flex;align-items:center;gap:4px;margin-bottom:2px">
+                      <label style="font-size:10px;color:#0f172a;display:flex;align-items:center;gap:4px;margin-bottom:2px">
                         Context Selectors <span style="opacity:0.6">(optional)</span>
                         <span title="Extra CSS selectors to capture additional page elements as context.&#10;&#10;Examples:&#10;• [data-conversation-id] - Conversation ID&#10;• .model-selector - Which AI model is selected&#10;• .system-prompt-indicator - System prompt info" style="font-size:9px;opacity:0.6;cursor:help;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);padding:0 4px;border-radius:50%">?</span>
                       </label>
@@ -17170,17 +17232,17 @@ function initializeExtension() {
                     <div style="display:flex;flex-wrap:wrap;gap:10px">
                       <label style="display:flex;align-items:center;gap:4px;cursor:pointer">
                         <input type="checkbox" class="trigger-sanitize-trim" ${init?.sanitizeTrim !== false ? 'checked' : ''} style="margin:0">
-                        <span style="font-size:10px;color:rgba(255,255,255,0.8)">Trim whitespace</span>
+                        <span style="font-size:10px;color:#0f172a">Trim whitespace</span>
                         <span title="Remove extra spaces, tabs, and blank lines from the beginning and end of captured text." style="font-size:8px;opacity:0.5;cursor:help;background:rgba(255,255,255,.1);padding:0 3px;border-radius:50%">?</span>
                       </label>
                       <label style="display:flex;align-items:center;gap:4px;cursor:pointer">
                         <input type="checkbox" class="trigger-sanitize-strip-markdown" ${init?.sanitizeStripMarkdown ? 'checked' : ''} style="margin:0">
-                        <span style="font-size:10px;color:rgba(255,255,255,0.8)">Strip markdown</span>
+                        <span style="font-size:10px;color:#0f172a">Strip markdown</span>
                         <span title="Remove markdown formatting like **bold**, *italic*, # headers, and code blocks. Gives you plain text." style="font-size:8px;opacity:0.5;cursor:help;background:rgba(255,255,255,.1);padding:0 3px;border-radius:50%">?</span>
                       </label>
                       <label style="display:flex;align-items:center;gap:4px;cursor:pointer">
                         <input type="checkbox" class="trigger-sanitize-remove-boilerplate" ${init?.sanitizeRemoveBoilerplate ? 'checked' : ''} style="margin:0">
-                        <span style="font-size:10px;color:rgba(255,255,255,0.8)">Remove boilerplate</span>
+                        <span style="font-size:10px;color:#0f172a">Remove boilerplate</span>
                         <span title="Try to remove common AI boilerplate phrases like 'As an AI language model...' or 'I hope this helps!'" style="font-size:8px;opacity:0.5;cursor:help;background:rgba(255,255,255,.1);padding:0 3px;border-radius:50%">?</span>
                       </label>
                     </div>
@@ -17194,14 +17256,14 @@ function initializeExtension() {
                     </div>
                     
                     <div style="display:flex;gap:8px;flex-wrap:wrap">
-                      <button type="button" class="btn-test-selectors" style="background:rgba(100,100,100,0.2);border:1px solid rgba(100,100,100,0.3);color:rgba(255,255,255,0.8);padding:5px 10px;border-radius:4px;cursor:pointer;font-size:10px">
+                      <button type="button" class="btn-test-selectors" style="background:rgba(100,100,100,0.2);border:1px solid rgba(100,100,100,0.3);color:#0f172a;padding:5px 10px;border-radius:4px;cursor:pointer;font-size:10px">
                         🎯 Test Selectors
                       </button>
-                      <button type="button" class="btn-test-capture" style="background:rgba(100,100,100,0.2);border:1px solid rgba(100,100,100,0.3);color:rgba(255,255,255,0.8);padding:5px 10px;border-radius:4px;cursor:pointer;font-size:10px">
+                      <button type="button" class="btn-test-capture" style="background:rgba(100,100,100,0.2);border:1px solid rgba(100,100,100,0.3);color:#0f172a;padding:5px 10px;border-radius:4px;cursor:pointer;font-size:10px">
                         ▶️ Run Test Capture
                       </button>
                     </div>
-                    <div class="debug-results" style="display:none;margin-top:8px;padding:8px;background:rgba(0,0,0,0.2);border-radius:4px;font-family:monospace;font-size:9px;color:rgba(255,255,255,0.7)"></div>
+                    <div class="debug-results" style="display:none;margin-top:8px;padding:8px;background:rgba(0,0,0,0.2);border-radius:4px;font-family:monospace;font-size:9px;color:#475569"></div>
                   </div>
 
                 </div>
@@ -17209,7 +17271,7 @@ function initializeExtension() {
                 <!-- Generic Page Body Parser Options (hidden in button_click mode) -->
                 <div class="generic-parser-options" style="display:${init?.parserTrigger === 'button_click' ? 'none' : 'block'}">
                   <div style="margin-bottom:8px">
-                    <label style="font-size:12px;color:rgba(255,255,255,0.9);display:block;margin-bottom:4px">Parse Target</label>
+                    <label style="font-size:12px;color:#0f172a;display:block;margin-bottom:4px">Parse Target</label>
                     <select class="trigger-dom-parse-target" style="width:100%;background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:8px 10px;border-radius:6px;font-size:12px">
                       <option value="body" ${!init?.domParseTarget || init?.domParseTarget === 'body' ? 'selected' : ''}>Page Body</option>
                       <option value="selection" ${init?.domParseTarget === 'selection' ? 'selected' : ''}>Current Selection</option>
@@ -17218,16 +17280,16 @@ function initializeExtension() {
                     </select>
                   </div>
                   <div class="dom-parse-selector-row" style="margin-bottom:8px;display:${init?.domParseTarget === 'selector' ? 'block' : 'none'}">
-                    <label style="font-size:12px;color:rgba(255,255,255,0.9);display:block;margin-bottom:4px">Parse Selector</label>
-                    <input class="trigger-dom-parse-selector" placeholder=".content, #main, article" value="${init?.domParseSelector || ''}" style="width:100%;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:8px 10px;border-radius:6px;font-size:12px">
+                    <label style="font-size:12px;color:#0f172a;display:block;margin-bottom:4px">Parse Selector</label>
+                    <input class="trigger-dom-parse-selector" placeholder=".content, #main, article" value="${init?.domParseSelector || ''}" style="width:100%;background:#fff;border:1px solid #cbd5e1;color:#0f172a;padding:8px 10px;border-radius:6px;font-size:12px">
                   </div>
                   <div style="margin-bottom:8px">
-                    <label style="font-size:12px;color:rgba(255,255,255,0.9);display:block;margin-bottom:4px">URL/Hostname Filter <span style="opacity:0.6">(optional)</span></label>
-                    <input class="trigger-dom-url-filter" placeholder="*.example.com, https://app.domain.com/*" value="${init?.domUrlFilter || ''}" style="width:100%;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:8px 10px;border-radius:6px;font-size:12px">
+                    <label style="font-size:12px;color:#0f172a;display:block;margin-bottom:4px">URL/Hostname Filter <span style="opacity:0.6">(optional)</span></label>
+                    <input class="trigger-dom-url-filter" placeholder="*.example.com, https://app.domain.com/*" value="${init?.domUrlFilter || ''}" style="width:100%;background:#fff;border:1px solid #cbd5e1;color:#0f172a;padding:8px 10px;border-radius:6px;font-size:12px">
                   </div>
                   <div style="border-top:1px dashed rgba(255,255,255,0.15);padding-top:10px;margin-top:10px">
                     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
-                      <span style="font-size:12px;color:rgba(255,255,255,0.9);font-weight:600">Pattern Rules</span>
+                      <span style="font-size:12px;color:#0f172a;font-weight:600">Pattern Rules</span>
                       <button class="dom-parser-add-rule" style="background:rgba(34,197,94,.3);border:1px solid rgba(34,197,94,.5);color:#fff;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:11px">+ Add Rule</button>
                     </div>
                     <div class="dom-parser-rules" style="display:flex;flex-direction:column;gap:8px"></div>
@@ -17663,13 +17725,13 @@ function initializeExtension() {
                       <input class="dom-rule-keywords" placeholder="invoice, payment, urgent (comma-separated)" value="${initRule?.keywords || ''}" style="width:100%;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:6px 8px;border-radius:4px;font-size:11px">
                       <label style="display:flex;align-items:center;gap:4px;cursor:pointer">
                         <input type="checkbox" class="dom-rule-case-sensitive" ${initRule?.caseSensitive ? 'checked' : ''} style="margin:0">
-                        <span style="font-size:10px;color:rgba(255,255,255,0.7)">Case sensitive</span>
+                        <span style="font-size:10px;color:#475569">Case sensitive</span>
                       </label>
                     `
                   } else if (type === 'pattern') {
                     ruleFields.innerHTML = `
                       <input class="dom-rule-regex" placeholder="e.g. \\$[0-9,]+\\.\\d{2}" value="${initRule?.regex || ''}" style="width:100%;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:6px 8px;border-radius:4px;font-size:11px;font-family:monospace">
-                      <span style="font-size:10px;color:rgba(255,255,255,0.6)">JavaScript regex pattern</span>
+                      <span style="font-size:10px;color:#64748b">JavaScript regex pattern</span>
                     `
                   } else if (type === 'element') {
                     ruleFields.innerHTML = `
@@ -17731,58 +17793,58 @@ function initializeExtension() {
               overlaySection.innerHTML = `
                 <div style="font-weight:600;font-size:13px;color:#a855f7;margin-bottom:8px;display:flex;align-items:center;gap:6px">
                   <span style="font-size:14px">🎯</span> Augmented Overlay
-                  <span title="Transparent overlay for voice commands, pointer context, and overlay buttons." style="font-size:10px;opacity:0.7;cursor:help;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.35);padding:0 5px;border-radius:50%">?</span>
+                  <span title="Transparent overlay for voice commands, pointer context, and overlay buttons." style="font-size:10px;opacity:0.7;cursor:help;background:#e2e8f0;border:1px solid #94a3b8;padding:0 5px;border-radius:50%">?</span>
                 </div>
-                <div style="font-size:11px;color:rgba(255,255,255,0.7);margin-bottom:12px;padding:8px;background:rgba(168,85,247,0.1);border-radius:4px">
+                <div style="font-size:11px;color:#475569;margin-bottom:12px;padding:8px;background:rgba(168,85,247,0.08);border-radius:4px">
                   Emits overlay event with pointer + utterance + optional elementId
                 </div>
                 <div style="margin-bottom:10px">
-                  <label style="font-size:12px;color:rgba(255,255,255,0.9);display:block;margin-bottom:4px">Interaction Modes <span style="opacity:0.6">(select one or more)</span></label>
+                  <label style="font-size:12px;color:#0f172a;display:block;margin-bottom:4px">Interaction Modes <span style="opacity:0.6">(select one or more)</span></label>
                   <div style="display:flex;flex-direction:column;gap:8px">
-                    <label style="display:flex;align-items:center;gap:8px;cursor:pointer;background:rgba(255,255,255,0.05);padding:8px 12px;border-radius:6px;border:1px solid ${csTheme().border}">
+                    <label style="display:flex;align-items:center;gap:8px;cursor:pointer;background:#f1f5f9;padding:8px 12px;border-radius:6px;border:1px solid ${csTheme().border}">
                       <input type="checkbox" class="trigger-overlay-mode-button" ${init?.overlayModeButton ? 'checked' : ''} style="margin:0">
                       <div>
-                        <div style="font-size:12px;color:rgba(255,255,255,0.95);font-weight:500">⌘ Overlay Button</div>
-                        <div style="font-size:10px;color:rgba(255,255,255,0.6)">User clicks a button in the overlay UI</div>
+                        <div style="font-size:12px;color:#0f172a;font-weight:500">⌘ Overlay Button</div>
+                        <div style="font-size:10px;color:#64748b">User clicks a button in the overlay UI</div>
                       </div>
                     </label>
-                    <label style="display:flex;align-items:center;gap:8px;cursor:pointer;background:rgba(255,255,255,0.05);padding:8px 12px;border-radius:6px;border:1px solid ${csTheme().border}">
+                    <label style="display:flex;align-items:center;gap:8px;cursor:pointer;background:#f1f5f9;padding:8px 12px;border-radius:6px;border:1px solid ${csTheme().border}">
                       <input type="checkbox" class="trigger-overlay-mode-empty" ${init?.overlayModeEmpty ? 'checked' : ''} style="margin:0">
                       <div>
-                        <div style="font-size:12px;color:rgba(255,255,255,0.95);font-weight:500">🎤 Voice + Pointer (empty area)</div>
-                        <div style="font-size:10px;color:rgba(255,255,255,0.6)">User speaks while pointing at empty space</div>
+                        <div style="font-size:12px;color:#0f172a;font-weight:500">🎤 Voice + Pointer (empty area)</div>
+                        <div style="font-size:10px;color:#64748b">User speaks while pointing at empty space</div>
                       </div>
                     </label>
-                    <label style="display:flex;align-items:center;gap:8px;cursor:pointer;background:rgba(255,255,255,0.05);padding:8px 12px;border-radius:6px;border:1px solid ${csTheme().border}">
+                    <label style="display:flex;align-items:center;gap:8px;cursor:pointer;background:#f1f5f9;padding:8px 12px;border-radius:6px;border:1px solid ${csTheme().border}">
                       <input type="checkbox" class="trigger-overlay-mode-element" ${init?.overlayModeElement !== false ? 'checked' : ''} style="margin:0">
                       <div>
-                        <div style="font-size:12px;color:rgba(255,255,255,0.95);font-weight:500">🖱️ Voice + Element</div>
-                        <div style="font-size:10px;color:rgba(255,255,255,0.6)">User speaks while pointing at a specific element</div>
+                        <div style="font-size:12px;color:#0f172a;font-weight:500">🖱️ Voice + Element</div>
+                        <div style="font-size:10px;color:#64748b">User speaks while pointing at a specific element</div>
                       </div>
                     </label>
-                    <label style="display:flex;align-items:center;gap:8px;cursor:pointer;background:rgba(255,255,255,0.05);padding:8px 12px;border-radius:6px;border:1px solid ${csTheme().border}">
+                    <label style="display:flex;align-items:center;gap:8px;cursor:pointer;background:#f1f5f9;padding:8px 12px;border-radius:6px;border:1px solid ${csTheme().border}">
                       <input type="checkbox" class="trigger-overlay-mode-selection" ${init?.overlayModeSelection ? 'checked' : ''} style="margin:0">
                       <div>
-                        <div style="font-size:12px;color:rgba(255,255,255,0.95);font-weight:500">✏‚️ Voice + Selection</div>
-                        <div style="font-size:10px;color:rgba(255,255,255,0.6)">User speaks while having text selected</div>
+                        <div style="font-size:12px;color:#0f172a;font-weight:500">✏‚️ Voice + Selection</div>
+                        <div style="font-size:10px;color:#64748b">User speaks while having text selected</div>
                       </div>
                     </label>
                   </div>
                 </div>
-                <div class="overlay-button-fields" style="display:${init?.overlayModeButton ? 'block' : 'none'};margin-bottom:10px;padding:10px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.12);border-radius:6px">
-                  <label style="font-size:12px;color:rgba(255,255,255,0.9);display:block;margin-bottom:4px">Button Label / Icon</label>
-                  <input class="trigger-overlay-button-label" placeholder="e.g. Run Analysis, 📊, ✏¨ Quick Action" value="${init?.overlayButtonLabel || ''}" style="width:100%;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:8px 10px;border-radius:6px;font-size:12px">
-                  <div style="font-size:10px;color:rgba(255,255,255,0.6);margin-top:4px">Button displayed in the overlay UI</div>
+                <div class="overlay-button-fields" style="display:${init?.overlayModeButton ? 'block' : 'none'};margin-bottom:10px;padding:10px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px">
+                  <label style="font-size:12px;color:#0f172a;display:block;margin-bottom:4px">Button Label / Icon</label>
+                  <input class="trigger-overlay-button-label" placeholder="e.g. Run Analysis, 📊, ✏¨ Quick Action" value="${init?.overlayButtonLabel || ''}" style="width:100%;background:#fff;border:1px solid #cbd5e1;color:#0f172a;padding:8px 10px;border-radius:6px;font-size:12px">
+                  <div style="font-size:10px;color:#64748b;margin-top:4px">Button displayed in the overlay UI</div>
                 </div>
                 <div style="margin-bottom:10px">
-                  <label style="font-size:12px;color:rgba(255,255,255,0.9);display:block;margin-bottom:4px">Trigger Name <span style="color:#ef4444;font-size:10px">(required)</span></label>
-                  <input class="trigger-overlay-name" placeholder="e.g. ask_about_element, explain_selection" value="${init?.overlayTriggerName || ''}" style="width:100%;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:8px 10px;border-radius:6px;font-size:12px">
-                  <div style="font-size:10px;color:rgba(255,255,255,0.6);margin-top:4px">Internal event identifier emitted when triggered</div>
+                  <label style="font-size:12px;color:#0f172a;display:block;margin-bottom:4px">Trigger Name <span style="color:#ef4444;font-size:10px">(required)</span></label>
+                  <input class="trigger-overlay-name" placeholder="e.g. ask_about_element, explain_selection" value="${init?.overlayTriggerName || ''}" style="width:100%;background:#fff;border:1px solid #cbd5e1;color:#0f172a;padding:8px 10px;border-radius:6px;font-size:12px">
+                  <div style="font-size:10px;color:#64748b;margin-top:4px">Internal event identifier emitted when triggered</div>
                 </div>
                 <div class="overlay-voice-fields" style="display:${init?.overlayModeEmpty || init?.overlayModeElement !== false || init?.overlayModeSelection ? 'block' : 'none'};margin-bottom:10px">
-                  <label style="font-size:12px;color:rgba(255,255,255,0.9);display:block;margin-bottom:4px">Activation Phrases <span style="opacity:0.6">(for voice modes)</span></label>
-                  <textarea class="trigger-overlay-phrases" placeholder="what can I do here&#10;explain this&#10;help me with this" style="width:100%;min-height:60px;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:8px 10px;border-radius:6px;font-size:12px;resize:vertical">${init?.overlayPhrases || ''}</textarea>
-                  <div style="font-size:10px;color:rgba(255,255,255,0.6);margin-top:4px">One phrase per line. Leave empty to match any voice input.</div>
+                  <label style="font-size:12px;color:#0f172a;display:block;margin-bottom:4px">Activation Phrases <span style="opacity:0.6">(for voice modes)</span></label>
+                  <textarea class="trigger-overlay-phrases" placeholder="what can I do here&#10;explain this&#10;help me with this" style="width:100%;min-height:60px;background:#fff;border:1px solid #cbd5e1;color:#0f172a;padding:8px 10px;border-radius:6px;font-size:12px;resize:vertical">${init?.overlayPhrases || ''}</textarea>
+                  <div style="font-size:10px;color:#64748b;margin-top:4px">One phrase per line. Leave empty to match any voice input.</div>
                 </div>
               `
               fieldsContainer.appendChild(overlaySection)
@@ -17808,40 +17870,40 @@ function initializeExtension() {
               
               // ========== SCOPE ==========
               const scopeSection = document.createElement('div')
-              scopeSection.style.cssText = 'padding:10px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.12);border-radius:8px;margin-bottom:10px'
+              scopeSection.style.cssText = 'padding:10px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;margin-bottom:10px'
               scopeSection.innerHTML = `
-                <label style="font-size:12px;color:rgba(255,255,255,0.9);display:block;margin-bottom:6px">Scope <span style="opacity:0.6">(optional)</span></label>
+                <label style="font-size:12px;color:#0f172a;display:block;margin-bottom:6px">Scope <span style="opacity:0.6">(optional)</span></label>
                 <div style="margin-bottom:8px">
-                  <input class="trigger-overlay-url-pattern" placeholder="URL pattern, e.g. *.example.com, https://app.domain.com/*" value="${init?.overlayUrlPattern || ''}" style="width:100%;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:8px 10px;border-radius:6px;font-size:12px">
+                  <input class="trigger-overlay-url-pattern" placeholder="URL pattern, e.g. *.example.com, https://app.domain.com/*" value="${init?.overlayUrlPattern || ''}" style="width:100%;background:#fff;border:1px solid #cbd5e1;color:#0f172a;padding:8px 10px;border-radius:6px;font-size:12px">
                 </div>
                 <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
                   <input type="checkbox" class="trigger-overlay-wrcode-only" ${init?.overlayWrcodeOnly ? 'checked' : ''} style="margin:0">
-                  <span style="font-size:11px;color:rgba(255,255,255,0.8)">WRCode sites only</span>
+                  <span style="font-size:11px;color:#0f172a">WRCode sites only</span>
                 </label>
               `
               fieldsContainer.appendChild(scopeSection)
               
               // ========== PAYLOAD OPTIONS ==========
               const payloadSection = document.createElement('div')
-              payloadSection.style.cssText = 'padding:10px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.12);border-radius:8px'
+              payloadSection.style.cssText = 'padding:10px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px'
               payloadSection.innerHTML = `
-                <label style="font-size:12px;color:rgba(255,255,255,0.9);display:block;margin-bottom:6px">Payload Options</label>
+                <label style="font-size:12px;color:#0f172a;display:block;margin-bottom:6px">Payload Options</label>
                 <div style="display:flex;flex-wrap:wrap;gap:10px">
                   <label style="display:flex;align-items:center;gap:4px;cursor:pointer">
                     <input type="checkbox" class="trigger-overlay-payload-selection" ${init?.overlayPayloadSelection ? 'checked' : ''} style="margin:0">
-                    <span style="font-size:11px;color:rgba(255,255,255,0.8)">Selection text</span>
+                    <span style="font-size:11px;color:#0f172a">Selection text</span>
                   </label>
                   <label style="display:flex;align-items:center;gap:4px;cursor:pointer">
                     <input type="checkbox" class="trigger-overlay-payload-context" ${init?.overlayPayloadContext ? 'checked' : ''} style="margin:0">
-                    <span style="font-size:11px;color:rgba(255,255,255,0.8)">DOM context</span>
+                    <span style="font-size:11px;color:#0f172a">DOM context</span>
                   </label>
                   <label style="display:flex;align-items:center;gap:4px;cursor:pointer">
                     <input type="checkbox" class="trigger-overlay-payload-url" ${init?.overlayPayloadUrl ? 'checked' : ''} style="margin:0">
-                    <span style="font-size:11px;color:rgba(255,255,255,0.8)">Page URL</span>
+                    <span style="font-size:11px;color:#0f172a">Page URL</span>
                   </label>
                   <label style="display:flex;align-items:center;gap:4px;cursor:pointer">
                     <input type="checkbox" class="trigger-overlay-payload-coords" ${init?.overlayPayloadCoords ? 'checked' : ''} style="margin:0">
-                    <span style="font-size:11px;color:rgba(255,255,255,0.8)">Pointer coordinates</span>
+                    <span style="font-size:11px;color:#0f172a">Pointer coordinates</span>
                   </label>
                 </div>
               `
@@ -17849,24 +17911,24 @@ function initializeExtension() {
             }
             
             if (type === 'agent') {
-              // Agent Trigger - Source agent selector
+              // Agent Trigger - Source agent selector (for inter-agent / recursive loops)
               const agentRow = document.createElement('div')
               agentRow.className = 'trigger-section'
-              agentRow.style.cssText = 'padding:10px;background:rgba(59,130,246,0.08);border:1px solid rgba(59,130,246,0.25);border-radius:8px'
+              agentRow.style.cssText = 'padding:10px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px'
               agentRow.innerHTML = `
                 <div style="font-weight:600;font-size:13px;color:#3b82f6;margin-bottom:6px;display:flex;align-items:center;gap:6px">
                   <span style="font-size:14px">🤖</span> Source Agent
                 </div>
                 <div>
-                  <label style="font-size:12px;color:rgba(255,255,255,0.9);display:block;margin-bottom:4px">Select Agent</label>
+                  <label style="font-size:12px;color:#0f172a;display:block;margin-bottom:4px">Select Agent</label>
                   <select class="trigger-agent-select" style="width:100%;background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:8px 10px;border-radius:6px;font-size:12px">
                     ${Array.from({length: 50}, (_, i) => {
                       const num = String(i + 1).padStart(2, '0')
                       return `<option value="${num}" ${init?.sourceAgent === num ? 'selected' : ''}>Agent ${num}</option>`
                     }).join('')}
                   </select>
-                  <div style="font-size:12px;color:#fff;opacity:0.9;margin-top:4px">
-                    Trigger will activate when this agent sends output.
+                  <div style="font-size:12px;color:#475569;margin-top:4px">
+                    Trigger will activate when the selected agent sends output. Useful for agent chains and recursive loops.
                   </div>
                 </div>
               `
@@ -17883,19 +17945,19 @@ function initializeExtension() {
                   <span style="font-size:14px">📱</span> Mini-App Configuration
                 </div>
                 <div style="margin-bottom:10px">
-                  <label style="font-size:12px;color:rgba(255,255,255,0.9);display:block;margin-bottom:4px">Mini-App ID</label>
-                  <input type="text" class="trigger-miniapp-id" placeholder="e.g. my-miniapp-123" value="${init?.miniAppId || ''}" style="width:100%;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:8px 10px;border-radius:6px;font-size:12px">
+                  <label style="font-size:12px;color:#0f172a;display:block;margin-bottom:4px">Mini-App ID</label>
+                  <input type="text" class="trigger-miniapp-id" placeholder="e.g. my-miniapp-123" value="${init?.miniAppId || ''}" style="width:100%;background:#fff;border:1px solid #cbd5e1;color:#0f172a;padding:8px 10px;border-radius:6px;font-size:12px">
                 </div>
                 <div style="margin-bottom:10px">
                   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
-                    <label style="font-size:12px;color:rgba(255,255,255,0.9)">UI Elements</label>
+                    <label style="font-size:12px;color:#0f172a">UI Elements</label>
                     <button class="miniapp-add-ui-btn" style="background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:3px 8px;border-radius:4px;cursor:pointer;font-size:11px">+ Add UI Element</button>
                   </div>
                   <div class="miniapp-ui-list" style="display:flex;flex-direction:column;gap:6px"></div>
                 </div>
                 <div>
                   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
-                    <label style="font-size:12px;color:rgba(255,255,255,0.9)">Conditions</label>
+                    <label style="font-size:12px;color:#0f172a">Conditions</label>
                     <button class="miniapp-add-cond-btn" style="background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:3px 8px;border-radius:4px;cursor:pointer;font-size:11px">+ Add Condition</button>
                   </div>
                   <div class="miniapp-cond-list" style="display:flex;flex-direction:column;gap:6px"></div>
@@ -18116,7 +18178,9 @@ function initializeExtension() {
             
             // Build a descriptive label including channel for event tag triggers
             let label = ''
-            if (type === 'direct_tag' || type === 'tag_and_condition') {
+            if (type === 'wrchat') {
+              label = tag ? `💬 #${tag.replace('#', '')}` : `💬 WR Chat`
+            } else if (type === 'direct_tag' || type === 'tag_and_condition') {
               const tagName = tag.replace('#', '')
               label = tagName ? `#${tagName}` : `${type} (${id.substring(0, 8)}...)`
               // Add channel indicator for non-default channels
@@ -18917,7 +18981,9 @@ function initializeExtension() {
             const channel = row.querySelector('.trigger-channel')?.value || 'chat'
             
             let label = ''
-            if (type === 'direct_tag' || type === 'tag_and_condition') {
+            if (type === 'wrchat') {
+              label = tag ? `💬 #${tag.replace('#', '')}` : `💬 WR Chat`
+            } else if (type === 'direct_tag' || type === 'tag_and_condition') {
               const tagName = tag.replace('#', '')
               label = tagName ? `#${tagName}` : `${type} (${id.substring(0, 8)}...)`
               // Add channel indicator for non-chat channels
@@ -19128,7 +19194,7 @@ function initializeExtension() {
                 Memory & Context
                 <span title="Configure which memory and context sources this reasoning section can access." style="font-size:12px;opacity:0.9;cursor:help;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.35);padding:0 6px;border-radius:50%">?</span>
               </div>
-              <div style="font-size:13px;color:rgba(255,255,255,0.85);margin-bottom:10px;line-height:1.4">Enable memory sources for context during reasoning.</div>
+              <div style="font-size:13px;color:#334155;margin-bottom:10px;line-height:1.4">Enable memory sources for context during reasoning.</div>
               <div style="display:flex;flex-direction:column;gap:10px;font-size:13px">
                 <div style="display:flex;align-items:center;gap:12px;justify-content:space-between">
                   <label style="display:flex;align-items:center;gap:6px"><input class="R-MEM-session-sub" type="checkbox"> Session Context</label>
@@ -24016,13 +24082,18 @@ function initializeExtension() {
             }
             
             // Set tag/tagName based on type
-            if (type === 'direct_tag' || type === 'tag_and_condition') {
+            if (type === 'wrchat') {
+              trigger.tag = tagValue.startsWith('#') ? tagValue : `#${tagValue}`
+              trigger.tagName = tagValue.replace('#', '')
+              trigger.channel = 'chat'
+            } else if (type === 'direct_tag' || type === 'tag_and_condition') {
               trigger.tag = tagValue.startsWith('#') ? tagValue : `#${tagValue}`
               trigger.tagName = tagValue.replace('#', '')
             }
             
             // Collect type-specific fields
-            trigger.channel = row.querySelector('.trigger-channel')?.value || 'chat'
+            if (type !== 'wrchat') trigger.channel = row.querySelector('.trigger-channel')?.value || 'chat'
+            else trigger.channel = 'chat'
             trigger.emails = row.querySelector('.trigger-emails')?.value || ''
             trigger.keywords = row.querySelector('.trigger-keywords')?.value || ''
             trigger.websiteFilter = row.querySelector('.trigger-website')?.value || ''
