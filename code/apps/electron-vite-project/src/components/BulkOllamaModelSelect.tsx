@@ -132,7 +132,10 @@ export function BulkOllamaModelSelect({
     )
   }
 
-  const effectiveValue = active && models.includes(active) ? active : models[0]
+  // Detect mismatch: stored preference exists but is not in installed list.
+  // Do NOT silently fall back to models[0] — show an explicit warning instead.
+  const storedMissing = !!active && !models.includes(active)
+  const effectiveValue = storedMissing ? '' : (active ?? models[0])
 
   return (
     <label
@@ -151,29 +154,51 @@ export function BulkOllamaModelSelect({
       title={title}
     >
       <span style={{ whiteSpace: 'nowrap', fontWeight: 600, color: '#334155' }}>Ollama model</span>
-      <select
-        value={effectiveValue}
-        onChange={(ev) => void onChange(ev)}
-        disabled={!!disabled || switching}
-        aria-label="Active Ollama model for inbox AI"
-        style={{
-          maxWidth: compact ? 148 : 200,
-          minWidth: 0,
-          fontSize: compact ? 11 : 10,
-          padding: '2px 4px',
-          borderRadius: 4,
-          border: `1px solid ${error ? '#ef4444' : '#cbd5e1'}`,
-          background: '#fff',
-          color: '#0f172a',
-          cursor: disabled || switching ? 'not-allowed' : 'pointer',
-        }}
-      >
-        {models.map((name) => (
-          <option key={name} value={name}>
-            {name}
-          </option>
-        ))}
-      </select>
+      {storedMissing ? (
+        <span
+          style={{
+            fontSize: compact ? 11 : 10,
+            color: '#dc2626',
+            fontWeight: 600,
+            whiteSpace: 'nowrap',
+            maxWidth: compact ? 200 : 260,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+          }}
+          title={`Model "${active}" is selected but not installed. Install it or choose another model.`}
+        >
+          ⚠ {active} not installed — select a model
+        </span>
+      ) : (
+        <select
+          value={effectiveValue}
+          onChange={(ev) => void onChange(ev)}
+          disabled={!!disabled || switching}
+          aria-label="Active Ollama model for inbox AI"
+          style={{
+            maxWidth: compact ? 148 : 200,
+            minWidth: 0,
+            fontSize: compact ? 11 : 10,
+            padding: '2px 4px',
+            borderRadius: 4,
+            border: `1px solid ${error ? '#ef4444' : '#cbd5e1'}`,
+            background: '#fff',
+            color: '#0f172a',
+            cursor: disabled || switching ? 'not-allowed' : 'pointer',
+          }}
+        >
+          {!active && (
+            <option value="" disabled>
+              — select a model —
+            </option>
+          )}
+          {models.map((name) => (
+            <option key={name} value={name}>
+              {name}
+            </option>
+          ))}
+        </select>
+      )}
       {error ? (
         <span style={{ color: '#ef4444', fontSize: 10, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis' }} title={error}>
           {error}

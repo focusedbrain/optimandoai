@@ -75,10 +75,38 @@ interface LlmOllamaStatus {
   }
 }
 
+/** Block reason returned by `llm:resolveAutosortRuntime`. */
+type AutosortBlockReason =
+  | 'provider_not_ollama'
+  | 'ollama_not_running'
+  | 'no_model_installed'
+  | 'no_stored_model_preference'
+  | 'stored_model_not_installed'
+  | 'gpu_not_verified'
+
+/** Full resolved runtime state for inbox Auto-Sort. Returned by `llm:resolveAutosortRuntime`. */
+interface ResolvedInboxRuntime {
+  provider: string
+  model: string | null
+  endpoint: string
+  storedModelId: string | null
+  storedModelInstalled: boolean
+  installedModels: string[]
+  ollamaRunning: boolean
+  gpuClassification: 'gpu_capable' | 'gpu_unconfirmed' | 'cpu_likely' | 'unknown'
+  gpuEvidence: string | undefined
+  autosortAllowed: boolean
+  blockReason: AutosortBlockReason | null
+  blockMessage: string | null
+}
+
 interface LlmBridge {
   getStatus: () => Promise<{ ok: true; data: LlmOllamaStatus } | { ok: false; error: string }>
   setActiveModel: (modelId: string) => Promise<{ ok: true } | { ok: false; error: string }>
   onActiveModelChanged: (cb: (data: { modelId: string }) => void) => () => void
+  resolveAutosortRuntime: () => Promise<
+    { ok: true; data: ResolvedInboxRuntime } | { ok: false; error: string }
+  >
 }
 
 /** TEMPORARY — main process log viewer (remove before production) */

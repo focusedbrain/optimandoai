@@ -10,6 +10,7 @@ import { DEBUG_ACTIVE_OLLAMA_MODEL } from './activeOllamaModelStore'
 import { broadcastActiveOllamaModelChanged } from './broadcastActiveModel'
 import { MODEL_CATALOG, getModelConfig } from './config'
 import { ChatRequest } from './types'
+import { resolveInboxAutosortRuntime } from './inboxAutosortRuntime'
 
 /**
  * Register all LLM-related IPC handlers
@@ -154,6 +155,18 @@ export function registerLlmHandlers() {
       return result
     } catch (error: any) {
       console.error('[LLM IPC] Set active model failed:', error)
+      return { ok: false, error: error.message }
+    }
+  })
+
+  // Strict autosort runtime check — fail-closed gate for inbox Auto-Sort.
+  // Returns ResolvedInboxRuntime; renderer must check autosortAllowed before starting.
+  ipcMain.handle('llm:resolveAutosortRuntime', async () => {
+    try {
+      const runtime = await resolveInboxAutosortRuntime()
+      return { ok: true, data: runtime }
+    } catch (error: any) {
+      console.error('[LLM IPC] resolveAutosortRuntime failed:', error)
       return { ok: false, error: error.message }
     }
   })

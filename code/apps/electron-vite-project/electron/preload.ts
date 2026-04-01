@@ -995,6 +995,7 @@ contextBridge.exposeInMainWorld('llm', {
       ipcRenderer.removeListener('llm:activeModelChanged', fn)
     }
   },
+  resolveAutosortRuntime: () => ipcRenderer.invoke('llm:resolveAutosortRuntime'),
 })
 
 // ── Lifecycle (main→renderer notifications) ──────────────────────────────

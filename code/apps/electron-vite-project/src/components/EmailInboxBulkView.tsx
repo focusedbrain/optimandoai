@@ -28,6 +28,7 @@ import EmailInboxSyncControls from './EmailInboxSyncControls'
 import { InboxMessageKindSelect } from './InboxMessageKindSelect'
 import LinkWarningDialog from './LinkWarningDialog'
 import { extractLinkParts } from '../utils/safeLinks'
+import { AutosortRuntimeStatus } from './AutosortRuntimeStatus'
 import type {
   AiOutputs,
   AutosortRetainKind,
@@ -3532,6 +3533,44 @@ export default function EmailInboxBulkView({
       window.setTimeout(() => setConcurrentSortNotice(null), 12_000)
       return
     }
+
+    // ── Strict runtime pre-check — fail closed ─────────────────────────
+    // Resolve provider, model, and GPU status before doing anything else.
+    // If the runtime is not fully verified, block and show an actionable warning.
+    {
+      const runtimeRes = await window.llm?.resolveAutosortRuntime?.()
+      if (!runtimeRes) {
+        setConcurrentSortNotice(
+          '⚠ Auto-Sort blocked: could not reach the runtime check service. Restart the app and try again.'
+        )
+        window.setTimeout(() => setConcurrentSortNotice(null), 20_000)
+        return
+      }
+      if (!runtimeRes.ok) {
+        setConcurrentSortNotice(
+          `⚠ Auto-Sort blocked: ${runtimeRes.error ?? 'unknown error during runtime check'}`
+        )
+        window.setTimeout(() => setConcurrentSortNotice(null), 20_000)
+        return
+      }
+      const runtime = runtimeRes.data
+      console.log('[AUTOSORT] pre-check', {
+        allowed: runtime.autosortAllowed,
+        blockReason: runtime.blockReason,
+        model: runtime.model,
+        provider: runtime.provider,
+        endpoint: runtime.endpoint,
+        gpu: runtime.gpuClassification,
+        evidence: runtime.gpuEvidence,
+      })
+      if (!runtime.autosortAllowed) {
+        const msg = runtime.blockMessage ?? 'Auto-Sort is not available. Check LLM configuration.'
+        setConcurrentSortNotice(`⚠ Auto-Sort blocked: ${msg}`)
+        window.setTimeout(() => setConcurrentSortNotice(null), 30_000)
+        return
+      }
+    }
+
     const startTime = Date.now()
     console.time('[AUTOSORT] total')
     console.time('[AUTOSORT] session-create')
@@ -4925,6 +4964,7 @@ export default function EmailInboxBulkView({
             >
               ⚡AI Auto-Sort
             </button>
+            <AutosortRuntimeStatus />
             <label
               style={{
                 display: 'flex',
