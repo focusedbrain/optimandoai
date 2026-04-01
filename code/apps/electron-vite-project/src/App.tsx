@@ -59,7 +59,7 @@ function App() {
   const [emailAccounts, setEmailAccounts] = useState<
     Array<{ id: string; email: string; status?: string; processingPaused?: boolean }>
   >([])
-
+  const [emailAccountsLoadError, setEmailAccountsLoadError] = useState<string | null>(null)
   useEffect(() => {
     const root = document.documentElement
     const cssTheme = mapThemeToCss(extensionTheme)
@@ -129,13 +129,18 @@ function App() {
     try {
       const res = await window.emailAccounts.listAccounts()
       if (!res?.ok) {
-        setEmailAccounts([])
+        // Preserve existing list — do NOT wipe accounts on a transient IPC failure.
+        const errMsg = String(res?.error ?? '').trim() || 'Could not load email accounts (IPC error).'
+        console.error('[App] loadEmailAccounts: IPC returned ok:false —', errMsg)
+        setEmailAccountsLoadError(errMsg)
         return
       }
       if (!Array.isArray(res.data)) {
-        setEmailAccounts([])
+        console.error('[App] loadEmailAccounts: response missing data array')
+        setEmailAccountsLoadError('Account list response was missing or invalid.')
         return
       }
+      setEmailAccountsLoadError(null)
       setEmailAccounts(
         res.data.map((a: { id: string; email: string; status?: string; processingPaused?: boolean }) => ({
           id: a.id,
@@ -144,8 +149,11 @@ function App() {
           processingPaused: a.processingPaused === true ? true : undefined,
         })),
       )
-    } catch {
-      setEmailAccounts([])
+    } catch (err) {
+      // Preserve existing list — do NOT wipe accounts on a thrown IPC error.
+      const msg = err instanceof Error ? err.message : String(err ?? 'Unknown error')
+      console.error('[App] loadEmailAccounts threw:', msg)
+      setEmailAccountsLoadError(`Failed to load email accounts: ${msg}`)
     }
   }, [])
 

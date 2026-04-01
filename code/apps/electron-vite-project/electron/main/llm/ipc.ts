@@ -185,8 +185,16 @@ export function registerLlmHandlers() {
     try {
       if (DEBUG_ACTIVE_OLLAMA_MODEL) console.warn('[LLM IPC] setActiveModel requested:', modelId)
       const result = await ollamaManager.setActiveModelPreference(modelId)
-      if (result.ok) broadcastActiveOllamaModelChanged(modelId)
-      if (DEBUG_ACTIVE_OLLAMA_MODEL && result.ok) console.warn('[LLM IPC] setActiveModel persisted:', modelId?.trim())
+      if (result.ok) {
+        // Flush the getStatus cache so the next llm:getStatus call returns the updated activeModel
+        // immediately — without this, the 3-second TTL cache would serve stale state to
+        // BulkOllamaModelSelect and any other component that reads getStatus after a model change.
+        _getStatusCache = null
+        broadcastActiveOllamaModelChanged(modelId)
+        console.log('[LLM IPC] setActiveModel persisted and cache flushed:', modelId?.trim())
+      } else {
+        console.warn('[LLM IPC] setActiveModel rejected:', modelId?.trim(), result)
+      }
       return result
     } catch (error: any) {
       console.error('[LLM IPC] Set active model failed:', error)

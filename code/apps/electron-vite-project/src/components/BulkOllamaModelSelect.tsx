@@ -84,17 +84,21 @@ export function BulkOllamaModelSelect({
     if (!next) return
     setSwitching(true)
     setError(null)
+    console.log('[BulkOllamaModelSelect] model change requested:', next)
     try {
       const res = await api.setActiveModel(next)
       if (!res.ok) {
         setError(res.error || 'Failed to save active model')
+        console.warn('[BulkOllamaModelSelect] setActiveModel rejected:', next, res.error)
         await refresh()
         return
       }
+      console.log('[BulkOllamaModelSelect] model change persisted:', next)
       await refresh()
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Failed to save active model'
       setError(msg)
+      console.error('[BulkOllamaModelSelect] setActiveModel threw:', msg)
       await refresh()
     } finally {
       setSwitching(false)

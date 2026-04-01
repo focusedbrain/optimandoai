@@ -562,6 +562,16 @@ function loadAccounts(): EmailAccountConfig[] {
     loadState: emailAccountsPersistenceDiagnostics.load,
     decryptIssueCount: emailAccountsPersistenceDiagnostics.credentialDecryptIssues.length,
   })
+  // Always-on summary: one line per account so drops are visible in plain logs without debug flags.
+  for (const acc of loaded) {
+    if (acc.provider === 'gmail' || acc.provider === 'microsoft365' || acc.provider === 'zoho') {
+      console.log(
+        `[EmailGateway] loadAccounts: ${acc.provider} account loaded — id=${acc.id} email=${acc.email} status=${acc.status}` +
+          (acc.oauth ? '' : ' ⚠ oauth=undefined (decrypt failed or missing)') +
+          (acc.lastError ? ` lastError="${acc.lastError}"` : ''),
+      )
+    }
+  }
   return loaded
 }
 
@@ -758,6 +768,14 @@ function persistEmailAccounts(accounts: EmailAccountConfig[]): void {
   emailAccountsPersistenceDiagnostics.lastPersistError = null
   emailAccountsPersistenceDiagnostics.lastPersistAtMs = Date.now()
   emailAccountsDebugLog('Accounts saved successfully (tokens encrypted)')
+  // Always-on summary: show which OAuth providers were persisted so missing-account bugs are visible.
+  const gmailRows = accounts.filter((a) => a.provider === 'gmail' || a.provider === 'microsoft365' || a.provider === 'zoho')
+  if (gmailRows.length > 0) {
+    console.log(
+      `[EmailGateway] persistEmailAccounts: saved ${accounts.length} account(s), OAuth providers: ` +
+        gmailRows.map((a) => `${a.provider}(${a.email}, status=${a.status})`).join(', '),
+    )
+  }
 }
 
 /**

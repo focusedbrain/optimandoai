@@ -55,6 +55,7 @@ export function AutosortRuntimeStatus() {
     try {
       const res = await api.resolveAutosortRuntime()
       if (!res.ok) {
+        console.warn('[AutosortRuntimeStatus] resolveAutosortRuntime error:', res.error)
         setState({
           loading: false,
           allowed: false,
@@ -66,6 +67,12 @@ export function AutosortRuntimeStatus() {
         return
       }
       const d = res.data
+      console.log('[AutosortRuntimeStatus] resolved:', {
+        allowed: d.autosortAllowed,
+        model: d.model,
+        gpu: d.gpuClassification,
+        blockReason: d.blockReason ?? null,
+      })
       setState({
         loading: false,
         allowed: d.autosortAllowed,
@@ -75,12 +82,14 @@ export function AutosortRuntimeStatus() {
         blockReason: d.blockReason,
       })
     } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Runtime check failed'
+      console.error('[AutosortRuntimeStatus] resolveAutosortRuntime threw:', msg)
       setState({
         loading: false,
         allowed: false,
         model: null,
         gpu: 'unknown',
-        blockMessage: e instanceof Error ? e.message : 'Runtime check failed',
+        blockMessage: msg,
         blockReason: 'error',
       })
     }

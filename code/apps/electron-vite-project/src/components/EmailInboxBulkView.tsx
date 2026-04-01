@@ -3797,8 +3797,10 @@ export default function EmailInboxBulkView({
     try {
       const res = await window.emailAccounts.listAccounts()
       if (!res?.ok) {
-        setProviderAccounts([])
-        setProviderListError(String(res?.error ?? '').trim() || 'Could not list email accounts.')
+        // Preserve existing list — do NOT wipe on a transient IPC failure.
+        const errMsg = String(res?.error ?? '').trim() || 'Could not list email accounts.'
+        console.error('[EmailInboxBulkView] loadProviderAccounts: IPC returned ok:false —', errMsg)
+        setProviderListError(errMsg)
         if (import.meta.env.DEV) {
           console.debug('[EmailInboxBulkView] loadProviderAccounts IPC not ok', res?.error)
         }
@@ -3829,7 +3831,8 @@ export default function EmailInboxBulkView({
         )
       }
       if (!Array.isArray(res.data)) {
-        setProviderAccounts([])
+        // Preserve existing list — do NOT wipe on a malformed response.
+        console.error('[EmailInboxBulkView] loadProviderAccounts: response missing data array')
         setProviderListError(
           loadHints.join(' ') || 'Account list response was missing or invalid.',
         )
@@ -3907,8 +3910,10 @@ export default function EmailInboxBulkView({
         })
       }
     } catch (e) {
-      setProviderAccounts([])
-      setProviderListError(e instanceof Error ? e.message : 'Could not list email accounts.')
+      // Preserve existing list — do NOT wipe on a thrown error.
+      const errMsg = e instanceof Error ? e.message : 'Could not list email accounts.'
+      console.error('[EmailInboxBulkView] loadProviderAccounts threw:', errMsg)
+      setProviderListError(errMsg)
       if (import.meta.env.DEV) {
         console.debug('[EmailInboxBulkView] loadProviderAccounts failed', e)
       }
