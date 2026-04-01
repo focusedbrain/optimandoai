@@ -1,4 +1,4 @@
-/**
+﻿/**
  * EmailInboxBulkView — Bulk grid view: [Message Card | AI Output Field] per row (50/50).
  * Toolbar: Select all, bulk actions, infinite scroll (next page). Batch size “All” = entire current tab (drained fetch + id list), not one page.
  * Collapsible provider section at top for account management.
@@ -4972,37 +4972,39 @@ export default function EmailInboxBulkView({
             >
               ⚡AI Auto-Sort
             </button>
-            <BulkOllamaModelSelect
-              variant="toolbar"
-              disabled={isSortingActive}
-              disabledReason="Autosort model cannot be changed during an active sort."
-              showRuntimeChip
-            />
-            <label
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 4,
-                fontSize: 11,
-                color: '#64748b',
-                cursor: 'default',
-                userSelect: 'none',
-                marginLeft: 2,
-              }}
-              title={`Batch size: ${sortConcurrency} message(s) per classify request (one IPC chunk). Separate from “Ollama parallel” in the progress bar. Changes apply from the next chunk.`}
-            >
-              <span style={{ whiteSpace: 'nowrap' }}>Batch: {sortConcurrency}</span>
-              <input
-                type="range"
-                min={1}
-                max={8}
-                step={1}
-                value={sortConcurrency}
-                onChange={(e) => handleSortConcurrencyChange(Number(e.target.value))}
-                aria-label="Bulk Auto-Sort messages per batch"
-                style={{ width: 72, cursor: 'pointer', accentColor: '#7c3aed' }}
-              />
-            </label>
+            {!isSortingActive && (
+              <>
+                <BulkOllamaModelSelect
+                  variant="toolbar"
+                  showRuntimeChip
+                />
+                <label
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 4,
+                    fontSize: 11,
+                    color: '#64748b',
+                    cursor: 'default',
+                    userSelect: 'none',
+                    marginLeft: 2,
+                  }}
+                  title={`Batch size: ${sortConcurrency} message(s) per IPC chunk. Separate from Ollama parallel. Changes apply from the next chunk.`}
+                >
+                  <span style={{ whiteSpace: 'nowrap' }}>Batch: {sortConcurrency}</span>
+                  <input
+                    type="range"
+                    min={1}
+                    max={8}
+                    step={1}
+                    value={sortConcurrency}
+                    onChange={(e) => handleSortConcurrencyChange(Number(e.target.value))}
+                    aria-label="Bulk Auto-Sort messages per batch"
+                    style={{ width: 72, cursor: 'pointer', accentColor: '#7c3aed' }}
+                  />
+                </label>
+              </>
+            )}
             <span className="bulk-view-selection-group-count selected-count">{selectedCount} selected</span>
           </div>
 
@@ -5943,7 +5945,66 @@ export default function EmailInboxBulkView({
                             fontSize: 11,
                           }}
                         >
-                          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginBottom: 2 }}>
+                            <BulkOllamaModelSelect
+                              variant="toolbar"
+                              disabled
+                              disabledReason="Autosort model cannot be changed during an active sort."
+                              showRuntimeChip
+                            />
+                            <label
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 4,
+                                fontSize: 11,
+                                color: MUTED,
+                                cursor: 'default',
+                                userSelect: 'none',
+                              }}
+                              title={`Batch size: ${sortConcurrency} message(s) per IPC chunk. Changes apply from the next chunk.`}
+                            >
+                              <span style={{ whiteSpace: 'nowrap', fontWeight: 600, color: '#334155' }}>Batch: {sortConcurrency}</span>
+                              <input
+                                type="range"
+                                min={1}
+                                max={8}
+                                step={1}
+                                value={sortConcurrency}
+                                onChange={(e) => handleSortConcurrencyChange(Number(e.target.value))}
+                                aria-label="Bulk Auto-Sort messages per batch"
+                                style={{ width: 72, cursor: 'pointer', accentColor: '#7c3aed' }}
+                              />
+                            </label>
+                            <label
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 6,
+                                fontSize: 11,
+                                color: MUTED,
+                                cursor: 'default',
+                                userSelect: 'none',
+                              }}
+                              title={`Local Ollama only: up to ${bulkOllamaParallel} classify(ies) running in parallel inside each batch. Next chunk picks this up. On one GPU, higher is not always faster.`}
+                            >
+                              <span style={{ whiteSpace: 'nowrap', fontWeight: 600, color: '#334155' }}>Parallel: {bulkOllamaParallel}</span>
+                              <input
+                                type="range"
+                                min={1}
+                                max={8}
+                                step={1}
+                                value={bulkOllamaParallel}
+                                onChange={(e) => handleBulkOllamaParallelChange(Number(e.target.value))}
+                                aria-label="Bulk Auto-Sort local Ollama parallel classifies per chunk"
+                                aria-valuemin={1}
+                                aria-valuemax={8}
+                                aria-valuenow={bulkOllamaParallel}
+                                style={{ width: 80, cursor: 'pointer', accentColor: '#7c3aed' }}
+                              />
+                            </label>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                             <button
                               type="button"
                               onClick={() => {
@@ -5986,36 +6047,6 @@ export default function EmailInboxBulkView({
                             >
                               ⏹ Stop
                             </button>
-                            <label
-                              style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: 8,
-                                marginLeft: 'auto',
-                                color: MUTED,
-                                cursor: 'default',
-                                userSelect: 'none',
-                                minWidth: 0,
-                              }}
-                              title={`Local Ollama only: up to ${bulkOllamaParallel} classify(ies) at once inside each batch (does not change how many messages are in the batch — use Per batch on the toolbar). Next chunk picks this up. On one GPU, higher is not always faster.`}
-                            >
-                              <span style={{ whiteSpace: 'nowrap', fontWeight: 600, color: '#334155' }}>
-                                Ollama parallel: {bulkOllamaParallel}
-                              </span>
-                              <input
-                                type="range"
-                                min={1}
-                                max={8}
-                                step={1}
-                                value={bulkOllamaParallel}
-                                onChange={(e) => handleBulkOllamaParallelChange(Number(e.target.value))}
-                                aria-label="Bulk Auto-Sort local Ollama parallel classifies per chunk (next chunk)"
-                                aria-valuemin={1}
-                                aria-valuemax={8}
-                                aria-valuenow={bulkOllamaParallel}
-                                style={{ width: 120, maxWidth: '42vw', cursor: 'pointer', accentColor: '#7c3aed' }}
-                              />
-                            </label>
                           </div>
                         </div>
                       )}

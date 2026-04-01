@@ -1,4 +1,4 @@
-import { defineConfig, type Plugin } from 'vite'
+﻿import { defineConfig, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
 import { crx } from '@crxjs/vite-plugin'
 import manifest from './manifest.config'
@@ -56,7 +56,7 @@ function serviceWorkerSafePreload(): Plugin {
 export default defineConfig({
   define: {
     // Production build label — log in background to confirm unpacked output version.
-    'import.meta.env.VITE_EXT_BUILD_STAMP': JSON.stringify('build01'),
+    'import.meta.env.VITE_EXT_BUILD_STAMP': JSON.stringify('build02'),
   },
   plugins: [
     react(),
@@ -73,7 +73,7 @@ export default defineConfig({
     },
   },
   build: {
-      outDir: 'build01',
+      outDir: 'build02',
     // Disable Vite's modulepreload polyfill — it references `document` and
     // `window` which don't exist in Chrome extension service workers (MV3).
     modulePreload: false,
