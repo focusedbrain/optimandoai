@@ -7533,25 +7533,55 @@ app.whenReady().then(async () => {
       try {
         const { modelId } = req.body
         console.log('[HTTP-LLM] Install request received - modelId:', modelId)
-        console.log('[HTTP-LLM] Full request body:', req.body)
-        
+
         if (!modelId) {
           res.status(400).json({ ok: false, error: 'modelId is required' })
           return
         }
-        
+
         const { ollamaManager } = await import('./main/llm/ollama-manager')
-        
+
         console.log('[HTTP-LLM] Starting model pull for:', modelId)
-        
-        // Start async installation
+
+        // Start async pull. Progress is stored on ollamaManager.downloadProgress for polling.
+        // After completion, verify the model exists and update the terminal progress state.
         ollamaManager.pullModel(modelId, (progress) => {
-          console.log('[HTTP-LLM] Install progress:', progress)
-          // Progress is now stored in ollamaManager.downloadProgress
-        }).catch((error) => {
+          // Stored for GET /api/llm/install-progress polling.
+        }).then(async () => {
+          console.log('[HTTP-LLM] Install stream done, verifying:', modelId)
+
+          // Cache was cleared by pullModel (Patch 1); this re-queries Ollama directly.
+          let verified = false
+          try {
+            const models = await ollamaManager.listModels()
+            verified = models.some((m: { name: string }) => m.name === modelId)
+            console.log('[HTTP-LLM] Verification result for', modelId, ':', verified ? 'FOUND' : 'NOT FOUND')
+          } catch (verifyErr: any) {
+            console.error('[HTTP-LLM] Verification listModels failed:', verifyErr)
+          }
+
+          // Update downloadProgress to a terminal state so the UI poller gets the final result.
+          ollamaManager.downloadProgress = verified
+            ? { modelId, status: 'verified', progress: 100 }
+            : {
+                modelId,
+                status: 'verification_failed',
+                progress: 0,
+                error: `Model "${modelId}" was not found in Ollama after installation. ` +
+                  'It may still be processing — try refreshing the model list.',
+              }
+
+          console.log('[HTTP-LLM] Terminal progress state set for', modelId, '- verified:', verified)
+        }).catch((error: any) => {
           console.error('[HTTP-LLM] Model installation failed:', error)
+          ollamaManager.downloadProgress = {
+            modelId,
+            status: 'error',
+            progress: 0,
+            error: error.message,
+          }
         })
-        
+
         res.json({ ok: true, message: 'Installation started' })
       } catch (error: any) {
         console.error('[HTTP-LLM] Error installing model:', error)

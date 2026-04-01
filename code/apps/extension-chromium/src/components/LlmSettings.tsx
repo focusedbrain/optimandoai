@@ -186,22 +186,38 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
   // Load data on mount
   useEffect(() => {
     loadData()
-    
+
     // Listen for install progress if using IPC
     if (bridge === 'ipc') {
       const handleProgress = (_event: any, progress: any) => {
         setInstallProgress(progress.progress || 0)
         setInstallStatus(progress.status || '')
-        if (progress.progress >= 100 || progress.status === 'complete') {
+
+        if (progress.status === 'verified') {
+          // Verified: model confirmed present in Ollama after install.
+          showNotification('Model installed and verified successfully!', 'success')
+          setTimeout(() => {
+            setInstalling(null)
+            loadData()
+          }, 500)
+        } else if (progress.status === 'verification_failed') {
+          // Install stream ended but model not found in Ollama.
+          showNotification(progress.error || 'Install verification failed — model not found in Ollama.', 'error')
+          setInstalling(null)
+        } else if (progress.status === 'error') {
+          showNotification(progress.error || 'Installation failed.', 'error')
+          setInstalling(null)
+        } else if (progress.progress >= 100 || progress.status === 'complete') {
+          // Legacy fallback for older backends that don't send 'verified'.
           setTimeout(() => {
             setInstalling(null)
             loadData()
           }, 1000)
         }
       }
-      
+
       ;(window as any).electron?.ipcRenderer?.on('llm:installProgress', handleProgress)
-      
+
       return () => {
         ;(window as any).electron?.ipcRenderer?.removeListener('llm:installProgress', handleProgress)
       }
@@ -287,61 +303,76 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
   
   const handleInstallModel = async () => {
     if (!selectedModel) return
-    
+
     setInstalling(selectedModel)
     setInstallProgress(0)
     setInstallStatus('Starting installation...')
-    
+
     try {
       const res = await api.installModel(selectedModel)
       if (res.ok && res.data?.ok) {
-        // Poll for progress if using HTTP (no real-time updates)
+        // Poll for progress if using HTTP (no real-time updates via IPC events)
         if (bridge === 'http') {
           const pollInterval = setInterval(async () => {
             try {
-              // Poll the progress endpoint via typed RPC
               const progressRes = await rpc('llm.installProgress')
-              console.log('[LlmSettings] Poll response:', progressRes)
               if (progressRes.ok && progressRes.data) {
                 const progress = progressRes.data.progress
                 if (progress) {
                   setInstallProgress(progress.progress || 0)
                   setInstallStatus(progress.status || 'Downloading...')
-                  
-                  // Stop polling when complete
-                  if (progress.status === 'success' || progress.progress >= 100) {
+
+                  if (progress.status === 'verified') {
+                    // Verified success: model confirmed present in Ollama after install.
                     clearInterval(pollInterval)
-                    showNotification('Model installed successfully!', 'success')
-                    
-                    // Notify Command Chat that a model was installed
+                    showNotification('Model installed and verified successfully!', 'success')
                     try {
-                      chrome.storage?.local?.set({ 
-                        'llm-model-installed': { 
-                          modelId: selectedModel, 
-                          timestamp: Date.now() 
-                        } 
+                      chrome.storage?.local?.set({
+                        'llm-model-installed': { modelId: selectedModel, timestamp: Date.now() },
                       })
                     } catch (e) {
                       console.warn('[LlmSettings] Failed to notify model installation:', e)
                     }
-                    
-                    setTimeout(() => {
-                      setInstalling(null)
-                      loadData()
-                    }, 1000)
+                    setTimeout(() => { setInstalling(null); loadData() }, 500)
+
+                  } else if (progress.status === 'verification_failed') {
+                    // Stream ended but model not found in Ollama — show failure, not success.
+                    clearInterval(pollInterval)
+                    showNotification(
+                      progress.error || 'Install verification failed — model not found in Ollama.',
+                      'error',
+                    )
+                    setInstalling(null)
+
+                  } else if (progress.status === 'error') {
+                    clearInterval(pollInterval)
+                    showNotification(progress.error || 'Installation failed.', 'error')
+                    setInstalling(null)
+
+                  } else if (progress.status === 'success' || progress.progress >= 100) {
+                    // Legacy fallback: older backend without verification support.
+                    clearInterval(pollInterval)
+                    showNotification('Model installed successfully!', 'success')
+                    try {
+                      chrome.storage?.local?.set({
+                        'llm-model-installed': { modelId: selectedModel, timestamp: Date.now() },
+                      })
+                    } catch (e) {
+                      console.warn('[LlmSettings] Failed to notify model installation:', e)
+                    }
+                    setTimeout(() => { setInstalling(null); loadData() }, 1000)
                   }
                 } else {
                   console.log('[LlmSettings] No progress data yet')
                 }
               }
             } catch (pollError) {
-              // Silently continue polling on error
               console.warn('[LlmSettings] Poll error:', pollError)
             }
-          }, 1000) // Poll every second
-          
-          // Safety timeout
-          setTimeout(() => clearInterval(pollInterval), 1800000) // 30 min
+          }, 1000)
+
+          // Safety timeout — 30 minutes for very large models
+          setTimeout(() => clearInterval(pollInterval), 1_800_000)
         }
       } else {
         showNotification(res.data?.error || res.error || 'Installation failed', 'error')

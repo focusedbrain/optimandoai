@@ -61,7 +61,6 @@ import {
   autosortTimingSetPostRunTailMs,
   setAutosortDiagRunId,
 } from '../lib/autosortDiagnostics'
-import { BulkOllamaModelSelect } from './BulkOllamaModelSelect'
 
 const MUTED = '#64748b'
 
@@ -2492,25 +2491,29 @@ export default function EmailInboxBulkView({
   useEffect(() => {
     const wasLoading = prevLoadingRef.current
     prevLoadingRef.current = loading
-    if (wasLoading && !loading && sortedMessages.length > 0 && !focusedMessageId && onSelectMessage) {
+    // Do not auto-focus during an active sort — it would trigger scrollIntoView mid-run.
+    if (wasLoading && !loading && sortedMessages.length > 0 && !focusedMessageId && onSelectMessage && !isSortingActive) {
       onSelectMessage(sortedMessages[0].id)
     }
-  }, [loading, sortedMessages, focusedMessageId, onSelectMessage])
+  }, [loading, sortedMessages, focusedMessageId, onSelectMessage, isSortingActive])
 
-  /** Scroll focused row into view when focus changes (keyboard nav or click). */
+  /** Scroll focused row into view when focus changes (keyboard nav or click). Suppressed during autosort to prevent scroll jumps. */
   useEffect(() => {
-    if (focusedMessageId) {
+    if (focusedMessageId && !isSortingActive) {
       const el = document.querySelector(`[data-msg-id="${focusedMessageId}"]`) as HTMLElement | null
       el?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
     }
-  }, [focusedMessageId])
+  }, [focusedMessageId, isSortingActive])
 
   /**
    * When focused id is not in the current list (tab / refresh / archive) keep list highlight and
    * Hybrid Search scope aligned: focus first row, or clear App + store when the list is empty.
+   * Suppressed during autosort — processed messages leaving the view must not re-anchor the
+   * viewport to the first row, which would cause a scroll jump after every batch.
    */
   useEffect(() => {
     if (!focusedMessageId || !onSelectMessage || loading) return
+    if (isSortingActive) return
     if (sortedMessages.some((m) => m.id === focusedMessageId)) return
     if (sortedMessages.length > 0) {
       onSelectMessage(sortedMessages[0].id)
@@ -2518,7 +2521,7 @@ export default function EmailInboxBulkView({
     }
     onSelectMessage(null)
     void selectMessage(null)
-  }, [focusedMessageId, sortedMessages, onSelectMessage, selectMessage, loading])
+  }, [focusedMessageId, sortedMessages, onSelectMessage, selectMessage, loading, isSortingActive])
 
   useEffect(() => {
     syncBulkBatchSizeFromSettings()
@@ -5973,13 +5976,12 @@ export default function EmailInboxBulkView({
                             >
                               ⏹ Stop
                             </button>
-                            <BulkOllamaModelSelect variant="progress" />
                             {aiSortProgress.activeClassifyModel ? (
                               <span
                                 title={
                                   aiSortProgress.activeClassifyProvider &&
                                   aiSortProgress.activeClassifyPreResolveMs != null
-                                    ? `${aiSortProgress.activeClassifyProvider} · ${aiSortProgress.activeClassifyModel} · main preResolve ${aiSortProgress.activeClassifyPreResolveMs}ms`
+                                    ? `${aiSortProgress.activeClassifyProvider} · ${aiSortProgress.activeClassifyModel} · preResolve ${aiSortProgress.activeClassifyPreResolveMs}ms`
                                     : aiSortProgress.activeClassifyModel
                                 }
                                 style={{
@@ -5998,7 +6000,7 @@ export default function EmailInboxBulkView({
                                   verticalAlign: 'middle',
                                 }}
                               >
-                                Active: {aiSortProgress.activeClassifyModel}
+                                {aiSortProgress.activeClassifyModel}
                               </span>
                             ) : null}
                             <label
@@ -6043,7 +6045,7 @@ export default function EmailInboxBulkView({
                           >
                             Per batch (toolbar) = messages per classify request. Ollama parallel (here) = how
                             many local classifies overlap inside that request (ignored for cloud APIs). Both
-                            apply from the next chunk. Model pick uses the same next-chunk rule.
+                            apply from the next chunk.
                           </p>
                         </div>
                       )}

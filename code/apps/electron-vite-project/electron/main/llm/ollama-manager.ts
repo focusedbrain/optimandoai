@@ -487,7 +487,8 @@ export class OllamaManager {
             }
             
             if (json.status === 'success' || json.status?.includes('complete')) {
-              console.log('[Ollama] Model pull completed:', modelId)
+              console.log('[Ollama] Model pull stream completed:', modelId)
+              this.invalidateModelsCache()
               return
             }
           } catch (e) {

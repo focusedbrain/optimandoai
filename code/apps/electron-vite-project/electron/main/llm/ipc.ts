@@ -110,24 +110,59 @@ export function registerLlmHandlers() {
     }
   })
   
-  // Install/pull model
+  // Install/pull model — fire the download, then verify the model exists in Ollama before
+  // declaring success. Sends a terminal 'verified' or 'verification_failed' progress event.
   ipcMain.handle('llm:installModel', async (event: IpcMainInvokeEvent, modelId: string) => {
     try {
-      console.log('[LLM IPC] Installing model:', modelId)
-      
-      // Start async pull with progress updates
+      console.log('[LLM IPC] Install started:', modelId)
+
+      // Run pull — progress events go to renderer in real-time.
+      // pullModel itself invalidates the listModels cache on stream completion (Patch 1).
       ollamaManager.pullModel(modelId, (progress) => {
-        // Send progress updates to renderer
         event.sender.send('llm:installProgress', progress)
-      }).catch((error) => {
+      }).then(async () => {
+        console.log('[LLM IPC] Install stream done, verifying:', modelId)
+
+        // Re-query Ollama to confirm the model is present (cache was cleared by pullModel).
+        let verified = false
+        try {
+          const models = await ollamaManager.listModels()
+          verified = models.some((m) => m.name === modelId)
+          console.log('[LLM IPC] Verification result for', modelId, ':', verified ? 'FOUND' : 'NOT FOUND')
+        } catch (verifyErr: any) {
+          console.error('[LLM IPC] Verification listModels failed:', verifyErr)
+        }
+
+        // Flush the 3-second status cache so the next llm:getStatus returns fresh data.
+        _getStatusCache = null
+        console.log('[LLM IPC] Status cache flushed after install of', modelId)
+
+        // Send terminal progress event.
+        if (verified) {
+          event.sender.send('llm:installProgress', {
+            modelId,
+            status: 'verified',
+            progress: 100,
+          })
+        } else {
+          event.sender.send('llm:installProgress', {
+            modelId,
+            status: 'verification_failed',
+            progress: 0,
+            error: `Model "${modelId}" was not found in Ollama after installation. ` +
+              'It may still be processing — try refreshing the model list.',
+          })
+        }
+      }).catch((error: any) => {
+        console.error('[LLM IPC] Install failed:', modelId, error)
         event.sender.send('llm:installProgress', {
           modelId,
           status: 'error',
           progress: 0,
-          error: error.message
+          error: error.message,
         })
       })
-      
+
       return { ok: true, message: 'Installation started' }
     } catch (error: any) {
       console.error('[LLM IPC] Install model failed:', error)
