@@ -11,6 +11,9 @@
  * 4. No match at all -> Butler response only
  */
 
+// Import canonical provider identity constants
+import { PROVIDER_IDS, toProviderId, toProviderLabel, CLOUD_DEFAULT_MODELS, PROVIDER_API_KEY_NAMES, type ProviderId } from '../constants/providers'
+
 // Import the unified Input Coordinator
 import { InputCoordinator, inputCoordinator } from './InputCoordinator'
 
@@ -247,6 +250,20 @@ export interface RoutingDecision {
   originalInput: string
   inputType: 'text' | 'image' | 'trigger' | 'mixed'
   targetAgentBoxes: AgentBox[]
+}
+
+/**
+ * Enriched input for the current user turn.
+ * Assembled BEFORE routing so OCR-derived text can influence agent matching.
+ */
+export interface EnrichedTurnInput {
+  typedText: string
+  ocrText: string
+  combinedText: string
+  hasImage: boolean
+  imageUrl?: string
+  currentUrl: string
+  source: 'wr_chat' | 'trigger' | 'screenshot'
 }
 
 // Storage key for triggers
@@ -547,11 +564,12 @@ function extractBoxAgentNumber(box: any): number | undefined {
 }
 
 /**
- * Load agent boxes from the current session
+ * Load agent boxes from the current session.
+ * Primary source: SQLite via background (same as loadAgentsFromSession).
+ * Fallback: chrome.storage.local.
  */
 export async function loadAgentBoxesFromSession(): Promise<AgentBox[]> {
   try {
-    // Get session key using async method (more reliable in extension context)
     const sessionKey = await getCurrentSessionKeyAsync()
 
     if (!sessionKey) {
@@ -559,64 +577,103 @@ export async function loadAgentBoxesFromSession(): Promise<AgentBox[]> {
       return []
     }
     
-    console.log('[ProcessFlow] Loading agent boxes from session:', sessionKey)
+    console.log('[ProcessFlow] Loading agent boxes from SQLite session:', sessionKey)
 
     return new Promise((resolve) => {
       try {
-        chrome.storage?.local?.get([sessionKey], (data: any) => {
-          const session = data?.[sessionKey]
-          if (!session) {
-            console.warn('[ProcessFlow] No session data found for key:', sessionKey)
-            resolve([])
+        chrome.runtime?.sendMessage({
+          type: 'GET_SESSION_FROM_SQLITE',
+          sessionKey
+        }, (response) => {
+          if (chrome.runtime.lastError) {
+            console.warn('[ProcessFlow] Error loading boxes from SQLite:', chrome.runtime.lastError.message)
+            loadAgentBoxesFromChromeStorage(sessionKey).then(resolve)
             return
           }
 
-          const agentBoxes: AgentBox[] = session.agentBoxes || []
-          
-          console.log('[ProcessFlow] Found', agentBoxes.length, 'agent boxes in session')
-          
-          // Normalize agent box data and extract agent numbers
-          const normalizedBoxes = agentBoxes.map((box, index) => {
-            const normalized = { ...box }
-            
-            // Ensure boxNumber is set
-            if (normalized.boxNumber === undefined) {
-              normalized.boxNumber = index + 1
-            }
-            
-            // Extract agent number using the comprehensive extractor
-            const extractedAgentNum = extractBoxAgentNumber(box)
-            if (extractedAgentNum !== undefined) {
-              normalized.agentNumber = extractedAgentNum
-            }
-            
-            console.log(`[ProcessFlow] AgentBox ${normalized.boxNumber}:`, {
-              id: normalized.id,
-              title: normalized.title,
-              agentNumber: normalized.agentNumber ?? '(none)',
-              provider: normalized.provider ?? '(none)',
-              model: normalized.model ?? '(none)',
-              enabled: normalized.enabled !== false
-            })
-            
-            return normalized
-          })
-          
-          // Log wiring summary
-          const connectedBoxes = normalizedBoxes.filter(b => b.agentNumber !== undefined)
-          console.log(`[ProcessFlow] AgentBox wiring summary: ${connectedBoxes.length}/${normalizedBoxes.length} boxes connected to agents`)
-          
-          resolve(normalizedBoxes)
+          if (!response?.success || !response?.session) {
+            console.warn('[ProcessFlow] No session in SQLite for boxes, falling back to chrome.storage.local')
+            loadAgentBoxesFromChromeStorage(sessionKey).then(resolve)
+            return
+          }
+
+          const boxes = normalizeAgentBoxes(response.session.agentBoxes || [])
+          console.log('[ProcessFlow] Loaded', boxes.length, 'agent boxes from SQLite')
+          resolve(boxes)
         })
       } catch (e) {
-        console.warn('[ProcessFlow] Failed to load agent boxes:', e)
-        resolve([])
+        console.warn('[ProcessFlow] Failed to load agent boxes from SQLite:', e)
+        loadAgentBoxesFromChromeStorage(sessionKey).then(resolve)
       }
     })
   } catch (e) {
     console.warn('[ProcessFlow] Error in loadAgentBoxesFromSession:', e)
     return []
   }
+}
+
+/**
+ * Fallback: load agent boxes from chrome.storage.local
+ */
+async function loadAgentBoxesFromChromeStorage(sessionKey: string): Promise<AgentBox[]> {
+  return new Promise((resolve) => {
+    chrome.storage?.local?.get([sessionKey], (data: any) => {
+      const session = data?.[sessionKey]
+      if (!session) {
+        console.warn('[ProcessFlow] No session data in chrome.storage for boxes, key:', sessionKey)
+        resolve([])
+        return
+      }
+      const boxes = normalizeAgentBoxes(session.agentBoxes || [])
+      console.log('[ProcessFlow] Loaded', boxes.length, 'agent boxes from chrome.storage (fallback)')
+      resolve(boxes)
+    })
+  })
+}
+
+/**
+ * Normalize agent box data: ensure id, boxNumber, agentNumber are set.
+ * Grid boxes store identity in `identifier` but lack `id` — this bridges the gap.
+ */
+function normalizeAgentBoxes(agentBoxes: any[]): AgentBox[] {
+  const normalizedBoxes = agentBoxes.map((box: any, index: number) => {
+    const normalized = { ...box }
+
+    // Bridge id/identifier: grid boxes have identifier but no id
+    if (!normalized.id && normalized.identifier) {
+      normalized.id = normalized.identifier
+    }
+    if (!normalized.identifier && normalized.id) {
+      normalized.identifier = normalized.id
+    }
+
+    if (normalized.boxNumber === undefined) {
+      normalized.boxNumber = index + 1
+    }
+
+    const extractedAgentNum = extractBoxAgentNumber(box)
+    if (extractedAgentNum !== undefined) {
+      normalized.agentNumber = extractedAgentNum
+    }
+
+    console.log(`[ProcessFlow] AgentBox ${normalized.boxNumber}:`, {
+      id: normalized.id,
+      identifier: normalized.identifier,
+      title: normalized.title,
+      source: normalized.source ?? 'master_tab',
+      agentNumber: normalized.agentNumber ?? '(none)',
+      provider: normalized.provider ?? '(none)',
+      model: normalized.model ?? '(none)',
+      enabled: normalized.enabled !== false
+    })
+
+    return normalized
+  })
+
+  const connectedBoxes = normalizedBoxes.filter((b: any) => b.agentNumber !== undefined)
+  console.log(`[ProcessFlow] AgentBox wiring summary: ${connectedBoxes.length}/${normalizedBoxes.length} boxes connected to agents`)
+
+  return normalizedBoxes
 }
 
 /**
@@ -1132,7 +1189,10 @@ export function wrapInputForAgent(
 }
 
 /**
- * Update agent box output in session storage
+ * Update agent box output in session storage.
+ * Primary: SQLite via background handler (works for both sidepanel and grid boxes).
+ * Fallback: chrome.storage.local.
+ * The background handler also broadcasts UPDATE_AGENT_BOX_OUTPUT to all extension pages.
  */
 export async function updateAgentBoxOutput(
   agentBoxId: string,
@@ -1146,52 +1206,88 @@ export async function updateAgentBoxOutput(
       return false
     }
 
+    let formattedOutput = output
+    if (reasoningContext) {
+      formattedOutput = `📋 **Reasoning Context:**\n${reasoningContext}\n\n---\n\n**Response:**\n${output}`
+    }
+
     return new Promise((resolve) => {
-      chrome.storage?.local?.get([sessionKey], (data: any) => {
-        const session = data?.[sessionKey]
-        if (!session || !session.agentBoxes) {
-          resolve(false)
-          return
-        }
+      try {
+        chrome.runtime?.sendMessage({
+          type: 'UPDATE_BOX_OUTPUT_SQLITE',
+          sessionKey,
+          agentBoxId,
+          output: formattedOutput
+        }, (response) => {
+          if (chrome.runtime.lastError) {
+            console.warn('[ProcessFlow] SQLite output update failed:', chrome.runtime.lastError.message)
+            updateAgentBoxOutputInChromeStorage(sessionKey, agentBoxId, formattedOutput).then(resolve)
+            return
+          }
 
-        // Find and update the agent box
-        const boxIndex = session.agentBoxes.findIndex((b: AgentBox) => b.id === agentBoxId)
-        if (boxIndex === -1) {
-          resolve(false)
-          return
-        }
+          if (!response?.success) {
+            console.warn('[ProcessFlow] SQLite output update returned failure, trying chrome.storage fallback')
+            updateAgentBoxOutputInChromeStorage(sessionKey, agentBoxId, formattedOutput).then(resolve)
+            return
+          }
 
-        // Format output with reasoning context if provided
-        let formattedOutput = output
-        if (reasoningContext) {
-          formattedOutput = `📋 **Reasoning Context:**\n${reasoningContext}\n\n---\n\n**Response:**\n${output}`
-        }
-
-        session.agentBoxes[boxIndex].output = formattedOutput
-        session.agentBoxes[boxIndex].lastUpdated = new Date().toISOString()
-
-        // Save back to storage
-        chrome.storage?.local?.set({ [sessionKey]: session }, () => {
-          console.log('[ProcessFlow] Agent box output updated:', agentBoxId)
-          
-          // Notify sidepanel of update
-          chrome.runtime?.sendMessage({
-            type: 'UPDATE_AGENT_BOX_OUTPUT',
-            data: {
-              agentBoxId,
-              output: formattedOutput,
-              allBoxes: session.agentBoxes
-            }
-          })
-          
+          console.log('[ProcessFlow] Agent box output updated in SQLite:', agentBoxId)
           resolve(true)
         })
-      })
+      } catch (e) {
+        console.warn('[ProcessFlow] Failed to send UPDATE_BOX_OUTPUT_SQLITE:', e)
+        updateAgentBoxOutputInChromeStorage(sessionKey, agentBoxId, formattedOutput).then(resolve)
+      }
     })
   } catch (e) {
     console.error('[ProcessFlow] Failed to update agent box output:', e)
     return false
   }
+}
+
+/**
+ * Fallback: update agent box output in chrome.storage.local
+ */
+async function updateAgentBoxOutputInChromeStorage(
+  sessionKey: string,
+  agentBoxId: string,
+  formattedOutput: string
+): Promise<boolean> {
+  return new Promise((resolve) => {
+    chrome.storage?.local?.get([sessionKey], (data: any) => {
+      const session = data?.[sessionKey]
+      if (!session || !session.agentBoxes) {
+        resolve(false)
+        return
+      }
+
+      const boxIndex = session.agentBoxes.findIndex(
+        (b: any) => b.id === agentBoxId || b.identifier === agentBoxId
+      )
+      if (boxIndex === -1) {
+        resolve(false)
+        return
+      }
+
+      session.agentBoxes[boxIndex].output = formattedOutput
+      session.agentBoxes[boxIndex].lastUpdated = new Date().toISOString()
+
+      chrome.storage?.local?.set({ [sessionKey]: session }, () => {
+        console.log('[ProcessFlow] Agent box output updated in chrome.storage (fallback):', agentBoxId)
+
+        chrome.runtime?.sendMessage({
+          type: 'UPDATE_AGENT_BOX_OUTPUT',
+          data: {
+            agentBoxId,
+            output: formattedOutput,
+            allBoxes: session.agentBoxes
+          }
+        })
+
+        resolve(true)
+      })
+    })
+  })
 }
 
 /**
@@ -1202,44 +1298,149 @@ export async function getAgentById(agentId: string): Promise<AgentConfig | null>
   return agents.find(a => a.id === agentId) || null
 }
 
+export type BrainResolution =
+  | { ok: true; model: string; isLocal: boolean; provider: string; note?: string }
+  | { ok: false; model: string; isLocal: boolean; provider: string; error: string; errorType: BrainErrorType }
+
+export type BrainErrorType =
+  | 'no_provider'
+  | 'no_model'
+  | 'no_api_key'
+  | 'cloud_not_implemented'
+  | 'unknown_provider'
+
 /**
- * Check if a model is available for use
- * For now, only local Ollama models are supported
- * Returns the model to use (agentBoxModel if local, or fallback)
+ * Resolve which model to use for an agent's LLM call.
+ * Uses canonical ProviderId constants — handles both normalized IDs
+ * and legacy UI labels (e.g. 'Local AI') via toProviderId().
+ * 
+ * Returns a typed BrainResolution: ok:true with the model to use,
+ * or ok:false with a user-visible error and errorType.
+ * Never silently falls back to a different model.
  */
 export function resolveModelForAgent(
   agentBoxProvider?: string,
   agentBoxModel?: string,
   fallbackModel?: string
-): { model: string; isLocal: boolean; note?: string } {
-  // If no agent box model configured, use fallback
-  if (!agentBoxProvider || !agentBoxModel) {
-    return { 
-      model: fallbackModel || '', 
+): BrainResolution {
+  const providerId = toProviderId(agentBoxProvider || '');
+
+  if (!agentBoxProvider && !agentBoxModel) {
+    return {
+      ok: true,
+      model: fallbackModel || '',
       isLocal: true,
-      note: 'Using default local model'
+      provider: PROVIDER_IDS.OLLAMA,
+      note: 'No provider/model configured — using default local model'
     }
   }
-  
-  // For now, only local Ollama models are supported
-  // In the future, this will check API availability
-  const localProviders = ['ollama', 'local', '']
-  const isLocal = localProviders.includes(agentBoxProvider.toLowerCase())
-  
-  if (isLocal) {
-    // Use the configured local model if it's an Ollama model
-    return { 
-      model: agentBoxModel, 
+
+  if (!agentBoxModel) {
+    return {
+      ok: true,
+      model: fallbackModel || '',
       isLocal: true,
-      note: `Using local model: ${agentBoxModel}`
+      provider: PROVIDER_IDS.OLLAMA,
+      note: 'No model configured — using default local model'
     }
   }
-  
-  // External API providers (OpenAI, Claude, etc.) - not yet supported
-  // Fall back to local model
-  return { 
-    model: fallbackModel || '', 
-    isLocal: true,
-    note: `${agentBoxProvider} API not yet connected - using local model`
+
+  switch (providerId) {
+    case PROVIDER_IDS.OLLAMA:
+    case '':
+      return {
+        ok: true,
+        model: agentBoxModel,
+        isLocal: true,
+        provider: PROVIDER_IDS.OLLAMA,
+        note: `Using local model: ${agentBoxModel}`
+      }
+
+    case PROVIDER_IDS.OPENAI:
+    case PROVIDER_IDS.ANTHROPIC:
+    case PROVIDER_IDS.GEMINI:
+    case PROVIDER_IDS.GROK: {
+      const cloudModel = (!agentBoxModel || agentBoxModel === 'auto')
+        ? (CLOUD_DEFAULT_MODELS[providerId as ProviderId] || agentBoxModel || 'auto')
+        : agentBoxModel
+      return {
+        ok: true,
+        model: cloudModel,
+        isLocal: false,
+        provider: providerId,
+        note: `Cloud provider: ${toProviderLabel(providerId)} / ${cloudModel}`
+      }
+    }
+
+    case PROVIDER_IDS.IMAGE_AI:
+      return {
+        ok: false,
+        model: fallbackModel || '',
+        isLocal: true,
+        provider: providerId,
+        error: 'Image AI is for image generation, not text chat. Select a different provider (Local AI, OpenAI, Claude, Gemini, or Grok) for this Agent Box.',
+        errorType: 'cloud_not_implemented'
+      }
+
+    default:
+      return {
+        ok: false,
+        model: fallbackModel || '',
+        isLocal: true,
+        provider: agentBoxProvider || '',
+        error: `Unknown provider "${agentBoxProvider}". Check your Agent Box configuration.`,
+        errorType: 'unknown_provider'
+      }
   }
+}
+
+/**
+ * Read a cloud provider's API key from chrome.storage.local.
+ * Keys are synced there by the settings overlay in content-script.tsx.
+ */
+export function getCloudApiKey(provider: string): Promise<string | null> {
+  return new Promise((resolve) => {
+    const storageKeyName = PROVIDER_API_KEY_NAMES[provider as ProviderId] || provider
+    chrome.storage?.local?.get(['optimando-cloud-api-keys'], (data: any) => {
+      const keys = data?.['optimando-cloud-api-keys'] || {}
+      const apiKey = keys[storageKeyName]
+      resolve(apiKey && apiKey.trim() ? apiKey.trim() : null)
+    })
+  })
+}
+
+export type LlmRequestBody = {
+  modelId: string
+  messages: Array<{ role: string; content: string }>
+  provider?: string
+  apiKey?: string
+}
+
+/**
+ * Build the JSON body for a /api/llm/chat request.
+ * For cloud providers, reads the API key from storage and includes provider + apiKey.
+ * Returns an error string if a cloud key is required but missing.
+ */
+export async function buildLlmRequestBody(
+  modelResolution: BrainResolution & { ok: true },
+  messages: Array<{ role: string; content: string }>
+): Promise<{ body: LlmRequestBody; error?: string }> {
+  const body: LlmRequestBody = { modelId: modelResolution.model, messages }
+
+  if (modelResolution.isLocal) {
+    return { body }
+  }
+
+  const apiKey = await getCloudApiKey(modelResolution.provider)
+  if (!apiKey) {
+    const label = toProviderLabel(modelResolution.provider)
+    return {
+      body,
+      error: `No API key found for ${label}. Add your ${label} API key in Settings → API Keys, then try again.`
+    }
+  }
+
+  body.provider = modelResolution.provider
+  body.apiKey = apiKey
+  return { body }
 }

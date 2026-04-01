@@ -4380,6 +4380,82 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       
       return true  // Keep message channel open for async response
     }
+
+    case 'UPDATE_BOX_OUTPUT_SQLITE': {
+      console.log('📥 BG: UPDATE_BOX_OUTPUT_SQLITE for box:', msg.agentBoxId)
+      
+      if (!msg.sessionKey || !msg.agentBoxId || msg.output === undefined) {
+        console.error('❌ BG: Missing required data for UPDATE_BOX_OUTPUT_SQLITE')
+        try { sendResponse({ success: false, error: 'Missing required data' }) } catch (e) {
+          console.error('❌ BG: Failed to send error response:', e)
+        }
+        return true
+      }
+      
+      fetch(`http://127.0.0.1:51248/api/orchestrator/get?key=${encodeURIComponent(msg.sessionKey)}`, { headers: _electronHeaders() })
+        .then(response => {
+          if (!response.ok) throw new Error(`HTTP ${response.status}`)
+          return response.json()
+        })
+        .then((result: any) => {
+          const session = result.data || {}
+          if (!session.agentBoxes || !Array.isArray(session.agentBoxes)) {
+            throw new Error('No agentBoxes array in session')
+          }
+          
+          // Match by id OR identifier (sidepanel boxes use id, grid boxes use identifier)
+          const boxIndex = session.agentBoxes.findIndex(
+            (b: any) => b.id === msg.agentBoxId || b.identifier === msg.agentBoxId
+          )
+          
+          if (boxIndex === -1) {
+            console.warn('⚠️ BG: Box not found for output update:', msg.agentBoxId)
+            console.warn('⚠️ BG: Available boxes:', session.agentBoxes.map((b: any) => ({ id: b.id, identifier: b.identifier })))
+            throw new Error('Box not found: ' + msg.agentBoxId)
+          }
+          
+          session.agentBoxes[boxIndex].output = msg.output
+          session.agentBoxes[boxIndex].lastUpdated = new Date().toISOString()
+          
+          console.log('📝 BG: Updating output for box:', session.agentBoxes[boxIndex].identifier || session.agentBoxes[boxIndex].id)
+          
+          return fetch('http://127.0.0.1:51248/api/orchestrator/set', {
+            method: 'POST',
+            headers: _electronHeaders(),
+            body: JSON.stringify({ key: msg.sessionKey, value: session })
+          }).then(saveResponse => {
+            if (!saveResponse.ok) throw new Error(`Save HTTP ${saveResponse.status}`)
+            return session
+          })
+        })
+        .then((session: any) => {
+          console.log('✅ BG: Box output saved to SQLite')
+          
+          // Broadcast UPDATE_AGENT_BOX_OUTPUT to all extension pages (sidepanel + grid pages)
+          chrome.runtime.sendMessage({
+            type: 'UPDATE_AGENT_BOX_OUTPUT',
+            data: {
+              agentBoxId: msg.agentBoxId,
+              output: msg.output,
+              allBoxes: session.agentBoxes
+            }
+          }).catch(() => {
+            // Ignore errors from no listeners
+          })
+          
+          try { sendResponse({ success: true }) } catch (e) {
+            console.error('❌ BG: Failed to send success response:', e)
+          }
+        })
+        .catch((error: any) => {
+          console.error('❌ BG: Error in UPDATE_BOX_OUTPUT_SQLITE:', error.message)
+          try { sendResponse({ success: false, error: String(error) }) } catch (e) {
+            console.error('❌ BG: Failed to send error response:', e)
+          }
+        })
+      
+      return true
+    }
   }
   
   return true;

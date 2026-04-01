@@ -288,7 +288,16 @@ function createSlots(slotCount, savedSlots) {
             background: ${slotBg} !important; 
             min-height: 0;
         `;
-        content.innerHTML = `<div style="opacity: 0.6;">${savedAgent ? 'Configured ✓' : 'Click ✏️ to configure'}</div>`;
+        // Show existing output if available, otherwise show status
+        if (saved.output) {
+            content.style.alignItems = 'flex-start';
+            content.style.justifyContent = 'flex-start';
+            content.style.overflow = 'auto';
+            const escaped = saved.output.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            content.innerHTML = `<div style="white-space: pre-wrap; word-break: break-word; width: 100%; font-size: 13px; line-height: 1.5;">${escaped}</div>`;
+        } else {
+            content.innerHTML = `<div style="opacity: 0.6;">${savedAgent ? 'Configured ✓' : 'Click ✏️ to configure'}</div>`;
+        }
         
         slot.appendChild(header);
         slot.appendChild(content);

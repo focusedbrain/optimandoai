@@ -1,4 +1,6 @@
 import './agent-manager-v2'
+import { fetchInstalledLocalModelNames, escapeHtmlAttr } from './services/localOllamaModels'
+import { toProviderId, toProviderLabel } from './constants/providers'
 import { initAutofill, teardownAutofill } from './vault/autofill'
 import { handleWebMcpFillPreviewRequest } from './vault/autofill/webMcpAdapter'
 
@@ -20,12 +22,12 @@ if (!_isExtensionPage) {
       }, { once: true })
     }
   } catch {
-    // Autofill init failed &rdquo;” extension continues to work normally
+    // Autofill init failed — extension continues to work normally
   }
 }
 
 // ─── Unified Content-Script Theme Helper ─────────────────────────────────────
-// Exact WRVault palette &rdquo;” single source of truth for all vanilla-JS lightboxes.
+// Exact WRVault palette — single source of truth for all vanilla-JS lightboxes.
 // Contrast rule: light bg → dark text (#0f1419), dark bg → light text (#f3f0ff / #e7e9ea).
 function csTheme() {
   let t: 'pro' | 'dark' | 'standard' = 'pro'
@@ -36,7 +38,7 @@ function csTheme() {
     else t = 'pro'
   } catch { /* ignore */ }
 
-  // ── Dark: deep slate &rdquo;” WRVault Dark (#0f172a → #1e293b) ──
+  // ── Dark: deep slate — WRVault Dark (#0f172a → #1e293b) ──
   if (t === 'dark') return {
     panelBg:      'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)',
     headerGrad:   'rgba(30,41,59,0.8)',
@@ -55,7 +57,7 @@ function csTheme() {
     successText:  '#4ade80', errorText: '#f87171', warnText: '#fbbf24', infoText: '#a5b4fc',
     isLight:      false,
   }
-  // ── Standard: light &rdquo;” WRVault Standard (#f8f9fb / dark text) ──
+  // ── Standard: light — WRVault Standard (#f8f9fb / dark text) ──
   if (t === 'standard') return {
     panelBg:      '#f8f9fb',
     headerGrad:   '#ffffff',
@@ -74,7 +76,7 @@ function csTheme() {
     successText:  '#166534', errorText: '#991b1b', warnText: '#92400e', infoText: '#3730a3',
     isLight:      true,
   }
-  // ── Pro (default): vivid purple &rdquo;” WRVault Pro (#1e1040 → #2d1b69) ──
+  // ── Pro (default): vivid purple — WRVault Pro (#1e1040 → #2d1b69) ──
   return {
     panelBg:      'linear-gradient(135deg, #1e1040 0%, #2d1b69 50%, #1a0e3a 100%)',
     headerGrad:   'rgba(168,85,247,0.12)',
@@ -92,6 +94,41 @@ function csTheme() {
     shadow:       '0 20px 60px rgba(30,10,60,0.6)',
     successText:  '#4ade80', errorText: '#ff6b6b', warnText: '#fbbf24', infoText: '#a5b4fc',
     isLight:      false,
+  }
+}
+
+/** Section chrome for AI Instructions (Listener / Reasoning / Execution): fixes light-theme contrast vs hardcoded #fff. */
+function csAgentFormUi() {
+  const t = csTheme()
+  if (t.isLight) {
+    return {
+      card: `background:${t.cardBg};border:1px solid ${t.border};color:${t.text}`,
+      label: `color:${t.text}`,
+      help: `font-size:11px;opacity:0.95;cursor:help;background:rgba(99,102,241,0.12);border:1px solid rgba(99,102,241,0.28);color:${t.muted};padding:0 5px;border-radius:50%;margin-left:4px`,
+      capLabel: `display:flex;align-items:center;gap:6px;color:${t.text};font-weight:600`,
+      wrap: `background:${t.cardBg};padding:12px;border-radius:10px;border:1px solid ${t.border};color:${t.text}`,
+      innerWell: `border:1px solid ${t.border};border-radius:8px;padding:12px;background:#ffffff`,
+      innerWellMuted: `border:1px solid ${t.border};border-radius:8px;padding:12px;background:rgba(15,20,25,0.04)`,
+      heading: t.text,
+      muted: t.muted,
+      helpLg: `font-size:12px;opacity:0.95;cursor:help;background:rgba(99,102,241,0.12);border:1px solid rgba(99,102,241,0.28);padding:0 6px;border-radius:50%;color:${t.muted}`,
+      btnGhost: `background:rgba(99,102,241,0.12);border:1px solid rgba(99,102,241,0.35);color:${t.text}`,
+      btnGhostBlue: `background:rgba(59,130,246,0.18);border:1px solid rgba(59,130,246,0.45);color:#1e3a8a`,
+    }
+  }
+  return {
+    card: `background:rgba(255,255,255,0.08);border:1px solid ${t.border};color:${t.text}`,
+    label: `color:${t.text}`,
+    help: `font-size:11px;opacity:0.9;cursor:help;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.35);padding:0 5px;border-radius:50%;margin-left:4px`,
+    capLabel: `display:flex;align-items:center;gap:6px;color:${t.text};font-weight:600`,
+    wrap: `background:rgba(255,255,255,0.08);padding:12px;border-radius:10px;border:1px solid ${t.border};color:${t.text}`,
+    innerWell: `border:1px solid rgba(255,255,255,.25);border-radius:8px;padding:12px;background:rgba(255,255,255,0.04)`,
+    innerWellMuted: `border:1px solid rgba(255,255,255,.25);border-radius:8px;padding:12px;background:rgba(255,255,255,0.03)`,
+    heading: '#ffffff',
+    muted: 'rgba(255,255,255,0.88)',
+    helpLg: `font-size:12px;opacity:0.9;cursor:help;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.35);padding:0 6px;border-radius:50%`,
+    btnGhost: `background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.35);color:#fff`,
+    btnGhostBlue: `background:rgba(96,165,250,.3);border:1px solid rgba(96,165,250,.5);color:#fff`,
   }
 }
 // ─────────────────────────────────────────────────────────────────────────────
@@ -4182,7 +4219,7 @@ function initializeExtension() {
 
             <div style="font-size: 32px; margin-bottom: 8px;">${a.icon || '🤖'}</div>
 
-            <h4 style="margin: 0 0 8px 0; font-size: 12px; color: ${csTheme().text}; font-weight: bold;">Agent ${num} &rdquo;” ${a.name || 'Agent'}</h4>
+            <h4 style="margin: 0 0 8px 0; font-size: 12px; color: ${csTheme().text}; font-weight: bold;">Agent ${num} — ${a.name || 'Agent'}</h4>
 
               <button class="agent-toggle" data-agent-key="${a.key}" style="padding: 4px 8px; background: ${a.enabled ? '#16a34a' : (csTheme().isLight ? '#dc2626' : '#f87171')}; border: none; color: #fff; border-radius: 3px; cursor: pointer; font-size: 9px; margin-bottom: 4px;">${a.enabled ? 'ON' : 'OFF'}</button>
 
@@ -6018,8 +6055,6 @@ function initializeExtension() {
 
         case 'grok': return ['auto', 'grok-2-mini', 'grok-2']
 
-        case 'local ai': return ['auto', 'tinyllama', 'tinydolphin', 'stablelm2:1.6b', 'stablelm-zephyr:3b', 'phi3:mini', 'gemma:2b', 'phi:2.7b', 'orca-mini', 'qwen2.5-coder:1.5b', 'deepseek-r1:1.5b', 'mistral:7b-instruct-q4_0', 'llama3.2', 'qwen2.5-coder:7b']
-
         case 'image ai': return ['Nano Banana Pro', 'DALL·E 3', 'DALL·E 2', 'Flux Schnell', 'Flux Dev', 'SDXL', 'SD3 Medium', 'Stable Diffusion XL']
 
         default: return ['auto']
@@ -6032,7 +6067,7 @@ function initializeExtension() {
 
     const modelSelect = overlay.querySelector('#agent-model') as HTMLSelectElement | null
 
-    const refreshModels = () => {
+    const refreshModels = async () => {
 
       if (!modelSelect) return
 
@@ -6048,9 +6083,57 @@ function initializeExtension() {
 
       }
 
+      const p = provider.toLowerCase()
+
+      if (p === 'local ai' || p === 'ollama') {
+
+        modelSelect.innerHTML = '<option value="">Loading installed models…</option>'
+
+        modelSelect.disabled = true
+
+        const r = await fetchInstalledLocalModelNames()
+
+        modelSelect.disabled = false
+
+        if (!r.ok) {
+
+          modelSelect.innerHTML = `<option value="">${escapeHtmlAttr(r.error || 'Could not load local models')}</option>`
+
+          return
+
+        }
+
+        if (!r.ollamaRunning || r.names.length === 0) {
+
+          modelSelect.innerHTML =
+
+            '<option value="">No local models installed (use LLM Settings in the app)</option>' +
+
+            '<option value="auto">auto</option>'
+
+          modelSelect.value = 'auto'
+
+          return
+
+        }
+
+        const opts = ['<option value="auto">auto</option>'].concat(
+
+          r.names.map((n) => `<option value="${escapeHtmlAttr(n)}">${escapeHtmlAttr(n)}</option>`),
+
+        )
+
+        modelSelect.innerHTML = opts.join('')
+
+        modelSelect.value = r.names[0]
+
+        return
+
+      }
+
       const models = getPlaceholderModels(provider)
 
-      modelSelect.innerHTML = models.map(m => `<option value="${m}">${m}</option>`).join('')
+      modelSelect.innerHTML = models.map((m) => `<option value="${escapeHtmlAttr(m)}">${escapeHtmlAttr(m)}</option>`).join('')
 
       modelSelect.disabled = false
 
@@ -6058,7 +6141,13 @@ function initializeExtension() {
 
     }
 
-    providerSelect?.addEventListener('change', refreshModels)
+    providerSelect?.addEventListener('change', () => {
+
+      void refreshModels()
+
+    })
+
+    void refreshModels()
 
     
 
@@ -6194,7 +6283,8 @@ function initializeExtension() {
 
         const title = titleInput.value.trim() || `Agent Box ${String(boxNumber).padStart(2, '0')}`
 
-      const provider = providerInput?.value || ''
+      const providerRaw = providerInput?.value || ''
+      const provider = toProviderId(providerRaw) || providerRaw
 
       const model = modelInput?.value || 'auto'
 
@@ -6586,17 +6676,17 @@ function initializeExtension() {
 
               <option value="" ${!agentBox.provider ? 'selected' : ''} disabled>Select LLM</option>
 
-              <option value="OpenAI" ${agentBox.provider === 'OpenAI' ? 'selected' : ''}>OpenAI</option>
+              <option value="OpenAI" ${toProviderLabel(agentBox.provider || '') === 'OpenAI' ? 'selected' : ''}>OpenAI</option>
 
-              <option value="Claude" ${agentBox.provider === 'Claude' ? 'selected' : ''}>Claude</option>
+              <option value="Claude" ${toProviderLabel(agentBox.provider || '') === 'Claude' ? 'selected' : ''}>Claude</option>
 
-              <option value="Gemini" ${agentBox.provider === 'Gemini' ? 'selected' : ''}>Gemini</option>
+              <option value="Gemini" ${toProviderLabel(agentBox.provider || '') === 'Gemini' ? 'selected' : ''}>Gemini</option>
 
-              <option value="Grok" ${agentBox.provider === 'Grok' ? 'selected' : ''}>Grok</option>
+              <option value="Grok" ${toProviderLabel(agentBox.provider || '') === 'Grok' ? 'selected' : ''}>Grok</option>
 
-              <option value="Local AI" ${agentBox.provider === 'Local AI' ? 'selected' : ''}>Local AI</option>
+              <option value="Local AI" ${toProviderLabel(agentBox.provider || '') === 'Local AI' ? 'selected' : ''}>Local AI</option>
 
-              <option value="Image AI" ${agentBox.provider === 'Image AI' ? 'selected' : ''}>☁️ Image AI</option>
+              <option value="Image AI" ${toProviderLabel(agentBox.provider || '') === 'Image AI' ? 'selected' : ''}>☁️ Image AI</option>
 
             </select>
 
@@ -6712,8 +6802,6 @@ function initializeExtension() {
 
         case 'grok': return ['auto', 'grok-2-mini', 'grok-2']
 
-        case 'local ai': return ['auto', 'tinyllama', 'tinydolphin', 'stablelm2:1.6b', 'stablelm-zephyr:3b', 'phi3:mini', 'gemma:2b', 'phi:2.7b', 'orca-mini', 'qwen2.5-coder:1.5b', 'deepseek-r1:1.5b', 'mistral:7b-instruct-q4_0', 'llama3.2', 'qwen2.5-coder:7b']
-
         case 'image ai': return ['Nano Banana Pro', 'DALL·E 3', 'DALL·E 2', 'Flux Schnell', 'Flux Dev', 'SDXL', 'SD3 Medium', 'Stable Diffusion XL']
 
         default: return ['auto']
@@ -6726,7 +6814,7 @@ function initializeExtension() {
 
     const modelSelect = overlay.querySelector('#edit-agent-model') as HTMLSelectElement | null
 
-    const refreshModels = () => {
+    const refreshModels = async () => {
 
       if (!modelSelect) return
 
@@ -6742,9 +6830,63 @@ function initializeExtension() {
 
       }
 
+      const p = provider.toLowerCase()
+
+      if (p === 'local ai' || p === 'ollama') {
+
+        modelSelect.innerHTML = '<option value="">Loading installed models…</option>'
+
+        modelSelect.disabled = true
+
+        const r = await fetchInstalledLocalModelNames()
+
+        modelSelect.disabled = false
+
+        if (!r.ok) {
+
+          modelSelect.innerHTML = `<option value="">${escapeHtmlAttr(r.error || 'Could not load local models')}</option>`
+
+          return
+
+        }
+
+        const names = r.names || []
+
+        const allChoices = ['auto', ...names]
+
+        if (!r.ollamaRunning || names.length === 0) {
+
+          modelSelect.innerHTML =
+
+            '<option value="">No local models installed (use LLM Settings in the app)</option>' +
+
+            '<option value="auto">auto</option>'
+
+          modelSelect.value = 'auto'
+
+          return
+
+        }
+
+        modelSelect.innerHTML = ['<option value="auto">auto</option>']
+
+          .concat(names.map((n) => `<option value="${escapeHtmlAttr(n)}">${escapeHtmlAttr(n)}</option>`))
+
+          .join('')
+
+        const preferred =
+
+          agentBox.model && allChoices.includes(agentBox.model) ? agentBox.model : names[0]
+
+        modelSelect.value = preferred
+
+        return
+
+      }
+
       const models = getPlaceholderModels(provider)
 
-      modelSelect.innerHTML = models.map(m => `<option value="${m}">${m}</option>`).join('')
+      modelSelect.innerHTML = models.map((m) => `<option value="${escapeHtmlAttr(m)}">${escapeHtmlAttr(m)}</option>`).join('')
 
       modelSelect.disabled = false
 
@@ -6754,9 +6896,13 @@ function initializeExtension() {
 
     }
 
-    refreshModels()
+    void refreshModels()
 
-    providerSelect?.addEventListener('change', refreshModels)
+    providerSelect?.addEventListener('change', () => {
+
+      void refreshModels()
+
+    })
 
     
 
@@ -6922,7 +7068,8 @@ function initializeExtension() {
 
       const title = titleInput.value.trim() || agentBox.title
 
-      const provider = providerInput?.value || agentBox.provider || 'OpenAI'
+      const providerRaw = providerInput?.value || agentBox.provider || 'OpenAI'
+      const provider = toProviderId(providerRaw) || providerRaw
 
       const model = modelInput?.value || agentBox.model || 'auto'
 
@@ -9405,7 +9552,7 @@ function initializeExtension() {
 
                 <div><strong>Detected Intent:</strong> Compare product prices and find best value</div>
 
-                <div style="opacity:0.8;">Confidence: 72% &rdquo;¢ Updated: just now</div>
+                <div style="opacity:0.8;">Confidence: 72% • Updated: just now</div>
 
               </div>
 
@@ -9435,7 +9582,7 @@ function initializeExtension() {
 
               <div id="orchestration-log" style="background: rgba(0,0,0,0.3); padding: 8px; border-radius: 6px; font-size: 10px; height: 120px; overflow-y: auto; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;">
 
-                [System] Orchestrator idle. Awaiting actions&rdquo;¦
+                [System] Orchestrator idle. Awaiting actions…
 
               </div>
 
@@ -10573,7 +10720,7 @@ function initializeExtension() {
 
             passiveTriggers.forEach((trigger: any) => {
 
-              text += `    &rdquo;¢ ${trigger.tag?.name || 'unnamed'} [${trigger.tag?.kind || 'OTHER'}]\n`
+              text += `    • ${trigger.tag?.name || 'unnamed'} [${trigger.tag?.kind || 'OTHER'}]\n`
 
             })
 
@@ -10601,7 +10748,7 @@ function initializeExtension() {
 
             activeTriggers.forEach((trigger: any) => {
 
-              text += `    &rdquo;¢ ${trigger.tag?.name || 'unnamed'} [${trigger.tag?.kind || 'OTHER'}]\n`
+              text += `    • ${trigger.tag?.name || 'unnamed'} [${trigger.tag?.kind || 'OTHER'}]\n`
 
             })
 
@@ -10627,7 +10774,7 @@ function initializeExtension() {
 
           exampleFiles.forEach((file: any) => {
 
-            text += `    &rdquo;¢ ${file.name || 'unnamed'} (${(file.size / 1024).toFixed(1)} KB)\n`
+            text += `    • ${file.name || 'unnamed'} (${(file.size / 1024).toFixed(1)} KB)\n`
 
           })
 
@@ -10839,7 +10986,7 @@ function initializeExtension() {
 
         agentContextFiles.forEach((file: any) => {
 
-          text += `    &rdquo;¢ ${file.name || 'unnamed'} (${(file.size / 1024).toFixed(1)} KB)\n`
+          text += `    • ${file.name || 'unnamed'} (${(file.size / 1024).toFixed(1)} KB)\n`
 
         })
 
@@ -10970,13 +11117,13 @@ function initializeExtension() {
       const labels: Record<string, string> = {
         'agentBox': 'Agent Boxes (Default)',
         'agent': 'Specific Agent(s)',
-        'clip-summary': 'Clipboard &rdquo;“ Summary',
-        'clip-screenshot': 'Clipboard &rdquo;“ Screenshot',
-        'pdf-summary': 'PDF &rdquo;“ Summary',
-        'pdf-screenshot': 'PDF &rdquo;“ Screenshot',
-        'pdf-both': 'PDF &rdquo;“ Summary + Screenshot',
-        'image-screenshot': 'Image &rdquo;“ Screenshot (PNG/WebP)',
-        'chat-inline-summary': 'Chat Inline &rdquo;“ Summary'
+        'clip-summary': 'Clipboard → Summary',
+        'clip-screenshot': 'Clipboard → Screenshot',
+        'pdf-summary': 'PDF → Summary',
+        'pdf-screenshot': 'PDF → Screenshot',
+        'pdf-both': 'PDF → Summary + Screenshot',
+        'image-screenshot': 'Image → Screenshot (PNG/WebP)',
+        'chat-inline-summary': 'Chat Inline → Summary'
       }
       return labels[kind] || kind
     }
@@ -10992,12 +11139,12 @@ function initializeExtension() {
     text += 'OUTPUT ROUTING RULES\n'
     text += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n'
     text += 'Agent → AgentBox Connection:\n'
-    text += '  &rdquo;¢ Agent Number must match AgentBox.agentNumber\n'
-    text += '  &rdquo;¢ AgentBox must be enabled (enabled !== false)\n'
-    text += '  &rdquo;¢ Output displays in the connected AgentBox\n\n'
+    text += '  • Agent Number must match AgentBox.agentNumber\n'
+    text += '  • AgentBox must be enabled (enabled !== false)\n'
+    text += '  • Output displays in the connected AgentBox\n\n'
     text += 'LLM Model Selection:\n'
-    text += '  &rdquo;¢ If AgentBox has provider/model set → Use that model\n'
-    text += '  &rdquo;¢ Otherwise → Use default local model (Ollama)\n'
+    text += '  • If AgentBox has provider/model set → Use that model\n'
+    text += '  • Otherwise → Use default local model (Ollama)\n'
     text += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n'
 
     
@@ -11371,7 +11518,7 @@ function initializeExtension() {
 
 
 
-    // Show default 01&rdquo;“05 for a fresh lightbox; session will override below
+    // Show default 01→05 for a fresh lightbox; session will override below
 
     const nSummarize = '01'
 
@@ -11809,7 +11956,7 @@ function initializeExtension() {
 
           const num = map && map[key] ? String(map[key]).padStart(2, '0') : '01'
 
-          if (h4) h4.textContent = `Agent ${num} &rdquo;” ${label}`
+          if (h4) h4.textContent = `Agent ${num} — ${label}`
 
         })
 
@@ -13115,6 +13262,8 @@ function initializeExtension() {
 
     const storageKey = `agent_${agentName}_${type}`
 
+    const afUi = csAgentFormUi()
+
     let content = ''
 
     if (type === 'instructions') {
@@ -13127,16 +13276,16 @@ function initializeExtension() {
 
           <!-- Name/Identifier -->
 
-          <div style="background:rgba(255,255,255,0.08);padding:12px;border-radius:8px;display:grid;gap:8px;grid-template-columns:1fr 140px;align-items:center;">
+          <div style="${afUi.card};padding:12px;border-radius:8px;display:grid;gap:8px;grid-template-columns:1fr 140px;align-items:center;">
 
-            <label>Name (Command Identifier)
-              <span title="The command identifier used to reference this agent. Used in triggers like @agent-name or #agent-name. Should be lowercase with hyphens." style="font-size:11px;opacity:0.9;cursor:help;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.35);padding:0 5px;border-radius:50%;margin-left:4px">?</span>
+            <label style="${afUi.label};display:block;font-weight:600">Name (Command Identifier)
+              <span title="The command identifier used to reference this agent. Used in triggers like @agent-name or #agent-name. Should be lowercase with hyphens." style="${afUi.help}">?</span>
 
               <input id="ag-name" value="${(agentName||'').toString()}" style="width:100%;background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:8px;border-radius:6px">
 
             </label>
 
-            <label>Icon
+            <label style="${afUi.label};display:block;font-weight:600">Icon
 
               <input id="ag-icon" value="🤖" style="width:100%;background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:8px;border-radius:6px">
 
@@ -13146,10 +13295,10 @@ function initializeExtension() {
 
           <!-- Description -->
 
-          <div style="background:rgba(255,255,255,0.08);padding:12px;border-radius:8px;">
+          <div style="${afUi.card};padding:12px;border-radius:8px;">
 
-            <label>Description
-              <span title="A human-readable description of what this agent does, its purpose, and how it should be used. This helps other users and systems understand the agent's role." style="font-size:11px;opacity:0.9;cursor:help;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.35);padding:0 5px;border-radius:50%;margin-left:4px">?</span>
+            <label style="${afUi.label};display:block;font-weight:600">Description
+              <span title="A human-readable description of what this agent does, its purpose, and how it should be used. This helps other users and systems understand the agent's role." style="${afUi.help}">?</span>
 
               <textarea id="ag-description" placeholder="Describe what this agent does..." style="width:100%;min-height:60px;background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:8px;border-radius:6px;resize:vertical;font-family:inherit"></textarea>
 
@@ -13159,13 +13308,13 @@ function initializeExtension() {
 
           <!-- Capability toggles -->
 
-          <div style="background:rgba(255,255,255,0.08);padding:10px;border-radius:8px;display:flex;gap:14px;align-items:center;">
+          <div style="${afUi.card};padding:10px;border-radius:8px;display:flex;gap:14px;align-items:center;flex-wrap:wrap;">
 
-            <label style="display:flex;align-items:center;gap:6px"><input id="cap-listening" type="checkbox"> Listener</label>
+            <label style="${afUi.capLabel}"><input id="cap-listening" type="checkbox"> Listener</label>
 
-            <label style="display:flex;align-items:center;gap:6px"><input id="cap-reasoning" type="checkbox"> Reasoning</label>
+            <label style="${afUi.capLabel}"><input id="cap-reasoning" type="checkbox"> Reasoning</label>
 
-            <label style="display:flex;align-items:center;gap:6px"><input id="cap-execution" type="checkbox"> Execution</label>
+            <label style="${afUi.capLabel}"><input id="cap-execution" type="checkbox"> Execution</label>
 
           </div>
 
@@ -13401,7 +13550,7 @@ function initializeExtension() {
 
         sel.className = cls
 
-        sel.style.cssText = 'width:100%;background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:6px;border-radius:6px'
+        sel.style.cssText = `width:100%;background:${csTheme().inputBg};color:${csTheme().inputText};border:1px solid ${csTheme().border};padding:6px;border-radius:6px`
 
         options.forEach(o => { const opt = document.createElement('option'); opt.value = o.value; opt.textContent = o.label; sel.appendChild(opt) })
 
@@ -15401,19 +15550,19 @@ function initializeExtension() {
 
           wrap.id = 'box-listening'
 
-          wrap.style.cssText = `background:rgba(255,255,255,0.08);padding:12px;border-radius:10px;border:1px solid ${csTheme().border};color:#fff;display:${capL.checked ? 'block' : 'none'}`
+          wrap.style.cssText = `${afUi.wrap};display:${capL.checked ? 'block' : 'none'}`
 
           wrap.innerHTML = `
 
-            <div style="font-weight:700;margin-bottom:10px">Listener</div>
+            <div style="font-weight:700;margin-bottom:10px;color:${afUi.heading}">Listener</div>
 
             <!-- Unified Triggers Section -->
-            <div id="L-triggers-section" style="border:1px solid rgba(255,255,255,.25);border-radius:8px;padding:12px;background:rgba(255,255,255,0.04);margin-bottom:10px">
-              <div style="font-weight:700;margin-bottom:8px;color:#fff;display:flex;align-items:center;gap:8px">
+            <div id="L-triggers-section" style="${afUi.innerWell};margin-bottom:10px">
+              <div style="font-weight:700;margin-bottom:8px;color:${afUi.heading};display:flex;align-items:center;gap:8px">
                 Triggers
-                <span title="Define how this agent can be activated. Each trigger type offers different activation methods." style="font-size:12px;opacity:0.9;cursor:help;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.35);padding:0 6px;border-radius:50%">?</span>
+                <span title="Define how this agent can be activated. Each trigger type offers different activation methods." style="${afUi.helpLg}">?</span>
               </div>
-              <div style="font-size:13px;color:rgba(255,255,255,0.85);margin-bottom:12px;line-height:1.4">Configure triggers to activate this agent. Multiple triggers can be added with different types.</div>
+              <div style="font-size:13px;color:${afUi.muted};margin-bottom:12px;line-height:1.4">Configure triggers to activate this agent. Multiple triggers can be added with different types.</div>
 
               <div id="L-unified-triggers" style="display:flex;flex-direction:column;gap:12px;margin-bottom:12px"></div>
 
@@ -15728,23 +15877,23 @@ function initializeExtension() {
 
           wrap.id = 'box-reasoning'
 
-          wrap.style.cssText = `background:rgba(255,255,255,0.06);padding:12px;border-radius:10px;border:1px solid ${csTheme().border};display:${capR.checked ? 'block' : 'none'}`
+          wrap.style.cssText = `${afUi.wrap};display:${capR.checked ? 'block' : 'none'}`
 
           wrap.innerHTML = `
 
-            <div style="font-weight:700;margin-bottom:6px">Reasoning</div>
+            <div style="font-weight:700;margin-bottom:6px;color:${afUi.heading}">Reasoning</div>
 
             <div style="margin:6px 0">
 
               <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px">
                 <div style="display:flex;flex-direction:column;gap:6px">
-                  <span style="font-weight:600">Apply for:</span>
+                  <span style="font-weight:600;color:${afUi.heading}">Apply for:</span>
                   <div id="R-apply-list" style="display:flex;flex-direction:column;gap:6px">
                     <div class="apply-for-row" style="display:flex;align-items:center;gap:8px">
                       <select id="R-apply" class="R-apply-select" style="background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:6px 10px;border-radius:6px;min-width:180px;max-width:280px">
                         <option value="__any__">Any Trigger</option>
                       </select>
-                      <button type="button" class="R-apply-add" style="background:rgba(96,165,250,.3);border:1px solid rgba(96,165,250,.5);color:#fff;padding:4px 10px;border-radius:6px;cursor:pointer;font-weight:bold;font-size:14px">+</button>
+                      <button type="button" class="R-apply-add" style="${afUi.btnGhostBlue};padding:4px 10px;border-radius:6px;cursor:pointer;font-weight:bold;font-size:14px">+</button>
                     </div>
                   </div>
                 </div>
@@ -15754,28 +15903,28 @@ function initializeExtension() {
             </div>
 
             <!-- Reasoning Workflows Section (optional) - placed before Goals to gather context first -->
-            <div style="border:1px solid rgba(255,255,255,.25);border-radius:8px;padding:12px;background:rgba(255,255,255,0.04);margin-top:12px">
-              <div style="font-weight:600;margin-bottom:8px;color:#fff;display:flex;align-items:center;gap:8px">
+            <div style="${afUi.innerWell};margin-top:12px">
+              <div style="font-weight:600;margin-bottom:8px;color:${afUi.heading};display:flex;align-items:center;gap:8px">
                 Reasoning Workflows (optional)
-                <span title="Optional workflows to gather context before reasoning. Can route based on output conditions." style="font-size:12px;opacity:0.9;cursor:help;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.35);padding:0 6px;border-radius:50%">?</span>
+                <span title="Optional workflows to gather context before reasoning. Can route based on output conditions." style="${afUi.helpLg}">?</span>
               </div>
               <div id="R-reasoning-workflows" style="display:flex;flex-direction:column;gap:12px;margin-bottom:8px"></div>
               <button id="R-add-workflow" style="background:${csTheme().accentGrad};border:none;color:#fff;padding:8px 14px;border-radius:6px;cursor:pointer;font-weight:500">+ Add Workflow</button>
             </div>
 
-            <label style="display:block;margin-top:12px">Goals (System instructions)
+            <label style="display:block;margin-top:12px;color:${afUi.heading};font-weight:600">Goals (System instructions)
 
               <textarea id="R-goals" style="width:100%;min-height:90px;background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:8px;border-radius:6px"></textarea>
 
             </label>
 
-            <label style="display:block">Role (optional)
+            <label style="display:block;color:${afUi.heading};font-weight:600">Role (optional)
 
               <input id="R-role" style="width:100%;background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:8px;border-radius:6px">
 
             </label>
 
-            <label style="display:block">Rules
+            <label style="display:block;color:${afUi.heading};font-weight:600">Rules
 
               <textarea id="R-rules" style="width:100%;min-height:70px;background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:8px;border-radius:6px"></textarea>
 
@@ -15783,28 +15932,28 @@ function initializeExtension() {
 
             <div id="R-custom-list" style="display:flex;flex-direction:column;gap:8px;margin-top:8px"></div>
 
-            <button id="R-add-custom" style="background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.35);color:#fff;padding:6px 10px;border-radius:6px;cursor:pointer">+ Custom field</button>
+            <button id="R-add-custom" style="${afUi.btnGhost};padding:6px 10px;border-radius:6px;cursor:pointer">+ Custom field</button>
 
             <!-- Memory & Context Settings (moved from separate section) -->
-            <div id="R-memory-context" style="margin-top:12px;padding:12px;background:rgba(255,255,255,0.04);border:1px solid ${csTheme().border};border-radius:8px">
-              <div style="font-weight:600;margin-bottom:4px;display:flex;align-items:center;gap:8px">
+            <div id="R-memory-context" style="margin-top:12px;padding:12px;${afUi.innerWellMuted}">
+              <div style="font-weight:600;margin-bottom:4px;display:flex;align-items:center;gap:8px;color:${afUi.heading}">
                 Memory & Context
-                <span title="Configure which memory and context sources this agent can access during reasoning." style="font-size:12px;opacity:0.9;cursor:help;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.35);padding:0 6px;border-radius:50%">?</span>
+                <span title="Configure which memory and context sources this agent can access during reasoning." style="${afUi.helpLg}">?</span>
               </div>
-              <div style="font-size:13px;color:rgba(255,255,255,0.85);margin-bottom:10px;line-height:1.4">Enable memory sources for context during reasoning.</div>
+              <div style="font-size:13px;color:${afUi.muted};margin-bottom:10px;line-height:1.4">Enable memory sources for context during reasoning.</div>
 
-              <div style="display:flex;flex-direction:column;gap:10px;font-size:13px">
+              <div style="display:flex;flex-direction:column;gap:10px;font-size:13px;color:${afUi.heading}">
 
                 <div style="display:flex;align-items:center;gap:12px;justify-content:space-between">
                   <label style="display:flex;align-items:center;gap:6px"><input id="R-MEM-session" type="checkbox"> Session Context</label>
                   <div style="display:flex;align-items:center;gap:10px">
                     <label style="display:flex;align-items:center;gap:6px">
                       <input id="R-MEM-session-read" type="checkbox">
-                      <span>Read <span id="R-MEM-session-read-state" style="padding:2px 6px;border-radius:6px;background:rgba(255,255,255,.15);border:1px solid ${csTheme().border}">OFF</span></span>
+                      <span>Read <span id="R-MEM-session-read-state" style="padding:2px 6px;border-radius:6px;background:rgba(128,128,128,.12);border:1px solid ${csTheme().border}">OFF</span></span>
                     </label>
                     <label style="display:flex;align-items:center;gap:6px">
                       <input id="R-MEM-session-write" type="checkbox">
-                      <span>Write <span id="R-MEM-session-write-state" style="padding:2px 6px;border-radius:6px;background:rgba(255,255,255,.15);border:1px solid ${csTheme().border}">OFF</span></span>
+                      <span>Write <span id="R-MEM-session-write-state" style="padding:2px 6px;border-radius:6px;background:rgba(128,128,128,.12);border:1px solid ${csTheme().border}">OFF</span></span>
                     </label>
                   </div>
                 </div>
@@ -15814,11 +15963,11 @@ function initializeExtension() {
                   <div style="display:flex;align-items:center;gap:10px">
                     <label style="display:flex;align-items:center;gap:6px">
                       <input id="R-MEM-account-read" type="checkbox">
-                      <span>Read <span id="R-MEM-account-read-state" style="padding:2px 6px;border-radius:6px;background:rgba(255,255,255,.15);border:1px solid ${csTheme().border}">OFF</span></span>
+                      <span>Read <span id="R-MEM-account-read-state" style="padding:2px 6px;border-radius:6px;background:rgba(128,128,128,.12);border:1px solid ${csTheme().border}">OFF</span></span>
                     </label>
                     <label style="display:flex;align-items:center;gap:6px">
                       <input id="R-MEM-account-write" type="checkbox">
-                      <span>Write <span id="R-MEM-account-write-state" style="padding:2px 6px;border-radius:6px;background:rgba(255,255,255,.15);border:1px solid ${csTheme().border}">OFF</span></span>
+                      <span>Write <span id="R-MEM-account-write-state" style="padding:2px 6px;border-radius:6px;background:rgba(128,128,128,.12);border:1px solid ${csTheme().border}">OFF</span></span>
                     </label>
                   </div>
                 </div>
@@ -15862,40 +16011,40 @@ function initializeExtension() {
 
           wrap.id = 'box-execution'
 
-          wrap.style.cssText = `background:rgba(255,255,255,0.06);padding:12px;border-radius:10px;border:1px solid ${csTheme().border};display:${capE.checked ? 'block' : 'none'}`
+          wrap.style.cssText = `${afUi.wrap};display:${capE.checked ? 'block' : 'none'}`
 
           wrap.innerHTML = `
 
-            <div style="font-weight:700;margin-bottom:6px">Execution</div>
+            <div style="font-weight:700;margin-bottom:6px;color:${afUi.heading}">Execution</div>
 
             <div style="margin:6px 0">
 
               <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px">
                 <div style="display:flex;flex-direction:column;gap:6px">
-                  <span style="font-weight:600">Apply for:</span>
+                  <span style="font-weight:600;color:${afUi.heading}">Apply for:</span>
                   <div id="E-apply-list" style="display:flex;flex-direction:column;gap:6px">
                     <div class="apply-for-row" style="display:flex;align-items:center;gap:8px">
                       <select id="E-apply" class="E-apply-select" style="background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:6px 10px;border-radius:6px;min-width:180px;max-width:280px">
                         <option value="__any__">Any Trigger</option>
                       </select>
-                      <button type="button" class="E-apply-add" style="background:rgba(96,165,250,.3);border:1px solid rgba(96,165,250,.5);color:#fff;padding:4px 10px;border-radius:6px;cursor:pointer;font-weight:bold;font-size:14px">+</button>
+                      <button type="button" class="E-apply-add" style="${afUi.btnGhostBlue};padding:4px 10px;border-radius:6px;cursor:pointer;font-weight:bold;font-size:14px">+</button>
                     </div>
                   </div>
                 </div>
-                <button id="E-add-section" style="background:rgba(96,165,250,.3);border:1px solid rgba(96,165,250,.5);color:#fff;padding:6px 12px;border-radius:6px;cursor:pointer;font-weight:500;white-space:nowrap">+ Add Execution Section</button>
+                <button id="E-add-section" style="${afUi.btnGhostBlue};padding:6px 12px;border-radius:6px;cursor:pointer;font-weight:500;white-space:nowrap">+ Add Execution Section</button>
               </div>
 
             </div>
 
-            <div style="margin:12px 0;padding:10px;background:rgba(255,255,255,0.03);border:1px solid ${csTheme().border};border-radius:8px">
+            <div style="margin:12px 0;padding:10px;${afUi.innerWellMuted}">
               <div style="display:flex;align-items:center;gap:10px">
-                <span style="font-weight:600;font-size:13px;white-space:nowrap">Execution Mode:</span>
+                <span style="font-weight:600;font-size:13px;white-space:nowrap;color:${afUi.heading}">Execution Mode:</span>
                 <select id="E-execution-mode-main" style="flex:1;max-width:280px;background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:6px 10px;border-radius:6px;font-size:12px">
                   <option value="agent_only">Agent response only</option>
                   <option value="agent_workflow" selected>Agent response + workflows</option>
                   <option value="workflow_only">Workflows only (no agent response)</option>
                 </select>
-                <span title="Agent response only: returns output from Agent Box only (text, image, etc.). Agent response + workflows: calls both Agent Box and external workflows. Workflows only: calls external workflows without Agent Box response." style="font-size:12px;opacity:0.9;cursor:help;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.35);padding:0 6px;border-radius:50%">?</span>
+                <span title="Agent response only: returns output from Agent Box only (text, image, etc.). Agent response + workflows: calls both Agent Box and external workflows. Workflows only: calls external workflows without Agent Box response." style="${afUi.helpLg}">?</span>
               </div>
             </div>
 
@@ -15909,11 +16058,11 @@ function initializeExtension() {
 
             <div style="margin-top:8px">
 
-              <div style="font-weight:600;margin:6px 0">Report to</div>
+              <div style="font-weight:600;margin:6px 0;color:${afUi.heading}">Report to</div>
 
               <div id="E-special-list" style="display:flex;flex-direction:column;gap:8px"></div>
 
-              <button id="E-special-add" style="background:rgba(255,255,255,.2);border:1px solid rgba(255,255,255,.35);color:#fff;padding:6px 10px;border-radius:6px;cursor:pointer;margin-top:6px">+ Add</button>
+              <button id="E-special-add" style="${afUi.btnGhost};padding:6px 10px;border-radius:6px;cursor:pointer;margin-top:6px">+ Add</button>
 
             </div>
 
@@ -16824,10 +16973,10 @@ function initializeExtension() {
                   <div style="margin-bottom:10px">
                     <div style="font-size:11px;color:#a5b4fc;font-weight:600;margin-bottom:4px;display:flex;align-items:center;gap:4px">
                       Site Filters <span style="font-weight:400;opacity:0.7">(optional)</span>
-                      <span title="Restrict capture to specific websites. Use glob patterns like *.openai.com/* to match domains. Leave empty to capture on all sites. Examples:&#10;&rdquo;¢ *.openai.com/* - all OpenAI pages&#10;&rdquo;¢ https://claude.ai/* - Claude AI&#10;&rdquo;¢ *gemini.google.com/* - Google Gemini" style="font-size:9px;opacity:0.6;cursor:help;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);padding:0 4px;border-radius:50%">?</span>
+                      <span title="Restrict capture to specific websites. Use glob patterns like *.openai.com/* to match domains. Leave empty to capture on all sites. Examples:&#10;• *.openai.com/* - all OpenAI pages&#10;• https://claude.ai/* - Claude AI&#10;• *gemini.google.com/* - Google Gemini" style="font-size:9px;opacity:0.6;cursor:help;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);padding:0 4px;border-radius:50%">?</span>
                     </div>
                     <textarea class="trigger-site-filters" placeholder="*.openai.com/*&#10;https://claude.ai/*&#10;*gemini.google.com/*" style="width:100%;min-height:45px;background:rgba(255,255,255,.9);border:1px solid rgba(255,255,255,.4);color:#1e293b;padding:6px 8px;border-radius:4px;font-size:10px;font-family:monospace;resize:vertical">${(init?.siteFilters || []).join('\n')}</textarea>
-                    <div style="font-size:9px;color:rgba(255,255,255,0.5);margin-top:2px">Only capture on these domains &rdquo;“ one pattern per line. Leave empty to match all sites.</div>
+                    <div style="font-size:9px;color:rgba(255,255,255,0.5);margin-top:2px">Only capture on these domains → one pattern per line. Leave empty to match all sites.</div>
                   </div>
 
                   <!-- ═══════════════ WHEN SHOULD CAPTURE START? ═══════════════ -->
@@ -16845,7 +16994,7 @@ function initializeExtension() {
                       <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
                         <input type="checkbox" class="trigger-auto-detect" ${init?.autoDetectSelectors ? 'checked' : ''} style="margin:0">
                         <span style="font-size:10px;color:#fbbf24;font-weight:600">⚡ Auto-Detect Selectors</span>
-                        <span title="Automatically discover selectors by scanning the page DOM.&#10;&#10;How it works:&#10;&rdquo;¢ Scans for common AI chat patterns (ChatGPT, Claude, Gemini)&#10;&rdquo;¢ Detects send buttons, input fields, and response areas&#10;&rdquo;¢ No interaction needed - just click the button&#10;&#10;Review results and apply to fields below." style="font-size:9px;opacity:0.6;cursor:help;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);padding:0 4px;border-radius:50%">?</span>
+                        <span title="Automatically discover selectors by scanning the page DOM.&#10;&#10;How it works:&#10;• Scans for common AI chat patterns (ChatGPT, Claude, Gemini)&#10;• Detects send buttons, input fields, and response areas&#10;• No interaction needed - just click the button&#10;&#10;Review results and apply to fields below." style="font-size:9px;opacity:0.6;cursor:help;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);padding:0 4px;border-radius:50%">?</span>
                       </label>
                       <div class="auto-detect-panel" style="display:${init?.autoDetectSelectors ? 'block' : 'none'};margin-top:8px">
                         <div style="font-size:9px;color:rgba(255,255,255,0.5);margin-bottom:6px">Scans the page DOM for common AI chat UI patterns (ChatGPT, Claude, Gemini, etc.)</div>
@@ -16856,11 +17005,11 @@ function initializeExtension() {
                         <div class="auto-detected-results" style="display:${init?.autoDetected ? 'block' : 'none'};margin-top:8px;padding:8px;background:rgba(34,197,94,0.1);border:1px solid rgba(34,197,94,0.2);border-radius:4px">
                           <div style="font-size:9px;color:#4ade80;font-weight:600;margin-bottom:6px">✏“ Detected Elements:</div>
                           <div style="font-size:9px;color:rgba(255,255,255,0.7);font-family:monospace;line-height:1.6">
-                            <div style="display:flex;gap:4px"><span style="color:#a5b4fc;min-width:55px">Site:</span> <span class="detected-site-filter" style="word-break:break-all">${init?.autoDetected?.siteFilter || '&rdquo;”'}</span></div>
-                            <div style="display:flex;gap:4px"><span style="color:#fbbf24;min-width:55px">Button:</span> <span class="detected-button-selector" style="word-break:break-all">${init?.autoDetected?.button || '&rdquo;”'}</span></div>
-                            <div style="display:flex;gap:4px"><span style="color:#4ade80;min-width:55px">Input:</span> <span class="detected-input-selector" style="word-break:break-all">${init?.autoDetected?.input || '&rdquo;”'}</span></div>
-                            <div style="display:flex;gap:4px"><span style="color:#c084fc;min-width:55px">Output:</span> <span class="detected-output-selector" style="word-break:break-all">${init?.autoDetected?.output || '&rdquo;”'}</span></div>
-                            <div style="display:flex;gap:4px"><span style="color:#fbbf24;min-width:55px">Context:</span> <span class="detected-context-selectors" style="word-break:break-all">${init?.autoDetected?.context?.join(', ') || '&rdquo;”'}</span></div>
+                            <div style="display:flex;gap:4px"><span style="color:#a5b4fc;min-width:55px">Site:</span> <span class="detected-site-filter" style="word-break:break-all">${init?.autoDetected?.siteFilter || '—'}</span></div>
+                            <div style="display:flex;gap:4px"><span style="color:#fbbf24;min-width:55px">Button:</span> <span class="detected-button-selector" style="word-break:break-all">${init?.autoDetected?.button || '—'}</span></div>
+                            <div style="display:flex;gap:4px"><span style="color:#4ade80;min-width:55px">Input:</span> <span class="detected-input-selector" style="word-break:break-all">${init?.autoDetected?.input || '—'}</span></div>
+                            <div style="display:flex;gap:4px"><span style="color:#c084fc;min-width:55px">Output:</span> <span class="detected-output-selector" style="word-break:break-all">${init?.autoDetected?.output || '—'}</span></div>
+                            <div style="display:flex;gap:4px"><span style="color:#fbbf24;min-width:55px">Context:</span> <span class="detected-context-selectors" style="word-break:break-all">${init?.autoDetected?.context?.join(', ') || '—'}</span></div>
                           </div>
                           <button type="button" class="btn-apply-detected" style="margin-top:8px;width:100%;background:rgba(34,197,94,0.2);border:1px solid rgba(34,197,94,0.3);color:#4ade80;padding:6px 10px;border-radius:4px;cursor:pointer;font-size:10px;font-weight:500">
                             ✏“ Apply to all fields
@@ -16873,7 +17022,7 @@ function initializeExtension() {
                       <div style="margin-bottom:8px">
                         <label style="font-size:10px;color:rgba(255,255,255,0.85);display:flex;align-items:center;gap:4px;margin-bottom:3px">
                           Button Selectors
-                          <span title="CSS selectors to find the Send button. Right-click the button in your browser → Inspect → copy a unique selector.&#10;&#10;Common examples:&#10;&rdquo;¢ button[data-testid='send-button'] - ChatGPT&#10;&rdquo;¢ button[aria-label='Send Message'] - Claude&#10;&rdquo;¢ .send-button, #submit - Generic&#10;&#10;One selector per line. First match is used." style="font-size:9px;opacity:0.6;cursor:help;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);padding:0 4px;border-radius:50%">?</span>
+                          <span title="CSS selectors to find the Send button. Right-click the button in your browser → Inspect → copy a unique selector.&#10;&#10;Common examples:&#10;• button[data-testid='send-button'] - ChatGPT&#10;• button[aria-label='Send Message'] - Claude&#10;• .send-button, #submit - Generic&#10;&#10;One selector per line. First match is used." style="font-size:9px;opacity:0.6;cursor:help;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);padding:0 4px;border-radius:50%">?</span>
                         </label>
                         <textarea class="trigger-button-selectors" placeholder="button[data-testid=&quot;send-button&quot;]&#10;.send-btn&#10;button[aria-label=&quot;Send&quot;]" style="width:100%;min-height:40px;background:rgba(255,255,255,.9);border:1px solid rgba(255,255,255,.4);color:#1e293b;padding:6px 8px;border-radius:4px;font-size:10px;font-family:monospace;resize:vertical">${(init?.buttonSelectors || (init?.buttonSelector ? [init.buttonSelector] : [])).join('\n')}</textarea>
                         <div style="font-size:9px;color:rgba(255,255,255,0.5);margin-top:2px">CSS selectors for send buttons. First match wins.</div>
@@ -16910,7 +17059,7 @@ function initializeExtension() {
                     <div class="input-capture-fields" style="display:${init?.captureInput !== false ? 'block' : 'none'}">
                       <label style="font-size:10px;color:rgba(255,255,255,0.85);display:flex;align-items:center;gap:4px;margin-bottom:3px">
                         Input Selectors
-                        <span title="CSS selectors to find the text input/textarea where users type their message.&#10;&#10;Common examples:&#10;&rdquo;¢ textarea[data-id='root'] - ChatGPT&#10;&rdquo;¢ #prompt-textarea - Generic&#10;&rdquo;¢ [contenteditable='true'] - Rich text editors&#10;&#10;First selector with content is used." style="font-size:9px;opacity:0.6;cursor:help;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);padding:0 4px;border-radius:50%">?</span>
+                        <span title="CSS selectors to find the text input/textarea where users type their message.&#10;&#10;Common examples:&#10;• textarea[data-id='root'] - ChatGPT&#10;• #prompt-textarea - Generic&#10;• [contenteditable='true'] - Rich text editors&#10;&#10;First selector with content is used." style="font-size:9px;opacity:0.6;cursor:help;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);padding:0 4px;border-radius:50%">?</span>
                       </label>
                       <textarea class="trigger-input-selectors" placeholder="textarea[data-id=&quot;root&quot;]&#10;#prompt-textarea&#10;.chat-input" style="width:100%;min-height:36px;background:rgba(255,255,255,.9);border:1px solid rgba(255,255,255,.4);color:#1e293b;padding:6px 8px;border-radius:4px;font-size:10px;font-family:monospace;resize:vertical">${(init?.inputSelectors || (init?.inputSelector ? [init.inputSelector] : [])).join('\n')}</textarea>
                       <div style="font-size:9px;color:rgba(255,255,255,0.5);margin-top:2px">First selector matching a non-empty input field is used as the prompt source.</div>
@@ -16935,7 +17084,7 @@ function initializeExtension() {
                       <div style="margin-bottom:8px">
                         <label style="font-size:10px;color:rgba(255,255,255,0.85);display:flex;align-items:center;gap:4px;margin-bottom:3px">
                           Output Selectors
-                          <span title="CSS selectors to find the AI's response messages.&#10;&#10;Common examples:&#10;&rdquo;¢ [data-message-author-role='assistant'] - ChatGPT&#10;&rdquo;¢ .markdown-body - Rendered markdown&#10;&rdquo;¢ .response-content, .assistant-message - Generic&#10;&#10;The LAST matching element (most recent response) is captured." style="font-size:9px;opacity:0.6;cursor:help;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);padding:0 4px;border-radius:50%">?</span>
+                          <span title="CSS selectors to find the AI's response messages.&#10;&#10;Common examples:&#10;• [data-message-author-role='assistant'] - ChatGPT&#10;• .markdown-body - Rendered markdown&#10;• .response-content, .assistant-message - Generic&#10;&#10;The LAST matching element (most recent response) is captured." style="font-size:9px;opacity:0.6;cursor:help;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);padding:0 4px;border-radius:50%">?</span>
                         </label>
                         <textarea class="trigger-output-selectors" placeholder="[data-message-author-role=&quot;assistant&quot;]&#10;.markdown-body&#10;.response-content" style="width:100%;min-height:36px;background:rgba(255,255,255,.9);border:1px solid rgba(255,255,255,.4);color:#1e293b;padding:6px 8px;border-radius:4px;font-size:10px;font-family:monospace;resize:vertical">${(init?.outputSelectors || (init?.outputSelector ? [init.outputSelector] : [])).join('\n')}</textarea>
                         <div style="font-size:9px;color:rgba(255,255,255,0.5);margin-top:2px">Capture when first matching output element becomes non-empty or changes.</div>
@@ -16945,7 +17094,7 @@ function initializeExtension() {
                       <div style="padding:8px;background:rgba(255,255,255,0.03);border-radius:4px">
                         <div style="font-size:10px;color:rgba(255,255,255,0.75);margin-bottom:5px;display:flex;align-items:center;gap:4px">
                           Response ready when:
-                          <span title="How to know when the AI has finished responding:&#10;&#10;&rdquo;¢ First change: Capture as soon as any response appears (fastest, may be incomplete)&#10;&rdquo;¢ Quiet period: Wait until text stops changing for X milliseconds (good for streaming)&#10;&rdquo;¢ Signal element: Wait for a specific element like 'Copy' button to appear (most reliable)" style="font-size:9px;opacity:0.6;cursor:help;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);padding:0 4px;border-radius:50%">?</span>
+                          <span title="How to know when the AI has finished responding:&#10;&#10;• First change: Capture as soon as any response appears (fastest, may be incomplete)&#10;• Quiet period: Wait until text stops changing for X milliseconds (good for streaming)&#10;• Signal element: Wait for a specific element like 'Copy' button to appear (most reliable)" style="font-size:9px;opacity:0.6;cursor:help;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);padding:0 4px;border-radius:50%">?</span>
                         </div>
                         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:5px">
                           <select class="trigger-response-ready-mode" style="background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:4px 8px;border-radius:4px;font-size:10px;min-width:130px">
@@ -16966,7 +17115,7 @@ function initializeExtension() {
                         <div class="selector-signal-options" style="display:${init?.responseReadyMode === 'selector_signal' ? 'block' : 'none'};margin-bottom:5px">
                           <div style="display:flex;align-items:center;gap:4px;margin-bottom:2px">
                             <span style="font-size:10px;color:rgba(255,255,255,0.6)">Signal selector:</span>
-                            <span title="CSS selector for an element that appears ONLY when the response is complete. Common examples:&#10;&rdquo;¢ button[aria-label='Copy'] - Copy button&#10;&rdquo;¢ .feedback-buttons - Thumbs up/down&#10;&rdquo;¢ .message-complete - Completion indicator" style="font-size:9px;opacity:0.5;cursor:help;background:rgba(255,255,255,.12);border:1px solid ${csTheme().border};padding:0 4px;border-radius:50%">?</span>
+                            <span title="CSS selector for an element that appears ONLY when the response is complete. Common examples:&#10;• button[aria-label='Copy'] - Copy button&#10;• .feedback-buttons - Thumbs up/down&#10;• .message-complete - Completion indicator" style="font-size:9px;opacity:0.5;cursor:help;background:rgba(255,255,255,.12);border:1px solid ${csTheme().border};padding:0 4px;border-radius:50%">?</span>
                           </div>
                           <input class="trigger-response-signal-selector" placeholder="button[aria-label=&quot;Copy&quot;], .feedback-buttons" value="${init?.responseSignalSelector || ''}" style="width:100%;background:rgba(255,255,255,.9);border:1px solid rgba(255,255,255,.4);color:#1e293b;padding:4px 8px;border-radius:3px;font-size:10px">
                         </div>
@@ -17004,7 +17153,7 @@ function initializeExtension() {
                     <div>
                       <label style="font-size:10px;color:rgba(255,255,255,0.75);display:flex;align-items:center;gap:4px;margin-bottom:2px">
                         Context Selectors <span style="opacity:0.6">(optional)</span>
-                        <span title="Extra CSS selectors to capture additional page elements as context.&#10;&#10;Examples:&#10;&rdquo;¢ [data-conversation-id] - Conversation ID&#10;&rdquo;¢ .model-selector - Which AI model is selected&#10;&rdquo;¢ .system-prompt-indicator - System prompt info" style="font-size:9px;opacity:0.6;cursor:help;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);padding:0 4px;border-radius:50%">?</span>
+                        <span title="Extra CSS selectors to capture additional page elements as context.&#10;&#10;Examples:&#10;• [data-conversation-id] - Conversation ID&#10;• .model-selector - Which AI model is selected&#10;• .system-prompt-indicator - System prompt info" style="font-size:9px;opacity:0.6;cursor:help;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);padding:0 4px;border-radius:50%">?</span>
                       </label>
                       <textarea class="trigger-meta-selectors" placeholder="[data-conversation-id]&#10;.model-selector" style="width:100%;min-height:32px;background:rgba(255,255,255,.9);border:1px solid rgba(255,255,255,.4);color:#1e293b;padding:5px 8px;border-radius:4px;font-size:10px;font-family:monospace;resize:vertical">${(init?.metaSelectors || []).join('\n')}</textarea>
                     </div>
@@ -18439,7 +18588,7 @@ function initializeExtension() {
 
               const merged = [
 
-                ...builtins.map(id => ({ id, name: `Agent ${getOrAssignAgentNumber(id)} &rdquo;” ${id}` })),
+                ...builtins.map(id => ({ id, name: `Agent ${getOrAssignAgentNumber(id)} — ${id}` })),
 
                 ...agents.map((a:any)=>({ id: a.key || a.id || a.name || 'agent', name: a.name || a.id || a.key }))
 
@@ -18493,19 +18642,19 @@ function initializeExtension() {
 
             { label: 'Agent', value: 'agent' },
 
-            { label: 'Chat Inline &rdquo;“ Summary', value: 'chat-inline-summary' },
+            { label: 'Chat Inline → Summary', value: 'chat-inline-summary' },
 
-            { label: 'Clipboard &rdquo;“ Summary', value: 'clip-summary' },
+            { label: 'Clipboard → Summary', value: 'clip-summary' },
 
-            { label: 'Clipboard &rdquo;“ Screenshot', value: 'clip-screenshot' },
+            { label: 'Clipboard → Screenshot', value: 'clip-screenshot' },
 
-            { label: 'PDF &rdquo;“ Summary', value: 'pdf-summary' },
+            { label: 'PDF → Summary', value: 'pdf-summary' },
 
-            { label: 'PDF &rdquo;“ Screenshot', value: 'pdf-screenshot' },
+            { label: 'PDF → Screenshot', value: 'pdf-screenshot' },
 
-            { label: 'PDF &rdquo;“ Summary + Screenshot', value: 'pdf-both' },
+            { label: 'PDF → Summary + Screenshot', value: 'pdf-both' },
 
-            { label: 'Image &rdquo;“ Screenshot (PNG/WebP)', value: 'image-screenshot' }
+            { label: 'Image → Screenshot (PNG/WebP)', value: 'image-screenshot' }
 
           ]
 
@@ -18524,7 +18673,7 @@ function initializeExtension() {
 
           const buildAgentBoxSelect = (): HTMLSelectElement => {
 
-            const boxOpts = [{ label: '&rdquo;” Select Agent Box &rdquo;”', value: '' }]
+            const boxOpts = [{ label: '— Select Agent Box —', value: '' }]
 
             // Try to get agent boxes from the current session to show LLM info
             const sessionKey = getCurrentSessionKey()
@@ -18549,9 +18698,9 @@ function initializeExtension() {
                 }
                 // Add LLM info if available
                 if (boxInfo.provider && boxInfo.model) {
-                  label += ` &rdquo;” ${boxInfo.provider}/${boxInfo.model}`
+                  label += ` — ${boxInfo.provider}/${boxInfo.model}`
                 } else if (boxInfo.model) {
-                  label += ` &rdquo;” ${boxInfo.model}`
+                  label += ` — ${boxInfo.model}`
                 }
                 // Add enabled/disabled status
                 if (boxInfo.enabled === false) {
@@ -18576,7 +18725,7 @@ function initializeExtension() {
 
           const buildAgentSelect = (): HTMLSelectElement => {
 
-            const agentOpts = [{ label: '&rdquo;” Select Agent &rdquo;”', value: '' }]
+            const agentOpts = [{ label: '— Select Agent —', value: '' }]
 
             for (let i = 1; i <= 50; i++) {
 
@@ -19145,13 +19294,13 @@ function initializeExtension() {
               { label: 'Agent Box', value: 'agentBox' },
               { label: '💬 WR Chat (Command Chat)', value: 'wrChat' },
               { label: 'Agent', value: 'agent' },
-              { label: 'Chat Inline &rdquo;“ Summary', value: 'chat-inline-summary' },
-              { label: 'Clipboard &rdquo;“ Summary', value: 'clip-summary' },
-              { label: 'Clipboard &rdquo;“ Screenshot', value: 'clip-screenshot' },
-              { label: 'PDF &rdquo;“ Summary', value: 'pdf-summary' },
-              { label: 'PDF &rdquo;“ Screenshot', value: 'pdf-screenshot' },
-              { label: 'PDF &rdquo;“ Summary + Screenshot', value: 'pdf-both' },
-              { label: 'Image &rdquo;“ Screenshot (PNG/WebP)', value: 'image-screenshot' }
+              { label: 'Chat Inline → Summary', value: 'chat-inline-summary' },
+              { label: 'Clipboard → Summary', value: 'clip-summary' },
+              { label: 'Clipboard → Screenshot', value: 'clip-screenshot' },
+              { label: 'PDF → Summary', value: 'pdf-summary' },
+              { label: 'PDF → Screenshot', value: 'pdf-screenshot' },
+              { label: 'PDF → Summary + Screenshot', value: 'pdf-both' },
+              { label: 'Image → Screenshot (PNG/WebP)', value: 'image-screenshot' }
             ]
 
             const row = document.createElement('div')
@@ -19167,7 +19316,7 @@ function initializeExtension() {
 
             // Build agent box options (01-50) with LLM info from session
             const buildAgentBoxSelectSub = (): HTMLSelectElement => {
-              const boxOpts = [{ label: '&rdquo;” Select Agent Box &rdquo;”', value: '' }]
+              const boxOpts = [{ label: '— Select Agent Box —', value: '' }]
               
               // Try to get agent boxes from the current session to show LLM info
               const sessionKey = getCurrentSessionKey()
@@ -19189,9 +19338,9 @@ function initializeExtension() {
                     label += ` (${boxInfo.title})`
                   }
                   if (boxInfo.provider && boxInfo.model) {
-                    label += ` &rdquo;” ${boxInfo.provider}/${boxInfo.model}`
+                    label += ` — ${boxInfo.provider}/${boxInfo.model}`
                   } else if (boxInfo.model) {
-                    label += ` &rdquo;” ${boxInfo.model}`
+                    label += ` — ${boxInfo.model}`
                   }
                   if (boxInfo.enabled === false) {
                     label += ' [disabled]'
@@ -19207,7 +19356,7 @@ function initializeExtension() {
 
             // Build agent options (01-50)
             const buildAgentSelectSub = (): HTMLSelectElement => {
-              const agentOpts = [{ label: '&rdquo;” Select Agent &rdquo;”', value: '' }]
+              const agentOpts = [{ label: '— Select Agent —', value: '' }]
               for (let i = 1; i <= 50; i++) {
                 const num = String(i).padStart(2, '0')
                 agentOpts.push({ label: `Agent ${num}`, value: `agent${num}` })
@@ -22938,8 +23087,8 @@ function initializeExtension() {
                             ${box.title || `Agent Box ${String(box.boxNumber).padStart(2, '0')}`}
                           </div>
                           <div style="font-size: 11px; color: #94a3b8;">
-                            ${box.identifier || 'AB??'} &rdquo;¢ Box #${box.boxNumber} → Agent #${box.agentNumber}
-                            ${box.provider ? ` &rdquo;¢ ${box.provider}/${box.model || 'auto'}` : ''}
+                            ${box.identifier || 'AB??'} • Box #${box.boxNumber} → Agent #${box.agentNumber}
+                            ${box.provider ? ` • ${box.provider}/${box.model || 'auto'}` : ''}
                           </div>
                         </div>
                       </label>
@@ -25810,13 +25959,13 @@ function initializeExtension() {
 
             <div style="font-size: 12px; opacity: 0.8; line-height: 1.6;">
 
-              <p style="margin: 0 0 10px 0;">&rdquo;¢ Only URLs in this whitelist will have WR Desk features enabled</p>
+              <p style="margin: 0 0 10px 0;">• Only URLs in this whitelist will have WR Desk features enabled</p>
 
-              <p style="margin: 0 0 10px 0;">&rdquo;¢ Wildcard patterns are supported (e.g., https://*.example.com)</p>
+              <p style="margin: 0 0 10px 0;">• Wildcard patterns are supported (e.g., https://*.example.com)</p>
 
-              <p style="margin: 0 0 10px 0;">&rdquo;¢ Changes take effect immediately across all tabs</p>
+              <p style="margin: 0 0 10px 0;">• Changes take effect immediately across all tabs</p>
 
-              <p style="margin: 0;">&rdquo;¢ HTTPS is recommended for security</p>
+              <p style="margin: 0;">• HTTPS is recommended for security</p>
 
             </div>
 
@@ -27492,7 +27641,7 @@ ${pageText}
 
             <div style="margin:-2px 0 8px 0; font-size:12px; opacity:0.9; background:rgba(255,255,255,0.06); border:1px solid ${csTheme().border}; padding:10px; border-radius:8px;">
 
-              KnowledgeVault &rdquo;“ Captures human input and AI findings from DeepFix and OptiScan, with AI speeding up documentation. Solutions are bundled, embedded into the local AI, and easy to reuse later.
+              KnowledgeVault → Captures human input and AI findings from DeepFix and OptiScan, with AI speeding up documentation. Solutions are bundled, embedded into the local AI, and easy to reuse later.
 
             </div>
 
@@ -27600,7 +27749,7 @@ ${pageText}
 
     // --- Sessions UI wiring ---
 
-    function short(s?: string, n: number = 60) { if (!s) return ''; return s.length>n? s.slice(0,n-1)+'&rdquo;¦': s }
+    function short(s?: string, n: number = 60) { if (!s) return ''; return s.length>n? s.slice(0,n-1)+'…': s }
 
     function fmtDur(sec: number) { const m = Math.floor(sec/60); const s = sec%60; return `${m}m ${s}s` }
 
@@ -27694,7 +27843,7 @@ ${pageText}
 
             <div style="font-weight:700">${item.title || '(untitled)'} <span style="opacity:.8;font-weight:400">(${item.type})</span></div>
 
-            <div style="font-size:12px;opacity:.85">${item.status} &rdquo;¢ ${fmtDur(item.durationSec)} &rdquo;¢ Confidence ${item.confidencePct ?? '-'}% &rdquo;¢ Human/Ai ${item.humanAiMix ?? 0}%</div>
+            <div style="font-size:12px;opacity:.85">${item.status} • ${fmtDur(item.durationSec)} • Confidence ${item.confidencePct ?? '-'}% • Human/Ai ${item.humanAiMix ?? 0}%</div>
 
           </div>
 
@@ -27708,7 +27857,7 @@ ${pageText}
 
             <div style="font-weight:700;margin-bottom:6px">Co-Authoring Timeline</div>
 
-            <div style="font-size:12px;display:grid;gap:6px">${item.review.map(l=>`<div> ${l.role==='human'?'👤':'🤖'} ${new Date(l.at).toLocaleString()} &rdquo;“ ${l.action}${l.from?` ${l.from} → ${l.to}`:''} ${l.message?('&rdquo;“ '+l.message):''}</div>`).join('')}</div>
+            <div style="font-size:12px;display:grid;gap:6px">${item.review.map(l=>`<div> ${l.role==='human'?'👤':'🤖'} ${new Date(l.at).toLocaleString()} → ${l.action}${l.from?` ${l.from} → ${l.to}`:''} ${l.message?('→ '+l.message):''}</div>`).join('')}</div>
 
           </div>
 
@@ -27716,11 +27865,11 @@ ${pageText}
 
             <div style="font-weight:700;margin-bottom:6px">AI Solution Detection</div>
 
-            <div style="font-size:12px;margin-bottom:6px"><b>Root cause:</b> ${item.aiRootCause || '&rdquo;”'}</div>
+            <div style="font-size:12px;margin-bottom:6px"><b>Root cause:</b> ${item.aiRootCause || '—'}</div>
 
-            <div style="font-size:12px;margin-bottom:6px"><b>Steps:</b> ${item.aiSteps || '&rdquo;”'}</div>
+            <div style="font-size:12px;margin-bottom:6px"><b>Steps:</b> ${item.aiSteps || '—'}</div>
 
-            <div style="font-size:12px;margin-bottom:6px"><b>Impact:</b> ${item.impact || '&rdquo;”'}</div>
+            <div style="font-size:12px;margin-bottom:6px"><b>Impact:</b> ${item.impact || '—'}</div>
 
             <div style="display:flex;gap:8px">
 
@@ -27888,7 +28037,7 @@ ${pageText}
 
       const audit = drawer.querySelector('#audit-log') as HTMLElement
 
-      audit.innerHTML = item.review.map(l=>`<div>${new Date(l.at).toLocaleString()} &rdquo;“ ${l.action}${l.from?` ${l.from} → ${l.to}`:''} ${l.message?('&rdquo;“ '+l.message):''}</div>`).join('')
+      audit.innerHTML = item.review.map(l=>`<div>${new Date(l.at).toLocaleString()} → ${l.action}${l.from?` ${l.from} → ${l.to}`:''} ${l.message?('→ '+l.message):''}</div>`).join('')
 
       // export handlers
 
@@ -30153,7 +30302,7 @@ ${pageText}
     header.style.cssText = `padding: 16px 20px; border-bottom: 1px solid ${csTheme().border}; display:flex; align-items:center; justify-content:space-between;`
 
     header.innerHTML = `
-      <div style="display:flex;align-items:center;gap:8px;font-size:18px;font-weight:700">🔒 WRVault &rdquo;“ Password Manager</div>
+      <div style="display:flex;align-items:center;gap:8px;font-size:18px;font-weight:700">🔒 WRVault → Password Manager</div>
       <button id="wrv-close" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; width: 32px; height: 32px; border-radius: 50%; cursor: pointer; font-size: 18px;">&times;</button>
     `
 
@@ -32068,6 +32217,11 @@ ${pageText}
 
         setVal('key-Grok', data.Grok || '')
 
+        // Sync to chrome.storage.local on load so keys are available to sidepanel
+        if (Object.keys(data).length > 0) {
+          try { chrome.storage?.local?.set({ 'optimando-cloud-api-keys': data }) } catch {}
+        }
+
       } catch {}
 
     }
@@ -32111,6 +32265,9 @@ ${pageText}
       }
 
       try { localStorage.setItem('optimando-api-keys', JSON.stringify(data)) } catch {}
+
+      // Sync to chrome.storage.local so sidepanel/background can read keys at LLM call time
+      try { chrome.storage?.local?.set({ 'optimando-cloud-api-keys': data }) } catch {}
 
     }
 
@@ -37871,7 +38028,7 @@ ${pageText}
 
             border-radius: 0 5px 5px 0;
 
-          ">&rdquo;¹</button>
+          ">‹</button>
 
           <button id="next-slide" style="
 
@@ -37891,7 +38048,7 @@ ${pageText}
 
             border-radius: 5px 0 0 5px;
 
-          ">&rdquo;º</button>
+          ">›</button>
 
         </div>
 
@@ -40153,7 +40310,7 @@ ${pageText}
 
                   <div><strong>Detected Intent:</strong> Compare product prices and find best value</div>
 
-                  <div style="opacity:0.8; margin-top: 6px;">Confidence: 72% &rdquo;¢ Updated: just now</div>
+                  <div style="opacity:0.8; margin-top: 6px;">Confidence: 72% • Updated: just now</div>
 
                 </div>
 
@@ -40183,7 +40340,7 @@ ${pageText}
 
                 <div id="orchestration-log" style="background: rgba(0,0,0,0.4); padding: 12px; border-radius: 8px; font-size: 12px; height: 140px; overflow-y: auto; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; line-height: 1.6; border: 1px solid ${csTheme().border};">
 
-                  [System] Orchestrator idle. Awaiting actions&rdquo;¦
+                  [System] Orchestrator idle. Awaiting actions…
 
                 </div>
 
@@ -40367,7 +40524,7 @@ ${pageText}
 
       const log = document.getElementById('orchestration-log')
 
-      if (log) log.textContent = '[System] Re-generating follow-up questions&rdquo;¦\n' + log.textContent
+      if (log) log.textContent = '[System] Re-generating follow-up questions…\n' + log.textContent
 
     })
 
@@ -40377,7 +40534,7 @@ ${pageText}
 
       const log = document.getElementById('orchestration-log')
 
-      if (log) log.textContent = '[System] Displaying reasoning paths&rdquo;¦\n' + log.textContent
+      if (log) log.textContent = '[System] Displaying reasoning paths…\n' + log.textContent
 
     })
 
@@ -40387,7 +40544,7 @@ ${pageText}
 
       const log = document.getElementById('orchestration-log')
 
-      if (log) log.textContent = '[System] Triggering feedback loop&rdquo;¦\n' + log.textContent
+      if (log) log.textContent = '[System] Triggering feedback loop…\n' + log.textContent
 
     })
 
@@ -42404,9 +42561,9 @@ ${pageText}
           <h2 style="margin: 0 0 10px 0; font-size: 22px; font-weight: 600;">Session Imported!</h2>
           <p style="margin: 0 0 10px 0; font-size: 14px; opacity: 0.9;">"${sessionData.tabName}"</p>
           <p style="margin: 0 0 15px 0; font-size: 13px; opacity: 0.8;">
-            ${sessionData.agentBoxes?.length || 0} agent boxes &rdquo;¢ 
-            ${sessionData.agents?.length || 0} agents &rdquo;¢ 
-            ${sessionData.hybridViews?.length || 0} hybrid tabs &rdquo;¢ 
+            ${sessionData.agentBoxes?.length || 0} agent boxes • 
+            ${sessionData.agents?.length || 0} agents • 
+            ${sessionData.hybridViews?.length || 0} hybrid tabs • 
             ${sessionData.displayGrids?.length || 0} display grids
           </p>
           ${sessionData._importedMemory ? '<p style="margin: 0 0 15px 0; font-size: 12px; color: rgba(255,215,0,1);">🧠 Includes Memory Data</p>' : ''}
@@ -43186,7 +43343,7 @@ ${pageText}
 
       function runEmbed(items: IngestItem[], target: IngestTarget) {
 
-        showToast('Vorverarbeitung&rdquo;¦', 'info')
+        showToast('Vorverarbeitung…', 'info')
 
         setTimeout(()=>{
 

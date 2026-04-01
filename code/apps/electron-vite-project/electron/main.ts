@@ -5432,6 +5432,105 @@ app.whenReady().then(async () => {
     console.error('[MAIN] Error in WebSocket setup:', err)
   }
 
+  /**
+   * Dispatch a chat request to a cloud LLM provider.
+   * Reuses the same API patterns as handshake/aiProviders.ts.
+   */
+  async function dispatchCloudChat(
+    provider: string,
+    modelId: string,
+    messages: Array<{ role: string; content: string }>,
+    apiKey: string
+  ): Promise<string> {
+    switch (provider) {
+      case 'openai': {
+        const model = modelId || 'gpt-4o-mini'
+        const res = await fetch('https://api.openai.com/v1/chat/completions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+          body: JSON.stringify({ model, messages: messages.map(m => ({ role: m.role, content: m.content })) }),
+        })
+        if (!res.ok) {
+          const errText = await res.text()
+          throw new Error(`OpenAI ${res.status}: ${errText}`)
+        }
+        const data: any = await res.json()
+        return data.choices?.[0]?.message?.content ?? 'No response from OpenAI.'
+      }
+
+      case 'anthropic': {
+        const model = modelId || 'claude-3-haiku-20240307'
+        const systemMsg = messages.find(m => m.role === 'system')?.content ?? ''
+        const nonSystem = messages.filter(m => m.role !== 'system')
+        const apiMessages = nonSystem.length > 0
+          ? nonSystem.map(m => ({ role: m.role, content: m.content }))
+          : [{ role: 'user', content: systemMsg }]
+        const res = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': apiKey,
+            'anthropic-version': '2023-06-01',
+          },
+          body: JSON.stringify({
+            model,
+            max_tokens: 4096,
+            ...(systemMsg && nonSystem.length > 0 ? { system: systemMsg } : {}),
+            messages: apiMessages,
+          }),
+        })
+        if (!res.ok) {
+          const errText = await res.text()
+          throw new Error(`Anthropic ${res.status}: ${errText}`)
+        }
+        const data: any = await res.json()
+        return data.content?.[0]?.text ?? 'No response from Anthropic.'
+      }
+
+      case 'gemini': {
+        const model = modelId || 'gemini-2.0-flash'
+        const systemMsg = messages.find(m => m.role === 'system')?.content ?? ''
+        const userMsg = messages.filter(m => m.role !== 'system').map(m => m.content).join('\n\n')
+        const combined = systemMsg ? `${systemMsg}\n\n${userMsg}` : userMsg
+        const res = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contents: [{ role: 'user', parts: [{ text: combined }] }],
+              generationConfig: { maxOutputTokens: 4096 },
+            }),
+          }
+        )
+        if (!res.ok) {
+          const errText = await res.text()
+          throw new Error(`Gemini ${res.status}: ${errText}`)
+        }
+        const data: any = await res.json()
+        return data.candidates?.[0]?.content?.parts?.[0]?.text ?? 'No response from Gemini.'
+      }
+
+      case 'grok': {
+        const model = modelId || 'grok-3-mini'
+        const res = await fetch('https://api.x.ai/v1/chat/completions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+          body: JSON.stringify({ model, messages: messages.map(m => ({ role: m.role, content: m.content })) }),
+        })
+        if (!res.ok) {
+          const errText = await res.text()
+          throw new Error(`xAI/Grok ${res.status}: ${errText}`)
+        }
+        const data: any = await res.json()
+        return data.choices?.[0]?.message?.content ?? 'No response from Grok.'
+      }
+
+      default:
+        throw new Error(`Unsupported cloud provider: "${provider}". Supported: openai, anthropic, gemini, grok.`)
+    }
+  }
+
   // HTTP API server for database operations (faster than WebSocket)
   try {
     console.log('[MAIN] ===== STARTING HTTP API SERVER =====')
@@ -7663,12 +7762,20 @@ app.whenReady().then(async () => {
       }
     })
     
-    // POST /api/llm/chat - Chat with model
+    // POST /api/llm/chat - Chat with model (local Ollama or cloud provider)
     httpApp.post('/api/llm/chat', async (req, res) => {
       try {
-        const { modelId, messages } = req.body
+        const { modelId, messages, provider, apiKey } = req.body
         if (!messages || !Array.isArray(messages)) {
           res.status(400).json({ ok: false, error: 'messages array is required' })
+          return
+        }
+
+        // Cloud provider dispatch: when provider + apiKey are present, call the cloud API directly
+        if (provider && apiKey) {
+          console.log('[HTTP-LLM] Cloud dispatch:', provider, modelId)
+          const cloudContent = await dispatchCloudChat(provider, modelId, messages, apiKey)
+          res.json({ ok: true, data: { content: cloudContent } })
           return
         }
         

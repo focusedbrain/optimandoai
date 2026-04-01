@@ -15,6 +15,12 @@ if (window.gridScriptV2Loaded) {
   
   console.log('✅ Grid V2 loaded successfully:', { layout, sessionId, parentSessionKey, nextBoxNumber });
   document.title = 'AI Grid V2 - ' + layout.toUpperCase();
+
+  // Canonical provider identity constants (mirrors src/constants/providers.ts)
+  var PROVIDER_IDS = { OLLAMA:'ollama', OPENAI:'openai', ANTHROPIC:'anthropic', GEMINI:'gemini', GROK:'grok', IMAGE_AI:'image_ai' };
+  var LABEL_TO_PROVIDER_ID = { 'local ai':'ollama', 'openai':'openai', 'claude':'anthropic', 'gemini':'gemini', 'grok':'grok', 'image ai':'image_ai', 'ollama':'ollama', 'anthropic':'anthropic' };
+  function toProviderIdV2(label) { if (!label) return ''; return LABEL_TO_PROVIDER_ID[label.trim().toLowerCase()] || ''; }
+  function toProviderLabelV2(id) { var labels = { ollama:'Local AI', openai:'OpenAI', anthropic:'Claude', gemini:'Gemini', grok:'Grok', image_ai:'Image AI' }; return labels[id] || id; }
   
   /**
    * Calculate max box number from session data
@@ -249,17 +255,99 @@ if (window.gridScriptV2Loaded) {
     const dialog = document.createElement('div');
     dialog.style.cssText = 'background:white;border-radius:10px;max-width:520px;width:92%;font-family:-apple-system,Segoe UI,Roboto,sans-serif;max-height:90vh;display:flex;flex-direction:column;';
     
-    function modelOptions(p) {
+    function modelOptionsStatic(p) {
       p = (p || '').toLowerCase();
       if (p === 'openai') return ['auto', 'gpt-4o-mini', 'gpt-4o'];
       if (p === 'claude') return ['auto', 'claude-3-5-sonnet', 'claude-3-opus'];
       if (p === 'gemini') return ['auto', 'gemini-1.5-flash', 'gemini-1.5-pro'];
       if (p === 'grok') return ['auto', 'grok-2-mini', 'grok-2'];
-      if (p === 'local ai') return ['auto', 'tinyllama', 'tinydolphin', 'stablelm2:1.6b', 'stablelm-zephyr:3b', 'phi3:mini', 'gemma:2b', 'phi:2.7b', 'orca-mini', 'qwen2.5-coder:1.5b', 'deepseek-r1:1.5b', 'mistral:7b-instruct-q4_0', 'llama3.2', 'qwen2.5-coder:7b'];
       if (p === 'image ai') return ['Nano Banana Pro', 'DALL·E 3', 'DALL·E 2', 'Flux Schnell', 'Flux Dev', 'SDXL', 'SD3 Medium', 'Stable Diffusion XL'];
       return ['auto'];
     }
-    
+    function escOptV2(s) {
+      return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+    function fetchLocalModelNamesV2(cb) {
+      if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.sendMessage) {
+        cb([], 'Extension runtime unavailable');
+        return;
+      }
+      chrome.runtime.sendMessage({ type: 'ELECTRON_RPC', method: 'llm.status', timeout: 20000 }, function (result) {
+        if (chrome.runtime.lastError) {
+          cb([], chrome.runtime.lastError.message);
+          return;
+        }
+        if (!result || !result.success) {
+          cb([], (result && result.error) || 'LLM status failed');
+          return;
+        }
+        var body = result.data;
+        var status = body && body.data !== undefined ? body.data : body;
+        if (!status || !status.installed || !status.running) {
+          cb([], null);
+          return;
+        }
+        var list = status.modelsInstalled || [];
+        var names = list.map(function (m) { return m && m.name; }).filter(Boolean);
+        cb(names, null);
+      });
+    }
+    function fillModelSelectV2(modelSelect, provider, preferredModel) {
+      var p = (provider || '').toLowerCase();
+      if (p === 'local ai' || p === 'ollama') {
+        modelSelect.innerHTML = '<option value="">Loading installed models…</option>';
+        modelSelect.disabled = true;
+        fetchLocalModelNamesV2(function (names, err) {
+          modelSelect.disabled = false;
+          if (err) {
+            modelSelect.innerHTML = '<option value="">' + escOptV2('Error: ' + err) + '</option>';
+            return;
+          }
+          if (!names.length) {
+            modelSelect.innerHTML =
+              '<option value="">No local models installed (use LLM Settings)</option>' +
+              '<option value="auto">auto</option>';
+            modelSelect.value = 'auto';
+            return;
+          }
+          var opts = ['<option value="auto">auto</option>'].concat(
+            names.map(function (n) {
+              var e = escOptV2(n);
+              return '<option value="' + e + '">' + e + '</option>';
+            })
+          );
+          modelSelect.innerHTML = opts.join('');
+          var pref = preferredModel && names.indexOf(preferredModel) >= 0 ? preferredModel : names[0];
+          if (preferredModel === 'auto') modelSelect.value = 'auto';
+          else modelSelect.value = pref;
+        });
+        return;
+      }
+      var models = modelOptionsStatic(provider);
+      modelSelect.innerHTML = models
+        .map(function (m) {
+          var e = escOptV2(m);
+          return '<option value="' + e + '">' + e + '</option>';
+        })
+        .join('');
+      modelSelect.disabled = false;
+      if (preferredModel && models.indexOf(preferredModel) >= 0) modelSelect.value = preferredModel;
+      else modelSelect.value = models[0];
+    }
+
+    var providers = ['OpenAI', 'Claude', 'Gemini', 'Grok', 'Local AI', 'Image AI'];
+    var storedProvider = cfg.provider || '';
+    var currentProvider = toProviderLabelV2(storedProvider) !== storedProvider ? toProviderLabelV2(storedProvider) : storedProvider;
+    var displayBoxNumber = String(effectiveBoxNumber).padStart(2, '0');
+    var models = [];
+    if (currentProvider) {
+      if (currentProvider.toLowerCase() === 'local ai' || storedProvider === 'ollama') {
+        models = ['__loading__'];
+      } else {
+        models = modelOptionsStatic(currentProvider);
+      }
+    }
+
     console.log('📋 POPUP V2: Form will show:', {
       isEditing: isEditing,
       effectiveBoxNumber: effectiveBoxNumber,
@@ -307,7 +395,12 @@ if (window.gridScriptV2Loaded) {
         '<label style="display:block;margin-bottom:8px;font-weight:600;color:#444;font-size:14px">Model</label>' +
         '<select id="gs-model" style="width:100%;padding:12px;border:2px solid #ddd;border-radius:8px;font-size:14px;cursor:pointer;transition:border-color 0.2s">' +
           (currentProvider ?
-            models.map(function(m) { return '<option' + ((cfg.model || '') === m ? ' selected' : '') + '>' + m + '</option>'; }).join('')
+            (models[0] === '__loading__'
+              ? '<option value="">Loading installed models…</option>'
+              : models.map(function(m) {
+                  var esc = String(m).replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+                  return '<option value="' + esc + '"' + ((cfg.model || '') === m ? ' selected' : '') + '>' + esc + '</option>';
+                }).join(''))
             : '<option selected disabled>Select provider first</option>') +
         '</select>' +
       '</div>' +
@@ -398,12 +491,15 @@ if (window.gridScriptV2Loaded) {
     document.getElementById('gs-provider').onchange = function() {
       var provider = this.value;
       var modelSelect = document.getElementById('gs-model');
-      var newModels = modelOptions(provider);
-      modelSelect.innerHTML = newModels.map(function(m) { 
-        return '<option>' + m + '</option>'; 
-      }).join('');
+      fillModelSelectV2(modelSelect, provider, null);
       console.log('🔄 POPUP V2: Updated models for provider:', provider);
     };
+    setTimeout(function() {
+      var ms = document.getElementById('gs-model');
+      if (ms && currentProvider && (currentProvider.toLowerCase() === 'local ai' || storedProvider === 'ollama')) {
+        fillModelSelectV2(ms, currentProvider, cfg.model || null);
+      }
+    }, 0);
     
     // Finetune feedback
     document.getElementById('gs-finetune').onclick = function(){
@@ -485,13 +581,14 @@ if (window.gridScriptV2Loaded) {
     document.getElementById('gs-save').onclick = function() {
       var title = document.getElementById('gs-title').value || ('Display Port ' + slotId);
       var agentNum = document.getElementById('gs-agent').value;
-      var provider = document.getElementById('gs-provider').value;
+      var providerRaw = document.getElementById('gs-provider').value;
+      var provider = toProviderIdV2(providerRaw) || providerRaw;
       var model = document.getElementById('gs-model').value;
       
       var agent = agentNum ? ('agent' + agentNum) : '';
       
       // Use effectiveBoxNumber (existing for edits, new for creates)
-      console.log('💾 POPUP V2: Saving slot config:', { title, agent, provider, model, boxNumber: effectiveBoxNumber, isEditing: isEditing });
+      console.log('💾 POPUP V2: Saving slot config:', { title, agent, provider: provider, providerRaw: providerRaw, model, boxNumber: effectiveBoxNumber, isEditing: isEditing });
       
       // Generate locationId and locationLabel for this slot
       var gridSessionId = window.gridSessionId || 'unknown';
@@ -499,15 +596,17 @@ if (window.gridScriptV2Loaded) {
       var locationId = 'grid_' + gridSessionId + '_' + gridLayout + '_slot' + slotId;
       var locationLabel = gridLayout + ' Display Grid - Slot ' + slotId;
       
-      // 🆕 Include box number and location in config (use effectiveBoxNumber)
+      // Include box number and location in config (use effectiveBoxNumber)
+      var identifier = 'AB' + String(effectiveBoxNumber).padStart(2, '0') + (agentNum ? String(agentNum).padStart(2, '0') : '00');
       var newConfig = { 
+        id: identifier,
         title: title, 
         agent: agent, 
         provider: provider, 
         model: model,
-        boxNumber: effectiveBoxNumber,  // ← Use effectiveBoxNumber (preserves existing for edits)
+        boxNumber: effectiveBoxNumber,
         agentNumber: agentNum ? parseInt(agentNum) : 0,
-        identifier: 'AB' + String(effectiveBoxNumber).padStart(2, '0') + (agentNum ? String(agentNum).padStart(2, '0') : '00'),
+        identifier: identifier,
         tools: (cfg.tools || []),
         locationId: locationId,
         locationLabel: locationLabel,
@@ -517,8 +616,9 @@ if (window.gridScriptV2Loaded) {
         source: 'display_grid'
       };
       
-      // 🆕 Create full agent box object for SQLite storage
+      // Create full agent box object for SQLite storage (id = identifier for grid boxes)
       var agentBox = {
+        id: newConfig.identifier,
         identifier: newConfig.identifier,
         boxNumber: newConfig.boxNumber,
         title: newConfig.title,
@@ -547,7 +647,7 @@ if (window.gridScriptV2Loaded) {
       if (model && model !== 'auto') {
         parts.push(model);
       } else if (provider) {
-        parts.push(provider);
+        parts.push(toProviderLabelV2(provider));
       }
       var disp = parts.join(' · ');
       var dispEl = slot.querySelector('.slot-display-text');
@@ -658,6 +758,40 @@ if (window.gridScriptV2Loaded) {
   }
   
   window.toggleFullscreen = toggleFullscreen;
+
+  // Listen for live output updates from the runtime pipeline
+  if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage) {
+    chrome.runtime.onMessage.addListener(function(message) {
+      if (message.type === 'UPDATE_AGENT_BOX_OUTPUT' && message.data) {
+        var boxId = message.data.agentBoxId;
+        var output = message.data.output;
+        console.log('[GridScriptV2] Received UPDATE_AGENT_BOX_OUTPUT for:', boxId);
+
+        var slots = document.querySelectorAll('[data-slot-id]');
+        slots.forEach(function(slot) {
+          var configStr = slot.getAttribute('data-slot-config');
+          if (!configStr) return;
+          try {
+            var cfg = JSON.parse(configStr);
+            if (cfg.id === boxId || cfg.identifier === boxId) {
+              var contentDiv = slot.children[1];
+              if (contentDiv) {
+                contentDiv.style.alignItems = 'flex-start';
+                contentDiv.style.justifyContent = 'flex-start';
+                contentDiv.style.overflow = 'auto';
+                contentDiv.innerHTML = '<div style="white-space: pre-wrap; word-break: break-word; width: 100%; font-size: 13px; line-height: 1.5;">' +
+                  output.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>';
+                console.log('[GridScriptV2] Updated output in slot', slot.getAttribute('data-slot-id'));
+              }
+            }
+          } catch (e) {
+            // Ignore JSON parse errors for unconfigured slots
+          }
+        });
+      }
+    });
+    console.log('✅ Grid V2 output listener registered');
+  }
   
   console.log('✅ All grid V2 functions loaded and available');
 }

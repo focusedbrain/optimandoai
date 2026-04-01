@@ -14,13 +14,14 @@ import {
 } from './handshake/handshakeService'
 import { 
   routeInput, 
-  routeEventTagInput,
   getButlerSystemPrompt, 
   wrapInputForAgent,
   loadAgentsFromSession,
   updateAgentBoxOutput,
   getAgentById,
   resolveModelForAgent,
+  buildLlmRequestBody,
+  type BrainResolution,
   type RoutingDecision,
   type AgentMatch,
   type AgentBox,
@@ -1170,38 +1171,32 @@ function SidepanelOrchestrator() {
       const currentConnectionStatus = connectionStatusRef.current
       const currentSessionName = sessionNameRef.current
       
-      // Route the input
+      // OCR before routing: extract text from screenshot first
+      let ocrText = ''
+      if (imageUrl) {
+        ocrText = await runOcrForCurrentTurn(imageUrl, baseUrl)
+      }
+
+      // Build enriched text for routing (typed + OCR)
+      const enrichedTriggerText = ocrText
+        ? `${triggerText}\n\n[Image Text]:\n${ocrText}`
+        : triggerText
+
+      // Route the input with OCR-enriched text
       const routingDecision = await routeInput(
-        triggerText,
-        true, // hasImage = true
+        enrichedTriggerText,
+        true, // hasImage = true (screenshot always has image)
         currentConnectionStatus,
         currentSessionName,
         currentModel,
         currentUrl
       )
       
-      console.log('[Sidepanel] Trigger routing decision:', routingDecision)
-      
-      // Process OCR if image provided
-      let ocrText = ''
-      if (imageUrl) {
-        try {
-          const ocrResponse = await fetch(`${baseUrl}/api/ocr/process`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ image: imageUrl })
-          })
-          if (ocrResponse.ok) {
-            const ocrResult = await ocrResponse.json()
-            if (ocrResult.ok && ocrResult.data?.text) {
-              ocrText = ocrResult.data.text
-              console.log('[Sidepanel] OCR extracted text:', ocrText.substring(0, 100) + '...')
-            }
-          }
-        } catch (e) {
-          console.warn('[Sidepanel] OCR failed:', e)
-        }
-      }
+      console.log('[Sidepanel] Screenshot routing decision (OCR-enriched):', {
+        shouldForward: routingDecision.shouldForwardToAgent,
+        matchedAgents: routingDecision.matchedAgents.length,
+        hasOcrText: !!ocrText
+      })
       
       if (routingDecision.shouldForwardToAgent && routingDecision.matchedAgents.length > 0) {
         // Show butler confirmation
@@ -1223,7 +1218,7 @@ function SidepanelOrchestrator() {
           const wrappedInput = wrapInputForAgent(triggerText, agent, ocrText)
           
           // Resolve model - use agent box model if configured, otherwise use current model
-          const modelResolution = resolveModelForAgent(
+          const modelResolution: BrainResolution = resolveModelForAgent(
             match.agentBoxProvider,
             match.agentBoxModel,
             currentModel
@@ -1231,21 +1226,40 @@ function SidepanelOrchestrator() {
           
           console.log('[Sidepanel] Processing with agent:', match.agentName, 'model:', modelResolution.model)
           
+          if (!modelResolution.ok) {
+            const errorMsg = `⚠️ Brain resolution failed for ${match.agentName}:\n${modelResolution.error}`
+            console.warn('[Sidepanel] Brain resolution error:', modelResolution)
+            if (match.agentBoxId) {
+              await updateAgentBoxOutput(match.agentBoxId, errorMsg, `Agent: ${match.agentName} | Error: ${modelResolution.errorType}`)
+            }
+            setChatMessages(prev => [...prev, { role: 'assistant' as const, text: errorMsg }])
+            continue
+          }
+          
           const processedContent = ocrText 
             ? `${triggerText}\n\n[Extracted Text]:\n${ocrText}`
             : triggerText
           
           try {
+            const llmMessages = [
+              { role: 'system', content: wrappedInput },
+              { role: 'user', content: processedContent }
+            ]
+            const { body: llmBody, error: keyError } = await buildLlmRequestBody(
+              modelResolution as BrainResolution & { ok: true },
+              llmMessages
+            )
+            if (keyError) {
+              const keyMsg = `⚠️ ${match.agentName}: ${keyError}`
+              if (match.agentBoxId) await updateAgentBoxOutput(match.agentBoxId, keyMsg, `Missing API key`)
+              setChatMessages(prev => [...prev, { role: 'assistant' as const, text: keyMsg }])
+              continue
+            }
+
             const agentResponse = await fetch(`${baseUrl}/api/llm/chat`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                modelId: modelResolution.model || currentModel,
-                messages: [
-                  { role: 'system', content: wrappedInput },
-                  { role: 'user', content: processedContent }
-                ]
-              })
+              body: JSON.stringify(llmBody)
             })
             
             if (agentResponse.ok) {
@@ -2368,7 +2382,32 @@ function SidepanelOrchestrator() {
   // =============================================================================
   
   /**
-   * Process input with OCR if images are present
+   * Run OCR on a single image URL. Returns extracted text or empty string.
+   * Used BEFORE routing so OCR-derived triggers can influence agent matching.
+   */
+  const runOcrForCurrentTurn = async (imageUrl: string, baseUrl: string): Promise<string> => {
+    try {
+      const ocrResponse = await fetch(`${baseUrl}/api/ocr/process`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image: imageUrl })
+      })
+      if (ocrResponse.ok) {
+        const ocrResult = await ocrResponse.json()
+        if (ocrResult.ok && ocrResult.data?.text) {
+          console.log('[OCR] Extracted text for current turn:', ocrResult.data.text.substring(0, 100) + '...')
+          return ocrResult.data.text
+        }
+      }
+    } catch (e) {
+      console.warn('[OCR] Failed for current turn:', e)
+    }
+    return ''
+  }
+
+  /**
+   * Process input with OCR if images are present (full conversation context for LLM).
+   * This builds the LLM message array; routing uses runOcrForCurrentTurn separately.
    */
   const processMessagesWithOCR = async (
     messages: Array<{role: 'user' | 'assistant', text: string, imageUrl?: string}>,
@@ -2493,7 +2532,7 @@ function SidepanelOrchestrator() {
       })
       
       // Resolve which model to use (AgentBox model > fallback)
-      const modelResolution = resolveModelForAgent(
+      const modelResolution: BrainResolution = resolveModelForAgent(
         match.agentBoxProvider,
         match.agentBoxModel,
         fallbackModel
@@ -2501,17 +2540,45 @@ function SidepanelOrchestrator() {
       
       console.log('[Chat] Model resolution:', modelResolution)
       
-      // Call LLM with reasoning-wrapped input
+      // Surface brain resolution failures visibly
+      if (!modelResolution.ok) {
+        const errorMsg = `⚠️ Brain resolution failed for ${match.agentName}:\n${modelResolution.error}`
+        console.warn('[Chat] Brain resolution error:', modelResolution)
+        
+        if (match.agentBoxId) {
+          await updateAgentBoxOutput(
+            match.agentBoxId,
+            errorMsg,
+            `Agent: ${match.agentName} | Provider: ${modelResolution.provider} | Error: ${modelResolution.errorType}`
+          )
+        }
+        
+        return { success: false, error: modelResolution.error }
+      }
+      
+      const llmMessages = [
+        { role: 'system', content: reasoningContext },
+        ...processedMessages.slice(-3)
+      ]
+      const { body: llmBody, error: keyError } = await buildLlmRequestBody(
+        modelResolution as BrainResolution & { ok: true },
+        llmMessages
+      )
+      if (keyError) {
+        if (match.agentBoxId) {
+          await updateAgentBoxOutput(
+            match.agentBoxId,
+            `⚠️ ${keyError}`,
+            `Agent: ${match.agentName} | Missing API key`
+          )
+        }
+        return { success: false, error: keyError }
+      }
+
       const response = await fetch(`${baseUrl}/api/llm/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          modelId: modelResolution.model || fallbackModel,
-          messages: [
-            { role: 'system', content: reasoningContext },
-            ...processedMessages.slice(-3) // Include recent context
-          ]
-        })
+        body: JSON.stringify(llmBody)
       })
       
       if (!response.ok) {
@@ -2624,9 +2691,20 @@ function SidepanelOrchestrator() {
         currentUrl = tab?.url || ''
       } catch (e) {}
       
-      // Route the input
+      // OCR before routing: extract text from image first
+      let ocrText = ''
+      if (imageUrl) {
+        ocrText = await runOcrForCurrentTurn(imageUrl, baseUrl)
+      }
+
+      // Build enriched text for routing (typed + OCR)
+      const enrichedTriggerText = ocrText
+        ? `${triggerText}\n\n[Image Text]:\n${ocrText}`
+        : triggerText
+
+      // Route the input with OCR-enriched text
       const routingDecision = await routeInput(
-        triggerText,
+        enrichedTriggerText,
         !!imageUrl,
         connectionStatus,
         sessionName,
@@ -2634,54 +2712,10 @@ function SidepanelOrchestrator() {
         currentUrl
       )
       
-      console.log('[Sidepanel] Trigger routing decision:', routingDecision)
-      
-      // Process OCR if image provided
-      let ocrText = ''
-      if (imageUrl) {
-        try {
-          const ocrResponse = await fetch(`${baseUrl}/api/ocr/process`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ image: imageUrl })
-          })
-          if (ocrResponse.ok) {
-            const ocrResult = await ocrResponse.json()
-            if (ocrResult.ok && ocrResult.data?.text) {
-              ocrText = ocrResult.data.text
-            }
-          }
-        } catch (e) {
-          console.warn('[Sidepanel] OCR failed:', e)
-        }
-      }
-      
-      // NLP Classification step
-      const inputTextForNlp = ocrText || triggerText
-      const nlpResult = await nlpClassifier.classify(
-        inputTextForNlp,
-        ocrText ? 'ocr' : 'inline_chat',
-        { sourceUrl: currentUrl, sessionKey: sessionName }
-      )
-      
-      console.log('[Sidepanel] Trigger NLP Classification:', {
-        triggers: nlpResult.input.triggers,
-        entities: nlpResult.input.entities.length
-      })
-      
-      // Route classified input for agent allocations
-      const agentsForNlp = await loadAgentsFromSession()
-      const agentBoxesList = agentBoxes as AgentBox[]
-      const classifiedWithAllocations = inputCoordinator.routeClassifiedInput(
-        nlpResult.input,
-        agentsForNlp,
-        agentBoxesList,
-        currentModel,
-        'ollama'
-      )
-      
-      console.log('[Sidepanel] Trigger Agent Allocations:', {
-        count: classifiedWithAllocations.agentAllocations?.length || 0
+      console.log('[Sidepanel] Trigger routing decision (OCR-enriched):', {
+        shouldForward: routingDecision.shouldForwardToAgent,
+        matchedAgents: routingDecision.matchedAgents.length,
+        hasOcrText: !!ocrText
       })
       
       if (routingDecision.shouldForwardToAgent && routingDecision.matchedAgents.length > 0) {
@@ -2701,7 +2735,7 @@ function SidepanelOrchestrator() {
           const wrappedInput = wrapInputForAgent(triggerText, agent, ocrText)
           
           // Resolve model
-          const modelResolution = resolveModelForAgent(
+          const modelResolution: BrainResolution = resolveModelForAgent(
             match.agentBoxProvider,
             match.agentBoxModel,
             currentModel
@@ -2709,20 +2743,39 @@ function SidepanelOrchestrator() {
           
           console.log('[Sidepanel] Processing with agent:', match.agentName, 'model:', modelResolution.model)
           
+          if (!modelResolution.ok) {
+            const errorMsg = `⚠️ Brain resolution failed for ${match.agentName}:\n${modelResolution.error}`
+            console.warn('[Sidepanel] Brain resolution error:', modelResolution)
+            if (match.agentBoxId) {
+              await updateAgentBoxOutput(match.agentBoxId, errorMsg, `Agent: ${match.agentName} | Error: ${modelResolution.errorType}`)
+            }
+            setChatMessages(prev => [...prev, { role: 'assistant' as const, text: errorMsg }])
+            continue
+          }
+          
           const processedContent = ocrText 
             ? `${triggerText}\n\n[Extracted Text]:\n${ocrText}`
             : triggerText
           
+          const triggerLlmMessages = [
+            { role: 'system', content: wrappedInput },
+            { role: 'user', content: processedContent }
+          ]
+          const { body: triggerLlmBody, error: triggerKeyError } = await buildLlmRequestBody(
+            modelResolution as BrainResolution & { ok: true },
+            triggerLlmMessages
+          )
+          if (triggerKeyError) {
+            const keyMsg = `⚠️ ${match.agentName}: ${triggerKeyError}`
+            if (match.agentBoxId) await updateAgentBoxOutput(match.agentBoxId, keyMsg, `Missing API key`)
+            setChatMessages(prev => [...prev, { role: 'assistant' as const, text: keyMsg }])
+            continue
+          }
+
           const agentResponse = await fetch(`${baseUrl}/api/llm/chat`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              modelId: modelResolution.model || currentModel,
-              messages: [
-                { role: 'system', content: wrappedInput },
-                { role: 'user', content: processedContent }
-              ]
-            })
+            body: JSON.stringify(triggerLlmBody)
           })
           
           if (agentResponse.ok) {
@@ -2835,8 +2888,10 @@ function SidepanelOrchestrator() {
       ? `${beapAttachmentLlmPrefix}\n\n${displayText}`
       : displayText
 
-    // Allow sending with just an image (no text required)
-    const hasImage = chatMessages.some(msg => msg.imageUrl)
+    // Current-turn image detection: only check the most recent user message, not history
+    const lastUserMsg = [...chatMessages].reverse().find(m => m.role === 'user' && m.imageUrl)
+    const currentTurnImageUrl = lastUserMsg?.imageUrl
+    const hasImage = !!currentTurnImageUrl
 
     // Route AI response to inbox detail panel (or bulk grid pair) when in BEAP inbox with message selected
     if (
@@ -2915,15 +2970,27 @@ function SidepanelOrchestrator() {
       }
       
       // =================================================================
-      // STEP 2: ROUTE INPUT THROUGH INPUT COORDINATOR
-      // The InputCoordinator decides which agents should receive the input:
-      // - Active trigger (#tag17) -> Forward to matched agent
-      // - Passive trigger pattern matched -> Forward to matched agent
-      // - No listener active on agent -> Always forward to reasoning section
-      // - No match at all -> Butler response only
+      // STEP 2: OCR FOR CURRENT TURN (runs BEFORE routing)
+      // Extract text from the current turn's image so OCR-derived
+      // triggers can influence agent matching.
+      // =================================================================
+      let ocrText = ''
+      if (hasImage && currentTurnImageUrl) {
+        ocrText = await runOcrForCurrentTurn(currentTurnImageUrl, baseUrl)
+      }
+
+      // Build enriched text: typed text + OCR text (for routing)
+      const enrichedRouteText = ocrText
+        ? `${llmRouteText}\n\n[Image Text]:\n${ocrText}`
+        : llmRouteText
+
+      // =================================================================
+      // STEP 3: ROUTE INPUT THROUGH INPUT COORDINATOR (with OCR-enriched text)
+      // The InputCoordinator decides which agents should receive the input.
+      // Now uses OCR text so image-derived triggers work.
       // =================================================================
       const routingDecision = await routeInput(
-        llmRouteText,
+        enrichedRouteText,
         hasImage,
         connectionStatus,
         sessionName,
@@ -2931,16 +2998,19 @@ function SidepanelOrchestrator() {
         currentUrl
       )
       
-      console.log('[Chat] Input Coordinator routing decision:', {
+      console.log('[Chat] Input Coordinator routing decision (OCR-enriched):', {
         shouldForward: routingDecision.shouldForwardToAgent,
         matchedAgents: routingDecision.matchedAgents.length,
-        agents: routingDecision.matchedAgents.map(m => `${m.agentName} (${m.matchDetails})`)
+        agents: routingDecision.matchedAgents.map(m => `${m.agentName} (${m.matchDetails})`),
+        hasOcrText: !!ocrText
       })
       
       // =================================================================
-      // STEP 3: PROCESS OCR IF IMAGES PRESENT
+      // STEP 3.1: PROCESS FULL CONVERSATION FOR LLM CONTEXT
+      // processMessagesWithOCR builds the full LLM conversation array.
+      // This is separate from routing — it just formats messages for the LLM.
       // =================================================================
-      const { processedMessages, ocrText } = await processMessagesWithOCR(newMessages, baseUrl)
+      const { processedMessages } = await processMessagesWithOCR(newMessages, baseUrl)
 
       let processedMessagesForLlm = processedMessages
       if (beapAttachmentLlmPrefix) {
@@ -2957,99 +3027,22 @@ function SidepanelOrchestrator() {
       }
       
       // =================================================================
-      // STEP 3.5: NLP CLASSIFICATION
-      // Classify input text (or OCR text) into structured JSON
-      // This extracts triggers, entities, and prepares for routing
+      // STEP 3.5: NLP CLASSIFICATION (diagnostics, does not override routing)
+      // Classify input text (or OCR text) for structured logging.
+      // Routing authority is Step 3 above (routeInput with enriched text).
       // =================================================================
-      const inputTextForNlp = ocrText
-        ? `${llmRouteText}\n\n[Image Text]:\n${ocrText}`
-        : llmRouteText
       const nlpResult = await nlpClassifier.classify(
-        inputTextForNlp,
+        enrichedRouteText,
         ocrText ? 'ocr' : 'inline_chat',
         { sourceUrl: currentUrl, sessionKey: sessionName }
       )
       
-      console.log('[Chat] NLP Classification:', {
+      console.log('[Chat] NLP Classification (diagnostic):', {
         success: nlpResult.success,
         triggers: nlpResult.input.triggers,
         entities: nlpResult.input.entities.length,
         processingTimeMs: nlpResult.processingTimeMs
       })
-      
-      // Route classified input through InputCoordinator for agent allocations
-      const agents = await loadAgentsFromSession()
-      const agentBoxesList = agentBoxes as AgentBox[]
-      const classifiedWithAllocations = inputCoordinator.routeClassifiedInput(
-        nlpResult.input,
-        agents,
-        agentBoxesList,
-        activeLlmModel,
-        'ollama'
-      )
-      
-      console.log('[Chat] Agent Allocations:', {
-        count: classifiedWithAllocations.agentAllocations?.length || 0,
-        agents: classifiedWithAllocations.agentAllocations?.map(a => 
-          `${a.agentName} → ${a.outputSlot.destination} (${a.llmModel})`
-        )
-      })
-      
-      // =================================================================
-      // STEP 3.6: EVENT TAG ROUTING (Input Coordinator)
-      // Route through event tag flow to detect matches with agent listeners
-      // This checks all agents' triggers (#tags) and displays match feedback
-      // =================================================================
-      
-      // Debug: Log all agents and their listener configurations
-      console.log('[Chat] DEBUG - Agents in session:', agents.map(a => ({
-        name: a.name,
-        number: a.number,
-        enabled: a.enabled,
-        hasListening: !!a.listening,
-        capabilities: a.capabilities,
-        passiveEnabled: a.listening?.passiveEnabled,
-        activeEnabled: a.listening?.activeEnabled,
-        passiveTriggers: a.listening?.passive?.triggers?.map((t: any) => t.tag?.name),
-        activeTriggers: a.listening?.active?.triggers?.map((t: any) => t.tag?.name),
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- debug log: access legacy 'triggers' field that may exist at runtime
-        unifiedTriggers: (a.listening as any)?.triggers?.map((t: any) => t.tag || t.tagName)
-      })))
-      
-      if (nlpResult.input.triggers.length > 0) {
-        console.log('[Chat] Detected triggers, running Event Tag routing:', nlpResult.input.triggers)
-        
-        try {
-          const eventTagResult = await routeEventTagInput(
-            inputTextForNlp,
-            ocrText ? 'ocr' : 'inline_chat',
-            currentUrl,
-            sessionName
-          )
-          
-          console.log('[Chat] Event Tag Routing Result:', {
-            matchedAgents: eventTagResult.batch.results.length,
-            triggersFound: eventTagResult.batch.triggersFound,
-            summary: eventTagResult.batch.summary,
-            allResults: eventTagResult.batch.results
-          })
-          
-          // Display match detection feedback if any agents matched
-          if (eventTagResult.batch.results.length > 0) {
-            const matchFeedback = generateEventTagMatchFeedback(eventTagResult.batch)
-            setChatMessages(prev => [...prev, { role: 'assistant' as const, text: matchFeedback }])
-            routeAssistantToInboxIfPending(matchFeedback)
-            scrollToBottom()
-          } else {
-            // Debug: Show why no matches were found
-            console.log('[Chat] No matches found. Summary:', eventTagResult.batch.summary)
-          }
-        } catch (eventTagError) {
-          console.error('[Chat] Event Tag routing error:', eventTagError)
-        }
-      } else {
-        console.log('[Chat] No triggers detected in input:', inputTextForNlp)
-      }
       
       // =================================================================
       // STEP 4: HANDLE ROUTING DECISION
