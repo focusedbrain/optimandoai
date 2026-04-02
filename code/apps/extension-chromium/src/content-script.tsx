@@ -23075,6 +23075,11 @@ function initializeExtension() {
           
           if (rawData.execution) {
             addExecutionSection(rawData.execution)
+            // Also promote nested executionSections stored by auto-save
+            // (syncPersistedFromDom writes additional sections to execution.executionSections)
+            if (rawData.execution.executionSections && rawData.execution.executionSections.length > 0) {
+              rawData.execution.executionSections.forEach((sec: any) => addExecutionSection(sec))
+            }
           }
           if (rawData.executionSections && rawData.executionSections.length > 0) {
             rawData.executionSections.forEach((sec: any) => addExecutionSection(sec))

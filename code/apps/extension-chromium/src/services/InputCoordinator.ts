@@ -437,6 +437,8 @@ export class InputCoordinator {
     console.log(`[InputCoordinator] findAgentBoxesForAgent "${agent.name}":`, {
       executionSectionsCount: (agentAny.executionSections || []).length,
       executionSections: JSON.stringify(agentAny.executionSections || []),
+      nestedExecSectionsCount: (agentAny.execution?.executionSections || []).length,
+      nestedExecSections: JSON.stringify(agentAny.execution?.executionSections || []),
       executionSpecialDests: JSON.stringify(agentAny.execution?.specialDestinations || []),
       executionDestinations: JSON.stringify(agentAny.execution?.destinations || []),
     })
@@ -472,6 +474,14 @@ export class InputCoordinator {
     // Also check executionSections[].specialDestinations (auto-save draft format)
     const executionSections: any[] = agentAny.executionSections || []
     for (const section of executionSections) {
+      resolveDestList(section.destinations || [])
+      resolveDestList(section.specialDestinations || [])
+    }
+
+    // 1a2. Also check execution.executionSections — auto-save nests additional sections HERE
+    // (syncPersistedFromDom stores: draft.execution.executionSections = eSections)
+    const nestedExecSections: any[] = agentAny.execution?.executionSections || []
+    for (const section of nestedExecSections) {
       resolveDestList(section.destinations || [])
       resolveDestList(section.specialDestinations || [])
     }
