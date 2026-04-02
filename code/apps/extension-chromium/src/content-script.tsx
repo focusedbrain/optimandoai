@@ -21767,7 +21767,12 @@ function initializeExtension() {
 
           el.addEventListener('change', () => {
 
-            autoSaveToChromeStorage() // Auto-save before render
+            // Synchronously capture all current DOM state (including triggers) into
+            // previouslySavedData BEFORE render() clears the DOM. autoSaveToChromeStorage
+            // is debounced so its internal syncPersistedFromDom would run too late.
+            syncPersistedFromDom()
+
+            autoSaveToChromeStorage() // Persist to chrome.storage (debounced)
 
             render()
 
