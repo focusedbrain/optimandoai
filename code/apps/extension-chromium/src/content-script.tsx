@@ -13675,11 +13675,10 @@ function initializeExtension() {
 
       const container = configOverlay.querySelector('#agent-sections') as HTMLElement | null
 
-      const capL = configOverlay.querySelector('#cap-listening') as HTMLInputElement | null
-
-      const capR = configOverlay.querySelector('#cap-reasoning') as HTMLInputElement | null
-
-      const capE = configOverlay.querySelector('#cap-execution') as HTMLInputElement | null
+      // Checkboxes removed — sections are always rendered
+      const capL = true
+      const capR = true
+      const capE = true
 
       if (!container) throw new Error('agent-sections container missing')
 
@@ -25619,11 +25618,10 @@ function initializeExtension() {
 
     const updateBoxes = () => {
 
-      const capL = configOverlay.querySelector('#cap-listening') as HTMLInputElement | null
-
-      const capR = configOverlay.querySelector('#cap-reasoning') as HTMLInputElement | null
-
-      const capE = configOverlay.querySelector('#cap-execution') as HTMLInputElement | null
+      // Checkboxes removed — sections are always visible, no-op
+      const capL = null
+      const capR = null
+      const capE = null
 
       const boxL = configOverlay.querySelector('#box-listening') as HTMLElement | null
 
@@ -25631,11 +25629,11 @@ function initializeExtension() {
 
       const boxE = configOverlay.querySelector('#box-execution') as HTMLElement | null
 
-      if (boxL && capL) boxL.style.display = capL.checked ? 'block' : 'none'
+      if (boxL) boxL.style.display = 'block'
 
-      if (boxR && capR) boxR.style.display = capR.checked ? 'block' : 'none'
+      if (boxR) boxR.style.display = 'block'
 
-      if (boxE && capE) boxE.style.display = capE.checked ? 'block' : 'none'
+      if (boxE) boxE.style.display = 'block'
 
     }
 
