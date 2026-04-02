@@ -1136,6 +1136,39 @@ async function createWindow() {
       console.log('[MAIN] 📨 BEAP Inbox requested from dashboard')
       openBeapPopup('dashboard-beap')
     })
+    // Handle WR Chat button from dashboard - open popup in WR Chat mode (default)
+    ipcMain.on('OPEN_WR_CHAT', () => {
+      console.log('[MAIN] 📨 WR Chat popup requested from dashboard')
+      let bounds = { x: 100, y: 100, width: 520, height: 720 }
+      let windowState: 'normal' | 'maximized' | 'fullscreen' = 'normal'
+      if (win) {
+        const dashBounds = win.getBounds()
+        bounds = { x: dashBounds.x, y: dashBounds.y, width: dashBounds.width, height: dashBounds.height }
+        if (win.isFullScreen()) windowState = 'fullscreen'
+        else if (win.isMaximized()) windowState = 'maximized'
+      }
+      popupIsOpen = true
+      if (win && !win.isDestroyed()) {
+        win.setAlwaysOnTop(false)
+      }
+      const message = JSON.stringify({
+        type: 'OPEN_COMMAND_CENTER_POPUP',
+        theme: currentExtensionTheme,
+        bounds,
+        windowState
+      })
+      const client = wsClients[0]
+      if (client) {
+        try {
+          client.send(message)
+          console.log('[MAIN] 📨 Sent OPEN_COMMAND_CENTER_POPUP (wr-chat) to extension')
+        } catch (e) {
+          console.error('[MAIN] Error sending to extension:', e)
+        }
+      } else {
+        console.log('[MAIN] ⚠️ No WebSocket clients connected - WR Chat popup may not open')
+      }
+    })
     ipcMain.on('OPEN_BEAP_DRAFT', () => {
       console.log('[MAIN] 📨 BEAP Draft requested from dashboard')
       openBeapPopup('dashboard-beap-draft')

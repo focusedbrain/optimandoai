@@ -376,6 +376,9 @@ contextBridge.exposeInMainWorld('analysisDashboard', {
   openHandshakeRequest: () => {
     ipcRenderer.send('OPEN_HANDSHAKE_REQUEST')
   },
+  openWrChat: () => {
+    ipcRenderer.send('OPEN_WR_CHAT')
+  },
 })
 
 // ── Handshake list refresh (main → renderer when coordination receives capsule) ─
