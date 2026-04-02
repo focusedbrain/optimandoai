@@ -4201,10 +4201,28 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           })
           
           console.log('✅ BG: Loaded all sessions from SQLite:', Object.keys(sessionsMap).length)
-          try {
-            sendResponse({ success: true, sessions: sessionsMap })
-          } catch (e) {
-            console.error('❌ BG: Failed to send response:', e)
+
+          if (Object.keys(sessionsMap).length > 0) {
+            try {
+              sendResponse({ success: true, sessions: sessionsMap })
+            } catch (e) {
+              console.error('❌ BG: Failed to send response:', e)
+            }
+          } else {
+            // SQLite returned zero sessions — fall back to Chrome Storage mirror
+            console.warn('⚠️ BG: SQLite returned 0 sessions, falling back to Chrome Storage')
+            chrome.storage.local.get(null, (allData: any) => {
+              const chromeSessions: Record<string, any> = {}
+              Object.entries(allData || {}).forEach(([k, v]) => {
+                if (k.startsWith('session_')) chromeSessions[k] = v
+              })
+              console.log('⚠️ BG: Chrome Storage fallback found sessions:', Object.keys(chromeSessions).length)
+              try {
+                sendResponse({ success: true, sessions: chromeSessions })
+              } catch (e) {
+                console.error('❌ BG: Failed to send Chrome fallback response:', e)
+              }
+            })
           }
         })
         .catch((error: any) => {
@@ -4360,11 +4378,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         .then((result: any) => {
           console.log('✅ BG: Session saved to SQLite via HTTP!')
           // Get updated session to count boxes
-          return fetch(`http://127.0.0.1:51248/api/orchestrator/get?keys=${encodeURIComponent(msg.sessionKey)}`, { headers: _electronHeaders() })
+          return fetch(`http://127.0.0.1:51248/api/orchestrator/get?key=${encodeURIComponent(msg.sessionKey)}`, { headers: _electronHeaders() })
         })
         .then(response => response.json())
         .then((result: any) => {
-          const session = result.data?.[msg.sessionKey] || {}
+          const session = result.data || {}
           const totalBoxes = session.agentBoxes?.length || 0
           
           console.log('✅ BG: Session saved to SQLite successfully!')

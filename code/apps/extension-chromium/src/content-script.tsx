@@ -2706,103 +2706,50 @@ function initializeExtension() {
 
         setCurrentSessionKey(sessionKeyFromUrl)
 
-        // Load the session data
-
-        storageGet([sessionKeyFromUrl], (all:any) => {
-
-          console.log('🔍 DEBUG LOAD FROM URL: Raw storage result:', all)
-
-          const session = (all && all[sessionKeyFromUrl]) || {}
-
-          console.log('🔍 DEBUG LOAD FROM URL: Parsed session:', {
-            hasAgents: !!session.agents,
-            agentsCount: session.agents?.length || 0,
-            hasAgentBoxes: !!session.agentBoxes,
-            agentBoxesCount: session.agentBoxes?.length || 0,
-            agents: session.agents?.map((a: any) => ({
-              key: a.key,
-              name: a.name,
-              enabled: a.enabled,
-              hasConfig: !!a.config,
-              configKeys: a.config ? Object.keys(a.config) : []
-            }))
-          })
-
-          // Ensure session has all required fields
-
-          if (!session.tabName) session.tabName = document.title || 'Unnamed Session'
-
-          if (!session.url) session.url = window.location.href
-
-          if (!session.displayGrids) session.displayGrids = []
-
-          if (!session.agentBoxes) session.agentBoxes = []
-
-          if (!session.customAgents) session.customAgents = []
-
-          if (!session.hiddenBuiltins) session.hiddenBuiltins = []
-
-          if (!session.timestamp) session.timestamp = new Date().toISOString()
-
-          // CRITICAL: Transform agents from orchestrator format to internal format on load
-          if (session.agents && Array.isArray(session.agents)) {
-            session.agents = session.agents.map((a: any) => {
-              if (a.key) return a; // Already in internal format
-              
-              // Transform from orchestrator format
-              const sanitizedKey = a.name ? a.name.toLowerCase().replace(/[^a-z0-9]/g, '') : `agent${a.number || 1}`;
-              console.log(`[TRACE LOAD] Transforming agent on load: ${a.agent_id || a.name} -> key: ${sanitizedKey}`);
-              
-              return {
-                ...a,
-                key: sanitizedKey,
-                agent_id: undefined
-              };
-            });
+        // Load the session data — use authoritative SQLite path with Chrome Storage fallback
+        const loadFromUrl = (session: any) => {
+          const s = session || {}
+          if (!s.tabName) s.tabName = document.title || 'Unnamed Session'
+          if (!s.url) s.url = window.location.href
+          if (!s.displayGrids) s.displayGrids = []
+          if (!s.agentBoxes) s.agentBoxes = []
+          if (!s.customAgents) s.customAgents = []
+          if (!s.hiddenBuiltins) s.hiddenBuiltins = []
+          if (!s.timestamp) s.timestamp = new Date().toISOString()
+          if (s.agents && Array.isArray(s.agents)) {
+            s.agents = s.agents.map((a: any) => {
+              if (a.key) return a
+              const sanitizedKey = a.name ? a.name.toLowerCase().replace(/[^a-z0-9]/g, '') : `agent${a.number || 1}`
+              return { ...a, key: sanitizedKey, agent_id: undefined }
+            })
           }
-
-          console.log('🔍 DEBUG LOAD FROM URL: After transform:', {
-            agentsCount: session.agents?.length || 0,
-            agents: session.agents?.map((a: any) => ({
-              key: a.key,
-              name: a.name,
-              enabled: a.enabled,
-              hasConfig: !!a.config
-            }))
-          })
-
-          
-
-          // CRITICAL: Update currentTabData with session name from main master tab
-
-          currentTabData.tabName = session.tabName
-
-          console.log('✅ Hybrid tab joined session:', sessionKeyFromUrl, '- Session name:', session.tabName)
-
-          
-
-          // Update UI to show the correct session name
-
+          currentTabData.tabName = s.tabName
+          console.log('✅ Hybrid tab joined session:', sessionKeyFromUrl, '- Session name:', s.tabName)
           setTimeout(() => {
-
             const sessionNameInput = document.getElementById('session-name-input') as HTMLInputElement
-
             if (sessionNameInput) {
-
-              // Use centralized sync to ensure name and ID are displayed correctly
-              syncSessionName(session.tabName || 'New Session', 'topbar')
-
-              console.log('✅ Updated session name in UI:', session.tabName)
-
+              syncSessionName(s.tabName || 'New Session', 'topbar')
             }
+          }, 100)
+          cb(sessionKeyFromUrl, s)
+        }
 
-          }, 100) // Small delay to ensure DOM is ready
-
-          
-
-          cb(sessionKeyFromUrl, session)
-
-        })
+        if (chrome?.runtime) {
+          chrome.runtime.sendMessage({ type: 'GET_SESSION_FROM_SQLITE', sessionKey: sessionKeyFromUrl }, (response) => {
+            if (chrome.runtime.lastError) {
+              chrome.storage.local.get([sessionKeyFromUrl], (r: any) => loadFromUrl(r?.[sessionKeyFromUrl]))
+              return
+            }
+            const session = response?.session
+            if (session && (session.agents?.length || session.agentBoxes?.length || session.tabName)) {
+              loadFromUrl(session)
+            } else {
+              chrome.storage.local.get([sessionKeyFromUrl], (r: any) => loadFromUrl(r?.[sessionKeyFromUrl]))
+            }
+          })
+        } else {
+          storageGet([sessionKeyFromUrl], (all: any) => loadFromUrl(all?.[sessionKeyFromUrl]))
+        }
 
         return
 
@@ -38894,11 +38841,21 @@ ${pageText}
             // CRITICAL: Update lastOpenedAt timestamp for session sorting
             const lastOpenedAt = new Date().toISOString()
             sessionData.lastOpenedAt = lastOpenedAt
-            
-            // Save the updated lastOpenedAt to chrome.storage.local
-            storageSet({ [sessionId as string]: { ...sessionData, lastOpenedAt } }, () => {
-              console.log('✅ Updated lastOpenedAt for session:', sessionId, lastOpenedAt)
-            })
+
+            // Save the updated lastOpenedAt to SQLite (authoritative) + Chrome mirror
+            const updatedSession = { ...sessionData, lastOpenedAt }
+            if (chrome?.runtime) {
+              chrome.runtime.sendMessage({ type: 'SAVE_SESSION_TO_SQLITE', sessionKey: sessionId, session: updatedSession }, (response) => {
+                if (chrome.runtime.lastError || !response?.success) {
+                  storageSet({ [sessionId as string]: updatedSession })
+                } else {
+                  try { chrome.storage.local.set({ [sessionId as string]: updatedSession }) } catch {}
+                }
+                console.log('✅ Updated lastOpenedAt for session:', sessionId, lastOpenedAt)
+              })
+            } else {
+              storageSet({ [sessionId as string]: updatedSession })
+            }
 
             // CRITICAL: Restore session data to currentTabData IMMEDIATELY before any window.open
 
@@ -40446,11 +40403,21 @@ ${pageText}
     // falling back to Chrome Storage (which doesn't mirror session_ keys from SQLite).
     chrome.runtime.sendMessage({ type: 'GET_SESSION_FROM_SQLITE', sessionKey }, (response) => {
       if (chrome.runtime.lastError) {
-        console.error('❌ Could not reach background for session read:', chrome.runtime.lastError.message)
-        doOverview(null)
+        console.warn('⚠️ Could not reach background for session read, falling back to Chrome Storage:', chrome.runtime.lastError.message)
+        chrome.storage.local.get([sessionKey], (result: any) => {
+          doOverview(result?.[sessionKey] || null)
+        })
         return
       }
-      doOverview(response?.session || null)
+      const session = response?.session
+      if (session && (session.agentBoxes?.length || session.agents?.length || session.tabName)) {
+        doOverview(session)
+      } else {
+        // SQLite returned empty — try Chrome Storage mirror as fallback
+        chrome.storage.local.get([sessionKey], (result: any) => {
+          doOverview(result?.[sessionKey] || null)
+        })
+      }
     })
 
   }
@@ -41485,6 +41452,15 @@ ${pageText}
     // currentTabData.agents if present.  collectAgentConfigs() is intentionally NOT used
     // here because it produces {name, model, context, ...} objects instead of the expected
     // {key, number, enabled, config} shape that processFlow.parseAgentsFromSession requires.
+    const showSavedToast = () => {
+      const notification = document.createElement('div')
+      notification.style.cssText = 'position:fixed;top:60px;right:20px;background:rgba(76,175,80,0.9);color:white;padding:10px 15px;border-radius:5px;font-size:12px;z-index:2147483648;'
+      notification.textContent = `💾 Session "${currentTabData.tabName}" saved!`
+      document.body.appendChild(notification)
+      setTimeout(() => notification.remove(), 3000)
+      console.log('💾 Session saved manually:', currentTabData.tabName)
+    }
+
     const doSave = (canonicalAgents: any[]) => {
       const sessionData = {
 
@@ -41502,61 +41478,34 @@ ${pageText}
 
       
 
-      storageSet({ [sessionKey]: sessionData }, () => {
-
-            // Show notification
-
-            const notification = document.createElement('div')
-
-            notification.style.cssText = `
-
-              position: fixed;
-
-          top: 60px;
-
-              right: 20px;
-
-              background: rgba(76, 175, 80, 0.9);
-
-              color: white;
-
-              padding: 10px 15px;
-
-              border-radius: 5px;
-
-              font-size: 12px;
-
-              z-index: 2147483648;
-
-            `
-
-      notification.innerHTML = `💾 Session "${currentTabData.tabName}" saved!`
-
-            document.body.appendChild(notification)
-
-            
-
-            setTimeout(() => {
-
-              notification.remove()
-
-            }, 3000)
-
-            
-
-        console.log('💾 Session saved manually:', sessionData.tabName, 'with', sessionData.agentBoxes?.length || 0, 'agent boxes')
-
-      })
+      // Save via authoritative SQLite path (mirrors to Chrome Storage on success)
+      if (chrome?.runtime) {
+        chrome.runtime.sendMessage({ type: 'SAVE_SESSION_TO_SQLITE', sessionKey, session: sessionData }, (response) => {
+          if (chrome.runtime.lastError || !response?.success) {
+            console.warn('⚠️ saveCurrentSession: SQLite save failed, using storageSet fallback')
+            storageSet({ [sessionKey]: sessionData }, () => showSavedToast())
+          } else {
+            try { chrome.storage.local.set({ [sessionKey]: sessionData }) } catch {}
+            showSavedToast()
+          }
+        })
+      } else {
+        storageSet({ [sessionKey]: sessionData }, () => showSavedToast())
+      }
     }
 
-    // Load existing session to preserve canonical agents
-    storageGet([sessionKey], (result: any) => {
-      const stored = result?.[sessionKey]
-      const canonicalAgents = (stored?.agents && Array.isArray(stored.agents) && stored.agents.length > 0)
-        ? stored.agents
-        : (currentTabData as any).agents || []
-      doSave(canonicalAgents)
-    })
+    // Load existing session from SQLite to preserve canonical agents, then save back
+    if (chrome?.runtime) {
+      chrome.runtime.sendMessage({ type: 'GET_SESSION_FROM_SQLITE', sessionKey }, (response) => {
+        const stored = response?.session
+        const canonicalAgents = (stored?.agents && Array.isArray(stored.agents) && stored.agents.length > 0)
+          ? stored.agents
+          : (currentTabData as any).agents || []
+        doSave(canonicalAgents)
+      })
+    } else {
+      doSave((currentTabData as any).agents || [])
+    }
 
   }
 
