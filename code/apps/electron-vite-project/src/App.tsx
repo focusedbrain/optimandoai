@@ -223,6 +223,13 @@ function App() {
             Analysis
           </button>
           <button
+            className="nav-tab"
+            onClick={() => window.analysisDashboard?.openWrChat()}
+            title="Open WR Chat popup"
+          >
+            WR Chat
+          </button>
+          <button
             className={`nav-tab${activeView === 'handshakes' ? ' nav-tab--active' : ''}`}
             onClick={() => setActiveView('handshakes')}
           >
@@ -250,14 +257,6 @@ function App() {
               />
             </label>
           </div>
-          <button
-            className="nav-tab"
-            onClick={() => (window as any).electronAPI?.openWrChat?.()}
-            title="Open WR Chat popup"
-            style={{ fontSize: '14px', lineHeight: 1 }}
-          >
-            💬
-          </button>
         </nav>
         <HybridSearch
           activeView={activeView}

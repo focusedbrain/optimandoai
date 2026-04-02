@@ -29,6 +29,7 @@ interface AnalysisDashboardBridge {
   openBeapDraft: () => void
   openEmailCompose: () => void
   openHandshakeRequest: () => void
+  openWrChat: () => void
 }
 
 interface LifecycleBridge {
