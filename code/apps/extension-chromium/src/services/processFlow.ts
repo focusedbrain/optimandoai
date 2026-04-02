@@ -168,6 +168,8 @@ export interface AgentMatch {
   // Agent box model info for LLM selection
   agentBoxProvider?: string
   agentBoxModel?: string
+  // All target boxes (primary + additional, e.g. grid display boxes)
+  targetBoxIds?: string[]
 }
 
 export interface AgentConfig {

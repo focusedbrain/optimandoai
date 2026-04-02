@@ -431,32 +431,39 @@ export class InputCoordinator {
    */
   findAgentBoxesForAgent(agent: AgentConfig, agentBoxes: AgentBox[], matchedTriggerName?: string): AgentBox[] {
     const matchedBoxes: AgentBox[] = []
-    
-    // 1. Check execution.specialDestinations for explicit agentBox targets
-    const specialDestinations = (agent as any).execution?.specialDestinations || []
-    for (const dest of specialDestinations) {
-      if (dest.kind === 'agentBox') {
-        // If agents array specifies specific boxes like ["agentBox01", "box01", "1"]
-        if (dest.agents && dest.agents.length > 0) {
-          for (const targetBox of dest.agents) {
-            // Parse box number from "agentBox01", "box01", etc.
-            const boxNumMatch = String(targetBox).match(/(\d+)/)
-            if (boxNumMatch) {
-              const targetBoxNum = parseInt(boxNumMatch[1], 10)
-              // Use Number() coercion for type-safe comparison (stored value may be string)
-              const box = agentBoxes.find(b => Number(b.boxNumber) === targetBoxNum && b.enabled !== false)
-              if (box && !matchedBoxes.some(mb => mb.id === box.id)) {
-                this.log(`Agent "${agent.name}" → Explicit destination: Agent Box ${targetBoxNum}`)
-                matchedBoxes.push(box)
+
+    // Helper: resolve agentBox destinations from a destinations/specialDestinations array
+    const resolveDestList = (dests: any[]) => {
+      for (const dest of dests) {
+        if (dest.kind === 'agentBox') {
+          if (dest.agents && dest.agents.length > 0) {
+            for (const targetBox of dest.agents) {
+              const boxNumMatch = String(targetBox).match(/(\d+)/)
+              if (boxNumMatch) {
+                const targetBoxNum = parseInt(boxNumMatch[1], 10)
+                const box = agentBoxes.find(b => Number(b.boxNumber) === targetBoxNum && b.enabled !== false)
+                if (box && !matchedBoxes.some(mb => mb.id === box.id)) {
+                  this.log(`Agent "${agent.name}" → Explicit destination: Agent Box ${targetBoxNum}`)
+                  matchedBoxes.push(box)
+                }
               }
             }
+          } else {
+            this.log(`Agent "${agent.name}" has generic agentBox destination, using number matching`)
           }
-        } else {
-          // Generic "agentBox" destination - use agent number matching
-          this.log(`Agent "${agent.name}" has generic agentBox destination, using number matching`)
         }
       }
     }
+
+    // 1a. Check executionSections[].destinations (new v2.1.0 format)
+    const executionSections: any[] = (agent as any).executionSections || []
+    for (const section of executionSections) {
+      resolveDestList(section.destinations || [])
+    }
+
+    // 1b. Check legacy execution.specialDestinations
+    const specialDestinations = (agent as any).execution?.specialDestinations || []
+    resolveDestList(specialDestinations)
     
     // 2. Check listener.reportTo for explicit destinations
     const reportTo = agent.listening?.reportTo || []
@@ -625,7 +632,8 @@ export class InputCoordinator {
           agentBoxId: firstBox?.id,
           agentBoxNumber: firstBox?.boxNumber,
           agentBoxProvider: firstBox?.provider,
-          agentBoxModel: firstBox?.model
+          agentBoxModel: firstBox?.model,
+          targetBoxIds: connectedBoxes.map(b => b.id)
         })
         
         this.log(`✓ Agent "${agent.name}" will receive input (${evaluation.matchType})`)

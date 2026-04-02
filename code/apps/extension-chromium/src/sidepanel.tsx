@@ -1340,10 +1340,16 @@ function SidepanelOrchestrator() {
               if (agentResult.ok && agentResult.data?.content) {
                 const agentOutput = agentResult.data.content
                 
-                if (match.agentBoxId) {
+                const allBoxIds = match.targetBoxIds && match.targetBoxIds.length > 0
+                  ? match.targetBoxIds
+                  : match.agentBoxId ? [match.agentBoxId] : []
+
+                if (allBoxIds.length > 0) {
                   const reasoningContext = `**Agent:** ${match.agentIcon} ${match.agentName}\n**Match:** ${match.matchDetails}\n**Input:** ${triggerText}`
                   
-                  await updateAgentBoxOutput(match.agentBoxId, agentOutput, reasoningContext, sessionKey)
+                  for (const boxId of allBoxIds) {
+                    await updateAgentBoxOutput(boxId, agentOutput, reasoningContext, sessionKey)
+                  }
                   
                   setChatMessages(prev => [...prev, {
                     role: 'assistant' as const,
@@ -3052,10 +3058,16 @@ function SidepanelOrchestrator() {
             if (agentResult.ok && agentResult.data?.content) {
               const agentOutput = agentResult.data.content
               
-              if (match.agentBoxId) {
+              const allBoxIds = match.targetBoxIds && match.targetBoxIds.length > 0
+                ? match.targetBoxIds
+                : match.agentBoxId ? [match.agentBoxId] : []
+
+              if (allBoxIds.length > 0) {
                 const reasoningContext = `**Agent:** ${match.agentIcon} ${match.agentName}\n**Match:** ${match.matchDetails}\n**Input:** ${triggerText}`
                 
-                await updateAgentBoxOutput(match.agentBoxId, agentOutput, reasoningContext)
+                for (const boxId of allBoxIds) {
+                  await updateAgentBoxOutput(boxId, agentOutput, reasoningContext)
+                }
                 
                 setChatMessages(prev => [...prev, {
                   role: 'assistant' as const,
@@ -3373,16 +3385,17 @@ function SidepanelOrchestrator() {
           
           if (result.success && result.output) {
             // A3. Route output to AgentBox or inline chat
-            if (match.agentBoxId) {
-              // Update AgentBox with output
+            // Use targetBoxIds to send to ALL connected boxes (e.g. sidebar + display grid)
+            const allBoxIds = match.targetBoxIds && match.targetBoxIds.length > 0
+              ? match.targetBoxIds
+              : match.agentBoxId ? [match.agentBoxId] : []
+
+            if (allBoxIds.length > 0) {
               const reasoningContext = `**Agent:** ${match.agentIcon} ${match.agentName}\n**Match:** ${match.matchDetails}\n**Input:** ${displayText}`
               
-              await updateAgentBoxOutput(
-                match.agentBoxId,
-                result.output,
-                reasoningContext,
-                sessionKey
-              )
+              for (const boxId of allBoxIds) {
+                await updateAgentBoxOutput(boxId, result.output, reasoningContext, sessionKey)
+              }
               
               // Show brief confirmation in chat
               const agentConfirm = `✓ ${match.agentIcon} **${match.agentName}** processed your request.\n→ Output displayed in Agent Box ${String(match.agentBoxNumber).padStart(2, '0')}`
