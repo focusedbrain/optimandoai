@@ -1353,7 +1353,7 @@ function SidepanelOrchestrator() {
                   
                   setChatMessages(prev => [...prev, {
                     role: 'assistant' as const,
-                    text: `✓ ${match.agentIcon} **${match.agentName}** processed your request.\n→ Output displayed in Agent Box ${String(match.agentBoxNumber).padStart(2, '0')}`
+                    text: `✓ ${match.agentIcon} **${match.agentName}** processed your request.\n→ Output displayed in ${match.targetBoxLabels && match.targetBoxLabels.length > 0 ? match.targetBoxLabels.join(' & ') : `Agent Box ${String(match.agentBoxNumber).padStart(2, '0')}`}`
                   }])
                 } else {
                   setChatMessages(prev => [...prev, {
@@ -3071,7 +3071,7 @@ function SidepanelOrchestrator() {
                 
                 setChatMessages(prev => [...prev, {
                   role: 'assistant' as const,
-                  text: `✓ ${match.agentIcon} **${match.agentName}** processed your request.\n→ Output displayed in Agent Box ${String(match.agentBoxNumber).padStart(2, '0')}`
+                  text: `✓ ${match.agentIcon} **${match.agentName}** processed your request.\n→ Output displayed in ${match.targetBoxLabels && match.targetBoxLabels.length > 0 ? match.targetBoxLabels.join(' & ') : `Agent Box ${String(match.agentBoxNumber).padStart(2, '0')}`}`
                 }])
               } else {
                 setChatMessages(prev => [...prev, {
@@ -3405,7 +3405,7 @@ function SidepanelOrchestrator() {
               }
               
               // Show brief confirmation in chat
-              const agentConfirm = `✓ ${match.agentIcon} **${match.agentName}** processed your request.\n→ Output displayed in Agent Box ${String(match.agentBoxNumber).padStart(2, '0')}`
+              const agentConfirm = `✓ ${match.agentIcon} **${match.agentName}** processed your request.\n→ Output displayed in ${match.targetBoxLabels && match.targetBoxLabels.length > 0 ? match.targetBoxLabels.join(' & ') : `Agent Box ${String(match.agentBoxNumber).padStart(2, '0')}`}`
               setChatMessages(prev => [...prev, { role: 'assistant' as const, text: agentConfirm }])
               routeAssistantToInboxIfPending(agentConfirm)
             } else {

@@ -652,6 +652,10 @@ export class InputCoordinator {
           matchReason = 'expected_context'
         }
 
+        const boxLabels = connectedBoxes.map(b =>
+          `Agent Box ${String(b.boxNumber).padStart(2, '0')}${b.title ? ` (${b.title})` : ''}`
+        )
+
         matches.push({
           agentId: agent.id,
           agentName: agent.name || agent.key || 'Unnamed Agent',
@@ -663,14 +667,15 @@ export class InputCoordinator {
           triggerType: evaluation.matchType === 'passive_trigger' ? 'passive' 
                      : evaluation.matchType === 'active_trigger' ? 'active' 
                      : undefined,
-          outputLocation: firstBox 
-            ? `Agent Box ${String(firstBox.boxNumber).padStart(2, '0')} (${firstBox.title || 'Untitled'})`
+          outputLocation: boxLabels.length > 0
+            ? boxLabels.join(' & ')
             : agent.listening?.reportTo?.[0] || 'Agent Box',
           agentBoxId: firstBox?.id,
           agentBoxNumber: firstBox?.boxNumber,
           agentBoxProvider: firstBox?.provider,
           agentBoxModel: firstBox?.model,
-          targetBoxIds: connectedBoxes.map(b => b.id)
+          targetBoxIds: connectedBoxes.map(b => b.id),
+          targetBoxLabels: boxLabels,
         })
         
         this.log(`✓ Agent "${agent.name}" will receive input (${evaluation.matchType})`)

@@ -170,6 +170,8 @@ export interface AgentMatch {
   agentBoxModel?: string
   // All target boxes (primary + additional, e.g. grid display boxes)
   targetBoxIds?: string[]
+  // Human-readable labels for all target boxes (e.g. "Agent Box 01 (Summarizer) & Agent Box 02 (Display Port 6)")
+  targetBoxLabels?: string[]
 }
 
 export interface AgentConfig {
