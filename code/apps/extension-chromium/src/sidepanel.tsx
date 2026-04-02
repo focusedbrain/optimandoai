@@ -1055,6 +1055,7 @@ function SidepanelOrchestrator() {
           const selectedModel = gemmaModel ? gemmaModel.name : models[0].name
           setActiveLlmModel(selectedModel)
           activeLlmModelRef.current = selectedModel
+          try { localStorage.setItem('optimando-wr-chat-active-model', selectedModel) } catch {}
           console.log('[Command Chat] Auto-selected model:', selectedModel)
         }
         setLlmError(null)
@@ -1102,6 +1103,7 @@ function SidepanelOrchestrator() {
             const selectedModel = gemmaModel ? gemmaModel.name : status.modelsInstalled[0].name
             setActiveLlmModel(selectedModel)
             activeLlmModelRef.current = selectedModel
+            try { localStorage.setItem('optimando-wr-chat-active-model', selectedModel) } catch {}
             console.log('[Command Chat] Auto-selected model:', selectedModel)
           }
           console.log('[Command Chat] Available models:', status.modelsInstalled.map((m: any) => m.name))
@@ -3409,6 +3411,7 @@ function SidepanelOrchestrator() {
     e.stopPropagation()
     setActiveLlmModel(modelName)
     activeLlmModelRef.current = modelName
+    try { localStorage.setItem('optimando-wr-chat-active-model', modelName) } catch {}
     setShowModelDropdown(false)
     console.log('[Command Chat] Model selected:', modelName)
   }

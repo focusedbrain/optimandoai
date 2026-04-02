@@ -6165,6 +6165,27 @@ function initializeExtension() {
 
         modelSelect.value = r.names[0]
 
+        // Show RAM warning if selected model differs from WR Chat active model
+        const wrChatModel = (() => { try { return localStorage.getItem('optimando-wr-chat-active-model') || '' } catch { return '' } })()
+        let warnEl = overlay.querySelector('#local-model-ram-warn') as HTMLElement | null
+        const updateWarn = () => {
+          const chosen = modelSelect.value
+          const differs = !!wrChatModel && !!chosen && chosen !== 'auto' && chosen !== wrChatModel
+          if (!warnEl) {
+            warnEl = document.createElement('div')
+            warnEl.id = 'local-model-ram-warn'
+            warnEl.style.cssText = 'margin-top:8px;padding:8px 10px;border-radius:6px;font-size:11px;line-height:1.4;background:rgba(251,191,36,0.15);border:1px solid rgba(251,191,36,0.5);color:#92400e'
+            modelSelect.parentElement?.appendChild(warnEl)
+          }
+          warnEl.style.display = differs ? 'block' : 'none'
+          if (differs) {
+            warnEl.textContent = ''
+            warnEl.innerHTML = `⚠️ <strong>RAM warning:</strong> WR Chat uses <strong>${escapeHtmlAttr(wrChatModel)}</strong>. Selecting a different local model loads a second instance and may exhaust available RAM. Consider using <strong>${escapeHtmlAttr(wrChatModel)}</strong> instead.`
+          }
+        }
+        updateWarn()
+        modelSelect.addEventListener('change', updateWarn)
+
         return
 
       }
@@ -6982,6 +7003,27 @@ function initializeExtension() {
           agentBox.model && allChoices.includes(agentBox.model) ? agentBox.model : names[0]
 
         modelSelect.value = preferred
+
+        // Show RAM warning if selected model differs from WR Chat active model
+        const wrChatModel = (() => { try { return localStorage.getItem('optimando-wr-chat-active-model') || '' } catch { return '' } })()
+        let warnEl = overlay.querySelector('#edit-local-model-ram-warn') as HTMLElement | null
+        const updateWarn = () => {
+          const chosen = modelSelect.value
+          const differs = !!wrChatModel && !!chosen && chosen !== 'auto' && chosen !== wrChatModel
+          if (!warnEl) {
+            warnEl = document.createElement('div')
+            warnEl.id = 'edit-local-model-ram-warn'
+            warnEl.style.cssText = 'margin-top:8px;padding:8px 10px;border-radius:6px;font-size:11px;line-height:1.4;background:rgba(251,191,36,0.15);border:1px solid rgba(251,191,36,0.5);color:#92400e'
+            modelSelect.parentElement?.appendChild(warnEl)
+          }
+          warnEl.style.display = differs ? 'block' : 'none'
+          if (differs) {
+            warnEl.textContent = ''
+            warnEl.innerHTML = `⚠️ <strong>RAM warning:</strong> WR Chat uses <strong>${escapeHtmlAttr(wrChatModel)}</strong>. Selecting a different local model loads a second instance and may exhaust available RAM. Consider using <strong>${escapeHtmlAttr(wrChatModel)}</strong> instead.`
+          }
+        }
+        updateWarn()
+        modelSelect.addEventListener('change', updateWarn)
 
         return
 
