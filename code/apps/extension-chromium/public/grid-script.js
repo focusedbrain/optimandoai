@@ -1364,7 +1364,7 @@ if (window.gridScriptLoaded) {
     if (!t || !t.classList || !t.classList.contains('clear-slot-output')) return;
     ev.preventDefault();
     ev.stopPropagation();
-    var slot = t.closest && t.closest('[data-slot-id]');
+    var slot = t.closest && t.closest('[data-slot-config]');
     if (!slot) return;
     var cfgStr = slot.getAttribute('data-slot-config');
     if (!cfgStr) return;
