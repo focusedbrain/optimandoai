@@ -7,6 +7,57 @@ import type { StorageAdapter } from '@shared/storage/StorageAdapter'
 
 const HTTP_API_BASE = 'http://127.0.0.1:51248/api/orchestrator'
 
+// Module-level launch secret cache — fetched once from background service worker.
+// background.ts receives it via WebSocket handshake and exposes it via GET_LAUNCH_SECRET.
+let _cachedSecret: string | null = null
+let _secretFetchPromise: Promise<string | null> | null = null
+
+async function getLaunchSecret(): Promise<string | null> {
+  if (_cachedSecret) return _cachedSecret
+
+  // Deduplicate concurrent requests
+  if (_secretFetchPromise) return _secretFetchPromise
+
+  _secretFetchPromise = new Promise<string | null>((resolve) => {
+    try {
+      chrome.runtime.sendMessage({ type: 'GET_LAUNCH_SECRET' }, (response) => {
+        if (chrome.runtime.lastError) {
+          console.warn('[OrchestratorSQLiteAdapter] Could not get launch secret:', chrome.runtime.lastError.message)
+          _secretFetchPromise = null
+          resolve(null)
+          return
+        }
+        const secret = response?.secret ?? null
+        if (secret) {
+          _cachedSecret = secret
+        }
+        _secretFetchPromise = null
+        resolve(secret)
+      })
+    } catch (e) {
+      _secretFetchPromise = null
+      resolve(null)
+    }
+  })
+
+  return _secretFetchPromise
+}
+
+/** Build headers including X-Launch-Secret when available. */
+async function authHeaders(extra: Record<string, string> = {}): Promise<Record<string, string>> {
+  const secret = await getLaunchSecret()
+  const headers: Record<string, string> = { 'Content-Type': 'application/json', ...extra }
+  if (secret) {
+    headers['X-Launch-Secret'] = secret
+  }
+  return headers
+}
+
+/** Allow external callers (e.g. background.ts on WS handshake) to pre-seed the secret. */
+export function setAdapterLaunchSecret(secret: string): void {
+  _cachedSecret = secret
+}
+
 /**
  * Create a proxy adapter that routes all operations through Electron's orchestrator SQLite
  */
@@ -22,9 +73,10 @@ export class OrchestratorSQLiteAdapter implements StorageAdapter {
     }
 
     try {
+      const headers = await authHeaders()
       const response = await fetch(`${HTTP_API_BASE}/connect`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
       })
 
       if (!response.ok) {
@@ -57,8 +109,10 @@ export class OrchestratorSQLiteAdapter implements StorageAdapter {
     await this.ensureConnected()
 
     try {
+      const headers = await authHeaders()
       const response = await fetch(`${HTTP_API_BASE}/get?key=${encodeURIComponent(key)}`, {
         method: 'GET',
+        headers,
       })
 
       if (!response.ok) {
@@ -81,9 +135,10 @@ export class OrchestratorSQLiteAdapter implements StorageAdapter {
     await this.ensureConnected()
 
     try {
+      const headers = await authHeaders()
       const response = await fetch(`${HTTP_API_BASE}/set`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({ key, value }),
       })
 
@@ -105,8 +160,10 @@ export class OrchestratorSQLiteAdapter implements StorageAdapter {
     await this.ensureConnected()
 
     try {
+      const headers = await authHeaders()
       const response = await fetch(`${HTTP_API_BASE}/get-all`, {
         method: 'GET',
+        headers,
       })
 
       if (!response.ok) {
@@ -129,9 +186,10 @@ export class OrchestratorSQLiteAdapter implements StorageAdapter {
     await this.ensureConnected()
 
     try {
+      const headers = await authHeaders()
       const response = await fetch(`${HTTP_API_BASE}/set-all`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({ data: payload }),
       })
 
@@ -156,9 +214,10 @@ export class OrchestratorSQLiteAdapter implements StorageAdapter {
     await this.ensureConnected()
 
     try {
+      const headers = await authHeaders()
       const response = await fetch(`${HTTP_API_BASE}/remove`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({ keys }),
       })
 
@@ -183,9 +242,10 @@ export class OrchestratorSQLiteAdapter implements StorageAdapter {
     await this.ensureConnected()
 
     try {
+      const headers = await authHeaders()
       const response = await fetch(`${HTTP_API_BASE}/migrate`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({ chromeData }),
       })
 
@@ -205,4 +265,3 @@ export class OrchestratorSQLiteAdapter implements StorageAdapter {
     }
   }
 }
-
