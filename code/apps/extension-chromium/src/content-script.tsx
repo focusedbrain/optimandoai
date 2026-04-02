@@ -39762,17 +39762,26 @@ ${pageText}
 
           if (confirm('Are you sure you want to delete this session?')) {
 
-            // Use storageRemove to delete from SQLite
-            storageRemove([sessionId!], () => {
-
-              console.log('🗝‘️ Session deleted from SQLite:', sessionId)
-
-              // Refresh the sessions list
-
-              overlay.remove()
-
-              openSessionsLightbox()
-
+            // Delete from SQLite via background (authoritative path)
+            chrome.runtime.sendMessage({ type: 'DELETE_SESSIONS_FROM_SQLITE', sessionKeys: [sessionId!] }, (response) => {
+              // If the deleted session was the active one, clear the active session keys
+              try {
+                const activeKey = sessionStorage.getItem('optimando-current-session-key') || localStorage.getItem('optimando-global-active-session')
+                if (activeKey === sessionId) {
+                  sessionStorage.removeItem('optimando-current-session-key')
+                  localStorage.removeItem('optimando-global-active-session')
+                  localStorage.removeItem('optimando-global-active-session-time')
+                  chrome.storage?.local?.remove('optimando-active-session-key')
+                }
+              } catch {}
+              if (chrome.runtime.lastError || !response?.success) {
+                console.warn('[session-delete] background delete failed, using storageRemove fallback')
+                storageRemove([sessionId!], () => { overlay.remove(); openSessionsLightbox() })
+              } else {
+                console.log('[session-delete] deleted from SQLite:', sessionId)
+                overlay.remove()
+                openSessionsLightbox()
+              }
             })
 
           }
@@ -39812,35 +39821,32 @@ ${pageText}
             notification.innerHTML = `⏳ Deleting ${sessionKeys.length} sessions...`
             document.body.appendChild(notification)
             
-            // Delete all sessions from SQLite
-            storageRemove(sessionKeys, () => {
-              console.log('✅ All sessions cleared from SQLite')
-              
+            // Delete all sessions from SQLite via background (authoritative path)
+            // Also clear active session keys so the UI doesn't reload a deleted session
+            try {
+              sessionStorage.removeItem('optimando-current-session-key')
+              localStorage.removeItem('optimando-global-active-session')
+              localStorage.removeItem('optimando-global-active-session-time')
+              chrome.storage?.local?.remove('optimando-active-session-key')
+            } catch {}
+
+            chrome.runtime.sendMessage({ type: 'DELETE_SESSIONS_FROM_SQLITE', sessionKeys: sessionKeys }, (response) => {
               notification.remove()
-              
-              // Show success notification
-              const successNotification = document.createElement('div')
-              successNotification.style.cssText = `
-                position: fixed;
-                top: 60px;
-                right: 20px;
-                background: rgba(76, 175, 80, 0.9);
-                color: white;
-                padding: 12px 20px;
-                border-radius: 8px;
-                font-size: 14px;
-                font-weight: 500;
-                z-index: 2147483650;
-                box-shadow: 0 4px 12px rgba(0,0,0,0.2);
-              `
-              successNotification.innerHTML = `✅ All sessions cleared!`
-              document.body.appendChild(successNotification)
-              
-              setTimeout(() => successNotification.remove(), 3000)
-              
-              // Refresh the sessions list
-              overlay.remove()
-              openSessionsLightbox()
+              const showSuccess = () => {
+                const n = document.createElement('div')
+                n.style.cssText = 'position:fixed;top:60px;right:20px;background:rgba(76,175,80,0.9);color:white;padding:12px 20px;border-radius:8px;font-size:14px;font-weight:500;z-index:2147483650;box-shadow:0 4px 12px rgba(0,0,0,0.2);'
+                n.textContent = '✅ All sessions cleared!'
+                document.body.appendChild(n)
+                setTimeout(() => n.remove(), 3000)
+                overlay.remove(); openSessionsLightbox()
+              }
+              if (chrome.runtime.lastError || !response?.success) {
+                console.warn('[clear-all] background delete failed, falling back to storageRemove')
+                storageRemove(sessionKeys, showSuccess)
+              } else {
+                console.log('[clear-all] All sessions deleted from SQLite:', sessionKeys.length)
+                showSuccess()
+              }
             })
           }
         })

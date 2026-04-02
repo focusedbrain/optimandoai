@@ -4218,7 +4218,41 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       
       return true  // Keep message channel open for async response
     }
-    
+
+    case 'DELETE_SESSIONS_FROM_SQLITE': {
+      const { sessionKeys } = msg
+      console.log('📥 BG: DELETE_SESSIONS_FROM_SQLITE', sessionKeys)
+
+      if (!Array.isArray(sessionKeys) || sessionKeys.length === 0) {
+        try { sendResponse({ success: false, error: 'No keys provided' }) } catch {}
+        return true
+      }
+
+      // Remove from SQLite via HTTP
+      fetch('http://127.0.0.1:51248/api/orchestrator/remove', {
+        method: 'POST',
+        headers: _electronHeaders(),
+        body: JSON.stringify({ keys: sessionKeys })
+      })
+        .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json() })
+        .then(() => {
+          console.log('✅ BG: Sessions deleted from SQLite:', sessionKeys.length)
+          // Also remove from Chrome Storage (mirror cleanup)
+          chrome.storage.local.remove(sessionKeys, () => {
+            try { sendResponse({ success: true }) } catch {}
+          })
+        })
+        .catch((error: any) => {
+          console.error('❌ BG: Error deleting sessions from SQLite:', error)
+          // Still try Chrome Storage cleanup
+          chrome.storage.local.remove(sessionKeys, () => {
+            try { sendResponse({ success: false, error: String(error) }) } catch {}
+          })
+        })
+
+      return true  // Keep message channel open for async response
+    }
+
     case 'SAVE_AGENT_BOX_TO_SQLITE': {
       console.log('📥 BG: SAVE_AGENT_BOX_TO_SQLITE')
       console.log('📦 BG: Agent box:', msg.agentBox)
