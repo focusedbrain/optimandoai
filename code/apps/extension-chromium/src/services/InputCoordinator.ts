@@ -436,14 +436,15 @@ export class InputCoordinator {
     const specialDestinations = (agent as any).execution?.specialDestinations || []
     for (const dest of specialDestinations) {
       if (dest.kind === 'agentBox') {
-        // If agents array specifies specific boxes like ["agentBox01", "agentBox02"]
+        // If agents array specifies specific boxes like ["agentBox01", "box01", "1"]
         if (dest.agents && dest.agents.length > 0) {
           for (const targetBox of dest.agents) {
             // Parse box number from "agentBox01", "box01", etc.
             const boxNumMatch = String(targetBox).match(/(\d+)/)
             if (boxNumMatch) {
               const targetBoxNum = parseInt(boxNumMatch[1], 10)
-              const box = agentBoxes.find(b => b.boxNumber === targetBoxNum && b.enabled !== false)
+              // Use Number() coercion for type-safe comparison (stored value may be string)
+              const box = agentBoxes.find(b => Number(b.boxNumber) === targetBoxNum && b.enabled !== false)
               if (box && !matchedBoxes.some(mb => mb.id === box.id)) {
                 this.log(`Agent "${agent.name}" → Explicit destination: Agent Box ${targetBoxNum}`)
                 matchedBoxes.push(box)
@@ -464,7 +465,7 @@ export class InputCoordinator {
       const boxNumMatch = String(dest).match(/(?:box|Box)\s*(\d+)/i)
       if (boxNumMatch) {
         const targetBoxNum = parseInt(boxNumMatch[1], 10)
-        const box = agentBoxes.find(b => b.boxNumber === targetBoxNum && b.enabled !== false)
+        const box = agentBoxes.find(b => Number(b.boxNumber) === targetBoxNum && b.enabled !== false)
         if (box && !matchedBoxes.some(mb => mb.id === box.id)) {
           this.log(`Agent "${agent.name}" → ReportTo destination: Agent Box ${targetBoxNum}`)
           matchedBoxes.push(box)
@@ -475,8 +476,8 @@ export class InputCoordinator {
     // 3. Fall back to agent.number matching if no explicit destinations found
     if (matchedBoxes.length === 0 && agent.number) {
       const numberMatchedBoxes = agentBoxes.filter(box => {
-        const boxAgentNum = box.agentNumber
-        const matches = boxAgentNum === agent.number && box.enabled !== false
+        const boxAgentNum = Number(box.agentNumber)
+        const matches = boxAgentNum === Number(agent.number) && box.enabled !== false
         return matches
       })
       
@@ -1257,7 +1258,7 @@ export class InputCoordinator {
             const boxNumMatch = String(boxRef).match(/(\d+)/)
             if (boxNumMatch) {
               const boxNum = parseInt(boxNumMatch[1], 10)
-              const box = agentBoxes.find(b => b.boxNumber === boxNum)
+              const box = agentBoxes.find(b => Number(b.boxNumber) === boxNum)
               if (box) {
                 reportTo.push({
                   kind: 'agent_box',
@@ -1303,7 +1304,7 @@ export class InputCoordinator {
       const boxNumMatch = String(dest).match(/(?:box|Box)\s*(\d+)/i)
       if (boxNumMatch) {
         const boxNum = parseInt(boxNumMatch[1], 10)
-        const box = agentBoxes.find(b => b.boxNumber === boxNum)
+        const box = agentBoxes.find(b => Number(b.boxNumber) === boxNum)
         if (box && !reportTo.some(r => r.agentBoxId === box.id)) {
           reportTo.push({
             kind: 'agent_box',

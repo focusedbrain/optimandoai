@@ -648,6 +648,14 @@ function normalizeAgentBoxes(agentBoxes: any[]): AgentBox[] {
 
     if (normalized.boxNumber === undefined) {
       normalized.boxNumber = index + 1
+    } else {
+      // Coerce to number — could be stored as string "1"
+      normalized.boxNumber = Number(normalized.boxNumber)
+    }
+
+    // Also coerce agentNumber to number
+    if (normalized.agentNumber !== undefined) {
+      normalized.agentNumber = Number(normalized.agentNumber)
     }
 
     const extractedAgentNum = extractBoxAgentNumber(box)
