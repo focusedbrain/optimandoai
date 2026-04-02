@@ -18934,11 +18934,11 @@ function initializeExtension() {
 
           const del = document.createElement('button')
 
-          del.textContent = '&times;'
+          del.textContent = '×'
 
           del.title = 'Remove'
 
-          del.style.cssText = 'background:rgba(220,38,38,0.10);color:#fff;border:1px solid rgba(255,255,255,.25);padding:0 10px;border-radius:6px;cursor:pointer;height:36px'
+          del.style.cssText = 'background:#ef4444;color:#fff;border:none;padding:0 10px;border-radius:6px;cursor:pointer;height:36px'
 
           del.addEventListener('click', () => row.remove())
 
@@ -19018,11 +19018,11 @@ function initializeExtension() {
 
           const del = document.createElement('button')
 
-          del.textContent = '&times;'
+          del.textContent = '×'
 
           del.title = 'Remove'
 
-          del.style.cssText = 'background:rgba(220,38,38,0.10);color:#fff;border:1px solid rgba(255,255,255,.25);padding:0 10px;border-radius:6px;cursor:pointer'
+          del.style.cssText = 'background:#ef4444;color:#fff;border:none;padding:0 10px;border-radius:6px;cursor:pointer'
 
           del.addEventListener('click', () => row.remove())
 
@@ -19201,7 +19201,7 @@ function initializeExtension() {
           const delBtn = document.createElement('button')
           delBtn.type = 'button'
           delBtn.style.cssText = 'background:#ef4444;color:#fff;border:none;padding:4px 10px;border-radius:6px;cursor:pointer;font-weight:bold'
-          delBtn.textContent = '&times;'
+          delBtn.textContent = '×'
           delBtn.addEventListener('click', () => row.remove())
           
           row.appendChild(sel)
@@ -19551,9 +19551,9 @@ function initializeExtension() {
             }
 
             const del = document.createElement('button')
-            del.textContent = '&times;'
+            del.textContent = '×'
             del.title = 'Remove'
-            del.style.cssText = 'background:rgba(220,38,38,0.10);color:#fff;border:1px solid rgba(255,255,255,.25);padding:0 10px;border-radius:6px;cursor:pointer;height:36px'
+            del.style.cssText = 'background:#ef4444;color:#fff;border:none;padding:0 10px;border-radius:6px;cursor:pointer;height:36px'
             del.addEventListener('click', () => row.remove())
 
             row.appendChild(sel)
@@ -44033,7 +44033,7 @@ ${pageText}
 
                 const deleteBtn = document.createElement('button')
 
-                deleteBtn.textContent = '&times;'
+                deleteBtn.textContent = '×'
 
                 deleteBtn.type = 'button'
 
@@ -44812,7 +44812,7 @@ ${pageText}
 
                   const deleteBtn = document.createElement('button')
 
-                  deleteBtn.textContent = '&times;'
+                  deleteBtn.textContent = '×'
 
                   deleteBtn.style.cssText = 'width:20px;height:20px;border:none;background:rgba(239,68,68,0.2);color:#ef4444;border-radius:4px;cursor:pointer;font-size:16px;line-height:1;padding:0;margin-left:8px;flex-shrink:0;'
 
