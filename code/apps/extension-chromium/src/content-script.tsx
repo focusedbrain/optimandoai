@@ -2619,27 +2619,9 @@ function initializeExtension() {
 
       if (tabSession) {
 
-        // Verify the session exists in chrome storage (async check, but return key immediately)
-
-        storageGet([tabSession], (result) => {
-
-          if (!result[tabSession]) {
-
-            console.warn('⚠️ Session key exists but session data missing, clearing invalid key:', tabSession)
-
-            // Clear invalid session key
-
-            try { 
-
-              sessionStorage.removeItem('optimando-current-session-key')
-
-              localStorage.removeItem('optimando-global-active-session')
-
-            } catch {}
-
-          }
-
-        })
+        // Return the key immediately — do NOT verify via storageGet here.
+        // storageWrapper falls back to Chrome Storage for session_ keys (which live in SQLite),
+        // returning empty and incorrectly clearing a perfectly valid session key.
 
         return tabSession
 
@@ -2844,12 +2826,10 @@ function initializeExtension() {
 
         console.log('📍 ensureActiveSession: Using existing session key:', existingKey)
 
-        storageGet([existingKey], (all:any) => {
-
-          console.log('🔍 DEBUG LOAD EXISTING: Raw storage result:', all)
-
-          const session = (all && all[existingKey]) || {}
-
+        // Load existing session from SQLite via background (authoritative source).
+        // storageGet() falls back to Chrome Storage which is empty for session_ keys,
+        // causing the session to load as {} and lose all saved state.
+        const loadExisting = (session: any) => {
           console.log('🔍 DEBUG LOAD EXISTING: Parsed session:', {
             key: existingKey,
             hasAgents: !!session.agents,
@@ -2921,8 +2901,22 @@ function initializeExtension() {
           })
 
           cb(existingKey, session)
+        }
 
-        })
+        if (chrome?.runtime) {
+          chrome.runtime.sendMessage({ type: 'GET_SESSION_FROM_SQLITE', sessionKey: existingKey }, (response) => {
+            if (chrome.runtime.lastError) {
+              console.warn('⚠️ ensureActiveSession: GET_SESSION_FROM_SQLITE failed, using empty session:', chrome.runtime.lastError.message)
+              loadExisting({})
+              return
+            }
+            const session = response?.session || {}
+            console.log('✅ ensureActiveSession: loaded from SQLite:', session?.tabName || '(no name)')
+            loadExisting(session)
+          })
+        } else {
+          loadExisting({})
+        }
 
         return
 
@@ -2960,13 +2954,30 @@ function initializeExtension() {
 
     }
 
-        storageSet({ [newKey]: newSession }, () => {
-
+    // Save new session to SQLite via background (authoritative path).
+    // storageSet() may not persist to SQLite from content-script context due to
+    // storageWrapper falling back to Chrome Storage for session_ keys.
+    const doSave = () => {
       console.log('✅ New session created:', newKey, '- Session name:', newSession.tabName)
-
       cb(newKey, newSession)
+    }
 
-    })
+    if (chrome?.runtime) {
+      chrome.runtime.sendMessage({
+        type: 'SAVE_SESSION_TO_SQLITE',
+        sessionKey: newKey,
+        session: newSession
+      }, (response) => {
+        if (chrome.runtime.lastError || !response?.success) {
+          console.warn('⚠️ ensureActiveSession: SQLite save failed, falling back to storageSet:', chrome.runtime.lastError?.message)
+          storageSet({ [newKey]: newSession }, doSave)
+        } else {
+          doSave()
+        }
+      })
+    } else {
+      storageSet({ [newKey]: newSession }, doSave)
+    }
 
   }
 
