@@ -5087,11 +5087,10 @@ function SidepanelOrchestrator() {
               <div 
                 id="ccd-compose-sidepanel"
                 style={{
-                display: 'grid',
-                gridTemplateColumns: '1fr 40px 40px auto',
-                gap: '8px',
+                display: 'flex',
                 alignItems: 'center',
-                padding: '12px 14px'
+                gap: '4px',
+                padding: '8px 10px'
               }}>
                 <textarea
                   value={chatInput}
@@ -5099,6 +5098,7 @@ function SidepanelOrchestrator() {
                   onKeyDown={handleChatKeyDown}
                   placeholder={searchBarContext || 'Type your message...'}
                   style={{
+                    flex: 1,
                     boxSizing: 'border-box',
                     height: '40px',
                     minHeight: '40px',
@@ -5124,40 +5124,43 @@ function SidepanelOrchestrator() {
                   onClick={handleBucketClick}
                   title="Attach" 
                   style={{
-                    height: '40px',
-                    background: 'rgba(255,255,255,0.15)',
-                    border: '1px solid rgba(255,255,255,0.25)',
-                    color: 'white',
-                    borderRadius: '8px',
+                    flexShrink: 0,
+                    width: '28px',
+                    height: '28px',
+                    background: 'transparent',
+                    border: 'none',
+                    color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.6)',
+                    borderRadius: '6px',
                     cursor: 'pointer',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    fontSize: '18px',
-                    transition: 'all 0.2s ease'
+                    transition: 'color 0.15s ease'
                   }}
-                  onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.25)'}
-                  onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.15)'}
+                  onMouseEnter={(e) => (e.currentTarget.style.color = theme === 'standard' ? '#0f172a' : 'white')}
+                  onMouseLeave={(e) => (e.currentTarget.style.color = theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.6)')}
                 >
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
                 </button>
                 <button 
                   title="Voice" 
                   style={{
-                    height: '40px',
-                    background: 'rgba(255,255,255,0.15)',
-                    border: '1px solid rgba(255,255,255,0.25)',
-                    color: 'white',
-                    borderRadius: '8px',
+                    flexShrink: 0,
+                    width: '28px',
+                    height: '28px',
+                    background: 'transparent',
+                    border: 'none',
+                    color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.6)',
+                    borderRadius: '6px',
                     cursor: 'pointer',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    fontSize: '18px',
-                    transition: 'all 0.2s ease'
+                    fontSize: '15px',
+                    transition: 'color 0.15s ease'
                   }}
-                  onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.25)'}
-                  onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.15)'}
+                  onMouseEnter={(e) => (e.currentTarget.style.color = theme === 'standard' ? '#0f172a' : 'white')}
+                  onMouseLeave={(e) => (e.currentTarget.style.color = theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.6)')}
                 >
                   🎙️
                 </button>
@@ -7058,11 +7061,10 @@ height: '28px',
                 <div 
                   id="ccd-compose-sidepanel"
                   style={{
-                  display: 'grid',
-                  gridTemplateColumns: '1fr 40px auto',
-                  gap: '8px',
+                  display: 'flex',
                   alignItems: 'center',
-                  padding: '12px 14px'
+                  gap: '4px',
+                  padding: '8px 10px'
                 }}>
                   <textarea
                     value={chatInput}
@@ -7070,6 +7072,7 @@ height: '28px',
                     onKeyDown={handleChatKeyDown}
                     placeholder={searchBarContext || 'Type your message...'}
                     style={{
+                      flex: 1,
                       boxSizing: 'border-box',
                       height: '40px',
                       minHeight: '40px',
@@ -7095,20 +7098,21 @@ height: '28px',
                     onClick={handleBucketClick}
                     title="Attach" 
                     style={{
-                      height: '40px',
-                      background: 'rgba(255,255,255,0.15)',
-                      border: '1px solid rgba(255,255,255,0.25)',
-                      color: 'white',
-                      borderRadius: '8px',
+                      flexShrink: 0,
+                      width: '28px',
+                      height: '28px',
+                      background: 'transparent',
+                      border: 'none',
+                      color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.6)',
+                      borderRadius: '6px',
                       cursor: 'pointer',
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
-                      fontSize: '18px',
-                      transition: 'all 0.2s ease'
+                      transition: 'color 0.15s ease'
                     }}
-                    onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.25)'}
-                    onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.15)'}
+                    onMouseEnter={(e) => (e.currentTarget.style.color = theme === 'standard' ? '#0f172a' : 'white')}
+                    onMouseLeave={(e) => (e.currentTarget.style.color = theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.6)')}
                   >
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
                   </button>
@@ -8446,11 +8450,10 @@ height: '28px',
                 <div 
                   id="ccd-compose-sidepanel"
                   style={{
-                  display: 'grid',
-                  gridTemplateColumns: '1fr 40px auto',
-                  gap: '8px',
+                  display: 'flex',
                   alignItems: 'center',
-                  padding: '12px 14px'
+                  gap: '4px',
+                  padding: '8px 10px'
                 }}>
                   <textarea
                     value={chatInput}
@@ -8458,6 +8461,7 @@ height: '28px',
                     onKeyDown={handleChatKeyDown}
                     placeholder={searchBarContext || 'Type your message...'}
                     style={{
+                      flex: 1,
                       boxSizing: 'border-box',
                       height: '40px',
                       minHeight: '40px',
@@ -8483,20 +8487,21 @@ height: '28px',
                     onClick={handleBucketClick}
                     title="Attach" 
                     style={{
-                      height: '40px',
-                      background: 'rgba(255,255,255,0.15)',
-                      border: '1px solid rgba(255,255,255,0.25)',
-                      color: 'white',
-                      borderRadius: '8px',
+                      flexShrink: 0,
+                      width: '28px',
+                      height: '28px',
+                      background: 'transparent',
+                      border: 'none',
+                      color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.6)',
+                      borderRadius: '6px',
                       cursor: 'pointer',
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
-                      fontSize: '18px',
-                      transition: 'all 0.2s ease'
+                      transition: 'color 0.15s ease'
                     }}
-                    onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.25)'}
-                    onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.15)'}
+                    onMouseEnter={(e) => (e.currentTarget.style.color = theme === 'standard' ? '#0f172a' : 'white')}
+                    onMouseLeave={(e) => (e.currentTarget.style.color = theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.6)')}
                   >
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
                   </button>
