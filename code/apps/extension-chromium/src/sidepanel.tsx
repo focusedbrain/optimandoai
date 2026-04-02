@@ -2295,6 +2295,37 @@ function SidepanelOrchestrator() {
     return out
   }
 
+  // Extract plain text from a PDF File using pdfjs-dist (up to 500 pages, 30s timeout)
+  const extractPdfText = async (file: File): Promise<string> => {
+    try {
+      const pdfjsLib = await import('pdfjs-dist')
+      // Set worker source using chrome extension URL resolution
+      if (pdfjsLib.GlobalWorkerOptions && !pdfjsLib.GlobalWorkerOptions.workerSrc) {
+        try {
+          const workerUrl = (await import('pdfjs-dist/build/pdf.worker.mjs?url')).default
+          const resolved = typeof chrome !== 'undefined' && chrome.runtime?.getURL
+            ? (() => { try { const t = workerUrl.startsWith('/') ? workerUrl.slice(1) : workerUrl; return chrome.runtime.getURL(t) } catch { return workerUrl } })()
+            : workerUrl
+          pdfjsLib.GlobalWorkerOptions.workerSrc = resolved
+        } catch { /* worker init may fail; pdfjs still works */ }
+      }
+      const arrayBuffer = await file.arrayBuffer()
+      const bytes = new Uint8Array(arrayBuffer)
+      const pdf = await pdfjsLib.getDocument({ data: bytes }).promise
+      const pagesToProcess = Math.min(pdf.numPages, 500)
+      const parts: string[] = []
+      for (let i = 1; i <= pagesToProcess; i++) {
+        const page = await pdf.getPage(i)
+        const content = await page.getTextContent()
+        const pageText = content.items.map((item: { str?: string }) => item.str || '').join(' ')
+        if (pageText.trim()) parts.push(pageText)
+      }
+      return parts.join('\n\n').trim()
+    } catch {
+      return ''
+    }
+  }
+
   const handleChatDrop = async (e: React.DragEvent) => {
     e.preventDefault()
     setIsDraggingOverChat(false)
@@ -2358,15 +2389,39 @@ function SidepanelOrchestrator() {
           }
           reader.readAsText(file)
         } else {
-          // PDF / binary / unknown — show notice, embed in session silently
+          // PDF / binary / unknown — try pdfjs text extraction first
+          const file = doc.payload as File
           setChatMessages(prev => [...prev, {
             role: 'user' as const,
-            text: `📄 **${file.name}** attached (${Math.round(file.size / 1024)} KB) — note: text extraction for this file type is limited. Send your question below.`
+            text: `📄 **${file.name}** attached (${Math.round(file.size / 1024)} KB) — extracting text…`
           }])
           runEmbed([doc], 'session')
           setTimeout(() => {
             if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight
           }, 0)
+          extractPdfText(file).then(extracted => {
+            if (extracted && extracted.length > 50) {
+              const snippet = extracted.slice(0, 8000)
+              setPendingDocContent({ name: file.name, text: snippet })
+              setChatMessages(prev => {
+                const updated = [...prev]
+                const last = updated[updated.length - 1]
+                if (last && last.text?.includes('extracting text')) {
+                  updated[updated.length - 1] = { ...last, text: `📄 **${file.name}** attached (${Math.round(file.size / 1024)} KB) — ${extracted.split(/\s+/).length.toLocaleString()} words extracted. Send your question below.` }
+                }
+                return updated
+              })
+            } else {
+              setChatMessages(prev => {
+                const updated = [...prev]
+                const last = updated[updated.length - 1]
+                if (last && last.text?.includes('extracting text')) {
+                  updated[updated.length - 1] = { ...last, text: `📄 **${file.name}** attached (${Math.round(file.size / 1024)} KB) — no selectable text found (scanned PDF?). Send your question below.` }
+                }
+                return updated
+              })
+            }
+          })
         }
       }
     }
@@ -2434,11 +2489,36 @@ function SidepanelOrchestrator() {
             }
             reader.readAsText(file)
           } else {
+            // PDF / binary — try pdfjs text extraction
+            const fileCopy = item.payload as File
             setChatMessages(prev => [...prev, {
               role: 'user' as const,
-              text: `📄 **${file.name}** attached (${Math.round(file.size / 1024)} KB) — send your question below.`
+              text: `📄 **${fileCopy.name}** attached (${Math.round(fileCopy.size / 1024)} KB) — extracting text…`
             }])
             runEmbed([item], 'session')
+            extractPdfText(fileCopy).then(extracted => {
+              if (extracted && extracted.length > 50) {
+                const snippet = extracted.slice(0, 8000)
+                setPendingDocContent({ name: fileCopy.name, text: snippet })
+                setChatMessages(prev => {
+                  const updated = [...prev]
+                  const last = updated[updated.length - 1]
+                  if (last && last.text?.includes('extracting text')) {
+                    updated[updated.length - 1] = { ...last, text: `📄 **${fileCopy.name}** attached (${Math.round(fileCopy.size / 1024)} KB) — ${extracted.split(/\s+/).length.toLocaleString()} words extracted. Send your question below.` }
+                  }
+                  return updated
+                })
+              } else {
+                setChatMessages(prev => {
+                  const updated = [...prev]
+                  const last = updated[updated.length - 1]
+                  if (last && last.text?.includes('extracting text')) {
+                    updated[updated.length - 1] = { ...last, text: `📄 **${fileCopy.name}** attached (${Math.round(fileCopy.size / 1024)} KB) — no selectable text found (scanned PDF?). Send your question below.` }
+                  }
+                  return updated
+                })
+              }
+            })
           }
         }
       }
