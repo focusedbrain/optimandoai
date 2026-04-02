@@ -417,11 +417,11 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
             const agentRes = await fetch(`${BASE_URL}/api/llm/chat`, {
               method: 'POST',
               headers: buildHeaders(secretRef.current),
-              body: JSON.stringify({ model: activeLlmModel, messages: agentMessages })
+              body: JSON.stringify({ modelId: activeLlmModel, messages: agentMessages })
             })
             if (agentRes.ok) {
               const agentJson = await agentRes.json()
-              const agentReply = agentJson.message?.content || agentJson.response || ''
+              const agentReply = (agentJson.ok && agentJson.data?.content) ? agentJson.data.content : ''
               if (agentReply) {
                 setMessages(prev => [...prev, { role: 'assistant', text: agentReply }])
                 if (match.agentBoxKey) {
@@ -448,15 +448,15 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
         const butlerRes = await fetch(`${BASE_URL}/api/llm/chat`, {
           method: 'POST',
           headers: buildHeaders(secretRef.current),
-          body: JSON.stringify({ model: activeLlmModel, messages: butlerMessages })
+          body: JSON.stringify({ modelId: activeLlmModel, messages: butlerMessages })
         })
         if (butlerRes.ok) {
           const butlerJson = await butlerRes.json()
-          const butlerReply = butlerJson.message?.content || butlerJson.response || ''
+          const butlerReply = (butlerJson.ok && butlerJson.data?.content) ? butlerJson.data.content : ''
           if (butlerReply) {
             setMessages(prev => [...prev, { role: 'assistant', text: butlerReply }])
           } else {
-            setMessages(prev => [...prev, { role: 'assistant', text: '(No response from LLM)' }])
+            setMessages(prev => [...prev, { role: 'assistant', text: `⚠️ LLM returned an empty response. The model may still be loading — please try again.` }])
           }
         } else {
           const errText = await butlerRes.text().catch(() => butlerRes.statusText)
