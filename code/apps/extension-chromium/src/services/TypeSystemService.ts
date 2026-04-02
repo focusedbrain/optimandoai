@@ -227,8 +227,127 @@ function createMasterSchema(): any {
             "contextSettings": { "type": "object" },
             "memorySettings": { "type": "object" },
             "listening": { "type": "object" },
-            "reasoningSections": { "type": "array" },
-            "executionSections": { "type": "array" },
+            "reasoningSections": {
+              "type": "array",
+              "description": "Array of reasoning section configurations. The first element (index 0) is the primary section. Additional sections can target specific triggers via applyForList.",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "applyForList": {
+                    "type": "array",
+                    "description": "List of trigger IDs this section applies to. Use ['__any__'] to apply to all triggers.",
+                    "items": { "type": "string" },
+                    "default": ["__any__"]
+                  },
+                  "goals": {
+                    "type": "string",
+                    "description": "Reasoning instructions for this block. Defines what the agent should reason about, how to process input, and what to produce."
+                  },
+                  "role": {
+                    "type": "string",
+                    "description": "Optional persona for the agent. E.g. 'Research Assistant', 'Code Reviewer', 'Summarizer'. Sets the LLM persona context."
+                  },
+                  "outputFormattingInstructions": {
+                    "type": "string",
+                    "description": "Optional instructions for formatting the final agent response. Controls structure, style, and layout (e.g. markdown headings, bullet points, concise summary first). Omit or leave empty if no specific formatting is needed. This is a formatting hint only — it does not affect reasoning logic."
+                  },
+                  "custom": {
+                    "type": "array",
+                    "description": "Additional key-value context fields injected into the reasoning prompt.",
+                    "items": {
+                      "type": "object",
+                      "required": ["key", "value"],
+                      "properties": {
+                        "key": { "type": "string" },
+                        "value": { "type": "string" }
+                      }
+                    },
+                    "default": []
+                  },
+                  "acceptFrom": {
+                    "type": "array",
+                    "description": "Filter which input sources this section accepts from.",
+                    "items": { "type": "string" },
+                    "default": []
+                  },
+                  "memoryContext": {
+                    "type": "object",
+                    "description": "Controls which memory stores the agent can read from during reasoning.",
+                    "properties": {
+                      "agentEnabled": { "type": "boolean", "default": false },
+                      "sessionEnabled": { "type": "boolean", "default": false },
+                      "accountEnabled": { "type": "boolean", "default": false }
+                    }
+                  },
+                  "reasoningWorkflows": {
+                    "type": "array",
+                    "description": "Optional workflows that run before reasoning to gather additional context.",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "type": { "type": "string", "enum": ["internal", "external"] },
+                        "workflowId": { "type": "string" },
+                        "conditions": { "type": "array" }
+                      }
+                    },
+                    "default": []
+                  }
+                }
+              }
+            },
+            "executionSections": {
+              "type": "array",
+              "description": "Array of execution section configurations. The first element is the primary section. Defines how and where the agent delivers its output.",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "applyForList": {
+                    "type": "array",
+                    "description": "List of trigger IDs this section applies to. Use ['__any__'] to apply to all triggers.",
+                    "items": { "type": "string" },
+                    "default": ["__any__"]
+                  },
+                  "executionMode": {
+                    "type": "string",
+                    "description": "Controls how the agent generates and delivers output. 'agent_only' = only LLM response (default). 'agent_workflow' = response + additional workflow steps.",
+                    "enum": ["agent_only", "agent_workflow", "direct_response", "workflow_only", "hybrid"],
+                    "default": "agent_only"
+                  },
+                  "destinations": {
+                    "type": "array",
+                    "description": "Where the agent output is sent. Use kind='agentBox' to route to a specific Agent Box (matched via agent.number === agentBox.agentNumber).",
+                    "items": {
+                      "type": "object",
+                      "required": ["kind"],
+                      "properties": {
+                        "kind": { "type": "string", "enum": ["agentBox", "chat", "email", "webhook", "storage", "notification"] },
+                        "agents": {
+                          "type": "array",
+                          "description": "For kind='agentBox': array of AgentBox identifier values (format 'ABxxyy'). Routing also uses agent.number matching agentBox.agentNumber.",
+                          "items": { "type": "string" }
+                        },
+                        "email": { "type": "string", "description": "For kind='email': target email address." },
+                        "webhook": { "type": "string", "description": "For kind='webhook': target URL." }
+                      }
+                    }
+                  },
+                  "executionWorkflows": {
+                    "type": "array",
+                    "description": "Workflows executed after the agent produces output.",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "type": { "type": "string", "enum": ["internal", "external"] },
+                        "workflowId": { "type": "string" },
+                        "runWhenType": { "type": "string", "enum": ["all", "conditional"] },
+                        "conditions": { "type": "array" }
+                      }
+                    },
+                    "default": []
+                  }
+                }
+              }
+            },
             "wrExperts": {
               "type": "array",
               "description": "Agent-level text-only expert documents. Reusable knowledge, not tools or triggers.",
@@ -293,9 +412,24 @@ function createMasterSchema(): any {
         "agent.capabilities": ["listening", "reasoning", "execution"],
         "trigger.type": ["direct_tag", "tag_and_condition", "workflow_condition", "dom_event", "dom_parser", "augmented_overlay", "agent", "miniapp", "manual"],
         "destination.kind": ["agentBox", "chat", "email", "webhook", "storage", "notification"],
-        "agentBox.provider": ["", "OpenAI", "Claude", "Gemini", "Grok", "Local AI", "Image AI"]
+        "agentBox.provider": ["", "OpenAI", "Claude", "Gemini", "Grok", "Local AI", "Image AI"],
+        "executionMode": ["agent_only", "agent_workflow", "direct_response", "workflow_only", "hybrid"]
       },
-      "connectionLogic": "Agent.number === AgentBox.agentNumber → output routes to that box"
+      "fieldDescriptions": {
+        "reasoning.goals": "Reasoning instructions for this block. What should the agent do with the input? What logic should it apply?",
+        "reasoning.role": "Optional LLM persona. Sets a role context, e.g. 'Research Assistant'. Does not affect routing.",
+        "reasoning.outputFormattingInstructions": "Optional output formatting directive. Appended to the assembled prompt as a formatting-only hint. If empty, no formatting constraint is applied. Examples: 'Use markdown. Start with a summary. Then bullet points.' or 'Keep it concise. Use a table for comparisons.'",
+        "reasoning.custom": "Additional key-value pairs injected into the reasoning prompt as [Context] fields.",
+        "executionMode.agent_only": "Default. Agent produces a single LLM response, no workflows triggered.",
+        "executionMode.agent_workflow": "Agent response + additional execution workflows run after the response.",
+        "destination.agentBox": "Routes output to a matching Agent Box. Matching: agent.number must equal agentBox.agentNumber."
+      },
+      "connectionLogic": "Agent.number === AgentBox.agentNumber → output routes to that box",
+      "generationHints": {
+        "minimalAgent": "A minimal agent requires: id, name, enabled=true, capabilities, at least one unifiedTrigger in listening, one reasoningSections entry with goals, one executionSections entry with executionMode and at least one destination.",
+        "outputFormattingInstructions": "Always include this field in reasoningSections items. Set to empty string '' if no specific formatting is needed. Never omit the field — it must be present for schema completeness.",
+        "agentBoxRouting": "To route output to an Agent Box: set agent.number (e.g. 1), create an AgentBox with agentNumber=1, and add a destination with kind='agentBox' in executionSections."
+      }
     }
   }
 }
@@ -306,7 +440,7 @@ function createUnifiedTemplate(): any {
     "_schemaVersion": "2.1.0",
     "_exportedAt": new Date().toISOString(),
     "_source": "Optimando AI Extension - Unified Template",
-    "_helper": "UNIFIED TEMPLATE for LLM generation. CRITICAL: Agent.number must equal AgentBox.agentNumber for routing.",
+    "_helper": "UNIFIED TEMPLATE for LLM generation. CRITICAL: Agent.number must equal AgentBox.agentNumber for routing. Fill in TEMPLATE: placeholders. outputFormattingInstructions is optional — leave empty string if no specific formatting is needed.",
     
     "agents": [
       {
@@ -320,7 +454,7 @@ function createUnifiedTemplate(): any {
         "contextSettings": { "agentContext": true, "sessionContext": true, "accountContext": false },
         "memorySettings": { "agentEnabled": true, "sessionEnabled": false, "accountEnabled": false },
         "listening": {
-          "expectedContext": "TEMPLATE: Keywords for activation",
+          "expectedContext": "TEMPLATE: Keywords that describe when this agent should activate",
           "sources": ["dom"],
           "unifiedTriggers": [
             {
@@ -338,16 +472,21 @@ function createUnifiedTemplate(): any {
         "reasoningSections": [
           {
             "applyForList": ["TRIGGER01"],
-            "goals": "TEMPLATE: Reasoning instructions for this block",
-            "role": "TEMPLATE: Agent persona",
-            "outputFormattingInstructions": ""
+            "goals": "TEMPLATE: What should the agent do with the input? E.g. 'Summarize the provided text. Focus on key decisions and action items.'",
+            "role": "TEMPLATE: Optional persona. E.g. 'Research Analyst' or 'Technical Writer'. Leave empty if not needed.",
+            "outputFormattingInstructions": "TEMPLATE: Optional. How should the output be formatted? E.g. 'Use markdown. Start with a one-sentence summary. Then list key points as bullet points. End with a Risks section if relevant.' Leave empty string if no specific formatting is required.",
+            "custom": [],
+            "acceptFrom": [],
+            "memoryContext": { "agentEnabled": false, "sessionEnabled": false, "accountEnabled": false },
+            "reasoningWorkflows": []
           }
         ],
         "executionSections": [
           {
             "applyForList": ["TRIGGER01"],
             "executionMode": "agent_only",
-            "destinations": [{ "kind": "agentBox", "agents": ["AB0101"] }]
+            "destinations": [{ "kind": "agentBox", "agents": ["AB0101"] }],
+            "executionWorkflows": []
           }
         ],
         "wrExperts": []
@@ -376,7 +515,8 @@ function createUnifiedTemplate(): any {
     "connectionInfo": {
       "agentToBoxMapping": [
         { "agentNumber": 1, "agentId": "my-agent-01", "boxIdentifiers": ["AB0101"] }
-      ]
+      ],
+      "routingLogic": "agent.number === agentBox.agentNumber — output from agent 1 routes to agentBox with agentNumber 1"
     }
   }
 }
