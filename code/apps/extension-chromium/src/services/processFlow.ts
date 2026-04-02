@@ -396,10 +396,10 @@ export async function loadSavedTriggers(): Promise<any[]> {
  * Load agents from the current session
  * Uses SQLite as the single source of truth via background script messaging
  */
-export async function loadAgentsFromSession(): Promise<AgentConfig[]> {
+export async function loadAgentsFromSession(providedSessionKey?: string): Promise<AgentConfig[]> {
   try {
-    // Get session key using async method (more reliable in extension context)
-    const sessionKey = await getCurrentSessionKeyAsync()
+    // Use provided session key (e.g. from sidepanel state) or fall back to async discovery
+    const sessionKey = providedSessionKey || await getCurrentSessionKeyAsync()
     
     if (!sessionKey) {
       console.warn('[ProcessFlow] No session key found - cannot load agents')
@@ -582,9 +582,9 @@ function extractBoxAgentNumber(box: any): number | undefined {
  * Primary source: SQLite via background (same as loadAgentsFromSession).
  * Fallback: chrome.storage.local.
  */
-export async function loadAgentBoxesFromSession(): Promise<AgentBox[]> {
+export async function loadAgentBoxesFromSession(providedSessionKey?: string): Promise<AgentBox[]> {
   try {
-    const sessionKey = await getCurrentSessionKeyAsync()
+    const sessionKey = providedSessionKey || await getCurrentSessionKeyAsync()
 
     if (!sessionKey) {
       console.warn('[ProcessFlow] No session key found - cannot load agent boxes')
@@ -913,16 +913,17 @@ export async function routeInput(
   connectionStatus: { isConnected: boolean },
   sessionName: string,
   activeLlmModel: string,
-  currentUrl?: string
+  currentUrl?: string,
+  providedSessionKey?: string
 ): Promise<RoutingDecision> {
   // Determine input type
   let inputType: RoutingDecision['inputType'] = 'text'
   if (hasImage && input) inputType = 'mixed'
   else if (hasImage) inputType = 'image'
 
-  // Load agents and agent boxes
-  const agents = await loadAgentsFromSession()
-  const agentBoxes = await loadAgentBoxesFromSession()
+  // Load agents and agent boxes (pass session key directly to avoid re-discovery)
+  const agents = await loadAgentsFromSession(providedSessionKey)
+  const agentBoxes = await loadAgentBoxesFromSession(providedSessionKey)
   
   console.log('[ProcessFlow] routeInput:', { 
     input: input.substring(0, 50), 
@@ -1217,10 +1218,11 @@ export function wrapInputForAgent(
 export async function updateAgentBoxOutput(
   agentBoxId: string,
   output: string,
-  reasoningContext?: string
+  reasoningContext?: string,
+  providedSessionKey?: string
 ): Promise<boolean> {
   try {
-    const sessionKey = await getCurrentSessionKeyAsync()
+    const sessionKey = providedSessionKey || await getCurrentSessionKeyAsync()
     if (!sessionKey) {
       console.warn('[ProcessFlow] No session key found - cannot update agent box output')
       return false

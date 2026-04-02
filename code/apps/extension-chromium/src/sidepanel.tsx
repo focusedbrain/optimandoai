@@ -1228,7 +1228,8 @@ function SidepanelOrchestrator() {
         currentConnectionStatus,
         currentSessionName,
         currentModel,
-        currentUrl
+        currentUrl,
+        sessionKey
       )
       
       console.log('[Sidepanel] Screenshot routing decision (OCR-enriched):', {
@@ -1245,7 +1246,7 @@ function SidepanelOrchestrator() {
         }])
         
         // Process with each matched agent
-        const agents = await loadAgentsFromSession()
+        const agents = await loadAgentsFromSession(sessionKey)
         
         for (const match of routingDecision.matchedAgents) {
           const agent = agents.find(a => a.id === match.agentId)
@@ -1269,7 +1270,7 @@ function SidepanelOrchestrator() {
             const errorMsg = `⚠️ Brain resolution failed for ${match.agentName}:\n${modelResolution.error}`
             console.warn('[Sidepanel] Brain resolution error:', modelResolution)
             if (match.agentBoxId) {
-              await updateAgentBoxOutput(match.agentBoxId, errorMsg, `Agent: ${match.agentName} | Error: ${modelResolution.errorType}`)
+              await updateAgentBoxOutput(match.agentBoxId, errorMsg, `Agent: ${match.agentName} | Error: ${modelResolution.errorType}`, sessionKey)
             }
             setChatMessages(prev => [...prev, { role: 'assistant' as const, text: errorMsg }])
             continue
@@ -1290,7 +1291,7 @@ function SidepanelOrchestrator() {
             )
             if (keyError) {
               const keyMsg = `⚠️ ${match.agentName}: ${keyError}`
-              if (match.agentBoxId) await updateAgentBoxOutput(match.agentBoxId, keyMsg, `Missing API key`)
+              if (match.agentBoxId) await updateAgentBoxOutput(match.agentBoxId, keyMsg, `Missing API key`, sessionKey)
               setChatMessages(prev => [...prev, { role: 'assistant' as const, text: keyMsg }])
               continue
             }
@@ -1309,7 +1310,7 @@ function SidepanelOrchestrator() {
                 if (match.agentBoxId) {
                   const reasoningContext = `**Agent:** ${match.agentIcon} ${match.agentName}\n**Match:** ${match.matchDetails}\n**Input:** ${triggerText}`
                   
-                  await updateAgentBoxOutput(match.agentBoxId, agentOutput, reasoningContext)
+                  await updateAgentBoxOutput(match.agentBoxId, agentOutput, reasoningContext, sessionKey)
                   
                   setChatMessages(prev => [...prev, {
                     role: 'assistant' as const,
@@ -1334,7 +1335,7 @@ function SidepanelOrchestrator() {
       } else {
         // No agent match - use butler response
         console.log('[Sidepanel] No agent match, using butler response')
-        const agents = await loadAgentsFromSession()
+        const agents = await loadAgentsFromSession(sessionKey)
         const butlerPrompt = getButlerSystemPrompt(
           currentSessionName,
           agents.filter(a => a.enabled).length,
@@ -1404,6 +1405,16 @@ function SidepanelOrchestrator() {
       });
     });
   }, [])
+
+  // Mirror sessionKey to chrome.storage.local so processFlow.ts can discover it
+  // (processFlow runs in the sidepanel context but reads from chrome.storage.local)
+  useEffect(() => {
+    if (sessionKey) {
+      try {
+        chrome.storage?.local?.set({ 'optimando-active-session-key': sessionKey })
+      } catch {}
+    }
+  }, [sessionKey])
 
   // Load and listen for theme changes AND session changes
   useEffect(() => {
@@ -2722,7 +2733,7 @@ function SidepanelOrchestrator() {
   ): Promise<{ success: boolean, output?: string, error?: string }> => {
     try {
       // Load full agent config
-      const agents = await loadAgentsFromSession()
+      const agents = await loadAgentsFromSession(sessionKey)
       const agent = agents.find(a => a.id === match.agentId)
       
       if (!agent) {
@@ -2757,7 +2768,8 @@ function SidepanelOrchestrator() {
           await updateAgentBoxOutput(
             match.agentBoxId,
             errorMsg,
-            `Agent: ${match.agentName} | Provider: ${modelResolution.provider} | Error: ${modelResolution.errorType}`
+            `Agent: ${match.agentName} | Provider: ${modelResolution.provider} | Error: ${modelResolution.errorType}`,
+            sessionKey
           )
         }
         
@@ -2777,7 +2789,8 @@ function SidepanelOrchestrator() {
           await updateAgentBoxOutput(
             match.agentBoxId,
             `⚠️ ${keyError}`,
-            `Agent: ${match.agentName} | Missing API key`
+            `Agent: ${match.agentName} | Missing API key`,
+            sessionKey
           )
         }
         return { success: false, error: keyError }
@@ -2816,7 +2829,7 @@ function SidepanelOrchestrator() {
     baseUrl: string
   ): Promise<{ success: boolean, response?: string, error?: string }> => {
     try {
-      const agents = await loadAgentsFromSession()
+      const agents = await loadAgentsFromSession(sessionKey)
       const butlerPrompt = getButlerSystemPrompt(
         sessionName,
         agents.filter(a => a.enabled).length,
@@ -2917,7 +2930,8 @@ function SidepanelOrchestrator() {
         connectionStatus,
         sessionName,
         currentModel,
-        currentUrl
+        currentUrl,
+        sessionKey
       )
       
       console.log('[Sidepanel] Trigger routing decision (OCR-enriched):', {
@@ -2934,7 +2948,7 @@ function SidepanelOrchestrator() {
         }])
         
         // Process with each matched agent
-        const agents = await loadAgentsFromSession()
+        const agents = await loadAgentsFromSession(sessionKey)
         
         for (const match of routingDecision.matchedAgents) {
           const agent = agents.find(a => a.id === match.agentId)
@@ -2955,7 +2969,7 @@ function SidepanelOrchestrator() {
             const errorMsg = `⚠️ Brain resolution failed for ${match.agentName}:\n${modelResolution.error}`
             console.warn('[Sidepanel] Brain resolution error:', modelResolution)
             if (match.agentBoxId) {
-              await updateAgentBoxOutput(match.agentBoxId, errorMsg, `Agent: ${match.agentName} | Error: ${modelResolution.errorType}`)
+              await updateAgentBoxOutput(match.agentBoxId, errorMsg, `Agent: ${match.agentName} | Error: ${modelResolution.errorType}`, sessionKey)
             }
             setChatMessages(prev => [...prev, { role: 'assistant' as const, text: errorMsg }])
             continue
@@ -3011,7 +3025,7 @@ function SidepanelOrchestrator() {
         }
       } else {
         // No agent match - use butler response
-        const agents = await loadAgentsFromSession()
+        const agents = await loadAgentsFromSession(sessionKey)
         const butlerPrompt = getButlerSystemPrompt(
           sessionName,
           agents.filter(a => a.enabled).length,
@@ -3212,7 +3226,8 @@ function SidepanelOrchestrator() {
         connectionStatus,
         sessionName,
         activeLlmModel,
-        currentUrl
+        currentUrl,
+        sessionKey
       )
       
       console.log('[Chat] Input Coordinator routing decision (OCR-enriched):', {
@@ -3318,7 +3333,8 @@ function SidepanelOrchestrator() {
               await updateAgentBoxOutput(
                 match.agentBoxId,
                 result.output,
-                reasoningContext
+                reasoningContext,
+                sessionKey
               )
               
               // Show brief confirmation in chat
