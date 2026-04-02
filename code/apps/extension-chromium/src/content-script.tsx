@@ -6165,22 +6165,23 @@ function initializeExtension() {
 
         modelSelect.value = r.names[0]
 
-        // Show RAM warning if selected model differs from WR Chat active model
+        // Show RAM warning if selected local model differs from the active WR Chat model
         const wrChatModel = (() => { try { return localStorage.getItem('optimando-wr-chat-active-model') || '' } catch { return '' } })()
         let warnEl = overlay.querySelector('#local-model-ram-warn') as HTMLElement | null
         const updateWarn = () => {
           const chosen = modelSelect.value
-          const differs = !!wrChatModel && !!chosen && chosen !== 'auto' && chosen !== wrChatModel
+          // Warn whenever a specific model is chosen that is different from the WR Chat model.
+          // Skip warning only when no WR Chat model is known, or when the same model is chosen.
+          const differs = !!wrChatModel && !!chosen && chosen !== wrChatModel
           if (!warnEl) {
             warnEl = document.createElement('div')
             warnEl.id = 'local-model-ram-warn'
-            warnEl.style.cssText = 'margin-top:8px;padding:8px 10px;border-radius:6px;font-size:11px;line-height:1.4;background:rgba(251,191,36,0.15);border:1px solid rgba(251,191,36,0.5);color:#92400e'
+            warnEl.style.cssText = 'margin-top:8px;padding:8px 10px;border-radius:6px;font-size:11px;line-height:1.4;background:rgba(251,191,36,0.12);border:1px solid rgba(251,191,36,0.5);color:#92400e'
             modelSelect.parentElement?.appendChild(warnEl)
           }
           warnEl.style.display = differs ? 'block' : 'none'
           if (differs) {
-            warnEl.textContent = ''
-            warnEl.innerHTML = `⚠️ <strong>RAM warning:</strong> WR Chat uses <strong>${escapeHtmlAttr(wrChatModel)}</strong>. Selecting a different local model loads a second instance and may exhaust available RAM. Consider using <strong>${escapeHtmlAttr(wrChatModel)}</strong> instead.`
+            warnEl.innerHTML = `⚠️ <strong>Heads up:</strong> Using multiple different local models at the same time will load each one separately into RAM. This can cause significant performance issues or run out of memory. Make sure your system has enough RAM available.`
           }
         }
         updateWarn()
@@ -7004,22 +7005,21 @@ function initializeExtension() {
 
         modelSelect.value = preferred
 
-        // Show RAM warning if selected model differs from WR Chat active model
+        // Show RAM warning if selected local model differs from the active WR Chat model
         const wrChatModel = (() => { try { return localStorage.getItem('optimando-wr-chat-active-model') || '' } catch { return '' } })()
         let warnEl = overlay.querySelector('#edit-local-model-ram-warn') as HTMLElement | null
         const updateWarn = () => {
           const chosen = modelSelect.value
-          const differs = !!wrChatModel && !!chosen && chosen !== 'auto' && chosen !== wrChatModel
+          const differs = !!wrChatModel && !!chosen && chosen !== wrChatModel
           if (!warnEl) {
             warnEl = document.createElement('div')
             warnEl.id = 'edit-local-model-ram-warn'
-            warnEl.style.cssText = 'margin-top:8px;padding:8px 10px;border-radius:6px;font-size:11px;line-height:1.4;background:rgba(251,191,36,0.15);border:1px solid rgba(251,191,36,0.5);color:#92400e'
+            warnEl.style.cssText = 'margin-top:8px;padding:8px 10px;border-radius:6px;font-size:11px;line-height:1.4;background:rgba(251,191,36,0.12);border:1px solid rgba(251,191,36,0.5);color:#92400e'
             modelSelect.parentElement?.appendChild(warnEl)
           }
           warnEl.style.display = differs ? 'block' : 'none'
           if (differs) {
-            warnEl.textContent = ''
-            warnEl.innerHTML = `⚠️ <strong>RAM warning:</strong> WR Chat uses <strong>${escapeHtmlAttr(wrChatModel)}</strong>. Selecting a different local model loads a second instance and may exhaust available RAM. Consider using <strong>${escapeHtmlAttr(wrChatModel)}</strong> instead.`
+            warnEl.innerHTML = `⚠️ <strong>Heads up:</strong> Using multiple different local models at the same time will load each one separately into RAM. This can cause significant performance issues or run out of memory. Make sure your system has enough RAM available.`
           }
         }
         updateWarn()
