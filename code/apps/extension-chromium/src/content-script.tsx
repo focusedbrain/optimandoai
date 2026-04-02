@@ -24579,6 +24579,7 @@ function initializeExtension() {
 
         // Execution - ALWAYS save if section exists
 
+        const executionSection = document.getElementById('box-execution')
 
         if (executionSection) {
 
