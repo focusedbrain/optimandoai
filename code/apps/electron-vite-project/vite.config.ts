@@ -131,7 +131,7 @@ export default defineConfig({
               (process.env.GOOGLE_OAUTH_CLIENT_SECRET || process.env.WR_DESK_GOOGLE_OAUTH_CLIENT_SECRET || '').trim(),
             ),
             // New ISO timestamp on each main-bundle compile — exposed via GET /api/health for extension parity checks.
-            __ORCHESTRATOR_BUILD_STAMP__: JSON.stringify('build031'),
+            __ORCHESTRATOR_BUILD_STAMP__: JSON.stringify('build041'),
           },
           build: {
             rollupOptions: {
