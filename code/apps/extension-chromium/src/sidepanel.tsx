@@ -3142,9 +3142,10 @@ function SidepanelOrchestrator() {
       return
     }
     
-    // Add user message (only if there's text) — show short text; LLM uses llmRouteText + OCR augmentations below
-    const newMessages = text
-      ? [...chatMessages, { role: 'user' as const, text: displayText }]
+    // Add user message — show short text; LLM uses full document content via processedMessagesForLlm below
+    const userDisplayText = text || (docCtx ? `📄 ${docCtx.name}` : '')
+    const newMessages = userDisplayText
+      ? [...chatMessages, { role: 'user' as const, text: userDisplayText }]
       : [...chatMessages]
     setChatMessages(newMessages)
     setChatInput('')
@@ -3217,6 +3218,23 @@ function SidepanelOrchestrator() {
       const { processedMessages } = await processMessagesWithOCR(newMessages, baseUrl)
 
       let processedMessagesForLlm = processedMessages
+
+      // Inject document content into the last user message so the LLM receives it
+      // (both for agent PATH A and butler PATH C)
+      if (docCtx) {
+        processedMessagesForLlm = [...processedMessages]
+        for (let i = processedMessagesForLlm.length - 1; i >= 0; i--) {
+          if (processedMessagesForLlm[i].role === 'user') {
+            const existing = processedMessagesForLlm[i].content || ''
+            processedMessagesForLlm[i] = {
+              ...processedMessagesForLlm[i],
+              content: `[Attached document: ${docCtx.name}]\n\n${docCtx.text}\n\n---\n${existing}`
+            }
+            break
+          }
+        }
+      }
+
       if (beapAttachmentLlmPrefix) {
         processedMessagesForLlm = [...processedMessages]
         for (let i = processedMessagesForLlm.length - 1; i >= 0; i--) {
