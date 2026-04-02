@@ -456,14 +456,18 @@ export class InputCoordinator {
     }
 
     // 1a. Check executionSections[].destinations (new v2.1.0 format)
+    // Also check executionSections[].specialDestinations (auto-save draft format)
     const executionSections: any[] = (agent as any).executionSections || []
     for (const section of executionSections) {
       resolveDestList(section.destinations || [])
+      resolveDestList(section.specialDestinations || [])
     }
 
-    // 1b. Check legacy execution.specialDestinations
+    // 1b. Check legacy execution.specialDestinations and execution.destinations
     const specialDestinations = (agent as any).execution?.specialDestinations || []
     resolveDestList(specialDestinations)
+    const execDestinations = (agent as any).execution?.destinations || []
+    resolveDestList(execDestinations)
     
     // 2. Check listener.reportTo for explicit destinations
     const reportTo = agent.listening?.reportTo || []
@@ -1307,20 +1311,33 @@ export class InputCoordinator {
     
     // Resolve report destinations
     const reportTo: OutputDestination[] = []
-    
-    // Check specialDestinations
-    const specialDestinations = applicableSection.specialDestinations || execution.specialDestinations || []
-    
-    for (const dest of specialDestinations) {
-      if (dest.kind === 'agentBox') {
-        // Resolve specific agent boxes
-        if (dest.agents && dest.agents.length > 0) {
-          for (const boxRef of dest.agents) {
-            const boxNumMatch = String(boxRef).match(/(\d+)/)
-            if (boxNumMatch) {
-              const boxNum = parseInt(boxNumMatch[1], 10)
-              const box = agentBoxes.find(b => Number(b.boxNumber) === boxNum)
-              if (box) {
+
+    // Helper to resolve a destination list into reportTo entries
+    const resolveDestListForConfig = (dests: any[]) => {
+      for (const dest of dests) {
+        if (dest.kind === 'agentBox') {
+          if (dest.agents && dest.agents.length > 0) {
+            for (const boxRef of dest.agents) {
+              const boxNumMatch = String(boxRef).match(/(\d+)/)
+              if (boxNumMatch) {
+                const boxNum = parseInt(boxNumMatch[1], 10)
+                const box = agentBoxes.find(b => Number(b.boxNumber) === boxNum)
+                if (box && !reportTo.some(r => r.agentBoxId === box.id)) {
+                  reportTo.push({
+                    kind: 'agent_box',
+                    agentBoxId: box.id,
+                    agentBoxNumber: box.boxNumber,
+                    label: `Agent Box ${String(box.boxNumber).padStart(2, '0')}${box.title ? ` (${box.title})` : ''}`,
+                    enabled: box.enabled !== false
+                  })
+                }
+              }
+            }
+          } else {
+            // Generic agent box - use agent's connected box
+            const connectedBoxes = this.findAgentBoxesForAgent(agent, agentBoxes as AgentBox[])
+            for (const box of connectedBoxes) {
+              if (!reportTo.some(r => r.agentBoxId === box.id)) {
                 reportTo.push({
                   kind: 'agent_box',
                   agentBoxId: box.id,
@@ -1331,32 +1348,25 @@ export class InputCoordinator {
               }
             }
           }
-        } else {
-          // Generic agent box - use agent's connected box
-          const connectedBoxes = this.findAgentBoxesForAgent(agent, agentBoxes as AgentBox[])
-          for (const box of connectedBoxes) {
-            reportTo.push({
-              kind: 'agent_box',
-              agentBoxId: box.id,
-              agentBoxNumber: box.boxNumber,
-              label: `Agent Box ${String(box.boxNumber).padStart(2, '0')}${box.title ? ` (${box.title})` : ''}`,
-              enabled: box.enabled !== false
-            })
+        } else if (dest.kind === 'wrChat' || dest.kind === 'commandChat') {
+          if (!reportTo.some(r => r.kind === 'wr_chat')) {
+            reportTo.push({ kind: 'wr_chat', label: 'WR Chat (Command Chat)', enabled: true })
+          }
+        } else if (dest.kind === 'inlineChat') {
+          if (!reportTo.some(r => r.kind === 'inline_chat')) {
+            reportTo.push({ kind: 'inline_chat', label: 'Inline Chat', enabled: true })
           }
         }
-      } else if (dest.kind === 'wrChat' || dest.kind === 'commandChat') {
-        reportTo.push({
-          kind: 'wr_chat',
-          label: 'WR Chat (Command Chat)',
-          enabled: true
-        })
-      } else if (dest.kind === 'inlineChat') {
-        reportTo.push({
-          kind: 'inline_chat',
-          label: 'Inline Chat',
-          enabled: true
-        })
       }
+    }
+
+    // Check all destination formats: destinations (canonical) + specialDestinations (draft/auto-save)
+    resolveDestListForConfig(applicableSection.destinations || [])
+    resolveDestListForConfig(applicableSection.specialDestinations || [])
+    // Also fall back to main execution section if applicable section had nothing
+    if (reportTo.length === 0) {
+      resolveDestListForConfig(execution.destinations || [])
+      resolveDestListForConfig(execution.specialDestinations || [])
     }
     
     // Check legacy reportTo in listening section
