@@ -2295,33 +2295,43 @@ function SidepanelOrchestrator() {
     return out
   }
 
-  // Extract plain text from a PDF File using pdfjs-dist (up to 500 pages, 30s timeout)
-  const extractPdfText = async (file: File): Promise<string> => {
+  // Extract plain text from a PDF File by sending it to the orchestrator's
+  // /api/parser/pdf/extract endpoint — uses Node.js pdfjs with a proper worker,
+  // which is more reliable than browser-side pdfjs in the extension context.
+  const extractPdfText = async (file: File, baseUrl: string = 'http://127.0.0.1:51248'): Promise<string> => {
     try {
-      const pdfjsLib = await import('pdfjs-dist')
-      // Set worker source using chrome extension URL resolution
-      if (pdfjsLib.GlobalWorkerOptions && !pdfjsLib.GlobalWorkerOptions.workerSrc) {
-        try {
-          const workerUrl = (await import('pdfjs-dist/build/pdf.worker.mjs?url')).default
-          const resolved = typeof chrome !== 'undefined' && chrome.runtime?.getURL
-            ? (() => { try { const t = workerUrl.startsWith('/') ? workerUrl.slice(1) : workerUrl; return chrome.runtime.getURL(t) } catch { return workerUrl } })()
-            : workerUrl
-          pdfjsLib.GlobalWorkerOptions.workerSrc = resolved
-        } catch { /* worker init may fail; pdfjs still works */ }
-      }
+      // Convert file to base64
       const arrayBuffer = await file.arrayBuffer()
       const bytes = new Uint8Array(arrayBuffer)
-      const pdf = await pdfjsLib.getDocument({ data: bytes }).promise
-      const pagesToProcess = Math.min(pdf.numPages, 500)
-      const parts: string[] = []
-      for (let i = 1; i <= pagesToProcess; i++) {
-        const page = await pdf.getPage(i)
-        const content = await page.getTextContent()
-        const pageText = content.items.map((item: { str?: string }) => item.str || '').join(' ')
-        if (pageText.trim()) parts.push(pageText)
+      let binary = ''
+      const chunkSize = 8192
+      for (let i = 0; i < bytes.length; i += chunkSize) {
+        binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize))
       }
-      return parts.join('\n\n').trim()
-    } catch {
+      const base64 = btoa(binary)
+
+      // Use a stable attachmentId derived from filename + size
+      const attachmentId = `chat-drop-${file.name.replace(/[^a-zA-Z0-9]/g, '_')}-${file.size}`
+
+      const response = await fetch(`${baseUrl}/api/parser/pdf/extract`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...electronFetchHeaders() },
+        body: JSON.stringify({ attachmentId, base64 }),
+        signal: AbortSignal.timeout(60_000)
+      })
+
+      if (!response.ok) {
+        console.warn('[extractPdfText] Orchestrator returned', response.status)
+        return ''
+      }
+
+      const result = await response.json()
+      if (result.success && result.extractedText && result.extractedText.trim().length > 0) {
+        return result.extractedText.trim()
+      }
+      return ''
+    } catch (err) {
+      console.warn('[extractPdfText] Failed:', err)
       return ''
     }
   }
@@ -2399,7 +2409,7 @@ function SidepanelOrchestrator() {
           setTimeout(() => {
             if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight
           }, 0)
-          extractPdfText(file).then(extracted => {
+          extractPdfText(file, 'http://127.0.0.1:51248').then(extracted => {
             if (extracted && extracted.length > 50) {
               const snippet = extracted.slice(0, 8000)
               setPendingDocContent({ name: file.name, text: snippet })
@@ -2496,7 +2506,7 @@ function SidepanelOrchestrator() {
               text: `📄 **${fileCopy.name}** attached (${Math.round(fileCopy.size / 1024)} KB) — extracting text…`
             }])
             runEmbed([item], 'session')
-            extractPdfText(fileCopy).then(extracted => {
+            extractPdfText(fileCopy, 'http://127.0.0.1:51248').then(extracted => {
               if (extracted && extracted.length > 50) {
                 const snippet = extracted.slice(0, 8000)
                 setPendingDocContent({ name: fileCopy.name, text: snippet })
