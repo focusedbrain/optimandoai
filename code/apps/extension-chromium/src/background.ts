@@ -4436,11 +4436,23 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         .then((session: any) => {
           console.log('✅ BG: Box output saved to SQLite')
           
+          // Resolve canonical identifier for the box that was updated.
+          // master-tab boxes have id=UUID and identifier="AB0101"; grid boxes have id=identifier="AB0592".
+          // Grid listeners match on cfg.id/cfg.identifier (always the short AB-code), so we must
+          // broadcast with the identifier, not just the raw msg.agentBoxId (which may be a UUID).
+          const updatedBox = session.agentBoxes.find(
+            (b: any) => b.id === msg.agentBoxId || b.identifier === msg.agentBoxId
+          )
+          const canonicalId = updatedBox?.identifier || updatedBox?.id || msg.agentBoxId
+          
           // Broadcast UPDATE_AGENT_BOX_OUTPUT to all extension pages (sidepanel + grid pages)
+          // Include both the original agentBoxId (for sidepanel UUID matching) and the canonical
+          // identifier (for grid slot matching via data-slot-config).
           chrome.runtime.sendMessage({
             type: 'UPDATE_AGENT_BOX_OUTPUT',
             data: {
-              agentBoxId: msg.agentBoxId,
+              agentBoxId: canonicalId,
+              agentBoxUuid: msg.agentBoxId,
               output: msg.output,
               allBoxes: session.agentBoxes
             }

@@ -265,6 +265,7 @@ function createSlots(slotCount, savedSlots) {
                     <span style="position: absolute; top: 0; left: 0; right: 0; bottom: 0; background-color: #4CAF50; border-radius: 18px; transition: 0.3s;"></span>
                     <span style="position: absolute; content: ''; height: 12px; width: 12px; left: 17px; bottom: 3px; background-color: white; border-radius: 50%; transition: 0.3s; box-shadow: 0 1px 2px rgba(0,0,0,0.3);"></span>
                 </label>
+                <button type="button" class="clear-slot-output" data-slot-id="${slotNum}" title="Clear output" style="padding: 0 4px; border: none; background: transparent; color: ${textColor}; opacity: 0.5; font-size: 10px; font-weight: 500; cursor: pointer; letter-spacing: 0.02em;">Clear</button>
                 <button class="edit-slot" data-slot-id="${slotNum}" style="background: ${resolvedTheme === 'standard' ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.2)'}; border: none; color: ${textColor}; width: 20px; height: 20px; border-radius: 50%; cursor: pointer; font-size: 11px; display: flex; align-items: center; justify-content: center; transition: all 0.2s ease;">✏️</button>
             </div>
         `;

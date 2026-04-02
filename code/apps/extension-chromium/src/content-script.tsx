@@ -5560,6 +5560,8 @@ function initializeExtension() {
 
             </label>
 
+            <button type="button" class="clear-agent-box-output" data-agent-id="${box.id}" style="padding: 0 4px; border: none; background: transparent; color: inherit; opacity: 0.5; font-size: 10px; font-weight: 500; cursor: pointer; letter-spacing: 0.02em; line-height: 1.2; position: relative; z-index: 2;" title="Clear output">Clear</button>
+
             <button class="edit-agent-box" data-agent-id="${box.id}" style="background: rgba(128,128,128,0.2); border: none; color: inherit; width: 20px; height: 20px; border-radius: 50%; cursor: pointer; font-size: 10px; font-weight: bold; display: flex; align-items: center; justify-content: center; transition: all 0.2s ease; opacity: 0.7; position: relative; z-index: 2;" title="Edit this agent box">
 
               ✏️
@@ -5605,6 +5607,8 @@ function initializeExtension() {
     attachDeleteButtonListeners()
 
     attachEditButtonListeners()
+
+    attachClearAgentOutputListeners()
 
     attachAgentBoxToggleListeners()
 
@@ -7767,7 +7771,59 @@ function initializeExtension() {
 
   }
 
+  function clearAgentBoxOutputInPage(agentId: string) {
+    const sessionKey = getCurrentSessionKey()
+    if (!sessionKey) {
+      console.warn('[clearAgentBoxOutput] No session key')
+      return
+    }
+    const box = currentTabData.agentBoxes?.find((b: any) => b.id === agentId)
+    if (!box) return
+    try {
+      chrome.runtime.sendMessage(
+        {
+          type: 'UPDATE_BOX_OUTPUT_SQLITE',
+          sessionKey,
+          agentBoxId: agentId,
+          output: '',
+        },
+        (response: any) => {
+          if (chrome.runtime.lastError) {
+            console.warn('[clearAgentBoxOutput]', chrome.runtime.lastError.message)
+            return
+          }
+          if (!response?.success) {
+            console.warn('[clearAgentBoxOutput] failed', response)
+            return
+          }
+          box.output = ''
+          const el = document.getElementById(box.outputId)
+          if (el) {
+            const isEnabled = box.enabled !== false
+            el.innerHTML = isEnabled
+              ? `Ready for ${String(box.title || '').replace(/[📝🔍🎯🧮]/g, '').trim()}...`
+              : `Agent disabled - toggle On to activate`
+          }
+          chrome.runtime.sendMessage({
+            type: 'UPDATE_AGENT_BOXES',
+            data: currentTabData.agentBoxes,
+          })
+        },
+      )
+    } catch (e) {
+      console.warn('[clearAgentBoxOutput]', e)
+    }
+  }
 
+  function attachClearAgentOutputListeners() {
+    document.querySelectorAll('.clear-agent-box-output').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation()
+        const agentId = btn.getAttribute('data-agent-id')
+        if (agentId) clearAgentBoxOutputInPage(agentId)
+      })
+    })
+  }
 
   function attachAgentBoxToggleListeners() {
 
@@ -16158,29 +16214,29 @@ function initializeExtension() {
 
             <!-- Reasoning Workflows Section (optional) - placed before Goals to gather context first -->
             <div style="${afUi.innerWell};margin-top:12px">
-              <div style="font-weight:600;margin-bottom:8px;color:${afUi.heading};display:flex;align-items:center;gap:8px">
-                Reasoning Workflows (optional)
+              <div style="font-weight:600;font-size:13px;margin-bottom:8px;color:${afUi.heading};display:flex;align-items:center;gap:8px">
+                Reasoning Workflows <span style="font-weight:400;opacity:0.65">(optional)</span>
                 <span title="Optional workflows to gather context before reasoning. Can route based on output conditions." style="${afUi.helpLg}">?</span>
               </div>
               <div id="R-reasoning-workflows" style="display:flex;flex-direction:column;gap:12px;margin-bottom:8px"></div>
               <button id="R-add-workflow" style="background:${csTheme().accentGrad};border:none;color:#fff;padding:8px 14px;border-radius:6px;cursor:pointer;font-weight:500">+ Add Workflow</button>
             </div>
 
-            <label style="display:block;margin-top:12px;color:${afUi.heading};font-weight:600">Reasoning Instructions
+            <label style="display:block;margin-top:12px;color:${afUi.heading};font-size:13px;font-weight:600">Reasoning Instructions
 
-              <textarea id="R-goals" style="width:100%;min-height:90px;background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:8px;border-radius:6px"></textarea>
-
-            </label>
-
-            <label style="display:block;color:${afUi.heading};font-weight:600">Role (optional)
-
-              <input id="R-role" style="width:100%;background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:8px;border-radius:6px">
+              <textarea id="R-goals" style="width:100%;min-height:90px;background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:8px;border-radius:6px;font-size:13px"></textarea>
 
             </label>
 
-            <label style="display:block;margin-top:12px;color:${afUi.heading};font-weight:500;font-size:13px">Output Formatting Instructions <span style="font-weight:400;opacity:0.65">(Optional)</span>
+            <label style="display:block;margin-top:12px;color:${afUi.heading};font-size:13px;font-weight:600">Role <span style="font-weight:400;opacity:0.65">(optional)</span>
 
-              <textarea id="R-output-formatting" placeholder="Example: Use markdown headings, start with a short summary, then bullet points. Keep it concise. Show risks in a separate section." style="width:100%;min-height:70px;background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:8px;border-radius:6px;font-size:12px;margin-top:4px"></textarea>
+              <input id="R-role" style="width:100%;background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:8px;border-radius:6px;font-size:13px">
+
+            </label>
+
+            <label style="display:block;margin-top:12px;color:${afUi.heading};font-size:13px;font-weight:600">Output Formatting Instructions <span style="font-weight:400;opacity:0.65">(optional)</span>
+
+              <textarea id="R-output-formatting" placeholder="Example: Use markdown headings, start with a short summary, then bullet points. Keep it concise. Show risks in a separate section." style="width:100%;min-height:70px;background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:8px;border-radius:6px;font-size:13px;margin-top:4px"></textarea>
 
             </label>
 
@@ -19352,23 +19408,23 @@ function initializeExtension() {
 
             <!-- Reasoning Workflows Section (optional) - placed before Goals to gather context first -->
             <div style="border:1px solid rgba(255,255,255,.25);border-radius:8px;padding:12px;background:rgba(255,255,255,0.04);margin-top:8px">
-              <div style="font-weight:600;margin-bottom:8px;color:#fff;display:flex;align-items:center;gap:8px">
-                Reasoning Workflows (optional)
+              <div style="font-weight:600;font-size:13px;margin-bottom:8px;color:#fff;display:flex;align-items:center;gap:8px">
+                Reasoning Workflows <span style="font-weight:400;opacity:0.65">(optional)</span>
                 <span title="Optional workflows to gather context before reasoning. Can route based on output conditions." style="font-size:12px;opacity:0.9;cursor:help;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.35);padding:0 6px;border-radius:50%">?</span>
               </div>
               <div id="${wfId}" class="R-workflows-sub" style="display:flex;flex-direction:column;gap:12px;margin-bottom:8px"></div>
               <button class="R-add-workflow-sub" style="background:${csTheme().accentGrad};border:none;color:#fff;padding:8px 14px;border-radius:6px;cursor:pointer;font-weight:500">+ Add Workflow</button>
             </div>
 
-            <label style="display:block;margin-top:12px">Reasoning Instructions
+            <label style="display:block;margin-top:12px;color:#fff;font-size:13px;font-weight:600">Reasoning Instructions
 
-              <textarea class="R-goals" style="width:100%;min-height:90px;background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:8px;border-radius:6px"></textarea>
+              <textarea class="R-goals" style="width:100%;min-height:90px;background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:8px;border-radius:6px;font-size:13px"></textarea>
 
             </label>
 
-            <label style="display:block">Role (optional)
+            <label style="display:block;margin-top:12px;color:#fff;font-size:13px;font-weight:600">Role <span style="font-weight:400;opacity:0.65">(optional)</span>
 
-              <input class="R-role" style="width:100%;background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:8px;border-radius:6px">
+              <input class="R-role" style="width:100%;background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:8px;border-radius:6px;font-size:13px">
 
             </label>
 
@@ -37824,17 +37880,26 @@ ${pageText}
 
       
 
-      const savedTitle = (savedSlots[String(slotNum)] && savedSlots[String(slotNum)].title) ? savedSlots[String(slotNum)].title : `Display Port ${slotNum}`
+      const savedSlotData = savedSlots[String(slotNum)] || {}
 
-      const savedAgent = (savedSlots[String(slotNum)] && savedSlots[String(slotNum)].agent) ? savedSlots[String(slotNum)].agent : ''
+      const savedTitle = savedSlotData.title || `Display Port ${slotNum}`
 
-      const savedProvider = (savedSlots[String(slotNum)] && savedSlots[String(slotNum)].provider) ? savedSlots[String(slotNum)].provider : ''
+      const savedAgent = savedSlotData.agent || ''
 
-      const savedModel = (savedSlots[String(slotNum)] && savedSlots[String(slotNum)].model) ? savedSlots[String(slotNum)].model : ''
+      const savedProvider = savedSlotData.provider || ''
+
+      const savedModel = savedSlotData.model || ''
+
+      const savedBoxNumber = savedSlotData.boxNumber || 0
+
+      const savedIdentifier = savedSlotData.identifier || savedSlotData.id || ''
 
       const agentNumForAB = savedAgent ? savedAgent.replace('agent', '').padStart(2, '0') : ''
 
-      const abCode = `AB${String(slotNum).padStart(2, '0')}${agentNumForAB}`
+      // Use boxNumber if saved, otherwise fall back to slotNum for AB code
+      const boxNumForAB = savedBoxNumber > 0 ? String(savedBoxNumber).padStart(2, '0') : String(slotNum).padStart(2, '0')
+
+      const abCode = `AB${boxNumForAB}${agentNumForAB}`
 
       let displayParts = [savedTitle]
 
@@ -37914,7 +37979,7 @@ ${pageText}
 
       slotsHTML += `
 
-        <div data-slot-id="${slotNum}" data-slot-config='${JSON.stringify({ title: savedTitle, agent: savedAgent, provider: savedProvider, model: savedModel })}' style="background: ${slotBg} !important; border: 1px solid rgba(255,255,255,0.14); border-radius: 8px; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.1); ${gridRowStyle}">
+        <div data-slot-id="${slotNum}" data-slot-config='${JSON.stringify({ id: savedIdentifier || abCode, identifier: savedIdentifier || abCode, title: savedTitle, agent: savedAgent, provider: savedProvider, model: savedModel, boxNumber: savedBoxNumber || slotNum })}' style="background: ${slotBg} !important; border: 1px solid rgba(255,255,255,0.14); border-radius: 8px; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.1); ${gridRowStyle}">
 
           <div style="background: ${headerColor}; padding: 6px 8px; font-size: 11px; display: flex; justify-content: space-between; align-items: center; border-radius: 8px 8px 0 0; min-height: 32px; flex-shrink: 0;">
 

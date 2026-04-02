@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react'
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { createRoot } from 'react-dom/client'
 import { BackendSwitcherInline } from './components/BackendSwitcherInline'
 import { PackageBuilderPolicy } from './policy/components/PackageBuilderPolicy'
@@ -1675,8 +1675,8 @@ function SidepanelOrchestrator() {
         if (message.data.allBoxes) {
           // Update all boxes (includes the updated one)
           setAgentBoxes(message.data.allBoxes)
-        } else if (message.data.agentBoxId && message.data.output) {
-          // Update specific box output
+        } else if (message.data.agentBoxId && message.data.output !== undefined) {
+          // Update specific box output (including cleared empty string)
           setAgentBoxes(prev => prev.map(box => 
             box.id === message.data.agentBoxId 
               ? { ...box, output: message.data.output }
@@ -2597,7 +2597,15 @@ function SidepanelOrchestrator() {
       addCommand: addCommandChecked
     })
   }
-  
+
+  /** Clear WR Chat transcript, composer, and pending attachment (docked + shared state). */
+  const clearWrChat = useCallback(() => {
+    setChatMessages([])
+    setChatInput('')
+    setPendingDocContent(null)
+    setShowTagsMenu(false)
+  }, [])
+
   // =============================================================================
   // CHAT FLOW HELPERS
   // The chat flow follows this architecture:
@@ -4626,6 +4634,49 @@ function SidepanelOrchestrator() {
                     >
                       ✎
                     </button>
+                    <button
+                      type="button"
+                      onClick={clearWrChat}
+                      title="Clear chat"
+                      style={{
+                        ...chatControlButtonStyle(),
+                        borderRadius: '6px',
+                        padding: '0 8px',
+                        height: '22px',
+                        fontSize: '10px',
+                        fontWeight: 500,
+                        opacity: 0.55,
+                        border: 'none',
+                        cursor: 'pointer',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        transition: 'all 0.2s ease',
+                        ...(theme === 'standard' ? { color: '#0f172a' } : {}),
+                      }}
+                      onMouseEnter={(e) => {
+                        if (theme === 'standard') {
+                          e.currentTarget.style.background = '#eef3f6'
+                          e.currentTarget.style.color = '#0f172a'
+                        } else if (theme === 'dark') {
+                          e.currentTarget.style.background = 'rgba(255,255,255,0.25)'
+                        } else {
+                          e.currentTarget.style.background = 'rgba(118,75,162,0.6)'
+                        }
+                      }}
+                      onMouseLeave={(e) => {
+                        if (theme === 'standard') {
+                          e.currentTarget.style.background = '#ffffff'
+                          e.currentTarget.style.color = '#0f172a'
+                        } else if (theme === 'dark') {
+                          e.currentTarget.style.background = 'rgba(255,255,255,0.1)'
+                        } else {
+                          e.currentTarget.style.background = 'rgba(118,75,162,0.35)'
+                        }
+                      }}
+                    >
+                      Clear
+                    </button>
                     <div style={{ position: 'relative' }}>
                       <button 
                         onClick={() => setShowTagsMenu(!showTagsMenu)}
@@ -4636,9 +4687,13 @@ function SidepanelOrchestrator() {
                           padding: '0 12px',
                           height: '28px',
                           fontSize: '12px',
-                          background: 'rgba(255,255,255,0.15)',
-                          border: 'none',
-                          color: '#ffffff',
+                          ...(theme === 'standard'
+                            ? { border: 'none' }
+                            : {
+                                background: 'rgba(255,255,255,0.15)',
+                                border: 'none',
+                                color: '#ffffff',
+                              }),
                           cursor: 'pointer',
                           display: 'inline-flex',
                           alignItems: 'center',
@@ -4648,6 +4703,7 @@ function SidepanelOrchestrator() {
                         onMouseEnter={(e) => {
                           if (theme === 'standard') {
                             e.currentTarget.style.background = '#eef3f6'
+                            e.currentTarget.style.color = '#0f172a'
                           } else if (theme === 'dark') {
                             e.currentTarget.style.background = 'rgba(255,255,255,0.2)'
                           } else {
@@ -4657,6 +4713,7 @@ function SidepanelOrchestrator() {
                         onMouseLeave={(e) => {
                           if (theme === 'standard') {
                             e.currentTarget.style.background = '#f8f9fb'
+                            e.currentTarget.style.color = '#0f172a'
                           } else if (theme === 'dark') {
                             e.currentTarget.style.background = 'rgba(255,255,255,0.12)'
                           } else {
@@ -4664,7 +4721,16 @@ function SidepanelOrchestrator() {
                           }
                         }}
                       >
-                        Tags <span style={{ fontSize: '11px', opacity: 0.9 }}>▾</span>
+                        Tags{' '}
+                        <span
+                          style={{
+                            fontSize: '11px',
+                            opacity: 0.9,
+                            color: theme === 'standard' ? '#0f172a' : undefined,
+                          }}
+                        >
+                          ▾
+                        </span>
                       </button>
                       
                       {/* Tags Dropdown Menu */}
@@ -6550,6 +6616,49 @@ height: '28px',
                   >
                     ✎
                   </button>
+                  <button
+                    type="button"
+                    onClick={clearWrChat}
+                    title="Clear chat"
+                    style={{
+                      ...chatControlButtonStyle(),
+                      borderRadius: '6px',
+                      padding: '0 8px',
+                      height: '22px',
+                      fontSize: '10px',
+                      fontWeight: 500,
+                      opacity: 0.55,
+                      border: 'none',
+                      cursor: 'pointer',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      transition: 'all 0.2s ease',
+                      ...(theme === 'standard' ? { color: '#0f172a' } : {}),
+                    }}
+                    onMouseEnter={(e) => {
+                      if (theme === 'standard') {
+                        e.currentTarget.style.background = '#eef3f6'
+                        e.currentTarget.style.color = '#0f172a'
+                      } else if (theme === 'dark') {
+                        e.currentTarget.style.background = 'rgba(255,255,255,0.25)'
+                      } else {
+                        e.currentTarget.style.background = 'rgba(118,75,162,0.6)'
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (theme === 'standard') {
+                        e.currentTarget.style.background = '#ffffff'
+                        e.currentTarget.style.color = '#0f172a'
+                      } else if (theme === 'dark') {
+                        e.currentTarget.style.background = 'rgba(255,255,255,0.1)'
+                      } else {
+                        e.currentTarget.style.background = 'rgba(118,75,162,0.35)'
+                      }
+                    }}
+                  >
+                    Clear
+                  </button>
                   <div style={{ position: 'relative' }}>
                     <button 
                       onClick={() => setShowTagsMenu(!showTagsMenu)}
@@ -6569,6 +6678,7 @@ height: '28px',
                       onMouseEnter={(e) => {
                         if (theme === 'standard') {
                           e.currentTarget.style.background = '#eef3f6'
+                          e.currentTarget.style.color = '#0f172a'
                         } else if (theme === 'dark') {
                           e.currentTarget.style.background = 'rgba(255,255,255,0.2)'
                         } else {
@@ -6578,6 +6688,7 @@ height: '28px',
                       onMouseLeave={(e) => {
                         if (theme === 'standard') {
                           e.currentTarget.style.background = '#f8f9fb'
+                          e.currentTarget.style.color = '#0f172a'
                         } else if (theme === 'dark') {
                           e.currentTarget.style.background = 'rgba(255,255,255,0.12)'
                         } else {
@@ -6585,7 +6696,16 @@ height: '28px',
                         }
                       }}
                     >
-                      Tags <span style={{ fontSize: '11px', opacity: 0.9 }}>▾</span>
+                      Tags{' '}
+                      <span
+                        style={{
+                          fontSize: '11px',
+                          opacity: 0.9,
+                          color: theme === 'standard' ? '#0f172a' : undefined,
+                        }}
+                      >
+                        ▾
+                      </span>
                     </button>
                     
                     {/* Tags Dropdown Menu - App View */}
@@ -7885,6 +8005,49 @@ height: '28px',
                   >
                     ✎
                   </button>
+                  <button
+                    type="button"
+                    onClick={clearWrChat}
+                    title="Clear chat"
+                    style={{
+                      ...chatControlButtonStyle(),
+                      borderRadius: '6px',
+                      padding: '0 8px',
+                      height: '22px',
+                      fontSize: '10px',
+                      fontWeight: 500,
+                      opacity: 0.55,
+                      border: 'none',
+                      cursor: 'pointer',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      transition: 'all 0.2s ease',
+                      ...(theme === 'standard' ? { color: '#0f172a' } : {}),
+                    }}
+                    onMouseEnter={(e) => {
+                      if (theme === 'standard') {
+                        e.currentTarget.style.background = '#eef3f6'
+                        e.currentTarget.style.color = '#0f172a'
+                      } else if (theme === 'dark') {
+                        e.currentTarget.style.background = 'rgba(255,255,255,0.25)'
+                      } else {
+                        e.currentTarget.style.background = 'rgba(118,75,162,0.6)'
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (theme === 'standard') {
+                        e.currentTarget.style.background = '#ffffff'
+                        e.currentTarget.style.color = '#0f172a'
+                      } else if (theme === 'dark') {
+                        e.currentTarget.style.background = 'rgba(255,255,255,0.1)'
+                      } else {
+                        e.currentTarget.style.background = 'rgba(118,75,162,0.35)'
+                      }
+                    }}
+                  >
+                    Clear
+                  </button>
                   <div style={{ position: 'relative' }}>
                     <button 
                       onClick={() => setShowTagsMenu(!showTagsMenu)}
@@ -7904,6 +8067,7 @@ height: '28px',
                       onMouseEnter={(e) => {
                         if (theme === 'standard') {
                           e.currentTarget.style.background = '#eef3f6'
+                          e.currentTarget.style.color = '#0f172a'
                         } else if (theme === 'dark') {
                           e.currentTarget.style.background = 'rgba(255,255,255,0.2)'
                         } else {
@@ -7913,6 +8077,7 @@ height: '28px',
                       onMouseLeave={(e) => {
                         if (theme === 'standard') {
                           e.currentTarget.style.background = '#f8f9fb'
+                          e.currentTarget.style.color = '#0f172a'
                         } else if (theme === 'dark') {
                           e.currentTarget.style.background = 'rgba(255,255,255,0.12)'
                         } else {
@@ -7920,7 +8085,16 @@ height: '28px',
                         }
                       }}
                     >
-                      Tags <span style={{ fontSize: '11px', opacity: 0.9 }}>▾</span>
+                      Tags{' '}
+                      <span
+                        style={{
+                          fontSize: '11px',
+                          opacity: 0.9,
+                          color: theme === 'standard' ? '#0f172a' : undefined,
+                        }}
+                      >
+                        ▾
+                      </span>
                     </button>
                     
                     {/* Tags Dropdown Menu - Admin View */}
@@ -9159,6 +9333,33 @@ height: '28px',
                         boxShadow: '0 1px 3px rgba(0,0,0,0.3)'
                       }}></span>
                     </label>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        void (async () => {
+                          await updateAgentBoxOutput(box.id, '', undefined, sessionKey)
+                          setAgentBoxes((prev) =>
+                            prev.map((b) => (b.id === box.id ? { ...b, output: '' } : b)),
+                          )
+                        })()
+                      }}
+                      style={{
+                        padding: '0 4px',
+                        border: 'none',
+                        background: 'transparent',
+                        color: 'rgba(255,255,255,0.9)',
+                        opacity: 0.5,
+                        fontSize: '10px',
+                        fontWeight: 500,
+                        cursor: 'pointer',
+                        letterSpacing: '0.02em',
+                        lineHeight: 1.2,
+                      }}
+                      title="Clear output"
+                    >
+                      Clear
+                    </button>
                     <button
                       onClick={() => editAgentBox(box.id)}
                       style={{

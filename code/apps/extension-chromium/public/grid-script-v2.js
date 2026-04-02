@@ -909,13 +909,56 @@ if (window.gridScriptV2Loaded) {
       .replace(/`(.+?)`/g, '<code style="background:rgba(0,0,0,.1);padding:1px 4px;border-radius:3px;font-size:12px">$1</code>');
   }
 
+  function getGridSessionKeyForClearV2() {
+    return window.sessionKey || (window.GRID_CONFIG && window.GRID_CONFIG.sessionKey) || parentSessionKey || '';
+  }
+
+  function gridSlotEmptyPlaceholderHtmlV2(cfg) {
+    var agent = cfg.agent || '';
+    return '<div style="opacity: 0.6;">' + (agent ? 'Configured ✓' : 'Click ✏️ to configure') + '</div>';
+  }
+
+  document.addEventListener('click', function(ev) {
+    var t = ev.target;
+    if (!t || !t.classList || !t.classList.contains('clear-slot-output')) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    var slot = t.closest && t.closest('[data-slot-id]');
+    if (!slot) return;
+    var cfgStr = slot.getAttribute('data-slot-config');
+    if (!cfgStr) return;
+    try {
+      var cfg = JSON.parse(cfgStr);
+      var boxId = cfg.id || cfg.identifier;
+      if (!boxId) return;
+      var sk = getGridSessionKeyForClearV2();
+      if (!sk || typeof chrome === 'undefined' || !chrome.runtime) return;
+      chrome.runtime.sendMessage({
+        type: 'UPDATE_BOX_OUTPUT_SQLITE',
+        sessionKey: sk,
+        agentBoxId: boxId,
+        output: ''
+      }, function(response) {
+        if (chrome.runtime.lastError || !response || !response.success) return;
+        var contentDiv = slot.children[1];
+        if (contentDiv) {
+          contentDiv.style.alignItems = 'center';
+          contentDiv.style.justifyContent = 'center';
+          contentDiv.style.overflow = 'visible';
+          contentDiv.innerHTML = gridSlotEmptyPlaceholderHtmlV2(cfg);
+        }
+      });
+    } catch (e) {}
+  });
+
   // Listen for live output updates from the runtime pipeline
   if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage) {
     chrome.runtime.onMessage.addListener(function(message) {
       if (message.type === 'UPDATE_AGENT_BOX_OUTPUT' && message.data) {
         var boxId = message.data.agentBoxId;
+        var boxUuid = message.data.agentBoxUuid || boxId;
         var output = message.data.output;
-        console.log('[GridScriptV2] Received UPDATE_AGENT_BOX_OUTPUT for:', boxId);
+        console.log('[GridScriptV2] Received UPDATE_AGENT_BOX_OUTPUT for:', boxId, '(uuid:', boxUuid, ')');
 
         var slots = document.querySelectorAll('[data-slot-id]');
         slots.forEach(function(slot) {
@@ -923,14 +966,21 @@ if (window.gridScriptV2Loaded) {
           if (!configStr) return;
           try {
             var cfg = JSON.parse(configStr);
-            if (cfg.id === boxId || cfg.identifier === boxId) {
+            if (cfg.id === boxId || cfg.identifier === boxId || cfg.id === boxUuid || cfg.identifier === boxUuid) {
               var contentDiv = slot.children[1];
               if (contentDiv) {
-                contentDiv.style.alignItems = 'flex-start';
-                contentDiv.style.justifyContent = 'flex-start';
-                contentDiv.style.overflow = 'auto';
-                contentDiv.innerHTML = '<div style="word-break: break-word; width: 100%; font-size: 13px; line-height: 1.5;">' +
-                  renderMarkdown(output) + '</div>';
+                if (output === undefined || output === null || output === '') {
+                  contentDiv.style.alignItems = 'center';
+                  contentDiv.style.justifyContent = 'center';
+                  contentDiv.style.overflow = 'visible';
+                  contentDiv.innerHTML = gridSlotEmptyPlaceholderHtmlV2(cfg);
+                } else {
+                  contentDiv.style.alignItems = 'flex-start';
+                  contentDiv.style.justifyContent = 'flex-start';
+                  contentDiv.style.overflow = 'auto';
+                  contentDiv.innerHTML = '<div style="word-break: break-word; width: 100%; font-size: 13px; line-height: 1.5;">' +
+                    renderMarkdown(output) + '</div>';
+                }
                 console.log('[GridScriptV2] Updated output in slot', slot.getAttribute('data-slot-id'));
               }
             }

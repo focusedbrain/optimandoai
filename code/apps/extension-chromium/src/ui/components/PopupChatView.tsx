@@ -117,11 +117,15 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
   const [pendingDoc, setPendingDoc] = useState<{ name: string; text: string } | null>(null)
   const [showModelDropdown, setShowModelDropdown] = useState(false)
   const [isConnected, setIsConnected] = useState(false)
+  /** Saved area triggers — same storage key as docked WR Chat */
+  const [triggers, setTriggers] = useState<any[]>([])
+  const [showTagsMenu, setShowTagsMenu] = useState(false)
 
   const secretRef = useRef<string | null>(null)
   const chatRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const modelDropdownRef = useRef<HTMLDivElement>(null)
+  const tagsMenuRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   // Fetch launch secret once on mount
@@ -160,6 +164,46 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
     const t = setTimeout(() => document.addEventListener('click', handler), 0)
     return () => { clearTimeout(t); document.removeEventListener('click', handler) }
   }, [showModelDropdown])
+
+  // Tags list — parity with docked WR Chat (sidepanel)
+  useEffect(() => {
+    const load = () => {
+      try {
+        chrome.storage?.local?.get(['optimando-tagged-triggers'], (data: Record<string, unknown>) => {
+          const list = Array.isArray(data?.['optimando-tagged-triggers'])
+            ? (data['optimando-tagged-triggers'] as any[])
+            : []
+          setTriggers(list)
+        })
+      } catch {
+        setTriggers([])
+      }
+    }
+    load()
+    const onUpd = () => load()
+    window.addEventListener('optimando-triggers-updated', onUpd)
+    return () => window.removeEventListener('optimando-triggers-updated', onUpd)
+  }, [])
+
+  useEffect(() => {
+    if (!showTagsMenu) return
+    const handler = (e: MouseEvent) => {
+      if (tagsMenuRef.current && !tagsMenuRef.current.contains(e.target as Node)) {
+        setShowTagsMenu(false)
+      }
+    }
+    const t = setTimeout(() => document.addEventListener('click', handler), 0)
+    return () => { clearTimeout(t); document.removeEventListener('click', handler) }
+  }, [showTagsMenu])
+
+  const handlePopupTriggerClick = (trigger: any) => {
+    setShowTagsMenu(false)
+    try {
+      chrome.runtime?.sendMessage({ type: 'ELECTRON_EXECUTE_TRIGGER', trigger })
+    } catch {
+      /* noop */
+    }
+  }
 
   const scrollToBottom = () => {
     setTimeout(() => { if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight }, 0)
@@ -545,16 +589,162 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
         </div>
       )}
 
-      {/* Header */}
+      {/* Header — docked WR Chat parity: minimal Clear control */}
       <div style={{
         padding: '8px 12px', fontSize: '11px', fontWeight: 600,
-        display: 'flex', alignItems: 'center', gap: '8px',
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px',
         background: colors.header, borderBottom: `1px solid ${colors.headerBorder}`, color: colors.headerText
       }}>
         <span style={{
           padding: '3px 8px', borderRadius: '4px', fontSize: '10px',
           background: colors.badgeBg, color: colors.badgeText
         }}>⚡ Command Session</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <button
+            type="button"
+            onClick={() => {
+              setMessages([])
+              setInput('')
+              setPendingDoc(null)
+              setIsLoading(false)
+              setShowTagsMenu(false)
+            }}
+            title="Clear chat"
+            style={{
+              padding: '0 8px',
+              height: '22px',
+              fontSize: '10px',
+              fontWeight: 500,
+              opacity: 0.55,
+              borderRadius: '6px',
+              cursor: 'pointer',
+              border: isLight ? '1px solid #e1e8ed' : `1px solid ${colors.btnBorder}`,
+              background: isLight ? '#ffffff' : colors.btnBg,
+              color: isLight ? '#0f172a' : colors.headerText,
+              transition: 'background 0.2s ease',
+            }}
+            onMouseEnter={(e) => {
+              if (isLight) {
+                e.currentTarget.style.background = '#eef3f6'
+                e.currentTarget.style.color = '#0f172a'
+              } else {
+                e.currentTarget.style.background = isPro ? 'rgba(0,0,0,0.2)' : 'rgba(255,255,255,0.15)'
+              }
+            }}
+            onMouseLeave={(e) => {
+              if (isLight) {
+                e.currentTarget.style.background = '#ffffff'
+                e.currentTarget.style.color = '#0f172a'
+              } else {
+                e.currentTarget.style.background = colors.btnBg
+                e.currentTarget.style.color = colors.headerText
+              }
+            }}
+          >
+            Clear
+          </button>
+          <div ref={tagsMenuRef} style={{ position: 'relative' }}>
+            <button
+              type="button"
+              onClick={() => setShowTagsMenu(!showTagsMenu)}
+              title="Tags - Quick access to saved triggers"
+              style={{
+                padding: '0 10px',
+                height: '22px',
+                fontSize: '10px',
+                fontWeight: 500,
+                borderRadius: '6px',
+                cursor: 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 4,
+                border: isLight
+                  ? '1px solid #e1e8ed'
+                  : isDark
+                    ? '1px solid rgba(255,255,255,0.2)'
+                    : '1px solid rgba(255,255,255,0.45)',
+                background: isLight ? '#ffffff' : isDark ? 'rgba(255,255,255,0.1)' : 'rgba(118,75,162,0.35)',
+                color: isLight ? '#0f172a' : isDark ? '#f1f5f9' : '#ffffff',
+                transition: 'background 0.2s ease',
+              }}
+              onMouseEnter={(e) => {
+                if (isLight) {
+                  e.currentTarget.style.background = '#eef3f6'
+                  e.currentTarget.style.color = '#0f172a'
+                } else if (isDark) {
+                  e.currentTarget.style.background = 'rgba(255,255,255,0.2)'
+                } else {
+                  e.currentTarget.style.background = 'rgba(118,75,162,0.6)'
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (isLight) {
+                  e.currentTarget.style.background = '#ffffff'
+                  e.currentTarget.style.color = '#0f172a'
+                } else if (isDark) {
+                  e.currentTarget.style.background = 'rgba(255,255,255,0.1)'
+                } else {
+                  e.currentTarget.style.background = 'rgba(118,75,162,0.35)'
+                }
+              }}
+            >
+              Tags{' '}
+              <span style={{ fontSize: 11, opacity: 0.9, color: isLight ? '#0f172a' : undefined }}>▾</span>
+            </button>
+            {showTagsMenu && (
+              <div
+                style={{
+                  position: 'absolute',
+                  top: '100%',
+                  right: 0,
+                  marginTop: 4,
+                  minWidth: 180,
+                  width: 240,
+                  maxHeight: 300,
+                  overflowY: 'auto',
+                  zIndex: 2147483647,
+                  background: '#111827',
+                  color: 'white',
+                  border: '1px solid rgba(255,255,255,0.2)',
+                  borderRadius: 8,
+                  boxShadow: '0 10px 22px rgba(0,0,0,0.35)',
+                }}
+              >
+                {triggers.length === 0 ? (
+                  <div style={{ padding: '8px 10px', fontSize: 12, opacity: 0.8 }}>No tags yet</div>
+                ) : (
+                  triggers.map((trigger, i) => (
+                    <button
+                      key={i}
+                      type="button"
+                      onClick={() => handlePopupTriggerClick(trigger)}
+                      style={{
+                        display: 'block',
+                        width: '100%',
+                        textAlign: 'left',
+                        padding: '8px 10px',
+                        fontSize: 12,
+                        cursor: 'pointer',
+                        background: 'transparent',
+                        border: 'none',
+                        borderBottom: i < triggers.length - 1 ? '1px solid rgba(255,255,255,0.2)' : 'none',
+                        color: 'inherit',
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.background = 'rgba(255,255,255,0.06)'
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.background = 'transparent'
+                      }}
+                    >
+                      {trigger.name || trigger.command || `Trigger ${i + 1}`}
+                    </button>
+                  ))
+                )}
+              </div>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* Messages */}
