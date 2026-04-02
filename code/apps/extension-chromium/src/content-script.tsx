@@ -16259,8 +16259,8 @@ function initializeExtension() {
               <div style="display:flex;align-items:center;gap:10px">
                 <span style="font-weight:600;font-size:13px;white-space:nowrap;color:${afUi.heading}">Execution Mode:</span>
                 <select id="E-execution-mode-main" style="flex:1;max-width:280px;background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:6px 10px;border-radius:6px;font-size:12px">
-                  <option value="agent_only">Agent response only</option>
-                  <option value="agent_workflow" selected>Agent response + workflows</option>
+                  <option value="agent_only" selected>Agent response only</option>
+                  <option value="agent_workflow">Agent response + workflows</option>
                   <option value="workflow_only">Workflows only (no agent response)</option>
                 </select>
                 <span title="Agent response only: returns output from Agent Box only (text, image, etc.). Agent response + workflows: calls both Agent Box and external workflows. Workflows only: calls external workflows without Agent Box response." style="${afUi.helpLg}">?</span>
@@ -22845,7 +22845,7 @@ function initializeExtension() {
           const executionSectionKey = (sec: any): string => {
             return JSON.stringify({
               applyForList: (sec.applyForList || []).slice().sort(),
-              executionMode: sec.executionMode || 'agent_workflow',
+              executionMode: sec.executionMode || 'agent_only',
               destinations: sec.destinations || [],
               executionWorkflows: sec.executionWorkflows || []
             })
@@ -23459,7 +23459,7 @@ function initializeExtension() {
           const toUIExecutionSection = (sec: any) => ({
             applyFor: sec.applyForList?.[0] || '__any__',
             applyForList: sec.applyForList || ['__any__'],
-            executionMode: sec.executionMode || 'agent_workflow',
+            executionMode: sec.executionMode || 'agent_only',
             specialDestinations: sec.destinations || [],
             executionWorkflows: sec.executionWorkflows || [],
           })
