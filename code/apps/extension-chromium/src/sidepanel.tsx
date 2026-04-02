@@ -264,6 +264,10 @@ function SidepanelOrchestrator() {
   const [showEmbedDialog, setShowEmbedDialog] = useState(false)
   const [pendingItems, setPendingItems] = useState<any[]>([])
   const [embedTarget, setEmbedTarget] = useState<'session' | 'account'>('session')
+  const [isDraggingOverChat, setIsDraggingOverChat] = useState(false)
+  // Tracks document text extracted from dropped/uploaded files so it can be
+  // automatically prepended to the next user message sent to the LLM.
+  const [pendingDocContent, setPendingDocContent] = useState<{ name: string; text: string } | null>(null)
   const [notification, setNotification] = useState<{
     message: string
     type: 'success' | 'error' | 'info'
@@ -2293,42 +2297,84 @@ function SidepanelOrchestrator() {
 
   const handleChatDrop = async (e: React.DragEvent) => {
     e.preventDefault()
+    setIsDraggingOverChat(false)
     const items = await parseDataTransfer(e.dataTransfer)
     if (!items.length) return
-    
-    // Check if any item is an image - add directly to chat for LLM vision
+
+    // --- Images: add directly to chat for LLM vision ---
     const imageItems = items.filter(it => it.kind === 'image')
-    if (imageItems.length > 0) {
-      // Convert images to data URLs and add to chat
-      for (const img of imageItems) {
-        if (img.payload instanceof File) {
+    for (const img of imageItems) {
+      if (img.payload instanceof File) {
+        const reader = new FileReader()
+        reader.onload = () => {
+          const dataUrl = reader.result as string
+          setChatMessages(prev => [...prev, {
+            role: 'user' as const,
+            text: `📎 ${img.name || 'image'}`,
+            imageUrl: dataUrl
+          }])
+          setTimeout(() => {
+            if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight
+          }, 0)
+        }
+        reader.readAsDataURL(img.payload)
+      }
+    }
+
+    // --- Documents / text files: extract text and queue for next LLM send ---
+    const docItems = items.filter(it => it.kind !== 'image')
+    for (const doc of docItems) {
+      if (doc.kind === 'text') {
+        // Plain text dragged from browser/editor
+        const snippet = (doc.payload as string).slice(0, 6000)
+        setPendingDocContent({ name: 'Dropped text', text: snippet })
+        setChatMessages(prev => [...prev, {
+          role: 'user' as const,
+          text: `📄 **Dropped text** attached — send your question below.`
+        }])
+        runEmbed([doc], 'session')
+      } else if (doc.kind === 'url') {
+        setChatMessages(prev => [...prev, {
+          role: 'user' as const,
+          text: `🔗 ${doc.payload}`
+        }])
+      } else if (doc.payload instanceof File) {
+        const file = doc.payload as File
+        const ext = file.name.split('.').pop()?.toLowerCase() || ''
+        const textExtractable = ['txt', 'md', 'csv', 'json', 'js', 'ts', 'py', 'html', 'css', 'xml', 'log', 'yaml', 'yml'].includes(ext)
+        if (textExtractable) {
           const reader = new FileReader()
           reader.onload = () => {
-            const dataUrl = reader.result as string
-            const imageMessage = {
+            const text = (reader.result as string).slice(0, 6000)
+            setPendingDocContent({ name: file.name, text })
+            setChatMessages(prev => [...prev, {
               role: 'user' as const,
-              text: `![Image](${img.name || 'dropped-image'})`,
-              imageUrl: dataUrl
-            }
-            setChatMessages(prev => [...prev, imageMessage])
-            // Scroll to bottom
+              text: `📄 **${file.name}** attached (${Math.round(file.size / 1024)} KB) — send your question below.`
+            }])
+            runEmbed([doc], 'session')
             setTimeout(() => {
               if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight
             }, 0)
           }
-          reader.readAsDataURL(img.payload)
+          reader.readAsText(file)
+        } else {
+          // PDF / binary / unknown — show notice, embed in session silently
+          setChatMessages(prev => [...prev, {
+            role: 'user' as const,
+            text: `📄 **${file.name}** attached (${Math.round(file.size / 1024)} KB) — note: text extraction for this file type is limited. Send your question below.`
+          }])
+          runEmbed([doc], 'session')
+          setTimeout(() => {
+            if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight
+          }, 0)
         }
       }
-      // If there are also non-image items, show embed dialog for those
-      const nonImageItems = items.filter(it => it.kind !== 'image')
-      if (nonImageItems.length > 0) {
-        setPendingItems(nonImageItems)
-        setShowEmbedDialog(true)
-      }
-    } else {
-      // No images - show embed dialog for other content types
-      setPendingItems(items)
-      setShowEmbedDialog(true)
+    }
+
+    if (items.length > 0) {
+      setTimeout(() => {
+        if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight
+      }, 0)
     }
   }
 
@@ -2357,8 +2403,45 @@ function SidepanelOrchestrator() {
     Array.from(e.target.files || []).forEach(f => dt.items.add(f))
     const items = await parseDataTransfer(dt)
     if (items.length) {
-      setPendingItems(items)
-      setShowEmbedDialog(true)
+      // Use the same drop handler logic — no embed dialog
+      const syntheticEvent = { preventDefault: () => {}, dataTransfer: dt } as unknown as React.DragEvent
+      // Process each item directly (mirrors handleChatDrop logic)
+      for (const item of items) {
+        if (item.kind === 'image' && item.payload instanceof File) {
+          const reader = new FileReader()
+          reader.onload = () => {
+            setChatMessages(prev => [...prev, {
+              role: 'user' as const,
+              text: `📎 ${item.name || 'image'}`,
+              imageUrl: reader.result as string
+            }])
+          }
+          reader.readAsDataURL(item.payload)
+        } else if (item.payload instanceof File) {
+          const file = item.payload as File
+          const ext = file.name.split('.').pop()?.toLowerCase() || ''
+          const textExtractable = ['txt', 'md', 'csv', 'json', 'js', 'ts', 'py', 'html', 'css', 'xml', 'log', 'yaml', 'yml'].includes(ext)
+          if (textExtractable) {
+            const reader = new FileReader()
+            reader.onload = () => {
+              const text = (reader.result as string).slice(0, 6000)
+              setPendingDocContent({ name: file.name, text })
+              setChatMessages(prev => [...prev, {
+                role: 'user' as const,
+                text: `📄 **${file.name}** attached (${Math.round(file.size / 1024)} KB) — send your question below.`
+              }])
+              runEmbed([item], 'session')
+            }
+            reader.readAsText(file)
+          } else {
+            setChatMessages(prev => [...prev, {
+              role: 'user' as const,
+              text: `📄 **${file.name}** attached (${Math.round(file.size / 1024)} KB) — send your question below.`
+            }])
+            runEmbed([item], 'session')
+          }
+        }
+      }
     }
     if (fileInputRef.current) fileInputRef.current.value = ''
   }
@@ -2900,6 +2983,12 @@ function SidepanelOrchestrator() {
     const text = (pendingInboxAiRef.current?.query ?? chatInput).trim()
     const displayText = text
 
+    // If a document was attached (dropped or uploaded), consume its text and
+    // prepend it to what gets sent to the LLM — the user's typed message
+    // acts as the question/instruction about the document.
+    const docCtx = pendingDocContent
+    if (docCtx) setPendingDocContent(null)
+
     let beapAttachmentLlmPrefix: string | null = null
     if (
       dockedWorkspace === 'beap-messages' &&
@@ -2919,7 +3008,9 @@ function SidepanelOrchestrator() {
 
     const llmRouteText = beapAttachmentLlmPrefix
       ? `${beapAttachmentLlmPrefix}\n\n${displayText}`
-      : displayText
+      : docCtx
+        ? `[Attached document: ${docCtx.name}]\n\n${docCtx.text}\n\n---\n${displayText}`
+        : displayText
 
     // Current-turn image detection: only check the most recent user message, not history
     const lastUserMsg = [...chatMessages].reverse().find(m => m.role === 'user' && m.imageUrl)
@@ -2944,12 +3035,12 @@ function SidepanelOrchestrator() {
       }
     }
     
-    // If empty input, show helpful hint
-    if (!text && !hasImage) {
+    // If empty input, show helpful hint (unless a doc is attached — doc alone is valid)
+    if (!text && !hasImage && !docCtx) {
       if (isLlmLoading) return
       setChatMessages([...chatMessages, {
         role: 'assistant' as const,
-        text: `💡 **How to use WR Chat:**\n\n• Ask questions about the orchestrator or your workflow\n• Trigger automations using **#tagname** (e.g., "#summarize")\n• Use the 📸 button to capture screenshots for analysis\n• Use the upload button to attach files for context\n\nTry: "What can you help me with?" or "#help"`
+        text: `💡 **How to use WR Chat:**\n\n• Ask questions about the orchestrator or your workflow\n• Trigger automations using **#tagname** (e.g., "#summarize")\n• Use the 📸 button to capture screenshots for analysis\n• Drop or upload a file 📎 to attach it, then ask a question about it\n\nTry: "What can you help me with?" or "#help"`
       }])
       setTimeout(() => {
         if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight
@@ -4196,9 +4287,27 @@ function SidepanelOrchestrator() {
                 position: 'relative',
                 boxShadow: '0 4px 12px rgba(0,0,0,0.1)'
               }}
-              onDragOver={(e) => e.preventDefault()}
+              onDragOver={(e) => { e.preventDefault(); setIsDraggingOverChat(true) }}
+              onDragEnter={(e) => { e.preventDefault(); setIsDraggingOverChat(true) }}
+              onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setIsDraggingOverChat(false) }}
               onDrop={handleChatDrop}
             >
+              {/* Drag-and-drop overlay */}
+              {isDraggingOverChat && (
+                <div style={{
+                  position: 'absolute', inset: 0, zIndex: 50,
+                  background: 'rgba(168,85,247,0.18)',
+                  border: '2px dashed #a855f7',
+                  borderRadius: '8px',
+                  display: 'flex', flexDirection: 'column',
+                  alignItems: 'center', justifyContent: 'center',
+                  pointerEvents: 'none'
+                }}>
+                  <div style={{ fontSize: '28px', marginBottom: '6px' }}>📎</div>
+                  <div style={{ color: '#a855f7', fontWeight: 700, fontSize: '13px' }}>Drop file or image here</div>
+                  <div style={{ color: '#c084fc', fontSize: '11px', marginTop: '4px', opacity: 0.8 }}>Images, text files, documents</div>
+                </div>
+              )}
               {/* Header - Enterprise Design */}
               <div style={{
                 display: 'flex',
@@ -4704,6 +4813,27 @@ function SidepanelOrchestrator() {
                   borderBottom: theme === 'standard' ? '1px solid #d1d9e0' : '1px solid rgba(255,255,255,0.10)'
                 }}
               />
+
+              {/* Pending document indicator */}
+              {pendingDocContent && (
+                <div style={{
+                  display: 'flex', alignItems: 'center', gap: '8px',
+                  padding: '6px 14px',
+                  background: 'rgba(168,85,247,0.1)',
+                  borderTop: '1px solid rgba(168,85,247,0.2)',
+                  fontSize: '11px', color: '#a855f7'
+                }}>
+                  <span>📄</span>
+                  <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    <strong>{pendingDocContent.name}</strong> attached — type your question and Send
+                  </span>
+                  <button
+                    onClick={() => setPendingDocContent(null)}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#a855f7', fontSize: '14px', padding: 0, lineHeight: 1 }}
+                    title="Remove attachment"
+                  >✕</button>
+                </div>
+              )}
 
               {/* Compose Area */}
               <div 
@@ -6072,9 +6202,27 @@ function SidepanelOrchestrator() {
               position: 'relative',
               boxShadow: '0 4px 12px rgba(0,0,0,0.1)'
             }}
-            onDragOver={(e) => e.preventDefault()}
+            onDragOver={(e) => { e.preventDefault(); setIsDraggingOverChat(true) }}
+            onDragEnter={(e) => { e.preventDefault(); setIsDraggingOverChat(true) }}
+            onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setIsDraggingOverChat(false) }}
             onDrop={handleChatDrop}
           >
+            {/* Drag-and-drop overlay */}
+            {isDraggingOverChat && (
+              <div style={{
+                position: 'absolute', inset: 0, zIndex: 50,
+                background: 'rgba(168,85,247,0.18)',
+                border: '2px dashed #a855f7',
+                borderRadius: '8px',
+                display: 'flex', flexDirection: 'column',
+                alignItems: 'center', justifyContent: 'center',
+                pointerEvents: 'none'
+              }}>
+                <div style={{ fontSize: '28px', marginBottom: '6px' }}>📎</div>
+                <div style={{ color: '#a855f7', fontWeight: 700, fontSize: '13px' }}>Drop file or image here</div>
+                <div style={{ color: '#c084fc', fontSize: '11px', marginTop: '4px', opacity: 0.8 }}>Images, text files, documents</div>
+              </div>
+            )}
             {/* Header - App View - Enterprise Design */}
             <div style={{
               display: 'flex',
@@ -6580,6 +6728,27 @@ height: '28px',
                     borderBottom: '1px solid rgba(255,255,255,0.10)'
                   }}
                 />
+
+                {/* Pending document indicator */}
+                {pendingDocContent && (
+                  <div style={{
+                    display: 'flex', alignItems: 'center', gap: '8px',
+                    padding: '6px 14px',
+                    background: 'rgba(168,85,247,0.1)',
+                    borderTop: '1px solid rgba(168,85,247,0.2)',
+                    fontSize: '11px', color: '#a855f7'
+                  }}>
+                    <span>📄</span>
+                    <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      <strong>{pendingDocContent.name}</strong> attached — type your question and Send
+                    </span>
+                    <button
+                      onClick={() => setPendingDocContent(null)}
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#a855f7', fontSize: '14px', padding: 0, lineHeight: 1 }}
+                      title="Remove attachment"
+                    >✕</button>
+                  </div>
+                )}
 
                 {/* Compose Area */}
                 <div 
@@ -7366,9 +7535,27 @@ height: '28px',
               position: 'relative',
               boxShadow: '0 4px 12px rgba(0,0,0,0.1)'
             }}
-            onDragOver={(e) => e.preventDefault()}
+            onDragOver={(e) => { e.preventDefault(); setIsDraggingOverChat(true) }}
+            onDragEnter={(e) => { e.preventDefault(); setIsDraggingOverChat(true) }}
+            onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setIsDraggingOverChat(false) }}
             onDrop={handleChatDrop}
           >
+            {/* Drag-and-drop overlay */}
+            {isDraggingOverChat && (
+              <div style={{
+                position: 'absolute', inset: 0, zIndex: 50,
+                background: 'rgba(168,85,247,0.18)',
+                border: '2px dashed #a855f7',
+                borderRadius: '8px',
+                display: 'flex', flexDirection: 'column',
+                alignItems: 'center', justifyContent: 'center',
+                pointerEvents: 'none'
+              }}>
+                <div style={{ fontSize: '28px', marginBottom: '6px' }}>📎</div>
+                <div style={{ color: '#a855f7', fontWeight: 700, fontSize: '13px' }}>Drop file or image here</div>
+                <div style={{ color: '#c084fc', fontSize: '11px', marginTop: '4px', opacity: 0.8 }}>Images, text files, documents</div>
+              </div>
+            )}
             {/* Header - Admin View - Enterprise Design */}
             <div style={{
               display: 'flex',
@@ -7873,6 +8060,27 @@ height: '28px',
                     borderBottom: '1px solid rgba(255,255,255,0.10)'
                   }}
                 />
+
+                {/* Pending document indicator */}
+                {pendingDocContent && (
+                  <div style={{
+                    display: 'flex', alignItems: 'center', gap: '8px',
+                    padding: '6px 14px',
+                    background: 'rgba(168,85,247,0.1)',
+                    borderTop: '1px solid rgba(168,85,247,0.2)',
+                    fontSize: '11px', color: '#a855f7'
+                  }}>
+                    <span>📄</span>
+                    <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      <strong>{pendingDocContent.name}</strong> attached — type your question and Send
+                    </span>
+                    <button
+                      onClick={() => setPendingDocContent(null)}
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#a855f7', fontSize: '14px', padding: 0, lineHeight: 1 }}
+                      title="Remove attachment"
+                    >✕</button>
+                  </div>
+                )}
 
                 {/* Compose Area */}
                 <div 
