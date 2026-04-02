@@ -589,9 +589,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       currentTabData.agentBoxes.push(agentBox)
       saveTabDataToStorage()
       
-      // Also save to session storage
-      storageGet([currentSessionKey], (result) => {
-        const session = result[currentSessionKey] || {}
+      // Also save to session storage - read from SQLite authoritatively first
+      const doSaveBox = (existingSession: any) => {
+        const session = existingSession || {}
         
         if (!session.agentBoxes) {
           session.agentBoxes = []
@@ -612,7 +612,22 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           
           sendResponse({ success: true, identifier: agentBox.identifier })
         })
-      })
+      }
+
+      if (chrome?.runtime) {
+        chrome.runtime.sendMessage({ type: 'GET_SESSION_FROM_SQLITE', sessionKey: currentSessionKey }, (response) => {
+          if (chrome.runtime.lastError || !response?.success || !response?.session) {
+            console.warn('⚠️ CREATE_AGENT_BOX_FROM_SIDEPANEL: SQLite read failed, trying Chrome Storage fallback')
+            chrome.storage.local.get([currentSessionKey], (r: any) => {
+              doSaveBox(r?.[currentSessionKey])
+            })
+          } else {
+            doSaveBox(response.session)
+          }
+        })
+      } else {
+        storageGet([currentSessionKey], (result: any) => doSaveBox(result?.[currentSessionKey]))
+      }
       
     } catch (e) {
       console.error('❌ Error creating agent box from sidepanel:', e)
