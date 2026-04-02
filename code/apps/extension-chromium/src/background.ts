@@ -3910,12 +3910,40 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         return true
       }
       
-      // Save to SQLite via HTTP API
-      fetch('http://127.0.0.1:51248/api/orchestrator/set', {
-        method: 'POST',
-        headers: _electronHeaders(),
-        body: JSON.stringify({ key: sessionKey, value: session })
-      })
+      // GET existing session first so we can preserve agent-box-level displayGrids edits.
+      // SAVE_AGENT_BOX_TO_SQLITE writes the most authoritative displayGrids (with correct
+      // agentNumber). SAVE_SESSION_TO_SQLITE is called later with in-memory data that may
+      // still have the old displayGrids — we must not let it silently overwrite them.
+      fetch(`http://127.0.0.1:51248/api/orchestrator/get?key=${encodeURIComponent(sessionKey)}`, { headers: _electronHeaders() })
+        .then(r => r.ok ? r.json() : Promise.resolve({ data: {} }))
+        .then((existingResult: any) => {
+          const existingGrids: any[] = (existingResult.data || {}).displayGrids || []
+          const incomingGrids: any[] = session.displayGrids || []
+
+          // Merge: for each layout, keep whichever entry has the newer timestamp
+          const merged = [...existingGrids]
+          incomingGrids.forEach((inGrid: any) => {
+            const idx = merged.findIndex(
+              (g: any) => g.layout === inGrid.layout || g.sessionId === inGrid.sessionId
+            )
+            if (idx === -1) {
+              merged.push(inGrid)
+            } else {
+              const existTs = new Date((merged[idx] as any).timestamp || 0).getTime()
+              const inTs   = new Date((inGrid as any).timestamp || 0).getTime()
+              if (inTs > existTs) merged[idx] = inGrid
+              // else keep existing (written by SAVE_AGENT_BOX_TO_SQLITE — more recent)
+            }
+          })
+          session.displayGrids = merged
+
+          // Save to SQLite via HTTP API
+          return fetch('http://127.0.0.1:51248/api/orchestrator/set', {
+            method: 'POST',
+            headers: _electronHeaders(),
+            body: JSON.stringify({ key: sessionKey, value: session })
+          })
+        })
         .then(response => {
           if (!response.ok) {
             throw new Error(`HTTP ${response.status}`)

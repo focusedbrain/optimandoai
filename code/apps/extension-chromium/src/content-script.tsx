@@ -2893,8 +2893,7 @@ function initializeExtension() {
             if (callback) callback()
           })
         } else if (response?.success) {
-          // Also mirror to Chrome Storage so the fallback read path always has data
-          try { chrome.storage.local.set({ [sessionKey]: completeSessionData }) } catch {}
+          // background.ts already mirrors the merged session to chrome.storage.local
           if (callback) callback()
         } else {
           console.warn('⚠️ ensureSessionInHistory: SQLite save returned failure, writing to Chrome Storage as fallback')
@@ -37700,9 +37699,8 @@ ${pageText}
               chrome.runtime.sendMessage({ type: 'SAVE_SESSION_TO_SQLITE', sessionKey: sessionId, session: updatedSession }, (response) => {
                 if (chrome.runtime.lastError || !response?.success) {
                   storageSet({ [sessionId as string]: updatedSession })
-                } else {
-                  try { chrome.storage.local.set({ [sessionId as string]: updatedSession }) } catch {}
                 }
+                // background.ts mirrors the merged session to chrome.storage.local on success
               })
             } else {
               storageSet({ [sessionId as string]: updatedSession })
@@ -40235,7 +40233,7 @@ ${pageText}
             console.warn('⚠️ saveCurrentSession: SQLite save failed, using storageSet fallback')
             storageSet({ [sessionKey]: sessionData }, () => showSavedToast())
           } else {
-            try { chrome.storage.local.set({ [sessionKey]: sessionData }) } catch {}
+            // background.ts mirrors the merged session to chrome.storage.local on success
             showSavedToast()
           }
         })
