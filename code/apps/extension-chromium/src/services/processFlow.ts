@@ -291,11 +291,9 @@ async function getCurrentSessionKeyAsync(): Promise<string | null> {
  */
 function getCurrentSessionKey(): string | null {
   try {
-    // First try localStorage (used by some parts of the extension)
-    let sessionKey = localStorage.getItem('optimando-active-session-key')
-    if (!sessionKey) {
-      sessionKey = localStorage.getItem('optimando-global-active-session')
-    }
+    // Try the keys that content-script.tsx actually writes via setCurrentSessionKey()
+    // Note: 'optimando-active-session-key' is only in chrome.storage.local (not localStorage)
+    let sessionKey = localStorage.getItem('optimando-global-active-session')
     if (!sessionKey) {
       sessionKey = sessionStorage.getItem('optimando-current-session-key')
     }

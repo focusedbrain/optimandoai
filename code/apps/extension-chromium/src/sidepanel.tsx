@@ -1825,7 +1825,7 @@ function SidepanelOrchestrator() {
           return
         }
         
-        if (!response || !response.success || !response.sessions || response.sessions.length === 0) {
+        if (!response || !response.success || !response.sessions || Object.keys(response.sessions).length === 0) {
           console.log('⚠️ No sessions found in SQLite')
           setSessionName('No Session')
           setSessionKey('')

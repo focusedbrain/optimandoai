@@ -4148,6 +4148,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         })
         .then(() => {
           console.log('✅ BG: Session saved to SQLite:', sessionKey)
+          // Mirror to Chrome Storage so fallback reads stay fresh
+          chrome.storage.local.set({ [sessionKey]: session }, () => {
+            if (chrome.runtime.lastError) {
+              console.warn('⚠️ BG: Chrome mirror write failed (non-fatal):', chrome.runtime.lastError.message)
+            }
+          })
           try { sendResponse({ success: true }) } catch {}
         })
         .catch((error: any) => {
@@ -4161,77 +4167,45 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     case 'GET_ALL_SESSIONS_FROM_SQLITE': {
       console.log('📥 BG: GET_ALL_SESSIONS_FROM_SQLITE')
       
-      // Get all session keys from SQLite
-      fetch('http://127.0.0.1:51248/api/orchestrator/keys', { headers: _electronHeaders() })
+      const chromeStorageFallback = () => {
+        chrome.storage.local.get(null, (allData: any) => {
+          const chromeSessions: Record<string, any> = {}
+          Object.entries(allData || {}).forEach(([k, v]) => {
+            if (k.startsWith('session_')) chromeSessions[k] = v
+          })
+          console.log('⚠️ BG: Chrome Storage fallback found sessions:', Object.keys(chromeSessions).length)
+          try { sendResponse({ success: true, sessions: chromeSessions }) } catch (e) {}
+        })
+      }
+
+      // Use /api/orchestrator/get-all which returns ALL key-value pairs at once
+      // Then filter for session_ keys — no /keys endpoint exists on the server
+      fetch('http://127.0.0.1:51248/api/orchestrator/get-all', { headers: _electronHeaders() })
         .then(response => {
-          if (!response.ok) {
-            throw new Error(`HTTP ${response.status}`)
-          }
+          if (!response.ok) throw new Error(`HTTP ${response.status}`)
           return response.json()
         })
         .then((result: any) => {
-          const sessionKeys = (result.data || []).filter((key: string) => key.startsWith('session_'))
-          console.log('✅ BG: Found session keys:', sessionKeys.length)
-          
-          if (sessionKeys.length === 0) {
-            try {
-              sendResponse({ success: true, sessions: {} })
-            } catch (e) {
-              console.error('❌ BG: Failed to send response:', e)
-            }
-            return
-          }
-          
-          // Fetch all sessions
-          const fetchPromises = sessionKeys.map((key: string) => 
-            fetch(`http://127.0.0.1:51248/api/orchestrator/get?key=${encodeURIComponent(key)}`, { headers: _electronHeaders() })
-              .then(r => r.json())
-              .then(result => ({ key, data: result.data }))
-          )
-          
-          return Promise.all(fetchPromises)
-        })
-        .then((sessions) => {
-          if (!sessions) return
+          const allData: Record<string, any> = result.data || {}
           const sessionsMap: Record<string, any> = {}
-          sessions.forEach(({ key, data }) => {
-            if (data) {
-              sessionsMap[key] = data
-            }
+          Object.entries(allData).forEach(([k, v]) => {
+            if (k.startsWith('session_') && v) sessionsMap[k] = v
           })
           
-          console.log('✅ BG: Loaded all sessions from SQLite:', Object.keys(sessionsMap).length)
+          console.log('✅ BG: Loaded all sessions from SQLite via get-all:', Object.keys(sessionsMap).length)
 
           if (Object.keys(sessionsMap).length > 0) {
-            try {
-              sendResponse({ success: true, sessions: sessionsMap })
-            } catch (e) {
-              console.error('❌ BG: Failed to send response:', e)
-            }
+            try { sendResponse({ success: true, sessions: sessionsMap }) } catch (e) {}
           } else {
             // SQLite returned zero sessions — fall back to Chrome Storage mirror
             console.warn('⚠️ BG: SQLite returned 0 sessions, falling back to Chrome Storage')
-            chrome.storage.local.get(null, (allData: any) => {
-              const chromeSessions: Record<string, any> = {}
-              Object.entries(allData || {}).forEach(([k, v]) => {
-                if (k.startsWith('session_')) chromeSessions[k] = v
-              })
-              console.log('⚠️ BG: Chrome Storage fallback found sessions:', Object.keys(chromeSessions).length)
-              try {
-                sendResponse({ success: true, sessions: chromeSessions })
-              } catch (e) {
-                console.error('❌ BG: Failed to send Chrome fallback response:', e)
-              }
-            })
+            chromeStorageFallback()
           }
         })
         .catch((error: any) => {
           console.error('❌ BG: Error loading all sessions from SQLite:', error)
-          try {
-            sendResponse({ success: false, error: String(error) })
-          } catch (e) {
-            console.error('❌ BG: Failed to send error response:', e)
-          }
+          // On any error (including 404), fall back to Chrome Storage
+          chromeStorageFallback()
         })
       
       return true  // Keep message channel open for async response
