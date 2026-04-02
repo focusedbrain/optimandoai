@@ -13104,6 +13104,8 @@ function initializeExtension() {
 
                 role: (document.getElementById('R-role') as HTMLInputElement)?.value || '',
 
+                outputFormattingInstructions: (document.getElementById('R-output-formatting') as HTMLTextAreaElement)?.value?.trim() || '',
+
                 custom: [],
 
                 acceptFrom: accepts,
@@ -14129,6 +14131,8 @@ function initializeExtension() {
 
       let persistedRole = ''
 
+      let persistedOutputFormatting = ''
+
       let persistedPassiveToggle = false
 
       let persistedActiveToggle = false
@@ -14553,6 +14557,8 @@ function initializeExtension() {
               goals: (document.getElementById('R-goals') as HTMLTextAreaElement)?.value || '',
 
               role: (document.getElementById('R-role') as HTMLInputElement)?.value || '',
+
+              outputFormattingInstructions: (document.getElementById('R-output-formatting') as HTMLTextAreaElement)?.value?.trim() || '',
 
               custom: [],
 
@@ -14992,6 +14998,10 @@ function initializeExtension() {
           if (g) persistedGoals = g.value
 
           if (r) persistedRole = r.value
+
+          const of_ = configOverlay.querySelector('#R-output-formatting') as HTMLTextAreaElement | null
+
+          if (of_) persistedOutputFormatting = of_.value
 
           const p = configOverlay.querySelector('#L-toggle-passive') as HTMLInputElement | null
 
@@ -16168,6 +16178,12 @@ function initializeExtension() {
 
             </label>
 
+            <label style="display:block;margin-top:12px;color:${afUi.heading};font-weight:500;font-size:13px">Output Formatting Instructions <span style="font-weight:400;opacity:0.65">(Optional)</span>
+
+              <textarea id="R-output-formatting" placeholder="Example: Use markdown headings, start with a short summary, then bullet points. Keep it concise. Show risks in a separate section." style="width:100%;min-height:70px;background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:8px;border-radius:6px;font-size:12px;margin-top:4px"></textarea>
+
+            </label>
+
             <div id="R-custom-list" style="display:flex;flex-direction:column;gap:8px;margin-top:8px"></div>
 
             <button id="R-add-custom" style="${afUi.btnGhost};padding:6px 10px;border-radius:6px;cursor:pointer">+ Custom field</button>
@@ -16235,9 +16251,15 @@ function initializeExtension() {
 
             if (r && persistedRole) r.value = persistedRole
 
+            const of_ = wrap.querySelector('#R-output-formatting') as HTMLTextAreaElement | null
+
+            if (of_ && persistedOutputFormatting) of_.value = persistedOutputFormatting
+
             g && g.addEventListener('input', () => { persistedGoals = g.value })
 
             r && r.addEventListener('input', () => { persistedRole = r.value })
+
+            of_ && of_.addEventListener('input', () => { persistedOutputFormatting = of_.value })
 
           } catch {}
 
@@ -20903,6 +20925,24 @@ function initializeExtension() {
 
             
 
+            // Restore Output Formatting Instructions
+
+            if (r.outputFormattingInstructions) {
+
+              const ofTextarea = configOverlay.querySelector('#R-output-formatting') as HTMLTextAreaElement
+
+              if (ofTextarea) {
+
+                ofTextarea.value = r.outputFormattingInstructions
+
+                persistedOutputFormatting = r.outputFormattingInstructions
+
+              }
+
+            }
+
+            
+
             // Restore Apply For selects - DELAYED to ensure trigger options are populated first
             // Calculate delay based on trigger count: each trigger takes ~150ms to restore
             const triggerCount = previouslySavedData.listening?.unifiedTriggers?.length || 0
@@ -24425,6 +24465,8 @@ function initializeExtension() {
             goals: (document.getElementById('R-goals') as HTMLTextAreaElement)?.value || '',
 
             role: (document.getElementById('R-role') as HTMLInputElement)?.value || '',
+
+            outputFormattingInstructions: (document.getElementById('R-output-formatting') as HTMLTextAreaElement)?.value?.trim() || '',
 
             custom: [],
 

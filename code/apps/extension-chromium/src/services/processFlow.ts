@@ -201,6 +201,7 @@ export interface AgentConfig {
     acceptFrom?: string[] // Sources to accept input from
     goals?: string
     role?: string
+    outputFormattingInstructions?: string
     custom?: Array<{ key: string; value: string }>
   }
   execution?: {
@@ -1223,6 +1224,11 @@ export function wrapInputForAgent(
     wrappedInput += `\n\n[Extracted Image Text]\n${imageText}`
   }
 
+  // Append output formatting directive if set (injected last, scoped to output only)
+  if (reasoning.outputFormattingInstructions?.trim()) {
+    wrappedInput += `\n\n[Output Formatting Instructions]\nFormat the final response according to these instructions: ${reasoning.outputFormattingInstructions.trim()}`
+  }
+
   return wrappedInput
 }
 
@@ -1245,10 +1251,8 @@ export async function updateAgentBoxOutput(
       return false
     }
 
-    let formattedOutput = output
-    if (reasoningContext) {
-      formattedOutput = `📋 **Reasoning Context:**\n${reasoningContext}\n\n---\n\n**Response:**\n${output}`
-    }
+    // Output to agent box: just the clean response, no reasoning context header
+    const formattedOutput = output
 
     return new Promise((resolve) => {
       try {

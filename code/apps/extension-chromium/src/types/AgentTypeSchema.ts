@@ -921,6 +921,19 @@ export const ReasoningElementsSchema: Record<string, SchemaNode> = {
     required: false,
     parentId: 'agent.reasoning',
   },
+
+  outputFormattingInstructions: {
+    id: 'agent.reasoning.outputFormattingInstructions',
+    humanLabel: 'Output Formatting Instructions',
+    machineKey: 'outputFormattingInstructions',
+    description: 'Optional instructions that control the formatting and structure of the final agent response. E.g. use markdown headings, bullet points, concise summaries.',
+    type: 'string',
+    required: false,
+    parentId: 'agent.reasoning',
+    display: {
+      placeholder: 'Example: Use markdown headings, start with a short summary, then bullet points. Keep it concise. Show risks in a separate section.',
+    },
+  },
   
   custom: {
     id: 'agent.reasoning.custom',

@@ -308,6 +308,8 @@ export interface CanonicalReasoning {
   role: string;
   /** @deprecated Rules removed — use WR Experts for reusable constraints. Preserved for migration only. */
   rules?: string;
+  /** Optional formatting directive injected at prompt assembly time for output structure/style */
+  outputFormattingInstructions?: string;
   custom: Array<{ key: string; value: string }>;
   acceptFrom: string[];
   memoryContext: {
@@ -538,6 +540,7 @@ function toCanonicalReasoningSection(sec: any): CanonicalReasoning {
     goals: sec.goals || '',
     role: sec.role || '',
     rules: sec.rules || undefined,
+    outputFormattingInstructions: sec.outputFormattingInstructions?.trim() || undefined,
     custom: sec.custom || [],
     acceptFrom: sec.acceptFrom || [],
     memoryContext: {

@@ -339,7 +339,8 @@ function createUnifiedTemplate(): any {
           {
             "applyForList": ["TRIGGER01"],
             "goals": "TEMPLATE: Reasoning instructions for this block",
-            "role": "TEMPLATE: Agent persona"
+            "role": "TEMPLATE: Agent persona",
+            "outputFormattingInstructions": ""
           }
         ],
         "executionSections": [

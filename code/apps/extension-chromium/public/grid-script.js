@@ -1290,6 +1290,66 @@ if (window.gridScriptLoaded) {
   
   window.attachToggleListeners = attachToggleListeners;
 
+  // Minimal markdown-to-HTML renderer for agent box output
+  function renderMarkdown(text) {
+    var escaped = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    var lines = escaped.split('\n');
+    var html = '';
+    var inCodeBlock = false;
+    var inList = false;
+    for (var i = 0; i < lines.length; i++) {
+      var line = lines[i];
+      if (line.startsWith('```')) {
+        if (!inCodeBlock) {
+          if (inList) { html += '</ul>'; inList = false; }
+          html += '<pre style="background:rgba(0,0,0,.12);padding:8px;border-radius:4px;overflow-x:auto;font-size:12px;margin:6px 0"><code>';
+          inCodeBlock = true;
+        } else {
+          html += '</code></pre>';
+          inCodeBlock = false;
+        }
+        continue;
+      }
+      if (inCodeBlock) { html += line + '\n'; continue; }
+      if (line.startsWith('### ')) {
+        if (inList) { html += '</ul>'; inList = false; }
+        html += '<h3 style="margin:10px 0 4px;font-size:14px;font-weight:700">' + line.slice(4) + '</h3>';
+      } else if (line.startsWith('## ')) {
+        if (inList) { html += '</ul>'; inList = false; }
+        html += '<h2 style="margin:12px 0 4px;font-size:15px;font-weight:700">' + line.slice(3) + '</h2>';
+      } else if (line.startsWith('# ')) {
+        if (inList) { html += '</ul>'; inList = false; }
+        html += '<h1 style="margin:12px 0 6px;font-size:16px;font-weight:700">' + line.slice(2) + '</h1>';
+      } else if (/^[-*] /.test(line)) {
+        if (!inList) { html += '<ul style="margin:4px 0;padding-left:18px">'; inList = true; }
+        html += '<li style="margin:2px 0">' + inlineMarkdown(line.slice(2)) + '</li>';
+      } else if (/^\d+\. /.test(line)) {
+        if (!inList) { html += '<ol style="margin:4px 0;padding-left:18px">'; inList = true; }
+        html += '<li style="margin:2px 0">' + inlineMarkdown(line.replace(/^\d+\. /, '')) + '</li>';
+      } else if (line.startsWith('---') || line.startsWith('***')) {
+        if (inList) { html += '</ul>'; inList = false; }
+        html += '<hr style="border:none;border-top:1px solid rgba(0,0,0,.15);margin:8px 0">';
+      } else if (line.trim() === '') {
+        if (inList) { html += '</ul>'; inList = false; }
+        html += '<br>';
+      } else {
+        if (inList) { html += '</ul>'; inList = false; }
+        html += '<p style="margin:3px 0;line-height:1.5">' + inlineMarkdown(line) + '</p>';
+      }
+    }
+    if (inList) html += '</ul>';
+    if (inCodeBlock) html += '</code></pre>';
+    return html;
+  }
+
+  function inlineMarkdown(text) {
+    return text
+      .replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>')
+      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+      .replace(/\*(.+?)\*/g, '<em>$1</em>')
+      .replace(/`(.+?)`/g, '<code style="background:rgba(0,0,0,.1);padding:1px 4px;border-radius:3px;font-size:12px">$1</code>');
+  }
+
   // Listen for live output updates from the runtime pipeline
   if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage) {
     chrome.runtime.onMessage.addListener(function(message) {
@@ -1312,8 +1372,8 @@ if (window.gridScriptLoaded) {
                 contentDiv.style.alignItems = 'flex-start';
                 contentDiv.style.justifyContent = 'flex-start';
                 contentDiv.style.overflow = 'auto';
-                contentDiv.innerHTML = '<div style="white-space: pre-wrap; word-break: break-word; width: 100%; font-size: 13px; line-height: 1.5;">' +
-                  output.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>';
+                contentDiv.innerHTML = '<div style="word-break: break-word; width: 100%; font-size: 13px; line-height: 1.5;">' +
+                  renderMarkdown(output) + '</div>';
                 console.log('[GridScript] Updated output in slot', slot.getAttribute('data-slot-id'));
               }
             }
