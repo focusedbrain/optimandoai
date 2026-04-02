@@ -19385,60 +19385,61 @@ function initializeExtension() {
 
           sec.className = 'R-section'
 
-          sec.style.cssText = 'border:1px dashed rgba(255,255,255,.35);padding:10px;border-radius:8px'
+          sec.style.cssText = `border:1px dashed ${csTheme().border};padding:10px;border-radius:8px`
 
           const wfId = `R-wf-sub-${Math.random().toString(36).slice(2,8)}`
+          const th = csTheme()
 
           sec.innerHTML = `
 
             <div style="display:flex;justify-content:space-between;align-items:flex-start;margin:6px 0">
               <div style="display:flex;flex-direction:column;gap:6px">
-                <span style="font-weight:600">Apply for:</span>
+                <span style="font-weight:600;color:${th.text}">Apply for:</span>
                 <div class="R-apply-list-sub" style="display:flex;flex-direction:column;gap:6px">
                   <div class="apply-for-row" style="display:flex;align-items:center;gap:8px">
-                    <select class="R-apply" style="background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:6px 10px;border-radius:6px;min-width:180px;max-width:280px">
+                    <select class="R-apply" style="background:${th.inputBg};color:${th.text};border:1px solid ${th.border};padding:6px 10px;border-radius:6px;min-width:180px;max-width:280px">
                       <option value="__any__">Any Trigger</option>
                     </select>
-                    <button type="button" class="R-apply-add-sub" style="background:rgba(96,165,250,.3);border:1px solid rgba(96,165,250,.5);color:#fff;padding:4px 10px;border-radius:6px;cursor:pointer;font-weight:bold;font-size:14px">+</button>
+                    <button type="button" class="R-apply-add-sub" style="background:${th.accentColor};border:none;color:#fff;padding:4px 10px;border-radius:6px;cursor:pointer;font-weight:bold;font-size:14px">+</button>
                   </div>
                 </div>
               </div>
-              <button class="R-del" title="Remove" style="background:rgba(220,38,38,0.10);color:#fff;border:1px solid rgba(255,255,255,.25);padding:2px 8px;border-radius:6px;cursor:pointer">&times;</button>
+              <button class="R-del" title="Remove" style="background:rgba(220,38,38,0.12);color:${th.isLight ? '#991b1b' : '#fca5a5'};border:1px solid ${th.isLight ? 'rgba(220,38,38,0.3)' : 'rgba(255,255,255,.25)'};padding:2px 8px;border-radius:6px;cursor:pointer">&times;</button>
             </div>
 
             <!-- Reasoning Workflows Section (optional) - placed before Goals to gather context first -->
-            <div style="border:1px solid rgba(255,255,255,.25);border-radius:8px;padding:12px;background:rgba(255,255,255,0.04);margin-top:8px">
-              <div style="font-weight:600;font-size:13px;margin-bottom:8px;color:#fff;display:flex;align-items:center;gap:8px">
+            <div style="border:1px solid ${th.border};border-radius:8px;padding:12px;background:${th.cardBg};margin-top:8px">
+              <div style="font-weight:600;font-size:13px;margin-bottom:8px;color:${th.text};display:flex;align-items:center;gap:8px">
                 Reasoning Workflows <span style="font-weight:400;opacity:0.65">(optional)</span>
-                <span title="Optional workflows to gather context before reasoning. Can route based on output conditions." style="font-size:12px;opacity:0.9;cursor:help;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.35);padding:0 6px;border-radius:50%">?</span>
+                <span title="Optional workflows to gather context before reasoning. Can route based on output conditions." style="font-size:12px;opacity:0.9;cursor:help;background:${th.cardBg};border:1px solid ${th.border};padding:0 6px;border-radius:50%">?</span>
               </div>
               <div id="${wfId}" class="R-workflows-sub" style="display:flex;flex-direction:column;gap:12px;margin-bottom:8px"></div>
-              <button class="R-add-workflow-sub" style="background:${csTheme().accentGrad};border:none;color:#fff;padding:8px 14px;border-radius:6px;cursor:pointer;font-weight:500">+ Add Workflow</button>
+              <button class="R-add-workflow-sub" style="background:${th.accentGrad};border:none;color:#fff;padding:8px 14px;border-radius:6px;cursor:pointer;font-weight:500">+ Add Workflow</button>
             </div>
 
-            <label style="display:block;margin-top:12px;color:#fff;font-size:13px;font-weight:600">Reasoning Instructions
+            <label style="display:block;margin-top:12px;color:${th.text};font-size:13px;font-weight:600">Reasoning Instructions
 
-              <textarea class="R-goals" style="width:100%;min-height:90px;background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:8px;border-radius:6px;font-size:13px"></textarea>
+              <textarea class="R-goals" style="width:100%;min-height:90px;background:${th.inputBg};border:1px solid ${th.border};color:${th.text};padding:8px;border-radius:6px;font-size:13px"></textarea>
 
             </label>
 
-            <label style="display:block;margin-top:12px;color:#fff;font-size:13px;font-weight:600">Role <span style="font-weight:400;opacity:0.65">(optional)</span>
+            <label style="display:block;margin-top:12px;color:${th.text};font-size:13px;font-weight:600">Role <span style="font-weight:400;opacity:0.65">(optional)</span>
 
-              <input class="R-role" style="width:100%;background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:8px;border-radius:6px;font-size:13px">
+              <input class="R-role" style="width:100%;background:${th.inputBg};border:1px solid ${th.border};color:${th.text};padding:8px;border-radius:6px;font-size:13px">
 
             </label>
 
             <div class="R-custom-list" style="display:flex;flex-direction:column;gap:8px;margin-top:6px"></div>
 
-            <button class="R-add-custom" style="background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.35);color:#fff;padding:6px 10px;border-radius:6px;cursor:pointer">+ Custom field</button>
+            <button class="R-add-custom" style="background:${th.cardBg};border:1px solid ${th.border};color:${th.text};padding:6px 10px;border-radius:6px;cursor:pointer">+ Custom field</button>
 
             <!-- Memory & Context Settings -->
-            <div class="R-memory-context-sub" style="margin-top:12px;padding:12px;background:rgba(255,255,255,0.04);border:1px solid ${csTheme().border};border-radius:8px">
-              <div style="font-weight:600;margin-bottom:4px;display:flex;align-items:center;gap:8px">
+            <div class="R-memory-context-sub" style="margin-top:12px;padding:12px;background:${th.cardBg};border:1px solid ${th.border};border-radius:8px">
+              <div style="font-weight:600;margin-bottom:4px;color:${th.text};display:flex;align-items:center;gap:8px">
                 Memory & Context
-                <span title="Configure which memory and context sources this reasoning section can access." style="font-size:12px;opacity:0.9;cursor:help;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.35);padding:0 6px;border-radius:50%">?</span>
+                <span title="Configure which memory and context sources this reasoning section can access." style="font-size:12px;opacity:0.9;cursor:help;background:${th.cardBg};border:1px solid ${th.border};padding:0 6px;border-radius:50%">?</span>
               </div>
-              <div style="font-size:13px;color:#334155;margin-bottom:10px;line-height:1.4">Enable memory sources for context during reasoning.</div>
+              <div style="font-size:13px;color:${th.muted};margin-bottom:10px;line-height:1.4">Enable memory sources for context during reasoning.</div>
               <div style="display:flex;flex-direction:column;gap:10px;font-size:13px">
                 <div style="display:flex;align-items:center;gap:12px;justify-content:space-between">
                   <label style="display:flex;align-items:center;gap:6px"><input class="R-MEM-session-sub" type="checkbox"> Session Context</label>
@@ -19551,42 +19552,43 @@ function initializeExtension() {
 
           sec.className = 'E-section'
 
-          sec.style.cssText = 'border:1px dashed rgba(255,255,255,.35);padding:10px;border-radius:8px'
+          sec.style.cssText = `border:1px dashed ${csTheme().border};padding:10px;border-radius:8px`
 
           const wfId = `E-wf-sub-${Math.random().toString(36).slice(2,8)}`
+          const eth = csTheme()
 
           sec.innerHTML = `
 
             <div style="display:flex;justify-content:space-between;align-items:flex-start;margin:6px 0">
               <div style="display:flex;flex-direction:column;gap:6px">
-                <span style="font-weight:600">Apply for:</span>
+                <span style="font-weight:600;color:${eth.text}">Apply for:</span>
                 <div class="E-apply-list-sub" style="display:flex;flex-direction:column;gap:6px">
                   <div class="apply-for-row" style="display:flex;align-items:center;gap:8px">
-                    <select class="E-apply-sub" style="background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:6px 10px;border-radius:6px;min-width:180px;max-width:280px">
+                    <select class="E-apply-sub" style="background:${eth.inputBg};color:${eth.text};border:1px solid ${eth.border};padding:6px 10px;border-radius:6px;min-width:180px;max-width:280px">
                       <option value="__any__">Any Trigger</option>
                     </select>
-                    <button type="button" class="E-apply-add-sub" style="background:rgba(96,165,250,.3);border:1px solid rgba(96,165,250,.5);color:#fff;padding:4px 10px;border-radius:6px;cursor:pointer;font-weight:bold;font-size:14px">+</button>
+                    <button type="button" class="E-apply-add-sub" style="background:${eth.accentColor};border:none;color:#fff;padding:4px 10px;border-radius:6px;cursor:pointer;font-weight:bold;font-size:14px">+</button>
                   </div>
                 </div>
               </div>
-              <button class="E-del" title="Remove" style="background:rgba(220,38,38,0.10);color:#fff;border:1px solid rgba(255,255,255,.25);padding:2px 8px;border-radius:6px;cursor:pointer">&times;</button>
+              <button class="E-del" title="Remove" style="background:rgba(220,38,38,0.12);color:${eth.isLight ? '#991b1b' : '#fca5a5'};border:1px solid ${eth.isLight ? 'rgba(220,38,38,0.3)' : 'rgba(255,255,255,.25)'};padding:2px 8px;border-radius:6px;cursor:pointer">&times;</button>
             </div>
 
             <div style="margin-top:8px">
 
               <div id="${wfId}" class="E-workflow-list-sub" style="display:flex;flex-direction:column;gap:8px"></div>
 
-              <button class="E-add-workflow-sub" style="background:${csTheme().accentGrad};border:none;color:#fff;padding:8px 14px;border-radius:6px;cursor:pointer;font-weight:500">+ Add Workflow</button>
+              <button class="E-add-workflow-sub" style="background:${eth.accentGrad};border:none;color:#fff;padding:8px 14px;border-radius:6px;cursor:pointer;font-weight:500">+ Add Workflow</button>
 
             </div>
 
             <div style="margin-top:8px">
 
-              <div style="font-weight:600;margin:6px 0">Report to</div>
+              <div style="font-weight:600;margin:6px 0;color:${eth.text}">Report to</div>
 
               <div class="E-special-list-sub" style="display:flex;flex-direction:column;gap:8px"></div>
 
-              <button class="E-special-add-sub" style="background:rgba(255,255,255,.2);border:1px solid rgba(255,255,255,.35);color:#fff;padding:6px 10px;border-radius:6px;cursor:pointer;margin-top:6px">+ Add</button>
+              <button class="E-special-add-sub" style="background:${eth.cardBg};border:1px solid ${eth.border};color:${eth.text};padding:6px 10px;border-radius:6px;cursor:pointer;margin-top:6px">+ Add</button>
 
             </div>
 
