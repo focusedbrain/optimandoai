@@ -2980,8 +2980,23 @@ function initializeExtension() {
     console.log('[TRACE] ensureSessionInHistory called for:', sessionKey);
     console.log('[TRACE] Input agents:', sessionData.agents);
 
-    // Transform agents from orchestrator format to internal format if needed
-    let transformedAgents = (sessionData.agents || []).map((a: any) => {
+    // Transform agents from orchestrator format to internal format if needed.
+    // Also filter out agent-shell records that were auto-created from agent boxes —
+    // those have no real config and must not appear under "AI Agents" in Sessions History.
+    let transformedAgents = (sessionData.agents || [])
+      .filter((a: any) => {
+        // Keep only agents that have at minimum a real name that isn't just "Agent NN"
+        // and either an explicit kind of 'ai-agent' or a non-empty config.
+        // Simple heuristic: if kind is 'custom' AND enabled is false AND config is empty
+        // object, treat as a shell and skip.
+        const isShell = a.kind === 'custom' && a.enabled === false &&
+          a.config && Object.keys(a.config).length === 0
+        if (isShell) {
+          console.log(`[TRACE] ensureSessionInHistory: filtering shell agent "${a.name}" (${a.key})`)
+        }
+        return !isShell
+      })
+      .map((a: any) => {
       // Check if agent has a key (internal format)
       if (a.key) {
         return a;
@@ -3000,6 +3015,11 @@ function initializeExtension() {
     
     console.log('[TRACE] Transformed agents:', transformedAgents);
 
+    // Preserve non-empty agentBoxes arrays — never downgrade an existing non-empty array to [].
+    // The incoming sessionData may have been built before the box was saved (race condition).
+    // If the stored record already has boxes, keep whichever array is longer.
+    const incomingBoxes: any[] = sessionData.agentBoxes || []
+
     const completeSessionData = {
 
       ...sessionData,
@@ -3012,7 +3032,7 @@ function initializeExtension() {
 
       displayGrids: sessionData.displayGrids || [],
 
-      agentBoxes: sessionData.agentBoxes || [],
+      agentBoxes: incomingBoxes,
 
       customAgents: sessionData.customAgents || [],
 
@@ -3022,9 +3042,19 @@ function initializeExtension() {
 
     }
 
+    // If we already have a stored entry for this key, merge agentBoxes conservatively.
+    storageGet([sessionKey], (existing: any) => {
+      const stored = existing?.[sessionKey]
+      if (stored?.agentBoxes && stored.agentBoxes.length > completeSessionData.agentBoxes.length) {
+        // Stored version has more boxes — use it instead of potentially empty incoming array
+        completeSessionData.agentBoxes = stored.agentBoxes
+        console.log(`[TRACE] ensureSessionInHistory: preserved ${stored.agentBoxes.length} stored agentBoxes over ${incomingBoxes.length} incoming`)
+      }
+
     console.log('[TRACE] Complete session data to save:', { 
       key: sessionKey, 
       agentCount: completeSessionData.agents.length,
+      agentBoxCount: completeSessionData.agentBoxes.length,
       agents: completeSessionData.agents.map((a: any) => ({ 
         key: a.key, 
         name: a.name, 
@@ -3068,6 +3098,8 @@ function initializeExtension() {
       if (callback) callback()
 
     })
+
+  }) // end storageGet — merge agentBoxes
 
   }
 
@@ -6575,6 +6607,18 @@ function initializeExtension() {
             console.log('✅ Master tab agent box saved to SQLite:', newBox.identifier)
 
             console.log('📦 Total boxes in session:', response.totalBoxes)
+
+            // Update the canonical session history record so Sessions History and
+            // Agent Box Overview reflect the new box immediately.  We load the
+            // latest session (which now includes the box from SQLite) and call
+            // ensureSessionInHistory so that the history entry is in sync.
+            // This is done inside the callback to guarantee the box is already
+            // in SQLite before we read it back — avoiding the race condition where
+            // an immediate ensureSessionInHistory call reads stale agentBoxes: [].
+            storageGet([sessionKey], (result: any) => {
+              const latestSession = result?.[sessionKey] || {}
+              ensureSessionInHistory(sessionKey, latestSession)
+            })
 
           } else {
 
@@ -38360,7 +38404,18 @@ ${pageText}
 
         .filter(([key]) => key.startsWith('session_'))
 
-        .map(([key, data]) => ({ id: key, ...data, isActive: key === activeSessionKey }))
+        .map(([key, rawData]: [string, any]) => {
+          // Defensive normalization — ensure arrays are never null/undefined
+          const data: any = rawData || {}
+          return {
+            id: key,
+            ...data,
+            agents:      Array.isArray(data.agents)      ? data.agents      : [],
+            agentBoxes:  Array.isArray(data.agentBoxes)  ? data.agentBoxes  : [],
+            displayGrids: Array.isArray(data.displayGrids) ? data.displayGrids : [],
+            isActive: key === activeSessionKey
+          }
+        })
 
         .sort((a, b) => {
 
@@ -38456,7 +38511,7 @@ ${pageText}
 
                   <button class="edit-session-name-btn" data-session-id="${session.id}" style="background: linear-gradient(135deg, ${csTheme().accent}, #1976D2); border: none; color: white; padding: 6px 8px; border-radius: 4px; cursor: pointer; font-size: 10px; transition: all 0.2s ease;" title="Edit session name" onmouseover="this.style.transform='scale(1.05)'" onmouseout="this.style.transform='scale(1)'">✏️</button>
 
-                <button class="agentbox-overview-btn" data-session-id="${session.id}" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; padding: 5px 8px; border-radius: 4px; cursor: pointer; font-size: 11px;" title="Agent Box Overview">Agents</button>
+                <button class="agentbox-overview-btn" data-session-id="${session.id}" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; padding: 5px 8px; border-radius: 4px; cursor: pointer; font-size: 11px;" title="Agent Box Overview">📦 Boxes</button>
 
                 <button class="delete-session-btn" data-session-id="${session.id}" style="background: linear-gradient(135deg, ${csTheme().isLight ? "#dc2626" : "#f87171"}, #d32f2f); border: none; color: white; padding: 6px 8px; border-radius: 4px; cursor: pointer; font-size: 10px; transition: all 0.2s ease;" title="Delete session" onmouseover="this.style.transform='scale(1.05)'" onmouseout="this.style.transform='scale(1)'">🗝‘️</button>
 
@@ -38484,21 +38539,29 @@ ${pageText}
 
                 ` : ''}
 
-                ${session.agents && session.agents.length > 0 ? `
-
+                ${(() => {
+                  // Filter out agent-shell records (kind=custom, enabled=false, empty config)
+                  // that may have been written by the old auto-create logic in SAVE_AGENT_BOX_TO_SQLITE.
+                  const realAgents = (session.agents || []).filter((a: any) => {
+                    const isShell = a.kind === 'custom' && a.enabled === false &&
+                      a.config && Object.keys(a.config).length === 0
+                    return !isShell
+                  })
+                  if (realAgents.length === 0) return ''
+                  return `
                   <div style=\"background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; border-radius: 6px; padding: 8px 10px; margin: 6px 0;\">
 
-                    <span style=\"font-size: 11px; font-weight: 600; color: ${csTheme().text};\">🤖 AI Agents (${session.agents.length})</span>
+                    <span style=\"font-size: 11px; font-weight: 600; color: ${csTheme().text};\">🤖 AI Agents (${realAgents.length})</span>
 
                     <div style=\"display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px;\">
 
-                      ${session.agents.map((agent: any) => `<span style=\\\"background: ${csTheme().cardBg}; color: ${csTheme().text}; border: 1px solid ${csTheme().border}; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 500;\\\" title=\\\"${agent.name}\\\">${agent.name}</span>`).join('')}
+                      ${realAgents.map((agent: any) => `<span style=\\\"background: ${csTheme().cardBg}; color: ${csTheme().text}; border: 1px solid ${csTheme().border}; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 500;\\\" title=\\\"${agent.name}\\\">${agent.name}</span>`).join('')}
 
                     </div>
 
                   </div>
-
-                ` : ''}
+                  `
+                })()} 
 
 
 
@@ -39832,7 +39895,15 @@ ${pageText}
 
     storageGet([sessionKey], (result) => {
 
-      const session = result[sessionKey]
+      const raw = result[sessionKey]
+
+      // Defensive normalization — tolerate sessions with missing arrays or null entries
+      const session = raw ? {
+        ...raw,
+        agents:     Array.isArray(raw.agents)     ? raw.agents     : [],
+        agentBoxes: Array.isArray(raw.agentBoxes) ? raw.agentBoxes : [],
+        displayGrids: Array.isArray(raw.displayGrids) ? raw.displayGrids : [],
+      } : null
 
       console.log('🔍 Overview: Loaded session data:', session)
 
@@ -41321,80 +41392,96 @@ ${pageText}
 
     
 
-    // Collect agent configurations from localStorage
-
-    const agents = collectAgentConfigs();
-
-    // Save current session to chrome.storage.local
-
-    const sessionKey = `session_${Date.now()}`
+    // Reuse the active session key if one exists; only allocate a new key when none exists.
+    // Previously this always created a new session_${Date.now()} key, fragmenting history.
+    const existingKey = getCurrentSessionKey()
+    const sessionKey = existingKey || `session_${Date.now()}`
 
     currentTabData.isLocked = true
 
-    setCurrentSessionKey(sessionKey)
-
-    
-
-    const sessionData = {
-
-      ...currentTabData,
-
-      timestamp: new Date().toISOString(),
-
-      url: window.location.href,
-
-      isLocked: true,
-
-      agents: agents  // Include agent configurations
-
+    if (!existingKey) {
+      setCurrentSessionKey(sessionKey)
     }
 
     
 
-    storageSet({ [sessionKey]: sessionData }, () => {
+    // Read the canonical agents from the current session in storage rather than using
+    // collectAgentConfigs() which scans localStorage and produces an incompatible schema.
+    // We load the stored session first and preserve its agents array, then fall back to
+    // currentTabData.agents if present.  collectAgentConfigs() is intentionally NOT used
+    // here because it produces {name, model, context, ...} objects instead of the expected
+    // {key, number, enabled, config} shape that processFlow.parseAgentsFromSession requires.
+    const doSave = (canonicalAgents: any[]) => {
+      const sessionData = {
 
-          // Show notification
+        ...currentTabData,
 
-          const notification = document.createElement('div')
+        timestamp: new Date().toISOString(),
 
-          notification.style.cssText = `
+        url: window.location.href,
 
-            position: fixed;
+        isLocked: true,
 
-        top: 60px;
+        agents: canonicalAgents
 
-            right: 20px;
+      }
 
-            background: rgba(76, 175, 80, 0.9);
+      
 
-            color: white;
+      storageSet({ [sessionKey]: sessionData }, () => {
 
-            padding: 10px 15px;
+            // Show notification
 
-            border-radius: 5px;
+            const notification = document.createElement('div')
 
-            font-size: 12px;
+            notification.style.cssText = `
 
-            z-index: 2147483648;
+              position: fixed;
 
-          `
+          top: 60px;
+
+              right: 20px;
+
+              background: rgba(76, 175, 80, 0.9);
+
+              color: white;
+
+              padding: 10px 15px;
+
+              border-radius: 5px;
+
+              font-size: 12px;
+
+              z-index: 2147483648;
+
+            `
 
       notification.innerHTML = `💾 Session "${currentTabData.tabName}" saved!`
 
-          document.body.appendChild(notification)
+            document.body.appendChild(notification)
 
-          
+            
 
-          setTimeout(() => {
+            setTimeout(() => {
 
-            notification.remove()
+              notification.remove()
 
-          }, 3000)
+            }, 3000)
 
-          
+            
 
-      console.log('💾 Session saved manually:', sessionData.tabName, 'with', sessionData.agentBoxes?.length || 0, 'agent boxes')
+        console.log('💾 Session saved manually:', sessionData.tabName, 'with', sessionData.agentBoxes?.length || 0, 'agent boxes')
 
+      })
+    }
+
+    // Load existing session to preserve canonical agents
+    storageGet([sessionKey], (result: any) => {
+      const stored = result?.[sessionKey]
+      const canonicalAgents = (stored?.agents && Array.isArray(stored.agents) && stored.agents.length > 0)
+        ? stored.agents
+        : (currentTabData as any).agents || []
+      doSave(canonicalAgents)
     })
 
   }
