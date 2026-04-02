@@ -6608,17 +6608,12 @@ function initializeExtension() {
 
             console.log('📦 Total boxes in session:', response.totalBoxes)
 
-            // Update the canonical session history record so Sessions History and
-            // Agent Box Overview reflect the new box immediately.  We load the
-            // latest session (which now includes the box from SQLite) and call
-            // ensureSessionInHistory so that the history entry is in sync.
-            // This is done inside the callback to guarantee the box is already
-            // in SQLite before we read it back — avoiding the race condition where
-            // an immediate ensureSessionInHistory call reads stale agentBoxes: [].
-            storageGet([sessionKey], (result: any) => {
-              const latestSession = result?.[sessionKey] || {}
-              ensureSessionInHistory(sessionKey, latestSession)
-            })
+            // The box is now in SQLite (saved by background.ts via direct HTTP).
+            // Do NOT call ensureSessionInHistory here — that would read from storageGet
+            // which may fall back to Chrome Storage (which doesn't mirror session_ keys),
+            // then overwrite SQLite with an empty-agentBoxes session.
+            // The authoritative SQLite record already has the box; nothing more to do.
+            console.log('✅ Agent box persisted to SQLite. Session is canonical. No further write needed.')
 
           } else {
 
@@ -38390,17 +38385,19 @@ ${pageText}
 
     
 
-    // Get saved sessions from chrome.storage.local
+    // Get saved sessions from SQLite via background message — this guarantees we read
+    // authoritative data. storageGet(null) merges Chrome Storage + adapter but may miss
+    // sessions when the adapter GET_ALL fails silently and Chrome Storage doesn't mirror them.
 
-    storageGet(null, (allData) => {
+    const buildSessionList = (sessionsMap: Record<string, any>) => {
 
-      console.log('📋 Loading sessions from storage, total keys:', Object.keys(allData).length)
+      console.log('📋 Loading sessions from storage, total keys:', Object.keys(sessionsMap).length)
 
       
 
       const activeSessionKey = getCurrentSessionKey()
 
-      const sessions = Object.entries(allData)
+      const sessions = Object.entries(sessionsMap)
 
         .filter(([key]) => key.startsWith('session_'))
 
@@ -39807,7 +39804,23 @@ ${pageText}
 
       
 
-    }) // End of storageGet
+    } // end buildSessionList
+
+    // Fetch all sessions from SQLite via background message (authoritative source).
+    // Fall back to Chrome Storage if background is unavailable.
+    chrome.runtime.sendMessage({ type: 'GET_ALL_SESSIONS_FROM_SQLITE' }, (response) => {
+      if (chrome.runtime.lastError) {
+        console.warn('⚠️ Background unavailable for GET_ALL_SESSIONS_FROM_SQLITE, falling back to Chrome Storage:', chrome.runtime.lastError.message)
+        storageGet(null, (allData) => buildSessionList(allData))
+        return
+      }
+      if (response?.success && response.sessions) {
+        buildSessionList(response.sessions)
+      } else {
+        console.warn('⚠️ GET_ALL_SESSIONS_FROM_SQLITE returned no data, falling back to Chrome Storage')
+        storageGet(null, (allData) => buildSessionList(allData))
+      }
+    })
 
   }
 
@@ -39892,12 +39905,12 @@ ${pageText}
     
 
     // Load session data to get agent boxes
+    // Route through background.ts to guarantee we read authoritative SQLite data,
+    // bypassing the storageWrapper which may fall back to Chrome Storage (which
+    // does not have session_ keys when SQLite is the primary backend).
 
-    storageGet([sessionKey], (result) => {
-
-      const raw = result[sessionKey]
-
-      // Defensive normalization — tolerate sessions with missing arrays or null entries
+    const doOverview = (sessionRaw: any) => {
+      const raw = sessionRaw
       const session = raw ? {
         ...raw,
         agents:     Array.isArray(raw.agents)     ? raw.agents     : [],
@@ -40377,6 +40390,17 @@ ${pageText}
 
       overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove() })
 
+    } // end doOverview
+
+    // Use background message to read authoritative SQLite data — avoids storageWrapper
+    // falling back to Chrome Storage (which doesn't mirror session_ keys from SQLite).
+    chrome.runtime.sendMessage({ type: 'GET_SESSION_FROM_SQLITE', sessionKey }, (response) => {
+      if (chrome.runtime.lastError) {
+        console.error('❌ Could not reach background for session read:', chrome.runtime.lastError.message)
+        doOverview(null)
+        return
+      }
+      doOverview(response?.session || null)
     })
 
   }
