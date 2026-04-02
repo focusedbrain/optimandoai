@@ -4104,6 +4104,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           const session = result.data || {}
           const totalBoxes = session.agentBoxes?.length || 0
           
+          // Mirror to chrome.storage.local so grid-display-v2.html reads fresh data on reload
+          chrome.storage.local.set({ [msg.sessionKey]: session }, () => {
+            if (chrome.runtime.lastError) {
+              console.warn('⚠️ BG: Chrome mirror write failed (non-fatal):', chrome.runtime.lastError.message)
+            }
+          })
           
           try { 
             sendResponse({ 
