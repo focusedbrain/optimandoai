@@ -1881,6 +1881,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return false // synchronous response
   }
 
+  // Sidepanel / popup: request the current launch secret so direct fetch() calls
+  // can inject X-Launch-Secret.  Returns null when the secret is not yet ready.
+  if (msg.type === 'GET_LAUNCH_SECRET') {
+    sendResponse({ secret: _launchSecret ?? null })
+    return false // synchronous response
+  }
+
   if (msg.type === 'BEAP_ENSURE_LAUNCH_SECRET') {
     ensureLaunchSecret(15000)
       .then((ok) => {

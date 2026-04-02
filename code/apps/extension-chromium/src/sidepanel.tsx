@@ -160,9 +160,42 @@ function SidepanelOrchestrator() {
   const [hsPolicy, setHsPolicy] = useState<{ ai_processing_mode: 'none' | 'local_only' | 'internal_and_cloud' }>({ ai_processing_mode: 'local_only' })
   const [canUseHsContextProfiles, setCanUseHsContextProfiles] = useState(false)
 
+  // Per-launch HTTP auth secret received from the Electron background worker.
+  // Required as X-Launch-Secret header on every direct fetch() to port 51248.
+  const launchSecretRef = useRef<string | null>(null)
+
+  /**
+   * Build headers for a direct fetch() to the Electron HTTP API.
+   * Injects X-Launch-Secret when available (mirrors background._electronHeaders).
+   */
+  const electronFetchHeaders = (extra?: Record<string, string>): Record<string, string> => {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+    if (launchSecretRef.current) headers['X-Launch-Secret'] = launchSecretRef.current
+    if (extra) Object.assign(headers, extra)
+    return headers
+  }
+
   // Init BEAP PQ auth so qBEAP can reach Electron PQ API (port 51248)
   useEffect(() => {
     initBeapPqAuth()
+  }, [])
+
+  // Fetch the per-launch secret from the background worker on mount so all
+  // direct fetch() calls to Electron can attach X-Launch-Secret.
+  useEffect(() => {
+    const fetchSecret = () => {
+      chrome.runtime.sendMessage({ type: 'GET_LAUNCH_SECRET' }, (response: { secret?: string | null } | undefined) => {
+        if (chrome.runtime.lastError) return
+        if (response?.secret) {
+          launchSecretRef.current = response.secret
+          console.log('[Sidepanel] 🔑 Launch secret ready')
+        } else {
+          // Secret not yet available — retry after a short delay
+          setTimeout(fetchSecret, 1500)
+        }
+      })
+    }
+    fetchSecret()
   }, [])
 
   // Deep linking: ?message=id, ?handshake=id, or #message=id, #handshake=id (R.8)
@@ -1258,7 +1291,7 @@ function SidepanelOrchestrator() {
 
             const agentResponse = await fetch(`${baseUrl}/api/llm/chat`, {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
+              headers: electronFetchHeaders(),
               body: JSON.stringify(llmBody)
             })
             
@@ -1309,7 +1342,7 @@ function SidepanelOrchestrator() {
         try {
           const butlerResponse = await fetch(`${baseUrl}/api/llm/chat`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: electronFetchHeaders(),
             body: JSON.stringify({
               modelId: currentModel,
               messages: [
@@ -2389,7 +2422,7 @@ function SidepanelOrchestrator() {
     try {
       const ocrResponse = await fetch(`${baseUrl}/api/ocr/process`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: electronFetchHeaders(),
         body: JSON.stringify({ image: imageUrl })
       })
       if (ocrResponse.ok) {
@@ -2420,7 +2453,7 @@ function SidepanelOrchestrator() {
         try {
           const ocrResponse = await fetch(`${baseUrl}/api/ocr/process`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: electronFetchHeaders(),
             body: JSON.stringify({ image: msg.imageUrl })
           })
           
@@ -2577,7 +2610,7 @@ function SidepanelOrchestrator() {
 
       const response = await fetch(`${baseUrl}/api/llm/chat`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: electronFetchHeaders(),
         body: JSON.stringify(llmBody)
       })
       
@@ -2617,7 +2650,7 @@ function SidepanelOrchestrator() {
       
       const response = await fetch(`${baseUrl}/api/llm/chat`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: electronFetchHeaders(),
         body: JSON.stringify({
           modelId: model,
           messages: [
@@ -2774,7 +2807,7 @@ function SidepanelOrchestrator() {
 
           const agentResponse = await fetch(`${baseUrl}/api/llm/chat`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: electronFetchHeaders(),
             body: JSON.stringify(triggerLlmBody)
           })
           
@@ -2812,7 +2845,7 @@ function SidepanelOrchestrator() {
         
         const response = await fetch(`${baseUrl}/api/llm/chat`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: electronFetchHeaders(),
           body: JSON.stringify({
             modelId: currentModel,
             messages: [
