@@ -5317,14 +5317,18 @@ function initializeExtension() {
   // Returns '#ffffff' or '#000000' depending on which has better contrast against the given hex bg color
   function getContrastColor(hex: string): string {
     try {
-      const h = hex.replace('#', '')
+      // Strip # and handle shorthand hex (#abc -> #aabbcc)
+      let h = (hex || '').replace('#', '').trim()
+      if (h.length === 3) h = h[0]+h[0]+h[1]+h[1]+h[2]+h[2]
+      if (h.length !== 6 || !/^[0-9a-fA-F]{6}$/.test(h)) return '#ffffff'
       const r = parseInt(h.substring(0, 2), 16)
       const g = parseInt(h.substring(2, 4), 16)
       const b = parseInt(h.substring(4, 6), 16)
-      // Relative luminance (WCAG)
+      // Relative luminance (WCAG 2.1)
       const toLinear = (c: number) => { const s = c / 255; return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4) }
       const L = 0.2126 * toLinear(r) + 0.7152 * toLinear(g) + 0.0722 * toLinear(b)
-      return L > 0.179 ? '#000000' : '#ffffff'
+      // Use 0.35 threshold — gives white for dark colors, black for light colors
+      return L > 0.35 ? '#000000' : '#ffffff'
     } catch { return '#ffffff' }
   }
 
@@ -5540,7 +5544,7 @@ function initializeExtension() {
 
       agentDiv.innerHTML = `
 
-        <div style="background: ${box.color}; color: ${getContrastColor(box.color || '#4CAF50')}; padding: 8px 12px; border-radius: 6px 6px 0 0; font-size: 13px; font-weight: bold; margin-bottom: 0; position: relative; display: flex; justify-content: space-between; align-items: center;">
+        <div style="background: ${box.color || '#4CAF50'}; color: ${getContrastColor(box.color || '#4CAF50')}; padding: 8px 12px; border-radius: 6px 6px 0 0; font-size: 13px; font-weight: bold; margin-bottom: 0; position: relative; display: flex; justify-content: space-between; align-items: center; text-shadow: none;">
 
           <span style="opacity: ${isEnabled ? '1' : '0.5'};">${box.title}</span>
 
