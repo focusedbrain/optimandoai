@@ -407,6 +407,11 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
         const routingDecision = await routeInput(enrichedText, hasImage, isConnected, sessionName, activeLlmModel, currentUrl)
 
         if (routingDecision.shouldForwardToAgent && routingDecision.matchedAgents.length > 0) {
+          // Show Butler's forwarding confirmation first
+          if (routingDecision.butlerResponse) {
+            setMessages(prev => [...prev, { role: 'assistant', text: routingDecision.butlerResponse }])
+          }
+
           // PATH A: Agent processing
           for (const match of routingDecision.matchedAgents) {
             const agentInput = wrapInputForAgent(enrichedText, match, {})
@@ -414,18 +419,26 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
               { role: 'system', content: agentInput.systemPrompt },
               ...processedMessages.filter(m => m.role === 'user')
             ]
+            // Use agent's own model if configured, otherwise fall back to active model
+            const modelToUse = match.agentBoxModel || activeLlmModel
             const agentRes = await fetch(`${BASE_URL}/api/llm/chat`, {
               method: 'POST',
               headers: buildHeaders(secretRef.current),
-              body: JSON.stringify({ modelId: activeLlmModel, messages: agentMessages })
+              body: JSON.stringify({ modelId: modelToUse, messages: agentMessages })
             })
             if (agentRes.ok) {
               const agentJson = await agentRes.json()
               const agentReply = (agentJson.ok && agentJson.data?.content) ? agentJson.data.content : ''
               if (agentReply) {
-                setMessages(prev => [...prev, { role: 'assistant', text: agentReply }])
-                if (match.agentBoxKey) {
-                  try { await updateAgentBoxOutput(match.agentBoxKey, agentReply) } catch {}
+                if (match.agentBoxId) {
+                  // Route to Agent Box — show brief confirmation in chat, not full reply
+                  try { await updateAgentBoxOutput(match.agentBoxId, agentReply) } catch {}
+                  const boxNum = String(match.agentBoxNumber ?? '').padStart(2, '0')
+                  const confirm = `✓ ${match.agentIcon} **${match.agentName}** processed your request.\n→ Output displayed in Agent Box ${boxNum}`
+                  setMessages(prev => [...prev, { role: 'assistant', text: confirm }])
+                } else {
+                  // No Agent Box configured — print full reply inline
+                  setMessages(prev => [...prev, { role: 'assistant', text: `${match.agentIcon} **${match.agentName}**:\n\n${agentReply}` }])
                 }
                 answered = true
               }

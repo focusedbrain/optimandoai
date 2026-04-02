@@ -429,7 +429,7 @@ export class InputCoordinator {
    * 2. Check listener.reportTo for explicit destinations
    * 3. Fall back to matching agent.number with box.agentNumber
    */
-  findAgentBoxesForAgent(agent: AgentConfig, agentBoxes: AgentBox[]): AgentBox[] {
+  findAgentBoxesForAgent(agent: AgentConfig, agentBoxes: AgentBox[], matchedTriggerName?: string): AgentBox[] {
     const matchedBoxes: AgentBox[] = []
     
     // 1. Check execution.specialDestinations for explicit agentBox targets
@@ -486,9 +486,62 @@ export class InputCoordinator {
         matchedBoxes.push(...numberMatchedBoxes)
       }
     }
+
+    // 4. Fall back to agentId field matching (box.agentId === "agent<N>" vs agent key/id)
+    if (matchedBoxes.length === 0) {
+      const agentKey = (agent as any).key || agent.id || ''
+      const agentIdBoxes = agentBoxes.filter(box => {
+        if (!box.enabled) return false
+        const boxAgentId: string = (box as any).agentId || ''
+        if (!boxAgentId) return false
+        // Direct match: box.agentId === agent.key or agent.id
+        if (boxAgentId.toLowerCase() === agentKey.toLowerCase()) return true
+        // Match via numbers extracted from agentId (e.g. box.agentId="agent1", agent.number=1)
+        const boxAgentIdNum = Number(boxAgentId.replace(/\D/g, ''))
+        if (!isNaN(boxAgentIdNum) && boxAgentIdNum > 0 && boxAgentIdNum === Number(agent.number)) return true
+        return false
+      })
+      if (agentIdBoxes.length > 0) {
+        this.log(`Agent "${agent.name}" → agentId field match: ${agentIdBoxes.map(b => `Box ${b.boxNumber}`).join(', ')}`)
+        matchedBoxes.push(...agentIdBoxes)
+      }
+    }
+
+    // 5. Last resort: if agent has a single-digit number extracted from its trigger tag,
+    //    match against the first available box with that same number.
+    if (matchedBoxes.length === 0) {
+      const agentNum = Number(agent.number)
+      if (agentNum > 0) {
+        // Try matching box.boxNumber === agentNum (Box 01 ↔ Agent 1)
+        const boxNumMatches = agentBoxes.filter(b => Number(b.boxNumber) === agentNum && b.enabled !== false)
+        if (boxNumMatches.length > 0) {
+          this.log(`Agent ${agentNum} (${agent.name}) → Box number fallback match: ${boxNumMatches.map(b => `Box ${b.boxNumber}`).join(', ')}`)
+          matchedBoxes.push(...boxNumMatches)
+        }
+      }
+    }
+
+    // 6. Use number extracted from the matched trigger tag (e.g., "a1" → 1, "invoice2" → 2)
+    if (matchedBoxes.length === 0 && matchedTriggerName) {
+      const triggerDigits = String(matchedTriggerName).match(/(\d+)/)
+      if (triggerDigits) {
+        const triggerNum = parseInt(triggerDigits[1], 10)
+        // Try agentNumber match first, then boxNumber match
+        const triggerMatches = agentBoxes.filter(b => {
+          if (b.enabled === false) return false
+          if (Number(b.agentNumber) === triggerNum) return true
+          if (Number(b.boxNumber) === triggerNum) return true
+          return false
+        })
+        if (triggerMatches.length > 0) {
+          this.log(`Agent "${agent.name}" → Trigger tag digit match (#${matchedTriggerName}→${triggerNum}): ${triggerMatches.map(b => `Box ${b.boxNumber}`).join(', ')}`)
+          matchedBoxes.push(...triggerMatches)
+        }
+      }
+    }
     
     if (matchedBoxes.length === 0) {
-      this.log(`Agent "${agent.name}" has no connected boxes (checked: specialDestinations, reportTo, number matching)`)
+      this.log(`Agent "${agent.name}" has no connected boxes (checked: specialDestinations, reportTo, number matching, agentId, box-number fallback)`)
     }
     
     return matchedBoxes
@@ -545,8 +598,8 @@ export class InputCoordinator {
       const shouldForward = evaluation.matchType !== 'none'
       
       if (shouldForward) {
-        // Find connected agent boxes
-        const connectedBoxes = this.findAgentBoxesForAgent(agent, agentBoxes)
+        // Find connected agent boxes — pass matched trigger name as additional hint
+        const connectedBoxes = this.findAgentBoxesForAgent(agent, agentBoxes, evaluation.matchedTriggerName)
         const firstBox = connectedBoxes[0]
 
         // Map matchType to matchReason (only Listener-derived matches reach here)

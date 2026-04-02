@@ -321,12 +321,27 @@ function extractAgentNumber(agent: any, index: number): number {
     return agent.number
   }
   
-  // 2. Try to parse from key (e.g., "agent1", "agent2")
+  // 2. Try to parse from key (e.g., "agent1", "agent2", "a1", "a2")
   if (agent.key) {
+    // Match "agent1" or "agent01" style
     const keyMatch = String(agent.key).match(/^agent(\d+)$/i)
     if (keyMatch) {
       const num = parseInt(keyMatch[1], 10)
       console.log(`[ProcessFlow] extractAgentNumber: Extracted ${num} from key "${agent.key}"`)
+      return num
+    }
+    // Match single-letter+digit style like "a1", "a2" (common WR Chat trigger pattern)
+    const shortMatch = String(agent.key).match(/^[a-z](\d+)$/i)
+    if (shortMatch) {
+      const num = parseInt(shortMatch[1], 10)
+      console.log(`[ProcessFlow] extractAgentNumber: Extracted ${num} from short key "${agent.key}"`)
+      return num
+    }
+    // Match keys that end with a number (e.g., "summarizer1", "invoice2")
+    const endMatch = String(agent.key).match(/(\d+)$/)
+    if (endMatch) {
+      const num = parseInt(endMatch[1], 10)
+      console.log(`[ProcessFlow] extractAgentNumber: Extracted ${num} from key ending "${agent.key}"`)
       return num
     }
   }
