@@ -4840,6 +4840,7 @@ function SidepanelOrchestrator() {
                 style={{
                   height: `${chatHeight}px`,
                   overflowY: 'auto',
+                  overflowX: 'hidden',
                   display: 'flex',
                   flexDirection: 'column',
                   gap: '10px',
@@ -4869,11 +4870,13 @@ function SidepanelOrchestrator() {
                       }}
                     >
                       <div style={{
-                        maxWidth: '80%',
+                        maxWidth: '85%',
                         padding: '10px 14px',
                         borderRadius: '12px',
                         fontSize: '13px',
                         lineHeight: '1.5',
+                        wordBreak: 'break-word',
+                        overflowWrap: 'anywhere',
                         background: msg.role === 'user' ? 'rgba(34,197,94,0.15)' : 'rgba(255,255,255,0.12)',
                         border: msg.role === 'user' ? '1px solid rgba(34,197,94,0.5)' : '1px solid rgba(255,255,255,0.25)'
                       }}>
@@ -4882,7 +4885,7 @@ function SidepanelOrchestrator() {
                             src={msg.imageUrl} 
                             alt="Screenshot" 
                             style={{ 
-                              maxWidth: '260px', 
+                              maxWidth: '100%', 
                               height: 'auto', 
                               borderRadius: '8px',
                               display: 'block'
@@ -6784,11 +6787,13 @@ height: '28px',
                         }}
                       >
                         <div style={{
-                          maxWidth: '80%',
+                          maxWidth: '85%',
                           padding: '10px 14px',
                           borderRadius: '12px',
                           fontSize: '13px',
                           lineHeight: '1.5',
+                          wordBreak: 'break-word',
+                          overflowWrap: 'anywhere',
                           background: msg.role === 'user' ? 'rgba(34,197,94,0.15)' : 'rgba(255,255,255,0.12)',
                           border: msg.role === 'user' ? '1px solid rgba(34,197,94,0.5)' : '1px solid rgba(255,255,255,0.25)'
                         }}>
@@ -6797,7 +6802,7 @@ height: '28px',
                               src={msg.imageUrl} 
                               alt="Screenshot" 
                               style={{ 
-                                maxWidth: '260px', 
+                                maxWidth: '100%', 
                                 height: 'auto', 
                                 borderRadius: '8px',
                                 display: 'block'
@@ -8116,11 +8121,13 @@ height: '28px',
                         }}
                       >
                         <div style={{
-                          maxWidth: '80%',
+                          maxWidth: '85%',
                           padding: '10px 14px',
                           borderRadius: '12px',
                           fontSize: '13px',
                           lineHeight: '1.5',
+                          wordBreak: 'break-word',
+                          overflowWrap: 'anywhere',
                           background: msg.role === 'user' ? 'rgba(34,197,94,0.15)' : 'rgba(255,255,255,0.12)',
                           border: msg.role === 'user' ? '1px solid rgba(34,197,94,0.5)' : '1px solid rgba(255,255,255,0.25)'
                         }}>
@@ -8129,7 +8136,7 @@ height: '28px',
                               src={msg.imageUrl} 
                               alt="Screenshot" 
                               style={{ 
-                                maxWidth: '260px', 
+                                maxWidth: '100%', 
                                 height: 'auto', 
                                 borderRadius: '8px',
                                 display: 'block'
