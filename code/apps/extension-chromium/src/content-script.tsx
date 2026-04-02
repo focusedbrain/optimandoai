@@ -10220,13 +10220,9 @@ function initializeExtension() {
 
             try { openAgentConfigDialog(agentKey, 'instructions', overlay as any) } catch {}
 
-            // After dialog renders, ensure Reasoning is enabled and prefill fields
+            // After dialog renders, prefill fields
 
             setTimeout(() => {
-
-              const capR = document.getElementById('cap-reasoning') as HTMLInputElement | null
-
-              if (capR && !capR.checked) { capR.click() }
 
               setTimeout(() => {
 
@@ -12540,11 +12536,11 @@ function initializeExtension() {
 
             }
 
-            const L = (document.getElementById('cap-listening') as HTMLInputElement)?.checked || false
+            const L = true
 
-            const R = (document.getElementById('cap-reasoning') as HTMLInputElement)?.checked || false
+            const R = true
 
-            const E = (document.getElementById('cap-execution') as HTMLInputElement)?.checked || false
+            const E = true
 
             if (L) draft.capabilities.push('listening')
 
@@ -13468,20 +13464,6 @@ function initializeExtension() {
 
           </div>
 
-          <!-- Capability toggles -->
-
-          <div style="${afUi.card};padding:10px;border-radius:8px;display:flex;gap:14px;align-items:center;flex-wrap:wrap;">
-
-            <label style="${afUi.capLabel}"><input id="cap-listening" type="checkbox"> Listener</label>
-
-            <label style="${afUi.capLabel}"><input id="cap-reasoning" type="checkbox"> Reasoning</label>
-
-            <label style="${afUi.capLabel}"><input id="cap-execution" type="checkbox"> Execution</label>
-
-          </div>
-
-
-
           <!-- Dynamic sections container -->
 
           <div id="agent-sections" style="display:grid;gap:12px"></div>
@@ -14129,11 +14111,11 @@ function initializeExtension() {
 
           
 
-          const L = (document.getElementById('cap-listening') as HTMLInputElement)?.checked
+          const L = true
 
-          const R = (document.getElementById('cap-reasoning') as HTMLInputElement)?.checked
+          const R = true
 
-          const E = (document.getElementById('cap-execution') as HTMLInputElement)?.checked
+          const E = true
 
           
 
@@ -15722,7 +15704,7 @@ function initializeExtension() {
 
           wrap.id = 'box-listening'
 
-          wrap.style.cssText = `${afUi.wrap};display:${capL.checked ? 'block' : 'none'}`
+          wrap.style.cssText = `${afUi.wrap};display:block`
 
           wrap.innerHTML = `
 
@@ -16049,7 +16031,7 @@ function initializeExtension() {
 
           wrap.id = 'box-reasoning'
 
-          wrap.style.cssText = `${afUi.wrap};display:${capR.checked ? 'block' : 'none'}`
+          wrap.style.cssText = `${afUi.wrap};display:block`
 
           wrap.innerHTML = `
 
@@ -16177,7 +16159,7 @@ function initializeExtension() {
 
           wrap.id = 'box-execution'
 
-          wrap.style.cssText = `${afUi.wrap};display:${capE.checked ? 'block' : 'none'}`
+          wrap.style.cssText = `${afUi.wrap};display:block`
 
           wrap.innerHTML = `
 
@@ -16243,44 +16225,6 @@ function initializeExtension() {
 
 
         // Add event listeners to capability checkboxes to toggle section visibility
-
-        if (capL) {
-
-          capL.addEventListener('change', () => {
-
-            const wrap = configOverlay.querySelector('#box-listening') as HTMLElement | null
-
-            if (wrap) wrap.style.display = capL.checked ? 'block' : 'none'
-
-          })
-
-        }
-
-        if (capR) {
-
-          capR.addEventListener('change', () => {
-
-            const wrap = configOverlay.querySelector('#box-reasoning') as HTMLElement | null
-
-            if (wrap) wrap.style.display = capR.checked ? 'block' : 'none'
-
-          })
-
-        }
-
-        if (capE) {
-
-          capE.addEventListener('change', () => {
-
-            const wrap = configOverlay.querySelector('#box-execution') as HTMLElement | null
-
-            if (wrap) wrap.style.display = capE.checked ? 'block' : 'none'
-
-          })
-
-        }
-
-
 
         // Trigger sources are now defined per Action Trigger, not globally
 
@@ -21765,44 +21709,6 @@ function initializeExtension() {
 
       
 
-      // Function to ensure section visibility matches checkbox states
-      const syncSectionVisibility = () => {
-        const boxL = configOverlay.querySelector('#box-listening') as HTMLElement | null
-        const boxR = configOverlay.querySelector('#box-reasoning') as HTMLElement | null
-        const boxE = configOverlay.querySelector('#box-execution') as HTMLElement | null
-        if (boxL && capL) boxL.style.display = capL.checked ? 'block' : 'none'
-        if (boxR && capR) boxR.style.display = capR.checked ? 'block' : 'none'
-        if (boxE && capE) boxE.style.display = capE.checked ? 'block' : 'none'
-      }
-
-      const hook = (el: HTMLInputElement | null) => {
-
-        if (el) {
-
-          el.addEventListener('change', () => {
-
-            // Synchronously capture all current DOM state (including triggers) into
-            // previouslySavedData BEFORE render() clears the DOM. autoSaveToChromeStorage
-            // is debounced so its internal syncPersistedFromDom would run too late.
-            syncPersistedFromDom()
-
-            autoSaveToChromeStorage() // Persist to chrome.storage (debounced)
-
-            render()
-
-            restoreFromMemory() // Restore data after render
-
-            // Ensure section visibility matches checkboxes after restore
-            requestAnimationFrame(() => syncSectionVisibility())
-
-          })
-
-        }
-
-      }
-
-      hook(capL); hook(capR); hook(capE)
-
       render()
 
       
@@ -21853,13 +21759,7 @@ function initializeExtension() {
 
           
 
-          // Check capabilities
-
-          if (parsed.capabilities?.includes('listening')) (capL as HTMLInputElement).checked = true
-
-          if (parsed.capabilities?.includes('reasoning')) (capR as HTMLInputElement).checked = true
-
-          if (parsed.capabilities?.includes('execution')) (capE as HTMLInputElement).checked = true
+          // All capabilities always enabled — no checkbox logic needed
 
           
 
@@ -22825,10 +22725,10 @@ function initializeExtension() {
             capabilities: [] as string[],
           }
           
-          // Get capabilities
-          if ((document.getElementById('cap-listening') as HTMLInputElement)?.checked) rawData.capabilities.push('listening')
-          if ((document.getElementById('cap-reasoning') as HTMLInputElement)?.checked) rawData.capabilities.push('reasoning')
-          if ((document.getElementById('cap-execution') as HTMLInputElement)?.checked) rawData.capabilities.push('execution')
+          // Get capabilities — all sections always active
+          rawData.capabilities.push('listening')
+          rawData.capabilities.push('reasoning')
+          rawData.capabilities.push('execution')
           
           // Merge with previously saved data
           if (previouslySavedData) {
