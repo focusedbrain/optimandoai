@@ -439,7 +439,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
       // Try routing via processFlow agents, fall back to Butler
       let answered = false
       try {
-        const { routeInput, wrapInputForAgent, updateAgentBoxOutput, getButlerSystemPrompt: _getButler } = await import('../../services/processFlow')
+        const { routeInput, wrapInputForAgent, updateAgentBoxOutput, loadAgentsFromSession, getButlerSystemPrompt: _getButler } = await import('../../services/processFlow')
         const enrichedText = ocrText ? `${llmText}\n\n[Image Text]:\n${ocrText}` : llmText
 
         let currentUrl = ''
@@ -456,11 +456,20 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
             setMessages(prev => [...prev, { role: 'assistant', text: routingDecision.butlerResponse }])
           }
 
+          // Load full agent configs so reasoning/system-prompt is applied (same as docked sidepanel)
+          let allAgents: any[] = []
+          try { allAgents = await loadAgentsFromSession() } catch {}
+
           // PATH A: Agent processing
           for (const match of routingDecision.matchedAgents) {
-            const agentInput = wrapInputForAgent(enrichedText, match, {})
+            // Find the full AgentConfig so wrapInputForAgent gets reasoning/role/goals
+            const agentConfig = allAgents.find((a: any) => a.id === match.agentId)
+            const agentInput = agentConfig
+              ? wrapInputForAgent(enrichedText, agentConfig, ocrText)
+              : enrichedText
+
             const agentMessages = [
-              { role: 'system', content: agentInput.systemPrompt },
+              { role: 'system', content: agentInput },
               ...processedMessages.filter(m => m.role === 'user')
             ]
             // Use agent's own model if configured, otherwise fall back to active model
@@ -474,9 +483,17 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
               const agentJson = await agentRes.json()
               const agentReply = (agentJson.ok && agentJson.data?.content) ? agentJson.data.content : ''
               if (agentReply) {
-                if (match.agentBoxId) {
-                  // Route to Agent Box — show brief confirmation in chat, not full reply
-                  try { await updateAgentBoxOutput(match.agentBoxId, agentReply) } catch {}
+                // Send to ALL target boxes (sidebar + display grid), same as docked sidepanel
+                const allBoxIds = match.targetBoxIds && match.targetBoxIds.length > 0
+                  ? match.targetBoxIds
+                  : match.agentBoxId ? [match.agentBoxId] : []
+
+                if (allBoxIds.length > 0) {
+                  try {
+                    for (const boxId of allBoxIds) {
+                      await updateAgentBoxOutput(boxId, agentReply)
+                    }
+                  } catch {}
                   const boxNum = String(match.agentBoxNumber ?? '').padStart(2, '0')
                   const confirm = `✓ ${match.agentIcon} **${match.agentName}** processed your request.\n→ Output displayed in Agent Box ${boxNum}`
                   setMessages(prev => [...prev, { role: 'assistant', text: confirm }])
