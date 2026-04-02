@@ -23899,11 +23899,12 @@ function initializeExtension() {
 
           }
 
-          const L = (document.getElementById('cap-listening') as HTMLInputElement)?.checked || false
+          // Sections are always active (checkboxes removed) — always push all capabilities
+          const L = true
 
-          const R = (document.getElementById('cap-reasoning') as HTMLInputElement)?.checked || false
+          const R = true
 
-          const E = (document.getElementById('cap-execution') as HTMLInputElement)?.checked || false
+          const E = true
 
           if (L) draft.capabilities.push('listening')
 

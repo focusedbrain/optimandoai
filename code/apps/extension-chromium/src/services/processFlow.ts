@@ -524,6 +524,25 @@ function parseAgentsFromSession(session: any): AgentConfig[] {
     // Extract proper agent number
     parsed.number = extractAgentNumber(parsed, index)
     
+    // Defensive normalization: if the agent has listening triggers but capabilities
+    // doesn't include 'listening' (due to old save paths that read removed checkboxes),
+    // add the missing capabilities so InputCoordinator doesn't reject the agent.
+    if (!Array.isArray(parsed.capabilities)) {
+      parsed.capabilities = []
+    }
+    const hasAnyTriggers = (parsed.listening?.unifiedTriggers?.length ?? 0) > 0 ||
+      (parsed.listening?.triggers?.length ?? 0) > 0 ||
+      parsed.listening?.passiveEnabled || parsed.listening?.activeEnabled
+    if (hasAnyTriggers && !parsed.capabilities.includes('listening')) {
+      parsed.capabilities.push('listening')
+    }
+    if ((parsed.reasoning || parsed.reasoningSections?.length) && !parsed.capabilities.includes('reasoning')) {
+      parsed.capabilities.push('reasoning')
+    }
+    if ((parsed.execution || parsed.executionSections?.length) && !parsed.capabilities.includes('execution')) {
+      parsed.capabilities.push('execution')
+    }
+    
     console.log(`[ProcessFlow] Agent "${parsed.name || parsed.key}": number=${parsed.number}, enabled=${parsed.enabled}`)
     
     return parsed
