@@ -3390,6 +3390,13 @@ function SidepanelOrchestrator() {
               ? match.targetBoxIds
               : match.agentBoxId ? [match.agentBoxId] : []
 
+            console.log('[Sidepanel] A3 routing output:', {
+              agentName: match.agentName,
+              agentBoxId: match.agentBoxId,
+              targetBoxIds: match.targetBoxIds,
+              allBoxIds,
+            })
+
             if (allBoxIds.length > 0) {
               const reasoningContext = `**Agent:** ${match.agentIcon} ${match.agentName}\n**Match:** ${match.matchDetails}\n**Input:** ${displayText}`
               

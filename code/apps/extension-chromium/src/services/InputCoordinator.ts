@@ -431,6 +431,15 @@ export class InputCoordinator {
    */
   findAgentBoxesForAgent(agent: AgentConfig, agentBoxes: AgentBox[], matchedTriggerName?: string): AgentBox[] {
     const matchedBoxes: AgentBox[] = []
+    const agentAny = agent as any
+
+    // Debug: log the raw execution structure to diagnose missing destinations
+    console.log(`[InputCoordinator] findAgentBoxesForAgent "${agent.name}":`, {
+      executionSectionsCount: (agentAny.executionSections || []).length,
+      executionSections: JSON.stringify(agentAny.executionSections || []),
+      executionSpecialDests: JSON.stringify(agentAny.execution?.specialDestinations || []),
+      executionDestinations: JSON.stringify(agentAny.execution?.destinations || []),
+    })
 
     // Helper: resolve agentBox destinations from a destinations/specialDestinations array
     const resolveDestList = (dests: any[]) => {
@@ -441,7 +450,11 @@ export class InputCoordinator {
               const boxNumMatch = String(targetBox).match(/(\d+)/)
               if (boxNumMatch) {
                 const targetBoxNum = parseInt(boxNumMatch[1], 10)
-                const box = agentBoxes.find(b => Number(b.boxNumber) === targetBoxNum && b.enabled !== false)
+                // Prefer a box whose agentNumber matches this agent — avoids picking a
+                // box belonging to a different agent when multiple boxes share the same boxNumber.
+                const candidateBoxes = agentBoxes.filter(b => Number(b.boxNumber) === targetBoxNum && b.enabled !== false)
+                const box = candidateBoxes.find(b => Number(b.agentNumber) === Number(agent.number))
+                  ?? candidateBoxes[0]
                 if (box && !matchedBoxes.some(mb => mb.id === box.id)) {
                   this.log(`Agent "${agent.name}" → Explicit destination: Agent Box ${targetBoxNum}`)
                   matchedBoxes.push(box)
@@ -457,16 +470,16 @@ export class InputCoordinator {
 
     // 1a. Check executionSections[].destinations (new v2.1.0 format)
     // Also check executionSections[].specialDestinations (auto-save draft format)
-    const executionSections: any[] = (agent as any).executionSections || []
+    const executionSections: any[] = agentAny.executionSections || []
     for (const section of executionSections) {
       resolveDestList(section.destinations || [])
       resolveDestList(section.specialDestinations || [])
     }
 
     // 1b. Check legacy execution.specialDestinations and execution.destinations
-    const specialDestinations = (agent as any).execution?.specialDestinations || []
+    const specialDestinations = agentAny.execution?.specialDestinations || []
     resolveDestList(specialDestinations)
-    const execDestinations = (agent as any).execution?.destinations || []
+    const execDestinations = agentAny.execution?.destinations || []
     resolveDestList(execDestinations)
     
     // 2. Check listener.reportTo for explicit destinations
@@ -476,7 +489,10 @@ export class InputCoordinator {
       const boxNumMatch = String(dest).match(/(?:box|Box)\s*(\d+)/i)
       if (boxNumMatch) {
         const targetBoxNum = parseInt(boxNumMatch[1], 10)
-        const box = agentBoxes.find(b => Number(b.boxNumber) === targetBoxNum && b.enabled !== false)
+        // Prefer box whose agentNumber matches this agent
+        const candidateBoxes = agentBoxes.filter(b => Number(b.boxNumber) === targetBoxNum && b.enabled !== false)
+        const box = candidateBoxes.find(b => Number(b.agentNumber) === Number(agent.number))
+          ?? candidateBoxes[0]
         if (box && !matchedBoxes.some(mb => mb.id === box.id)) {
           this.log(`Agent "${agent.name}" → ReportTo destination: Agent Box ${targetBoxNum}`)
           matchedBoxes.push(box)
@@ -554,6 +570,13 @@ export class InputCoordinator {
     if (matchedBoxes.length === 0) {
       this.log(`Agent "${agent.name}" has no connected boxes (checked: specialDestinations, reportTo, number matching, agentId, box-number fallback)`)
     }
+
+    console.log(`[InputCoordinator] findAgentBoxesForAgent "${agent.name}" result:`, {
+      totalBoxesAvailable: agentBoxes.length,
+      allBoxSummary: agentBoxes.map(b => `${b.id}(agentNum=${b.agentNumber},boxNum=${b.boxNumber},source=${(b as any).source})`),
+      matchedBoxCount: matchedBoxes.length,
+      matchedBoxIds: matchedBoxes.map(b => b.id),
+    })
     
     return matchedBoxes
   }

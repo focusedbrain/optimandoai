@@ -972,6 +972,9 @@ export async function routeInput(
   }
 
   // Match input to agents using full routing rules
+  console.log('[ProcessFlow] routeInput boxes for matching:', agentBoxes.map(b => ({
+    id: b.id, identifier: (b as any).identifier, boxNumber: b.boxNumber, agentNumber: b.agentNumber, source: (b as any).source, enabled: b.enabled
+  })))
   const matchedAgents = matchInputToAgents(
     input,
     inputType,
