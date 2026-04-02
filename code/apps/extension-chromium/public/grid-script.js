@@ -33,7 +33,7 @@ if (window.gridScriptLoaded) {
   window.openGridSlotEditor = function(slotId) {
     const slot = document.querySelector('[data-slot-id="' + slotId + '"]');
     if (!slot) {
-      console.error('âŒ POPUP: No slot found with id:', slotId);
+      console.error('❌ POPUP: No slot found with id:', slotId);
       return;
     }
     
@@ -42,7 +42,7 @@ if (window.gridScriptLoaded) {
     try { 
       cfg = JSON.parse(configStr);
     } catch(e) { 
-      console.error('âŒ POPUP: Failed to parse config:', e);
+      console.error('❌ POPUP: Failed to parse config:', e);
       cfg = {};
     }
     
@@ -58,7 +58,7 @@ if (window.gridScriptLoaded) {
       if (p === 'claude') return ['auto', 'claude-3-5-sonnet', 'claude-3-opus'];
       if (p === 'gemini') return ['auto', 'gemini-1.5-flash', 'gemini-1.5-pro'];
       if (p === 'grok') return ['auto', 'grok-2-mini', 'grok-2'];
-      if (p === 'image ai') return ['Nano Banana Pro', 'DALLÂ·E 3', 'DALLÂ·E 2', 'Flux Schnell', 'Flux Dev', 'SDXL', 'SD3 Medium', 'Stable Diffusion XL'];
+      if (p === 'image ai') return ['Nano Banana Pro', 'DALL·E 3', 'DALL·E 2', 'Flux Schnell', 'Flux Dev', 'SDXL', 'SD3 Medium', 'Stable Diffusion XL'];
       return ['auto'];
     }
 
@@ -66,7 +66,7 @@ if (window.gridScriptLoaded) {
       return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     }
 
-    /** Same source as WR Chat: ELECTRON_RPC llm.status â†’ installed Ollama models */
+    /** Same source as WR Chat: ELECTRON_RPC llm.status → installed Ollama models */
     function fetchLocalModelNames(cb) {
       if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.sendMessage) {
         cb([], 'Extension runtime unavailable');
@@ -96,7 +96,7 @@ if (window.gridScriptLoaded) {
     function fillModelSelect(modelSelect, provider, preferredModel) {
       var p = (provider || '').toLowerCase();
       if (p === 'local ai' || p === 'ollama') {
-        modelSelect.innerHTML = '<option value="">Loading installed modelsâ€¦</option>';
+        modelSelect.innerHTML = '<option value="">Loading installed models…</option>';
         modelSelect.disabled = true;
         fetchLocalModelNames(function (names, err) {
           modelSelect.disabled = false;
@@ -150,7 +150,7 @@ if (window.gridScriptLoaded) {
     
     // Defensive check: ensure providers array exists
     if (!providers || !Array.isArray(providers) || providers.length === 0) {
-      console.error('âŒ POPUP: Providers array is invalid!', providers);
+      console.error('❌ POPUP: Providers array is invalid!', providers);
     }
     
     
@@ -206,7 +206,7 @@ if (window.gridScriptLoaded) {
       
       function tryNextPort() {
         if (currentPortIndex >= ports.length) {
-          console.error('âŒ All HTTP ports failed');
+          console.error('❌ All HTTP ports failed');
           callback(null);
           return;
         }
@@ -247,7 +247,7 @@ if (window.gridScriptLoaded) {
           sessionKey: parentSessionKey
         }, function(response) {
           if (chrome.runtime.lastError) {
-            console.error('âŒ Background script error:', chrome.runtime.lastError.message);
+            console.error('❌ Background script error:', chrome.runtime.lastError.message);
             // Fall back to direct HTTP API
             getSessionFromHttpApi(parentSessionKey, function(session) {
               if (session) {
@@ -311,11 +311,11 @@ if (window.gridScriptLoaded) {
       '<h3 style="margin:0;padding:16px 20px;font-size:18px;font-weight:600;color:#333;border-bottom:1px solid #eee;flex-shrink:0;">Setup Agent Box #' + slotId + '</h3>' +
       '<div style="flex:1;overflow-y:auto;overflow-x:hidden;padding:16px 20px;">' +
       
-      // ðŸ†• Agent Box Number field
+      // 🆕 Agent Box Number field
       '<div style="margin-bottom:14px;background:#f0f9ff;padding:12px;border-radius:8px;border:2px solid #3b82f6">' +
-        '<label style="display:block;margin-bottom:8px;font-weight:700;color:#1e40af;font-size:14px">ðŸ“¦ Agent Box Number</label>' +
+        '<label style="display:block;margin-bottom:8px;font-weight:700;color:#1e40af;font-size:14px">📦 Agent Box Number</label>' +
         '<input type="text" value="' + displayBoxNumber + '" readonly style="width:100%;padding:12px;border:2px solid #93c5fd;border-radius:8px;font-size:16px;font-weight:700;background:#dbeafe;color:#1e40af;text-align:center;letter-spacing:2px">' +
-        '<div style="font-size:11px;color:#1e40af;margin-top:6px;font-weight:600">âœ¨ Auto-incremented from last box in session</div>' +
+        '<div style="font-size:11px;color:#1e40af;margin-top:6px;font-weight:600">✨ Auto-incremented from last box in session</div>' +
       '</div>' +
       
       '<div style="margin-bottom:14px">' +
@@ -345,7 +345,7 @@ if (window.gridScriptLoaded) {
         '<select id="gs-model" style="width:100%;padding:12px;border:2px solid #ddd;border-radius:8px;font-size:14px;cursor:pointer;transition:border-color 0.2s">' +
           (currentProvider ?
             (models[0] === '__loading__'
-              ? '<option value="">Loading installed modelsâ€¦</option>'
+              ? '<option value="">Loading installed models…</option>'
               : models.map(function(m) {
                   var esc = String(m).replace(/&/g, '&amp;').replace(/"/g, '&quot;');
                   return '<option value="' + esc + '"' + ((cfg.model || '') === m ? ' selected' : '') + '>' + esc + '</option>';
@@ -359,8 +359,8 @@ if (window.gridScriptLoaded) {
       '</div>' +
       '<div style="margin-top:12px;margin-bottom:14px;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden">' +
         '<div id="gs-experts-header" style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:#f8fafc;cursor:pointer;user-select:none">' +
-          '<span style="font-weight:600;color:#334155;font-size:13px">ðŸ“š WR Experts <span style="font-weight:400;color:#94a3b8;font-size:11px">(agent-level knowledge)</span></span>' +
-          '<span id="gs-experts-toggle" style="font-size:11px;color:#64748b">â–¼</span>' +
+          '<span style="font-weight:600;color:#334155;font-size:13px">📚 WR Experts <span style="font-weight:400;color:#94a3b8;font-size:11px">(agent-level knowledge)</span></span>' +
+          '<span id="gs-experts-toggle" style="font-size:11px;color:#64748b">▼</span>' +
         '</div>' +
         '<div id="gs-experts-body" style="display:none;padding:12px;border-top:1px solid #e2e8f0">' +
           '<div id="gs-experts-list" style="display:flex;flex-direction:column;gap:8px;margin-bottom:8px"></div>' +
@@ -392,7 +392,7 @@ if (window.gridScriptLoaded) {
       var modelSelect = document.getElementById('gs-model');
       
       if (!providerSelect || providerSelect.tagName !== 'SELECT') {
-        console.error('âŒ POPUP: Provider select missing or wrong type! Found:', providerSelect);
+        console.error('❌ POPUP: Provider select missing or wrong type! Found:', providerSelect);
         // Try to recreate it
         var providerLabel = dialog.querySelector('label[for="gs-provider"], label:has(+ #gs-provider)');
         if (providerLabel && providerLabel.nextElementSibling) {
@@ -411,7 +411,7 @@ if (window.gridScriptLoaded) {
       }
       
       if (!modelSelect || modelSelect.tagName !== 'SELECT') {
-        console.error('âŒ POPUP: Model select missing or wrong type! Found:', modelSelect);
+        console.error('❌ POPUP: Model select missing or wrong type! Found:', modelSelect);
         // Try to recreate it
         var modelLabel = dialog.querySelector('label[for="gs-model"], label:has(+ #gs-model)');
         if (modelLabel && modelLabel.nextElementSibling) {
@@ -421,7 +421,7 @@ if (window.gridScriptLoaded) {
           newSelect.style.cssText = 'width:100%;padding:12px;border:2px solid #ddd;border-radius:8px;font-size:14px;cursor:pointer;transition:border-color 0.2s';
           if (currentProvider) {
             if (currentProvider.toLowerCase() === 'local ai' || storedProvider === 'ollama') {
-              newSelect.innerHTML = '<option value="">Loading installed modelsâ€¦</option>';
+              newSelect.innerHTML = '<option value="">Loading installed models…</option>';
             } else {
               var modelOpts = modelOptionsStatic(currentProvider);
               newSelect.innerHTML = modelOpts.map(function(m) {
@@ -486,7 +486,7 @@ if (window.gridScriptLoaded) {
       var wrap = dialog.querySelector('#gs-tools'); if (!wrap) return;
       wrap.innerHTML = (cfg.tools || []).map(function(name, idx){
         return '<span data-idx="'+idx+'" style="display:inline-flex;align-items:center;gap:6px;background:#eef2ff;color:#1e3a8a;border:1px solid #c7d2fe;padding:4px 8px;border-radius:999px;font-size:12px">'+
-               name + '<button class="gs-tool-rm" data-idx="'+idx+'" style="background:transparent;border:0;color:#1e3a8a;cursor:pointer;font-weight:700">Ã—</button></span>'
+               name + '<button class="gs-tool-rm" data-idx="'+idx+'" style="background:transparent;border:0;color:#1e3a8a;cursor:pointer;font-weight:700">×</button></span>'
       }).join('');
       (wrap.querySelectorAll('.gs-tool-rm') || []).forEach(function(btn){
         btn.addEventListener('click', function(){
@@ -566,7 +566,7 @@ if (window.gridScriptLoaded) {
           if (dispEl) dispEl.textContent = '';
           
         } catch (e) {
-          console.error('âŒ Error updating slot display:', e);
+          console.error('❌ Error updating slot display:', e);
         }
         
         // Close dialog IMMEDIATELY (don't wait for background response)
@@ -589,7 +589,7 @@ if (window.gridScriptLoaded) {
           } else {
           }
         } catch (e) {
-          console.error('âŒ Error sending delete message:', e);
+          console.error('❌ Error sending delete message:', e);
         }
       }
     };
@@ -602,7 +602,7 @@ if (window.gridScriptLoaded) {
       expertsHeader.onclick = function() {
         var isOpen = expertsBody.style.display !== 'none';
         expertsBody.style.display = isOpen ? 'none' : 'block';
-        expertsToggle.textContent = isOpen ? 'â–¼' : 'â–²';
+        expertsToggle.textContent = isOpen ? '▼' : '▲';
       };
     }
     
@@ -621,7 +621,7 @@ if (window.gridScriptLoaded) {
           '<div style="font-size:10px;color:#cbd5e1;margin-top:2px">' + (expert.content || '').length + ' chars</div></div>' +
           '<div style="display:flex;gap:4px;flex-shrink:0">' +
             '<button class="gs-edit-expert" data-idx="' + idx + '" style="background:#eff6ff;border:1px solid #93c5fd;color:#2563eb;padding:3px 8px;border-radius:4px;cursor:pointer;font-size:11px">Edit</button>' +
-            '<button class="gs-del-expert" data-idx="' + idx + '" style="background:#fef2f2;border:1px solid #fca5a5;color:#dc2626;padding:3px 8px;border-radius:4px;cursor:pointer;font-size:11px">Ã—</button>' +
+            '<button class="gs-del-expert" data-idx="' + idx + '" style="background:#fef2f2;border:1px solid #fca5a5;color:#dc2626;padding:3px 8px;border-radius:4px;cursor:pointer;font-size:11px">×</button>' +
           '</div>';
         list.appendChild(row);
       });
@@ -728,7 +728,7 @@ if (window.gridScriptLoaded) {
       } else if (provider) {
         displayParts.push(toProviderLabelGS(provider));
       }
-      var displayText = displayParts.join(' Â· ');
+      var displayText = displayParts.join(' · ');
       var dispEl = slot.querySelector('.slot-display-text');
       if (dispEl) dispEl.textContent = displayText;
       
@@ -736,7 +736,7 @@ if (window.gridScriptLoaded) {
       var parentSessionKey = (window.GRID_CONFIG && window.GRID_CONFIG.sessionKey) || '';
       
       if (!parentSessionKey) {
-        alert('âŒ No session key found! Cannot save.');
+        alert('❌ No session key found! Cannot save.');
         overlay.remove();
         return;
       }
@@ -763,15 +763,15 @@ if (window.gridScriptLoaded) {
       
       // Field validation
       if (!agentBox.boxNumber) {
-        console.error('âŒ VALIDATION ERROR: boxNumber is missing!');
-        alert('âŒ Error: Box number is missing. Cannot save agent box.');
+        console.error('❌ VALIDATION ERROR: boxNumber is missing!');
+        alert('❌ Error: Box number is missing. Cannot save agent box.');
         overlay.remove();
         return;
       }
       
       if (!agentBox.identifier) {
-        console.error('âŒ VALIDATION ERROR: identifier is missing!');
-        alert('âŒ Error: Identifier is missing. Cannot save agent box.');
+        console.error('❌ VALIDATION ERROR: identifier is missing!');
+        alert('❌ Error: Identifier is missing. Cannot save agent box.');
         overlay.remove();
         return;
       }
@@ -807,21 +807,21 @@ if (window.gridScriptLoaded) {
         }
       }, function(response) {
         if (chrome.runtime.lastError) {
-          console.error('âŒ SQLITE SAVE: Chrome runtime error:', chrome.runtime.lastError.message);
+          console.error('❌ SQLITE SAVE: Chrome runtime error:', chrome.runtime.lastError.message);
           // Don't show popup - just log and close dialog
           overlay.remove();
           return;
         }
         
         if (!response || !response.success) {
-          console.error('âŒ SQLITE SAVE: Failed:', response ? response.error : 'No response');
+          console.error('❌ SQLITE SAVE: Failed:', response ? response.error : 'No response');
           // Don't show popup - just log and close dialog
           overlay.remove();
           return;
         }
         
         
-        // âœ… Only increment nextBoxNumber for NEW boxes (not when editing)
+        // ✅ Only increment nextBoxNumber for NEW boxes (not when editing)
         if (!isEditing) {
           window.nextBoxNumber++;
         } else {
@@ -866,12 +866,12 @@ if (window.gridScriptLoaded) {
           timestamp: Date.now()
         }, function(response) {
           if (chrome.runtime.lastError) {
-            console.error('âŒ chrome.runtime.sendMessage failed:', chrome.runtime.lastError);
+            console.error('❌ chrome.runtime.sendMessage failed:', chrome.runtime.lastError);
             // Try window.opener fallback
             tryOpenerSave();
           } else if (response && response.success) {
             
-            // âœ… Only increment nextBoxNumber for NEW boxes (not when editing)
+            // ✅ Only increment nextBoxNumber for NEW boxes (not when editing)
             if (!isEditing) {
               window.nextBoxNumber++;
             } else {
@@ -880,7 +880,7 @@ if (window.gridScriptLoaded) {
             // Close dialog silently
             overlay.remove();
           } else {
-            console.error('âŒ Save failed:', response);
+            console.error('❌ Save failed:', response);
             tryOpenerSave();
           }
         });
@@ -900,7 +900,7 @@ if (window.gridScriptLoaded) {
           window.opener.optimandoSaveGridConfig(payload, parentSessionKey)
             .then(function(response) {
               
-              // âœ… Only increment nextBoxNumber for NEW boxes (not when editing)
+              // ✅ Only increment nextBoxNumber for NEW boxes (not when editing)
               if (!isEditing) {
                 window.nextBoxNumber++;
               } else {
@@ -910,11 +910,11 @@ if (window.gridScriptLoaded) {
               overlay.remove();
             })
             .catch(function(error) {
-              console.error('âŒ Opener function call failed:', error);
+              console.error('❌ Opener function call failed:', error);
               alert('Failed to save: ' + (error.message || 'Unknown error'));
             });
         } else {
-          console.error('âŒ No window.opener.optimandoSaveGridConfig function available!');
+          console.error('❌ No window.opener.optimandoSaveGridConfig function available!');
           
           // Last resort: Try postMessage
           if (window.opener) {
@@ -923,7 +923,7 @@ if (window.gridScriptLoaded) {
               if (event.data && event.data.type === 'OPTIMANDO_GRID_SAVE_SUCCESS') {
                 window.removeEventListener('message', responseHandler);
                 
-                // âœ… Only increment nextBoxNumber for NEW boxes (not when editing)
+                // ✅ Only increment nextBoxNumber for NEW boxes (not when editing)
                 if (!isEditing) {
                   window.nextBoxNumber++;
                 } else {
@@ -932,7 +932,7 @@ if (window.gridScriptLoaded) {
                 // Close dialog silently
                 overlay.remove();
               } else if (event.data && event.data.type === 'OPTIMANDO_GRID_SAVE_ERROR') {
-                console.error('âŒ Grid: Save failed via postMessage');
+                console.error('❌ Grid: Save failed via postMessage');
                 window.removeEventListener('message', responseHandler);
                 alert('Failed to save: ' + (event.data.error || 'Unknown error'));
               }
@@ -971,7 +971,7 @@ if (window.gridScriptLoaded) {
   }
   function openToolCatalog(slotId){
     var slot = document.querySelector('[data-slot-id="' + slotId + '"]');
-    if (!slot){ console.error('âŒ TOOL: slot not found', slotId); return }
+    if (!slot){ console.error('❌ TOOL: slot not found', slotId); return }
     var overlay = document.createElement('div');
     overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);backdrop-filter:blur(3px);z-index:2147483647;display:flex;align-items:center;justify-content:center';
     overlay.onclick = function(e){ if (e.target === overlay) overlay.remove() };
@@ -1019,7 +1019,7 @@ if (window.gridScriptLoaded) {
     }
   }, true);
 
-  // âœ… REMOVED: Old loading system that conflicted with locationId-based loading in grid-display.js
+  // ✅ REMOVED: Old loading system that conflicted with locationId-based loading in grid-display.js
   // Config loading is now handled in grid-display.js using locationId from session.agentBoxes
 
   // Fullscreen functionality
@@ -1062,7 +1062,7 @@ if (window.gridScriptLoaded) {
       const slotId = btn.getAttribute('data-slot-id') || btn.getAttribute('data-slot-num');
       
       if (!slotId) {
-        console.warn('âš ï¸ Edit button found without slot ID');
+        console.warn('⚠️ Edit button found without slot ID');
         return;
       }
       
@@ -1074,7 +1074,7 @@ if (window.gridScriptLoaded) {
         if (typeof window.openGridSlotEditor === 'function') {
           window.openGridSlotEditor(slotId);
         } else {
-          console.error('âŒ openGridSlotEditor not available');
+          console.error('❌ openGridSlotEditor not available');
         }
       });
       
@@ -1144,7 +1144,7 @@ if (window.gridScriptLoaded) {
       var slotId = toggle.getAttribute('data-slot-id');
       
       if (!slotId) {
-        console.warn('âš ï¸ Toggle found without slot ID');
+        console.warn('⚠️ Toggle found without slot ID');
         return;
       }
       
@@ -1242,7 +1242,7 @@ if (window.gridScriptLoaded) {
 
   function gridSlotEmptyPlaceholderHtml(cfg) {
     var agent = cfg.agent || '';
-    return '<div style="opacity: 0.6;">' + (agent ? 'Configured âœ“' : 'Click âœï¸ to configure') + '</div>';
+    return '<div style="opacity: 0.6;">' + (agent ? 'Configured ✓' : 'Click ✏️ to configure') + '</div>';
   }
 
   document.addEventListener('click', function(ev) {

@@ -100,8 +100,8 @@ if (typeof chrome !== 'undefined' && chrome.runtime && sessionKey) {
         sessionKey: sessionKey
     }, function(response) {
         if (chrome.runtime.lastError) {
-            console.error('âŒ Error loading session from SQLite:', chrome.runtime.lastError.message);
-            console.error('âŒ SQLite is required - check Electron app!');
+            console.error('❌ Error loading session from SQLite:', chrome.runtime.lastError.message);
+            console.error('❌ SQLite is required - check Electron app!');
             // Create empty slots on error
             createSlots(config.slots, {});
             return;
@@ -115,14 +115,14 @@ if (typeof chrome !== 'undefined' && chrome.runtime && sessionKey) {
         const session = response.session;
         const savedSlotsByLocation = {};
         
-        // ðŸ” DEBUG: Log what we received
+        // 🔍 DEBUG: Log what we received
         
         // Map agent boxes to slots by locationId
         if (session.agentBoxes && Array.isArray(session.agentBoxes)) {
             const gridPrefix = 'grid_' + sessionId + '_' + layout;
             
             
-            // ðŸ” DEBUG: Log all agentBoxes to see what we have
+            // 🔍 DEBUG: Log all agentBoxes to see what we have
             session.agentBoxes.forEach((box, index) => {
             });
             
@@ -182,7 +182,7 @@ function createSlots(slotCount, savedSlots) {
         } else if (savedProvider) {
             displayParts.push(savedProvider);
         }
-        const displayText = displayParts.join(' Â· ');
+        const displayText = displayParts.join(' · ');
         
         // Determine if this slot should span rows (for 5-slot and 7-slot layouts)
         let gridRowStyle = '';
@@ -233,7 +233,7 @@ function createSlots(slotCount, savedSlots) {
         header.innerHTML = `
             <div style="display: flex; align-items: center; color: ${textColor}; font-weight: bold; min-width: 0; flex: 1;">
                 <span style="margin-right: 4px; white-space: nowrap; font-family: monospace; font-size: 10px;">${abCode}</span>
-                <span style="margin-right: 4px;">ðŸ–¥ï¸</span>
+                <span style="margin-right: 4px;">🖥️</span>
                 <span class="slot-display-text" style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 2px 6px;">${displayText}</span>
             </div>
             <div style="display: flex; align-items: center; flex-shrink: 0; gap: 6px;">
@@ -243,7 +243,7 @@ function createSlots(slotCount, savedSlots) {
                     <span style="position: absolute; top: 0; left: 0; right: 0; bottom: 0; background-color: #4CAF50; border-radius: 18px; transition: 0.3s;"></span>
                     <span style="position: absolute; content: ''; height: 12px; width: 12px; left: 17px; bottom: 3px; background-color: white; border-radius: 50%; transition: 0.3s; box-shadow: 0 1px 2px rgba(0,0,0,0.3);"></span>
                 </label>
-                <button class="edit-slot" data-slot-id="${slotNum}" style="background: ${resolvedTheme === 'standard' ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.2)'}; border: none; color: ${textColor}; width: 20px; height: 20px; border-radius: 50%; cursor: pointer; font-size: 11px; display: flex; align-items: center; justify-content: center; transition: all 0.2s ease;">âœï¸</button>
+                <button class="edit-slot" data-slot-id="${slotNum}" style="background: ${resolvedTheme === 'standard' ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.2)'}; border: none; color: ${textColor}; width: 20px; height: 20px; border-radius: 50%; cursor: pointer; font-size: 11px; display: flex; align-items: center; justify-content: center; transition: all 0.2s ease;">✏️</button>
             </div>
         `;
         
@@ -274,7 +274,7 @@ function createSlots(slotCount, savedSlots) {
             const escaped = saved.output.replace(/</g, '&lt;').replace(/>/g, '&gt;');
             content.innerHTML = `<div style="white-space: pre-wrap; word-break: break-word; width: 100%; font-size: 13px; line-height: 1.5;">${escaped}</div>`;
         } else {
-            content.innerHTML = `<div style="opacity: 0.6;">${savedAgent ? 'Configured âœ“' : 'Click âœï¸ to configure'}</div>`;
+            content.innerHTML = `<div style="opacity: 0.6;">${savedAgent ? 'Configured ✓' : 'Click ✏️ to configure'}</div>`;
         }
         
         slot.appendChild(header);
@@ -313,7 +313,7 @@ function addFullscreenButton() {
         font-size: 20px;
         transition: all 0.2s ease;
     `;
-    fullscreenBtn.innerHTML = 'â›¶';
+    fullscreenBtn.innerHTML = '⛶';
     
     fullscreenBtn.addEventListener('mouseenter', function() {
         fullscreenBtn.style.transform = 'scale(1.1)';

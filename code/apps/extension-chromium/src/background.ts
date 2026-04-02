@@ -51,7 +51,7 @@ let mailGuardActiveTabId: number | null = null;
 let _cachedVsbt: string | null = null;
 
 // ---------------------------------------------------------------------------
-// VSBT TTL â€” the cached token expires after VSBT_MAX_AGE_MS.
+// VSBT TTL — the cached token expires after VSBT_MAX_AGE_MS.
 // If the Electron app is unreachable (crash, WS disconnect) the TTL ensures
 // the extension cannot keep using a stale session indefinitely.
 // The timestamp is set whenever _cacheVsbt(token) stores a non-null token.
@@ -61,7 +61,7 @@ export const VSBT_MAX_AGE_MS = 15 * 60 * 1000
 let _vsbtCachedAt = 0
 
 // ---------------------------------------------------------------------------
-// LAUNCH SECRET â€” per-launch HTTP authentication token.
+// LAUNCH SECRET — per-launch HTTP authentication token.
 // Received from the Electron main process via WebSocket handshake
 // (ELECTRON_HANDSHAKE message).  Attached as X-Launch-Secret header
 // on every HTTP request to 127.0.0.1:51248.  Rotates on every
@@ -70,13 +70,13 @@ let _vsbtCachedAt = 0
 let _launchSecret: string | null = null;
 
 // ---------------------------------------------------------------------------
-// WebMCP rate-limit tracking: maps tabId â†’ last invocation timestamp (ms).
+// WebMCP rate-limit tracking: maps tabId → last invocation timestamp (ms).
 // Enforces a minimum 2s gap between WEBMCP_FILL_PREVIEW calls per tab.
 // ---------------------------------------------------------------------------
 let _webMcpRateMap: Map<number, number> | null = null;
 
 // ---------------------------------------------------------------------------
-// WebMCP global rate limiter â€” sliding window (MAX_WEBMCP_PER_MIN in 60s)
+// WebMCP global rate limiter — sliding window (MAX_WEBMCP_PER_MIN in 60s)
 // ---------------------------------------------------------------------------
 /** Max WEBMCP_FILL_PREVIEW requests accepted globally in a 60-second window. */
 export const MAX_WEBMCP_PER_MIN = 20
@@ -85,7 +85,7 @@ const WEBMCP_WINDOW_MS = 60_000
 let _webMcpGlobalTimestamps: number[] = []
 
 // ---------------------------------------------------------------------------
-// WebMCP circuit breaker â€” trips after repeated rejection-class errors
+// WebMCP circuit breaker — trips after repeated rejection-class errors
 // ---------------------------------------------------------------------------
 /** Rejects in the observation window that trip the circuit. */
 export const WEBMCP_CB_THRESHOLD = 10
@@ -103,18 +103,18 @@ let _webMcpCbOpenedAt = 0
  * Fail-closed numeric sanitizer for rate-limit / circuit-breaker constants.
  *
  * Returns `fallback` if `value` is not a finite positive number.
- * Security degrades to STRICTER defaults â€” never looser.
+ * Security degrades to STRICTER defaults — never looser.
  */
 function _safePositiveInt(value: number, fallback: number): number {
   if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) return fallback
   return Math.floor(value)
 }
 
-/** Sanitized accessor for MAX_WEBMCP_PER_MIN (fallback: 10 â€” stricter). */
+/** Sanitized accessor for MAX_WEBMCP_PER_MIN (fallback: 10 — stricter). */
 function _effectiveMaxPerMin(): number { return _safePositiveInt(MAX_WEBMCP_PER_MIN, 10) }
 /** Sanitized accessor for WEBMCP_WINDOW_MS (fallback: 60 000). */
 function _effectiveWindowMs(): number { return _safePositiveInt(WEBMCP_WINDOW_MS, 60_000) }
-/** Sanitized accessor for WEBMCP_CB_THRESHOLD (fallback: 5 â€” stricter). */
+/** Sanitized accessor for WEBMCP_CB_THRESHOLD (fallback: 5 — stricter). */
 function _effectiveCbThreshold(): number { return _safePositiveInt(WEBMCP_CB_THRESHOLD, 5) }
 /** Sanitized accessor for WEBMCP_CB_WINDOW_MS (fallback: 30 000). */
 function _effectiveCbWindowMs(): number { return _safePositiveInt(WEBMCP_CB_WINDOW_MS, 30_000) }
@@ -140,12 +140,12 @@ function _recordWebMcpReject(now: number): void {
 
   if (_webMcpCbRejects.length >= cbThreshold) {
     _webMcpCbOpenedAt = now
-    console.warn('[BG] WEBMCP_CIRCUIT_OPEN: too many rejected requests â€” blocking for', cbCooldownMs, 'ms')
+    console.warn('[BG] WEBMCP_CIRCUIT_OPEN: too many rejected requests — blocking for', cbCooldownMs, 'ms')
   }
 }
 
 // ---------------------------------------------------------------------------
-// Audit Export â€” UI context allowlist
+// Audit Export — UI context allowlist
 //
 // EXPORT_AUDIT_LOG is privileged: only popup-chat.html and sidepanel.html may call
 // it, and only when the vault is unlocked (VSBT present).
@@ -165,7 +165,7 @@ export type AuditExportErrorCode = 'FORBIDDEN' | 'LOCKED' | 'HA_BLOCKED' | 'INTE
  * (popup or sidepanel), NOT from a content-script or external page.
  *
  * Fail-closed checks (all must pass):
- *   1. sender.tab must NOT be defined â€” content scripts always have a tab,
+ *   1. sender.tab must NOT be defined — content scripts always have a tab,
  *      whereas popup / sidepanel messages do not attach a tab object.
  *   2. sender.url must be a non-empty string starting with
  *      chrome-extension://<extensionId>/.
@@ -181,7 +181,7 @@ function _isExtensionUiContext(
 ): boolean {
   if (!sender || !sender.url || typeof sender.url !== 'string') return false
 
-  // â”€â”€ Fail-closed: content scripts always have sender.tab â”€â”€
+  // ── Fail-closed: content scripts always have sender.tab ──
   // Popup / sidepanel messages do NOT have sender.tab.
   if (sender.tab) return false
 
@@ -201,11 +201,11 @@ function _isExtensionUiContext(
  *
  * The VSBT is set on successful vault login and cleared on logout/lock/WS-close.
  * Expires after VSBT_MAX_AGE_MS (fail-closed: stale token = locked).
- * This is a synchronous, zero-overhead check â€” no Electron RPC needed.
+ * This is a synchronous, zero-overhead check — no Electron RPC needed.
  */
 function _isVaultUnlocked(): boolean {
   if (typeof _cachedVsbt !== 'string' || _cachedVsbt.length === 0) return false
-  // TTL check â€” if the token is older than VSBT_MAX_AGE_MS, treat as expired
+  // TTL check — if the token is older than VSBT_MAX_AGE_MS, treat as expired
   if (_vsbtCachedAt > 0 && (Date.now() - _vsbtCachedAt) >= VSBT_MAX_AGE_MS) {
     _cacheVsbt(null) // proactively clear expired token
     return false
@@ -217,13 +217,13 @@ function _isVaultUnlocked(): boolean {
  * Log an EXPORT_AUDIT_LOG access decision (allowed or blocked).
  *
  * Uses dynamic import of hardening to avoid top-level dependency.
- * Message is generic â€” no tabId, URL, sender.url, vault state, or secrets.
+ * Message is generic — no tabId, URL, sender.url, vault state, or secrets.
  *
  * Codes:
- *   EXPORT_AUDIT_ALLOWED          â€” successful export (info / security under HA)
- *   EXPORT_AUDIT_BLOCKED_CONTEXT  â€” sender is not an allowed UI context
- *   EXPORT_AUDIT_BLOCKED_LOCKED   â€” vault is locked / VSBT absent
- *   EXPORT_AUDIT_BLOCKED_HA       â€” blocked because HA mode is active (always security)
+ *   EXPORT_AUDIT_ALLOWED          — successful export (info / security under HA)
+ *   EXPORT_AUDIT_BLOCKED_CONTEXT  — sender is not an allowed UI context
+ *   EXPORT_AUDIT_BLOCKED_LOCKED   — vault is locked / VSBT absent
+ *   EXPORT_AUDIT_BLOCKED_HA       — blocked because HA mode is active (always security)
  *
  * @param code  Audit event code
  * @param msg   Short, safe message (no PII/secrets/URLs)
@@ -261,7 +261,7 @@ function _auditExportLog(
 async function ensureLaunchSecret(maxWaitMs = 10000): Promise<boolean> {
   if (_launchSecret) return true;
 
-  // Trigger WebSocket (re)connection â€” this is a no-op if already connected
+  // Trigger WebSocket (re)connection — this is a no-op if already connected
   try { await connectToWebSocketServer(); } catch { /* ignore */ }
 
   // Poll until the handshake delivers the secret or we time out
@@ -295,7 +295,7 @@ if (typeof chrome !== 'undefined' && chrome.storage?.session) {
         _cachedVsbt = result._vsbt
         _vsbtCachedAt = result._vsbtAt
       } else {
-        // Expired â€” clear stale session storage
+        // Expired — clear stale session storage
         chrome.storage.session.remove(['_vsbt', '_vsbtAt']).catch(() => {})
       }
     }
@@ -344,7 +344,7 @@ async function performHealthCheck(): Promise<void> {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), HEALTH_CHECK_TIMEOUT);
     
-    // Use /api/health instead of /api/orchestrator/status â€” the health endpoint
+    // Use /api/health instead of /api/orchestrator/status — the health endpoint
     // is always available and doesn't depend on optional services like the DB.
     // /api/orchestrator/status can return 500 if the SQLite service fails to init,
     // causing the extension to incorrectly report "Desktop app not running."
@@ -453,7 +453,7 @@ const DEFAULT_RETRY_CONFIG = {
 };
 
 // =================================================================
-// Build Integrity Check â€” defense-in-depth kill-switch trigger
+// Build Integrity Check — defense-in-depth kill-switch trigger
 // =================================================================
 //
 // On extension startup, queries the Electron app's /api/integrity
@@ -462,7 +462,7 @@ const DEFAULT_RETRY_CONFIG = {
 //
 // This is a best-effort check: if the Electron app is not running
 // or the endpoint is unreachable, writes remain enabled (fail-open
-// for availability â€” the kill-switch can still be set manually).
+// for availability — the kill-switch can still be set manually).
 //
 
 async function checkElectronIntegrity(): Promise<void> {
@@ -485,7 +485,7 @@ async function checkElectronIntegrity(): Promise<void> {
     const status = await response.json()
 
     if (status && status.verified === false) {
-      console.warn('[BG-INTEGRITY] âš  BUILD NOT VERIFIED â€” enabling writes kill-switch')
+      console.warn('[BG-INTEGRITY] ⚠ BUILD NOT VERIFIED — enabling writes kill-switch')
       console.warn('[BG-INTEGRITY] Reason:', status.summary)
 
       // Enable the writes kill-switch via chrome.storage.local
@@ -499,7 +499,7 @@ async function checkElectronIntegrity(): Promise<void> {
     } else if (status && status.verified === true) {
     }
   } catch {
-    // Electron not running or endpoint unreachable â€” fail open for availability
+    // Electron not running or endpoint unreachable — fail open for availability
     // The kill-switch can still be manually enabled if needed.
   }
 }
@@ -622,7 +622,7 @@ async function ensureElectronRunning(): Promise<boolean> {
  */
 function calculateBackoff(attempt: number, baseDelay: number, maxDelay: number): number {
   const delay = Math.min(baseDelay * Math.pow(2, attempt), maxDelay);
-  // Add jitter (Â±25%)
+  // Add jitter (±25%)
   const jitter = delay * 0.25 * (Math.random() * 2 - 1);
   return Math.floor(delay + jitter);
 }
@@ -673,7 +673,7 @@ async function electronRequest(
   if (!electronRunning) {
     return { 
       ok: false, 
-      error: 'WR Deskâ„¢ desktop app is not running. Please start it manually or check if it is installed.',
+      error: 'WR Desk™ desktop app is not running. Please start it manually or check if it is installed.',
       errorCode: 'ELECTRON_NOT_RUNNING'
     };
   }
@@ -701,7 +701,7 @@ async function electronRequest(
         if (!(await ensureElectronRunning())) {
           return {
             ok: false,
-            error: 'WR Deskâ„¢ desktop app stopped unexpectedly. Please restart it.',
+            error: 'WR Desk™ desktop app stopped unexpectedly. Please restart it.',
             errorCode: 'ELECTRON_STOPPED'
           };
         }
@@ -764,7 +764,7 @@ async function electronRequest(
       }
 
       const data = await response.json();
-      /** WR Desk APIs use `{ ok: boolean, data?, error? }` with HTTP 200 â€” honor body.ok for truthful success. */
+      /** WR Desk APIs use `{ ok: boolean, data?, error? }` with HTTP 200 — honor body.ok for truthful success. */
       if (data && typeof data === 'object' && 'ok' in data && data.ok === false) {
         const body = data as {
           ok?: boolean
@@ -809,7 +809,7 @@ async function electronRequest(
       }
 
       if (err.message?.includes('Failed to fetch') || err.message?.includes('NetworkError')) {
-        lastError = 'Cannot connect to WR Deskâ„¢ desktop app';
+        lastError = 'Cannot connect to WR Desk™ desktop app';
         lastErrorCode = 'NETWORK_ERROR';
         continue;
       }
@@ -822,7 +822,7 @@ async function electronRequest(
   // All retries exhausted
   return { 
     ok: false, 
-    error: `${lastError}. Please try again or restart WR Deskâ„¢.`,
+    error: `${lastError}. Please try again or restart WR Desk™.`,
     errorCode: lastErrorCode
   };
 }
@@ -1008,7 +1008,7 @@ function connectToWebSocketServer(forceReconnect = false): Promise<boolean> {
               try {
                 chrome.runtime.sendMessage({ type: 'P2P_BEAP_RECEIVED', handshakeId })
               } catch {
-                /* no receiver (e.g. inbox not open) â€” 5s poll will catch pending rows */
+                /* no receiver (e.g. inbox not open) — 5s poll will catch pending rows */
               }
             } else if (data.type === 'SHOW_TRIGGER_PROMPT') {
               chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
@@ -1241,7 +1241,7 @@ function connectToWebSocketServer(forceReconnect = false): Promise<boolean> {
         
         // Fail-closed: clear VSBT on WS disconnect.  If Electron crashed or
         // was killed, the vault session is no longer valid.  The user must
-        // re-unlock after reconnection.  This closes the "Electron crash â†’
+        // re-unlock after reconnection.  This closes the "Electron crash →
         // stale VSBT" staleness window.
         _cacheVsbt(null)
         
@@ -1360,7 +1360,7 @@ function toggleSidebars() {
         visible: newStatus 
       });
     } catch (err) {
-      console.warn('âš ï¸ Failed to send message to tab, it may have closed:', err)
+      console.warn('⚠️ Failed to send message to tab, it may have closed:', err)
     }
 
     // Update badge to show status for current tab
@@ -1700,7 +1700,7 @@ async function launchElectronAppDirect(): Promise<boolean> {
     // ============================================================================
     // Protocol launch (wrcode://, wrdesk://) DISABLED on all platforms.
     // - Windows: Caused "Open Electron?" prompts and "Cannot find module" errors.
-    // - Linux: Triggers "xdg-open Ã¶ffnen?" when protocol handler not registered
+    // - Linux: Triggers "xdg-open öffnen?" when protocol handler not registered
     //   (common in dev mode or when .desktop file doesn't register the handler).
     // Users must start WR Desk manually from application menu or desktop shortcut.
     // ============================================================================
@@ -1717,7 +1717,7 @@ async function launchElectronAppDirect(): Promise<boolean> {
     electronLaunchInProgress = false
     return false
   } catch (err) {
-    console.error('[BG] âŒ Error checking app status:', err)
+    console.error('[BG] ❌ Error checking app status:', err)
     electronLaunchInProgress = false
     return false
   }
@@ -1781,8 +1781,8 @@ async function launchElectronApp(sendResponse: (response: any) => void): Promise
 
 // Handle messages from content script
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-  // UNIVERSAL SENDER GATE â€” reject messages from foreign extensions.
+  // ════════════════════════════════════════════════════════════════════════
+  // UNIVERSAL SENDER GATE — reject messages from foreign extensions.
   //
   // Every message that triggers a side-effect (auth, vault, Electron IPC,
   // WebMCP, etc.) MUST originate from our own extension contexts (content
@@ -1790,10 +1790,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   // are rejected immediately.
   //
   // This gate runs BEFORE any handler dispatch.
-  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // ════════════════════════════════════════════════════════════════════════
   if (!msg || !msg.type) return true
 
-  // BEAP PQ auth headers â€” used by beapCrypto for qBEAP ML-KEM calls to Electron
+  // BEAP PQ auth headers — used by beapCrypto for qBEAP ML-KEM calls to Electron
   if (msg.type === 'BEAP_GET_PQ_HEADERS') {
     sendResponse({
       headers: _launchSecret ? { 'X-Launch-Secret': _launchSecret } : {}
@@ -1839,13 +1839,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true
   }
 
-  /** Extension Stage-5 â†’ Electron inbox: merge decrypted depackaged_json / attachments into local DB. */
+  /** Extension Stage-5 → Electron inbox: merge decrypted depackaged_json / attachments into local DB. */
   if (msg.type === 'ELECTRON_INBOX_MERGE_DEPACKAGED') {
     ;(async () => {
       try {
         const secretOk = await ensureLaunchSecret(20000)
         if (!secretOk) {
-          console.warn('[MERGE] X-Launch-Secret not ready after 20s â€” merge may return 401')
+          console.warn('[MERGE] X-Launch-Secret not ready after 20s — merge may return 401')
         }
         const payload = msg.payload ?? {}
         const bodyStr = JSON.stringify(payload)
@@ -1878,8 +1878,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true
   }
 
-  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-  // WEBMCP FILL PREVIEW â€” route to content script for overlay preview
+  // ════════════════════════════════════════════════════════════════════════
+  // WEBMCP FILL PREVIEW — route to content script for overlay preview
   //
   // Defense-in-depth layers (order matters):
   //   1. Sender gate (already checked above)
@@ -1889,7 +1889,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   //   5. Global sliding-window rate limiter (MAX_WEBMCP_PER_MIN / 60 s)
   //   6. Restricted URL check
   //   7. Forward to content script
-  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // ════════════════════════════════════════════════════════════════════════
   if (msg.type === 'WEBMCP_FILL_PREVIEW') {
     const now = Date.now()
 
@@ -1902,7 +1902,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       ...(extra ? { retryAfterMs: extra.retryAfterMs } : {}),
     })
 
-    // â”€â”€ Layer 2: Circuit breaker (fail-closed via sanitized accessors) â”€â”€
+    // ── Layer 2: Circuit breaker (fail-closed via sanitized accessors) ──
     // If the circuit is open, reject immediately until cooldown expires.
     if (_webMcpCbOpenedAt > 0) {
       const cbCooldownMs = _effectiveCbCooldownMs()
@@ -1912,12 +1912,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         sendResponse(_bgErr('TEMP_BLOCKED', 'Temporarily blocked', { retryAfterMs }))
         return true
       }
-      // Cooldown expired â€” close circuit, reset reject history
+      // Cooldown expired — close circuit, reset reject history
       _webMcpCbOpenedAt = 0
       _webMcpCbRejects = []
     }
 
-    // â”€â”€ Layer 3: Schema validation â”€â”€
+    // ── Layer 3: Schema validation ──
     const params = msg.params
     if (!params || typeof params !== 'object' || !params.itemId || !params.tabId) {
       _recordWebMcpReject(now)
@@ -1932,7 +1932,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       return true
     }
 
-    // â”€â”€ Layer 4: Per-tab rate limiter (2 s per tab) â”€â”€
+    // ── Layer 4: Per-tab rate limiter (2 s per tab) ──
     if (!_webMcpRateMap) _webMcpRateMap = new Map()
     const lastInvoke = _webMcpRateMap.get(tabId) ?? 0
     if (now - lastInvoke < 2000) {
@@ -1943,7 +1943,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     }
     _webMcpRateMap.set(tabId, now)
 
-    // â”€â”€ Layer 5: Global sliding-window rate limiter (fail-closed via sanitized accessors) â”€â”€
+    // ── Layer 5: Global sliding-window rate limiter (fail-closed via sanitized accessors) ──
     // Prune timestamps older than the window, then check count.
     const effectiveWindowMs = _effectiveWindowMs()
     const effectiveMaxPerMin = _effectiveMaxPerMin()
@@ -1958,7 +1958,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     }
     _webMcpGlobalTimestamps.push(now)
 
-    // â”€â”€ Layer 6: Restricted URL check (async) â”€â”€
+    // ── Layer 6: Restricted URL check (async) ──
     ;(async () => {
       try {
         const tab = await chrome.tabs.get(tabId)
@@ -1997,12 +1997,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true // async
   }
 
-  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-  // VAULT_SET_WRITES_DISABLED â€” Global writes kill-switch toggle
+  // ════════════════════════════════════════════════════════════════════════
+  // VAULT_SET_WRITES_DISABLED — Global writes kill-switch toggle
   //
   // Operator/admin control: enable/disable ALL DOM write operations.
   // Gated by sender.id (already validated above) and strict schema.
-  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // ════════════════════════════════════════════════════════════════════════
   if (msg.type === 'VAULT_SET_WRITES_DISABLED') {
     const { disabled } = msg
     if (typeof disabled !== 'boolean') {
@@ -2022,41 +2022,41 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true // async
   }
 
-  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-  // EXPORT_AUDIT_LOG â€” Export sanitized audit log as JSONL
+  // ════════════════════════════════════════════════════════════════════════
+  // EXPORT_AUDIT_LOG — Export sanitized audit log as JSONL
   //
   // Privileged operation.  Defense layers (in order):
   //   1. Universal sender gate (already enforced above)
-  //   2. Context gate â€” sender must be extension UI (no sender.tab,
+  //   2. Context gate — sender must be extension UI (no sender.tab,
   //      sender.url matches chrome-extension://<id>/popup|sidepanel)
-  //   3. Vault unlocked gate â€” VSBT must be present (cleared on lock/logout)
-  //   4. HA gate â€” if HA mode active, block export entirely (fail-closed)
+  //   3. Vault unlocked gate — VSBT must be present (cleared on lock/logout)
+  //   4. HA gate — if HA mode active, block export entirely (fail-closed)
   //   5. Export logic
   //
   // On rejection: { success:false, error:{ code, message }, resultVersion }
   // On success:   { success:true, jsonl, truncated, resultVersion }
   // Hard cap: MAX_EXPORT_BYTES (512 KB); truncated=true if exceeded.
-  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // ════════════════════════════════════════════════════════════════════════
   if (msg.type === 'EXPORT_AUDIT_LOG') {
-    // â”€â”€ Layer 2: Context gate (fail-closed, synchronous) â”€â”€
+    // ── Layer 2: Context gate (fail-closed, synchronous) ──
     // Reject if sender.tab exists (content-script), or sender.url is
     // missing / not from our extension's allowed UI pages.
     if (!_isExtensionUiContext(sender, chrome.runtime.id)) {
-      _auditExportLog('EXPORT_AUDIT_BLOCKED_CONTEXT', 'Audit export rejected â€” invalid context', true)
+      _auditExportLog('EXPORT_AUDIT_BLOCKED_CONTEXT', 'Audit export rejected — invalid context', true)
       sendResponse({ success: false, error: { code: 'FORBIDDEN' as AuditExportErrorCode, message: 'Forbidden' }, resultVersion: AUDIT_EXPORT_RESULT_VERSION })
       return true
     }
 
-    // â”€â”€ Layer 3: Vault unlocked gate (fail-closed, synchronous) â”€â”€
+    // ── Layer 3: Vault unlocked gate (fail-closed, synchronous) ──
     // VSBT is cleared synchronously on lock (/lock endpoint) and logout
     // (AUTH_LOGOUT). If the cache is stale, we fail-closed (empty = locked).
     if (!_isVaultUnlocked()) {
-      _auditExportLog('EXPORT_AUDIT_BLOCKED_LOCKED', 'Audit export rejected â€” vault locked', true)
+      _auditExportLog('EXPORT_AUDIT_BLOCKED_LOCKED', 'Audit export rejected — vault locked', true)
       sendResponse({ success: false, error: { code: 'LOCKED' as AuditExportErrorCode, message: 'Vault is locked' }, resultVersion: AUDIT_EXPORT_RESULT_VERSION })
       return true
     }
 
-    // â”€â”€ Layer 4 + 5: HA gate + export (async for dynamic import) â”€â”€
+    // ── Layer 4 + 5: HA gate + export (async for dynamic import) ──
     ;(async () => {
       try {
         let ha = true // fail-closed default
@@ -2064,24 +2064,24 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           const { isHAEnforced } = await import('./vault/autofill/haGuard')
           ha = isHAEnforced()
         } catch {
-          // Cannot determine HA state â€” fail-closed: treat as HA active
+          // Cannot determine HA state — fail-closed: treat as HA active
         }
 
-        // â”€â”€ Layer 4: HA gate â€” block entirely under HA (fail-closed) â”€â”€
+        // ── Layer 4: HA gate — block entirely under HA (fail-closed) ──
         if (ha) {
-          _auditExportLog('EXPORT_AUDIT_BLOCKED_HA', 'Audit export rejected â€” HA mode active', true)
+          _auditExportLog('EXPORT_AUDIT_BLOCKED_HA', 'Audit export rejected — HA mode active', true)
           sendResponse({ success: false, error: { code: 'HA_BLOCKED' as AuditExportErrorCode, message: 'Export blocked by security policy' }, resultVersion: AUDIT_EXPORT_RESULT_VERSION })
           return
         }
 
-        // â”€â”€ Layer 4b: Double-check VSBT (guard against async race) â”€â”€
+        // ── Layer 4b: Double-check VSBT (guard against async race) ──
         if (!_isVaultUnlocked()) {
-          _auditExportLog('EXPORT_AUDIT_BLOCKED_LOCKED', 'Audit export rejected â€” vault locked (async recheck)', false)
+          _auditExportLog('EXPORT_AUDIT_BLOCKED_LOCKED', 'Audit export rejected — vault locked (async recheck)', false)
           sendResponse({ success: false, error: { code: 'LOCKED' as AuditExportErrorCode, message: 'Vault is locked' }, resultVersion: AUDIT_EXPORT_RESULT_VERSION })
           return
         }
 
-        // â”€â”€ Layer 5: Export logic â”€â”€
+        // ── Layer 5: Export logic ──
         const { exportAuditLogJsonl } = await import('./vault/autofill/hardening')
         const result = exportAuditLogJsonl()
         _auditExportLog('EXPORT_AUDIT_ALLOWED', 'Audit log exported', false)
@@ -2110,19 +2110,19 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true; // Keep channel open for async response
   }
 
-  // â”€â”€ Typed Electron RPC (replaces ELECTRON_API_PROXY) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Typed Electron RPC (replaces ELECTRON_API_PROXY) ──────────────────────
   //
   // SECURITY: No generic proxy.  Each RPC method maps to exactly one
   // hardcoded HTTP endpoint.  Payload is Zod-validated, sender is
   // checked (extension ID only), and the launch secret is injected
-  // server-side â€” never exposed to the caller.
+  // server-side — never exposed to the caller.
   //
   // See: src/rpc/electronRpc.ts for the full registry + schemas.
   //
-  // Waits for launch secret before dispatching â€” same as AUTH_LOGIN.
+  // Waits for launch secret before dispatching — same as AUTH_LOGIN.
   // Without this, the sidepanel/popup Command Chat can open before the
   // WebSocket handshake completes, causing 401 and "No models available".
-  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ─────────────────────────────────────────────────────────────────────────
   if (msg && msg.type === 'ELECTRON_RPC') {
     ;(async () => {
       await ensureLaunchSecret(10000)
@@ -2141,18 +2141,18 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   
   // Handle SSO login request
   // New approach: Extension gets auth URL from Electron and opens it in a Chrome tab directly.
-  // This avoids all Windows "App auswÃ¤hlen" / Smart App Control issues.
+  // This avoids all Windows "App auswählen" / Smart App Control issues.
   if (msg && msg.type === 'AUTH_LOGIN') {
     (async () => {
       try {
-        // â”€â”€ Step 0: Ensure launch secret is available â”€â”€
+        // ── Step 0: Ensure launch secret is available ──
         // After a machine restart or service-worker restart the WebSocket
         // handshake may not have completed yet.  Without the secret every
         // HTTP request to Electron (except /api/health) returns 401.
         const hasSecret = await ensureLaunchSecret(10000);
 
         if (!hasSecret) {
-          // Secret still missing â€“ check if Electron is at least alive
+          // Secret still missing – check if Electron is at least alive
           // via the secret-exempt /api/health endpoint.
           // Retry up to 3 times (app may still be starting on Linux)
           let healthCheck: Response | null = null;
@@ -2167,14 +2167,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
           if (healthCheck && healthCheck.ok) {
             // Electron is running but the WebSocket handshake hasn't completed.
-            sendResponse({ ok: false, error: 'Connecting to desktop app â€“ please try again in a few seconds.' });
+            sendResponse({ ok: false, error: 'Connecting to desktop app – please try again in a few seconds.' });
           } else {
             sendResponse({ ok: false, electronNotRunning: true, error: 'Desktop app is not running.' });
           }
           return;
         }
 
-        // â”€â”€ Step 0b: Authenticated health check â”€â”€
+        // ── Step 0b: Authenticated health check ──
         // Use /api/health rather than /api/orchestrator/status so we don't
         // false-negative when the SQLite orchestrator service is still initializing.
         const healthCheck = await fetch(`${ELECTRON_BASE_URL}/api/health`, {
@@ -2264,7 +2264,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     }
 
-    if (DEBUG_AUTH_STATUS_LOG) console.log('[BG] AUTH_STATUS â†’ GET /api/auth/status' + (forceRefresh ? ' (force)' : ''))
+    if (DEBUG_AUTH_STATUS_LOG) console.log('[BG] AUTH_STATUS → GET /api/auth/status' + (forceRefresh ? ' (force)' : ''))
     ;(async () => {
       try {
         // Ensure launch secret is available (may need WebSocket handshake)
@@ -2468,7 +2468,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
                 _vsbtCachedAt = stored._vsbtAt
               }
             }
-          } catch { /* storage unavailable â€” fall through, bind will be skipped */ }
+          } catch { /* storage unavailable — fall through, bind will be skipped */ }
         }
 
         // If this RPC requires a bound session and we have a cached VSBT (from HTTP unlock),
@@ -2949,14 +2949,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             })) 
             try { sendResponse({ success: true }) } catch {}
           } catch (e) {
-            console.error('[BG] ðŸ›¡ï¸ Error sending MAILGUARD_ACTIVATE:', e)
+            console.error('[BG] 🛡️ Error sending MAILGUARD_ACTIVATE:', e)
             try { sendResponse({ success: false, error: 'Failed to send message' }) } catch {}
           }
         } else {
           try { 
             sendResponse({ 
               success: false, 
-              error: 'Could not connect to WR Deskâ„¢. Make sure the Electron app is running.' 
+              error: 'Could not connect to WR Desk™. Make sure the Electron app is running.' 
             }) 
           } catch {}
         }
@@ -3329,7 +3329,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           to: msg.to,
-          subject: msg.subject || 'BEAPâ„¢ Secure Message',
+          subject: msg.subject || 'BEAP™ Secure Message',
           body: msg.body || '',
           attachments: msg.attachments || []
         })
@@ -3442,7 +3442,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           sendResponse(data)
         })
         .catch(err => {
-          console.error('[BG] ðŸ“§ IMAP presets error:', err)
+          console.error('[BG] 📧 IMAP presets error:', err)
           sendResponse({ ok: false, error: err.message || 'Failed to fetch presets' })
         })
       
@@ -3457,7 +3457,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           sendResponse(data)
         })
         .catch(err => {
-          console.error('[BG] ðŸ“§ Get message error:', err)
+          console.error('[BG] 📧 Get message error:', err)
           sendResponse({ ok: false, error: err.message || 'Failed to fetch message' })
         })
       
@@ -3478,7 +3478,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           sendResponse(data)
         })
         .catch(err => {
-          console.error('[BG] ðŸ“§ List messages error:', err)
+          console.error('[BG] 📧 List messages error:', err)
           sendResponse({ ok: false, error: err.message || 'Failed to list messages' })
         })
       
@@ -3524,7 +3524,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       const { sessionKey, identifier } = msg;
       
       if (!sessionKey || !identifier) {
-        console.error('âŒ BG: Missing sessionKey or identifier');
+        console.error('❌ BG: Missing sessionKey or identifier');
         try { sendResponse({ success: false, error: 'Missing sessionKey or identifier' }) } catch {}
         break;
       }
@@ -3553,7 +3553,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
               body: JSON.stringify({ key: sessionKey, value: session })
             })
           } else {
-            console.warn('âš ï¸ BG: No agentBoxes array in session');
+            console.warn('⚠️ BG: No agentBoxes array in session');
             throw new Error('No agentBoxes in session')
           }
         })
@@ -3567,7 +3567,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           try { sendResponse({ success: true }) } catch {}
         })
         .catch(error => {
-          console.error('âŒ BG: Error deleting from SQLite:', error);
+          console.error('❌ BG: Error deleting from SQLite:', error);
           try { sendResponse({ success: false, error: String(error) }) } catch {}
         })
       
@@ -3579,13 +3579,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       const { sessionKey, agentId, identifier } = msg;
       
       if (!sessionKey) {
-        console.error('âŒ BG: Missing sessionKey');
+        console.error('❌ BG: Missing sessionKey');
         try { sendResponse({ success: false, error: 'Missing sessionKey' }) } catch {}
         return true;
       }
       
       if (!agentId && !identifier) {
-        console.error('âŒ BG: Missing both agentId and identifier');
+        console.error('❌ BG: Missing both agentId and identifier');
         try { sendResponse({ success: false, error: 'Missing both agentId and identifier' }) } catch {}
         return true;
       }
@@ -3626,7 +3626,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             
             
             if (removedCount === 0) {
-              console.warn('âš ï¸ BG: No agent boxes were removed! Check if id/identifier match.');
+              console.warn('⚠️ BG: No agent boxes were removed! Check if id/identifier match.');
             }
             
             // Save back to SQLite
@@ -3636,7 +3636,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
               body: JSON.stringify({ key: sessionKey, value: session })
             })
           } else {
-            console.warn('âš ï¸ BG: No agentBoxes array in session');
+            console.warn('⚠️ BG: No agentBoxes array in session');
             throw new Error('No agentBoxes in session')
           }
         })
@@ -3650,7 +3650,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           try { sendResponse({ success: true }) } catch {}
         })
         .catch(error => {
-          console.error('âŒ BG: Error deleting from SQLite:', error);
+          console.error('❌ BG: Error deleting from SQLite:', error);
           try { sendResponse({ success: false, error: String(error) }) } catch {}
         })
       
@@ -3793,7 +3793,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       
       
       if (!payload.sessionKey) {
-        console.error('âŒ BG: No sessionKey provided')
+        console.error('❌ BG: No sessionKey provided')
         try { sendResponse({ success: false, error: 'No session key' }) } catch {}
         break
       }
@@ -3858,9 +3858,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     case 'GET_SESSION_FROM_SQLITE': {
       
       if (!msg.sessionKey) {
-        console.error('âŒ BG: No sessionKey provided')
+        console.error('❌ BG: No sessionKey provided')
         try { sendResponse({ success: false, error: 'No session key' }) } catch (e) {
-          console.error('âŒ BG: Failed to send error response:', e)
+          console.error('❌ BG: Failed to send error response:', e)
         }
         return true
       }
@@ -3881,18 +3881,18 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
               session: session 
             }) 
           } catch (e) {
-            console.error('âŒ BG: Failed to send response:', e)
+            console.error('❌ BG: Failed to send response:', e)
           }
         })
         .catch((error: any) => {
-          console.error('âŒ BG: Error loading session via HTTP:', error)
+          console.error('❌ BG: Error loading session via HTTP:', error)
           // Fallback to Chrome Storage
           chrome.storage.local.get([msg.sessionKey], (result: any) => {
             const session = result[msg.sessionKey] || null
             try {
               sendResponse({ success: true, session: session })
             } catch (e) {
-              console.error('âŒ BG: Failed to send fallback response:', e)
+              console.error('❌ BG: Failed to send fallback response:', e)
             }
           })
         })
@@ -3905,7 +3905,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       const { sessionKey, session } = msg
       
       if (!sessionKey || !session) {
-        console.error('âŒ BG: Missing sessionKey or session data')
+        console.error('❌ BG: Missing sessionKey or session data')
         try { sendResponse({ success: false, error: 'Missing data' }) } catch {}
         return true
       }
@@ -3926,13 +3926,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           // Mirror to Chrome Storage so fallback reads stay fresh
           chrome.storage.local.set({ [sessionKey]: session }, () => {
             if (chrome.runtime.lastError) {
-              console.warn('âš ï¸ BG: Chrome mirror write failed (non-fatal):', chrome.runtime.lastError.message)
+              console.warn('⚠️ BG: Chrome mirror write failed (non-fatal):', chrome.runtime.lastError.message)
             }
           })
           try { sendResponse({ success: true }) } catch {}
         })
         .catch((error: any) => {
-          console.error('âŒ BG: Error saving session to SQLite:', error)
+          console.error('❌ BG: Error saving session to SQLite:', error)
           try { sendResponse({ success: false, error: String(error) }) } catch {}
         })
       
@@ -3952,7 +3952,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
 
       // Use /api/orchestrator/get-all which returns ALL key-value pairs at once
-      // Then filter for session_ keys â€” no /keys endpoint exists on the server
+      // Then filter for session_ keys — no /keys endpoint exists on the server
       fetch('http://127.0.0.1:51248/api/orchestrator/get-all', { headers: _electronHeaders() })
         .then(response => {
           if (!response.ok) throw new Error(`HTTP ${response.status}`)
@@ -3969,13 +3969,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           if (Object.keys(sessionsMap).length > 0) {
             try { sendResponse({ success: true, sessions: sessionsMap }) } catch (e) {}
           } else {
-            // SQLite returned zero sessions â€” fall back to Chrome Storage mirror
-            console.warn('âš ï¸ BG: SQLite returned 0 sessions, falling back to Chrome Storage')
+            // SQLite returned zero sessions — fall back to Chrome Storage mirror
+            console.warn('⚠️ BG: SQLite returned 0 sessions, falling back to Chrome Storage')
             chromeStorageFallback()
           }
         })
         .catch((error: any) => {
-          console.error('âŒ BG: Error loading all sessions from SQLite:', error)
+          console.error('❌ BG: Error loading all sessions from SQLite:', error)
           // On any error (including 404), fall back to Chrome Storage
           chromeStorageFallback()
         })
@@ -4005,7 +4005,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           })
         })
         .catch((error: any) => {
-          console.error('âŒ BG: Error deleting sessions from SQLite:', error)
+          console.error('❌ BG: Error deleting sessions from SQLite:', error)
           // Still try Chrome Storage cleanup
           chrome.storage.local.remove(sessionKeys, () => {
             try { sendResponse({ success: false, error: String(error) }) } catch {}
@@ -4018,9 +4018,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     case 'SAVE_AGENT_BOX_TO_SQLITE': {
       
       if (!msg.sessionKey || !msg.agentBox) {
-        console.error('âŒ BG: Missing sessionKey or agentBox')
+        console.error('❌ BG: Missing sessionKey or agentBox')
         try { sendResponse({ success: false, error: 'Missing required data' }) } catch (e) {
-          console.error('âŒ BG: Failed to send error response:', e)
+          console.error('❌ BG: Failed to send error response:', e)
         }
         return true
       }
@@ -4059,7 +4059,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           // in Sessions History.  The canonical session.agents array is preserved as-is.
           if (!session.agents) session.agents = []
           
-          // ðŸ” DEBUG: Log the agentBox being saved
+          // 🔍 DEBUG: Log the agentBox being saved
           
           // Update or add grid metadata if provided
           if (msg.gridMetadata) {
@@ -4074,7 +4074,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           }
           
           
-          // ðŸ” DEBUG: Log all agentBoxes being saved
+          // 🔍 DEBUG: Log all agentBoxes being saved
           session.agentBoxes.forEach((box: any, index: number) => {
           })
           
@@ -4089,7 +4089,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           if (!response.ok) {
             // Get error details from response
             return response.text().then(errorText => {
-              console.error('âŒ BG: SQLite HTTP error:', response.status, errorText)
+              console.error('❌ BG: SQLite HTTP error:', response.status, errorText)
               throw new Error(`HTTP ${response.status}: ${errorText}`)
             })
           }
@@ -4111,18 +4111,18 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
               totalBoxes: totalBoxes
             }) 
           } catch (e) {
-            console.error('âŒ BG: Failed to send response:', e)
+            console.error('❌ BG: Failed to send response:', e)
           }
         })
         .catch((error: any) => {
-          console.error('âŒ BG: Error saving to SQLite via HTTP:', error)
-          console.error('âŒ BG: Error details:', error.message)
-          console.error('âŒ BG: SQLite is the only backend - fix the Electron app!')
+          console.error('❌ BG: Error saving to SQLite via HTTP:', error)
+          console.error('❌ BG: Error details:', error.message)
+          console.error('❌ BG: SQLite is the only backend - fix the Electron app!')
           
           try {
             sendResponse({ success: false, error: 'Failed to save to SQLite: ' + String(error) })
           } catch (e) {
-            console.error('âŒ BG: Failed to send error response:', e)
+            console.error('❌ BG: Failed to send error response:', e)
           }
         })
       
@@ -4132,9 +4132,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     case 'UPDATE_BOX_OUTPUT_SQLITE': {
       
       if (!msg.sessionKey || !msg.agentBoxId || msg.output === undefined) {
-        console.error('âŒ BG: Missing required data for UPDATE_BOX_OUTPUT_SQLITE')
+        console.error('❌ BG: Missing required data for UPDATE_BOX_OUTPUT_SQLITE')
         try { sendResponse({ success: false, error: 'Missing required data' }) } catch (e) {
-          console.error('âŒ BG: Failed to send error response:', e)
+          console.error('❌ BG: Failed to send error response:', e)
         }
         return true
       }
@@ -4156,8 +4156,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           )
           
           if (boxIndex === -1) {
-            console.warn('âš ï¸ BG: Box not found for output update:', msg.agentBoxId)
-            console.warn('âš ï¸ BG: Available boxes:', session.agentBoxes.map((b: any) => ({ id: b.id, identifier: b.identifier })))
+            console.warn('⚠️ BG: Box not found for output update:', msg.agentBoxId)
+            console.warn('⚠️ BG: Available boxes:', session.agentBoxes.map((b: any) => ({ id: b.id, identifier: b.identifier })))
             throw new Error('Box not found: ' + msg.agentBoxId)
           }
           
@@ -4201,13 +4201,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           })
           
           try { sendResponse({ success: true }) } catch (e) {
-            console.error('âŒ BG: Failed to send success response:', e)
+            console.error('❌ BG: Failed to send success response:', e)
           }
         })
         .catch((error: any) => {
-          console.error('âŒ BG: Error in UPDATE_BOX_OUTPUT_SQLITE:', error.message)
+          console.error('❌ BG: Error in UPDATE_BOX_OUTPUT_SQLITE:', error.message)
           try { sendResponse({ success: false, error: String(error) }) } catch (e) {
-            console.error('âŒ BG: Failed to send error response:', e)
+            console.error('❌ BG: Failed to send error response:', e)
           }
         })
       

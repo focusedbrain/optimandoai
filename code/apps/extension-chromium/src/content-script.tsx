@@ -4,7 +4,7 @@ import { toProviderId, toProviderLabel } from './constants/providers'
 import { initAutofill, teardownAutofill } from './vault/autofill'
 import { handleWebMcpFillPreviewRequest } from './vault/autofill/webMcpAdapter'
 
-// â”€â”€ WRVault Autofill: initialize the field icon + popover pipeline â”€â”€
+// ── WRVault Autofill: initialize the field icon + popover pipeline ──
 // Content scripts run at document_end, so DOM is ready.
 // Wrapped in try/catch so autofill issues never break the main extension.
 //
@@ -22,13 +22,13 @@ if (!_isExtensionPage) {
       }, { once: true })
     }
   } catch {
-    // Autofill init failed â€” extension continues to work normally
+    // Autofill init failed — extension continues to work normally
   }
 }
 
-// â”€â”€â”€ Unified Content-Script Theme Helper â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-// Exact WRVault palette â€” single source of truth for all vanilla-JS lightboxes.
-// Contrast rule: light bg â†’ dark text (#0f1419), dark bg â†’ light text (#f3f0ff / #e7e9ea).
+// ─── Unified Content-Script Theme Helper ─────────────────────────────────────
+// Exact WRVault palette — single source of truth for all vanilla-JS lightboxes.
+// Contrast rule: light bg → dark text (#0f1419), dark bg → light text (#f3f0ff / #e7e9ea).
 function csTheme() {
   let t: 'pro' | 'dark' | 'standard' = 'pro'
   try {
@@ -38,7 +38,7 @@ function csTheme() {
     else t = 'pro'
   } catch { /* ignore */ }
 
-  // â”€â”€ Dark: deep slate â€” WRVault Dark (#0f172a â†’ #1e293b) â”€â”€
+  // ── Dark: deep slate — WRVault Dark (#0f172a → #1e293b) ──
   if (t === 'dark') return {
     panelBg:      'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)',
     headerGrad:   'rgba(30,41,59,0.8)',
@@ -57,7 +57,7 @@ function csTheme() {
     successText:  '#4ade80', errorText: '#f87171', warnText: '#fbbf24', infoText: '#a5b4fc',
     isLight:      false,
   }
-  // â”€â”€ Standard: light â€” WRVault Standard (#f8f9fb / dark text) â”€â”€
+  // ── Standard: light — WRVault Standard (#f8f9fb / dark text) ──
   if (t === 'standard') return {
     panelBg:      '#f8f9fb',
     headerGrad:   '#ffffff',
@@ -76,7 +76,7 @@ function csTheme() {
     successText:  '#166534', errorText: '#991b1b', warnText: '#92400e', infoText: '#3730a3',
     isLight:      true,
   }
-  // â”€â”€ Pro (default): vivid purple â€” WRVault Pro (#1e1040 â†’ #2d1b69) â”€â”€
+  // ── Pro (default): vivid purple — WRVault Pro (#1e1040 → #2d1b69) ──
   return {
     panelBg:      'linear-gradient(135deg, #1e1040 0%, #2d1b69 50%, #1a0e3a 100%)',
     headerGrad:   'rgba(168,85,247,0.12)',
@@ -131,7 +131,7 @@ function csAgentFormUi() {
     btnGhostBlue: `background:rgba(96,165,250,.3);border:1px solid rgba(96,165,250,.5);color:#fff`,
   }
 }
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─────────────────────────────────────────────────────────────────────────────
 
 // Per-Tab Activation System
 
@@ -319,7 +319,7 @@ if (savedState === 'true' || dedicatedRole) {
 
 
 
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ──────────────────────────────────────────────────────────────────────────────
 
 // Listen for toggle message from background script
 
@@ -389,7 +389,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
       } else {
 
-        console.warn('âš ï¸ openSettingsLightbox not available yet')
+        console.warn('⚠️ openSettingsLightbox not available yet')
 
         sendResponse({ success: false, error: 'Function not available' })
 
@@ -397,7 +397,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     } catch (e) {
 
-      console.error('âŒ Error opening settings:', e)
+      console.error('❌ Error opening settings:', e)
 
       sendResponse({ success: false, error: String(e) })
 
@@ -417,7 +417,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
       } else {
 
-        console.warn('âš ï¸ openMemoryLightbox not available yet')
+        console.warn('⚠️ openMemoryLightbox not available yet')
 
         sendResponse({ success: false, error: 'Function not available' })
 
@@ -425,7 +425,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     } catch (e) {
 
-      console.error('âŒ Error opening memory:', e)
+      console.error('❌ Error opening memory:', e)
 
       sendResponse({ success: false, error: String(e) })
 
@@ -445,7 +445,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
       } else {
 
-        console.warn('âš ï¸ openContextLightbox not available yet')
+        console.warn('⚠️ openContextLightbox not available yet')
 
         sendResponse({ success: false, error: 'Function not available' })
 
@@ -453,7 +453,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     } catch (e) {
 
-      console.error('âŒ Error opening context:', e)
+      console.error('❌ Error opening context:', e)
 
       sendResponse({ success: false, error: String(e) })
 
@@ -471,7 +471,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     } catch (e) {
 
-      console.error('âŒ Error saving session:', e)
+      console.error('❌ Error saving session:', e)
 
       sendResponse({ success: false, error: String(e) })
 
@@ -491,7 +491,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
       } else {
 
-        console.warn('âš ï¸ openAgentsLightbox not available yet')
+        console.warn('⚠️ openAgentsLightbox not available yet')
 
         sendResponse({ success: false, error: 'Function not available' })
 
@@ -499,7 +499,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     } catch (e) {
 
-      console.error('âŒ Error opening agents:', e)
+      console.error('❌ Error opening agents:', e)
 
       sendResponse({ success: false, error: String(e) })
 
@@ -523,7 +523,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
       } else {
 
-        console.warn('âš ï¸ openUnifiedAdminLightbox not available yet')
+        console.warn('⚠️ openUnifiedAdminLightbox not available yet')
 
         sendResponse({ success: false, error: 'Function not available' })
 
@@ -531,7 +531,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     } catch (e) {
 
-      console.error('âŒ Error opening unified admin:', e)
+      console.error('❌ Error opening unified admin:', e)
 
       sendResponse({ success: false, error: String(e) })
 
@@ -546,7 +546,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       const { agentBox, sessionKey: providedSessionKey } = message.data || {}
       
       if (!agentBox) {
-        console.error('âŒ No agent box data provided')
+        console.error('❌ No agent box data provided')
         sendResponse({ success: false, error: 'No agent box data' })
         return
       }
@@ -554,7 +554,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       const currentSessionKey = providedSessionKey || getCurrentSessionKey()
       
       if (!currentSessionKey) {
-        console.error('âŒ No session key available')
+        console.error('❌ No session key available')
         sendResponse({ success: false, error: 'No session key' })
         return
       }
@@ -596,7 +596,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       if (chrome?.runtime) {
         chrome.runtime.sendMessage({ type: 'GET_SESSION_FROM_SQLITE', sessionKey: currentSessionKey }, (response) => {
           if (chrome.runtime.lastError || !response?.success || !response?.session) {
-            console.warn('âš ï¸ CREATE_AGENT_BOX_FROM_SIDEPANEL: SQLite read failed, trying Chrome Storage fallback')
+            console.warn('⚠️ CREATE_AGENT_BOX_FROM_SIDEPANEL: SQLite read failed, trying Chrome Storage fallback')
             chrome.storage.local.get([currentSessionKey], (r: any) => {
               doSaveBox(r?.[currentSessionKey])
             })
@@ -609,7 +609,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       }
       
     } catch (e) {
-      console.error('âŒ Error creating agent box from sidepanel:', e)
+      console.error('❌ Error creating agent box from sidepanel:', e)
       sendResponse({ success: false, error: String(e) })
     }
   }
@@ -625,7 +625,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
       } else {
 
-        console.warn('âš ï¸ openAddAgentBoxDialog not available yet')
+        console.warn('⚠️ openAddAgentBoxDialog not available yet')
 
         sendResponse({ success: false, error: 'Function not available' })
 
@@ -633,7 +633,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     } catch (e) {
 
-      console.error('âŒ Error opening add agent box dialog:', e)
+      console.error('❌ Error opening add agent box dialog:', e)
 
       sendResponse({ success: false, error: String(e) })
 
@@ -659,7 +659,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
         } else {
 
-          console.warn('âš ï¸ No box ID provided')
+          console.warn('⚠️ No box ID provided')
 
           sendResponse({ success: false, error: 'No box ID provided' })
 
@@ -667,7 +667,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
       } else {
 
-        console.warn('âš ï¸ openEditAgentBoxDialog not available yet')
+        console.warn('⚠️ openEditAgentBoxDialog not available yet')
 
         sendResponse({ success: false, error: 'Function not available' })
 
@@ -675,7 +675,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     } catch (e) {
 
-      console.error('âŒ Error opening edit agent box dialog:', e)
+      console.error('❌ Error opening edit agent box dialog:', e)
 
       sendResponse({ success: false, error: String(e) })
 
@@ -703,7 +703,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
         } else {
 
-          console.warn('âš ï¸ Messages element not found for screen select')
+          console.warn('⚠️ Messages element not found for screen select')
 
           sendResponse({ success: false, error: 'Messages element not found' })
 
@@ -711,7 +711,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
       } else {
 
-        console.warn('âš ï¸ beginScreenSelect not available yet')
+        console.warn('⚠️ beginScreenSelect not available yet')
 
         sendResponse({ success: false, error: 'Function not available' })
 
@@ -719,7 +719,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     } catch (e) {
 
-      console.error('âŒ Error starting screen select:', e)
+      console.error('❌ Error starting screen select:', e)
 
       sendResponse({ success: false, error: String(e) })
 
@@ -745,7 +745,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
       } else {
 
-        console.warn('âš ï¸ Context bucket button not found')
+        console.warn('⚠️ Context bucket button not found')
 
         sendResponse({ success: false, error: 'Bucket button not found' })
 
@@ -753,7 +753,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     } catch (e) {
 
-      console.error('âŒ Error triggering context bucket:', e)
+      console.error('❌ Error triggering context bucket:', e)
 
       sendResponse({ success: false, error: String(e) })
 
@@ -779,7 +779,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
       } else {
 
-        console.warn('âš ï¸ Tags button not found')
+        console.warn('⚠️ Tags button not found')
 
         sendResponse({ success: false, error: 'Tags button not found' })
 
@@ -787,7 +787,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     } catch (e) {
 
-      console.error('âŒ Error opening tags:', e)
+      console.error('❌ Error opening tags:', e)
 
       sendResponse({ success: false, error: String(e) })
 
@@ -809,7 +809,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
       } else {
 
-        console.warn('âš ï¸ createDockedChat not available yet')
+        console.warn('⚠️ createDockedChat not available yet')
 
         sendResponse({ success: false, error: 'Function not available' })
 
@@ -817,7 +817,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     } catch (e) {
 
-      console.error('âŒ Error creating docked chat:', e)
+      console.error('❌ Error creating docked chat:', e)
 
       sendResponse({ success: false, error: String(e) })
 
@@ -839,7 +839,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
       } else {
 
-        console.warn('âš ï¸ removeDockedChat not available yet')
+        console.warn('⚠️ removeDockedChat not available yet')
 
         sendResponse({ success: false, error: 'Function not available' })
 
@@ -847,7 +847,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     } catch (e) {
 
-      console.error('âŒ Error removing docked chat:', e)
+      console.error('❌ Error removing docked chat:', e)
 
       sendResponse({ success: false, error: String(e) })
 
@@ -883,7 +883,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     } catch (e) {
 
-      console.error('âŒ Error getting session data:', e)
+      console.error('❌ Error getting session data:', e)
 
       sendResponse({ error: String(e) })
 
@@ -935,7 +935,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     } catch (e) {
 
-      console.error('âŒ Error updating session name:', e)
+      console.error('❌ Error updating session name:', e)
 
       sendResponse({ success: false, error: String(e) })
 
@@ -948,7 +948,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     const agentId = message.data?.agentId
     
     if (!agentId) {
-      console.error('âŒ No agent ID provided for deletion')
+      console.error('❌ No agent ID provided for deletion')
       sendResponse({ success: false, error: 'No agent ID provided' })
       return
     }
@@ -957,7 +957,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     // Find the box to get its identifier
     const boxIndex = currentTabData.agentBoxes.findIndex((box: any) => box.id === agentId)
     if (boxIndex === -1) {
-      console.warn('âš ï¸ Agent box not found:', agentId)
+      console.warn('⚠️ Agent box not found:', agentId)
       sendResponse({ success: false, error: 'Agent box not found' })
       return
     }
@@ -966,7 +966,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     const sessionKey = getCurrentSessionKey()
     
     if (!sessionKey) {
-      console.error('âŒ No session key found')
+      console.error('❌ No session key found')
       sendResponse({ success: false, error: 'No session key' })
       return
     }
@@ -979,7 +979,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       identifier: deletedBox.identifier
     }, (response) => {
       if (chrome.runtime.lastError) {
-        console.error('âŒ Runtime error:', chrome.runtime.lastError.message)
+        console.error('❌ Runtime error:', chrome.runtime.lastError.message)
         return
       }
       
@@ -994,7 +994,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           sessionKey: sessionKey
         })
       } else {
-        console.error('âŒ Failed to delete:', response?.error)
+        console.error('❌ Failed to delete:', response?.error)
       }
     })
     
@@ -1054,7 +1054,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
       } else {
 
-        console.warn('âš ï¸ startNewSession not available yet')
+        console.warn('⚠️ startNewSession not available yet')
 
         sendResponse({ success: false, error: 'Function not available' })
 
@@ -1062,7 +1062,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     } catch (e) {
 
-      console.error('âŒ Error creating new session:', e)
+      console.error('❌ Error creating new session:', e)
 
       sendResponse({ success: false, error: String(e) })
 
@@ -1089,7 +1089,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
       } else {
 
-        console.warn('âš ï¸ openHelperGridLightbox function not available')
+        console.warn('⚠️ openHelperGridLightbox function not available')
 
         sendResponse({ success: false, error: 'Function not available' })
 
@@ -1097,7 +1097,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     } catch (e) {
 
-      console.error('âŒ Error opening helper grid lightbox:', e)
+      console.error('❌ Error opening helper grid lightbox:', e)
 
       sendResponse({ success: false, error: String(e) })
 
@@ -1124,7 +1124,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
       } else {
 
-        console.warn('âš ï¸ openSessionsLightbox function not available')
+        console.warn('⚠️ openSessionsLightbox function not available')
 
         sendResponse({ success: false, error: 'Function not available' })
 
@@ -1132,7 +1132,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     } catch (e) {
 
-      console.error('âŒ Error opening sessions lightbox:', e)
+      console.error('❌ Error opening sessions lightbox:', e)
 
       sendResponse({ success: false, error: String(e) })
 
@@ -1157,7 +1157,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
       } else {
 
-        console.warn('âš ï¸ openAddAgentBoxDialog function not available')
+        console.warn('⚠️ openAddAgentBoxDialog function not available')
 
         sendResponse({ success: false, error: 'Function not available' })
 
@@ -1165,7 +1165,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     } catch (e) {
 
-      console.error('âŒ Error opening add agent box dialog:', e)
+      console.error('❌ Error opening add agent box dialog:', e)
 
       sendResponse({ success: false, error: String(e) })
 
@@ -1193,7 +1193,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     } catch (e) {
 
-      console.error('âŒ Error syncing session:', e)
+      console.error('❌ Error syncing session:', e)
 
       sendResponse({ success: false, error: String(e) })
 
@@ -1221,7 +1221,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     } catch (e) {
 
-      console.error('âŒ Error importing session:', e)
+      console.error('❌ Error importing session:', e)
 
       sendResponse({ success: false, error: String(e) })
 
@@ -1248,7 +1248,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
       } else {
 
-        console.warn('âš ï¸ openWRVaultLightbox function not available')
+        console.warn('⚠️ openWRVaultLightbox function not available')
 
         sendResponse({ success: false, error: 'Function not available' })
 
@@ -1256,7 +1256,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     } catch (e) {
 
-      console.error('âŒ Error opening WRVault lightbox:', e)
+      console.error('❌ Error opening WRVault lightbox:', e)
 
       sendResponse({ success: false, error: String(e) })
 
@@ -1283,7 +1283,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
       } else {
 
-        console.warn('âš ï¸ openReasoningLightbox function not available')
+        console.warn('⚠️ openReasoningLightbox function not available')
 
         sendResponse({ success: false, error: 'Function not available' })
 
@@ -1291,7 +1291,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     } catch (e) {
 
-      console.error('âŒ Error opening Reasoning lightbox:', e)
+      console.error('❌ Error opening Reasoning lightbox:', e)
 
       sendResponse({ success: false, error: String(e) })
 
@@ -1318,7 +1318,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
       } else {
 
-        console.warn('âš ï¸ openBackendConfigLightbox function not available')
+        console.warn('⚠️ openBackendConfigLightbox function not available')
 
         sendResponse({ success: false, error: 'Function not available' })
 
@@ -1326,7 +1326,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     } catch (e) {
 
-      console.error('âŒ Error opening Backend Config lightbox:', e)
+      console.error('❌ Error opening Backend Config lightbox:', e)
 
       sendResponse({ success: false, error: String(e) })
 
@@ -1363,7 +1363,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             openPolicyLightboxInContent()
           }
         }).catch(err => {
-          console.error('âŒ Failed to load policy lightbox module:', err)
+          console.error('❌ Failed to load policy lightbox module:', err)
         })
 
         sendResponse({ success: true })
@@ -1372,7 +1372,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     } catch (e) {
 
-      console.error('âŒ Error opening Policy lightbox:', e)
+      console.error('❌ Error opening Policy lightbox:', e)
 
       sendResponse({ success: false, error: String(e) })
 
@@ -1394,7 +1394,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     } catch (e) {
 
-      console.error('âŒ Error saving session:', e)
+      console.error('❌ Error saving session:', e)
 
       sendResponse({ success: false, error: String(e) })
 
@@ -1413,9 +1413,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   // SOLUTION: Users must manually start the desktop app from Start Menu or desktop shortcut.
   // The extension communicates with an already-running app via HTTP/WebSocket.
   else if (message.type === 'TRIGGER_PROTOCOL_LAUNCH' || message.type === 'LAUNCH_ELECTRON_PROTOCOL') {
-    console.warn('âš ï¸ [CONTENT] TRIGGER_PROTOCOL_LAUNCH is disabled - custom protocol launch removed to prevent Windows errors')
-    console.warn('âš ï¸ [CONTENT] Requested protocol:', message.protocol || message.url || 'wrcode://start')
-    console.warn('âš ï¸ [CONTENT] User should start the app manually from Start Menu')
+    console.warn('⚠️ [CONTENT] TRIGGER_PROTOCOL_LAUNCH is disabled - custom protocol launch removed to prevent Windows errors')
+    console.warn('⚠️ [CONTENT] Requested protocol:', message.protocol || message.url || 'wrcode://start')
+    console.warn('⚠️ [CONTENT] User should start the app manually from Start Menu')
     sendResponse({ 
       success: false, 
       error: 'Protocol launch disabled. Please start WR Desk from the Start Menu.',
@@ -1427,7 +1427,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 })
 
-// â”€â”€ WebMCP Preview Handler â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── WebMCP Preview Handler ──────────────────────────────────────────────────
 // Routes WEBMCP_FILL_PREVIEW_REQUEST from background.ts to the adapter.
 // This is a separate listener to minimize coupling to the main handler above.
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
@@ -1551,7 +1551,7 @@ function showTriggerPromptInChat(mode: string, rect: any, displayId: number, ima
 
     title.style.cssText = 'font-size: 16px; font-weight: 600; color: #ffffff;'
 
-    title.textContent = 'ðŸ“¸ Create Trigger'
+    title.textContent = '📸 Create Trigger'
 
     
 
@@ -1749,7 +1749,7 @@ function showTriggerPromptInChat(mode: string, rect: any, displayId: number, ima
 
     const saveBtn = document.createElement('button')
 
-    saveBtn.textContent = 'ðŸ’¾ Save'
+    saveBtn.textContent = '💾 Save'
 
     saveBtn.style.cssText = `
 
@@ -1906,7 +1906,7 @@ function showTriggerPromptInChat(mode: string, rect: any, displayId: number, ima
 
             bub.style.color = '#e5e7eb'
 
-            bub.textContent = `ðŸ“ Command: ${command}`
+            bub.textContent = `📝 Command: ${command}`
 
             row.appendChild(bub)
 
@@ -1926,7 +1926,7 @@ function showTriggerPromptInChat(mode: string, rect: any, displayId: number, ima
 
               kind: 'text', 
 
-              text: `ðŸ“ Command: ${command}`,
+              text: `📝 Command: ${command}`,
 
               command: command
 
@@ -2129,7 +2129,7 @@ function safeAppendToBody(element: HTMLElement): void {
         document.body.appendChild(element)
       } else {
         // Fallback to documentElement if body still doesn't exist
-        console.warn('âš ï¸ document.body not available, using document.documentElement as fallback')
+        console.warn('⚠️ document.body not available, using document.documentElement as fallback')
         document.documentElement.appendChild(element)
       }
       document.removeEventListener('DOMContentLoaded', handler)
@@ -2142,7 +2142,7 @@ function safeAppendToBody(element: HTMLElement): void {
       if (document.body) {
         document.body.appendChild(element)
       } else {
-        console.warn('âš ï¸ document.body not available, using document.documentElement as fallback')
+        console.warn('⚠️ document.body not available, using document.documentElement as fallback')
         document.documentElement.appendChild(element)
       }
     })
@@ -2175,7 +2175,7 @@ async function storageRemove(keys: string | string[], callback?: () => void) {
 }
 
 function initializeExtension() {
-  // OAuth callback pages: never inject â€” prevents extension from breaking
+  // OAuth callback pages: never inject — prevents extension from breaking
   // http://localhost:51249/callback, etc. (Electron OAuth server)
   const host = window.location.hostname
   if (host === 'localhost' || host === '127.0.0.1') {
@@ -2518,7 +2518,7 @@ function initializeExtension() {
 
       if (tabSession) {
 
-        // Return the key immediately â€” do NOT verify via storageGet here.
+        // Return the key immediately — do NOT verify via storageGet here.
         // storageWrapper falls back to Chrome Storage for session_ keys (which live in SQLite),
         // returning empty and incorrectly clearing a perfectly valid session key.
 
@@ -2579,7 +2579,7 @@ function initializeExtension() {
       chrome.storage?.local?.set({ 'optimando-active-session-key': key }, () => {
       })
     } catch (e) {
-      console.error('âŒ Failed to save session key to chrome.storage:', e)
+      console.error('❌ Failed to save session key to chrome.storage:', e)
     }
 
   }
@@ -2603,7 +2603,7 @@ function initializeExtension() {
 
         setCurrentSessionKey(sessionKeyFromUrl)
 
-        // Load the session data â€” use authoritative SQLite path with Chrome Storage fallback
+        // Load the session data — use authoritative SQLite path with Chrome Storage fallback
         const loadFromUrl = (session: any) => {
           const s = session || {}
           if (!s.tabName) s.tabName = document.title || 'Unnamed Session'
@@ -2713,7 +2713,7 @@ function initializeExtension() {
         if (chrome?.runtime) {
           chrome.runtime.sendMessage({ type: 'GET_SESSION_FROM_SQLITE', sessionKey: existingKey }, (response) => {
             if (chrome.runtime.lastError) {
-              console.warn('âš ï¸ ensureActiveSession: GET_SESSION_FROM_SQLITE failed, falling back to Chrome Storage:', chrome.runtime.lastError.message)
+              console.warn('⚠️ ensureActiveSession: GET_SESSION_FROM_SQLITE failed, falling back to Chrome Storage:', chrome.runtime.lastError.message)
               // Fallback: try chrome.storage.local (may have older data but better than empty)
               chrome.storage.local.get([existingKey], (result: any) => {
                 const fallback = result?.[existingKey] || {}
@@ -2725,8 +2725,8 @@ function initializeExtension() {
             if (session && (session.agents?.length || session.agentBoxes?.length || session.tabName)) {
               loadExisting(session)
             } else {
-              // SQLite returned null/empty â€” fall back to Chrome Storage in case it has data
-              console.warn('âš ï¸ ensureActiveSession: SQLite returned empty, trying Chrome Storage fallback')
+              // SQLite returned null/empty — fall back to Chrome Storage in case it has data
+              console.warn('⚠️ ensureActiveSession: SQLite returned empty, trying Chrome Storage fallback')
               chrome.storage.local.get([existingKey], (result: any) => {
                 const fallback = result?.[existingKey] || {}
                 loadExisting(fallback)
@@ -2786,7 +2786,7 @@ function initializeExtension() {
         session: newSession
       }, (response) => {
         if (chrome.runtime.lastError || !response?.success) {
-          console.warn('âš ï¸ ensureActiveSession: SQLite save failed, falling back to storageSet:', chrome.runtime.lastError?.message)
+          console.warn('⚠️ ensureActiveSession: SQLite save failed, falling back to storageSet:', chrome.runtime.lastError?.message)
           storageSet({ [newKey]: newSession }, doSave)
         } else {
           // Also mirror to Chrome Storage so the fallback path in ensureActiveSession has data
@@ -2809,7 +2809,7 @@ function initializeExtension() {
     // Ensure the session has all required fields for session history
 
     // Transform agents from orchestrator format to internal format if needed.
-    // Also filter out agent-shell records that were auto-created from agent boxes â€”
+    // Also filter out agent-shell records that were auto-created from agent boxes —
     // those have no real config and must not appear under "AI Agents" in Sessions History.
     let transformedAgents = (sessionData.agents || [])
       .filter((a: any) => {
@@ -2840,7 +2840,7 @@ function initializeExtension() {
     });
     
 
-    // Preserve non-empty agentBoxes arrays â€” never downgrade an existing non-empty array to [].
+    // Preserve non-empty agentBoxes arrays — never downgrade an existing non-empty array to [].
     // The incoming sessionData may have been built before the box was saved (race condition).
     // If the stored record already has boxes, keep whichever array is longer.
     const incomingBoxes: any[] = sessionData.agentBoxes || []
@@ -2863,11 +2863,11 @@ function initializeExtension() {
 
       hiddenBuiltins: sessionData.hiddenBuiltins || [],
       
-      agents: transformedAgents // â† CRITICAL: Include transformed agents array
+      agents: transformedAgents // ← CRITICAL: Include transformed agents array
 
     }
 
-    // Read current session from SQLite via background to get authoritative agentBoxes â€”
+    // Read current session from SQLite via background to get authoritative agentBoxes —
     // storageGet() routes through storageWrapper which may fall back to Chrome Storage
     // (empty for session_ keys), causing agentBoxes to be silently zeroed on every agent save.
     const doSaveSession = (storedBoxes: any[]) => {
@@ -2877,7 +2877,7 @@ function initializeExtension() {
 
 
     // Save directly via SAVE_SESSION_TO_SQLITE (background.ts HTTP) to avoid
-    // storageWrapper/adapter race conditions. Chrome Storage is skipped intentionally â€”
+    // storageWrapper/adapter race conditions. Chrome Storage is skipped intentionally —
     // session_ keys live in SQLite, and storageSet() may also fall back to Chrome Storage
     // which would create an inconsistent mirror.
     if (chrome?.runtime) {
@@ -2887,7 +2887,7 @@ function initializeExtension() {
         session: completeSessionData
       }, (response) => {
         if (chrome.runtime.lastError) {
-          console.warn('âš ï¸ ensureSessionInHistory SQLite save failed:', chrome.runtime.lastError.message)
+          console.warn('⚠️ ensureSessionInHistory SQLite save failed:', chrome.runtime.lastError.message)
           // Fallback: write to Chrome Storage so UI can still read it
           chrome.storage.local.set({ [sessionKey]: completeSessionData }, () => {
             if (callback) callback()
@@ -2897,7 +2897,7 @@ function initializeExtension() {
           try { chrome.storage.local.set({ [sessionKey]: completeSessionData }) } catch {}
           if (callback) callback()
         } else {
-          console.warn('âš ï¸ ensureSessionInHistory: SQLite save returned failure, writing to Chrome Storage as fallback')
+          console.warn('⚠️ ensureSessionInHistory: SQLite save returned failure, writing to Chrome Storage as fallback')
           chrome.storage.local.set({ [sessionKey]: completeSessionData }, () => {
             if (callback) callback()
           })
@@ -2949,15 +2949,15 @@ function initializeExtension() {
 
   const BUILTIN_AGENTS = [
 
-    { key: 'summarize', name: 'Summarize', icon: 'ðŸ“' },
+    { key: 'summarize', name: 'Summarize', icon: '📝' },
 
-    { key: 'research', name: 'Research', icon: 'ðŸ”' },
+    { key: 'research', name: 'Research', icon: '🔍' },
 
-    { key: 'analyze', name: 'Analyze', icon: 'ðŸ“Š' },
+    { key: 'analyze', name: 'Analyze', icon: '📊' },
 
-    { key: 'generate', name: 'Generate', icon: 'âœÂ¨' },
+    { key: 'generate', name: 'Generate', icon: '✏¨' },
 
-    { key: 'coordinate', name: 'Coordinate', icon: 'ðŸŽ¯' }
+    { key: 'coordinate', name: 'Coordinate', icon: '🎯' }
 
   ]
 
@@ -3060,7 +3060,7 @@ function initializeExtension() {
 
         } else {
 
-          console.warn(`âš ï¸ Duplicate agent found in session.agents: ${a.key}, removing duplicate`)
+          console.warn(`⚠️ Duplicate agent found in session.agents: ${a.key}, removing duplicate`)
 
           changed = true
 
@@ -3139,7 +3139,7 @@ function initializeExtension() {
 
             name, 
 
-            icon: icon||'ðŸ¤–', 
+            icon: icon||'🤖', 
 
             number: num, 
 
@@ -3470,7 +3470,7 @@ function initializeExtension() {
             if (a.scope === 'account' && existing.scope !== 'account') {
               agentMap.set(a.key, a)
             } else {
-              console.warn(`âš ï¸ Agent "${a.key}" exists in BOTH session and account storage - keeping existing version`)
+              console.warn(`⚠️ Agent "${a.key}" exists in BOTH session and account storage - keeping existing version`)
             }
 
           }
@@ -3586,7 +3586,7 @@ function initializeExtension() {
 
             if (!targetSession) {
 
-              console.warn(`âš ï¸ Original session ${targetSessionKey} not found, using current session`)
+              console.warn(`⚠️ Original session ${targetSessionKey} not found, using current session`)
 
               targetSession = session
 
@@ -3749,7 +3749,7 @@ function initializeExtension() {
 
             console.warn(`Agent ${agentKey} not found in session, creating it`)
 
-            agent = { key: agentKey, name: agentKey, icon: 'ðŸ¤–', number: s.nextNumber || 1, kind: 'custom', scope: 'session', config: {} }
+            agent = { key: agentKey, name: agentKey, icon: '🤖', number: s.nextNumber || 1, kind: 'custom', scope: 'session', config: {} }
 
             s.agents.push(agent)
 
@@ -3763,7 +3763,7 @@ function initializeExtension() {
 
           agent.config[configType] = configData
           
-          // ðŸ”¥ CRITICAL: Enable agent when user saves configuration
+          // 🔥 CRITICAL: Enable agent when user saves configuration
           agent.enabled = true
 
           s.timestamp = new Date().toISOString()
@@ -3782,7 +3782,7 @@ function initializeExtension() {
 
             if (chrome.runtime.lastError) {
 
-              console.error(`âŒ Chrome storage error:`, chrome.runtime.lastError)
+              console.error(`❌ Chrome storage error:`, chrome.runtime.lastError)
 
               callback()
 
@@ -3813,13 +3813,13 @@ function initializeExtension() {
 
                 } else {
 
-                  console.error(`âŒ VERIFICATION FAILED: ${configType} not found in saved session!`)
+                  console.error(`❌ VERIFICATION FAILED: ${configType} not found in saved session!`)
 
                 }
 
               } else {
 
-                console.error(`âŒ VERIFICATION FAILED: Session key not found after save!`)
+                console.error(`❌ VERIFICATION FAILED: Session key not found after save!`)
 
               }
 
@@ -3845,7 +3845,7 @@ function initializeExtension() {
 
           console.warn(`Agent ${agentKey} not found in account agents, creating it`)
 
-          agent = { key: agentKey, name: agentKey, icon: 'ðŸ¤–', number: 1, kind: 'custom', scope: 'account', config: {} }
+          agent = { key: agentKey, name: agentKey, icon: '🤖', number: 1, kind: 'custom', scope: 'account', config: {} }
 
           accountAgents.push(agent)
 
@@ -3994,9 +3994,9 @@ function initializeExtension() {
 
           card.innerHTML = `
 
-            <div style="font-size: 32px; margin-bottom: 8px;">${a.icon || 'ðŸ¤–'}</div>
+            <div style="font-size: 32px; margin-bottom: 8px;">${a.icon || '🤖'}</div>
 
-            <h4 style="margin: 0 0 8px 0; font-size: 12px; color: ${csTheme().text}; font-weight: bold;">Agent ${num} â€” ${a.name || 'Agent'}</h4>
+            <h4 style="margin: 0 0 8px 0; font-size: 12px; color: ${csTheme().text}; font-weight: bold;">Agent ${num} — ${a.name || 'Agent'}</h4>
 
               <button class="agent-toggle" data-agent-key="${a.key}" style="padding: 4px 8px; background: ${a.enabled ? '#16a34a' : (csTheme().isLight ? '#dc2626' : '#f87171')}; border: none; color: #fff; border-radius: 3px; cursor: pointer; font-size: 9px; margin-bottom: 4px;">${a.enabled ? 'ON' : 'OFF'}</button>
 
@@ -4058,7 +4058,7 @@ function initializeExtension() {
 
               <button class="lightbox-btn" data-agent="${a.key}" data-scope="${a.scope || 'session'}" data-type="instructions" data-number="${a.number || ''}" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; padding: 6px 8px; border-radius: 5px; cursor: pointer; font-size: 10px; display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 50px;" title="AI Instructions">
 
-                <span style="font-size: 14px;">ðŸ“‹</span>
+                <span style="font-size: 14px;">📋</span>
 
                 <span style="font-size: 8px; font-weight: 500;">Config</span>
 
@@ -4066,7 +4066,7 @@ function initializeExtension() {
 
               <button class="memory-btn" data-agent="${a.key}" data-scope="${a.scope || 'session'}" data-number="${a.number || ''}" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; padding: 6px 8px; border-radius: 5px; cursor: pointer; font-size: 10px; display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 50px;" title="Agent Memory">
 
-                <span style="font-size: 14px;">ðŸ§ </span>
+                <span style="font-size: 14px;">🧠</span>
 
                 <span style="font-size: 8px; font-weight: 500;">Memory</span>
 
@@ -4074,7 +4074,7 @@ function initializeExtension() {
 
               <button class="lightbox-btn" data-agent="${a.key}" data-scope="${a.scope || 'session'}" data-type="settings" data-number="${a.number || ''}" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; padding: 6px 8px; border-radius: 5px; cursor: pointer; font-size: 10px; display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 50px;" title="Agent Settings">
 
-                <span style="font-size: 14px;">âš™ï¸</span>
+                <span style="font-size: 14px;">⚙️</span>
 
                 <span style="font-size: 8px; font-weight: 500;">Settings</span>
 
@@ -4266,16 +4266,16 @@ function initializeExtension() {
         }))
       } catch (e: any) {
         if (e.name === 'QuotaExceededError' || e.code === 22) {
-          console.warn('âš ï¸ LocalStorage quota exceeded, cleaning up old data...')
+          console.warn('⚠️ LocalStorage quota exceeded, cleaning up old data...')
           cleanupOldLocalStorageData()
           // Try once more after cleanup
           try {
             localStorage.setItem(`optimando-tab-${tabId}`, JSON.stringify(currentTabData))
           } catch (e2) {
-            console.error('âŒ Still cannot save to localStorage after cleanup:', e2)
+            console.error('❌ Still cannot save to localStorage after cleanup:', e2)
           }
         } else {
-          console.error('âŒ Error saving to localStorage:', e)
+          console.error('❌ Error saving to localStorage:', e)
         }
       }
     }
@@ -4373,7 +4373,7 @@ function initializeExtension() {
 
           if (chrome.runtime.lastError) {
 
-            console.error('âŒ Error loading session from SQLite:', chrome.runtime.lastError.message)
+            console.error('❌ Error loading session from SQLite:', chrome.runtime.lastError.message)
 
             return
 
@@ -4495,7 +4495,7 @@ function initializeExtension() {
 
           if (chrome.runtime.lastError) {
 
-            console.error('âŒ Error loading session from SQLite:', chrome.runtime.lastError.message)
+            console.error('❌ Error loading session from SQLite:', chrome.runtime.lastError.message)
 
             return
 
@@ -4591,7 +4591,7 @@ function initializeExtension() {
 
           if (chrome.runtime.lastError) {
 
-            console.error('âŒ Error loading session from SQLite:', chrome.runtime.lastError.message)
+            console.error('❌ Error loading session from SQLite:', chrome.runtime.lastError.message)
 
             return
 
@@ -4802,7 +4802,7 @@ function initializeExtension() {
 
   loadTabDataFromStorage()
   
-  // ðŸ”‘ CRITICAL: Load current session from SQLite (single source of truth) on page load
+  // 🔑 CRITICAL: Load current session from SQLite (single source of truth) on page load
   // This restores agentBoxes and other session data after page refresh
   setTimeout(() => {
     const sessionKey = getCurrentSessionKey()
@@ -4814,7 +4814,7 @@ function initializeExtension() {
         sessionKey: sessionKey
       }, (response) => {
         if (chrome.runtime.lastError) {
-          console.error('âŒ Error loading session from SQLite:', chrome.runtime.lastError.message)
+          console.error('❌ Error loading session from SQLite:', chrome.runtime.lastError.message)
           return
         }
         
@@ -4861,7 +4861,7 @@ function initializeExtension() {
           sessionKey: sessionKey
         }, (response) => {
           if (chrome.runtime.lastError) {
-            console.error('âŒ Error reloading session:', chrome.runtime.lastError.message)
+            console.error('❌ Error reloading session:', chrome.runtime.lastError.message)
             return
           }
           
@@ -4926,7 +4926,7 @@ function initializeExtension() {
     
     const button = document.createElement('div')
     button.id = 'sidepanel-expand-button'
-    button.innerHTML = 'â—€'
+    button.innerHTML = '◀'
     button.title = 'Show Sidepanel'
     button.style.cssText = `
       position: fixed;
@@ -4994,7 +4994,7 @@ function initializeExtension() {
       // Relative luminance (WCAG 2.1)
       const toLinear = (c: number) => { const s = c / 255; return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4) }
       const L = 0.2126 * toLinear(r) + 0.7152 * toLinear(g) + 0.0722 * toLinear(b)
-      // Use 0.35 threshold â€” gives white for dark colors, black for light colors
+      // Use 0.35 threshold — gives white for dark colors, black for light colors
       return L > 0.35 ? '#000000' : '#ffffff'
     } catch { return '#ffffff' }
   }
@@ -5201,13 +5201,13 @@ function initializeExtension() {
 
             <button class="edit-agent-box" data-agent-id="${box.id}" style="background: rgba(128,128,128,0.2); border: none; color: inherit; width: 20px; height: 20px; border-radius: 50%; cursor: pointer; font-size: 10px; font-weight: bold; display: flex; align-items: center; justify-content: center; transition: all 0.2s ease; opacity: 0.7; position: relative; z-index: 2;" title="Edit this agent box">
 
-              âœÂï¸
+              ✏️
 
             </button>
 
             <button class="delete-agent-box" data-agent-id="${box.id}" style="background: rgba(128,128,128,0.2); border: none; color: inherit; width: 20px; height: 20px; border-radius: 50%; cursor: pointer; font-size: 12px; font-weight: bold; display: flex; align-items: center; justify-content: center; transition: all 0.2s ease; opacity: 0.7; position: relative; z-index: 2;" title="Delete this agent box">
 
-              âœâ€¢
+              ✏•
 
             </button>
 
@@ -5219,7 +5219,7 @@ function initializeExtension() {
 
           <div style="font-size: 12px; color: #333; line-height: 1.4;">
 
-            <div id="${box.outputId}">${isEnabled ? `Ready for ${box.title.replace(/[ðŸ“ðŸ”ðŸŽ¯ðŸ§®]/g, '').trim()}...` : `Agent disabled - toggle On to activate`}</div>
+            <div id="${box.outputId}">${isEnabled ? `Ready for ${box.title.replace(/[📝🔍🎯🧮]/g, '').trim()}...` : `Agent disabled - toggle On to activate`}</div>
 
           </div>
 
@@ -5271,7 +5271,7 @@ function initializeExtension() {
     const boxIndex = currentTabData.agentBoxes.findIndex((box: any) => box.id === agentId)
 
     if (boxIndex === -1) {
-      console.error('âŒ Agent box not found in currentTabData:', agentId)
+      console.error('❌ Agent box not found in currentTabData:', agentId)
       return
     }
 
@@ -5280,7 +5280,7 @@ function initializeExtension() {
 
 
     if (!sessionKey) {
-      console.error('âŒ No session key found, cannot delete')
+      console.error('❌ No session key found, cannot delete')
       alert('No active session. Cannot delete agent box.')
       return
     }
@@ -5294,7 +5294,7 @@ function initializeExtension() {
     }, (response) => {
       // Check for chrome runtime errors
       if (chrome.runtime.lastError) {
-        console.error('âŒ Chrome runtime error:', chrome.runtime.lastError.message)
+        console.error('❌ Chrome runtime error:', chrome.runtime.lastError.message)
         alert('Failed to delete: ' + chrome.runtime.lastError.message)
         return
       }
@@ -5310,7 +5310,7 @@ function initializeExtension() {
           sessionKey: sessionKey
         })
       } else {
-        console.error('âŒ Failed to delete from SQLite:', response?.error || 'Unknown error')
+        console.error('❌ Failed to delete from SQLite:', response?.error || 'Unknown error')
         alert('Failed to delete agent box: ' + (response?.error || 'Unknown error'))
       }
     })
@@ -5323,7 +5323,7 @@ function initializeExtension() {
       sessionKey: sessionKey
     }, (response) => {
       if (chrome.runtime.lastError || !response?.success) {
-        console.error('âŒ Failed to reload from SQLite:', chrome.runtime.lastError?.message)
+        console.error('❌ Failed to reload from SQLite:', chrome.runtime.lastError?.message)
         return
       }
       
@@ -5348,7 +5348,7 @@ function initializeExtension() {
     )
 
     if (boxIndex === -1) {
-      console.error('âŒ Display grid agent box not found:', identifier)
+      console.error('❌ Display grid agent box not found:', identifier)
       return
     }
 
@@ -5357,7 +5357,7 @@ function initializeExtension() {
 
 
     if (!sessionKey) {
-      console.error('âŒ No session key found, cannot delete')
+      console.error('❌ No session key found, cannot delete')
       alert('No active session. Cannot delete agent box.')
       return
     }
@@ -5373,7 +5373,7 @@ function initializeExtension() {
     }, (response) => {
       // Check for chrome runtime errors
       if (chrome.runtime.lastError) {
-        console.error('âŒ Chrome runtime error:', chrome.runtime.lastError.message)
+        console.error('❌ Chrome runtime error:', chrome.runtime.lastError.message)
         alert('Failed to delete: ' + chrome.runtime.lastError.message)
         return
       }
@@ -5389,7 +5389,7 @@ function initializeExtension() {
           sessionKey: sessionKey
         })
       } else {
-        console.error('âŒ Failed to delete from SQLite:', response?.error || 'Unknown error')
+        console.error('❌ Failed to delete from SQLite:', response?.error || 'Unknown error')
         alert('Failed to delete agent box: ' + (response?.error || 'Unknown error'))
       }
     })
@@ -5521,7 +5521,7 @@ function initializeExtension() {
         sessionKey: sessionKey
       }, (response) => {
         if (chrome.runtime.lastError) {
-          console.warn('âš ï¸ Could not fetch from SQLite:', chrome.runtime.lastError.message)
+          console.warn('⚠️ Could not fetch from SQLite:', chrome.runtime.lastError.message)
           showDialog()
           return
         }
@@ -5609,7 +5609,7 @@ function initializeExtension() {
 
           <label style="display: block; margin-bottom: 8px; color: #555; font-weight: bold;">Agent Title:</label>
 
-          <input id="agent-title" type="text" placeholder="e.g., ðŸ¤– Custom Agent" style="width: 100%; padding: 10px; border: 2px solid #ddd; border-radius: 6px; font-size: 14px;">
+          <input id="agent-title" type="text" placeholder="e.g., 🤖 Custom Agent" style="width: 100%; padding: 10px; border: 2px solid #ddd; border-radius: 6px; font-size: 14px;">
 
         </div>
 
@@ -5647,7 +5647,7 @@ function initializeExtension() {
 
               <option value="Local AI">Local AI</option>
 
-              <option value="Image AI">â˜ï¸ Image AI</option>
+              <option value="Image AI">☁️ Image AI</option>
 
             </select>
 
@@ -5681,8 +5681,8 @@ function initializeExtension() {
 
         <div style="margin-top:12px;margin-bottom:14px;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden">
           <div id="ab-experts-header" style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:#f8fafc;cursor:pointer;user-select:none">
-            <span style="font-weight:600;color:#334155;font-size:13px">ðŸ“š WR Experts <span style="font-weight:400;color:#94a3b8;font-size:11px">(agent-level knowledge)</span></span>
-            <span id="ab-experts-toggle" style="font-size:11px;color:#64748b">â–¼</span>
+            <span style="font-weight:600;color:#334155;font-size:13px">📚 WR Experts <span style="font-weight:400;color:#94a3b8;font-size:11px">(agent-level knowledge)</span></span>
+            <span id="ab-experts-toggle" style="font-size:11px;color:#64748b">▼</span>
           </div>
           <div id="ab-experts-body" style="display:none;padding:12px;border-top:1px solid #e2e8f0">
             <div id="ab-experts-list" style="display:flex;flex-direction:column;gap:8px;margin-bottom:8px"></div>
@@ -5753,7 +5753,7 @@ function initializeExtension() {
 
         case 'grok': return ['auto', 'grok-2-mini', 'grok-2']
 
-        case 'image ai': return ['Nano Banana Pro', 'DALLÂ·E 3', 'DALLÂ·E 2', 'Flux Schnell', 'Flux Dev', 'SDXL', 'SD3 Medium', 'Stable Diffusion XL']
+        case 'image ai': return ['Nano Banana Pro', 'DALL·E 3', 'DALL·E 2', 'Flux Schnell', 'Flux Dev', 'SDXL', 'SD3 Medium', 'Stable Diffusion XL']
 
         default: return ['auto']
 
@@ -5785,7 +5785,7 @@ function initializeExtension() {
 
       if (p === 'local ai' || p === 'ollama') {
 
-        modelSelect.innerHTML = '<option value="">Loading installed modelsâ€¦</option>'
+        modelSelect.innerHTML = '<option value="">Loading installed models…</option>'
 
         modelSelect.disabled = true
 
@@ -5841,7 +5841,7 @@ function initializeExtension() {
           }
           warnEl.style.display = differs ? 'block' : 'none'
           if (differs) {
-            warnEl.innerHTML = `âš ï¸ <strong>Heads up:</strong> Using multiple different local models at the same time will load each one separately into RAM. This can cause significant performance issues or run out of memory. Make sure your system has enough RAM available.`
+            warnEl.innerHTML = `⚠️ <strong>Heads up:</strong> Using multiple different local models at the same time will load each one separately into RAM. This can cause significant performance issues or run out of memory. Make sure your system has enough RAM available.`
           }
         }
         updateWarn()
@@ -5978,7 +5978,7 @@ function initializeExtension() {
       abHeader.addEventListener('click', () => {
         const isOpen = abBody.style.display !== 'none'
         abBody.style.display = isOpen ? 'none' : 'block'
-        if (abToggle) abToggle.textContent = isOpen ? 'â–¼' : 'â–²'
+        if (abToggle) abToggle.textContent = isOpen ? '▼' : '▲'
       })
     }
     function renderAbExperts() {
@@ -5988,7 +5988,7 @@ function initializeExtension() {
       abExpertsState.forEach((exp, idx) => {
         const row = document.createElement('div')
         row.style.cssText = 'padding:8px 10px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;display:flex;align-items:center;justify-content:space-between;gap:8px'
-        row.innerHTML = `<div style="flex:1;min-width:0"><div style="font-weight:600;font-size:12px;color:#334155">${exp.name || 'Untitled'}</div>${exp.description ? `<div style="font-size:11px;color:#94a3b8;margin-top:2px">${exp.description.substring(0, 60)}</div>` : ''}<div style="font-size:10px;color:#cbd5e1;margin-top:2px">${(exp.content || '').length} chars</div></div><div style="display:flex;gap:4px;flex-shrink:0"><button class="ab-edit-expert" data-idx="${idx}" style="background:#eff6ff;border:1px solid #93c5fd;color:#2563eb;padding:3px 8px;border-radius:4px;cursor:pointer;font-size:11px">Edit</button><button class="ab-del-expert" data-idx="${idx}" style="background:#fef2f2;border:1px solid #fca5a5;color:#dc2626;padding:3px 8px;border-radius:4px;cursor:pointer;font-size:11px">Ã—</button></div>`
+        row.innerHTML = `<div style="flex:1;min-width:0"><div style="font-weight:600;font-size:12px;color:#334155">${exp.name || 'Untitled'}</div>${exp.description ? `<div style="font-size:11px;color:#94a3b8;margin-top:2px">${exp.description.substring(0, 60)}</div>` : ''}<div style="font-size:10px;color:#cbd5e1;margin-top:2px">${(exp.content || '').length} chars</div></div><div style="display:flex;gap:4px;flex-shrink:0"><button class="ab-edit-expert" data-idx="${idx}" style="background:#eff6ff;border:1px solid #93c5fd;color:#2563eb;padding:3px 8px;border-radius:4px;cursor:pointer;font-size:11px">Edit</button><button class="ab-del-expert" data-idx="${idx}" style="background:#fef2f2;border:1px solid #fca5a5;color:#dc2626;padding:3px 8px;border-radius:4px;cursor:pointer;font-size:11px">×</button></div>`
         list.appendChild(row)
       })
       list.querySelectorAll('.ab-edit-expert').forEach((btn: any) => {
@@ -6119,7 +6119,7 @@ function initializeExtension() {
 
             tabIndex = parseInt(hybridId) + 2 // +2 because hybrid_master_id 0 = Master Tab (02), 1 = Master Tab (03)
 
-            masterTabId = String(parseInt(hybridId) + 2).padStart(2, '0')  // hybrid_id 0 â†’ 02, 1 â†’ 03, etc.
+            masterTabId = String(parseInt(hybridId) + 2).padStart(2, '0')  // hybrid_id 0 → 02, 1 → 03, etc.
 
           }
 
@@ -6155,21 +6155,21 @@ function initializeExtension() {
 
           model: model,
 
-          tools: tools,  // â† Add tools array
+          tools: tools,  // ← Add tools array
 
           wrExperts: abExpertsState,
 
-          side: clickSide,  // â† Add side info for hybrid tabs
+          side: clickSide,  // ← Add side info for hybrid tabs
 
-          tabIndex: tabIndex,  // â† Add tab index for location tracking
+          tabIndex: tabIndex,  // ← Add tab index for location tracking
 
-          masterTabId: masterTabId,  // â† Add master tab ID for filtering ("01", "02", "03", etc.)
+          masterTabId: masterTabId,  // ← Add master tab ID for filtering ("01", "02", "03", etc.)
 
-          tabUrl: window.location.href,  // â† Store tab URL to identify unique tabs
+          tabUrl: window.location.href,  // ← Store tab URL to identify unique tabs
 
-          source: 'master_tab',  // â† Identify this as a master tab box
+          source: 'master_tab',  // ← Identify this as a master tab box
 
-          enabled: true  // â† Default to enabled so box is active immediately
+          enabled: true  // ← Default to enabled so box is active immediately
 
       }
 
@@ -6181,7 +6181,7 @@ function initializeExtension() {
       try {
         localStorage.setItem(`optimando-tab-${tabId}`, JSON.stringify(currentTabData))
       } catch (e) {
-        console.warn('âš ï¸ Could not save to localStorage:', e)
+        console.warn('⚠️ Could not save to localStorage:', e)
       }
 
       renderAgentBoxes()
@@ -6211,21 +6211,21 @@ function initializeExtension() {
 
           if (chrome.runtime.lastError) {
 
-            console.error('âŒ Failed to save master tab box to SQLite:', chrome.runtime.lastError.message)
+            console.error('❌ Failed to save master tab box to SQLite:', chrome.runtime.lastError.message)
 
           } else if (response && response.success) {
 
 
 
             // The box is now in SQLite (saved by background.ts via direct HTTP).
-            // Do NOT call ensureSessionInHistory here â€” that would read from storageGet
+            // Do NOT call ensureSessionInHistory here — that would read from storageGet
             // which may fall back to Chrome Storage (which doesn't mirror session_ keys),
             // then overwrite SQLite with an empty-agentBoxes session.
             // The authoritative SQLite record already has the box; nothing more to do.
 
           } else {
 
-            console.error('âŒ Failed to save to SQLite:', response?.error)
+            console.error('❌ Failed to save to SQLite:', response?.error)
 
           }
 
@@ -6233,7 +6233,7 @@ function initializeExtension() {
 
       } else {
 
-        console.warn('âš ï¸ No session key found, cannot save to SQLite')
+        console.warn('⚠️ No session key found, cannot save to SQLite')
 
       }
 
@@ -6283,7 +6283,7 @@ function initializeExtension() {
 
       `
 
-        notification.innerHTML = `âž• Agent box ${identifier} created: "${title}"`
+        notification.innerHTML = `➕ Agent box ${identifier} created: "${title}"`
 
       document.body.appendChild(notification)
 
@@ -6446,7 +6446,7 @@ function initializeExtension() {
 
               <option value="Local AI" ${toProviderLabel(agentBox.provider || '') === 'Local AI' ? 'selected' : ''}>Local AI</option>
 
-              <option value="Image AI" ${toProviderLabel(agentBox.provider || '') === 'Image AI' ? 'selected' : ''}>â˜ï¸ Image AI</option>
+              <option value="Image AI" ${toProviderLabel(agentBox.provider || '') === 'Image AI' ? 'selected' : ''}>☁️ Image AI</option>
 
             </select>
 
@@ -6478,8 +6478,8 @@ function initializeExtension() {
 
         <div style="margin-top:12px;margin-bottom:14px;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden">
           <div id="edit-experts-header" style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:#f8fafc;cursor:pointer;user-select:none">
-            <span style="font-weight:600;color:#334155;font-size:13px">ðŸ“š WR Experts <span style="font-weight:400;color:#94a3b8;font-size:11px">(agent-level knowledge)</span></span>
-            <span id="edit-experts-toggle" style="font-size:11px;color:#64748b">â–¼</span>
+            <span style="font-weight:600;color:#334155;font-size:13px">📚 WR Experts <span style="font-weight:400;color:#94a3b8;font-size:11px">(agent-level knowledge)</span></span>
+            <span id="edit-experts-toggle" style="font-size:11px;color:#64748b">▼</span>
           </div>
           <div id="edit-experts-body" style="display:none;padding:12px;border-top:1px solid #e2e8f0">
             <div id="edit-experts-list" style="display:flex;flex-direction:column;gap:8px;margin-bottom:8px"></div>
@@ -6574,7 +6574,7 @@ function initializeExtension() {
 
         case 'grok': return ['auto', 'grok-2-mini', 'grok-2']
 
-        case 'image ai': return ['Nano Banana Pro', 'DALLÂ·E 3', 'DALLÂ·E 2', 'Flux Schnell', 'Flux Dev', 'SDXL', 'SD3 Medium', 'Stable Diffusion XL']
+        case 'image ai': return ['Nano Banana Pro', 'DALL·E 3', 'DALL·E 2', 'Flux Schnell', 'Flux Dev', 'SDXL', 'SD3 Medium', 'Stable Diffusion XL']
 
         default: return ['auto']
 
@@ -6606,7 +6606,7 @@ function initializeExtension() {
 
       if (p === 'local ai' || p === 'ollama') {
 
-        modelSelect.innerHTML = '<option value="">Loading installed modelsâ€¦</option>'
+        modelSelect.innerHTML = '<option value="">Loading installed models…</option>'
 
         modelSelect.disabled = true
 
@@ -6666,7 +6666,7 @@ function initializeExtension() {
           }
           warnEl.style.display = differs ? 'block' : 'none'
           if (differs) {
-            warnEl.innerHTML = `âš ï¸ <strong>Heads up:</strong> Using multiple different local models at the same time will load each one separately into RAM. This can cause significant performance issues or run out of memory. Make sure your system has enough RAM available.`
+            warnEl.innerHTML = `⚠️ <strong>Heads up:</strong> Using multiple different local models at the same time will load each one separately into RAM. This can cause significant performance issues or run out of memory. Make sure your system has enough RAM available.`
           }
         }
         updateWarn()
@@ -6785,7 +6785,7 @@ function initializeExtension() {
       editExHeader.addEventListener('click', () => {
         const isOpen = editExBody.style.display !== 'none'
         editExBody.style.display = isOpen ? 'none' : 'block'
-        if (editExToggle) editExToggle.textContent = isOpen ? 'â–¼' : 'â–²'
+        if (editExToggle) editExToggle.textContent = isOpen ? '▼' : '▲'
       })
     }
     function renderEditExperts() {
@@ -6795,7 +6795,7 @@ function initializeExtension() {
       editExpertsState.forEach((exp, idx) => {
         const row = document.createElement('div')
         row.style.cssText = 'padding:8px 10px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;display:flex;align-items:center;justify-content:space-between;gap:8px'
-        row.innerHTML = `<div style="flex:1;min-width:0"><div style="font-weight:600;font-size:12px;color:#334155">${exp.name || 'Untitled'}</div>${exp.description ? `<div style="font-size:11px;color:#94a3b8;margin-top:2px">${exp.description.substring(0, 60)}</div>` : ''}<div style="font-size:10px;color:#cbd5e1;margin-top:2px">${(exp.content || '').length} chars</div></div><div style="display:flex;gap:4px;flex-shrink:0"><button class="edit-ex-edit" data-idx="${idx}" style="background:#eff6ff;border:1px solid #93c5fd;color:#2563eb;padding:3px 8px;border-radius:4px;cursor:pointer;font-size:11px">Edit</button><button class="edit-ex-del" data-idx="${idx}" style="background:#fef2f2;border:1px solid #fca5a5;color:#dc2626;padding:3px 8px;border-radius:4px;cursor:pointer;font-size:11px">Ã—</button></div>`
+        row.innerHTML = `<div style="flex:1;min-width:0"><div style="font-weight:600;font-size:12px;color:#334155">${exp.name || 'Untitled'}</div>${exp.description ? `<div style="font-size:11px;color:#94a3b8;margin-top:2px">${exp.description.substring(0, 60)}</div>` : ''}<div style="font-size:10px;color:#cbd5e1;margin-top:2px">${(exp.content || '').length} chars</div></div><div style="display:flex;gap:4px;flex-shrink:0"><button class="edit-ex-edit" data-idx="${idx}" style="background:#eff6ff;border:1px solid #93c5fd;color:#2563eb;padding:3px 8px;border-radius:4px;cursor:pointer;font-size:11px">Edit</button><button class="edit-ex-del" data-idx="${idx}" style="background:#fef2f2;border:1px solid #fca5a5;color:#dc2626;padding:3px 8px;border-radius:4px;cursor:pointer;font-size:11px">×</button></div>`
         list.appendChild(row)
       })
       list.querySelectorAll('.edit-ex-edit').forEach((btn: any) => {
@@ -6850,7 +6850,7 @@ function initializeExtension() {
         if (agentId) {
           deleteAgentBox(agentId)
         } else {
-          console.error('âŒ No agentId available for delete!')
+          console.error('❌ No agentId available for delete!')
           alert('Error: Could not delete - no agent ID')
         }
       }
@@ -7028,7 +7028,7 @@ function initializeExtension() {
 
       agentBox.agentId = updates.agentId
       
-      // Extract numeric agentNumber from agentId (e.g., "agent1" â†’ 1)
+      // Extract numeric agentNumber from agentId (e.g., "agent1" → 1)
       const match = updates.agentId.match(/agent(\d+)/i)
       if (match) {
         agentBox.agentNumber = parseInt(match[1], 10)
@@ -7106,7 +7106,7 @@ function initializeExtension() {
 
     `
 
-    notification.innerHTML = `âœÂï¸ Agent box "${agentBox.title}" updated!`
+    notification.innerHTML = `✏️ Agent box "${agentBox.title}" updated!`
 
     document.body.appendChild(notification)
 
@@ -7378,7 +7378,7 @@ function initializeExtension() {
           if (el) {
             const isEnabled = box.enabled !== false
             el.innerHTML = isEnabled
-              ? `Ready for ${String(box.title || '').replace(/[ðŸ“ðŸ”ðŸŽ¯ðŸ§®]/g, '').trim()}...`
+              ? `Ready for ${String(box.title || '').replace(/[📝🔍🎯🧮]/g, '').trim()}...`
               : `Agent disabled - toggle On to activate`
           }
           chrome.runtime.sendMessage({
@@ -7489,7 +7489,7 @@ function initializeExtension() {
 
           const notification = document.createElement('div')
 
-          notification.textContent = `${box.title} ${isEnabled ? 'enabled' : 'disabled'} âœâ€œ`
+          notification.textContent = `${box.title} ${isEnabled ? 'enabled' : 'disabled'} ✏“`
 
           notification.style.cssText = `position:fixed;top:20px;right:20px;z-index:2147483650;background:${isEnabled ? '#16a34a' : '#64748b'};color:#fff;padding:10px 14px;border-radius:8px;font-size:12px;box-shadow:0 4px 12px rgba(0,0,0,0.3);transition:opacity 0.3s;`
 
@@ -7732,7 +7732,7 @@ function initializeExtension() {
 
   `
 
-  // LEFT SIDEBAR - AI Agent Outputs (weiÃŸe Display Ports)
+  // LEFT SIDEBAR - AI Agent Outputs (weiße Display Ports)
 
   const leftSidebar = document.createElement('div')
 
@@ -7942,13 +7942,13 @@ function initializeExtension() {
 
         <button id="command-center-btn" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px; transition: all 0.2s ease;" title="Command Chat">
 
-          ðŸ’¬
+          💬
 
         </button>
 
       <button id="quick-expand-btn" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px; transition: all 0.2s ease;" title="Quick expand to maximum width">
 
-        â‡„
+        ⇄
 
       </button>
 
@@ -7972,7 +7972,7 @@ function initializeExtension() {
 
       <button id="add-agent-box-btn" style="width: 100%; padding: 12px 16px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: bold; min-height: 44px; transition: all 0.3s ease;">
 
-        âž• Add New Agent Box
+        ➕ Add New Agent Box
 
       </button>
 
@@ -8096,9 +8096,9 @@ function initializeExtension() {
 
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
 
-      <h2 style="margin: 0; font-size: 18px;" class="section-title">âš™ï¸ AI Orchestrator</h2>
+      <h2 style="margin: 0; font-size: 18px;" class="section-title">⚙️ AI Orchestrator</h2>
 
-      <button id="quick-expand-right-btn" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px; transition: all 0.2s ease;" title="Quick expand">â‡„</button>
+      <button id="quick-expand-right-btn" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px; transition: all 0.2s ease;" title="Quick expand">⇄</button>
 
     </div>
 
@@ -8108,7 +8108,7 @@ function initializeExtension() {
 
     <div id="wr-card" style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px; margin-bottom: 20px; text-align: center;">
 
-      <h3 style="margin: 0 0 15px 0; font-size: 14px;" class="section-title">ðŸ“± WR Login</h3>
+      <h3 style="margin: 0 0 15px 0; font-size: 14px;" class="section-title">📱 WR Login</h3>
 
       
 
@@ -8132,7 +8132,7 @@ function initializeExtension() {
 
       <button id="wr-connect-btn" style="width: 100%; padding: 12px 16px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 4px; cursor: pointer; font-size: 14px; font-weight: 600; min-height: 44px; margin-bottom: 10px;">
 
-        ðŸ”— WR Login
+        🔗 WR Login
 
       </button>
 
@@ -8166,7 +8166,7 @@ function initializeExtension() {
 
       <button id="add-agent-box-btn-right-main" style="width: 100%; padding: 12px 16px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: bold; min-height: 44px; transition: all 0.3s ease;">
 
-        âž• Add New Agent Box
+        ➕ Add New Agent Box
 
       </button>
 
@@ -8178,25 +8178,25 @@ function initializeExtension() {
 
     <div id="quick-actions-card" style="background: ${csTheme().cardBg}; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
 
-      <h3 style="margin: 0 0 15px 0; font-size: 14px;" class="section-title">âš¡ Runtime Controls</h3>
+      <h3 style="margin: 0 0 15px 0; font-size: 14px;" class="section-title">⚡ Runtime Controls</h3>
 
       <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
 
-        <button id="add-helpergrid-btn" style="padding: 10px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600;">ðŸš€ Add View</button>
+        <button id="add-helpergrid-btn" style="padding: 10px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600;">🚀 Add View</button>
 
-        <button id="sessions-history-btn" style="padding: 10px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600;">ðŸ“š Sessions</button>
+        <button id="sessions-history-btn" style="padding: 10px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600;">📚 Sessions</button>
 
-        <button id="save-session-btn" style="padding: 10px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600;">ðŸ’¾ Save</button>
+        <button id="save-session-btn" style="padding: 10px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600;">💾 Save</button>
 
-        <button id="sync-btn" style="padding: 10px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600;">ðŸ”„ Sync</button>
+        <button id="sync-btn" style="padding: 10px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600;">🔄 Sync</button>
 
-        <button id="export-btn" style="padding: 10px; background: ${csTheme().cardBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600;">ðŸ“¤ Export</button>
+        <button id="export-btn" style="padding: 10px; background: ${csTheme().cardBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600;">📤 Export</button>
 
-        <button id="import-btn" style="padding: 10px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600;">ðŸ“¥ Import</button>
+        <button id="import-btn" style="padding: 10px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600;">📥 Import</button>
 
         <button id="wrvault-open-btn" style="padding: 10px; border-radius: 6px; cursor: pointer; font-size: 11px; display:flex; align-items:center; gap:8px; justify-content:center; font-weight:700; border:1px solid ${csTheme().border}; grid-column: 1 / span 2; background: ${csTheme().cardBg};">
 
-          <span>ðŸ”’</span>
+          <span>🔒</span>
 
           <span>WRVault</span>
 
@@ -8228,9 +8228,9 @@ function initializeExtension() {
 
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
 
-        <h2 style="margin: 0; font-size: 18px;" class="section-title">ðŸ–¥Â Master Tab (${String(parseInt(hybridMasterId) + 1).padStart(2, '0')})</h2>
+        <h2 style="margin: 0; font-size: 18px;" class="section-title">🖥 Master Tab (${String(parseInt(hybridMasterId) + 1).padStart(2, '0')})</h2>
 
-        <button id="quick-expand-right-btn" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px; transition: all 0.2s ease;" title="Quick expand to maximum width">â‡„</button>
+        <button id="quick-expand-right-btn" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px; transition: all 0.2s ease;" title="Quick expand to maximum width">⇄</button>
 
       </div>
 
@@ -8242,7 +8242,7 @@ function initializeExtension() {
 
         <button id="add-agent-box-btn-right" style="width: 100%; padding: 12px 16px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: bold; min-height: 44px; transition: all 0.3s ease;">
 
-          âž• Add New Agent Box
+          ➕ Add New Agent Box
 
         </button>
 
@@ -9277,7 +9277,7 @@ function initializeExtension() {
 
           } catch (e) {
 
-            console.error('ðŸŽ¨ Error updating docked chat theme:', e)
+            console.error('🎨 Error updating docked chat theme:', e)
 
           }
 
@@ -9313,23 +9313,23 @@ function initializeExtension() {
 
           <div id="reasoning-header" style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
 
-            <span style="font-size: 12px; font-weight: bold;" class="menu-link">ðŸ§  Reasoning</span>
+            <span style="font-size: 12px; font-weight: bold;" class="menu-link">🧠 Reasoning</span>
 
-            <button id="expand-btn" style="background: transparent; border: none; color: currentColor; font-size: 12px; transition: transform 0.3s ease;">âŒ„</button>
+            <button id="expand-btn" style="background: transparent; border: none; color: currentColor; font-size: 12px; transition: transform 0.3s ease;">⌄</button>
 
           </div>
 
-          <button id="agents-lightbox-btn" style="padding: 4px 8px; background: ${csTheme().cardBg}; border: none; border-radius: 3px; cursor: pointer; font-size: 10px; color: inherit;" class="menu-link">ðŸ¤– Agents</button>
+          <button id="agents-lightbox-btn" style="padding: 4px 8px; background: ${csTheme().cardBg}; border: none; border-radius: 3px; cursor: pointer; font-size: 10px; color: inherit;" class="menu-link">🤖 Agents</button>
 
-          <button id="context-lightbox-btn" style="padding: 4px 8px; background: ${csTheme().cardBg}; border: none; border-radius: 3px; cursor: pointer; font-size: 10px; color: inherit;" class="menu-link">ðŸ“„ Context</button>
+          <button id="context-lightbox-btn" style="padding: 4px 8px; background: ${csTheme().cardBg}; border: none; border-radius: 3px; cursor: pointer; font-size: 10px; color: inherit;" class="menu-link">📄 Context</button>
 
-          <button id="memory-lightbox-btn" style="padding: 4px 8px; background: ${csTheme().cardBg}; border: none; border-radius: 3px; cursor: pointer; font-size: 10px; color: inherit;" class="menu-link">ðŸ’½ Memory</button>
+          <button id="memory-lightbox-btn" style="padding: 4px 8px; background: ${csTheme().cardBg}; border: none; border-radius: 3px; cursor: pointer; font-size: 10px; color: inherit;" class="menu-link">💽 Memory</button>
 
-          <button id="settings-lightbox-btn" style="padding: 4px 8px; background: ${csTheme().cardBg}; border: none; border-radius: 3px; cursor: pointer; font-size: 10px; color: inherit;" class="menu-link">âš™ï¸ Settings</button>
+          <button id="settings-lightbox-btn" style="padding: 4px 8px; background: ${csTheme().cardBg}; border: none; border-radius: 3px; cursor: pointer; font-size: 10px; color: inherit;" class="menu-link">⚙️ Settings</button>
 
-          <button id="popup-chat-btn" style="padding: 4px 8px; background: transparent; border: none; border-radius: 3px; cursor: pointer; font-size: 12px; color: inherit; font-weight:700;" class="menu-link" title="Open popup chat">ðŸ’¬</button>
+          <button id="popup-chat-btn" style="padding: 4px 8px; background: transparent; border: none; border-radius: 3px; cursor: pointer; font-size: 12px; color: inherit; font-weight:700;" class="menu-link" title="Open popup chat">💬</button>
 
-          <button id="dock-chat-btn" style="padding: 4px 8px; background: transparent; border: none; border-radius: 3px; cursor: pointer; font-size: 12px; color: inherit; font-weight:700;" class="menu-link" title="Dock to right sidebar">ðŸ“Œ</button>
+          <button id="dock-chat-btn" style="padding: 4px 8px; background: transparent; border: none; border-radius: 3px; cursor: pointer; font-size: 12px; color: inherit; font-weight:700;" class="menu-link" title="Dock to right sidebar">📌</button>
 
         </div>
 
@@ -9361,7 +9361,7 @@ function initializeExtension() {
 
           <button id="new-session-btn" style="background: ${csTheme().accentGrad}; border: none; color: #fff; width: 24px; height: 24px; border-radius: 3px; cursor: pointer; font-size: 12px; font-weight: bold; transition: all 0.2s ease; ${isHybridMaster ? 'display: none;' : ''}" title="Start a new session">+</button>
 
-          <button id="lock-btn" style="background: ${csTheme().cardBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; width: 24px; height: 24px; border-radius: 3px; cursor: pointer; font-size: 10px; ${currentTabData.isLocked ? "background: rgba(251,191,36,0.25);" : ""}">${currentTabData.isLocked ? 'ðŸ”’' : 'ðŸ”“'}</button>
+          <button id="lock-btn" style="background: ${csTheme().cardBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; width: 24px; height: 24px; border-radius: 3px; cursor: pointer; font-size: 10px; ${currentTabData.isLocked ? "background: rgba(251,191,36,0.25);" : ""}">${currentTabData.isLocked ? '🔒' : '🔓'}</button>
 
         </div>
 
@@ -9377,11 +9377,11 @@ function initializeExtension() {
 
         <div id="topbar-tabs" style="display:flex; gap:8px; margin-bottom:10px;">
 
-          <button data-tab="reasoning" class="topbar-tab" style="padding:6px 10px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius: 6px; font-size: 11px; cursor: pointer;">ðŸ’¡ Insights</button>
+          <button data-tab="reasoning" class="topbar-tab" style="padding:6px 10px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius: 6px; font-size: 11px; cursor: pointer;">💡 Insights</button>
 
-          <button data-tab="session-goals" class="topbar-tab" style="padding:6px 10px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius: 6px; font-size: 11px; cursor: pointer;">ðŸŽ¯ Session Goals</button>
+          <button data-tab="session-goals" class="topbar-tab" style="padding:6px 10px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius: 6px; font-size: 11px; cursor: pointer;">🎯 Session Goals</button>
 
-          <button data-tab="workflows" class="topbar-tab" style="padding:6px 10px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius: 6px; font-size: 11px; cursor: pointer;">ðŸ› ï¸ Workflows</button>
+          <button data-tab="workflows" class="topbar-tab" style="padding:6px 10px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius: 6px; font-size: 11px; cursor: pointer;">🛠️ Workflows</button>
 
         </div>
 
@@ -9399,7 +9399,7 @@ function initializeExtension() {
 
               <div style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
 
-                <h4 class="dropdown-title" style="margin: 0; font-size: 12px;">ðŸ§­ User Intent Detection</h4>
+                <h4 class="dropdown-title" style="margin: 0; font-size: 12px;">🧭 User Intent Detection</h4>
 
                 <div style="display:flex; align-items:center; gap:6px;">
 
@@ -9425,7 +9425,7 @@ function initializeExtension() {
 
                 <div><strong>Detected Intent:</strong> Compare product prices and find best value</div>
 
-                <div style="opacity:0.8;">Confidence: 72% â€¢ Updated: just now</div>
+                <div style="opacity:0.8;">Confidence: 72% • Updated: just now</div>
 
               </div>
 
@@ -9439,15 +9439,15 @@ function initializeExtension() {
 
               <div style="display:flex; align-items:center; justify-content:space-between;">
 
-                <h4 class="dropdown-title" style="margin: 0; font-size: 12px;">ðŸ§  Orchestration Logic</h4>
+                <h4 class="dropdown-title" style="margin: 0; font-size: 12px;">🧠 Orchestration Logic</h4>
 
                 <div style="display:flex; gap:6px;">
 
-                  <button id="gen-followups-btn" class="quick-action" title="Re-generate follow-up questions" style="padding:6px 8px; border-radius:6px; font-size:11px; cursor:pointer;">ðŸ”„ Re-Generate</button>
+                  <button id="gen-followups-btn" class="quick-action" title="Re-generate follow-up questions" style="padding:6px 8px; border-radius:6px; font-size:11px; cursor:pointer;">🔄 Re-Generate</button>
 
-                  <button id="show-paths-btn" class="quick-action" title="Show reasoning paths" style="padding:6px 8px; border-radius:6px; font-size:11px; cursor:pointer;">ðŸ§­ Paths</button>
+                  <button id="show-paths-btn" class="quick-action" title="Show reasoning paths" style="padding:6px 8px; border-radius:6px; font-size:11px; cursor:pointer;">🧭 Paths</button>
 
-                  <button id="feedback-loop-btn" class="quick-action" title="Trigger feedback loop" style="padding:6px 8px; border-radius:6px; font-size:11px; cursor:pointer;">â™»Â Feedback</button>
+                  <button id="feedback-loop-btn" class="quick-action" title="Trigger feedback loop" style="padding:6px 8px; border-radius:6px; font-size:11px; cursor:pointer;">♻ Feedback</button>
 
                 </div>
 
@@ -9455,7 +9455,7 @@ function initializeExtension() {
 
               <div id="orchestration-log" style="background: rgba(0,0,0,0.3); padding: 8px; border-radius: 6px; font-size: 10px; height: 120px; overflow-y: auto; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;">
 
-                [System] Orchestrator idle. Awaiting actionsâ€¦
+                [System] Orchestrator idle. Awaiting actions…
 
               </div>
 
@@ -9473,9 +9473,9 @@ function initializeExtension() {
 
             <div style="display:flex; align-items:center; gap:6px;">
 
-              <h4 class="dropdown-title" style="margin: 0; font-size: 12px;">ðŸŽ¯ Session Goals</h4>
+              <h4 class="dropdown-title" style="margin: 0; font-size: 12px;">🎯 Session Goals</h4>
 
-              <span title="Defining goals helps the system detect your intent more accurately and orchestrate better actions." style="font-size:12px; opacity:0.85; cursor:help;">â„¹ï¸</span>
+              <span title="Defining goals helps the system detect your intent more accurately and orchestrate better actions." style="font-size:12px; opacity:0.85; cursor:help;">ℹ️</span>
 
             </div>
 
@@ -9487,7 +9487,7 @@ function initializeExtension() {
 
                 <textarea id="goal-text" placeholder="What's your goal right now?" style="width: 100%; height: 100px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 6px 36px 6px 10px; border-radius: 6px; font-size: 11px; resize: vertical;"></textarea>
 
-                <button id="goal-mic" title="Speak your goal" style="position:absolute; right:8px; bottom:8px; background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:2px 6px;border-radius:6px;cursor:pointer">ðŸŽ¤</button>
+                <button id="goal-mic" title="Speak your goal" style="position:absolute; right:8px; bottom:8px; background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:2px 6px;border-radius:6px;cursor:pointer">🎤</button>
 
               </div>
 
@@ -9497,13 +9497,13 @@ function initializeExtension() {
 
                 <input id="role-text" placeholder="e.g. assistant, validator" style="width:100%; height: 44px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 6px 36px 6px 10px; border-radius: 6px; font-size: 11px;"/>
 
-                <button id="role-mic" title="Speak your role" style="position:absolute; right:8px; bottom:8px; background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:2px 6px;border-radius:6px;cursor:pointer">ðŸŽ¤</button>
+                <button id="role-mic" title="Speak your role" style="position:absolute; right:8px; bottom:8px; background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:2px 6px;border-radius:6px;cursor:pointer">🎤</button>
 
               </div>
 
               <div style="display:flex; justify-content:flex-end; align-items:center;">
 
-                <button id="save-as-agent" title="You can save your Goals and Role into an Agent. This allows recurring tasks and intent detection to be refined and tailored to you, so the system can automatically trigger workflows and complex reasoning processes more effectively." style="padding:6px 10px; background:${csTheme().accentGrad}; border:none; color:#fff; border-radius:6px; font-size:11px; cursor:pointer; display:flex; align-items:center; gap:6px;">Save as Agent <span style="font-size:12px">â„¹ï¸</span></button>
+                <button id="save-as-agent" title="You can save your Goals and Role into an Agent. This allows recurring tasks and intent detection to be refined and tailored to you, so the system can automatically trigger workflows and complex reasoning processes more effectively." style="padding:6px 10px; background:${csTheme().accentGrad}; border:none; color:#fff; border-radius:6px; font-size:11px; cursor:pointer; display:flex; align-items:center; gap:6px;">Save as Agent <span style="font-size:12px">ℹ️</span></button>
 
               </div>
 
@@ -9523,7 +9523,7 @@ function initializeExtension() {
 
             <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 6px; display:flex; flex-direction:column; gap:8px;">
 
-              <div style="font-size:12px; font-weight:600;">ðŸ“§ Send Email</div>
+              <div style="font-size:12px; font-weight:600;">📧 Send Email</div>
 
               <div style="font-size:10px; opacity:0.9;">Draft and send a concise email.</div>
 
@@ -9533,7 +9533,7 @@ function initializeExtension() {
 
             <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 6px; display:flex; flex-direction:column; gap:8px;">
 
-              <div style="font-size:12px; font-weight:600;">ðŸ“… Manage Calendar</div>
+              <div style="font-size:12px; font-weight:600;">📅 Manage Calendar</div>
 
               <div style="font-size:10px; opacity:0.9;">Create or reschedule meetings.</div>
 
@@ -9543,7 +9543,7 @@ function initializeExtension() {
 
             <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 6px; display:flex; flex-direction:column; gap:8px;">
 
-              <div style="font-size:12px; font-weight:600;">ðŸ§¹ Clean Up Draft</div>
+              <div style="font-size:12px; font-weight:600;">🧹 Clean Up Draft</div>
 
               <div style="font-size:10px; opacity:0.9;">Refine text for clarity and tone.</div>
 
@@ -9917,7 +9917,7 @@ function initializeExtension() {
 
         // Create the agent directly in the session, then open the lightbox and config dialog
 
-        addAgentToSession(tempName, 'ðŸŽ¯', () => {
+        addAgentToSession(tempName, '🎯', () => {
 
           try {
 
@@ -10133,7 +10133,7 @@ function initializeExtension() {
 
       } else {
 
-        console.warn('âš ï¸ Could not find agents-lightbox element')
+        console.warn('⚠️ Could not find agents-lightbox element')
 
       }
 
@@ -10185,7 +10185,7 @@ function initializeExtension() {
 
       } else {
 
-        console.warn('âš ï¸ Could not find context-lightbox element')
+        console.warn('⚠️ Could not find context-lightbox element')
 
       }
 
@@ -10247,7 +10247,7 @@ function initializeExtension() {
 
       } else {
 
-        console.warn('âš ï¸ Could not find memory-lightbox element')
+        console.warn('⚠️ Could not find memory-lightbox element')
 
       }
 
@@ -10299,7 +10299,7 @@ function initializeExtension() {
 
       } else {
 
-        console.warn('âš ï¸ Could not find miniapps-lightbox element')
+        console.warn('⚠️ Could not find miniapps-lightbox element')
 
       }
 
@@ -10353,13 +10353,13 @@ function initializeExtension() {
 
     const tabs = [
 
-      { id: 'agents', label: 'ðŸ¤– AI Agent Configuration' },
+      { id: 'agents', label: '🤖 AI Agent Configuration' },
 
-      { id: 'context', label: 'ðŸ“ Global Context Management' },
+      { id: 'context', label: '📝 Global Context Management' },
 
-      { id: 'memory', label: 'ðŸ§  Global Memory Management' },
+      { id: 'memory', label: '🧠 Global Memory Management' },
 
-      { id: 'miniapps', label: 'ðŸ“± Mini-Apps' }
+      { id: 'miniapps', label: '📱 Mini-Apps' }
 
     ]
 
@@ -10431,15 +10431,15 @@ function initializeExtension() {
     text += 'Displays ALL configured settings from the AI Agent setup forms.\n\n'
 
     // Add routing rules explanation
-    text += 'â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”\n'
+    text += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n'
     text += 'ROUTING RULES (Input Coordinator)\n'
-    text += 'â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”\n'
-    text += '1. Active Trigger Match (#tag or @trigger) â†’ Forward to agent\n'
-    text += '2. Passive Trigger Pattern Matched â†’ Forward to agent\n'
-    text += '3. No Listener Active on Agent â†’ ALWAYS forward to reasoning\n'
-    text += '4. No Match at All â†’ Butler response only\n\n'
-    text += 'Flow: WR Chat â†’ Butler (immediate) â†’ Input Coordinator â†’ Agent(s)\n'
-    text += 'â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”\n\n'
+    text += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n'
+    text += '1. Active Trigger Match (#tag or @trigger) → Forward to agent\n'
+    text += '2. Passive Trigger Pattern Matched → Forward to agent\n'
+    text += '3. No Listener Active on Agent → ALWAYS forward to reasoning\n'
+    text += '4. No Match at All → Butler response only\n\n'
+    text += 'Flow: WR Chat → Butler (immediate) → Input Coordinator → Agent(s)\n'
+    text += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n'
 
     
 
@@ -10487,11 +10487,11 @@ function initializeExtension() {
 
       
 
-      text += `\nâ”â”â” Agent ${num}: ${name} â”â”â”\n`
+      text += `\n━━━ Agent ${num}: ${name} ━━━\n`
 
-      text += `Enabled: ${agentData.enabled ? 'âœâ€œ YES' : 'âœâ€” NO'}\n`
+      text += `Enabled: ${agentData.enabled ? '✏“ YES' : '✏— NO'}\n`
 
-      text += `Icon: ${agentData.icon || 'ðŸ¤–'}\n\n`
+      text += `Icon: ${agentData.icon || '🤖'}\n\n`
 
       
 
@@ -10505,7 +10505,7 @@ function initializeExtension() {
 
       if (hasListener && agentData.listening) {
 
-        text += `  State: âœâ€œ ACTIVE\n\n`
+        text += `  State: ✏“ ACTIVE\n\n`
 
         
 
@@ -10517,9 +10517,9 @@ function initializeExtension() {
 
         text += `  Modes:\n`
 
-        text += `    Passive Listener: ${passiveEnabled ? 'âœâ€œ ENABLED' : 'âœâ€” DISABLED'}\n`
+        text += `    Passive Listener: ${passiveEnabled ? '✏“ ENABLED' : '✏— DISABLED'}\n`
 
-        text += `    Active Listener: ${activeEnabled ? 'âœâ€œ ENABLED' : 'âœâ€” DISABLED'}\n\n`
+        text += `    Active Listener: ${activeEnabled ? '✏“ ENABLED' : '✏— DISABLED'}\n\n`
 
         
 
@@ -10585,7 +10585,7 @@ function initializeExtension() {
 
             passiveTriggers.forEach((trigger: any) => {
 
-              text += `    â€¢ ${trigger.tag?.name || 'unnamed'} [${trigger.tag?.kind || 'OTHER'}]\n`
+              text += `    • ${trigger.tag?.name || 'unnamed'} [${trigger.tag?.kind || 'OTHER'}]\n`
 
             })
 
@@ -10613,7 +10613,7 @@ function initializeExtension() {
 
             activeTriggers.forEach((trigger: any) => {
 
-              text += `    â€¢ ${trigger.tag?.name || 'unnamed'} [${trigger.tag?.kind || 'OTHER'}]\n`
+              text += `    • ${trigger.tag?.name || 'unnamed'} [${trigger.tag?.kind || 'OTHER'}]\n`
 
             })
 
@@ -10639,7 +10639,7 @@ function initializeExtension() {
 
           exampleFiles.forEach((file: any) => {
 
-            text += `    â€¢ ${file.name || 'unnamed'} (${(file.size / 1024).toFixed(1)} KB)\n`
+            text += `    • ${file.name || 'unnamed'} (${(file.size / 1024).toFixed(1)} KB)\n`
 
           })
 
@@ -10659,13 +10659,13 @@ function initializeExtension() {
 
           listenerReportTo.forEach((dest: string) => {
 
-            text += `    â†’ ${dest}\n`
+            text += `    → ${dest}\n`
 
           })
 
         } else {
 
-          text += `    â†’ REASONING section (internal passthrough)\n`
+          text += `    → REASONING section (internal passthrough)\n`
 
         }
 
@@ -10685,7 +10685,7 @@ function initializeExtension() {
 
         text += `       - Website filter (if set)\n`
 
-        text += `    4. If match found â†’ Forward to Reasoning section\n`
+        text += `    4. If match found → Forward to Reasoning section\n`
 
         text += `    5. Reasoning wraps with Role/Reasoning Instructions\n`
 
@@ -10697,9 +10697,9 @@ function initializeExtension() {
 
       } else {
 
-        text += `  State: âœâ€” INACTIVE (No listener configured)\n`
+        text += `  State: ✏— INACTIVE (No listener configured)\n`
 
-        text += `  âš¡ ALL INPUT FORWARDED to Reasoning section\n`
+        text += `  ⚡ ALL INPUT FORWARDED to Reasoning section\n`
 
         text += `  (When no listener is active, agent receives all inputs)\n`
 
@@ -10739,17 +10739,17 @@ function initializeExtension() {
 
           acceptFrom.forEach((source: string) => {
 
-            text += `    â† ${source}\n`
+            text += `    ← ${source}\n`
 
           })
 
-          text += `  â†’ Only processes input from these sources\n`
+          text += `  → Only processes input from these sources\n`
 
         } else {
 
           text += `    [] (not set)\n`
 
-          text += `    â†’ Accepts direct multimodal input (internal passthrough)\n`
+          text += `    → Accepts direct multimodal input (internal passthrough)\n`
 
         }
 
@@ -10787,7 +10787,7 @@ function initializeExtension() {
 
         
 
-        // Rules field removed â€” use WR Experts for reusable constraints
+        // Rules field removed — use WR Experts for reusable constraints
 
         
 
@@ -10819,11 +10819,11 @@ function initializeExtension() {
 
       const contextSettings = agentData.contextSettings || {}
 
-      text += `  Session Context: ${contextSettings.sessionContext ? 'âœâ€œ ENABLED' : 'âœâ€” DISABLED'}\n`
+      text += `  Session Context: ${contextSettings.sessionContext ? '✏“ ENABLED' : '✏— DISABLED'}\n`
 
-      text += `  Account Context: ${contextSettings.accountContext ? 'âœâ€œ ENABLED' : 'âœâ€” DISABLED'}\n`
+      text += `  Account Context: ${contextSettings.accountContext ? '✏“ ENABLED' : '✏— DISABLED'}\n`
 
-      text += `  Agent Context: ${contextSettings.agentContext ? 'âœâ€œ ENABLED' : 'âœâ€” DISABLED'}\n\n`
+      text += `  Agent Context: ${contextSettings.agentContext ? '✏“ ENABLED' : '✏— DISABLED'}\n\n`
 
       
 
@@ -10837,7 +10837,7 @@ function initializeExtension() {
 
         agentContextFiles.forEach((file: any) => {
 
-          text += `    â€¢ ${file.name || 'unnamed'} (${(file.size / 1024).toFixed(1)} KB)\n`
+          text += `    • ${file.name || 'unnamed'} (${(file.size / 1024).toFixed(1)} KB)\n`
 
         })
 
@@ -10857,23 +10857,23 @@ function initializeExtension() {
 
       text += `[MEMORY SETTINGS]\n`
 
-      text += `  Session Memory: ${memSettings.sessionEnabled ? 'âœâ€œ ENABLED' : 'âœâ€” DISABLED'}\n`
+      text += `  Session Memory: ${memSettings.sessionEnabled ? '✏“ ENABLED' : '✏— DISABLED'}\n`
 
       if (memSettings.sessionEnabled) {
 
-        text += `    Read: ${memSettings.sessionRead ? 'âœâ€œ' : 'âœâ€”'}\n`
+        text += `    Read: ${memSettings.sessionRead ? '✏“' : '✏—'}\n`
 
-        text += `    Write: ${memSettings.sessionWrite ? 'âœâ€œ' : 'âœâ€”'}\n`
+        text += `    Write: ${memSettings.sessionWrite ? '✏“' : '✏—'}\n`
 
       }
 
-      text += `  Account Memory: ${memSettings.accountEnabled ? 'âœâ€œ ENABLED' : 'âœâ€” DISABLED'}\n`
+      text += `  Account Memory: ${memSettings.accountEnabled ? '✏“ ENABLED' : '✏— DISABLED'}\n`
 
       if (memSettings.accountEnabled) {
 
-        text += `    Read: ${memSettings.accountRead ? 'âœâ€œ' : 'âœâ€”'}\n`
+        text += `    Read: ${memSettings.accountRead ? '✏“' : '✏—'}\n`
 
-        text += `    Write: ${memSettings.accountWrite ? 'âœâ€œ' : 'âœâ€”'}\n`
+        text += `    Write: ${memSettings.accountWrite ? '✏“' : '✏—'}\n`
 
       }
 
@@ -10929,7 +10929,7 @@ function initializeExtension() {
 
     
 
-    text += '\nâ”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”\n'
+    text += '\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n'
 
     text += `SUMMARY:\n`
 
@@ -10968,13 +10968,13 @@ function initializeExtension() {
       const labels: Record<string, string> = {
         'agentBox': 'Agent Boxes (Default)',
         'agent': 'Specific Agent(s)',
-        'clip-summary': 'Clipboard â†’ Summary',
-        'clip-screenshot': 'Clipboard â†’ Screenshot',
-        'pdf-summary': 'PDF â†’ Summary',
-        'pdf-screenshot': 'PDF â†’ Screenshot',
-        'pdf-both': 'PDF â†’ Summary + Screenshot',
-        'image-screenshot': 'Image â†’ Screenshot (PNG/WebP)',
-        'chat-inline-summary': 'Chat Inline â†’ Summary'
+        'clip-summary': 'Clipboard → Summary',
+        'clip-screenshot': 'Clipboard → Screenshot',
+        'pdf-summary': 'PDF → Summary',
+        'pdf-screenshot': 'PDF → Screenshot',
+        'pdf-both': 'PDF → Summary + Screenshot',
+        'image-screenshot': 'Image → Screenshot (PNG/WebP)',
+        'chat-inline-summary': 'Chat Inline → Summary'
       }
       return labels[kind] || kind
     }
@@ -10986,17 +10986,17 @@ function initializeExtension() {
     text += 'Shows COMPLETE Execution section settings and Report To destinations.\n\n'
 
     // Add output routing explanation
-    text += 'â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”\n'
+    text += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n'
     text += 'OUTPUT ROUTING RULES\n'
-    text += 'â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”\n'
-    text += 'Agent â†’ AgentBox Connection:\n'
-    text += '  â€¢ Agent Number must match AgentBox.agentNumber\n'
-    text += '  â€¢ AgentBox must be enabled (enabled !== false)\n'
-    text += '  â€¢ Output displays in the connected AgentBox\n\n'
+    text += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n'
+    text += 'Agent → AgentBox Connection:\n'
+    text += '  • Agent Number must match AgentBox.agentNumber\n'
+    text += '  • AgentBox must be enabled (enabled !== false)\n'
+    text += '  • Output displays in the connected AgentBox\n\n'
     text += 'LLM Model Selection:\n'
-    text += '  â€¢ If AgentBox has provider/model set â†’ Use that model\n'
-    text += '  â€¢ Otherwise â†’ Use default local model (Ollama)\n'
-    text += 'â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”\n\n'
+    text += '  • If AgentBox has provider/model set → Use that model\n'
+    text += '  • Otherwise → Use default local model (Ollama)\n'
+    text += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n'
 
     
 
@@ -11020,7 +11020,7 @@ function initializeExtension() {
 
     
 
-    text += `â”â”â” AGENT BOXES (${agentBoxes.length} total) â”â”â”\n\n`
+    text += `━━━ AGENT BOXES (${agentBoxes.length} total) ━━━\n\n`
 
     
 
@@ -11086,9 +11086,9 @@ function initializeExtension() {
 
           text += `  Connected Agent: Agent ${agentNum} (${agentName})\n`
 
-          text += `  Connection: Agent ${agentNum} â†’ Agent Box ${boxNum}\n`
+          text += `  Connection: Agent ${agentNum} → Agent Box ${boxNum}\n`
 
-          text += `  Status: ${matchedAgent.enabled ? 'âœâ€œ Active' : 'âš ï¸ Agent disabled'}\n`
+          text += `  Status: ${matchedAgent.enabled ? '✏“ Active' : '⚠️ Agent disabled'}\n`
 
           
 
@@ -11140,9 +11140,9 @@ function initializeExtension() {
               specialDestinations.forEach((dest: any) => {
                 const label = kindToLabel(dest.kind)
                 if (dest.kind === 'agent' && dest.agents && dest.agents.length > 0) {
-                  text += `      â†’ ${label}: ${dest.agents.join(', ')}\n`
+                  text += `      → ${label}: ${dest.agents.join(', ')}\n`
                 } else {
-                  text += `      â†’ ${label}\n`
+                  text += `      → ${label}\n`
                 }
               })
             } else {
@@ -11172,9 +11172,9 @@ function initializeExtension() {
                   sec.specialDestinations.forEach((dest: any) => {
                     const label = kindToLabel(dest.kind)
                     if (dest.kind === 'agent' && dest.agents && dest.agents.length > 0) {
-                      text += `          â†’ ${label}: ${dest.agents.join(', ')}\n`
+                      text += `          → ${label}: ${dest.agents.join(', ')}\n`
                     } else {
-                      text += `          â†’ ${label}\n`
+                      text += `          → ${label}\n`
                     }
                   })
                 }
@@ -11190,18 +11190,18 @@ function initializeExtension() {
             // Summary note about output destination
             const hasAgentBoxDest = specialDestinations.some((d: any) => d.kind === 'agentBox')
             if (hasAgentBoxDest || specialDestinations.length === 0) {
-              text += `    âœâ€œ Output will display in Agent Box ${boxNum}\n`
+              text += `    ✏“ Output will display in Agent Box ${boxNum}\n`
             }
             const otherDests = specialDestinations.filter((d: any) => d.kind !== 'agentBox')
             if (otherDests.length > 0) {
-              text += `    âœâ€œ Output also sent to: ${otherDests.map((d: any) => kindToLabel(d.kind)).join(', ')}\n`
+              text += `    ✏“ Output also sent to: ${otherDests.map((d: any) => kindToLabel(d.kind)).join(', ')}\n`
             }
 
           } else {
 
             text += `\n  [EXECUTION SECTION]\n`
 
-            text += `    Status: âœâ€” Not enabled\n`
+            text += `    Status: ✏— Not enabled\n`
 
           }
 
@@ -11211,7 +11211,7 @@ function initializeExtension() {
 
           text += `  Allocated Agent: Number ${box.agentNumber} (not found in session)\n`
 
-          text += `  âš ï¸ Warning: Agent not found or deleted\n`
+          text += `  ⚠️ Warning: Agent not found or deleted\n`
 
         }
 
@@ -11241,7 +11241,7 @@ function initializeExtension() {
 
     
 
-    text += 'â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”\n'
+    text += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n'
 
     text += `SUMMARY:\n`
 
@@ -11369,7 +11369,7 @@ function initializeExtension() {
 
 
 
-    // Show default 01â†’05 for a fresh lightbox; session will override below
+    // Show default 01→05 for a fresh lightbox; session will override below
 
     const nSummarize = '01'
 
@@ -11441,7 +11441,7 @@ function initializeExtension() {
 
         <div style="padding: 20px; border-bottom: 1px solid ${csTheme().border}; display: flex; justify-content: space-between; align-items: center;">
 
-          <h2 style="margin: 0; font-size: 20px;">ðŸ¤– AI Agents Configuration</h2>
+          <h2 style="margin: 0; font-size: 20px;">🤖 AI Agents Configuration</h2>
 
           <button id="close-agents-lightbox" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">&times;</button>
 
@@ -11487,7 +11487,7 @@ function initializeExtension() {
 
             <button id="add-new-agent" style="padding: 12px 20px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: bold;">
 
-              âž• Add New Agent
+              ➕ Add New Agent
 
             </button>
 
@@ -11503,7 +11503,7 @@ function initializeExtension() {
 
               <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
 
-                <label style="font-size:16px;font-weight:bold;color:${csTheme().text};">ðŸ“¥ Input Coordinator (System Instructions)</label>
+                <label style="font-size:16px;font-weight:bold;color:${csTheme().text};">📥 Input Coordinator (System Instructions)</label>
 
                 <button id="reload-input-coordinator" style="padding:8px 16px;background:${csTheme().accentGrad};border:none;color:#fff;border-radius:6px;cursor:pointer;font-size:12px;">Set as Default</button>
 
@@ -11519,7 +11519,7 @@ function initializeExtension() {
 
               <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
 
-                <label style="font-size:16px;font-weight:bold;color:${csTheme().text};">ðŸ“¤ Output Coordinator (System Instructions)</label>
+                <label style="font-size:16px;font-weight:bold;color:${csTheme().text};">📤 Output Coordinator (System Instructions)</label>
 
                 <button id="reload-output-coordinator" style="padding:8px 16px;background:${csTheme().accentGrad};border:none;color:#fff;border-radius:6px;cursor:pointer;font-size:12px;">Set as Default</button>
 
@@ -11669,7 +11669,7 @@ function initializeExtension() {
 
         loadSystemTabContent()
 
-        showNotification('âœ… Input Coordinator reloaded', 2000)
+        showNotification('✅ Input Coordinator reloaded', 2000)
 
       })
 
@@ -11683,7 +11683,7 @@ function initializeExtension() {
 
         loadSystemTabContent()
 
-        showNotification('âœ… Output Coordinator reloaded', 2000)
+        showNotification('✅ Output Coordinator reloaded', 2000)
 
       })
 
@@ -11804,7 +11804,7 @@ function initializeExtension() {
 
           const num = map && map[key] ? String(map[key]).padStart(2, '0') : '01'
 
-          if (h4) h4.textContent = `Agent ${num} â€” ${label}`
+          if (h4) h4.textContent = `Agent ${num} — ${label}`
 
         })
 
@@ -11974,11 +11974,11 @@ function initializeExtension() {
 
     const typeLabels = {
 
-      'instructions': 'ðŸ“‹ AI Instructions',
+      'instructions': '📋 AI Instructions',
 
-      'context': 'ðŸ§  Memory',
+      'context': '🧠 Memory',
 
-      'settings': 'âš™ï¸ Agent Settings'
+      'settings': '⚙️ Agent Settings'
 
     }
 
@@ -12096,7 +12096,7 @@ function initializeExtension() {
 
             } else {
 
-              console.warn('âš ï¸ No existing data found in session')
+              console.warn('⚠️ No existing data found in session')
 
               // CRITICAL: For new agents, mark first render as complete immediately
 
@@ -12107,7 +12107,7 @@ function initializeExtension() {
 
           } catch (e) {
 
-            console.error('âŒ Could not parse previously saved data:', e)
+            console.error('❌ Could not parse previously saved data:', e)
 
             console.error('Raw data:', existingData)
 
@@ -12176,7 +12176,7 @@ function initializeExtension() {
 
               description: (document.getElementById('ag-description') as HTMLTextAreaElement)?.value || '',
 
-              icon: (document.getElementById('ag-icon') as HTMLInputElement)?.value || 'ðŸ¤–',
+              icon: (document.getElementById('ag-icon') as HTMLInputElement)?.value || '🤖',
 
               capabilities: [],
 
@@ -12986,10 +12986,10 @@ function initializeExtension() {
             // Chain validation log (Listener -> Reasoning -> Execution)
             const syncChainCaps = draft.capabilities || []
             if (syncChainCaps.includes('reasoning') && !syncChainCaps.includes('listening')) {
-              console.warn('âš ï¸ CHAIN: Reasoning enabled without Listening â€” agent will not receive external input')
+              console.warn('⚠️ CHAIN: Reasoning enabled without Listening — agent will not receive external input')
             }
             if (syncChainCaps.includes('execution') && !syncChainCaps.includes('reasoning')) {
-              console.warn('âš ï¸ CHAIN: Execution enabled without Reasoning â€” execution will not run')
+              console.warn('⚠️ CHAIN: Execution enabled without Reasoning — execution will not run')
             }
 
             dataToSave = JSON.stringify(draft)
@@ -13010,7 +13010,7 @@ function initializeExtension() {
 
         } catch (err) {
 
-          console.error('âŒ Auto-save error:', err)
+          console.error('❌ Auto-save error:', err)
 
         }
 
@@ -13047,7 +13047,7 @@ function initializeExtension() {
 
             <label style="${afUi.label};display:block;font-weight:600">Icon
 
-              <input id="ag-icon" value="ðŸ¤–" style="width:100%;background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:8px;border-radius:6px">
+              <input id="ag-icon" value="🤖" style="width:100%;background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:8px;border-radius:6px">
 
             </label>
 
@@ -13082,7 +13082,7 @@ function initializeExtension() {
 
           <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px;">
 
-            <label style="display: block; margin-bottom: 10px; font-size: 14px; color: ${csTheme().muted}; font-weight: bold;">ðŸ§  Memory:</label>
+            <label style="display: block; margin-bottom: 10px; font-size: 14px; color: ${csTheme().muted}; font-weight: bold;">🧠 Memory:</label>
 
             <textarea id="agent-context" style="width: 100%; height: 180px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 12px; border-radius: 6px; font-size: 12px; resize: vertical; font-family: 'Consolas', monospace;" placeholder="Enter persistent memory for this agent...">${existingData}</textarea>
 
@@ -13094,7 +13094,7 @@ function initializeExtension() {
 
             <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px;">
 
-              <label style="display: block; margin-bottom: 10px; font-size: 14px; color: ${csTheme().muted}; font-weight: bold;">ðŸ§  Memory Allocation:</label>
+              <label style="display: block; margin-bottom: 10px; font-size: 14px; color: ${csTheme().muted}; font-weight: bold;">🧠 Memory Allocation:</label>
 
               <select id="agent-memory" style="width: 100%; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 12px; border-radius: 6px; font-size: 12px;">
 
@@ -13116,7 +13116,7 @@ function initializeExtension() {
 
           <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px;">
 
-            <label style="display: block; margin-bottom: 15px; font-size: 14px; color: ${csTheme().muted}; font-weight: bold;">ðŸ’¾ Memory Settings:</label>
+            <label style="display: block; margin-bottom: 15px; font-size: 14px; color: ${csTheme().muted}; font-weight: bold;">💾 Memory Settings:</label>
 
             <label style="display: flex; align-items: center; font-size: 12px; cursor: pointer;">
 
@@ -13140,7 +13140,7 @@ function initializeExtension() {
 
           <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px;">
 
-            <label style="display: block; margin-bottom: 10px; font-size: 14px; color: ${csTheme().muted}; font-weight: bold;">âš¡ Priority Level:</label>
+            <label style="display: block; margin-bottom: 10px; font-size: 14px; color: ${csTheme().muted}; font-weight: bold;">⚡ Priority Level:</label>
 
             <select id="agent-priority" style="width: 100%; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 12px; border-radius: 6px; font-size: 12px;">
 
@@ -13160,7 +13160,7 @@ function initializeExtension() {
 
           <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px;">
 
-            <label style="display: block; margin-bottom: 15px; font-size: 14px; color: ${csTheme().muted}; font-weight: bold;">ðŸš€ Auto-Activation:</label>
+            <label style="display: block; margin-bottom: 15px; font-size: 14px; color: ${csTheme().muted}; font-weight: bold;">🚀 Auto-Activation:</label>
 
             <label style="display: flex; align-items: center; font-size: 12px; margin-bottom: 12px; cursor: pointer;">
 
@@ -13184,7 +13184,7 @@ function initializeExtension() {
 
           <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px;">
 
-            <label style="display: block; margin-bottom: 10px; font-size: 14px; color: ${csTheme().muted}; font-weight: bold;">â±ï¸ Response Delay:</label>
+            <label style="display: block; margin-bottom: 10px; font-size: 14px; color: ${csTheme().muted}; font-weight: bold;">⏱️ Response Delay:</label>
 
             <input type="number" id="agent-delay" style="width: 100%; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 12px; border-radius: 6px; font-size: 12px;" value="500" min="0" max="5000" step="100" placeholder="Milliseconds">
 
@@ -13206,7 +13206,7 @@ function initializeExtension() {
 
         const num = agentNumber ? pad2(agentNumber) : getAgentNumberFallback(agentName)
 
-        return `ðŸ¤– AI Instructions - Agent ${num}`
+        return `🤖 AI Instructions - Agent ${num}`
 
       }
 
@@ -13214,7 +13214,7 @@ function initializeExtension() {
 
         const num = agentNumber ? pad2(agentNumber) : getAgentNumberFallback(agentName)
 
-        return `ðŸ§  Memory - Agent ${num}`
+        return `🧠 Memory - Agent ${num}`
 
       }
 
@@ -13245,18 +13245,18 @@ function initializeExtension() {
         <div style="padding: 20px; border-top: 1px solid ${csTheme().border}; display: flex; justify-content: space-between; align-items: center; background: ${csTheme().cardBg};">
 
           <div style="display: flex; gap: 10px; align-items: center;">
-            <button id="ag-export-btn" type="button" style="padding: 10px 16px; background: rgba(59,130,246,0.1); border: 1px solid rgba(59,130,246,0.4); color: ${csTheme().isLight ? '#1d4ed8' : '#93c5fd'}; border-radius: 6px; cursor: pointer; font-size: 12px; display: flex; align-items: center; gap: 6px;" title="Export this agent configuration as JSON">ðŸ“¤ Export</button>
+            <button id="ag-export-btn" type="button" style="padding: 10px 16px; background: rgba(59,130,246,0.1); border: 1px solid rgba(59,130,246,0.4); color: ${csTheme().isLight ? '#1d4ed8' : '#93c5fd'}; border-radius: 6px; cursor: pointer; font-size: 12px; display: flex; align-items: center; gap: 6px;" title="Export this agent configuration as JSON">📤 Export</button>
             <div style="display: flex; gap: 4px; align-items: center;">
-              <button id="ag-schema-btn" type="button" style="padding: 8px 10px; background: rgba(147,51,234,0.1); border: 1px solid rgba(147,51,234,0.4); color: ${csTheme().isLight ? '#7c3aed' : '#c4b5fd'}; border-radius: 6px; cursor: pointer; font-size: 14px; display: flex; align-items: center; justify-content: center;" title="ðŸ“‹ MASTER SCHEMA: Download optimando.schema.json - unified schema for Agents, Agent Boxes, and Mini Apps. Upload to LLM with template for generation.">ðŸ“‹</button>
-              <button id="ag-template-btn" type="button" style="padding: 8px 10px; background: rgba(245,158,11,0.1); border: 1px solid rgba(245,158,11,0.4); color: ${csTheme().isLight ? '#b45309' : '#fcd34d'}; border-radius: 6px; cursor: pointer; font-size: 12px; display: flex; align-items: center; justify-content: center;" title="ðŸ“„ TEMPLATE: Download optimando.template.json - unified example with Agent + Agent Box connected.">ðŸ“„</button>
+              <button id="ag-schema-btn" type="button" style="padding: 8px 10px; background: rgba(147,51,234,0.1); border: 1px solid rgba(147,51,234,0.4); color: ${csTheme().isLight ? '#7c3aed' : '#c4b5fd'}; border-radius: 6px; cursor: pointer; font-size: 14px; display: flex; align-items: center; justify-content: center;" title="📋 MASTER SCHEMA: Download optimando.schema.json - unified schema for Agents, Agent Boxes, and Mini Apps. Upload to LLM with template for generation.">📋</button>
+              <button id="ag-template-btn" type="button" style="padding: 8px 10px; background: rgba(245,158,11,0.1); border: 1px solid rgba(245,158,11,0.4); color: ${csTheme().isLight ? '#b45309' : '#fcd34d'}; border-radius: 6px; cursor: pointer; font-size: 12px; display: flex; align-items: center; justify-content: center;" title="📄 TEMPLATE: Download optimando.template.json - unified example with Agent + Agent Box connected.">📄</button>
             </div>
-            <button id="ag-import-btn" type="button" style="padding: 10px 16px; background: rgba(34,197,94,0.1); border: 1px solid rgba(34,197,94,0.4); color: ${csTheme().isLight ? '#15803d' : '#86efac'}; border-radius: 6px; cursor: pointer; font-size: 12px; display: flex; align-items: center; gap: 6px;" title="Import agent configuration from JSON file">ðŸ“¥ Import</button>
+            <button id="ag-import-btn" type="button" style="padding: 10px 16px; background: rgba(34,197,94,0.1); border: 1px solid rgba(34,197,94,0.4); color: ${csTheme().isLight ? '#15803d' : '#86efac'}; border-radius: 6px; cursor: pointer; font-size: 12px; display: flex; align-items: center; gap: 6px;" title="Import agent configuration from JSON file">📥 Import</button>
             <input type="file" id="ag-import-file" accept=".json" style="display: none;">
           </div>
 
           <div style="display: flex; gap: 15px;">
             <button id="agent-config-cancel" style="padding: 12px 24px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; border-radius: 6px; cursor: pointer; font-size: 12px;">Cancel</button>
-            <button id="agent-config-save" style="padding: 12px 24px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 6px; cursor: pointer; font-size: 12px;">ðŸ’¾ Save</button>
+            <button id="agent-config-save" style="padding: 12px 24px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 6px; cursor: pointer; font-size: 12px;">💾 Save</button>
           </div>
 
         </div>
@@ -13277,7 +13277,7 @@ function initializeExtension() {
 
       const container = configOverlay.querySelector('#agent-sections') as HTMLElement | null
 
-      // Checkboxes removed â€” sections are always rendered
+      // Checkboxes removed — sections are always rendered
       const capL = true
       const capR = true
       const capE = true
@@ -13417,7 +13417,7 @@ function initializeExtension() {
 
         const del = document.createElement('button')
 
-        del.textContent = 'Ã—'
+        del.textContent = '×'
 
         del.title = 'Remove'
 
@@ -13453,10 +13453,10 @@ function initializeExtension() {
         header.innerHTML = `
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
             <div style="display:flex;align-items:center;gap:8px;flex:1">
-              <span style="font-size:12px;opacity:0.8;white-space:nowrap">ðŸŒÂ Workflow:</span>
+              <span style="font-size:12px;opacity:0.8;white-space:nowrap">🌐 Workflow:</span>
               <input type="text" placeholder="Workflow ID or name" value="${workflowId}" style="flex:1;background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:6px 10px;border-radius:4px;font-size:13px" class="e-workflow-id">
             </div>
-            <button style="background:#ef4444;border:none;color:#fff;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:12px" class="e-workflow-del">Ã—</button>
+            <button style="background:#ef4444;border:none;color:#fff;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:12px" class="e-workflow-del">×</button>
           </div>
         `
         
@@ -13464,7 +13464,7 @@ function initializeExtension() {
         conditionsWrap.style.cssText = 'margin-top:8px;padding-top:8px;border-top:1px dashed rgba(255,255,255,0.15)'
         conditionsWrap.innerHTML = `
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
-            <span style="font-size:12px;opacity:0.8;white-space:nowrap">ðŸ“‹ Run when:</span>
+            <span style="font-size:12px;opacity:0.8;white-space:nowrap">📋 Run when:</span>
             <select class="e-run-when-type" style="background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:5px 8px;border-radius:4px;font-size:11px">
               <option value="always" ${runWhenType === 'always' ? 'selected' : ''}>Always</option>
               <option value="boolean" ${runWhenType === 'boolean' ? 'selected' : ''}>Boolean Condition</option>
@@ -13474,7 +13474,7 @@ function initializeExtension() {
           </div>
           <div class="e-run-when-content">
             <div class="e-run-when-always" style="display:${runWhenType === 'always' ? 'block' : 'none'};padding:8px;background:rgba(34,197,94,0.1);border:1px solid rgba(34,197,94,0.25);border-radius:4px">
-              <span style="font-size:11px;color:#475569">âœâ€œ This workflow will always run when reached</span>
+              <span style="font-size:11px;color:#475569">✏“ This workflow will always run when reached</span>
             </div>
             <div class="e-run-when-boolean" style="display:${runWhenType === 'boolean' ? 'block' : 'none'}">
               <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
@@ -13492,7 +13492,7 @@ function initializeExtension() {
             </div>
             <div class="e-run-when-signal" style="display:${runWhenType === 'signal' ? 'block' : 'none'};padding:8px;background:rgba(255,255,255,0.03);border:1px solid ${csTheme().border};border-radius:4px">
               <div style="display:flex;align-items:center;gap:6px">
-                <span style="background:rgba(168,85,247,.2);border:1px solid rgba(168,85,247,.4);padding:5px 10px;border-radius:4px;font-weight:700;color:#a855f7;font-size:12px">âš¡</span>
+                <span style="background:rgba(168,85,247,.2);border:1px solid rgba(168,85,247,.4);padding:5px 10px;border-radius:4px;font-weight:700;color:#a855f7;font-size:12px">⚡</span>
                 <input type="text" placeholder="signal_name (e.g. chart.ready)" class="e-run-signal" value="${conditions[0]?.signal || ''}" style="flex:1;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:6px 10px;border-radius:4px;font-size:12px">
               </div>
               <div style="font-size:10px;color:#64748b;margin-top:4px">Runs when this workflow signal is emitted</div>
@@ -13546,13 +13546,13 @@ function initializeExtension() {
                 <option value="isFalse">is false</option>
               </select>
               <input type="text" placeholder="value" style="flex:1;min-width:80px;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:4px 6px;border-radius:3px;font-size:11px" class="e-wcond-value">
-              <span style="opacity:0.7;white-space:nowrap">â†’</span>
+              <span style="opacity:0.7;white-space:nowrap">→</span>
               <select style="background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:4px 8px;border-radius:3px;font-size:11px" class="e-wcond-action">
                 <option value="execute">Execute Workflow</option>
                 <option value="skip">Skip</option>
                 <option value="route">Route to...</option>
               </select>
-              <button style="background:#ef4444;border:none;color:#fff;padding:2px 6px;border-radius:3px;cursor:pointer;font-size:10px" class="e-wcond-del">âœâ€¢</button>
+              <button style="background:#ef4444;border:none;color:#fff;padding:2px 6px;border-radius:3px;cursor:pointer;font-size:10px" class="e-wcond-del">✏•</button>
             </div>
             <div class="e-wcond-route-container" style="display:none;padding-left:20px">
               <input type="text" placeholder="Workflow ID to route to" style="width:100%;background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:6px 10px;border-radius:4px;font-size:12px" class="e-wcond-route-id">
@@ -14497,7 +14497,7 @@ function initializeExtension() {
 
         } catch (err) {
 
-          console.error('âŒ Error syncing form data:', err)
+          console.error('❌ Error syncing form data:', err)
 
         }
 
@@ -14522,14 +14522,14 @@ function initializeExtension() {
             <div style="display:flex;gap:16px;align-items:center">
               <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
                 <input type="radio" name="t-wf-type-${uniqueId}" value="internal" class="t-workflow-type-radio" ${workflowType === 'internal' ? 'checked' : ''} style="margin:0">
-                <span style="font-size:13px;font-weight:500;color:${csTheme().text}">ðŸ”§ Internal Parser</span>
+                <span style="font-size:13px;font-weight:500;color:${csTheme().text}">🔧 Internal Parser</span>
               </label>
               <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
                 <input type="radio" name="t-wf-type-${uniqueId}" value="external" class="t-workflow-type-radio" ${workflowType === 'external' ? 'checked' : ''} style="margin:0">
-                <span style="font-size:13px;font-weight:500;color:#fff">ðŸŒÂ External Workflow</span>
+                <span style="font-size:13px;font-weight:500;color:#fff">🌐 External Workflow</span>
               </label>
             </div>
-            <button style="background:#ef4444;border:none;color:#fff;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:12px" class="t-workflow-del">âœâ€¢</button>
+            <button style="background:#ef4444;border:none;color:#fff;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:12px" class="t-workflow-del">✏•</button>
           </div>
           <div class="t-workflow-id-container" style="display:${workflowType === 'external' ? 'block' : 'none'}">
             <input type="text" placeholder="Workflow ID or name" value="${workflowId}" style="width:100%;background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:6px 10px;border-radius:4px;font-size:13px" class="t-workflow-id">
@@ -14549,7 +14549,7 @@ function initializeExtension() {
         conditionsWrap.style.cssText = 'margin-top:8px;padding-top:8px;border-top:1px dashed rgba(255,255,255,0.15)'
         conditionsWrap.innerHTML = `
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
-            <span style="font-size:12px;opacity:0.8">ðŸ“‹ If output matches (conditions):</span>
+            <span style="font-size:12px;opacity:0.8">📋 If output matches (conditions):</span>
             <button class="t-workflow-add-cond" style="background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:3px 8px;border-radius:4px;cursor:pointer;font-size:11px">+ Add Condition</button>
           </div>
           <div class="t-workflow-conditions" style="display:flex;flex-direction:column;gap:6px"></div>
@@ -14580,13 +14580,13 @@ function initializeExtension() {
                 <option value="exists">exists</option>
               </select>
               <input type="text" placeholder="value" style="flex:1;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:4px 6px;border-radius:3px;font-size:11px" class="t-wcond-value">
-              <span style="opacity:0.7;white-space:nowrap">â†’</span>
+              <span style="opacity:0.7;white-space:nowrap">→</span>
               <select style="flex:1;background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:4px 8px;border-radius:3px;font-size:11px" class="t-wcond-action">
                 <option value="continue">Continue</option>
                 <option value="skip">Skip</option>
                 <option value="route">Route to...</option>
               </select>
-              <button style="background:#ef4444;border:none;color:#fff;padding:2px 6px;border-radius:3px;cursor:pointer;font-size:10px" class="t-wcond-del">âœâ€¢</button>
+              <button style="background:#ef4444;border:none;color:#fff;padding:2px 6px;border-radius:3px;cursor:pointer;font-size:10px" class="t-wcond-del">✏•</button>
             </div>
             <div class="t-wcond-route-container" style="display:none;padding-left:20px">
               <input type="text" placeholder="Workflow ID to route to" style="width:100%;background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:6px 10px;border-radius:4px;font-size:12px" class="t-wcond-route-id">
@@ -14649,15 +14649,15 @@ function initializeExtension() {
             <div style="display:flex;gap:16px;align-items:center">
               <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
                 <input type="radio" name="r-wf-type-${uniqueId}" value="internal" class="r-workflow-type-radio" ${workflowType === 'internal' ? 'checked' : ''} style="margin:0">
-                <span style="font-size:13px;font-weight:500;color:${csTheme().text}">ðŸ”§ Internal Parser</span>
+                <span style="font-size:13px;font-weight:500;color:${csTheme().text}">🔧 Internal Parser</span>
               </label>
               <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
                 <input type="radio" name="r-wf-type-${uniqueId}" value="external" class="r-workflow-type-radio" ${workflowType === 'external' ? 'checked' : ''} style="margin:0">
-                <span style="font-size:13px;font-weight:500;color:#fff">ðŸŒÂ External Workflow</span>
+                <span style="font-size:13px;font-weight:500;color:#fff">🌐 External Workflow</span>
               </label>
               <span title="Internal Parser works with agents, mini-apps, and websites displayed in the master tab. Use External Workflow for external data sources and APIs." style="font-size:12px;opacity:0.9;cursor:help;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.35);padding:0 6px;border-radius:50%">?</span>
             </div>
-            <button style="background:#ef4444;border:none;color:#fff;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:12px" class="r-workflow-del">âœâ€¢</button>
+            <button style="background:#ef4444;border:none;color:#fff;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:12px" class="r-workflow-del">✏•</button>
           </div>
           <div class="r-workflow-id-container" style="display:${workflowType === 'external' ? 'block' : 'none'}">
             <input type="text" placeholder="Workflow ID or name" value="${workflowId}" style="width:100%;background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:6px 10px;border-radius:4px;font-size:13px" class="r-workflow-id">
@@ -14681,7 +14681,7 @@ function initializeExtension() {
         conditionsWrap.style.cssText = 'margin-top:8px;padding-top:8px;border-top:1px dashed rgba(255,255,255,0.15)'
         conditionsWrap.innerHTML = `
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
-            <span style="font-size:12px;opacity:0.8">ðŸ“‹ If output matches (conditions):</span>
+            <span style="font-size:12px;opacity:0.8">📋 If output matches (conditions):</span>
             <button class="r-workflow-add-cond" style="background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:3px 8px;border-radius:4px;cursor:pointer;font-size:11px">+ Add Condition</button>
           </div>
           <div class="r-workflow-conditions" style="display:flex;flex-direction:column;gap:6px"></div>
@@ -14706,18 +14706,18 @@ function initializeExtension() {
                 <option value="tag">Tag Detection</option>
                 <option value="signal">Workflow Signal</option>
               </select>
-              <button style="background:#ef4444;border:none;color:#fff;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:11px;margin-left:auto" class="r-wcond-del">âœâ€¢</button>
+              <button style="background:#ef4444;border:none;color:#fff;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:11px;margin-left:auto" class="r-wcond-del">✏•</button>
             </div>
             <div class="r-wcond-fields" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"></div>
             <div style="display:flex;gap:8px;align-items:center;padding-top:6px;border-top:1px dashed rgba(255,255,255,0.1);flex-wrap:wrap">
-              <span style="opacity:0.7;white-space:nowrap;font-size:11px">â†’ Flow:</span>
+              <span style="opacity:0.7;white-space:nowrap;font-size:11px">→ Flow:</span>
               <select style="background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:4px 8px;border-radius:3px;font-size:11px" class="r-wcond-action">
                 <option value="continue" selected>Continue</option>
                 <option value="skip">Skip</option>
                 <option value="route">Route to...</option>
               </select>
               <span title="Controls how the reasoning process continues once this condition matches." style="font-size:10px;opacity:0.7;cursor:help;background:#e2e8f0;border:1px solid #94a3b8;padding:0 5px;border-radius:50%">?</span>
-              <span style="opacity:0.7;white-space:nowrap;font-size:11px;margin-left:8px">â†’ Output:</span>
+              <span style="opacity:0.7;white-space:nowrap;font-size:11px;margin-left:8px">→ Output:</span>
               <select style="background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:4px 8px;border-radius:3px;font-size:11px" class="r-wcond-output">
                 <option value="attach" selected>Attach to reasoning</option>
                 <option value="ignore">Ignore output</option>
@@ -14732,7 +14732,7 @@ function initializeExtension() {
             </div>
             <div class="r-wcond-signal-container" style="display:none;padding-left:20px">
               <div style="display:flex;align-items:center;gap:6px">
-                <span style="background:rgba(168,85,247,.2);border:1px solid rgba(168,85,247,.4);padding:4px 8px;border-radius:4px;font-weight:700;color:#a855f7;font-size:11px">âš¡</span>
+                <span style="background:rgba(168,85,247,.2);border:1px solid rgba(168,85,247,.4);padding:4px 8px;border-radius:4px;font-weight:700;color:#a855f7;font-size:11px">⚡</span>
                 <input type="text" placeholder="signal_name" style="flex:1;background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:6px 10px;border-radius:4px;font-size:12px" class="r-wcond-signal-name">
               </div>
               <div style="font-size:10px;color:#64748b;margin-top:4px;padding-left:32px">Emits as internal event/tag for the trigger system</div>
@@ -14772,7 +14772,7 @@ function initializeExtension() {
               `
             } else if (type === 'signal') {
               condFields.innerHTML = `
-                <span style="background:rgba(168,85,247,.2);border:1px solid rgba(168,85,247,.4);padding:5px 10px;border-radius:4px;font-weight:700;color:#a855f7">âš¡</span>
+                <span style="background:rgba(168,85,247,.2);border:1px solid rgba(168,85,247,.4);padding:5px 10px;border-radius:4px;font-weight:700;color:#a855f7">⚡</span>
                 <input type="text" placeholder="signal_name" style="flex:1;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:5px 8px;border-radius:4px;font-size:11px" class="r-wcond-signal">
                 <span style="font-size:10px;color:#64748b">Fires when workflow emits this signal</span>
               `
@@ -14951,15 +14951,15 @@ function initializeExtension() {
 
           acList.innerHTML = `
 
-            <div style="color:#fbbf24;font-weight:600;margin-bottom:6px">ðŸ“¦ ${files.length} file(s) staged (click Save to finalize):</div>
+            <div style="color:#fbbf24;font-weight:600;margin-bottom:6px">📦 ${files.length} file(s) staged (click Save to finalize):</div>
 
             ${files.map((f: any, idx: number) => `
 
               <div class="saved-file-row" style="display:flex;align-items:center;gap:6px;padding:4px 8px;background:rgba(251,191,36,0.1);border-radius:6px;margin-bottom:4px;border:1px solid rgba(251,191,36,0.3)">
 
-                <span>ðŸ“„ ${f.name} (${(f.size / 1024).toFixed(1)} KB)</span>
+                <span>📄 ${f.name} (${(f.size / 1024).toFixed(1)} KB)</span>
 
-                <button class="delete-ac-file-btn" data-idx="${idx}" style="margin-left:auto;background:rgba(220,38,38,0.10);border:none;color:white;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:10px;">âœâ€¢</button>
+                <button class="delete-ac-file-btn" data-idx="${idx}" style="margin-left:auto;background:rgba(220,38,38,0.10);border:none;color:white;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:10px;">✏•</button>
 
               </div>
 
@@ -15001,7 +15001,7 @@ function initializeExtension() {
 
                 const countEl = acList.querySelector('div')
 
-              if (countEl) countEl.textContent = `ðŸ“¦ ${previouslySavedData.agentContextFiles.length} file(s) staged (click Save to finalize):`
+              if (countEl) countEl.textContent = `📦 ${previouslySavedData.agentContextFiles.length} file(s) staged (click Save to finalize):`
 
             })
 
@@ -15031,7 +15031,7 @@ function initializeExtension() {
 
           
 
-          acList.textContent = `â³ Uploading ${n} file(s)...`
+          acList.textContent = `⏳ Uploading ${n} file(s)...`
 
           
 
@@ -15067,7 +15067,7 @@ function initializeExtension() {
 
                   reader.onerror = (err) => {
 
-                    console.error(`âŒ Error reading file ${file.name}:`, err)
+                    console.error(`❌ Error reading file ${file.name}:`, err)
 
                     resolve(null)
 
@@ -15150,15 +15150,15 @@ function initializeExtension() {
 
                 acList.innerHTML = `
 
-                <div style="color:#fbbf24;font-weight:600;margin-bottom:6px">ðŸ“¦ ${totalFiles} file(s) staged (click Save to finalize):</div>
+                <div style="color:#fbbf24;font-weight:600;margin-bottom:6px">📦 ${totalFiles} file(s) staged (click Save to finalize):</div>
 
                   ${parsed.agentContextFiles.map((f: any, idx: number) => `
 
                   <div class="saved-file-row" style="display:flex;align-items:center;gap:6px;padding:4px 8px;background:rgba(251,191,36,0.1);border-radius:6px;margin-bottom:4px;border:1px solid rgba(251,191,36,0.3)">
 
-                      <span>ðŸ“„ ${f.name} (${(f.size / 1024).toFixed(1)} KB)</span>
+                      <span>📄 ${f.name} (${(f.size / 1024).toFixed(1)} KB)</span>
 
-                      <button class="delete-ac-file-btn" data-idx="${idx}" style="margin-left:auto;background:rgba(220,38,38,0.10);border:none;color:white;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:10px;">âœâ€¢</button>
+                      <button class="delete-ac-file-btn" data-idx="${idx}" style="margin-left:auto;background:rgba(220,38,38,0.10);border:none;color:white;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:10px;">✏•</button>
 
                     </div>
 
@@ -15202,7 +15202,7 @@ function initializeExtension() {
 
                       const countEl = acList.querySelector('div')
 
-                  if (countEl) countEl.textContent = `ðŸ“¦ ${parsed.agentContextFiles.length} file(s) staged (click Save to finalize):`
+                  if (countEl) countEl.textContent = `📦 ${parsed.agentContextFiles.length} file(s) staged (click Save to finalize):`
 
                   })
 
@@ -15216,9 +15216,9 @@ function initializeExtension() {
 
           } catch (err) {
 
-            console.error('âŒ Error pre-saving Agent Context files:', err)
+            console.error('❌ Error pre-saving Agent Context files:', err)
 
-            acList.textContent = `âŒ Error uploading files`
+            acList.textContent = `❌ Error uploading files`
 
           }
 
@@ -15275,15 +15275,15 @@ function initializeExtension() {
 
               <div style="margin-top:8px;font-size:11px;opacity:0.9;padding:8px;background:rgba(251,191,36,0.1);border-radius:4px;border:1px solid rgba(251,191,36,0.3)">
 
-                <div style="font-weight:bold;margin-bottom:8px;color:#fbbf24;">ðŸ“¦ ${files.length} example file(s) staged (click Save to finalize):</div>
+                <div style="font-weight:bold;margin-bottom:8px;color:#fbbf24;">📦 ${files.length} example file(s) staged (click Save to finalize):</div>
 
                 ${files.map((f: any, idx: number) => `
 
                   <div class="saved-file-row" style="display:flex;align-items:center;gap:8px;margin-bottom:6px;padding:4px 8px;background:rgba(255,255,255,0.05);border-radius:4px;">
 
-                    <span>ðŸ“„ ${f.name} (${(f.size / 1024).toFixed(1)} KB)</span>
+                    <span>📄 ${f.name} (${(f.size / 1024).toFixed(1)} KB)</span>
 
-                    <button class="delete-lexample-file-btn" data-idx="${idx}" style="margin-left:auto;background:rgba(220,38,38,0.10);border:none;color:white;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:10px;">âœâ€¢</button>
+                    <button class="delete-lexample-file-btn" data-idx="${idx}" style="margin-left:auto;background:rgba(220,38,38,0.10);border:none;color:white;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:10px;">✏•</button>
 
                   </div>
 
@@ -15291,7 +15291,7 @@ function initializeExtension() {
 
                 <div style="font-size:10px;opacity:0.6;margin-top:12px;font-style:italic;">
 
-                  âœÅ¡ Upload new files below to add more (duplicates will be skipped)
+                  ✏š Upload new files below to add more (duplicates will be skipped)
 
                 </div>
 
@@ -15333,7 +15333,7 @@ function initializeExtension() {
 
                 const countEl = lExamplesContainer.querySelector('div')
 
-                if (countEl) countEl.textContent = `ðŸ“¦ ${previouslySavedData.listening.exampleFiles.length} example file(s) staged (click Save to finalize):`
+                if (countEl) countEl.textContent = `📦 ${previouslySavedData.listening.exampleFiles.length} example file(s) staged (click Save to finalize):`
 
               })
 
@@ -15353,7 +15353,7 @@ function initializeExtension() {
 
               
 
-              lExamplesContainer.textContent = `â³ Uploading ${n} file(s)...`
+              lExamplesContainer.textContent = `⏳ Uploading ${n} file(s)...`
 
               
 
@@ -15389,7 +15389,7 @@ function initializeExtension() {
 
                       reader.onerror = (err) => {
 
-                        console.error(`âŒ Error reading file ${file.name}:`, err)
+                        console.error(`❌ Error reading file ${file.name}:`, err)
 
                         resolve(null)
 
@@ -15467,15 +15467,15 @@ function initializeExtension() {
 
                     <div style="margin-top:8px;font-size:11px;opacity:0.9;padding:8px;background:rgba(251,191,36,0.1);border-radius:4px;border:1px solid rgba(251,191,36,0.3)">
 
-                      <div style="font-weight:bold;margin-bottom:8px;color:#fbbf24;">ðŸ“¦ ${totalFiles} example file(s) staged (click Save to finalize):</div>
+                      <div style="font-weight:bold;margin-bottom:8px;color:#fbbf24;">📦 ${totalFiles} example file(s) staged (click Save to finalize):</div>
 
                         ${parsed.listening.exampleFiles.map((f: any, idx: number) => `
 
                           <div class="saved-file-row" style="display:flex;align-items:center;gap:8px;margin-bottom:6px;padding:4px 8px;background:rgba(255,255,255,0.05);border-radius:4px;">
 
-                            <span>ðŸ“„ ${f.name} (${(f.size / 1024).toFixed(1)} KB)</span>
+                            <span>📄 ${f.name} (${(f.size / 1024).toFixed(1)} KB)</span>
 
-                            <button class="delete-lexample-file-btn" data-idx="${idx}" style="margin-left:auto;background:rgba(220,38,38,0.10);border:none;color:white;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:10px;">âœâ€¢</button>
+                            <button class="delete-lexample-file-btn" data-idx="${idx}" style="margin-left:auto;background:rgba(220,38,38,0.10);border:none;color:white;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:10px;">✏•</button>
 
                           </div>
 
@@ -15521,7 +15521,7 @@ function initializeExtension() {
 
                           const countEl = lExamplesContainer.querySelector('div')
 
-                      if (countEl) countEl.textContent = `ðŸ“¦ ${parsed.listening.exampleFiles.length} example file(s) staged (click Save to finalize):`
+                      if (countEl) countEl.textContent = `📦 ${parsed.listening.exampleFiles.length} example file(s) staged (click Save to finalize):`
 
                       })
 
@@ -15535,9 +15535,9 @@ function initializeExtension() {
 
               } catch (err) {
 
-                console.error('âŒ Error pre-saving Listener Example files:', err)
+                console.error('❌ Error pre-saving Listener Example files:', err)
 
-                lExamplesContainer.textContent = `âŒ Error uploading files`
+                lExamplesContainer.textContent = `❌ Error uploading files`
 
               }
 
@@ -15784,7 +15784,7 @@ function initializeExtension() {
               <option value="regex" ${op==='regex'?'selected':''}>regex</option>
             </select>
             <input type="text" placeholder="Value" value="${value}" style="flex:1;background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:6px;border-radius:4px;font-size:12px" class="cond-value">
-            <button style="background:#ef4444;border:none;color:#fff;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:12px" class="cond-del">âœâ€¢</button>
+            <button style="background:#ef4444;border:none;color:#fff;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:12px" class="cond-del">✏•</button>
           `
           row.querySelector('.cond-del')?.addEventListener('click', () => row.remove())
           return row
@@ -15806,16 +15806,16 @@ function initializeExtension() {
           const header = document.createElement('div')
           header.style.cssText = 'display:flex;gap:8px;align-items:center;margin-bottom:8px'
           header.innerHTML = `
-            <span style="font-size:13px;font-weight:500;color:#fff">ðŸ“Š Sensor:</span>
+            <span style="font-size:13px;font-weight:500;color:#fff">📊 Sensor:</span>
             <input type="text" placeholder="Workflow ID or name" value="${workflowId}" style="flex:1;background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:6px 10px;border-radius:4px;font-size:13px" class="workflow-id">
-            <button style="background:#ef4444;border:none;color:#fff;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:12px" class="sensor-del">âœâ€¢</button>
+            <button style="background:#ef4444;border:none;color:#fff;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:12px" class="sensor-del">✏•</button>
           `
           
           const conditionsWrap = document.createElement('div')
           conditionsWrap.style.cssText = 'margin-top:8px;padding-top:8px;border-top:1px dashed rgba(255,255,255,0.15)'
           conditionsWrap.innerHTML = `
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
-              <span style="font-size:12px;opacity:0.8">ðŸ“‹ If output matches (conditions):</span>
+              <span style="font-size:12px;opacity:0.8">📋 If output matches (conditions):</span>
               <button class="sensor-add-cond" style="background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:3px 8px;border-radius:4px;cursor:pointer;font-size:11px">+ Add Condition</button>
             </div>
             <div class="sensor-conditions" style="display:flex;flex-direction:column;gap:6px"></div>
@@ -15845,13 +15845,13 @@ function initializeExtension() {
                 <option value="exists">exists</option>
               </select>
               <input type="text" placeholder="value" style="flex:1;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.25);color:#fff;padding:4px 6px;border-radius:3px;font-size:11px" class="scond-value">
-              <span style="opacity:0.7">â†’</span>
+              <span style="opacity:0.7">→</span>
               <select style="background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:4px;border-radius:3px;font-size:11px" class="scond-action">
                 <option value="continue">Continue</option>
                 <option value="skip">Skip Agent</option>
                 <option value="route">Route to...</option>
               </select>
-              <button style="background:#ef4444;border:none;color:#fff;padding:2px 6px;border-radius:3px;cursor:pointer;font-size:10px" class="scond-del">âœâ€¢</button>
+              <button style="background:#ef4444;border:none;color:#fff;padding:2px 6px;border-radius:3px;cursor:pointer;font-size:10px" class="scond-del">✏•</button>
             `
             condRow.querySelector('.scond-del')?.addEventListener('click', () => condRow.remove())
             sensorCondList.appendChild(condRow)
@@ -15888,7 +15888,7 @@ function initializeExtension() {
           row.style.cssText = 'display:flex;gap:6px;align-items:center'
           row.innerHTML = `
             <input type="text" placeholder="Action workflow ID or name" value="${value}" style="flex:1;background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:6px;border-radius:4px;font-size:12px" class="workflow-id">
-            <button style="background:#ef4444;border:none;color:#fff;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:12px" class="workflow-del">âœâ€¢</button>
+            <button style="background:#ef4444;border:none;color:#fff;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:12px" class="workflow-del">✏•</button>
           `
           row.querySelector('.workflow-del')?.addEventListener('click', () => row.remove())
           return row
@@ -15988,7 +15988,7 @@ function initializeExtension() {
           idRow.innerHTML = `
             <span style="font-size:11px;color:#64748b">ID:</span>
             <code class="trigger-id-display" style="font-size:11px;color:#60a5fa;background:rgba(96,165,250,0.1);padding:2px 8px;border-radius:4px;font-family:monospace">${triggerId}</code>
-            <button class="trigger-temp-save" style="margin-left:auto;background:${csTheme().accentGrad};color:#fff;border:none;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:11px;font-weight:500">ðŸ’¾ Save</button>
+            <button class="trigger-temp-save" style="margin-left:auto;background:${csTheme().accentGrad};color:#fff;border:none;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:11px;font-weight:500">💾 Save</button>
           `
           row.appendChild(idRow)
           
@@ -15999,10 +15999,10 @@ function initializeExtension() {
             updateApplyForOptions()
             
             // Show temporary feedback
-            tempSaveBtn.textContent = 'âœâ€œ Saved'
+            tempSaveBtn.textContent = '✏“ Saved'
             tempSaveBtn.style.background = '#16a34a'
             setTimeout(() => {
-              tempSaveBtn.textContent = 'ðŸ’¾ Save'
+              tempSaveBtn.textContent = '💾 Save'
               tempSaveBtn.style.background = `${csTheme().accent}`
             }, 1500)
             
@@ -16010,7 +16010,7 @@ function initializeExtension() {
             if (!row.querySelector('.trigger-saved-indicator')) {
               const checkmark = document.createElement('span')
               checkmark.className = 'trigger-saved-indicator'
-              checkmark.textContent = 'âœâ€œ'
+              checkmark.textContent = '✏“'
               checkmark.style.cssText = `color:${csTheme().accent};font-weight:bold;margin-left:6px;font-size:14px`
               checkmark.title = 'Trigger saved'
               tempSaveBtn.parentElement?.insertBefore(checkmark, tempSaveBtn.nextSibling)
@@ -16049,7 +16049,7 @@ function initializeExtension() {
           if (init?.type) typeSel.value = init.type
           
           const delBtn = document.createElement('button')
-          delBtn.textContent = 'Ã—'
+          delBtn.textContent = '×'
           delBtn.title = 'Remove trigger'
           delBtn.style.cssText = 'background:#ef4444;color:#fff;border:none;padding:6px 12px;border-radius:6px;cursor:pointer;font-size:16px'
           delBtn.addEventListener('click', () => {
@@ -16079,7 +16079,7 @@ function initializeExtension() {
               wrchatSection.style.cssText = 'margin-bottom:12px;padding:12px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px'
               wrchatSection.innerHTML = `
                 <div style="font-weight:600;font-size:13px;color:#2563eb;margin-bottom:8px;display:flex;align-items:center;gap:6px">
-                  <span style="font-size:14px">ðŸ’¬</span> <span style="color:#0f172a">WR Chat Trigger</span>
+                  <span style="font-size:14px">💬</span> <span style="color:#0f172a">WR Chat Trigger</span>
                 </div>
                 <div style="font-size:12px;color:#334155;line-height:1.5;margin-bottom:12px;padding:8px;background:#dbeafe;border-radius:6px">
                   When a user types into WR Chat, the Input Coordinator will check this trigger. If the input matches the tag or keywords, the chat input will be routed to this AI Agent for processing.
@@ -16112,7 +16112,7 @@ function initializeExtension() {
               tagSection.style.cssText = 'margin-bottom:12px;padding:10px;background:rgba(59,130,246,0.08);border:1px solid rgba(59,130,246,0.25);border-radius:8px'
               tagSection.innerHTML = `
                 <div style="font-weight:600;font-size:13px;color:#3b82f6;margin-bottom:6px;display:flex;align-items:center;gap:6px">
-                  <span style="font-size:14px">ðŸ·ï¸</span> <span style="color:#0f172a">Tag</span> <span style="color:#ef4444;font-size:10px">(required)</span>
+                  <span style="font-size:14px">🏷️</span> <span style="color:#0f172a">Tag</span> <span style="color:#ef4444;font-size:10px">(required)</span>
                 </div>
                 <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px">
                   <span style="background:#e2e8f0;border:1px solid #94a3b8;padding:6px 10px;border-radius:6px;font-weight:700;color:#0f172a">#</span>
@@ -16130,24 +16130,24 @@ function initializeExtension() {
               channelSection.style.cssText = 'margin-bottom:12px;padding:10px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px'
               channelSection.innerHTML = `
                 <div style="font-weight:600;font-size:13px;color:#0f172a;margin-bottom:6px;display:flex;align-items:center;gap:6px">
-                  <span style="font-size:14px">ðŸ“¡</span> Event Channel
+                  <span style="font-size:14px">📡</span> Event Channel
                 </div>
                 <select class="trigger-channel" style="width:100%;background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:8px 10px;border-radius:6px;font-size:12px;margin-bottom:6px">
-                  <option value="chat" ${!init?.channel || init?.channel === 'chat' ? 'selected' : ''}>ðŸ’¬ WR Chat</option>
-                  <option value="email" ${init?.channel === 'email' ? 'selected' : ''}>ðŸ“§ Email</option>
-                  <option value="web" ${init?.channel === 'web' ? 'selected' : ''}>ðŸŒÂ Web/Messaging</option>
-                  <option value="overlay" ${init?.channel === 'overlay' ? 'selected' : ''}>ðŸŽ¯ Augmented Overlay</option>
-                  <option value="agent" ${init?.channel === 'agent' ? 'selected' : ''}>ðŸ¤– Agent</option>
-                  <option value="miniapp" ${init?.channel === 'miniapp' ? 'selected' : ''}>ðŸ“± Mini-App</option>
-                  <option value="screenshot" ${init?.channel === 'screenshot' ? 'selected' : ''}>ðŸ“¸ Screenshot</option>
-                  <option value="stream" ${init?.channel === 'stream' ? 'selected' : ''}>ðŸ“º Stream</option>
-                  <option value="pdf" ${init?.channel === 'pdf' ? 'selected' : ''}>ðŸ“„ PDF</option>
-                  <option value="docs" ${init?.channel === 'docs' ? 'selected' : ''}>ðŸ“ Docs</option>
-                  <option value="voicememo" ${init?.channel === 'voicememo' ? 'selected' : ''}>ðŸŽ™ï¸ Voicememo</option>
-                  <option value="video" ${init?.channel === 'video' ? 'selected' : ''}>ðŸŽ¬ Video</option>
-                  <option value="voice_command" ${init?.channel === 'voice_command' ? 'selected' : ''}>ðŸ—£ï¸ Voice Command</option>
-                  <option value="picture" ${init?.channel === 'picture' ? 'selected' : ''}>ðŸ–¼ï¸ Picture</option>
-                  <option value="api" ${init?.channel === 'api' ? 'selected' : ''}>ðŸ”Œ API Webhook</option>
+                  <option value="chat" ${!init?.channel || init?.channel === 'chat' ? 'selected' : ''}>💬 WR Chat</option>
+                  <option value="email" ${init?.channel === 'email' ? 'selected' : ''}>📧 Email</option>
+                  <option value="web" ${init?.channel === 'web' ? 'selected' : ''}>🌐 Web/Messaging</option>
+                  <option value="overlay" ${init?.channel === 'overlay' ? 'selected' : ''}>🎯 Augmented Overlay</option>
+                  <option value="agent" ${init?.channel === 'agent' ? 'selected' : ''}>🤖 Agent</option>
+                  <option value="miniapp" ${init?.channel === 'miniapp' ? 'selected' : ''}>📱 Mini-App</option>
+                  <option value="screenshot" ${init?.channel === 'screenshot' ? 'selected' : ''}>📸 Screenshot</option>
+                  <option value="stream" ${init?.channel === 'stream' ? 'selected' : ''}>📺 Stream</option>
+                  <option value="pdf" ${init?.channel === 'pdf' ? 'selected' : ''}>📄 PDF</option>
+                  <option value="docs" ${init?.channel === 'docs' ? 'selected' : ''}>📝 Docs</option>
+                  <option value="voicememo" ${init?.channel === 'voicememo' ? 'selected' : ''}>🎙️ Voicememo</option>
+                  <option value="video" ${init?.channel === 'video' ? 'selected' : ''}>🎬 Video</option>
+                  <option value="voice_command" ${init?.channel === 'voice_command' ? 'selected' : ''}>🗣️ Voice Command</option>
+                  <option value="picture" ${init?.channel === 'picture' ? 'selected' : ''}>🖼️ Picture</option>
+                  <option value="api" ${init?.channel === 'api' ? 'selected' : ''}>🔌 API Webhook</option>
                 </select>
                 <div style="font-size:12px;color:#475569;margin-top:4px">Where should this trigger listen for events?</div>
               `
@@ -16165,7 +16165,7 @@ function initializeExtension() {
               
               securitySection.innerHTML = `
                 <div style="font-weight:600;font-size:13px;color:${csTheme().accent};margin-bottom:8px;display:flex;align-items:center;gap:6px">
-                  <span style="font-size:14px">ðŸ”’</span> Source & Security
+                  <span style="font-size:14px">🔒</span> Source & Security
                 </div>
                 <div style="display:flex;flex-direction:column;gap:8px">
                   <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
@@ -16194,7 +16194,7 @@ function initializeExtension() {
               contextSection.style.cssText = 'margin-bottom:12px;padding:10px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px'
               contextSection.innerHTML = `
                 <div style="font-weight:600;font-size:13px;color:#0f172a;margin-bottom:6px;display:flex;align-items:center;gap:6px">
-                  <span style="font-size:14px">ðŸ”</span> Optional Context
+                  <span style="font-size:14px">🔍</span> Optional Context
                 </div>
                 <div>
                   <label style="font-size:12px;color:#0f172a;display:block;margin-bottom:4px">Keywords (comma-separated)</label>
@@ -16213,7 +16213,7 @@ function initializeExtension() {
               websiteSection.style.cssText = 'margin-bottom:12px;padding:10px;background:rgba(168,85,247,0.06);border:1px solid rgba(168,85,247,0.2);border-radius:8px'
               websiteSection.innerHTML = `
                 <div style="font-weight:600;font-size:13px;color:#a855f7;margin-bottom:6px;display:flex;align-items:center;gap:6px">
-                  <span style="font-size:14px">ðŸŒÂ</span> Website Filter <span style="font-weight:400;font-size:11px;color:#6b7280">(optional)</span>
+                  <span style="font-size:14px">🌐</span> Website Filter <span style="font-weight:400;font-size:11px;color:#6b7280">(optional)</span>
                 </div>
                 <div>
                   <label style="font-size:12px;color:#0f172a;display:block;margin-bottom:4px">URL Pattern</label>
@@ -16231,7 +16231,7 @@ function initializeExtension() {
               agentSection.style.cssText = 'margin-bottom:12px;padding:10px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;display:none'
               agentSection.innerHTML = `
                 <div style="font-weight:600;font-size:13px;color:#3b82f6;margin-bottom:6px;display:flex;align-items:center;gap:6px">
-                  <span style="font-size:14px">ðŸ¤–</span> Source Agent
+                  <span style="font-size:14px">🤖</span> Source Agent
                 </div>
                 <div>
                   <label style="font-size:12px;color:#0f172a;display:block;margin-bottom:4px">Select Agent</label>
@@ -16254,7 +16254,7 @@ function initializeExtension() {
               miniappSection.style.cssText = 'margin-bottom:12px;padding:10px;background:#f5f3ff;border:1px solid #ddd6fe;border-radius:8px;display:none'
               miniappSection.innerHTML = `
                 <div style="font-weight:600;font-size:13px;color:#8b5cf6;margin-bottom:6px;display:flex;align-items:center;gap:6px">
-                  <span style="font-size:14px">ðŸ“±</span> Mini-App Configuration
+                  <span style="font-size:14px">📱</span> Mini-App Configuration
                 </div>
                 <div style="margin-bottom:10px">
                   <label style="font-size:12px;color:#0f172a;display:block;margin-bottom:4px">Mini-App ID</label>
@@ -16378,7 +16378,7 @@ function initializeExtension() {
                     errorEl.style.cssText = 'color:#ef4444;font-size:11px;margin-top:4px;display:flex;align-items:center;gap:4px'
                     input.parentElement?.appendChild(errorEl)
                   }
-                  errorEl.innerHTML = `<span>âš ï¸</span> ${message}`
+                  errorEl.innerHTML = `<span>⚠️</span> ${message}`
                   input.style.borderColor = '#ef4444'
                 } else {
                   if (errorEl) errorEl.remove()
@@ -16520,7 +16520,7 @@ function initializeExtension() {
                   } else if (type === 'signal') {
                     // Workflow Signal: just signal name input
                     condFields.innerHTML = `
-                      <span style="background:rgba(168,85,247,.2);border:1px solid rgba(168,85,247,.4);padding:5px 10px;border-radius:4px;font-weight:700;color:#a855f7">âš¡</span>
+                      <span style="background:rgba(168,85,247,.2);border:1px solid rgba(168,85,247,.4);padding:5px 10px;border-radius:4px;font-weight:700;color:#a855f7">⚡</span>
                       <input type="text" placeholder="signal_name" value="${initCond?.signal || ''}" style="flex:1;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:5px 8px;border-radius:4px;font-size:11px" class="cond-signal">
                       <span style="font-size:10px;color:#64748b;margin-left:4px">Fires when workflow emits this signal</span>
                     `
@@ -16559,7 +16559,7 @@ function initializeExtension() {
               domSection.style.cssText = 'padding:10px;background:rgba(234,179,8,0.08);border:1px solid rgba(234,179,8,0.25);border-radius:8px;margin-bottom:10px'
               domSection.innerHTML = `
                 <div style="font-weight:600;font-size:13px;color:#eab308;margin-bottom:8px;display:flex;align-items:center;gap:6px">
-                  <span style="font-size:14px">ðŸ–±ï¸</span> DOM Event Trigger
+                  <span style="font-size:14px">🖱️</span> DOM Event Trigger
                 </div>
                 <div style="margin-bottom:8px">
                   <label style="font-size:12px;color:#0f172a;display:block;margin-bottom:4px">Event Type</label>
@@ -16614,7 +16614,7 @@ function initializeExtension() {
               parserSection.style.cssText = 'padding:10px;background:rgba(34,197,94,0.08);border:1px solid rgba(34,197,94,0.25);border-radius:8px;margin-bottom:10px'
               parserSection.innerHTML = `
                 <div style="font-weight:600;font-size:13px;color:${csTheme().accent};margin-bottom:8px;display:flex;align-items:center;gap:6px">
-                  <span style="font-size:14px">ðŸ”</span> DOM Parser
+                  <span style="font-size:14px">🔍</span> DOM Parser
                   <span title="Parses the website DOM and checks for patterns, keywords, and content. Returns booleans, tags, or signals to trigger automations." style="font-size:10px;opacity:0.7;cursor:help;background:#e2e8f0;border:1px solid #94a3b8;padding:0 5px;border-radius:50%">?</span>
                 </div>
                 <div style="margin-bottom:8px">
@@ -16639,24 +16639,24 @@ function initializeExtension() {
                   
                   <!-- Header -->
                   <div style="font-size:13px;color:#60a5fa;font-weight:600;margin-bottom:10px;display:flex;align-items:center;gap:6px">
-                    <span style="font-size:15px">ðŸ¤–</span> AI Chat Capture
+                    <span style="font-size:15px">🤖</span> AI Chat Capture
                     <span title="Capture conversations from AI chat interfaces like ChatGPT, Claude, Gemini. When a user sends a message, this trigger captures both the question and the AI's response for analysis." style="font-size:10px;opacity:0.7;cursor:help;background:rgba(255,255,255,.2);border:1px solid ${csTheme().border};padding:0 5px;border-radius:50%">?</span>
                   </div>
                   <div style="font-size:10px;color:#64748b;margin-bottom:12px;line-height:1.4">
                     Capture conversations from AI chat interfaces (ChatGPT, Claude, Gemini, etc.)
                   </div>
 
-                  <!-- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• SITE FILTERS â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
+                  <!-- ═══════════════ SITE FILTERS ═══════════════ -->
                   <div style="margin-bottom:10px">
                     <div style="font-size:11px;color:#a5b4fc;font-weight:600;margin-bottom:4px;display:flex;align-items:center;gap:4px">
                       Site Filters <span style="font-weight:400;opacity:0.7">(optional)</span>
-                      <span title="Restrict capture to specific websites. Use glob patterns like *.openai.com/* to match domains. Leave empty to capture on all sites. Examples:&#10;â€¢ *.openai.com/* - all OpenAI pages&#10;â€¢ https://claude.ai/* - Claude AI&#10;â€¢ *gemini.google.com/* - Google Gemini" style="font-size:9px;opacity:0.6;cursor:help;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);padding:0 4px;border-radius:50%">?</span>
+                      <span title="Restrict capture to specific websites. Use glob patterns like *.openai.com/* to match domains. Leave empty to capture on all sites. Examples:&#10;• *.openai.com/* - all OpenAI pages&#10;• https://claude.ai/* - Claude AI&#10;• *gemini.google.com/* - Google Gemini" style="font-size:9px;opacity:0.6;cursor:help;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);padding:0 4px;border-radius:50%">?</span>
                     </div>
                     <textarea class="trigger-site-filters" placeholder="*.openai.com/*&#10;https://claude.ai/*&#10;*gemini.google.com/*" style="width:100%;min-height:45px;background:rgba(255,255,255,.9);border:1px solid rgba(255,255,255,.4);color:#1e293b;padding:6px 8px;border-radius:4px;font-size:10px;font-family:monospace;resize:vertical">${(init?.siteFilters || []).join('\n')}</textarea>
-                    <div style="font-size:9px;color:#64748b;margin-top:2px">Only capture on these domains â†’ one pattern per line. Leave empty to match all sites.</div>
+                    <div style="font-size:9px;color:#64748b;margin-top:2px">Only capture on these domains → one pattern per line. Leave empty to match all sites.</div>
                   </div>
 
-                  <!-- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• WHEN SHOULD CAPTURE START? â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
+                  <!-- ═══════════════ WHEN SHOULD CAPTURE START? ═══════════════ -->
                   <div style="margin-bottom:10px;padding:10px;background:rgba(255,255,255,0.03);border:1px solid ${csTheme().border};border-radius:6px">
                     <div style="font-size:11px;color:#a5b4fc;font-weight:600;margin-bottom:6px;display:flex;align-items:center;gap:4px">
                       When should capture start?
@@ -16670,26 +16670,26 @@ function initializeExtension() {
                     <div style="margin-bottom:10px;padding:8px;background:rgba(251,191,36,0.08);border:1px solid rgba(251,191,36,0.25);border-radius:5px">
                       <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
                         <input type="checkbox" class="trigger-auto-detect" ${init?.autoDetectSelectors ? 'checked' : ''} style="margin:0">
-                        <span style="font-size:10px;color:#fbbf24;font-weight:600">âš¡ Auto-Detect Selectors</span>
-                        <span title="Automatically discover selectors by scanning the page DOM.&#10;&#10;How it works:&#10;â€¢ Scans for common AI chat patterns (ChatGPT, Claude, Gemini)&#10;â€¢ Detects send buttons, input fields, and response areas&#10;â€¢ No interaction needed - just click the button&#10;&#10;Review results and apply to fields below." style="font-size:9px;opacity:0.6;cursor:help;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);padding:0 4px;border-radius:50%">?</span>
+                        <span style="font-size:10px;color:#fbbf24;font-weight:600">⚡ Auto-Detect Selectors</span>
+                        <span title="Automatically discover selectors by scanning the page DOM.&#10;&#10;How it works:&#10;• Scans for common AI chat patterns (ChatGPT, Claude, Gemini)&#10;• Detects send buttons, input fields, and response areas&#10;• No interaction needed - just click the button&#10;&#10;Review results and apply to fields below." style="font-size:9px;opacity:0.6;cursor:help;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);padding:0 4px;border-radius:50%">?</span>
                       </label>
                       <div class="auto-detect-panel" style="display:${init?.autoDetectSelectors ? 'block' : 'none'};margin-top:8px">
                         <div style="font-size:9px;color:#64748b;margin-bottom:6px">Scans the page DOM for common AI chat UI patterns (ChatGPT, Claude, Gemini, etc.)</div>
                         <button type="button" class="btn-run-auto-detect" style="background:rgba(251,191,36,0.2);border:1px solid rgba(251,191,36,0.4);color:#fbbf24;padding:5px 12px;border-radius:4px;cursor:pointer;font-size:10px;font-weight:500">
-                          ðŸ” Scan Page for Selectors
+                          🔍 Scan Page for Selectors
                         </button>
                         <div class="auto-detect-status" style="display:none;margin-top:6px;padding:6px;background:rgba(0,0,0,0.15);border-radius:4px;font-size:9px;font-family:monospace"></div>
                         <div class="auto-detected-results" style="display:${init?.autoDetected ? 'block' : 'none'};margin-top:8px;padding:8px;background:rgba(34,197,94,0.1);border:1px solid rgba(34,197,94,0.2);border-radius:4px">
-                          <div style="font-size:9px;color:#4ade80;font-weight:600;margin-bottom:6px">âœâ€œ Detected Elements:</div>
+                          <div style="font-size:9px;color:#4ade80;font-weight:600;margin-bottom:6px">✏“ Detected Elements:</div>
                           <div style="font-size:9px;color:#475569;font-family:monospace;line-height:1.6">
-                            <div style="display:flex;gap:4px"><span style="color:#a5b4fc;min-width:55px">Site:</span> <span class="detected-site-filter" style="word-break:break-all">${init?.autoDetected?.siteFilter || 'â€”'}</span></div>
-                            <div style="display:flex;gap:4px"><span style="color:#fbbf24;min-width:55px">Button:</span> <span class="detected-button-selector" style="word-break:break-all">${init?.autoDetected?.button || 'â€”'}</span></div>
-                            <div style="display:flex;gap:4px"><span style="color:#4ade80;min-width:55px">Input:</span> <span class="detected-input-selector" style="word-break:break-all">${init?.autoDetected?.input || 'â€”'}</span></div>
-                            <div style="display:flex;gap:4px"><span style="color:#c084fc;min-width:55px">Output:</span> <span class="detected-output-selector" style="word-break:break-all">${init?.autoDetected?.output || 'â€”'}</span></div>
-                            <div style="display:flex;gap:4px"><span style="color:#fbbf24;min-width:55px">Context:</span> <span class="detected-context-selectors" style="word-break:break-all">${init?.autoDetected?.context?.join(', ') || 'â€”'}</span></div>
+                            <div style="display:flex;gap:4px"><span style="color:#a5b4fc;min-width:55px">Site:</span> <span class="detected-site-filter" style="word-break:break-all">${init?.autoDetected?.siteFilter || '—'}</span></div>
+                            <div style="display:flex;gap:4px"><span style="color:#fbbf24;min-width:55px">Button:</span> <span class="detected-button-selector" style="word-break:break-all">${init?.autoDetected?.button || '—'}</span></div>
+                            <div style="display:flex;gap:4px"><span style="color:#4ade80;min-width:55px">Input:</span> <span class="detected-input-selector" style="word-break:break-all">${init?.autoDetected?.input || '—'}</span></div>
+                            <div style="display:flex;gap:4px"><span style="color:#c084fc;min-width:55px">Output:</span> <span class="detected-output-selector" style="word-break:break-all">${init?.autoDetected?.output || '—'}</span></div>
+                            <div style="display:flex;gap:4px"><span style="color:#fbbf24;min-width:55px">Context:</span> <span class="detected-context-selectors" style="word-break:break-all">${init?.autoDetected?.context?.join(', ') || '—'}</span></div>
                           </div>
                           <button type="button" class="btn-apply-detected" style="margin-top:8px;width:100%;background:rgba(34,197,94,0.2);border:1px solid rgba(34,197,94,0.3);color:#4ade80;padding:6px 10px;border-radius:4px;cursor:pointer;font-size:10px;font-weight:500">
-                            âœâ€œ Apply to all fields
+                            ✏“ Apply to all fields
                           </button>
                         </div>
                       </div>
@@ -16699,7 +16699,7 @@ function initializeExtension() {
                       <div style="margin-bottom:8px">
                         <label style="font-size:10px;color:#0f172a;display:flex;align-items:center;gap:4px;margin-bottom:3px">
                           Button Selectors
-                          <span title="CSS selectors to find the Send button. Right-click the button in your browser â†’ Inspect â†’ copy a unique selector.&#10;&#10;Common examples:&#10;â€¢ button[data-testid='send-button'] - ChatGPT&#10;â€¢ button[aria-label='Send Message'] - Claude&#10;â€¢ .send-button, #submit - Generic&#10;&#10;One selector per line. First match is used." style="font-size:9px;opacity:0.6;cursor:help;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);padding:0 4px;border-radius:50%">?</span>
+                          <span title="CSS selectors to find the Send button. Right-click the button in your browser → Inspect → copy a unique selector.&#10;&#10;Common examples:&#10;• button[data-testid='send-button'] - ChatGPT&#10;• button[aria-label='Send Message'] - Claude&#10;• .send-button, #submit - Generic&#10;&#10;One selector per line. First match is used." style="font-size:9px;opacity:0.6;cursor:help;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);padding:0 4px;border-radius:50%">?</span>
                         </label>
                         <textarea class="trigger-button-selectors" placeholder="button[data-testid=&quot;send-button&quot;]&#10;.send-btn&#10;button[aria-label=&quot;Send&quot;]" style="width:100%;min-height:40px;background:rgba(255,255,255,.9);border:1px solid rgba(255,255,255,.4);color:#1e293b;padding:6px 8px;border-radius:4px;font-size:10px;font-family:monospace;resize:vertical">${(init?.buttonSelectors || (init?.buttonSelector ? [init.buttonSelector] : [])).join('\n')}</textarea>
                         <div style="font-size:9px;color:#64748b;margin-top:2px">CSS selectors for send buttons. First match wins.</div>
@@ -16720,11 +16720,11 @@ function initializeExtension() {
                     </div>
                   </div>
 
-                  <!-- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• INPUT CAPTURE â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
+                  <!-- ═══════════════ INPUT CAPTURE ═══════════════ -->
                   <div style="margin-bottom:10px;padding:10px;background:rgba(34,197,94,0.06);border:1px solid rgba(34,197,94,0.2);border-radius:6px">
                     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
                       <div style="font-size:11px;color:#4ade80;font-weight:600;display:flex;align-items:center;gap:4px">
-                        ðŸ“¥ Input Capture
+                        📥 Input Capture
                         <span title="Capture the user's question/prompt when they send a message. This is the text the user typed before clicking Send." style="font-size:9px;opacity:0.6;cursor:help;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);padding:0 4px;border-radius:50%">?</span>
                       </div>
                       <label style="display:flex;align-items:center;gap:4px;cursor:pointer">
@@ -16736,18 +16736,18 @@ function initializeExtension() {
                     <div class="input-capture-fields" style="display:${init?.captureInput !== false ? 'block' : 'none'}">
                       <label style="font-size:10px;color:#0f172a;display:flex;align-items:center;gap:4px;margin-bottom:3px">
                         Input Selectors
-                        <span title="CSS selectors to find the text input/textarea where users type their message.&#10;&#10;Common examples:&#10;â€¢ textarea[data-id='root'] - ChatGPT&#10;â€¢ #prompt-textarea - Generic&#10;â€¢ [contenteditable='true'] - Rich text editors&#10;&#10;First selector with content is used." style="font-size:9px;opacity:0.6;cursor:help;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);padding:0 4px;border-radius:50%">?</span>
+                        <span title="CSS selectors to find the text input/textarea where users type their message.&#10;&#10;Common examples:&#10;• textarea[data-id='root'] - ChatGPT&#10;• #prompt-textarea - Generic&#10;• [contenteditable='true'] - Rich text editors&#10;&#10;First selector with content is used." style="font-size:9px;opacity:0.6;cursor:help;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);padding:0 4px;border-radius:50%">?</span>
                       </label>
                       <textarea class="trigger-input-selectors" placeholder="textarea[data-id=&quot;root&quot;]&#10;#prompt-textarea&#10;.chat-input" style="width:100%;min-height:36px;background:rgba(255,255,255,.9);border:1px solid rgba(255,255,255,.4);color:#1e293b;padding:6px 8px;border-radius:4px;font-size:10px;font-family:monospace;resize:vertical">${(init?.inputSelectors || (init?.inputSelector ? [init.inputSelector] : [])).join('\n')}</textarea>
                       <div style="font-size:9px;color:#64748b;margin-top:2px">First selector matching a non-empty input field is used as the prompt source.</div>
                     </div>
                   </div>
 
-                  <!-- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• OUTPUT CAPTURE â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
+                  <!-- ═══════════════ OUTPUT CAPTURE ═══════════════ -->
                   <div style="margin-bottom:10px;padding:10px;background:rgba(168,85,247,0.06);border:1px solid rgba(168,85,247,0.2);border-radius:6px">
                     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
                       <div style="font-size:11px;color:#c084fc;font-weight:600;display:flex;align-items:center;gap:4px">
-                        ðŸ“¤ Output Capture
+                        📤 Output Capture
                         <span title="Capture the AI's response after it finishes generating. Enable this to analyze what the AI replied to the user's question." style="font-size:9px;opacity:0.6;cursor:help;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);padding:0 4px;border-radius:50%">?</span>
                       </div>
                       <label style="display:flex;align-items:center;gap:4px;cursor:pointer">
@@ -16761,7 +16761,7 @@ function initializeExtension() {
                       <div style="margin-bottom:8px">
                         <label style="font-size:10px;color:#0f172a;display:flex;align-items:center;gap:4px;margin-bottom:3px">
                           Output Selectors
-                          <span title="CSS selectors to find the AI's response messages.&#10;&#10;Common examples:&#10;â€¢ [data-message-author-role='assistant'] - ChatGPT&#10;â€¢ .markdown-body - Rendered markdown&#10;â€¢ .response-content, .assistant-message - Generic&#10;&#10;The LAST matching element (most recent response) is captured." style="font-size:9px;opacity:0.6;cursor:help;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);padding:0 4px;border-radius:50%">?</span>
+                          <span title="CSS selectors to find the AI's response messages.&#10;&#10;Common examples:&#10;• [data-message-author-role='assistant'] - ChatGPT&#10;• .markdown-body - Rendered markdown&#10;• .response-content, .assistant-message - Generic&#10;&#10;The LAST matching element (most recent response) is captured." style="font-size:9px;opacity:0.6;cursor:help;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);padding:0 4px;border-radius:50%">?</span>
                         </label>
                         <textarea class="trigger-output-selectors" placeholder="[data-message-author-role=&quot;assistant&quot;]&#10;.markdown-body&#10;.response-content" style="width:100%;min-height:36px;background:rgba(255,255,255,.9);border:1px solid rgba(255,255,255,.4);color:#1e293b;padding:6px 8px;border-radius:4px;font-size:10px;font-family:monospace;resize:vertical">${(init?.outputSelectors || (init?.outputSelector ? [init.outputSelector] : [])).join('\n')}</textarea>
                         <div style="font-size:9px;color:#64748b;margin-top:2px">Capture when first matching output element becomes non-empty or changes.</div>
@@ -16771,7 +16771,7 @@ function initializeExtension() {
                       <div style="padding:8px;background:rgba(255,255,255,0.03);border-radius:4px">
                         <div style="font-size:10px;color:#475569;margin-bottom:5px;display:flex;align-items:center;gap:4px">
                           Response ready when:
-                          <span title="How to know when the AI has finished responding:&#10;&#10;â€¢ First change: Capture as soon as any response appears (fastest, may be incomplete)&#10;â€¢ Quiet period: Wait until text stops changing for X milliseconds (good for streaming)&#10;â€¢ Signal element: Wait for a specific element like 'Copy' button to appear (most reliable)" style="font-size:9px;opacity:0.6;cursor:help;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);padding:0 4px;border-radius:50%">?</span>
+                          <span title="How to know when the AI has finished responding:&#10;&#10;• First change: Capture as soon as any response appears (fastest, may be incomplete)&#10;• Quiet period: Wait until text stops changing for X milliseconds (good for streaming)&#10;• Signal element: Wait for a specific element like 'Copy' button to appear (most reliable)" style="font-size:9px;opacity:0.6;cursor:help;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);padding:0 4px;border-radius:50%">?</span>
                         </div>
                         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:5px">
                           <select class="trigger-response-ready-mode" style="background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:4px 8px;border-radius:4px;font-size:10px;min-width:130px">
@@ -16792,7 +16792,7 @@ function initializeExtension() {
                         <div class="selector-signal-options" style="display:${init?.responseReadyMode === 'selector_signal' ? 'block' : 'none'};margin-bottom:5px">
                           <div style="display:flex;align-items:center;gap:4px;margin-bottom:2px">
                             <span style="font-size:10px;color:#64748b">Signal selector:</span>
-                            <span title="CSS selector for an element that appears ONLY when the response is complete. Common examples:&#10;â€¢ button[aria-label='Copy'] - Copy button&#10;â€¢ .feedback-buttons - Thumbs up/down&#10;â€¢ .message-complete - Completion indicator" style="font-size:9px;opacity:0.5;cursor:help;background:rgba(255,255,255,.12);border:1px solid ${csTheme().border};padding:0 4px;border-radius:50%">?</span>
+                            <span title="CSS selector for an element that appears ONLY when the response is complete. Common examples:&#10;• button[aria-label='Copy'] - Copy button&#10;• .feedback-buttons - Thumbs up/down&#10;• .message-complete - Completion indicator" style="font-size:9px;opacity:0.5;cursor:help;background:rgba(255,255,255,.12);border:1px solid ${csTheme().border};padding:0 4px;border-radius:50%">?</span>
                           </div>
                           <input class="trigger-response-signal-selector" placeholder="button[aria-label=&quot;Copy&quot;], .feedback-buttons" value="${init?.responseSignalSelector || ''}" style="width:100%;background:rgba(255,255,255,.9);border:1px solid rgba(255,255,255,.4);color:#1e293b;padding:4px 8px;border-radius:3px;font-size:10px">
                         </div>
@@ -16807,10 +16807,10 @@ function initializeExtension() {
                     </div>
                   </div>
 
-                  <!-- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• CONTEXT CAPTURE â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
+                  <!-- ═══════════════ CONTEXT CAPTURE ═══════════════ -->
                   <div style="margin-bottom:10px;padding:10px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.08);border-radius:6px">
                     <div style="font-size:11px;color:#fbbf24;font-weight:600;margin-bottom:6px;display:flex;align-items:center;gap:4px">
-                      ðŸ“‹ Context Capture
+                      📋 Context Capture
                       <span title="Capture additional metadata alongside the conversation. Useful for tracking which page, conversation, or AI model was used." style="font-size:9px;opacity:0.6;cursor:help;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);padding:0 4px;border-radius:50%">?</span>
                     </div>
                     
@@ -16830,16 +16830,16 @@ function initializeExtension() {
                     <div>
                       <label style="font-size:10px;color:#0f172a;display:flex;align-items:center;gap:4px;margin-bottom:2px">
                         Context Selectors <span style="opacity:0.6">(optional)</span>
-                        <span title="Extra CSS selectors to capture additional page elements as context.&#10;&#10;Examples:&#10;â€¢ [data-conversation-id] - Conversation ID&#10;â€¢ .model-selector - Which AI model is selected&#10;â€¢ .system-prompt-indicator - System prompt info" style="font-size:9px;opacity:0.6;cursor:help;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);padding:0 4px;border-radius:50%">?</span>
+                        <span title="Extra CSS selectors to capture additional page elements as context.&#10;&#10;Examples:&#10;• [data-conversation-id] - Conversation ID&#10;• .model-selector - Which AI model is selected&#10;• .system-prompt-indicator - System prompt info" style="font-size:9px;opacity:0.6;cursor:help;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);padding:0 4px;border-radius:50%">?</span>
                       </label>
                       <textarea class="trigger-meta-selectors" placeholder="[data-conversation-id]&#10;.model-selector" style="width:100%;min-height:32px;background:rgba(255,255,255,.9);border:1px solid rgba(255,255,255,.4);color:#1e293b;padding:5px 8px;border-radius:4px;font-size:10px;font-family:monospace;resize:vertical">${(init?.metaSelectors || []).join('\n')}</textarea>
                     </div>
                   </div>
 
-                  <!-- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• SANITIZATION â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
+                  <!-- ═══════════════ SANITIZATION ═══════════════ -->
                   <div style="margin-bottom:10px;padding:10px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.08);border-radius:6px">
                     <div style="font-size:11px;color:#94a3b8;font-weight:600;margin-bottom:4px;display:flex;align-items:center;gap:4px">
-                      ðŸ§¹ Sanitization
+                      🧹 Sanitization
                       <span title="Clean up captured text before sending to your agent. Removes unwanted formatting and noise." style="font-size:9px;opacity:0.6;cursor:help;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);padding:0 4px;border-radius:50%">?</span>
                     </div>
                     <div style="font-size:9px;color:rgba(255,255,255,0.45);margin-bottom:6px">Apply these cleanup steps before sending captured text to the agent.</div>
@@ -16863,19 +16863,19 @@ function initializeExtension() {
                     </div>
                   </div>
 
-                  <!-- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• DEVELOPER DEBUGGING â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
+                  <!-- ═══════════════ DEVELOPER DEBUGGING ═══════════════ -->
                   <div style="padding:10px;background:rgba(100,100,100,0.08);border:1px solid rgba(100,100,100,0.2);border-radius:6px">
                     <div style="font-size:11px;color:#9ca3af;font-weight:600;margin-bottom:6px;display:flex;align-items:center;gap:4px">
-                      ðŸ”§ Developer Debugging
+                      🔧 Developer Debugging
                       <span title="Test your configuration on the current page. Use these tools to verify your selectors are working correctly before saving." style="font-size:9px;opacity:0.6;cursor:help;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);padding:0 4px;border-radius:50%">?</span>
                     </div>
                     
                     <div style="display:flex;gap:8px;flex-wrap:wrap">
                       <button type="button" class="btn-test-selectors" style="background:rgba(100,100,100,0.2);border:1px solid rgba(100,100,100,0.3);color:#0f172a;padding:5px 10px;border-radius:4px;cursor:pointer;font-size:10px">
-                        ðŸŽ¯ Test Selectors
+                        🎯 Test Selectors
                       </button>
                       <button type="button" class="btn-test-capture" style="background:rgba(100,100,100,0.2);border:1px solid rgba(100,100,100,0.3);color:#0f172a;padding:5px 10px;border-radius:4px;cursor:pointer;font-size:10px">
-                        â–¶ï¸ Run Test Capture
+                        ▶️ Run Test Capture
                       </button>
                     </div>
                     <div class="debug-results" style="display:none;margin-top:8px;padding:8px;background:rgba(0,0,0,0.2);border-radius:4px;font-family:monospace;font-size:9px;color:#475569"></div>
@@ -16973,7 +16973,7 @@ function initializeExtension() {
                 // Auto-detect by scanning the DOM for common AI chat UI patterns
                 if (autoDetectStatus) {
                   autoDetectStatus.style.display = 'block'
-                  autoDetectStatus.innerHTML = '<span style="color:#fbbf24">â³ Scanning page DOM...</span>'
+                  autoDetectStatus.innerHTML = '<span style="color:#fbbf24">⏳ Scanning page DOM...</span>'
                 }
                 
                 const generateSelector = (el: Element | null): string => {
@@ -17147,7 +17147,7 @@ function initializeExtension() {
                   if (autoDetectStatus) {
                     const foundCount = [siteFilter, buttonSelector, inputSelector, outputSelector].filter(Boolean).length + detectedContext.length
                     if (foundCount > 0) {
-                      autoDetectStatus.innerHTML = `<span style="color:#4ade80">âœâ€œ DOM scan complete! Found ${foundCount} element${foundCount > 1 ? 's' : ''}.</span>`
+                      autoDetectStatus.innerHTML = `<span style="color:#4ade80">✏“ DOM scan complete! Found ${foundCount} element${foundCount > 1 ? 's' : ''}.</span>`
                       if (autoDetectedResults) {
                         autoDetectedResults.style.display = 'block'
                         const siteSpan = autoDetectedResults.querySelector('.detected-site-filter')
@@ -17170,7 +17170,7 @@ function initializeExtension() {
                         }
                       }
                     } else {
-                      autoDetectStatus.innerHTML = '<span style="color:#f87171">âœâ€” Could not detect AI chat elements. This may not be a supported chat interface.</span>'
+                      autoDetectStatus.innerHTML = '<span style="color:#f87171">✏— Could not detect AI chat elements. This may not be a supported chat interface.</span>'
                     }
                   }
                 }, 300)
@@ -17246,7 +17246,7 @@ function initializeExtension() {
                     detected.output,
                     ...(detected.context || [])
                   ].filter(Boolean).length
-                  applyDetectedBtn.textContent = `âœâ€œ Applied ${appliedCount} selectors!`
+                  applyDetectedBtn.textContent = `✏“ Applied ${appliedCount} selectors!`
                   applyDetectedBtn.style.background = 'rgba(34,197,94,0.3)'
                   setTimeout(() => {
                     applyDetectedBtn.textContent = 'Apply to all fields'
@@ -17310,7 +17310,7 @@ function initializeExtension() {
                       <option value="attribute" ${initRule?.type === 'attribute' ? 'selected' : ''}>Attribute Check</option>
                       <option value="text_length" ${initRule?.type === 'text_length' ? 'selected' : ''}>Text Length</option>
                     </select>
-                    <button class="dom-rule-del" style="background:#ef4444;border:none;color:#fff;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:11px;margin-left:auto">âœâ€¢</button>
+                    <button class="dom-rule-del" style="background:#ef4444;border:none;color:#fff;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:11px;margin-left:auto">✏•</button>
                   </div>
                   <div class="dom-rule-fields" style="display:flex;flex-direction:column;gap:6px"></div>
                   <div style="display:flex;gap:8px;align-items:center;margin-top:8px;padding-top:8px;border-top:1px dashed rgba(255,255,255,0.1)">
@@ -17407,7 +17407,7 @@ function initializeExtension() {
               overlaySection.style.cssText = 'padding:10px;background:rgba(168,85,247,0.08);border:1px solid rgba(168,85,247,0.25);border-radius:8px;margin-bottom:10px'
               overlaySection.innerHTML = `
                 <div style="font-weight:600;font-size:13px;color:#a855f7;margin-bottom:8px;display:flex;align-items:center;gap:6px">
-                  <span style="font-size:14px">ðŸŽ¯</span> Augmented Overlay
+                  <span style="font-size:14px">🎯</span> Augmented Overlay
                   <span title="Transparent overlay for voice commands, pointer context, and overlay buttons." style="font-size:10px;opacity:0.7;cursor:help;background:#e2e8f0;border:1px solid #94a3b8;padding:0 5px;border-radius:50%">?</span>
                 </div>
                 <div style="font-size:11px;color:#475569;margin-bottom:12px;padding:8px;background:rgba(168,85,247,0.08);border-radius:4px">
@@ -17419,28 +17419,28 @@ function initializeExtension() {
                     <label style="display:flex;align-items:center;gap:8px;cursor:pointer;background:#f1f5f9;padding:8px 12px;border-radius:6px;border:1px solid ${csTheme().border}">
                       <input type="checkbox" class="trigger-overlay-mode-button" ${init?.overlayModeButton ? 'checked' : ''} style="margin:0">
                       <div>
-                        <div style="font-size:12px;color:#0f172a;font-weight:500">âŒ˜ Overlay Button</div>
+                        <div style="font-size:12px;color:#0f172a;font-weight:500">⌘ Overlay Button</div>
                         <div style="font-size:10px;color:#64748b">User clicks a button in the overlay UI</div>
                       </div>
                     </label>
                     <label style="display:flex;align-items:center;gap:8px;cursor:pointer;background:#f1f5f9;padding:8px 12px;border-radius:6px;border:1px solid ${csTheme().border}">
                       <input type="checkbox" class="trigger-overlay-mode-empty" ${init?.overlayModeEmpty ? 'checked' : ''} style="margin:0">
                       <div>
-                        <div style="font-size:12px;color:#0f172a;font-weight:500">ðŸŽ¤ Voice + Pointer (empty area)</div>
+                        <div style="font-size:12px;color:#0f172a;font-weight:500">🎤 Voice + Pointer (empty area)</div>
                         <div style="font-size:10px;color:#64748b">User speaks while pointing at empty space</div>
                       </div>
                     </label>
                     <label style="display:flex;align-items:center;gap:8px;cursor:pointer;background:#f1f5f9;padding:8px 12px;border-radius:6px;border:1px solid ${csTheme().border}">
                       <input type="checkbox" class="trigger-overlay-mode-element" ${init?.overlayModeElement !== false ? 'checked' : ''} style="margin:0">
                       <div>
-                        <div style="font-size:12px;color:#0f172a;font-weight:500">ðŸ–±ï¸ Voice + Element</div>
+                        <div style="font-size:12px;color:#0f172a;font-weight:500">🖱️ Voice + Element</div>
                         <div style="font-size:10px;color:#64748b">User speaks while pointing at a specific element</div>
                       </div>
                     </label>
                     <label style="display:flex;align-items:center;gap:8px;cursor:pointer;background:#f1f5f9;padding:8px 12px;border-radius:6px;border:1px solid ${csTheme().border}">
                       <input type="checkbox" class="trigger-overlay-mode-selection" ${init?.overlayModeSelection ? 'checked' : ''} style="margin:0">
                       <div>
-                        <div style="font-size:12px;color:#0f172a;font-weight:500">âœâ€šï¸ Voice + Selection</div>
+                        <div style="font-size:12px;color:#0f172a;font-weight:500">✏‚️ Voice + Selection</div>
                         <div style="font-size:10px;color:#64748b">User speaks while having text selected</div>
                       </div>
                     </label>
@@ -17448,7 +17448,7 @@ function initializeExtension() {
                 </div>
                 <div class="overlay-button-fields" style="display:${init?.overlayModeButton ? 'block' : 'none'};margin-bottom:10px;padding:10px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px">
                   <label style="font-size:12px;color:#0f172a;display:block;margin-bottom:4px">Button Label / Icon</label>
-                  <input class="trigger-overlay-button-label" placeholder="e.g. Run Analysis, ðŸ“Š, âœÂ¨ Quick Action" value="${init?.overlayButtonLabel || ''}" style="width:100%;background:#fff;border:1px solid #cbd5e1;color:#0f172a;padding:8px 10px;border-radius:6px;font-size:12px">
+                  <input class="trigger-overlay-button-label" placeholder="e.g. Run Analysis, 📊, ✏¨ Quick Action" value="${init?.overlayButtonLabel || ''}" style="width:100%;background:#fff;border:1px solid #cbd5e1;color:#0f172a;padding:8px 10px;border-radius:6px;font-size:12px">
                   <div style="font-size:10px;color:#64748b;margin-top:4px">Button displayed in the overlay UI</div>
                 </div>
                 <div style="margin-bottom:10px">
@@ -17532,7 +17532,7 @@ function initializeExtension() {
               agentRow.style.cssText = 'padding:10px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px'
               agentRow.innerHTML = `
                 <div style="font-weight:600;font-size:13px;color:#3b82f6;margin-bottom:6px;display:flex;align-items:center;gap:6px">
-                  <span style="font-size:14px">ðŸ¤–</span> Source Agent
+                  <span style="font-size:14px">🤖</span> Source Agent
                 </div>
                 <div>
                   <label style="font-size:12px;color:#0f172a;display:block;margin-bottom:4px">Select Agent</label>
@@ -17557,7 +17557,7 @@ function initializeExtension() {
               miniappRow.style.cssText = 'padding:10px;background:rgba(139,92,246,0.08);border:1px solid rgba(139,92,246,0.25);border-radius:8px'
               miniappRow.innerHTML = `
                 <div style="font-weight:600;font-size:13px;color:#8b5cf6;margin-bottom:6px;display:flex;align-items:center;gap:6px">
-                  <span style="font-size:14px">ðŸ“±</span> Mini-App Configuration
+                  <span style="font-size:14px">📱</span> Mini-App Configuration
                 </div>
                 <div style="margin-bottom:10px">
                   <label style="font-size:12px;color:#0f172a;display:block;margin-bottom:4px">Mini-App ID</label>
@@ -17738,7 +17738,7 @@ function initializeExtension() {
           bottomSaveRow.style.cssText = `display:flex;justify-content:flex-end;gap:8px;margin-top:16px;padding-top:12px;border-top:1px solid ${csTheme().border}`
           const bottomSaveBtn = document.createElement('button')
           bottomSaveBtn.className = 'trigger-bottom-save'
-          bottomSaveBtn.textContent = 'ðŸ’¾ Save Trigger'
+          bottomSaveBtn.textContent = '💾 Save Trigger'
           bottomSaveBtn.style.cssText = `background:${csTheme().accentGrad};color:#fff;border:none;padding:8px 18px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600`
           bottomSaveRow.appendChild(bottomSaveBtn)
           row.appendChild(bottomSaveRow)
@@ -17749,10 +17749,10 @@ function initializeExtension() {
             updateApplyForOptions()
             
             // Show temporary feedback
-            bottomSaveBtn.textContent = 'âœâ€œ Saved!'
+            bottomSaveBtn.textContent = '✏“ Saved!'
             bottomSaveBtn.style.background = '#16a34a'
             setTimeout(() => {
-              bottomSaveBtn.textContent = 'ðŸ’¾ Save Trigger'
+              bottomSaveBtn.textContent = '💾 Save Trigger'
               bottomSaveBtn.style.background = `${csTheme().accent}`
             }, 1500)
             
@@ -17762,7 +17762,7 @@ function initializeExtension() {
               if (idRowEl) {
                 const checkmark = document.createElement('span')
                 checkmark.className = 'trigger-saved-indicator'
-                checkmark.textContent = 'âœâ€œ'
+                checkmark.textContent = '✏“'
                 checkmark.style.cssText = `color:${csTheme().accent};font-weight:bold;margin-left:6px;font-size:14px`
                 checkmark.title = 'Trigger saved'
                 idRowEl.appendChild(checkmark)
@@ -17793,43 +17793,43 @@ function initializeExtension() {
             // Build a descriptive label including channel for event tag triggers
             let label = ''
             if (type === 'wrchat') {
-              label = tag ? `ðŸ’¬ #${tag.replace('#', '')}` : `ðŸ’¬ WR Chat`
+              label = tag ? `💬 #${tag.replace('#', '')}` : `💬 WR Chat`
             } else if (type === 'direct_tag' || type === 'tag_and_condition') {
               const tagName = tag.replace('#', '')
               label = tagName ? `#${tagName}` : `${type} (${id.substring(0, 8)}...)`
               // Add channel indicator for non-default channels
               if (channel && channel !== 'chat') {
                 const channelIcons: Record<string, string> = {
-                  'email': 'ðŸ“§',
-                  'web': 'ðŸŒÂ',
-                  'overlay': 'ðŸŽ¯',
-                  'agent': 'ðŸ¤–',
-                  'miniapp': 'ðŸ“±',
-                  'screenshot': 'ðŸ“¸',
-                  'stream': 'ðŸ“º',
-                  'pdf': 'ðŸ“„',
-                  'docs': 'ðŸ“',
-                  'voicememo': 'ðŸŽ™ï¸',
-                  'video': 'ðŸŽ¬',
-                  'voice_command': 'ðŸ—£ï¸',
-                  'picture': 'ðŸ–¼ï¸',
-                  'api': 'ðŸ”Œ'
+                  'email': '📧',
+                  'web': '🌐',
+                  'overlay': '🎯',
+                  'agent': '🤖',
+                  'miniapp': '📱',
+                  'screenshot': '📸',
+                  'stream': '📺',
+                  'pdf': '📄',
+                  'docs': '📝',
+                  'voicememo': '🎙️',
+                  'video': '🎬',
+                  'voice_command': '🗣️',
+                  'picture': '🖼️',
+                  'api': '🔌'
                 }
                 label += ` ${channelIcons[channel] || ''}`
               }
             } else if (type === 'workflow_condition') {
               const workflowId = row.querySelector('.trigger-workflow')?.value || ''
-              label = workflowId ? `âš™ï¸ ${workflowId}` : `Workflow (${id.substring(0, 8)}...)`
+              label = workflowId ? `⚙️ ${workflowId}` : `Workflow (${id.substring(0, 8)}...)`
             } else if (type === 'dom_event' || type === 'ui_event') {
               const selector = row.querySelector('.trigger-dom-selector')?.value || ''
-              label = selector ? `ðŸ–±ï¸ ${selector.substring(0, 20)}...` : `DOM Event (${id.substring(0, 8)}...)`
+              label = selector ? `🖱️ ${selector.substring(0, 20)}...` : `DOM Event (${id.substring(0, 8)}...)`
             } else if (type === 'dom_parser') {
               const rulesCount = row.querySelectorAll('.dom-parser-rule').length
-              label = `ðŸ” Parser (${rulesCount} rule${rulesCount !== 1 ? 's' : ''})`
+              label = `🔍 Parser (${rulesCount} rule${rulesCount !== 1 ? 's' : ''})`
             } else if (type === 'augmented_overlay') {
               const overlayName = row.querySelector('.trigger-overlay-name')?.value || ''
               const buttonLabel = row.querySelector('.trigger-overlay-button-label')?.value || ''
-              label = overlayName ? `ðŸŽ¯ ${overlayName}` : (buttonLabel ? `âŒ˜ ${buttonLabel}` : `Overlay (${id.substring(0, 8)}...)`)
+              label = overlayName ? `🎯 ${overlayName}` : (buttonLabel ? `⌘ ${buttonLabel}` : `Overlay (${id.substring(0, 8)}...)`)
             } else {
               label = `${type} (${id.substring(0, 8)}...)`
             }
@@ -17955,7 +17955,7 @@ function initializeExtension() {
           if (init?.tag) tagInput.value = init.tag
           
           const delBtn = document.createElement('button')
-          delBtn.textContent = 'Ã—'
+          delBtn.textContent = '×'
           delBtn.title = 'Remove trigger'
           delBtn.style.cssText = 'background:#ef4444;color:#fff;border:none;padding:6px 12px;border-radius:6px;cursor:pointer;font-size:16px'
           delBtn.addEventListener('click', () => row.remove())
@@ -18265,7 +18265,7 @@ function initializeExtension() {
 
               const merged = [
 
-                ...builtins.map(id => ({ id, name: `Agent ${getOrAssignAgentNumber(id)} â€” ${id}` })),
+                ...builtins.map(id => ({ id, name: `Agent ${getOrAssignAgentNumber(id)} — ${id}` })),
 
                 ...agents.map((a:any)=>({ id: a.key || a.id || a.name || 'agent', name: a.name || a.id || a.key }))
 
@@ -18315,23 +18315,23 @@ function initializeExtension() {
 
             { label: 'Agent Box', value: 'agentBox' },
 
-            { label: 'ðŸ’¬ WR Chat (Command Chat)', value: 'wrChat' },
+            { label: '💬 WR Chat (Command Chat)', value: 'wrChat' },
 
             { label: 'Agent', value: 'agent' },
 
-            { label: 'Chat Inline â†’ Summary', value: 'chat-inline-summary' },
+            { label: 'Chat Inline → Summary', value: 'chat-inline-summary' },
 
-            { label: 'Clipboard â†’ Summary', value: 'clip-summary' },
+            { label: 'Clipboard → Summary', value: 'clip-summary' },
 
-            { label: 'Clipboard â†’ Screenshot', value: 'clip-screenshot' },
+            { label: 'Clipboard → Screenshot', value: 'clip-screenshot' },
 
-            { label: 'PDF â†’ Summary', value: 'pdf-summary' },
+            { label: 'PDF → Summary', value: 'pdf-summary' },
 
-            { label: 'PDF â†’ Screenshot', value: 'pdf-screenshot' },
+            { label: 'PDF → Screenshot', value: 'pdf-screenshot' },
 
-            { label: 'PDF â†’ Summary + Screenshot', value: 'pdf-both' },
+            { label: 'PDF → Summary + Screenshot', value: 'pdf-both' },
 
-            { label: 'Image â†’ Screenshot (PNG/WebP)', value: 'image-screenshot' }
+            { label: 'Image → Screenshot (PNG/WebP)', value: 'image-screenshot' }
 
           ]
 
@@ -18350,7 +18350,7 @@ function initializeExtension() {
 
           const buildAgentBoxSelect = (): HTMLSelectElement => {
 
-            const boxOpts = [{ label: 'â€” Select Agent Box â€”', value: '' }]
+            const boxOpts = [{ label: '— Select Agent Box —', value: '' }]
 
             // Try to get agent boxes from the current session to show LLM info
             const sessionKey = getCurrentSessionKey()
@@ -18375,9 +18375,9 @@ function initializeExtension() {
                 }
                 // Add LLM info if available
                 if (boxInfo.provider && boxInfo.model) {
-                  label += ` â€” ${boxInfo.provider}/${boxInfo.model}`
+                  label += ` — ${boxInfo.provider}/${boxInfo.model}`
                 } else if (boxInfo.model) {
-                  label += ` â€” ${boxInfo.model}`
+                  label += ` — ${boxInfo.model}`
                 }
                 // Add enabled/disabled status
                 if (boxInfo.enabled === false) {
@@ -18402,7 +18402,7 @@ function initializeExtension() {
 
           const buildAgentSelect = (): HTMLSelectElement => {
 
-            const agentOpts = [{ label: 'â€” Select Agent â€”', value: '' }]
+            const agentOpts = [{ label: '— Select Agent —', value: '' }]
 
             for (let i = 1; i <= 50; i++) {
 
@@ -18423,7 +18423,7 @@ function initializeExtension() {
 
           const del = document.createElement('button')
 
-          del.textContent = 'Ã—'
+          del.textContent = '×'
 
           del.title = 'Remove'
 
@@ -18507,7 +18507,7 @@ function initializeExtension() {
 
           const del = document.createElement('button')
 
-          del.textContent = 'Ã—'
+          del.textContent = '×'
 
           del.title = 'Remove'
 
@@ -18580,9 +18580,9 @@ function initializeExtension() {
           
           // Channel icons for display
           const channelIcons: Record<string, string> = {
-            'email': 'ðŸ“§', 'web': 'ðŸŒÂ', 'overlay': 'ðŸŽ¯', 'agent': 'ðŸ¤–', 'miniapp': 'ðŸ“±',
-            'screenshot': 'ðŸ“¸', 'stream': 'ðŸ“º', 'pdf': 'ðŸ“„', 'docs': 'ðŸ“', 'voicememo': 'ðŸŽ™ï¸',
-            'video': 'ðŸŽ¬', 'voice_command': 'ðŸ—£ï¸', 'picture': 'ðŸ–¼ï¸', 'api': 'ðŸ”Œ'
+            'email': '📧', 'web': '🌐', 'overlay': '🎯', 'agent': '🤖', 'miniapp': '📱',
+            'screenshot': '📸', 'stream': '📺', 'pdf': '📄', 'docs': '📝', 'voicememo': '🎙️',
+            'video': '🎬', 'voice_command': '🗣️', 'picture': '🖼️', 'api': '🔌'
           }
           
           // Get from unified triggers (new system)
@@ -18595,7 +18595,7 @@ function initializeExtension() {
             
             let label = ''
             if (type === 'wrchat') {
-              label = tag ? `ðŸ’¬ #${tag.replace('#', '')}` : `ðŸ’¬ WR Chat`
+              label = tag ? `💬 #${tag.replace('#', '')}` : `💬 WR Chat`
             } else if (type === 'direct_tag' || type === 'tag_and_condition') {
               const tagName = tag.replace('#', '')
               label = tagName ? `#${tagName}` : `${type} (${id.substring(0, 8)}...)`
@@ -18605,17 +18605,17 @@ function initializeExtension() {
               }
             } else if (type === 'workflow_condition') {
               const workflowId = row.querySelector('.trigger-workflow')?.value || ''
-              label = workflowId ? `âš™ï¸ ${workflowId}` : `Workflow (${id.substring(0, 8)}...)`
+              label = workflowId ? `⚙️ ${workflowId}` : `Workflow (${id.substring(0, 8)}...)`
             } else if (type === 'dom_event' || type === 'ui_event') {
               const selector = row.querySelector('.trigger-dom-selector')?.value || ''
-              label = selector ? `ðŸ–±ï¸ ${selector.substring(0, 20)}...` : `DOM Event (${id.substring(0, 8)}...)`
+              label = selector ? `🖱️ ${selector.substring(0, 20)}...` : `DOM Event (${id.substring(0, 8)}...)`
             } else if (type === 'dom_parser') {
               const rulesCount = row.querySelectorAll('.dom-parser-rule').length
-              label = `ðŸ” Parser (${rulesCount} rule${rulesCount !== 1 ? 's' : ''})`
+              label = `🔍 Parser (${rulesCount} rule${rulesCount !== 1 ? 's' : ''})`
             } else if (type === 'augmented_overlay') {
               const overlayName = row.querySelector('.trigger-overlay-name')?.value || ''
               const buttonLabel = row.querySelector('.trigger-overlay-button-label')?.value || ''
-              label = overlayName ? `ðŸŽ¯ ${overlayName}` : (buttonLabel ? `âŒ˜ ${buttonLabel}` : `Overlay (${id.substring(0, 8)}...)`)
+              label = overlayName ? `🎯 ${overlayName}` : (buttonLabel ? `⌘ ${buttonLabel}` : `Overlay (${id.substring(0, 8)}...)`)
             } else {
               label = `${type} (${id.substring(0, 8)}...)`
             }
@@ -18690,7 +18690,7 @@ function initializeExtension() {
           const delBtn = document.createElement('button')
           delBtn.type = 'button'
           delBtn.style.cssText = 'background:#ef4444;color:#fff;border:none;padding:4px 10px;border-radius:6px;cursor:pointer;font-weight:bold'
-          delBtn.textContent = 'Ã—'
+          delBtn.textContent = '×'
           delBtn.addEventListener('click', () => row.remove())
           
           row.appendChild(sel)
@@ -18965,15 +18965,15 @@ function initializeExtension() {
             // Report to options - defines where the LLM output will be displayed
             const opts = [
               { label: 'Agent Box', value: 'agentBox' },
-              { label: 'ðŸ’¬ WR Chat (Command Chat)', value: 'wrChat' },
+              { label: '💬 WR Chat (Command Chat)', value: 'wrChat' },
               { label: 'Agent', value: 'agent' },
-              { label: 'Chat Inline â†’ Summary', value: 'chat-inline-summary' },
-              { label: 'Clipboard â†’ Summary', value: 'clip-summary' },
-              { label: 'Clipboard â†’ Screenshot', value: 'clip-screenshot' },
-              { label: 'PDF â†’ Summary', value: 'pdf-summary' },
-              { label: 'PDF â†’ Screenshot', value: 'pdf-screenshot' },
-              { label: 'PDF â†’ Summary + Screenshot', value: 'pdf-both' },
-              { label: 'Image â†’ Screenshot (PNG/WebP)', value: 'image-screenshot' }
+              { label: 'Chat Inline → Summary', value: 'chat-inline-summary' },
+              { label: 'Clipboard → Summary', value: 'clip-summary' },
+              { label: 'Clipboard → Screenshot', value: 'clip-screenshot' },
+              { label: 'PDF → Summary', value: 'pdf-summary' },
+              { label: 'PDF → Screenshot', value: 'pdf-screenshot' },
+              { label: 'PDF → Summary + Screenshot', value: 'pdf-both' },
+              { label: 'Image → Screenshot (PNG/WebP)', value: 'image-screenshot' }
             ]
 
             const row = document.createElement('div')
@@ -18989,7 +18989,7 @@ function initializeExtension() {
 
             // Build agent box options (01-50) with LLM info from session
             const buildAgentBoxSelectSub = (): HTMLSelectElement => {
-              const boxOpts = [{ label: 'â€” Select Agent Box â€”', value: '' }]
+              const boxOpts = [{ label: '— Select Agent Box —', value: '' }]
               
               // Try to get agent boxes from the current session to show LLM info
               const sessionKey = getCurrentSessionKey()
@@ -19011,9 +19011,9 @@ function initializeExtension() {
                     label += ` (${boxInfo.title})`
                   }
                   if (boxInfo.provider && boxInfo.model) {
-                    label += ` â€” ${boxInfo.provider}/${boxInfo.model}`
+                    label += ` — ${boxInfo.provider}/${boxInfo.model}`
                   } else if (boxInfo.model) {
-                    label += ` â€” ${boxInfo.model}`
+                    label += ` — ${boxInfo.model}`
                   }
                   if (boxInfo.enabled === false) {
                     label += ' [disabled]'
@@ -19029,7 +19029,7 @@ function initializeExtension() {
 
             // Build agent options (01-50)
             const buildAgentSelectSub = (): HTMLSelectElement => {
-              const agentOpts = [{ label: 'â€” Select Agent â€”', value: '' }]
+              const agentOpts = [{ label: '— Select Agent —', value: '' }]
               for (let i = 1; i <= 50; i++) {
                 const num = String(i).padStart(2, '0')
                 agentOpts.push({ label: `Agent ${num}`, value: `agent${num}` })
@@ -19040,7 +19040,7 @@ function initializeExtension() {
             }
 
             const del = document.createElement('button')
-            del.textContent = 'Ã—'
+            del.textContent = '×'
             del.title = 'Remove'
             del.style.cssText = 'background:#ef4444;color:#fff;border:none;padding:0 10px;border-radius:6px;cursor:pointer;height:36px'
             del.addEventListener('click', () => row.remove())
@@ -19127,7 +19127,7 @@ function initializeExtension() {
 
           if (!previouslySavedData) {
 
-            console.warn('âš ï¸ No previouslySavedData to restore!')
+            console.warn('⚠️ No previouslySavedData to restore!')
             isRestoringFromMemory = false
             return
 
@@ -19284,15 +19284,15 @@ function initializeExtension() {
 
               acList.innerHTML = `
 
-                  <div style="color:#fbbf24;font-weight:600;margin-bottom:6px">ðŸ“¦ ${files.length} file(s) previously uploaded:</div>
+                  <div style="color:#fbbf24;font-weight:600;margin-bottom:6px">📦 ${files.length} file(s) previously uploaded:</div>
 
                 ${files.map((f: any, idx: number) => `
 
                   <div class="saved-file-row" style="display:flex;align-items:center;gap:6px;padding:4px 8px;background:rgba(251,191,36,0.1);border-radius:6px;margin-bottom:4px;border:1px solid rgba(251,191,36,0.3)">
 
-                    <span>ðŸ“„ ${f.name} (${(f.size / 1024).toFixed(1)} KB)</span>
+                    <span>📄 ${f.name} (${(f.size / 1024).toFixed(1)} KB)</span>
 
-                    <button class="delete-ac-file-btn" data-idx="${idx}" style="margin-left:auto;background:rgba(220,38,38,0.10);border:none;color:white;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:10px;">âœâ€¢</button>
+                    <button class="delete-ac-file-btn" data-idx="${idx}" style="margin-left:auto;background:rgba(220,38,38,0.10);border:none;color:white;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:10px;">✏•</button>
 
                   </div>
 
@@ -19334,7 +19334,7 @@ function initializeExtension() {
 
                   const countEl = acList.querySelector('div')
 
-                    if (countEl) countEl.textContent = `ðŸ“¦ ${previouslySavedData.agentContextFiles.length} file(s) previously uploaded:`
+                    if (countEl) countEl.textContent = `📦 ${previouslySavedData.agentContextFiles.length} file(s) previously uploaded:`
 
                     
 
@@ -19349,7 +19349,7 @@ function initializeExtension() {
 
             } else {
 
-                console.error('âŒ Could not find DOM elements to restore Agent Context files!', {
+                console.error('❌ Could not find DOM elements to restore Agent Context files!', {
 
                   triedSelectors: ['#AC-list', '#AC-agent', '#AC-content']
 
@@ -19687,7 +19687,7 @@ function initializeExtension() {
                       const rows = unifiedList.querySelectorAll('.unified-trigger-row')
                       const row = rows[rows.length - 1] as HTMLElement
                       if (!row) {
-                        console.warn(`  âš ï¸ Failed to find trigger row ${idx + 1}`)
+                        console.warn(`  ⚠️ Failed to find trigger row ${idx + 1}`)
                         return
                       }
                       
@@ -20063,7 +20063,7 @@ function initializeExtension() {
                       if (tempSaveBtn && !row.querySelector('.trigger-saved-indicator')) {
                         const checkmark = document.createElement('span')
                         checkmark.className = 'trigger-saved-indicator'
-                        checkmark.textContent = 'âœâ€œ'
+                        checkmark.textContent = '✏“'
                         checkmark.style.cssText = `color:${csTheme().accent};font-weight:bold;margin-left:6px;font-size:14px`
                         checkmark.title = 'Trigger saved'
                         tempSaveBtn.parentElement?.insertBefore(checkmark, tempSaveBtn.nextSibling)
@@ -20113,15 +20113,15 @@ function initializeExtension() {
 
                     <div style="margin-top:8px;font-size:11px;opacity:0.9;padding:8px;background:rgba(251,191,36,0.1);border-radius:4px;border:1px solid rgba(251,191,36,0.3)">
 
-                      <div style="font-weight:bold;margin-bottom:8px;color:#fbbf24;">ðŸ“¦ ${files.length} example file(s) previously uploaded:</div>
+                      <div style="font-weight:bold;margin-bottom:8px;color:#fbbf24;">📦 ${files.length} example file(s) previously uploaded:</div>
 
                       ${files.map((f: any, idx: number) => `
 
                         <div class="saved-file-row" style="display:flex;align-items:center;gap:8px;margin-bottom:6px;padding:4px 8px;background:rgba(255,255,255,0.05);border-radius:4px;">
 
-                          <span>ðŸ“„ ${f.name} (${(f.size / 1024).toFixed(1)} KB)</span>
+                          <span>📄 ${f.name} (${(f.size / 1024).toFixed(1)} KB)</span>
 
-                          <button class="delete-lexample-file-btn" data-idx="${idx}" style="margin-left:auto;background:rgba(220,38,38,0.10);border:none;color:white;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:10px;">âœâ€¢</button>
+                          <button class="delete-lexample-file-btn" data-idx="${idx}" style="margin-left:auto;background:rgba(220,38,38,0.10);border:none;color:white;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:10px;">✏•</button>
 
                         </div>
 
@@ -20165,7 +20165,7 @@ function initializeExtension() {
 
                       const countEl = lExamplesContainer.querySelector('div')
 
-                      if (countEl) countEl.textContent = `ðŸ“¦ ${previouslySavedData.listening.exampleFiles.length} example file(s) previously uploaded:`
+                      if (countEl) countEl.textContent = `📦 ${previouslySavedData.listening.exampleFiles.length} example file(s) previously uploaded:`
 
                       
 
@@ -20180,7 +20180,7 @@ function initializeExtension() {
 
                 } else {
 
-                  console.error('âŒ Could not find #L-examples-list-container to restore files!')
+                  console.error('❌ Could not find #L-examples-list-container to restore files!')
 
                 }
 
@@ -20260,7 +20260,7 @@ function initializeExtension() {
 
             
 
-            // Rules field removed â€” legacy data silently skipped
+            // Rules field removed — legacy data silently skipped
 
             
 
@@ -20308,7 +20308,7 @@ function initializeExtension() {
                     if (optionExists) {
                       firstSelect.value = valueToSet
                     } else {
-                      console.warn(`  âš ï¸ Reasoning Apply For value "${valueToSet}" not found in options. Available:`, 
+                      console.warn(`  ⚠️ Reasoning Apply For value "${valueToSet}" not found in options. Available:`, 
                         Array.from(firstSelect.options).map(o => o.value))
                       // Keep the default __any__ value
                     }
@@ -20338,7 +20338,7 @@ function initializeExtension() {
                             if (optionExists) {
                               sel.value = valueToSet
                             } else {
-                              console.warn(`    âš ï¸ Additional Reasoning Apply For value "${additionalValues[idx]}" not found`)
+                              console.warn(`    ⚠️ Additional Reasoning Apply For value "${additionalValues[idx]}" not found`)
                             }
                           }
                         })
@@ -20521,7 +20521,7 @@ function initializeExtension() {
                                 if (optionExists) {
                                   applySelect.value = valueToSet
                                 } else {
-                                  console.warn(`    âš ï¸ Additional R-section Apply For value "${valueToSet}" not found in options`)
+                                  console.warn(`    ⚠️ Additional R-section Apply For value "${valueToSet}" not found in options`)
                                 }
                                 
                                 // Add additional Apply For rows for remaining values - create all at once then set values
@@ -20548,7 +20548,7 @@ function initializeExtension() {
                                           if (exists) {
                                             sel.value = val
                                           } else {
-                                            console.warn(`      âš ï¸ R-section ${sectionIdx + 1} Apply For value "${val}" not found`)
+                                            console.warn(`      ⚠️ R-section ${sectionIdx + 1} Apply For value "${val}" not found`)
                                           }
                                         }
                                       })
@@ -20556,7 +20556,7 @@ function initializeExtension() {
                                   }
                                 }
                               } else {
-                                console.error(`    âŒ Could not find .R-apply in section ${sectionIdx + 1}`)
+                                console.error(`    ❌ Could not find .R-apply in section ${sectionIdx + 1}`)
                               }
                             }, 300)
                           }, rSecTriggerDelay)
@@ -20698,7 +20698,7 @@ function initializeExtension() {
                       
 
                       } else {
-                        console.error(`    âŒ Reasoning section ${sectionIdx + 1} NOT found in DOM after waiting`)
+                        console.error(`    ❌ Reasoning section ${sectionIdx + 1} NOT found in DOM after waiting`)
                       }
 
                     }, 300) // Wait 300ms for section to be created in DOM
@@ -20752,7 +20752,7 @@ function initializeExtension() {
                     if (optionExists) {
                       firstSelect.value = valueToSet
                     } else {
-                      console.warn(`  âš ï¸ Execution Apply For value "${eApplyForListToRestore[0]}" not found in options. Available:`,
+                      console.warn(`  ⚠️ Execution Apply For value "${eApplyForListToRestore[0]}" not found in options. Available:`,
                         availableOptions)
                       // Keep the default __any__ value
                     }
@@ -20782,7 +20782,7 @@ function initializeExtension() {
                             if (optionExists) {
                               sel.value = valueToSet
                             } else {
-                              console.warn(`    âš ï¸ Additional Execution Apply For value "${additionalValues[idx]}" not found`)
+                              console.warn(`    ⚠️ Additional Execution Apply For value "${additionalValues[idx]}" not found`)
                             }
                           }
                         })
@@ -20964,7 +20964,7 @@ function initializeExtension() {
                                 if (optionExists) {
                                   applySelect.value = valueToSet
                                 } else {
-                                  console.warn(`    âš ï¸ Additional E-section Apply For value "${valueToSet}" not found in options`)
+                                  console.warn(`    ⚠️ Additional E-section Apply For value "${valueToSet}" not found in options`)
                                 }
                                 
                                 // Add additional Apply For rows for remaining values - create all at once then set values
@@ -20991,7 +20991,7 @@ function initializeExtension() {
                                           if (exists) {
                                             sel.value = val
                                           } else {
-                                            console.warn(`      âš ï¸ E-section ${sectionIdx + 1} Apply For value "${val}" not found`)
+                                            console.warn(`      ⚠️ E-section ${sectionIdx + 1} Apply For value "${val}" not found`)
                                           }
                                         }
                                       })
@@ -20999,7 +20999,7 @@ function initializeExtension() {
                                   }
                                 }
                               } else {
-                                console.error(`    âŒ Could not find .E-apply-sub in section ${sectionIdx + 1}`)
+                                console.error(`    ❌ Could not find .E-apply-sub in section ${sectionIdx + 1}`)
                               }
                             }, 300)
                           }, eSecTriggerDelay)
@@ -21083,7 +21083,7 @@ function initializeExtension() {
                       
 
                       } else {
-                        console.error(`    âŒ Section ${sectionIdx + 1} NOT found in DOM after waiting`)
+                        console.error(`    ❌ Section ${sectionIdx + 1} NOT found in DOM after waiting`)
                       }
 
                     }, 300) // Wait 300ms for section to be created in DOM
@@ -21153,7 +21153,7 @@ function initializeExtension() {
 
           
 
-          // All capabilities always enabled â€” no checkbox logic needed
+          // All capabilities always enabled — no checkbox logic needed
 
           
 
@@ -21530,9 +21530,9 @@ function initializeExtension() {
 
                       <div class="saved-file-row" data-file-type="listener" data-file-idx="${idx}" style="display:flex;align-items:center;gap:8px;margin-bottom:6px;padding:4px 8px;background:rgba(255,255,255,0.05);border-radius:4px;">
 
-                        <span>ðŸ“„ ${f.name} (${(f.size / 1024).toFixed(1)} KB)</span>
+                        <span>📄 ${f.name} (${(f.size / 1024).toFixed(1)} KB)</span>
 
-                        <button class="delete-file-btn" data-file-type="listener" data-file-idx="${idx}" style="margin-left:auto;background:rgba(220,38,38,0.10);border:none;color:white;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:10px;">âœâ€¢ Delete</button>
+                        <button class="delete-file-btn" data-file-type="listener" data-file-idx="${idx}" style="margin-left:auto;background:rgba(220,38,38,0.10);border:none;color:white;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:10px;">✏• Delete</button>
 
                       </div>
 
@@ -21540,7 +21540,7 @@ function initializeExtension() {
 
                     <div style="font-size:10px;opacity:0.6;margin-top:12px;font-style:italic;">
 
-                      âœÅ¡ Upload new files below to add more (duplicates will be skipped)
+                      ✏š Upload new files below to add more (duplicates will be skipped)
 
                     </div>
 
@@ -21782,9 +21782,9 @@ function initializeExtension() {
 
                     <div class="saved-file-row" data-file-type="agent" data-file-idx="${idx}" style="display:flex;align-items:center;gap:8px;font-size:11px;opacity:0.9;margin-left:8px;margin-bottom:6px;padding:4px 8px;background:rgba(255,255,255,0.05);border-radius:4px;">
 
-                      <span>ðŸ“„ ${f.name} (${(f.size / 1024).toFixed(1)} KB)</span>
+                      <span>📄 ${f.name} (${(f.size / 1024).toFixed(1)} KB)</span>
 
-                      <button class="delete-file-btn" data-file-type="agent" data-file-idx="${idx}" style="margin-left:auto;background:rgba(220,38,38,0.10);border:none;color:white;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:10px;">âœâ€¢ Delete</button>
+                      <button class="delete-file-btn" data-file-type="agent" data-file-idx="${idx}" style="margin-left:auto;background:rgba(220,38,38,0.10);border:none;color:white;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:10px;">✏• Delete</button>
 
                     </div>
 
@@ -21792,7 +21792,7 @@ function initializeExtension() {
 
                   <div style="font-size:10px;opacity:0.6;margin-top:12px;font-style:italic;">
 
-                    âœÅ¡ Upload new files below to add more (duplicates will be skipped)
+                    ✏š Upload new files below to add more (duplicates will be skipped)
 
                   </div>
 
@@ -21895,7 +21895,7 @@ function initializeExtension() {
 
         } catch (e) {
 
-          console.error('âŒ Failed to load agent config:', e)
+          console.error('❌ Failed to load agent config:', e)
 
           isFirstRender = false // Also clear flag on error
 
@@ -22009,7 +22009,7 @@ function initializeExtension() {
       exportBtn.onclick = () => {
         // Show loading state immediately to prevent perceived freeze
         const originalText = exportBtn.innerHTML
-        exportBtn.innerHTML = 'â³ Loading...'
+        exportBtn.innerHTML = '⏳ Loading...'
         ;(exportBtn as HTMLButtonElement).disabled = true
         
         // Defer heavy work to prevent UI freeze
@@ -22095,11 +22095,11 @@ function initializeExtension() {
             id: agentName,
             name: (document.getElementById('ag-name') as HTMLInputElement)?.value || agentName,
             description: (document.getElementById('ag-description') as HTMLTextAreaElement)?.value || '',
-            icon: (document.getElementById('ag-icon') as HTMLInputElement)?.value || 'ðŸ¤–',
+            icon: (document.getElementById('ag-icon') as HTMLInputElement)?.value || '🤖',
             capabilities: [] as string[],
           }
           
-          // Get capabilities â€” all sections always active
+          // Get capabilities — all sections always active
           rawData.capabilities.push('listening')
           rawData.capabilities.push('reasoning')
           rawData.capabilities.push('execution')
@@ -22154,7 +22154,7 @@ function initializeExtension() {
             })
           }
           
-          // Helper: extract agent number from ID or name (e.g., "agent1" â†’ 1, "agent05" â†’ 5)
+          // Helper: extract agent number from ID or name (e.g., "agent1" → 1, "agent05" → 5)
           const extractAgentNumber = (id: string, name?: string): number | undefined => {
             // Try to extract from ID first (e.g., "agent1", "agent05", "agent-10")
             const idMatch = (id || '').match(/agent[-_]?(\d+)/i)
@@ -22184,7 +22184,7 @@ function initializeExtension() {
             id: rawData.id || '',
             name: rawData.name || '',
             description: rawData.description || '',
-            icon: rawData.icon || 'ðŸ¤–',
+            icon: rawData.icon || '🤖',
             number: agentNumber,
             enabled: rawData.enabled !== false,
             capabilities: rawData.capabilities || [],
@@ -22301,19 +22301,19 @@ function initializeExtension() {
             ],
           }
           
-          // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+          // ─────────────────────────────────────────────────────────────────────
           // FIND CONNECTED AGENT BOXES (ROBUST IMPLEMENTATION)
           // ALWAYS fetch fresh data from SQLite to avoid stale state issues
           // A box is connected when ALL conditions are met:
           // 1. Box is explicitly referenced in agent's execution section destinations
           // 2. Box exists in the session (active in SQLite)
           // 3. Box has agentNumber === agent.number (allocated to this agent)
-          // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+          // ─────────────────────────────────────────────────────────────────────
           
           const agentNumberValue = canonical.number
           const sessionKey = getCurrentSessionKey()
           
-          // Helper: parse boxNumber from destination value (e.g., 'agentBox01' â†’ 1)
+          // Helper: parse boxNumber from destination value (e.g., 'agentBox01' → 1)
           const parseBoxNumber = (val: string): number | null => {
             if (!val) return null
             const match = val.match(/agentBox(\d+)/i) || val.match(/^AB(\d{2})/i) || val.match(/(\d+)/)
@@ -22392,7 +22392,7 @@ function initializeExtension() {
                   sessionKey: sessionKey
                 }, (response) => {
                   if (chrome.runtime.lastError || !response?.success) {
-                    console.warn('âš ï¸ Could not fetch from SQLite:', chrome.runtime.lastError?.message)
+                    console.warn('⚠️ Could not fetch from SQLite:', chrome.runtime.lastError?.message)
                     resolve(null)
                   } else {
                     resolve(response.session)
@@ -22413,7 +22413,7 @@ function initializeExtension() {
                 }
               }
             } catch (e) {
-              console.warn('âš ï¸ Error fetching from SQLite:', e)
+              console.warn('⚠️ Error fetching from SQLite:', e)
             }
           }
           
@@ -22458,9 +22458,9 @@ function initializeExtension() {
           }
           
           
-          // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+          // ─────────────────────────────────────────────────────────────────────
           // SHOW EXPORT DIALOG
-          // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+          // ─────────────────────────────────────────────────────────────────────
           
           const exportDialog = document.createElement('div')
           exportDialog.id = 'agent-export-dialog'
@@ -22482,20 +22482,20 @@ function initializeExtension() {
           exportDialog.innerHTML = `
             <div style="background: white; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); max-width: 550px; width: 90%; max-height: 85vh; display: flex; flex-direction: column;">
               <h3 style="margin: 0; padding: 20px 24px; color: #333; font-size: 18px; text-align: center; border-bottom: 1px solid #eee; flex-shrink: 0;">
-                ðŸ“¤ Export Agent Configuration
+                📤 Export Agent Configuration
               </h3>
               
               <div style="flex: 1; overflow-y: auto; padding: 20px 24px;">
                 <!-- Agent Summary -->
                 <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px; margin-bottom: 16px;">
                   <div style="font-weight: bold; color: #334155; margin-bottom: 8px;">
-                    ${canonical.icon || 'ðŸ¤–'} ${canonical.name || 'Agent'}
+                    ${canonical.icon || '🤖'} ${canonical.name || 'Agent'}
                   </div>
                   <div style="font-size: 12px; color: #64748b; line-height: 1.5;">
                     <div>ID: <code style="background: #e2e8f0; padding: 2px 6px; border-radius: 4px;">${canonical.id}</code></div>
                     <div>Agent Number: <strong>${agentNumberValue || 'Not set'}</strong></div>
                     <div>Triggers: ${canonical.listening?.unifiedTriggers?.length || 0}</div>
-                    <div>Has AgentBox Destination: ${hasAgentBoxDestination ? 'âœ… Yes' : 'âŒ No'}</div>
+                    <div>Has AgentBox Destination: ${hasAgentBoxDestination ? '✅ Yes' : '❌ No'}</div>
                   </div>
                 </div>
                 
@@ -22503,7 +22503,7 @@ function initializeExtension() {
                 <!-- Connected Agent Boxes Section -->
                 <div style="margin-bottom: 16px;">
                   <div style="font-weight: bold; color: #334155; margin-bottom: 10px; display: flex; align-items: center; gap: 8px;">
-                    <span>ðŸ“¦ Connected Agent Boxes (${connectedBoxes.length})</span>
+                    <span>📦 Connected Agent Boxes (${connectedBoxes.length})</span>
                     <span style="font-size: 11px; color: #64748b; font-weight: normal;">(agentNumber = ${agentNumberValue})</span>
                   </div>
                   <div style="font-size: 11px; color: #64748b; margin-bottom: 10px;">
@@ -22519,8 +22519,8 @@ function initializeExtension() {
                             ${box.title || `Agent Box ${String(box.boxNumber).padStart(2, '0')}`}
                           </div>
                           <div style="font-size: 11px; color: #94a3b8;">
-                            ${box.identifier || 'AB??'} â€¢ Box #${box.boxNumber} â†’ Agent #${box.agentNumber}
-                            ${box.provider ? ` â€¢ ${box.provider}/${box.model || 'auto'}` : ''}
+                            ${box.identifier || 'AB??'} • Box #${box.boxNumber} → Agent #${box.agentNumber}
+                            ${box.provider ? ` • ${box.provider}/${box.model || 'auto'}` : ''}
                           </div>
                         </div>
                       </label>
@@ -22531,13 +22531,13 @@ function initializeExtension() {
                 <!-- No Connected Boxes -->
                 <div style="background: #fffbeb; border: 1px solid #fcd34d; border-radius: 8px; padding: 14px; margin-bottom: 16px; font-size: 13px; color: #92400e;">
                   ${!agentNumberValue ? `
-                    <strong>âš ï¸ Agent Number not set</strong><br>
+                    <strong>⚠️ Agent Number not set</strong><br>
                     Set an Agent Number in the form to enable Agent Box connections.
                   ` : !hasAgentBoxDestination ? `
-                    <strong>â„¹ï¸ No Agent Box destinations</strong><br>
+                    <strong>ℹ️ No Agent Box destinations</strong><br>
                     Add an "agentBox" destination in the Execution section to route output to boxes.
                   ` : `
-                    <strong>â„¹ï¸ No connected Agent Boxes found</strong><br>
+                    <strong>ℹ️ No connected Agent Boxes found</strong><br>
                     Create an Agent Box with agentNumber = ${agentNumberValue} to connect it to this agent.
                   `}
                 </div>
@@ -22576,9 +22576,9 @@ function initializeExtension() {
           
           document.body.appendChild(exportDialog)
           
-          // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+          // ─────────────────────────────────────────────────────────────────────
           // EXPORT DIALOG HANDLERS
-          // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+          // ─────────────────────────────────────────────────────────────────────
           
           const closeDialog = () => exportDialog.remove()
           
@@ -22631,7 +22631,7 @@ function initializeExtension() {
             closeDialog()
             
             const originalText = exportBtn.innerHTML
-            exportBtn.innerHTML = 'âœ… Exported!'
+            exportBtn.innerHTML = '✅ Exported!'
             setTimeout(() => { exportBtn.innerHTML = originalText }, 2000)
           })
           
@@ -22690,18 +22690,18 @@ function initializeExtension() {
             closeDialog()
             
             const originalText = exportBtn.innerHTML
-            exportBtn.innerHTML = 'âœ… Exported!'
+            exportBtn.innerHTML = '✅ Exported!'
             setTimeout(() => { exportBtn.innerHTML = originalText }, 2000)
           })
           
             } catch (error) {
-              console.error('âŒ Export failed:', error)
+              console.error('❌ Export failed:', error)
               exportBtn.innerHTML = originalText
               ;(exportBtn as HTMLButtonElement).disabled = false
               alert('Export failed: ' + (error instanceof Error ? error.message : 'Unknown error'))
             } finally {
               // Restore button state if not already done
-              if (exportBtn.innerHTML === 'â³ Loading...') {
+              if (exportBtn.innerHTML === '⏳ Loading...') {
                 exportBtn.innerHTML = originalText
                 ;(exportBtn as HTMLButtonElement).disabled = false
               }
@@ -22759,7 +22759,7 @@ function initializeExtension() {
               id: data.id || '',
               name: data.name || '',
               description: data.description || '',
-              icon: data.icon || 'ðŸ¤–',
+              icon: data.icon || '🤖',
               number: data.number,
               enabled: data.enabled !== false,
               capabilities: data.capabilities || [],
@@ -22804,7 +22804,7 @@ function initializeExtension() {
               id: data.id || '',
               name: data.name || '',
               description: data.description || '',
-              icon: data.icon || 'ðŸ¤–',
+              icon: data.icon || '🤖',
               number: data.number,
               enabled: data.enabled !== false,
               capabilities: data.capabilities || [],
@@ -22887,7 +22887,7 @@ function initializeExtension() {
                   applyForList: extractVal(data.reasoning.applyForList),
                   goals: extractVal(data.reasoning.goals),
                   role: extractVal(data.reasoning.role),
-                  // rules removed â€” legacy field silently skipped
+                  // rules removed — legacy field silently skipped
                   custom: extractVal(data.reasoning.custom),
                   acceptFrom: extractVal(data.reasoning.acceptFrom),
                   memoryContext: extractVal(data.reasoning.memoryContext),
@@ -22978,10 +22978,10 @@ function initializeExtension() {
           
           // Show brief success feedback
           const originalText = importBtn.innerHTML
-          importBtn.innerHTML = 'âœ… Imported!'
+          importBtn.innerHTML = '✅ Imported!'
           setTimeout(() => { importBtn.innerHTML = originalText }, 2000)
         } catch (error: any) {
-          console.error('âŒ Import failed:', error)
+          console.error('❌ Import failed:', error)
           alert(`Import failed: ${error.message || 'Invalid file format'}`)
         } finally {
           importFile.value = ''
@@ -22994,7 +22994,7 @@ function initializeExtension() {
     if (schemaBtn) {
       schemaBtn.onclick = async () => {
         const originalText = schemaBtn.innerHTML
-        schemaBtn.innerHTML = 'â³'
+        schemaBtn.innerHTML = '⏳'
         ;(schemaBtn as HTMLButtonElement).disabled = true
         
         try {
@@ -23003,10 +23003,10 @@ function initializeExtension() {
           const { downloadMasterSchema } = await import('./services/TypeSystemService')
           await downloadMasterSchema()
           
-          schemaBtn.innerHTML = 'âœâ€œ'
+          schemaBtn.innerHTML = '✏“'
           setTimeout(() => { schemaBtn.innerHTML = originalText }, 1500)
         } catch (error) {
-          console.error('âŒ Schema download failed:', error)
+          console.error('❌ Schema download failed:', error)
           alert('Schema download failed. Check console for details.')
         } finally {
           ;(schemaBtn as HTMLButtonElement).disabled = false
@@ -23019,7 +23019,7 @@ function initializeExtension() {
     if (templateBtn) {
       templateBtn.onclick = async () => {
         const originalText = templateBtn.innerHTML
-        templateBtn.innerHTML = 'â³'
+        templateBtn.innerHTML = '⏳'
         ;(templateBtn as HTMLButtonElement).disabled = true
         
         try {
@@ -23028,10 +23028,10 @@ function initializeExtension() {
           const { downloadUnifiedTemplate } = await import('./services/TypeSystemService')
           await downloadUnifiedTemplate()
           
-          templateBtn.innerHTML = 'âœâ€œ'
+          templateBtn.innerHTML = '✏“'
           setTimeout(() => { templateBtn.innerHTML = originalText }, 1500)
         } catch (error) {
-          console.error('âŒ Template download failed:', error)
+          console.error('❌ Template download failed:', error)
           alert('Template download failed. Check console for details.')
         } finally {
           ;(templateBtn as HTMLButtonElement).disabled = false
@@ -23055,7 +23055,7 @@ function initializeExtension() {
 
         if (!saveButton) {
 
-          console.error('âŒ Save button not found after click!')
+          console.error('❌ Save button not found after click!')
 
           return
 
@@ -23071,7 +23071,7 @@ function initializeExtension() {
 
       saveButton.style.cursor = 'not-allowed'
 
-      saveButton.innerHTML = 'ðŸ’¾ Saving...'
+      saveButton.innerHTML = '💾 Saving...'
 
       
 
@@ -23097,7 +23097,7 @@ function initializeExtension() {
 
             description: (document.getElementById('ag-description') as HTMLTextAreaElement)?.value || '',
 
-            icon: (document.getElementById('ag-icon') as HTMLInputElement)?.value || 'ðŸ¤–',
+            icon: (document.getElementById('ag-icon') as HTMLInputElement)?.value || '🤖',
 
             capabilities: [],
 
@@ -23135,7 +23135,7 @@ function initializeExtension() {
 
           }
 
-          // Sections are always active (checkboxes removed) â€” always push all capabilities
+          // Sections are always active (checkboxes removed) — always push all capabilities
           const L = true
 
           const R = true
@@ -24055,7 +24055,7 @@ function initializeExtension() {
 
                         reader.onerror = (err) => {
 
-                          console.error(`âŒ Error reading file ${file.name}:`, err)
+                          console.error(`❌ Error reading file ${file.name}:`, err)
 
                           resolveFile(null) // Don't reject, just skip the file
 
@@ -24095,7 +24095,7 @@ function initializeExtension() {
 
                 } catch (err) {
 
-                  console.error('âŒ Error processing Agent Context files:', err)
+                  console.error('❌ Error processing Agent Context files:', err)
 
                   draft.agentContextFiles = existingAgentFiles // Keep existing on error
 
@@ -24175,7 +24175,7 @@ function initializeExtension() {
 
                         reader.onerror = (err) => {
 
-                          console.error(`âŒ Error reading file ${file.name}:`, err)
+                          console.error(`❌ Error reading file ${file.name}:`, err)
 
                           resolveFile(null) // Don't reject, just skip the file
 
@@ -24217,7 +24217,7 @@ function initializeExtension() {
 
                 } catch (err) {
 
-                  console.error('âŒ Error processing Listener Example files:', err)
+                  console.error('❌ Error processing Listener Example files:', err)
 
                   if (!draft.listening) draft.listening = {}
 
@@ -24275,10 +24275,10 @@ function initializeExtension() {
             || (draft.listening?.triggers?.length > 0)
           
           if (hasReasoningCap && !hasListeningCap) {
-            chainWarnings.push('Reasoning is enabled but Listening is not. Reasoning can only receive input through a Listener trigger â€” this agent will not receive external input.')
+            chainWarnings.push('Reasoning is enabled but Listening is not. Reasoning can only receive input through a Listener trigger — this agent will not receive external input.')
           }
           if (hasExecutionCap && !hasReasoningCap) {
-            chainWarnings.push('Execution is enabled but Reasoning is not. Execution can only receive output from Reasoning â€” this agent\'s execution will not run.')
+            chainWarnings.push('Execution is enabled but Reasoning is not. Execution can only receive output from Reasoning — this agent\'s execution will not run.')
           }
           if (hasExecutionCap && !hasListeningCap) {
             chainWarnings.push('Execution is enabled but Listening is not. Without a Listener, no external input reaches this agent.')
@@ -24288,8 +24288,8 @@ function initializeExtension() {
           }
           
           if (chainWarnings.length > 0) {
-            const warningMsg = 'Chain Warning (Listener â†’ Reasoning â†’ Execution):\n\n' + chainWarnings.map((w, i) => `${i + 1}. ${w}`).join('\n\n')
-            console.warn('âš ï¸ CHAIN VALIDATION:', warningMsg)
+            const warningMsg = 'Chain Warning (Listener → Reasoning → Execution):\n\n' + chainWarnings.map((w, i) => `${i + 1}. ${w}`).join('\n\n')
+            console.warn('⚠️ CHAIN VALIDATION:', warningMsg)
             const proceed = confirm(warningMsg + '\n\nSave anyway?')
             if (!proceed) {
               const saveButton = document.getElementById('agent-config-save') as HTMLButtonElement
@@ -24297,7 +24297,7 @@ function initializeExtension() {
                 saveButton.disabled = false
                 saveButton.style.opacity = '1'
                 saveButton.style.cursor = 'pointer'
-                saveButton.innerHTML = 'ðŸ’¾ Save'
+                saveButton.innerHTML = '💾 Save'
               }
               return
             }
@@ -24426,7 +24426,7 @@ function initializeExtension() {
 
           } catch (error) {
 
-            console.error(`âŒ Error in saveAgentConfig:`, error)
+            console.error(`❌ Error in saveAgentConfig:`, error)
 
             reject(error)
 
@@ -24474,41 +24474,41 @@ function initializeExtension() {
 
             if (type === 'instructions') {
 
-              details.push(`âœâ€œ Name: ${parsed.name}`)
+              details.push(`✏“ Name: ${parsed.name}`)
 
-              details.push(`âœâ€œ Icon: ${parsed.icon}`)
+              details.push(`✏“ Icon: ${parsed.icon}`)
 
-              if (parsed.capabilities?.length) details.push(`âœâ€œ Capabilities: ${parsed.capabilities.join(', ')}`)
+              if (parsed.capabilities?.length) details.push(`✏“ Capabilities: ${parsed.capabilities.join(', ')}`)
 
-              if (parsed.contextSettings) details.push(`âœâ€œ Context Settings`)
+              if (parsed.contextSettings) details.push(`✏“ Context Settings`)
 
-              if (parsed.memorySettings) details.push(`âœâ€œ Memory Settings`)
+              if (parsed.memorySettings) details.push(`✏“ Memory Settings`)
 
-              if (parsed.listening) details.push(`âœâ€œ Listener Config`)
+              if (parsed.listening) details.push(`✏“ Listener Config`)
 
-              if (parsed.reasoning) details.push(`âœâ€œ Reasoning Config`)
+              if (parsed.reasoning) details.push(`✏“ Reasoning Config`)
 
-              if (parsed.execution) details.push(`âœâ€œ Execution Config`)
+              if (parsed.execution) details.push(`✏“ Execution Config`)
 
-              if (parsed.agentContextFiles?.length) details.push(`âœâ€œ ${parsed.agentContextFiles.length} Agent Context Files`)
+              if (parsed.agentContextFiles?.length) details.push(`✏“ ${parsed.agentContextFiles.length} Agent Context Files`)
 
-              if (parsed.listening?.exampleFiles?.length) details.push(`âœâ€œ ${parsed.listening.exampleFiles.length} Listener Example Files`)
+              if (parsed.listening?.exampleFiles?.length) details.push(`✏“ ${parsed.listening.exampleFiles.length} Listener Example Files`)
 
             } else if (type === 'context') {
 
-              if (parsed.text) details.push(`âœâ€œ Context Text (${parsed.text.length} chars)`)
+              if (parsed.text) details.push(`✏“ Context Text (${parsed.text.length} chars)`)
 
-              if (parsed.memory) details.push(`âœâ€œ Memory: ${parsed.memory}`)
+              if (parsed.memory) details.push(`✏“ Memory: ${parsed.memory}`)
 
-              if (parsed.source) details.push(`âœâ€œ Source: ${parsed.source}`)
+              if (parsed.source) details.push(`✏“ Source: ${parsed.source}`)
 
             } else if (type === 'settings') {
 
-              if (parsed.priority) details.push(`âœâ€œ Priority: ${parsed.priority}`)
+              if (parsed.priority) details.push(`✏“ Priority: ${parsed.priority}`)
 
-              if (parsed.autostart !== undefined) details.push(`âœâ€œ Auto-start: ${parsed.autostart ? 'ON' : 'OFF'}`)
+              if (parsed.autostart !== undefined) details.push(`✏“ Auto-start: ${parsed.autostart ? 'ON' : 'OFF'}`)
 
-              if (parsed.autorespond !== undefined) details.push(`âœâ€œ Auto-respond: ${parsed.autorespond ? 'ON' : 'OFF'}`)
+              if (parsed.autorespond !== undefined) details.push(`✏“ Auto-respond: ${parsed.autorespond ? 'ON' : 'OFF'}`)
 
             }
 
@@ -24582,7 +24582,7 @@ function initializeExtension() {
 
             <div style="display: flex; align-items: center; gap: 16px; margin-bottom: 16px;">
 
-              <div style="font-size: 48px;">âœ…</div>
+              <div style="font-size: 48px;">✅</div>
 
               <div>
 
@@ -24594,7 +24594,7 @@ function initializeExtension() {
 
                 <div style="font-size: 12px; opacity: 0.9;">
 
-                  ${agentName} ${type} â†’ ${agentScope} scope
+                  ${agentName} ${type} → ${agentScope} scope
 
                 </div>
 
@@ -24670,7 +24670,7 @@ function initializeExtension() {
 
         // Handle errors gracefully
 
-        console.error('âŒ Error saving configuration:', error)
+        console.error('❌ Error saving configuration:', error)
 
         
 
@@ -24712,7 +24712,7 @@ function initializeExtension() {
 
           <div style="display: flex; align-items: center; gap: 16px;">
 
-            <div style="font-size: 48px;">âŒ</div>
+            <div style="font-size: 48px;">❌</div>
 
             <div>
 
@@ -24766,7 +24766,7 @@ function initializeExtension() {
 
     } else {
 
-      console.error('âŒ Save button element not found in DOM!')
+      console.error('❌ Save button element not found in DOM!')
 
     }
 
@@ -24780,7 +24780,7 @@ function initializeExtension() {
 
     const updateBoxes = () => {
 
-      // Checkboxes removed â€” sections are always visible, no-op
+      // Checkboxes removed — sections are always visible, no-op
       const capL = null
       const capR = null
       const capE = null
@@ -24860,7 +24860,7 @@ function initializeExtension() {
 
       } else {
 
-        console.error('âŒ autoSaveToChromeStorage is not a function!', typeof autoSaveToChromeStorage)
+        console.error('❌ autoSaveToChromeStorage is not a function!', typeof autoSaveToChromeStorage)
 
       }
 
@@ -24875,7 +24875,7 @@ function initializeExtension() {
 
       } else {
 
-        console.error('âŒ autoSaveToChromeStorage is not a function!', typeof autoSaveToChromeStorage)
+        console.error('❌ autoSaveToChromeStorage is not a function!', typeof autoSaveToChromeStorage)
 
       }
 
@@ -24916,7 +24916,7 @@ function initializeExtension() {
 
         <div style="padding: 20px; border-bottom: 1px solid ${csTheme().border}; display: flex; justify-content: space-between; align-items: center;">
 
-          <h2 style="margin: 0; font-size: 20px;">âž• Add New Agent</h2>
+          <h2 style="margin: 0; font-size: 20px;">➕ Add New Agent</h2>
 
           <button id="close-add-agent" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">&times;</button>
 
@@ -24930,7 +24930,7 @@ function initializeExtension() {
 
             <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px;">
 
-              <label style="display: block; margin-bottom: 10px; font-size: 14px; color: ${csTheme().muted}; font-weight: bold;">ðŸ¤– Agent Name:</label>
+              <label style="display: block; margin-bottom: 10px; font-size: 14px; color: ${csTheme().muted}; font-weight: bold;">🤖 Agent Name:</label>
 
               <input type="text" id="new-agent-name" style="width: 100%; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 12px; border-radius: 6px; font-size: 12px;" placeholder="Enter agent name (e.g., Editor, Translator)">
 
@@ -24940,37 +24940,37 @@ function initializeExtension() {
 
             <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px;">
 
-              <label style="display: block; margin-bottom: 10px; font-size: 14px; color: ${csTheme().muted}; font-weight: bold;">ðŸŽ¨ Agent Icon:</label>
+              <label style="display: block; margin-bottom: 10px; font-size: 14px; color: ${csTheme().muted}; font-weight: bold;">🎨 Agent Icon:</label>
 
               <div style="display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px;">
 
-                <button class="icon-btn" data-icon="ðŸ”§" style="padding: 10px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius: 4px; cursor: pointer; font-size: 20px;">ðŸ”§</button>
+                <button class="icon-btn" data-icon="🔧" style="padding: 10px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius: 4px; cursor: pointer; font-size: 20px;">🔧</button>
 
-                <button class="icon-btn" data-icon="ðŸ’¡" style="padding: 10px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius: 4px; cursor: pointer; font-size: 20px;">ðŸ’¡</button>
+                <button class="icon-btn" data-icon="💡" style="padding: 10px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius: 4px; cursor: pointer; font-size: 20px;">💡</button>
 
-                <button class="icon-btn" data-icon="ðŸŽ¨" style="padding: 10px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius: 4px; cursor: pointer; font-size: 20px;">ðŸŽ¨</button>
+                <button class="icon-btn" data-icon="🎨" style="padding: 10px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius: 4px; cursor: pointer; font-size: 20px;">🎨</button>
 
-                <button class="icon-btn" data-icon="ðŸ”¬" style="padding: 10px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius: 4px; cursor: pointer; font-size: 20px;">ðŸ”¬</button>
+                <button class="icon-btn" data-icon="🔬" style="padding: 10px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius: 4px; cursor: pointer; font-size: 20px;">🔬</button>
 
-                <button class="icon-btn" data-icon="ðŸ“Š" style="padding: 10px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius: 4px; cursor: pointer; font-size: 20px;">ðŸ“Š</button>
+                <button class="icon-btn" data-icon="📊" style="padding: 10px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius: 4px; cursor: pointer; font-size: 20px;">📊</button>
 
-                <button class="icon-btn" data-icon="ðŸŽ¯" style="padding: 10px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius: 4px; cursor: pointer; font-size: 20px;">ðŸŽ¯</button>
+                <button class="icon-btn" data-icon="🎯" style="padding: 10px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius: 4px; cursor: pointer; font-size: 20px;">🎯</button>
 
-                <button class="icon-btn" data-icon="âš¡" style="padding: 10px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius: 4px; cursor: pointer; font-size: 20px;">âš¡</button>
+                <button class="icon-btn" data-icon="⚡" style="padding: 10px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius: 4px; cursor: pointer; font-size: 20px;">⚡</button>
 
-                <button class="icon-btn" data-icon="ðŸš€" style="padding: 10px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius: 4px; cursor: pointer; font-size: 20px;">ðŸš€</button>
+                <button class="icon-btn" data-icon="🚀" style="padding: 10px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius: 4px; cursor: pointer; font-size: 20px;">🚀</button>
 
-                <button class="icon-btn" data-icon="ðŸŽª" style="padding: 10px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius: 4px; cursor: pointer; font-size: 20px;">ðŸŽª</button>
+                <button class="icon-btn" data-icon="🎪" style="padding: 10px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius: 4px; cursor: pointer; font-size: 20px;">🎪</button>
 
-                <button class="icon-btn" data-icon="ðŸ”®" style="padding: 10px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius: 4px; cursor: pointer; font-size: 20px;">ðŸ”®</button>
+                <button class="icon-btn" data-icon="🔮" style="padding: 10px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius: 4px; cursor: pointer; font-size: 20px;">🔮</button>
 
-                <button class="icon-btn" data-icon="ðŸŽµ" style="padding: 10px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius: 4px; cursor: pointer; font-size: 20px;">ðŸŽµ</button>
+                <button class="icon-btn" data-icon="🎵" style="padding: 10px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius: 4px; cursor: pointer; font-size: 20px;">🎵</button>
 
-                <button class="icon-btn" data-icon="ðŸŒÅ¸" style="padding: 10px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius: 4px; cursor: pointer; font-size: 20px;">ðŸŒÅ¸</button>
+                <button class="icon-btn" data-icon="🌐Ÿ" style="padding: 10px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius: 4px; cursor: pointer; font-size: 20px;">🌐Ÿ</button>
 
               </div>
 
-              <input type="hidden" id="selected-icon" value="ðŸ”§">
+              <input type="hidden" id="selected-icon" value="🔧">
 
             </div>
 
@@ -24982,7 +24982,7 @@ function initializeExtension() {
 
           <button id="add-agent-cancel" style="padding: 12px 24px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; border-radius: 6px; cursor: pointer; font-size: 12px;">Cancel</button>
 
-          <button id="add-agent-create" style="padding: 12px 24px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 6px; cursor: pointer; font-size: 12px;">âž• Create Agent</button>
+          <button id="add-agent-create" style="padding: 12px 24px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 6px; cursor: pointer; font-size: 12px;">➕ Create Agent</button>
 
         </div>
 
@@ -25074,7 +25074,7 @@ function initializeExtension() {
 
       `
 
-      notification.innerHTML = `âž• Agent "${agentName}" created!`
+      notification.innerHTML = `➕ Agent "${agentName}" created!`
 
       document.body.appendChild(notification)
 
@@ -25165,7 +25165,7 @@ function initializeExtension() {
 
         <div style="padding: 20px; border-bottom: 1px solid ${csTheme().border}; display: flex; justify-content: space-between; align-items: center;">
 
-          <h2 style="margin: 0; font-size: 20px;">ðŸ›¡Â URL Whitelist Configuration</h2>
+          <h2 style="margin: 0; font-size: 20px;">🛡 URL Whitelist Configuration</h2>
 
           <button id="close-whitelist-lightbox" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">&times;</button>
 
@@ -25191,9 +25191,9 @@ function initializeExtension() {
 
             <div style="margin-top: 20px; display: flex; gap: 10px;">
 
-              <button id="clear-all-urls" style="padding: 8px 16px; background: #ff5722; border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 11px;">ðŸ—â€˜ï¸ Clear All</button>
+              <button id="clear-all-urls" style="padding: 8px 16px; background: #ff5722; border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 11px;">🗝‘️ Clear All</button>
 
-              <button id="load-defaults" style="padding: 8px 16px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 6px; cursor: pointer; font-size: 11px;">ðŸ”„ Load Defaults</button>
+              <button id="load-defaults" style="padding: 8px 16px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 6px; cursor: pointer; font-size: 11px;">🔄 Load Defaults</button>
 
             </div>
 
@@ -25207,13 +25207,13 @@ function initializeExtension() {
 
             <div style="font-size: 12px; opacity: 0.8; line-height: 1.6;">
 
-              <p style="margin: 0 0 10px 0;">â€¢ Only URLs in this whitelist will have WR Desk features enabled</p>
+              <p style="margin: 0 0 10px 0;">• Only URLs in this whitelist will have WR Desk features enabled</p>
 
-              <p style="margin: 0 0 10px 0;">â€¢ Wildcard patterns are supported (e.g., https://*.example.com)</p>
+              <p style="margin: 0 0 10px 0;">• Wildcard patterns are supported (e.g., https://*.example.com)</p>
 
-              <p style="margin: 0 0 10px 0;">â€¢ Changes take effect immediately across all tabs</p>
+              <p style="margin: 0 0 10px 0;">• Changes take effect immediately across all tabs</p>
 
-              <p style="margin: 0;">â€¢ HTTPS is recommended for security</p>
+              <p style="margin: 0;">• HTTPS is recommended for security</p>
 
             </div>
 
@@ -25225,7 +25225,7 @@ function initializeExtension() {
 
           <button id="whitelist-save" style="padding: 12px 30px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: bold;">
 
-            ðŸ’¾ Save Whitelist
+            💾 Save Whitelist
 
           </button>
 
@@ -25391,7 +25391,7 @@ function initializeExtension() {
 
       `
 
-      notification.innerHTML = `ðŸ›¡Â URL Whitelist saved! (${urls.length} URLs)`
+      notification.innerHTML = `🛡 URL Whitelist saved! (${urls.length} URLs)`
 
       document.body.appendChild(notification)
 
@@ -25486,7 +25486,7 @@ function initializeExtension() {
 
         <div style="padding: 20px; border-bottom: 1px solid ${csTheme().border}; display: flex; justify-content: space-between; align-items: center;">
 
-          <h2 style="margin: 0; font-size: 20px; color: ${csTheme().text};">ðŸ“„ Global Context Management</h2>
+          <h2 style="margin: 0; font-size: 20px; color: ${csTheme().text};">📄 Global Context Management</h2>
 
           <button id="close-context-lightbox" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">&times;</button>
 
@@ -25574,7 +25574,7 @@ function initializeExtension() {
 
             <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
 
-              <h3 style="margin: 0 0 15px 0; font-size: 16px; color: ${csTheme().text}; font-weight: 600;">â¬† Upload PDF Files</h3>
+              <h3 style="margin: 0 0 15px 0; font-size: 16px; color: ${csTheme().text}; font-weight: 600;">⬆ Upload PDF Files</h3>
 
               <input type="file" id="user-context-pdf-upload" multiple accept=".pdf" style="
 
@@ -25646,7 +25646,7 @@ function initializeExtension() {
 
             <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
 
-              <h3 style="margin: 0 0 15px 0; font-size: 16px; color: ${csTheme().text}; font-weight: 600;">â¬† Upload PDF Files</h3>
+              <h3 style="margin: 0 0 15px 0; font-size: 16px; color: ${csTheme().text}; font-weight: 600;">⬆ Upload PDF Files</h3>
 
               <input type="file" id="publisher-context-pdf-upload" multiple accept=".pdf" style="
 
@@ -25834,15 +25834,15 @@ function initializeExtension() {
 
           pdfList.innerHTML = `
 
-            <div style="color: #66FF66; font-weight: bold; margin-bottom: 5px;">ðŸ“ Uploaded Files (${pdfFiles.length}):</div>
+            <div style="color: #66FF66; font-weight: bold; margin-bottom: 5px;">📁 Uploaded Files (${pdfFiles.length}):</div>
 
             ${pdfFiles.map((file: any, index: number) => `
 
               <div style="display: flex; justify-content: space-between; align-items: center; background: ${csTheme().cardBg}; padding: 5px 10px; border-radius: 4px; margin: 2px 0; font-size: 11px;">
 
-                <span>ðŸ“„ ${file.name} (${Math.round(file.size / 1024)}KB)</span>
+                <span>📄 ${file.name} (${Math.round(file.size / 1024)}KB)</span>
 
-                <button onclick="window.removeUserPdfFile(${index})" style="background: rgba(220,38,38,0.08); border: 1px solid rgba(220,38,38,0.25); color: ${csTheme().isLight ? "#991b1b" : "#f87171"}; padding: 2px 6px; border-radius: 3px; cursor: pointer; font-size: 10px;">âœâ€¢</button>
+                <button onclick="window.removeUserPdfFile(${index})" style="background: rgba(220,38,38,0.08); border: 1px solid rgba(220,38,38,0.25); color: ${csTheme().isLight ? "#991b1b" : "#f87171"}; padding: 2px 6px; border-radius: 3px; cursor: pointer; font-size: 10px;">✏•</button>
 
               </div>
 
@@ -25874,15 +25874,15 @@ function initializeExtension() {
 
           pdfList.innerHTML = `
 
-            <div style="color: #66FF66; font-weight: bold; margin-bottom: 5px;">ðŸ“ Uploaded Files (${pdfFiles.length}):</div>
+            <div style="color: #66FF66; font-weight: bold; margin-bottom: 5px;">📁 Uploaded Files (${pdfFiles.length}):</div>
 
             ${pdfFiles.map((file: any, index: number) => `
 
               <div style="display: flex; justify-content: space-between; align-items: center; background: ${csTheme().cardBg}; padding: 5px 10px; border-radius: 4px; margin: 2px 0; font-size: 11px;">
 
-                <span>ðŸ“„ ${file.name} (${Math.round(file.size / 1024)}KB)</span>
+                <span>📄 ${file.name} (${Math.round(file.size / 1024)}KB)</span>
 
-                <button onclick="window.removePublisherPdfFile(${index})" style="background: rgba(220,38,38,0.08); border: 1px solid rgba(220,38,38,0.25); color: ${csTheme().isLight ? "#991b1b" : "#f87171"}; padding: 2px 6px; border-radius: 3px; cursor: pointer; font-size: 10px;">âœâ€¢</button>
+                <button onclick="window.removePublisherPdfFile(${index})" style="background: rgba(220,38,38,0.08); border: 1px solid rgba(220,38,38,0.25); color: ${csTheme().isLight ? "#991b1b" : "#f87171"}; padding: 2px 6px; border-radius: 3px; cursor: pointer; font-size: 10px;">✏•</button>
 
               </div>
 
@@ -25914,15 +25914,15 @@ function initializeExtension() {
 
           pdfList.innerHTML = `
 
-            <div style="color: #66FF66; font-weight: bold; margin-bottom: 5px;">ðŸ“ Uploaded Files (${pdfFiles.length}):</div>
+            <div style="color: #66FF66; font-weight: bold; margin-bottom: 5px;">📁 Uploaded Files (${pdfFiles.length}):</div>
 
             ${pdfFiles.map((file: any, index: number) => `
 
               <div style="display: flex; justify-content: space-between; align-items: center; background: ${csTheme().cardBg}; padding: 5px 10px; border-radius: 4px; margin: 2px 0; font-size: 11px;">
 
-                <span>ðŸ“„ ${file.name} (${Math.round(file.size / 1024)}KB)</span>
+                <span>📄 ${file.name} (${Math.round(file.size / 1024)}KB)</span>
 
-                <button onclick="window.removeAccountPdfFile(${index})" style="background: rgba(220,38,38,0.08); border: 1px solid rgba(220,38,38,0.25); color: ${csTheme().isLight ? "#991b1b" : "#f87171"}; padding: 2px 6px; border-radius: 3px; cursor: pointer; font-size: 10px;">âœâ€¢</button>
+                <button onclick="window.removeAccountPdfFile(${index})" style="background: rgba(220,38,38,0.08); border: 1px solid rgba(220,38,38,0.25); color: ${csTheme().isLight ? "#991b1b" : "#f87171"}; padding: 2px 6px; border-radius: 3px; cursor: pointer; font-size: 10px;">✏•</button>
 
               </div>
 
@@ -26455,7 +26455,7 @@ ${pageText}
 
       `
 
-        notification.innerHTML = 'âœ… All contexts saved successfully!'
+        notification.innerHTML = '✅ All contexts saved successfully!'
 
       document.body.appendChild(notification)
 
@@ -26777,7 +26777,7 @@ ${pageText}
 
         <div style="padding: 20px; border-bottom: 1px solid ${csTheme().border}; display: flex; justify-content: space-between; align-items: center;">
 
-          <h2 style="margin: 0; font-size: 20px;">ðŸ’½ Global Memory Management</h2>
+          <h2 style="margin: 0; font-size: 20px;">💽 Global Memory Management</h2>
 
           <button id="close-memory-lightbox" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">&times;</button>
 
@@ -26799,7 +26799,7 @@ ${pageText}
 
             <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
 
-              <label style="display:block;margin-bottom:10px;font-size:14px;color:${csTheme().muted};font-weight:bold;">ðŸ§  Memory:</label>
+              <label style="display:block;margin-bottom:10px;font-size:14px;color:${csTheme().muted};font-weight:bold;">🧠 Memory:</label>
 
               <textarea id="mem-session-text" style="width:100%;height:180px;background:${csTheme().cardBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:12px;border-radius:6px;font-size:12px;resize:vertical;"></textarea>
 
@@ -26807,7 +26807,7 @@ ${pageText}
 
             <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px;">
 
-              <label style="display:block;margin-bottom:10px;font-size:14px;color:${csTheme().muted};font-weight:bold;">ðŸ“¦ Memory Allocation:</label>
+              <label style="display:block;margin-bottom:10px;font-size:14px;color:${csTheme().muted};font-weight:bold;">📦 Memory Allocation:</label>
 
               <div style="display:flex;align-items:center;gap:8px">
 
@@ -26819,7 +26819,7 @@ ${pageText}
 
             <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px; margin-top: 12px;">
 
-              <label style="display: block; margin-bottom: 15px; font-size: 14px; color: ${csTheme().muted}; font-weight: bold;">ðŸ’¾ Memory Settings:</label>
+              <label style="display: block; margin-bottom: 15px; font-size: 14px; color: ${csTheme().muted}; font-weight: bold;">💾 Memory Settings:</label>
 
               <label style="display: flex; align-items: center; font-size: 12px; cursor: pointer;">
 
@@ -26837,7 +26837,7 @@ ${pageText}
 
             <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
 
-              <label style="display:block;margin-bottom:10px;font-size:14px;color:${csTheme().muted};font-weight:bold;">ðŸ§  Memory:</label>
+              <label style="display:block;margin-bottom:10px;font-size:14px;color:${csTheme().muted};font-weight:bold;">🧠 Memory:</label>
 
               <textarea id="mem-account-text" style="width:100%;height:180px;background:${csTheme().cardBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:12px;border-radius:6px;font-size:12px;resize:vertical;"></textarea>
 
@@ -26845,7 +26845,7 @@ ${pageText}
 
             <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px;">
 
-              <label style="display:block;margin-bottom:10px;font-size:14px;color:${csTheme().muted};font-weight:bold;">ðŸ“¦ Memory Allocation:</label>
+              <label style="display:block;margin-bottom:10px;font-size:14px;color:${csTheme().muted};font-weight:bold;">📦 Memory Allocation:</label>
 
               <div style="display:flex;align-items:center;gap:8px">
 
@@ -26871,7 +26871,7 @@ ${pageText}
 
             <div style="margin:-2px 0 8px 0; font-size:12px; opacity:0.9; background:rgba(255,255,255,0.06); border:1px solid ${csTheme().border}; padding:10px; border-radius:8px;">
 
-              KnowledgeVault â†’ Captures human input and AI findings from DeepFix and OptiScan, with AI speeding up documentation. Solutions are bundled, embedded into the local AI, and easy to reuse later.
+              KnowledgeVault → Captures human input and AI findings from DeepFix and OptiScan, with AI speeding up documentation. Solutions are bundled, embedded into the local AI, and easy to reuse later.
 
             </div>
 
@@ -26921,7 +26921,7 @@ ${pageText}
 
           <button id="memory-cancel" style="padding:10px 20px;background:${csTheme().accentGrad};border:none;color:#fff;border-radius:6px;cursor:pointer;font-size:12px">Cancel</button>
 
-          <button id="memory-save" style="padding:10px 20px;background:${csTheme().accentGrad};border:0;color:white;border-radius:6px;cursor:pointer;font-size:12px">ðŸ’¾ Save</button>
+          <button id="memory-save" style="padding:10px 20px;background:${csTheme().accentGrad};border:0;color:white;border-radius:6px;cursor:pointer;font-size:12px">💾 Save</button>
 
         </div>
 
@@ -26979,7 +26979,7 @@ ${pageText}
 
     // --- Sessions UI wiring ---
 
-    function short(s?: string, n: number = 60) { if (!s) return ''; return s.length>n? s.slice(0,n-1)+'â€¦': s }
+    function short(s?: string, n: number = 60) { if (!s) return ''; return s.length>n? s.slice(0,n-1)+'…': s }
 
     function fmtDur(sec: number) { const m = Math.floor(sec/60); const s = sec%60; return `${m}m ${s}s` }
 
@@ -27073,7 +27073,7 @@ ${pageText}
 
             <div style="font-weight:700">${item.title || '(untitled)'} <span style="opacity:.8;font-weight:400">(${item.type})</span></div>
 
-            <div style="font-size:12px;opacity:.85">${item.status} â€¢ ${fmtDur(item.durationSec)} â€¢ Confidence ${item.confidencePct ?? '-'}% â€¢ Human/Ai ${item.humanAiMix ?? 0}%</div>
+            <div style="font-size:12px;opacity:.85">${item.status} • ${fmtDur(item.durationSec)} • Confidence ${item.confidencePct ?? '-'}% • Human/Ai ${item.humanAiMix ?? 0}%</div>
 
           </div>
 
@@ -27087,7 +27087,7 @@ ${pageText}
 
             <div style="font-weight:700;margin-bottom:6px">Co-Authoring Timeline</div>
 
-            <div style="font-size:12px;display:grid;gap:6px">${item.review.map(l=>`<div> ${l.role==='human'?'ðŸ‘¤':'ðŸ¤–'} ${new Date(l.at).toLocaleString()} â†’ ${l.action}${l.from?` ${l.from} â†’ ${l.to}`:''} ${l.message?('â†’ '+l.message):''}</div>`).join('')}</div>
+            <div style="font-size:12px;display:grid;gap:6px">${item.review.map(l=>`<div> ${l.role==='human'?'👤':'🤖'} ${new Date(l.at).toLocaleString()} → ${l.action}${l.from?` ${l.from} → ${l.to}`:''} ${l.message?('→ '+l.message):''}</div>`).join('')}</div>
 
           </div>
 
@@ -27095,11 +27095,11 @@ ${pageText}
 
             <div style="font-weight:700;margin-bottom:6px">AI Solution Detection</div>
 
-            <div style="font-size:12px;margin-bottom:6px"><b>Root cause:</b> ${item.aiRootCause || 'â€”'}</div>
+            <div style="font-size:12px;margin-bottom:6px"><b>Root cause:</b> ${item.aiRootCause || '—'}</div>
 
-            <div style="font-size:12px;margin-bottom:6px"><b>Steps:</b> ${item.aiSteps || 'â€”'}</div>
+            <div style="font-size:12px;margin-bottom:6px"><b>Steps:</b> ${item.aiSteps || '—'}</div>
 
-            <div style="font-size:12px;margin-bottom:6px"><b>Impact:</b> ${item.impact || 'â€”'}</div>
+            <div style="font-size:12px;margin-bottom:6px"><b>Impact:</b> ${item.impact || '—'}</div>
 
             <div style="display:flex;gap:8px">
 
@@ -27145,7 +27145,7 @@ ${pageText}
 
               </select>
 
-              <button id="do-embed" style="margin-left:auto;padding:6px 10px;background:${csTheme().accentGrad};border:0;color:#0b1e12;border-radius:6px;cursor:pointer">Embed â†’ Queue</button>
+              <button id="do-embed" style="margin-left:auto;padding:6px 10px;background:${csTheme().accentGrad};border:0;color:#0b1e12;border-radius:6px;cursor:pointer">Embed → Queue</button>
 
             </div>
 
@@ -27267,7 +27267,7 @@ ${pageText}
 
       const audit = drawer.querySelector('#audit-log') as HTMLElement
 
-      audit.innerHTML = item.review.map(l=>`<div>${new Date(l.at).toLocaleString()} â†’ ${l.action}${l.from?` ${l.from} â†’ ${l.to}`:''} ${l.message?('â†’ '+l.message):''}</div>`).join('')
+      audit.innerHTML = item.review.map(l=>`<div>${new Date(l.at).toLocaleString()} → ${l.action}${l.from?` ${l.from} → ${l.to}`:''} ${l.message?('→ '+l.message):''}</div>`).join('')
 
       // export handlers
 
@@ -27480,7 +27480,7 @@ ${pageText}
 
             displayId: `MA01-${shortId}`,
 
-            title: 'ðŸ“Š Data Analyzer',
+            title: '📊 Data Analyzer',
 
             description: 'Analyzes data from tables, charts, and spreadsheets on the page. Extracts key metrics, identifies trends, and provides summary statistics. Perfect for quick data insights.',
 
@@ -27498,7 +27498,7 @@ ${pageText}
 
             displayId: `MA02-${shortId}`,
 
-            title: 'âœÂï¸ Content Rewriter',
+            title: '✏️ Content Rewriter',
 
             description: 'Rewrites selected text in different tones and styles. Supports formal, casual, professional, creative, and concise modes. Maintains the original meaning while improving clarity.',
 
@@ -27516,7 +27516,7 @@ ${pageText}
 
             displayId: 'MA01-ACC',
 
-            title: 'ðŸ” SEO Checker',
+            title: '🔍 SEO Checker',
 
             description: 'Scans the current page for SEO optimization opportunities. Checks meta tags, headings structure, keyword density, image alt texts, and provides actionable recommendations.',
 
@@ -27534,7 +27534,7 @@ ${pageText}
 
             displayId: 'MA02-ACC',
 
-            title: 'ðŸ“ Meeting Notes',
+            title: '📝 Meeting Notes',
 
             description: 'Formats raw meeting notes into structured documentation. Extracts action items, decisions made, attendees, and next steps. Creates shareable summaries.',
 
@@ -27638,7 +27638,7 @@ ${pageText}
 
                 align-items: center;
 
-              ">âœÂï¸ Edit</button>
+              ">✏️ Edit</button>
 
               <button class="delete-miniapp-btn" data-id="${app.id}" style="
 
@@ -27664,7 +27664,7 @@ ${pageText}
 
                 justify-content: center;
 
-              " title="Delete mini-app">Ã—</button>
+              " title="Delete mini-app">×</button>
 
             </div>
 
@@ -27706,7 +27706,7 @@ ${pageText}
 
                 ${app.scope === 'session' ? 'background: rgba(102,238,102,0.4); color: #90EE90;' : 'background: transparent; color: ${csTheme().muted};'}
 
-              ">ðŸ—‚Â Session</span>
+              ">🗂 Session</span>
 
               <span class="scope-option ${app.scope === 'account' ? 'active' : ''}" data-scope="account" style="
 
@@ -27722,7 +27722,7 @@ ${pageText}
 
                 ${app.scope === 'account' ? `background: ${csTheme().cardBg}; color: ${csTheme().muted};` : 'background: transparent; color: ${csTheme().muted};'}
 
-              ">ðŸ¢ Account</span>
+              ">🏢 Account</span>
 
             </div>
 
@@ -27766,7 +27766,7 @@ ${pageText}
 
         <div style="padding: 20px; border-bottom: 1px solid ${csTheme().border}; display: flex; justify-content: space-between; align-items: center;">
 
-          <h2 style="margin: 0; font-size: 20px;">ðŸ“± Mini-Apps</h2>
+          <h2 style="margin: 0; font-size: 20px;">📱 Mini-Apps</h2>
 
           <button id="close-miniapps-lightbox" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">&times;</button>
 
@@ -27802,7 +27802,7 @@ ${pageText}
 
               box-shadow: 0 4px 8px rgba(0,0,0,0.3);
 
-            ">ðŸ› ï¸ Mini-App Builder</button>
+            ">🛠️ Mini-App Builder</button>
 
           </div>
 
@@ -27910,7 +27910,7 @@ ${pageText}
 
           <div style="padding: 20px; border-bottom: 1px solid ${csTheme().border}; display: flex; justify-content: space-between; align-items: center;">
 
-            <h3 style="margin: 0; font-size: 18px;">ðŸ› ï¸ Mini-App Builder</h3>
+            <h3 style="margin: 0; font-size: 18px;">🛠️ Mini-App Builder</h3>
 
             <button id="close-builder-modal" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 28px; height: 28px; border-radius: 50%; cursor: pointer; font-size: 14px;">&times;</button>
 
@@ -27924,7 +27924,7 @@ ${pageText}
 
               <div style="margin-bottom: 16px;">
 
-                <label style="display: block; margin-bottom: 8px; font-size: 14px; color: ${csTheme().muted}; font-weight: bold;">ðŸ“Œ Mini-App Title</label>
+                <label style="display: block; margin-bottom: 8px; font-size: 14px; color: ${csTheme().muted}; font-weight: bold;">📌 Mini-App Title</label>
 
                 <input id="builder-title" type="text" placeholder="e.g., Email Summarizer" style="
 
@@ -27950,7 +27950,7 @@ ${pageText}
 
               <div style="margin-bottom: 16px;">
 
-                <label style="display: block; margin-bottom: 8px; font-size: 14px; color: ${csTheme().muted}; font-weight: bold;">ðŸŽ¯ Scope</label>
+                <label style="display: block; margin-bottom: 8px; font-size: 14px; color: ${csTheme().muted}; font-weight: bold;">🎯 Scope</label>
 
                 <div style="display: flex; gap: 12px;">
 
@@ -27958,7 +27958,7 @@ ${pageText}
 
                     <input type="radio" name="builder-scope" value="session" checked style="accent-color: #90EE90;">
 
-                    <span style="font-size: 13px;">ðŸ—‚Â Session</span>
+                    <span style="font-size: 13px;">🗂 Session</span>
 
                   </label>
 
@@ -27966,7 +27966,7 @@ ${pageText}
 
                     <input type="radio" name="builder-scope" value="account" style="accent-color: ${csTheme().muted};">
 
-                    <span style="font-size: 13px;">ðŸ¢ Account</span>
+                    <span style="font-size: 13px;">🏢 Account</span>
 
                   </label>
 
@@ -27976,7 +27976,7 @@ ${pageText}
 
               <div style="margin-bottom: 20px;">
 
-                <label style="display: block; margin-bottom: 8px; font-size: 14px; color: ${csTheme().muted}; font-weight: bold;">ðŸ“ Description</label>
+                <label style="display: block; margin-bottom: 8px; font-size: 14px; color: ${csTheme().muted}; font-weight: bold;">📝 Description</label>
 
                 <textarea id="builder-description" placeholder="Describe what this mini-app does, how it works, and when to use it..." style="
 
@@ -28044,7 +28044,7 @@ ${pageText}
 
                   font-weight: bold;
 
-                ">ðŸ’¾ Save Mini-App</button>
+                ">💾 Save Mini-App</button>
 
               </div>
 
@@ -28056,7 +28056,7 @@ ${pageText}
 
               <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
 
-                <h4 style="margin: 0; font-size: 15px; color: #90EE90;">ðŸ§ª Test Frame</h4>
+                <h4 style="margin: 0; font-size: 15px; color: #90EE90;">🧪 Test Frame</h4>
 
                 <button id="run-builder-test" style="
 
@@ -28082,7 +28082,7 @@ ${pageText}
 
                   gap: 6px;
 
-                ">â–¶ï¸ Run Test</button>
+                ">▶️ Run Test</button>
 
               </div>
 
@@ -28112,7 +28112,7 @@ ${pageText}
 
                 <div style="color: ${csTheme().muted}; text-align: center; padding: 40px 20px;">
 
-                  <div style="font-size: 32px; margin-bottom: 12px;">ðŸ”¬</div>
+                  <div style="font-size: 32px; margin-bottom: 12px;">🔬</div>
 
                   <div>Click "Run Test" to execute this mini-app</div>
 
@@ -28124,7 +28124,7 @@ ${pageText}
 
               <div style="margin-top: 12px; padding: 10px; background: ${csTheme().cardBg}; border-radius: 6px; font-size: 11px; color: ${csTheme().muted};">
 
-                ðŸ’¡ <strong>Tip:</strong> Test your mini-app with sample data to verify it works correctly before saving.
+                💡 <strong>Tip:</strong> Test your mini-app with sample data to verify it works correctly before saving.
 
               </div>
 
@@ -28222,7 +28222,7 @@ ${pageText}
 
             <div style="display: flex; align-items: center; gap: 12px;">
 
-              <h3 style="margin: 0; font-size: 18px;">âœÂï¸ Edit Mini-App</h3>
+              <h3 style="margin: 0; font-size: 18px;">✏️ Edit Mini-App</h3>
 
               <span id="edit-display-id-badge" style="background: rgba(144,238,144,0.3); padding: 4px 10px; border-radius: 4px; font-size: 12px; font-weight: bold; color: #90EE90;"></span>
 
@@ -28244,7 +28244,7 @@ ${pageText}
 
               <div style="margin-bottom: 16px;">
 
-                <label style="display: block; margin-bottom: 8px; font-size: 14px; color: ${csTheme().muted}; font-weight: bold;">ðŸ“Œ Mini-App Title</label>
+                <label style="display: block; margin-bottom: 8px; font-size: 14px; color: ${csTheme().muted}; font-weight: bold;">📌 Mini-App Title</label>
 
                 <input id="edit-title" type="text" style="
 
@@ -28270,7 +28270,7 @@ ${pageText}
 
               <div style="margin-bottom: 16px;">
 
-                <label style="display: block; margin-bottom: 8px; font-size: 14px; color: ${csTheme().muted}; font-weight: bold;">ðŸŽ¯ Scope</label>
+                <label style="display: block; margin-bottom: 8px; font-size: 14px; color: ${csTheme().muted}; font-weight: bold;">🎯 Scope</label>
 
                 <div style="display: flex; gap: 12px;">
 
@@ -28278,7 +28278,7 @@ ${pageText}
 
                     <input type="radio" name="edit-scope" value="session" style="accent-color: #90EE90;">
 
-                    <span style="font-size: 13px;">ðŸ—‚Â Session</span>
+                    <span style="font-size: 13px;">🗂 Session</span>
 
                   </label>
 
@@ -28286,7 +28286,7 @@ ${pageText}
 
                     <input type="radio" name="edit-scope" value="account" style="accent-color: ${csTheme().muted};">
 
-                    <span style="font-size: 13px;">ðŸ¢ Account</span>
+                    <span style="font-size: 13px;">🏢 Account</span>
 
                   </label>
 
@@ -28296,7 +28296,7 @@ ${pageText}
 
               <div style="margin-bottom: 20px;">
 
-                <label style="display: block; margin-bottom: 8px; font-size: 14px; color: ${csTheme().muted}; font-weight: bold;">ðŸ“ Description</label>
+                <label style="display: block; margin-bottom: 8px; font-size: 14px; color: ${csTheme().muted}; font-weight: bold;">📝 Description</label>
 
                 <textarea id="edit-description" style="
 
@@ -28344,7 +28344,7 @@ ${pageText}
 
                   font-size: 13px;
 
-                ">ðŸ—â€˜ï¸ Delete</button>
+                ">🗝‘️ Delete</button>
 
                 <div style="display: flex; gap: 12px;">
 
@@ -28384,7 +28384,7 @@ ${pageText}
 
                     font-weight: bold;
 
-                  ">ðŸ’¾ Update</button>
+                  ">💾 Update</button>
 
                 </div>
 
@@ -28398,7 +28398,7 @@ ${pageText}
 
               <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
 
-                <h4 style="margin: 0; font-size: 15px; color: #90EE90;">ðŸ§ª Test Frame</h4>
+                <h4 style="margin: 0; font-size: 15px; color: #90EE90;">🧪 Test Frame</h4>
 
                 <button id="run-miniapp-test" style="
 
@@ -28424,7 +28424,7 @@ ${pageText}
 
                   gap: 6px;
 
-                ">â–¶ï¸ Run Test</button>
+                ">▶️ Run Test</button>
 
               </div>
 
@@ -28454,7 +28454,7 @@ ${pageText}
 
                 <div style="color: ${csTheme().muted}; text-align: center; padding: 40px 20px;">
 
-                  <div style="font-size: 32px; margin-bottom: 12px;">ðŸ”¬</div>
+                  <div style="font-size: 32px; margin-bottom: 12px;">🔬</div>
 
                   <div>Click "Run Test" to execute this mini-app</div>
 
@@ -28466,7 +28466,7 @@ ${pageText}
 
               <div style="margin-top: 12px; padding: 10px; background: ${csTheme().cardBg}; border-radius: 6px; font-size: 11px; color: ${csTheme().muted};">
 
-                ðŸ’¡ <strong>Tip:</strong> Test your mini-app with sample data to verify it works correctly before using it on real pages.
+                💡 <strong>Tip:</strong> Test your mini-app with sample data to verify it works correctly before using it on real pages.
 
               </div>
 
@@ -28832,13 +28832,13 @@ ${pageText}
 
           '<div style="color: #90EE90; margin-bottom: 12px;">' +
 
-            '<span style="color: ${csTheme().muted};">[</span>' + timestamp + '<span style="color: ${csTheme().muted};">]</span> ðŸš€ Starting test...' +
+            '<span style="color: ${csTheme().muted};">[</span>' + timestamp + '<span style="color: ${csTheme().muted};">]</span> 🚀 Starting test...' +
 
           '</div>' +
 
           `<div style="color: ${csTheme().muted}; margin-bottom: 8px;">` +
 
-            'ðŸ“± Mini-App: <strong>' + title + '</strong>' +
+            '📱 Mini-App: <strong>' + title + '</strong>' +
 
           '</div>' +
 
@@ -28850,13 +28850,13 @@ ${pageText}
 
           '<div style="color: #8B5CF6; margin-bottom: 8px;">' +
 
-            'â³ Processing...' +
+            '⏳ Processing...' +
 
           '</div>' +
 
           `<div style="color: ${csTheme().muted}; font-style: italic; margin-top: 16px; padding-top: 12px; border-top: 1px solid ${csTheme().border};">` +
 
-            'ðŸ’¡ Test functionality will be integrated in a future update.' +
+            '💡 Test functionality will be integrated in a future update.' +
 
           '</div>'
 
@@ -29058,13 +29058,13 @@ ${pageText}
 
           '<div style="color: #90EE90; margin-bottom: 12px;">' +
 
-            '<span style="color: ${csTheme().muted};">[</span>' + timestamp + '<span style="color: ${csTheme().muted};">]</span> ðŸš€ Starting test...' +
+            '<span style="color: ${csTheme().muted};">[</span>' + timestamp + '<span style="color: ${csTheme().muted};">]</span> 🚀 Starting test...' +
 
           '</div>' +
 
           `<div style="color: ${csTheme().muted}; margin-bottom: 8px;">` +
 
-            'ðŸ“± Mini-App: <strong>' + title + '</strong>' +
+            '📱 Mini-App: <strong>' + title + '</strong>' +
 
           '</div>' +
 
@@ -29076,13 +29076,13 @@ ${pageText}
 
           '<div style="color: #8B5CF6; margin-bottom: 8px;">' +
 
-            'â³ Processing...' +
+            '⏳ Processing...' +
 
           '</div>' +
 
           `<div style="color: ${csTheme().muted}; font-style: italic; margin-top: 16px; padding-top: 12px; border-top: 1px solid ${csTheme().border};">` +
 
-            'ðŸ’¡ Test functionality will be integrated in a future update.' +
+            '💡 Test functionality will be integrated in a future update.' +
 
           '</div>'
 
@@ -29275,7 +29275,7 @@ ${pageText}
 
         <div style="padding: 20px; border-bottom: 1px solid ${csTheme().border}; display: flex; justify-content: space-between; align-items: center;">
 
-          <h2 style="margin: 0; font-size: 20px;">ðŸ§  Agent Memory: ${agentKey}</h2>
+          <h2 style="margin: 0; font-size: 20px;">🧠 Agent Memory: ${agentKey}</h2>
 
           <button id="close-agent-memory" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">&times;</button>
 
@@ -29287,7 +29287,7 @@ ${pageText}
 
           <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 8px; margin-bottom: 15px; font-size: 12px; opacity: 0.9;">
 
-            ðŸ’¡ Agent Memory stores context and notes specific to this agent. Use it to maintain conversation history, preferences, or important information the agent should remember.
+            💡 Agent Memory stores context and notes specific to this agent. Use it to maintain conversation history, preferences, or important information the agent should remember.
 
           </div>
 
@@ -29295,7 +29295,7 @@ ${pageText}
 
           <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
 
-            <label style="display: block; margin-bottom: 10px; font-size: 14px; color: #66FF66; font-weight: bold;">ðŸ“ Memory Notes:</label>
+            <label style="display: block; margin-bottom: 10px; font-size: 14px; color: #66FF66; font-weight: bold;">📝 Memory Notes:</label>
 
             <textarea id="agent-memory-notes" style="
 
@@ -29315,7 +29315,7 @@ ${pageText}
 
           <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px;">
 
-            <label style="display: block; margin-bottom: 15px; font-size: 14px; color: #66FF66; font-weight: bold;">ðŸ’¾ Memory Sharing Settings:</label>
+            <label style="display: block; margin-bottom: 15px; font-size: 14px; color: #66FF66; font-weight: bold;">💾 Memory Sharing Settings:</label>
 
             
 
@@ -29323,7 +29323,7 @@ ${pageText}
 
               <input type="checkbox" id="agent-memory-share-session" style="margin-right: 10px; transform: scale(1.3); cursor: pointer;">
 
-              <span>ðŸ“¤ Share with entire Session (all agents in this session can access)</span>
+              <span>📤 Share with entire Session (all agents in this session can access)</span>
 
             </label>
 
@@ -29333,7 +29333,7 @@ ${pageText}
 
               <input type="checkbox" id="agent-memory-share-all" style="margin-right: 10px; transform: scale(1.3); cursor: pointer;">
 
-              <span>ðŸŒÂ Share with all Sessions (available across all sessions)</span>
+              <span>🌐 Share with all Sessions (available across all sessions)</span>
 
             </label>
 
@@ -29359,7 +29359,7 @@ ${pageText}
 
             border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: bold;
 
-          ">ðŸ’¾ Save Memory</button>
+          ">💾 Save Memory</button>
 
         </div>
 
@@ -29481,7 +29481,7 @@ ${pageText}
 
         `
 
-        notification.innerHTML = 'âœ… Agent memory saved successfully!'
+        notification.innerHTML = '✅ Agent memory saved successfully!'
 
         document.body.appendChild(notification)
 
@@ -29528,7 +29528,7 @@ ${pageText}
     header.style.cssText = `padding: 16px 20px; border-bottom: 1px solid ${csTheme().border}; display:flex; align-items:center; justify-content:space-between;`
 
     header.innerHTML = `
-      <div style="display:flex;align-items:center;gap:8px;font-size:18px;font-weight:700">ðŸ”’ WRVault â†’ Password Manager</div>
+      <div style="display:flex;align-items:center;gap:8px;font-size:18px;font-weight:700">🔒 WRVault → Password Manager</div>
       <button id="wrv-close" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; width: 32px; height: 32px; border-radius: 50%; cursor: pointer; font-size: 18px;">&times;</button>
     `
 
@@ -29552,7 +29552,7 @@ ${pageText}
       })
     }
 
-    // Import first, then open â€” avoids placeholder flash (never append placeholder to DOM)
+    // Import first, then open — avoids placeholder flash (never append placeholder to DOM)
     import('./vault/vault-ui-typescript').then(({ openVaultLightbox }) => {
       openVaultLightbox()
     }).catch((error) => {
@@ -29715,9 +29715,9 @@ ${pageText}
 
       const btnStream = document.createElement('button'); btnStream.textContent = 'Stream'; btnStream.style.cssText='background:#3b82f6;border:0;color:white;padding:4px 8px;border-radius:6px;cursor:pointer'
 
-      const btnRec = document.createElement('button'); btnRec.textContent = 'âº'; btnRec.title = 'Record'; btnRec.style.cssText='background:#ef4444;border:0;color:white;padding:4px 8px;border-radius:6px;cursor:pointer;display:none'
+      const btnRec = document.createElement('button'); btnRec.textContent = '⏺'; btnRec.title = 'Record'; btnRec.style.cssText='background:#ef4444;border:0;color:white;padding:4px 8px;border-radius:6px;cursor:pointer;display:none'
 
-      const btnStop = document.createElement('button'); btnStop.textContent = 'â¹'; btnStop.title = 'Stop'; btnStop.style.cssText='background:#991b1b;border:0;color:white;padding:4px 8px;border-radius:6px;cursor:pointer;display:none'
+      const btnStop = document.createElement('button'); btnStop.textContent = '⏹'; btnStop.title = 'Stop'; btnStop.style.cssText='background:#991b1b;border:0;color:white;padding:4px 8px;border-radius:6px;cursor:pointer;display:none'
 
       const timerEl = document.createElement('span'); timerEl.textContent = '00:00'; timerEl.title = 'Recording time'; timerEl.style.cssText='color:#e5e7eb;opacity:.9;font-variant-numeric:tabular-nums;display:none;align-self:center'
 
@@ -30041,7 +30041,7 @@ ${pageText}
           } catch {}
           const saveBtnColor = btnTheme === 'standard' ? '#3b82f6' : '#10b981'
 
-          const save = document.createElement('button'); save.textContent='ðŸ’¾ Save'; save.style.cssText=`background:${saveBtnColor};border:0;color:white;padding:8px 16px;border-radius:6px;cursor:pointer;font-size:13px; font-weight:500;`
+          const save = document.createElement('button'); save.textContent='💾 Save'; save.style.cssText=`background:${saveBtnColor};border:0;color:white;padding:8px 16px;border-radius:6px;cursor:pointer;font-size:13px; font-weight:500;`
 
           const cancel = document.createElement('button'); cancel.textContent='Cancel'; cancel.style.cssText='background:rgba(255,255,255,0.2);border:0;color:#ffffff;padding:8px 16px;border-radius:6px;cursor:pointer;font-size:13px; font-weight:500;'
 
@@ -30141,7 +30141,7 @@ ${pageText}
 
                   const bub = document.createElement('div'); bub.style.maxWidth='78%'; bub.style.padding='8px 10px'; bub.style.borderRadius='10px'; bub.style.fontSize='12px'; bub.style.background='rgba(59,130,246,0.12)'; bub.style.border='1px solid rgba(59,130,246,0.45)'; bub.style.color='#e5e7eb'
 
-                  bub.textContent = `ðŸ“ Command: ${command}`
+                  bub.textContent = `📝 Command: ${command}`
 
                   row.appendChild(bub); msgs.appendChild(row); msgs.scrollTop = msgs.scrollHeight
 
@@ -30861,11 +30861,11 @@ ${pageText}
 
         <div style="padding: 20px; border-bottom: 1px solid ${csTheme().border}; display: flex; justify-content: space-between; align-items: center;">
 
-          <h2 style="margin: 0; font-size: 20px;">âš™ï¸ Extension Settings</h2>
+          <h2 style="margin: 0; font-size: 20px;">⚙️ Extension Settings</h2>
 
           <div style="display:flex; gap:10px; align-items:center;">
 
-            <button id="settings-whitelist-btn" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 6px 10px; border-radius: 999px; cursor: pointer; font-size: 11px; font-weight:700;">ðŸ›¡Â Whitelist</button>
+            <button id="settings-whitelist-btn" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 6px 10px; border-radius: 999px; cursor: pointer; font-size: 11px; font-weight:700;">🛡 Whitelist</button>
 
           <button id="close-settings-lightbox" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">&times;</button>
 
@@ -30883,7 +30883,7 @@ ${pageText}
 
               <div style="display:flex; justify-content: space-between; align-items:center; margin-bottom: 8px;">
 
-                <h4 style="margin: 0; font-size: 12px; color: ${csTheme().muted};">ðŸ’³ Account & Billing</h4>
+                <h4 style="margin: 0; font-size: 12px; color: ${csTheme().muted};">💳 Account & Billing</h4>
 
                 <div id="account-balance" style="font-size: 12px; font-weight: 700;">Balance: $0.00</div>
 
@@ -30909,7 +30909,7 @@ ${pageText}
 
               <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
 
-                <h4 style="margin: 0; font-size: 12px; color: ${csTheme().muted};">ðŸ”‘ API Keys</h4>
+                <h4 style="margin: 0; font-size: 12px; color: ${csTheme().muted};">🔑 API Keys</h4>
 
                 <div style="display:flex; gap:6px;">
 
@@ -30935,7 +30935,7 @@ ${pageText}
 
                   <input type="password" id="key-OpenAI" placeholder="sk-..." style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 6px; border-radius: 4px; font-size: 10px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;">
 
-                  <button class="toggle-visibility" data-target="key-OpenAI" title="Show/Hide" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px;">ðŸ‘ï¸</button>
+                  <button class="toggle-visibility" data-target="key-OpenAI" title="Show/Hide" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px;">👁️</button>
 
                 </div>
 
@@ -30945,7 +30945,7 @@ ${pageText}
 
                   <input type="password" id="key-Claude" placeholder="sk-ant-..." style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 6px; border-radius: 4px; font-size: 10px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;">
 
-                  <button class="toggle-visibility" data-target="key-Claude" title="Show/Hide" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px;">ðŸ‘ï¸</button>
+                  <button class="toggle-visibility" data-target="key-Claude" title="Show/Hide" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px;">👁️</button>
 
                 </div>
 
@@ -30955,7 +30955,7 @@ ${pageText}
 
                   <input type="password" id="key-Gemini" placeholder="AIza..." style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 6px; border-radius: 4px; font-size: 10px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;">
 
-                  <button class="toggle-visibility" data-target="key-Gemini" title="Show/Hide" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px;">ðŸ‘ï¸</button>
+                  <button class="toggle-visibility" data-target="key-Gemini" title="Show/Hide" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px;">👁️</button>
 
                 </div>
 
@@ -30965,7 +30965,7 @@ ${pageText}
 
                   <input type="password" id="key-Grok" placeholder="xai-..." style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 6px; border-radius: 4px; font-size: 10px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;">
 
-                  <button class="toggle-visibility" data-target="key-Grok" title="Show/Hide" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px;">ðŸ‘ï¸</button>
+                  <button class="toggle-visibility" data-target="key-Grok" title="Show/Hide" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px;">👁️</button>
 
                 </div>
 
@@ -30981,7 +30981,7 @@ ${pageText}
 
               <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
 
-                <h4 style="margin: 0; font-size: 12px; color: ${csTheme().muted};">ðŸ’» Local LLMs</h4>
+                <h4 style="margin: 0; font-size: 12px; color: ${csTheme().muted};">💻 Local LLMs</h4>
 
                 <div style="display:flex; gap:6px;">
 
@@ -31005,7 +31005,7 @@ ${pageText}
 
                   <div style="display:flex; align-items:center; gap:6px;">
 
-                    <span style="font-size:12px; color:${csTheme().muted}; font-weight:700;">ðŸŽ›ï¸ Finetuned local LLMs</span>
+                    <span style="font-size:12px; color:${csTheme().muted}; font-weight:700;">🎛️ Finetuned local LLMs</span>
 
                     <span id="finetuned-pro-badge" style="display:none; font-size:10px; background: ${csTheme().cardBg}; border: 1px solid ${csTheme().border}; color:${csTheme().accent}; padding:2px 6px; border-radius:999px;">PRO</span>
 
@@ -31015,7 +31015,7 @@ ${pageText}
 
               <div id="finetuned-locked" style="display:none; font-size:10px; margin:6px 0; padding:6px; background: ${csTheme().cardBg}; border:1px solid rgba(255,255,255,0.22); border-radius:6px;">
 
-                  ðŸ”’ Finetuned models are available for Pro subscribers.
+                  🔒 Finetuned models are available for Pro subscribers.
 
                   <button id="unlock-finetuned" style="margin-left: 8px; background: ${csTheme().accentGrad}; border: none; color: #fff; padding: 4px 8px; border-radius: 6px; cursor: pointer; font-size: 10px; font-weight: 700;">Upgrade</button>
 
@@ -31039,7 +31039,7 @@ ${pageText}
 
             <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 6px; grid-column: 3 / 4; height: 100%; display: flex; flex-direction: column;">
 
-              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: ${csTheme().muted};">ðŸŽ¨ Appearance</h4>
+              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: ${csTheme().muted};">🎨 Appearance</h4>
 
               <div style="font-size: 10px; display: grid; grid-template-columns: auto 1fr; gap: 8px; align-items: center;">
 
@@ -31063,7 +31063,7 @@ ${pageText}
 
             <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 6px;">
 
-              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: ${csTheme().muted};">âš™ï¸ System</h4>
+              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: ${csTheme().muted};">⚙️ System</h4>
 
               <div style="font-size: 10px;">
 
@@ -31083,7 +31083,7 @@ ${pageText}
 
                 </div>
 
-                <button style="width: 100%; padding: 6px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 3px; cursor: pointer; font-size: 9px;">ðŸ’¾ Save Settings</button>
+                <button style="width: 100%; padding: 6px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 3px; cursor: pointer; font-size: 9px;">💾 Save Settings</button>
 
               </div>
 
@@ -31099,7 +31099,7 @@ ${pageText}
 
             <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 6px;">
 
-              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: ${csTheme().muted};">âš¡ Performance</h4>
+              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: ${csTheme().muted};">⚡ Performance</h4>
 
               <div style="font-size: 10px;">
 
@@ -31147,7 +31147,7 @@ ${pageText}
 
             <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 6px;">
 
-              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: ${csTheme().muted};">ðŸ”’ Privacy & Security</h4>
+              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: ${csTheme().muted};">🔒 Privacy & Security</h4>
 
               <div style="font-size: 10px;">
 
@@ -31205,15 +31205,15 @@ ${pageText}
 
             <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 6px; grid-column: 1 / -1;">
 
-              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: ${csTheme().muted};">ðŸ“¦ Backup</h4>
+              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: ${csTheme().muted};">📦 Backup</h4>
 
               <div style="font-size: 10px;">
 
-                <button style="width: 100%; margin-bottom: 6px; padding: 6px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 3px; cursor: pointer; font-size: 9px;">ðŸ“¤ Export Settings</button>
+                <button style="width: 100%; margin-bottom: 6px; padding: 6px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 3px; cursor: pointer; font-size: 9px;">📤 Export Settings</button>
 
-                <button style="width: 100%; margin-bottom: 6px; padding: 6px; background: ${csTheme().cardBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; border-radius: 3px; cursor: pointer; font-size: 9px;">ðŸ“¥ Import Settings</button>
+                <button style="width: 100%; margin-bottom: 6px; padding: 6px; background: ${csTheme().cardBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; border-radius: 3px; cursor: pointer; font-size: 9px;">📥 Import Settings</button>
 
-                <button style="width: 100%; padding: 6px; background: rgba(220,38,38,0.08); border: 1px solid rgba(220,38,38,0.25); color: ${csTheme().isLight ? "#991b1b" : "#f87171"}; border-radius: 3px; cursor: pointer; font-size: 9px;">ðŸ—â€˜ï¸ Reset All</button>
+                <button style="width: 100%; padding: 6px; background: rgba(220,38,38,0.08); border: 1px solid rgba(220,38,38,0.25); color: ${csTheme().isLight ? "#991b1b" : "#f87171"}; border-radius: 3px; cursor: pointer; font-size: 9px;">🗝‘️ Reset All</button>
 
               </div>
 
@@ -31290,7 +31290,7 @@ ${pageText}
 
       } catch (error) {
 
-        console.error('ðŸŽ¨ Error loading saved theme:', error)
+        console.error('🎨 Error loading saved theme:', error)
 
       }
 
@@ -31310,7 +31310,7 @@ ${pageText}
 
         } catch (error) {
 
-          console.error('ðŸŽ¨ Error saving theme:', error)
+          console.error('🎨 Error saving theme:', error)
 
         }
 
@@ -31327,7 +31327,7 @@ ${pageText}
 
           } catch (error) {
 
-            console.error('ðŸŽ¨ Error applying default theme:', error)
+            console.error('🎨 Error applying default theme:', error)
 
           }
 
@@ -31340,7 +31340,7 @@ ${pageText}
 
           } catch (error) {
 
-            console.error('ðŸŽ¨ Error applying theme:', error, theme)
+            console.error('🎨 Error applying theme:', error, theme)
 
           }
 
@@ -31507,9 +31507,9 @@ ${pageText}
 
           <input class="api-value" type="password" id="key-custom-${idSuffix}" placeholder="key..." style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 6px; border-radius: 4px; font-size: 10px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;">
 
-          <button class="toggle-visibility" data-target="key-custom-${idSuffix}" title="Show/Hide" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px;">ðŸ‘ï¸</button>
+          <button class="toggle-visibility" data-target="key-custom-${idSuffix}" title="Show/Hide" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px;">👁️</button>
 
-          <button class="remove-custom" title="Remove" style="background: rgba(244,67,54,0.5); border: none; color: white; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px;">âœâ€¢</button>
+          <button class="remove-custom" title="Remove" style="background: rgba(244,67,54,0.5); border: none; color: white; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px;">✏•</button>
 
         `
 
@@ -31655,7 +31655,7 @@ ${pageText}
 
           '</select>'+
 
-          '<button class="install-local-llm" style="background: #2563eb; border: none; color: white; padding: 6px 8px; border-radius: 6px; cursor: pointer; font-size: 10px;">'+(it.installed ? 'Installed âœ“' : 'Install')+'</button>'+
+          '<button class="install-local-llm" style="background: #2563eb; border: none; color: white; padding: 6px 8px; border-radius: 6px; cursor: pointer; font-size: 10px;">'+(it.installed ? 'Installed ✓' : 'Install')+'</button>'+
 
           '<button class="remove-local-llm" title="Remove" style="background: rgba(220,38,38,0.15); border: 1px solid rgba(220,38,38,0.4); color: #dc2626; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 14px; line-height: 1; display: flex; align-items: center; justify-content: center;">&#x2715;</button>'
 
@@ -31703,7 +31703,7 @@ ${pageText}
 
           // Placeholder installation handler
 
-          installBtn.textContent = 'Installingâ€¦'
+          installBtn.textContent = 'Installing…'
 
           installBtn.disabled = true
 
@@ -31717,7 +31717,7 @@ ${pageText}
 
             saveLocalLLMs(current)
 
-            installBtn.textContent = 'Installed âœ“'
+            installBtn.textContent = 'Installed ✓'
 
           }, 500)
 
@@ -31863,7 +31863,7 @@ ${pageText}
 
             `<input class="ft-base" placeholder="Base model (e.g., llama3.1)" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 6px; border-radius: 4px; font-size: 10px;">`+
 
-            '<button class="ft-remove" title="Remove" style="background: rgba(244,67,54,0.5); border: none; color: white; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px;">âœâ€¢</button>'
+            '<button class="ft-remove" title="Remove" style="background: rgba(244,67,54,0.5); border: none; color: white; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px;">✏•</button>'
 
           )
 
@@ -31949,7 +31949,7 @@ ${pageText}
 
     btnPAYG?.addEventListener('click', () => openBillingModal('payg'))
 
-    // Subscription â†’ open WRDesk pricing page directly (plan upgrades happen on wrdesk.com)
+    // Subscription → open WRDesk pricing page directly (plan upgrades happen on wrdesk.com)
     btnSub?.addEventListener('click', () => {
       window.open('https://wrdesk.com/?page_id=1080&v=5f02f0889301', '_blank', 'noopener,noreferrer')
     })
@@ -32067,7 +32067,7 @@ ${pageText}
             name: 'Pro (Private)',
             allowedBillingOptions: ['annual', 'lifetime'] as const,
             prices: { annual: 79, lifetime: 249 },
-            priceLabels: { annual: 'â‚¬79<span>/year</span>', lifetime: 'â‚¬249<span> one-time</span>' },
+            priceLabels: { annual: '€79<span>/year</span>', lifetime: '€249<span> one-time</span>' },
             ctaLabels: { annual: 'Select Pro', lifetime: 'Select Early Access Lifetime' }
           },
           publisher: {
@@ -32075,7 +32075,7 @@ ${pageText}
             name: 'Publisher',
             allowedBillingOptions: ['annual', 'lifetime'] as const, // NO monthly
             prices: { annual: 129, lifetime: 399 },
-            priceLabels: { annual: 'â‚¬129<span>/year</span>', lifetime: 'â‚¬399<span> one-time</span>' },
+            priceLabels: { annual: '€129<span>/year</span>', lifetime: '€399<span> one-time</span>' },
             ctaLabels: { annual: 'Select Publisher', lifetime: 'Select Early Access Lifetime' }
           },
           enterprise: {
@@ -32083,7 +32083,7 @@ ${pageText}
             name: 'Business/Enterprise',
             allowedBillingOptions: ['annual', 'monthly'] as const, // NO lifetime
             prices: { annual: 599, monthly: 59 },
-            priceLabels: { annual: 'â‚¬599<span>/year</span>', monthly: 'â‚¬59<span>/month</span>' },
+            priceLabels: { annual: '€599<span>/year</span>', monthly: '€59<span>/month</span>' },
             ctaLabels: { annual: 'Contact Sales', monthly: 'Contact Sales' }
           }
         }
@@ -32170,21 +32170,21 @@ ${pageText}
               // BASIC TIER
               '<div class="wr-plan-card">' +
                 '<h3>Basic</h3>' +
-                '<div class="price">â‚¬0</div>' +
+                '<div class="price">€0</div>' +
                 `<div style="font-size:10px;color:${th.muted};margin:4px 0;text-transform:uppercase;letter-spacing:0.5px">Intended Use</div>` +
                 `<div style="font-size:11px;margin-bottom:8px;color:${th.text}">Single-user local deployments for non-commercial use.</div>` +
                 `<div style="font-size:10px;color:${th.muted};margin:4px 0;text-transform:uppercase;letter-spacing:0.5px">Included Capabilities</div>` +
                 '<ul style="font-size:11px">' +
                   '<li>Local orchestration runtime</li>' +
                   '<li>BYOK integration (all supported providers)</li>' +
-                  '<li>Unlimited WR Deskâ„¢ Automation Sessions</li>' +
-                  '<li>Unlimited BEAPâ„¢ Messaging</li>' +
-                  '<li>pBEAPâ„¢ secure messaging (baseline)</li>' +
-                  '<li>WRGuardâ„¢ baseline integrity monitoring</li>' +
+                  '<li>Unlimited WR Desk™ Automation Sessions</li>' +
+                  '<li>Unlimited BEAP™ Messaging</li>' +
+                  '<li>pBEAP™ secure messaging (baseline)</li>' +
+                  '<li>WRGuard™ baseline integrity monitoring</li>' +
                 '</ul>' +
                 `<div style="font-size:10px;color:${th.muted};margin:4px 0;text-transform:uppercase;letter-spacing:0.5px">Security & Verification</div>` +
                 '<ul style="font-size:11px">' +
-                  '<li>PoAEâ„¢ baseline execution logs (local, non-cryptographic)</li>' +
+                  '<li>PoAE™ baseline execution logs (local, non-cryptographic)</li>' +
                   '<li>Local-only verification (no external attestation)</li>' +
                 '</ul>' +
                 (isFreeTier
@@ -32199,24 +32199,24 @@ ${pageText}
                   '<button id="pro-private-annual" class="toggle-btn active">Annual</button>' +
                   '<button id="pro-private-lifetime" class="toggle-btn">Early Access Lifetime</button>' +
                 '</div>' +
-                `<div id="pro-private-note" class="wr-plan-note" style="display:none">Private use only Â· Non-commercial Â· No publishing rights</div>` +
+                `<div id="pro-private-note" class="wr-plan-note" style="display:none">Private use only · Non-commercial · No publishing rights</div>` +
                 `<div style="font-size:10px;color:${th.muted};margin:4px 0;text-transform:uppercase;letter-spacing:0.5px">Intended Use</div>` +
                 `<div style="font-size:11px;margin-bottom:8px;color:${th.text}">Single-user private deployments for individuals and independent professionals. Non-commercial publishing rights.</div>` +
                 (isAffiliateAttributed ? `<div id="pro-private-founders" style="display:none;background:${th.cardBg};border:1px solid ${th.border};border-radius:6px;padding:10px;margin:8px 0">` + affiliateFoundersPackHtml + '</div>' : '') +
                 `<div style="font-size:10px;color:${th.muted};margin:4px 0;text-transform:uppercase;letter-spacing:0.5px">Included Capabilities</div>` +
                 '<ul style="font-size:11px">' +
                   '<li>All Basic tier capabilities</li>' +
-                  '<li>WRVaultâ„¢ Local Data Vault + Password Manager (encrypted, scoped, policy-aware)</li>' +
-                  '<li>qBEAPâ„¢ post-quantum-ready encrypted messaging</li>' +
+                  '<li>WRVault™ Local Data Vault + Password Manager (encrypted, scoped, policy-aware)</li>' +
+                  '<li>qBEAP™ post-quantum-ready encrypted messaging</li>' +
                   '<li>Off-band VM Ingestor (external VM ingestion node; requires root VM access)</li>' +
                   '<li>Hardware attestation features</li>' +
                   '<li>Passkey-based protection features</li>' +
-                  '<li>WRGuardâ„¢ advanced strict mode (tamper detection)</li>' +
+                  '<li>WRGuard™ advanced strict mode (tamper detection)</li>' +
                   '<li>Basic support</li>' +
                 '</ul>' +
                 `<div style="font-size:10px;color:${th.muted};margin:4px 0;text-transform:uppercase;letter-spacing:0.5px">Security & Verification</div>` +
                 '<ul style="font-size:11px">' +
-                  '<li>PoAEâ„¢ advanced cryptographic proofs (signed attestations)</li>' +
+                  '<li>PoAE™ advanced cryptographic proofs (signed attestations)</li>' +
                   '<li>Exportable proof artifacts for personal records</li>' +
                   '<li>Local verification of proof integrity</li>' +
                 '</ul>' +
@@ -32239,7 +32239,7 @@ ${pageText}
                 `<div style="font-size:10px;color:${th.muted};margin:4px 0;text-transform:uppercase;letter-spacing:0.5px">Included Capabilities</div>` +
                 '<ul style="font-size:11px">' +
                   '<li>All Pro (Private) tier capabilities</li>' +
-                  '<li>Commercial WR Deskâ„¢ publishing rights</li>' +
+                  '<li>Commercial WR Desk™ publishing rights</li>' +
                   '<li>Enterprise Handshakes with cryptographically bound context</li>' +
                   '<li>DNS-verified domain ownership for identity anchoring</li>' +
                   '<li>Publisher branding and custom domain support</li>' +
@@ -32248,7 +32248,7 @@ ${pageText}
                 '</ul>' +
                 `<div style="font-size:10px;color:${th.muted};margin:4px 0;text-transform:uppercase;letter-spacing:0.5px">Security & Verification</div>` +
                 '<ul style="font-size:11px">' +
-                  '<li>PoAEâ„¢ advanced proofs with verification endpoint</li>' +
+                  '<li>PoAE™ advanced proofs with verification endpoint</li>' +
                   '<li>Third-party verification capability (client-accessible)</li>' +
                   '<li>Proof chain export for external review</li>' +
                 '</ul>' +
@@ -32276,7 +32276,7 @@ ${pageText}
                 '</ul>' +
                 `<div style="font-size:10px;color:${th.muted};margin:4px 0;text-transform:uppercase;letter-spacing:0.5px">Security & Verification</div>` +
                 '<ul style="font-size:11px">' +
-                  '<li>PoAEâ„¢ advanced proofs with full audit export</li>' +
+                  '<li>PoAE™ advanced proofs with full audit export</li>' +
                   '<li>Per-user attribution in proof chain</li>' +
                   '<li>Centralized proof archive with retention controls</li>' +
                   '<li>Third-party verification with organizational context</li>' +
@@ -32331,7 +32331,7 @@ ${pageText}
 
           if (isNaN(value) || value < 10) {
 
-            alert('Minimum top-up is â‚¬10')
+            alert('Minimum top-up is €10')
 
             if (customInput) customInput.focus()
 
@@ -32339,7 +32339,7 @@ ${pageText}
 
           }
 
-          alert(`âœ… Top-up initialized: â‚¬${value.toFixed(2)}`)
+          alert(`✅ Top-up initialized: €${value.toFixed(2)}`)
 
         })
 
@@ -32359,7 +32359,7 @@ ${pageText}
 
       if (proPrivatePrice && proPrivateAnnual && proPrivateLifetime && proPrivateNote && proPrivateCta) {
         const proCfg = {
-          prices: { annual: 'â‚¬79<span>/year</span>', lifetime: 'â‚¬249<span> one-time</span>' },
+          prices: { annual: '€79<span>/year</span>', lifetime: '€249<span> one-time</span>' },
           ctas: { annual: 'Select Pro', lifetime: 'Select Early Access Lifetime' },
           urls: { annual: 'https://wrdesk.com/buy/?plan=private_annual', lifetime: 'https://wrdesk.com/buy/?plan=private_lifetime' }
         }
@@ -32401,7 +32401,7 @@ ${pageText}
 
       if (publisherPrice && publisherAnnual && publisherLifetime && publisherCta) {
         const pubCfg = {
-          prices: { annual: 'â‚¬129<span>/year</span>', lifetime: 'â‚¬399<span> one-time</span>' },
+          prices: { annual: '€129<span>/year</span>', lifetime: '€399<span> one-time</span>' },
           ctas: { annual: 'Select Publisher', lifetime: 'Select Early Access Lifetime' },
           urls: { annual: 'https://wrdesk.com/buy/?plan=publisher_annual', lifetime: 'https://wrdesk.com/buy/?plan=publisher_lifetime' }
         }
@@ -32440,7 +32440,7 @@ ${pageText}
 
       if (entPrice && entAnnual && entMonthly && entCta) {
         const entCfg = {
-          prices: { annual: 'â‚¬599<span>/year</span>', monthly: 'â‚¬59<span>/month</span>' },
+          prices: { annual: '€599<span>/year</span>', monthly: '€59<span>/month</span>' },
           ctas: { annual: 'Contact Sales', monthly: 'Contact Sales' }
         }
         const setEntAnnual = () => {
@@ -32524,7 +32524,7 @@ ${pageText}
 
         <div style="padding: 20px; border-bottom: 1px solid ${csTheme().border}; display: flex; justify-content: space-between; align-items: center;">
 
-          <h2 style="margin: 0; font-size: 20px;">ðŸ–¥Â Display Ports Configuration</h2>
+          <h2 style="margin: 0; font-size: 20px;">🖥 Display Ports Configuration</h2>
 
           <button id="close-display-config" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">&times;</button>
 
@@ -32540,7 +32540,7 @@ ${pageText}
 
             <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px;">
 
-              <h4 style="margin: 0 0 15px 0; font-size: 14px; color: ${csTheme().muted}; font-weight: bold;">ðŸ–¥Â Display Port #1</h4>
+              <h4 style="margin: 0 0 15px 0; font-size: 14px; color: ${csTheme().muted}; font-weight: bold;">🖥 Display Port #1</h4>
 
               <div style="font-size: 12px;">
 
@@ -32612,7 +32612,7 @@ ${pageText}
 
             <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 6px;">
 
-              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: ${csTheme().muted};">ðŸ–¥Â Display Port #2</h4>
+              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: ${csTheme().muted};">🖥 Display Port #2</h4>
 
               <div style="font-size: 10px;">
 
@@ -32684,7 +32684,7 @@ ${pageText}
 
             <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 6px;">
 
-              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: ${csTheme().muted};">ðŸ–¥Â Display Port #3</h4>
+              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: ${csTheme().muted};">🖥 Display Port #3</h4>
 
               <div style="font-size: 10px;">
 
@@ -32756,7 +32756,7 @@ ${pageText}
 
             <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 6px;">
 
-              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: ${csTheme().muted};">ðŸ–¥Â Display Port #4</h4>
+              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: ${csTheme().muted};">🖥 Display Port #4</h4>
 
               <div style="font-size: 10px;">
 
@@ -32826,7 +32826,7 @@ ${pageText}
 
             <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 6px;">
 
-              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: ${csTheme().muted};">ðŸ–¥Â Display Port #5</h4>
+              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: ${csTheme().muted};">🖥 Display Port #5</h4>
 
               <div style="font-size: 10px;">
 
@@ -32898,7 +32898,7 @@ ${pageText}
 
             <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 6px;">
 
-              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: ${csTheme().muted};">ðŸ“º Monitor Output</h4>
+              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: ${csTheme().muted};">📺 Monitor Output</h4>
 
               <div style="font-size: 10px;">
 
@@ -32952,7 +32952,7 @@ ${pageText}
 
           <button id="display-config-cancel" style="padding: 12px 24px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; border-radius: 6px; cursor: pointer; font-size: 12px;">Cancel</button>
 
-          <button id="display-config-save" style="padding: 12px 24px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 6px; cursor: pointer; font-size: 12px;">ðŸ’¾ Save Display Ports</button>
+          <button id="display-config-save" style="padding: 12px 24px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 6px; cursor: pointer; font-size: 12px;">💾 Save Display Ports</button>
 
         </div>
 
@@ -33042,7 +33042,7 @@ ${pageText}
 
       `
 
-      notification.innerHTML = `ðŸ’¾ Display ports configuration saved!`
+      notification.innerHTML = `💾 Display ports configuration saved!`
 
       document.body.appendChild(notification)
 
@@ -33095,7 +33095,7 @@ ${pageText}
 
         <div style="padding: 20px; border-bottom: 1px solid ${csTheme().border}; display: flex; justify-content: space-between; align-items: center;">
 
-          <h2 style="margin: 0; font-size: 20px;">ðŸš€ Helper Grid Configuration</h2>
+          <h2 style="margin: 0; font-size: 20px;">🚀 Helper Grid Configuration</h2>
 
           <button id="close-helpergrid-lightbox" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">&times;</button>
 
@@ -33115,7 +33115,7 @@ ${pageText}
 
               <div id="helper-tabs-config" style="background: rgba(0,0,0,0.2); border-radius: 8px; padding: 15px; cursor: pointer; transition: all 0.3s ease; border: 2px solid transparent;" onmouseover="this.style.borderColor='rgba(255,255,255,0.3)'" onmouseout="this.style.borderColor='transparent'">
 
-                <div style="font-size: 48px; margin-bottom: 10px;">ðŸŒÂ</div>
+                <div style="font-size: 48px; margin-bottom: 10px;">🌐</div>
 
                 <h4 style="margin: 0 0 8px 0; font-size: 14px;">Web Sources</h4>
 
@@ -33135,7 +33135,7 @@ ${pageText}
 
               <div style="background: rgba(0,0,0,0.2); border-radius: 8px; padding: 15px; cursor: pointer; transition: all 0.3s ease; border: 2px solid transparent;" onmouseover="this.style.borderColor='rgba(255,255,255,0.3)'" onmouseout="this.style.borderColor='transparent'">
 
-                <div style="font-size: 48px; margin-bottom: 10px;">ðŸ–¥Â</div>
+                <div style="font-size: 48px; margin-bottom: 10px;">🖥</div>
 
                 <h4 style="margin: 0 0 8px 0; font-size: 14px;">Add Master Tab</h4>
 
@@ -33155,7 +33155,7 @@ ${pageText}
 
               <div id="display-grid-browser-config" style="background: rgba(0,0,0,0.2); border-radius: 8px; padding: 15px; cursor: pointer; transition: all 0.3s ease; border: 2px solid transparent;" onmouseover="this.style.borderColor='rgba(255,255,255,0.3)'" onmouseout="this.style.borderColor='transparent'">
 
-                <div style="font-size: 48px; margin-bottom: 10px;">ðŸ—‚Â</div>
+                <div style="font-size: 48px; margin-bottom: 10px;">🗂</div>
 
                 <h4 style="margin: 0 0 8px 0; font-size: 14px;">AI Output Grids</h4>
 
@@ -33175,7 +33175,7 @@ ${pageText}
 
           <button id="helpergrid-close" style="padding: 12px 30px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: bold;">
 
-            âœ… Close Configuration
+            ✅ Close Configuration
 
           </button>
 
@@ -33285,7 +33285,7 @@ ${pageText}
 
         <div style="padding: 20px; border-bottom: 1px solid ${csTheme().border}; display: flex; justify-content: space-between; align-items: center;">
 
-          <h2 style="margin: 0; font-size: 20px;">ðŸŒÂ Web Sources Configuration</h2>
+          <h2 style="margin: 0; font-size: 20px;">🌐 Web Sources Configuration</h2>
 
           <button id="close-helper-tabs" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">&times;</button>
 
@@ -33315,7 +33315,7 @@ ${pageText}
 
           <button id="save-helper-tabs" style="padding: 12px 30px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: bold;">
 
-            ðŸš€ Save & Open Web Sources
+            🚀 Save & Open Web Sources
 
           </button>
 
@@ -33597,7 +33597,7 @@ ${pageText}
 
         `
 
-        notification.innerHTML = `ðŸš€ ${urls.length} Helper tabs opened! Session auto-saved to history.`
+        notification.innerHTML = `🚀 ${urls.length} Helper tabs opened! Session auto-saved to history.`
 
         document.body.appendChild(notification)
 
@@ -33646,7 +33646,7 @@ ${pageText}
 
         <div style="padding: 20px; border-bottom: 1px solid ${csTheme().border}; display: flex; justify-content: space-between; align-items: center;">
 
-          <h2 style="margin: 0; font-size: 18px;">ðŸ–¥Â Add Master Tabs</h2>
+          <h2 style="margin: 0; font-size: 18px;">🖥 Add Master Tabs</h2>
 
           <button id="close-hybrid-select" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">&times;</button>
 
@@ -33676,7 +33676,7 @@ ${pageText}
 
         <div style="padding: 20px; border-top: 1px solid ${csTheme().border}; display: flex; justify-content: center; background: ${csTheme().cardBg};">
 
-          <button id="hybrid-save-open" style="padding: 12px 30px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: bold;">ðŸš€ Save & Open</button>
+          <button id="hybrid-save-open" style="padding: 12px 30px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: bold;">🚀 Save & Open</button>
 
         </div>
 
@@ -33856,7 +33856,7 @@ ${pageText}
 
         } catch (error) {
 
-          console.error(`âŒ Invalid URL for master tab ${i}:`, targetUrl, error)
+          console.error(`❌ Invalid URL for master tab ${i}:`, targetUrl, error)
 
           // Fallback to current page if URL is invalid
 
@@ -33915,7 +33915,7 @@ ${pageText}
 
         } catch (e) {
 
-          console.error('âŒ Error saving master tabs to session:', e)
+          console.error('❌ Error saving master tabs to session:', e)
 
         }
 
@@ -33923,7 +33923,7 @@ ${pageText}
 
         const note = document.createElement('div')
 
-        note.textContent = `âœ… Opened ${count} master tab${count > 1 ? 's' : ''} with session key: ${activeSessionKey.split('_')[1]}`
+        note.textContent = `✅ Opened ${count} master tab${count > 1 ? 's' : ''} with session key: ${activeSessionKey.split('_')[1]}`
 
         note.style.cssText = `position:fixed;top:20px;right:20px;z-index:2147483650;background:${csTheme().accentGrad};color:#fff;padding:10px 14px;border-radius:8px;font-size:12px;box-shadow:0 4px 12px rgba(0,0,0,0.3)`
 
@@ -33996,7 +33996,7 @@ ${pageText}
 
         <div style="padding: 20px; border-bottom: 1px solid ${csTheme().border}; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;">
 
-          <h2 style="margin: 0; font-size: 22px;">ðŸ—‚Â Display Grid Browser Layouts</h2>
+          <h2 style="margin: 0; font-size: 22px;">🗂 Display Grid Browser Layouts</h2>
 
           <button id="close-btn" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">&times;</button>
 
@@ -34478,7 +34478,7 @@ ${pageText}
 
           <button id="save-open-grids" style="padding: 15px 30px; background: #666; border: none; color: white; border-radius: 8px; cursor: not-allowed; font-size: 14px; font-weight: bold; transition: all 0.3s ease;" disabled>
 
-            ðŸš€ Save & Open Grids
+            🚀 Save & Open Grids
 
           </button>
 
@@ -34906,7 +34906,7 @@ ${pageText}
 
           if (chrome.runtime.lastError) {
 
-            console.error('âŒ Failed to save session:', chrome.runtime.lastError)
+            console.error('❌ Failed to save session:', chrome.runtime.lastError)
 
           } else {
 
@@ -34917,7 +34917,7 @@ ${pageText}
 
             const note = document.createElement('div')
 
-            note.textContent = 'âœ… Display grids added to session'
+            note.textContent = '✅ Display grids added to session'
 
             note.style.cssText = `position:fixed;top:20px;right:20px;z-index:2147483650;background:${csTheme().accentGrad};color:#fff;padding:10px 14px;border-radius:8px;font-size:12px;box-shadow:0 4px 12px rgba(0,0,0,0.3)`
 
@@ -35001,7 +35001,7 @@ ${pageText}
 
       const notification = document.createElement('div')
 
-      notification.innerHTML = 'ðŸ—‚Â ' + newGridsToOpen.length + ' new display grids opened! (' + currentTabData.displayGrids.length + ' total grids in session)'
+      notification.innerHTML = '🗂 ' + newGridsToOpen.length + ' new display grids opened! (' + currentTabData.displayGrids.length + ' total grids in session)'
 
       notification.style.cssText = `
 
@@ -35046,7 +35046,7 @@ ${pageText}
 
       if (totalInstances > 0) {
 
-        saveBtn.innerHTML = `ðŸš€ Save & Open ${totalInstances} Grid Instance${totalInstances > 1 ? 's' : ''}`
+        saveBtn.innerHTML = `🚀 Save & Open ${totalInstances} Grid Instance${totalInstances > 1 ? 's' : ''}`
 
         saveBtn.style.background = '#4CAF50'
 
@@ -35056,7 +35056,7 @@ ${pageText}
 
       } else {
 
-        saveBtn.innerHTML = 'ðŸš€ Save & Open Grids'
+        saveBtn.innerHTML = '🚀 Save & Open Grids'
 
         saveBtn.style.background = '#666'
 
@@ -35322,7 +35322,7 @@ ${pageText}
 
     const notification = document.createElement('div')
 
-    notification.innerHTML = 'ðŸ—‚Â ' + layout.replace('-', ' ').toUpperCase() + ' display grid saved to session! Use "View All Sessions" to open it.'
+    notification.innerHTML = '🗂 ' + layout.replace('-', ' ').toUpperCase() + ' display grid saved to session! Use "View All Sessions" to open it.'
 
     notification.style.cssText = `
 
@@ -35355,7 +35355,7 @@ ${pageText}
 
     if (!sessionKey) {
 
-      console.error('âŒ PARENT: No session key provided')
+      console.error('❌ PARENT: No session key provided')
 
       return Promise.reject(new Error('No session key'))
 
@@ -35381,7 +35381,7 @@ ${pageText}
 
         if (chrome.runtime.lastError) {
 
-          console.error('âŒ PARENT: sendMessage failed:', chrome.runtime.lastError)
+          console.error('❌ PARENT: sendMessage failed:', chrome.runtime.lastError)
 
           reject(chrome.runtime.lastError)
 
@@ -35392,7 +35392,7 @@ ${pageText}
 
         } else {
 
-          console.error('âŒ PARENT: Save failed:', response)
+          console.error('❌ PARENT: Save failed:', response)
 
           reject(new Error('Save failed'))
 
@@ -35631,7 +35631,7 @@ ${pageText}
 
         if (chrome.runtime.lastError) {
 
-          console.warn('âš ï¸ Could not fetch from SQLite:', chrome.runtime.lastError.message)
+          console.warn('⚠️ Could not fetch from SQLite:', chrome.runtime.lastError.message)
 
           openGridWindowWithExtensionURL(layout, sessionId, currentTheme, sessionKey, 1)
 
@@ -35688,7 +35688,7 @@ ${pageText}
 
         
 
-        // âœ… USE EXTENSION URL INSTEAD OF about:blank
+        // ✅ USE EXTENSION URL INSTEAD OF about:blank
 
 
         openGridWindowWithExtensionURL(layout, sessionId, currentTheme, sessionKey, nextBoxNumber)
@@ -35744,7 +35744,7 @@ ${pageText}
 
     if (!gridWindow) {
 
-      console.error('âŒ Failed to open grid window - popup blocked?')
+      console.error('❌ Failed to open grid window - popup blocked?')
 
       alert('Grid window was blocked. Please allow popups for this site.')
 
@@ -35759,7 +35759,7 @@ ${pageText}
 
   
 
-  // ðŸ†â€¢ V2 GRID SYSTEM - Opens grid using extension URL (has full Chrome API access!)
+  // 🏆• V2 GRID SYSTEM - Opens grid using extension URL (has full Chrome API access!)
 
   function openGridFromSession_v2(layout: string, sessionId: string) {
 
@@ -35793,7 +35793,7 @@ ${pageText}
 
         if (chrome.runtime.lastError) {
 
-          console.warn('âš ï¸ V2: Could not fetch from SQLite:', chrome.runtime.lastError.message)
+          console.warn('⚠️ V2: Could not fetch from SQLite:', chrome.runtime.lastError.message)
 
           openGridWindow_v2(layout, sessionId, currentTheme, sessionKey, 1)
 
@@ -35905,7 +35905,7 @@ ${pageText}
 
     if (!gridWindow) {
 
-      console.error('âŒ V2: Failed to open grid window - popup blocked?')
+      console.error('❌ V2: Failed to open grid window - popup blocked?')
 
       alert('Grid window was blocked. Please allow popups for this site.')
 
@@ -35920,7 +35920,7 @@ ${pageText}
 
   
 
-  // ðŸ§ª TEST COMMAND: Make V2 grid opener available globally for testing
+  // 🧪 TEST COMMAND: Make V2 grid opener available globally for testing
 
   // Usage: Open console and run: window.testGridV2('4-slot')
 
@@ -35974,7 +35974,7 @@ ${pageText}
 
                     if (typeof fn === 'function') {
 
-                      try { fn(sid) } catch (e) { console.error('âŒ openGridSlotEditor failed:', e) }
+                      try { fn(sid) } catch (e) { console.error('❌ openGridSlotEditor failed:', e) }
 
                     } else {
 
@@ -36072,7 +36072,7 @@ ${pageText}
 
           } catch (err) {
 
-            console.error('âŒ Failed to save grid config from opener:', err)
+            console.error('❌ Failed to save grid config from opener:', err)
 
           }
 
@@ -36106,7 +36106,7 @@ ${pageText}
 
                     if (typeof fn === 'function') {
 
-                      try { fn(sid) } catch (e) { console.error('âŒ openGridSlotEditor failed:', e) }
+                      try { fn(sid) } catch (e) { console.error('❌ openGridSlotEditor failed:', e) }
 
                     } else {
 
@@ -36283,7 +36283,7 @@ ${pageText}
 
         if (chrome.runtime.lastError) {
 
-          console.error('âŒ FAILED TO SAVE SESSION:', chrome.runtime.lastError)
+          console.error('❌ FAILED TO SAVE SESSION:', chrome.runtime.lastError)
 
         } else {
 
@@ -36303,7 +36303,7 @@ ${pageText}
 
           const note = document.createElement('div')
 
-          note.textContent = 'âœ… Grid config saved to session history'
+          note.textContent = '✅ Grid config saved to session history'
 
           note.style.cssText = `position:fixed;top:20px;right:20px;z-index:2147483650;background:${csTheme().accentGrad};color:#fff;padding:10px 14px;border-radius:8px;font-size:12px;box-shadow:0 4px 12px rgba(0,0,0,0.3)`
 
@@ -36527,7 +36527,7 @@ ${pageText}
 
               const note = document.createElement('div')
 
-              note.textContent = 'âœ… Grid config saved to session'
+              note.textContent = '✅ Grid config saved to session'
 
               note.style.cssText = `position:fixed;top:20px;right:20px;z-index:2147483650;background:${csTheme().accentGrad};color:#fff;padding:10px 14px;border-radius:8px;font-size:12px;box-shadow:0 4px 12px rgba(0,0,0,0.3)`
 
@@ -36669,7 +36669,7 @@ ${pageText}
 
       }
 
-      const displayText = displayParts.join(' Â· ')
+      const displayText = displayParts.join(' · ')
 
       
 
@@ -36741,7 +36741,7 @@ ${pageText}
 
               <span style="margin-right: 4px; white-space: nowrap; font-family: monospace; font-size: 10px;">${abCode}</span>
 
-              <span style="margin-right: 4px;">ðŸ–¥Â</span>
+              <span style="margin-right: 4px;">🖥</span>
 
               <span class="slot-display-text" style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 2px 6px;">${displayText}</span>
 
@@ -36749,7 +36749,7 @@ ${pageText}
 
             <div style="display: flex; align-items: center; flex-shrink: 0; gap: 4px;">
 
-              <button class="edit-slot" data-slot-id="${slotNum}" title="Setup Agent Box" onclick="if(window.openGridSlotEditor) window.openGridSlotEditor('${slotNum}'); else console.log('âŒ openGridSlotEditor not found');" style="background: ${theme === 'standard' ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.2)'}; border: none; color: ${textColor}; width: 20px; height: 20px; border-radius: 50%; cursor: pointer; font-size: 11px; display: flex; align-items: center; justify-content: center; transition: all 0.2s ease;">âœÂï¸</button>
+              <button class="edit-slot" data-slot-id="${slotNum}" title="Setup Agent Box" onclick="if(window.openGridSlotEditor) window.openGridSlotEditor('${slotNum}'); else console.log('❌ openGridSlotEditor not found');" style="background: ${theme === 'standard' ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.2)'}; border: none; color: ${textColor}; width: 20px; height: 20px; border-radius: 50%; cursor: pointer; font-size: 11px; display: flex; align-items: center; justify-content: center; transition: all 0.2s ease;">✏️</button>
 
               <button class="close-slot" style="background: ${theme === 'standard' ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.2)'}; border: none; color: ${textColor}; width: 18px; height: 18px; border-radius: 50%; cursor: pointer; font-size: 10px; font-weight: bold; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">&times;</button>
 
@@ -37069,7 +37069,7 @@ ${pageText}
 
             border-radius: 0 5px 5px 0;
 
-          ">â€¹</button>
+          ">‹</button>
 
           <button id="next-slide" style="
 
@@ -37089,7 +37089,7 @@ ${pageText}
 
             border-radius: 5px 0 0 5px;
 
-          ">â€º</button>
+          ">›</button>
 
         </div>
 
@@ -37193,7 +37193,7 @@ ${pageText}
 
         ">
 
-          âœ… Grid saved to session!
+          ✅ Grid saved to session!
 
         </div>
 
@@ -37237,7 +37237,7 @@ ${pageText}
 
         <div style="text-align: center;">
 
-          <div style="font-size: 24px; margin-bottom: 10px;">â³</div>
+          <div style="font-size: 24px; margin-bottom: 10px;">⏳</div>
 
           <div style="font-size: 16px;">Loading sessions...</div>
 
@@ -37251,7 +37251,7 @@ ${pageText}
 
     
 
-    // Get saved sessions from SQLite via background message â€” this guarantees we read
+    // Get saved sessions from SQLite via background message — this guarantees we read
     // authoritative data. storageGet(null) merges Chrome Storage + adapter but may miss
     // sessions when the adapter GET_ALL fails silently and Chrome Storage doesn't mirror them.
 
@@ -37267,7 +37267,7 @@ ${pageText}
         .filter(([key]) => key.startsWith('session_'))
 
         .map(([key, rawData]: [string, any]) => {
-          // Defensive normalization â€” ensure arrays are never null/undefined
+          // Defensive normalization — ensure arrays are never null/undefined
           const data: any = rawData || {}
           return {
             id: key,
@@ -37338,7 +37338,7 @@ ${pageText}
 
                     ${session.isActive ? `<span style="position: absolute; right: 8px; top: 50%; transform: translateY(-50%); background:${csTheme().accentGrad}; color: white; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 600; white-space: nowrap; pointer-events: none; z-index: 1;">ACTIVE</span>` : ''}
 
-                    <span class="session-save-indicator" data-session-id="${session.id}" style="position: absolute; right: ${session.isActive ? '50px' : '8px'}; top: 50%; transform: translateY(-50%); display: none; color: ${csTheme().accentColor}; font-size: 14px; cursor: pointer; z-index: 2;" title="Click to save">ðŸ’¾</span>
+                    <span class="session-save-indicator" data-session-id="${session.id}" style="position: absolute; right: ${session.isActive ? '50px' : '8px'}; top: 50%; transform: translateY(-50%); display: none; color: ${csTheme().accentColor}; font-size: 14px; cursor: pointer; z-index: 2;" title="Click to save">💾</span>
 
                   </div>
 
@@ -37354,11 +37354,11 @@ ${pageText}
 
                 <div style="display: flex; gap: 6px; align-items: flex-start; flex-shrink: 0;">
 
-                  <button class="edit-session-name-btn" data-session-id="${session.id}" style="background: linear-gradient(135deg, ${csTheme().accent}, #1976D2); border: none; color: white; padding: 6px 8px; border-radius: 4px; cursor: pointer; font-size: 10px; transition: all 0.2s ease;" title="Edit session name" onmouseover="this.style.transform='scale(1.05)'" onmouseout="this.style.transform='scale(1)'">âœÂï¸</button>
+                  <button class="edit-session-name-btn" data-session-id="${session.id}" style="background: linear-gradient(135deg, ${csTheme().accent}, #1976D2); border: none; color: white; padding: 6px 8px; border-radius: 4px; cursor: pointer; font-size: 10px; transition: all 0.2s ease;" title="Edit session name" onmouseover="this.style.transform='scale(1.05)'" onmouseout="this.style.transform='scale(1)'">✏️</button>
 
-                <button class="agentbox-overview-btn" data-session-id="${session.id}" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; padding: 5px 8px; border-radius: 4px; cursor: pointer; font-size: 11px;" title="Agent Box Overview">ðŸ“¦ Boxes</button>
+                <button class="agentbox-overview-btn" data-session-id="${session.id}" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; padding: 5px 8px; border-radius: 4px; cursor: pointer; font-size: 11px;" title="Agent Box Overview">📦 Boxes</button>
 
-                <button class="delete-session-btn" data-session-id="${session.id}" style="background: linear-gradient(135deg, ${csTheme().isLight ? "#dc2626" : "#f87171"}, #d32f2f); border: none; color: white; padding: 6px 8px; border-radius: 4px; cursor: pointer; font-size: 10px; transition: all 0.2s ease;" title="Delete session" onmouseover="this.style.transform='scale(1.05)'" onmouseout="this.style.transform='scale(1)'">ðŸ—â€˜ï¸</button>
+                <button class="delete-session-btn" data-session-id="${session.id}" style="background: linear-gradient(135deg, ${csTheme().isLight ? "#dc2626" : "#f87171"}, #d32f2f); border: none; color: white; padding: 6px 8px; border-radius: 4px; cursor: pointer; font-size: 10px; transition: all 0.2s ease;" title="Delete session" onmouseover="this.style.transform='scale(1.05)'" onmouseout="this.style.transform='scale(1)'">🗝‘️</button>
 
         </div>
 
@@ -37378,7 +37378,7 @@ ${pageText}
 
                   <div style=\"background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; border-radius: 6px; padding: 8px 10px; margin: 6px 0;\">
 
-                    <span style=\"font-size: 11px; font-weight: 600; color: ${csTheme().text};\">ðŸ“¦ Master Agent Boxes (${session.agentBoxes.length})</span>
+                    <span style=\"font-size: 11px; font-weight: 600; color: ${csTheme().text};\">📦 Master Agent Boxes (${session.agentBoxes.length})</span>
 
                   </div>
 
@@ -37396,7 +37396,7 @@ ${pageText}
                   return `
                   <div style=\"background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; border-radius: 6px; padding: 8px 10px; margin: 6px 0;\">
 
-                    <span style=\"font-size: 11px; font-weight: 600; color: ${csTheme().text};\">ðŸ¤– AI Agents (${realAgents.length})</span>
+                    <span style=\"font-size: 11px; font-weight: 600; color: ${csTheme().text};\">🤖 AI Agents (${realAgents.length})</span>
 
                     <div style=\"display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px;\">
 
@@ -37414,7 +37414,7 @@ ${pageText}
 
                   <div style=\"background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; border-radius: 6px; padding: 8px 10px; margin: 6px 0;\">
 
-                    <span style=\"font-size: 11px; font-weight: 600; color: ${csTheme().text};\">ðŸ–¥Â Master Tabs (${session.hybridAgentBoxes.length})</span>
+                    <span style=\"font-size: 11px; font-weight: 600; color: ${csTheme().text};\">🖥 Master Tabs (${session.hybridAgentBoxes.length})</span>
 
                     <div style=\"display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px;\">
 
@@ -37440,9 +37440,9 @@ ${pageText}
 
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
 
-                      <span style="font-size: 11px; font-weight: 600; color: ${csTheme().text};">ðŸŒÂ Web Sources (${session.helperTabs.urls.length})</span>
+                      <span style="font-size: 11px; font-weight: 600; color: ${csTheme().text};">🌐 Web Sources (${session.helperTabs.urls.length})</span>
 
-                      <button class="edit-helper-tabs-btn" data-session-id="${session.id}" style="background: #FF6B35; border: none; color: white; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: bold;" title="Edit helper tabs">âœÂï¸ Edit</button>
+                      <button class="edit-helper-tabs-btn" data-session-id="${session.id}" style="background: #FF6B35; border: none; color: white; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: bold;" title="Edit helper tabs">✏️ Edit</button>
 
           </div>
 
@@ -37468,9 +37468,9 @@ ${pageText}
 
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
 
-                      <span style="font-size: 11px; font-weight: 600; color: ${csTheme().text};">ðŸ—‚Â Display Grids (${session.displayGrids.length})</span>
+                      <span style="font-size: 11px; font-weight: 600; color: ${csTheme().text};">🗂 Display Grids (${session.displayGrids.length})</span>
 
-                      <button class="edit-display-grids-btn" data-session-id="${session.id}" style="background: #FF8C00; border: none; color: white; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: bold;" title="Edit display grids">âœÂï¸ Edit</button>
+                      <button class="edit-display-grids-btn" data-session-id="${session.id}" style="background: #FF8C00; border: none; color: white; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: bold;" title="Edit display grids">✏️ Edit</button>
 
         </div>
 
@@ -37496,7 +37496,7 @@ ${pageText}
 
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
 
-                      <span style="font-size: 11px; font-weight: 600; color: ${csTheme().text};">ðŸ“„ Attached Context</span>
+                      <span style="font-size: 11px; font-weight: 600; color: ${csTheme().text};">📄 Attached Context</span>
 
                     </div>
 
@@ -37504,19 +37504,19 @@ ${pageText}
 
                       ${session.context.userContext?.text ? `
 
-                        <span style="background: ${csTheme().cardBg}; color: ${csTheme().text}; border: 1px solid ${csTheme().border}; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 500;" title="User Context: ${session.context.userContext.text.substring(0, 100)}${session.context.userContext.text.length > 100 ? '...' : ''}">ðŸ‘¤ User Context (${session.context.userContext.text.length} chars)</span>
+                        <span style="background: ${csTheme().cardBg}; color: ${csTheme().text}; border: 1px solid ${csTheme().border}; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 500;" title="User Context: ${session.context.userContext.text.substring(0, 100)}${session.context.userContext.text.length > 100 ? '...' : ''}">👤 User Context (${session.context.userContext.text.length} chars)</span>
 
                       ` : ''}
 
                       ${session.context.publisherContext?.text ? `
 
-                        <span style="background: ${csTheme().cardBg}; color: ${csTheme().text}; border: 1px solid ${csTheme().border}; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 500;" title="Publisher Context: ${session.context.publisherContext.text.substring(0, 100)}${session.context.publisherContext.text.length > 100 ? '...' : ''}">ðŸŒÂ Publisher Context (${session.context.publisherContext.text.length} chars)</span>
+                        <span style="background: ${csTheme().cardBg}; color: ${csTheme().text}; border: 1px solid ${csTheme().border}; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 500;" title="Publisher Context: ${session.context.publisherContext.text.substring(0, 100)}${session.context.publisherContext.text.length > 100 ? '...' : ''}">🌐 Publisher Context (${session.context.publisherContext.text.length} chars)</span>
 
                       ` : ''}
 
                       ${session.context.userContext?.pdfFiles && session.context.userContext.pdfFiles.length > 0 ? `
 
-                        <span style="background: ${csTheme().cardBg}; color: ${csTheme().text}; border: 1px solid ${csTheme().border}; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 500;" title="PDF Files: ${session.context.userContext.pdfFiles.map((f: any) => f.name).join(', ')}">ðŸ“ PDF Files (${session.context.userContext.pdfFiles.length})</span>
+                        <span style="background: ${csTheme().cardBg}; color: ${csTheme().text}; border: 1px solid ${csTheme().border}; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 500;" title="PDF Files: ${session.context.userContext.pdfFiles.map((f: any) => f.name).join(', ')}">📁 PDF Files (${session.context.userContext.pdfFiles.length})</span>
 
                       ` : ''}
 
@@ -37534,7 +37534,7 @@ ${pageText}
 
             <div style="padding: 4px 4px 0 4px;">
 
-              <span style="font-size: 10px; color: ${csTheme().muted};">ðŸ“… ${session.timestamp ? new Date(session.timestamp).toLocaleString() : 'No date'}</span>
+              <span style="font-size: 10px; color: ${csTheme().muted};">📅 ${session.timestamp ? new Date(session.timestamp).toLocaleString() : 'No date'}</span>
 
             </div>
 
@@ -37552,7 +37552,7 @@ ${pageText}
 
           <div style="padding: 20px; border-bottom: 1px solid ${csTheme().border}; display: flex; justify-content: space-between; align-items: center;">
 
-            <h2 style="margin: 0; font-size: 20px;">ðŸ“š Sessions History</h2>
+            <h2 style="margin: 0; font-size: 20px;">📚 Sessions History</h2>
 
             <button id="close-sessions-lightbox" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">&times;</button>
 
@@ -37572,7 +37572,7 @@ ${pageText}
 
             <button id="clear-all-sessions" style="padding: 12px 30px; background: rgba(220,38,38,0.08); border: 1px solid rgba(220,38,38,0.25); color: ${csTheme().isLight ? "#991b1b" : "#f87171"}; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: bold;">
 
-              ðŸ—â€˜ï¸ Clear All Sessions
+              🗝‘️ Clear All Sessions
 
             </button>
 
@@ -37793,7 +37793,7 @@ ${pageText}
 
                 if (!newTab) {
 
-                  console.error(`âŒ Failed to open helper tab ${index + 1} - popup blocked:`, url)
+                  console.error(`❌ Failed to open helper tab ${index + 1} - popup blocked:`, url)
 
                 } else {
 
@@ -37913,7 +37913,7 @@ ${pageText}
 
                       if (!hybridTab) {
 
-                        console.error(`âŒ Failed to open master tab ${hybridId} - popup blocked`)
+                        console.error(`❌ Failed to open master tab ${hybridId} - popup blocked`)
 
                       } else {
 
@@ -37922,7 +37922,7 @@ ${pageText}
 
                     } catch (error) {
 
-                      console.error(`âŒ Invalid URL for hybrid view ${hybridId}:`, hybridUrl, error)
+                      console.error(`❌ Invalid URL for hybrid view ${hybridId}:`, hybridUrl, error)
 
                       // Fallback to target URL if stored URL is invalid
 
@@ -38024,7 +38024,7 @@ ${pageText}
 
                     try {
 
-                      openGridFromSession(grid.layout, grid.sessionId)  // â† Back to V1
+                      openGridFromSession(grid.layout, grid.sessionId)  // ← Back to V1
 
                       
                       // Notify background script on the last grid
@@ -38037,7 +38037,7 @@ ${pageText}
 
                     } catch (error) {
 
-                      console.error(`âŒ Failed to open display grid ${index + 1}:`, error)
+                      console.error(`❌ Failed to open display grid ${index + 1}:`, error)
 
                     }
 
@@ -38171,7 +38171,7 @@ ${pageText}
 
                       if (!hybridTab) {
 
-                        console.error(`âŒ Failed to open master tab ${hybridId} - popup blocked`)
+                        console.error(`❌ Failed to open master tab ${hybridId} - popup blocked`)
 
                       } else {
 
@@ -38180,7 +38180,7 @@ ${pageText}
 
                     } catch (error) {
 
-                      console.error(`âŒ Invalid URL for hybrid view ${hybridId}:`, hybridUrl, error)
+                      console.error(`❌ Invalid URL for hybrid view ${hybridId}:`, hybridUrl, error)
 
                       // Fallback to target URL if stored URL is invalid
 
@@ -38235,12 +38235,12 @@ ${pageText}
 
                   try {
 
-                    openGridFromSession(grid.layout, grid.sessionId)  // â† Back to V1
+                    openGridFromSession(grid.layout, grid.sessionId)  // ← Back to V1
 
 
                   } catch (error) {
 
-                    console.error(`âŒ Failed to open display grid ${index + 1}:`, error)
+                    console.error(`❌ Failed to open display grid ${index + 1}:`, error)
 
                   }
 
@@ -38320,7 +38320,7 @@ ${pageText}
 
               
 
-              contextNotification.innerHTML = `ðŸ“„ Context restored: ${contextItems.join(', ')}`
+              contextNotification.innerHTML = `📄 Context restored: ${contextItems.join(', ')}`
 
               document.body.appendChild(contextNotification)
 
@@ -38392,7 +38392,7 @@ ${pageText}
           // Show save indicator
           if (saveIndicator) {
             saveIndicator.style.display = 'inline-block'
-            saveIndicator.textContent = 'ðŸ’¾'
+            saveIndicator.textContent = '💾'
             saveIndicator.style.color = '#FFB366'
             saveIndicator.style.cursor = 'pointer'
             saveIndicator.title = 'Click to save'
@@ -38406,7 +38406,7 @@ ${pageText}
           saveTimeout = setTimeout(() => {
             syncSessionName(nameInput.value, 'history', sessionId)
             if (saveIndicator) {
-              saveIndicator.textContent = 'âœâ€œ'
+              saveIndicator.textContent = '✏“'
               saveIndicator.style.color = '#4CAF50'
               setTimeout(() => {
                 if (saveIndicator) saveIndicator.style.display = 'none'
@@ -38424,7 +38424,7 @@ ${pageText}
               saveTimeout = null
             }
             syncSessionName(nameInput.value, 'history', sessionId)
-            saveIndicator.textContent = 'âœâ€œ'
+            saveIndicator.textContent = '✏“'
             saveIndicator.style.color = '#4CAF50'
             setTimeout(() => {
               if (saveIndicator) saveIndicator.style.display = 'none'
@@ -38442,7 +38442,7 @@ ${pageText}
           nameInput.style.background = csTheme().inputBg
           nameInput.style.borderColor = 'rgba(255,255,255,0.2)'
           if (saveIndicator) {
-            saveIndicator.textContent = 'âœâ€œ'
+            saveIndicator.textContent = '✏“'
             saveIndicator.style.color = '#4CAF50'
             setTimeout(() => {
               if (saveIndicator) saveIndicator.style.display = 'none'
@@ -38459,7 +38459,7 @@ ${pageText}
             }
             syncSessionName(nameInput.value, 'history', sessionId)
             if (saveIndicator) {
-              saveIndicator.textContent = 'âœâ€œ'
+              saveIndicator.textContent = '✏“'
               saveIndicator.style.color = '#4CAF50'
               setTimeout(() => {
                 if (saveIndicator) saveIndicator.style.display = 'none'
@@ -38543,7 +38543,7 @@ ${pageText}
         clearAllBtn.addEventListener('click', (e) => {
           e.stopPropagation()
           
-          if (confirm(`âš ï¸ Are you sure you want to delete ALL sessions?\n\nThis will delete ${sessions.length} session(s) from SQLite.\n\nThis action cannot be undone!`)) {
+          if (confirm(`⚠️ Are you sure you want to delete ALL sessions?\n\nThis will delete ${sessions.length} session(s) from SQLite.\n\nThis action cannot be undone!`)) {
             const sessionKeys = sessions.map(s => s.id)
             
             
@@ -38562,7 +38562,7 @@ ${pageText}
               z-index: 2147483650;
               box-shadow: 0 4px 12px rgba(0,0,0,0.2);
             `
-            notification.innerHTML = `â³ Deleting ${sessionKeys.length} sessions...`
+            notification.innerHTML = `⏳ Deleting ${sessionKeys.length} sessions...`
             document.body.appendChild(notification)
             
             // Delete all sessions from SQLite via background (authoritative path)
@@ -38579,7 +38579,7 @@ ${pageText}
               const showSuccess = () => {
                 const n = document.createElement('div')
                 n.style.cssText = 'position:fixed;top:60px;right:20px;background:rgba(76,175,80,0.9);color:white;padding:12px 20px;border-radius:8px;font-size:14px;font-weight:500;z-index:2147483650;box-shadow:0 4px 12px rgba(0,0,0,0.2);'
-                n.textContent = 'âœ… All sessions cleared!'
+                n.textContent = '✅ All sessions cleared!'
                 document.body.appendChild(n)
                 setTimeout(() => n.remove(), 3000)
                 overlay.remove(); openSessionsLightbox()
@@ -38603,14 +38603,14 @@ ${pageText}
     // Fall back to Chrome Storage if background is unavailable.
     chrome.runtime.sendMessage({ type: 'GET_ALL_SESSIONS_FROM_SQLITE' }, (response) => {
       if (chrome.runtime.lastError) {
-        console.warn('âš ï¸ Background unavailable for GET_ALL_SESSIONS_FROM_SQLITE, falling back to Chrome Storage:', chrome.runtime.lastError.message)
+        console.warn('⚠️ Background unavailable for GET_ALL_SESSIONS_FROM_SQLITE, falling back to Chrome Storage:', chrome.runtime.lastError.message)
         storageGet(null, (allData) => buildSessionList(allData))
         return
       }
       if (response?.success && response.sessions) {
         buildSessionList(response.sessions)
       } else {
-        console.warn('âš ï¸ GET_ALL_SESSIONS_FROM_SQLITE returned no data, falling back to Chrome Storage')
+        console.warn('⚠️ GET_ALL_SESSIONS_FROM_SQLITE returned no data, falling back to Chrome Storage')
         storageGet(null, (allData) => buildSessionList(allData))
       }
     })
@@ -38660,7 +38660,7 @@ ${pageText}
 
       <div style="background: ${csTheme().panelBg}; border: 1px solid ${csTheme().border}; border-radius: 12px; padding: 40px; color: ${csTheme().text}; text-align: center; box-shadow: ${csTheme().shadow};">
 
-        <div style="font-size: 24px; margin-bottom: 10px;">â³</div>
+        <div style="font-size: 24px; margin-bottom: 10px;">⏳</div>
 
         <div style="color: ${csTheme().muted};">Loading agent boxes...</div>
 
@@ -38750,7 +38750,7 @@ ${pageText}
 
           <div style="background: ${csTheme().panelBg}; border: 1px solid ${csTheme().border}; border-radius: 12px; padding: 40px; color: ${csTheme().text}; text-align: center; box-shadow: ${csTheme().shadow};">
 
-            <div style="font-size: 24px; margin-bottom: 10px;">âŒ</div>
+            <div style="font-size: 24px; margin-bottom: 10px;">❌</div>
 
             <div style="color: ${csTheme().muted};">Session not found</div>
 
@@ -39006,7 +39006,7 @@ ${pageText}
 
               model: box.model,
 
-              tools: box.tools || []  // â† Add tools array
+              tools: box.tools || []  // ← Add tools array
 
             })
 
@@ -39169,11 +39169,11 @@ ${pageText}
 
     } // end doOverview
 
-    // Use background message to read authoritative SQLite data â€” avoids storageWrapper
+    // Use background message to read authoritative SQLite data — avoids storageWrapper
     // falling back to Chrome Storage (which doesn't mirror session_ keys from SQLite).
     chrome.runtime.sendMessage({ type: 'GET_SESSION_FROM_SQLITE', sessionKey }, (response) => {
       if (chrome.runtime.lastError) {
-        console.warn('âš ï¸ Could not reach background for session read, falling back to Chrome Storage:', chrome.runtime.lastError.message)
+        console.warn('⚠️ Could not reach background for session read, falling back to Chrome Storage:', chrome.runtime.lastError.message)
         chrome.storage.local.get([sessionKey], (result: any) => {
           doOverview(result?.[sessionKey] || null)
         })
@@ -39183,7 +39183,7 @@ ${pageText}
       if (session && (session.agentBoxes?.length || session.agents?.length || session.tabName)) {
         doOverview(session)
       } else {
-        // SQLite returned empty â€” try Chrome Storage mirror as fallback
+        // SQLite returned empty — try Chrome Storage mirror as fallback
         chrome.storage.local.get([sessionKey], (result: any) => {
           doOverview(result?.[sessionKey] || null)
         })
@@ -39210,7 +39210,7 @@ ${pageText}
 
         <div style="padding: 20px 24px; border-bottom: 1px solid ${csTheme().border}; display:flex; align-items:center; justify-content:space-between;">
 
-          <div style="display:flex;align-items:center;gap:10px;font-size:20px;font-weight:700">ðŸ§  Reasoning & Session Goals</div>
+          <div style="display:flex;align-items:center;gap:10px;font-size:20px;font-weight:700">🧠 Reasoning & Session Goals</div>
 
           <button id="close-reasoning-lightbox" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 36px; height: 36px; border-radius: 50%; cursor: pointer; font-size: 20px; display: flex; align-items: center; justify-content: center; transition: all 0.2s;">&times;</button>
 
@@ -39224,13 +39224,13 @@ ${pageText}
 
           <button id="tab-reasoning" class="reasoning-tab active" style="padding: 10px 20px; background: rgba(255,255,255,0.25); border: none; border-bottom: 3px solid white; color: white; border-radius: 8px 8px 0 0; cursor: pointer; font-size: 14px; font-weight: 600; transition: all 0.2s;">
 
-            ðŸ’¡ Reasoning & Insights
+            💡 Reasoning & Insights
 
           </button>
 
           <button id="tab-workflows" class="reasoning-tab" style="padding: 10px 20px; background: ${csTheme().cardBg}; border: none; border-bottom: 3px solid transparent; color: rgba(255,255,255,0.7); border-radius: 8px 8px 0 0; cursor: pointer; font-size: 14px; font-weight: 600; transition: all 0.2s;">
 
-            ðŸ› ï¸ Workflows
+            🛠️ Workflows
 
           </button>
 
@@ -39252,9 +39252,9 @@ ${pageText}
 
               <div style="display:flex; align-items:center; gap:8px; margin-bottom: 16px;">
 
-                <h3 style="margin: 0; font-size: 16px; font-weight: 700;">ðŸŽ¯ Session Goals</h3>
+                <h3 style="margin: 0; font-size: 16px; font-weight: 700;">🎯 Session Goals</h3>
 
-                <span title="Defining goals helps the system detect your intent more accurately and orchestrate better actions." style="font-size:14px; opacity:0.85; cursor:help;">â„¹ï¸</span>
+                <span title="Defining goals helps the system detect your intent more accurately and orchestrate better actions." style="font-size:14px; opacity:0.85; cursor:help;">ℹ️</span>
 
               </div>
 
@@ -39266,7 +39266,7 @@ ${pageText}
 
                   <textarea id="reasoning-goal-text" placeholder="What's your goal right now?" style="width: 100%; height: 100px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.4); color: white; padding: 10px 40px 10px 12px; border-radius: 8px; font-size: 13px; resize: vertical; font-family: inherit;"></textarea>
 
-                  <button id="reasoning-goal-mic" title="Speak your goal" style="position:absolute; right:10px; bottom:10px; background:rgba(255,255,255,0.2);border:1px solid rgba(255,255,255,0.4);color:#fff;padding:4px 8px;border-radius:6px;cursor:pointer; font-size: 14px;">ðŸŽ¤</button>
+                  <button id="reasoning-goal-mic" title="Speak your goal" style="position:absolute; right:10px; bottom:10px; background:rgba(255,255,255,0.2);border:1px solid rgba(255,255,255,0.4);color:#fff;padding:4px 8px;border-radius:6px;cursor:pointer; font-size: 14px;">🎤</button>
 
                 </div>
 
@@ -39276,11 +39276,11 @@ ${pageText}
 
                   <input id="reasoning-role-text" placeholder="e.g. assistant, validator" style="width:100%; height: 48px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.4); color: white; padding: 10px 40px 10px 12px; border-radius: 8px; font-size: 13px; font-family: inherit;"/>
 
-                  <button id="reasoning-role-mic" title="Speak your role" style="position:absolute; right:10px; top: 38px; background:rgba(255,255,255,0.2);border:1px solid rgba(255,255,255,0.4);color:#fff;padding:4px 8px;border-radius:6px;cursor:pointer; font-size: 14px;">ðŸŽ¤</button>
+                  <button id="reasoning-role-mic" title="Speak your role" style="position:absolute; right:10px; top: 38px; background:rgba(255,255,255,0.2);border:1px solid rgba(255,255,255,0.4);color:#fff;padding:4px 8px;border-radius:6px;cursor:pointer; font-size: 14px;">🎤</button>
 
                   <button id="save-as-agent-btn" title="Save your Goals and Role into an Agent. This allows recurring tasks and intent detection to be refined and tailored to you." style="margin-top: 8px; padding:10px 16px; background:${csTheme().accentGrad}; border:none; color:#07210f; border-radius:8px; font-size:13px; font-weight: 600; cursor:pointer; display:flex; align-items:center; justify-content: center; gap:8px; transition: all 0.2s;">
 
-                    ðŸ’¾ Save as Agent
+                    💾 Save as Agent
 
                   </button>
 
@@ -39302,7 +39302,7 @@ ${pageText}
 
                 <div style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
 
-                  <h4 style="margin: 0; font-size: 14px; font-weight: 700;">ðŸ§­ User Intent Detection</h4>
+                  <h4 style="margin: 0; font-size: 14px; font-weight: 700;">🧭 User Intent Detection</h4>
 
                   <div style="display:flex; align-items:center; gap:8px;">
 
@@ -39328,7 +39328,7 @@ ${pageText}
 
                   <div><strong>Detected Intent:</strong> Compare product prices and find best value</div>
 
-                  <div style="opacity:0.8; margin-top: 6px;">Confidence: 72% â€¢ Updated: just now</div>
+                  <div style="opacity:0.8; margin-top: 6px;">Confidence: 72% • Updated: just now</div>
 
                 </div>
 
@@ -39342,15 +39342,15 @@ ${pageText}
 
                 <div style="display:flex; align-items:center; justify-content:space-between;">
 
-                  <h4 style="margin: 0; font-size: 14px; font-weight: 700;">ðŸ§  Orchestration Logic</h4>
+                  <h4 style="margin: 0; font-size: 14px; font-weight: 700;">🧠 Orchestration Logic</h4>
 
                   <div style="display:flex; gap:8px;">
 
-                    <button id="gen-followups-btn" title="Re-generate follow-up questions" style="padding:8px 12px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius:8px; font-size:12px; cursor:pointer; font-weight: 600; transition: all 0.2s;">ðŸ”„ Re-Generate</button>
+                    <button id="gen-followups-btn" title="Re-generate follow-up questions" style="padding:8px 12px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius:8px; font-size:12px; cursor:pointer; font-weight: 600; transition: all 0.2s;">🔄 Re-Generate</button>
 
-                    <button id="show-paths-btn" title="Show reasoning paths" style="padding:8px 12px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius:8px; font-size:12px; cursor:pointer; font-weight: 600; transition: all 0.2s;">ðŸ§­ Paths</button>
+                    <button id="show-paths-btn" title="Show reasoning paths" style="padding:8px 12px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius:8px; font-size:12px; cursor:pointer; font-weight: 600; transition: all 0.2s;">🧭 Paths</button>
 
-                    <button id="feedback-loop-btn" title="Trigger feedback loop" style="padding:8px 12px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius:8px; font-size:12px; cursor:pointer; font-weight: 600; transition: all 0.2s;">â™»Â Feedback</button>
+                    <button id="feedback-loop-btn" title="Trigger feedback loop" style="padding:8px 12px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius:8px; font-size:12px; cursor:pointer; font-weight: 600; transition: all 0.2s;">♻ Feedback</button>
 
                   </div>
 
@@ -39358,7 +39358,7 @@ ${pageText}
 
                 <div id="orchestration-log" style="background: rgba(0,0,0,0.4); padding: 12px; border-radius: 8px; font-size: 12px; height: 140px; overflow-y: auto; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; line-height: 1.6; border: 1px solid ${csTheme().border};">
 
-                  [System] Orchestrator idle. Awaiting actionsâ€¦
+                  [System] Orchestrator idle. Awaiting actions…
 
                 </div>
 
@@ -39378,7 +39378,7 @@ ${pageText}
 
               <div style="background: rgba(255,255,255,0.15); padding: 20px; border-radius: 12px; display:flex; flex-direction:column; gap:12px;">
 
-                <div style="font-size:16px; font-weight:700;">ðŸ“§ Send Email</div>
+                <div style="font-size:16px; font-weight:700;">📧 Send Email</div>
 
                 <div style="font-size:13px; opacity:0.9; line-height: 1.5;">Draft and send a concise email.</div>
 
@@ -39388,7 +39388,7 @@ ${pageText}
 
               <div style="background: rgba(255,255,255,0.15); padding: 20px; border-radius: 12px; display:flex; flex-direction:column; gap:12px;">
 
-                <div style="font-size:16px; font-weight:700;">ðŸ“… Manage Calendar</div>
+                <div style="font-size:16px; font-weight:700;">📅 Manage Calendar</div>
 
                 <div style="font-size:13px; opacity:0.9; line-height: 1.5;">Create or reschedule meetings.</div>
 
@@ -39398,7 +39398,7 @@ ${pageText}
 
               <div style="background: rgba(255,255,255,0.15); padding: 20px; border-radius: 12px; display:flex; flex-direction:column; gap:12px;">
 
-                <div style="font-size:16px; font-weight:700;">ðŸ§¹ Clean Up Draft</div>
+                <div style="font-size:16px; font-weight:700;">🧹 Clean Up Draft</div>
 
                 <div style="font-size:13px; opacity:0.9; line-height: 1.5;">Refine text for clarity and tone.</div>
 
@@ -39542,7 +39542,7 @@ ${pageText}
 
       const log = document.getElementById('orchestration-log')
 
-      if (log) log.textContent = '[System] Re-generating follow-up questionsâ€¦\n' + log.textContent
+      if (log) log.textContent = '[System] Re-generating follow-up questions…\n' + log.textContent
 
     })
 
@@ -39552,7 +39552,7 @@ ${pageText}
 
       const log = document.getElementById('orchestration-log')
 
-      if (log) log.textContent = '[System] Displaying reasoning pathsâ€¦\n' + log.textContent
+      if (log) log.textContent = '[System] Displaying reasoning paths…\n' + log.textContent
 
     })
 
@@ -39562,7 +39562,7 @@ ${pageText}
 
       const log = document.getElementById('orchestration-log')
 
-      if (log) log.textContent = '[System] Triggering feedback loopâ€¦\n' + log.textContent
+      if (log) log.textContent = '[System] Triggering feedback loop…\n' + log.textContent
 
     })
 
@@ -39636,7 +39636,7 @@ ${pageText}
 
         <div style="padding: 20px; border-bottom: 1px solid ${csTheme().border}; display: flex; justify-content: space-between; align-items: center;">
 
-          <h2 style="margin: 0; font-size: 20px;">âœÂï¸ Edit Web Sources - ${sessionData.tabName}</h2>
+          <h2 style="margin: 0; font-size: 20px;">✏️ Edit Web Sources - ${sessionData.tabName}</h2>
 
           <button id="close-edit-helper-tabs" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">&times;</button>
 
@@ -39666,7 +39666,7 @@ ${pageText}
 
           <button id="cancel-edit-helper-tabs" style="padding: 12px 30px; background: #6c757d; border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: bold;">Cancel</button>
 
-          <button id="save-edit-helper-tabs" style="padding: 12px 30px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: bold;">ðŸ’¾ Save Changes</button>
+          <button id="save-edit-helper-tabs" style="padding: 12px 30px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: bold;">💾 Save Changes</button>
 
         </div>
 
@@ -39801,7 +39801,7 @@ ${pageText}
 
         `
 
-        notification.innerHTML = `âœ… Helper tabs updated! (${updatedUrls.length} URLs)`
+        notification.innerHTML = `✅ Helper tabs updated! (${updatedUrls.length} URLs)`
 
         document.body.appendChild(notification)
 
@@ -39888,7 +39888,7 @@ ${pageText}
     // For history edits, use the provided session key; otherwise use current session
     const sessionKey = targetSessionKey || getCurrentSessionKey()
     if (!sessionKey) {
-      console.warn('âš ï¸ Cannot sync session name: No session key found')
+      console.warn('⚠️ Cannot sync session name: No session key found')
       return
     }
     
@@ -39906,7 +39906,7 @@ ${pageText}
         storageSet({ [sessionKey]: sessionData }, () => {
         })
       } else {
-        console.warn('âš ï¸ Session not found in storage:', sessionKey)
+        console.warn('⚠️ Session not found in storage:', sessionKey)
         return
       }
     })
@@ -40016,7 +40016,7 @@ ${pageText}
         updateSessionNameInAllUIs(sessionName, sessionKey)
         
       } else {
-        console.warn('âš ï¸ Session not found in storage:', sessionKey)
+        console.warn('⚠️ Session not found in storage:', sessionKey)
       }
     })
   }
@@ -40141,7 +40141,7 @@ ${pageText}
           localStorage.setItem(`agent_${identifier}_delay`, agentConfig.delay);
         }
         
-        // ðŸ”¥ CRITICAL: Restore the full config object including instructions
+        // 🔥 CRITICAL: Restore the full config object including instructions
         // This contains triggers, reasoning instructions, execution settings, etc.
         if (agentConfig.config) {
           
@@ -40206,7 +40206,7 @@ ${pageText}
     const showSavedToast = () => {
       const notification = document.createElement('div')
       notification.style.cssText = 'position:fixed;top:60px;right:20px;background:rgba(76,175,80,0.9);color:white;padding:10px 15px;border-radius:5px;font-size:12px;z-index:2147483648;'
-      notification.textContent = `ðŸ’¾ Session "${currentTabData.tabName}" saved!`
+      notification.textContent = `💾 Session "${currentTabData.tabName}" saved!`
       document.body.appendChild(notification)
       setTimeout(() => notification.remove(), 3000)
     }
@@ -40232,7 +40232,7 @@ ${pageText}
       if (chrome?.runtime) {
         chrome.runtime.sendMessage({ type: 'SAVE_SESSION_TO_SQLITE', sessionKey, session: sessionData }, (response) => {
           if (chrome.runtime.lastError || !response?.success) {
-            console.warn('âš ï¸ saveCurrentSession: SQLite save failed, using storageSet fallback')
+            console.warn('⚠️ saveCurrentSession: SQLite save failed, using storageSet fallback')
             storageSet({ [sessionKey]: sessionData }, () => showSavedToast())
           } else {
             try { chrome.storage.local.set({ [sessionKey]: sessionData }) } catch {}
@@ -40288,7 +40288,7 @@ ${pageText}
     
     overlay.innerHTML = `
       <div style="background: ${csTheme().panelBg}; border-radius: 16px; width: 90vw; max-width: 650px; color: ${csTheme().text}; padding: 30px; box-shadow: 0 20px 40px rgba(0,0,0,0.3);">
-        <h2 style="margin: 0 0 10px 0; font-size: 24px; font-weight: 600;">ðŸ“¤ Export Session</h2>
+        <h2 style="margin: 0 0 10px 0; font-size: 24px; font-weight: 600;">📤 Export Session</h2>
         <p style="margin: 0 0 20px 0; font-size: 14px; opacity: 0.9;">Choose what to export and select a format:</p>
         
         <!-- Quick Export Presets -->
@@ -40307,7 +40307,7 @@ ${pageText}
             margin-bottom: 8px;
             text-align: left;
           " >
-            <div style="font-size: 16px; margin-bottom: 3px;">â­Â Complete Session (Recommended)</div>
+            <div style="font-size: 16px; margin-bottom: 3px;">⭐ Complete Session (Recommended)</div>
             <div style="font-size: 11px; opacity: 0.85;">Configuration + Memory + Context - Everything!</div>
           </button>
           <button class="export-preset-btn" data-preset="config-only" style="
@@ -40472,12 +40472,12 @@ ${pageText}
     const sessionKey = getCurrentSessionKey()
     
     if (!sessionKey) {
-      showNotification('âš ï¸ No active session to export', 'error')
+      showNotification('⚠️ No active session to export', 'error')
       return
     }
     
     // Show loading notification
-    const loadingNotification = showNotification('â³ Loading session data from SQLite...', 'info', 0)
+    const loadingNotification = showNotification('⏳ Loading session data from SQLite...', 'info', 0)
     
     try {
       // Fetch session data from storage (SQLite)
@@ -40485,7 +40485,7 @@ ${pageText}
         if (loadingNotification) loadingNotification.remove()
         
         if (!result[sessionKey]) {
-          showNotification('âŒ Session not found in storage', 'error')
+          showNotification('❌ Session not found in storage', 'error')
           return
         }
         
@@ -40531,10 +40531,10 @@ ${pageText}
           exportData.helperTabs = sessionData.helperTabs || null
           exportData.displayGrids = sessionData.displayGrids || null
           
-          // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+          // ─────────────────────────────────────────────────────────────────────
           // CANONICAL TYPE SYSTEM EXPORT (v2.1.0) - Async via TypeSystemService
           // Convert agents and agent boxes to the unified schema format
-          // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+          // ─────────────────────────────────────────────────────────────────────
           
           // Import TypeSystemService dynamically for code splitting
           const TypeSystemService = await import('./services/TypeSystemService')
@@ -40581,11 +40581,11 @@ ${pageText}
           }
           
           // Convert masterTabIds to hybridViews array
-          // masterTabId "02" â†’ hybrid_master_id 0, "03" â†’ 1, etc.
+          // masterTabId "02" → hybrid_master_id 0, "03" → 1, etc.
           const derivedHybridViews = Array.from(hybridMasterTabIds)
             .sort() // Sort to maintain order
             .map(tabId => ({
-              id: String(parseInt(tabId) - 2), // "02" â†’ "0", "03" â†’ "1"
+              id: String(parseInt(tabId) - 2), // "02" → "0", "03" → "1"
               masterTabId: tabId,
               url: sessionData.url || window.location.href,
               timestamp: new Date().toISOString()
@@ -40670,12 +40670,12 @@ ${pageText}
         const exportType = options.includeMemory && options.includeContext ? 'Complete Session' : 
                           options.includeMemory ? 'Session + Memory' :
                           options.includeContext ? 'Session + Context' : 'Configuration'
-        showNotification(`âœ… ${exportType} exported as ${format.toUpperCase()}`, 'success')
+        showNotification(`✅ ${exportType} exported as ${format.toUpperCase()}`, 'success')
       })
     } catch (error) {
       if (loadingNotification) loadingNotification.remove()
-      console.error('âŒ Export failed:', error)
-      showNotification('âŒ Export failed: ' + error, 'error')
+      console.error('❌ Export failed:', error)
+      showNotification('❌ Export failed: ' + error, 'error')
     }
   }
 
@@ -40716,7 +40716,7 @@ ${pageText}
       return memoryData
       
     } catch (error) {
-      console.error('âŒ Failed to collect memory data:', error)
+      console.error('❌ Failed to collect memory data:', error)
       return null
     }
   }
@@ -40758,7 +40758,7 @@ ${pageText}
       return contextData
       
     } catch (error) {
-      console.error('âŒ Failed to collect context data:', error)
+      console.error('❌ Failed to collect context data:', error)
       return null
     }
   }
@@ -40815,7 +40815,7 @@ ${pageText}
     
     // Build YAML
     addLine('# WR Desk Session Export')
-    addLine('# Generated by WR Deskâ„¢ Extension')
+    addLine('# Generated by WR Desk™ Extension')
     addLine('')
     
     Object.entries(data).forEach(([key, value]) => {
@@ -40841,7 +40841,7 @@ ${pageText}
     md.push(`**Version:** ${data.version}`)
     md.push('')
     
-    md.push('## ðŸ“¦ Agent Boxes')
+    md.push('## 📦 Agent Boxes')
     md.push('')
     if (data.agentBoxes && data.agentBoxes.length > 0) {
       data.agentBoxes.forEach((box: any, idx: number) => {
@@ -40856,7 +40856,7 @@ ${pageText}
       md.push('')
     }
     
-    md.push('## ðŸ¤– Agents')
+    md.push('## 🤖 Agents')
     md.push('')
     if (data.agents && data.agents.length > 0) {
       data.agents.forEach((agent: any, idx: number) => {
@@ -40873,13 +40873,13 @@ ${pageText}
       md.push('')
     }
     
-    md.push('## ðŸŽ¨ UI State')
+    md.push('## 🎨 UI State')
     md.push('')
     md.push(`- **Hybrid Views:** ${data.uiState?.hybridViews?.length || 0}`)
     md.push(`- **Custom Layout:** ${data.uiState?.customAgentLayout ? 'Yes' : 'No'}`)
     md.push('')
     
-    md.push('## ðŸ“‹ Full Data (JSON)')
+    md.push('## 📋 Full Data (JSON)')
     md.push('')
     md.push('```json')
     md.push(JSON.stringify(data, null, 2))
@@ -40887,7 +40887,7 @@ ${pageText}
     md.push('')
     
     md.push('---')
-    md.push('*Exported from WR Deskâ„¢ Extension*')
+    md.push('*Exported from WR Desk™ Extension*')
     
     return md.join('\n')
   }
@@ -41144,7 +41144,7 @@ ${pageText}
 
     } catch (e) {
 
-      console.error('âŒ Failed to add session to history:', e)
+      console.error('❌ Failed to add session to history:', e)
 
     }
 
@@ -41190,7 +41190,7 @@ ${pageText}
 
       if (lockBtn) {
 
-        lockBtn.innerHTML = 'ðŸ”“'
+        lockBtn.innerHTML = '🔓'
 
         lockBtn.style.background = 'rgba(255,255,255,0.1)'
 
@@ -41260,7 +41260,7 @@ ${pageText}
       if (!file) return
       
       
-      const loadingNotification = showNotification('â³ Importing session...', 'info', 0)
+      const loadingNotification = showNotification('⏳ Importing session...', 'info', 0)
       
       try {
         const reader = new FileReader()
@@ -41290,23 +41290,23 @@ ${pageText}
             
           } catch (error: any) {
             if (loadingNotification) loadingNotification.remove()
-            console.error('âŒ Failed to parse import file:', error)
-            showNotification(`âŒ Import failed: ${error.message || error}`, 'error')
+            console.error('❌ Failed to parse import file:', error)
+            showNotification(`❌ Import failed: ${error.message || error}`, 'error')
           }
         }
         
         reader.onerror = () => {
           if (loadingNotification) loadingNotification.remove()
-          console.error('âŒ Failed to read file')
-          showNotification('âŒ Failed to read file', 'error')
+          console.error('❌ Failed to read file')
+          showNotification('❌ Failed to read file', 'error')
         }
         
         reader.readAsText(file)
         
       } catch (error: any) {
         if (loadingNotification) loadingNotification.remove()
-        console.error('âŒ Import error:', error)
-        showNotification(`âŒ Import failed: ${error.message || error}`, 'error')
+        console.error('❌ Import error:', error)
+        showNotification(`❌ Import failed: ${error.message || error}`, 'error')
       }
     }
     
@@ -41505,17 +41505,17 @@ ${pageText}
       
       overlay.innerHTML = `
         <div style="background: ${csTheme().panelBg}; border-radius: 16px; width: 90vw; max-width: 500px; color: ${csTheme().text}; padding: 30px; box-shadow: 0 20px 40px rgba(0,0,0,0.3); text-align: center;">
-          <div style="font-size: 48px; margin-bottom: 15px;">âœ…</div>
+          <div style="font-size: 48px; margin-bottom: 15px;">✅</div>
           <h2 style="margin: 0 0 10px 0; font-size: 22px; font-weight: 600;">Session Imported!</h2>
           <p style="margin: 0 0 10px 0; font-size: 14px; opacity: 0.9;">"${sessionData.tabName}"</p>
           <p style="margin: 0 0 15px 0; font-size: 13px; opacity: 0.8;">
-            ${sessionData.agentBoxes?.length || 0} agent boxes â€¢ 
-            ${sessionData.agents?.length || 0} agents â€¢ 
-            ${sessionData.hybridViews?.length || 0} hybrid tabs â€¢ 
+            ${sessionData.agentBoxes?.length || 0} agent boxes • 
+            ${sessionData.agents?.length || 0} agents • 
+            ${sessionData.hybridViews?.length || 0} hybrid tabs • 
             ${sessionData.displayGrids?.length || 0} display grids
           </p>
-          ${sessionData._importedMemory ? '<p style="margin: 0 0 15px 0; font-size: 12px; color: rgba(255,215,0,1);">ðŸ§  Includes Memory Data</p>' : ''}
-          ${sessionData._importedContext ? '<p style="margin: 0 0 15px 0; font-size: 12px; color: rgba(100,200,255,1);">ðŸ“„ Includes Context Data</p>' : ''}
+          ${sessionData._importedMemory ? '<p style="margin: 0 0 15px 0; font-size: 12px; color: rgba(255,215,0,1);">🧠 Includes Memory Data</p>' : ''}
+          ${sessionData._importedContext ? '<p style="margin: 0 0 15px 0; font-size: 12px; color: rgba(100,200,255,1);">📄 Includes Context Data</p>' : ''}
           
           <div style="display: flex; gap: 10px; margin-bottom: 10px;">
             <button class="import-load-btn" style="
@@ -41530,7 +41530,7 @@ ${pageText}
               cursor: pointer;
               transition: all 0.2s;
             " onmouseover="this.style.background='rgba(76, 175, 80, 0.5)'" onmouseout="this.style.background='rgba(76, 175, 80, 0.3)'">
-              âœâ€œ Load Now
+              ✏“ Load Now
             </button>
             <button class="import-close-btn" style="
               flex: 1;
@@ -41567,14 +41567,14 @@ ${pageText}
       // Handle Load Later
       overlay.querySelector('.import-close-btn')?.addEventListener('click', () => {
         overlay.remove()
-        showNotification('âœ… Session saved. Open Sessions History to load it.', 'success')
+        showNotification('✅ Session saved. Open Sessions History to load it.', 'success')
       })
       
       // Handle background click
       overlay.addEventListener('click', (e) => {
         if (e.target === overlay) {
           overlay.remove()
-          showNotification('âœ… Session saved. Open Sessions History to load it.', 'success')
+          showNotification('✅ Session saved. Open Sessions History to load it.', 'success')
         }
       })
     })
@@ -41651,7 +41651,7 @@ ${pageText}
         
         const newTab = window.open(urlWithParams, `helper-tab-${index}`)
         if (!newTab) {
-          console.error(`âŒ Failed to open helper tab ${index + 1} - popup blocked:`, url)
+          console.error(`❌ Failed to open helper tab ${index + 1} - popup blocked:`, url)
         } else {
         }
       })
@@ -41682,15 +41682,15 @@ ${pageText}
               url.searchParams.set('optimando_theme', currentTheme)
             }
             
-            const displayTabNumber = String(parseInt(hybridId) + 2).padStart(2, '0') // 0 â†’ 02, 1 â†’ 03, etc.
+            const displayTabNumber = String(parseInt(hybridId) + 2).padStart(2, '0') // 0 → 02, 1 → 03, etc.
             const hybridTab = window.open(url.toString(), `hybrid-master-${hybridId}`)
             
             if (!hybridTab) {
-              console.error(`âŒ Failed to open Master Tab (${displayTabNumber}) - popup blocked`)
+              console.error(`❌ Failed to open Master Tab (${displayTabNumber}) - popup blocked`)
             } else {
             }
           } catch (error) {
-            console.error(`âŒ Invalid URL for hybrid view ${hybridId}:`, hybridUrl, error)
+            console.error(`❌ Invalid URL for hybrid view ${hybridId}:`, hybridUrl, error)
           }
         })
       }, 300) // Small delay after helper tabs
@@ -41730,14 +41730,14 @@ ${pageText}
               }, 500)
             }
           } catch (error) {
-            console.error(`âŒ Failed to open display grid ${index + 1}:`, error)
+            console.error(`❌ Failed to open display grid ${index + 1}:`, error)
           }
         }, 400 + (index * 100)) // Start after master tabs + stagger between grids
       })
     }
     
     // Show success notification (no page reload needed)
-    showNotification('âœ… Session loaded successfully!', 'success', 3000)
+    showNotification('✅ Session loaded successfully!', 'success', 3000)
     
   }
 
@@ -41759,7 +41759,7 @@ ${pageText}
       // TODO: Restore cached responses
       
     } catch (error) {
-      console.error('âŒ Failed to restore memory data:', error)
+      console.error('❌ Failed to restore memory data:', error)
     }
   }
 
@@ -41781,7 +41781,7 @@ ${pageText}
       // TODO: Restore embeddings
       
     } catch (error) {
-      console.error('âŒ Failed to restore context data:', error)
+      console.error('❌ Failed to restore context data:', error)
     }
   }
 
@@ -41916,7 +41916,7 @@ ${pageText}
 
   document.getElementById('add-agent-box-btn-right-main')?.addEventListener('click', () => {
 
-    ;(window as any).lastAgentBoxClickSide = 'right'  // â† Store which side was clicked
+    ;(window as any).lastAgentBoxClickSide = 'right'  // ← Store which side was clicked
 
 
     try { openAddAgentBoxDialog() } catch (e) {}
@@ -41931,7 +41931,7 @@ ${pageText}
 
     const currentWidth = currentTabData.uiConfig.rightSidebarWidth
 
-    // Expand cycle: 450 â†’ 600 â†’ 800 â†’ 1000 â†’ 1200 â†’ back to 450
+    // Expand cycle: 450 → 600 → 800 → 1000 → 1200 → back to 450
 
     let newWidth = 450
 
@@ -41971,7 +41971,7 @@ ${pageText}
 
     document.getElementById('add-agent-box-btn-right')?.addEventListener('click', () => {
 
-      ;(window as any).lastAgentBoxClickSide = 'right'  // â† Store which side was clicked
+      ;(window as any).lastAgentBoxClickSide = 'right'  // ← Store which side was clicked
 
 
       try { openAddAgentBoxDialog() } catch (e) {}
@@ -42123,7 +42123,7 @@ ${pageText}
 
       dockBtn.title = docked ? 'Undock from right sidebar' : 'Dock to right sidebar'
 
-      dockBtn.textContent = docked ? 'ðŸ“Œâœâ€œ' : 'ðŸ“Œ'
+      dockBtn.textContent = docked ? '📌✏“' : '📌'
 
     }
 
@@ -42251,7 +42251,7 @@ ${pageText}
 
       function runEmbed(items: IngestItem[], target: IngestTarget) {
 
-        showToast('Vorverarbeitungâ€¦', 'info')
+        showToast('Vorverarbeitung…', 'info')
 
         setTimeout(()=>{
 
@@ -42352,17 +42352,17 @@ ${pageText}
         <div id="ccd-header" style="display:flex; align-items:center; justify-content:space-between; padding:6px 8px; background:${hdr}; border-bottom:1px solid ${br};">
           <div style="display:flex; align-items:center; gap:8px; color:${theme==='standard'?'#0f172a':'white'}; flex:1; min-width:0;">
             <select id="ccd-mode-select" style="font-size:11px; font-weight:600; height:28px; flex-shrink:0; background:${theme==='standard'?'rgba(15,23,42,0.08)':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${theme==='standard'?'#0f172a':'inherit'}; border-radius:6px; padding:0 22px 0 8px; cursor:pointer; outline:none; appearance:none; -webkit-appearance:none; background-image:url(&quot;data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 12 12'%3E%3Cpath fill='${theme==='standard'?'%230f172a':'%23ffffff'}' d='M3 4.5L6 7.5L9 4.5'/%3E%3C/svg%3E&quot;); background-repeat:no-repeat; background-position:right 6px center;">
-              <option value="command-chat" style="background:#1e293b; color:white;">ðŸ’¬ WR Chat</option>
-              <option value="augmented-overlay" style="background:#1e293b; color:white;">ðŸŽ¯ Augmented Overlay</option>
-              <option value="mailguard" style="background:#1e293b; color:white;">ðŸ›¡Â WR MailGuard</option>
+              <option value="command-chat" style="background:#1e293b; color:white;">💬 WR Chat</option>
+              <option value="augmented-overlay" style="background:#1e293b; color:white;">🎯 Augmented Overlay</option>
+              <option value="mailguard" style="background:#1e293b; color:white;">🛡 WR MailGuard</option>
             </select>
             <div id="ccd-chat-controls" style="display:flex; gap:6px; align-items:center;">
-              <button id="ccd-bucket" title="Context Bucket: Embed context directly into the session" style="height:28px; min-width:28px; background:${theme==='standard'?'#e2e8f0':'rgba(255,255,255,0.08)'}; border:1px solid ${br}; color:#ef4444; border-radius:6px; padding:0 8px; font-size:13px; cursor:pointer; display:flex;align-items:center;justify-content:center;">ðŸª£</button>
-              <button id="ccd-lm-one" title="LmGTFY - Capture a screen area as screenshot or stream and send it to your pre-defined automation tasks." style="height:28px; min-width:28px; background:${theme==='standard'?'#e2e8f0':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:0 8px; font-size:13px; cursor:pointer; display:flex;align-items:center;justify-content:center;">âœÅ½</button>
+              <button id="ccd-bucket" title="Context Bucket: Embed context directly into the session" style="height:28px; min-width:28px; background:${theme==='standard'?'#e2e8f0':'rgba(255,255,255,0.08)'}; border:1px solid ${br}; color:#ef4444; border-radius:6px; padding:0 8px; font-size:13px; cursor:pointer; display:flex;align-items:center;justify-content:center;">🪣</button>
+              <button id="ccd-lm-one" title="LmGTFY - Capture a screen area as screenshot or stream and send it to your pre-defined automation tasks." style="height:28px; min-width:28px; background:${theme==='standard'?'#e2e8f0':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:0 8px; font-size:13px; cursor:pointer; display:flex;align-items:center;justify-content:center;">✏Ž</button>
             </div>
           </div>
           <div style="display:flex; gap:6px; align-items:center; flex-shrink:0;">
-            <button id="ccd-undock" title="Undock from sidepanel" style="background:${theme==='standard'?'#e2e8f0':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:4px 6px; font-size:10px; cursor:pointer;">â†—</button>
+            <button id="ccd-undock" title="Undock from sidepanel" style="background:${theme==='standard'?'#e2e8f0':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:4px 6px; font-size:10px; cursor:pointer;">↗</button>
           </div>
         </div>
 
@@ -42382,7 +42382,7 @@ ${pageText}
         <div id="ccd-overlay-view" style="display:none;">
           <div id="ccd-overlay-messages" style="height:160px; overflow:auto; display:flex; flex-direction:column; gap:6px; background:${theme==='standard'?'#f8fafc':'rgba(255,255,255,0.06)'}; border-left:0; border-right:0; border-top:0; padding:8px;">
             <div id="ccd-overlay-hint" style="padding:12px 14px; font-size:12px; opacity:0.8; font-style:italic; background:${theme==='standard'?'rgba(59,130,246,0.08)':'rgba(59,130,246,0.15)'}; border-radius:6px; display:flex; align-items:flex-start; gap:8px; line-height:1.5;">
-              <span style="font-size:16px;">ðŸŽ¯</span>
+              <span style="font-size:16px;">🎯</span>
               <span>Point with the cursor or select elements in order to ask questions or trigger automations directly in the UI.</span>
             </div>
           </div>
@@ -42404,7 +42404,7 @@ ${pageText}
             }
           </style>
           <div id="ccd-mailguard-hint" style="padding:12px 14px; font-size:12px; opacity:0.7; font-style:italic; border-bottom:1px solid ${br}; background:${theme==='standard'?'rgba(168,85,247,0.08)':'rgba(168,85,247,0.15)'}; display:flex; align-items:center; gap:8px;">
-            <span style="font-size:16px;">âœâ€°ï¸</span>
+            <span style="font-size:16px;">✏‰️</span>
             Compose verified WRGuard-stamped emails with built-in automation.
           </div>
           <div style="padding:12px; display:flex; flex-direction:column; gap:10px;">
@@ -42429,7 +42429,7 @@ ${pageText}
           </div>
           <div style="padding:10px 12px; border-top:1px solid ${br}; display:flex; justify-content:space-between; align-items:center; background:${theme==='standard'?'#f1f5f9':'rgba(0,0,0,0.15)'};">
             <button id="ccd-mg-discard" style="background:transparent; border:none; color:${theme==='standard'?'#64748b':'rgba(255,255,255,0.6)'}; padding:6px 10px; font-size:12px; cursor:pointer; text-decoration:underline;">Discard</button>
-            <button id="ccd-mg-send" style="background:#a855f7; border:none; color:white; border-radius:6px; padding:10px 20px; font-size:13px; font-weight:600; cursor:pointer; display:flex; align-items:center; gap:6px;">Send <span style="font-size:14px;">â†’</span></button>
+            <button id="ccd-mg-send" style="background:#a855f7; border:none; color:white; border-radius:6px; padding:10px 20px; font-size:13px; font-weight:600; cursor:pointer; display:flex; align-items:center; gap:6px;">Send <span style="font-size:14px;">→</span></button>
           </div>
         </div>
 
@@ -42546,7 +42546,7 @@ ${pageText}
         }
         attachContainer.innerHTML = ccdMgAttachments.map((att, idx) => `
           <div style="display:inline-flex; align-items:center; gap:6px; padding:4px 8px; margin:2px; background:${theme==='standard'?'rgba(34,197,94,0.1)':'rgba(34,197,94,0.15)'}; border:1px solid rgba(34,197,94,0.3); border-radius:4px; font-size:11px;">
-            <span>ðŸ“„</span>
+            <span>📄</span>
             <span style="max-width:100px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${att.name}</span>
             <span style="opacity:0.5; font-size:10px;">(${Math.round(att.size/1024)} KB)</span>
             <button data-idx="${idx}" class="ccd-mg-remove" style="background:transparent; border:none; color:${theme==='standard'?'#64748b':'rgba(255,255,255,0.5)'}; cursor:pointer; font-size:12px; padding:0 2px;">&times;</button>
@@ -42693,7 +42693,7 @@ ${pageText}
 
           const tagBtn = document.createElement('button'); tagBtn.type='button'; tagBtn.title='Tags'; tagBtn.textContent='Tags'; tagBtn.style.cssText='display:inline-flex;align-items:center;gap:6px;background:'+ (theme==='standard'?'#e2e8f0':'rgba(255,255,255,0.08)') +'; border:1px solid '+br+'; color:'+fg+'; border-radius:6px; padding:2px 6px; font-size:12px; cursor:pointer'
 
-          const caret = document.createElement('span'); caret.textContent='â–¾'; caret.style.cssText='font-size:12px; opacity:.9'
+          const caret = document.createElement('span'); caret.textContent='▾'; caret.style.cssText='font-size:12px; opacity:.9'
 
           tagBtn.appendChild(caret)
 
@@ -42759,7 +42759,7 @@ ${pageText}
 
                 const deleteBtn = document.createElement('button')
 
-                deleteBtn.textContent = 'Ã—'
+                deleteBtn.textContent = '×'
 
                 deleteBtn.type = 'button'
 
@@ -43055,14 +43055,14 @@ ${pageText}
           <div style="display:flex; align-items:center; gap:8px; color:${theme==='standard'?'#0f172a':'white'}">
 
             <select id="ccf-mode-select" style="font-size:11px; font-weight:600; background:${theme==='standard'?'rgba(15,23,42,0.08)':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${theme==='standard'?'#0f172a':'inherit'}; border-radius:5px; padding:4px 20px 4px 6px; cursor:pointer; outline:none; appearance:none; -webkit-appearance:none; background-image:url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 12 12'%3E%3Cpath fill='${theme==='standard'?'%230f172a':'%23ffffff'}' d='M3 4.5L6 7.5L9 4.5'/%3E%3C/svg%3E\"); background-repeat:no-repeat; background-position:right 5px center;">
-              <option value="command-chat" style="background:#1e293b; color:white;">ðŸ’¬ WR Chat</option>
-              <option value="augmented-overlay" style="background:#1e293b; color:white;">ðŸŽ¯ Augmented Overlay</option>
-              <option value="mailguard" style="background:#1e293b; color:white;">ðŸ›¡Â WR MailGuard</option>
+              <option value="command-chat" style="background:#1e293b; color:white;">💬 WR Chat</option>
+              <option value="augmented-overlay" style="background:#1e293b; color:white;">🎯 Augmented Overlay</option>
+              <option value="mailguard" style="background:#1e293b; color:white;">🛡 WR MailGuard</option>
             </select>
 
             <div id="ccf-chat-controls" style="display:flex; gap:6px; align-items:center;">
 
-              <button id="ccf-lm-one" title="LmGTFY - Capture a screen area as screenshot or stream and send it to your pre-defined automation tasks." style="background:${theme==='standard'?'#e2e8f0':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:2px 6px; font-size:12px; cursor:pointer;">âœÅ½</button>
+              <button id="ccf-lm-one" title="LmGTFY - Capture a screen area as screenshot or stream and send it to your pre-defined automation tasks." style="background:${theme==='standard'?'#e2e8f0':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:2px 6px; font-size:12px; cursor:pointer;">✏Ž</button>
 
             </div>
 
@@ -43089,7 +43089,7 @@ ${pageText}
         <div id="ccf-overlay-view" style="display:none;">
           <div id="ccf-overlay-messages" style="height:160px; overflow:auto; display:flex; flex-direction:column; gap:6px; background:${theme==='standard'?'#f8fafc':'rgba(255,255,255,0.06)'}; border-left:0; border-right:0; border-top:0; border-bottom:1px solid ${br}; padding:8px;">
             <div id="ccf-overlay-hint" style="padding:12px 14px; font-size:12px; opacity:0.8; font-style:italic; background:${theme==='standard'?'rgba(59,130,246,0.08)':'rgba(59,130,246,0.15)'}; border-radius:6px; display:flex; align-items:flex-start; gap:8px; line-height:1.5;">
-              <span style="font-size:16px;">ðŸŽ¯</span>
+              <span style="font-size:16px;">🎯</span>
               <span>Point with the cursor or select elements in order to ask questions or trigger automations directly in the UI.</span>
             </div>
           </div>
@@ -43102,7 +43102,7 @@ ${pageText}
         <!-- MailGuard View -->
         <div id="ccf-mailguard-view" style="display:none; flex-direction:column; background:${theme==='standard'?'#f8fafc':'rgba(255,255,255,0.04)'};">
           <div id="ccf-mailguard-hint" style="padding:12px 14px; font-size:12px; opacity:0.7; font-style:italic; border-bottom:1px solid ${br}; background:${theme==='standard'?'rgba(168,85,247,0.08)':'rgba(168,85,247,0.15)'}; display:flex; align-items:center; gap:8px;">
-            <span style="font-size:16px;">âœâ€°ï¸</span>
+            <span style="font-size:16px;">✏‰️</span>
             Compose verified WRGuard-stamped emails with built-in automation.
           </div>
           <div style="padding:12px; display:flex; flex-direction:column; gap:10px;">
@@ -43126,7 +43126,7 @@ ${pageText}
           </div>
           <div style="padding:10px 12px; border-top:1px solid ${br}; display:flex; justify-content:space-between; align-items:center; background:${theme==='standard'?'#f1f5f9':'rgba(0,0,0,0.15)'};">
             <button id="ccf-mg-discard" style="background:transparent; border:none; color:${theme==='standard'?'#64748b':'rgba(255,255,255,0.6)'}; padding:6px 10px; font-size:12px; cursor:pointer; text-decoration:underline;">Discard</button>
-            <button id="ccf-mg-send" style="background:#a855f7; border:none; color:white; border-radius:6px; padding:10px 20px; font-size:13px; font-weight:600; cursor:pointer; display:flex; align-items:center; gap:6px;">Send <span style="font-size:14px;">â†’</span></button>
+            <button id="ccf-mg-send" style="background:#a855f7; border:none; color:white; border-radius:6px; padding:10px 20px; font-size:13px; font-weight:600; cursor:pointer; display:flex; align-items:center; gap:6px;">Send <span style="font-size:14px;">→</span></button>
           </div>
         </div>
 
@@ -43325,7 +43325,7 @@ ${pageText}
         }
         container.innerHTML = mgAttachments.map((att, idx) => `
           <div style="display:inline-flex; align-items:center; gap:6px; padding:4px 8px; margin:2px; background:${theme==='standard'?'rgba(34,197,94,0.1)':'rgba(34,197,94,0.15)'}; border:1px solid rgba(34,197,94,0.3); border-radius:4px; font-size:11px;">
-            <span>ðŸ“„</span>
+            <span>📄</span>
             <span style="max-width:100px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${att.name}</span>
             <span style="opacity:0.5; font-size:10px;">(${Math.round(att.size/1024)} KB)</span>
             <button data-idx="${idx}" class="ccf-mg-remove" style="background:transparent; border:none; color:${theme==='standard'?'#64748b':'rgba(255,255,255,0.5)'}; cursor:pointer; font-size:12px; padding:0 2px;">&times;</button>
@@ -43432,7 +43432,7 @@ ${pageText}
 
         bucket.title = 'Context Bucket: Embed context directly into the session'
 
-        bucket.textContent = 'ðŸª£'
+        bucket.textContent = '🪣'
 
         // professional theme gets pill background + border for visibility
 
@@ -43460,7 +43460,7 @@ ${pageText}
 
         ddBtn.id = 'ccf-tags-btn'
 
-        ddBtn.textContent = 'â–¾ Tags'
+        ddBtn.textContent = '▾ Tags'
 
         ddBtn.style.cssText = 'background:'+ (theme==='standard'?'#e2e8f0':'rgba(255,255,255,0.08)') +'; border:1px solid '+br+'; color:'+fg+'; border-radius:6px; padding:2px 8px; font-size:12px; cursor:pointer;'
 
@@ -43532,7 +43532,7 @@ ${pageText}
 
                   const deleteBtn = document.createElement('button')
 
-                  deleteBtn.textContent = 'Ã—'
+                  deleteBtn.textContent = '×'
 
                   deleteBtn.style.cssText = 'width:20px;height:20px;border:none;background:rgba(239,68,68,0.2);color:#ef4444;border-radius:4px;cursor:pointer;font-size:16px;line-height:1;padding:0;margin-left:8px;flex-shrink:0;'
 
@@ -43742,7 +43742,7 @@ ${pageText}
 
                   const time=document.createElement('span'); time.textContent='00:00'
 
-                  const stop=document.createElement('button'); stop.textContent='â¹'; stop.style.cssText='background:#991b1b;border:0;color:white;padding:2px 6px;border-radius:6px;cursor:pointer'
+                  const stop=document.createElement('button'); stop.textContent='⏹'; stop.style.cssText='background:#991b1b;border:0;color:white;padding:2px 6px;border-radius:6px;cursor:pointer'
 
                   const st = document.createElement('style'); st.textContent='@keyframes pulse{0%{opacity:1}50%{opacity:.35}100%{opacity:1}}'
 
@@ -44027,7 +44027,7 @@ ${pageText}
 
     document.getElementById('add-agent-box-btn')?.addEventListener('click', () => {
 
-      ;(window as any).lastAgentBoxClickSide = 'left'  // â† Store which side was clicked
+      ;(window as any).lastAgentBoxClickSide = 'left'  // ← Store which side was clicked
 
 
       openAddAgentBoxDialog()
@@ -44117,7 +44117,7 @@ ${pageText}
 
         // Update lock button appearance
 
-        lockBtn.innerHTML = currentTabData.isLocked ? 'ðŸ”’' : 'ðŸ”“'
+        lockBtn.innerHTML = currentTabData.isLocked ? '🔒' : '🔓'
 
         lockBtn.style.background = currentTabData.isLocked ? 'rgba(255,215,0,0.3)' : 'rgba(255,255,255,0.1)'
 
@@ -44222,7 +44222,7 @@ ${pageText}
 
           `
 
-          notification.innerHTML = `ðŸ”’ Session "${currentTabData.tabName}" saved!`
+          notification.innerHTML = `🔒 Session "${currentTabData.tabName}" saved!`
 
           document.body.appendChild(notification)
 
@@ -44306,7 +44306,7 @@ ${pageText}
 
     }).catch((error) => {
 
-      console.error('âŒ Failed to load Backend Config Lightbox:', error)
+      console.error('❌ Failed to load Backend Config Lightbox:', error)
 
     })
 
@@ -44477,7 +44477,7 @@ function checkForElectronGridConfig() {
 
       const note = document.createElement('div')
 
-      note.textContent = 'âœ… Saved grid to session via Electron app'
+      note.textContent = '✅ Saved grid to session via Electron app'
 
       note.style.cssText = `position:fixed;top:20px;right:20px;z-index:2147483650;background:${csTheme().accentGrad};color:#fff;padding:10px 14px;border-radius:8px;font-size:12px;box-shadow:0 4px 12px rgba(0,0,0,0.3)`
 
@@ -44580,7 +44580,7 @@ function handleElectronGridSave(config: any) {
 
   const note = document.createElement('div')
 
-  note.textContent = 'âœ… Saved grid to session via Electron app'
+  note.textContent = '✅ Saved grid to session via Electron app'
 
   note.style.cssText = `position:fixed;top:20px;right:20px;z-index:2147483650;background:${csTheme().accentGrad};color:#fff;padding:10px 14px;border-radius:8px;font-size:12px;box-shadow:0 4px 12px rgba(0,0,0,0.3)`
 
@@ -44651,7 +44651,7 @@ setInterval(checkForElectronGridConfig, 5000)
 
     if (chrome.runtime.lastError) {
 
-      console.error('âŒ Error clearing chrome.storage.local:', chrome.runtime.lastError)
+      console.error('❌ Error clearing chrome.storage.local:', chrome.runtime.lastError)
 
     } else {
 

@@ -624,7 +624,7 @@ async function loadAgentBoxesFromChromeStorage(sessionKey: string): Promise<Agen
 
 /**
  * Normalize agent box data: ensure id, boxNumber, agentNumber are set.
- * Grid boxes store identity in `identifier` but lack `id` â€” this bridges the gap.
+ * Grid boxes store identity in `identifier` but lack `id` — this bridges the gap.
  */
 function normalizeAgentBoxes(agentBoxes: any[]): AgentBox[] {
   const normalizedBoxes = agentBoxes.map((box: any, index: number) => {
@@ -641,7 +641,7 @@ function normalizeAgentBoxes(agentBoxes: any[]): AgentBox[] {
     if (normalized.boxNumber === undefined) {
       normalized.boxNumber = index + 1
     } else {
-      // Coerce to number â€” could be stored as string "1"
+      // Coerce to number — could be stored as string "1"
       normalized.boxNumber = Number(normalized.boxNumber)
     }
 
@@ -783,16 +783,16 @@ export async function generateSystemStatusResponse(
   const enabledAgents = agents.filter(a => a.enabled)
   
   let response = `**System Status**\n\n`
-  response += `â€¢ Electron Backend: ${connectionStatus.isConnected ? 'âœ“ Connected' : 'âœ— Disconnected'}\n`
-  response += `â€¢ Active LLM Model: ${activeLlmModel || 'Not selected'}\n`
-  response += `â€¢ Session: ${sessionName || 'Unnamed Session'}\n`
-  response += `â€¢ Active Agents: ${enabledAgents.length} enabled\n`
-  response += `â€¢ Agent Boxes: ${agentBoxes.length} configured\n\n`
+  response += `• Electron Backend: ${connectionStatus.isConnected ? '✓ Connected' : '✗ Disconnected'}\n`
+  response += `• Active LLM Model: ${activeLlmModel || 'Not selected'}\n`
+  response += `• Session: ${sessionName || 'Unnamed Session'}\n`
+  response += `• Active Agents: ${enabledAgents.length} enabled\n`
+  response += `• Agent Boxes: ${agentBoxes.length} configured\n\n`
 
   if (enabledAgents.length > 0) {
     response += `**Active Agents:**\n`
     for (const agent of enabledAgents) {
-      const icon = agent.icon || 'ðŸ¤–'
+      const icon = agent.icon || '🤖'
       const name = agent.name || agent.key || 'Unnamed'
       const num = agent.number ? String(agent.number).padStart(2, '0') : '??'
       const triggers: string[] = []
@@ -826,11 +826,11 @@ export async function generateSystemStatusResponse(
           }
           return info
         }).join(', ')
-        response += `   â†’ Connected to: ${boxInfo}\n`
+        response += `   → Connected to: ${boxInfo}\n`
       }
     }
   } else {
-    response += `No agents currently enabled. Create agents in Admin â†’ Agent Settings.`
+    response += `No agents currently enabled. Create agents in Admin → Agent Settings.`
   }
 
   return response
@@ -849,7 +849,7 @@ You help users manage their AI agents, understand system status, and answer gene
 
 IMPORTANT: If the user's message includes an attached document (indicated by [Attached document: ...] at the start), 
 you MUST read and use that document content directly to answer their question. Do NOT suggest they use agents or 
-external tools for document questions â€” the document text is already provided to you in the message. 
+external tools for document questions — the document text is already provided to you in the message. 
 Just answer based on the content you have been given.
 
 Keep responses concise and professional. Only suggest agent triggers (#TriggerName) when the user is asking 
@@ -959,8 +959,8 @@ export async function routeInput(
 /**
  * Route input through the complete Event Tag wiring flow:
  * 
- * 1. WR Chat input â†’ NLP Classifier â†’ ClassifiedInput with #tags
- * 2. InputCoordinator.routeEventTagTrigger() â†’ Match listeners
+ * 1. WR Chat input → NLP Classifier → ClassifiedInput with #tags
+ * 2. InputCoordinator.routeEventTagTrigger() → Match listeners
  * 3. Evaluate conditions (WRCode, sender, keywords, website)
  * 4. Collect sensor workflow context (placeholder)
  * 5. Resolve LLM from connected Agent Box
@@ -1272,7 +1272,7 @@ export type BrainErrorType =
 
 /**
  * Resolve which model to use for an agent's LLM call.
- * Uses canonical ProviderId constants â€” handles both normalized IDs
+ * Uses canonical ProviderId constants — handles both normalized IDs
  * and legacy UI labels (e.g. 'Local AI') via toProviderId().
  * 
  * Returns a typed BrainResolution: ok:true with the model to use,
@@ -1292,7 +1292,7 @@ export function resolveModelForAgent(
       model: fallbackModel || '',
       isLocal: true,
       provider: PROVIDER_IDS.OLLAMA,
-      note: 'No provider/model configured â€” using default local model'
+      note: 'No provider/model configured — using default local model'
     }
   }
 
@@ -1302,7 +1302,7 @@ export function resolveModelForAgent(
       model: fallbackModel || '',
       isLocal: true,
       provider: PROVIDER_IDS.OLLAMA,
-      note: 'No model configured â€” using default local model'
+      note: 'No model configured — using default local model'
     }
   }
 
@@ -1397,7 +1397,7 @@ export async function buildLlmRequestBody(
     const label = toProviderLabel(modelResolution.provider)
     return {
       body,
-      error: `No API key found for ${label}. Add your ${label} API key in Settings â†’ API Keys, then try again.`
+      error: `No API key found for ${label}. Add your ${label} API key in Settings → API Keys, then try again.`
     }
   }
 
