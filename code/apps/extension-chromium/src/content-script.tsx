@@ -3042,13 +3042,13 @@ function initializeExtension() {
 
     }
 
-    // If we already have a stored entry for this key, merge agentBoxes conservatively.
-    storageGet([sessionKey], (existing: any) => {
-      const stored = existing?.[sessionKey]
-      if (stored?.agentBoxes && stored.agentBoxes.length > completeSessionData.agentBoxes.length) {
-        // Stored version has more boxes — use it instead of potentially empty incoming array
-        completeSessionData.agentBoxes = stored.agentBoxes
-        console.log(`[TRACE] ensureSessionInHistory: preserved ${stored.agentBoxes.length} stored agentBoxes over ${incomingBoxes.length} incoming`)
+    // Read current session from SQLite via background to get authoritative agentBoxes —
+    // storageGet() routes through storageWrapper which may fall back to Chrome Storage
+    // (empty for session_ keys), causing agentBoxes to be silently zeroed on every agent save.
+    const doSaveSession = (storedBoxes: any[]) => {
+      if (storedBoxes.length > completeSessionData.agentBoxes.length) {
+        completeSessionData.agentBoxes = storedBoxes
+        console.log(`[TRACE] ensureSessionInHistory: preserved ${storedBoxes.length} SQLite agentBoxes over ${incomingBoxes.length} incoming`)
       }
 
     console.log('[TRACE] Complete session data to save:', { 
@@ -3067,39 +3067,53 @@ function initializeExtension() {
       }))
     });
 
-    storageSet({ [sessionKey]: completeSessionData }, () => {
-
-      if (chrome.runtime.lastError) {
-
-        console.error('❌ Failed to save session to history:', chrome.runtime.lastError)
-
-      } else {
-
-        console.log('✅ Session saved to history:', sessionKey, completeSessionData.tabName)
-
-      }
-
-      // CRITICAL: Also sync to SQLite (single source of truth)
-      // This ensures agent configuration changes are persisted properly
-      if (chrome?.runtime) {
-        chrome.runtime.sendMessage({
-          type: 'SAVE_SESSION_TO_SQLITE',
-          sessionKey: sessionKey,
-          session: completeSessionData
-        }, (response) => {
-          if (chrome.runtime.lastError) {
-            console.warn('⚠️ SQLite sync failed:', chrome.runtime.lastError.message)
-          } else if (response?.success) {
-            console.log('✅ Session synced to SQLite')
-          }
-        })
-      }
-
+    // Save directly via SAVE_SESSION_TO_SQLITE (background.ts HTTP) to avoid
+    // storageWrapper/adapter race conditions. Chrome Storage is skipped intentionally —
+    // session_ keys live in SQLite, and storageSet() may also fall back to Chrome Storage
+    // which would create an inconsistent mirror.
+    if (chrome?.runtime) {
+      chrome.runtime.sendMessage({
+        type: 'SAVE_SESSION_TO_SQLITE',
+        sessionKey: sessionKey,
+        session: completeSessionData
+      }, (response) => {
+        if (chrome.runtime.lastError) {
+          console.warn('⚠️ ensureSessionInHistory SQLite save failed:', chrome.runtime.lastError.message)
+          // Fallback: write to Chrome Storage so UI can still read it
+          chrome.storage.local.set({ [sessionKey]: completeSessionData }, () => {
+            if (callback) callback()
+          })
+        } else if (response?.success) {
+          console.log('✅ ensureSessionInHistory: session synced to SQLite')
+          if (callback) callback()
+        } else {
+          console.warn('⚠️ ensureSessionInHistory: SQLite save returned failure, writing to Chrome Storage as fallback')
+          chrome.storage.local.set({ [sessionKey]: completeSessionData }, () => {
+            if (callback) callback()
+          })
+        }
+      })
+    } else {
+      // Non-extension context fallback
       if (callback) callback()
+    }
 
-    })
+    } // end doSaveSession
 
-  }) // end storageGet — merge agentBoxes
+    // Use background GET_SESSION_FROM_SQLITE to read authoritative agentBoxes
+    if (chrome?.runtime) {
+      chrome.runtime.sendMessage({ type: 'GET_SESSION_FROM_SQLITE', sessionKey }, (response) => {
+        if (chrome.runtime.lastError) {
+          console.warn('[TRACE] ensureSessionInHistory: could not read SQLite, proceeding without merge:', chrome.runtime.lastError.message)
+          doSaveSession([])
+          return
+        }
+        const storedBoxes: any[] = response?.session?.agentBoxes || []
+        doSaveSession(storedBoxes)
+      })
+    } else {
+      doSaveSession([])
+    }
 
   }
 
