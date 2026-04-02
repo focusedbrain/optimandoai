@@ -58,7 +58,6 @@ export function getListenerManager(): ListenerManager {
     _chatTrigger = new ChatTrigger()
     _triggerRegistry.registerTrigger(_chatTrigger)
     _legacyAdapter = new LegacyConfigAdapter()
-    console.log('[ProcessFlow] Initialized new automation system')
   }
   return _listenerManager
 }
@@ -106,13 +105,11 @@ export async function initializeAutomationsFromSession(): Promise<void> {
       // Use the legacy adapter to convert
       const automationConfig = adapter.adapt(agent as any)
       manager.register(automationConfig)
-      console.log(`[ProcessFlow] Registered automation from agent: ${agent.name}`)
     } catch (e) {
       console.warn(`[ProcessFlow] Failed to convert agent ${agent.id}:`, e)
     }
   }
   
-  console.log(`[ProcessFlow] Initialized ${manager.getAll().length} automations from session`)
 }
 
 /**
@@ -281,7 +278,6 @@ async function getCurrentSessionKeyAsync(): Promise<string | null> {
     try {
       chrome.storage?.local?.get(['optimando-active-session-key'], (data: any) => {
         const sessionKey = data?.['optimando-active-session-key'] || null
-        console.log('[ProcessFlow] getCurrentSessionKeyAsync:', sessionKey)
         resolve(sessionKey)
       })
     } catch {
@@ -320,7 +316,6 @@ function getCurrentSessionKey(): string | null {
 function extractAgentNumber(agent: any, index: number): number {
   // 1. Check explicit number field (from parsed config.instructions or direct assignment)
   if (typeof agent.number === 'number' && agent.number > 0) {
-    console.log(`[ProcessFlow] extractAgentNumber: Found explicit number ${agent.number} for "${agent.name || agent.key}"`)
     return agent.number
   }
   
@@ -330,21 +325,18 @@ function extractAgentNumber(agent: any, index: number): number {
     const keyMatch = String(agent.key).match(/^agent(\d+)$/i)
     if (keyMatch) {
       const num = parseInt(keyMatch[1], 10)
-      console.log(`[ProcessFlow] extractAgentNumber: Extracted ${num} from key "${agent.key}"`)
       return num
     }
     // Match single-letter+digit style like "a1", "a2" (common WR Chat trigger pattern)
     const shortMatch = String(agent.key).match(/^[a-z](\d+)$/i)
     if (shortMatch) {
       const num = parseInt(shortMatch[1], 10)
-      console.log(`[ProcessFlow] extractAgentNumber: Extracted ${num} from short key "${agent.key}"`)
       return num
     }
     // Match keys that end with a number (e.g., "summarizer1", "invoice2")
     const endMatch = String(agent.key).match(/(\d+)$/)
     if (endMatch) {
       const num = parseInt(endMatch[1], 10)
-      console.log(`[ProcessFlow] extractAgentNumber: Extracted ${num} from key ending "${agent.key}"`)
       return num
     }
   }
@@ -355,7 +347,6 @@ function extractAgentNumber(agent: any, index: number): number {
     const nameMatch = String(agent.name).match(/^agent\s*(\d+)/i)
     if (nameMatch) {
       const num = parseInt(nameMatch[1], 10)
-      console.log(`[ProcessFlow] extractAgentNumber: Extracted ${num} from name "${agent.name}"`)
       return num
     }
   }
@@ -365,14 +356,12 @@ function extractAgentNumber(agent: any, index: number): number {
     const idMatch = String(agent.id).match(/agent(\d+)/i)
     if (idMatch) {
       const num = parseInt(idMatch[1], 10)
-      console.log(`[ProcessFlow] extractAgentNumber: Extracted ${num} from id "${agent.id}"`)
       return num
     }
   }
   
   // 5. Fall back to 1-indexed position
   const fallbackNum = index + 1
-  console.log(`[ProcessFlow] extractAgentNumber: Using fallback index ${fallbackNum} for "${agent.name || agent.key || agent.id}"`)
   return fallbackNum
 }
 
@@ -409,7 +398,6 @@ export async function loadAgentsFromSession(providedSessionKey?: string): Promis
       return []
     }
     
-    console.log('[ProcessFlow] Loading agents from SQLite session:', sessionKey)
 
     return new Promise((resolve) => {
       try {
@@ -434,7 +422,6 @@ export async function loadAgentsFromSession(providedSessionKey?: string): Promis
           
           const session = response.session
           const agents = parseAgentsFromSession(session)
-          console.log('[ProcessFlow] ✅ Loaded', agents.length, 'agents from SQLite')
           resolve(agents)
         })
       } catch (e) {
@@ -461,7 +448,6 @@ async function loadAgentsFromChromeStorage(sessionKey: string): Promise<AgentCon
         return
       }
       const agents = parseAgentsFromSession(session)
-      console.log('[ProcessFlow] Loaded', agents.length, 'agents from chrome.storage (fallback)')
       resolve(agents)
     })
   })
@@ -474,34 +460,15 @@ function parseAgentsFromSession(session: any): AgentConfig[] {
   // Get agents from session
   const agents: AgentConfig[] = session.agents || []
   
-  console.log('[ProcessFlow] Found', agents.length, 'agents in session')
   
   // Parse agent configs and extract proper number
   const parsedAgents = agents.map((agent: any, index: number) => {
     let parsed = { ...agent }
     
     // Debug: Log what config data exists for this agent
-    console.log(`[ProcessFlow] Agent ${index}: "${agent.name || agent.key}"`, {
-      hasConfig: !!agent.config,
-      configKeys: agent.config ? Object.keys(agent.config) : [],
-      hasInstructions: !!agent.config?.instructions,
-      instructionsType: agent.config?.instructions ? typeof agent.config.instructions : 'none',
-      enabled: agent.enabled,
-      // Check for unified triggers directly on listening
-      hasListeningDirect: !!agent.listening,
-      unifiedTriggersCount: agent.listening?.unifiedTriggers?.length || 0
-    })
     
     // First check if listening/reasoning/execution are directly on the agent (new format)
     if (agent.listening || agent.reasoning || agent.execution) {
-      console.log(`[ProcessFlow] ✅ Agent "${agent.name || agent.key}" has direct sections:`, {
-        hasListening: !!agent.listening,
-        hasReasoning: !!agent.reasoning,
-        hasExecution: !!agent.execution,
-        unifiedTriggers: agent.listening?.unifiedTriggers?.length || 0,
-        passiveTriggers: agent.listening?.passive?.triggers?.length || 0,
-        activeTriggers: agent.listening?.active?.triggers?.length || 0
-      })
     }
     
     // Parse config.instructions if it's a string (legacy format)
@@ -511,14 +478,6 @@ function parseAgentsFromSession(session: any): AgentConfig[] {
           ? JSON.parse(agent.config.instructions)
           : agent.config.instructions
         parsed = { ...parsed, ...instructions }
-        console.log(`[ProcessFlow] ✅ Parsed instructions for "${agent.name || agent.key}":`, {
-          hasListening: !!instructions.listening,
-          hasReasoning: !!instructions.reasoning,
-          hasExecution: !!instructions.execution,
-          unifiedTriggers: instructions.listening?.unifiedTriggers?.length || 0,
-          triggers: instructions.listening?.passive?.triggers?.length || 0,
-          activeTriggers: instructions.listening?.active?.triggers?.length || 0
-        })
       } catch (e) {
         console.warn('[ProcessFlow] Failed to parse agent config:', e)
       }
@@ -546,7 +505,6 @@ function parseAgentsFromSession(session: any): AgentConfig[] {
       parsed.capabilities.push('execution')
     }
     
-    console.log(`[ProcessFlow] Agent "${parsed.name || parsed.key}": number=${parsed.number}, enabled=${parsed.enabled}`)
     
     return parsed
   })
@@ -613,7 +571,6 @@ export async function loadAgentBoxesFromSession(providedSessionKey?: string): Pr
       return []
     }
     
-    console.log('[ProcessFlow] Loading agent boxes from SQLite session:', sessionKey)
 
     return new Promise((resolve) => {
       try {
@@ -634,7 +591,6 @@ export async function loadAgentBoxesFromSession(providedSessionKey?: string): Pr
           }
 
           const boxes = normalizeAgentBoxes(response.session.agentBoxes || [])
-          console.log('[ProcessFlow] Loaded', boxes.length, 'agent boxes from SQLite')
           resolve(boxes)
         })
       } catch (e) {
@@ -661,7 +617,6 @@ async function loadAgentBoxesFromChromeStorage(sessionKey: string): Promise<Agen
         return
       }
       const boxes = normalizeAgentBoxes(session.agentBoxes || [])
-      console.log('[ProcessFlow] Loaded', boxes.length, 'agent boxes from chrome.storage (fallback)')
       resolve(boxes)
     })
   })
@@ -669,7 +624,7 @@ async function loadAgentBoxesFromChromeStorage(sessionKey: string): Promise<Agen
 
 /**
  * Normalize agent box data: ensure id, boxNumber, agentNumber are set.
- * Grid boxes store identity in `identifier` but lack `id` — this bridges the gap.
+ * Grid boxes store identity in `identifier` but lack `id` â€” this bridges the gap.
  */
 function normalizeAgentBoxes(agentBoxes: any[]): AgentBox[] {
   const normalizedBoxes = agentBoxes.map((box: any, index: number) => {
@@ -686,7 +641,7 @@ function normalizeAgentBoxes(agentBoxes: any[]): AgentBox[] {
     if (normalized.boxNumber === undefined) {
       normalized.boxNumber = index + 1
     } else {
-      // Coerce to number — could be stored as string "1"
+      // Coerce to number â€” could be stored as string "1"
       normalized.boxNumber = Number(normalized.boxNumber)
     }
 
@@ -700,22 +655,11 @@ function normalizeAgentBoxes(agentBoxes: any[]): AgentBox[] {
       normalized.agentNumber = extractedAgentNum
     }
 
-    console.log(`[ProcessFlow] AgentBox ${normalized.boxNumber}:`, {
-      id: normalized.id,
-      identifier: normalized.identifier,
-      title: normalized.title,
-      source: normalized.source ?? 'master_tab',
-      agentNumber: normalized.agentNumber ?? '(none)',
-      provider: normalized.provider ?? '(none)',
-      model: normalized.model ?? '(none)',
-      enabled: normalized.enabled !== false
-    })
 
     return normalized
   })
 
   const connectedBoxes = normalizedBoxes.filter((b: any) => b.agentNumber !== undefined)
-  console.log(`[ProcessFlow] AgentBox wiring summary: ${connectedBoxes.length}/${normalizedBoxes.length} boxes connected to agents`)
 
   return normalizedBoxes
 }
@@ -839,16 +783,16 @@ export async function generateSystemStatusResponse(
   const enabledAgents = agents.filter(a => a.enabled)
   
   let response = `**System Status**\n\n`
-  response += `• Electron Backend: ${connectionStatus.isConnected ? '✓ Connected' : '✗ Disconnected'}\n`
-  response += `• Active LLM Model: ${activeLlmModel || 'Not selected'}\n`
-  response += `• Session: ${sessionName || 'Unnamed Session'}\n`
-  response += `• Active Agents: ${enabledAgents.length} enabled\n`
-  response += `• Agent Boxes: ${agentBoxes.length} configured\n\n`
+  response += `â€¢ Electron Backend: ${connectionStatus.isConnected ? 'âœ“ Connected' : 'âœ— Disconnected'}\n`
+  response += `â€¢ Active LLM Model: ${activeLlmModel || 'Not selected'}\n`
+  response += `â€¢ Session: ${sessionName || 'Unnamed Session'}\n`
+  response += `â€¢ Active Agents: ${enabledAgents.length} enabled\n`
+  response += `â€¢ Agent Boxes: ${agentBoxes.length} configured\n\n`
 
   if (enabledAgents.length > 0) {
     response += `**Active Agents:**\n`
     for (const agent of enabledAgents) {
-      const icon = agent.icon || '🤖'
+      const icon = agent.icon || 'ðŸ¤–'
       const name = agent.name || agent.key || 'Unnamed'
       const num = agent.number ? String(agent.number).padStart(2, '0') : '??'
       const triggers: string[] = []
@@ -882,11 +826,11 @@ export async function generateSystemStatusResponse(
           }
           return info
         }).join(', ')
-        response += `   → Connected to: ${boxInfo}\n`
+        response += `   â†’ Connected to: ${boxInfo}\n`
       }
     }
   } else {
-    response += `No agents currently enabled. Create agents in Admin → Agent Settings.`
+    response += `No agents currently enabled. Create agents in Admin â†’ Agent Settings.`
   }
 
   return response
@@ -905,7 +849,7 @@ You help users manage their AI agents, understand system status, and answer gene
 
 IMPORTANT: If the user's message includes an attached document (indicated by [Attached document: ...] at the start), 
 you MUST read and use that document content directly to answer their question. Do NOT suggest they use agents or 
-external tools for document questions — the document text is already provided to you in the message. 
+external tools for document questions â€” the document text is already provided to you in the message. 
 Just answer based on the content you have been given.
 
 Keep responses concise and professional. Only suggest agent triggers (#TriggerName) when the user is asking 
@@ -947,12 +891,6 @@ export async function routeInput(
   const agents = await loadAgentsFromSession(providedSessionKey)
   const agentBoxes = await loadAgentBoxesFromSession(providedSessionKey)
   
-  console.log('[ProcessFlow] routeInput:', { 
-    input: input.substring(0, 50), 
-    inputType, 
-    agentCount: agents.length, 
-    boxCount: agentBoxes.length 
-  })
   
   // Check for system queries first
   if (isSystemQuery(input)) {
@@ -974,9 +912,6 @@ export async function routeInput(
   }
 
   // Match input to agents using full routing rules
-  console.log('[ProcessFlow] routeInput boxes for matching:', agentBoxes.map(b => ({
-    id: b.id, identifier: (b as any).identifier, boxNumber: b.boxNumber, agentNumber: b.agentNumber, source: (b as any).source, enabled: b.enabled
-  })))
   const matchedAgents = matchInputToAgents(
     input,
     inputType,
@@ -1024,8 +959,8 @@ export async function routeInput(
 /**
  * Route input through the complete Event Tag wiring flow:
  * 
- * 1. WR Chat input → NLP Classifier → ClassifiedInput with #tags
- * 2. InputCoordinator.routeEventTagTrigger() → Match listeners
+ * 1. WR Chat input â†’ NLP Classifier â†’ ClassifiedInput with #tags
+ * 2. InputCoordinator.routeEventTagTrigger() â†’ Match listeners
  * 3. Evaluate conditions (WRCode, sender, keywords, website)
  * 4. Collect sensor workflow context (placeholder)
  * 5. Resolve LLM from connected Agent Box
@@ -1056,11 +991,6 @@ export async function routeEventTagInput(
   const classificationTimeMs = Date.now() - classificationStart
   const classifiedInput = classificationResult.input
   
-  console.log('[ProcessFlow] Event Tag Routing - Input classified:', {
-    triggers: classifiedInput.triggers,
-    entities: classifiedInput.entities.length,
-    source: classifiedInput.source
-  })
   
   // Step 2: Load agents and agent boxes from session
   const routingStart = Date.now()
@@ -1086,11 +1016,6 @@ export async function routeEventTagInput(
   
   const routingTimeMs = Date.now() - routingStart
   
-  console.log('[ProcessFlow] Event Tag Routing complete:', {
-    matched: batch.results.length,
-    triggers: batch.triggersFound,
-    totalTimeMs: classificationTimeMs + routingTimeMs
-  })
   
   return {
     batch,
@@ -1118,12 +1043,6 @@ export async function processEventTagMatch(
   destinations: string[]
   error?: string
 }> {
-  console.log('[ProcessFlow] Processing Event Tag match:', {
-    agent: result.agentName,
-    trigger: result.trigger.tag,
-    llm: `${result.llmConfig.provider}/${result.llmConfig.model}`,
-    reportTo: result.executionConfig.reportTo.map(r => r.label)
-  })
   
   // Check if LLM is available
   if (!result.llmConfig.isAvailable) {
@@ -1157,12 +1076,6 @@ export async function processEventTagMatch(
     systemPrompt += '\n\n'
   }
   
-  console.log('[ProcessFlow] Built reasoning prompt:', {
-    systemPromptLength: systemPrompt.length,
-    hasInstructions: !!goals,
-    hasRole: !!role,
-    customFields: custom?.length || 0
-  })
   
   // TODO: Actually call the LLM here
   // For now, return a placeholder indicating the wiring is complete
@@ -1281,7 +1194,6 @@ export async function updateAgentBoxOutput(
             return
           }
 
-          console.log('[ProcessFlow] Agent box output updated in SQLite:', agentBoxId)
           resolve(true)
         })
       } catch (e) {
@@ -1323,7 +1235,6 @@ async function updateAgentBoxOutputInChromeStorage(
       session.agentBoxes[boxIndex].lastUpdated = new Date().toISOString()
 
       chrome.storage?.local?.set({ [sessionKey]: session }, () => {
-        console.log('[ProcessFlow] Agent box output updated in chrome.storage (fallback):', agentBoxId)
 
         chrome.runtime?.sendMessage({
           type: 'UPDATE_AGENT_BOX_OUTPUT',
@@ -1361,7 +1272,7 @@ export type BrainErrorType =
 
 /**
  * Resolve which model to use for an agent's LLM call.
- * Uses canonical ProviderId constants — handles both normalized IDs
+ * Uses canonical ProviderId constants â€” handles both normalized IDs
  * and legacy UI labels (e.g. 'Local AI') via toProviderId().
  * 
  * Returns a typed BrainResolution: ok:true with the model to use,
@@ -1381,7 +1292,7 @@ export function resolveModelForAgent(
       model: fallbackModel || '',
       isLocal: true,
       provider: PROVIDER_IDS.OLLAMA,
-      note: 'No provider/model configured — using default local model'
+      note: 'No provider/model configured â€” using default local model'
     }
   }
 
@@ -1391,7 +1302,7 @@ export function resolveModelForAgent(
       model: fallbackModel || '',
       isLocal: true,
       provider: PROVIDER_IDS.OLLAMA,
-      note: 'No model configured — using default local model'
+      note: 'No model configured â€” using default local model'
     }
   }
 
@@ -1486,7 +1397,7 @@ export async function buildLlmRequestBody(
     const label = toProviderLabel(modelResolution.provider)
     return {
       body,
-      error: `No API key found for ${label}. Add your ${label} API key in Settings → API Keys, then try again.`
+      error: `No API key found for ${label}. Add your ${label} API key in Settings â†’ API Keys, then try again.`
     }
   }
 

@@ -56,7 +56,7 @@ interface ListenerEvaluation {
   matchedTriggerName?: string
   /** ALL matched trigger names */
   matchedTriggerNames?: string[]
-  /** Type of match — only Listener-derived match types are valid */
+  /** Type of match â€” only Listener-derived match types are valid */
   matchType: 'passive_trigger' | 'active_trigger' | 'expected_context' | 'none'
   /** Human-readable match details */
   matchDetails: string
@@ -83,7 +83,6 @@ export class InputCoordinator {
    */
   private log(...args: any[]): void {
     if (this.debug) {
-      console.log('[InputCoordinator]', ...args)
     }
   }
 
@@ -241,7 +240,7 @@ export class InputCoordinator {
     // STRICT CHAIN: No listener capability or no active triggers -> agent cannot receive external input.
     // Reasoning and Execution must never listen to the outside world directly.
     if (!hasListenerCapability || !isListenerActive) {
-      this.log(`Agent "${agent.name}" REJECTED: no active Listener — strict chain requires Listener -> Reasoning -> Execution`)
+      this.log(`Agent "${agent.name}" REJECTED: no active Listener â€” strict chain requires Listener -> Reasoning -> Execution`)
       return {
         hasListener: hasListenerCapability,
         isListenerActive: false,
@@ -250,7 +249,7 @@ export class InputCoordinator {
         matchesExpectedContext: false,
         matchesApplyFor: false,
         matchType: 'none',
-        matchDetails: 'No active listener — external input requires a Listener trigger (Listener → Reasoning → Execution)'
+        matchDetails: 'No active listener â€” external input requires a Listener trigger (Listener â†’ Reasoning â†’ Execution)'
       }
     }
 
@@ -309,7 +308,7 @@ export class InputCoordinator {
     // Track matched keywords for display
     const matchedKeywords: string[] = []
     
-    // Check unified triggers (new format) — includes wrchat, direct_tag, etc.
+    // Check unified triggers (new format) â€” includes wrchat, direct_tag, etc.
     if (listening?.unifiedTriggers && inputTriggers.length > 0) {
       for (const trigger of listening.unifiedTriggers) {
         const triggerTag = trigger.tag?.replace('#', '') || trigger.tagName || ''
@@ -408,7 +407,7 @@ export class InputCoordinator {
     // not an external trigger. Only the Listener layer gates external input.
 
     // No Listener trigger matched
-    this.log(`Agent "${agent.name}" — Listener active but no triggers matched this input`)
+    this.log(`Agent "${agent.name}" â€” Listener active but no triggers matched this input`)
     return {
       hasListener: true,
       isListenerActive: true,
@@ -417,7 +416,7 @@ export class InputCoordinator {
       matchesExpectedContext: false,
       matchesApplyFor: false,
       matchType: 'none',
-      matchDetails: 'Listener active but no triggers matched — input not forwarded'
+      matchDetails: 'Listener active but no triggers matched â€” input not forwarded'
     }
   }
 
@@ -434,14 +433,6 @@ export class InputCoordinator {
     const agentAny = agent as any
 
     // Debug: log the raw execution structure to diagnose missing destinations
-    console.log(`[InputCoordinator] findAgentBoxesForAgent "${agent.name}":`, {
-      executionSectionsCount: (agentAny.executionSections || []).length,
-      executionSections: JSON.stringify(agentAny.executionSections || []),
-      nestedExecSectionsCount: (agentAny.execution?.executionSections || []).length,
-      nestedExecSections: JSON.stringify(agentAny.execution?.executionSections || []),
-      executionSpecialDests: JSON.stringify(agentAny.execution?.specialDestinations || []),
-      executionDestinations: JSON.stringify(agentAny.execution?.destinations || []),
-    })
 
     // Helper: resolve agentBox destinations from a destinations/specialDestinations array
     const resolveDestList = (dests: any[]) => {
@@ -452,13 +443,13 @@ export class InputCoordinator {
               const boxNumMatch = String(targetBox).match(/(\d+)/)
               if (boxNumMatch) {
                 const targetBoxNum = parseInt(boxNumMatch[1], 10)
-                // Prefer a box whose agentNumber matches this agent — avoids picking a
+                // Prefer a box whose agentNumber matches this agent â€” avoids picking a
                 // box belonging to a different agent when multiple boxes share the same boxNumber.
                 const candidateBoxes = agentBoxes.filter(b => Number(b.boxNumber) === targetBoxNum && b.enabled !== false)
                 const box = candidateBoxes.find(b => Number(b.agentNumber) === Number(agent.number))
                   ?? candidateBoxes[0]
                 if (box && !matchedBoxes.some(mb => mb.id === box.id)) {
-                  this.log(`Agent "${agent.name}" → Explicit destination: Agent Box ${targetBoxNum}`)
+                  this.log(`Agent "${agent.name}" â†’ Explicit destination: Agent Box ${targetBoxNum}`)
                   matchedBoxes.push(box)
                 }
               }
@@ -478,7 +469,7 @@ export class InputCoordinator {
       resolveDestList(section.specialDestinations || [])
     }
 
-    // 1a2. Also check execution.executionSections — auto-save nests additional sections HERE
+    // 1a2. Also check execution.executionSections â€” auto-save nests additional sections HERE
     // (syncPersistedFromDom stores: draft.execution.executionSections = eSections)
     const nestedExecSections: any[] = agentAny.execution?.executionSections || []
     for (const section of nestedExecSections) {
@@ -504,7 +495,7 @@ export class InputCoordinator {
         const box = candidateBoxes.find(b => Number(b.agentNumber) === Number(agent.number))
           ?? candidateBoxes[0]
         if (box && !matchedBoxes.some(mb => mb.id === box.id)) {
-          this.log(`Agent "${agent.name}" → ReportTo destination: Agent Box ${targetBoxNum}`)
+          this.log(`Agent "${agent.name}" â†’ ReportTo destination: Agent Box ${targetBoxNum}`)
           matchedBoxes.push(box)
         }
       }
@@ -519,7 +510,7 @@ export class InputCoordinator {
       })
       
       if (numberMatchedBoxes.length > 0) {
-        this.log(`Agent ${agent.number} (${agent.name}) → Number match: ${numberMatchedBoxes.map(b => `Box ${b.boxNumber}`).join(', ')}`)
+        this.log(`Agent ${agent.number} (${agent.name}) â†’ Number match: ${numberMatchedBoxes.map(b => `Box ${b.boxNumber}`).join(', ')}`)
         matchedBoxes.push(...numberMatchedBoxes)
       }
     }
@@ -539,7 +530,7 @@ export class InputCoordinator {
         return false
       })
       if (agentIdBoxes.length > 0) {
-        this.log(`Agent "${agent.name}" → agentId field match: ${agentIdBoxes.map(b => `Box ${b.boxNumber}`).join(', ')}`)
+        this.log(`Agent "${agent.name}" â†’ agentId field match: ${agentIdBoxes.map(b => `Box ${b.boxNumber}`).join(', ')}`)
         matchedBoxes.push(...agentIdBoxes)
       }
     }
@@ -549,16 +540,16 @@ export class InputCoordinator {
     if (matchedBoxes.length === 0) {
       const agentNum = Number(agent.number)
       if (agentNum > 0) {
-        // Try matching box.boxNumber === agentNum (Box 01 ↔ Agent 1)
+        // Try matching box.boxNumber === agentNum (Box 01 â†” Agent 1)
         const boxNumMatches = agentBoxes.filter(b => Number(b.boxNumber) === agentNum && b.enabled !== false)
         if (boxNumMatches.length > 0) {
-          this.log(`Agent ${agentNum} (${agent.name}) → Box number fallback match: ${boxNumMatches.map(b => `Box ${b.boxNumber}`).join(', ')}`)
+          this.log(`Agent ${agentNum} (${agent.name}) â†’ Box number fallback match: ${boxNumMatches.map(b => `Box ${b.boxNumber}`).join(', ')}`)
           matchedBoxes.push(...boxNumMatches)
         }
       }
     }
 
-    // 6. Use number extracted from the matched trigger tag (e.g., "a1" → 1, "invoice2" → 2)
+    // 6. Use number extracted from the matched trigger tag (e.g., "a1" â†’ 1, "invoice2" â†’ 2)
     if (matchedBoxes.length === 0 && matchedTriggerName) {
       const triggerDigits = String(matchedTriggerName).match(/(\d+)/)
       if (triggerDigits) {
@@ -571,7 +562,7 @@ export class InputCoordinator {
           return false
         })
         if (triggerMatches.length > 0) {
-          this.log(`Agent "${agent.name}" → Trigger tag digit match (#${matchedTriggerName}→${triggerNum}): ${triggerMatches.map(b => `Box ${b.boxNumber}`).join(', ')}`)
+          this.log(`Agent "${agent.name}" â†’ Trigger tag digit match (#${matchedTriggerName}â†’${triggerNum}): ${triggerMatches.map(b => `Box ${b.boxNumber}`).join(', ')}`)
           matchedBoxes.push(...triggerMatches)
         }
       }
@@ -581,12 +572,6 @@ export class InputCoordinator {
       this.log(`Agent "${agent.name}" has no connected boxes (checked: specialDestinations, reportTo, number matching, agentId, box-number fallback)`)
     }
 
-    console.log(`[InputCoordinator] findAgentBoxesForAgent "${agent.name}" result:`, {
-      totalBoxesAvailable: agentBoxes.length,
-      allBoxSummary: agentBoxes.map(b => `${b.id}(agentNum=${b.agentNumber},boxNum=${b.boxNumber},source=${(b as any).source})`),
-      matchedBoxCount: matchedBoxes.length,
-      matchedBoxIds: matchedBoxes.map(b => b.id),
-    })
     
     return matchedBoxes
   }
@@ -638,11 +623,11 @@ export class InputCoordinator {
       )
 
       // STRICT CHAIN: Only forward if a Listener trigger actually matched.
-      // 'none' means no match — agent does not receive input.
+      // 'none' means no match â€” agent does not receive input.
       const shouldForward = evaluation.matchType !== 'none'
       
       if (shouldForward) {
-        // Find connected agent boxes — pass matched trigger name as additional hint
+        // Find connected agent boxes â€” pass matched trigger name as additional hint
         const connectedBoxes = this.findAgentBoxesForAgent(agent, agentBoxes, evaluation.matchedTriggerName)
         const firstBox = connectedBoxes[0]
 
@@ -659,7 +644,7 @@ export class InputCoordinator {
         matches.push({
           agentId: agent.id,
           agentName: agent.name || agent.key || 'Unnamed Agent',
-          agentIcon: agent.icon || '🤖',
+          agentIcon: agent.icon || 'ðŸ¤–',
           agentNumber: agent.number,
           matchReason,
           matchDetails: evaluation.matchDetails,
@@ -678,9 +663,9 @@ export class InputCoordinator {
           targetBoxLabels: boxLabels,
         })
         
-        this.log(`✓ Agent "${agent.name}" will receive input (${evaluation.matchType})`)
+        this.log(`âœ“ Agent "${agent.name}" will receive input (${evaluation.matchType})`)
       } else {
-        this.log(`✗ Agent "${agent.name}" will not receive input (${evaluation.matchType})`)
+        this.log(`âœ— Agent "${agent.name}" will not receive input (${evaluation.matchType})`)
       }
     }
 
@@ -703,10 +688,10 @@ export class InputCoordinator {
     if (matches.length === 1) {
       const match = matches[0]
       let response = `I'm forwarding your request to ${match.agentIcon} **${match.agentName}**.\n`
-      response += `→ ${match.matchDetails}\n`
-      response += `→ Output will appear in: ${match.outputLocation}`
+      response += `â†’ ${match.matchDetails}\n`
+      response += `â†’ Output will appear in: ${match.outputLocation}`
       if (match.agentBoxProvider && match.agentBoxModel) {
-        response += `\n→ Using: ${match.agentBoxProvider} / ${match.agentBoxModel}`
+        response += `\nâ†’ Using: ${match.agentBoxProvider} / ${match.agentBoxModel}`
       }
       return response
     }
@@ -716,7 +701,7 @@ export class InputCoordinator {
     for (const match of matches) {
       response += `${match.agentIcon} **${match.agentName}**\n`
       response += `   ${match.matchDetails}\n`
-      response += `   → Output: ${match.outputLocation}\n\n`
+      response += `   â†’ Output: ${match.outputLocation}\n\n`
     }
     response += `Processing with all matched agents...`
     
@@ -815,7 +800,7 @@ export class InputCoordinator {
       const allocation: AgentAllocation = {
         agentId: agent.id,
         agentName: agent.name || agent.key || 'Unnamed Agent',
-        agentIcon: agent.icon || '🤖',
+        agentIcon: agent.icon || 'ðŸ¤–',
         agentNumber: agent.number,
         reasoning,
         llmProvider: primaryBox?.provider || fallbackProvider,
@@ -830,7 +815,7 @@ export class InputCoordinator {
       }
 
       allocations.push(allocation)
-      this.log(`✓ Allocated agent "${agent.name}" → ${outputSlot.destination} (${allocation.llmProvider}/${allocation.llmModel})`)
+      this.log(`âœ“ Allocated agent "${agent.name}" â†’ ${outputSlot.destination} (${allocation.llmProvider}/${allocation.llmModel})`)
     }
 
     // Remove duplicates (keep first occurrence)
@@ -857,9 +842,9 @@ export class InputCoordinator {
     if (allocations.length === 1) {
       const alloc = allocations[0]
       let response = `I'm forwarding your request to ${alloc.agentIcon} **${alloc.agentName}**.\n`
-      response += `→ ${alloc.matchDetails}\n`
-      response += `→ Output will appear in: ${alloc.outputSlot.destination}`
-      response += `\n→ Using: ${alloc.llmProvider} / ${alloc.llmModel}`
+      response += `â†’ ${alloc.matchDetails}\n`
+      response += `â†’ Output will appear in: ${alloc.outputSlot.destination}`
+      response += `\nâ†’ Using: ${alloc.llmProvider} / ${alloc.llmModel}`
       return response
     }
 
@@ -868,8 +853,8 @@ export class InputCoordinator {
     for (const alloc of allocations) {
       response += `${alloc.agentIcon} **${alloc.agentName}**\n`
       response += `   ${alloc.matchDetails}\n`
-      response += `   → Output: ${alloc.outputSlot.destination}\n`
-      response += `   → Model: ${alloc.llmProvider}/${alloc.llmModel}\n\n`
+      response += `   â†’ Output: ${alloc.outputSlot.destination}\n`
+      response += `   â†’ Model: ${alloc.llmProvider}/${alloc.llmModel}\n\n`
     }
     response += `Processing with all matched agents...`
     
@@ -883,7 +868,7 @@ export class InputCoordinator {
   /**
    * Route Event Tag triggers through the complete flow:
    * 
-   * 1. WR Chat input → NLP parsing → ClassifiedInput with #tags
+   * 1. WR Chat input â†’ NLP parsing â†’ ClassifiedInput with #tags
    * 2. Check all agents' listeners in session for matching triggers
    * 3. Evaluate eventTagConditions (WRCode, sender whitelist, keywords, website)
    * 4. Collect sensor workflow context
@@ -919,7 +904,7 @@ export class InputCoordinator {
       // Skip disabled agents
       if (!agent.enabled) {
         agentsSkipped++
-        this.log(`⊘ Skipping disabled agent: ${agent.name}`)
+        this.log(`âŠ˜ Skipping disabled agent: ${agent.name}`)
         continue
       }
       
@@ -928,7 +913,7 @@ export class InputCoordinator {
       
       if (eventTagTriggers.length === 0) {
         // Agent has no event tag listeners - skip for this routing type
-        this.log(`⊘ Agent "${agent.name}" has no event tag triggers`)
+        this.log(`âŠ˜ Agent "${agent.name}" has no event tag triggers`)
         agentsSkipped++
         continue
       }
@@ -951,7 +936,7 @@ export class InputCoordinator {
         
         if (!isMatch) continue
         
-        this.log(`✓ Trigger match: #${triggerTag} for agent "${agent.name}"`)
+        this.log(`âœ“ Trigger match: #${triggerTag} for agent "${agent.name}"`)
         
         // Evaluate event tag conditions
         const conditionResults = this.evaluateEventTagConditions(
@@ -961,7 +946,7 @@ export class InputCoordinator {
         )
         
         if (!conditionResults.allPassed) {
-          this.log(`✗ Conditions not met for agent "${agent.name}": ${conditionResults.conditions.map(c => `${c.type}:${c.passed}`).join(', ')}`)
+          this.log(`âœ— Conditions not met for agent "${agent.name}": ${conditionResults.conditions.map(c => `${c.type}:${c.passed}`).join(', ')}`)
           continue
         }
         
@@ -994,7 +979,7 @@ export class InputCoordinator {
           matched: true,
           agentId: agent.id,
           agentName: agent.name || agent.key || 'Unnamed Agent',
-          agentIcon: '🤖', // Default icon
+          agentIcon: 'ðŸ¤–', // Default icon
           agentNumber: agent.number,
           trigger: {
             id: firstMatch.trigger.id || `ID#${firstMatch.tag}`,
@@ -1014,8 +999,8 @@ export class InputCoordinator {
         }
         
         results.push(result)
-        this.log(`✓ Agent "${agent.name}" matched ${matchedTriggersForAgent.length} trigger(s): ${tagsDisplay}`)
-        this.log(`  → LLM: ${llmConfig.provider}/${llmConfig.model}, ReportTo: ${executionConfig.reportTo.map(r => r.label).join(', ')}`)
+        this.log(`âœ“ Agent "${agent.name}" matched ${matchedTriggersForAgent.length} trigger(s): ${tagsDisplay}`)
+        this.log(`  â†’ LLM: ${llmConfig.provider}/${llmConfig.model}, ReportTo: ${executionConfig.reportTo.map(r => r.label).join(', ')}`)
       }
     }
     
@@ -1506,9 +1491,9 @@ export class InputCoordinator {
     if (batch.results.length === 1) {
       const result = batch.results[0]
       let summary = `Routing to ${result.agentIcon} **${result.agentName}**\n`
-      summary += `→ Trigger: ${result.trigger.tag} (${result.trigger.channel})\n`
-      summary += `→ LLM: ${result.llmConfig.provider}/${result.llmConfig.model}\n`
-      summary += `→ Output: ${result.executionConfig.reportTo.map(r => r.label).join(', ')}`
+      summary += `â†’ Trigger: ${result.trigger.tag} (${result.trigger.channel})\n`
+      summary += `â†’ LLM: ${result.llmConfig.provider}/${result.llmConfig.model}\n`
+      summary += `â†’ Output: ${result.executionConfig.reportTo.map(r => r.label).join(', ')}`
       return summary
     }
     
@@ -1517,7 +1502,7 @@ export class InputCoordinator {
       summary += `${result.agentIcon} **${result.agentName}**\n`
       summary += `   Trigger: ${result.trigger.tag}\n`
       summary += `   LLM: ${result.llmConfig.provider}/${result.llmConfig.model}\n`
-      summary += `   → ${result.executionConfig.reportTo.map(r => r.label).join(', ')}\n\n`
+      summary += `   â†’ ${result.executionConfig.reportTo.map(r => r.label).join(', ')}\n\n`
     }
     
     return summary

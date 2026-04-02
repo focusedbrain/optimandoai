@@ -4,7 +4,7 @@ import { toProviderId, toProviderLabel } from './constants/providers'
 import { initAutofill, teardownAutofill } from './vault/autofill'
 import { handleWebMcpFillPreviewRequest } from './vault/autofill/webMcpAdapter'
 
-// ── WRVault Autofill: initialize the field icon + popover pipeline ──
+// â”€â”€ WRVault Autofill: initialize the field icon + popover pipeline â”€â”€
 // Content scripts run at document_end, so DOM is ready.
 // Wrapped in try/catch so autofill issues never break the main extension.
 //
@@ -22,13 +22,13 @@ if (!_isExtensionPage) {
       }, { once: true })
     }
   } catch {
-    // Autofill init failed — extension continues to work normally
+    // Autofill init failed â€” extension continues to work normally
   }
 }
 
-// ─── Unified Content-Script Theme Helper ─────────────────────────────────────
-// Exact WRVault palette — single source of truth for all vanilla-JS lightboxes.
-// Contrast rule: light bg → dark text (#0f1419), dark bg → light text (#f3f0ff / #e7e9ea).
+// â”€â”€â”€ Unified Content-Script Theme Helper â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// Exact WRVault palette â€” single source of truth for all vanilla-JS lightboxes.
+// Contrast rule: light bg â†’ dark text (#0f1419), dark bg â†’ light text (#f3f0ff / #e7e9ea).
 function csTheme() {
   let t: 'pro' | 'dark' | 'standard' = 'pro'
   try {
@@ -38,7 +38,7 @@ function csTheme() {
     else t = 'pro'
   } catch { /* ignore */ }
 
-  // ── Dark: deep slate — WRVault Dark (#0f172a → #1e293b) ──
+  // â”€â”€ Dark: deep slate â€” WRVault Dark (#0f172a â†’ #1e293b) â”€â”€
   if (t === 'dark') return {
     panelBg:      'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)',
     headerGrad:   'rgba(30,41,59,0.8)',
@@ -57,7 +57,7 @@ function csTheme() {
     successText:  '#4ade80', errorText: '#f87171', warnText: '#fbbf24', infoText: '#a5b4fc',
     isLight:      false,
   }
-  // ── Standard: light — WRVault Standard (#f8f9fb / dark text) ──
+  // â”€â”€ Standard: light â€” WRVault Standard (#f8f9fb / dark text) â”€â”€
   if (t === 'standard') return {
     panelBg:      '#f8f9fb',
     headerGrad:   '#ffffff',
@@ -76,7 +76,7 @@ function csTheme() {
     successText:  '#166534', errorText: '#991b1b', warnText: '#92400e', infoText: '#3730a3',
     isLight:      true,
   }
-  // ── Pro (default): vivid purple — WRVault Pro (#1e1040 → #2d1b69) ──
+  // â”€â”€ Pro (default): vivid purple â€” WRVault Pro (#1e1040 â†’ #2d1b69) â”€â”€
   return {
     panelBg:      'linear-gradient(135deg, #1e1040 0%, #2d1b69 50%, #1a0e3a 100%)',
     headerGrad:   'rgba(168,85,247,0.12)',
@@ -131,7 +131,7 @@ function csAgentFormUi() {
     btnGhostBlue: `background:rgba(96,165,250,.3);border:1px solid rgba(96,165,250,.5);color:#fff`,
   }
 }
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 // Per-Tab Activation System
 
@@ -286,7 +286,6 @@ function testExtensionConnection(): boolean {
 // Set up periodic connection check (every 10 seconds - only needs to detect extension reload)
 const connectionCheckInterval = setInterval(() => {
   if (!testExtensionConnection() && !extensionInvalidated) {
-    console.log('🔌 Extension context invalidated (extension was reloaded) - Auto-refreshing page...')
     extensionInvalidated = true
     
     // Auto-refresh immediately (no notification badge)
@@ -307,33 +306,20 @@ window.addEventListener('beforeunload', () => {
 
 const savedState = localStorage.getItem(extensionStateKey)
 
-console.log('🔧 DEBUG: Extension activation check:', {
-
-  url: window.location.href,
-
-  savedState,
-
-  dedicatedRole,
-
-  extensionStateKey
-
-})
 
 if (savedState === 'true' || dedicatedRole) {
 
   isExtensionActive = true
 
-  console.log('✅ Extension should be active:', { savedState: savedState === 'true', hasDedicatedRole: !!dedicatedRole })
 
 } else {
 
-  console.log('❌ Extension not active:', { savedState, dedicatedRole })
 
 }
 
 
 
-// ──────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 // Listen for toggle message from background script
 
@@ -341,7 +327,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   // Log all incoming messages for debugging
 
-  console.log('📬 [CONTENT SCRIPT] Message received:', message.type, 'from:', sender.tab ? 'tab' : 'extension')
 
   
 
@@ -365,7 +350,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
       initializeExtension()
 
-      console.log('🚀 Extension activated for tab')
 
     } else if (!message.visible && isExtensionActive) {
 
@@ -379,11 +363,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
         deactivateExtension()
 
-        console.log('🔴 Extension deactivated for tab')
 
       } else {
 
-        console.log('⛔ Cannot deactivate dedicated tab')
 
       }
 
@@ -407,7 +389,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
       } else {
 
-        console.warn('⚠️ openSettingsLightbox not available yet')
+        console.warn('âš ï¸ openSettingsLightbox not available yet')
 
         sendResponse({ success: false, error: 'Function not available' })
 
@@ -415,7 +397,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     } catch (e) {
 
-      console.error('❌ Error opening settings:', e)
+      console.error('âŒ Error opening settings:', e)
 
       sendResponse({ success: false, error: String(e) })
 
@@ -435,7 +417,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
       } else {
 
-        console.warn('⚠️ openMemoryLightbox not available yet')
+        console.warn('âš ï¸ openMemoryLightbox not available yet')
 
         sendResponse({ success: false, error: 'Function not available' })
 
@@ -443,7 +425,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     } catch (e) {
 
-      console.error('❌ Error opening memory:', e)
+      console.error('âŒ Error opening memory:', e)
 
       sendResponse({ success: false, error: String(e) })
 
@@ -463,7 +445,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
       } else {
 
-        console.warn('⚠️ openContextLightbox not available yet')
+        console.warn('âš ï¸ openContextLightbox not available yet')
 
         sendResponse({ success: false, error: 'Function not available' })
 
@@ -471,7 +453,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     } catch (e) {
 
-      console.error('❌ Error opening context:', e)
+      console.error('âŒ Error opening context:', e)
 
       sendResponse({ success: false, error: String(e) })
 
@@ -489,7 +471,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     } catch (e) {
 
-      console.error('❌ Error saving session:', e)
+      console.error('âŒ Error saving session:', e)
 
       sendResponse({ success: false, error: String(e) })
 
@@ -509,7 +491,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
       } else {
 
-        console.warn('⚠️ openAgentsLightbox not available yet')
+        console.warn('âš ï¸ openAgentsLightbox not available yet')
 
         sendResponse({ success: false, error: 'Function not available' })
 
@@ -517,7 +499,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     } catch (e) {
 
-      console.error('❌ Error opening agents:', e)
+      console.error('âŒ Error opening agents:', e)
 
       sendResponse({ success: false, error: String(e) })
 
@@ -529,13 +511,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   else if (message.type === 'OPEN_UNIFIED_ADMIN_LIGHTBOX') {
 
-    console.log('📨 Received OPEN_UNIFIED_ADMIN_LIGHTBOX message')
 
     try {
 
       if (globalLightboxFunctions.openUnifiedAdminLightbox) {
 
-        console.log('✅ Opening unified admin lightbox...')
 
         globalLightboxFunctions.openUnifiedAdminLightbox('agents')
 
@@ -543,7 +523,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
       } else {
 
-        console.warn('⚠️ openUnifiedAdminLightbox not available yet')
+        console.warn('âš ï¸ openUnifiedAdminLightbox not available yet')
 
         sendResponse({ success: false, error: 'Function not available' })
 
@@ -551,7 +531,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     } catch (e) {
 
-      console.error('❌ Error opening unified admin:', e)
+      console.error('âŒ Error opening unified admin:', e)
 
       sendResponse({ success: false, error: String(e) })
 
@@ -566,7 +546,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       const { agentBox, sessionKey: providedSessionKey } = message.data || {}
       
       if (!agentBox) {
-        console.error('❌ No agent box data provided')
+        console.error('âŒ No agent box data provided')
         sendResponse({ success: false, error: 'No agent box data' })
         return
       }
@@ -574,7 +554,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       const currentSessionKey = providedSessionKey || getCurrentSessionKey()
       
       if (!currentSessionKey) {
-        console.error('❌ No session key available')
+        console.error('âŒ No session key available')
         sendResponse({ success: false, error: 'No session key' })
         return
       }
@@ -602,7 +582,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         session.agentBoxes.push(agentBox)
         
         ensureSessionInHistory(currentSessionKey, session, () => {
-          console.log('✅ Agent box saved to session:', agentBox.identifier)
           
           // Notify sidepanel
           chrome.runtime.sendMessage({
@@ -617,7 +596,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       if (chrome?.runtime) {
         chrome.runtime.sendMessage({ type: 'GET_SESSION_FROM_SQLITE', sessionKey: currentSessionKey }, (response) => {
           if (chrome.runtime.lastError || !response?.success || !response?.session) {
-            console.warn('⚠️ CREATE_AGENT_BOX_FROM_SIDEPANEL: SQLite read failed, trying Chrome Storage fallback')
+            console.warn('âš ï¸ CREATE_AGENT_BOX_FROM_SIDEPANEL: SQLite read failed, trying Chrome Storage fallback')
             chrome.storage.local.get([currentSessionKey], (r: any) => {
               doSaveBox(r?.[currentSessionKey])
             })
@@ -630,7 +609,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       }
       
     } catch (e) {
-      console.error('❌ Error creating agent box from sidepanel:', e)
+      console.error('âŒ Error creating agent box from sidepanel:', e)
       sendResponse({ success: false, error: String(e) })
     }
   }
@@ -646,7 +625,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
       } else {
 
-        console.warn('⚠️ openAddAgentBoxDialog not available yet')
+        console.warn('âš ï¸ openAddAgentBoxDialog not available yet')
 
         sendResponse({ success: false, error: 'Function not available' })
 
@@ -654,7 +633,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     } catch (e) {
 
-      console.error('❌ Error opening add agent box dialog:', e)
+      console.error('âŒ Error opening add agent box dialog:', e)
 
       sendResponse({ success: false, error: String(e) })
 
@@ -680,7 +659,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
         } else {
 
-          console.warn('⚠️ No box ID provided')
+          console.warn('âš ï¸ No box ID provided')
 
           sendResponse({ success: false, error: 'No box ID provided' })
 
@@ -688,7 +667,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
       } else {
 
-        console.warn('⚠️ openEditAgentBoxDialog not available yet')
+        console.warn('âš ï¸ openEditAgentBoxDialog not available yet')
 
         sendResponse({ success: false, error: 'Function not available' })
 
@@ -696,7 +675,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     } catch (e) {
 
-      console.error('❌ Error opening edit agent box dialog:', e)
+      console.error('âŒ Error opening edit agent box dialog:', e)
 
       sendResponse({ success: false, error: String(e) })
 
@@ -724,7 +703,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
         } else {
 
-          console.warn('⚠️ Messages element not found for screen select')
+          console.warn('âš ï¸ Messages element not found for screen select')
 
           sendResponse({ success: false, error: 'Messages element not found' })
 
@@ -732,7 +711,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
       } else {
 
-        console.warn('⚠️ beginScreenSelect not available yet')
+        console.warn('âš ï¸ beginScreenSelect not available yet')
 
         sendResponse({ success: false, error: 'Function not available' })
 
@@ -740,7 +719,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     } catch (e) {
 
-      console.error('❌ Error starting screen select:', e)
+      console.error('âŒ Error starting screen select:', e)
 
       sendResponse({ success: false, error: String(e) })
 
@@ -766,7 +745,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
       } else {
 
-        console.warn('⚠️ Context bucket button not found')
+        console.warn('âš ï¸ Context bucket button not found')
 
         sendResponse({ success: false, error: 'Bucket button not found' })
 
@@ -774,7 +753,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     } catch (e) {
 
-      console.error('❌ Error triggering context bucket:', e)
+      console.error('âŒ Error triggering context bucket:', e)
 
       sendResponse({ success: false, error: String(e) })
 
@@ -800,7 +779,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
       } else {
 
-        console.warn('⚠️ Tags button not found')
+        console.warn('âš ï¸ Tags button not found')
 
         sendResponse({ success: false, error: 'Tags button not found' })
 
@@ -808,7 +787,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     } catch (e) {
 
-      console.error('❌ Error opening tags:', e)
+      console.error('âŒ Error opening tags:', e)
 
       sendResponse({ success: false, error: String(e) })
 
@@ -830,7 +809,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
       } else {
 
-        console.warn('⚠️ createDockedChat not available yet')
+        console.warn('âš ï¸ createDockedChat not available yet')
 
         sendResponse({ success: false, error: 'Function not available' })
 
@@ -838,7 +817,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     } catch (e) {
 
-      console.error('❌ Error creating docked chat:', e)
+      console.error('âŒ Error creating docked chat:', e)
 
       sendResponse({ success: false, error: String(e) })
 
@@ -860,7 +839,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
       } else {
 
-        console.warn('⚠️ removeDockedChat not available yet')
+        console.warn('âš ï¸ removeDockedChat not available yet')
 
         sendResponse({ success: false, error: 'Function not available' })
 
@@ -868,7 +847,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     } catch (e) {
 
-      console.error('❌ Error removing docked chat:', e)
+      console.error('âŒ Error removing docked chat:', e)
 
       sendResponse({ success: false, error: String(e) })
 
@@ -896,19 +875,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
       }
 
-      console.log('📤 Sending session data to sidepanel:', responseData)
 
-      console.log('  → Session Key from getCurrentSessionKey():', sessionKey)
 
-      console.log('  → Session Key from sessionStorage:', sessionStorage.getItem('optimando-current-session-key'))
 
-      console.log('  → Session Key from localStorage:', localStorage.getItem('optimando-global-active-session'))
 
       sendResponse(responseData)
 
     } catch (e) {
 
-      console.error('❌ Error getting session data:', e)
+      console.error('âŒ Error getting session data:', e)
 
       sendResponse({ error: String(e) })
 
@@ -960,7 +935,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     } catch (e) {
 
-      console.error('❌ Error updating session name:', e)
+      console.error('âŒ Error updating session name:', e)
 
       sendResponse({ success: false, error: String(e) })
 
@@ -973,17 +948,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     const agentId = message.data?.agentId
     
     if (!agentId) {
-      console.error('❌ No agent ID provided for deletion')
+      console.error('âŒ No agent ID provided for deletion')
       sendResponse({ success: false, error: 'No agent ID provided' })
       return
     }
     
-    console.log('🗝‘️ DELETE_AGENT_BOX from sidepanel:', agentId)
     
     // Find the box to get its identifier
     const boxIndex = currentTabData.agentBoxes.findIndex((box: any) => box.id === agentId)
     if (boxIndex === -1) {
-      console.warn('⚠️ Agent box not found:', agentId)
+      console.warn('âš ï¸ Agent box not found:', agentId)
       sendResponse({ success: false, error: 'Agent box not found' })
       return
     }
@@ -992,7 +966,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     const sessionKey = getCurrentSessionKey()
     
     if (!sessionKey) {
-      console.error('❌ No session key found')
+      console.error('âŒ No session key found')
       sendResponse({ success: false, error: 'No session key' })
       return
     }
@@ -1005,12 +979,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       identifier: deletedBox.identifier
     }, (response) => {
       if (chrome.runtime.lastError) {
-        console.error('❌ Runtime error:', chrome.runtime.lastError.message)
+        console.error('âŒ Runtime error:', chrome.runtime.lastError.message)
         return
       }
       
       if (response && response.success) {
-        console.log('✅ Agent box deleted from SQLite')
         
         // Reload from SQLite to update UI
         reloadSessionFromSQLite(sessionKey)
@@ -1021,7 +994,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           sessionKey: sessionKey
         })
       } else {
-        console.error('❌ Failed to delete:', response?.error)
+        console.error('âŒ Failed to delete:', response?.error)
       }
     })
     
@@ -1037,7 +1010,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
       if (globalLightboxFunctions.startNewSession) {
 
-        console.log('🏆• Creating new session from sidepanel...')
 
         // Call the original startNewSession function that already exists
 
@@ -1051,17 +1023,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
           const sessionKey = getCurrentSessionKey()
 
-          console.log('📤 Broadcasting new session data to sidepanel:', {
-
-            sessionName: currentTabData.tabName,
-
-            sessionKey: sessionKey,
-
-            isLocked: currentTabData.isLocked,
-
-            agentBoxCount: (currentTabData.agentBoxes || []).length
-
-          })
 
           
 
@@ -1093,7 +1054,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
       } else {
 
-        console.warn('⚠️ startNewSession not available yet')
+        console.warn('âš ï¸ startNewSession not available yet')
 
         sendResponse({ success: false, error: 'Function not available' })
 
@@ -1101,7 +1062,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     } catch (e) {
 
-      console.error('❌ Error creating new session:', e)
+      console.error('âŒ Error creating new session:', e)
 
       sendResponse({ success: false, error: String(e) })
 
@@ -1113,27 +1074,22 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   else if (message.type === 'OPEN_HELPER_GRID_LIGHTBOX') {
 
-    console.log('📨 Received OPEN_HELPER_GRID_LIGHTBOX message')
 
-    console.log('🔍 Checking globalLightboxFunctions:', Object.keys(globalLightboxFunctions))
 
-    console.log('🔍 openHelperGridLightbox available?', !!globalLightboxFunctions.openHelperGridLightbox)
 
     try {
 
       if (globalLightboxFunctions.openHelperGridLightbox) {
 
-        console.log('✅ Calling openHelperGridLightbox()...')
 
         globalLightboxFunctions.openHelperGridLightbox()
 
-        console.log('✅ Helper Grid lightbox opened successfully')
 
         sendResponse({ success: true })
 
       } else {
 
-        console.warn('⚠️ openHelperGridLightbox function not available')
+        console.warn('âš ï¸ openHelperGridLightbox function not available')
 
         sendResponse({ success: false, error: 'Function not available' })
 
@@ -1141,7 +1097,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     } catch (e) {
 
-      console.error('❌ Error opening helper grid lightbox:', e)
+      console.error('âŒ Error opening helper grid lightbox:', e)
 
       sendResponse({ success: false, error: String(e) })
 
@@ -1153,27 +1109,22 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   else if (message.type === 'OPEN_SESSIONS_LIGHTBOX') {
 
-    console.log('📨 Received OPEN_SESSIONS_LIGHTBOX message')
 
-    console.log('🔍 Checking globalLightboxFunctions:', Object.keys(globalLightboxFunctions))
 
-    console.log('🔍 openSessionsLightbox available?', !!globalLightboxFunctions.openSessionsLightbox)
 
     try {
 
       if (globalLightboxFunctions.openSessionsLightbox) {
 
-        console.log('✅ Calling openSessionsLightbox()...')
 
         globalLightboxFunctions.openSessionsLightbox()
 
-        console.log('✅ Sessions lightbox opened successfully')
 
         sendResponse({ success: true })
 
       } else {
 
-        console.warn('⚠️ openSessionsLightbox function not available')
+        console.warn('âš ï¸ openSessionsLightbox function not available')
 
         sendResponse({ success: false, error: 'Function not available' })
 
@@ -1181,7 +1132,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     } catch (e) {
 
-      console.error('❌ Error opening sessions lightbox:', e)
+      console.error('âŒ Error opening sessions lightbox:', e)
 
       sendResponse({ success: false, error: String(e) })
 
@@ -1193,23 +1144,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   else if (message.type === 'ADD_AGENT_BOX') {
 
-    console.log('📨 Received ADD_AGENT_BOX message')
 
     try {
 
       if (globalLightboxFunctions.openAddAgentBoxDialog) {
 
-        console.log('✅ Calling openAddAgentBoxDialog()...')
 
         globalLightboxFunctions.openAddAgentBoxDialog()
 
-        console.log('✅ Add Agent Box dialog opened successfully')
 
         sendResponse({ success: true })
 
       } else {
 
-        console.warn('⚠️ openAddAgentBoxDialog function not available')
+        console.warn('âš ï¸ openAddAgentBoxDialog function not available')
 
         sendResponse({ success: false, error: 'Function not available' })
 
@@ -1217,7 +1165,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     } catch (e) {
 
-      console.error('❌ Error opening add agent box dialog:', e)
+      console.error('âŒ Error opening add agent box dialog:', e)
 
       sendResponse({ success: false, error: String(e) })
 
@@ -1245,7 +1193,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     } catch (e) {
 
-      console.error('❌ Error syncing session:', e)
+      console.error('âŒ Error syncing session:', e)
 
       sendResponse({ success: false, error: String(e) })
 
@@ -1273,7 +1221,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     } catch (e) {
 
-      console.error('❌ Error importing session:', e)
+      console.error('âŒ Error importing session:', e)
 
       sendResponse({ success: false, error: String(e) })
 
@@ -1285,27 +1233,22 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   else if (message.type === 'OPEN_WRVAULT_LIGHTBOX') {
 
-    console.log('📨 Received OPEN_WRVAULT_LIGHTBOX message')
 
-    console.log('🔍 Checking globalLightboxFunctions:', Object.keys(globalLightboxFunctions))
 
-    console.log('🔍 openWRVaultLightbox available?', !!globalLightboxFunctions.openWRVaultLightbox)
 
     try {
 
       if (globalLightboxFunctions.openWRVaultLightbox) {
 
-        console.log('✅ Calling openWRVaultLightbox()...')
 
         globalLightboxFunctions.openWRVaultLightbox()
 
-        console.log('✅ WRVault lightbox opened successfully')
 
         sendResponse({ success: true })
 
       } else {
 
-        console.warn('⚠️ openWRVaultLightbox function not available')
+        console.warn('âš ï¸ openWRVaultLightbox function not available')
 
         sendResponse({ success: false, error: 'Function not available' })
 
@@ -1313,7 +1256,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     } catch (e) {
 
-      console.error('❌ Error opening WRVault lightbox:', e)
+      console.error('âŒ Error opening WRVault lightbox:', e)
 
       sendResponse({ success: false, error: String(e) })
 
@@ -1325,27 +1268,22 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   else if (message.type === 'OPEN_REASONING_LIGHTBOX') {
 
-    console.log('📨 Received OPEN_REASONING_LIGHTBOX message')
 
-    console.log('🔍 Checking globalLightboxFunctions:', Object.keys(globalLightboxFunctions))
 
-    console.log('🔍 openReasoningLightbox available?', !!globalLightboxFunctions.openReasoningLightbox)
 
     try {
 
       if (globalLightboxFunctions.openReasoningLightbox) {
 
-        console.log('✅ Calling openReasoningLightbox()...')
 
         globalLightboxFunctions.openReasoningLightbox()
 
-        console.log('✅ Reasoning lightbox opened successfully')
 
         sendResponse({ success: true })
 
       } else {
 
-        console.warn('⚠️ openReasoningLightbox function not available')
+        console.warn('âš ï¸ openReasoningLightbox function not available')
 
         sendResponse({ success: false, error: 'Function not available' })
 
@@ -1353,7 +1291,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     } catch (e) {
 
-      console.error('❌ Error opening Reasoning lightbox:', e)
+      console.error('âŒ Error opening Reasoning lightbox:', e)
 
       sendResponse({ success: false, error: String(e) })
 
@@ -1365,27 +1303,22 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   else if (message.type === 'OPEN_BACKEND_CONFIG_LIGHTBOX') {
 
-    console.log('📨 Received OPEN_BACKEND_CONFIG_LIGHTBOX message')
 
-    console.log('🔍 Checking globalLightboxFunctions:', Object.keys(globalLightboxFunctions))
 
-    console.log('🔍 openBackendConfigLightbox available?', !!globalLightboxFunctions.openBackendConfigLightbox)
 
     try {
 
       if (globalLightboxFunctions.openBackendConfigLightbox) {
 
-        console.log('✅ Calling openBackendConfigLightbox()...')
 
         globalLightboxFunctions.openBackendConfigLightbox()
 
-        console.log('✅ Backend Config lightbox opened successfully')
 
         sendResponse({ success: true })
 
       } else {
 
-        console.warn('⚠️ openBackendConfigLightbox function not available')
+        console.warn('âš ï¸ openBackendConfigLightbox function not available')
 
         sendResponse({ success: false, error: 'Function not available' })
 
@@ -1393,7 +1326,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     } catch (e) {
 
-      console.error('❌ Error opening Backend Config lightbox:', e)
+      console.error('âŒ Error opening Backend Config lightbox:', e)
 
       sendResponse({ success: false, error: String(e) })
 
@@ -1405,31 +1338,24 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   else if (message.type === 'OPEN_POLICY_LIGHTBOX') {
 
-    console.log('📨 Received OPEN_POLICY_LIGHTBOX message')
 
-    console.log('🔍 Checking globalLightboxFunctions:', Object.keys(globalLightboxFunctions))
 
-    console.log('🔍 openPolicyLightbox available?', !!globalLightboxFunctions.openPolicyLightbox)
 
     try {
 
       if (globalLightboxFunctions.openPolicyLightbox) {
 
-        console.log('✅ Calling openPolicyLightbox()...')
 
         globalLightboxFunctions.openPolicyLightbox()
 
-        console.log('✅ Policy lightbox opened successfully')
 
         sendResponse({ success: true })
 
       } else {
 
         // Dynamically import and open the policy lightbox
-        console.log('📦 Dynamically importing policy-lightbox-init...')
         
         import('./policy/components/policy-lightbox-init').then(({ openPolicyLightboxInContent }) => {
-          console.log('✅ Policy lightbox module loaded, opening...')
           const cleanup = openPolicyLightboxInContent()
           
           // Store cleanup function for potential future use
@@ -1437,7 +1363,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             openPolicyLightboxInContent()
           }
         }).catch(err => {
-          console.error('❌ Failed to load policy lightbox module:', err)
+          console.error('âŒ Failed to load policy lightbox module:', err)
         })
 
         sendResponse({ success: true })
@@ -1446,7 +1372,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     } catch (e) {
 
-      console.error('❌ Error opening Policy lightbox:', e)
+      console.error('âŒ Error opening Policy lightbox:', e)
 
       sendResponse({ success: false, error: String(e) })
 
@@ -1468,7 +1394,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     } catch (e) {
 
-      console.error('❌ Error saving session:', e)
+      console.error('âŒ Error saving session:', e)
 
       sendResponse({ success: false, error: String(e) })
 
@@ -1487,9 +1413,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   // SOLUTION: Users must manually start the desktop app from Start Menu or desktop shortcut.
   // The extension communicates with an already-running app via HTTP/WebSocket.
   else if (message.type === 'TRIGGER_PROTOCOL_LAUNCH' || message.type === 'LAUNCH_ELECTRON_PROTOCOL') {
-    console.warn('⚠️ [CONTENT] TRIGGER_PROTOCOL_LAUNCH is disabled - custom protocol launch removed to prevent Windows errors')
-    console.warn('⚠️ [CONTENT] Requested protocol:', message.protocol || message.url || 'wrcode://start')
-    console.warn('⚠️ [CONTENT] User should start the app manually from Start Menu')
+    console.warn('âš ï¸ [CONTENT] TRIGGER_PROTOCOL_LAUNCH is disabled - custom protocol launch removed to prevent Windows errors')
+    console.warn('âš ï¸ [CONTENT] Requested protocol:', message.protocol || message.url || 'wrcode://start')
+    console.warn('âš ï¸ [CONTENT] User should start the app manually from Start Menu')
     sendResponse({ 
       success: false, 
       error: 'Protocol launch disabled. Please start WR Desk from the Start Menu.',
@@ -1501,7 +1427,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 })
 
-// ── WebMCP Preview Handler ──────────────────────────────────────────────────
+// â”€â”€ WebMCP Preview Handler â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Routes WEBMCP_FILL_PREVIEW_REQUEST from background.ts to the adapter.
 // This is a separate listener to minimize coupling to the main handler above.
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
@@ -1524,7 +1450,6 @@ function showTriggerPromptInChat(mode: string, rect: any, displayId: number, ima
 
   try{
 
-    console.log('[CONTENT] showTriggerPromptInChat called:', { mode, rect, displayId, createTrigger, addCommand })
 
     
 // Check if we're on a restricted page (display grid or MSN)
@@ -1533,11 +1458,9 @@ function showTriggerPromptInChat(mode: string, rect: any, displayId: number, ima
                               window.location.href.startsWith('edge://') ||
                               window.location.pathname.includes('grid-display')
     
-    console.log('[CONTENT] Is restricted page:', isRestrictedPage, 'URL:', window.location.href)
     
     // On restricted pages, don't show modal - the inline version will be used instead
     if (isRestrictedPage) {
-      console.log('[CONTENT] Skipping modal on restricted page - inline version will be shown')
       return
     }
 
@@ -1551,16 +1474,12 @@ function showTriggerPromptInChat(mode: string, rect: any, displayId: number, ima
     let theme: 'pro'|'dark'|'standard' = 'standard'
     try { 
       const t = localStorage.getItem('optimando-ui-theme')
-      console.log('[CONTENT] Modal theme detection - localStorage value:', t)
       if (t === 'standard' || t === 'dark' || t === 'pro') theme = t as any 
     } catch (e) {
-      console.log('[CONTENT] Modal theme detection - error:', e)
     }
     
-    console.log('[CONTENT] Modal theme selected:', theme)
     const saveBtnColor = theme === 'standard' ? '#8b5cf6' : '#10b981'
     const saveBtnHoverColor = theme === 'standard' ? '#7c3aed' : '#059669'
-    console.log('[CONTENT] Save button colors:', { saveBtnColor, saveBtnHoverColor })
 
     // Remove existing prompt if any
 
@@ -1632,7 +1551,7 @@ function showTriggerPromptInChat(mode: string, rect: any, displayId: number, ima
 
     title.style.cssText = 'font-size: 16px; font-weight: 600; color: #ffffff;'
 
-    title.textContent = '📸 Create Trigger'
+    title.textContent = 'ðŸ“¸ Create Trigger'
 
     
 
@@ -1830,7 +1749,7 @@ function showTriggerPromptInChat(mode: string, rect: any, displayId: number, ima
 
     const saveBtn = document.createElement('button')
 
-    saveBtn.textContent = '💾 Save'
+    saveBtn.textContent = 'ðŸ’¾ Save'
 
     saveBtn.style.cssText = `
 
@@ -1950,7 +1869,6 @@ function showTriggerPromptInChat(mode: string, rect: any, displayId: number, ima
 
       if (addCommand && command) {
 
-        console.log('[CONTENT] Posting command to chat:', command)
 
         try {
 
@@ -1960,15 +1878,9 @@ function showTriggerPromptInChat(mode: string, rect: any, displayId: number, ima
           const ccdChat = document.getElementById('ccd-messages')
           const sideChat = document.getElementById('ccd-messages-sidepanel')
           
-          console.log('[CONTENT] Chat containers check:', {
-            'ccf-messages (popup)': !!ccfChat,
-            'ccd-messages (docked)': !!ccdChat,
-            'ccd-messages-sidepanel (sidepanel)': !!sideChat
-          })
 
           const msgs = (ccfChat || ccdChat || sideChat) as HTMLElement | null
 
-          console.log('[CONTENT] Selected chat container:', msgs ? msgs.id : 'none')
 
           if (msgs) {
 
@@ -1994,7 +1906,7 @@ function showTriggerPromptInChat(mode: string, rect: any, displayId: number, ima
 
             bub.style.color = '#e5e7eb'
 
-            bub.textContent = `📝 Command: ${command}`
+            bub.textContent = `ðŸ“ Command: ${command}`
 
             row.appendChild(bub)
 
@@ -2002,12 +1914,10 @@ function showTriggerPromptInChat(mode: string, rect: any, displayId: number, ima
 
             msgs.scrollTop = msgs.scrollHeight
 
-            console.log('[CONTENT] ✅ Command posted to chat container:', msgs.id)
 
           }
           
           // ALWAYS also send via runtime message to ensure it reaches somewhere
-          console.log('[CONTENT] Also sending command via runtime message as backup')
           try {
 
             chrome.runtime?.sendMessage({ 
@@ -2016,23 +1926,20 @@ function showTriggerPromptInChat(mode: string, rect: any, displayId: number, ima
 
               kind: 'text', 
 
-              text: `📝 Command: ${command}`,
+              text: `ðŸ“ Command: ${command}`,
 
               command: command
 
             })
 
-            console.log('[CONTENT] ✅ Command sent via runtime message to sidepanel')
 
           } catch (e) {
 
-            console.log('[CONTENT] ❌ Failed to send command via message:', e)
 
           }
 
         } catch (e) {
 
-          console.log('[CONTENT] ❌ Error posting command:', e)
 
         }
 
@@ -2076,7 +1983,6 @@ function showTriggerPromptInChat(mode: string, rect: any, displayId: number, ima
 
     setTimeout(() => { if (nameInput) nameInput.focus(); else if (commandInput) commandInput.focus() }, 100)
 
-    console.log('[CONTENT] Modal with checkboxes created and shown')
 
   }catch(err){
 
@@ -2102,7 +2008,6 @@ try {
 
         // Show trigger name input in docked chat or floating popup
 
-        console.log('[CONTENT] Showing trigger prompt:', msg)
 
         showTriggerPromptInChat(msg.mode, msg.rect, msg.displayId, msg.imageUrl, msg.videoUrl, msg.createTrigger, msg.addCommand)
 
@@ -2204,7 +2109,6 @@ function deactivateExtension() {
 
   // Extension now uses native Side Panel - no content script UI to remove
 
-  console.log('🔴 Optimando AI Extension deactivated')
 
 }
 
@@ -2225,7 +2129,7 @@ function safeAppendToBody(element: HTMLElement): void {
         document.body.appendChild(element)
       } else {
         // Fallback to documentElement if body still doesn't exist
-        console.warn('⚠️ document.body not available, using document.documentElement as fallback')
+        console.warn('âš ï¸ document.body not available, using document.documentElement as fallback')
         document.documentElement.appendChild(element)
       }
       document.removeEventListener('DOMContentLoaded', handler)
@@ -2238,7 +2142,7 @@ function safeAppendToBody(element: HTMLElement): void {
       if (document.body) {
         document.body.appendChild(element)
       } else {
-        console.warn('⚠️ document.body not available, using document.documentElement as fallback')
+        console.warn('âš ï¸ document.body not available, using document.documentElement as fallback')
         document.documentElement.appendChild(element)
       }
     })
@@ -2271,7 +2175,7 @@ async function storageRemove(keys: string | string[], callback?: () => void) {
 }
 
 function initializeExtension() {
-  // OAuth callback pages: never inject — prevents extension from breaking
+  // OAuth callback pages: never inject â€” prevents extension from breaking
   // http://localhost:51249/callback, etc. (Electron OAuth server)
   const host = window.location.hostname
   if (host === 'localhost' || host === '127.0.0.1') {
@@ -2394,11 +2298,9 @@ function initializeExtension() {
 
   } catch {}
 
-  console.log('🔧 DEBUG: initializeExtension called for:', window.location.href)
 
   // agent-manager-v2 is now statically imported at top to guarantee execution
 
-  console.log('🔧 DEBUG: dedicatedRole:', dedicatedRole)
 
   
 
@@ -2408,13 +2310,11 @@ function initializeExtension() {
 
   const isDedicated = !!dedicatedRole
 
-  console.log('🔧 DEBUG: isDedicated:', isDedicated, 'urlParams:', urlParams.toString())
 
   
 
   if (!isDedicated && urlParams.get('optimando_extension') === 'disabled') {
 
-    console.log('🚫 Optimando AI Extension disabled for this tab (via URL parameter)')
 
     return
 
@@ -2454,7 +2354,6 @@ function initializeExtension() {
 
   if (sessionKeyFromUrl && !sessionStorage.getItem('optimando-current-session-key')) {
 
-    console.log('🔧 DEBUG: Setting session key from URL:', sessionKeyFromUrl)
 
     try { 
 
@@ -2476,7 +2375,6 @@ function initializeExtension() {
 
   if (themeFromUrl && (themeFromUrl === 'dark' || themeFromUrl === 'standard' || themeFromUrl === 'pro')) {
 
-    console.log('🔧 DEBUG: Setting theme from URL:', themeFromUrl)
 
     localStorage.setItem('optimando-ui-theme', themeFromUrl)
 
@@ -2492,23 +2390,11 @@ function initializeExtension() {
 
   const isExcluded = localStorage.getItem(tabKey) === 'true'
 
-  console.log('🔧 DEBUG: URL exclusion check:', {
-
-    currentUrl: currentUrl.split('?')[0],
-
-    tabKey,
-
-    isExcluded,
-
-    isDedicated
-
-  })
 
   
 
   if (!isDedicated && isExcluded) {
 
-    console.log('🚫 Optimando AI Extension disabled for this URL (excluded)')
 
     return
 
@@ -2520,13 +2406,11 @@ function initializeExtension() {
 
   if (document.getElementById('optimando-sidebars')) {
 
-    console.log('🔄 Optimando AI Extension already loaded')
 
     return
 
   }
 
-  console.log('🚀 Loading Optimando AI Extension...')
 
   // Tab-specific data structure
 
@@ -2634,7 +2518,7 @@ function initializeExtension() {
 
       if (tabSession) {
 
-        // Return the key immediately — do NOT verify via storageGet here.
+        // Return the key immediately â€” do NOT verify via storageGet here.
         // storageWrapper falls back to Chrome Storage for session_ keys (which live in SQLite),
         // returning empty and incorrectly clearing a perfectly valid session key.
 
@@ -2693,10 +2577,9 @@ function initializeExtension() {
     // Also write to chrome.storage.local so sidepanel can listen for session changes
     try {
       chrome.storage?.local?.set({ 'optimando-active-session-key': key }, () => {
-        console.log('✅ Active session key saved to chrome.storage:', key)
       })
     } catch (e) {
-      console.error('❌ Failed to save session key to chrome.storage:', e)
+      console.error('âŒ Failed to save session key to chrome.storage:', e)
     }
 
   }
@@ -2715,13 +2598,12 @@ function initializeExtension() {
 
       if (sessionKeyFromUrl) {
 
-        console.log('🔗 ensureActiveSession: Found session key in URL (hybrid tab):', sessionKeyFromUrl)
 
         // Set this as the current session key
 
         setCurrentSessionKey(sessionKeyFromUrl)
 
-        // Load the session data — use authoritative SQLite path with Chrome Storage fallback
+        // Load the session data â€” use authoritative SQLite path with Chrome Storage fallback
         const loadFromUrl = (session: any) => {
           const s = session || {}
           if (!s.tabName) s.tabName = document.title || 'Unnamed Session'
@@ -2739,7 +2621,6 @@ function initializeExtension() {
             })
           }
           currentTabData.tabName = s.tabName
-          console.log('✅ Hybrid tab joined session:', sessionKeyFromUrl, '- Session name:', s.tabName)
           setTimeout(() => {
             const sessionNameInput = document.getElementById('session-name-input') as HTMLInputElement
             if (sessionNameInput) {
@@ -2786,33 +2667,11 @@ function initializeExtension() {
 
       if (existingKey) {
 
-        console.log('📍 ensureActiveSession: Using existing session key:', existingKey)
 
         // Load existing session from SQLite via background (authoritative source).
         // storageGet() falls back to Chrome Storage which is empty for session_ keys,
         // causing the session to load as {} and lose all saved state.
         const loadExisting = (session: any) => {
-          console.log('🔍 DEBUG LOAD EXISTING: Parsed session:', {
-            key: existingKey,
-            hasAgents: !!session.agents,
-            agentsCount: session.agents?.length || 0,
-            hasAgentBoxes: !!session.agentBoxes,
-            agentBoxesCount: session.agentBoxes?.length || 0,
-            agents: session.agents?.map((a: any) => ({
-              key: a.key,
-              name: a.name,
-              enabled: a.enabled,
-              number: a.number,
-              hasConfig: !!a.config,
-              configKeys: a.config ? Object.keys(a.config) : [],
-              configInstructions: a.config?.instructions ? (typeof a.config.instructions === 'string' ? 'STRING' : 'OBJECT') : 'NONE'
-            })),
-            agentBoxes: session.agentBoxes?.map((b: any) => ({
-              boxNumber: b.boxNumber,
-              agentNumber: b.agentNumber,
-              title: b.title
-            }))
-          })
 
           // Ensure session has all required fields
 
@@ -2835,7 +2694,6 @@ function initializeExtension() {
               
               // Transform from orchestrator format
               const sanitizedKey = a.name ? a.name.toLowerCase().replace(/[^a-z0-9]/g, '') : `agent${a.number || 1}`;
-              console.log(`[TRACE LOAD] Transforming agent on load: ${a.agent_id || a.name} -> key: ${sanitizedKey}`);
               
               return {
                 ...a,
@@ -2845,22 +2703,9 @@ function initializeExtension() {
             });
           }
 
-          console.log('🔍 DEBUG LOAD EXISTING: After transform:', {
-            agentsCount: session.agents?.length || 0,
-            agents: session.agents?.map((a: any) => ({
-              key: a.key,
-              name: a.name,
-              enabled: a.enabled,
-              hasConfig: !!a.config
-            }))
-          })
 
           if (!session.timestamp) session.timestamp = new Date().toISOString()
 
-          console.log('🔍 DEBUG LOAD EXISTING: Final session before callback:', {
-            agentsCount: session.agents?.length || 0,
-            agentBoxesCount: session.agentBoxes?.length || 0
-          })
 
           cb(existingKey, session)
         }
@@ -2868,25 +2713,22 @@ function initializeExtension() {
         if (chrome?.runtime) {
           chrome.runtime.sendMessage({ type: 'GET_SESSION_FROM_SQLITE', sessionKey: existingKey }, (response) => {
             if (chrome.runtime.lastError) {
-              console.warn('⚠️ ensureActiveSession: GET_SESSION_FROM_SQLITE failed, falling back to Chrome Storage:', chrome.runtime.lastError.message)
+              console.warn('âš ï¸ ensureActiveSession: GET_SESSION_FROM_SQLITE failed, falling back to Chrome Storage:', chrome.runtime.lastError.message)
               // Fallback: try chrome.storage.local (may have older data but better than empty)
               chrome.storage.local.get([existingKey], (result: any) => {
                 const fallback = result?.[existingKey] || {}
-                console.log('⚠️ ensureActiveSession: Chrome Storage fallback result:', fallback?.tabName || '(empty)')
                 loadExisting(fallback)
               })
               return
             }
             const session = response?.session
             if (session && (session.agents?.length || session.agentBoxes?.length || session.tabName)) {
-              console.log('✅ ensureActiveSession: loaded from SQLite:', session?.tabName || '(no name)')
               loadExisting(session)
             } else {
-              // SQLite returned null/empty — fall back to Chrome Storage in case it has data
-              console.warn('⚠️ ensureActiveSession: SQLite returned empty, trying Chrome Storage fallback')
+              // SQLite returned null/empty â€” fall back to Chrome Storage in case it has data
+              console.warn('âš ï¸ ensureActiveSession: SQLite returned empty, trying Chrome Storage fallback')
               chrome.storage.local.get([existingKey], (result: any) => {
                 const fallback = result?.[existingKey] || {}
-                console.log('⚠️ ensureActiveSession: Chrome Storage fallback result:', fallback?.tabName || '(still empty)')
                 loadExisting(fallback)
               })
             }
@@ -2907,7 +2749,6 @@ function initializeExtension() {
 
     const newKey = `session_${Date.now()}_${Math.floor(Math.random()*1000000)}`
 
-    console.log('🏆• ensureActiveSession: Creating NEW session (main master tab):', newKey)
 
     try { setCurrentSessionKey(newKey) } catch {}
 
@@ -2935,7 +2776,6 @@ function initializeExtension() {
     // storageSet() may not persist to SQLite from content-script context due to
     // storageWrapper falling back to Chrome Storage for session_ keys.
     const doSave = () => {
-      console.log('✅ New session created:', newKey, '- Session name:', newSession.tabName)
       cb(newKey, newSession)
     }
 
@@ -2946,7 +2786,7 @@ function initializeExtension() {
         session: newSession
       }, (response) => {
         if (chrome.runtime.lastError || !response?.success) {
-          console.warn('⚠️ ensureActiveSession: SQLite save failed, falling back to storageSet:', chrome.runtime.lastError?.message)
+          console.warn('âš ï¸ ensureActiveSession: SQLite save failed, falling back to storageSet:', chrome.runtime.lastError?.message)
           storageSet({ [newKey]: newSession }, doSave)
         } else {
           // Also mirror to Chrome Storage so the fallback path in ensureActiveSession has data
@@ -2967,11 +2807,9 @@ function initializeExtension() {
   function ensureSessionInHistory(sessionKey: string, sessionData: any, callback?: () => void) {
 
     // Ensure the session has all required fields for session history
-    console.log('[TRACE] ensureSessionInHistory called for:', sessionKey);
-    console.log('[TRACE] Input agents:', sessionData.agents);
 
     // Transform agents from orchestrator format to internal format if needed.
-    // Also filter out agent-shell records that were auto-created from agent boxes —
+    // Also filter out agent-shell records that were auto-created from agent boxes â€”
     // those have no real config and must not appear under "AI Agents" in Sessions History.
     let transformedAgents = (sessionData.agents || [])
       .filter((a: any) => {
@@ -2982,7 +2820,6 @@ function initializeExtension() {
         const isShell = a.kind === 'custom' && a.enabled === false &&
           a.config && Object.keys(a.config).length === 0
         if (isShell) {
-          console.log(`[TRACE] ensureSessionInHistory: filtering shell agent "${a.name}" (${a.key})`)
         }
         return !isShell
       })
@@ -2994,7 +2831,6 @@ function initializeExtension() {
       
       // Transform from orchestrator format (agent_id) to internal format (key)
       const sanitizedKey = a.name ? a.name.toLowerCase().replace(/[^a-z0-9]/g, '') : `agent${a.number || 1}`;
-      console.log(`[TRACE] Transforming agent: ${a.agent_id || a.name} -> key: ${sanitizedKey}`);
       
       return {
         ...a,
@@ -3003,9 +2839,8 @@ function initializeExtension() {
       };
     });
     
-    console.log('[TRACE] Transformed agents:', transformedAgents);
 
-    // Preserve non-empty agentBoxes arrays — never downgrade an existing non-empty array to [].
+    // Preserve non-empty agentBoxes arrays â€” never downgrade an existing non-empty array to [].
     // The incoming sessionData may have been built before the box was saved (race condition).
     // If the stored record already has boxes, keep whichever array is longer.
     const incomingBoxes: any[] = sessionData.agentBoxes || []
@@ -3028,37 +2863,21 @@ function initializeExtension() {
 
       hiddenBuiltins: sessionData.hiddenBuiltins || [],
       
-      agents: transformedAgents // ← CRITICAL: Include transformed agents array
+      agents: transformedAgents // â† CRITICAL: Include transformed agents array
 
     }
 
-    // Read current session from SQLite via background to get authoritative agentBoxes —
+    // Read current session from SQLite via background to get authoritative agentBoxes â€”
     // storageGet() routes through storageWrapper which may fall back to Chrome Storage
     // (empty for session_ keys), causing agentBoxes to be silently zeroed on every agent save.
     const doSaveSession = (storedBoxes: any[]) => {
       if (storedBoxes.length > completeSessionData.agentBoxes.length) {
         completeSessionData.agentBoxes = storedBoxes
-        console.log(`[TRACE] ensureSessionInHistory: preserved ${storedBoxes.length} SQLite agentBoxes over ${incomingBoxes.length} incoming`)
       }
 
-    console.log('[TRACE] Complete session data to save:', { 
-      key: sessionKey, 
-      agentCount: completeSessionData.agents.length,
-      agentBoxCount: completeSessionData.agentBoxes.length,
-      agents: completeSessionData.agents.map((a: any) => ({ 
-        key: a.key, 
-        name: a.name, 
-        enabled: a.enabled,
-        hasConfig: !!a.config,
-        configKeys: a.config ? Object.keys(a.config) : [],
-        hasInstructions: !!a.config?.instructions,
-        instructionsType: a.config?.instructions ? typeof a.config.instructions : 'none',
-        instructionsLength: a.config?.instructions ? (typeof a.config.instructions === 'string' ? a.config.instructions.length : JSON.stringify(a.config.instructions).length) : 0
-      }))
-    });
 
     // Save directly via SAVE_SESSION_TO_SQLITE (background.ts HTTP) to avoid
-    // storageWrapper/adapter race conditions. Chrome Storage is skipped intentionally —
+    // storageWrapper/adapter race conditions. Chrome Storage is skipped intentionally â€”
     // session_ keys live in SQLite, and storageSet() may also fall back to Chrome Storage
     // which would create an inconsistent mirror.
     if (chrome?.runtime) {
@@ -3068,18 +2887,17 @@ function initializeExtension() {
         session: completeSessionData
       }, (response) => {
         if (chrome.runtime.lastError) {
-          console.warn('⚠️ ensureSessionInHistory SQLite save failed:', chrome.runtime.lastError.message)
+          console.warn('âš ï¸ ensureSessionInHistory SQLite save failed:', chrome.runtime.lastError.message)
           // Fallback: write to Chrome Storage so UI can still read it
           chrome.storage.local.set({ [sessionKey]: completeSessionData }, () => {
             if (callback) callback()
           })
         } else if (response?.success) {
-          console.log('✅ ensureSessionInHistory: session synced to SQLite')
           // Also mirror to Chrome Storage so the fallback read path always has data
           try { chrome.storage.local.set({ [sessionKey]: completeSessionData }) } catch {}
           if (callback) callback()
         } else {
-          console.warn('⚠️ ensureSessionInHistory: SQLite save returned failure, writing to Chrome Storage as fallback')
+          console.warn('âš ï¸ ensureSessionInHistory: SQLite save returned failure, writing to Chrome Storage as fallback')
           chrome.storage.local.set({ [sessionKey]: completeSessionData }, () => {
             if (callback) callback()
           })
@@ -3131,15 +2949,15 @@ function initializeExtension() {
 
   const BUILTIN_AGENTS = [
 
-    { key: 'summarize', name: 'Summarize', icon: '📝' },
+    { key: 'summarize', name: 'Summarize', icon: 'ðŸ“' },
 
-    { key: 'research', name: 'Research', icon: '🔍' },
+    { key: 'research', name: 'Research', icon: 'ðŸ”' },
 
-    { key: 'analyze', name: 'Analyze', icon: '📊' },
+    { key: 'analyze', name: 'Analyze', icon: 'ðŸ“Š' },
 
-    { key: 'generate', name: 'Generate', icon: '✏¨' },
+    { key: 'generate', name: 'Generate', icon: 'âœÂ¨' },
 
-    { key: 'coordinate', name: 'Coordinate', icon: '🎯' }
+    { key: 'coordinate', name: 'Coordinate', icon: 'ðŸŽ¯' }
 
   ]
 
@@ -3217,7 +3035,6 @@ function initializeExtension() {
 
       if (sessionOnlyAgents.length !== session.agents.length) {
 
-        console.log(`🧹 Cleaning up: Removed ${session.agents.length - sessionOnlyAgents.length} account agent(s) from session.agents`)
 
         session.agents = sessionOnlyAgents
 
@@ -3243,7 +3060,7 @@ function initializeExtension() {
 
         } else {
 
-          console.warn(`⚠️ Duplicate agent found in session.agents: ${a.key}, removing duplicate`)
+          console.warn(`âš ï¸ Duplicate agent found in session.agents: ${a.key}, removing duplicate`)
 
           changed = true
 
@@ -3271,7 +3088,6 @@ function initializeExtension() {
 
     if (skipSave) {
 
-      console.log('⏩ Skipping session save in normalizeSessionAgents (caller will save)')
 
       cb(session)
 
@@ -3323,7 +3139,7 @@ function initializeExtension() {
 
             name, 
 
-            icon: icon||'🤖', 
+            icon: icon||'ðŸ¤–', 
 
             number: num, 
 
@@ -3375,7 +3191,6 @@ function initializeExtension() {
 
         ensureSessionInHistory(activeKey, s, () => {
 
-          console.log('✅ Agent added and session updated in history:', activeKey, name)
 
           done()
 
@@ -3391,7 +3206,6 @@ function initializeExtension() {
 
   function deleteAgent(key: string, scope: string, done: () => void) {
 
-    console.log(`🗝‘️ deleteAgent called for "${key}" with scope: ${scope}`)
 
     
 
@@ -3403,11 +3217,9 @@ function initializeExtension() {
 
         const updatedAgents = accountAgents.filter((a: any) => a.key !== key)
 
-        console.log(`🗝‘️ Removing account agent "${key}". Before: ${accountAgents.length}, After: ${updatedAgents.length}`)
 
         saveAccountAgents(updatedAgents, () => {
 
-          console.log(`✅ Account agent "${key}" deleted successfully`)
 
           done()
 
@@ -3479,7 +3291,6 @@ function initializeExtension() {
 
         ensureSessionInHistory(activeKey, s, () => {
 
-          console.log('✅ Agent deleted and session updated in history:', activeKey, agentToDelete?.name || key)
 
           done()
 
@@ -3501,11 +3312,9 @@ function initializeExtension() {
 
       const agents = result.accountAgents || []
 
-      console.log(`📥 getAccountAgents: Retrieved ${agents.length} account agent(s)`)
 
       agents.forEach((a: any) => {
 
-        console.log(`   - ${a.name} (${a.key}), scope: ${a.scope}, originalSession: ${a.originalSessionKey || 'none'}, has config: ${!!a.config}, config keys: ${a.config ? Object.keys(a.config).join(', ') : 'none'}`)
 
       })
 
@@ -3519,11 +3328,9 @@ function initializeExtension() {
 
   function saveAccountAgents(agents: any[], callback: () => void) {
 
-    console.log(`📤 saveAccountAgents: Saving ${agents.length} account agent(s)`)
 
     agents.forEach((a: any) => {
 
-      console.log(`   - ${a.name} (${a.key}), scope: ${a.scope}, originalSession: ${a.originalSessionKey || 'none'}, has config: ${!!a.config}, config keys: ${a.config ? Object.keys(a.config).join(', ') : 'none'}`)
 
     })
 
@@ -3551,7 +3358,6 @@ function initializeExtension() {
 
         if (a.scope === 'account') {
 
-          console.log(`🧹 Removing account agent "${a.key}" from session.agents`)
 
           sessionChanged = true
 
@@ -3573,7 +3379,6 @@ function initializeExtension() {
 
         if (sessionAgentKeys.has(a.key)) {
 
-          console.log(`🧹 Removing duplicate agent "${a.key}" from accountAgents (exists in session)`)
 
           accountChanged = true
 
@@ -3663,10 +3468,9 @@ function initializeExtension() {
             // Agent exists in both - use the one with correct scope='account'
             const existing = agentMap.get(a.key)
             if (a.scope === 'account' && existing.scope !== 'account') {
-              console.log(`✅ Using account-scoped version of agent "${a.key}" instead of session version`)
               agentMap.set(a.key, a)
             } else {
-              console.warn(`⚠️ Agent "${a.key}" exists in BOTH session and account storage - keeping existing version`)
+              console.warn(`âš ï¸ Agent "${a.key}" exists in BOTH session and account storage - keeping existing version`)
             }
 
           }
@@ -3679,15 +3483,10 @@ function initializeExtension() {
 
         
 
-        console.log(`🔄 getAllAgentsForSession: Merging ${accountAgents.length} account + ${sessionAgents.length} session agents (agentBox conversion removed to prevent duplicates)`)
 
-        console.log(`   Account agents:`, accountAgents.map((a: any) => `${a.name} (${a.key}, scope: ${a.scope})`))
 
-        console.log(`   Session agents:`, sessionAgents.map((a: any) => `${a.name} (${a.key}, scope: ${a.scope})`))
 
-        console.log(`   Duplicates found and removed: ${(accountAgents.length + sessionAgents.length) - allAgents.length}`)
 
-        console.log(`   Final unique agents (${allAgents.length}):`, allAgents.map((a: any) => `${a.name} (${a.key}, scope: ${a.scope})`))
 
         
 
@@ -3731,7 +3530,6 @@ function initializeExtension() {
 
         agent.originalSessionKey = activeKey
 
-        console.log(`📌 Moving agent "${agentKey}" to Account scope, storing original session: ${activeKey}`)
 
         
 
@@ -3743,7 +3541,6 @@ function initializeExtension() {
 
             ensureSessionInHistory(activeKey, session, () => {
 
-              console.log('✅ Agent moved to Account scope:', agentKey)
 
               callback()
 
@@ -3775,13 +3572,9 @@ function initializeExtension() {
 
           const targetSessionKey = agent.originalSessionKey || activeKey
 
-          console.log(`📌 Moving agent "${agentKey}" back to Session scope`)
 
-          console.log(`   Original session: ${agent.originalSessionKey}`)
 
-          console.log(`   Current session: ${activeKey}`)
 
-          console.log(`   Target session: ${targetSessionKey}`)
 
           
 
@@ -3793,7 +3586,7 @@ function initializeExtension() {
 
             if (!targetSession) {
 
-              console.warn(`⚠️ Original session ${targetSessionKey} not found, using current session`)
+              console.warn(`âš ï¸ Original session ${targetSessionKey} not found, using current session`)
 
               targetSession = session
 
@@ -3811,7 +3604,6 @@ function initializeExtension() {
 
             if (existingIndex >= 0) {
 
-              console.log(`⚠️ Agent "${agentKey}" already exists in target session, removing old copy`)
 
               targetSession.agents.splice(existingIndex, 1)
 
@@ -3835,7 +3627,6 @@ function initializeExtension() {
 
               ensureSessionInHistory(targetSessionKey, targetSession, () => {
 
-                console.log(`✅ Agent moved to Session scope in session: ${targetSessionKey}`)
 
               callback()
 
@@ -3861,7 +3652,6 @@ function initializeExtension() {
 
   function updateAgentPlatform(agentKey: string, platform: 'desktop' | 'mobile', enabled: boolean, scope: string) {
 
-    console.log(`🖥 Updating ${platform} platform for agent ${agentKey} in ${scope} scope:`, enabled)
 
     
 
@@ -3883,7 +3673,6 @@ function initializeExtension() {
 
         saveAccountAgents(accountAgents, () => {
 
-          console.log('✅ Platform preference saved for account agent:', agentKey)
 
         })
 
@@ -3909,7 +3698,6 @@ function initializeExtension() {
 
         ensureSessionInHistory(activeKey, session, () => {
 
-          console.log('✅ Platform preference saved for session agent:', agentKey)
 
         })
 
@@ -3925,11 +3713,8 @@ function initializeExtension() {
 
   function saveAgentConfig(agentKey: string, scope: string, configType: string, configData: any, callback: () => void) {
 
-    console.log(`💾 Saving ${configType} for agent ${agentKey} in ${scope} scope`)
 
-    console.log(`📊 Data size: ${configData.length} characters`)
 
-    console.log(`🔑 Current session key: ${getCurrentSessionKey()}`)
 
     
 
@@ -3939,29 +3724,6 @@ function initializeExtension() {
 
       const parsed = JSON.parse(configData)
 
-      console.log('🔍 VERIFICATION - Data being saved:', {
-
-        keys: Object.keys(parsed),
-
-        capabilities: parsed.capabilities,
-
-        hasContextSettings: !!parsed.contextSettings,
-
-        hasMemorySettings: !!parsed.memorySettings,
-
-        hasListening: !!parsed.listening,
-
-        hasReasoning: !!parsed.reasoning,
-
-        hasExecution: !!parsed.execution,
-
-        hasAgentContextFiles: !!parsed.agentContextFiles,
-
-        agentContextFilesCount: parsed.agentContextFiles?.length || 0,
-
-        listeningExampleFilesCount: parsed.listening?.exampleFiles?.length || 0
-
-      })
 
     } catch (e) {
 
@@ -3987,7 +3749,7 @@ function initializeExtension() {
 
             console.warn(`Agent ${agentKey} not found in session, creating it`)
 
-            agent = { key: agentKey, name: agentKey, icon: '🤖', number: s.nextNumber || 1, kind: 'custom', scope: 'session', config: {} }
+            agent = { key: agentKey, name: agentKey, icon: 'ðŸ¤–', number: s.nextNumber || 1, kind: 'custom', scope: 'session', config: {} }
 
             s.agents.push(agent)
 
@@ -4001,25 +3763,18 @@ function initializeExtension() {
 
           agent.config[configType] = configData
           
-          // 🔥 CRITICAL: Enable agent when user saves configuration
+          // ðŸ”¥ CRITICAL: Enable agent when user saves configuration
           agent.enabled = true
-          console.log(`✅ Enabled agent "${agentKey}" after configuration save`)
 
           s.timestamp = new Date().toISOString()
 
           
 
-          console.log(`💾 About to write to chrome.storage.local with key: ${activeKey}`)
 
-          console.log(`📊 Session has ${s.agents?.length || 0} agents`)
 
-          console.log(`🔍 Agent "${agentKey}" config keys:`, Object.keys(agent.config))
 
-          console.log(`🔍 Data type being saved:`, typeof configData)
 
-          console.log(`🔍 Data length:`, typeof configData === 'string' ? configData.length : 'NOT A STRING')
 
-          console.log(`🔍 First 200 chars:`, typeof configData === 'string' ? configData.substring(0, 200) : JSON.stringify(configData).substring(0, 200))
 
           
 
@@ -4027,7 +3782,7 @@ function initializeExtension() {
 
             if (chrome.runtime.lastError) {
 
-              console.error(`❌ Chrome storage error:`, chrome.runtime.lastError)
+              console.error(`âŒ Chrome storage error:`, chrome.runtime.lastError)
 
               callback()
 
@@ -4047,31 +3802,24 @@ function initializeExtension() {
 
                 if (savedAgent?.config?.[configType]) {
 
-                  console.log(`✅ VERIFIED: ${configType} successfully saved to session for ${agentKey}`)
 
-                  console.log(`📏 Saved data size: ${savedAgent.config[configType].length} characters`)
                   
                   // Parse and log critical fields for debugging
                   try {
                     const parsed = JSON.parse(savedAgent.config[configType])
-                    console.log(`🔍 VERIFY - Unified triggers: ${parsed.listening?.unifiedTriggers?.length || 0}`)
-                    console.log(`🔍 VERIFY - R.applyFor: ${parsed.reasoning?.applyFor}`)
-                    console.log(`🔍 VERIFY - R.applyForList: ${JSON.stringify(parsed.reasoning?.applyForList)}`)
-                    console.log(`🔍 VERIFY - E.applyFor: ${parsed.execution?.applyFor}`)
-                    console.log(`🔍 VERIFY - E.applyForList: ${JSON.stringify(parsed.execution?.applyForList)}`)
                   } catch (e) {
                     console.warn('Could not parse saved data for verification')
                   }
 
                 } else {
 
-                  console.error(`❌ VERIFICATION FAILED: ${configType} not found in saved session!`)
+                  console.error(`âŒ VERIFICATION FAILED: ${configType} not found in saved session!`)
 
                 }
 
               } else {
 
-                console.error(`❌ VERIFICATION FAILED: Session key not found after save!`)
+                console.error(`âŒ VERIFICATION FAILED: Session key not found after save!`)
 
               }
 
@@ -4097,7 +3845,7 @@ function initializeExtension() {
 
           console.warn(`Agent ${agentKey} not found in account agents, creating it`)
 
-          agent = { key: agentKey, name: agentKey, icon: '🤖', number: 1, kind: 'custom', scope: 'account', config: {} }
+          agent = { key: agentKey, name: agentKey, icon: 'ðŸ¤–', number: 1, kind: 'custom', scope: 'account', config: {} }
 
           accountAgents.push(agent)
 
@@ -4113,7 +3861,6 @@ function initializeExtension() {
 
         saveAccountAgents(accountAgents, () => {
 
-          console.log(`✅ Saved ${configType} to account for ${agentKey}`)
 
           callback()
 
@@ -4135,9 +3882,7 @@ function initializeExtension() {
 
   function loadAgentConfig(agentKey: string, scope: string, configType: string, callback: (data: any) => void) {
 
-    console.log(`📂 Loading ${configType} for agent ${agentKey} from ${scope} scope`)
 
-    console.log(`🔑 Current session key: ${getCurrentSessionKey()}`)
 
     
 
@@ -4153,15 +3898,11 @@ function initializeExtension() {
 
           const data = agent?.config?.[configType] || null
 
-          console.log(`📂 Loaded ${configType} from session for ${agentKey}:`, data ? 'Found' : 'Not found')
 
           if (data) {
 
-            console.log(`🔍 Loaded data type:`, typeof data)
 
-            console.log(`🔍 Loaded data length:`, typeof data === 'string' ? data.length : 'NOT A STRING')
 
-            console.log(`🔍 First 200 chars:`, typeof data === 'string' ? data.substring(0, 200) : JSON.stringify(data).substring(0, 200))
 
           }
 
@@ -4181,7 +3922,6 @@ function initializeExtension() {
 
         const data = agent?.config?.[configType] || null
 
-        console.log(`📂 Loaded ${configType} from account for ${agentKey}:`, data ? 'Found' : 'Not found')
 
         callback(data)
 
@@ -4247,7 +3987,6 @@ function initializeExtension() {
 
             const isAccount = a.scope === 'account'
 
-          console.log(`🎨 Rendering agent card: ${a.name} (${a.key}), scope: "${a.scope}", isAccount: ${isAccount}`)
 
           const card = document.createElement('div')
 
@@ -4255,9 +3994,9 @@ function initializeExtension() {
 
           card.innerHTML = `
 
-            <div style="font-size: 32px; margin-bottom: 8px;">${a.icon || '🤖'}</div>
+            <div style="font-size: 32px; margin-bottom: 8px;">${a.icon || 'ðŸ¤–'}</div>
 
-            <h4 style="margin: 0 0 8px 0; font-size: 12px; color: ${csTheme().text}; font-weight: bold;">Agent ${num} — ${a.name || 'Agent'}</h4>
+            <h4 style="margin: 0 0 8px 0; font-size: 12px; color: ${csTheme().text}; font-weight: bold;">Agent ${num} â€” ${a.name || 'Agent'}</h4>
 
               <button class="agent-toggle" data-agent-key="${a.key}" style="padding: 4px 8px; background: ${a.enabled ? '#16a34a' : (csTheme().isLight ? '#dc2626' : '#f87171')}; border: none; color: #fff; border-radius: 3px; cursor: pointer; font-size: 9px; margin-bottom: 4px;">${a.enabled ? 'ON' : 'OFF'}</button>
 
@@ -4319,7 +4058,7 @@ function initializeExtension() {
 
               <button class="lightbox-btn" data-agent="${a.key}" data-scope="${a.scope || 'session'}" data-type="instructions" data-number="${a.number || ''}" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; padding: 6px 8px; border-radius: 5px; cursor: pointer; font-size: 10px; display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 50px;" title="AI Instructions">
 
-                <span style="font-size: 14px;">📋</span>
+                <span style="font-size: 14px;">ðŸ“‹</span>
 
                 <span style="font-size: 8px; font-weight: 500;">Config</span>
 
@@ -4327,7 +4066,7 @@ function initializeExtension() {
 
               <button class="memory-btn" data-agent="${a.key}" data-scope="${a.scope || 'session'}" data-number="${a.number || ''}" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; padding: 6px 8px; border-radius: 5px; cursor: pointer; font-size: 10px; display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 50px;" title="Agent Memory">
 
-                <span style="font-size: 14px;">🧠</span>
+                <span style="font-size: 14px;">ðŸ§ </span>
 
                 <span style="font-size: 8px; font-weight: 500;">Memory</span>
 
@@ -4335,7 +4074,7 @@ function initializeExtension() {
 
               <button class="lightbox-btn" data-agent="${a.key}" data-scope="${a.scope || 'session'}" data-type="settings" data-number="${a.number || ''}" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; padding: 6px 8px; border-radius: 5px; cursor: pointer; font-size: 10px; display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 50px;" title="Agent Settings">
 
-                <span style="font-size: 14px;">⚙️</span>
+                <span style="font-size: 14px;">âš™ï¸</span>
 
                 <span style="font-size: 8px; font-weight: 500;">Settings</span>
 
@@ -4368,7 +4107,6 @@ function initializeExtension() {
               if (agent) {
                 agent.enabled = newEnabled
                 ensureSessionInHistory(activeKey, session, () => {
-                  console.log(`✅ Agent ${agentKey} ${newEnabled ? 'enabled' : 'disabled'}`)
                 })
               }
             })
@@ -4459,13 +4197,9 @@ function initializeExtension() {
 
               const agentScope = a.scope || 'session'
 
-              console.log(`🖱️ Config button clicked for agent "${agentKey}"`)
 
-              console.log(`   Agent object scope: "${a.scope}"`)
 
-              console.log(`   Resolved scope: "${agentScope}"`)
 
-              console.log(`   Full agent object:`, a)
 
               openAgentConfigDialog(agentKey, t, overlay, agentScope, a.number)
 
@@ -4487,7 +4221,6 @@ function initializeExtension() {
 
             const agentScope = a.scope || 'session'
 
-            console.log(`🧠 Memory button clicked for agent "${agentKey}" with scope: ${agentScope}`)
 
             openAgentMemoryDialog(agentKey, agentScope, overlay)
 
@@ -4531,20 +4264,18 @@ function initializeExtension() {
           agentBoxHeights: currentTabData.agentBoxHeights,
           timestamp: new Date().toISOString()
         }))
-        console.log('🔧 Saved agent boxes to localStorage for UI persistence')
       } catch (e: any) {
         if (e.name === 'QuotaExceededError' || e.code === 22) {
-          console.warn('⚠️ LocalStorage quota exceeded, cleaning up old data...')
+          console.warn('âš ï¸ LocalStorage quota exceeded, cleaning up old data...')
           cleanupOldLocalStorageData()
           // Try once more after cleanup
           try {
             localStorage.setItem(`optimando-tab-${tabId}`, JSON.stringify(currentTabData))
-            console.log('✅ Saved after cleanup')
           } catch (e2) {
-            console.error('❌ Still cannot save to localStorage after cleanup:', e2)
+            console.error('âŒ Still cannot save to localStorage after cleanup:', e2)
           }
         } else {
-          console.error('❌ Error saving to localStorage:', e)
+          console.error('âŒ Error saving to localStorage:', e)
         }
       }
     }
@@ -4560,7 +4291,6 @@ function initializeExtension() {
 
   // Helper function to clean up old localStorage data when quota is exceeded
   function cleanupOldLocalStorageData() {
-    console.log('🧹 Cleaning up old localStorage data...')
     const keysToRemove: string[] = []
     const now = Date.now()
     const oneWeekAgo = now - (7 * 24 * 60 * 60 * 1000)
@@ -4592,10 +4322,8 @@ function initializeExtension() {
     // Remove old keys
     keysToRemove.forEach(key => {
       localStorage.removeItem(key)
-      console.log(`  🗝‘️ Removed old key: ${key}`)
     })
 
-    console.log(`🧹 Cleaned up ${keysToRemove.length} old localStorage entries`)
   }
 
   function loadTabDataFromStorage() {
@@ -4614,17 +4342,6 @@ function initializeExtension() {
 
     
 
-    console.log('🔧 DEBUG: Session check:', {
-
-      sessionKeyFromUrl,
-
-      existingSessionKey,
-
-      globalActiveSession,
-
-      browserSessionMarker
-
-    })
 
     
 
@@ -4632,7 +4349,6 @@ function initializeExtension() {
 
     if (sessionKeyFromUrl) {
 
-      console.log('🔗 Hybrid tab detected - loading session from URL:', sessionKeyFromUrl)
 
       sessionStorage.setItem('optimando-current-session-key', sessionKeyFromUrl)
 
@@ -4646,7 +4362,6 @@ function initializeExtension() {
 
       if (chrome?.runtime) {
 
-        console.log('📥 Loading session from SQLite:', sessionKeyFromUrl)
 
         chrome.runtime.sendMessage({
 
@@ -4658,7 +4373,7 @@ function initializeExtension() {
 
           if (chrome.runtime.lastError) {
 
-            console.error('❌ Error loading session from SQLite:', chrome.runtime.lastError.message)
+            console.error('âŒ Error loading session from SQLite:', chrome.runtime.lastError.message)
 
             return
 
@@ -4668,7 +4383,6 @@ function initializeExtension() {
 
           if (!response || !response.success || !response.session) {
 
-            console.log('⚠️ No session data found in SQLite for:', sessionKeyFromUrl)
 
             return
 
@@ -4680,9 +4394,7 @@ function initializeExtension() {
 
           
 
-          console.log('🔍 MASTER TAB LOAD: Full session data from SQLite:', sessionData)
 
-          console.log('🔍 MASTER TAB LOAD: agentBoxes array:', sessionData.agentBoxes)
 
           
 
@@ -4690,21 +4402,17 @@ function initializeExtension() {
 
           if (sessionData.agentBoxes && Array.isArray(sessionData.agentBoxes)) {
 
-            console.log(`📊 MASTER TAB LOAD: Total agent boxes: ${sessionData.agentBoxes.length}`)
 
             const masterBoxes = sessionData.agentBoxes.filter((b: any) => b.source === 'master_tab')
 
             const gridBoxes = sessionData.agentBoxes.filter((b: any) => b.source === 'display_grid')
 
-            console.log(`  ✏“ Master tab boxes: ${masterBoxes.length}`)
 
-            console.log(`  ✏“ Display grid boxes: ${gridBoxes.length}`)
 
             
 
             sessionData.agentBoxes.forEach((box: any, idx: number) => {
 
-              console.log(`  [${idx}] ${box.identifier} | source: ${box.source || 'none'}`)
 
             })
 
@@ -4724,9 +4432,7 @@ function initializeExtension() {
 
           }
 
-          console.log('✅ Loaded FULL session data from SQLite for hybrid tab:', currentTabData.tabName)
 
-          console.log('📦 Loaded agent boxes:', currentTabData.agentBoxes?.length || 0)
 
           
 
@@ -4769,7 +4475,6 @@ function initializeExtension() {
 
     if (existingSessionKey) {
 
-      console.log('📍 Page refresh detected - continuing session:', existingSessionKey)
 
       sessionStorage.setItem('optimando-browser-session', 'active')
 
@@ -4779,7 +4484,6 @@ function initializeExtension() {
 
       if (chrome?.runtime) {
 
-        console.log('📥 Loading session from SQLite:', existingSessionKey)
 
         chrome.runtime.sendMessage({
 
@@ -4791,7 +4495,7 @@ function initializeExtension() {
 
           if (chrome.runtime.lastError) {
 
-            console.error('❌ Error loading session from SQLite:', chrome.runtime.lastError.message)
+            console.error('âŒ Error loading session from SQLite:', chrome.runtime.lastError.message)
 
             return
 
@@ -4801,7 +4505,6 @@ function initializeExtension() {
 
           if (!response || !response.success || !response.session) {
 
-            console.log('⚠️ No session data found in SQLite for:', existingSessionKey)
 
             return
 
@@ -4825,9 +4528,7 @@ function initializeExtension() {
 
           }
 
-          console.log('✅ Restored FULL session data from SQLite after refresh:', currentTabData.tabName)
 
-          console.log('📦 Restored agent boxes:', currentTabData.agentBoxes?.length || 0)
 
           // Update UI
 
@@ -4866,7 +4567,6 @@ function initializeExtension() {
 
     if (globalActiveSession) {
 
-      console.log('🔄 Restoring global session from localStorage:', globalActiveSession)
 
       sessionStorage.setItem('optimando-current-session-key', globalActiveSession)
 
@@ -4880,7 +4580,6 @@ function initializeExtension() {
 
       if (chrome?.runtime) {
 
-        console.log('📥 Loading session from SQLite:', globalActiveSession)
 
         chrome.runtime.sendMessage({
 
@@ -4892,7 +4591,7 @@ function initializeExtension() {
 
           if (chrome.runtime.lastError) {
 
-            console.error('❌ Error loading session from SQLite:', chrome.runtime.lastError.message)
+            console.error('âŒ Error loading session from SQLite:', chrome.runtime.lastError.message)
 
             return
 
@@ -4902,7 +4601,6 @@ function initializeExtension() {
 
           if (!response || !response.success || !response.session) {
 
-            console.log('⚠️ No session data found in SQLite for:', globalActiveSession)
 
             return
 
@@ -4926,9 +4624,7 @@ function initializeExtension() {
 
           }
 
-          console.log('✅ Restored FULL session data from SQLite (global storage):', currentTabData.tabName)
 
-          console.log('📦 Restored agent boxes:', currentTabData.agentBoxes?.length || 0)
 
           // Update UI
 
@@ -4971,7 +4667,6 @@ function initializeExtension() {
 
     if (isFreshBrowserSession) {
 
-      console.log('🔧 Fresh browser session detected - session will be created on first user action')
 
       
 
@@ -5007,7 +4702,6 @@ function initializeExtension() {
 
               preservedUIConfig = parsed.uiConfig
 
-              console.log('🔧 DEBUG: Preserved UI config from previous session')
 
             }
 
@@ -5015,7 +4709,6 @@ function initializeExtension() {
 
         } catch (e) {
 
-          console.log('🔧 DEBUG: Could not preserve UI config:', e)
 
         }
 
@@ -5071,7 +4764,6 @@ function initializeExtension() {
 
       
 
-      console.log('🔧 DEBUG: Session creation pending - will be created on first user action')
 
       return // Skip loading old data for fresh session
 
@@ -5081,7 +4773,6 @@ function initializeExtension() {
 
     // Not a fresh browser session, try to load existing data
 
-    console.log('🔧 DEBUG: Continuing existing browser session')
 
     sessionStorage.setItem('optimando-browser-session', 'active') // Refresh marker
 
@@ -5095,11 +4786,9 @@ function initializeExtension() {
 
       currentTabData = { ...currentTabData, ...savedData }
 
-      console.log('🔧 DEBUG: Loaded tab data from storage, agentBoxes:', currentTabData.agentBoxes?.length || 0)
 
     } else {
 
-      console.log('🔧 DEBUG: No saved tab data found')
 
     }
 
@@ -5113,12 +4802,11 @@ function initializeExtension() {
 
   loadTabDataFromStorage()
   
-  // 🔑 CRITICAL: Load current session from SQLite (single source of truth) on page load
+  // ðŸ”‘ CRITICAL: Load current session from SQLite (single source of truth) on page load
   // This restores agentBoxes and other session data after page refresh
   setTimeout(() => {
     const sessionKey = getCurrentSessionKey()
     if (sessionKey) {
-      console.log('📥 Loading active session from SQLite on page load:', sessionKey)
       
       // Load from SQLite via background script
       chrome.runtime.sendMessage({
@@ -5126,22 +4814,16 @@ function initializeExtension() {
         sessionKey: sessionKey
       }, (response) => {
         if (chrome.runtime.lastError) {
-          console.error('❌ Error loading session from SQLite:', chrome.runtime.lastError.message)
+          console.error('âŒ Error loading session from SQLite:', chrome.runtime.lastError.message)
           return
         }
         
         if (!response || !response.success || !response.session) {
-          console.log('⚠️ No session data found in SQLite for:', sessionKey)
           return
         }
         
         const sessionData = response.session
         
-        console.log('✅ Found session data from SQLite:', {
-          tabName: sessionData.tabName,
-          agentBoxes: sessionData.agentBoxes?.length || 0,
-          displayGrids: sessionData.displayGrids?.length || 0
-        })
         
         // Merge session data into currentTabData (preserving tabId)
         currentTabData = {
@@ -5150,19 +4832,13 @@ function initializeExtension() {
           tabId: currentTabData.tabId
         }
         
-        console.log('✅ Restored session data from SQLite on page load:', {
-          sessionKey,
-          agentBoxes: currentTabData.agentBoxes?.length || 0
-        })
         
         // Re-render agent boxes if any exist
         if (currentTabData.agentBoxes && currentTabData.agentBoxes.length > 0) {
-          console.log('📦 Rendering', currentTabData.agentBoxes.length, 'restored agent boxes')
           renderAgentBoxes()
         }
       })
     } else {
-      console.log('⚠️ No active session key found on page load')
     }
   }, 500) // Give time for storage wrapper to load
   
@@ -5173,12 +4849,10 @@ function initializeExtension() {
       // Debounce to avoid multiple rapid reloads
       const now = Date.now()
       if (now - lastVisibilityChange < 2000) {
-        console.log('👁️ Tab visibility change ignored (debounced)')
         return
       }
       lastVisibilityChange = now
       
-      console.log('👁️ Tab became visible - reloading agent boxes from SQLite')
       
       const sessionKey = getCurrentSessionKey()
       if (sessionKey && chrome?.runtime) {
@@ -5187,17 +4861,15 @@ function initializeExtension() {
           sessionKey: sessionKey
         }, (response) => {
           if (chrome.runtime.lastError) {
-            console.error('❌ Error reloading session:', chrome.runtime.lastError.message)
+            console.error('âŒ Error reloading session:', chrome.runtime.lastError.message)
             return
           }
           
           if (response && response.success && response.session) {
-            console.log('✅ Reloaded session data from SQLite:', response.session.tabName)
             
             // Update agent boxes in currentTabData
             if (response.session.agentBoxes) {
               currentTabData.agentBoxes = response.session.agentBoxes
-              console.log('📦 Restored', response.session.agentBoxes.length, 'agent boxes')
               
               // Re-render agent boxes
               renderAgentBoxes()
@@ -5217,19 +4889,15 @@ function initializeExtension() {
         const hybridMasterId = url.searchParams.get('hybrid_master_id')
         const isDisplayGrid = url.pathname.includes('grid-display.html')
         
-        console.log(`🔍 Page load check: isDisplayGrid=${isDisplayGrid}, hybridMasterId=${hybridMasterId}, has ${currentTabData.displayGrids.length} grids`)
         
         // Only notify if this is a display grid tab (not a master tab)
         if (isDisplayGrid && hybridMasterId === null) {
-          console.log('📱 Display grid tab on load - hiding sidepanel')
           chrome.runtime.sendMessage({ type: 'DISPLAY_GRIDS_OPENED' }, (response) => {
-            console.log('🚫 Page loaded with display grids active on display grid tab - sidepanel should hide')
             
             // Add floating expand button for display grid tabs
             addSidepanelExpandButton()
           })
         } else {
-          console.log(`🖥 Master tab on load (hybridMasterId=${hybridMasterId}) - sidepanel stays visible`)
         }
       } catch (e) {
         console.error('Error checking tab type:', e)
@@ -5258,7 +4926,7 @@ function initializeExtension() {
     
     const button = document.createElement('div')
     button.id = 'sidepanel-expand-button'
-    button.innerHTML = '◀'
+    button.innerHTML = 'â—€'
     button.title = 'Show Sidepanel'
     button.style.cssText = `
       position: fixed;
@@ -5301,7 +4969,6 @@ function initializeExtension() {
         type: 'REOPEN_SIDEPANEL' 
       }, (response) => {
         if (response && response.success) {
-          console.log('✅ Sidepanel shown')
           // Don't remove button - user might want to hide it again
         } else {
           console.error('Failed to show sidepanel:', response?.error)
@@ -5327,7 +4994,7 @@ function initializeExtension() {
       // Relative luminance (WCAG 2.1)
       const toLinear = (c: number) => { const s = c / 255; return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4) }
       const L = 0.2126 * toLinear(r) + 0.7152 * toLinear(g) + 0.0722 * toLinear(b)
-      // Use 0.35 threshold — gives white for dark colors, black for light colors
+      // Use 0.35 threshold â€” gives white for dark colors, black for light colors
       return L > 0.35 ? '#000000' : '#ffffff'
     } catch { return '#ffffff' }
   }
@@ -5336,7 +5003,6 @@ function initializeExtension() {
 
   function renderAgentBoxes() {
 
-    console.log('🔧 DEBUG: renderAgentBoxes called with currentTabData.agentBoxes:', currentTabData.agentBoxes)
 
     
 
@@ -5350,7 +5016,6 @@ function initializeExtension() {
 
     if (!mainContainer) {
 
-      console.log('🔧 DEBUG: agent-boxes-container-right-main not found!')
 
       return
 
@@ -5366,7 +5031,6 @@ function initializeExtension() {
 
       rightContainer.innerHTML = ''
 
-      console.log('🔧 DEBUG: Found hybrid right container')
 
     }
 
@@ -5386,17 +5050,6 @@ function initializeExtension() {
 
     
 
-    console.log('🔧 DEBUG: Checking hybrid status:', { 
-
-      urlHasHybrid: urlParams.has('hybrid_master_id'),
-
-      dedicatedRole,
-
-      bootStateRole: bootState.role,
-
-      isHybridMaster 
-
-    })
 
     
 
@@ -5404,7 +5057,6 @@ function initializeExtension() {
 
       // Initialize with empty agent boxes array - users will add boxes manually
 
-      console.log('🔧 DEBUG: No agent boxes found, initializing with empty array')
 
       currentTabData.agentBoxes = []
 
@@ -5432,7 +5084,6 @@ function initializeExtension() {
 
       }
 
-      console.log('🔧 DEBUG: Hybrid Master Tab detected with ID:', hybridId, '→ tabIndex:', currentHybridId)
 
     }
 
@@ -5444,13 +5095,6 @@ function initializeExtension() {
 
     
     // DEBUG: Log all boxes before filtering
-    console.log('🔍 ALL BOXES before filtering:', currentTabData.agentBoxes.map((b: any) => ({
-      identifier: b.identifier,
-      tabIndex: b.tabIndex,
-      source: b.source,
-      masterTabId: b.masterTabId,
-      gridSessionId: b.gridSessionId
-    })))
 
     if (currentHybridId > 1) {
 
@@ -5465,13 +5109,11 @@ function initializeExtension() {
         const isDisplayGrid = box.source === 'display_grid' || box.gridSessionId
 
         const shouldShow = boxTabIndex === currentHybridId && !isDisplayGrid
-        console.log(`🔍 Box ${box.identifier}: tabIndex=${boxTabIndex}, currentHybridId=${currentHybridId}, isDisplayGrid=${isDisplayGrid}, shouldShow=${shouldShow}`)
         
         return shouldShow
 
       })
 
-      console.log(`🔧 DEBUG: Filtered to ${boxesToRender.length} boxes for Master Tab (${currentHybridId})`)
 
     } else {
 
@@ -5486,7 +5128,6 @@ function initializeExtension() {
         const isDisplayGrid = box.source === 'display_grid' || box.gridSessionId
 
         const shouldShow = boxTabIndex === 1 && !isDisplayGrid
-        console.log(`🔍 Box ${box.identifier}: tabIndex=${boxTabIndex}, source=${box.source}, gridSessionId=${box.gridSessionId}, isDisplayGrid=${isDisplayGrid}, shouldShow=${shouldShow}`)
 
         // Main tab shows: boxes with tabIndex 1 but NOT display grid boxes
 
@@ -5494,13 +5135,11 @@ function initializeExtension() {
 
       })
 
-      console.log(`🔧 DEBUG: Filtered to ${boxesToRender.length} boxes for Main Master Tab`)
 
     }
 
     
 
-    console.log('🔧 DEBUG: Rendering', boxesToRender.length, 'agent boxes')
 
     
 
@@ -5514,11 +5153,9 @@ function initializeExtension() {
 
         targetContainer = rightContainer
 
-        console.log('📍 Rendering box', box.identifier || box.title, 'to HYBRID RIGHT side')
 
       } else {
 
-        console.log('📍 Rendering box', box.identifier || box.title, 'to RIGHT sidebar main')
 
       }
 
@@ -5564,13 +5201,13 @@ function initializeExtension() {
 
             <button class="edit-agent-box" data-agent-id="${box.id}" style="background: rgba(128,128,128,0.2); border: none; color: inherit; width: 20px; height: 20px; border-radius: 50%; cursor: pointer; font-size: 10px; font-weight: bold; display: flex; align-items: center; justify-content: center; transition: all 0.2s ease; opacity: 0.7; position: relative; z-index: 2;" title="Edit this agent box">
 
-              ✏️
+              âœÂï¸
 
             </button>
 
             <button class="delete-agent-box" data-agent-id="${box.id}" style="background: rgba(128,128,128,0.2); border: none; color: inherit; width: 20px; height: 20px; border-radius: 50%; cursor: pointer; font-size: 12px; font-weight: bold; display: flex; align-items: center; justify-content: center; transition: all 0.2s ease; opacity: 0.7; position: relative; z-index: 2;" title="Delete this agent box">
 
-              ✏•
+              âœâ€¢
 
             </button>
 
@@ -5582,7 +5219,7 @@ function initializeExtension() {
 
           <div style="font-size: 12px; color: #333; line-height: 1.4;">
 
-            <div id="${box.outputId}">${isEnabled ? `Ready for ${box.title.replace(/[📝🔍🎯🧮]/g, '').trim()}...` : `Agent disabled - toggle On to activate`}</div>
+            <div id="${box.outputId}">${isEnabled ? `Ready for ${box.title.replace(/[ðŸ“ðŸ”ðŸŽ¯ðŸ§®]/g, '').trim()}...` : `Agent disabled - toggle On to activate`}</div>
 
           </div>
 
@@ -5629,29 +5266,21 @@ function initializeExtension() {
 
 
   function deleteAgentBox(agentId: string) {
-    console.log('🗝‘️ deleteAgentBox called with agentId:', agentId)
     
     // Find the box before removing it so we can get its identifier
     const boxIndex = currentTabData.agentBoxes.findIndex((box: any) => box.id === agentId)
 
     if (boxIndex === -1) {
-      console.error('❌ Agent box not found in currentTabData:', agentId)
-      console.log('Available boxes:', currentTabData.agentBoxes.map((b: any) => ({ id: b.id, identifier: b.identifier })))
+      console.error('âŒ Agent box not found in currentTabData:', agentId)
       return
     }
 
     const deletedBox = currentTabData.agentBoxes[boxIndex]
     const sessionKey = getCurrentSessionKey()
 
-    console.log('🗝‘️ Deleting box:', { 
-      agentId, 
-      identifier: deletedBox.identifier, 
-      boxNumber: deletedBox.boxNumber,
-      sessionKey 
-    })
 
     if (!sessionKey) {
-      console.error('❌ No session key found, cannot delete')
+      console.error('âŒ No session key found, cannot delete')
       alert('No active session. Cannot delete agent box.')
       return
     }
@@ -5665,13 +5294,12 @@ function initializeExtension() {
     }, (response) => {
       // Check for chrome runtime errors
       if (chrome.runtime.lastError) {
-        console.error('❌ Chrome runtime error:', chrome.runtime.lastError.message)
+        console.error('âŒ Chrome runtime error:', chrome.runtime.lastError.message)
         alert('Failed to delete: ' + chrome.runtime.lastError.message)
         return
       }
       
       if (response && response.success) {
-        console.log('✅ Agent box deleted from SQLite successfully')
         
         // Reload from SQLite to update UI with fresh data
         reloadSessionFromSQLite(sessionKey)
@@ -5682,7 +5310,7 @@ function initializeExtension() {
           sessionKey: sessionKey
         })
       } else {
-        console.error('❌ Failed to delete from SQLite:', response?.error || 'Unknown error')
+        console.error('âŒ Failed to delete from SQLite:', response?.error || 'Unknown error')
         alert('Failed to delete agent box: ' + (response?.error || 'Unknown error'))
       }
     })
@@ -5695,7 +5323,7 @@ function initializeExtension() {
       sessionKey: sessionKey
     }, (response) => {
       if (chrome.runtime.lastError || !response?.success) {
-        console.error('❌ Failed to reload from SQLite:', chrome.runtime.lastError?.message)
+        console.error('âŒ Failed to reload from SQLite:', chrome.runtime.lastError?.message)
         return
       }
       
@@ -5707,14 +5335,12 @@ function initializeExtension() {
         
         // Re-render UI
         renderAgentBoxes()
-        console.log('✅ UI refreshed from SQLite:', currentTabData.agentBoxes.length, 'boxes')
       }
     })
   }
 
   // Delete display grid agent box (uses identifier instead of id)
   function deleteDisplayGridAgentBox(identifier: string, slotId: string) {
-    console.log('🗝‘️ deleteDisplayGridAgentBox called:', { identifier, slotId })
     
     // Find the box by identifier (display grid boxes use identifier, not id)
     const boxIndex = currentTabData.agentBoxes.findIndex((box: any) => 
@@ -5722,23 +5348,16 @@ function initializeExtension() {
     )
 
     if (boxIndex === -1) {
-      console.error('❌ Display grid agent box not found:', identifier)
-      console.log('Available boxes:', currentTabData.agentBoxes.map((b: any) => ({ id: b.id, identifier: b.identifier, slotId: b.slotId })))
+      console.error('âŒ Display grid agent box not found:', identifier)
       return
     }
 
     const deletedBox = currentTabData.agentBoxes[boxIndex]
     const sessionKey = getCurrentSessionKey()
 
-    console.log('🗝‘️ Deleting display grid box:', { 
-      identifier: deletedBox.identifier, 
-      boxNumber: deletedBox.boxNumber,
-      slotId,
-      sessionKey 
-    })
 
     if (!sessionKey) {
-      console.error('❌ No session key found, cannot delete')
+      console.error('âŒ No session key found, cannot delete')
       alert('No active session. Cannot delete agent box.')
       return
     }
@@ -5754,13 +5373,12 @@ function initializeExtension() {
     }, (response) => {
       // Check for chrome runtime errors
       if (chrome.runtime.lastError) {
-        console.error('❌ Chrome runtime error:', chrome.runtime.lastError.message)
+        console.error('âŒ Chrome runtime error:', chrome.runtime.lastError.message)
         alert('Failed to delete: ' + chrome.runtime.lastError.message)
         return
       }
       
       if (response && response.success) {
-        console.log('✅ Display grid agent box deleted from SQLite successfully')
 
         // Reload from SQLite to update UI with fresh data
         reloadSessionFromSQLite(sessionKey)
@@ -5771,7 +5389,7 @@ function initializeExtension() {
           sessionKey: sessionKey
         })
       } else {
-        console.error('❌ Failed to delete from SQLite:', response?.error || 'Unknown error')
+        console.error('âŒ Failed to delete from SQLite:', response?.error || 'Unknown error')
         alert('Failed to delete agent box: ' + (response?.error || 'Unknown error'))
       }
     })
@@ -5815,7 +5433,6 @@ function initializeExtension() {
 
       
 
-      console.log('🔍 Finding max box number in session...')
 
       // Check all agent boxes in master tabs
 
@@ -5887,7 +5504,6 @@ function initializeExtension() {
 
       
 
-      console.log(`✅ Max box number found: ${maxBoxNumber}`)
 
       return maxBoxNumber
 
@@ -5905,7 +5521,7 @@ function initializeExtension() {
         sessionKey: sessionKey
       }, (response) => {
         if (chrome.runtime.lastError) {
-          console.warn('⚠️ Could not fetch from SQLite:', chrome.runtime.lastError.message)
+          console.warn('âš ï¸ Could not fetch from SQLite:', chrome.runtime.lastError.message)
           showDialog()
           return
         }
@@ -5914,9 +5530,7 @@ function initializeExtension() {
           const session = response.session
           const maxBoxNumber = findMaxBoxNumber(session)
           nextBoxNumber = maxBoxNumber + 1
-          console.log('📦 Next agent box number calculated from SQLite:', nextBoxNumber, 'from max:', maxBoxNumber)
         } else {
-          console.log('📦 No session in SQLite, starting with box number 1')
         }
         
         showDialog()
@@ -5995,7 +5609,7 @@ function initializeExtension() {
 
           <label style="display: block; margin-bottom: 8px; color: #555; font-weight: bold;">Agent Title:</label>
 
-          <input id="agent-title" type="text" placeholder="e.g., 🤖 Custom Agent" style="width: 100%; padding: 10px; border: 2px solid #ddd; border-radius: 6px; font-size: 14px;">
+          <input id="agent-title" type="text" placeholder="e.g., ðŸ¤– Custom Agent" style="width: 100%; padding: 10px; border: 2px solid #ddd; border-radius: 6px; font-size: 14px;">
 
         </div>
 
@@ -6033,7 +5647,7 @@ function initializeExtension() {
 
               <option value="Local AI">Local AI</option>
 
-              <option value="Image AI">☁️ Image AI</option>
+              <option value="Image AI">â˜ï¸ Image AI</option>
 
             </select>
 
@@ -6067,8 +5681,8 @@ function initializeExtension() {
 
         <div style="margin-top:12px;margin-bottom:14px;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden">
           <div id="ab-experts-header" style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:#f8fafc;cursor:pointer;user-select:none">
-            <span style="font-weight:600;color:#334155;font-size:13px">📚 WR Experts <span style="font-weight:400;color:#94a3b8;font-size:11px">(agent-level knowledge)</span></span>
-            <span id="ab-experts-toggle" style="font-size:11px;color:#64748b">▼</span>
+            <span style="font-weight:600;color:#334155;font-size:13px">ðŸ“š WR Experts <span style="font-weight:400;color:#94a3b8;font-size:11px">(agent-level knowledge)</span></span>
+            <span id="ab-experts-toggle" style="font-size:11px;color:#64748b">â–¼</span>
           </div>
           <div id="ab-experts-body" style="display:none;padding:12px;border-top:1px solid #e2e8f0">
             <div id="ab-experts-list" style="display:flex;flex-direction:column;gap:8px;margin-bottom:8px"></div>
@@ -6139,7 +5753,7 @@ function initializeExtension() {
 
         case 'grok': return ['auto', 'grok-2-mini', 'grok-2']
 
-        case 'image ai': return ['Nano Banana Pro', 'DALL·E 3', 'DALL·E 2', 'Flux Schnell', 'Flux Dev', 'SDXL', 'SD3 Medium', 'Stable Diffusion XL']
+        case 'image ai': return ['Nano Banana Pro', 'DALLÂ·E 3', 'DALLÂ·E 2', 'Flux Schnell', 'Flux Dev', 'SDXL', 'SD3 Medium', 'Stable Diffusion XL']
 
         default: return ['auto']
 
@@ -6171,7 +5785,7 @@ function initializeExtension() {
 
       if (p === 'local ai' || p === 'ollama') {
 
-        modelSelect.innerHTML = '<option value="">Loading installed models…</option>'
+        modelSelect.innerHTML = '<option value="">Loading installed modelsâ€¦</option>'
 
         modelSelect.disabled = true
 
@@ -6227,7 +5841,7 @@ function initializeExtension() {
           }
           warnEl.style.display = differs ? 'block' : 'none'
           if (differs) {
-            warnEl.innerHTML = `⚠️ <strong>Heads up:</strong> Using multiple different local models at the same time will load each one separately into RAM. This can cause significant performance issues or run out of memory. Make sure your system has enough RAM available.`
+            warnEl.innerHTML = `âš ï¸ <strong>Heads up:</strong> Using multiple different local models at the same time will load each one separately into RAM. This can cause significant performance issues or run out of memory. Make sure your system has enough RAM available.`
           }
         }
         updateWarn()
@@ -6364,7 +5978,7 @@ function initializeExtension() {
       abHeader.addEventListener('click', () => {
         const isOpen = abBody.style.display !== 'none'
         abBody.style.display = isOpen ? 'none' : 'block'
-        if (abToggle) abToggle.textContent = isOpen ? '▼' : '▲'
+        if (abToggle) abToggle.textContent = isOpen ? 'â–¼' : 'â–²'
       })
     }
     function renderAbExperts() {
@@ -6374,7 +5988,7 @@ function initializeExtension() {
       abExpertsState.forEach((exp, idx) => {
         const row = document.createElement('div')
         row.style.cssText = 'padding:8px 10px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;display:flex;align-items:center;justify-content:space-between;gap:8px'
-        row.innerHTML = `<div style="flex:1;min-width:0"><div style="font-weight:600;font-size:12px;color:#334155">${exp.name || 'Untitled'}</div>${exp.description ? `<div style="font-size:11px;color:#94a3b8;margin-top:2px">${exp.description.substring(0, 60)}</div>` : ''}<div style="font-size:10px;color:#cbd5e1;margin-top:2px">${(exp.content || '').length} chars</div></div><div style="display:flex;gap:4px;flex-shrink:0"><button class="ab-edit-expert" data-idx="${idx}" style="background:#eff6ff;border:1px solid #93c5fd;color:#2563eb;padding:3px 8px;border-radius:4px;cursor:pointer;font-size:11px">Edit</button><button class="ab-del-expert" data-idx="${idx}" style="background:#fef2f2;border:1px solid #fca5a5;color:#dc2626;padding:3px 8px;border-radius:4px;cursor:pointer;font-size:11px">×</button></div>`
+        row.innerHTML = `<div style="flex:1;min-width:0"><div style="font-weight:600;font-size:12px;color:#334155">${exp.name || 'Untitled'}</div>${exp.description ? `<div style="font-size:11px;color:#94a3b8;margin-top:2px">${exp.description.substring(0, 60)}</div>` : ''}<div style="font-size:10px;color:#cbd5e1;margin-top:2px">${(exp.content || '').length} chars</div></div><div style="display:flex;gap:4px;flex-shrink:0"><button class="ab-edit-expert" data-idx="${idx}" style="background:#eff6ff;border:1px solid #93c5fd;color:#2563eb;padding:3px 8px;border-radius:4px;cursor:pointer;font-size:11px">Edit</button><button class="ab-del-expert" data-idx="${idx}" style="background:#fef2f2;border:1px solid #fca5a5;color:#dc2626;padding:3px 8px;border-radius:4px;cursor:pointer;font-size:11px">Ã—</button></div>`
         list.appendChild(row)
       })
       list.querySelectorAll('.ab-edit-expert').forEach((btn: any) => {
@@ -6467,19 +6081,6 @@ function initializeExtension() {
 
         
 
-        console.log('📦 Creating new agent box:', {
-
-          boxNumber,
-
-          agentNumber,
-
-          identifier,
-
-          agentId,
-
-          title
-
-        })
 
         
 
@@ -6487,7 +6088,6 @@ function initializeExtension() {
 
         const clickSide = (window as any).lastAgentBoxClickSide || 'left'
 
-        console.log('📍 Box will be created on:', clickSide, 'side')
 
         
 
@@ -6519,15 +6119,13 @@ function initializeExtension() {
 
             tabIndex = parseInt(hybridId) + 2 // +2 because hybrid_master_id 0 = Master Tab (02), 1 = Master Tab (03)
 
-            masterTabId = String(parseInt(hybridId) + 2).padStart(2, '0')  // hybrid_id 0 → 02, 1 → 03, etc.
+            masterTabId = String(parseInt(hybridId) + 2).padStart(2, '0')  // hybrid_id 0 â†’ 02, 1 â†’ 03, etc.
 
           }
 
-          console.log('📍 Creating box on Hybrid Master Tab with hybridId:', hybridId, '→ tabIndex:', tabIndex, '→ masterTabId:', masterTabId)
 
         } else {
 
-          console.log('📍 Creating box on Master Tab (01) → masterTabId:', masterTabId)
 
         }
 
@@ -6557,21 +6155,21 @@ function initializeExtension() {
 
           model: model,
 
-          tools: tools,  // ← Add tools array
+          tools: tools,  // â† Add tools array
 
           wrExperts: abExpertsState,
 
-          side: clickSide,  // ← Add side info for hybrid tabs
+          side: clickSide,  // â† Add side info for hybrid tabs
 
-          tabIndex: tabIndex,  // ← Add tab index for location tracking
+          tabIndex: tabIndex,  // â† Add tab index for location tracking
 
-          masterTabId: masterTabId,  // ← Add master tab ID for filtering ("01", "02", "03", etc.)
+          masterTabId: masterTabId,  // â† Add master tab ID for filtering ("01", "02", "03", etc.)
 
-          tabUrl: window.location.href,  // ← Store tab URL to identify unique tabs
+          tabUrl: window.location.href,  // â† Store tab URL to identify unique tabs
 
-          source: 'master_tab',  // ← Identify this as a master tab box
+          source: 'master_tab',  // â† Identify this as a master tab box
 
-          enabled: true  // ← Default to enabled so box is active immediately
+          enabled: true  // â† Default to enabled so box is active immediately
 
       }
 
@@ -6583,7 +6181,7 @@ function initializeExtension() {
       try {
         localStorage.setItem(`optimando-tab-${tabId}`, JSON.stringify(currentTabData))
       } catch (e) {
-        console.warn('⚠️ Could not save to localStorage:', e)
+        console.warn('âš ï¸ Could not save to localStorage:', e)
       }
 
       renderAgentBoxes()
@@ -6596,7 +6194,6 @@ function initializeExtension() {
 
       if (sessionKey) {
 
-        console.log('🔄 Saving master tab agentBox to SQLite session:', newBox.identifier)
 
         
 
@@ -6614,24 +6211,21 @@ function initializeExtension() {
 
           if (chrome.runtime.lastError) {
 
-            console.error('❌ Failed to save master tab box to SQLite:', chrome.runtime.lastError.message)
+            console.error('âŒ Failed to save master tab box to SQLite:', chrome.runtime.lastError.message)
 
           } else if (response && response.success) {
 
-            console.log('✅ Master tab agent box saved to SQLite:', newBox.identifier)
 
-            console.log('📦 Total boxes in session:', response.totalBoxes)
 
             // The box is now in SQLite (saved by background.ts via direct HTTP).
-            // Do NOT call ensureSessionInHistory here — that would read from storageGet
+            // Do NOT call ensureSessionInHistory here â€” that would read from storageGet
             // which may fall back to Chrome Storage (which doesn't mirror session_ keys),
             // then overwrite SQLite with an empty-agentBoxes session.
             // The authoritative SQLite record already has the box; nothing more to do.
-            console.log('✅ Agent box persisted to SQLite. Session is canonical. No further write needed.')
 
           } else {
 
-            console.error('❌ Failed to save to SQLite:', response?.error)
+            console.error('âŒ Failed to save to SQLite:', response?.error)
 
           }
 
@@ -6639,7 +6233,7 @@ function initializeExtension() {
 
       } else {
 
-        console.warn('⚠️ No session key found, cannot save to SQLite')
+        console.warn('âš ï¸ No session key found, cannot save to SQLite')
 
       }
 
@@ -6689,7 +6283,7 @@ function initializeExtension() {
 
       `
 
-        notification.innerHTML = `➕ Agent box ${identifier} created: "${title}"`
+        notification.innerHTML = `âž• Agent box ${identifier} created: "${title}"`
 
       document.body.appendChild(notification)
 
@@ -6852,7 +6446,7 @@ function initializeExtension() {
 
               <option value="Local AI" ${toProviderLabel(agentBox.provider || '') === 'Local AI' ? 'selected' : ''}>Local AI</option>
 
-              <option value="Image AI" ${toProviderLabel(agentBox.provider || '') === 'Image AI' ? 'selected' : ''}>☁️ Image AI</option>
+              <option value="Image AI" ${toProviderLabel(agentBox.provider || '') === 'Image AI' ? 'selected' : ''}>â˜ï¸ Image AI</option>
 
             </select>
 
@@ -6884,8 +6478,8 @@ function initializeExtension() {
 
         <div style="margin-top:12px;margin-bottom:14px;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden">
           <div id="edit-experts-header" style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:#f8fafc;cursor:pointer;user-select:none">
-            <span style="font-weight:600;color:#334155;font-size:13px">📚 WR Experts <span style="font-weight:400;color:#94a3b8;font-size:11px">(agent-level knowledge)</span></span>
-            <span id="edit-experts-toggle" style="font-size:11px;color:#64748b">▼</span>
+            <span style="font-weight:600;color:#334155;font-size:13px">ðŸ“š WR Experts <span style="font-weight:400;color:#94a3b8;font-size:11px">(agent-level knowledge)</span></span>
+            <span id="edit-experts-toggle" style="font-size:11px;color:#64748b">â–¼</span>
           </div>
           <div id="edit-experts-body" style="display:none;padding:12px;border-top:1px solid #e2e8f0">
             <div id="edit-experts-list" style="display:flex;flex-direction:column;gap:8px;margin-bottom:8px"></div>
@@ -6980,7 +6574,7 @@ function initializeExtension() {
 
         case 'grok': return ['auto', 'grok-2-mini', 'grok-2']
 
-        case 'image ai': return ['Nano Banana Pro', 'DALL·E 3', 'DALL·E 2', 'Flux Schnell', 'Flux Dev', 'SDXL', 'SD3 Medium', 'Stable Diffusion XL']
+        case 'image ai': return ['Nano Banana Pro', 'DALLÂ·E 3', 'DALLÂ·E 2', 'Flux Schnell', 'Flux Dev', 'SDXL', 'SD3 Medium', 'Stable Diffusion XL']
 
         default: return ['auto']
 
@@ -7012,7 +6606,7 @@ function initializeExtension() {
 
       if (p === 'local ai' || p === 'ollama') {
 
-        modelSelect.innerHTML = '<option value="">Loading installed models…</option>'
+        modelSelect.innerHTML = '<option value="">Loading installed modelsâ€¦</option>'
 
         modelSelect.disabled = true
 
@@ -7072,7 +6666,7 @@ function initializeExtension() {
           }
           warnEl.style.display = differs ? 'block' : 'none'
           if (differs) {
-            warnEl.innerHTML = `⚠️ <strong>Heads up:</strong> Using multiple different local models at the same time will load each one separately into RAM. This can cause significant performance issues or run out of memory. Make sure your system has enough RAM available.`
+            warnEl.innerHTML = `âš ï¸ <strong>Heads up:</strong> Using multiple different local models at the same time will load each one separately into RAM. This can cause significant performance issues or run out of memory. Make sure your system has enough RAM available.`
           }
         }
         updateWarn()
@@ -7191,7 +6785,7 @@ function initializeExtension() {
       editExHeader.addEventListener('click', () => {
         const isOpen = editExBody.style.display !== 'none'
         editExBody.style.display = isOpen ? 'none' : 'block'
-        if (editExToggle) editExToggle.textContent = isOpen ? '▼' : '▲'
+        if (editExToggle) editExToggle.textContent = isOpen ? 'â–¼' : 'â–²'
       })
     }
     function renderEditExperts() {
@@ -7201,7 +6795,7 @@ function initializeExtension() {
       editExpertsState.forEach((exp, idx) => {
         const row = document.createElement('div')
         row.style.cssText = 'padding:8px 10px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;display:flex;align-items:center;justify-content:space-between;gap:8px'
-        row.innerHTML = `<div style="flex:1;min-width:0"><div style="font-weight:600;font-size:12px;color:#334155">${exp.name || 'Untitled'}</div>${exp.description ? `<div style="font-size:11px;color:#94a3b8;margin-top:2px">${exp.description.substring(0, 60)}</div>` : ''}<div style="font-size:10px;color:#cbd5e1;margin-top:2px">${(exp.content || '').length} chars</div></div><div style="display:flex;gap:4px;flex-shrink:0"><button class="edit-ex-edit" data-idx="${idx}" style="background:#eff6ff;border:1px solid #93c5fd;color:#2563eb;padding:3px 8px;border-radius:4px;cursor:pointer;font-size:11px">Edit</button><button class="edit-ex-del" data-idx="${idx}" style="background:#fef2f2;border:1px solid #fca5a5;color:#dc2626;padding:3px 8px;border-radius:4px;cursor:pointer;font-size:11px">×</button></div>`
+        row.innerHTML = `<div style="flex:1;min-width:0"><div style="font-weight:600;font-size:12px;color:#334155">${exp.name || 'Untitled'}</div>${exp.description ? `<div style="font-size:11px;color:#94a3b8;margin-top:2px">${exp.description.substring(0, 60)}</div>` : ''}<div style="font-size:10px;color:#cbd5e1;margin-top:2px">${(exp.content || '').length} chars</div></div><div style="display:flex;gap:4px;flex-shrink:0"><button class="edit-ex-edit" data-idx="${idx}" style="background:#eff6ff;border:1px solid #93c5fd;color:#2563eb;padding:3px 8px;border-radius:4px;cursor:pointer;font-size:11px">Edit</button><button class="edit-ex-del" data-idx="${idx}" style="background:#fef2f2;border:1px solid #fca5a5;color:#dc2626;padding:3px 8px;border-radius:4px;cursor:pointer;font-size:11px">Ã—</button></div>`
         list.appendChild(row)
       })
       list.querySelectorAll('.edit-ex-edit').forEach((btn: any) => {
@@ -7248,9 +6842,6 @@ function initializeExtension() {
       const confirmDelete = confirm('Are you sure you want to delete this agent box?')
 
       if (confirmDelete) {
-        console.log('🗝‘️ Delete button clicked in edit dialog')
-        console.log('🗝‘️ agentId:', agentId)
-        console.log('🗝‘️ agentBox:', agentBox)
 
         // Close the dialog first
         overlay.remove()
@@ -7259,7 +6850,7 @@ function initializeExtension() {
         if (agentId) {
           deleteAgentBox(agentId)
         } else {
-          console.error('❌ No agentId available for delete!')
+          console.error('âŒ No agentId available for delete!')
           alert('Error: Could not delete - no agent ID')
         }
       }
@@ -7340,19 +6931,6 @@ function initializeExtension() {
 
       
 
-      console.log('📝 Edit dialog save:', {
-
-        boxNumber: agentBox.number,
-
-        inputValue: numberInput.value,
-
-        allocatedAgentNumber,
-
-        oldAgentId: agentBox.agentId,
-
-        newAgentId: agentIdToSet
-
-      })
 
       
 
@@ -7410,7 +6988,6 @@ function initializeExtension() {
 
   
 
-  console.log('✅ Agent box functions assigned to global scope')
 
 
 
@@ -7451,7 +7028,7 @@ function initializeExtension() {
 
       agentBox.agentId = updates.agentId
       
-      // Extract numeric agentNumber from agentId (e.g., "agent1" → 1)
+      // Extract numeric agentNumber from agentId (e.g., "agent1" â†’ 1)
       const match = updates.agentId.match(/agent(\d+)/i)
       if (match) {
         agentBox.agentNumber = parseInt(match[1], 10)
@@ -7529,7 +7106,7 @@ function initializeExtension() {
 
     `
 
-    notification.innerHTML = `✏️ Agent box "${agentBox.title}" updated!`
+    notification.innerHTML = `âœÂï¸ Agent box "${agentBox.title}" updated!`
 
     document.body.appendChild(notification)
 
@@ -7801,7 +7378,7 @@ function initializeExtension() {
           if (el) {
             const isEnabled = box.enabled !== false
             el.innerHTML = isEnabled
-              ? `Ready for ${String(box.title || '').replace(/[📝🔍🎯🧮]/g, '').trim()}...`
+              ? `Ready for ${String(box.title || '').replace(/[ðŸ“ðŸ”ðŸŽ¯ðŸ§®]/g, '').trim()}...`
               : `Agent disabled - toggle On to activate`
           }
           chrome.runtime.sendMessage({
@@ -7889,7 +7466,6 @@ function initializeExtension() {
 
                   storageSet({ [sessionKey]: session }, () => {
 
-                    console.log(`✅ Agent box ${agentId} ${isEnabled ? 'enabled' : 'disabled'}`)
 
                   })
 
@@ -7913,7 +7489,7 @@ function initializeExtension() {
 
           const notification = document.createElement('div')
 
-          notification.textContent = `${box.title} ${isEnabled ? 'enabled' : 'disabled'} ✏“`
+          notification.textContent = `${box.title} ${isEnabled ? 'enabled' : 'disabled'} âœâ€œ`
 
           notification.style.cssText = `position:fixed;top:20px;right:20px;z-index:2147483650;background:${isEnabled ? '#16a34a' : '#64748b'};color:#fff;padding:10px 14px;border-radius:8px;font-size:12px;box-shadow:0 4px 12px rgba(0,0,0,0.3);transition:opacity 0.3s;`
 
@@ -8103,7 +7679,6 @@ function initializeExtension() {
 
     
 
-    console.log(`${sidebarsVisible ? '👁️ Sidebars shown' : '🙈 Sidebars hidden'}`)
 
   }
 
@@ -8113,7 +7688,6 @@ function initializeExtension() {
 
     // Extension now uses native Side Panel - no viewport adjustment needed
 
-    console.log('✅ Native Side Panel active - no content script UI')
 
   }
 
@@ -8121,11 +7695,8 @@ function initializeExtension() {
 
   // ALL UI NOW IN NATIVE SIDE PANEL - Content script only handles data
 
-  console.log('🎉 WR Desk Extension with Hybrid UI')
 
-  console.log('📌 Native Side Panel + Content Script Lightboxes')
 
-  console.log('ℹ️ Side Panel provides main UI, lightboxes overlay for detailed config')
 
   
 
@@ -8161,7 +7732,7 @@ function initializeExtension() {
 
   `
 
-  // LEFT SIDEBAR - AI Agent Outputs (weiße Display Ports)
+  // LEFT SIDEBAR - AI Agent Outputs (weiÃŸe Display Ports)
 
   const leftSidebar = document.createElement('div')
 
@@ -8371,13 +7942,13 @@ function initializeExtension() {
 
         <button id="command-center-btn" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px; transition: all 0.2s ease;" title="Command Chat">
 
-          💬
+          ðŸ’¬
 
         </button>
 
       <button id="quick-expand-btn" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px; transition: all 0.2s ease;" title="Quick expand to maximum width">
 
-        ⇄
+        â‡„
 
       </button>
 
@@ -8401,7 +7972,7 @@ function initializeExtension() {
 
       <button id="add-agent-box-btn" style="width: 100%; padding: 12px 16px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: bold; min-height: 44px; transition: all 0.3s ease;">
 
-        ➕ Add New Agent Box
+        âž• Add New Agent Box
 
       </button>
 
@@ -8525,9 +8096,9 @@ function initializeExtension() {
 
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
 
-      <h2 style="margin: 0; font-size: 18px;" class="section-title">⚙️ AI Orchestrator</h2>
+      <h2 style="margin: 0; font-size: 18px;" class="section-title">âš™ï¸ AI Orchestrator</h2>
 
-      <button id="quick-expand-right-btn" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px; transition: all 0.2s ease;" title="Quick expand">⇄</button>
+      <button id="quick-expand-right-btn" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px; transition: all 0.2s ease;" title="Quick expand">â‡„</button>
 
     </div>
 
@@ -8537,7 +8108,7 @@ function initializeExtension() {
 
     <div id="wr-card" style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px; margin-bottom: 20px; text-align: center;">
 
-      <h3 style="margin: 0 0 15px 0; font-size: 14px;" class="section-title">📱 WR Login</h3>
+      <h3 style="margin: 0 0 15px 0; font-size: 14px;" class="section-title">ðŸ“± WR Login</h3>
 
       
 
@@ -8561,7 +8132,7 @@ function initializeExtension() {
 
       <button id="wr-connect-btn" style="width: 100%; padding: 12px 16px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 4px; cursor: pointer; font-size: 14px; font-weight: 600; min-height: 44px; margin-bottom: 10px;">
 
-        🔗 WR Login
+        ðŸ”— WR Login
 
       </button>
 
@@ -8595,7 +8166,7 @@ function initializeExtension() {
 
       <button id="add-agent-box-btn-right-main" style="width: 100%; padding: 12px 16px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: bold; min-height: 44px; transition: all 0.3s ease;">
 
-        ➕ Add New Agent Box
+        âž• Add New Agent Box
 
       </button>
 
@@ -8607,25 +8178,25 @@ function initializeExtension() {
 
     <div id="quick-actions-card" style="background: ${csTheme().cardBg}; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
 
-      <h3 style="margin: 0 0 15px 0; font-size: 14px;" class="section-title">⚡ Runtime Controls</h3>
+      <h3 style="margin: 0 0 15px 0; font-size: 14px;" class="section-title">âš¡ Runtime Controls</h3>
 
       <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
 
-        <button id="add-helpergrid-btn" style="padding: 10px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600;">🚀 Add View</button>
+        <button id="add-helpergrid-btn" style="padding: 10px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600;">ðŸš€ Add View</button>
 
-        <button id="sessions-history-btn" style="padding: 10px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600;">📚 Sessions</button>
+        <button id="sessions-history-btn" style="padding: 10px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600;">ðŸ“š Sessions</button>
 
-        <button id="save-session-btn" style="padding: 10px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600;">💾 Save</button>
+        <button id="save-session-btn" style="padding: 10px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600;">ðŸ’¾ Save</button>
 
-        <button id="sync-btn" style="padding: 10px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600;">🔄 Sync</button>
+        <button id="sync-btn" style="padding: 10px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600;">ðŸ”„ Sync</button>
 
-        <button id="export-btn" style="padding: 10px; background: ${csTheme().cardBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600;">📤 Export</button>
+        <button id="export-btn" style="padding: 10px; background: ${csTheme().cardBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600;">ðŸ“¤ Export</button>
 
-        <button id="import-btn" style="padding: 10px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600;">📥 Import</button>
+        <button id="import-btn" style="padding: 10px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600;">ðŸ“¥ Import</button>
 
         <button id="wrvault-open-btn" style="padding: 10px; border-radius: 6px; cursor: pointer; font-size: 11px; display:flex; align-items:center; gap:8px; justify-content:center; font-weight:700; border:1px solid ${csTheme().border}; grid-column: 1 / span 2; background: ${csTheme().cardBg};">
 
-          <span>🔒</span>
+          <span>ðŸ”’</span>
 
           <span>WRVault</span>
 
@@ -8657,9 +8228,9 @@ function initializeExtension() {
 
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
 
-        <h2 style="margin: 0; font-size: 18px;" class="section-title">🖥 Master Tab (${String(parseInt(hybridMasterId) + 1).padStart(2, '0')})</h2>
+        <h2 style="margin: 0; font-size: 18px;" class="section-title">ðŸ–¥Â Master Tab (${String(parseInt(hybridMasterId) + 1).padStart(2, '0')})</h2>
 
-        <button id="quick-expand-right-btn" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px; transition: all 0.2s ease;" title="Quick expand to maximum width">⇄</button>
+        <button id="quick-expand-right-btn" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px; transition: all 0.2s ease;" title="Quick expand to maximum width">â‡„</button>
 
       </div>
 
@@ -8671,7 +8242,7 @@ function initializeExtension() {
 
         <button id="add-agent-box-btn-right" style="width: 100%; padding: 12px 16px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: bold; min-height: 44px; transition: all 0.3s ease;">
 
-          ➕ Add New Agent Box
+          âž• Add New Agent Box
 
         </button>
 
@@ -9657,7 +9228,6 @@ function initializeExtension() {
 
         const newTheme = changes['optimando-ui-theme'].newValue
 
-        console.log('🎨 Content script detected theme change:', newTheme)
 
         
 
@@ -9707,7 +9277,7 @@ function initializeExtension() {
 
           } catch (e) {
 
-            console.error('🎨 Error updating docked chat theme:', e)
+            console.error('ðŸŽ¨ Error updating docked chat theme:', e)
 
           }
 
@@ -9743,23 +9313,23 @@ function initializeExtension() {
 
           <div id="reasoning-header" style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
 
-            <span style="font-size: 12px; font-weight: bold;" class="menu-link">🧠 Reasoning</span>
+            <span style="font-size: 12px; font-weight: bold;" class="menu-link">ðŸ§  Reasoning</span>
 
-            <button id="expand-btn" style="background: transparent; border: none; color: currentColor; font-size: 12px; transition: transform 0.3s ease;">⌄</button>
+            <button id="expand-btn" style="background: transparent; border: none; color: currentColor; font-size: 12px; transition: transform 0.3s ease;">âŒ„</button>
 
           </div>
 
-          <button id="agents-lightbox-btn" style="padding: 4px 8px; background: ${csTheme().cardBg}; border: none; border-radius: 3px; cursor: pointer; font-size: 10px; color: inherit;" class="menu-link">🤖 Agents</button>
+          <button id="agents-lightbox-btn" style="padding: 4px 8px; background: ${csTheme().cardBg}; border: none; border-radius: 3px; cursor: pointer; font-size: 10px; color: inherit;" class="menu-link">ðŸ¤– Agents</button>
 
-          <button id="context-lightbox-btn" style="padding: 4px 8px; background: ${csTheme().cardBg}; border: none; border-radius: 3px; cursor: pointer; font-size: 10px; color: inherit;" class="menu-link">📄 Context</button>
+          <button id="context-lightbox-btn" style="padding: 4px 8px; background: ${csTheme().cardBg}; border: none; border-radius: 3px; cursor: pointer; font-size: 10px; color: inherit;" class="menu-link">ðŸ“„ Context</button>
 
-          <button id="memory-lightbox-btn" style="padding: 4px 8px; background: ${csTheme().cardBg}; border: none; border-radius: 3px; cursor: pointer; font-size: 10px; color: inherit;" class="menu-link">💽 Memory</button>
+          <button id="memory-lightbox-btn" style="padding: 4px 8px; background: ${csTheme().cardBg}; border: none; border-radius: 3px; cursor: pointer; font-size: 10px; color: inherit;" class="menu-link">ðŸ’½ Memory</button>
 
-          <button id="settings-lightbox-btn" style="padding: 4px 8px; background: ${csTheme().cardBg}; border: none; border-radius: 3px; cursor: pointer; font-size: 10px; color: inherit;" class="menu-link">⚙️ Settings</button>
+          <button id="settings-lightbox-btn" style="padding: 4px 8px; background: ${csTheme().cardBg}; border: none; border-radius: 3px; cursor: pointer; font-size: 10px; color: inherit;" class="menu-link">âš™ï¸ Settings</button>
 
-          <button id="popup-chat-btn" style="padding: 4px 8px; background: transparent; border: none; border-radius: 3px; cursor: pointer; font-size: 12px; color: inherit; font-weight:700;" class="menu-link" title="Open popup chat">💬</button>
+          <button id="popup-chat-btn" style="padding: 4px 8px; background: transparent; border: none; border-radius: 3px; cursor: pointer; font-size: 12px; color: inherit; font-weight:700;" class="menu-link" title="Open popup chat">ðŸ’¬</button>
 
-          <button id="dock-chat-btn" style="padding: 4px 8px; background: transparent; border: none; border-radius: 3px; cursor: pointer; font-size: 12px; color: inherit; font-weight:700;" class="menu-link" title="Dock to right sidebar">📌</button>
+          <button id="dock-chat-btn" style="padding: 4px 8px; background: transparent; border: none; border-radius: 3px; cursor: pointer; font-size: 12px; color: inherit; font-weight:700;" class="menu-link" title="Dock to right sidebar">ðŸ“Œ</button>
 
         </div>
 
@@ -9791,7 +9361,7 @@ function initializeExtension() {
 
           <button id="new-session-btn" style="background: ${csTheme().accentGrad}; border: none; color: #fff; width: 24px; height: 24px; border-radius: 3px; cursor: pointer; font-size: 12px; font-weight: bold; transition: all 0.2s ease; ${isHybridMaster ? 'display: none;' : ''}" title="Start a new session">+</button>
 
-          <button id="lock-btn" style="background: ${csTheme().cardBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; width: 24px; height: 24px; border-radius: 3px; cursor: pointer; font-size: 10px; ${currentTabData.isLocked ? "background: rgba(251,191,36,0.25);" : ""}">${currentTabData.isLocked ? '🔒' : '🔓'}</button>
+          <button id="lock-btn" style="background: ${csTheme().cardBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; width: 24px; height: 24px; border-radius: 3px; cursor: pointer; font-size: 10px; ${currentTabData.isLocked ? "background: rgba(251,191,36,0.25);" : ""}">${currentTabData.isLocked ? 'ðŸ”’' : 'ðŸ”“'}</button>
 
         </div>
 
@@ -9807,11 +9377,11 @@ function initializeExtension() {
 
         <div id="topbar-tabs" style="display:flex; gap:8px; margin-bottom:10px;">
 
-          <button data-tab="reasoning" class="topbar-tab" style="padding:6px 10px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius: 6px; font-size: 11px; cursor: pointer;">💡 Insights</button>
+          <button data-tab="reasoning" class="topbar-tab" style="padding:6px 10px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius: 6px; font-size: 11px; cursor: pointer;">ðŸ’¡ Insights</button>
 
-          <button data-tab="session-goals" class="topbar-tab" style="padding:6px 10px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius: 6px; font-size: 11px; cursor: pointer;">🎯 Session Goals</button>
+          <button data-tab="session-goals" class="topbar-tab" style="padding:6px 10px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius: 6px; font-size: 11px; cursor: pointer;">ðŸŽ¯ Session Goals</button>
 
-          <button data-tab="workflows" class="topbar-tab" style="padding:6px 10px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius: 6px; font-size: 11px; cursor: pointer;">🛠️ Workflows</button>
+          <button data-tab="workflows" class="topbar-tab" style="padding:6px 10px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius: 6px; font-size: 11px; cursor: pointer;">ðŸ› ï¸ Workflows</button>
 
         </div>
 
@@ -9829,7 +9399,7 @@ function initializeExtension() {
 
               <div style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
 
-                <h4 class="dropdown-title" style="margin: 0; font-size: 12px;">🧭 User Intent Detection</h4>
+                <h4 class="dropdown-title" style="margin: 0; font-size: 12px;">ðŸ§­ User Intent Detection</h4>
 
                 <div style="display:flex; align-items:center; gap:6px;">
 
@@ -9855,7 +9425,7 @@ function initializeExtension() {
 
                 <div><strong>Detected Intent:</strong> Compare product prices and find best value</div>
 
-                <div style="opacity:0.8;">Confidence: 72% • Updated: just now</div>
+                <div style="opacity:0.8;">Confidence: 72% â€¢ Updated: just now</div>
 
               </div>
 
@@ -9869,15 +9439,15 @@ function initializeExtension() {
 
               <div style="display:flex; align-items:center; justify-content:space-between;">
 
-                <h4 class="dropdown-title" style="margin: 0; font-size: 12px;">🧠 Orchestration Logic</h4>
+                <h4 class="dropdown-title" style="margin: 0; font-size: 12px;">ðŸ§  Orchestration Logic</h4>
 
                 <div style="display:flex; gap:6px;">
 
-                  <button id="gen-followups-btn" class="quick-action" title="Re-generate follow-up questions" style="padding:6px 8px; border-radius:6px; font-size:11px; cursor:pointer;">🔄 Re-Generate</button>
+                  <button id="gen-followups-btn" class="quick-action" title="Re-generate follow-up questions" style="padding:6px 8px; border-radius:6px; font-size:11px; cursor:pointer;">ðŸ”„ Re-Generate</button>
 
-                  <button id="show-paths-btn" class="quick-action" title="Show reasoning paths" style="padding:6px 8px; border-radius:6px; font-size:11px; cursor:pointer;">🧭 Paths</button>
+                  <button id="show-paths-btn" class="quick-action" title="Show reasoning paths" style="padding:6px 8px; border-radius:6px; font-size:11px; cursor:pointer;">ðŸ§­ Paths</button>
 
-                  <button id="feedback-loop-btn" class="quick-action" title="Trigger feedback loop" style="padding:6px 8px; border-radius:6px; font-size:11px; cursor:pointer;">♻ Feedback</button>
+                  <button id="feedback-loop-btn" class="quick-action" title="Trigger feedback loop" style="padding:6px 8px; border-radius:6px; font-size:11px; cursor:pointer;">â™»Â Feedback</button>
 
                 </div>
 
@@ -9885,7 +9455,7 @@ function initializeExtension() {
 
               <div id="orchestration-log" style="background: rgba(0,0,0,0.3); padding: 8px; border-radius: 6px; font-size: 10px; height: 120px; overflow-y: auto; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;">
 
-                [System] Orchestrator idle. Awaiting actions…
+                [System] Orchestrator idle. Awaiting actionsâ€¦
 
               </div>
 
@@ -9903,9 +9473,9 @@ function initializeExtension() {
 
             <div style="display:flex; align-items:center; gap:6px;">
 
-              <h4 class="dropdown-title" style="margin: 0; font-size: 12px;">🎯 Session Goals</h4>
+              <h4 class="dropdown-title" style="margin: 0; font-size: 12px;">ðŸŽ¯ Session Goals</h4>
 
-              <span title="Defining goals helps the system detect your intent more accurately and orchestrate better actions." style="font-size:12px; opacity:0.85; cursor:help;">ℹ️</span>
+              <span title="Defining goals helps the system detect your intent more accurately and orchestrate better actions." style="font-size:12px; opacity:0.85; cursor:help;">â„¹ï¸</span>
 
             </div>
 
@@ -9917,7 +9487,7 @@ function initializeExtension() {
 
                 <textarea id="goal-text" placeholder="What's your goal right now?" style="width: 100%; height: 100px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 6px 36px 6px 10px; border-radius: 6px; font-size: 11px; resize: vertical;"></textarea>
 
-                <button id="goal-mic" title="Speak your goal" style="position:absolute; right:8px; bottom:8px; background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:2px 6px;border-radius:6px;cursor:pointer">🎤</button>
+                <button id="goal-mic" title="Speak your goal" style="position:absolute; right:8px; bottom:8px; background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:2px 6px;border-radius:6px;cursor:pointer">ðŸŽ¤</button>
 
               </div>
 
@@ -9927,13 +9497,13 @@ function initializeExtension() {
 
                 <input id="role-text" placeholder="e.g. assistant, validator" style="width:100%; height: 44px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 6px 36px 6px 10px; border-radius: 6px; font-size: 11px;"/>
 
-                <button id="role-mic" title="Speak your role" style="position:absolute; right:8px; bottom:8px; background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:2px 6px;border-radius:6px;cursor:pointer">🎤</button>
+                <button id="role-mic" title="Speak your role" style="position:absolute; right:8px; bottom:8px; background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:2px 6px;border-radius:6px;cursor:pointer">ðŸŽ¤</button>
 
               </div>
 
               <div style="display:flex; justify-content:flex-end; align-items:center;">
 
-                <button id="save-as-agent" title="You can save your Goals and Role into an Agent. This allows recurring tasks and intent detection to be refined and tailored to you, so the system can automatically trigger workflows and complex reasoning processes more effectively." style="padding:6px 10px; background:${csTheme().accentGrad}; border:none; color:#fff; border-radius:6px; font-size:11px; cursor:pointer; display:flex; align-items:center; gap:6px;">Save as Agent <span style="font-size:12px">ℹ️</span></button>
+                <button id="save-as-agent" title="You can save your Goals and Role into an Agent. This allows recurring tasks and intent detection to be refined and tailored to you, so the system can automatically trigger workflows and complex reasoning processes more effectively." style="padding:6px 10px; background:${csTheme().accentGrad}; border:none; color:#fff; border-radius:6px; font-size:11px; cursor:pointer; display:flex; align-items:center; gap:6px;">Save as Agent <span style="font-size:12px">â„¹ï¸</span></button>
 
               </div>
 
@@ -9953,7 +9523,7 @@ function initializeExtension() {
 
             <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 6px; display:flex; flex-direction:column; gap:8px;">
 
-              <div style="font-size:12px; font-weight:600;">📧 Send Email</div>
+              <div style="font-size:12px; font-weight:600;">ðŸ“§ Send Email</div>
 
               <div style="font-size:10px; opacity:0.9;">Draft and send a concise email.</div>
 
@@ -9963,7 +9533,7 @@ function initializeExtension() {
 
             <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 6px; display:flex; flex-direction:column; gap:8px;">
 
-              <div style="font-size:12px; font-weight:600;">📅 Manage Calendar</div>
+              <div style="font-size:12px; font-weight:600;">ðŸ“… Manage Calendar</div>
 
               <div style="font-size:10px; opacity:0.9;">Create or reschedule meetings.</div>
 
@@ -9973,7 +9543,7 @@ function initializeExtension() {
 
             <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 6px; display:flex; flex-direction:column; gap:8px;">
 
-              <div style="font-size:12px; font-weight:600;">🧹 Clean Up Draft</div>
+              <div style="font-size:12px; font-weight:600;">ðŸ§¹ Clean Up Draft</div>
 
               <div style="font-size:10px; opacity:0.9;">Refine text for clarity and tone.</div>
 
@@ -10027,7 +9597,6 @@ function initializeExtension() {
 
       document.body.style.setProperty('margin-top', expandedHeight + 'px', 'important')
 
-      console.log('📏 Restored expanded state - page margin set to:', expandedHeight + 'px')
 
       bottomSidebar.style.cursor = 'default'
 
@@ -10087,7 +9656,6 @@ function initializeExtension() {
 
       document.body.style.setProperty('margin-top', expandedHeight + 'px', 'important')
 
-      console.log('📏 Top bar expanded - page margin set to:', expandedHeight + 'px')
 
       // Use robust viewport adjustment
 
@@ -10111,7 +9679,6 @@ function initializeExtension() {
 
       document.body.style.setProperty('margin-top', '45px', 'important')
 
-      console.log('📏 Top bar collapsed - page margin set to: 45px')
 
       // Use robust viewport adjustment
 
@@ -10225,7 +9792,6 @@ function initializeExtension() {
 
         document.body.style.setProperty('margin-top', expandedHeight + 'px', 'important')
 
-        console.log('📏 Re-restored expanded state - page margin set to:', expandedHeight + 'px')
 
         bottomSidebar.style.cursor = 'default'
 
@@ -10351,7 +9917,7 @@ function initializeExtension() {
 
         // Create the agent directly in the session, then open the lightbox and config dialog
 
-        addAgentToSession(tempName, '🎯', () => {
+        addAgentToSession(tempName, 'ðŸŽ¯', () => {
 
           try {
 
@@ -10567,7 +10133,7 @@ function initializeExtension() {
 
       } else {
 
-        console.warn('⚠️ Could not find agents-lightbox element')
+        console.warn('âš ï¸ Could not find agents-lightbox element')
 
       }
 
@@ -10619,7 +10185,7 @@ function initializeExtension() {
 
       } else {
 
-        console.warn('⚠️ Could not find context-lightbox element')
+        console.warn('âš ï¸ Could not find context-lightbox element')
 
       }
 
@@ -10681,7 +10247,7 @@ function initializeExtension() {
 
       } else {
 
-        console.warn('⚠️ Could not find memory-lightbox element')
+        console.warn('âš ï¸ Could not find memory-lightbox element')
 
       }
 
@@ -10733,7 +10299,7 @@ function initializeExtension() {
 
       } else {
 
-        console.warn('⚠️ Could not find miniapps-lightbox element')
+        console.warn('âš ï¸ Could not find miniapps-lightbox element')
 
       }
 
@@ -10787,13 +10353,13 @@ function initializeExtension() {
 
     const tabs = [
 
-      { id: 'agents', label: '🤖 AI Agent Configuration' },
+      { id: 'agents', label: 'ðŸ¤– AI Agent Configuration' },
 
-      { id: 'context', label: '📝 Global Context Management' },
+      { id: 'context', label: 'ðŸ“ Global Context Management' },
 
-      { id: 'memory', label: '🧠 Global Memory Management' },
+      { id: 'memory', label: 'ðŸ§  Global Memory Management' },
 
-      { id: 'miniapps', label: '📱 Mini-Apps' }
+      { id: 'miniapps', label: 'ðŸ“± Mini-Apps' }
 
     ]
 
@@ -10865,15 +10431,15 @@ function initializeExtension() {
     text += 'Displays ALL configured settings from the AI Agent setup forms.\n\n'
 
     // Add routing rules explanation
-    text += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n'
+    text += 'â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”\n'
     text += 'ROUTING RULES (Input Coordinator)\n'
-    text += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n'
-    text += '1. Active Trigger Match (#tag or @trigger) → Forward to agent\n'
-    text += '2. Passive Trigger Pattern Matched → Forward to agent\n'
-    text += '3. No Listener Active on Agent → ALWAYS forward to reasoning\n'
-    text += '4. No Match at All → Butler response only\n\n'
-    text += 'Flow: WR Chat → Butler (immediate) → Input Coordinator → Agent(s)\n'
-    text += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n'
+    text += 'â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”\n'
+    text += '1. Active Trigger Match (#tag or @trigger) â†’ Forward to agent\n'
+    text += '2. Passive Trigger Pattern Matched â†’ Forward to agent\n'
+    text += '3. No Listener Active on Agent â†’ ALWAYS forward to reasoning\n'
+    text += '4. No Match at All â†’ Butler response only\n\n'
+    text += 'Flow: WR Chat â†’ Butler (immediate) â†’ Input Coordinator â†’ Agent(s)\n'
+    text += 'â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”\n\n'
 
     
 
@@ -10921,11 +10487,11 @@ function initializeExtension() {
 
       
 
-      text += `\n━━━ Agent ${num}: ${name} ━━━\n`
+      text += `\nâ”â”â” Agent ${num}: ${name} â”â”â”\n`
 
-      text += `Enabled: ${agentData.enabled ? '✏“ YES' : '✏— NO'}\n`
+      text += `Enabled: ${agentData.enabled ? 'âœâ€œ YES' : 'âœâ€” NO'}\n`
 
-      text += `Icon: ${agentData.icon || '🤖'}\n\n`
+      text += `Icon: ${agentData.icon || 'ðŸ¤–'}\n\n`
 
       
 
@@ -10939,7 +10505,7 @@ function initializeExtension() {
 
       if (hasListener && agentData.listening) {
 
-        text += `  State: ✏“ ACTIVE\n\n`
+        text += `  State: âœâ€œ ACTIVE\n\n`
 
         
 
@@ -10951,9 +10517,9 @@ function initializeExtension() {
 
         text += `  Modes:\n`
 
-        text += `    Passive Listener: ${passiveEnabled ? '✏“ ENABLED' : '✏— DISABLED'}\n`
+        text += `    Passive Listener: ${passiveEnabled ? 'âœâ€œ ENABLED' : 'âœâ€” DISABLED'}\n`
 
-        text += `    Active Listener: ${activeEnabled ? '✏“ ENABLED' : '✏— DISABLED'}\n\n`
+        text += `    Active Listener: ${activeEnabled ? 'âœâ€œ ENABLED' : 'âœâ€” DISABLED'}\n\n`
 
         
 
@@ -11019,7 +10585,7 @@ function initializeExtension() {
 
             passiveTriggers.forEach((trigger: any) => {
 
-              text += `    • ${trigger.tag?.name || 'unnamed'} [${trigger.tag?.kind || 'OTHER'}]\n`
+              text += `    â€¢ ${trigger.tag?.name || 'unnamed'} [${trigger.tag?.kind || 'OTHER'}]\n`
 
             })
 
@@ -11047,7 +10613,7 @@ function initializeExtension() {
 
             activeTriggers.forEach((trigger: any) => {
 
-              text += `    • ${trigger.tag?.name || 'unnamed'} [${trigger.tag?.kind || 'OTHER'}]\n`
+              text += `    â€¢ ${trigger.tag?.name || 'unnamed'} [${trigger.tag?.kind || 'OTHER'}]\n`
 
             })
 
@@ -11073,7 +10639,7 @@ function initializeExtension() {
 
           exampleFiles.forEach((file: any) => {
 
-            text += `    • ${file.name || 'unnamed'} (${(file.size / 1024).toFixed(1)} KB)\n`
+            text += `    â€¢ ${file.name || 'unnamed'} (${(file.size / 1024).toFixed(1)} KB)\n`
 
           })
 
@@ -11093,13 +10659,13 @@ function initializeExtension() {
 
           listenerReportTo.forEach((dest: string) => {
 
-            text += `    → ${dest}\n`
+            text += `    â†’ ${dest}\n`
 
           })
 
         } else {
 
-          text += `    → REASONING section (internal passthrough)\n`
+          text += `    â†’ REASONING section (internal passthrough)\n`
 
         }
 
@@ -11119,7 +10685,7 @@ function initializeExtension() {
 
         text += `       - Website filter (if set)\n`
 
-        text += `    4. If match found → Forward to Reasoning section\n`
+        text += `    4. If match found â†’ Forward to Reasoning section\n`
 
         text += `    5. Reasoning wraps with Role/Reasoning Instructions\n`
 
@@ -11131,9 +10697,9 @@ function initializeExtension() {
 
       } else {
 
-        text += `  State: ✏— INACTIVE (No listener configured)\n`
+        text += `  State: âœâ€” INACTIVE (No listener configured)\n`
 
-        text += `  ⚡ ALL INPUT FORWARDED to Reasoning section\n`
+        text += `  âš¡ ALL INPUT FORWARDED to Reasoning section\n`
 
         text += `  (When no listener is active, agent receives all inputs)\n`
 
@@ -11173,17 +10739,17 @@ function initializeExtension() {
 
           acceptFrom.forEach((source: string) => {
 
-            text += `    ← ${source}\n`
+            text += `    â† ${source}\n`
 
           })
 
-          text += `  → Only processes input from these sources\n`
+          text += `  â†’ Only processes input from these sources\n`
 
         } else {
 
           text += `    [] (not set)\n`
 
-          text += `    → Accepts direct multimodal input (internal passthrough)\n`
+          text += `    â†’ Accepts direct multimodal input (internal passthrough)\n`
 
         }
 
@@ -11221,7 +10787,7 @@ function initializeExtension() {
 
         
 
-        // Rules field removed — use WR Experts for reusable constraints
+        // Rules field removed â€” use WR Experts for reusable constraints
 
         
 
@@ -11253,11 +10819,11 @@ function initializeExtension() {
 
       const contextSettings = agentData.contextSettings || {}
 
-      text += `  Session Context: ${contextSettings.sessionContext ? '✏“ ENABLED' : '✏— DISABLED'}\n`
+      text += `  Session Context: ${contextSettings.sessionContext ? 'âœâ€œ ENABLED' : 'âœâ€” DISABLED'}\n`
 
-      text += `  Account Context: ${contextSettings.accountContext ? '✏“ ENABLED' : '✏— DISABLED'}\n`
+      text += `  Account Context: ${contextSettings.accountContext ? 'âœâ€œ ENABLED' : 'âœâ€” DISABLED'}\n`
 
-      text += `  Agent Context: ${contextSettings.agentContext ? '✏“ ENABLED' : '✏— DISABLED'}\n\n`
+      text += `  Agent Context: ${contextSettings.agentContext ? 'âœâ€œ ENABLED' : 'âœâ€” DISABLED'}\n\n`
 
       
 
@@ -11271,7 +10837,7 @@ function initializeExtension() {
 
         agentContextFiles.forEach((file: any) => {
 
-          text += `    • ${file.name || 'unnamed'} (${(file.size / 1024).toFixed(1)} KB)\n`
+          text += `    â€¢ ${file.name || 'unnamed'} (${(file.size / 1024).toFixed(1)} KB)\n`
 
         })
 
@@ -11291,23 +10857,23 @@ function initializeExtension() {
 
       text += `[MEMORY SETTINGS]\n`
 
-      text += `  Session Memory: ${memSettings.sessionEnabled ? '✏“ ENABLED' : '✏— DISABLED'}\n`
+      text += `  Session Memory: ${memSettings.sessionEnabled ? 'âœâ€œ ENABLED' : 'âœâ€” DISABLED'}\n`
 
       if (memSettings.sessionEnabled) {
 
-        text += `    Read: ${memSettings.sessionRead ? '✏“' : '✏—'}\n`
+        text += `    Read: ${memSettings.sessionRead ? 'âœâ€œ' : 'âœâ€”'}\n`
 
-        text += `    Write: ${memSettings.sessionWrite ? '✏“' : '✏—'}\n`
+        text += `    Write: ${memSettings.sessionWrite ? 'âœâ€œ' : 'âœâ€”'}\n`
 
       }
 
-      text += `  Account Memory: ${memSettings.accountEnabled ? '✏“ ENABLED' : '✏— DISABLED'}\n`
+      text += `  Account Memory: ${memSettings.accountEnabled ? 'âœâ€œ ENABLED' : 'âœâ€” DISABLED'}\n`
 
       if (memSettings.accountEnabled) {
 
-        text += `    Read: ${memSettings.accountRead ? '✏“' : '✏—'}\n`
+        text += `    Read: ${memSettings.accountRead ? 'âœâ€œ' : 'âœâ€”'}\n`
 
-        text += `    Write: ${memSettings.accountWrite ? '✏“' : '✏—'}\n`
+        text += `    Write: ${memSettings.accountWrite ? 'âœâ€œ' : 'âœâ€”'}\n`
 
       }
 
@@ -11363,7 +10929,7 @@ function initializeExtension() {
 
     
 
-    text += '\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n'
+    text += '\nâ”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”\n'
 
     text += `SUMMARY:\n`
 
@@ -11402,13 +10968,13 @@ function initializeExtension() {
       const labels: Record<string, string> = {
         'agentBox': 'Agent Boxes (Default)',
         'agent': 'Specific Agent(s)',
-        'clip-summary': 'Clipboard → Summary',
-        'clip-screenshot': 'Clipboard → Screenshot',
-        'pdf-summary': 'PDF → Summary',
-        'pdf-screenshot': 'PDF → Screenshot',
-        'pdf-both': 'PDF → Summary + Screenshot',
-        'image-screenshot': 'Image → Screenshot (PNG/WebP)',
-        'chat-inline-summary': 'Chat Inline → Summary'
+        'clip-summary': 'Clipboard â†’ Summary',
+        'clip-screenshot': 'Clipboard â†’ Screenshot',
+        'pdf-summary': 'PDF â†’ Summary',
+        'pdf-screenshot': 'PDF â†’ Screenshot',
+        'pdf-both': 'PDF â†’ Summary + Screenshot',
+        'image-screenshot': 'Image â†’ Screenshot (PNG/WebP)',
+        'chat-inline-summary': 'Chat Inline â†’ Summary'
       }
       return labels[kind] || kind
     }
@@ -11420,17 +10986,17 @@ function initializeExtension() {
     text += 'Shows COMPLETE Execution section settings and Report To destinations.\n\n'
 
     // Add output routing explanation
-    text += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n'
+    text += 'â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”\n'
     text += 'OUTPUT ROUTING RULES\n'
-    text += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n'
-    text += 'Agent → AgentBox Connection:\n'
-    text += '  • Agent Number must match AgentBox.agentNumber\n'
-    text += '  • AgentBox must be enabled (enabled !== false)\n'
-    text += '  • Output displays in the connected AgentBox\n\n'
+    text += 'â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”\n'
+    text += 'Agent â†’ AgentBox Connection:\n'
+    text += '  â€¢ Agent Number must match AgentBox.agentNumber\n'
+    text += '  â€¢ AgentBox must be enabled (enabled !== false)\n'
+    text += '  â€¢ Output displays in the connected AgentBox\n\n'
     text += 'LLM Model Selection:\n'
-    text += '  • If AgentBox has provider/model set → Use that model\n'
-    text += '  • Otherwise → Use default local model (Ollama)\n'
-    text += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n'
+    text += '  â€¢ If AgentBox has provider/model set â†’ Use that model\n'
+    text += '  â€¢ Otherwise â†’ Use default local model (Ollama)\n'
+    text += 'â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”\n\n'
 
     
 
@@ -11454,7 +11020,7 @@ function initializeExtension() {
 
     
 
-    text += `━━━ AGENT BOXES (${agentBoxes.length} total) ━━━\n\n`
+    text += `â”â”â” AGENT BOXES (${agentBoxes.length} total) â”â”â”\n\n`
 
     
 
@@ -11520,9 +11086,9 @@ function initializeExtension() {
 
           text += `  Connected Agent: Agent ${agentNum} (${agentName})\n`
 
-          text += `  Connection: Agent ${agentNum} → Agent Box ${boxNum}\n`
+          text += `  Connection: Agent ${agentNum} â†’ Agent Box ${boxNum}\n`
 
-          text += `  Status: ${matchedAgent.enabled ? '✏“ Active' : '⚠️ Agent disabled'}\n`
+          text += `  Status: ${matchedAgent.enabled ? 'âœâ€œ Active' : 'âš ï¸ Agent disabled'}\n`
 
           
 
@@ -11574,9 +11140,9 @@ function initializeExtension() {
               specialDestinations.forEach((dest: any) => {
                 const label = kindToLabel(dest.kind)
                 if (dest.kind === 'agent' && dest.agents && dest.agents.length > 0) {
-                  text += `      → ${label}: ${dest.agents.join(', ')}\n`
+                  text += `      â†’ ${label}: ${dest.agents.join(', ')}\n`
                 } else {
-                  text += `      → ${label}\n`
+                  text += `      â†’ ${label}\n`
                 }
               })
             } else {
@@ -11606,9 +11172,9 @@ function initializeExtension() {
                   sec.specialDestinations.forEach((dest: any) => {
                     const label = kindToLabel(dest.kind)
                     if (dest.kind === 'agent' && dest.agents && dest.agents.length > 0) {
-                      text += `          → ${label}: ${dest.agents.join(', ')}\n`
+                      text += `          â†’ ${label}: ${dest.agents.join(', ')}\n`
                     } else {
-                      text += `          → ${label}\n`
+                      text += `          â†’ ${label}\n`
                     }
                   })
                 }
@@ -11624,18 +11190,18 @@ function initializeExtension() {
             // Summary note about output destination
             const hasAgentBoxDest = specialDestinations.some((d: any) => d.kind === 'agentBox')
             if (hasAgentBoxDest || specialDestinations.length === 0) {
-              text += `    ✏“ Output will display in Agent Box ${boxNum}\n`
+              text += `    âœâ€œ Output will display in Agent Box ${boxNum}\n`
             }
             const otherDests = specialDestinations.filter((d: any) => d.kind !== 'agentBox')
             if (otherDests.length > 0) {
-              text += `    ✏“ Output also sent to: ${otherDests.map((d: any) => kindToLabel(d.kind)).join(', ')}\n`
+              text += `    âœâ€œ Output also sent to: ${otherDests.map((d: any) => kindToLabel(d.kind)).join(', ')}\n`
             }
 
           } else {
 
             text += `\n  [EXECUTION SECTION]\n`
 
-            text += `    Status: ✏— Not enabled\n`
+            text += `    Status: âœâ€” Not enabled\n`
 
           }
 
@@ -11645,7 +11211,7 @@ function initializeExtension() {
 
           text += `  Allocated Agent: Number ${box.agentNumber} (not found in session)\n`
 
-          text += `  ⚠️ Warning: Agent not found or deleted\n`
+          text += `  âš ï¸ Warning: Agent not found or deleted\n`
 
         }
 
@@ -11675,7 +11241,7 @@ function initializeExtension() {
 
     
 
-    text += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n'
+    text += 'â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”\n'
 
     text += `SUMMARY:\n`
 
@@ -11803,7 +11369,7 @@ function initializeExtension() {
 
 
 
-    // Show default 01→05 for a fresh lightbox; session will override below
+    // Show default 01â†’05 for a fresh lightbox; session will override below
 
     const nSummarize = '01'
 
@@ -11875,7 +11441,7 @@ function initializeExtension() {
 
         <div style="padding: 20px; border-bottom: 1px solid ${csTheme().border}; display: flex; justify-content: space-between; align-items: center;">
 
-          <h2 style="margin: 0; font-size: 20px;">🤖 AI Agents Configuration</h2>
+          <h2 style="margin: 0; font-size: 20px;">ðŸ¤– AI Agents Configuration</h2>
 
           <button id="close-agents-lightbox" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">&times;</button>
 
@@ -11921,7 +11487,7 @@ function initializeExtension() {
 
             <button id="add-new-agent" style="padding: 12px 20px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: bold;">
 
-              ➕ Add New Agent
+              âž• Add New Agent
 
             </button>
 
@@ -11937,7 +11503,7 @@ function initializeExtension() {
 
               <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
 
-                <label style="font-size:16px;font-weight:bold;color:${csTheme().text};">📥 Input Coordinator (System Instructions)</label>
+                <label style="font-size:16px;font-weight:bold;color:${csTheme().text};">ðŸ“¥ Input Coordinator (System Instructions)</label>
 
                 <button id="reload-input-coordinator" style="padding:8px 16px;background:${csTheme().accentGrad};border:none;color:#fff;border-radius:6px;cursor:pointer;font-size:12px;">Set as Default</button>
 
@@ -11953,7 +11519,7 @@ function initializeExtension() {
 
               <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
 
-                <label style="font-size:16px;font-weight:bold;color:${csTheme().text};">📤 Output Coordinator (System Instructions)</label>
+                <label style="font-size:16px;font-weight:bold;color:${csTheme().text};">ðŸ“¤ Output Coordinator (System Instructions)</label>
 
                 <button id="reload-output-coordinator" style="padding:8px 16px;background:${csTheme().accentGrad};border:none;color:#fff;border-radius:6px;cursor:pointer;font-size:12px;">Set as Default</button>
 
@@ -12103,7 +11669,7 @@ function initializeExtension() {
 
         loadSystemTabContent()
 
-        showNotification('✅ Input Coordinator reloaded', 2000)
+        showNotification('âœ… Input Coordinator reloaded', 2000)
 
       })
 
@@ -12117,7 +11683,7 @@ function initializeExtension() {
 
         loadSystemTabContent()
 
-        showNotification('✅ Output Coordinator reloaded', 2000)
+        showNotification('âœ… Output Coordinator reloaded', 2000)
 
       })
 
@@ -12149,7 +11715,6 @@ function initializeExtension() {
 
         if (!confirm('Delete this agent?')) return
 
-        console.log(`🗝‘️ Deleting agent "${key}" with scope: ${scope}`)
 
         deleteAgent(key, scope, () => renderAgentsGrid(overlay, currentFilter))
 
@@ -12171,7 +11736,6 @@ function initializeExtension() {
 
         const agentNumber = agentNumberStr ? parseInt(agentNumberStr, 10) : undefined
 
-        console.log(`📂 Opening agent config from delegated handler: "${agentKey}", type: ${type}, scope: ${scope}, number: ${agentNumber}`)
 
         openAgentConfigDialog(agentKey, type, overlay, scope, agentNumber)
 
@@ -12187,7 +11751,6 @@ function initializeExtension() {
 
         const scope = t.getAttribute('data-scope') || 'session'
 
-        console.log(`🧠 Opening Agent Memory Dialog from delegated handler for agent: "${agentKey}", scope: ${scope}`)
 
         openAgentMemoryDialog(agentKey, scope, overlay)
 
@@ -12241,7 +11804,7 @@ function initializeExtension() {
 
           const num = map && map[key] ? String(map[key]).padStart(2, '0') : '01'
 
-          if (h4) h4.textContent = `Agent ${num} — ${label}`
+          if (h4) h4.textContent = `Agent ${num} â€” ${label}`
 
         })
 
@@ -12369,7 +11932,6 @@ function initializeExtension() {
 
   function openAgentConfigDialog(agentName: string, type: string, parentOverlay: HTMLElement, agentScope = 'session', agentNumber?: string | number) {
 
-    console.log(`🚀 openAgentConfigDialog called - Agent: "${agentName}", Type: "${type}", Scope: "${agentScope}", Number: ${agentNumber}`)
 
     function pad2(n: any) { try { const num = parseInt(n, 10) || 0; return num < 10 ? `0${num}` : String(num) } catch { return '01' } }
 
@@ -12412,11 +11974,11 @@ function initializeExtension() {
 
     const typeLabels = {
 
-      'instructions': '📋 AI Instructions',
+      'instructions': 'ðŸ“‹ AI Instructions',
 
-      'context': '🧠 Memory',
+      'context': 'ðŸ§  Memory',
 
-      'settings': '⚙️ Agent Settings'
+      'settings': 'âš™ï¸ Agent Settings'
 
     }
 
@@ -12460,7 +12022,6 @@ function initializeExtension() {
 
     
 
-    console.log('🔑 Draft key for agent:', draftKey, '(scope:', agentScope, ', session:', sessionKey, ')')
 
     
 
@@ -12474,17 +12035,13 @@ function initializeExtension() {
 
     storageGet([draftKey], (draftResult) => {
 
-      console.log(`🔍 Checked for draft with key: ${draftKey}`)
 
-      console.log(`🔍 Draft found: ${!!draftResult[draftKey]}`)
 
       if (draftResult[draftKey]) {
 
         // Load from draft (auto-saved data)
 
-        console.log('📂 Loading from AUTO-SAVED draft:', draftKey)
 
-        console.log('📦 Draft data:', draftResult[draftKey])
 
         previouslySavedData = draftResult[draftKey]
 
@@ -12492,31 +12049,17 @@ function initializeExtension() {
 
       } else {
 
-        console.log(`ℹ️ No draft found, loading from ${agentScope} scope with loadAgentConfig...`)
 
         // Load from saved configuration
 
         loadAgentConfig(agentName, agentScope, type, (loadedData) => {
 
-          console.log('📂 loadAgentConfig returned:', loadedData ? `${loadedData.length} chars` : 'NULL')
           
           // CRITICAL DEBUG: Parse and examine loaded data
           if (loadedData) {
             try {
               const parsed = JSON.parse(loadedData)
-              console.log('🔍 LOADED DATA EXAMINATION:', {
-                hasListening: !!parsed.listening,
-                unifiedTriggersCount: parsed.listening?.unifiedTriggers?.length || 0,
-                firstTriggerId: parsed.listening?.unifiedTriggers?.[0]?.id || 'NONE',
-                hasReasoning: !!parsed.reasoning,
-                rApplyFor: parsed.reasoning?.applyFor,
-                rApplyForList: parsed.reasoning?.applyForList,
-                hasExecution: !!parsed.execution,
-                eApplyFor: parsed.execution?.applyFor,
-                eApplyForList: parsed.execution?.applyForList
-              })
             } catch (e) {
-              console.log('🔍 LOADED DATA: Could not parse for examination')
             }
           }
 
@@ -12532,52 +12075,39 @@ function initializeExtension() {
 
               previouslySavedData = JSON.parse(existingData)
 
-              console.log('📂 Loading from SAVED config, keys:', Object.keys(previouslySavedData))
 
-              console.log('✅ Capabilities:', previouslySavedData.capabilities)
 
-              console.log('✅ Has Listening:', !!previouslySavedData.listening)
 
-              console.log('✅ Has Reasoning:', !!previouslySavedData.reasoning)
 
-              console.log('✅ Has Execution:', !!previouslySavedData.execution)
               
               // Detailed verification for Apply For and Sections
               if (previouslySavedData.reasoning) {
-                console.log('  📝 R-Apply For:', previouslySavedData.reasoning.applyFor || '__any__')
-                console.log('  📝 R-Apply For List:', previouslySavedData.reasoning.applyForList || 'NOT SET')
               }
               if (previouslySavedData.reasoningSections) {
-                console.log('  📚 Reasoning Sections:', previouslySavedData.reasoningSections.length)
                 previouslySavedData.reasoningSections.forEach((s: any, i: number) => {
-                  console.log(`     Section ${i + 1}: applyFor="${s.applyFor}"`)
                 })
               }
               if (previouslySavedData.execution) {
-                console.log('  ⚡ E-Apply For:', previouslySavedData.execution.applyFor || '__any__')
-                console.log('  📚 Execution Sections:', previouslySavedData.execution.executionSections?.length || 0)
                 if (previouslySavedData.execution.executionSections?.length > 0) {
                   previouslySavedData.execution.executionSections.forEach((s: any, i: number) => {
-                    console.log(`     Section ${i + 1}: applyFor="${s.applyFor}", workflows=${s.workflows?.length || 0}`)
                   })
                 }
               }
 
             } else {
 
-              console.warn('⚠️ No existing data found in session')
+              console.warn('âš ï¸ No existing data found in session')
 
               // CRITICAL: For new agents, mark first render as complete immediately
 
               isFirstRender = false
 
-              console.log('✅ New agent: first render flag cleared')
 
             }
 
           } catch (e) {
 
-            console.error('❌ Could not parse previously saved data:', e)
+            console.error('âŒ Could not parse previously saved data:', e)
 
             console.error('Raw data:', existingData)
 
@@ -12619,11 +12149,9 @@ function initializeExtension() {
     const autoSaveToChromeStorage = () => {
       // CRITICAL: Skip auto-save during restoration to prevent overwriting correct data
       if (isRestoringFromMemory) {
-        console.log(`⏸️ Skipping auto-save during restoration`)
         return
       }
 
-      console.log(`🔔 autoSaveToChromeStorage called! Type: "${type}", Agent: "${agentName}", Scope: "${agentScope}", Key: "${autoSaveDraftKey}"`)
 
       if (autoSaveTimer) clearTimeout(autoSaveTimer)
 
@@ -12631,7 +12159,6 @@ function initializeExtension() {
 
         try {
 
-          console.log('💾 AUTO-SAVING to chrome.storage...')
 
           
 
@@ -12649,7 +12176,7 @@ function initializeExtension() {
 
               description: (document.getElementById('ag-description') as HTMLTextAreaElement)?.value || '',
 
-              icon: (document.getElementById('ag-icon') as HTMLInputElement)?.value || '🤖',
+              icon: (document.getElementById('ag-icon') as HTMLInputElement)?.value || 'ðŸ¤–',
 
               capabilities: [],
 
@@ -13048,7 +12575,6 @@ function initializeExtension() {
                 const sensorWorkflows: any[] = []
                 const sensorContainer = row.querySelector('.trigger-sensor-workflows')
                 const sensorRows = sensorContainer ? sensorContainer.querySelectorAll('.trigger-sensor-row') : []
-                console.log(`🔍 [autoSave] Trigger ${trigger.id}: Found ${sensorRows.length} sensor workflow rows`)
                 sensorRows.forEach((wfRow: any) => {
                   const wfType = wfRow.querySelector('.t-workflow-type-radio:checked')?.value || 'internal'
                   const wfId = wfRow.querySelector('.t-workflow-id')?.value || ''
@@ -13063,7 +12589,6 @@ function initializeExtension() {
                     })
                   })
                   sensorWorkflows.push({ type: wfType, workflowId: wfId, conditions })
-                  console.log(`  📦 [autoSave] Sensor workflow: type=${wfType}, id=${wfId}, conditions=${conditions.length}`)
                 })
                 if (sensorWorkflows.length > 0) trigger.sensorWorkflows = sensorWorkflows
                 
@@ -13071,7 +12596,6 @@ function initializeExtension() {
                 const allowedActions: any[] = []
                 const actionsContainer = row.querySelector('.trigger-allowed-actions')
                 const actionRows = actionsContainer ? actionsContainer.querySelectorAll('.trigger-action-row') : []
-                console.log(`🔍 [autoSave] Trigger ${trigger.id}: Found ${actionRows.length} action workflow rows`)
                 actionRows.forEach((wfRow: any) => {
                   const wfType = wfRow.querySelector('.t-workflow-type-radio:checked')?.value || 'internal'
                   const wfId = wfRow.querySelector('.t-workflow-id')?.value || ''
@@ -13086,7 +12610,6 @@ function initializeExtension() {
                     })
                   })
                   allowedActions.push({ type: wfType, workflowId: wfId, conditions })
-                  console.log(`  📦 [autoSave] Action workflow: type=${wfType}, id=${wfId}, conditions=${conditions.length}`)
                 })
                 if (allowedActions.length > 0) trigger.allowedActions = allowedActions
                 
@@ -13098,15 +12621,6 @@ function initializeExtension() {
 
               draft.listening = listening
 
-              console.log('💾 Saved Listener data with triggers:', {
-
-                activeTriggerCount: activeTriggers.length,
-
-                unifiedTriggerCount: unifiedTriggers.length,
-
-                exampleFilesCount: listening.exampleFiles?.length || 0
-
-              })
 
             } else if (previouslySavedData?.listening?.exampleFiles) {
 
@@ -13114,7 +12628,6 @@ function initializeExtension() {
 
               draft.listening = { exampleFiles: previouslySavedData.listening.exampleFiles }
 
-              console.log('💾 Preserved Listener example files despite capability being unchecked:', draft.listening.exampleFiles.length)
 
             }
 
@@ -13149,7 +12662,6 @@ function initializeExtension() {
 
               // Collect all Apply For values from the list (get all selects inside the list)
               const rApplyForValues = Array.from(document.querySelectorAll('#R-apply-list select')).map((sel: any) => sel.value).filter((v: string) => v && v !== '')
-              console.log('📝 Reasoning Apply For values collected:', rApplyForValues)
               
               const base:any = {
 
@@ -13175,7 +12687,6 @@ function initializeExtension() {
               // Collect Reasoning Workflows for main section
               const rWorkflowContainerAuto = document.querySelector('#R-reasoning-workflows')
               const rWorkflowRowsAuto = rWorkflowContainerAuto ? rWorkflowContainerAuto.querySelectorAll('.reasoning-workflow-row') : []
-              console.log(`🔍 [autoSave] Main Reasoning: Found ${rWorkflowRowsAuto.length} reasoning workflow rows`)
               rWorkflowRowsAuto.forEach((wfRow: any) => {
                 const wfType = wfRow.querySelector('.r-workflow-type-radio:checked')?.value || 'internal'
                 const wfId = wfRow.querySelector('.r-workflow-id')?.value || ''
@@ -13202,7 +12713,6 @@ function initializeExtension() {
                   conditions.push(cond)
                 })
                 base.reasoningWorkflows.push({ type: wfType, workflowId: wfId, conditions })
-                console.log(`  📦 [autoSave] Reasoning workflow: type=${wfType}, id=${wfId}, conditions=${conditions.length}`)
               })
 
               document.querySelectorAll('#R-custom-list > div').forEach((row:any)=>{
@@ -13226,7 +12736,6 @@ function initializeExtension() {
                 
                 // Collect ALL Apply For values from the section's list
                 const sectionApplyForList = Array.from(sec.querySelectorAll('.R-apply-list-sub select')).map((sel: any) => sel.value).filter((v: string) => v && v !== '')
-                console.log('📝 [autoSave] Additional R-section Apply For values:', sectionApplyForList)
                 
                 // Collect Reasoning Workflows for additional section
                 const sectionWorkflows: any[] = []
@@ -13257,7 +12766,6 @@ function initializeExtension() {
                   })
                   sectionWorkflows.push({ type: wfType, workflowId: wfId, conditions })
                 })
-                console.log(`🔍 [autoSave] Additional R-section: Found ${sectionWorkflows.length} reasoning workflow rows`)
                 
                 const s:any = {
                   applyFor: sectionApplyForList.length > 0 ? sectionApplyForList[0] : '__any__',
@@ -13280,15 +12788,6 @@ function initializeExtension() {
 
               draft.reasoningSections = rSections
 
-              console.log('💾 Saved Reasoning data:', {
-
-                applyFor: base.applyFor,
-
-                acceptFromCount: accepts.length,
-
-                additionalSectionsCount: rSections.length - 1
-
-              })
 
             }
 
@@ -13333,7 +12832,6 @@ function initializeExtension() {
                 
                 eWorkflows.push({ type: wfType, workflowId: wfId, runWhenType, conditions })
               })
-              console.log(`🔍 [autoSave] Execution: Found ${eWorkflows.length} execution workflow rows, mode: ${eExecutionModeMain}`)
               
               // Legacy format for backward compatibility
               const eWfs:string[] = eWorkflows.map(w => w.workflowId).filter(v => v)
@@ -13385,7 +12883,6 @@ function initializeExtension() {
               document.querySelectorAll('#E-sections-extra .E-section').forEach((sec:any) => {
                 // Collect ALL Apply For values from the section's list
                 const sectionApplyForList = Array.from(sec.querySelectorAll('.E-apply-list-sub select')).map((sel: any) => sel.value).filter((v: string) => v && v !== '')
-                console.log('📝 [autoSave] Additional E-section Apply For values:', sectionApplyForList)
                 
                 // Collect workflows with new format for additional sections
                 // Note: type is always 'external' now (Internal Parser removed from Execution)
@@ -13446,7 +12943,6 @@ function initializeExtension() {
 
               // Collect all Apply For values from the list (get all selects inside the list)
               const eApplyForValues = Array.from(document.querySelectorAll('#E-apply-list select')).map((sel: any) => sel.value).filter((v: string) => v && v !== '')
-              console.log('📝 Execution Apply For values collected:', eApplyForValues)
               
               draft.execution = { 
                 workflows: eWfs, 
@@ -13460,17 +12956,6 @@ function initializeExtension() {
                 destinations: [] 
               }
 
-              console.log('💾 Saved Execution data:', {
-
-                applyFor: draft.execution.applyFor,
-
-                acceptFromCount: eAccepts.length,
-
-                reportToCount: eDestinationsMain.length,
-
-                additionalSectionsCount: eSections.length
-
-              })
 
             }
 
@@ -13482,7 +12967,6 @@ function initializeExtension() {
 
               draft.agentContextFiles = previouslySavedData.agentContextFiles
 
-              console.log('💾 Preserved Agent Context files:', draft.agentContextFiles.length)
 
             }
 
@@ -13494,7 +12978,6 @@ function initializeExtension() {
 
                 draft.listening.exampleFiles = previouslySavedData.listening.exampleFiles
 
-              console.log('💾 Preserved Listener Example files:', draft.listening.exampleFiles.length)
 
             }
 
@@ -13503,10 +12986,10 @@ function initializeExtension() {
             // Chain validation log (Listener -> Reasoning -> Execution)
             const syncChainCaps = draft.capabilities || []
             if (syncChainCaps.includes('reasoning') && !syncChainCaps.includes('listening')) {
-              console.warn('⚠️ CHAIN: Reasoning enabled without Listening — agent will not receive external input')
+              console.warn('âš ï¸ CHAIN: Reasoning enabled without Listening â€” agent will not receive external input')
             }
             if (syncChainCaps.includes('execution') && !syncChainCaps.includes('reasoning')) {
-              console.warn('⚠️ CHAIN: Execution enabled without Reasoning — execution will not run')
+              console.warn('âš ï¸ CHAIN: Execution enabled without Reasoning â€” execution will not run')
             }
 
             dataToSave = JSON.stringify(draft)
@@ -13519,45 +13002,15 @@ function initializeExtension() {
 
             storageSet({ [autoSaveDraftKey]: draft }, () => {
 
-              console.log('✅ AUTO-SAVED to chrome.storage:', autoSaveDraftKey, {
-
-                capabilities: draft.capabilities,
-
-                hasListening: !!draft.listening,
-
-                hasReasoning: !!draft.reasoning,
-
-                hasExecution: !!draft.execution,
-
-                agentContextFiles: draft.agentContextFiles?.length || 0
-
-              })
 
             })
 
           }
 
-          console.log('💾 Synced all form data to memory before re-render', {
-
-            capabilities: previouslySavedData?.capabilities,
-
-            hasAgentContextFiles: !!previouslySavedData?.agentContextFiles,
-
-            fileCount: previouslySavedData?.agentContextFiles?.length || 0,
-
-            agentContextChecked: !!(document.getElementById('AC-agent') as HTMLInputElement)?.checked,
-
-            hasListening: !!previouslySavedData?.listening,
-
-            hasReasoning: !!previouslySavedData?.reasoning,
-
-            hasExecution: !!previouslySavedData?.execution
-
-          })
 
         } catch (err) {
 
-          console.error('❌ Auto-save error:', err)
+          console.error('âŒ Auto-save error:', err)
 
         }
 
@@ -13594,7 +13047,7 @@ function initializeExtension() {
 
             <label style="${afUi.label};display:block;font-weight:600">Icon
 
-              <input id="ag-icon" value="🤖" style="width:100%;background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:8px;border-radius:6px">
+              <input id="ag-icon" value="ðŸ¤–" style="width:100%;background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:8px;border-radius:6px">
 
             </label>
 
@@ -13629,7 +13082,7 @@ function initializeExtension() {
 
           <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px;">
 
-            <label style="display: block; margin-bottom: 10px; font-size: 14px; color: ${csTheme().muted}; font-weight: bold;">🧠 Memory:</label>
+            <label style="display: block; margin-bottom: 10px; font-size: 14px; color: ${csTheme().muted}; font-weight: bold;">ðŸ§  Memory:</label>
 
             <textarea id="agent-context" style="width: 100%; height: 180px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 12px; border-radius: 6px; font-size: 12px; resize: vertical; font-family: 'Consolas', monospace;" placeholder="Enter persistent memory for this agent...">${existingData}</textarea>
 
@@ -13641,7 +13094,7 @@ function initializeExtension() {
 
             <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px;">
 
-              <label style="display: block; margin-bottom: 10px; font-size: 14px; color: ${csTheme().muted}; font-weight: bold;">🧠 Memory Allocation:</label>
+              <label style="display: block; margin-bottom: 10px; font-size: 14px; color: ${csTheme().muted}; font-weight: bold;">ðŸ§  Memory Allocation:</label>
 
               <select id="agent-memory" style="width: 100%; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 12px; border-radius: 6px; font-size: 12px;">
 
@@ -13663,7 +13116,7 @@ function initializeExtension() {
 
           <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px;">
 
-            <label style="display: block; margin-bottom: 15px; font-size: 14px; color: ${csTheme().muted}; font-weight: bold;">💾 Memory Settings:</label>
+            <label style="display: block; margin-bottom: 15px; font-size: 14px; color: ${csTheme().muted}; font-weight: bold;">ðŸ’¾ Memory Settings:</label>
 
             <label style="display: flex; align-items: center; font-size: 12px; cursor: pointer;">
 
@@ -13687,7 +13140,7 @@ function initializeExtension() {
 
           <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px;">
 
-            <label style="display: block; margin-bottom: 10px; font-size: 14px; color: ${csTheme().muted}; font-weight: bold;">⚡ Priority Level:</label>
+            <label style="display: block; margin-bottom: 10px; font-size: 14px; color: ${csTheme().muted}; font-weight: bold;">âš¡ Priority Level:</label>
 
             <select id="agent-priority" style="width: 100%; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 12px; border-radius: 6px; font-size: 12px;">
 
@@ -13707,7 +13160,7 @@ function initializeExtension() {
 
           <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px;">
 
-            <label style="display: block; margin-bottom: 15px; font-size: 14px; color: ${csTheme().muted}; font-weight: bold;">🚀 Auto-Activation:</label>
+            <label style="display: block; margin-bottom: 15px; font-size: 14px; color: ${csTheme().muted}; font-weight: bold;">ðŸš€ Auto-Activation:</label>
 
             <label style="display: flex; align-items: center; font-size: 12px; margin-bottom: 12px; cursor: pointer;">
 
@@ -13731,7 +13184,7 @@ function initializeExtension() {
 
           <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px;">
 
-            <label style="display: block; margin-bottom: 10px; font-size: 14px; color: ${csTheme().muted}; font-weight: bold;">⏱️ Response Delay:</label>
+            <label style="display: block; margin-bottom: 10px; font-size: 14px; color: ${csTheme().muted}; font-weight: bold;">â±ï¸ Response Delay:</label>
 
             <input type="number" id="agent-delay" style="width: 100%; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 12px; border-radius: 6px; font-size: 12px;" value="500" min="0" max="5000" step="100" placeholder="Milliseconds">
 
@@ -13753,7 +13206,7 @@ function initializeExtension() {
 
         const num = agentNumber ? pad2(agentNumber) : getAgentNumberFallback(agentName)
 
-        return `🤖 AI Instructions - Agent ${num}`
+        return `ðŸ¤– AI Instructions - Agent ${num}`
 
       }
 
@@ -13761,7 +13214,7 @@ function initializeExtension() {
 
         const num = agentNumber ? pad2(agentNumber) : getAgentNumberFallback(agentName)
 
-        return `🧠 Memory - Agent ${num}`
+        return `ðŸ§  Memory - Agent ${num}`
 
       }
 
@@ -13792,18 +13245,18 @@ function initializeExtension() {
         <div style="padding: 20px; border-top: 1px solid ${csTheme().border}; display: flex; justify-content: space-between; align-items: center; background: ${csTheme().cardBg};">
 
           <div style="display: flex; gap: 10px; align-items: center;">
-            <button id="ag-export-btn" type="button" style="padding: 10px 16px; background: rgba(59,130,246,0.1); border: 1px solid rgba(59,130,246,0.4); color: ${csTheme().isLight ? '#1d4ed8' : '#93c5fd'}; border-radius: 6px; cursor: pointer; font-size: 12px; display: flex; align-items: center; gap: 6px;" title="Export this agent configuration as JSON">📤 Export</button>
+            <button id="ag-export-btn" type="button" style="padding: 10px 16px; background: rgba(59,130,246,0.1); border: 1px solid rgba(59,130,246,0.4); color: ${csTheme().isLight ? '#1d4ed8' : '#93c5fd'}; border-radius: 6px; cursor: pointer; font-size: 12px; display: flex; align-items: center; gap: 6px;" title="Export this agent configuration as JSON">ðŸ“¤ Export</button>
             <div style="display: flex; gap: 4px; align-items: center;">
-              <button id="ag-schema-btn" type="button" style="padding: 8px 10px; background: rgba(147,51,234,0.1); border: 1px solid rgba(147,51,234,0.4); color: ${csTheme().isLight ? '#7c3aed' : '#c4b5fd'}; border-radius: 6px; cursor: pointer; font-size: 14px; display: flex; align-items: center; justify-content: center;" title="📋 MASTER SCHEMA: Download optimando.schema.json - unified schema for Agents, Agent Boxes, and Mini Apps. Upload to LLM with template for generation.">📋</button>
-              <button id="ag-template-btn" type="button" style="padding: 8px 10px; background: rgba(245,158,11,0.1); border: 1px solid rgba(245,158,11,0.4); color: ${csTheme().isLight ? '#b45309' : '#fcd34d'}; border-radius: 6px; cursor: pointer; font-size: 12px; display: flex; align-items: center; justify-content: center;" title="📄 TEMPLATE: Download optimando.template.json - unified example with Agent + Agent Box connected.">📄</button>
+              <button id="ag-schema-btn" type="button" style="padding: 8px 10px; background: rgba(147,51,234,0.1); border: 1px solid rgba(147,51,234,0.4); color: ${csTheme().isLight ? '#7c3aed' : '#c4b5fd'}; border-radius: 6px; cursor: pointer; font-size: 14px; display: flex; align-items: center; justify-content: center;" title="ðŸ“‹ MASTER SCHEMA: Download optimando.schema.json - unified schema for Agents, Agent Boxes, and Mini Apps. Upload to LLM with template for generation.">ðŸ“‹</button>
+              <button id="ag-template-btn" type="button" style="padding: 8px 10px; background: rgba(245,158,11,0.1); border: 1px solid rgba(245,158,11,0.4); color: ${csTheme().isLight ? '#b45309' : '#fcd34d'}; border-radius: 6px; cursor: pointer; font-size: 12px; display: flex; align-items: center; justify-content: center;" title="ðŸ“„ TEMPLATE: Download optimando.template.json - unified example with Agent + Agent Box connected.">ðŸ“„</button>
             </div>
-            <button id="ag-import-btn" type="button" style="padding: 10px 16px; background: rgba(34,197,94,0.1); border: 1px solid rgba(34,197,94,0.4); color: ${csTheme().isLight ? '#15803d' : '#86efac'}; border-radius: 6px; cursor: pointer; font-size: 12px; display: flex; align-items: center; gap: 6px;" title="Import agent configuration from JSON file">📥 Import</button>
+            <button id="ag-import-btn" type="button" style="padding: 10px 16px; background: rgba(34,197,94,0.1); border: 1px solid rgba(34,197,94,0.4); color: ${csTheme().isLight ? '#15803d' : '#86efac'}; border-radius: 6px; cursor: pointer; font-size: 12px; display: flex; align-items: center; gap: 6px;" title="Import agent configuration from JSON file">ðŸ“¥ Import</button>
             <input type="file" id="ag-import-file" accept=".json" style="display: none;">
           </div>
 
           <div style="display: flex; gap: 15px;">
             <button id="agent-config-cancel" style="padding: 12px 24px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; border-radius: 6px; cursor: pointer; font-size: 12px;">Cancel</button>
-            <button id="agent-config-save" style="padding: 12px 24px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 6px; cursor: pointer; font-size: 12px;">💾 Save</button>
+            <button id="agent-config-save" style="padding: 12px 24px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 6px; cursor: pointer; font-size: 12px;">ðŸ’¾ Save</button>
           </div>
 
         </div>
@@ -13824,7 +13277,7 @@ function initializeExtension() {
 
       const container = configOverlay.querySelector('#agent-sections') as HTMLElement | null
 
-      // Checkboxes removed — sections are always rendered
+      // Checkboxes removed â€” sections are always rendered
       const capL = true
       const capR = true
       const capE = true
@@ -13964,7 +13417,7 @@ function initializeExtension() {
 
         const del = document.createElement('button')
 
-        del.textContent = '×'
+        del.textContent = 'Ã—'
 
         del.title = 'Remove'
 
@@ -14000,10 +13453,10 @@ function initializeExtension() {
         header.innerHTML = `
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
             <div style="display:flex;align-items:center;gap:8px;flex:1">
-              <span style="font-size:12px;opacity:0.8;white-space:nowrap">🌐 Workflow:</span>
+              <span style="font-size:12px;opacity:0.8;white-space:nowrap">ðŸŒÂ Workflow:</span>
               <input type="text" placeholder="Workflow ID or name" value="${workflowId}" style="flex:1;background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:6px 10px;border-radius:4px;font-size:13px" class="e-workflow-id">
             </div>
-            <button style="background:#ef4444;border:none;color:#fff;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:12px" class="e-workflow-del">×</button>
+            <button style="background:#ef4444;border:none;color:#fff;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:12px" class="e-workflow-del">Ã—</button>
           </div>
         `
         
@@ -14011,7 +13464,7 @@ function initializeExtension() {
         conditionsWrap.style.cssText = 'margin-top:8px;padding-top:8px;border-top:1px dashed rgba(255,255,255,0.15)'
         conditionsWrap.innerHTML = `
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
-            <span style="font-size:12px;opacity:0.8;white-space:nowrap">📋 Run when:</span>
+            <span style="font-size:12px;opacity:0.8;white-space:nowrap">ðŸ“‹ Run when:</span>
             <select class="e-run-when-type" style="background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:5px 8px;border-radius:4px;font-size:11px">
               <option value="always" ${runWhenType === 'always' ? 'selected' : ''}>Always</option>
               <option value="boolean" ${runWhenType === 'boolean' ? 'selected' : ''}>Boolean Condition</option>
@@ -14021,7 +13474,7 @@ function initializeExtension() {
           </div>
           <div class="e-run-when-content">
             <div class="e-run-when-always" style="display:${runWhenType === 'always' ? 'block' : 'none'};padding:8px;background:rgba(34,197,94,0.1);border:1px solid rgba(34,197,94,0.25);border-radius:4px">
-              <span style="font-size:11px;color:#475569">✏“ This workflow will always run when reached</span>
+              <span style="font-size:11px;color:#475569">âœâ€œ This workflow will always run when reached</span>
             </div>
             <div class="e-run-when-boolean" style="display:${runWhenType === 'boolean' ? 'block' : 'none'}">
               <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
@@ -14039,7 +13492,7 @@ function initializeExtension() {
             </div>
             <div class="e-run-when-signal" style="display:${runWhenType === 'signal' ? 'block' : 'none'};padding:8px;background:rgba(255,255,255,0.03);border:1px solid ${csTheme().border};border-radius:4px">
               <div style="display:flex;align-items:center;gap:6px">
-                <span style="background:rgba(168,85,247,.2);border:1px solid rgba(168,85,247,.4);padding:5px 10px;border-radius:4px;font-weight:700;color:#a855f7;font-size:12px">⚡</span>
+                <span style="background:rgba(168,85,247,.2);border:1px solid rgba(168,85,247,.4);padding:5px 10px;border-radius:4px;font-weight:700;color:#a855f7;font-size:12px">âš¡</span>
                 <input type="text" placeholder="signal_name (e.g. chart.ready)" class="e-run-signal" value="${conditions[0]?.signal || ''}" style="flex:1;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:6px 10px;border-radius:4px;font-size:12px">
               </div>
               <div style="font-size:10px;color:#64748b;margin-top:4px">Runs when this workflow signal is emitted</div>
@@ -14093,13 +13546,13 @@ function initializeExtension() {
                 <option value="isFalse">is false</option>
               </select>
               <input type="text" placeholder="value" style="flex:1;min-width:80px;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:4px 6px;border-radius:3px;font-size:11px" class="e-wcond-value">
-              <span style="opacity:0.7;white-space:nowrap">→</span>
+              <span style="opacity:0.7;white-space:nowrap">â†’</span>
               <select style="background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:4px 8px;border-radius:3px;font-size:11px" class="e-wcond-action">
                 <option value="execute">Execute Workflow</option>
                 <option value="skip">Skip</option>
                 <option value="route">Route to...</option>
               </select>
-              <button style="background:#ef4444;border:none;color:#fff;padding:2px 6px;border-radius:3px;cursor:pointer;font-size:10px" class="e-wcond-del">✏•</button>
+              <button style="background:#ef4444;border:none;color:#fff;padding:2px 6px;border-radius:3px;cursor:pointer;font-size:10px" class="e-wcond-del">âœâ€¢</button>
             </div>
             <div class="e-wcond-route-container" style="display:none;padding-left:20px">
               <input type="text" placeholder="Workflow ID to route to" style="width:100%;background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:6px 10px;border-radius:4px;font-size:12px" class="e-wcond-route-id">
@@ -14519,7 +13972,6 @@ function initializeExtension() {
               const sensorWorkflows: any[] = []
               const sensorContainer = row.querySelector('.trigger-sensor-workflows')
               const sensorRows = sensorContainer ? sensorContainer.querySelectorAll('.trigger-sensor-row') : []
-              console.log(`🔍 [syncPersistedFromDom] Trigger ${trigger.id}: Found ${sensorRows.length} sensor workflow rows`)
               sensorRows.forEach((wfRow: any) => {
                 const wfType = wfRow.querySelector('.t-workflow-type-radio:checked')?.value || 'internal'
                 const wfId = wfRow.querySelector('.t-workflow-id')?.value || ''
@@ -14534,7 +13986,6 @@ function initializeExtension() {
                   })
                 })
                 sensorWorkflows.push({ type: wfType, workflowId: wfId, conditions })
-                console.log(`  📦 Sensor workflow: type=${wfType}, id=${wfId}, conditions=${conditions.length}`)
               })
               if (sensorWorkflows.length > 0) trigger.sensorWorkflows = sensorWorkflows
               
@@ -14542,7 +13993,6 @@ function initializeExtension() {
               const allowedActions: any[] = []
               const actionsContainer = row.querySelector('.trigger-allowed-actions')
               const actionRows = actionsContainer ? actionsContainer.querySelectorAll('.trigger-action-row') : []
-              console.log(`🔍 [syncPersistedFromDom] Trigger ${trigger.id}: Found ${actionRows.length} action workflow rows`)
               actionRows.forEach((wfRow: any) => {
                 const wfType = wfRow.querySelector('.t-workflow-type-radio:checked')?.value || 'internal'
                 const wfId = wfRow.querySelector('.t-workflow-id')?.value || ''
@@ -14557,7 +14007,6 @@ function initializeExtension() {
                   })
                 })
                 allowedActions.push({ type: wfType, workflowId: wfId, conditions })
-                console.log(`  📦 Action workflow: type=${wfType}, id=${wfId}, conditions=${conditions.length}`)
               })
               if (allowedActions.length > 0) trigger.allowedActions = allowedActions
               
@@ -14569,15 +14018,6 @@ function initializeExtension() {
 
             draft.listening = listening
 
-            console.log('💾 Saved Listener data with triggers:', {
-
-              activeTriggerCount: activeTriggers.length,
-
-              actionTriggerCount: actionTriggers.length,
-
-              unifiedTriggerCount: unifiedTriggers.length
-
-            })
 
           }
 
@@ -14603,7 +14043,6 @@ function initializeExtension() {
             
             // Collect all Apply For values from the list (get all selects inside the list)
             const rApplyForValuesSync = Array.from(document.querySelectorAll('#R-apply-list select')).map((sel: any) => sel.value).filter((v: string) => v && v !== '')
-            console.log('📝 [syncPersistedFromDom] Reasoning Apply For values:', rApplyForValuesSync)
 
             const base:any = {
 
@@ -14639,7 +14078,6 @@ function initializeExtension() {
             // Collect Reasoning Workflows for main section
             const rWorkflowContainer = document.querySelector('#R-reasoning-workflows')
             const rWorkflowRows = rWorkflowContainer ? rWorkflowContainer.querySelectorAll('.reasoning-workflow-row') : []
-            console.log(`🔍 [syncPersistedFromDom] Main Reasoning: Found ${rWorkflowRows.length} reasoning workflow rows`)
             rWorkflowRows.forEach((wfRow: any) => {
               const wfType = wfRow.querySelector('.r-workflow-type-radio:checked')?.value || 'internal'
               const wfId = wfRow.querySelector('.r-workflow-id')?.value || ''
@@ -14666,7 +14104,6 @@ function initializeExtension() {
                 conditions.push(cond)
               })
               base.reasoningWorkflows.push({ type: wfType, workflowId: wfId, conditions })
-              console.log(`  📦 [syncPersistedFromDom] Reasoning workflow: type=${wfType}, id=${wfId}, conditions=${conditions.length}`)
             })
 
             document.querySelectorAll('#R-custom-list > div').forEach((row:any)=>{
@@ -14702,7 +14139,6 @@ function initializeExtension() {
               
               // Collect ALL Apply For values from the section's list
               const sectionApplyForList = Array.from(sec.querySelectorAll('.R-apply-list-sub select')).map((sel: any) => sel.value).filter((v: string) => v && v !== '')
-              console.log('📝 [syncPersistedFromDom] Additional R-section Apply For values:', sectionApplyForList)
 
               // Collect Reasoning Workflows for additional section
               const sectionWorkflows: any[] = []
@@ -14733,7 +14169,6 @@ function initializeExtension() {
                 })
                 sectionWorkflows.push({ type: wfType, workflowId: wfId, conditions })
               })
-              console.log(`🔍 [syncPersistedFromDom] Additional R-section: Found ${sectionWorkflows.length} reasoning workflow rows`)
 
               const s:any = {
 
@@ -14772,15 +14207,6 @@ function initializeExtension() {
 
             draft.reasoningSections = rSections
 
-            console.log('💾 Saved Reasoning data:', {
-
-              applyFor: base.applyFor,
-
-              acceptFromCount: accepts.length,
-
-              additionalSectionsCount: rSections.length - 1
-
-            })
 
           }
 
@@ -14829,7 +14255,6 @@ function initializeExtension() {
               
               eWorkflowsSync.push({ type: wfType, workflowId: wfId, runWhenType, conditions })
             })
-            console.log(`🔍 [syncPersistedFromDom] Execution: Found ${eWorkflowsSync.length} execution workflow rows, mode: ${eExecutionModeSyncMain}`)
             
             // Legacy format for backward compatibility
             const eWfs = eWorkflowsSync.map(w => w.workflowId).filter(v => v)
@@ -14884,7 +14309,6 @@ function initializeExtension() {
 
               // Collect ALL Apply For values from the section's list
               const sectionApplyForList = Array.from(sec.querySelectorAll('.E-apply-list-sub select')).map((sel: any) => sel.value).filter((v: string) => v && v !== '')
-              console.log('📝 [syncPersistedFromDom] Additional E-section Apply For values:', sectionApplyForList)
 
               const kinds = Array.from(sec.querySelectorAll('.E-special-list-sub .esp-row .esp-kind')) as HTMLSelectElement[]
 
@@ -14965,7 +14389,6 @@ function initializeExtension() {
 
             // Collect all Apply For values from the list (get all selects inside the list)
             const eApplyForValuesSync = Array.from(document.querySelectorAll('#E-apply-list select')).map((sel: any) => sel.value).filter((v: string) => v && v !== '')
-            console.log('📝 [syncPersistedFromDom] Execution Apply For values:', eApplyForValuesSync)
 
             draft.execution = { 
 
@@ -14986,18 +14409,6 @@ function initializeExtension() {
 
             }
 
-            console.log('💾 Saved Execution data:', {
-
-              applyFor: draft.execution.applyFor,
-              applyForListCount: draft.execution.applyForList?.length || 0,
-
-              acceptFromCount: eAccepts.length,
-
-              reportToCount: eDestinationsMain.length,
-
-              additionalSectionsCount: eSections.length
-
-            })
 
           }
 
@@ -15019,29 +14430,6 @@ function initializeExtension() {
 
           previouslySavedData = draft
 
-          console.log('💾 Synced all form data to memory before re-render', {
-
-            capabilities: draft.capabilities,
-
-            hasAgentContextFiles: !!draft.agentContextFiles,
-
-            fileCount: draft.agentContextFiles?.length || 0,
-
-            fileNames: draft.agentContextFiles?.map((f: any) => f.name) || [],
-
-            agentContextChecked: draft.contextSettings?.agentContext,
-
-            hasListening: !!draft.listening,
-
-            hasReasoning: !!draft.reasoning,
-
-            reasoningCustomFields: draft.reasoning?.custom?.length || 0,
-
-            reasoningCustomData: draft.reasoning?.custom || [],
-
-            hasExecution: !!draft.execution
-
-          })
 
           
 
@@ -15109,7 +14497,7 @@ function initializeExtension() {
 
         } catch (err) {
 
-          console.error('❌ Error syncing form data:', err)
+          console.error('âŒ Error syncing form data:', err)
 
         }
 
@@ -15134,14 +14522,14 @@ function initializeExtension() {
             <div style="display:flex;gap:16px;align-items:center">
               <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
                 <input type="radio" name="t-wf-type-${uniqueId}" value="internal" class="t-workflow-type-radio" ${workflowType === 'internal' ? 'checked' : ''} style="margin:0">
-                <span style="font-size:13px;font-weight:500;color:${csTheme().text}">🔧 Internal Parser</span>
+                <span style="font-size:13px;font-weight:500;color:${csTheme().text}">ðŸ”§ Internal Parser</span>
               </label>
               <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
                 <input type="radio" name="t-wf-type-${uniqueId}" value="external" class="t-workflow-type-radio" ${workflowType === 'external' ? 'checked' : ''} style="margin:0">
-                <span style="font-size:13px;font-weight:500;color:#fff">🌐 External Workflow</span>
+                <span style="font-size:13px;font-weight:500;color:#fff">ðŸŒÂ External Workflow</span>
               </label>
             </div>
-            <button style="background:#ef4444;border:none;color:#fff;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:12px" class="t-workflow-del">✏•</button>
+            <button style="background:#ef4444;border:none;color:#fff;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:12px" class="t-workflow-del">âœâ€¢</button>
           </div>
           <div class="t-workflow-id-container" style="display:${workflowType === 'external' ? 'block' : 'none'}">
             <input type="text" placeholder="Workflow ID or name" value="${workflowId}" style="width:100%;background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:6px 10px;border-radius:4px;font-size:13px" class="t-workflow-id">
@@ -15161,7 +14549,7 @@ function initializeExtension() {
         conditionsWrap.style.cssText = 'margin-top:8px;padding-top:8px;border-top:1px dashed rgba(255,255,255,0.15)'
         conditionsWrap.innerHTML = `
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
-            <span style="font-size:12px;opacity:0.8">📋 If output matches (conditions):</span>
+            <span style="font-size:12px;opacity:0.8">ðŸ“‹ If output matches (conditions):</span>
             <button class="t-workflow-add-cond" style="background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:3px 8px;border-radius:4px;cursor:pointer;font-size:11px">+ Add Condition</button>
           </div>
           <div class="t-workflow-conditions" style="display:flex;flex-direction:column;gap:6px"></div>
@@ -15192,13 +14580,13 @@ function initializeExtension() {
                 <option value="exists">exists</option>
               </select>
               <input type="text" placeholder="value" style="flex:1;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:4px 6px;border-radius:3px;font-size:11px" class="t-wcond-value">
-              <span style="opacity:0.7;white-space:nowrap">→</span>
+              <span style="opacity:0.7;white-space:nowrap">â†’</span>
               <select style="flex:1;background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:4px 8px;border-radius:3px;font-size:11px" class="t-wcond-action">
                 <option value="continue">Continue</option>
                 <option value="skip">Skip</option>
                 <option value="route">Route to...</option>
               </select>
-              <button style="background:#ef4444;border:none;color:#fff;padding:2px 6px;border-radius:3px;cursor:pointer;font-size:10px" class="t-wcond-del">✏•</button>
+              <button style="background:#ef4444;border:none;color:#fff;padding:2px 6px;border-radius:3px;cursor:pointer;font-size:10px" class="t-wcond-del">âœâ€¢</button>
             </div>
             <div class="t-wcond-route-container" style="display:none;padding-left:20px">
               <input type="text" placeholder="Workflow ID to route to" style="width:100%;background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:6px 10px;border-radius:4px;font-size:12px" class="t-wcond-route-id">
@@ -15261,15 +14649,15 @@ function initializeExtension() {
             <div style="display:flex;gap:16px;align-items:center">
               <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
                 <input type="radio" name="r-wf-type-${uniqueId}" value="internal" class="r-workflow-type-radio" ${workflowType === 'internal' ? 'checked' : ''} style="margin:0">
-                <span style="font-size:13px;font-weight:500;color:${csTheme().text}">🔧 Internal Parser</span>
+                <span style="font-size:13px;font-weight:500;color:${csTheme().text}">ðŸ”§ Internal Parser</span>
               </label>
               <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
                 <input type="radio" name="r-wf-type-${uniqueId}" value="external" class="r-workflow-type-radio" ${workflowType === 'external' ? 'checked' : ''} style="margin:0">
-                <span style="font-size:13px;font-weight:500;color:#fff">🌐 External Workflow</span>
+                <span style="font-size:13px;font-weight:500;color:#fff">ðŸŒÂ External Workflow</span>
               </label>
               <span title="Internal Parser works with agents, mini-apps, and websites displayed in the master tab. Use External Workflow for external data sources and APIs." style="font-size:12px;opacity:0.9;cursor:help;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.35);padding:0 6px;border-radius:50%">?</span>
             </div>
-            <button style="background:#ef4444;border:none;color:#fff;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:12px" class="r-workflow-del">✏•</button>
+            <button style="background:#ef4444;border:none;color:#fff;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:12px" class="r-workflow-del">âœâ€¢</button>
           </div>
           <div class="r-workflow-id-container" style="display:${workflowType === 'external' ? 'block' : 'none'}">
             <input type="text" placeholder="Workflow ID or name" value="${workflowId}" style="width:100%;background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:6px 10px;border-radius:4px;font-size:13px" class="r-workflow-id">
@@ -15293,7 +14681,7 @@ function initializeExtension() {
         conditionsWrap.style.cssText = 'margin-top:8px;padding-top:8px;border-top:1px dashed rgba(255,255,255,0.15)'
         conditionsWrap.innerHTML = `
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
-            <span style="font-size:12px;opacity:0.8">📋 If output matches (conditions):</span>
+            <span style="font-size:12px;opacity:0.8">ðŸ“‹ If output matches (conditions):</span>
             <button class="r-workflow-add-cond" style="background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:3px 8px;border-radius:4px;cursor:pointer;font-size:11px">+ Add Condition</button>
           </div>
           <div class="r-workflow-conditions" style="display:flex;flex-direction:column;gap:6px"></div>
@@ -15318,18 +14706,18 @@ function initializeExtension() {
                 <option value="tag">Tag Detection</option>
                 <option value="signal">Workflow Signal</option>
               </select>
-              <button style="background:#ef4444;border:none;color:#fff;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:11px;margin-left:auto" class="r-wcond-del">✏•</button>
+              <button style="background:#ef4444;border:none;color:#fff;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:11px;margin-left:auto" class="r-wcond-del">âœâ€¢</button>
             </div>
             <div class="r-wcond-fields" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"></div>
             <div style="display:flex;gap:8px;align-items:center;padding-top:6px;border-top:1px dashed rgba(255,255,255,0.1);flex-wrap:wrap">
-              <span style="opacity:0.7;white-space:nowrap;font-size:11px">→ Flow:</span>
+              <span style="opacity:0.7;white-space:nowrap;font-size:11px">â†’ Flow:</span>
               <select style="background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:4px 8px;border-radius:3px;font-size:11px" class="r-wcond-action">
                 <option value="continue" selected>Continue</option>
                 <option value="skip">Skip</option>
                 <option value="route">Route to...</option>
               </select>
               <span title="Controls how the reasoning process continues once this condition matches." style="font-size:10px;opacity:0.7;cursor:help;background:#e2e8f0;border:1px solid #94a3b8;padding:0 5px;border-radius:50%">?</span>
-              <span style="opacity:0.7;white-space:nowrap;font-size:11px;margin-left:8px">→ Output:</span>
+              <span style="opacity:0.7;white-space:nowrap;font-size:11px;margin-left:8px">â†’ Output:</span>
               <select style="background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:4px 8px;border-radius:3px;font-size:11px" class="r-wcond-output">
                 <option value="attach" selected>Attach to reasoning</option>
                 <option value="ignore">Ignore output</option>
@@ -15344,7 +14732,7 @@ function initializeExtension() {
             </div>
             <div class="r-wcond-signal-container" style="display:none;padding-left:20px">
               <div style="display:flex;align-items:center;gap:6px">
-                <span style="background:rgba(168,85,247,.2);border:1px solid rgba(168,85,247,.4);padding:4px 8px;border-radius:4px;font-weight:700;color:#a855f7;font-size:11px">⚡</span>
+                <span style="background:rgba(168,85,247,.2);border:1px solid rgba(168,85,247,.4);padding:4px 8px;border-radius:4px;font-weight:700;color:#a855f7;font-size:11px">âš¡</span>
                 <input type="text" placeholder="signal_name" style="flex:1;background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:6px 10px;border-radius:4px;font-size:12px" class="r-wcond-signal-name">
               </div>
               <div style="font-size:10px;color:#64748b;margin-top:4px;padding-left:32px">Emits as internal event/tag for the trigger system</div>
@@ -15384,7 +14772,7 @@ function initializeExtension() {
               `
             } else if (type === 'signal') {
               condFields.innerHTML = `
-                <span style="background:rgba(168,85,247,.2);border:1px solid rgba(168,85,247,.4);padding:5px 10px;border-radius:4px;font-weight:700;color:#a855f7">⚡</span>
+                <span style="background:rgba(168,85,247,.2);border:1px solid rgba(168,85,247,.4);padding:5px 10px;border-radius:4px;font-weight:700;color:#a855f7">âš¡</span>
                 <input type="text" placeholder="signal_name" style="flex:1;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:5px 8px;border-radius:4px;font-size:11px" class="r-wcond-signal">
                 <span style="font-size:10px;color:#64748b">Fires when workflow emits this signal</span>
               `
@@ -15495,7 +14883,6 @@ function initializeExtension() {
 
         } else {
 
-          console.log('⏩ Skipping syncPersistedFromDom on first render to preserve loaded data')
 
         }
 
@@ -15564,15 +14951,15 @@ function initializeExtension() {
 
           acList.innerHTML = `
 
-            <div style="color:#fbbf24;font-weight:600;margin-bottom:6px">📦 ${files.length} file(s) staged (click Save to finalize):</div>
+            <div style="color:#fbbf24;font-weight:600;margin-bottom:6px">ðŸ“¦ ${files.length} file(s) staged (click Save to finalize):</div>
 
             ${files.map((f: any, idx: number) => `
 
               <div class="saved-file-row" style="display:flex;align-items:center;gap:6px;padding:4px 8px;background:rgba(251,191,36,0.1);border-radius:6px;margin-bottom:4px;border:1px solid rgba(251,191,36,0.3)">
 
-                <span>📄 ${f.name} (${(f.size / 1024).toFixed(1)} KB)</span>
+                <span>ðŸ“„ ${f.name} (${(f.size / 1024).toFixed(1)} KB)</span>
 
-                <button class="delete-ac-file-btn" data-idx="${idx}" style="margin-left:auto;background:rgba(220,38,38,0.10);border:none;color:white;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:10px;">✏•</button>
+                <button class="delete-ac-file-btn" data-idx="${idx}" style="margin-left:auto;background:rgba(220,38,38,0.10);border:none;color:white;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:10px;">âœâ€¢</button>
 
               </div>
 
@@ -15604,19 +14991,17 @@ function initializeExtension() {
 
               storageSet({ [dKey]: previouslySavedData }, () => {
 
-                console.log(`✅ IMMEDIATELY saved Agent Context file deletion to chrome.storage!`)
 
               })
 
               
 
-              console.log(`🗝‘️ Removed Agent Context file at index ${idx} and saved to storage`)
 
                 btn.closest('.saved-file-row')?.remove()
 
                 const countEl = acList.querySelector('div')
 
-              if (countEl) countEl.textContent = `📦 ${previouslySavedData.agentContextFiles.length} file(s) staged (click Save to finalize):`
+              if (countEl) countEl.textContent = `ðŸ“¦ ${previouslySavedData.agentContextFiles.length} file(s) staged (click Save to finalize):`
 
             })
 
@@ -15646,7 +15031,7 @@ function initializeExtension() {
 
           
 
-          acList.textContent = `⏳ Uploading ${n} file(s)...`
+          acList.textContent = `â³ Uploading ${n} file(s)...`
 
           
 
@@ -15682,7 +15067,7 @@ function initializeExtension() {
 
                   reader.onerror = (err) => {
 
-                    console.error(`❌ Error reading file ${file.name}:`, err)
+                    console.error(`âŒ Error reading file ${file.name}:`, err)
 
                     resolve(null)
 
@@ -15738,25 +15123,14 @@ function initializeExtension() {
 
             storageSet({ [dKey]: parsed }, () => {
 
-              console.log(`✅ IMMEDIATELY saved Agent Context files to chrome.storage!`)
 
             })
 
             
 
-            console.log(`📦 Staged ${uniqueNewFiles.length} Agent Context file(s) and saved to storage`)
 
-              console.log(`   Total files now: ${parsed.agentContextFiles.length}`)
 
-              console.log(`   File names: ${parsed.agentContextFiles.map((f: any) => f.name).join(', ')}`)
 
-              console.log(`   previouslySavedData updated:`, {
-
-                hasAgentContextFiles: !!previouslySavedData.agentContextFiles,
-
-                fileCount: previouslySavedData.agentContextFiles?.length
-
-              })
 
               
 
@@ -15776,15 +15150,15 @@ function initializeExtension() {
 
                 acList.innerHTML = `
 
-                <div style="color:#fbbf24;font-weight:600;margin-bottom:6px">📦 ${totalFiles} file(s) staged (click Save to finalize):</div>
+                <div style="color:#fbbf24;font-weight:600;margin-bottom:6px">ðŸ“¦ ${totalFiles} file(s) staged (click Save to finalize):</div>
 
                   ${parsed.agentContextFiles.map((f: any, idx: number) => `
 
                   <div class="saved-file-row" style="display:flex;align-items:center;gap:6px;padding:4px 8px;background:rgba(251,191,36,0.1);border-radius:6px;margin-bottom:4px;border:1px solid rgba(251,191,36,0.3)">
 
-                      <span>📄 ${f.name} (${(f.size / 1024).toFixed(1)} KB)</span>
+                      <span>ðŸ“„ ${f.name} (${(f.size / 1024).toFixed(1)} KB)</span>
 
-                      <button class="delete-ac-file-btn" data-idx="${idx}" style="margin-left:auto;background:rgba(220,38,38,0.10);border:none;color:white;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:10px;">✏•</button>
+                      <button class="delete-ac-file-btn" data-idx="${idx}" style="margin-left:auto;background:rgba(220,38,38,0.10);border:none;color:white;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:10px;">âœâ€¢</button>
 
                     </div>
 
@@ -15818,19 +15192,17 @@ function initializeExtension() {
 
                 storageSet({ [dKey]: parsed }, () => {
 
-                  console.log(`✅ IMMEDIATELY saved Agent Context file deletion to chrome.storage!`)
 
                 })
 
                 
 
-                console.log(`🗝‘️ Removed Agent Context file at index ${idx} and saved to storage`)
 
                       btn.closest('.saved-file-row')?.remove()
 
                       const countEl = acList.querySelector('div')
 
-                  if (countEl) countEl.textContent = `📦 ${parsed.agentContextFiles.length} file(s) staged (click Save to finalize):`
+                  if (countEl) countEl.textContent = `ðŸ“¦ ${parsed.agentContextFiles.length} file(s) staged (click Save to finalize):`
 
                   })
 
@@ -15844,9 +15216,9 @@ function initializeExtension() {
 
           } catch (err) {
 
-            console.error('❌ Error pre-saving Agent Context files:', err)
+            console.error('âŒ Error pre-saving Agent Context files:', err)
 
-            acList.textContent = `❌ Error uploading files`
+            acList.textContent = `âŒ Error uploading files`
 
           }
 
@@ -15903,15 +15275,15 @@ function initializeExtension() {
 
               <div style="margin-top:8px;font-size:11px;opacity:0.9;padding:8px;background:rgba(251,191,36,0.1);border-radius:4px;border:1px solid rgba(251,191,36,0.3)">
 
-                <div style="font-weight:bold;margin-bottom:8px;color:#fbbf24;">📦 ${files.length} example file(s) staged (click Save to finalize):</div>
+                <div style="font-weight:bold;margin-bottom:8px;color:#fbbf24;">ðŸ“¦ ${files.length} example file(s) staged (click Save to finalize):</div>
 
                 ${files.map((f: any, idx: number) => `
 
                   <div class="saved-file-row" style="display:flex;align-items:center;gap:8px;margin-bottom:6px;padding:4px 8px;background:rgba(255,255,255,0.05);border-radius:4px;">
 
-                    <span>📄 ${f.name} (${(f.size / 1024).toFixed(1)} KB)</span>
+                    <span>ðŸ“„ ${f.name} (${(f.size / 1024).toFixed(1)} KB)</span>
 
-                    <button class="delete-lexample-file-btn" data-idx="${idx}" style="margin-left:auto;background:rgba(220,38,38,0.10);border:none;color:white;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:10px;">✏•</button>
+                    <button class="delete-lexample-file-btn" data-idx="${idx}" style="margin-left:auto;background:rgba(220,38,38,0.10);border:none;color:white;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:10px;">âœâ€¢</button>
 
                   </div>
 
@@ -15919,7 +15291,7 @@ function initializeExtension() {
 
                 <div style="font-size:10px;opacity:0.6;margin-top:12px;font-style:italic;">
 
-                  ✏š Upload new files below to add more (duplicates will be skipped)
+                  âœÅ¡ Upload new files below to add more (duplicates will be skipped)
 
                 </div>
 
@@ -15951,19 +15323,17 @@ function initializeExtension() {
 
                 storageSet({ [dKey]: previouslySavedData }, () => {
 
-                  console.log(`✅ IMMEDIATELY saved Listener Example file deletion to chrome.storage!`)
 
                 })
 
                 
 
-                console.log(`🗝‘️ Removed Listener Example file at index ${idx} and saved to storage`)
 
                 btn.closest('.saved-file-row')?.remove()
 
                 const countEl = lExamplesContainer.querySelector('div')
 
-                if (countEl) countEl.textContent = `📦 ${previouslySavedData.listening.exampleFiles.length} example file(s) staged (click Save to finalize):`
+                if (countEl) countEl.textContent = `ðŸ“¦ ${previouslySavedData.listening.exampleFiles.length} example file(s) staged (click Save to finalize):`
 
               })
 
@@ -15983,7 +15353,7 @@ function initializeExtension() {
 
               
 
-              lExamplesContainer.textContent = `⏳ Uploading ${n} file(s)...`
+              lExamplesContainer.textContent = `â³ Uploading ${n} file(s)...`
 
               
 
@@ -16019,7 +15389,7 @@ function initializeExtension() {
 
                       reader.onerror = (err) => {
 
-                        console.error(`❌ Error reading file ${file.name}:`, err)
+                        console.error(`âŒ Error reading file ${file.name}:`, err)
 
                         resolve(null)
 
@@ -16081,13 +15451,11 @@ function initializeExtension() {
 
                 storageSet({ [dKey]: parsed }, () => {
 
-                  console.log(`✅ IMMEDIATELY saved Listener Example files to chrome.storage!`)
 
                 })
 
                 
 
-                console.log(`📦 Staged ${uniqueNewFiles.length} Listener Example file(s) and saved to storage`)
 
                     
 
@@ -16099,15 +15467,15 @@ function initializeExtension() {
 
                     <div style="margin-top:8px;font-size:11px;opacity:0.9;padding:8px;background:rgba(251,191,36,0.1);border-radius:4px;border:1px solid rgba(251,191,36,0.3)">
 
-                      <div style="font-weight:bold;margin-bottom:8px;color:#fbbf24;">📦 ${totalFiles} example file(s) staged (click Save to finalize):</div>
+                      <div style="font-weight:bold;margin-bottom:8px;color:#fbbf24;">ðŸ“¦ ${totalFiles} example file(s) staged (click Save to finalize):</div>
 
                         ${parsed.listening.exampleFiles.map((f: any, idx: number) => `
 
                           <div class="saved-file-row" style="display:flex;align-items:center;gap:8px;margin-bottom:6px;padding:4px 8px;background:rgba(255,255,255,0.05);border-radius:4px;">
 
-                            <span>📄 ${f.name} (${(f.size / 1024).toFixed(1)} KB)</span>
+                            <span>ðŸ“„ ${f.name} (${(f.size / 1024).toFixed(1)} KB)</span>
 
-                            <button class="delete-lexample-file-btn" data-idx="${idx}" style="margin-left:auto;background:rgba(220,38,38,0.10);border:none;color:white;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:10px;">✏•</button>
+                            <button class="delete-lexample-file-btn" data-idx="${idx}" style="margin-left:auto;background:rgba(220,38,38,0.10);border:none;color:white;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:10px;">âœâ€¢</button>
 
                           </div>
 
@@ -16143,19 +15511,17 @@ function initializeExtension() {
 
                     storageSet({ [dKey]: parsed }, () => {
 
-                      console.log(`✅ IMMEDIATELY saved Listener Example file deletion to chrome.storage!`)
 
                     })
 
                     
 
-                    console.log(`🗝‘️ Removed Listener Example file at index ${idx} and saved to storage`)
 
                           btn.closest('.saved-file-row')?.remove()
 
                           const countEl = lExamplesContainer.querySelector('div')
 
-                      if (countEl) countEl.textContent = `📦 ${parsed.listening.exampleFiles.length} example file(s) staged (click Save to finalize):`
+                      if (countEl) countEl.textContent = `ðŸ“¦ ${parsed.listening.exampleFiles.length} example file(s) staged (click Save to finalize):`
 
                       })
 
@@ -16169,9 +15535,9 @@ function initializeExtension() {
 
               } catch (err) {
 
-                console.error('❌ Error pre-saving Listener Example files:', err)
+                console.error('âŒ Error pre-saving Listener Example files:', err)
 
-                lExamplesContainer.textContent = `❌ Error uploading files`
+                lExamplesContainer.textContent = `âŒ Error uploading files`
 
               }
 
@@ -16418,7 +15784,7 @@ function initializeExtension() {
               <option value="regex" ${op==='regex'?'selected':''}>regex</option>
             </select>
             <input type="text" placeholder="Value" value="${value}" style="flex:1;background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:6px;border-radius:4px;font-size:12px" class="cond-value">
-            <button style="background:#ef4444;border:none;color:#fff;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:12px" class="cond-del">✏•</button>
+            <button style="background:#ef4444;border:none;color:#fff;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:12px" class="cond-del">âœâ€¢</button>
           `
           row.querySelector('.cond-del')?.addEventListener('click', () => row.remove())
           return row
@@ -16440,16 +15806,16 @@ function initializeExtension() {
           const header = document.createElement('div')
           header.style.cssText = 'display:flex;gap:8px;align-items:center;margin-bottom:8px'
           header.innerHTML = `
-            <span style="font-size:13px;font-weight:500;color:#fff">📊 Sensor:</span>
+            <span style="font-size:13px;font-weight:500;color:#fff">ðŸ“Š Sensor:</span>
             <input type="text" placeholder="Workflow ID or name" value="${workflowId}" style="flex:1;background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:6px 10px;border-radius:4px;font-size:13px" class="workflow-id">
-            <button style="background:#ef4444;border:none;color:#fff;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:12px" class="sensor-del">✏•</button>
+            <button style="background:#ef4444;border:none;color:#fff;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:12px" class="sensor-del">âœâ€¢</button>
           `
           
           const conditionsWrap = document.createElement('div')
           conditionsWrap.style.cssText = 'margin-top:8px;padding-top:8px;border-top:1px dashed rgba(255,255,255,0.15)'
           conditionsWrap.innerHTML = `
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
-              <span style="font-size:12px;opacity:0.8">📋 If output matches (conditions):</span>
+              <span style="font-size:12px;opacity:0.8">ðŸ“‹ If output matches (conditions):</span>
               <button class="sensor-add-cond" style="background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:3px 8px;border-radius:4px;cursor:pointer;font-size:11px">+ Add Condition</button>
             </div>
             <div class="sensor-conditions" style="display:flex;flex-direction:column;gap:6px"></div>
@@ -16479,13 +15845,13 @@ function initializeExtension() {
                 <option value="exists">exists</option>
               </select>
               <input type="text" placeholder="value" style="flex:1;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.25);color:#fff;padding:4px 6px;border-radius:3px;font-size:11px" class="scond-value">
-              <span style="opacity:0.7">→</span>
+              <span style="opacity:0.7">â†’</span>
               <select style="background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:4px;border-radius:3px;font-size:11px" class="scond-action">
                 <option value="continue">Continue</option>
                 <option value="skip">Skip Agent</option>
                 <option value="route">Route to...</option>
               </select>
-              <button style="background:#ef4444;border:none;color:#fff;padding:2px 6px;border-radius:3px;cursor:pointer;font-size:10px" class="scond-del">✏•</button>
+              <button style="background:#ef4444;border:none;color:#fff;padding:2px 6px;border-radius:3px;cursor:pointer;font-size:10px" class="scond-del">âœâ€¢</button>
             `
             condRow.querySelector('.scond-del')?.addEventListener('click', () => condRow.remove())
             sensorCondList.appendChild(condRow)
@@ -16522,7 +15888,7 @@ function initializeExtension() {
           row.style.cssText = 'display:flex;gap:6px;align-items:center'
           row.innerHTML = `
             <input type="text" placeholder="Action workflow ID or name" value="${value}" style="flex:1;background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:6px;border-radius:4px;font-size:12px" class="workflow-id">
-            <button style="background:#ef4444;border:none;color:#fff;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:12px" class="workflow-del">✏•</button>
+            <button style="background:#ef4444;border:none;color:#fff;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:12px" class="workflow-del">âœâ€¢</button>
           `
           row.querySelector('.workflow-del')?.addEventListener('click', () => row.remove())
           return row
@@ -16622,7 +15988,7 @@ function initializeExtension() {
           idRow.innerHTML = `
             <span style="font-size:11px;color:#64748b">ID:</span>
             <code class="trigger-id-display" style="font-size:11px;color:#60a5fa;background:rgba(96,165,250,0.1);padding:2px 8px;border-radius:4px;font-family:monospace">${triggerId}</code>
-            <button class="trigger-temp-save" style="margin-left:auto;background:${csTheme().accentGrad};color:#fff;border:none;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:11px;font-weight:500">💾 Save</button>
+            <button class="trigger-temp-save" style="margin-left:auto;background:${csTheme().accentGrad};color:#fff;border:none;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:11px;font-weight:500">ðŸ’¾ Save</button>
           `
           row.appendChild(idRow)
           
@@ -16633,10 +15999,10 @@ function initializeExtension() {
             updateApplyForOptions()
             
             // Show temporary feedback
-            tempSaveBtn.textContent = '✏“ Saved'
+            tempSaveBtn.textContent = 'âœâ€œ Saved'
             tempSaveBtn.style.background = '#16a34a'
             setTimeout(() => {
-              tempSaveBtn.textContent = '💾 Save'
+              tempSaveBtn.textContent = 'ðŸ’¾ Save'
               tempSaveBtn.style.background = `${csTheme().accent}`
             }, 1500)
             
@@ -16644,7 +16010,7 @@ function initializeExtension() {
             if (!row.querySelector('.trigger-saved-indicator')) {
               const checkmark = document.createElement('span')
               checkmark.className = 'trigger-saved-indicator'
-              checkmark.textContent = '✏“'
+              checkmark.textContent = 'âœâ€œ'
               checkmark.style.cssText = `color:${csTheme().accent};font-weight:bold;margin-left:6px;font-size:14px`
               checkmark.title = 'Trigger saved'
               tempSaveBtn.parentElement?.insertBefore(checkmark, tempSaveBtn.nextSibling)
@@ -16653,7 +16019,6 @@ function initializeExtension() {
             // Auto-save to chrome storage to persist the trigger
             if (typeof autoSaveToChromeStorage === 'function') {
               autoSaveToChromeStorage()
-              console.log('💾 Trigger saved and persisted to storage')
             }
           })
           
@@ -16684,7 +16049,7 @@ function initializeExtension() {
           if (init?.type) typeSel.value = init.type
           
           const delBtn = document.createElement('button')
-          delBtn.textContent = '×'
+          delBtn.textContent = 'Ã—'
           delBtn.title = 'Remove trigger'
           delBtn.style.cssText = 'background:#ef4444;color:#fff;border:none;padding:6px 12px;border-radius:6px;cursor:pointer;font-size:16px'
           delBtn.addEventListener('click', () => {
@@ -16714,7 +16079,7 @@ function initializeExtension() {
               wrchatSection.style.cssText = 'margin-bottom:12px;padding:12px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px'
               wrchatSection.innerHTML = `
                 <div style="font-weight:600;font-size:13px;color:#2563eb;margin-bottom:8px;display:flex;align-items:center;gap:6px">
-                  <span style="font-size:14px">💬</span> <span style="color:#0f172a">WR Chat Trigger</span>
+                  <span style="font-size:14px">ðŸ’¬</span> <span style="color:#0f172a">WR Chat Trigger</span>
                 </div>
                 <div style="font-size:12px;color:#334155;line-height:1.5;margin-bottom:12px;padding:8px;background:#dbeafe;border-radius:6px">
                   When a user types into WR Chat, the Input Coordinator will check this trigger. If the input matches the tag or keywords, the chat input will be routed to this AI Agent for processing.
@@ -16747,7 +16112,7 @@ function initializeExtension() {
               tagSection.style.cssText = 'margin-bottom:12px;padding:10px;background:rgba(59,130,246,0.08);border:1px solid rgba(59,130,246,0.25);border-radius:8px'
               tagSection.innerHTML = `
                 <div style="font-weight:600;font-size:13px;color:#3b82f6;margin-bottom:6px;display:flex;align-items:center;gap:6px">
-                  <span style="font-size:14px">🏷️</span> <span style="color:#0f172a">Tag</span> <span style="color:#ef4444;font-size:10px">(required)</span>
+                  <span style="font-size:14px">ðŸ·ï¸</span> <span style="color:#0f172a">Tag</span> <span style="color:#ef4444;font-size:10px">(required)</span>
                 </div>
                 <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px">
                   <span style="background:#e2e8f0;border:1px solid #94a3b8;padding:6px 10px;border-radius:6px;font-weight:700;color:#0f172a">#</span>
@@ -16765,24 +16130,24 @@ function initializeExtension() {
               channelSection.style.cssText = 'margin-bottom:12px;padding:10px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px'
               channelSection.innerHTML = `
                 <div style="font-weight:600;font-size:13px;color:#0f172a;margin-bottom:6px;display:flex;align-items:center;gap:6px">
-                  <span style="font-size:14px">📡</span> Event Channel
+                  <span style="font-size:14px">ðŸ“¡</span> Event Channel
                 </div>
                 <select class="trigger-channel" style="width:100%;background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:8px 10px;border-radius:6px;font-size:12px;margin-bottom:6px">
-                  <option value="chat" ${!init?.channel || init?.channel === 'chat' ? 'selected' : ''}>💬 WR Chat</option>
-                  <option value="email" ${init?.channel === 'email' ? 'selected' : ''}>📧 Email</option>
-                  <option value="web" ${init?.channel === 'web' ? 'selected' : ''}>🌐 Web/Messaging</option>
-                  <option value="overlay" ${init?.channel === 'overlay' ? 'selected' : ''}>🎯 Augmented Overlay</option>
-                  <option value="agent" ${init?.channel === 'agent' ? 'selected' : ''}>🤖 Agent</option>
-                  <option value="miniapp" ${init?.channel === 'miniapp' ? 'selected' : ''}>📱 Mini-App</option>
-                  <option value="screenshot" ${init?.channel === 'screenshot' ? 'selected' : ''}>📸 Screenshot</option>
-                  <option value="stream" ${init?.channel === 'stream' ? 'selected' : ''}>📺 Stream</option>
-                  <option value="pdf" ${init?.channel === 'pdf' ? 'selected' : ''}>📄 PDF</option>
-                  <option value="docs" ${init?.channel === 'docs' ? 'selected' : ''}>📝 Docs</option>
-                  <option value="voicememo" ${init?.channel === 'voicememo' ? 'selected' : ''}>🎙️ Voicememo</option>
-                  <option value="video" ${init?.channel === 'video' ? 'selected' : ''}>🎬 Video</option>
-                  <option value="voice_command" ${init?.channel === 'voice_command' ? 'selected' : ''}>🗣️ Voice Command</option>
-                  <option value="picture" ${init?.channel === 'picture' ? 'selected' : ''}>🖼️ Picture</option>
-                  <option value="api" ${init?.channel === 'api' ? 'selected' : ''}>🔌 API Webhook</option>
+                  <option value="chat" ${!init?.channel || init?.channel === 'chat' ? 'selected' : ''}>ðŸ’¬ WR Chat</option>
+                  <option value="email" ${init?.channel === 'email' ? 'selected' : ''}>ðŸ“§ Email</option>
+                  <option value="web" ${init?.channel === 'web' ? 'selected' : ''}>ðŸŒÂ Web/Messaging</option>
+                  <option value="overlay" ${init?.channel === 'overlay' ? 'selected' : ''}>ðŸŽ¯ Augmented Overlay</option>
+                  <option value="agent" ${init?.channel === 'agent' ? 'selected' : ''}>ðŸ¤– Agent</option>
+                  <option value="miniapp" ${init?.channel === 'miniapp' ? 'selected' : ''}>ðŸ“± Mini-App</option>
+                  <option value="screenshot" ${init?.channel === 'screenshot' ? 'selected' : ''}>ðŸ“¸ Screenshot</option>
+                  <option value="stream" ${init?.channel === 'stream' ? 'selected' : ''}>ðŸ“º Stream</option>
+                  <option value="pdf" ${init?.channel === 'pdf' ? 'selected' : ''}>ðŸ“„ PDF</option>
+                  <option value="docs" ${init?.channel === 'docs' ? 'selected' : ''}>ðŸ“ Docs</option>
+                  <option value="voicememo" ${init?.channel === 'voicememo' ? 'selected' : ''}>ðŸŽ™ï¸ Voicememo</option>
+                  <option value="video" ${init?.channel === 'video' ? 'selected' : ''}>ðŸŽ¬ Video</option>
+                  <option value="voice_command" ${init?.channel === 'voice_command' ? 'selected' : ''}>ðŸ—£ï¸ Voice Command</option>
+                  <option value="picture" ${init?.channel === 'picture' ? 'selected' : ''}>ðŸ–¼ï¸ Picture</option>
+                  <option value="api" ${init?.channel === 'api' ? 'selected' : ''}>ðŸ”Œ API Webhook</option>
                 </select>
                 <div style="font-size:12px;color:#475569;margin-top:4px">Where should this trigger listen for events?</div>
               `
@@ -16800,7 +16165,7 @@ function initializeExtension() {
               
               securitySection.innerHTML = `
                 <div style="font-weight:600;font-size:13px;color:${csTheme().accent};margin-bottom:8px;display:flex;align-items:center;gap:6px">
-                  <span style="font-size:14px">🔒</span> Source & Security
+                  <span style="font-size:14px">ðŸ”’</span> Source & Security
                 </div>
                 <div style="display:flex;flex-direction:column;gap:8px">
                   <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
@@ -16829,7 +16194,7 @@ function initializeExtension() {
               contextSection.style.cssText = 'margin-bottom:12px;padding:10px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px'
               contextSection.innerHTML = `
                 <div style="font-weight:600;font-size:13px;color:#0f172a;margin-bottom:6px;display:flex;align-items:center;gap:6px">
-                  <span style="font-size:14px">🔍</span> Optional Context
+                  <span style="font-size:14px">ðŸ”</span> Optional Context
                 </div>
                 <div>
                   <label style="font-size:12px;color:#0f172a;display:block;margin-bottom:4px">Keywords (comma-separated)</label>
@@ -16848,7 +16213,7 @@ function initializeExtension() {
               websiteSection.style.cssText = 'margin-bottom:12px;padding:10px;background:rgba(168,85,247,0.06);border:1px solid rgba(168,85,247,0.2);border-radius:8px'
               websiteSection.innerHTML = `
                 <div style="font-weight:600;font-size:13px;color:#a855f7;margin-bottom:6px;display:flex;align-items:center;gap:6px">
-                  <span style="font-size:14px">🌐</span> Website Filter <span style="font-weight:400;font-size:11px;color:#6b7280">(optional)</span>
+                  <span style="font-size:14px">ðŸŒÂ</span> Website Filter <span style="font-weight:400;font-size:11px;color:#6b7280">(optional)</span>
                 </div>
                 <div>
                   <label style="font-size:12px;color:#0f172a;display:block;margin-bottom:4px">URL Pattern</label>
@@ -16866,7 +16231,7 @@ function initializeExtension() {
               agentSection.style.cssText = 'margin-bottom:12px;padding:10px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;display:none'
               agentSection.innerHTML = `
                 <div style="font-weight:600;font-size:13px;color:#3b82f6;margin-bottom:6px;display:flex;align-items:center;gap:6px">
-                  <span style="font-size:14px">🤖</span> Source Agent
+                  <span style="font-size:14px">ðŸ¤–</span> Source Agent
                 </div>
                 <div>
                   <label style="font-size:12px;color:#0f172a;display:block;margin-bottom:4px">Select Agent</label>
@@ -16889,7 +16254,7 @@ function initializeExtension() {
               miniappSection.style.cssText = 'margin-bottom:12px;padding:10px;background:#f5f3ff;border:1px solid #ddd6fe;border-radius:8px;display:none'
               miniappSection.innerHTML = `
                 <div style="font-weight:600;font-size:13px;color:#8b5cf6;margin-bottom:6px;display:flex;align-items:center;gap:6px">
-                  <span style="font-size:14px">📱</span> Mini-App Configuration
+                  <span style="font-size:14px">ðŸ“±</span> Mini-App Configuration
                 </div>
                 <div style="margin-bottom:10px">
                   <label style="font-size:12px;color:#0f172a;display:block;margin-bottom:4px">Mini-App ID</label>
@@ -17013,7 +16378,7 @@ function initializeExtension() {
                     errorEl.style.cssText = 'color:#ef4444;font-size:11px;margin-top:4px;display:flex;align-items:center;gap:4px'
                     input.parentElement?.appendChild(errorEl)
                   }
-                  errorEl.innerHTML = `<span>⚠️</span> ${message}`
+                  errorEl.innerHTML = `<span>âš ï¸</span> ${message}`
                   input.style.borderColor = '#ef4444'
                 } else {
                   if (errorEl) errorEl.remove()
@@ -17155,7 +16520,7 @@ function initializeExtension() {
                   } else if (type === 'signal') {
                     // Workflow Signal: just signal name input
                     condFields.innerHTML = `
-                      <span style="background:rgba(168,85,247,.2);border:1px solid rgba(168,85,247,.4);padding:5px 10px;border-radius:4px;font-weight:700;color:#a855f7">⚡</span>
+                      <span style="background:rgba(168,85,247,.2);border:1px solid rgba(168,85,247,.4);padding:5px 10px;border-radius:4px;font-weight:700;color:#a855f7">âš¡</span>
                       <input type="text" placeholder="signal_name" value="${initCond?.signal || ''}" style="flex:1;background:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.5);color:#1e293b;padding:5px 8px;border-radius:4px;font-size:11px" class="cond-signal">
                       <span style="font-size:10px;color:#64748b;margin-left:4px">Fires when workflow emits this signal</span>
                     `
@@ -17194,7 +16559,7 @@ function initializeExtension() {
               domSection.style.cssText = 'padding:10px;background:rgba(234,179,8,0.08);border:1px solid rgba(234,179,8,0.25);border-radius:8px;margin-bottom:10px'
               domSection.innerHTML = `
                 <div style="font-weight:600;font-size:13px;color:#eab308;margin-bottom:8px;display:flex;align-items:center;gap:6px">
-                  <span style="font-size:14px">🖱️</span> DOM Event Trigger
+                  <span style="font-size:14px">ðŸ–±ï¸</span> DOM Event Trigger
                 </div>
                 <div style="margin-bottom:8px">
                   <label style="font-size:12px;color:#0f172a;display:block;margin-bottom:4px">Event Type</label>
@@ -17249,7 +16614,7 @@ function initializeExtension() {
               parserSection.style.cssText = 'padding:10px;background:rgba(34,197,94,0.08);border:1px solid rgba(34,197,94,0.25);border-radius:8px;margin-bottom:10px'
               parserSection.innerHTML = `
                 <div style="font-weight:600;font-size:13px;color:${csTheme().accent};margin-bottom:8px;display:flex;align-items:center;gap:6px">
-                  <span style="font-size:14px">🔍</span> DOM Parser
+                  <span style="font-size:14px">ðŸ”</span> DOM Parser
                   <span title="Parses the website DOM and checks for patterns, keywords, and content. Returns booleans, tags, or signals to trigger automations." style="font-size:10px;opacity:0.7;cursor:help;background:#e2e8f0;border:1px solid #94a3b8;padding:0 5px;border-radius:50%">?</span>
                 </div>
                 <div style="margin-bottom:8px">
@@ -17274,24 +16639,24 @@ function initializeExtension() {
                   
                   <!-- Header -->
                   <div style="font-size:13px;color:#60a5fa;font-weight:600;margin-bottom:10px;display:flex;align-items:center;gap:6px">
-                    <span style="font-size:15px">🤖</span> AI Chat Capture
+                    <span style="font-size:15px">ðŸ¤–</span> AI Chat Capture
                     <span title="Capture conversations from AI chat interfaces like ChatGPT, Claude, Gemini. When a user sends a message, this trigger captures both the question and the AI's response for analysis." style="font-size:10px;opacity:0.7;cursor:help;background:rgba(255,255,255,.2);border:1px solid ${csTheme().border};padding:0 5px;border-radius:50%">?</span>
                   </div>
                   <div style="font-size:10px;color:#64748b;margin-bottom:12px;line-height:1.4">
                     Capture conversations from AI chat interfaces (ChatGPT, Claude, Gemini, etc.)
                   </div>
 
-                  <!-- ═══════════════ SITE FILTERS ═══════════════ -->
+                  <!-- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• SITE FILTERS â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
                   <div style="margin-bottom:10px">
                     <div style="font-size:11px;color:#a5b4fc;font-weight:600;margin-bottom:4px;display:flex;align-items:center;gap:4px">
                       Site Filters <span style="font-weight:400;opacity:0.7">(optional)</span>
-                      <span title="Restrict capture to specific websites. Use glob patterns like *.openai.com/* to match domains. Leave empty to capture on all sites. Examples:&#10;• *.openai.com/* - all OpenAI pages&#10;• https://claude.ai/* - Claude AI&#10;• *gemini.google.com/* - Google Gemini" style="font-size:9px;opacity:0.6;cursor:help;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);padding:0 4px;border-radius:50%">?</span>
+                      <span title="Restrict capture to specific websites. Use glob patterns like *.openai.com/* to match domains. Leave empty to capture on all sites. Examples:&#10;â€¢ *.openai.com/* - all OpenAI pages&#10;â€¢ https://claude.ai/* - Claude AI&#10;â€¢ *gemini.google.com/* - Google Gemini" style="font-size:9px;opacity:0.6;cursor:help;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);padding:0 4px;border-radius:50%">?</span>
                     </div>
                     <textarea class="trigger-site-filters" placeholder="*.openai.com/*&#10;https://claude.ai/*&#10;*gemini.google.com/*" style="width:100%;min-height:45px;background:rgba(255,255,255,.9);border:1px solid rgba(255,255,255,.4);color:#1e293b;padding:6px 8px;border-radius:4px;font-size:10px;font-family:monospace;resize:vertical">${(init?.siteFilters || []).join('\n')}</textarea>
-                    <div style="font-size:9px;color:#64748b;margin-top:2px">Only capture on these domains → one pattern per line. Leave empty to match all sites.</div>
+                    <div style="font-size:9px;color:#64748b;margin-top:2px">Only capture on these domains â†’ one pattern per line. Leave empty to match all sites.</div>
                   </div>
 
-                  <!-- ═══════════════ WHEN SHOULD CAPTURE START? ═══════════════ -->
+                  <!-- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• WHEN SHOULD CAPTURE START? â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
                   <div style="margin-bottom:10px;padding:10px;background:rgba(255,255,255,0.03);border:1px solid ${csTheme().border};border-radius:6px">
                     <div style="font-size:11px;color:#a5b4fc;font-weight:600;margin-bottom:6px;display:flex;align-items:center;gap:4px">
                       When should capture start?
@@ -17305,26 +16670,26 @@ function initializeExtension() {
                     <div style="margin-bottom:10px;padding:8px;background:rgba(251,191,36,0.08);border:1px solid rgba(251,191,36,0.25);border-radius:5px">
                       <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
                         <input type="checkbox" class="trigger-auto-detect" ${init?.autoDetectSelectors ? 'checked' : ''} style="margin:0">
-                        <span style="font-size:10px;color:#fbbf24;font-weight:600">⚡ Auto-Detect Selectors</span>
-                        <span title="Automatically discover selectors by scanning the page DOM.&#10;&#10;How it works:&#10;• Scans for common AI chat patterns (ChatGPT, Claude, Gemini)&#10;• Detects send buttons, input fields, and response areas&#10;• No interaction needed - just click the button&#10;&#10;Review results and apply to fields below." style="font-size:9px;opacity:0.6;cursor:help;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);padding:0 4px;border-radius:50%">?</span>
+                        <span style="font-size:10px;color:#fbbf24;font-weight:600">âš¡ Auto-Detect Selectors</span>
+                        <span title="Automatically discover selectors by scanning the page DOM.&#10;&#10;How it works:&#10;â€¢ Scans for common AI chat patterns (ChatGPT, Claude, Gemini)&#10;â€¢ Detects send buttons, input fields, and response areas&#10;â€¢ No interaction needed - just click the button&#10;&#10;Review results and apply to fields below." style="font-size:9px;opacity:0.6;cursor:help;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);padding:0 4px;border-radius:50%">?</span>
                       </label>
                       <div class="auto-detect-panel" style="display:${init?.autoDetectSelectors ? 'block' : 'none'};margin-top:8px">
                         <div style="font-size:9px;color:#64748b;margin-bottom:6px">Scans the page DOM for common AI chat UI patterns (ChatGPT, Claude, Gemini, etc.)</div>
                         <button type="button" class="btn-run-auto-detect" style="background:rgba(251,191,36,0.2);border:1px solid rgba(251,191,36,0.4);color:#fbbf24;padding:5px 12px;border-radius:4px;cursor:pointer;font-size:10px;font-weight:500">
-                          🔍 Scan Page for Selectors
+                          ðŸ” Scan Page for Selectors
                         </button>
                         <div class="auto-detect-status" style="display:none;margin-top:6px;padding:6px;background:rgba(0,0,0,0.15);border-radius:4px;font-size:9px;font-family:monospace"></div>
                         <div class="auto-detected-results" style="display:${init?.autoDetected ? 'block' : 'none'};margin-top:8px;padding:8px;background:rgba(34,197,94,0.1);border:1px solid rgba(34,197,94,0.2);border-radius:4px">
-                          <div style="font-size:9px;color:#4ade80;font-weight:600;margin-bottom:6px">✏“ Detected Elements:</div>
+                          <div style="font-size:9px;color:#4ade80;font-weight:600;margin-bottom:6px">âœâ€œ Detected Elements:</div>
                           <div style="font-size:9px;color:#475569;font-family:monospace;line-height:1.6">
-                            <div style="display:flex;gap:4px"><span style="color:#a5b4fc;min-width:55px">Site:</span> <span class="detected-site-filter" style="word-break:break-all">${init?.autoDetected?.siteFilter || '—'}</span></div>
-                            <div style="display:flex;gap:4px"><span style="color:#fbbf24;min-width:55px">Button:</span> <span class="detected-button-selector" style="word-break:break-all">${init?.autoDetected?.button || '—'}</span></div>
-                            <div style="display:flex;gap:4px"><span style="color:#4ade80;min-width:55px">Input:</span> <span class="detected-input-selector" style="word-break:break-all">${init?.autoDetected?.input || '—'}</span></div>
-                            <div style="display:flex;gap:4px"><span style="color:#c084fc;min-width:55px">Output:</span> <span class="detected-output-selector" style="word-break:break-all">${init?.autoDetected?.output || '—'}</span></div>
-                            <div style="display:flex;gap:4px"><span style="color:#fbbf24;min-width:55px">Context:</span> <span class="detected-context-selectors" style="word-break:break-all">${init?.autoDetected?.context?.join(', ') || '—'}</span></div>
+                            <div style="display:flex;gap:4px"><span style="color:#a5b4fc;min-width:55px">Site:</span> <span class="detected-site-filter" style="word-break:break-all">${init?.autoDetected?.siteFilter || 'â€”'}</span></div>
+                            <div style="display:flex;gap:4px"><span style="color:#fbbf24;min-width:55px">Button:</span> <span class="detected-button-selector" style="word-break:break-all">${init?.autoDetected?.button || 'â€”'}</span></div>
+                            <div style="display:flex;gap:4px"><span style="color:#4ade80;min-width:55px">Input:</span> <span class="detected-input-selector" style="word-break:break-all">${init?.autoDetected?.input || 'â€”'}</span></div>
+                            <div style="display:flex;gap:4px"><span style="color:#c084fc;min-width:55px">Output:</span> <span class="detected-output-selector" style="word-break:break-all">${init?.autoDetected?.output || 'â€”'}</span></div>
+                            <div style="display:flex;gap:4px"><span style="color:#fbbf24;min-width:55px">Context:</span> <span class="detected-context-selectors" style="word-break:break-all">${init?.autoDetected?.context?.join(', ') || 'â€”'}</span></div>
                           </div>
                           <button type="button" class="btn-apply-detected" style="margin-top:8px;width:100%;background:rgba(34,197,94,0.2);border:1px solid rgba(34,197,94,0.3);color:#4ade80;padding:6px 10px;border-radius:4px;cursor:pointer;font-size:10px;font-weight:500">
-                            ✏“ Apply to all fields
+                            âœâ€œ Apply to all fields
                           </button>
                         </div>
                       </div>
@@ -17334,7 +16699,7 @@ function initializeExtension() {
                       <div style="margin-bottom:8px">
                         <label style="font-size:10px;color:#0f172a;display:flex;align-items:center;gap:4px;margin-bottom:3px">
                           Button Selectors
-                          <span title="CSS selectors to find the Send button. Right-click the button in your browser → Inspect → copy a unique selector.&#10;&#10;Common examples:&#10;• button[data-testid='send-button'] - ChatGPT&#10;• button[aria-label='Send Message'] - Claude&#10;• .send-button, #submit - Generic&#10;&#10;One selector per line. First match is used." style="font-size:9px;opacity:0.6;cursor:help;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);padding:0 4px;border-radius:50%">?</span>
+                          <span title="CSS selectors to find the Send button. Right-click the button in your browser â†’ Inspect â†’ copy a unique selector.&#10;&#10;Common examples:&#10;â€¢ button[data-testid='send-button'] - ChatGPT&#10;â€¢ button[aria-label='Send Message'] - Claude&#10;â€¢ .send-button, #submit - Generic&#10;&#10;One selector per line. First match is used." style="font-size:9px;opacity:0.6;cursor:help;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);padding:0 4px;border-radius:50%">?</span>
                         </label>
                         <textarea class="trigger-button-selectors" placeholder="button[data-testid=&quot;send-button&quot;]&#10;.send-btn&#10;button[aria-label=&quot;Send&quot;]" style="width:100%;min-height:40px;background:rgba(255,255,255,.9);border:1px solid rgba(255,255,255,.4);color:#1e293b;padding:6px 8px;border-radius:4px;font-size:10px;font-family:monospace;resize:vertical">${(init?.buttonSelectors || (init?.buttonSelector ? [init.buttonSelector] : [])).join('\n')}</textarea>
                         <div style="font-size:9px;color:#64748b;margin-top:2px">CSS selectors for send buttons. First match wins.</div>
@@ -17355,11 +16720,11 @@ function initializeExtension() {
                     </div>
                   </div>
 
-                  <!-- ═══════════════ INPUT CAPTURE ═══════════════ -->
+                  <!-- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• INPUT CAPTURE â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
                   <div style="margin-bottom:10px;padding:10px;background:rgba(34,197,94,0.06);border:1px solid rgba(34,197,94,0.2);border-radius:6px">
                     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
                       <div style="font-size:11px;color:#4ade80;font-weight:600;display:flex;align-items:center;gap:4px">
-                        📥 Input Capture
+                        ðŸ“¥ Input Capture
                         <span title="Capture the user's question/prompt when they send a message. This is the text the user typed before clicking Send." style="font-size:9px;opacity:0.6;cursor:help;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);padding:0 4px;border-radius:50%">?</span>
                       </div>
                       <label style="display:flex;align-items:center;gap:4px;cursor:pointer">
@@ -17371,18 +16736,18 @@ function initializeExtension() {
                     <div class="input-capture-fields" style="display:${init?.captureInput !== false ? 'block' : 'none'}">
                       <label style="font-size:10px;color:#0f172a;display:flex;align-items:center;gap:4px;margin-bottom:3px">
                         Input Selectors
-                        <span title="CSS selectors to find the text input/textarea where users type their message.&#10;&#10;Common examples:&#10;• textarea[data-id='root'] - ChatGPT&#10;• #prompt-textarea - Generic&#10;• [contenteditable='true'] - Rich text editors&#10;&#10;First selector with content is used." style="font-size:9px;opacity:0.6;cursor:help;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);padding:0 4px;border-radius:50%">?</span>
+                        <span title="CSS selectors to find the text input/textarea where users type their message.&#10;&#10;Common examples:&#10;â€¢ textarea[data-id='root'] - ChatGPT&#10;â€¢ #prompt-textarea - Generic&#10;â€¢ [contenteditable='true'] - Rich text editors&#10;&#10;First selector with content is used." style="font-size:9px;opacity:0.6;cursor:help;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);padding:0 4px;border-radius:50%">?</span>
                       </label>
                       <textarea class="trigger-input-selectors" placeholder="textarea[data-id=&quot;root&quot;]&#10;#prompt-textarea&#10;.chat-input" style="width:100%;min-height:36px;background:rgba(255,255,255,.9);border:1px solid rgba(255,255,255,.4);color:#1e293b;padding:6px 8px;border-radius:4px;font-size:10px;font-family:monospace;resize:vertical">${(init?.inputSelectors || (init?.inputSelector ? [init.inputSelector] : [])).join('\n')}</textarea>
                       <div style="font-size:9px;color:#64748b;margin-top:2px">First selector matching a non-empty input field is used as the prompt source.</div>
                     </div>
                   </div>
 
-                  <!-- ═══════════════ OUTPUT CAPTURE ═══════════════ -->
+                  <!-- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• OUTPUT CAPTURE â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
                   <div style="margin-bottom:10px;padding:10px;background:rgba(168,85,247,0.06);border:1px solid rgba(168,85,247,0.2);border-radius:6px">
                     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
                       <div style="font-size:11px;color:#c084fc;font-weight:600;display:flex;align-items:center;gap:4px">
-                        📤 Output Capture
+                        ðŸ“¤ Output Capture
                         <span title="Capture the AI's response after it finishes generating. Enable this to analyze what the AI replied to the user's question." style="font-size:9px;opacity:0.6;cursor:help;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);padding:0 4px;border-radius:50%">?</span>
                       </div>
                       <label style="display:flex;align-items:center;gap:4px;cursor:pointer">
@@ -17396,7 +16761,7 @@ function initializeExtension() {
                       <div style="margin-bottom:8px">
                         <label style="font-size:10px;color:#0f172a;display:flex;align-items:center;gap:4px;margin-bottom:3px">
                           Output Selectors
-                          <span title="CSS selectors to find the AI's response messages.&#10;&#10;Common examples:&#10;• [data-message-author-role='assistant'] - ChatGPT&#10;• .markdown-body - Rendered markdown&#10;• .response-content, .assistant-message - Generic&#10;&#10;The LAST matching element (most recent response) is captured." style="font-size:9px;opacity:0.6;cursor:help;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);padding:0 4px;border-radius:50%">?</span>
+                          <span title="CSS selectors to find the AI's response messages.&#10;&#10;Common examples:&#10;â€¢ [data-message-author-role='assistant'] - ChatGPT&#10;â€¢ .markdown-body - Rendered markdown&#10;â€¢ .response-content, .assistant-message - Generic&#10;&#10;The LAST matching element (most recent response) is captured." style="font-size:9px;opacity:0.6;cursor:help;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);padding:0 4px;border-radius:50%">?</span>
                         </label>
                         <textarea class="trigger-output-selectors" placeholder="[data-message-author-role=&quot;assistant&quot;]&#10;.markdown-body&#10;.response-content" style="width:100%;min-height:36px;background:rgba(255,255,255,.9);border:1px solid rgba(255,255,255,.4);color:#1e293b;padding:6px 8px;border-radius:4px;font-size:10px;font-family:monospace;resize:vertical">${(init?.outputSelectors || (init?.outputSelector ? [init.outputSelector] : [])).join('\n')}</textarea>
                         <div style="font-size:9px;color:#64748b;margin-top:2px">Capture when first matching output element becomes non-empty or changes.</div>
@@ -17406,7 +16771,7 @@ function initializeExtension() {
                       <div style="padding:8px;background:rgba(255,255,255,0.03);border-radius:4px">
                         <div style="font-size:10px;color:#475569;margin-bottom:5px;display:flex;align-items:center;gap:4px">
                           Response ready when:
-                          <span title="How to know when the AI has finished responding:&#10;&#10;• First change: Capture as soon as any response appears (fastest, may be incomplete)&#10;• Quiet period: Wait until text stops changing for X milliseconds (good for streaming)&#10;• Signal element: Wait for a specific element like 'Copy' button to appear (most reliable)" style="font-size:9px;opacity:0.6;cursor:help;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);padding:0 4px;border-radius:50%">?</span>
+                          <span title="How to know when the AI has finished responding:&#10;&#10;â€¢ First change: Capture as soon as any response appears (fastest, may be incomplete)&#10;â€¢ Quiet period: Wait until text stops changing for X milliseconds (good for streaming)&#10;â€¢ Signal element: Wait for a specific element like 'Copy' button to appear (most reliable)" style="font-size:9px;opacity:0.6;cursor:help;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);padding:0 4px;border-radius:50%">?</span>
                         </div>
                         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:5px">
                           <select class="trigger-response-ready-mode" style="background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:4px 8px;border-radius:4px;font-size:10px;min-width:130px">
@@ -17427,7 +16792,7 @@ function initializeExtension() {
                         <div class="selector-signal-options" style="display:${init?.responseReadyMode === 'selector_signal' ? 'block' : 'none'};margin-bottom:5px">
                           <div style="display:flex;align-items:center;gap:4px;margin-bottom:2px">
                             <span style="font-size:10px;color:#64748b">Signal selector:</span>
-                            <span title="CSS selector for an element that appears ONLY when the response is complete. Common examples:&#10;• button[aria-label='Copy'] - Copy button&#10;• .feedback-buttons - Thumbs up/down&#10;• .message-complete - Completion indicator" style="font-size:9px;opacity:0.5;cursor:help;background:rgba(255,255,255,.12);border:1px solid ${csTheme().border};padding:0 4px;border-radius:50%">?</span>
+                            <span title="CSS selector for an element that appears ONLY when the response is complete. Common examples:&#10;â€¢ button[aria-label='Copy'] - Copy button&#10;â€¢ .feedback-buttons - Thumbs up/down&#10;â€¢ .message-complete - Completion indicator" style="font-size:9px;opacity:0.5;cursor:help;background:rgba(255,255,255,.12);border:1px solid ${csTheme().border};padding:0 4px;border-radius:50%">?</span>
                           </div>
                           <input class="trigger-response-signal-selector" placeholder="button[aria-label=&quot;Copy&quot;], .feedback-buttons" value="${init?.responseSignalSelector || ''}" style="width:100%;background:rgba(255,255,255,.9);border:1px solid rgba(255,255,255,.4);color:#1e293b;padding:4px 8px;border-radius:3px;font-size:10px">
                         </div>
@@ -17442,10 +16807,10 @@ function initializeExtension() {
                     </div>
                   </div>
 
-                  <!-- ═══════════════ CONTEXT CAPTURE ═══════════════ -->
+                  <!-- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• CONTEXT CAPTURE â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
                   <div style="margin-bottom:10px;padding:10px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.08);border-radius:6px">
                     <div style="font-size:11px;color:#fbbf24;font-weight:600;margin-bottom:6px;display:flex;align-items:center;gap:4px">
-                      📋 Context Capture
+                      ðŸ“‹ Context Capture
                       <span title="Capture additional metadata alongside the conversation. Useful for tracking which page, conversation, or AI model was used." style="font-size:9px;opacity:0.6;cursor:help;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);padding:0 4px;border-radius:50%">?</span>
                     </div>
                     
@@ -17465,16 +16830,16 @@ function initializeExtension() {
                     <div>
                       <label style="font-size:10px;color:#0f172a;display:flex;align-items:center;gap:4px;margin-bottom:2px">
                         Context Selectors <span style="opacity:0.6">(optional)</span>
-                        <span title="Extra CSS selectors to capture additional page elements as context.&#10;&#10;Examples:&#10;• [data-conversation-id] - Conversation ID&#10;• .model-selector - Which AI model is selected&#10;• .system-prompt-indicator - System prompt info" style="font-size:9px;opacity:0.6;cursor:help;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);padding:0 4px;border-radius:50%">?</span>
+                        <span title="Extra CSS selectors to capture additional page elements as context.&#10;&#10;Examples:&#10;â€¢ [data-conversation-id] - Conversation ID&#10;â€¢ .model-selector - Which AI model is selected&#10;â€¢ .system-prompt-indicator - System prompt info" style="font-size:9px;opacity:0.6;cursor:help;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);padding:0 4px;border-radius:50%">?</span>
                       </label>
                       <textarea class="trigger-meta-selectors" placeholder="[data-conversation-id]&#10;.model-selector" style="width:100%;min-height:32px;background:rgba(255,255,255,.9);border:1px solid rgba(255,255,255,.4);color:#1e293b;padding:5px 8px;border-radius:4px;font-size:10px;font-family:monospace;resize:vertical">${(init?.metaSelectors || []).join('\n')}</textarea>
                     </div>
                   </div>
 
-                  <!-- ═══════════════ SANITIZATION ═══════════════ -->
+                  <!-- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• SANITIZATION â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
                   <div style="margin-bottom:10px;padding:10px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.08);border-radius:6px">
                     <div style="font-size:11px;color:#94a3b8;font-weight:600;margin-bottom:4px;display:flex;align-items:center;gap:4px">
-                      🧹 Sanitization
+                      ðŸ§¹ Sanitization
                       <span title="Clean up captured text before sending to your agent. Removes unwanted formatting and noise." style="font-size:9px;opacity:0.6;cursor:help;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);padding:0 4px;border-radius:50%">?</span>
                     </div>
                     <div style="font-size:9px;color:rgba(255,255,255,0.45);margin-bottom:6px">Apply these cleanup steps before sending captured text to the agent.</div>
@@ -17498,19 +16863,19 @@ function initializeExtension() {
                     </div>
                   </div>
 
-                  <!-- ═══════════════ DEVELOPER DEBUGGING ═══════════════ -->
+                  <!-- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• DEVELOPER DEBUGGING â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
                   <div style="padding:10px;background:rgba(100,100,100,0.08);border:1px solid rgba(100,100,100,0.2);border-radius:6px">
                     <div style="font-size:11px;color:#9ca3af;font-weight:600;margin-bottom:6px;display:flex;align-items:center;gap:4px">
-                      🔧 Developer Debugging
+                      ðŸ”§ Developer Debugging
                       <span title="Test your configuration on the current page. Use these tools to verify your selectors are working correctly before saving." style="font-size:9px;opacity:0.6;cursor:help;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);padding:0 4px;border-radius:50%">?</span>
                     </div>
                     
                     <div style="display:flex;gap:8px;flex-wrap:wrap">
                       <button type="button" class="btn-test-selectors" style="background:rgba(100,100,100,0.2);border:1px solid rgba(100,100,100,0.3);color:#0f172a;padding:5px 10px;border-radius:4px;cursor:pointer;font-size:10px">
-                        🎯 Test Selectors
+                        ðŸŽ¯ Test Selectors
                       </button>
                       <button type="button" class="btn-test-capture" style="background:rgba(100,100,100,0.2);border:1px solid rgba(100,100,100,0.3);color:#0f172a;padding:5px 10px;border-radius:4px;cursor:pointer;font-size:10px">
-                        ▶️ Run Test Capture
+                        â–¶ï¸ Run Test Capture
                       </button>
                     </div>
                     <div class="debug-results" style="display:none;margin-top:8px;padding:8px;background:rgba(0,0,0,0.2);border-radius:4px;font-family:monospace;font-size:9px;color:#475569"></div>
@@ -17608,7 +16973,7 @@ function initializeExtension() {
                 // Auto-detect by scanning the DOM for common AI chat UI patterns
                 if (autoDetectStatus) {
                   autoDetectStatus.style.display = 'block'
-                  autoDetectStatus.innerHTML = '<span style="color:#fbbf24">⏳ Scanning page DOM...</span>'
+                  autoDetectStatus.innerHTML = '<span style="color:#fbbf24">â³ Scanning page DOM...</span>'
                 }
                 
                 const generateSelector = (el: Element | null): string => {
@@ -17782,7 +17147,7 @@ function initializeExtension() {
                   if (autoDetectStatus) {
                     const foundCount = [siteFilter, buttonSelector, inputSelector, outputSelector].filter(Boolean).length + detectedContext.length
                     if (foundCount > 0) {
-                      autoDetectStatus.innerHTML = `<span style="color:#4ade80">✏“ DOM scan complete! Found ${foundCount} element${foundCount > 1 ? 's' : ''}.</span>`
+                      autoDetectStatus.innerHTML = `<span style="color:#4ade80">âœâ€œ DOM scan complete! Found ${foundCount} element${foundCount > 1 ? 's' : ''}.</span>`
                       if (autoDetectedResults) {
                         autoDetectedResults.style.display = 'block'
                         const siteSpan = autoDetectedResults.querySelector('.detected-site-filter')
@@ -17805,7 +17170,7 @@ function initializeExtension() {
                         }
                       }
                     } else {
-                      autoDetectStatus.innerHTML = '<span style="color:#f87171">✏— Could not detect AI chat elements. This may not be a supported chat interface.</span>'
+                      autoDetectStatus.innerHTML = '<span style="color:#f87171">âœâ€” Could not detect AI chat elements. This may not be a supported chat interface.</span>'
                     }
                   }
                 }, 300)
@@ -17881,7 +17246,7 @@ function initializeExtension() {
                     detected.output,
                     ...(detected.context || [])
                   ].filter(Boolean).length
-                  applyDetectedBtn.textContent = `✏“ Applied ${appliedCount} selectors!`
+                  applyDetectedBtn.textContent = `âœâ€œ Applied ${appliedCount} selectors!`
                   applyDetectedBtn.style.background = 'rgba(34,197,94,0.3)'
                   setTimeout(() => {
                     applyDetectedBtn.textContent = 'Apply to all fields'
@@ -17945,7 +17310,7 @@ function initializeExtension() {
                       <option value="attribute" ${initRule?.type === 'attribute' ? 'selected' : ''}>Attribute Check</option>
                       <option value="text_length" ${initRule?.type === 'text_length' ? 'selected' : ''}>Text Length</option>
                     </select>
-                    <button class="dom-rule-del" style="background:#ef4444;border:none;color:#fff;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:11px;margin-left:auto">✏•</button>
+                    <button class="dom-rule-del" style="background:#ef4444;border:none;color:#fff;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:11px;margin-left:auto">âœâ€¢</button>
                   </div>
                   <div class="dom-rule-fields" style="display:flex;flex-direction:column;gap:6px"></div>
                   <div style="display:flex;gap:8px;align-items:center;margin-top:8px;padding-top:8px;border-top:1px dashed rgba(255,255,255,0.1)">
@@ -18042,7 +17407,7 @@ function initializeExtension() {
               overlaySection.style.cssText = 'padding:10px;background:rgba(168,85,247,0.08);border:1px solid rgba(168,85,247,0.25);border-radius:8px;margin-bottom:10px'
               overlaySection.innerHTML = `
                 <div style="font-weight:600;font-size:13px;color:#a855f7;margin-bottom:8px;display:flex;align-items:center;gap:6px">
-                  <span style="font-size:14px">🎯</span> Augmented Overlay
+                  <span style="font-size:14px">ðŸŽ¯</span> Augmented Overlay
                   <span title="Transparent overlay for voice commands, pointer context, and overlay buttons." style="font-size:10px;opacity:0.7;cursor:help;background:#e2e8f0;border:1px solid #94a3b8;padding:0 5px;border-radius:50%">?</span>
                 </div>
                 <div style="font-size:11px;color:#475569;margin-bottom:12px;padding:8px;background:rgba(168,85,247,0.08);border-radius:4px">
@@ -18054,28 +17419,28 @@ function initializeExtension() {
                     <label style="display:flex;align-items:center;gap:8px;cursor:pointer;background:#f1f5f9;padding:8px 12px;border-radius:6px;border:1px solid ${csTheme().border}">
                       <input type="checkbox" class="trigger-overlay-mode-button" ${init?.overlayModeButton ? 'checked' : ''} style="margin:0">
                       <div>
-                        <div style="font-size:12px;color:#0f172a;font-weight:500">⌘ Overlay Button</div>
+                        <div style="font-size:12px;color:#0f172a;font-weight:500">âŒ˜ Overlay Button</div>
                         <div style="font-size:10px;color:#64748b">User clicks a button in the overlay UI</div>
                       </div>
                     </label>
                     <label style="display:flex;align-items:center;gap:8px;cursor:pointer;background:#f1f5f9;padding:8px 12px;border-radius:6px;border:1px solid ${csTheme().border}">
                       <input type="checkbox" class="trigger-overlay-mode-empty" ${init?.overlayModeEmpty ? 'checked' : ''} style="margin:0">
                       <div>
-                        <div style="font-size:12px;color:#0f172a;font-weight:500">🎤 Voice + Pointer (empty area)</div>
+                        <div style="font-size:12px;color:#0f172a;font-weight:500">ðŸŽ¤ Voice + Pointer (empty area)</div>
                         <div style="font-size:10px;color:#64748b">User speaks while pointing at empty space</div>
                       </div>
                     </label>
                     <label style="display:flex;align-items:center;gap:8px;cursor:pointer;background:#f1f5f9;padding:8px 12px;border-radius:6px;border:1px solid ${csTheme().border}">
                       <input type="checkbox" class="trigger-overlay-mode-element" ${init?.overlayModeElement !== false ? 'checked' : ''} style="margin:0">
                       <div>
-                        <div style="font-size:12px;color:#0f172a;font-weight:500">🖱️ Voice + Element</div>
+                        <div style="font-size:12px;color:#0f172a;font-weight:500">ðŸ–±ï¸ Voice + Element</div>
                         <div style="font-size:10px;color:#64748b">User speaks while pointing at a specific element</div>
                       </div>
                     </label>
                     <label style="display:flex;align-items:center;gap:8px;cursor:pointer;background:#f1f5f9;padding:8px 12px;border-radius:6px;border:1px solid ${csTheme().border}">
                       <input type="checkbox" class="trigger-overlay-mode-selection" ${init?.overlayModeSelection ? 'checked' : ''} style="margin:0">
                       <div>
-                        <div style="font-size:12px;color:#0f172a;font-weight:500">✏‚️ Voice + Selection</div>
+                        <div style="font-size:12px;color:#0f172a;font-weight:500">âœâ€šï¸ Voice + Selection</div>
                         <div style="font-size:10px;color:#64748b">User speaks while having text selected</div>
                       </div>
                     </label>
@@ -18083,7 +17448,7 @@ function initializeExtension() {
                 </div>
                 <div class="overlay-button-fields" style="display:${init?.overlayModeButton ? 'block' : 'none'};margin-bottom:10px;padding:10px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px">
                   <label style="font-size:12px;color:#0f172a;display:block;margin-bottom:4px">Button Label / Icon</label>
-                  <input class="trigger-overlay-button-label" placeholder="e.g. Run Analysis, 📊, ✏¨ Quick Action" value="${init?.overlayButtonLabel || ''}" style="width:100%;background:#fff;border:1px solid #cbd5e1;color:#0f172a;padding:8px 10px;border-radius:6px;font-size:12px">
+                  <input class="trigger-overlay-button-label" placeholder="e.g. Run Analysis, ðŸ“Š, âœÂ¨ Quick Action" value="${init?.overlayButtonLabel || ''}" style="width:100%;background:#fff;border:1px solid #cbd5e1;color:#0f172a;padding:8px 10px;border-radius:6px;font-size:12px">
                   <div style="font-size:10px;color:#64748b;margin-top:4px">Button displayed in the overlay UI</div>
                 </div>
                 <div style="margin-bottom:10px">
@@ -18167,7 +17532,7 @@ function initializeExtension() {
               agentRow.style.cssText = 'padding:10px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px'
               agentRow.innerHTML = `
                 <div style="font-weight:600;font-size:13px;color:#3b82f6;margin-bottom:6px;display:flex;align-items:center;gap:6px">
-                  <span style="font-size:14px">🤖</span> Source Agent
+                  <span style="font-size:14px">ðŸ¤–</span> Source Agent
                 </div>
                 <div>
                   <label style="font-size:12px;color:#0f172a;display:block;margin-bottom:4px">Select Agent</label>
@@ -18192,7 +17557,7 @@ function initializeExtension() {
               miniappRow.style.cssText = 'padding:10px;background:rgba(139,92,246,0.08);border:1px solid rgba(139,92,246,0.25);border-radius:8px'
               miniappRow.innerHTML = `
                 <div style="font-weight:600;font-size:13px;color:#8b5cf6;margin-bottom:6px;display:flex;align-items:center;gap:6px">
-                  <span style="font-size:14px">📱</span> Mini-App Configuration
+                  <span style="font-size:14px">ðŸ“±</span> Mini-App Configuration
                 </div>
                 <div style="margin-bottom:10px">
                   <label style="font-size:12px;color:#0f172a;display:block;margin-bottom:4px">Mini-App ID</label>
@@ -18373,7 +17738,7 @@ function initializeExtension() {
           bottomSaveRow.style.cssText = `display:flex;justify-content:flex-end;gap:8px;margin-top:16px;padding-top:12px;border-top:1px solid ${csTheme().border}`
           const bottomSaveBtn = document.createElement('button')
           bottomSaveBtn.className = 'trigger-bottom-save'
-          bottomSaveBtn.textContent = '💾 Save Trigger'
+          bottomSaveBtn.textContent = 'ðŸ’¾ Save Trigger'
           bottomSaveBtn.style.cssText = `background:${csTheme().accentGrad};color:#fff;border:none;padding:8px 18px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600`
           bottomSaveRow.appendChild(bottomSaveBtn)
           row.appendChild(bottomSaveRow)
@@ -18384,10 +17749,10 @@ function initializeExtension() {
             updateApplyForOptions()
             
             // Show temporary feedback
-            bottomSaveBtn.textContent = '✏“ Saved!'
+            bottomSaveBtn.textContent = 'âœâ€œ Saved!'
             bottomSaveBtn.style.background = '#16a34a'
             setTimeout(() => {
-              bottomSaveBtn.textContent = '💾 Save Trigger'
+              bottomSaveBtn.textContent = 'ðŸ’¾ Save Trigger'
               bottomSaveBtn.style.background = `${csTheme().accent}`
             }, 1500)
             
@@ -18397,7 +17762,7 @@ function initializeExtension() {
               if (idRowEl) {
                 const checkmark = document.createElement('span')
                 checkmark.className = 'trigger-saved-indicator'
-                checkmark.textContent = '✏“'
+                checkmark.textContent = 'âœâ€œ'
                 checkmark.style.cssText = `color:${csTheme().accent};font-weight:bold;margin-left:6px;font-size:14px`
                 checkmark.title = 'Trigger saved'
                 idRowEl.appendChild(checkmark)
@@ -18407,7 +17772,6 @@ function initializeExtension() {
             // Auto-save to chrome storage to persist the trigger
             if (typeof autoSaveToChromeStorage === 'function') {
               autoSaveToChromeStorage()
-              console.log('💾 Trigger saved (from bottom button) and persisted to storage')
             }
           })
           
@@ -18429,43 +17793,43 @@ function initializeExtension() {
             // Build a descriptive label including channel for event tag triggers
             let label = ''
             if (type === 'wrchat') {
-              label = tag ? `💬 #${tag.replace('#', '')}` : `💬 WR Chat`
+              label = tag ? `ðŸ’¬ #${tag.replace('#', '')}` : `ðŸ’¬ WR Chat`
             } else if (type === 'direct_tag' || type === 'tag_and_condition') {
               const tagName = tag.replace('#', '')
               label = tagName ? `#${tagName}` : `${type} (${id.substring(0, 8)}...)`
               // Add channel indicator for non-default channels
               if (channel && channel !== 'chat') {
                 const channelIcons: Record<string, string> = {
-                  'email': '📧',
-                  'web': '🌐',
-                  'overlay': '🎯',
-                  'agent': '🤖',
-                  'miniapp': '📱',
-                  'screenshot': '📸',
-                  'stream': '📺',
-                  'pdf': '📄',
-                  'docs': '📝',
-                  'voicememo': '🎙️',
-                  'video': '🎬',
-                  'voice_command': '🗣️',
-                  'picture': '🖼️',
-                  'api': '🔌'
+                  'email': 'ðŸ“§',
+                  'web': 'ðŸŒÂ',
+                  'overlay': 'ðŸŽ¯',
+                  'agent': 'ðŸ¤–',
+                  'miniapp': 'ðŸ“±',
+                  'screenshot': 'ðŸ“¸',
+                  'stream': 'ðŸ“º',
+                  'pdf': 'ðŸ“„',
+                  'docs': 'ðŸ“',
+                  'voicememo': 'ðŸŽ™ï¸',
+                  'video': 'ðŸŽ¬',
+                  'voice_command': 'ðŸ—£ï¸',
+                  'picture': 'ðŸ–¼ï¸',
+                  'api': 'ðŸ”Œ'
                 }
                 label += ` ${channelIcons[channel] || ''}`
               }
             } else if (type === 'workflow_condition') {
               const workflowId = row.querySelector('.trigger-workflow')?.value || ''
-              label = workflowId ? `⚙️ ${workflowId}` : `Workflow (${id.substring(0, 8)}...)`
+              label = workflowId ? `âš™ï¸ ${workflowId}` : `Workflow (${id.substring(0, 8)}...)`
             } else if (type === 'dom_event' || type === 'ui_event') {
               const selector = row.querySelector('.trigger-dom-selector')?.value || ''
-              label = selector ? `🖱️ ${selector.substring(0, 20)}...` : `DOM Event (${id.substring(0, 8)}...)`
+              label = selector ? `ðŸ–±ï¸ ${selector.substring(0, 20)}...` : `DOM Event (${id.substring(0, 8)}...)`
             } else if (type === 'dom_parser') {
               const rulesCount = row.querySelectorAll('.dom-parser-rule').length
-              label = `🔍 Parser (${rulesCount} rule${rulesCount !== 1 ? 's' : ''})`
+              label = `ðŸ” Parser (${rulesCount} rule${rulesCount !== 1 ? 's' : ''})`
             } else if (type === 'augmented_overlay') {
               const overlayName = row.querySelector('.trigger-overlay-name')?.value || ''
               const buttonLabel = row.querySelector('.trigger-overlay-button-label')?.value || ''
-              label = overlayName ? `🎯 ${overlayName}` : (buttonLabel ? `⌘ ${buttonLabel}` : `Overlay (${id.substring(0, 8)}...)`)
+              label = overlayName ? `ðŸŽ¯ ${overlayName}` : (buttonLabel ? `âŒ˜ ${buttonLabel}` : `Overlay (${id.substring(0, 8)}...)`)
             } else {
               label = `${type} (${id.substring(0, 8)}...)`
             }
@@ -18524,7 +17888,6 @@ function initializeExtension() {
             populateApplyForSelect(sel)
           })
           
-          console.log('📋 Updated Apply for options with', triggerIds.length, 'triggers:', triggerIds.map(t => `${t.label} [${t.id}]`))
         }
         
         // Add trigger button handler
@@ -18592,7 +17955,7 @@ function initializeExtension() {
           if (init?.tag) tagInput.value = init.tag
           
           const delBtn = document.createElement('button')
-          delBtn.textContent = '×'
+          delBtn.textContent = 'Ã—'
           delBtn.title = 'Remove trigger'
           delBtn.style.cssText = 'background:#ef4444;color:#fff;border:none;padding:6px 12px;border-radius:6px;cursor:pointer;font-size:16px'
           delBtn.addEventListener('click', () => row.remove())
@@ -18902,7 +18265,7 @@ function initializeExtension() {
 
               const merged = [
 
-                ...builtins.map(id => ({ id, name: `Agent ${getOrAssignAgentNumber(id)} — ${id}` })),
+                ...builtins.map(id => ({ id, name: `Agent ${getOrAssignAgentNumber(id)} â€” ${id}` })),
 
                 ...agents.map((a:any)=>({ id: a.key || a.id || a.name || 'agent', name: a.name || a.id || a.key }))
 
@@ -18952,23 +18315,23 @@ function initializeExtension() {
 
             { label: 'Agent Box', value: 'agentBox' },
 
-            { label: '💬 WR Chat (Command Chat)', value: 'wrChat' },
+            { label: 'ðŸ’¬ WR Chat (Command Chat)', value: 'wrChat' },
 
             { label: 'Agent', value: 'agent' },
 
-            { label: 'Chat Inline → Summary', value: 'chat-inline-summary' },
+            { label: 'Chat Inline â†’ Summary', value: 'chat-inline-summary' },
 
-            { label: 'Clipboard → Summary', value: 'clip-summary' },
+            { label: 'Clipboard â†’ Summary', value: 'clip-summary' },
 
-            { label: 'Clipboard → Screenshot', value: 'clip-screenshot' },
+            { label: 'Clipboard â†’ Screenshot', value: 'clip-screenshot' },
 
-            { label: 'PDF → Summary', value: 'pdf-summary' },
+            { label: 'PDF â†’ Summary', value: 'pdf-summary' },
 
-            { label: 'PDF → Screenshot', value: 'pdf-screenshot' },
+            { label: 'PDF â†’ Screenshot', value: 'pdf-screenshot' },
 
-            { label: 'PDF → Summary + Screenshot', value: 'pdf-both' },
+            { label: 'PDF â†’ Summary + Screenshot', value: 'pdf-both' },
 
-            { label: 'Image → Screenshot (PNG/WebP)', value: 'image-screenshot' }
+            { label: 'Image â†’ Screenshot (PNG/WebP)', value: 'image-screenshot' }
 
           ]
 
@@ -18987,7 +18350,7 @@ function initializeExtension() {
 
           const buildAgentBoxSelect = (): HTMLSelectElement => {
 
-            const boxOpts = [{ label: '— Select Agent Box —', value: '' }]
+            const boxOpts = [{ label: 'â€” Select Agent Box â€”', value: '' }]
 
             // Try to get agent boxes from the current session to show LLM info
             const sessionKey = getCurrentSessionKey()
@@ -19012,9 +18375,9 @@ function initializeExtension() {
                 }
                 // Add LLM info if available
                 if (boxInfo.provider && boxInfo.model) {
-                  label += ` — ${boxInfo.provider}/${boxInfo.model}`
+                  label += ` â€” ${boxInfo.provider}/${boxInfo.model}`
                 } else if (boxInfo.model) {
-                  label += ` — ${boxInfo.model}`
+                  label += ` â€” ${boxInfo.model}`
                 }
                 // Add enabled/disabled status
                 if (boxInfo.enabled === false) {
@@ -19039,7 +18402,7 @@ function initializeExtension() {
 
           const buildAgentSelect = (): HTMLSelectElement => {
 
-            const agentOpts = [{ label: '— Select Agent —', value: '' }]
+            const agentOpts = [{ label: 'â€” Select Agent â€”', value: '' }]
 
             for (let i = 1; i <= 50; i++) {
 
@@ -19060,7 +18423,7 @@ function initializeExtension() {
 
           const del = document.createElement('button')
 
-          del.textContent = '×'
+          del.textContent = 'Ã—'
 
           del.title = 'Remove'
 
@@ -19144,7 +18507,7 @@ function initializeExtension() {
 
           const del = document.createElement('button')
 
-          del.textContent = '×'
+          del.textContent = 'Ã—'
 
           del.title = 'Remove'
 
@@ -19217,9 +18580,9 @@ function initializeExtension() {
           
           // Channel icons for display
           const channelIcons: Record<string, string> = {
-            'email': '📧', 'web': '🌐', 'overlay': '🎯', 'agent': '🤖', 'miniapp': '📱',
-            'screenshot': '📸', 'stream': '📺', 'pdf': '📄', 'docs': '📝', 'voicememo': '🎙️',
-            'video': '🎬', 'voice_command': '🗣️', 'picture': '🖼️', 'api': '🔌'
+            'email': 'ðŸ“§', 'web': 'ðŸŒÂ', 'overlay': 'ðŸŽ¯', 'agent': 'ðŸ¤–', 'miniapp': 'ðŸ“±',
+            'screenshot': 'ðŸ“¸', 'stream': 'ðŸ“º', 'pdf': 'ðŸ“„', 'docs': 'ðŸ“', 'voicememo': 'ðŸŽ™ï¸',
+            'video': 'ðŸŽ¬', 'voice_command': 'ðŸ—£ï¸', 'picture': 'ðŸ–¼ï¸', 'api': 'ðŸ”Œ'
           }
           
           // Get from unified triggers (new system)
@@ -19232,7 +18595,7 @@ function initializeExtension() {
             
             let label = ''
             if (type === 'wrchat') {
-              label = tag ? `💬 #${tag.replace('#', '')}` : `💬 WR Chat`
+              label = tag ? `ðŸ’¬ #${tag.replace('#', '')}` : `ðŸ’¬ WR Chat`
             } else if (type === 'direct_tag' || type === 'tag_and_condition') {
               const tagName = tag.replace('#', '')
               label = tagName ? `#${tagName}` : `${type} (${id.substring(0, 8)}...)`
@@ -19242,17 +18605,17 @@ function initializeExtension() {
               }
             } else if (type === 'workflow_condition') {
               const workflowId = row.querySelector('.trigger-workflow')?.value || ''
-              label = workflowId ? `⚙️ ${workflowId}` : `Workflow (${id.substring(0, 8)}...)`
+              label = workflowId ? `âš™ï¸ ${workflowId}` : `Workflow (${id.substring(0, 8)}...)`
             } else if (type === 'dom_event' || type === 'ui_event') {
               const selector = row.querySelector('.trigger-dom-selector')?.value || ''
-              label = selector ? `🖱️ ${selector.substring(0, 20)}...` : `DOM Event (${id.substring(0, 8)}...)`
+              label = selector ? `ðŸ–±ï¸ ${selector.substring(0, 20)}...` : `DOM Event (${id.substring(0, 8)}...)`
             } else if (type === 'dom_parser') {
               const rulesCount = row.querySelectorAll('.dom-parser-rule').length
-              label = `🔍 Parser (${rulesCount} rule${rulesCount !== 1 ? 's' : ''})`
+              label = `ðŸ” Parser (${rulesCount} rule${rulesCount !== 1 ? 's' : ''})`
             } else if (type === 'augmented_overlay') {
               const overlayName = row.querySelector('.trigger-overlay-name')?.value || ''
               const buttonLabel = row.querySelector('.trigger-overlay-button-label')?.value || ''
-              label = overlayName ? `🎯 ${overlayName}` : (buttonLabel ? `⌘ ${buttonLabel}` : `Overlay (${id.substring(0, 8)}...)`)
+              label = overlayName ? `ðŸŽ¯ ${overlayName}` : (buttonLabel ? `âŒ˜ ${buttonLabel}` : `Overlay (${id.substring(0, 8)}...)`)
             } else {
               label = `${type} (${id.substring(0, 8)}...)`
             }
@@ -19327,7 +18690,7 @@ function initializeExtension() {
           const delBtn = document.createElement('button')
           delBtn.type = 'button'
           delBtn.style.cssText = 'background:#ef4444;color:#fff;border:none;padding:4px 10px;border-radius:6px;cursor:pointer;font-weight:bold'
-          delBtn.textContent = '×'
+          delBtn.textContent = 'Ã—'
           delBtn.addEventListener('click', () => row.remove())
           
           row.appendChild(sel)
@@ -19521,7 +18884,6 @@ function initializeExtension() {
 
           syncPersistedFromDom()
 
-          console.log('💾 Synced form data before adding new reasoning section')
 
           
 
@@ -19534,7 +18896,6 @@ function initializeExtension() {
           // Refresh options to populate new section's Apply for dropdown
           refreshApplyForOptions()
 
-          console.log('✅ Added new reasoning section and refreshed options')
 
         })
 
@@ -19604,15 +18965,15 @@ function initializeExtension() {
             // Report to options - defines where the LLM output will be displayed
             const opts = [
               { label: 'Agent Box', value: 'agentBox' },
-              { label: '💬 WR Chat (Command Chat)', value: 'wrChat' },
+              { label: 'ðŸ’¬ WR Chat (Command Chat)', value: 'wrChat' },
               { label: 'Agent', value: 'agent' },
-              { label: 'Chat Inline → Summary', value: 'chat-inline-summary' },
-              { label: 'Clipboard → Summary', value: 'clip-summary' },
-              { label: 'Clipboard → Screenshot', value: 'clip-screenshot' },
-              { label: 'PDF → Summary', value: 'pdf-summary' },
-              { label: 'PDF → Screenshot', value: 'pdf-screenshot' },
-              { label: 'PDF → Summary + Screenshot', value: 'pdf-both' },
-              { label: 'Image → Screenshot (PNG/WebP)', value: 'image-screenshot' }
+              { label: 'Chat Inline â†’ Summary', value: 'chat-inline-summary' },
+              { label: 'Clipboard â†’ Summary', value: 'clip-summary' },
+              { label: 'Clipboard â†’ Screenshot', value: 'clip-screenshot' },
+              { label: 'PDF â†’ Summary', value: 'pdf-summary' },
+              { label: 'PDF â†’ Screenshot', value: 'pdf-screenshot' },
+              { label: 'PDF â†’ Summary + Screenshot', value: 'pdf-both' },
+              { label: 'Image â†’ Screenshot (PNG/WebP)', value: 'image-screenshot' }
             ]
 
             const row = document.createElement('div')
@@ -19628,7 +18989,7 @@ function initializeExtension() {
 
             // Build agent box options (01-50) with LLM info from session
             const buildAgentBoxSelectSub = (): HTMLSelectElement => {
-              const boxOpts = [{ label: '— Select Agent Box —', value: '' }]
+              const boxOpts = [{ label: 'â€” Select Agent Box â€”', value: '' }]
               
               // Try to get agent boxes from the current session to show LLM info
               const sessionKey = getCurrentSessionKey()
@@ -19650,9 +19011,9 @@ function initializeExtension() {
                     label += ` (${boxInfo.title})`
                   }
                   if (boxInfo.provider && boxInfo.model) {
-                    label += ` — ${boxInfo.provider}/${boxInfo.model}`
+                    label += ` â€” ${boxInfo.provider}/${boxInfo.model}`
                   } else if (boxInfo.model) {
-                    label += ` — ${boxInfo.model}`
+                    label += ` â€” ${boxInfo.model}`
                   }
                   if (boxInfo.enabled === false) {
                     label += ' [disabled]'
@@ -19668,7 +19029,7 @@ function initializeExtension() {
 
             // Build agent options (01-50)
             const buildAgentSelectSub = (): HTMLSelectElement => {
-              const agentOpts = [{ label: '— Select Agent —', value: '' }]
+              const agentOpts = [{ label: 'â€” Select Agent â€”', value: '' }]
               for (let i = 1; i <= 50; i++) {
                 const num = String(i).padStart(2, '0')
                 agentOpts.push({ label: `Agent ${num}`, value: `agent${num}` })
@@ -19679,7 +19040,7 @@ function initializeExtension() {
             }
 
             const del = document.createElement('button')
-            del.textContent = '×'
+            del.textContent = 'Ã—'
             del.title = 'Remove'
             del.style.cssText = 'background:#ef4444;color:#fff;border:none;padding:0 10px;border-radius:6px;cursor:pointer;height:36px'
             del.addEventListener('click', () => row.remove())
@@ -19735,7 +19096,6 @@ function initializeExtension() {
 
           syncPersistedFromDom()
 
-          console.log('💾 Synced form data before adding new execution section')
 
           
 
@@ -19748,7 +19108,6 @@ function initializeExtension() {
           // Refresh options to populate new section's Apply for dropdown
           refreshApplyForOptions()
 
-          console.log('✅ Added new execution section and refreshed options')
 
         })
 
@@ -19762,25 +19121,20 @@ function initializeExtension() {
 
         requestAnimationFrame(() => {
 
-          console.log('🔄 restoreFromMemory() called')
           
           // CRITICAL: Set flag to prevent auto-save during restoration
           isRestoringFromMemory = true
-          console.log('🔒 Auto-save disabled during restoration')
 
           if (!previouslySavedData) {
 
-            console.warn('⚠️ No previouslySavedData to restore!')
+            console.warn('âš ï¸ No previouslySavedData to restore!')
             isRestoringFromMemory = false
             return
 
           }
 
-          console.log('🔄 Restoring form data from memory...')
 
-          console.log('📦 Full previouslySavedData:', previouslySavedData)
 
-          console.log('📦 Keys to restore:', Object.keys(previouslySavedData))
 
           
 
@@ -19802,7 +19156,6 @@ function initializeExtension() {
 
               acSession.checked = cs.sessionContext
 
-              console.log(`  ✏“ Restored Session Context: ${cs.sessionContext}`)
 
             }
 
@@ -19810,7 +19163,6 @@ function initializeExtension() {
 
               acAccount.checked = cs.accountContext
 
-              console.log(`  ✏“ Restored Account Context: ${cs.accountContext}`)
 
             }
 
@@ -19820,7 +19172,6 @@ function initializeExtension() {
 
               acAgent.dispatchEvent(new Event('change'))
 
-              console.log(`  ✏“ Restored Agent Context: ${cs.agentContext}`)
 
             }
 
@@ -19834,7 +19185,6 @@ function initializeExtension() {
 
             const ms = previouslySavedData.memorySettings
 
-            console.log('  📝 Restoring memory settings:', ms)
 
             // Get hidden checkboxes (for save logic)
             const memSession = configOverlay.querySelector('#MEM-session') as HTMLInputElement
@@ -19856,7 +19206,6 @@ function initializeExtension() {
             if (ms.sessionEnabled !== undefined) {
               if (memSession) memSession.checked = ms.sessionEnabled
               if (rMemSession) { rMemSession.checked = ms.sessionEnabled; rMemSession.dispatchEvent(new Event('change')) }
-              console.log(`  ✏“ Restored Memory Session: ${ms.sessionEnabled}`)
             }
             
             // Session read
@@ -19875,7 +19224,6 @@ function initializeExtension() {
             if (ms.accountEnabled !== undefined) {
               if (memAccount) memAccount.checked = ms.accountEnabled
               if (rMemAccount) { rMemAccount.checked = ms.accountEnabled; rMemAccount.dispatchEvent(new Event('change')) }
-              console.log(`  ✏“ Restored Memory Account: ${ms.accountEnabled}`)
             }
 
             // Account read
@@ -19896,15 +19244,6 @@ function initializeExtension() {
 
           // Restore Agent Context files - CRITICAL for preserving uploads
 
-          console.log('🔍 Checking for Agent Context files to restore:', {
-
-            hasFiles: !!previouslySavedData.agentContextFiles,
-
-            fileCount: previouslySavedData.agentContextFiles?.length || 0,
-
-            files: previouslySavedData.agentContextFiles
-
-          })
 
           
 
@@ -19922,15 +19261,6 @@ function initializeExtension() {
 
             
 
-            console.log('🔍 Found DOM elements:', { 
-
-              hasAcList: !!acList, 
-
-              hasAcEnable: !!acEnable,
-
-              hasAcContent: !!acContent
-
-            })
 
             
 
@@ -19954,15 +19284,15 @@ function initializeExtension() {
 
               acList.innerHTML = `
 
-                  <div style="color:#fbbf24;font-weight:600;margin-bottom:6px">📦 ${files.length} file(s) previously uploaded:</div>
+                  <div style="color:#fbbf24;font-weight:600;margin-bottom:6px">ðŸ“¦ ${files.length} file(s) previously uploaded:</div>
 
                 ${files.map((f: any, idx: number) => `
 
                   <div class="saved-file-row" style="display:flex;align-items:center;gap:6px;padding:4px 8px;background:rgba(251,191,36,0.1);border-radius:6px;margin-bottom:4px;border:1px solid rgba(251,191,36,0.3)">
 
-                    <span>📄 ${f.name} (${(f.size / 1024).toFixed(1)} KB)</span>
+                    <span>ðŸ“„ ${f.name} (${(f.size / 1024).toFixed(1)} KB)</span>
 
-                    <button class="delete-ac-file-btn" data-idx="${idx}" style="margin-left:auto;background:rgba(220,38,38,0.10);border:none;color:white;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:10px;">✏•</button>
+                    <button class="delete-ac-file-btn" data-idx="${idx}" style="margin-left:auto;background:rgba(220,38,38,0.10);border:none;color:white;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:10px;">âœâ€¢</button>
 
                   </div>
 
@@ -19994,19 +19324,17 @@ function initializeExtension() {
 
                   storageSet({ [dKey]: previouslySavedData }, () => {
 
-                    console.log(`✅ IMMEDIATELY saved Agent Context file deletion to chrome.storage!`)
 
                   })
 
                   
 
-                    console.log(`🗝‘️ Removed Agent Context file at index ${idx}`)
 
                   btn.closest('.saved-file-row')?.remove()
 
                   const countEl = acList.querySelector('div')
 
-                    if (countEl) countEl.textContent = `📦 ${previouslySavedData.agentContextFiles.length} file(s) previously uploaded:`
+                    if (countEl) countEl.textContent = `ðŸ“¦ ${previouslySavedData.agentContextFiles.length} file(s) previously uploaded:`
 
                     
 
@@ -20018,11 +19346,10 @@ function initializeExtension() {
 
               })
 
-              console.log(`✅ Successfully restored ${files.length} Agent Context files to display`)
 
             } else {
 
-                console.error('❌ Could not find DOM elements to restore Agent Context files!', {
+                console.error('âŒ Could not find DOM elements to restore Agent Context files!', {
 
                   triedSelectors: ['#AC-list', '#AC-agent', '#AC-content']
 
@@ -20034,7 +19361,6 @@ function initializeExtension() {
 
           } else {
 
-            console.log('ℹ️ No Agent Context files to restore')
 
           }
 
@@ -20058,7 +19384,6 @@ function initializeExtension() {
 
                 contextTextarea.value = l.expectedContext
 
-                console.log(`  ✏“ Restored Expected Context text (${l.expectedContext.length} chars)`)
 
               }
 
@@ -20080,7 +19405,6 @@ function initializeExtension() {
 
                 websiteInput.value = l.website
 
-                console.log(`  ✏“ Restored Website: ${l.website}`)
 
               }
 
@@ -20093,7 +19417,6 @@ function initializeExtension() {
               const apiInput = configOverlay.querySelector('#L-api-endpoint') as HTMLInputElement
               if (apiInput) {
                 apiInput.value = l.apiEndpoint
-                console.log(`  ✏“ Restored API Endpoint: ${l.apiEndpoint}`)
               }
             }
 
@@ -20102,7 +19425,6 @@ function initializeExtension() {
               const cronInput = configOverlay.querySelector('#L-cron-schedule') as HTMLInputElement
               if (cronInput) {
                 cronInput.value = l.cronSchedule
-                console.log(`  ✏“ Restored Cron Schedule: ${l.cronSchedule}`)
               }
             }
 
@@ -20111,7 +19433,6 @@ function initializeExtension() {
               document.querySelectorAll('.L-modality').forEach((el: any) => {
                 el.checked = l.modalities.includes(el.value)
               })
-              console.log(`  ✏“ Restored Modalities: ${l.modalities.join(', ')}`)
             }
 
             // Restore Conditions
@@ -20137,7 +19458,6 @@ function initializeExtension() {
                     if (valueInput) valueInput.value = cond.value || ''
                   }
                 })
-                console.log(`  ✏“ Restored Conditions: ${condItems.length}`)
               }
             }
 
@@ -20174,7 +19494,6 @@ function initializeExtension() {
                     })
                   }
                 })
-                console.log(`  ✏“ Restored Sensor Workflows: ${l.sensorWorkflows.length}`)
               }
             }
 
@@ -20190,7 +19509,6 @@ function initializeExtension() {
                   const input = lastRow?.querySelector('.workflow-id') as HTMLInputElement
                   if (input) input.value = wfId
                 })
-                console.log(`  ✏“ Restored Allowed Actions: ${l.allowedActions.length}`)
               }
             }
 
@@ -20206,7 +19524,6 @@ function initializeExtension() {
 
                 passiveToggle.dispatchEvent(new Event('change'))
 
-                console.log(`  ✏“ Restored Passive toggle: ${l.passiveEnabled}`)
 
               }
 
@@ -20222,7 +19539,6 @@ function initializeExtension() {
 
                 activeToggle.dispatchEvent(new Event('change'))
 
-                console.log(`  ✏“ Restored Active toggle: ${l.activeEnabled}`)
 
               }
 
@@ -20279,7 +19595,6 @@ function initializeExtension() {
                     }
                   }
                 })
-                console.log(`  ✏“ Restored ${triggersToRestore.length} action triggers`)
               }
             }
 
@@ -20323,7 +19638,6 @@ function initializeExtension() {
 
                 })
 
-                console.log(`  ✏“ Restored ${l.active.triggers.length} active triggers`)
 
               }
 
@@ -20343,7 +19657,6 @@ function initializeExtension() {
 
                   checkbox.checked = true
 
-                  console.log(`  ✏“ Restored tag checkbox: ${tag}`)
 
                 }
 
@@ -20357,7 +19670,6 @@ function initializeExtension() {
 
             // Restore Unified Triggers - CRITICAL for preserving triggers when adding sections
             if (l.unifiedTriggers && l.unifiedTriggers.length > 0) {
-              console.log(`🔄 Restoring ${l.unifiedTriggers.length} unified triggers...`)
               const unifiedList = configOverlay.querySelector('#L-unified-triggers') as HTMLElement
               const addTriggerBtn = configOverlay.querySelector('#L-add-trigger') as HTMLButtonElement
               
@@ -20375,7 +19687,7 @@ function initializeExtension() {
                       const rows = unifiedList.querySelectorAll('.unified-trigger-row')
                       const row = rows[rows.length - 1] as HTMLElement
                       if (!row) {
-                        console.warn(`  ⚠️ Failed to find trigger row ${idx + 1}`)
+                        console.warn(`  âš ï¸ Failed to find trigger row ${idx + 1}`)
                         return
                       }
                       
@@ -20384,7 +19696,6 @@ function initializeExtension() {
                       if (idDisplay && trigger.id) {
                         idDisplay.textContent = trigger.id
                         row.dataset.triggerId = trigger.id
-                        console.log(`    ✏“ Set trigger ${idx + 1} ID: ${trigger.id}`)
                       }
                       
                       // Set trigger type
@@ -20401,7 +19712,6 @@ function initializeExtension() {
                         if (tagInput && (trigger.tag || trigger.tagName)) {
                           const tagValue = (trigger.tag || trigger.tagName || '').replace('#', '')
                           tagInput.value = tagValue
-                          console.log(`    ✏“ Set trigger ${idx + 1} tag: ${tagValue}`)
                         }
                       
                       // Set channel
@@ -20438,7 +19748,6 @@ function initializeExtension() {
                         const keywordsInput = row.querySelector('.trigger-keywords') as HTMLInputElement
                         if (keywordsInput && !keywordsInput.value) {
                           keywordsInput.value = trigger.keywords
-                          console.log(`    ✏“ Restored keywords from trigger.keywords: ${trigger.keywords}`)
                         }
                       }
                       
@@ -20447,7 +19756,6 @@ function initializeExtension() {
                         const keywordsInput = row.querySelector('.trigger-keywords') as HTMLInputElement
                         if (keywordsInput && !keywordsInput.value) {
                           keywordsInput.value = trigger.expectedContext
-                          console.log(`    ✏“ Restored keywords from expectedContext: ${trigger.expectedContext}`)
                         }
                       }
                       
@@ -20523,14 +19831,12 @@ function initializeExtension() {
                           // Wait for DOM to update after parserTrigger change, then restore AI Chat fields
                           if (trigger.parserTrigger === 'button_click') {
                             setTimeout(() => {
-                              console.log(`    🔄 Restoring AI Chat Capture fields for trigger ${idx + 1}...`)
                               
                               // Site Filters
                               if (trigger.siteFilters && trigger.siteFilters.length > 0) {
                                 const textarea = row.querySelector('.trigger-site-filters') as HTMLTextAreaElement
                                 if (textarea) {
                                   textarea.value = trigger.siteFilters.join('\n')
-                                  console.log(`      ✏“ Restored siteFilters: ${trigger.siteFilters.length} patterns`)
                                 }
                               }
                               // Auto-Detect Selectors
@@ -20546,7 +19852,6 @@ function initializeExtension() {
                                 const textarea = row.querySelector('.trigger-button-selectors') as HTMLTextAreaElement
                                 if (textarea) {
                                   textarea.value = trigger.buttonSelectors.join('\n')
-                                  console.log(`      ✏“ Restored buttonSelectors: ${trigger.buttonSelectors.length} selectors`)
                                 }
                               } else if (trigger.buttonSelector) {
                                 const textarea = row.querySelector('.trigger-button-selectors') as HTMLTextAreaElement
@@ -20576,7 +19881,6 @@ function initializeExtension() {
                                 const textarea = row.querySelector('.trigger-input-selectors') as HTMLTextAreaElement
                                 if (textarea) {
                                   textarea.value = trigger.inputSelectors.join('\n')
-                                  console.log(`      ✏“ Restored inputSelectors: ${trigger.inputSelectors.length} selectors`)
                                 }
                               } else if (trigger.inputSelector) {
                                 const textarea = row.querySelector('.trigger-input-selectors') as HTMLTextAreaElement
@@ -20594,7 +19898,6 @@ function initializeExtension() {
                                 const textarea = row.querySelector('.trigger-output-selectors') as HTMLTextAreaElement
                                 if (textarea) {
                                   textarea.value = trigger.outputSelectors.join('\n')
-                                  console.log(`      ✏“ Restored outputSelectors: ${trigger.outputSelectors.length} selectors`)
                                 }
                               } else if (trigger.outputSelector) {
                                 const textarea = row.querySelector('.trigger-output-selectors') as HTMLTextAreaElement
@@ -20633,7 +19936,6 @@ function initializeExtension() {
                                 const textarea = row.querySelector('.trigger-meta-selectors') as HTMLTextAreaElement
                                 if (textarea) {
                                   textarea.value = trigger.metaSelectors.join('\n')
-                                  console.log(`      ✏“ Restored metaSelectors: ${trigger.metaSelectors.length} selectors`)
                                 }
                               }
                               // Sanitization
@@ -20650,7 +19952,6 @@ function initializeExtension() {
                                 if (checkbox) checkbox.checked = true
                               }
                               
-                              console.log(`    ✏“ AI Chat Capture fields restored for trigger ${idx + 1}`)
                             }, 150) // Wait 150ms for DOM to update after parserTrigger change
                           }
                         }
@@ -20738,7 +20039,6 @@ function initializeExtension() {
                             })
                             sensorList.appendChild(wfRow)
                           })
-                          console.log(`    ✏“ Restored ${trigger.sensorWorkflows.length} sensor workflows for trigger ${idx + 1}`)
                         }
                       }
                       
@@ -20755,7 +20055,6 @@ function initializeExtension() {
                             })
                             actionsList.appendChild(wfRow)
                           })
-                          console.log(`    ✏“ Restored ${trigger.allowedActions.length} allowed actions for trigger ${idx + 1}`)
                         }
                       }
                       
@@ -20764,13 +20063,12 @@ function initializeExtension() {
                       if (tempSaveBtn && !row.querySelector('.trigger-saved-indicator')) {
                         const checkmark = document.createElement('span')
                         checkmark.className = 'trigger-saved-indicator'
-                        checkmark.textContent = '✏“'
+                        checkmark.textContent = 'âœâ€œ'
                         checkmark.style.cssText = `color:${csTheme().accent};font-weight:bold;margin-left:6px;font-size:14px`
                         checkmark.title = 'Trigger saved'
                         tempSaveBtn.parentElement?.insertBefore(checkmark, tempSaveBtn.nextSibling)
                       }
                       
-                      console.log(`  ✏“ Restored unified trigger ${idx + 1}: ${trigger.type} - ${trigger.tag || trigger.tagName || trigger.id}`)
                       
                       // Refresh Apply For options after setting tag
                       if (typeof refreshApplyForOptions === 'function') {
@@ -20788,19 +20086,11 @@ function initializeExtension() {
                   unifiedList.dispatchEvent(event)
                 }, 200 + (50 * l.unifiedTriggers.length))
                 
-                console.log(`  ✏“ Started restoring ${l.unifiedTriggers.length} unified triggers`)
               }
             }
 
             // Restore Listener Example files - CRITICAL for preserving uploads
 
-            console.log('🔍 Checking for Listener Example files to restore:', {
-
-              hasFiles: !!l.exampleFiles,
-
-              fileCount: l.exampleFiles?.length || 0
-
-            })
 
             
 
@@ -20812,7 +20102,6 @@ function initializeExtension() {
 
                 
 
-                console.log('🔍 Found Listener examples container:', !!lExamplesContainer)
 
                 
 
@@ -20824,15 +20113,15 @@ function initializeExtension() {
 
                     <div style="margin-top:8px;font-size:11px;opacity:0.9;padding:8px;background:rgba(251,191,36,0.1);border-radius:4px;border:1px solid rgba(251,191,36,0.3)">
 
-                      <div style="font-weight:bold;margin-bottom:8px;color:#fbbf24;">📦 ${files.length} example file(s) previously uploaded:</div>
+                      <div style="font-weight:bold;margin-bottom:8px;color:#fbbf24;">ðŸ“¦ ${files.length} example file(s) previously uploaded:</div>
 
                       ${files.map((f: any, idx: number) => `
 
                         <div class="saved-file-row" style="display:flex;align-items:center;gap:8px;margin-bottom:6px;padding:4px 8px;background:rgba(255,255,255,0.05);border-radius:4px;">
 
-                          <span>📄 ${f.name} (${(f.size / 1024).toFixed(1)} KB)</span>
+                          <span>ðŸ“„ ${f.name} (${(f.size / 1024).toFixed(1)} KB)</span>
 
-                          <button class="delete-lexample-file-btn" data-idx="${idx}" style="margin-left:auto;background:rgba(220,38,38,0.10);border:none;color:white;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:10px;">✏•</button>
+                          <button class="delete-lexample-file-btn" data-idx="${idx}" style="margin-left:auto;background:rgba(220,38,38,0.10);border:none;color:white;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:10px;">âœâ€¢</button>
 
                         </div>
 
@@ -20866,19 +20155,17 @@ function initializeExtension() {
 
                       storageSet({ [dKey]: previouslySavedData }, () => {
 
-                        console.log(`✅ IMMEDIATELY saved Listener Example file deletion to chrome.storage!`)
 
                       })
 
                       
 
-                      console.log(`🗝‘️ Removed Listener Example file at index ${idx}`)
 
                       btn.closest('.saved-file-row')?.remove()
 
                       const countEl = lExamplesContainer.querySelector('div')
 
-                      if (countEl) countEl.textContent = `📦 ${previouslySavedData.listening.exampleFiles.length} example file(s) previously uploaded:`
+                      if (countEl) countEl.textContent = `ðŸ“¦ ${previouslySavedData.listening.exampleFiles.length} example file(s) previously uploaded:`
 
                       
 
@@ -20890,11 +20177,10 @@ function initializeExtension() {
 
                   })
 
-                  console.log(`✅ Successfully restored ${files.length} Listener Example files to display`)
 
                 } else {
 
-                  console.error('❌ Could not find #L-examples-list-container to restore files!')
+                  console.error('âŒ Could not find #L-examples-list-container to restore files!')
 
                 }
 
@@ -20902,7 +20188,6 @@ function initializeExtension() {
 
             } else {
 
-              console.log('ℹ️ No Listener Example files to restore')
 
             }
 
@@ -20920,7 +20205,6 @@ function initializeExtension() {
             if (!value.startsWith('ID#')) {
               const prefixed = `ID#${value}`
               if (availableOptions.includes(prefixed)) {
-                console.log(`  🔄 Normalized "${value}" to "${prefixed}"`)
                 return prefixed
               }
             }
@@ -20928,7 +20212,6 @@ function initializeExtension() {
             if (value.startsWith('ID#')) {
               const unprefixed = value.substring(3)
               if (availableOptions.includes(unprefixed)) {
-                console.log(`  🔄 Normalized "${value}" to "${unprefixed}"`)
                 return unprefixed
               }
             }
@@ -20953,7 +20236,6 @@ function initializeExtension() {
 
                 goalsTextarea.value = r.goals
 
-                console.log(`  ✏“ Restored Goals text (${r.goals.length} chars)`)
 
               }
 
@@ -20971,7 +20253,6 @@ function initializeExtension() {
 
                 roleInput.value = r.role
 
-                console.log(`  ✏“ Restored Role text: ${r.role}`)
 
               }
 
@@ -20979,7 +20260,7 @@ function initializeExtension() {
 
             
 
-            // Rules field removed — legacy data silently skipped
+            // Rules field removed â€” legacy data silently skipped
 
             
 
@@ -21007,15 +20288,12 @@ function initializeExtension() {
             const triggerRestoreDelay = Math.max(1000, triggerCount * 150 + 500) // At least 1s, plus buffer
             
             const rApplyForListToRestore = r.applyForList || (r.applyFor ? [r.applyFor] : ['__any__'])
-            console.log(`  🔍 Main Reasoning applyForList to restore:`, rApplyForListToRestore)
-            console.log(`  ⏱️ Waiting ${triggerRestoreDelay}ms for ${triggerCount} triggers to restore`)
             
             if (rApplyForListToRestore.length > 0 && rApplyForListToRestore[0] !== '__any__') {
               setTimeout(() => {
                 // Refresh options first to populate trigger IDs
                 if (typeof refreshApplyForOptions === 'function') {
                   refreshApplyForOptions()
-                  console.log(`  🔄 Refreshed Apply For options for main Reasoning`)
                 }
                 setTimeout(() => {
                   const rApplyList = configOverlay.querySelector('#R-apply-list') as HTMLElement
@@ -21029,9 +20307,8 @@ function initializeExtension() {
                     
                     if (optionExists) {
                       firstSelect.value = valueToSet
-                      console.log(`  ✏“ Set first Reasoning Apply For to: ${valueToSet}`)
                     } else {
-                      console.warn(`  ⚠️ Reasoning Apply For value "${valueToSet}" not found in options. Available:`, 
+                      console.warn(`  âš ï¸ Reasoning Apply For value "${valueToSet}" not found in options. Available:`, 
                         Array.from(firstSelect.options).map(o => o.value))
                       // Keep the default __any__ value
                     }
@@ -21041,7 +20318,6 @@ function initializeExtension() {
                   if (rApplyList && rApplyForListToRestore.length > 1) {
                     const additionalValues = rApplyForListToRestore.slice(1).filter((v: string) => v !== '__any__')
                     if (additionalValues.length > 0) {
-                      console.log(`  🔄 Creating ${additionalValues.length} additional Apply For rows`)
                       
                       // First, create all the additional rows
                       additionalValues.forEach(() => {
@@ -21053,7 +20329,6 @@ function initializeExtension() {
                         refreshApplyForOptions()
                         // Get all selects EXCEPT the first one (which has id="R-apply")
                         const additionalSelects = Array.from(rApplyList.querySelectorAll('select:not(#R-apply)')) as HTMLSelectElement[]
-                        console.log(`  🔄 Found ${additionalSelects.length} additional selects to set values`)
                         
                         additionalSelects.forEach((sel, idx) => {
                           if (additionalValues[idx]) {
@@ -21062,9 +20337,8 @@ function initializeExtension() {
                             const optionExists = availableOptions.includes(valueToSet)
                             if (optionExists) {
                               sel.value = valueToSet
-                              console.log(`    ✏“ Set additional Reasoning Apply For ${idx + 2} to: ${valueToSet}`)
                             } else {
-                              console.warn(`    ⚠️ Additional Reasoning Apply For value "${additionalValues[idx]}" not found`)
+                              console.warn(`    âš ï¸ Additional Reasoning Apply For value "${additionalValues[idx]}" not found`)
                             }
                           }
                         })
@@ -21117,7 +20391,6 @@ function initializeExtension() {
 
                 })
 
-                console.log(`  ✏“ Restored ${r.acceptFrom.length} reasoning listen-from rows`)
 
               }
 
@@ -21129,7 +20402,6 @@ function initializeExtension() {
             
             // Restore Reasoning Workflows for main section
             if (r.reasoningWorkflows && r.reasoningWorkflows.length > 0) {
-              console.log(`  🔄 Restoring ${r.reasoningWorkflows.length} reasoning workflows...`)
               const wfList = configOverlay.querySelector('#R-reasoning-workflows') as HTMLElement
               if (wfList) {
                 r.reasoningWorkflows.forEach((wf: any, idx: number) => {
@@ -21140,7 +20412,6 @@ function initializeExtension() {
                       conditions: wf.conditions || []
                     })
                     wfList.appendChild(wfRow)
-                    console.log(`    ✏“ Restored reasoning workflow ${idx + 1}: ${wf.type}`)
                   }, idx * 100)
                 })
               }
@@ -21152,7 +20423,6 @@ function initializeExtension() {
 
             if (r.custom && r.custom.length > 0) {
 
-              console.log(`  🔄 Restoring ${r.custom.length} custom fields for base reasoning section...`)
 
               r.custom.forEach((customField: any, idx: number) => {
 
@@ -21180,7 +20450,6 @@ function initializeExtension() {
 
                         inputs[1].value = customField.value || ''
 
-                        console.log(`    ✏“ Restored custom field ${idx + 1}: ${customField.key}`)
 
                       }
 
@@ -21200,7 +20469,6 @@ function initializeExtension() {
 
             if (previouslySavedData.reasoningSections && previouslySavedData.reasoningSections.length > 1) {
 
-              console.log(`  🔄 Restoring ${previouslySavedData.reasoningSections.length - 1} additional reasoning sections...`)
 
               const rAddSectionBtn = configOverlay.querySelector('#R-add-section') as HTMLButtonElement
 
@@ -21208,8 +20476,6 @@ function initializeExtension() {
 
               
 
-              console.log(`  🔍 R-add-section button found: ${!!rAddSectionBtn}`)
-              console.log(`  🔍 R-sections-extra container found: ${!!rExtra}`)
 
               if (rAddSectionBtn && rExtra) {
 
@@ -21217,23 +20483,19 @@ function initializeExtension() {
 
                 previouslySavedData.reasoningSections.slice(1).forEach((rSection: any, sectionIdx: number) => {
 
-                  console.log(`  📝 Creating reasoning section ${sectionIdx + 1} with applyFor: ${rSection.applyFor}`)
 
                   // Create a new section - stagger the clicks
                   setTimeout(() => {
                     rAddSectionBtn.click()
-                    console.log(`  ✏“ Clicked add section button for reasoning section ${sectionIdx + 1}`)
 
                     // Wait longer for section to be fully created in DOM
                     setTimeout(() => {
 
                       const sections = configOverlay.querySelectorAll('#R-sections-extra .R-section')
-                      console.log(`  🔍 Found ${sections.length} R-section elements after click`)
 
                       const newSection = sections[sectionIdx] as HTMLElement
 
                       if (newSection) {
-                        console.log(`  ✏“ Reasoning section ${sectionIdx + 1} found in DOM`)
 
                         // Restore Apply For - DELAYED to ensure trigger options are populated first
                         // Calculate delay based on trigger count
@@ -21246,7 +20508,6 @@ function initializeExtension() {
                             // Refresh options first
                             if (typeof refreshApplyForOptions === 'function') {
                               refreshApplyForOptions()
-                              console.log(`    🔄 Refreshed Apply For options for reasoning section ${sectionIdx + 1}`)
                             }
                             setTimeout(() => {
                               // Set first value on existing select with validation
@@ -21256,21 +20517,17 @@ function initializeExtension() {
                                 const valueToSet = rSectionApplyForList[0]
                                 const optionExists = Array.from(applySelect.options).some(o => o.value === valueToSet)
                                 
-                                console.log(`    🔍 R-apply select found, current value: ${applySelect.value}`)
-                                console.log(`    🔍 Available options:`, Array.from(applySelect.options).map(o => o.value))
                                 
                                 if (optionExists) {
                                   applySelect.value = valueToSet
-                                  console.log(`    ✏“ Set additional Reasoning section ${sectionIdx + 1} Apply For to: ${valueToSet}`)
                                 } else {
-                                  console.warn(`    ⚠️ Additional R-section Apply For value "${valueToSet}" not found in options`)
+                                  console.warn(`    âš ï¸ Additional R-section Apply For value "${valueToSet}" not found in options`)
                                 }
                                 
                                 // Add additional Apply For rows for remaining values - create all at once then set values
                                 if (applyList && rSectionApplyForList.length > 1) {
                                   const additionalValues = rSectionApplyForList.slice(1).filter((v: string) => v !== '__any__')
                                   if (additionalValues.length > 0) {
-                                    console.log(`    🔄 Creating ${additionalValues.length} additional R-section Apply For rows`)
                                     
                                     // First, create all the additional rows
                                     additionalValues.forEach(() => {
@@ -21290,9 +20547,8 @@ function initializeExtension() {
                                           const exists = Array.from(sel.options).some(o => o.value === val)
                                           if (exists) {
                                             sel.value = val
-                                            console.log(`      ✏“ Set R-section ${sectionIdx + 1} Apply For ${idx + 2} to: ${val}`)
                                           } else {
-                                            console.warn(`      ⚠️ R-section ${sectionIdx + 1} Apply For value "${val}" not found`)
+                                            console.warn(`      âš ï¸ R-section ${sectionIdx + 1} Apply For value "${val}" not found`)
                                           }
                                         }
                                       })
@@ -21300,7 +20556,7 @@ function initializeExtension() {
                                   }
                                 }
                               } else {
-                                console.error(`    ❌ Could not find .R-apply in section ${sectionIdx + 1}`)
+                                console.error(`    âŒ Could not find .R-apply in section ${sectionIdx + 1}`)
                               }
                             }, 300)
                           }, rSecTriggerDelay)
@@ -21435,17 +20691,14 @@ function initializeExtension() {
                               conditions: wf.conditions || []
                             })
                             wfListSub.appendChild(wfRow)
-                            console.log(`      ✏“ Restored reasoning workflow ${wfIdx + 1}: ${wf.type} - ${wf.workflowId}`)
                           })
-                          console.log(`    ✏“ Restored ${rSection.reasoningWorkflows.length} reasoning workflows for section ${sectionIdx + 1}`)
                         }
                       }
 
                       
 
-                        console.log(`    ✏“ Restored reasoning section ${sectionIdx + 1}`)
                       } else {
-                        console.error(`    ❌ Reasoning section ${sectionIdx + 1} NOT found in DOM after waiting`)
+                        console.error(`    âŒ Reasoning section ${sectionIdx + 1} NOT found in DOM after waiting`)
                       }
 
                     }, 300) // Wait 300ms for section to be created in DOM
@@ -21471,7 +20724,6 @@ function initializeExtension() {
             
             // Listen From section removed from Execution - skip restoration
             if (e.acceptFrom && e.acceptFrom.length > 0) {
-              console.log(`  ℹ️ Skipping ${e.acceptFrom.length} execution listen-from rows (section removed)`)
             }
             
             // Restore Apply For selects - DELAYED to ensure trigger options are populated first
@@ -21480,15 +20732,12 @@ function initializeExtension() {
             const eTriggerRestoreDelay = Math.max(1000, eTriggerCount * 150 + 500) // At least 1s, plus buffer
             
             const eApplyForListToRestore = e.applyForList || (e.applyFor ? [e.applyFor] : ['__any__'])
-            console.log(`  🔍 Main Execution applyForList to restore:`, eApplyForListToRestore)
-            console.log(`  ⏱️ Waiting ${eTriggerRestoreDelay}ms for triggers to be available`)
             
             if (eApplyForListToRestore.length > 0 && eApplyForListToRestore[0] !== '__any__') {
               setTimeout(() => {
                 // First refresh the options to include trigger IDs
                 if (typeof refreshApplyForOptions === 'function') {
                   refreshApplyForOptions()
-                  console.log(`  🔄 Refreshed Apply For options for main Execution`)
                 }
                 setTimeout(() => {
                   const eApplyList = configOverlay.querySelector('#E-apply-list') as HTMLElement
@@ -21502,9 +20751,8 @@ function initializeExtension() {
                     
                     if (optionExists) {
                       firstSelect.value = valueToSet
-                      console.log(`  ✏“ Set first Execution Apply For to: ${valueToSet}`)
                     } else {
-                      console.warn(`  ⚠️ Execution Apply For value "${eApplyForListToRestore[0]}" not found in options. Available:`,
+                      console.warn(`  âš ï¸ Execution Apply For value "${eApplyForListToRestore[0]}" not found in options. Available:`,
                         availableOptions)
                       // Keep the default __any__ value
                     }
@@ -21514,7 +20762,6 @@ function initializeExtension() {
                   if (eApplyList && eApplyForListToRestore.length > 1) {
                     const additionalValues = eApplyForListToRestore.slice(1).filter((v: string) => v !== '__any__')
                     if (additionalValues.length > 0) {
-                      console.log(`  🔄 Creating ${additionalValues.length} additional Execution Apply For rows`)
                       
                       // First, create all the additional rows
                       additionalValues.forEach(() => {
@@ -21526,7 +20773,6 @@ function initializeExtension() {
                         refreshApplyForOptions()
                         // Get all selects EXCEPT the first one (which has id="E-apply")
                         const additionalSelects = Array.from(eApplyList.querySelectorAll('select:not(#E-apply)')) as HTMLSelectElement[]
-                        console.log(`  🔄 Found ${additionalSelects.length} additional Execution selects to set values`)
                         
                         additionalSelects.forEach((sel, idx) => {
                           if (additionalValues[idx]) {
@@ -21535,9 +20781,8 @@ function initializeExtension() {
                             const optionExists = availableOptions.includes(valueToSet)
                             if (optionExists) {
                               sel.value = valueToSet
-                              console.log(`    ✏“ Set additional Execution Apply For ${idx + 2} to: ${valueToSet}`)
                             } else {
-                              console.warn(`    ⚠️ Additional Execution Apply For value "${additionalValues[idx]}" not found`)
+                              console.warn(`    âš ï¸ Additional Execution Apply For value "${additionalValues[idx]}" not found`)
                             }
                           }
                         })
@@ -21564,7 +20809,6 @@ function initializeExtension() {
                 if (eWorkflowSection) {
                   eWorkflowSection.style.display = modeValue === 'agent_only' ? 'none' : 'block'
                 }
-                console.log(`  ✏“ Restored Execution Mode: ${modeValue}`)
               }
             }
 
@@ -21582,7 +20826,6 @@ function initializeExtension() {
                   })
                   workflowList.appendChild(wfRow)
                 })
-                console.log(`  ✏“ Restored ${e.executionWorkflows.length} execution workflows (new format)`)
               }
             } else if (e.workflows && e.workflows.length > 0) {
               // Legacy format fallback - just workflow IDs
@@ -21598,7 +20841,6 @@ function initializeExtension() {
                   })
                   workflowList.appendChild(wfRow)
                 })
-                console.log(`  ✏“ Restored ${e.workflows.length} execution workflows (legacy format)`)
               }
             }
 
@@ -21662,7 +20904,6 @@ function initializeExtension() {
 
                 })
 
-                console.log(`  ✏“ Restored ${e.specialDestinations.length} execution special destinations`)
 
               }
 
@@ -21672,41 +20913,32 @@ function initializeExtension() {
 
             // Restore Additional Execution Sections
 
-            console.log(`  🔍 Checking e.executionSections:`, e.executionSections)
 
             if (e.executionSections && e.executionSections.length > 0) {
 
-              console.log(`  🔄 Restoring ${e.executionSections.length} additional execution sections...`)
-              console.log(`  📦 Execution sections data:`, JSON.stringify(e.executionSections))
 
               const eAddSectionBtn = configOverlay.querySelector('#E-add-section') as HTMLButtonElement
 
               const eExtra = configOverlay.querySelector('#E-sections-extra') as HTMLElement
 
-              console.log(`  🔍 E-add-section button found: ${!!eAddSectionBtn}`)
-              console.log(`  🔍 E-sections-extra container found: ${!!eExtra}`)
 
               if (eAddSectionBtn && eExtra) {
 
                 e.executionSections.forEach((eSection: any, sectionIdx: number) => {
 
-                  console.log(`  📝 Creating execution section ${sectionIdx + 1} with applyFor: ${eSection.applyFor}`)
 
                   // Create a new section - stagger the clicks
                   setTimeout(() => {
                     eAddSectionBtn.click()
-                    console.log(`  ✏“ Clicked add section button for section ${sectionIdx + 1}`)
 
                     // Wait longer for section to be fully created in DOM
                     setTimeout(() => {
 
                       const sections = configOverlay.querySelectorAll('#E-sections-extra .E-section')
-                      console.log(`  🔍 Found ${sections.length} E-section elements after click`)
 
                       const newSection = sections[sectionIdx] as HTMLElement
 
                       if (newSection) {
-                        console.log(`  ✏“ Section ${sectionIdx + 1} found in DOM`)
 
                         // Restore Apply For - DELAYED to ensure trigger options are populated first
                         // Calculate delay based on trigger count
@@ -21719,7 +20951,6 @@ function initializeExtension() {
                             // Refresh options first
                             if (typeof refreshApplyForOptions === 'function') {
                               refreshApplyForOptions()
-                              console.log(`    🔄 Refreshed Apply For options`)
                             }
                             setTimeout(() => {
                               // Set first value on existing select with validation
@@ -21729,21 +20960,17 @@ function initializeExtension() {
                                 const valueToSet = eSectionApplyForList[0]
                                 const optionExists = Array.from(applySelect.options).some(o => o.value === valueToSet)
                                 
-                                console.log(`    🔍 Apply select found, current value: ${applySelect.value}`)
-                                console.log(`    🔍 Available options:`, Array.from(applySelect.options).map(o => o.value))
                                 
                                 if (optionExists) {
                                   applySelect.value = valueToSet
-                                  console.log(`    ✏“ Set additional section ${sectionIdx + 1} Apply For to: ${valueToSet}`)
                                 } else {
-                                  console.warn(`    ⚠️ Additional E-section Apply For value "${valueToSet}" not found in options`)
+                                  console.warn(`    âš ï¸ Additional E-section Apply For value "${valueToSet}" not found in options`)
                                 }
                                 
                                 // Add additional Apply For rows for remaining values - create all at once then set values
                                 if (applyList && eSectionApplyForList.length > 1) {
                                   const additionalValues = eSectionApplyForList.slice(1).filter((v: string) => v !== '__any__')
                                   if (additionalValues.length > 0) {
-                                    console.log(`    🔄 Creating ${additionalValues.length} additional E-section Apply For rows`)
                                     
                                     // First, create all the additional rows
                                     additionalValues.forEach(() => {
@@ -21763,9 +20990,8 @@ function initializeExtension() {
                                           const exists = Array.from(sel.options).some(o => o.value === val)
                                           if (exists) {
                                             sel.value = val
-                                            console.log(`      ✏“ Set E-section ${sectionIdx + 1} Apply For ${idx + 2} to: ${val}`)
                                           } else {
-                                            console.warn(`      ⚠️ E-section ${sectionIdx + 1} Apply For value "${val}" not found`)
+                                            console.warn(`      âš ï¸ E-section ${sectionIdx + 1} Apply For value "${val}" not found`)
                                           }
                                         }
                                       })
@@ -21773,7 +20999,7 @@ function initializeExtension() {
                                   }
                                 }
                               } else {
-                                console.error(`    ❌ Could not find .E-apply-sub in section ${sectionIdx + 1}`)
+                                console.error(`    âŒ Could not find .E-apply-sub in section ${sectionIdx + 1}`)
                               }
                             }, 300)
                           }, eSecTriggerDelay)
@@ -21791,7 +21017,6 @@ function initializeExtension() {
                                 conditions: wf.conditions || []
                               })
                               wfListSub.appendChild(wfRow)
-                              console.log(`    ✏“ Restored workflow ${wfIdx + 1}: ${wf.type} - ${wf.workflowId}`)
                             })
                           }
                         } else if (eSection.workflows && eSection.workflows.length > 0) {
@@ -21807,7 +21032,6 @@ function initializeExtension() {
                                 conditions: []
                               })
                               wfListSub.appendChild(wfRow)
-                              console.log(`    ✏“ Restored workflow ${wfIdx + 1}: ${workflowId} (legacy)`)
                             })
                           }
                         }
@@ -21838,7 +21062,6 @@ function initializeExtension() {
                                   if (kindSel) {
                                     kindSel.value = dest.kind
                                     kindSel.dispatchEvent(new Event('change'))
-                                    console.log(`      ✏“ Set Report To kind to: ${dest.kind}`)
                                   }
 
                                   // For agentBox or agent, set the follow-up select value
@@ -21847,7 +21070,6 @@ function initializeExtension() {
                                       const followUp = lastRow.querySelector('.esp-followup select') as HTMLSelectElement
                                       if (followUp && dest.agents[0]) {
                                         followUp.value = dest.agents[0]
-                                        console.log(`      ✏“ Set Report To agent/box to: ${dest.agents[0]}`)
                                       }
                                     }, 150)
                                   }
@@ -21855,15 +21077,13 @@ function initializeExtension() {
                               }, 100)
                             }, destIdx * 200) // Stagger each destination restoration
                           })
-                          console.log(`    ✏“ Restoring ${eSection.specialDestinations.length} Report To destinations`)
                         }
                       }
 
                       
 
-                        console.log(`    ✏“ Restored execution section ${sectionIdx + 1}`)
                       } else {
-                        console.error(`    ❌ Section ${sectionIdx + 1} NOT found in DOM after waiting`)
+                        console.error(`    âŒ Section ${sectionIdx + 1} NOT found in DOM after waiting`)
                       }
 
                     }, 300) // Wait 300ms for section to be created in DOM
@@ -21880,7 +21100,6 @@ function initializeExtension() {
 
           
 
-          console.log('✅ Form data restored from memory')
           
           // CRITICAL: Clear restoration flag after all async operations complete
           // Apply For restoration uses: triggerRestoreDelay (1000ms+) + 300ms + 200ms + buffer
@@ -21888,7 +21107,6 @@ function initializeExtension() {
           const maxRestorationDelay = Math.max(1000, triggerCount * 150 + 500) + 300 + 200 + 500 // Add 500ms buffer
           setTimeout(() => {
             isRestoringFromMemory = false
-            console.log('🔓 Auto-save re-enabled after restoration complete')
           }, maxRestorationDelay)
 
         })
@@ -21909,15 +21127,10 @@ function initializeExtension() {
 
           const parsed = previouslySavedData
 
-          console.log('📂 Loading existing agent config - START')
 
-          console.log('🔍 parsed has listening?:', !!parsed.listening)
 
-          console.log('🔍 parsed.listening.expectedContext:', parsed.listening?.expectedContext?.substring(0, 50) || '(none)')
 
-          console.log('🔍 parsed has reasoning?:', !!parsed.reasoning)
 
-          console.log('🔍 parsed.reasoning.goals:', parsed.reasoning?.goals?.substring(0, 50) || '(none)')
 
           
 
@@ -21925,13 +21138,6 @@ function initializeExtension() {
 
           previouslySavedData = parsed
 
-          console.log('📦 Initialized previouslySavedData with loaded config, files:', {
-
-            agentContextFiles: parsed.agentContextFiles?.length || 0,
-
-            listeningExampleFiles: parsed.listening?.exampleFiles?.length || 0
-
-          })
           
 
           // Set name, description and icon
@@ -21947,7 +21153,7 @@ function initializeExtension() {
 
           
 
-          // All capabilities always enabled — no checkbox logic needed
+          // All capabilities always enabled â€” no checkbox logic needed
 
           
 
@@ -22162,7 +21368,6 @@ function initializeExtension() {
 
               if (l.active?.triggers) {
 
-                console.log(`🔄 Restoring ${l.active.triggers.length} active triggers (without pattern detection)...`)
 
                 l.active.triggers.forEach((trigger: any, idx: number) => {
 
@@ -22218,7 +21423,6 @@ function initializeExtension() {
 
                       
 
-                      console.log(`  ✏“ Active Trigger ${idx + 1}: name="${trigger.tag.name}", kind="${trigger.tag.kind}", extra="${trigger.tag.extra || 'none'}"`)
 
                     }
 
@@ -22234,7 +21438,6 @@ function initializeExtension() {
 
               if (l.passive?.triggers) {
 
-                console.log(`🔄 Restoring ${l.passive.triggers.length} passive triggers (with pattern detection)...`)
 
                 l.passive.triggers.forEach((trigger: any, idx: number) => {
 
@@ -22290,7 +21493,6 @@ function initializeExtension() {
 
                       
 
-                      console.log(`  ✏“ Passive Trigger ${idx + 1}: name="${trigger.tag.name}", kind="${trigger.tag.kind}", extra="${trigger.tag.extra || 'none'}"`)
 
                     }
 
@@ -22328,9 +21530,9 @@ function initializeExtension() {
 
                       <div class="saved-file-row" data-file-type="listener" data-file-idx="${idx}" style="display:flex;align-items:center;gap:8px;margin-bottom:6px;padding:4px 8px;background:rgba(255,255,255,0.05);border-radius:4px;">
 
-                        <span>📄 ${f.name} (${(f.size / 1024).toFixed(1)} KB)</span>
+                        <span>ðŸ“„ ${f.name} (${(f.size / 1024).toFixed(1)} KB)</span>
 
-                        <button class="delete-file-btn" data-file-type="listener" data-file-idx="${idx}" style="margin-left:auto;background:rgba(220,38,38,0.10);border:none;color:white;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:10px;">✏• Delete</button>
+                        <button class="delete-file-btn" data-file-type="listener" data-file-idx="${idx}" style="margin-left:auto;background:rgba(220,38,38,0.10);border:none;color:white;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:10px;">âœâ€¢ Delete</button>
 
                       </div>
 
@@ -22338,7 +21540,7 @@ function initializeExtension() {
 
                     <div style="font-size:10px;opacity:0.6;margin-top:12px;font-style:italic;">
 
-                      ✏š Upload new files below to add more (duplicates will be skipped)
+                      âœÅ¡ Upload new files below to add more (duplicates will be skipped)
 
                     </div>
 
@@ -22378,7 +21580,6 @@ function initializeExtension() {
 
                         if (countEl) countEl.textContent = `${l.exampleFiles.length} example file(s) saved:`
 
-                        console.log(`🗝‘️ Deleted Listener Example file at index ${idx}, ${l.exampleFiles.length} remaining`)
 
                       }
 
@@ -22581,9 +21782,9 @@ function initializeExtension() {
 
                     <div class="saved-file-row" data-file-type="agent" data-file-idx="${idx}" style="display:flex;align-items:center;gap:8px;font-size:11px;opacity:0.9;margin-left:8px;margin-bottom:6px;padding:4px 8px;background:rgba(255,255,255,0.05);border-radius:4px;">
 
-                      <span>📄 ${f.name} (${(f.size / 1024).toFixed(1)} KB)</span>
+                      <span>ðŸ“„ ${f.name} (${(f.size / 1024).toFixed(1)} KB)</span>
 
-                      <button class="delete-file-btn" data-file-type="agent" data-file-idx="${idx}" style="margin-left:auto;background:rgba(220,38,38,0.10);border:none;color:white;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:10px;">✏• Delete</button>
+                      <button class="delete-file-btn" data-file-type="agent" data-file-idx="${idx}" style="margin-left:auto;background:rgba(220,38,38,0.10);border:none;color:white;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:10px;">âœâ€¢ Delete</button>
 
                     </div>
 
@@ -22591,7 +21792,7 @@ function initializeExtension() {
 
                   <div style="font-size:10px;opacity:0.6;margin-top:12px;font-style:italic;">
 
-                    ✏š Upload new files below to add more (duplicates will be skipped)
+                    âœÅ¡ Upload new files below to add more (duplicates will be skipped)
 
                   </div>
 
@@ -22635,7 +21836,6 @@ function initializeExtension() {
 
                       if (countEl) countEl.textContent = `${parsed.agentContextFiles.length} file(s) saved:`
 
-                      console.log(`🗝‘️ Deleted Agent Context file at index ${idx}, ${parsed.agentContextFiles.length} remaining`)
 
                     }
 
@@ -22651,39 +21851,27 @@ function initializeExtension() {
 
             // CRITICAL VERIFICATION - Check if fields are in loaded data
 
-            console.log('🔍 BEFORE VERIFICATION - checking parsed variable:')
 
-            console.log('  Type of parsed:', typeof parsed)
 
-            console.log('  parsed is null?:', parsed === null)
 
-            console.log('  parsed is undefined?:', parsed === undefined)
 
-            console.log('  parsed has listening?:', !!parsed?.listening)
 
-            console.log('  parsed.listening.expectedContext exists?:', !!parsed?.listening?.expectedContext)
 
             
 
-            console.log('🔍 LOAD VERIFICATION - Critical fields from storage:')
 
-            console.log(`  📁 Agent Context Files: ${parsed?.agentContextFiles?.length || 0} files`)
 
             if (parsed?.agentContextFiles?.length) {
 
-              console.log(`     Files: ${parsed.agentContextFiles.map((f: any) => f.name).join(', ')}`)
 
             }
 
-            console.log(`  📝 Expected Context: "${parsed?.listening?.expectedContext?.substring(0, 50) || '(empty)'}${parsed?.listening?.expectedContext?.length > 50 ? '...' : ''}"`)
 
-            console.log(`  🎯 Trigger Sources: ${JSON.stringify(parsed?.listening?.sources || [])}`)
 
 
 
             
 
-            console.log('✅ Agent config loaded successfully')
 
             
 
@@ -22702,13 +21890,12 @@ function initializeExtension() {
 
             isFirstRender = false
 
-            console.log('✅ First render complete, future renders will sync data from DOM')
 
           })
 
         } catch (e) {
 
-          console.error('❌ Failed to load agent config:', e)
+          console.error('âŒ Failed to load agent config:', e)
 
           isFirstRender = false // Also clear flag on error
 
@@ -22822,14 +22009,13 @@ function initializeExtension() {
       exportBtn.onclick = () => {
         // Show loading state immediately to prevent perceived freeze
         const originalText = exportBtn.innerHTML
-        exportBtn.innerHTML = '⏳ Loading...'
+        exportBtn.innerHTML = 'â³ Loading...'
         ;(exportBtn as HTMLButtonElement).disabled = true
         
         // Defer heavy work to prevent UI freeze
         requestAnimationFrame(() => {
           setTimeout(async () => {
             try {
-              console.log('📤 Opening export dialog...')
           
           // Helper: normalize string numbers to actual numbers
           const toNumber = (val: any, def: number): number => {
@@ -22909,11 +22095,11 @@ function initializeExtension() {
             id: agentName,
             name: (document.getElementById('ag-name') as HTMLInputElement)?.value || agentName,
             description: (document.getElementById('ag-description') as HTMLTextAreaElement)?.value || '',
-            icon: (document.getElementById('ag-icon') as HTMLInputElement)?.value || '🤖',
+            icon: (document.getElementById('ag-icon') as HTMLInputElement)?.value || 'ðŸ¤–',
             capabilities: [] as string[],
           }
           
-          // Get capabilities — all sections always active
+          // Get capabilities â€” all sections always active
           rawData.capabilities.push('listening')
           rawData.capabilities.push('reasoning')
           rawData.capabilities.push('execution')
@@ -22968,7 +22154,7 @@ function initializeExtension() {
             })
           }
           
-          // Helper: extract agent number from ID or name (e.g., "agent1" → 1, "agent05" → 5)
+          // Helper: extract agent number from ID or name (e.g., "agent1" â†’ 1, "agent05" â†’ 5)
           const extractAgentNumber = (id: string, name?: string): number | undefined => {
             // Try to extract from ID first (e.g., "agent1", "agent05", "agent-10")
             const idMatch = (id || '').match(/agent[-_]?(\d+)/i)
@@ -22998,7 +22184,7 @@ function initializeExtension() {
             id: rawData.id || '',
             name: rawData.name || '',
             description: rawData.description || '',
-            icon: rawData.icon || '🤖',
+            icon: rawData.icon || 'ðŸ¤–',
             number: agentNumber,
             enabled: rawData.enabled !== false,
             capabilities: rawData.capabilities || [],
@@ -23115,19 +22301,19 @@ function initializeExtension() {
             ],
           }
           
-          // ─────────────────────────────────────────────────────────────────────
+          // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
           // FIND CONNECTED AGENT BOXES (ROBUST IMPLEMENTATION)
           // ALWAYS fetch fresh data from SQLite to avoid stale state issues
           // A box is connected when ALL conditions are met:
           // 1. Box is explicitly referenced in agent's execution section destinations
           // 2. Box exists in the session (active in SQLite)
           // 3. Box has agentNumber === agent.number (allocated to this agent)
-          // ─────────────────────────────────────────────────────────────────────
+          // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
           
           const agentNumberValue = canonical.number
           const sessionKey = getCurrentSessionKey()
           
-          // Helper: parse boxNumber from destination value (e.g., 'agentBox01' → 1)
+          // Helper: parse boxNumber from destination value (e.g., 'agentBox01' â†’ 1)
           const parseBoxNumber = (val: string): number | null => {
             if (!val) return null
             const match = val.match(/agentBox(\d+)/i) || val.match(/^AB(\d{2})/i) || val.match(/(\d+)/)
@@ -23206,7 +22392,7 @@ function initializeExtension() {
                   sessionKey: sessionKey
                 }, (response) => {
                   if (chrome.runtime.lastError || !response?.success) {
-                    console.warn('⚠️ Could not fetch from SQLite:', chrome.runtime.lastError?.message)
+                    console.warn('âš ï¸ Could not fetch from SQLite:', chrome.runtime.lastError?.message)
                     resolve(null)
                   } else {
                     resolve(response.session)
@@ -23217,7 +22403,6 @@ function initializeExtension() {
               if (sqliteData) {
                 // Get FRESH agent boxes from SQLite
                 allBoxes = sqliteData.agentBoxes || []
-                console.log(`📊 Export: Found ${allBoxes.length} agent boxes in SQLite`)
                 
                 // Get FRESH agent config from SQLite
                 const freshAgent = sqliteData.agents?.find((a: any) => 
@@ -23225,11 +22410,10 @@ function initializeExtension() {
                 )
                 if (freshAgent?.config) {
                   freshAgentConfig = freshAgent.config
-                  console.log(`📊 Export: Found fresh agent config in SQLite for ${agentKey}`)
                 }
               }
             } catch (e) {
-              console.warn('⚠️ Error fetching from SQLite:', e)
+              console.warn('âš ï¸ Error fetching from SQLite:', e)
             }
           }
           
@@ -23237,13 +22421,11 @@ function initializeExtension() {
           // Priority: SQLite agent config > canonical > previouslySavedData
           if (freshAgentConfig) {
             referencedBoxNumbers = extractAgentBoxDestinations(freshAgentConfig)
-            console.log(`📊 Export: Using FRESH config - Found ${referencedBoxNumbers.size} referenced boxes`)
           } else {
             // Fall back to canonical (derived from previouslySavedData)
             referencedBoxNumbers = extractAgentBoxDestinations(canonical)
             const prevRefs = extractAgentBoxDestinations(previouslySavedData)
             prevRefs.forEach(n => referencedBoxNumbers.add(n))
-            console.log(`📊 Export: Using CACHED config - Found ${referencedBoxNumbers.size} referenced boxes`)
           }
           
           const hasAgentBoxDestination = referencedBoxNumbers.size > 0
@@ -23252,8 +22434,6 @@ function initializeExtension() {
           let connectedBoxes: any[] = []
           
           if (agentNumberValue && allBoxes.length > 0) {
-            console.log(`📊 Export: Checking ${allBoxes.length} boxes for agent #${agentNumberValue}`)
-            console.log(`📊 Export: Referenced box numbers: [${Array.from(referencedBoxNumbers).join(', ')}]`)
             
             connectedBoxes = allBoxes.filter((box: any) => {
               // Skip disabled boxes
@@ -23268,23 +22448,19 @@ function initializeExtension() {
               // Log each box check for debugging
               const matches = isReferenced && isAllocated
               if (isReferenced || isAllocated) {
-                console.log(`  Box ${box.identifier || box.id}: boxNum=${box.boxNumber}, agentNum=${box.agentNumber} → referenced=${isReferenced}, allocated=${isAllocated}, connected=${matches}`)
               }
               
               return matches
             })
             
-            console.log(`📊 Export: Found ${connectedBoxes.length} connected boxes`)
           } else if (!agentNumberValue) {
-            console.log(`⚠️ Export: Agent has no number assigned, cannot detect connections`)
           } else if (allBoxes.length === 0) {
-            console.log(`⚠️ Export: No agent boxes found in session`)
           }
           
           
-          // ─────────────────────────────────────────────────────────────────────
+          // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
           // SHOW EXPORT DIALOG
-          // ─────────────────────────────────────────────────────────────────────
+          // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
           
           const exportDialog = document.createElement('div')
           exportDialog.id = 'agent-export-dialog'
@@ -23306,20 +22482,20 @@ function initializeExtension() {
           exportDialog.innerHTML = `
             <div style="background: white; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); max-width: 550px; width: 90%; max-height: 85vh; display: flex; flex-direction: column;">
               <h3 style="margin: 0; padding: 20px 24px; color: #333; font-size: 18px; text-align: center; border-bottom: 1px solid #eee; flex-shrink: 0;">
-                📤 Export Agent Configuration
+                ðŸ“¤ Export Agent Configuration
               </h3>
               
               <div style="flex: 1; overflow-y: auto; padding: 20px 24px;">
                 <!-- Agent Summary -->
                 <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px; margin-bottom: 16px;">
                   <div style="font-weight: bold; color: #334155; margin-bottom: 8px;">
-                    ${canonical.icon || '🤖'} ${canonical.name || 'Agent'}
+                    ${canonical.icon || 'ðŸ¤–'} ${canonical.name || 'Agent'}
                   </div>
                   <div style="font-size: 12px; color: #64748b; line-height: 1.5;">
                     <div>ID: <code style="background: #e2e8f0; padding: 2px 6px; border-radius: 4px;">${canonical.id}</code></div>
                     <div>Agent Number: <strong>${agentNumberValue || 'Not set'}</strong></div>
                     <div>Triggers: ${canonical.listening?.unifiedTriggers?.length || 0}</div>
-                    <div>Has AgentBox Destination: ${hasAgentBoxDestination ? '✅ Yes' : '❌ No'}</div>
+                    <div>Has AgentBox Destination: ${hasAgentBoxDestination ? 'âœ… Yes' : 'âŒ No'}</div>
                   </div>
                 </div>
                 
@@ -23327,7 +22503,7 @@ function initializeExtension() {
                 <!-- Connected Agent Boxes Section -->
                 <div style="margin-bottom: 16px;">
                   <div style="font-weight: bold; color: #334155; margin-bottom: 10px; display: flex; align-items: center; gap: 8px;">
-                    <span>📦 Connected Agent Boxes (${connectedBoxes.length})</span>
+                    <span>ðŸ“¦ Connected Agent Boxes (${connectedBoxes.length})</span>
                     <span style="font-size: 11px; color: #64748b; font-weight: normal;">(agentNumber = ${agentNumberValue})</span>
                   </div>
                   <div style="font-size: 11px; color: #64748b; margin-bottom: 10px;">
@@ -23343,8 +22519,8 @@ function initializeExtension() {
                             ${box.title || `Agent Box ${String(box.boxNumber).padStart(2, '0')}`}
                           </div>
                           <div style="font-size: 11px; color: #94a3b8;">
-                            ${box.identifier || 'AB??'} • Box #${box.boxNumber} → Agent #${box.agentNumber}
-                            ${box.provider ? ` • ${box.provider}/${box.model || 'auto'}` : ''}
+                            ${box.identifier || 'AB??'} â€¢ Box #${box.boxNumber} â†’ Agent #${box.agentNumber}
+                            ${box.provider ? ` â€¢ ${box.provider}/${box.model || 'auto'}` : ''}
                           </div>
                         </div>
                       </label>
@@ -23355,13 +22531,13 @@ function initializeExtension() {
                 <!-- No Connected Boxes -->
                 <div style="background: #fffbeb; border: 1px solid #fcd34d; border-radius: 8px; padding: 14px; margin-bottom: 16px; font-size: 13px; color: #92400e;">
                   ${!agentNumberValue ? `
-                    <strong>⚠️ Agent Number not set</strong><br>
+                    <strong>âš ï¸ Agent Number not set</strong><br>
                     Set an Agent Number in the form to enable Agent Box connections.
                   ` : !hasAgentBoxDestination ? `
-                    <strong>ℹ️ No Agent Box destinations</strong><br>
+                    <strong>â„¹ï¸ No Agent Box destinations</strong><br>
                     Add an "agentBox" destination in the Execution section to route output to boxes.
                   ` : `
-                    <strong>ℹ️ No connected Agent Boxes found</strong><br>
+                    <strong>â„¹ï¸ No connected Agent Boxes found</strong><br>
                     Create an Agent Box with agentNumber = ${agentNumberValue} to connect it to this agent.
                   `}
                 </div>
@@ -23400,9 +22576,9 @@ function initializeExtension() {
           
           document.body.appendChild(exportDialog)
           
-          // ─────────────────────────────────────────────────────────────────────
+          // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
           // EXPORT DIALOG HANDLERS
-          // ─────────────────────────────────────────────────────────────────────
+          // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
           
           const closeDialog = () => exportDialog.remove()
           
@@ -23452,11 +22628,10 @@ function initializeExtension() {
           // Export agent only
           exportDialog.querySelector('#export-agent-only-btn')?.addEventListener('click', () => {
             downloadJson(canonical, `agent-${canonical.name || 'export'}-${new Date().toISOString().slice(0, 10)}.json`)
-            console.log('✅ Agent exported successfully (canonical format v2.1.0)!')
             closeDialog()
             
             const originalText = exportBtn.innerHTML
-            exportBtn.innerHTML = '✅ Exported!'
+            exportBtn.innerHTML = 'âœ… Exported!'
             setTimeout(() => { exportBtn.innerHTML = originalText }, 2000)
           })
           
@@ -23512,26 +22687,21 @@ function initializeExtension() {
             }
             
             downloadJson(combinedExport, `agent-with-boxes-${canonical.name || 'export'}-${new Date().toISOString().slice(0, 10)}.json`)
-            console.log('✅ Agent + Agent Boxes exported successfully!', {
-              agent: canonical.name,
-              boxCount: selectedBoxes.length,
-              boxIdentifiers: selectedIdentifiers
-            })
             closeDialog()
             
             const originalText = exportBtn.innerHTML
-            exportBtn.innerHTML = '✅ Exported!'
+            exportBtn.innerHTML = 'âœ… Exported!'
             setTimeout(() => { exportBtn.innerHTML = originalText }, 2000)
           })
           
             } catch (error) {
-              console.error('❌ Export failed:', error)
+              console.error('âŒ Export failed:', error)
               exportBtn.innerHTML = originalText
               ;(exportBtn as HTMLButtonElement).disabled = false
               alert('Export failed: ' + (error instanceof Error ? error.message : 'Unknown error'))
             } finally {
               // Restore button state if not already done
-              if (exportBtn.innerHTML === '⏳ Loading...') {
+              if (exportBtn.innerHTML === 'â³ Loading...') {
                 exportBtn.innerHTML = originalText
                 ;(exportBtn as HTMLButtonElement).disabled = false
               }
@@ -23555,14 +22725,12 @@ function initializeExtension() {
         if (!file) return
         
         try {
-          console.log('📥 Importing agent configuration from:', file.name)
           
           const text = await file.text()
           const data = JSON.parse(text)
           
           // Detect format version
           const schemaVersion = data._schemaVersion || '1.0.0'
-          console.log(`📋 Detected schema version: ${schemaVersion}`)
           
           let agentData: any = null
           
@@ -23587,12 +22755,11 @@ function initializeExtension() {
           })
           // V2.1.0 Canonical format (normalized structure)
           if (schemaVersion === '2.1.0' && data.name) {
-            console.log('📋 Processing canonical v2.1.0 format')
             agentData = {
               id: data.id || '',
               name: data.name || '',
               description: data.description || '',
-              icon: data.icon || '🤖',
+              icon: data.icon || 'ðŸ¤–',
               number: data.number,
               enabled: data.enabled !== false,
               capabilities: data.capabilities || [],
@@ -23633,12 +22800,11 @@ function initializeExtension() {
           }
           // V2.0.0 Canonical format (direct structure)
           else if (schemaVersion === '2.0.0' && data.name) {
-            console.log('📋 Processing canonical v2.0.0 format')
             agentData = {
               id: data.id || '',
               name: data.name || '',
               description: data.description || '',
-              icon: data.icon || '🤖',
+              icon: data.icon || 'ðŸ¤–',
               number: data.number,
               enabled: data.enabled !== false,
               capabilities: data.capabilities || [],
@@ -23690,12 +22856,10 @@ function initializeExtension() {
             
             // V1.0.0 with _compactAgent
             if (data._compactAgent) {
-              console.log('📋 Detected v1.0.0 format with _compactAgent')
               agentData = data._compactAgent
             }
             // V1.0.0 with identity section (schema-wrapped)
             else if (data.identity && data.identity.name) {
-              console.log('📋 Detected v1.0.0 schema-wrapped format')
               agentData = {
                 id: extractVal(data.identity.id),
                 name: extractVal(data.identity.name),
@@ -23723,7 +22887,7 @@ function initializeExtension() {
                   applyForList: extractVal(data.reasoning.applyForList),
                   goals: extractVal(data.reasoning.goals),
                   role: extractVal(data.reasoning.role),
-                  // rules removed — legacy field silently skipped
+                  // rules removed â€” legacy field silently skipped
                   custom: extractVal(data.reasoning.custom),
                   acceptFrom: extractVal(data.reasoning.acceptFrom),
                   memoryContext: extractVal(data.reasoning.memoryContext),
@@ -23749,12 +22913,10 @@ function initializeExtension() {
             }
             // Simple { agent: {...} } wrapper
             else if (data.agent) {
-              console.log('📋 Detected simple agent wrapper format')
               agentData = data.agent
             }
             // Direct format (no wrapper)
             else if (data.name || data.id) {
-              console.log('📋 Detected direct agent format')
               agentData = data
             }
           }
@@ -23764,14 +22926,6 @@ function initializeExtension() {
             throw new Error('Invalid agent file: could not extract agent data with name or id')
           }
           
-          console.log('📦 Extracted agent data:', {
-            name: agentData.name,
-            version: schemaVersion,
-            hasListening: !!agentData.listening,
-            triggersCount: agentData.listening?.unifiedTriggers?.length || 0,
-            hasReasoning: !!agentData.reasoning,
-            hasExecution: !!agentData.execution,
-          })
           
           // Apply imported data to form
           if (agentData.name) {
@@ -23821,14 +22975,13 @@ function initializeExtension() {
             }
           }, 100)
           
-          console.log('✅ Agent imported successfully!')
           
           // Show brief success feedback
           const originalText = importBtn.innerHTML
-          importBtn.innerHTML = '✅ Imported!'
+          importBtn.innerHTML = 'âœ… Imported!'
           setTimeout(() => { importBtn.innerHTML = originalText }, 2000)
         } catch (error: any) {
-          console.error('❌ Import failed:', error)
+          console.error('âŒ Import failed:', error)
           alert(`Import failed: ${error.message || 'Invalid file format'}`)
         } finally {
           importFile.value = ''
@@ -23841,21 +22994,19 @@ function initializeExtension() {
     if (schemaBtn) {
       schemaBtn.onclick = async () => {
         const originalText = schemaBtn.innerHTML
-        schemaBtn.innerHTML = '⏳'
+        schemaBtn.innerHTML = 'â³'
         ;(schemaBtn as HTMLButtonElement).disabled = true
         
         try {
-          console.log('📋 Downloading unified master schema (async)...')
           
           // Dynamic import for code splitting - schema only loaded when needed
           const { downloadMasterSchema } = await import('./services/TypeSystemService')
           await downloadMasterSchema()
           
-          console.log('✅ Unified master schema downloaded!')
-          schemaBtn.innerHTML = '✏“'
+          schemaBtn.innerHTML = 'âœâ€œ'
           setTimeout(() => { schemaBtn.innerHTML = originalText }, 1500)
         } catch (error) {
-          console.error('❌ Schema download failed:', error)
+          console.error('âŒ Schema download failed:', error)
           alert('Schema download failed. Check console for details.')
         } finally {
           ;(schemaBtn as HTMLButtonElement).disabled = false
@@ -23868,21 +23019,19 @@ function initializeExtension() {
     if (templateBtn) {
       templateBtn.onclick = async () => {
         const originalText = templateBtn.innerHTML
-        templateBtn.innerHTML = '⏳'
+        templateBtn.innerHTML = 'â³'
         ;(templateBtn as HTMLButtonElement).disabled = true
         
         try {
-          console.log('📄 Downloading unified template (async)...')
           
           // Dynamic import for code splitting - template only loaded when needed
           const { downloadUnifiedTemplate } = await import('./services/TypeSystemService')
           await downloadUnifiedTemplate()
           
-          console.log('✅ Unified template downloaded!')
-          templateBtn.innerHTML = '✏“'
+          templateBtn.innerHTML = 'âœâ€œ'
           setTimeout(() => { templateBtn.innerHTML = originalText }, 1500)
         } catch (error) {
-          console.error('❌ Template download failed:', error)
+          console.error('âŒ Template download failed:', error)
           alert('Template download failed. Check console for details.')
         } finally {
           ;(templateBtn as HTMLButtonElement).disabled = false
@@ -23894,13 +23043,11 @@ function initializeExtension() {
 
     const saveBtn = document.getElementById('agent-config-save')
 
-    console.log(`🔧 Save button element:`, saveBtn ? 'FOUND' : 'NOT FOUND')
 
     if (saveBtn) {
 
       saveBtn.onclick = async () => {
 
-        console.log(`🔴 SAVE BUTTON CLICKED! Starting save process...`)
 
         // Disable button and show loading state
 
@@ -23908,7 +23055,7 @@ function initializeExtension() {
 
         if (!saveButton) {
 
-          console.error('❌ Save button not found after click!')
+          console.error('âŒ Save button not found after click!')
 
           return
 
@@ -23924,7 +23071,7 @@ function initializeExtension() {
 
       saveButton.style.cursor = 'not-allowed'
 
-      saveButton.innerHTML = '💾 Saving...'
+      saveButton.innerHTML = 'ðŸ’¾ Saving...'
 
       
 
@@ -23936,25 +23083,7 @@ function initializeExtension() {
 
           // CRITICAL DEBUG: Log what's in previouslySavedData before save
 
-          console.log('🔍 PRE-SAVE CHECK - previouslySavedData state:', {
 
-            hasData: !!previouslySavedData,
-
-            agentContextFilesCount: previouslySavedData?.agentContextFiles?.length || 0,
-
-            agentContextFileNames: previouslySavedData?.agentContextFiles?.map((f: any) => f.name) || [],
-
-            listeningExampleFilesCount: previouslySavedData?.listening?.exampleFiles?.length || 0,
-
-            reasoningCustomFieldsCount: previouslySavedData?.reasoning?.custom?.length || 0,
-
-            reasoningCustomFieldsData: previouslySavedData?.reasoning?.custom || [],
-
-            reasoningSectionsCount: previouslySavedData?.reasoningSections?.length || 0
-
-          })
-
-          console.log('📝 Full previouslySavedData.agentContextFiles:', previouslySavedData?.agentContextFiles)
 
           
 
@@ -23968,7 +23097,7 @@ function initializeExtension() {
 
             description: (document.getElementById('ag-description') as HTMLTextAreaElement)?.value || '',
 
-            icon: (document.getElementById('ag-icon') as HTMLInputElement)?.value || '🤖',
+            icon: (document.getElementById('ag-icon') as HTMLInputElement)?.value || 'ðŸ¤–',
 
             capabilities: [],
 
@@ -24006,7 +23135,7 @@ function initializeExtension() {
 
           }
 
-          // Sections are always active (checkboxes removed) — always push all capabilities
+          // Sections are always active (checkboxes removed) â€” always push all capabilities
           const L = true
 
           const R = true
@@ -24127,7 +23256,6 @@ function initializeExtension() {
 
             const triggerRows = document.querySelectorAll('#L-active-list .act-row')
 
-            console.log(`🔍 Collecting active triggers (without pattern detection) from ${triggerRows.length} rows...`)
 
             
 
@@ -24149,7 +23277,6 @@ function initializeExtension() {
 
               
 
-              console.log(`  Row ${idx + 1}: name="${name}", kind="${kind}", extra="${extra}", display="${extraSel?.style.display}"`)
 
               
 
@@ -24159,11 +23286,9 @@ function initializeExtension() {
 
                 triggers.push({ tag: { name, kind, extra } })
 
-                console.log(`    ✏“ Added active trigger: ${name}`)
 
               } else {
 
-                console.log(`    ⊘ Skipped (empty name)`)
 
               }
 
@@ -24175,11 +23300,9 @@ function initializeExtension() {
 
             listening.active = { triggers }
 
-            console.log(`✅ Saved ${triggers.length} active triggers (without pattern detection)`)
 
           } else {
 
-            console.log(`⚠️ No active triggers to save`)
 
           }
 
@@ -24191,7 +23314,6 @@ function initializeExtension() {
 
             const passiveTriggerRows = document.querySelectorAll('#L-passive-triggers .act-row')
 
-            console.log(`🔍 Collecting passive triggers (with pattern detection) from ${passiveTriggerRows.length} rows...`)
 
             
 
@@ -24213,7 +23335,6 @@ function initializeExtension() {
 
               
 
-              console.log(`  Row ${idx + 1}: name="${name}", kind="${kind}", extra="${extra}"`)
 
               
 
@@ -24223,11 +23344,9 @@ function initializeExtension() {
 
                 passiveTriggers.push({ tag: { name, kind, extra } })
 
-                console.log(`    ✏“ Added passive trigger: ${name}`)
 
               } else {
 
-                console.log(`    ⊘ Skipped (empty name)`)
 
               }
 
@@ -24239,11 +23358,9 @@ function initializeExtension() {
 
             listening.passive = { triggers: passiveTriggers }
 
-            console.log(`✅ Saved ${passiveTriggers.length} passive triggers (with pattern detection)`)
 
           } else {
 
-            console.log(`⚠️ No passive triggers to save`)
 
           }
 
@@ -24364,7 +23481,6 @@ function initializeExtension() {
               })
               trigger.domParserRules = parserRules
               
-              console.log(`    📋 DOM Parser trigger saved with AI Chat Capture: siteFilters=${trigger.siteFilters?.length || 0}, buttonSelectors=${trigger.buttonSelectors?.length || 0}, inputSelectors=${trigger.inputSelectors?.length || 0}`)
             }
             
             // Augmented Overlay fields
@@ -24457,30 +23573,8 @@ function initializeExtension() {
           
           if (unifiedTriggers.length > 0) {
             listening.unifiedTriggers = unifiedTriggers
-            console.log(`✅ [SAVE] Collected ${unifiedTriggers.length} unified triggers`)
           }
 
-          console.log('📝 Listener config collected:', {
-
-            passiveEnabled,
-
-            activeEnabled,
-
-            contextLength: listening.expectedContext?.length || 0,
-
-            tagsCount: listening.tags?.length || 0,
-
-            source: listening.source,
-
-            website: listening.website,
-
-            activeTriggersCount: listening.active?.triggers?.length || 0,
-
-            passiveTriggersCount: listening.passive?.triggers?.length || 0,
-
-            unifiedTriggersCount: listening.unifiedTriggers?.length || 0
-
-          })
 
           
 
@@ -24490,7 +23584,6 @@ function initializeExtension() {
 
           draft.listening = { ...listening, exampleFiles: preservedExampleFiles }
 
-          console.log(`📦 Preserved ${preservedExampleFiles.length} example files from previouslySavedData`)
 
         }
 
@@ -24518,7 +23611,6 @@ function initializeExtension() {
           
           // Collect all Apply For values from the list (get all selects inside the list)
           const rApplyForValuesSave = Array.from(document.querySelectorAll('#R-apply-list select')).map((sel: any) => sel.value).filter((v: string) => v && v !== '')
-          console.log('📝 [SAVE] Reasoning Apply For values:', rApplyForValuesSave)
 
           const base:any = {
 
@@ -24597,7 +23689,6 @@ function initializeExtension() {
             
             // Collect ALL Apply For values from the section's list
             const sectionApplyForList = Array.from(sec.querySelectorAll('.R-apply-list-sub select')).map((sel: any) => sel.value).filter((v: string) => v && v !== '')
-            console.log('📝 [SAVE] Additional R-section Apply For values:', sectionApplyForList)
 
             // Collect Reasoning Workflows for additional section
             const sectionWorkflows: any[] = []
@@ -24628,7 +23719,6 @@ function initializeExtension() {
               })
               sectionWorkflows.push({ type: wfType, workflowId: wfId, conditions })
             })
-            console.log(`🔍 [SAVE] Additional R-section: Found ${sectionWorkflows.length} reasoning workflow rows`)
 
             const s:any = {
 
@@ -24667,23 +23757,6 @@ function initializeExtension() {
 
           
 
-          console.log('📝 Reasoning config collected:', {
-
-            applyFor: base.applyFor,
-
-            applyForList: base.applyForList,
-
-            goalsLength: base.goals.length,
-
-            roleLength: base.role.length,
-
-            customFieldsCount: base.custom.length,
-
-            acceptFromCount: accepts.length,
-
-            sectionsCount: sections.length
-
-          })
 
         }
 
@@ -24730,7 +23803,6 @@ function initializeExtension() {
             
             eWorkflowsSave.push({ type: wfType, workflowId: wfId, runWhenType, conditions })
           })
-          console.log(`🔍 [SAVE] Execution: Found ${eWorkflowsSave.length} execution workflow rows, mode: ${eExecutionModeSaveMain}`)
           
           // Legacy format for backward compatibility
           const eWfs:string[] = eWorkflowsSave.map(w => w.workflowId).filter(v => v)
@@ -24781,7 +23853,6 @@ function initializeExtension() {
 
             // Collect ALL Apply For values from the section's list
             const sectionApplyForList = Array.from(sec.querySelectorAll('.E-apply-list-sub select')).map((sel: any) => sel.value).filter((v: string) => v && v !== '')
-            console.log('📝 [SAVE] Additional E-section Apply For values:', sectionApplyForList)
 
             // Collect workflows with new format for additional sections
             // Note: type is always 'external' now (Internal Parser removed from Execution)
@@ -24868,7 +23939,6 @@ function initializeExtension() {
 
           // Collect all Apply For values from the list (get all selects inside the list)
           const eApplyForValuesSave = Array.from(document.querySelectorAll('#E-apply-list select')).map((sel: any) => sel.value).filter((v: string) => v && v !== '')
-          console.log('📝 [SAVE] Execution Apply For values:', eApplyForValuesSave)
 
           draft.execution = {
 
@@ -24891,19 +23961,6 @@ function initializeExtension() {
 
           
 
-          console.log('📝 Execution config collected:', {
-
-            acceptFromCount: eAccepts.length,
-
-            workflowsCount: eWfs.length,
-
-            specialDestinationsCount: eDestinationsMain.length,
-
-            applyFor: draft.execution.applyFor,
-
-            executionSectionsCount: eSections.length
-
-          })
 
         }
 
@@ -24911,31 +23968,6 @@ function initializeExtension() {
 
         // VERIFICATION LOG - Show ALL collected data
 
-        console.log('📦 COMPLETE CONFIG DRAFT:', {
-
-          name: draft.name,
-
-          icon: draft.icon,
-
-          capabilities: draft.capabilities,
-
-          contextSettings: draft.contextSettings,
-
-          memorySettings: draft.memorySettings,
-
-          hasListening: !!draft.listening,
-
-          listeningTriggers: draft.listening?.active?.triggers?.length || 0,
-
-          listeningExampleFiles: draft.listening?.exampleFiles?.length || 0,
-
-          hasReasoning: !!draft.reasoning,
-
-          hasExecution: !!draft.execution,
-
-          agentContextFiles: draft.agentContextFiles?.length || 0
-
-        })
 
         
 
@@ -24943,25 +23975,16 @@ function initializeExtension() {
 
         if (draft.agentContextFiles?.length) {
 
-          console.log(`  📄 Agent Context Files (${draft.agentContextFiles.length}):`, 
-
-            draft.agentContextFiles.map((f: any) => f.name))
 
         }
 
         if (draft.listening?.exampleFiles?.length) {
 
-          console.log(`  📄 Listener Example Files (${draft.listening.exampleFiles.length}):`, 
-
-            draft.listening.exampleFiles.map((f: any) => f.name))
 
         }
 
         if (draft.listening?.active?.triggers?.length) {
 
-          console.log(`  🎯 Active Triggers (${draft.listening.active.triggers.length}):`, 
-
-            draft.listening.active.triggers.map((t: any) => `${t.tag.name} [${t.tag.kind}]`))
 
         }
 
@@ -24997,7 +24020,6 @@ function initializeExtension() {
 
             // Read new files and ADD to existing
 
-            console.log(`📁 Reading ${acFiles.files?.length || 0} NEW Agent Context files to add to ${existingAgentFiles.length} existing...`)
 
             allFilePromises.push(
 
@@ -25033,7 +24055,7 @@ function initializeExtension() {
 
                         reader.onerror = (err) => {
 
-                          console.error(`❌ Error reading file ${file.name}:`, err)
+                          console.error(`âŒ Error reading file ${file.name}:`, err)
 
                           resolveFile(null) // Don't reject, just skip the file
 
@@ -25065,17 +24087,15 @@ function initializeExtension() {
 
                   draft.agentContextFiles = [...existingAgentFiles, ...uniqueNewFiles]
 
-                  console.log(`✅ Added ${uniqueNewFiles.length} NEW files, total now: ${draft.agentContextFiles.length}`)
 
                   if (uniqueNewFiles.length !== validNewFiles.length) {
 
-                    console.log(`⚠️ Skipped ${validNewFiles.length - uniqueNewFiles.length} duplicate file(s)`)
 
                   }
 
                 } catch (err) {
 
-                  console.error('❌ Error processing Agent Context files:', err)
+                  console.error('âŒ Error processing Agent Context files:', err)
 
                   draft.agentContextFiles = existingAgentFiles // Keep existing on error
 
@@ -25093,7 +24113,6 @@ function initializeExtension() {
 
             if (existingAgentFiles.length > 0) {
 
-              console.log(`📦 Preserved ${existingAgentFiles.length} existing Agent Context files`)
 
             }
 
@@ -25121,7 +24140,6 @@ function initializeExtension() {
 
             // Read new files and ADD to existing
 
-            console.log(`📁 Reading ${lExamples.files?.length || 0} NEW Listener Example files to add to ${existingListenerFiles.length} existing...`)
 
             allFilePromises.push(
 
@@ -25157,7 +24175,7 @@ function initializeExtension() {
 
                         reader.onerror = (err) => {
 
-                          console.error(`❌ Error reading file ${file.name}:`, err)
+                          console.error(`âŒ Error reading file ${file.name}:`, err)
 
                           resolveFile(null) // Don't reject, just skip the file
 
@@ -25191,17 +24209,15 @@ function initializeExtension() {
 
                   draft.listening.exampleFiles = [...existingListenerFiles, ...uniqueNewFiles]
 
-                  console.log(`✅ Added ${uniqueNewFiles.length} NEW files, total now: ${draft.listening.exampleFiles.length}`)
 
                   if (uniqueNewFiles.length !== validNewFiles.length) {
 
-                    console.log(`⚠️ Skipped ${validNewFiles.length - uniqueNewFiles.length} duplicate file(s)`)
 
                   }
 
                 } catch (err) {
 
-                  console.error('❌ Error processing Listener Example files:', err)
+                  console.error('âŒ Error processing Listener Example files:', err)
 
                   if (!draft.listening) draft.listening = {}
 
@@ -25223,7 +24239,6 @@ function initializeExtension() {
 
               draft.listening.exampleFiles = existingListenerFiles
 
-              console.log(`📦 Preserved ${existingListenerFiles.length} existing Listener Example files`)
 
             }
 
@@ -25235,28 +24250,15 @@ function initializeExtension() {
 
           if (allFilePromises.length > 0) {
 
-            console.log(`⏳ Waiting for ${allFilePromises.length} file upload groups to complete...`)
 
             await Promise.all(allFilePromises)
 
-            console.log(`✅ All file uploads processed`)
 
           }
 
           
 
           // CRITICAL DEBUG: Log the draft object before stringify
-          console.log('🔍 DRAFT BEFORE STRINGIFY:', {
-            hasListening: !!draft.listening,
-            unifiedTriggersCount: draft.listening?.unifiedTriggers?.length || 0,
-            unifiedTriggerIds: draft.listening?.unifiedTriggers?.map((t:any) => t.id) || [],
-            hasReasoning: !!draft.reasoning,
-            rApplyFor: draft.reasoning?.applyFor,
-            rApplyForList: draft.reasoning?.applyForList,
-            hasExecution: !!draft.execution,
-            eApplyFor: draft.execution?.applyFor,
-            eApplyForList: draft.execution?.applyForList
-          })
           
           // ============================================================
           // STRICT CHAIN VALIDATION: Listener -> Reasoning -> Execution
@@ -25273,10 +24275,10 @@ function initializeExtension() {
             || (draft.listening?.triggers?.length > 0)
           
           if (hasReasoningCap && !hasListeningCap) {
-            chainWarnings.push('Reasoning is enabled but Listening is not. Reasoning can only receive input through a Listener trigger — this agent will not receive external input.')
+            chainWarnings.push('Reasoning is enabled but Listening is not. Reasoning can only receive input through a Listener trigger â€” this agent will not receive external input.')
           }
           if (hasExecutionCap && !hasReasoningCap) {
-            chainWarnings.push('Execution is enabled but Reasoning is not. Execution can only receive output from Reasoning — this agent\'s execution will not run.')
+            chainWarnings.push('Execution is enabled but Reasoning is not. Execution can only receive output from Reasoning â€” this agent\'s execution will not run.')
           }
           if (hasExecutionCap && !hasListeningCap) {
             chainWarnings.push('Execution is enabled but Listening is not. Without a Listener, no external input reaches this agent.')
@@ -25286,8 +24288,8 @@ function initializeExtension() {
           }
           
           if (chainWarnings.length > 0) {
-            const warningMsg = 'Chain Warning (Listener → Reasoning → Execution):\n\n' + chainWarnings.map((w, i) => `${i + 1}. ${w}`).join('\n\n')
-            console.warn('⚠️ CHAIN VALIDATION:', warningMsg)
+            const warningMsg = 'Chain Warning (Listener â†’ Reasoning â†’ Execution):\n\n' + chainWarnings.map((w, i) => `${i + 1}. ${w}`).join('\n\n')
+            console.warn('âš ï¸ CHAIN VALIDATION:', warningMsg)
             const proceed = confirm(warningMsg + '\n\nSave anyway?')
             if (!proceed) {
               const saveButton = document.getElementById('agent-config-save') as HTMLButtonElement
@@ -25295,7 +24297,7 @@ function initializeExtension() {
                 saveButton.disabled = false
                 saveButton.style.opacity = '1'
                 saveButton.style.cursor = 'pointer'
-                saveButton.innerHTML = '💾 Save'
+                saveButton.innerHTML = 'ðŸ’¾ Save'
               }
               return
             }
@@ -25341,13 +24343,10 @@ function initializeExtension() {
 
         // Log what we're about to save
 
-        console.log(`💾 SAVING ${type} config for agent ${agentName} to ${agentScope} scope`)
 
         const parsedData = JSON.parse(dataToSave)
 
-        console.log('📦 Data to save:', parsedData)
 
-        console.log(`📊 Data size: ${dataToSave.length} characters`)
 
         
 
@@ -25355,70 +24354,48 @@ function initializeExtension() {
 
         if (type === 'instructions') {
 
-          console.log('🔍 VERIFICATION - Critical fields:')
 
-          console.log(`  📁 Agent Context Files: ${parsedData.agentContextFiles?.length || 0} files`)
 
           if (parsedData.agentContextFiles?.length) {
 
-            console.log(`     Files: ${parsedData.agentContextFiles.map((f: any) => f.name).join(', ')}`)
 
           }
 
-          console.log(`  📝 Expected Context: "${parsedData.listening?.expectedContext?.substring(0, 50) || '(empty)'}${parsedData.listening?.expectedContext?.length > 50 ? '...' : ''}"`)
-
-          console.log(`  🎯 Trigger Sources: ${JSON.stringify(parsedData.listening?.sources || [])}`)
-
-          console.log(`  🌐 Website: "${parsedData.listening?.website || '(empty)'}"`)
-
-          console.log(`  🏷️ Tags: ${JSON.stringify(parsedData.listening?.tags || [])}`)
-
-          console.log(`  📤 Report To: ${JSON.stringify(parsedData.listening?.reportTo || [])}`)
-
-          console.log(`  🎬 Active Triggers: ${parsedData.listening?.active?.triggers?.length || 0}`)
-
-          console.log(`  💤 Passive Triggers: ${parsedData.listening?.passive?.triggers?.length || 0}`)
-
-          console.log(`  Example Files: ${parsedData.listening?.exampleFiles?.length || 0}`)
 
 
 
-          console.log(`  🔧 R-Custom Fields: ${parsedData.reasoning?.custom?.length || 0} field(s)`)
+
+
+
+
+
+
+
 
           if (parsedData.reasoning?.custom?.length) {
 
-            console.log(`     Custom: ${JSON.stringify(parsedData.reasoning.custom)}`)
 
           }
 
-          console.log(`  📥 R-Accept From: ${JSON.stringify(parsedData.reasoning?.acceptFrom || [])}`)
 
-          console.log(`  📤 R-Report To: ${JSON.stringify(parsedData.reasoning?.reportTo || [])}`)
 
 
           if (parsedData.reasoningSections?.length > 1) {
 
             parsedData.reasoningSections.slice(1).forEach((section: any, idx: number) => {
 
-              console.log(`     Section ${idx + 2}: ${section.custom?.length || 0} custom fields, ${section.acceptFrom?.length || 0} listen-from, ${section.reportTo?.length || 0} report-to`)
 
             })
 
           }
 
-          console.log(`  📥 E-Accept From: ${JSON.stringify(parsedData.execution?.acceptFrom || [])}`)
 
-          console.log(`  🔧 E-Workflows: ${parsedData.execution?.workflows?.length || 0}`)
 
-          console.log(`  ⚡ E-Special Destinations: ${parsedData.execution?.specialDestinations?.length || 0}`)
           
-          console.log(`  📦 E-Apply For: ${parsedData.execution?.applyFor || '__any__'}`)
           
-          console.log(`  📚 Execution Sections: ${parsedData.execution?.executionSections?.length || 0} section(s)`)
           
           if (parsedData.execution?.executionSections?.length > 0) {
             parsedData.execution.executionSections.forEach((section: any, idx: number) => {
-              console.log(`     E-Section ${idx + 1}: applyFor="${section.applyFor}", workflows=${section.workflows?.length || 0}, reportTo=${section.specialDestinations?.length || 0}`)
             })
           }
 
@@ -25428,17 +24405,11 @@ function initializeExtension() {
 
         // Wrap saveAgentConfig in a promise so we can await it
 
-        console.log(`🚀 Calling saveAgentConfig with:`)
 
-        console.log(`   Agent: "${agentName}"`)
 
-        console.log(`   Scope: "${agentScope}"`)
 
-        console.log(`   Type: "${type}"`)
 
-        console.log(`   Data length: ${dataToSave.length} chars`)
 
-        console.log(`   Data is string?: ${typeof dataToSave === 'string'}`)
 
         
 
@@ -25448,7 +24419,6 @@ function initializeExtension() {
 
             saveAgentConfig(agentName, agentScope, type, dataToSave, () => {
 
-              console.log(`✅ SaveAgentConfig callback executed successfully`)
 
               resolve()
 
@@ -25456,7 +24426,7 @@ function initializeExtension() {
 
           } catch (error) {
 
-            console.error(`❌ Error in saveAgentConfig:`, error)
+            console.error(`âŒ Error in saveAgentConfig:`, error)
 
             reject(error)
 
@@ -25466,7 +24436,6 @@ function initializeExtension() {
 
         
 
-        console.log(`🎉 Save operation completed successfully!`)
 
         
 
@@ -25478,7 +24447,6 @@ function initializeExtension() {
           // Use chrome.storage.local.remove directly to avoid any routing issues
           chrome.storage.local.remove(autoSaveDraftKey, () => {
 
-            console.log('🗝‘️ Cleared auto-save draft:', autoSaveDraftKey)
 
             resolve()
 
@@ -25506,41 +24474,41 @@ function initializeExtension() {
 
             if (type === 'instructions') {
 
-              details.push(`✏“ Name: ${parsed.name}`)
+              details.push(`âœâ€œ Name: ${parsed.name}`)
 
-              details.push(`✏“ Icon: ${parsed.icon}`)
+              details.push(`âœâ€œ Icon: ${parsed.icon}`)
 
-              if (parsed.capabilities?.length) details.push(`✏“ Capabilities: ${parsed.capabilities.join(', ')}`)
+              if (parsed.capabilities?.length) details.push(`âœâ€œ Capabilities: ${parsed.capabilities.join(', ')}`)
 
-              if (parsed.contextSettings) details.push(`✏“ Context Settings`)
+              if (parsed.contextSettings) details.push(`âœâ€œ Context Settings`)
 
-              if (parsed.memorySettings) details.push(`✏“ Memory Settings`)
+              if (parsed.memorySettings) details.push(`âœâ€œ Memory Settings`)
 
-              if (parsed.listening) details.push(`✏“ Listener Config`)
+              if (parsed.listening) details.push(`âœâ€œ Listener Config`)
 
-              if (parsed.reasoning) details.push(`✏“ Reasoning Config`)
+              if (parsed.reasoning) details.push(`âœâ€œ Reasoning Config`)
 
-              if (parsed.execution) details.push(`✏“ Execution Config`)
+              if (parsed.execution) details.push(`âœâ€œ Execution Config`)
 
-              if (parsed.agentContextFiles?.length) details.push(`✏“ ${parsed.agentContextFiles.length} Agent Context Files`)
+              if (parsed.agentContextFiles?.length) details.push(`âœâ€œ ${parsed.agentContextFiles.length} Agent Context Files`)
 
-              if (parsed.listening?.exampleFiles?.length) details.push(`✏“ ${parsed.listening.exampleFiles.length} Listener Example Files`)
+              if (parsed.listening?.exampleFiles?.length) details.push(`âœâ€œ ${parsed.listening.exampleFiles.length} Listener Example Files`)
 
             } else if (type === 'context') {
 
-              if (parsed.text) details.push(`✏“ Context Text (${parsed.text.length} chars)`)
+              if (parsed.text) details.push(`âœâ€œ Context Text (${parsed.text.length} chars)`)
 
-              if (parsed.memory) details.push(`✏“ Memory: ${parsed.memory}`)
+              if (parsed.memory) details.push(`âœâ€œ Memory: ${parsed.memory}`)
 
-              if (parsed.source) details.push(`✏“ Source: ${parsed.source}`)
+              if (parsed.source) details.push(`âœâ€œ Source: ${parsed.source}`)
 
             } else if (type === 'settings') {
 
-              if (parsed.priority) details.push(`✏“ Priority: ${parsed.priority}`)
+              if (parsed.priority) details.push(`âœâ€œ Priority: ${parsed.priority}`)
 
-              if (parsed.autostart !== undefined) details.push(`✏“ Auto-start: ${parsed.autostart ? 'ON' : 'OFF'}`)
+              if (parsed.autostart !== undefined) details.push(`âœâ€œ Auto-start: ${parsed.autostart ? 'ON' : 'OFF'}`)
 
-              if (parsed.autorespond !== undefined) details.push(`✏“ Auto-respond: ${parsed.autorespond ? 'ON' : 'OFF'}`)
+              if (parsed.autorespond !== undefined) details.push(`âœâ€œ Auto-respond: ${parsed.autorespond ? 'ON' : 'OFF'}`)
 
             }
 
@@ -25614,7 +24582,7 @@ function initializeExtension() {
 
             <div style="display: flex; align-items: center; gap: 16px; margin-bottom: 16px;">
 
-              <div style="font-size: 48px;">✅</div>
+              <div style="font-size: 48px;">âœ…</div>
 
               <div>
 
@@ -25626,7 +24594,7 @@ function initializeExtension() {
 
                 <div style="font-size: 12px; opacity: 0.9;">
 
-                  ${agentName} ${type} → ${agentScope} scope
+                  ${agentName} ${type} â†’ ${agentScope} scope
 
                 </div>
 
@@ -25668,12 +24636,10 @@ function initializeExtension() {
 
         showSaveNotification(dataToSave)
 
-        console.log(`✅ SAVED ${type} for agent ${agentName} to ${agentScope}`)
 
         
         // If saving AI Instructions, automatically enable the agent toggle
         if (type === 'instructions') {
-          console.log(`🔄 Auto-enabling agent toggle for ${agentName}`)
           // Find and update the agent toggle button in the agents grid
           const toggleButtons = document.querySelectorAll('.agent-toggle')
           toggleButtons.forEach((btn) => {
@@ -25682,7 +24648,6 @@ function initializeExtension() {
             if (agentKey === agentName) {
               btnElement.textContent = 'ON'
               btnElement.style.background = '#4CAF50'
-              console.log(`✅ Agent toggle enabled for ${agentName}`)
             }
           })
         }
@@ -25705,7 +24670,7 @@ function initializeExtension() {
 
         // Handle errors gracefully
 
-        console.error('❌ Error saving configuration:', error)
+        console.error('âŒ Error saving configuration:', error)
 
         
 
@@ -25747,7 +24712,7 @@ function initializeExtension() {
 
           <div style="display: flex; align-items: center; gap: 16px;">
 
-            <div style="font-size: 48px;">❌</div>
+            <div style="font-size: 48px;">âŒ</div>
 
             <div>
 
@@ -25801,7 +24766,7 @@ function initializeExtension() {
 
     } else {
 
-      console.error('❌ Save button element not found in DOM!')
+      console.error('âŒ Save button element not found in DOM!')
 
     }
 
@@ -25815,7 +24780,7 @@ function initializeExtension() {
 
     const updateBoxes = () => {
 
-      // Checkboxes removed — sections are always visible, no-op
+      // Checkboxes removed â€” sections are always visible, no-op
       const capL = null
       const capR = null
       const capE = null
@@ -25882,15 +24847,12 @@ function initializeExtension() {
 
     // CRITICAL: Hook up auto-save to ALL form inputs using event delegation
 
-    console.log(`🔧 Installing auto-save hooks. Function exists?: ${typeof autoSaveToChromeStorage !== 'undefined'}`)
 
-    console.log(`   Type: "${type}", Agent: "${agentName}"`)
 
     
 
     configOverlay.addEventListener('input', (e) => {
 
-      console.log('📝 Form input detected, triggering auto-save...')
 
       if (typeof autoSaveToChromeStorage === 'function') {
 
@@ -25898,7 +24860,7 @@ function initializeExtension() {
 
       } else {
 
-        console.error('❌ autoSaveToChromeStorage is not a function!', typeof autoSaveToChromeStorage)
+        console.error('âŒ autoSaveToChromeStorage is not a function!', typeof autoSaveToChromeStorage)
 
       }
 
@@ -25906,7 +24868,6 @@ function initializeExtension() {
 
     configOverlay.addEventListener('change', (e) => {
 
-      console.log('📝 Form change detected, triggering auto-save...')
 
       if (typeof autoSaveToChromeStorage === 'function') {
 
@@ -25914,7 +24875,7 @@ function initializeExtension() {
 
       } else {
 
-        console.error('❌ autoSaveToChromeStorage is not a function!', typeof autoSaveToChromeStorage)
+        console.error('âŒ autoSaveToChromeStorage is not a function!', typeof autoSaveToChromeStorage)
 
       }
 
@@ -25922,7 +24883,6 @@ function initializeExtension() {
 
     
 
-    console.log('✅ Auto-save hooks installed - ALL form changes will be saved automatically')
 
     
 
@@ -25956,7 +24916,7 @@ function initializeExtension() {
 
         <div style="padding: 20px; border-bottom: 1px solid ${csTheme().border}; display: flex; justify-content: space-between; align-items: center;">
 
-          <h2 style="margin: 0; font-size: 20px;">➕ Add New Agent</h2>
+          <h2 style="margin: 0; font-size: 20px;">âž• Add New Agent</h2>
 
           <button id="close-add-agent" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">&times;</button>
 
@@ -25970,7 +24930,7 @@ function initializeExtension() {
 
             <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px;">
 
-              <label style="display: block; margin-bottom: 10px; font-size: 14px; color: ${csTheme().muted}; font-weight: bold;">🤖 Agent Name:</label>
+              <label style="display: block; margin-bottom: 10px; font-size: 14px; color: ${csTheme().muted}; font-weight: bold;">ðŸ¤– Agent Name:</label>
 
               <input type="text" id="new-agent-name" style="width: 100%; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 12px; border-radius: 6px; font-size: 12px;" placeholder="Enter agent name (e.g., Editor, Translator)">
 
@@ -25980,37 +24940,37 @@ function initializeExtension() {
 
             <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px;">
 
-              <label style="display: block; margin-bottom: 10px; font-size: 14px; color: ${csTheme().muted}; font-weight: bold;">🎨 Agent Icon:</label>
+              <label style="display: block; margin-bottom: 10px; font-size: 14px; color: ${csTheme().muted}; font-weight: bold;">ðŸŽ¨ Agent Icon:</label>
 
               <div style="display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px;">
 
-                <button class="icon-btn" data-icon="🔧" style="padding: 10px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius: 4px; cursor: pointer; font-size: 20px;">🔧</button>
+                <button class="icon-btn" data-icon="ðŸ”§" style="padding: 10px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius: 4px; cursor: pointer; font-size: 20px;">ðŸ”§</button>
 
-                <button class="icon-btn" data-icon="💡" style="padding: 10px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius: 4px; cursor: pointer; font-size: 20px;">💡</button>
+                <button class="icon-btn" data-icon="ðŸ’¡" style="padding: 10px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius: 4px; cursor: pointer; font-size: 20px;">ðŸ’¡</button>
 
-                <button class="icon-btn" data-icon="🎨" style="padding: 10px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius: 4px; cursor: pointer; font-size: 20px;">🎨</button>
+                <button class="icon-btn" data-icon="ðŸŽ¨" style="padding: 10px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius: 4px; cursor: pointer; font-size: 20px;">ðŸŽ¨</button>
 
-                <button class="icon-btn" data-icon="🔬" style="padding: 10px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius: 4px; cursor: pointer; font-size: 20px;">🔬</button>
+                <button class="icon-btn" data-icon="ðŸ”¬" style="padding: 10px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius: 4px; cursor: pointer; font-size: 20px;">ðŸ”¬</button>
 
-                <button class="icon-btn" data-icon="📊" style="padding: 10px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius: 4px; cursor: pointer; font-size: 20px;">📊</button>
+                <button class="icon-btn" data-icon="ðŸ“Š" style="padding: 10px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius: 4px; cursor: pointer; font-size: 20px;">ðŸ“Š</button>
 
-                <button class="icon-btn" data-icon="🎯" style="padding: 10px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius: 4px; cursor: pointer; font-size: 20px;">🎯</button>
+                <button class="icon-btn" data-icon="ðŸŽ¯" style="padding: 10px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius: 4px; cursor: pointer; font-size: 20px;">ðŸŽ¯</button>
 
-                <button class="icon-btn" data-icon="⚡" style="padding: 10px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius: 4px; cursor: pointer; font-size: 20px;">⚡</button>
+                <button class="icon-btn" data-icon="âš¡" style="padding: 10px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius: 4px; cursor: pointer; font-size: 20px;">âš¡</button>
 
-                <button class="icon-btn" data-icon="🚀" style="padding: 10px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius: 4px; cursor: pointer; font-size: 20px;">🚀</button>
+                <button class="icon-btn" data-icon="ðŸš€" style="padding: 10px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius: 4px; cursor: pointer; font-size: 20px;">ðŸš€</button>
 
-                <button class="icon-btn" data-icon="🎪" style="padding: 10px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius: 4px; cursor: pointer; font-size: 20px;">🎪</button>
+                <button class="icon-btn" data-icon="ðŸŽª" style="padding: 10px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius: 4px; cursor: pointer; font-size: 20px;">ðŸŽª</button>
 
-                <button class="icon-btn" data-icon="🔮" style="padding: 10px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius: 4px; cursor: pointer; font-size: 20px;">🔮</button>
+                <button class="icon-btn" data-icon="ðŸ”®" style="padding: 10px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius: 4px; cursor: pointer; font-size: 20px;">ðŸ”®</button>
 
-                <button class="icon-btn" data-icon="🎵" style="padding: 10px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius: 4px; cursor: pointer; font-size: 20px;">🎵</button>
+                <button class="icon-btn" data-icon="ðŸŽµ" style="padding: 10px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius: 4px; cursor: pointer; font-size: 20px;">ðŸŽµ</button>
 
-                <button class="icon-btn" data-icon="🌐Ÿ" style="padding: 10px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius: 4px; cursor: pointer; font-size: 20px;">🌐Ÿ</button>
+                <button class="icon-btn" data-icon="ðŸŒÅ¸" style="padding: 10px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius: 4px; cursor: pointer; font-size: 20px;">ðŸŒÅ¸</button>
 
               </div>
 
-              <input type="hidden" id="selected-icon" value="🔧">
+              <input type="hidden" id="selected-icon" value="ðŸ”§">
 
             </div>
 
@@ -26022,7 +24982,7 @@ function initializeExtension() {
 
           <button id="add-agent-cancel" style="padding: 12px 24px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; border-radius: 6px; cursor: pointer; font-size: 12px;">Cancel</button>
 
-          <button id="add-agent-create" style="padding: 12px 24px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 6px; cursor: pointer; font-size: 12px;">➕ Create Agent</button>
+          <button id="add-agent-create" style="padding: 12px 24px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 6px; cursor: pointer; font-size: 12px;">âž• Create Agent</button>
 
         </div>
 
@@ -26114,7 +25074,7 @@ function initializeExtension() {
 
       `
 
-      notification.innerHTML = `➕ Agent "${agentName}" created!`
+      notification.innerHTML = `âž• Agent "${agentName}" created!`
 
       document.body.appendChild(notification)
 
@@ -26130,15 +25090,12 @@ function initializeExtension() {
 
       // Persist via manager then re-render from session
 
-      console.log(`💾 Saving new agent: ${agentName} (${agentIcon})`)
 
       addAgentToSession(agentName, agentIcon, () => {
 
-        console.log(`✅ Agent saved successfully, re-rendering grid...`)
 
         renderAgentsGrid(parentOverlay)
 
-        console.log(`✅ Grid re-rendered, closing dialog`)
 
         configOverlay.remove()
 
@@ -26208,7 +25165,7 @@ function initializeExtension() {
 
         <div style="padding: 20px; border-bottom: 1px solid ${csTheme().border}; display: flex; justify-content: space-between; align-items: center;">
 
-          <h2 style="margin: 0; font-size: 20px;">🛡 URL Whitelist Configuration</h2>
+          <h2 style="margin: 0; font-size: 20px;">ðŸ›¡Â URL Whitelist Configuration</h2>
 
           <button id="close-whitelist-lightbox" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">&times;</button>
 
@@ -26234,9 +25191,9 @@ function initializeExtension() {
 
             <div style="margin-top: 20px; display: flex; gap: 10px;">
 
-              <button id="clear-all-urls" style="padding: 8px 16px; background: #ff5722; border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 11px;">🗝‘️ Clear All</button>
+              <button id="clear-all-urls" style="padding: 8px 16px; background: #ff5722; border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 11px;">ðŸ—â€˜ï¸ Clear All</button>
 
-              <button id="load-defaults" style="padding: 8px 16px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 6px; cursor: pointer; font-size: 11px;">🔄 Load Defaults</button>
+              <button id="load-defaults" style="padding: 8px 16px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 6px; cursor: pointer; font-size: 11px;">ðŸ”„ Load Defaults</button>
 
             </div>
 
@@ -26250,13 +25207,13 @@ function initializeExtension() {
 
             <div style="font-size: 12px; opacity: 0.8; line-height: 1.6;">
 
-              <p style="margin: 0 0 10px 0;">• Only URLs in this whitelist will have WR Desk features enabled</p>
+              <p style="margin: 0 0 10px 0;">â€¢ Only URLs in this whitelist will have WR Desk features enabled</p>
 
-              <p style="margin: 0 0 10px 0;">• Wildcard patterns are supported (e.g., https://*.example.com)</p>
+              <p style="margin: 0 0 10px 0;">â€¢ Wildcard patterns are supported (e.g., https://*.example.com)</p>
 
-              <p style="margin: 0 0 10px 0;">• Changes take effect immediately across all tabs</p>
+              <p style="margin: 0 0 10px 0;">â€¢ Changes take effect immediately across all tabs</p>
 
-              <p style="margin: 0;">• HTTPS is recommended for security</p>
+              <p style="margin: 0;">â€¢ HTTPS is recommended for security</p>
 
             </div>
 
@@ -26268,7 +25225,7 @@ function initializeExtension() {
 
           <button id="whitelist-save" style="padding: 12px 30px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: bold;">
 
-            💾 Save Whitelist
+            ðŸ’¾ Save Whitelist
 
           </button>
 
@@ -26434,7 +25391,7 @@ function initializeExtension() {
 
       `
 
-      notification.innerHTML = `🛡 URL Whitelist saved! (${urls.length} URLs)`
+      notification.innerHTML = `ðŸ›¡Â URL Whitelist saved! (${urls.length} URLs)`
 
       document.body.appendChild(notification)
 
@@ -26450,7 +25407,6 @@ function initializeExtension() {
 
       overlay.remove()
 
-      console.log('URL Whitelist saved:', urls)
 
     }
 
@@ -26466,7 +25422,6 @@ function initializeExtension() {
 
   function openContextLightbox() {
 
-    console.log('📄 Opening Context Management...')
 
     
 
@@ -26474,7 +25429,6 @@ function initializeExtension() {
 
     const sessionKey = getCurrentSessionKey()
 
-    console.log('🔑 Current session key:', sessionKey)
 
     
 
@@ -26532,7 +25486,7 @@ function initializeExtension() {
 
         <div style="padding: 20px; border-bottom: 1px solid ${csTheme().border}; display: flex; justify-content: space-between; align-items: center;">
 
-          <h2 style="margin: 0; font-size: 20px; color: ${csTheme().text};">📄 Global Context Management</h2>
+          <h2 style="margin: 0; font-size: 20px; color: ${csTheme().text};">ðŸ“„ Global Context Management</h2>
 
           <button id="close-context-lightbox" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">&times;</button>
 
@@ -26620,7 +25574,7 @@ function initializeExtension() {
 
             <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
 
-              <h3 style="margin: 0 0 15px 0; font-size: 16px; color: ${csTheme().text}; font-weight: 600;">⬆ Upload PDF Files</h3>
+              <h3 style="margin: 0 0 15px 0; font-size: 16px; color: ${csTheme().text}; font-weight: 600;">â¬† Upload PDF Files</h3>
 
               <input type="file" id="user-context-pdf-upload" multiple accept=".pdf" style="
 
@@ -26692,7 +25646,7 @@ function initializeExtension() {
 
             <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
 
-              <h3 style="margin: 0 0 15px 0; font-size: 16px; color: ${csTheme().text}; font-weight: 600;">⬆ Upload PDF Files</h3>
+              <h3 style="margin: 0 0 15px 0; font-size: 16px; color: ${csTheme().text}; font-weight: 600;">â¬† Upload PDF Files</h3>
 
               <input type="file" id="publisher-context-pdf-upload" multiple accept=".pdf" style="
 
@@ -26808,7 +25762,6 @@ function initializeExtension() {
 
       storageGet(keysToLoad, (result) => {
 
-        console.log('📥 Loaded contexts:', result)
 
         
 
@@ -26824,7 +25777,6 @@ function initializeExtension() {
 
           updateUserPdfList()
 
-          console.log('✅ Loaded User Context from session')
 
         }
 
@@ -26842,7 +25794,6 @@ function initializeExtension() {
 
           updatePublisherPdfList()
 
-          console.log('✅ Loaded Publisher Context from session')
 
         }
 
@@ -26860,7 +25811,6 @@ function initializeExtension() {
 
           updateAccountPdfList()
 
-          console.log('✅ Loaded Account Context (global)')
 
         }
 
@@ -26884,15 +25834,15 @@ function initializeExtension() {
 
           pdfList.innerHTML = `
 
-            <div style="color: #66FF66; font-weight: bold; margin-bottom: 5px;">📁 Uploaded Files (${pdfFiles.length}):</div>
+            <div style="color: #66FF66; font-weight: bold; margin-bottom: 5px;">ðŸ“ Uploaded Files (${pdfFiles.length}):</div>
 
             ${pdfFiles.map((file: any, index: number) => `
 
               <div style="display: flex; justify-content: space-between; align-items: center; background: ${csTheme().cardBg}; padding: 5px 10px; border-radius: 4px; margin: 2px 0; font-size: 11px;">
 
-                <span>📄 ${file.name} (${Math.round(file.size / 1024)}KB)</span>
+                <span>ðŸ“„ ${file.name} (${Math.round(file.size / 1024)}KB)</span>
 
-                <button onclick="window.removeUserPdfFile(${index})" style="background: rgba(220,38,38,0.08); border: 1px solid rgba(220,38,38,0.25); color: ${csTheme().isLight ? "#991b1b" : "#f87171"}; padding: 2px 6px; border-radius: 3px; cursor: pointer; font-size: 10px;">✏•</button>
+                <button onclick="window.removeUserPdfFile(${index})" style="background: rgba(220,38,38,0.08); border: 1px solid rgba(220,38,38,0.25); color: ${csTheme().isLight ? "#991b1b" : "#f87171"}; padding: 2px 6px; border-radius: 3px; cursor: pointer; font-size: 10px;">âœâ€¢</button>
 
               </div>
 
@@ -26924,15 +25874,15 @@ function initializeExtension() {
 
           pdfList.innerHTML = `
 
-            <div style="color: #66FF66; font-weight: bold; margin-bottom: 5px;">📁 Uploaded Files (${pdfFiles.length}):</div>
+            <div style="color: #66FF66; font-weight: bold; margin-bottom: 5px;">ðŸ“ Uploaded Files (${pdfFiles.length}):</div>
 
             ${pdfFiles.map((file: any, index: number) => `
 
               <div style="display: flex; justify-content: space-between; align-items: center; background: ${csTheme().cardBg}; padding: 5px 10px; border-radius: 4px; margin: 2px 0; font-size: 11px;">
 
-                <span>📄 ${file.name} (${Math.round(file.size / 1024)}KB)</span>
+                <span>ðŸ“„ ${file.name} (${Math.round(file.size / 1024)}KB)</span>
 
-                <button onclick="window.removePublisherPdfFile(${index})" style="background: rgba(220,38,38,0.08); border: 1px solid rgba(220,38,38,0.25); color: ${csTheme().isLight ? "#991b1b" : "#f87171"}; padding: 2px 6px; border-radius: 3px; cursor: pointer; font-size: 10px;">✏•</button>
+                <button onclick="window.removePublisherPdfFile(${index})" style="background: rgba(220,38,38,0.08); border: 1px solid rgba(220,38,38,0.25); color: ${csTheme().isLight ? "#991b1b" : "#f87171"}; padding: 2px 6px; border-radius: 3px; cursor: pointer; font-size: 10px;">âœâ€¢</button>
 
               </div>
 
@@ -26964,15 +25914,15 @@ function initializeExtension() {
 
           pdfList.innerHTML = `
 
-            <div style="color: #66FF66; font-weight: bold; margin-bottom: 5px;">📁 Uploaded Files (${pdfFiles.length}):</div>
+            <div style="color: #66FF66; font-weight: bold; margin-bottom: 5px;">ðŸ“ Uploaded Files (${pdfFiles.length}):</div>
 
             ${pdfFiles.map((file: any, index: number) => `
 
               <div style="display: flex; justify-content: space-between; align-items: center; background: ${csTheme().cardBg}; padding: 5px 10px; border-radius: 4px; margin: 2px 0; font-size: 11px;">
 
-                <span>📄 ${file.name} (${Math.round(file.size / 1024)}KB)</span>
+                <span>ðŸ“„ ${file.name} (${Math.round(file.size / 1024)}KB)</span>
 
-                <button onclick="window.removeAccountPdfFile(${index})" style="background: rgba(220,38,38,0.08); border: 1px solid rgba(220,38,38,0.25); color: ${csTheme().isLight ? "#991b1b" : "#f87171"}; padding: 2px 6px; border-radius: 3px; cursor: pointer; font-size: 10px;">✏•</button>
+                <button onclick="window.removeAccountPdfFile(${index})" style="background: rgba(220,38,38,0.08); border: 1px solid rgba(220,38,38,0.25); color: ${csTheme().isLight ? "#991b1b" : "#f87171"}; padding: 2px 6px; border-radius: 3px; cursor: pointer; font-size: 10px;">âœâ€¢</button>
 
               </div>
 
@@ -27006,7 +25956,6 @@ function initializeExtension() {
 
         storageSet({ [userContextKey]: userContextData }, () => {
 
-          console.log('✅ User Context PDF removed and saved')
 
         })
 
@@ -27028,7 +25977,6 @@ function initializeExtension() {
 
         storageSet({ [publisherContextKey]: publisherContextData }, () => {
 
-          console.log('✅ Publisher Context PDF removed and saved')
 
         })
 
@@ -27048,7 +25996,6 @@ function initializeExtension() {
 
       storageSet({ [accountContextKey]: accountContextData }, () => {
 
-        console.log('✅ Account Context PDF removed and saved')
 
       })
 
@@ -27286,7 +26233,6 @@ ${pageText}
 
                 storageSet({ [userContextKey]: userContextData }, () => {
 
-                  console.log('✅ User Context PDF saved immediately')
 
                 })
 
@@ -27348,7 +26294,6 @@ ${pageText}
 
                 storageSet({ [publisherContextKey]: publisherContextData }, () => {
 
-                  console.log('✅ Publisher Context PDF saved immediately')
 
                 })
 
@@ -27408,7 +26353,6 @@ ${pageText}
 
               storageSet({ [accountContextKey]: accountContextData }, () => {
 
-                console.log('✅ Account Context PDF saved immediately')
 
               })
 
@@ -27452,7 +26396,6 @@ ${pageText}
 
     document.getElementById('save-context-btn')?.addEventListener('click', () => {
 
-      console.log('💾 Saving all contexts...')
 
       
 
@@ -27490,13 +26433,9 @@ ${pageText}
 
       storageSet(dataToSave, () => {
 
-        console.log('✅ All contexts saved:', dataToSave)
 
-        console.log('  - User Context (Session):', userContextKey)
 
-        console.log('  - Publisher Context (Session):', publisherContextKey)
 
-        console.log('  - Account Context (Global):', accountContextKey)
 
       
 
@@ -27516,7 +26455,7 @@ ${pageText}
 
       `
 
-        notification.innerHTML = '✅ All contexts saved successfully!'
+        notification.innerHTML = 'âœ… All contexts saved successfully!'
 
       document.body.appendChild(notification)
 
@@ -27838,7 +26777,7 @@ ${pageText}
 
         <div style="padding: 20px; border-bottom: 1px solid ${csTheme().border}; display: flex; justify-content: space-between; align-items: center;">
 
-          <h2 style="margin: 0; font-size: 20px;">💽 Global Memory Management</h2>
+          <h2 style="margin: 0; font-size: 20px;">ðŸ’½ Global Memory Management</h2>
 
           <button id="close-memory-lightbox" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">&times;</button>
 
@@ -27860,7 +26799,7 @@ ${pageText}
 
             <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
 
-              <label style="display:block;margin-bottom:10px;font-size:14px;color:${csTheme().muted};font-weight:bold;">🧠 Memory:</label>
+              <label style="display:block;margin-bottom:10px;font-size:14px;color:${csTheme().muted};font-weight:bold;">ðŸ§  Memory:</label>
 
               <textarea id="mem-session-text" style="width:100%;height:180px;background:${csTheme().cardBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:12px;border-radius:6px;font-size:12px;resize:vertical;"></textarea>
 
@@ -27868,7 +26807,7 @@ ${pageText}
 
             <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px;">
 
-              <label style="display:block;margin-bottom:10px;font-size:14px;color:${csTheme().muted};font-weight:bold;">📦 Memory Allocation:</label>
+              <label style="display:block;margin-bottom:10px;font-size:14px;color:${csTheme().muted};font-weight:bold;">ðŸ“¦ Memory Allocation:</label>
 
               <div style="display:flex;align-items:center;gap:8px">
 
@@ -27880,7 +26819,7 @@ ${pageText}
 
             <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px; margin-top: 12px;">
 
-              <label style="display: block; margin-bottom: 15px; font-size: 14px; color: ${csTheme().muted}; font-weight: bold;">💾 Memory Settings:</label>
+              <label style="display: block; margin-bottom: 15px; font-size: 14px; color: ${csTheme().muted}; font-weight: bold;">ðŸ’¾ Memory Settings:</label>
 
               <label style="display: flex; align-items: center; font-size: 12px; cursor: pointer;">
 
@@ -27898,7 +26837,7 @@ ${pageText}
 
             <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
 
-              <label style="display:block;margin-bottom:10px;font-size:14px;color:${csTheme().muted};font-weight:bold;">🧠 Memory:</label>
+              <label style="display:block;margin-bottom:10px;font-size:14px;color:${csTheme().muted};font-weight:bold;">ðŸ§  Memory:</label>
 
               <textarea id="mem-account-text" style="width:100%;height:180px;background:${csTheme().cardBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:12px;border-radius:6px;font-size:12px;resize:vertical;"></textarea>
 
@@ -27906,7 +26845,7 @@ ${pageText}
 
             <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px;">
 
-              <label style="display:block;margin-bottom:10px;font-size:14px;color:${csTheme().muted};font-weight:bold;">📦 Memory Allocation:</label>
+              <label style="display:block;margin-bottom:10px;font-size:14px;color:${csTheme().muted};font-weight:bold;">ðŸ“¦ Memory Allocation:</label>
 
               <div style="display:flex;align-items:center;gap:8px">
 
@@ -27932,7 +26871,7 @@ ${pageText}
 
             <div style="margin:-2px 0 8px 0; font-size:12px; opacity:0.9; background:rgba(255,255,255,0.06); border:1px solid ${csTheme().border}; padding:10px; border-radius:8px;">
 
-              KnowledgeVault → Captures human input and AI findings from DeepFix and OptiScan, with AI speeding up documentation. Solutions are bundled, embedded into the local AI, and easy to reuse later.
+              KnowledgeVault â†’ Captures human input and AI findings from DeepFix and OptiScan, with AI speeding up documentation. Solutions are bundled, embedded into the local AI, and easy to reuse later.
 
             </div>
 
@@ -27982,7 +26921,7 @@ ${pageText}
 
           <button id="memory-cancel" style="padding:10px 20px;background:${csTheme().accentGrad};border:none;color:#fff;border-radius:6px;cursor:pointer;font-size:12px">Cancel</button>
 
-          <button id="memory-save" style="padding:10px 20px;background:${csTheme().accentGrad};border:0;color:white;border-radius:6px;cursor:pointer;font-size:12px">💾 Save</button>
+          <button id="memory-save" style="padding:10px 20px;background:${csTheme().accentGrad};border:0;color:white;border-radius:6px;cursor:pointer;font-size:12px">ðŸ’¾ Save</button>
 
         </div>
 
@@ -28040,7 +26979,7 @@ ${pageText}
 
     // --- Sessions UI wiring ---
 
-    function short(s?: string, n: number = 60) { if (!s) return ''; return s.length>n? s.slice(0,n-1)+'…': s }
+    function short(s?: string, n: number = 60) { if (!s) return ''; return s.length>n? s.slice(0,n-1)+'â€¦': s }
 
     function fmtDur(sec: number) { const m = Math.floor(sec/60); const s = sec%60; return `${m}m ${s}s` }
 
@@ -28134,7 +27073,7 @@ ${pageText}
 
             <div style="font-weight:700">${item.title || '(untitled)'} <span style="opacity:.8;font-weight:400">(${item.type})</span></div>
 
-            <div style="font-size:12px;opacity:.85">${item.status} • ${fmtDur(item.durationSec)} • Confidence ${item.confidencePct ?? '-'}% • Human/Ai ${item.humanAiMix ?? 0}%</div>
+            <div style="font-size:12px;opacity:.85">${item.status} â€¢ ${fmtDur(item.durationSec)} â€¢ Confidence ${item.confidencePct ?? '-'}% â€¢ Human/Ai ${item.humanAiMix ?? 0}%</div>
 
           </div>
 
@@ -28148,7 +27087,7 @@ ${pageText}
 
             <div style="font-weight:700;margin-bottom:6px">Co-Authoring Timeline</div>
 
-            <div style="font-size:12px;display:grid;gap:6px">${item.review.map(l=>`<div> ${l.role==='human'?'👤':'🤖'} ${new Date(l.at).toLocaleString()} → ${l.action}${l.from?` ${l.from} → ${l.to}`:''} ${l.message?('→ '+l.message):''}</div>`).join('')}</div>
+            <div style="font-size:12px;display:grid;gap:6px">${item.review.map(l=>`<div> ${l.role==='human'?'ðŸ‘¤':'ðŸ¤–'} ${new Date(l.at).toLocaleString()} â†’ ${l.action}${l.from?` ${l.from} â†’ ${l.to}`:''} ${l.message?('â†’ '+l.message):''}</div>`).join('')}</div>
 
           </div>
 
@@ -28156,11 +27095,11 @@ ${pageText}
 
             <div style="font-weight:700;margin-bottom:6px">AI Solution Detection</div>
 
-            <div style="font-size:12px;margin-bottom:6px"><b>Root cause:</b> ${item.aiRootCause || '—'}</div>
+            <div style="font-size:12px;margin-bottom:6px"><b>Root cause:</b> ${item.aiRootCause || 'â€”'}</div>
 
-            <div style="font-size:12px;margin-bottom:6px"><b>Steps:</b> ${item.aiSteps || '—'}</div>
+            <div style="font-size:12px;margin-bottom:6px"><b>Steps:</b> ${item.aiSteps || 'â€”'}</div>
 
-            <div style="font-size:12px;margin-bottom:6px"><b>Impact:</b> ${item.impact || '—'}</div>
+            <div style="font-size:12px;margin-bottom:6px"><b>Impact:</b> ${item.impact || 'â€”'}</div>
 
             <div style="display:flex;gap:8px">
 
@@ -28206,7 +27145,7 @@ ${pageText}
 
               </select>
 
-              <button id="do-embed" style="margin-left:auto;padding:6px 10px;background:${csTheme().accentGrad};border:0;color:#0b1e12;border-radius:6px;cursor:pointer">Embed → Queue</button>
+              <button id="do-embed" style="margin-left:auto;padding:6px 10px;background:${csTheme().accentGrad};border:0;color:#0b1e12;border-radius:6px;cursor:pointer">Embed â†’ Queue</button>
 
             </div>
 
@@ -28328,7 +27267,7 @@ ${pageText}
 
       const audit = drawer.querySelector('#audit-log') as HTMLElement
 
-      audit.innerHTML = item.review.map(l=>`<div>${new Date(l.at).toLocaleString()} → ${l.action}${l.from?` ${l.from} → ${l.to}`:''} ${l.message?('→ '+l.message):''}</div>`).join('')
+      audit.innerHTML = item.review.map(l=>`<div>${new Date(l.at).toLocaleString()} â†’ ${l.action}${l.from?` ${l.from} â†’ ${l.to}`:''} ${l.message?('â†’ '+l.message):''}</div>`).join('')
 
       // export handlers
 
@@ -28372,7 +27311,6 @@ ${pageText}
 
   function openMiniAppsLightbox() {
 
-    console.log('📱 Opening Mini-Apps Management...')
 
     
 
@@ -28542,7 +27480,7 @@ ${pageText}
 
             displayId: `MA01-${shortId}`,
 
-            title: '📊 Data Analyzer',
+            title: 'ðŸ“Š Data Analyzer',
 
             description: 'Analyzes data from tables, charts, and spreadsheets on the page. Extracts key metrics, identifies trends, and provides summary statistics. Perfect for quick data insights.',
 
@@ -28560,7 +27498,7 @@ ${pageText}
 
             displayId: `MA02-${shortId}`,
 
-            title: '✏️ Content Rewriter',
+            title: 'âœÂï¸ Content Rewriter',
 
             description: 'Rewrites selected text in different tones and styles. Supports formal, casual, professional, creative, and concise modes. Maintains the original meaning while improving clarity.',
 
@@ -28578,7 +27516,7 @@ ${pageText}
 
             displayId: 'MA01-ACC',
 
-            title: '🔍 SEO Checker',
+            title: 'ðŸ” SEO Checker',
 
             description: 'Scans the current page for SEO optimization opportunities. Checks meta tags, headings structure, keyword density, image alt texts, and provides actionable recommendations.',
 
@@ -28596,7 +27534,7 @@ ${pageText}
 
             displayId: 'MA02-ACC',
 
-            title: '📝 Meeting Notes',
+            title: 'ðŸ“ Meeting Notes',
 
             description: 'Formats raw meeting notes into structured documentation. Extracts action items, decisions made, attendees, and next steps. Creates shareable summaries.',
 
@@ -28700,7 +27638,7 @@ ${pageText}
 
                 align-items: center;
 
-              ">✏️ Edit</button>
+              ">âœÂï¸ Edit</button>
 
               <button class="delete-miniapp-btn" data-id="${app.id}" style="
 
@@ -28726,7 +27664,7 @@ ${pageText}
 
                 justify-content: center;
 
-              " title="Delete mini-app">×</button>
+              " title="Delete mini-app">Ã—</button>
 
             </div>
 
@@ -28768,7 +27706,7 @@ ${pageText}
 
                 ${app.scope === 'session' ? 'background: rgba(102,238,102,0.4); color: #90EE90;' : 'background: transparent; color: ${csTheme().muted};'}
 
-              ">🗂 Session</span>
+              ">ðŸ—‚Â Session</span>
 
               <span class="scope-option ${app.scope === 'account' ? 'active' : ''}" data-scope="account" style="
 
@@ -28784,7 +27722,7 @@ ${pageText}
 
                 ${app.scope === 'account' ? `background: ${csTheme().cardBg}; color: ${csTheme().muted};` : 'background: transparent; color: ${csTheme().muted};'}
 
-              ">🏢 Account</span>
+              ">ðŸ¢ Account</span>
 
             </div>
 
@@ -28828,7 +27766,7 @@ ${pageText}
 
         <div style="padding: 20px; border-bottom: 1px solid ${csTheme().border}; display: flex; justify-content: space-between; align-items: center;">
 
-          <h2 style="margin: 0; font-size: 20px;">📱 Mini-Apps</h2>
+          <h2 style="margin: 0; font-size: 20px;">ðŸ“± Mini-Apps</h2>
 
           <button id="close-miniapps-lightbox" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">&times;</button>
 
@@ -28864,7 +27802,7 @@ ${pageText}
 
               box-shadow: 0 4px 8px rgba(0,0,0,0.3);
 
-            ">🛠️ Mini-App Builder</button>
+            ">ðŸ› ï¸ Mini-App Builder</button>
 
           </div>
 
@@ -28972,7 +27910,7 @@ ${pageText}
 
           <div style="padding: 20px; border-bottom: 1px solid ${csTheme().border}; display: flex; justify-content: space-between; align-items: center;">
 
-            <h3 style="margin: 0; font-size: 18px;">🛠️ Mini-App Builder</h3>
+            <h3 style="margin: 0; font-size: 18px;">ðŸ› ï¸ Mini-App Builder</h3>
 
             <button id="close-builder-modal" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 28px; height: 28px; border-radius: 50%; cursor: pointer; font-size: 14px;">&times;</button>
 
@@ -28986,7 +27924,7 @@ ${pageText}
 
               <div style="margin-bottom: 16px;">
 
-                <label style="display: block; margin-bottom: 8px; font-size: 14px; color: ${csTheme().muted}; font-weight: bold;">📌 Mini-App Title</label>
+                <label style="display: block; margin-bottom: 8px; font-size: 14px; color: ${csTheme().muted}; font-weight: bold;">ðŸ“Œ Mini-App Title</label>
 
                 <input id="builder-title" type="text" placeholder="e.g., Email Summarizer" style="
 
@@ -29012,7 +27950,7 @@ ${pageText}
 
               <div style="margin-bottom: 16px;">
 
-                <label style="display: block; margin-bottom: 8px; font-size: 14px; color: ${csTheme().muted}; font-weight: bold;">🎯 Scope</label>
+                <label style="display: block; margin-bottom: 8px; font-size: 14px; color: ${csTheme().muted}; font-weight: bold;">ðŸŽ¯ Scope</label>
 
                 <div style="display: flex; gap: 12px;">
 
@@ -29020,7 +27958,7 @@ ${pageText}
 
                     <input type="radio" name="builder-scope" value="session" checked style="accent-color: #90EE90;">
 
-                    <span style="font-size: 13px;">🗂 Session</span>
+                    <span style="font-size: 13px;">ðŸ—‚Â Session</span>
 
                   </label>
 
@@ -29028,7 +27966,7 @@ ${pageText}
 
                     <input type="radio" name="builder-scope" value="account" style="accent-color: ${csTheme().muted};">
 
-                    <span style="font-size: 13px;">🏢 Account</span>
+                    <span style="font-size: 13px;">ðŸ¢ Account</span>
 
                   </label>
 
@@ -29038,7 +27976,7 @@ ${pageText}
 
               <div style="margin-bottom: 20px;">
 
-                <label style="display: block; margin-bottom: 8px; font-size: 14px; color: ${csTheme().muted}; font-weight: bold;">📝 Description</label>
+                <label style="display: block; margin-bottom: 8px; font-size: 14px; color: ${csTheme().muted}; font-weight: bold;">ðŸ“ Description</label>
 
                 <textarea id="builder-description" placeholder="Describe what this mini-app does, how it works, and when to use it..." style="
 
@@ -29106,7 +28044,7 @@ ${pageText}
 
                   font-weight: bold;
 
-                ">💾 Save Mini-App</button>
+                ">ðŸ’¾ Save Mini-App</button>
 
               </div>
 
@@ -29118,7 +28056,7 @@ ${pageText}
 
               <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
 
-                <h4 style="margin: 0; font-size: 15px; color: #90EE90;">🧪 Test Frame</h4>
+                <h4 style="margin: 0; font-size: 15px; color: #90EE90;">ðŸ§ª Test Frame</h4>
 
                 <button id="run-builder-test" style="
 
@@ -29144,7 +28082,7 @@ ${pageText}
 
                   gap: 6px;
 
-                ">▶️ Run Test</button>
+                ">â–¶ï¸ Run Test</button>
 
               </div>
 
@@ -29174,7 +28112,7 @@ ${pageText}
 
                 <div style="color: ${csTheme().muted}; text-align: center; padding: 40px 20px;">
 
-                  <div style="font-size: 32px; margin-bottom: 12px;">🔬</div>
+                  <div style="font-size: 32px; margin-bottom: 12px;">ðŸ”¬</div>
 
                   <div>Click "Run Test" to execute this mini-app</div>
 
@@ -29186,7 +28124,7 @@ ${pageText}
 
               <div style="margin-top: 12px; padding: 10px; background: ${csTheme().cardBg}; border-radius: 6px; font-size: 11px; color: ${csTheme().muted};">
 
-                💡 <strong>Tip:</strong> Test your mini-app with sample data to verify it works correctly before saving.
+                ðŸ’¡ <strong>Tip:</strong> Test your mini-app with sample data to verify it works correctly before saving.
 
               </div>
 
@@ -29284,7 +28222,7 @@ ${pageText}
 
             <div style="display: flex; align-items: center; gap: 12px;">
 
-              <h3 style="margin: 0; font-size: 18px;">✏️ Edit Mini-App</h3>
+              <h3 style="margin: 0; font-size: 18px;">âœÂï¸ Edit Mini-App</h3>
 
               <span id="edit-display-id-badge" style="background: rgba(144,238,144,0.3); padding: 4px 10px; border-radius: 4px; font-size: 12px; font-weight: bold; color: #90EE90;"></span>
 
@@ -29306,7 +28244,7 @@ ${pageText}
 
               <div style="margin-bottom: 16px;">
 
-                <label style="display: block; margin-bottom: 8px; font-size: 14px; color: ${csTheme().muted}; font-weight: bold;">📌 Mini-App Title</label>
+                <label style="display: block; margin-bottom: 8px; font-size: 14px; color: ${csTheme().muted}; font-weight: bold;">ðŸ“Œ Mini-App Title</label>
 
                 <input id="edit-title" type="text" style="
 
@@ -29332,7 +28270,7 @@ ${pageText}
 
               <div style="margin-bottom: 16px;">
 
-                <label style="display: block; margin-bottom: 8px; font-size: 14px; color: ${csTheme().muted}; font-weight: bold;">🎯 Scope</label>
+                <label style="display: block; margin-bottom: 8px; font-size: 14px; color: ${csTheme().muted}; font-weight: bold;">ðŸŽ¯ Scope</label>
 
                 <div style="display: flex; gap: 12px;">
 
@@ -29340,7 +28278,7 @@ ${pageText}
 
                     <input type="radio" name="edit-scope" value="session" style="accent-color: #90EE90;">
 
-                    <span style="font-size: 13px;">🗂 Session</span>
+                    <span style="font-size: 13px;">ðŸ—‚Â Session</span>
 
                   </label>
 
@@ -29348,7 +28286,7 @@ ${pageText}
 
                     <input type="radio" name="edit-scope" value="account" style="accent-color: ${csTheme().muted};">
 
-                    <span style="font-size: 13px;">🏢 Account</span>
+                    <span style="font-size: 13px;">ðŸ¢ Account</span>
 
                   </label>
 
@@ -29358,7 +28296,7 @@ ${pageText}
 
               <div style="margin-bottom: 20px;">
 
-                <label style="display: block; margin-bottom: 8px; font-size: 14px; color: ${csTheme().muted}; font-weight: bold;">📝 Description</label>
+                <label style="display: block; margin-bottom: 8px; font-size: 14px; color: ${csTheme().muted}; font-weight: bold;">ðŸ“ Description</label>
 
                 <textarea id="edit-description" style="
 
@@ -29406,7 +28344,7 @@ ${pageText}
 
                   font-size: 13px;
 
-                ">🗝‘️ Delete</button>
+                ">ðŸ—â€˜ï¸ Delete</button>
 
                 <div style="display: flex; gap: 12px;">
 
@@ -29446,7 +28384,7 @@ ${pageText}
 
                     font-weight: bold;
 
-                  ">💾 Update</button>
+                  ">ðŸ’¾ Update</button>
 
                 </div>
 
@@ -29460,7 +28398,7 @@ ${pageText}
 
               <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
 
-                <h4 style="margin: 0; font-size: 15px; color: #90EE90;">🧪 Test Frame</h4>
+                <h4 style="margin: 0; font-size: 15px; color: #90EE90;">ðŸ§ª Test Frame</h4>
 
                 <button id="run-miniapp-test" style="
 
@@ -29486,7 +28424,7 @@ ${pageText}
 
                   gap: 6px;
 
-                ">▶️ Run Test</button>
+                ">â–¶ï¸ Run Test</button>
 
               </div>
 
@@ -29516,7 +28454,7 @@ ${pageText}
 
                 <div style="color: ${csTheme().muted}; text-align: center; padding: 40px 20px;">
 
-                  <div style="font-size: 32px; margin-bottom: 12px;">🔬</div>
+                  <div style="font-size: 32px; margin-bottom: 12px;">ðŸ”¬</div>
 
                   <div>Click "Run Test" to execute this mini-app</div>
 
@@ -29528,7 +28466,7 @@ ${pageText}
 
               <div style="margin-top: 12px; padding: 10px; background: ${csTheme().cardBg}; border-radius: 6px; font-size: 11px; color: ${csTheme().muted};">
 
-                💡 <strong>Tip:</strong> Test your mini-app with sample data to verify it works correctly before using it on real pages.
+                ðŸ’¡ <strong>Tip:</strong> Test your mini-app with sample data to verify it works correctly before using it on real pages.
 
               </div>
 
@@ -29894,13 +28832,13 @@ ${pageText}
 
           '<div style="color: #90EE90; margin-bottom: 12px;">' +
 
-            '<span style="color: ${csTheme().muted};">[</span>' + timestamp + '<span style="color: ${csTheme().muted};">]</span> 🚀 Starting test...' +
+            '<span style="color: ${csTheme().muted};">[</span>' + timestamp + '<span style="color: ${csTheme().muted};">]</span> ðŸš€ Starting test...' +
 
           '</div>' +
 
           `<div style="color: ${csTheme().muted}; margin-bottom: 8px;">` +
 
-            '📱 Mini-App: <strong>' + title + '</strong>' +
+            'ðŸ“± Mini-App: <strong>' + title + '</strong>' +
 
           '</div>' +
 
@@ -29912,13 +28850,13 @@ ${pageText}
 
           '<div style="color: #8B5CF6; margin-bottom: 8px;">' +
 
-            '⏳ Processing...' +
+            'â³ Processing...' +
 
           '</div>' +
 
           `<div style="color: ${csTheme().muted}; font-style: italic; margin-top: 16px; padding-top: 12px; border-top: 1px solid ${csTheme().border};">` +
 
-            '💡 Test functionality will be integrated in a future update.' +
+            'ðŸ’¡ Test functionality will be integrated in a future update.' +
 
           '</div>'
 
@@ -30120,13 +29058,13 @@ ${pageText}
 
           '<div style="color: #90EE90; margin-bottom: 12px;">' +
 
-            '<span style="color: ${csTheme().muted};">[</span>' + timestamp + '<span style="color: ${csTheme().muted};">]</span> 🚀 Starting test...' +
+            '<span style="color: ${csTheme().muted};">[</span>' + timestamp + '<span style="color: ${csTheme().muted};">]</span> ðŸš€ Starting test...' +
 
           '</div>' +
 
           `<div style="color: ${csTheme().muted}; margin-bottom: 8px;">` +
 
-            '📱 Mini-App: <strong>' + title + '</strong>' +
+            'ðŸ“± Mini-App: <strong>' + title + '</strong>' +
 
           '</div>' +
 
@@ -30138,13 +29076,13 @@ ${pageText}
 
           '<div style="color: #8B5CF6; margin-bottom: 8px;">' +
 
-            '⏳ Processing...' +
+            'â³ Processing...' +
 
           '</div>' +
 
           `<div style="color: ${csTheme().muted}; font-style: italic; margin-top: 16px; padding-top: 12px; border-top: 1px solid ${csTheme().border};">` +
 
-            '💡 Test functionality will be integrated in a future update.' +
+            'ðŸ’¡ Test functionality will be integrated in a future update.' +
 
           '</div>'
 
@@ -30276,7 +29214,6 @@ ${pageText}
 
   function openAgentMemoryDialog(agentKey: string, agentScope: string, parentOverlay: any) {
 
-    console.log(`🧠 Opening Agent Memory Dialog for: "${agentKey}", scope: ${agentScope}`)
 
     
 
@@ -30338,7 +29275,7 @@ ${pageText}
 
         <div style="padding: 20px; border-bottom: 1px solid ${csTheme().border}; display: flex; justify-content: space-between; align-items: center;">
 
-          <h2 style="margin: 0; font-size: 20px;">🧠 Agent Memory: ${agentKey}</h2>
+          <h2 style="margin: 0; font-size: 20px;">ðŸ§  Agent Memory: ${agentKey}</h2>
 
           <button id="close-agent-memory" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">&times;</button>
 
@@ -30350,7 +29287,7 @@ ${pageText}
 
           <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 8px; margin-bottom: 15px; font-size: 12px; opacity: 0.9;">
 
-            💡 Agent Memory stores context and notes specific to this agent. Use it to maintain conversation history, preferences, or important information the agent should remember.
+            ðŸ’¡ Agent Memory stores context and notes specific to this agent. Use it to maintain conversation history, preferences, or important information the agent should remember.
 
           </div>
 
@@ -30358,7 +29295,7 @@ ${pageText}
 
           <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
 
-            <label style="display: block; margin-bottom: 10px; font-size: 14px; color: #66FF66; font-weight: bold;">📝 Memory Notes:</label>
+            <label style="display: block; margin-bottom: 10px; font-size: 14px; color: #66FF66; font-weight: bold;">ðŸ“ Memory Notes:</label>
 
             <textarea id="agent-memory-notes" style="
 
@@ -30378,7 +29315,7 @@ ${pageText}
 
           <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px;">
 
-            <label style="display: block; margin-bottom: 15px; font-size: 14px; color: #66FF66; font-weight: bold;">💾 Memory Sharing Settings:</label>
+            <label style="display: block; margin-bottom: 15px; font-size: 14px; color: #66FF66; font-weight: bold;">ðŸ’¾ Memory Sharing Settings:</label>
 
             
 
@@ -30386,7 +29323,7 @@ ${pageText}
 
               <input type="checkbox" id="agent-memory-share-session" style="margin-right: 10px; transform: scale(1.3); cursor: pointer;">
 
-              <span>📤 Share with entire Session (all agents in this session can access)</span>
+              <span>ðŸ“¤ Share with entire Session (all agents in this session can access)</span>
 
             </label>
 
@@ -30396,7 +29333,7 @@ ${pageText}
 
               <input type="checkbox" id="agent-memory-share-all" style="margin-right: 10px; transform: scale(1.3); cursor: pointer;">
 
-              <span>🌐 Share with all Sessions (available across all sessions)</span>
+              <span>ðŸŒÂ Share with all Sessions (available across all sessions)</span>
 
             </label>
 
@@ -30422,7 +29359,7 @@ ${pageText}
 
             border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: bold;
 
-          ">💾 Save Memory</button>
+          ">ðŸ’¾ Save Memory</button>
 
         </div>
 
@@ -30460,7 +29397,6 @@ ${pageText}
 
         
 
-        console.log('✅ Loaded agent memory from storage:', storageKey)
 
       }
 
@@ -30526,7 +29462,6 @@ ${pageText}
 
       storageSet({ [storageKey]: memoryData }, () => {
 
-        console.log('✅ Agent memory saved:', storageKey, memoryData)
 
         
 
@@ -30546,7 +29481,7 @@ ${pageText}
 
         `
 
-        notification.innerHTML = '✅ Agent memory saved successfully!'
+        notification.innerHTML = 'âœ… Agent memory saved successfully!'
 
         document.body.appendChild(notification)
 
@@ -30593,7 +29528,7 @@ ${pageText}
     header.style.cssText = `padding: 16px 20px; border-bottom: 1px solid ${csTheme().border}; display:flex; align-items:center; justify-content:space-between;`
 
     header.innerHTML = `
-      <div style="display:flex;align-items:center;gap:8px;font-size:18px;font-weight:700">🔒 WRVault → Password Manager</div>
+      <div style="display:flex;align-items:center;gap:8px;font-size:18px;font-weight:700">ðŸ”’ WRVault â†’ Password Manager</div>
       <button id="wrv-close" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; width: 32px; height: 32px; border-radius: 50%; cursor: pointer; font-size: 18px;">&times;</button>
     `
 
@@ -30617,7 +29552,7 @@ ${pageText}
       })
     }
 
-    // Import first, then open — avoids placeholder flash (never append placeholder to DOM)
+    // Import first, then open â€” avoids placeholder flash (never append placeholder to DOM)
     import('./vault/vault-ui-typescript').then(({ openVaultLightbox }) => {
       openVaultLightbox()
     }).catch((error) => {
@@ -30780,9 +29715,9 @@ ${pageText}
 
       const btnStream = document.createElement('button'); btnStream.textContent = 'Stream'; btnStream.style.cssText='background:#3b82f6;border:0;color:white;padding:4px 8px;border-radius:6px;cursor:pointer'
 
-      const btnRec = document.createElement('button'); btnRec.textContent = '⏺'; btnRec.title = 'Record'; btnRec.style.cssText='background:#ef4444;border:0;color:white;padding:4px 8px;border-radius:6px;cursor:pointer;display:none'
+      const btnRec = document.createElement('button'); btnRec.textContent = 'âº'; btnRec.title = 'Record'; btnRec.style.cssText='background:#ef4444;border:0;color:white;padding:4px 8px;border-radius:6px;cursor:pointer;display:none'
 
-      const btnStop = document.createElement('button'); btnStop.textContent = '⏹'; btnStop.title = 'Stop'; btnStop.style.cssText='background:#991b1b;border:0;color:white;padding:4px 8px;border-radius:6px;cursor:pointer;display:none'
+      const btnStop = document.createElement('button'); btnStop.textContent = 'â¹'; btnStop.title = 'Stop'; btnStop.style.cssText='background:#991b1b;border:0;color:white;padding:4px 8px;border-radius:6px;cursor:pointer;display:none'
 
       const timerEl = document.createElement('span'); timerEl.textContent = '00:00'; timerEl.title = 'Recording time'; timerEl.style.cssText='color:#e5e7eb;opacity:.9;font-variant-numeric:tabular-nums;display:none;align-self:center'
 
@@ -31002,7 +29937,6 @@ ${pageText}
 
           
 
-          console.log('[CONTENT] renderTriggerPrompt - Is restricted page:', isRestrictedPage)
 
           
 
@@ -31010,7 +29944,6 @@ ${pageText}
 
           if (!isRestrictedPage) {
 
-            console.log('[CONTENT] Skipping inline prompt on regular page - modal will be shown')
 
             return
 
@@ -31108,7 +30041,7 @@ ${pageText}
           } catch {}
           const saveBtnColor = btnTheme === 'standard' ? '#3b82f6' : '#10b981'
 
-          const save = document.createElement('button'); save.textContent='💾 Save'; save.style.cssText=`background:${saveBtnColor};border:0;color:white;padding:8px 16px;border-radius:6px;cursor:pointer;font-size:13px; font-weight:500;`
+          const save = document.createElement('button'); save.textContent='ðŸ’¾ Save'; save.style.cssText=`background:${saveBtnColor};border:0;color:white;padding:8px 16px;border-radius:6px;cursor:pointer;font-size:13px; font-weight:500;`
 
           const cancel = document.createElement('button'); cancel.textContent='Cancel'; cancel.style.cssText='background:rgba(255,255,255,0.2);border:0;color:#ffffff;padding:8px 16px;border-radius:6px;cursor:pointer;font-size:13px; font-weight:500;'
 
@@ -31208,7 +30141,7 @@ ${pageText}
 
                   const bub = document.createElement('div'); bub.style.maxWidth='78%'; bub.style.padding='8px 10px'; bub.style.borderRadius='10px'; bub.style.fontSize='12px'; bub.style.background='rgba(59,130,246,0.12)'; bub.style.border='1px solid rgba(59,130,246,0.45)'; bub.style.color='#e5e7eb'
 
-                  bub.textContent = `📝 Command: ${command}`
+                  bub.textContent = `ðŸ“ Command: ${command}`
 
                   row.appendChild(bub); msgs.appendChild(row); msgs.scrollTop = msgs.scrollHeight
 
@@ -31528,9 +30461,7 @@ ${pageText}
 
   function sendContextToElectron() {
 
-    console.log('💾 Saving context to Electron app...')
 
-    console.log('💾 currentTabData.context:', currentTabData.context)
 
     
 
@@ -31552,11 +30483,9 @@ ${pageText}
 
       window.gridWebSocket.send(JSON.stringify(contextData))
 
-      console.log('📄 Context sent to Electron app:', contextData)
 
     } else {
 
-      console.log('❌ WebSocket not connected, cannot save context to Electron app')
 
     }
 
@@ -31568,7 +30497,6 @@ ${pageText}
 
   function loadSessionFromElectron(sessionId: string) {
 
-    console.log('📂 Loading session from Electron app:', sessionId)
 
     
 
@@ -31584,7 +30512,6 @@ ${pageText}
 
       }))
 
-      console.log('✅ Load session request sent to Electron app')
 
     } else {
 
@@ -31594,13 +30521,11 @@ ${pageText}
 
       if (!DESKTOP_WS_ENABLED) {
 
-        console.log('ℹ️ Desktop WebSocket disabled; skipping connect for LOAD_SESSION')
 
         return
 
       }
 
-      console.log('❌ WebSocket not connected, trying to connect...')
 
       const ws = new WebSocket('ws://localhost:51247')
 
@@ -31608,7 +30533,6 @@ ${pageText}
 
       ws.onopen = () => {
 
-        console.log('🔗 Connected to Electron app WebSocket')
 
         ws.send(JSON.stringify({
 
@@ -31620,7 +30544,6 @@ ${pageText}
 
         }))
 
-        console.log('✅ Load session request sent to Electron app')
 
         window.gridWebSocket = ws
 
@@ -31630,7 +30553,6 @@ ${pageText}
 
       ws.onerror = (error) => {
 
-        console.log('❌ WebSocket connection failed:', error)
 
       }
 
@@ -31642,7 +30564,6 @@ ${pageText}
 
   function saveSessionToElectron(sessionId: string, sessionData: any) {
 
-    console.log('💾 Saving full session to Electron app:', sessionId)
 
     
 
@@ -31660,7 +30581,6 @@ ${pageText}
 
       }))
 
-      console.log('✅ Session data sent to Electron app')
 
     } else {
 
@@ -31668,13 +30588,11 @@ ${pageText}
 
       if (!DESKTOP_WS_ENABLED) {
 
-        console.log('ℹ️ Desktop WebSocket disabled; skipping connect for SAVE_SESSION_DATA')
 
         return
 
       }
 
-      console.log('❌ WebSocket not connected, trying to connect...')
 
       const ws = new WebSocket('ws://localhost:51247')
 
@@ -31682,7 +30600,6 @@ ${pageText}
 
       ws.onopen = () => {
 
-        console.log('🔗 Connected to Electron app WebSocket')
 
         ws.send(JSON.stringify({
 
@@ -31696,7 +30613,6 @@ ${pageText}
 
         }))
 
-        console.log('✅ Session data sent to Electron app')
 
         window.gridWebSocket = ws
 
@@ -31706,7 +30622,6 @@ ${pageText}
 
       ws.onerror = (error) => {
 
-        console.log('❌ WebSocket connection failed:', error)
 
       }
 
@@ -31724,7 +30639,6 @@ ${pageText}
 
     if (!DESKTOP_WS_ENABLED) {
 
-      console.log('ℹ️ Desktop WebSocket disabled; not initializing connection')
 
       return
 
@@ -31738,7 +30652,6 @@ ${pageText}
 
 
 
-    console.log('🔗 Initializing WebSocket connection to Electron app...')
 
     const ws = new WebSocket('ws://localhost:51247')
 
@@ -31746,7 +30659,6 @@ ${pageText}
 
     ws.onopen = () => {
 
-      console.log('✅ Connected to Electron app WebSocket')
 
       window.gridWebSocket = ws
 
@@ -31760,7 +30672,6 @@ ${pageText}
 
         const response = JSON.parse(event.data)
 
-        console.log('📨 Received from Electron app:', response)
 
         
 
@@ -31768,7 +30679,6 @@ ${pageText}
 
           case 'SESSION_LOADED':
 
-            console.log('📂 Session loaded from Electron app:', response.sessionId)
 
             if (response.data) {
 
@@ -31834,7 +30744,6 @@ ${pageText}
 
               saveTabDataToStorage()
 
-              console.log('✅ Session data restored from Electron app')
 
             }
 
@@ -31844,7 +30753,6 @@ ${pageText}
 
           case 'CONTEXT_SAVED':
 
-            console.log('✅ Context saved to Electron app')
 
             break
 
@@ -31852,7 +30760,6 @@ ${pageText}
 
           case 'GRID_CONFIG_SAVED':
 
-            console.log('✅ Grid config saved to Electron app')
 
             break
 
@@ -31860,7 +30767,6 @@ ${pageText}
 
           case 'SESSION_DATA_SAVED':
 
-            console.log('✅ Session data saved to Electron app')
 
             break
 
@@ -31868,7 +30774,6 @@ ${pageText}
 
           case 'SESSIONS_LISTED':
 
-            console.log('📋 Sessions listed from Electron app:', response.sessions)
 
             break
 
@@ -31876,13 +30781,11 @@ ${pageText}
 
           default:
 
-            console.log('ℹ️ Unknown message type from Electron app:', response.type)
 
         }
 
       } catch (error) {
 
-        console.log('❌ Error parsing WebSocket message:', error)
 
       }
 
@@ -31892,7 +30795,6 @@ ${pageText}
 
     ws.onclose = (event) => {
 
-      console.log('🔌 WebSocket connection closed:', event.code, event.reason)
 
       window.gridWebSocket = null
 
@@ -31916,7 +30818,6 @@ ${pageText}
 
     ws.onerror = (error) => {
 
-      console.log('❌ WebSocket connection error:', error)
 
       window.gridWebSocket = null
 
@@ -31960,11 +30861,11 @@ ${pageText}
 
         <div style="padding: 20px; border-bottom: 1px solid ${csTheme().border}; display: flex; justify-content: space-between; align-items: center;">
 
-          <h2 style="margin: 0; font-size: 20px;">⚙️ Extension Settings</h2>
+          <h2 style="margin: 0; font-size: 20px;">âš™ï¸ Extension Settings</h2>
 
           <div style="display:flex; gap:10px; align-items:center;">
 
-            <button id="settings-whitelist-btn" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 6px 10px; border-radius: 999px; cursor: pointer; font-size: 11px; font-weight:700;">🛡 Whitelist</button>
+            <button id="settings-whitelist-btn" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 6px 10px; border-radius: 999px; cursor: pointer; font-size: 11px; font-weight:700;">ðŸ›¡Â Whitelist</button>
 
           <button id="close-settings-lightbox" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">&times;</button>
 
@@ -31982,7 +30883,7 @@ ${pageText}
 
               <div style="display:flex; justify-content: space-between; align-items:center; margin-bottom: 8px;">
 
-                <h4 style="margin: 0; font-size: 12px; color: ${csTheme().muted};">💳 Account & Billing</h4>
+                <h4 style="margin: 0; font-size: 12px; color: ${csTheme().muted};">ðŸ’³ Account & Billing</h4>
 
                 <div id="account-balance" style="font-size: 12px; font-weight: 700;">Balance: $0.00</div>
 
@@ -32008,7 +30909,7 @@ ${pageText}
 
               <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
 
-                <h4 style="margin: 0; font-size: 12px; color: ${csTheme().muted};">🔑 API Keys</h4>
+                <h4 style="margin: 0; font-size: 12px; color: ${csTheme().muted};">ðŸ”‘ API Keys</h4>
 
                 <div style="display:flex; gap:6px;">
 
@@ -32034,7 +30935,7 @@ ${pageText}
 
                   <input type="password" id="key-OpenAI" placeholder="sk-..." style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 6px; border-radius: 4px; font-size: 10px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;">
 
-                  <button class="toggle-visibility" data-target="key-OpenAI" title="Show/Hide" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px;">👁️</button>
+                  <button class="toggle-visibility" data-target="key-OpenAI" title="Show/Hide" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px;">ðŸ‘ï¸</button>
 
                 </div>
 
@@ -32044,7 +30945,7 @@ ${pageText}
 
                   <input type="password" id="key-Claude" placeholder="sk-ant-..." style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 6px; border-radius: 4px; font-size: 10px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;">
 
-                  <button class="toggle-visibility" data-target="key-Claude" title="Show/Hide" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px;">👁️</button>
+                  <button class="toggle-visibility" data-target="key-Claude" title="Show/Hide" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px;">ðŸ‘ï¸</button>
 
                 </div>
 
@@ -32054,7 +30955,7 @@ ${pageText}
 
                   <input type="password" id="key-Gemini" placeholder="AIza..." style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 6px; border-radius: 4px; font-size: 10px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;">
 
-                  <button class="toggle-visibility" data-target="key-Gemini" title="Show/Hide" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px;">👁️</button>
+                  <button class="toggle-visibility" data-target="key-Gemini" title="Show/Hide" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px;">ðŸ‘ï¸</button>
 
                 </div>
 
@@ -32064,7 +30965,7 @@ ${pageText}
 
                   <input type="password" id="key-Grok" placeholder="xai-..." style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 6px; border-radius: 4px; font-size: 10px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;">
 
-                  <button class="toggle-visibility" data-target="key-Grok" title="Show/Hide" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px;">👁️</button>
+                  <button class="toggle-visibility" data-target="key-Grok" title="Show/Hide" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px;">ðŸ‘ï¸</button>
 
                 </div>
 
@@ -32080,7 +30981,7 @@ ${pageText}
 
               <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
 
-                <h4 style="margin: 0; font-size: 12px; color: ${csTheme().muted};">💻 Local LLMs</h4>
+                <h4 style="margin: 0; font-size: 12px; color: ${csTheme().muted};">ðŸ’» Local LLMs</h4>
 
                 <div style="display:flex; gap:6px;">
 
@@ -32104,7 +31005,7 @@ ${pageText}
 
                   <div style="display:flex; align-items:center; gap:6px;">
 
-                    <span style="font-size:12px; color:${csTheme().muted}; font-weight:700;">🎛️ Finetuned local LLMs</span>
+                    <span style="font-size:12px; color:${csTheme().muted}; font-weight:700;">ðŸŽ›ï¸ Finetuned local LLMs</span>
 
                     <span id="finetuned-pro-badge" style="display:none; font-size:10px; background: ${csTheme().cardBg}; border: 1px solid ${csTheme().border}; color:${csTheme().accent}; padding:2px 6px; border-radius:999px;">PRO</span>
 
@@ -32114,7 +31015,7 @@ ${pageText}
 
               <div id="finetuned-locked" style="display:none; font-size:10px; margin:6px 0; padding:6px; background: ${csTheme().cardBg}; border:1px solid rgba(255,255,255,0.22); border-radius:6px;">
 
-                  🔒 Finetuned models are available for Pro subscribers.
+                  ðŸ”’ Finetuned models are available for Pro subscribers.
 
                   <button id="unlock-finetuned" style="margin-left: 8px; background: ${csTheme().accentGrad}; border: none; color: #fff; padding: 4px 8px; border-radius: 6px; cursor: pointer; font-size: 10px; font-weight: 700;">Upgrade</button>
 
@@ -32138,7 +31039,7 @@ ${pageText}
 
             <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 6px; grid-column: 3 / 4; height: 100%; display: flex; flex-direction: column;">
 
-              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: ${csTheme().muted};">🎨 Appearance</h4>
+              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: ${csTheme().muted};">ðŸŽ¨ Appearance</h4>
 
               <div style="font-size: 10px; display: grid; grid-template-columns: auto 1fr; gap: 8px; align-items: center;">
 
@@ -32162,7 +31063,7 @@ ${pageText}
 
             <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 6px;">
 
-              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: ${csTheme().muted};">⚙️ System</h4>
+              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: ${csTheme().muted};">âš™ï¸ System</h4>
 
               <div style="font-size: 10px;">
 
@@ -32182,7 +31083,7 @@ ${pageText}
 
                 </div>
 
-                <button style="width: 100%; padding: 6px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 3px; cursor: pointer; font-size: 9px;">💾 Save Settings</button>
+                <button style="width: 100%; padding: 6px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 3px; cursor: pointer; font-size: 9px;">ðŸ’¾ Save Settings</button>
 
               </div>
 
@@ -32198,7 +31099,7 @@ ${pageText}
 
             <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 6px;">
 
-              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: ${csTheme().muted};">⚡ Performance</h4>
+              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: ${csTheme().muted};">âš¡ Performance</h4>
 
               <div style="font-size: 10px;">
 
@@ -32246,7 +31147,7 @@ ${pageText}
 
             <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 6px;">
 
-              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: ${csTheme().muted};">🔒 Privacy & Security</h4>
+              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: ${csTheme().muted};">ðŸ”’ Privacy & Security</h4>
 
               <div style="font-size: 10px;">
 
@@ -32304,15 +31205,15 @@ ${pageText}
 
             <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 6px; grid-column: 1 / -1;">
 
-              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: ${csTheme().muted};">📦 Backup</h4>
+              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: ${csTheme().muted};">ðŸ“¦ Backup</h4>
 
               <div style="font-size: 10px;">
 
-                <button style="width: 100%; margin-bottom: 6px; padding: 6px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 3px; cursor: pointer; font-size: 9px;">📤 Export Settings</button>
+                <button style="width: 100%; margin-bottom: 6px; padding: 6px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 3px; cursor: pointer; font-size: 9px;">ðŸ“¤ Export Settings</button>
 
-                <button style="width: 100%; margin-bottom: 6px; padding: 6px; background: ${csTheme().cardBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; border-radius: 3px; cursor: pointer; font-size: 9px;">📥 Import Settings</button>
+                <button style="width: 100%; margin-bottom: 6px; padding: 6px; background: ${csTheme().cardBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; border-radius: 3px; cursor: pointer; font-size: 9px;">ðŸ“¥ Import Settings</button>
 
-                <button style="width: 100%; padding: 6px; background: rgba(220,38,38,0.08); border: 1px solid rgba(220,38,38,0.25); color: ${csTheme().isLight ? "#991b1b" : "#f87171"}; border-radius: 3px; cursor: pointer; font-size: 9px;">🗝‘️ Reset All</button>
+                <button style="width: 100%; padding: 6px; background: rgba(220,38,38,0.08); border: 1px solid rgba(220,38,38,0.25); color: ${csTheme().isLight ? "#991b1b" : "#f87171"}; border-radius: 3px; cursor: pointer; font-size: 9px;">ðŸ—â€˜ï¸ Reset All</button>
 
               </div>
 
@@ -32366,7 +31267,6 @@ ${pageText}
 
     const themeSelect = document.getElementById('optimando-theme-select') as HTMLSelectElement | null
 
-    console.log('🎨 Theme select element found:', themeSelect)
 
     if (themeSelect) {
 
@@ -32376,7 +31276,6 @@ ${pageText}
 
         const savedTheme = localStorage.getItem('optimando-ui-theme')
 
-        console.log('🎨 Saved theme from localStorage:', savedTheme)
 
         if (savedTheme === 'dark' || savedTheme === 'standard' || savedTheme === 'pro') {
 
@@ -32388,11 +31287,10 @@ ${pageText}
 
         }
 
-        console.log('🎨 Theme select value set to:', themeSelect.value)
 
       } catch (error) {
 
-        console.error('🎨 Error loading saved theme:', error)
+        console.error('ðŸŽ¨ Error loading saved theme:', error)
 
       }
 
@@ -32402,7 +31300,6 @@ ${pageText}
 
         const theme = themeSelect!.value
 
-        console.log('🎨 Theme changed to:', theme)
 
         try { 
 
@@ -32410,11 +31307,10 @@ ${pageText}
 
           try { chrome.storage?.local?.set({ 'optimando-ui-theme': theme }) } catch {}
 
-          console.log('🎨 Theme saved to localStorage:', theme)
 
         } catch (error) {
 
-          console.error('🎨 Error saving theme:', error)
+          console.error('ðŸŽ¨ Error saving theme:', error)
 
         }
 
@@ -32426,13 +31322,12 @@ ${pageText}
 
           try { 
 
-            console.log('🎨 Applying default theme...')
 
             resetToDefaultTheme() 
 
           } catch (error) {
 
-            console.error('🎨 Error applying default theme:', error)
+            console.error('ðŸŽ¨ Error applying default theme:', error)
 
           }
 
@@ -32440,13 +31335,12 @@ ${pageText}
 
           try { 
 
-            console.log('🎨 Applying theme:', theme)
 
             applyTheme(theme) 
 
           } catch (error) {
 
-            console.error('🎨 Error applying theme:', error, theme)
+            console.error('ðŸŽ¨ Error applying theme:', error, theme)
 
           }
 
@@ -32466,17 +31360,14 @@ ${pageText}
 
       themeSelect.addEventListener('click', () => {
 
-        console.log('🎨 Theme select clicked!')
 
       })
 
       themeSelect.addEventListener('focus', () => {
 
-        console.log('🎨 Theme select focused!')
 
       })
 
-      console.log('🎨 Theme select event listener attached')
 
     }
 
@@ -32616,9 +31507,9 @@ ${pageText}
 
           <input class="api-value" type="password" id="key-custom-${idSuffix}" placeholder="key..." style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 6px; border-radius: 4px; font-size: 10px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;">
 
-          <button class="toggle-visibility" data-target="key-custom-${idSuffix}" title="Show/Hide" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px;">👁️</button>
+          <button class="toggle-visibility" data-target="key-custom-${idSuffix}" title="Show/Hide" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px;">ðŸ‘ï¸</button>
 
-          <button class="remove-custom" title="Remove" style="background: rgba(244,67,54,0.5); border: none; color: white; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px;">✏•</button>
+          <button class="remove-custom" title="Remove" style="background: rgba(244,67,54,0.5); border: none; color: white; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px;">âœâ€¢</button>
 
         `
 
@@ -32764,7 +31655,7 @@ ${pageText}
 
           '</select>'+
 
-          '<button class="install-local-llm" style="background: #2563eb; border: none; color: white; padding: 6px 8px; border-radius: 6px; cursor: pointer; font-size: 10px;">'+(it.installed ? 'Installed ✓' : 'Install')+'</button>'+
+          '<button class="install-local-llm" style="background: #2563eb; border: none; color: white; padding: 6px 8px; border-radius: 6px; cursor: pointer; font-size: 10px;">'+(it.installed ? 'Installed âœ“' : 'Install')+'</button>'+
 
           '<button class="remove-local-llm" title="Remove" style="background: rgba(220,38,38,0.15); border: 1px solid rgba(220,38,38,0.4); color: #dc2626; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 14px; line-height: 1; display: flex; align-items: center; justify-content: center;">&#x2715;</button>'
 
@@ -32812,7 +31703,7 @@ ${pageText}
 
           // Placeholder installation handler
 
-          installBtn.textContent = 'Installing…'
+          installBtn.textContent = 'Installingâ€¦'
 
           installBtn.disabled = true
 
@@ -32826,7 +31717,7 @@ ${pageText}
 
             saveLocalLLMs(current)
 
-            installBtn.textContent = 'Installed ✓'
+            installBtn.textContent = 'Installed âœ“'
 
           }, 500)
 
@@ -32972,7 +31863,7 @@ ${pageText}
 
             `<input class="ft-base" placeholder="Base model (e.g., llama3.1)" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 6px; border-radius: 4px; font-size: 10px;">`+
 
-            '<button class="ft-remove" title="Remove" style="background: rgba(244,67,54,0.5); border: none; color: white; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px;">✏•</button>'
+            '<button class="ft-remove" title="Remove" style="background: rgba(244,67,54,0.5); border: none; color: white; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px;">âœâ€¢</button>'
 
           )
 
@@ -33058,7 +31949,7 @@ ${pageText}
 
     btnPAYG?.addEventListener('click', () => openBillingModal('payg'))
 
-    // Subscription → open WRDesk pricing page directly (plan upgrades happen on wrdesk.com)
+    // Subscription â†’ open WRDesk pricing page directly (plan upgrades happen on wrdesk.com)
     btnSub?.addEventListener('click', () => {
       window.open('https://wrdesk.com/?page_id=1080&v=5f02f0889301', '_blank', 'noopener,noreferrer')
     })
@@ -33176,7 +32067,7 @@ ${pageText}
             name: 'Pro (Private)',
             allowedBillingOptions: ['annual', 'lifetime'] as const,
             prices: { annual: 79, lifetime: 249 },
-            priceLabels: { annual: '€79<span>/year</span>', lifetime: '€249<span> one-time</span>' },
+            priceLabels: { annual: 'â‚¬79<span>/year</span>', lifetime: 'â‚¬249<span> one-time</span>' },
             ctaLabels: { annual: 'Select Pro', lifetime: 'Select Early Access Lifetime' }
           },
           publisher: {
@@ -33184,7 +32075,7 @@ ${pageText}
             name: 'Publisher',
             allowedBillingOptions: ['annual', 'lifetime'] as const, // NO monthly
             prices: { annual: 129, lifetime: 399 },
-            priceLabels: { annual: '€129<span>/year</span>', lifetime: '€399<span> one-time</span>' },
+            priceLabels: { annual: 'â‚¬129<span>/year</span>', lifetime: 'â‚¬399<span> one-time</span>' },
             ctaLabels: { annual: 'Select Publisher', lifetime: 'Select Early Access Lifetime' }
           },
           enterprise: {
@@ -33192,17 +32083,12 @@ ${pageText}
             name: 'Business/Enterprise',
             allowedBillingOptions: ['annual', 'monthly'] as const, // NO lifetime
             prices: { annual: 599, monthly: 59 },
-            priceLabels: { annual: '€599<span>/year</span>', monthly: '€59<span>/month</span>' },
+            priceLabels: { annual: 'â‚¬599<span>/year</span>', monthly: 'â‚¬59<span>/month</span>' },
             ctaLabels: { annual: 'Contact Sales', monthly: 'Contact Sales' }
           }
         }
 
         // DEV ASSERTION: Verify plan constraints
-        console.log('[Plans] Config loaded:', {
-          private: PLAN_CONFIG.private.allowedBillingOptions,
-          publisher: PLAN_CONFIG.publisher.allowedBillingOptions,
-          enterprise: PLAN_CONFIG.enterprise.allowedBillingOptions
-        })
         if (PLAN_CONFIG.enterprise.allowedBillingOptions.includes('lifetime' as any)) {
           console.error('[Plans] ERROR: Enterprise plan must NOT include lifetime!')
         }
@@ -33221,12 +32107,10 @@ ${pageText}
             // Check URL query param: ?aff=1
             const urlParams = new URLSearchParams(window.location.search)
             if (urlParams.get('aff') === '1') {
-              console.log('[Plans] Affiliate attribution detected via query param')
               return true
             }
             // Check localStorage: og_aff=1
             if (localStorage.getItem('og_aff') === '1') {
-              console.log('[Plans] Affiliate attribution detected via localStorage')
               return true
             }
           } catch (e) {
@@ -33234,7 +32118,6 @@ ${pageText}
           }
           return false
         })()
-        console.log('[Plans] isAffiliateAttributed:', isAffiliateAttributed)
 
         // Inject responsive styles for the plans grid
         const styleId = 'wr-plans-responsive-styles'
@@ -33287,21 +32170,21 @@ ${pageText}
               // BASIC TIER
               '<div class="wr-plan-card">' +
                 '<h3>Basic</h3>' +
-                '<div class="price">€0</div>' +
+                '<div class="price">â‚¬0</div>' +
                 `<div style="font-size:10px;color:${th.muted};margin:4px 0;text-transform:uppercase;letter-spacing:0.5px">Intended Use</div>` +
                 `<div style="font-size:11px;margin-bottom:8px;color:${th.text}">Single-user local deployments for non-commercial use.</div>` +
                 `<div style="font-size:10px;color:${th.muted};margin:4px 0;text-transform:uppercase;letter-spacing:0.5px">Included Capabilities</div>` +
                 '<ul style="font-size:11px">' +
                   '<li>Local orchestration runtime</li>' +
                   '<li>BYOK integration (all supported providers)</li>' +
-                  '<li>Unlimited WR Desk™ Automation Sessions</li>' +
-                  '<li>Unlimited BEAP™ Messaging</li>' +
-                  '<li>pBEAP™ secure messaging (baseline)</li>' +
-                  '<li>WRGuard™ baseline integrity monitoring</li>' +
+                  '<li>Unlimited WR Deskâ„¢ Automation Sessions</li>' +
+                  '<li>Unlimited BEAPâ„¢ Messaging</li>' +
+                  '<li>pBEAPâ„¢ secure messaging (baseline)</li>' +
+                  '<li>WRGuardâ„¢ baseline integrity monitoring</li>' +
                 '</ul>' +
                 `<div style="font-size:10px;color:${th.muted};margin:4px 0;text-transform:uppercase;letter-spacing:0.5px">Security & Verification</div>` +
                 '<ul style="font-size:11px">' +
-                  '<li>PoAE™ baseline execution logs (local, non-cryptographic)</li>' +
+                  '<li>PoAEâ„¢ baseline execution logs (local, non-cryptographic)</li>' +
                   '<li>Local-only verification (no external attestation)</li>' +
                 '</ul>' +
                 (isFreeTier
@@ -33316,24 +32199,24 @@ ${pageText}
                   '<button id="pro-private-annual" class="toggle-btn active">Annual</button>' +
                   '<button id="pro-private-lifetime" class="toggle-btn">Early Access Lifetime</button>' +
                 '</div>' +
-                `<div id="pro-private-note" class="wr-plan-note" style="display:none">Private use only · Non-commercial · No publishing rights</div>` +
+                `<div id="pro-private-note" class="wr-plan-note" style="display:none">Private use only Â· Non-commercial Â· No publishing rights</div>` +
                 `<div style="font-size:10px;color:${th.muted};margin:4px 0;text-transform:uppercase;letter-spacing:0.5px">Intended Use</div>` +
                 `<div style="font-size:11px;margin-bottom:8px;color:${th.text}">Single-user private deployments for individuals and independent professionals. Non-commercial publishing rights.</div>` +
                 (isAffiliateAttributed ? `<div id="pro-private-founders" style="display:none;background:${th.cardBg};border:1px solid ${th.border};border-radius:6px;padding:10px;margin:8px 0">` + affiliateFoundersPackHtml + '</div>' : '') +
                 `<div style="font-size:10px;color:${th.muted};margin:4px 0;text-transform:uppercase;letter-spacing:0.5px">Included Capabilities</div>` +
                 '<ul style="font-size:11px">' +
                   '<li>All Basic tier capabilities</li>' +
-                  '<li>WRVault™ Local Data Vault + Password Manager (encrypted, scoped, policy-aware)</li>' +
-                  '<li>qBEAP™ post-quantum-ready encrypted messaging</li>' +
+                  '<li>WRVaultâ„¢ Local Data Vault + Password Manager (encrypted, scoped, policy-aware)</li>' +
+                  '<li>qBEAPâ„¢ post-quantum-ready encrypted messaging</li>' +
                   '<li>Off-band VM Ingestor (external VM ingestion node; requires root VM access)</li>' +
                   '<li>Hardware attestation features</li>' +
                   '<li>Passkey-based protection features</li>' +
-                  '<li>WRGuard™ advanced strict mode (tamper detection)</li>' +
+                  '<li>WRGuardâ„¢ advanced strict mode (tamper detection)</li>' +
                   '<li>Basic support</li>' +
                 '</ul>' +
                 `<div style="font-size:10px;color:${th.muted};margin:4px 0;text-transform:uppercase;letter-spacing:0.5px">Security & Verification</div>` +
                 '<ul style="font-size:11px">' +
-                  '<li>PoAE™ advanced cryptographic proofs (signed attestations)</li>' +
+                  '<li>PoAEâ„¢ advanced cryptographic proofs (signed attestations)</li>' +
                   '<li>Exportable proof artifacts for personal records</li>' +
                   '<li>Local verification of proof integrity</li>' +
                 '</ul>' +
@@ -33356,7 +32239,7 @@ ${pageText}
                 `<div style="font-size:10px;color:${th.muted};margin:4px 0;text-transform:uppercase;letter-spacing:0.5px">Included Capabilities</div>` +
                 '<ul style="font-size:11px">' +
                   '<li>All Pro (Private) tier capabilities</li>' +
-                  '<li>Commercial WR Desk™ publishing rights</li>' +
+                  '<li>Commercial WR Deskâ„¢ publishing rights</li>' +
                   '<li>Enterprise Handshakes with cryptographically bound context</li>' +
                   '<li>DNS-verified domain ownership for identity anchoring</li>' +
                   '<li>Publisher branding and custom domain support</li>' +
@@ -33365,7 +32248,7 @@ ${pageText}
                 '</ul>' +
                 `<div style="font-size:10px;color:${th.muted};margin:4px 0;text-transform:uppercase;letter-spacing:0.5px">Security & Verification</div>` +
                 '<ul style="font-size:11px">' +
-                  '<li>PoAE™ advanced proofs with verification endpoint</li>' +
+                  '<li>PoAEâ„¢ advanced proofs with verification endpoint</li>' +
                   '<li>Third-party verification capability (client-accessible)</li>' +
                   '<li>Proof chain export for external review</li>' +
                 '</ul>' +
@@ -33393,7 +32276,7 @@ ${pageText}
                 '</ul>' +
                 `<div style="font-size:10px;color:${th.muted};margin:4px 0;text-transform:uppercase;letter-spacing:0.5px">Security & Verification</div>` +
                 '<ul style="font-size:11px">' +
-                  '<li>PoAE™ advanced proofs with full audit export</li>' +
+                  '<li>PoAEâ„¢ advanced proofs with full audit export</li>' +
                   '<li>Per-user attribution in proof chain</li>' +
                   '<li>Centralized proof archive with retention controls</li>' +
                   '<li>Third-party verification with organizational context</li>' +
@@ -33448,7 +32331,7 @@ ${pageText}
 
           if (isNaN(value) || value < 10) {
 
-            alert('Minimum top-up is €10')
+            alert('Minimum top-up is â‚¬10')
 
             if (customInput) customInput.focus()
 
@@ -33456,7 +32339,7 @@ ${pageText}
 
           }
 
-          alert(`✅ Top-up initialized: €${value.toFixed(2)}`)
+          alert(`âœ… Top-up initialized: â‚¬${value.toFixed(2)}`)
 
         })
 
@@ -33476,12 +32359,11 @@ ${pageText}
 
       if (proPrivatePrice && proPrivateAnnual && proPrivateLifetime && proPrivateNote && proPrivateCta) {
         const proCfg = {
-          prices: { annual: '€79<span>/year</span>', lifetime: '€249<span> one-time</span>' },
+          prices: { annual: 'â‚¬79<span>/year</span>', lifetime: 'â‚¬249<span> one-time</span>' },
           ctas: { annual: 'Select Pro', lifetime: 'Select Early Access Lifetime' },
           urls: { annual: 'https://wrdesk.com/buy/?plan=private_annual', lifetime: 'https://wrdesk.com/buy/?plan=private_lifetime' }
         }
         const setProAnnual = () => {
-          console.log('[Plans] Private: switching to Annual @ €79/year')
           proPrivatePrice.innerHTML = proCfg.prices.annual
           proPrivateAnnual.classList.add('active')
           proPrivateLifetime.classList.remove('active')
@@ -33494,7 +32376,6 @@ ${pageText}
           }
         }
         const setProLifetime = () => {
-          console.log('[Plans] Private: switching to Lifetime @ €249 one-time')
           proPrivatePrice.innerHTML = proCfg.prices.lifetime
           proPrivateLifetime.classList.add('active')
           proPrivateAnnual.classList.remove('active')
@@ -33520,12 +32401,11 @@ ${pageText}
 
       if (publisherPrice && publisherAnnual && publisherLifetime && publisherCta) {
         const pubCfg = {
-          prices: { annual: '€129<span>/year</span>', lifetime: '€399<span> one-time</span>' },
+          prices: { annual: 'â‚¬129<span>/year</span>', lifetime: 'â‚¬399<span> one-time</span>' },
           ctas: { annual: 'Select Publisher', lifetime: 'Select Early Access Lifetime' },
           urls: { annual: 'https://wrdesk.com/buy/?plan=publisher_annual', lifetime: 'https://wrdesk.com/buy/?plan=publisher_lifetime' }
         }
         const setPublisherAnnual = () => {
-          console.log('[Plans] Publisher: switching to Annual @ €129/year')
           publisherPrice.innerHTML = pubCfg.prices.annual
           publisherAnnual.classList.add('active')
           publisherLifetime.classList.remove('active')
@@ -33537,7 +32417,6 @@ ${pageText}
           }
         }
         const setPublisherLifetime = () => {
-          console.log('[Plans] Publisher: switching to Lifetime @ €399 one-time')
           publisherPrice.innerHTML = pubCfg.prices.lifetime
           publisherLifetime.classList.add('active')
           publisherAnnual.classList.remove('active')
@@ -33561,18 +32440,16 @@ ${pageText}
 
       if (entPrice && entAnnual && entMonthly && entCta) {
         const entCfg = {
-          prices: { annual: '€599<span>/year</span>', monthly: '€59<span>/month</span>' },
+          prices: { annual: 'â‚¬599<span>/year</span>', monthly: 'â‚¬59<span>/month</span>' },
           ctas: { annual: 'Contact Sales', monthly: 'Contact Sales' }
         }
         const setEntAnnual = () => {
-          console.log('[Plans] Enterprise: switching to Annual @ €599/year')
           entPrice.innerHTML = entCfg.prices.annual
           entAnnual.classList.add('active')
           entMonthly.classList.remove('active')
           entCta.setAttribute('data-plan', 'enterprise_annual')
         }
         const setEntMonthly = () => {
-          console.log('[Plans] Enterprise: switching to Monthly @ €59/month')
           entPrice.innerHTML = entCfg.prices.monthly
           entMonthly.classList.add('active')
           entAnnual.classList.remove('active')
@@ -33594,7 +32471,6 @@ ${pageText}
             return
           }
           const tier = response?.tier || null
-          console.log('[Plans] User tier for billing modal:', tier)
           renderModal(tier)
         })
       } catch (e) {
@@ -33648,7 +32524,7 @@ ${pageText}
 
         <div style="padding: 20px; border-bottom: 1px solid ${csTheme().border}; display: flex; justify-content: space-between; align-items: center;">
 
-          <h2 style="margin: 0; font-size: 20px;">🖥 Display Ports Configuration</h2>
+          <h2 style="margin: 0; font-size: 20px;">ðŸ–¥Â Display Ports Configuration</h2>
 
           <button id="close-display-config" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">&times;</button>
 
@@ -33664,7 +32540,7 @@ ${pageText}
 
             <div style="background: ${csTheme().cardBg}; padding: 20px; border-radius: 8px;">
 
-              <h4 style="margin: 0 0 15px 0; font-size: 14px; color: ${csTheme().muted}; font-weight: bold;">🖥 Display Port #1</h4>
+              <h4 style="margin: 0 0 15px 0; font-size: 14px; color: ${csTheme().muted}; font-weight: bold;">ðŸ–¥Â Display Port #1</h4>
 
               <div style="font-size: 12px;">
 
@@ -33736,7 +32612,7 @@ ${pageText}
 
             <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 6px;">
 
-              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: ${csTheme().muted};">🖥 Display Port #2</h4>
+              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: ${csTheme().muted};">ðŸ–¥Â Display Port #2</h4>
 
               <div style="font-size: 10px;">
 
@@ -33808,7 +32684,7 @@ ${pageText}
 
             <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 6px;">
 
-              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: ${csTheme().muted};">🖥 Display Port #3</h4>
+              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: ${csTheme().muted};">ðŸ–¥Â Display Port #3</h4>
 
               <div style="font-size: 10px;">
 
@@ -33880,7 +32756,7 @@ ${pageText}
 
             <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 6px;">
 
-              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: ${csTheme().muted};">🖥 Display Port #4</h4>
+              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: ${csTheme().muted};">ðŸ–¥Â Display Port #4</h4>
 
               <div style="font-size: 10px;">
 
@@ -33950,7 +32826,7 @@ ${pageText}
 
             <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 6px;">
 
-              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: ${csTheme().muted};">🖥 Display Port #5</h4>
+              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: ${csTheme().muted};">ðŸ–¥Â Display Port #5</h4>
 
               <div style="font-size: 10px;">
 
@@ -34022,7 +32898,7 @@ ${pageText}
 
             <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 6px;">
 
-              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: ${csTheme().muted};">📺 Monitor Output</h4>
+              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: ${csTheme().muted};">ðŸ“º Monitor Output</h4>
 
               <div style="font-size: 10px;">
 
@@ -34076,7 +32952,7 @@ ${pageText}
 
           <button id="display-config-cancel" style="padding: 12px 24px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; border-radius: 6px; cursor: pointer; font-size: 12px;">Cancel</button>
 
-          <button id="display-config-save" style="padding: 12px 24px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 6px; cursor: pointer; font-size: 12px;">💾 Save Display Ports</button>
+          <button id="display-config-save" style="padding: 12px 24px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 6px; cursor: pointer; font-size: 12px;">ðŸ’¾ Save Display Ports</button>
 
         </div>
 
@@ -34166,7 +33042,7 @@ ${pageText}
 
       `
 
-      notification.innerHTML = `💾 Display ports configuration saved!`
+      notification.innerHTML = `ðŸ’¾ Display ports configuration saved!`
 
       document.body.appendChild(notification)
 
@@ -34180,7 +33056,6 @@ ${pageText}
 
       configOverlay.remove()
 
-      console.log('Display ports configuration saved')
 
     }
 
@@ -34220,7 +33095,7 @@ ${pageText}
 
         <div style="padding: 20px; border-bottom: 1px solid ${csTheme().border}; display: flex; justify-content: space-between; align-items: center;">
 
-          <h2 style="margin: 0; font-size: 20px;">🚀 Helper Grid Configuration</h2>
+          <h2 style="margin: 0; font-size: 20px;">ðŸš€ Helper Grid Configuration</h2>
 
           <button id="close-helpergrid-lightbox" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">&times;</button>
 
@@ -34240,7 +33115,7 @@ ${pageText}
 
               <div id="helper-tabs-config" style="background: rgba(0,0,0,0.2); border-radius: 8px; padding: 15px; cursor: pointer; transition: all 0.3s ease; border: 2px solid transparent;" onmouseover="this.style.borderColor='rgba(255,255,255,0.3)'" onmouseout="this.style.borderColor='transparent'">
 
-                <div style="font-size: 48px; margin-bottom: 10px;">🌐</div>
+                <div style="font-size: 48px; margin-bottom: 10px;">ðŸŒÂ</div>
 
                 <h4 style="margin: 0 0 8px 0; font-size: 14px;">Web Sources</h4>
 
@@ -34260,7 +33135,7 @@ ${pageText}
 
               <div style="background: rgba(0,0,0,0.2); border-radius: 8px; padding: 15px; cursor: pointer; transition: all 0.3s ease; border: 2px solid transparent;" onmouseover="this.style.borderColor='rgba(255,255,255,0.3)'" onmouseout="this.style.borderColor='transparent'">
 
-                <div style="font-size: 48px; margin-bottom: 10px;">🖥</div>
+                <div style="font-size: 48px; margin-bottom: 10px;">ðŸ–¥Â</div>
 
                 <h4 style="margin: 0 0 8px 0; font-size: 14px;">Add Master Tab</h4>
 
@@ -34280,7 +33155,7 @@ ${pageText}
 
               <div id="display-grid-browser-config" style="background: rgba(0,0,0,0.2); border-radius: 8px; padding: 15px; cursor: pointer; transition: all 0.3s ease; border: 2px solid transparent;" onmouseover="this.style.borderColor='rgba(255,255,255,0.3)'" onmouseout="this.style.borderColor='transparent'">
 
-                <div style="font-size: 48px; margin-bottom: 10px;">🗂</div>
+                <div style="font-size: 48px; margin-bottom: 10px;">ðŸ—‚Â</div>
 
                 <h4 style="margin: 0 0 8px 0; font-size: 14px;">AI Output Grids</h4>
 
@@ -34300,7 +33175,7 @@ ${pageText}
 
           <button id="helpergrid-close" style="padding: 12px 30px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: bold;">
 
-            ✅ Close Configuration
+            âœ… Close Configuration
 
           </button>
 
@@ -34410,7 +33285,7 @@ ${pageText}
 
         <div style="padding: 20px; border-bottom: 1px solid ${csTheme().border}; display: flex; justify-content: space-between; align-items: center;">
 
-          <h2 style="margin: 0; font-size: 20px;">🌐 Web Sources Configuration</h2>
+          <h2 style="margin: 0; font-size: 20px;">ðŸŒÂ Web Sources Configuration</h2>
 
           <button id="close-helper-tabs" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">&times;</button>
 
@@ -34440,7 +33315,7 @@ ${pageText}
 
           <button id="save-helper-tabs" style="padding: 12px 30px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: bold;">
 
-            🚀 Save & Open Web Sources
+            ðŸš€ Save & Open Web Sources
 
           </button>
 
@@ -34630,7 +33505,6 @@ ${pageText}
 
             }
 
-            console.log('🌐 Updating existing session with helper tabs:', urls.length, 'tabs')
 
       } else {
 
@@ -34676,7 +33550,6 @@ ${pageText}
 
             }
 
-            console.log('🌐 Creating new session with helper tabs:', urls.length, 'tabs')
 
           }
 
@@ -34684,7 +33557,6 @@ ${pageText}
 
           storageSet({ [sessionKey]: sessionData }, () => {
 
-            console.log('✅ Helper tabs session saved:', sessionData.tabName, 'Session ID:', sessionKey)
 
             // Persist active session for this tab
 
@@ -34692,15 +33564,6 @@ ${pageText}
 
             writeOptimandoState({ sessionKey })
 
-            console.log('🌐 Session contains:', {
-
-              helperTabs: sessionData.helperTabs ? sessionData.helperTabs.urls?.length || 0 : 0,
-
-              displayGrids: sessionData.displayGrids ? sessionData.displayGrids.length : 0,
-
-              agentBoxes: sessionData.agentBoxes ? sessionData.agentBoxes.length : 0
-
-            })
 
           })
 
@@ -34734,7 +33597,7 @@ ${pageText}
 
         `
 
-        notification.innerHTML = `🚀 ${urls.length} Helper tabs opened! Session auto-saved to history.`
+        notification.innerHTML = `ðŸš€ ${urls.length} Helper tabs opened! Session auto-saved to history.`
 
         document.body.appendChild(notification)
 
@@ -34748,7 +33611,6 @@ ${pageText}
 
         overlay.remove()
 
-        console.log('🚀 Helper tabs opened and saved to session:', urls)
 
       }
 
@@ -34784,7 +33646,7 @@ ${pageText}
 
         <div style="padding: 20px; border-bottom: 1px solid ${csTheme().border}; display: flex; justify-content: space-between; align-items: center;">
 
-          <h2 style="margin: 0; font-size: 18px;">🖥 Add Master Tabs</h2>
+          <h2 style="margin: 0; font-size: 18px;">ðŸ–¥Â Add Master Tabs</h2>
 
           <button id="close-hybrid-select" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">&times;</button>
 
@@ -34814,7 +33676,7 @@ ${pageText}
 
         <div style="padding: 20px; border-top: 1px solid ${csTheme().border}; display: flex; justify-content: center; background: ${csTheme().cardBg};">
 
-          <button id="hybrid-save-open" style="padding: 12px 30px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: bold;">🚀 Save & Open</button>
+          <button id="hybrid-save-open" style="padding: 12px 30px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: bold;">ðŸš€ Save & Open</button>
 
         </div>
 
@@ -34940,15 +33802,12 @@ ${pageText}
 
       ensureActiveSession((activeSessionKey: string) => {
 
-        console.log('✅ Session ensured before opening hybrid tabs:', activeSessionKey)
 
         
 
         const currentTheme = localStorage.getItem('optimando-ui-theme') || 'standard'
 
-        console.log('🔧 DEBUG: Using session key for ALL master tabs:', activeSessionKey)
 
-        console.log('🔧 DEBUG: Current theme for master tabs:', currentTheme)
 
 
 
@@ -34994,11 +33853,10 @@ ${pageText}
 
           window.open(url.toString(), `hybrid-master-${i}`)
 
-          console.log(`🧩 Opened hybrid master tab with hybrid_master_id=${i} (displays as Master Tab ${String(i + 2).padStart(2, '0')})`)
 
         } catch (error) {
 
-          console.error(`❌ Invalid URL for master tab ${i}:`, targetUrl, error)
+          console.error(`âŒ Invalid URL for master tab ${i}:`, targetUrl, error)
 
           // Fallback to current page if URL is invalid
 
@@ -35050,7 +33908,6 @@ ${pageText}
 
             storageSet({ [activeSessionKey]: sessionData }, () => {
 
-              console.log(`✅ Saved ${count} master tabs to session:`, activeSessionKey)
 
             })
 
@@ -35058,7 +33915,7 @@ ${pageText}
 
         } catch (e) {
 
-          console.error('❌ Error saving master tabs to session:', e)
+          console.error('âŒ Error saving master tabs to session:', e)
 
         }
 
@@ -35066,7 +33923,7 @@ ${pageText}
 
         const note = document.createElement('div')
 
-        note.textContent = `✅ Opened ${count} master tab${count > 1 ? 's' : ''} with session key: ${activeSessionKey.split('_')[1]}`
+        note.textContent = `âœ… Opened ${count} master tab${count > 1 ? 's' : ''} with session key: ${activeSessionKey.split('_')[1]}`
 
         note.style.cssText = `position:fixed;top:20px;right:20px;z-index:2147483650;background:${csTheme().accentGrad};color:#fff;padding:10px 14px;border-radius:8px;font-size:12px;box-shadow:0 4px 12px rgba(0,0,0,0.3)`
 
@@ -35088,11 +33945,8 @@ ${pageText}
 
   function openDisplayGridBrowserConfig() {
 
-    console.log('🚀 LOADING GRIDS FOR CURRENT SESSION')
 
-    console.log('🚀 Current tabId:', currentTabData.tabId)
 
-    console.log('🚀 Session locked:', currentTabData.isLocked)
 
     
 
@@ -35104,7 +33958,6 @@ ${pageText}
 
     if (currentTabData.displayGrids && Array.isArray(currentTabData.displayGrids)) {
 
-      console.log('💾 Loading from currentTabData.displayGrids:', currentTabData.displayGrids.length)
 
       currentTabData.displayGrids.forEach(grid => {
 
@@ -35120,7 +33973,6 @@ ${pageText}
 
     
 
-    console.log('💾 Active grids from currentTabData:', Array.from(activeGridLayouts))
 
     
 
@@ -35144,7 +33996,7 @@ ${pageText}
 
         <div style="padding: 20px; border-bottom: 1px solid ${csTheme().border}; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;">
 
-          <h2 style="margin: 0; font-size: 22px;">🗂 Display Grid Browser Layouts</h2>
+          <h2 style="margin: 0; font-size: 22px;">ðŸ—‚Â Display Grid Browser Layouts</h2>
 
           <button id="close-btn" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">&times;</button>
 
@@ -35626,7 +34478,7 @@ ${pageText}
 
           <button id="save-open-grids" style="padding: 15px 30px; background: #666; border: none; color: white; border-radius: 8px; cursor: not-allowed; font-size: 14px; font-weight: bold; transition: all 0.3s ease;" disabled>
 
-            🚀 Save & Open Grids
+            ðŸš€ Save & Open Grids
 
           </button>
 
@@ -35678,7 +34530,6 @@ ${pageText}
 
     setTimeout(() => {
 
-      console.log('🔧 APPLYING SELECTIONS:', Array.from(activeGridLayouts))
 
       
       // Count instances per layout from currentTabData.displayGrids
@@ -35709,13 +34560,11 @@ ${pageText}
           const count = layoutCounts[layout] || 0
           const value = Math.min(count, 10).toString()
           select.value = value
-          console.log(`✅ SETTING ${selectId} to ${value} for ${layout}`)
         }
 
         // Set checkbox based on activeGridLayouts (for visual feedback)
         if (checkbox && activeGridLayouts.has(layout)) {
 
-          console.log(`✅ CHECKING ${checkboxId} for ${layout}`)
 
           checkbox.checked = true
 
@@ -35888,7 +34737,6 @@ ${pageText}
 
       
 
-      console.log('🗂 Saving and opening selected grids:', selectedLayoutsWithCounts)
 
       
 
@@ -35962,7 +34810,6 @@ ${pageText}
 
             newGridsToOpen.push(newGrid)
 
-            console.log(`✅ Added new grid instance ${i + 1}/${instancesToAdd} for ${layout} with sessionId:`, gridSessionId)
 
           }
 
@@ -35988,7 +34835,6 @@ ${pageText}
 
               currentTabData.displayGrids.splice(index, 1)
 
-              console.log(`🗝‘️ Removed excess grid instance for ${layout}:`, grid.sessionId)
 
             }
 
@@ -35996,7 +34842,6 @@ ${pageText}
 
         } else {
 
-          console.log(`⚠️ Grid count already matches for layout: ${layout} (${count} instances) - no changes needed`)
 
         }
 
@@ -36012,7 +34857,6 @@ ${pageText}
 
       // SIMPLIFIED SESSION UPDATE - Use active session key directly
 
-      console.log('🔄 UPDATING SESSION WITH DISPLAY GRIDS...')
 
       let activeSessionKey = getCurrentSessionKey()
 
@@ -36026,7 +34870,6 @@ ${pageText}
 
         setCurrentSessionKey(activeSessionKey)
 
-        console.log('🏆• Created new session for display grids:', activeSessionKey)
 
       }
 
@@ -36056,7 +34899,6 @@ ${pageText}
 
         
 
-        console.log('💾 Saving session with', sessionData.displayGrids.length, 'display grids')
 
         
 
@@ -36064,11 +34906,10 @@ ${pageText}
 
           if (chrome.runtime.lastError) {
 
-            console.error('❌ Failed to save session:', chrome.runtime.lastError)
+            console.error('âŒ Failed to save session:', chrome.runtime.lastError)
 
           } else {
 
-            console.log('✅ Session updated with display grids:', activeSessionKey)
 
             
 
@@ -36076,7 +34917,7 @@ ${pageText}
 
             const note = document.createElement('div')
 
-            note.textContent = '✅ Display grids added to session'
+            note.textContent = 'âœ… Display grids added to session'
 
             note.style.cssText = `position:fixed;top:20px;right:20px;z-index:2147483650;background:${csTheme().accentGrad};color:#fff;padding:10px 14px;border-radius:8px;font-size:12px;box-shadow:0 4px 12px rgba(0,0,0,0.3)`
 
@@ -36090,7 +34931,6 @@ ${pageText}
 
             if (newGridsToOpen.length > 0) {
 
-              console.log(`🚀 Opening ${newGridsToOpen.length} new grid(s) after session save...`)
 
               
 
@@ -36098,7 +34938,6 @@ ${pageText}
 
                 setTimeout(() => {
 
-                  console.log(`🔓 Opening grid ${index + 1}/${newGridsToOpen.length}:`, grid.layout, grid.sessionId)
 
                   openGridFromSession(grid.layout, grid.sessionId)
 
@@ -36115,22 +34954,18 @@ ${pageText}
                 const hybridMasterId = url.searchParams.get('hybrid_master_id')
                 const isDisplayGrid = url.pathname.includes('grid-display.html')
                 
-                console.log(`🔍 Grid opened: isDisplayGrid=${isDisplayGrid}, hybridMasterId=${hybridMasterId}, url=${url.pathname}`)
                 
                 // Only notify if this is a display grid tab (not a master tab)
                 if (isDisplayGrid && hybridMasterId === null) {
                   // Wait for all grids to be opened before notifying
                   setTimeout(() => {
-                    console.log('📱 This is a display grid tab - notifying to hide sidepanel')
                     chrome.runtime.sendMessage({ type: 'DISPLAY_GRIDS_OPENED' }, (response) => {
-                      console.log('🚫 Notified background: display grids opened on display grid tab, sidepanel should hide')
                       
                       // Add floating expand button for display grid tabs
                       addSidepanelExpandButton()
                     })
                   }, newGridsToOpen.length * 300 + 200) // Slightly longer delay
                 } else {
-                  console.log(`🖥 This is a master tab (hybridMasterId=${hybridMasterId}) - sidepanel stays visible`)
                 }
               } catch (e) {
                 console.error('Error checking tab type:', e)
@@ -36138,7 +34973,6 @@ ${pageText}
 
             } else {
 
-              console.log('⚠️ No new grids to open (all selected grids already exist)')
 
             }
 
@@ -36160,7 +34994,6 @@ ${pageText}
 
       localStorage.setItem(activeGridsKey, JSON.stringify(selectedLayouts))
 
-      console.log('💾 BACKUP: Saved active grids to localStorage:', selectedLayouts)
 
       
 
@@ -36168,7 +35001,7 @@ ${pageText}
 
       const notification = document.createElement('div')
 
-      notification.innerHTML = '🗂 ' + newGridsToOpen.length + ' new display grids opened! (' + currentTabData.displayGrids.length + ' total grids in session)'
+      notification.innerHTML = 'ðŸ—‚Â ' + newGridsToOpen.length + ' new display grids opened! (' + currentTabData.displayGrids.length + ' total grids in session)'
 
       notification.style.cssText = `
 
@@ -36213,7 +35046,7 @@ ${pageText}
 
       if (totalInstances > 0) {
 
-        saveBtn.innerHTML = `🚀 Save & Open ${totalInstances} Grid Instance${totalInstances > 1 ? 's' : ''}`
+        saveBtn.innerHTML = `ðŸš€ Save & Open ${totalInstances} Grid Instance${totalInstances > 1 ? 's' : ''}`
 
         saveBtn.style.background = '#4CAF50'
 
@@ -36223,7 +35056,7 @@ ${pageText}
 
       } else {
 
-        saveBtn.innerHTML = '🚀 Save & Open Grids'
+        saveBtn.innerHTML = 'ðŸš€ Save & Open Grids'
 
         saveBtn.style.background = '#666'
 
@@ -36253,7 +35086,6 @@ ${pageText}
 
   function saveGridToSession(layout: string) {
 
-    console.log('🗂 Saving grid to session:', layout)
 
     
 
@@ -36327,7 +35159,6 @@ ${pageText}
 
           storageSet({ [sessionKey]: updatedSessionData }, () => {
 
-            console.log('🔒 Updated session with new grid:', layout)
 
           })
 
@@ -36345,7 +35176,6 @@ ${pageText}
 
   function createGridTab(layout: string) {
 
-    console.log('🗂 Selecting grid layout:', layout)
 
     
 
@@ -36425,7 +35255,6 @@ ${pageText}
 
         }
 
-        console.log('🗂 Updating existing session with display grid:', layout)
 
       } else {
 
@@ -36471,7 +35300,6 @@ ${pageText}
 
         }
 
-        console.log('🗂 Creating new session with display grid:', layout)
 
       }
 
@@ -36479,17 +35307,7 @@ ${pageText}
 
       storageSet({ [sessionKey]: sessionData }, () => {
 
-        console.log('🗂 Display grid session saved:', layout, 'Session ID:', sessionKey)
 
-        console.log('🗂 Session contains:', {
-
-          helperTabs: sessionData.helperTabs ? sessionData.helperTabs.urls?.length || 0 : 0,
-
-          displayGrids: sessionData.displayGrids ? sessionData.displayGrids.length : 0,
-
-          agentBoxes: sessionData.agentBoxes ? sessionData.agentBoxes.length : 0
-
-        })
 
       })
 
@@ -36497,7 +35315,6 @@ ${pageText}
 
     
 
-    console.log('✅ Grid layout selected and saved:', layout, 'Session:', gridSessionId)
 
     
 
@@ -36505,7 +35322,7 @@ ${pageText}
 
     const notification = document.createElement('div')
 
-    notification.innerHTML = '🗂 ' + layout.replace('-', ' ').toUpperCase() + ' display grid saved to session! Use "View All Sessions" to open it.'
+    notification.innerHTML = 'ðŸ—‚Â ' + layout.replace('-', ' ').toUpperCase() + ' display grid saved to session! Use "View All Sessions" to open it.'
 
     notification.style.cssText = `
 
@@ -36531,17 +35348,14 @@ ${pageText}
 
   ;(window as any).optimandoSaveGridConfig = (payload: any, sessionKey: string) => {
 
-    console.log('🌐 PARENT: optimandoSaveGridConfig called from grid window')
 
-    console.log('📦 PARENT: Payload:', payload)
 
-    console.log('🔑 PARENT: Session key:', sessionKey)
 
     
 
     if (!sessionKey) {
 
-      console.error('❌ PARENT: No session key provided')
+      console.error('âŒ PARENT: No session key provided')
 
       return Promise.reject(new Error('No session key'))
 
@@ -36567,19 +35381,18 @@ ${pageText}
 
         if (chrome.runtime.lastError) {
 
-          console.error('❌ PARENT: sendMessage failed:', chrome.runtime.lastError)
+          console.error('âŒ PARENT: sendMessage failed:', chrome.runtime.lastError)
 
           reject(chrome.runtime.lastError)
 
         } else if (response && response.success) {
 
-          console.log('✅ PARENT: Grid config saved successfully via parent!')
 
           resolve(response)
 
         } else {
 
-          console.error('❌ PARENT: Save failed:', response)
+          console.error('âŒ PARENT: Save failed:', response)
 
           reject(new Error('Save failed'))
 
@@ -36593,9 +35406,7 @@ ${pageText}
 
   
 
-  console.log('✅ PARENT: optimandoSaveGridConfig function exposed on window object')
 
-  console.log('🔍 PARENT: typeof window.optimandoSaveGridConfig =', typeof (window as any).optimandoSaveGridConfig)
 
 
 
@@ -36603,7 +35414,6 @@ ${pageText}
 
   window.addEventListener('message', (event) => {
 
-    console.log('📨 PARENT: Message received:', event.data?.type || 'unknown type')
 
     
 
@@ -36611,17 +35421,13 @@ ${pageText}
 
     if (event.data && event.data.type === 'OPTIMANDO_GRID_SAVE') {
 
-      console.log('✅ PARENT: Processing OPTIMANDO_GRID_SAVE postMessage from grid')
 
-      console.log('📦 PARENT: Payload:', event.data.payload)
 
-      console.log('🔑 PARENT: Session key:', event.data.sessionKey)
 
 
 
       const { payload, sessionKey } = event.data
 
-      console.log('🔑 PARENT: Session key:', sessionKey)
 
 
 
@@ -36631,7 +35437,6 @@ ${pageText}
 
         const gridAgentBoxes: any[] = []
 
-        console.log('🔍 PARENT: Extracting agent boxes from payload.slots:', payload.slots)
 
         
 
@@ -36639,15 +35444,10 @@ ${pageText}
 
           Object.entries(payload.slots).forEach(([slotId, config]: [string, any]) => {
 
-            console.log(`🔍 PARENT: Processing slot ${slotId}:`, config)
 
-            console.log(`   - boxNumber: ${config.boxNumber}`)
 
-            console.log(`   - agent: ${config.agent}`)
 
-            console.log(`   - agentNumber: ${config.agentNumber}`)
 
-            console.log(`   - title: ${config.title}`)
 
             
 
@@ -36681,11 +35481,9 @@ ${pageText}
 
               gridAgentBoxes.push(agentBox)
 
-              console.log('✅ PARENT: Added agent box:', agentBox)
 
             } else {
 
-              console.log('⏭️ PARENT: Skipping slot (no valid config):', slotId)
 
             }
 
@@ -36695,9 +35493,7 @@ ${pageText}
 
         
 
-        console.log('📦 PARENT: Extracted', gridAgentBoxes.length, 'grid agent boxes total')
 
-        console.log('📦 PARENT: Full gridAgentBoxes array:', gridAgentBoxes)
 
         
 
@@ -36735,13 +35531,11 @@ ${pageText}
 
         
 
-        console.log('✅ PARENT: Updated currentTabData with', gridAgentBoxes.length, 'grid boxes')
 
         
 
         // Now save to chrome.storage via background script
 
-        console.log('📤 PARENT: Sending GRID_SAVE to background with agent boxes...')
 
         
 
@@ -36767,7 +35561,6 @@ ${pageText}
 
         }, (response) => {
 
-          console.log('✅ PARENT: Background response:', response)
 
           
 
@@ -36793,7 +35586,6 @@ ${pageText}
 
         saveTabDataToStorage()
 
-        console.log('✅ PARENT: Saved to local storage')
 
       }
 
@@ -36803,15 +35595,12 @@ ${pageText}
 
   
 
-  console.log('✅ PARENT: postMessage listener registered for OPTIMANDO_GRID_SAVE')
 
   
 
   function openGridFromSession(layout: string, sessionId: string) {
 
-    console.log('🔍 DEBUG: Opening grid from session:', layout, sessionId)
 
-    console.log('🔍 DEBUG: currentTabData.displayGrids at grid open:', currentTabData.displayGrids)
 
     
 
@@ -36819,7 +35608,6 @@ ${pageText}
 
     const currentTheme = localStorage.getItem('optimando-ui-theme') || 'standard'
 
-    console.log('🎨 DEBUG: Current theme for grid:', currentTheme)
 
     
 
@@ -36843,7 +35631,7 @@ ${pageText}
 
         if (chrome.runtime.lastError) {
 
-          console.warn('⚠️ Could not fetch from SQLite:', chrome.runtime.lastError.message)
+          console.warn('âš ï¸ Could not fetch from SQLite:', chrome.runtime.lastError.message)
 
           openGridWindowWithExtensionURL(layout, sessionId, currentTheme, sessionKey, 1)
 
@@ -36897,13 +35685,11 @@ ${pageText}
 
         const nextBoxNumber = maxBoxNumber + 1
 
-        console.log('📦 Calculated next box number for grid from SQLite:', nextBoxNumber, 'from max:', maxBoxNumber)
 
         
 
-        // ✅ USE EXTENSION URL INSTEAD OF about:blank
+        // âœ… USE EXTENSION URL INSTEAD OF about:blank
 
-        console.log('🔗 Opening grid with extension URL...')
 
         openGridWindowWithExtensionURL(layout, sessionId, currentTheme, sessionKey, nextBoxNumber)
 
@@ -36947,7 +35733,6 @@ ${pageText}
 
     const fullUrl = gridUrl + '?' + params.toString()
 
-    console.log('🔗 Opening grid URL:', fullUrl)
 
     
 
@@ -36959,7 +35744,7 @@ ${pageText}
 
     if (!gridWindow) {
 
-      console.error('❌ Failed to open grid window - popup blocked?')
+      console.error('âŒ Failed to open grid window - popup blocked?')
 
       alert('Grid window was blocked. Please allow popups for this site.')
 
@@ -36969,17 +35754,15 @@ ${pageText}
 
     
 
-    console.log('✅ Grid window opened successfully!', layout)
 
   }
 
   
 
-  // 🏆• V2 GRID SYSTEM - Opens grid using extension URL (has full Chrome API access!)
+  // ðŸ†â€¢ V2 GRID SYSTEM - Opens grid using extension URL (has full Chrome API access!)
 
   function openGridFromSession_v2(layout: string, sessionId: string) {
 
-    console.log('🎯 V2: Opening grid from session:', layout, sessionId)
 
     
 
@@ -36987,7 +35770,6 @@ ${pageText}
 
     const currentTheme = localStorage.getItem('optimando-ui-theme') || 'dark'
 
-    console.log('🎨 V2: Current theme:', currentTheme)
 
     
 
@@ -37011,7 +35793,7 @@ ${pageText}
 
         if (chrome.runtime.lastError) {
 
-          console.warn('⚠️ V2: Could not fetch from SQLite:', chrome.runtime.lastError.message)
+          console.warn('âš ï¸ V2: Could not fetch from SQLite:', chrome.runtime.lastError.message)
 
           openGridWindow_v2(layout, sessionId, currentTheme, sessionKey, 1)
 
@@ -37065,7 +35847,6 @@ ${pageText}
 
         const nextBoxNumber = maxBoxNumber + 1
 
-        console.log('📦 V2: Calculated next box number from SQLite:', nextBoxNumber, 'from max:', maxBoxNumber)
 
         
 
@@ -37113,7 +35894,6 @@ ${pageText}
 
     const fullUrl = gridUrl + '?' + params.toString()
 
-    console.log('🔗 V2: Opening grid URL:', fullUrl)
 
     
 
@@ -37125,7 +35905,7 @@ ${pageText}
 
     if (!gridWindow) {
 
-      console.error('❌ V2: Failed to open grid window - popup blocked?')
+      console.error('âŒ V2: Failed to open grid window - popup blocked?')
 
       alert('Grid window was blocked. Please allow popups for this site.')
 
@@ -37135,19 +35915,17 @@ ${pageText}
 
     
 
-    console.log('✅ V2: Grid window opened successfully!', layout)
 
   }
 
   
 
-  // 🧪 TEST COMMAND: Make V2 grid opener available globally for testing
+  // ðŸ§ª TEST COMMAND: Make V2 grid opener available globally for testing
 
   // Usage: Open console and run: window.testGridV2('4-slot')
 
   ;(window as any).testGridV2 = (layout: string = '4-slot') => {
 
-    console.log('🧪 TEST: Opening Grid V2 with layout:', layout)
 
     const sessionId = `test-${Date.now()}`
 
@@ -37157,7 +35935,6 @@ ${pageText}
 
   
 
-  console.log('✅ Grid V2 system initialized! Test with: window.testGridV2("4-slot")')
 
   
 
@@ -37197,7 +35974,7 @@ ${pageText}
 
                     if (typeof fn === 'function') {
 
-                      try { fn(sid) } catch (e) { console.error('❌ openGridSlotEditor failed:', e) }
+                      try { fn(sid) } catch (e) { console.error('âŒ openGridSlotEditor failed:', e) }
 
                     } else {
 
@@ -37239,7 +36016,6 @@ ${pageText}
 
 
 
-        console.log('🔧 Attaching save handler to grid tab:', layout, sessionId)
 
         btn.addEventListener('click', () => {
 
@@ -37265,7 +36041,6 @@ ${pageText}
 
             const config = { layout, sessionId, slots }
 
-            console.log('💾 Saving grid config from opener:', config)
 
 
 
@@ -37297,7 +36072,7 @@ ${pageText}
 
           } catch (err) {
 
-            console.error('❌ Failed to save grid config from opener:', err)
+            console.error('âŒ Failed to save grid config from opener:', err)
 
           }
 
@@ -37331,7 +36106,7 @@ ${pageText}
 
                     if (typeof fn === 'function') {
 
-                      try { fn(sid) } catch (e) { console.error('❌ openGridSlotEditor failed:', e) }
+                      try { fn(sid) } catch (e) { console.error('âŒ openGridSlotEditor failed:', e) }
 
                     } else {
 
@@ -37373,9 +36148,7 @@ ${pageText}
 
   function persistGridConfig(config: { layout: string, sessionId: string, slots: any }) {
 
-    console.log('💾 GLOBAL SESSION PERSIST: Grid config save started')
 
-    console.log('💾 Config:', config)
 
     
 
@@ -37389,11 +36162,9 @@ ${pageText}
 
       setCurrentSessionKey(activeSessionKey)
 
-      console.log('🔧 Created new session for grid persistence:', activeSessionKey)
 
     } else {
 
-      console.log('🔧 Using existing session:', activeSessionKey)
 
     }
 
@@ -37403,7 +36174,6 @@ ${pageText}
 
     storageGet(null, (allData) => {
 
-      console.log('📊 LOADING ALL SESSIONS FOR UPDATE')
 
       
 
@@ -37429,7 +36199,6 @@ ${pageText}
 
         }
 
-        console.log('🏆• Created new session data')
 
       }
 
@@ -37441,7 +36210,6 @@ ${pageText}
 
         sessionData.displayGrids = []
 
-        console.log('🔧 Initialized displayGrids array')
 
       }
 
@@ -37467,11 +36235,9 @@ ${pageText}
 
         sessionData.displayGrids.push(gridEntry)
 
-        console.log('✅ Added new grid entry:', config.layout)
 
       } else {
 
-        console.log('✅ Found existing grid entry:', config.layout)
 
       }
 
@@ -37493,9 +36259,7 @@ ${pageText}
 
       
 
-      console.log('📊 FINAL SESSION DISPLAYGRIDS:', sessionData.displayGrids)
 
-      console.log('📊 GRID CONFIG SLOTS:', Object.keys(config.slots).length)
 
       
 
@@ -37519,13 +36283,11 @@ ${pageText}
 
         if (chrome.runtime.lastError) {
 
-          console.error('❌ FAILED TO SAVE SESSION:', chrome.runtime.lastError)
+          console.error('âŒ FAILED TO SAVE SESSION:', chrome.runtime.lastError)
 
         } else {
 
-          console.log('🎯 SUCCESS: Grid config saved to GLOBAL session:', activeSessionKey)
 
-          console.log('🎯 Session now contains', finalSessionData.displayGrids.length, 'display grids')
 
           
 
@@ -37541,7 +36303,7 @@ ${pageText}
 
           const note = document.createElement('div')
 
-          note.textContent = '✅ Grid config saved to session history'
+          note.textContent = 'âœ… Grid config saved to session history'
 
           note.style.cssText = `position:fixed;top:20px;right:20px;z-index:2147483650;background:${csTheme().accentGrad};color:#fff;padding:10px 14px;border-radius:8px;font-size:12px;box-shadow:0 4px 12px rgba(0,0,0,0.3)`
 
@@ -37575,7 +36337,6 @@ ${pageText}
 
         lastGridSaveCheck = saveInfo.timestamp
 
-        console.log('📥 Detected grid save:', saveInfo.key)
 
         
 
@@ -37587,7 +36348,6 @@ ${pageText}
 
           if (!payload) return
 
-          console.log('💾 Grid config received:', payload)
 
           
 
@@ -37637,7 +36397,6 @@ ${pageText}
 
             setCurrentSessionKey(sessionKey)
 
-            console.log('🔧 Created session for grid save:', sessionKey)
 
           }
 
@@ -37727,7 +36486,6 @@ ${pageText}
 
                     slot.identifier = `AB${String(maxBoxNumber).padStart(2, '0')}${String(agentNum).padStart(2, '0')}`
 
-                    console.log(`📦 Assigned box number ${maxBoxNumber} to grid slot ${slotId}, identifier: ${slot.identifier}`)
 
                   }
 
@@ -37761,9 +36519,7 @@ ${pageText}
 
             storageSet({ [sessionKey]: sessionData }, () => {
 
-              console.log('✅ Grid config saved to session:', sessionKey)
 
-              console.log('✅ Session now contains displayGrids:', sessionData.displayGrids)
 
             
 
@@ -37771,7 +36527,7 @@ ${pageText}
 
               const note = document.createElement('div')
 
-              note.textContent = '✅ Grid config saved to session'
+              note.textContent = 'âœ… Grid config saved to session'
 
               note.style.cssText = `position:fixed;top:20px;right:20px;z-index:2147483650;background:${csTheme().accentGrad};color:#fff;padding:10px 14px;border-radius:8px;font-size:12px;box-shadow:0 4px 12px rgba(0,0,0,0.3)`
 
@@ -37789,7 +36545,6 @@ ${pageText}
 
     } catch (e) {
 
-      console.log('Error checking grid saves:', e)
 
     }
 
@@ -37831,15 +36586,12 @@ ${pageText}
 
 
 
-    console.log('📦 createGridHTML: nextBoxNumber =', nextBoxNumber)
 
 
 
     // Prefill from currentTabData if a config exists
 
-    console.log('🔍 DEBUG: createGridHTML - currentTabData.displayGrids:', currentTabData.displayGrids)
 
-    console.log('🔍 DEBUG: createGridHTML - looking for sessionId:', sessionId, 'layout:', layout)
 
     
 
@@ -37851,13 +36603,11 @@ ${pageText}
 
       : null
 
-    console.log('🔍 DEBUG: createGridHTML - found entry:', entry)
 
     
 
     const savedSlots: any = (entry && (entry as any).config && (entry as any).config.slots) ? (entry as any).config.slots : {}
 
-    console.log('🔍 DEBUG: createGridHTML - savedSlots:', savedSlots)
 
     // Create slots HTML
 
@@ -37881,7 +36631,6 @@ ${pageText}
 
       if (savedSlots[String(slotNum)]) {
 
-        console.log(`🔍 DEBUG: Slot ${slotNum} saved config:`, savedSlots[String(slotNum)])
 
       }
 
@@ -37920,7 +36669,7 @@ ${pageText}
 
       }
 
-      const displayText = displayParts.join(' · ')
+      const displayText = displayParts.join(' Â· ')
 
       
 
@@ -37978,9 +36727,7 @@ ${pageText}
 
       
 
-      console.log(`🔍 DEBUG: Slot ${slotNum} display:`, { abCode, displayText, savedAgent, savedProvider, savedModel })
 
-      console.log(`🎨 DEBUG: Slot ${slotNum} theme colors:`, { headerColor, textColor, slotBg, theme })
 
       
 
@@ -37994,7 +36741,7 @@ ${pageText}
 
               <span style="margin-right: 4px; white-space: nowrap; font-family: monospace; font-size: 10px;">${abCode}</span>
 
-              <span style="margin-right: 4px;">🖥</span>
+              <span style="margin-right: 4px;">ðŸ–¥Â</span>
 
               <span class="slot-display-text" style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 2px 6px;">${displayText}</span>
 
@@ -38002,7 +36749,7 @@ ${pageText}
 
             <div style="display: flex; align-items: center; flex-shrink: 0; gap: 4px;">
 
-              <button class="edit-slot" data-slot-id="${slotNum}" title="Setup Agent Box" onclick="if(window.openGridSlotEditor) window.openGridSlotEditor('${slotNum}'); else console.log('❌ openGridSlotEditor not found');" style="background: ${theme === 'standard' ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.2)'}; border: none; color: ${textColor}; width: 20px; height: 20px; border-radius: 50%; cursor: pointer; font-size: 11px; display: flex; align-items: center; justify-content: center; transition: all 0.2s ease;">✏️</button>
+              <button class="edit-slot" data-slot-id="${slotNum}" title="Setup Agent Box" onclick="if(window.openGridSlotEditor) window.openGridSlotEditor('${slotNum}'); else console.log('âŒ openGridSlotEditor not found');" style="background: ${theme === 'standard' ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.2)'}; border: none; color: ${textColor}; width: 20px; height: 20px; border-radius: 50%; cursor: pointer; font-size: 11px; display: flex; align-items: center; justify-content: center; transition: all 0.2s ease;">âœÂï¸</button>
 
               <button class="close-slot" style="background: ${theme === 'standard' ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.2)'}; border: none; color: ${textColor}; width: 18px; height: 18px; border-radius: 50%; cursor: pointer; font-size: 10px; font-weight: bold; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">&times;</button>
 
@@ -38052,9 +36799,7 @@ ${pageText}
 
     let actionBtnText = '#ffffff'
 
-    console.log('🎨 DEBUG: Applying theme:', theme)
 
-    console.log('🎨 DEBUG: Theme parameter received:', theme, typeof theme)
 
     
 
@@ -38068,7 +36813,6 @@ ${pageText}
 
       actionBtnText = '#e5e7eb'
 
-      console.log('🎨 Applied dark theme - bodyBg:', bodyBg)
 
     } else if (theme === 'standard') {
 
@@ -38080,7 +36824,6 @@ ${pageText}
 
       actionBtnText = '#ffffff'
 
-      console.log('🎨 Applied professional theme - bodyBg:', bodyBg)
 
     } else if (theme === 'default') {
 
@@ -38092,7 +36835,6 @@ ${pageText}
 
       actionBtnText = '#ffffff'
 
-      console.log('🎨 Applied default theme - bodyBg:', bodyBg)
 
     }
 
@@ -38232,7 +36974,6 @@ ${pageText}
 
 
 
-    console.log('🎨 DEBUG: Final theme colors:', { bodyBg, bodyText, actionBtnBg, actionBtnText })
 
     // Return complete HTML document
 
@@ -38328,7 +37069,7 @@ ${pageText}
 
             border-radius: 0 5px 5px 0;
 
-          ">‹</button>
+          ">â€¹</button>
 
           <button id="next-slide" style="
 
@@ -38348,7 +37089,7 @@ ${pageText}
 
             border-radius: 5px 0 0 5px;
 
-          ">›</button>
+          ">â€º</button>
 
         </div>
 
@@ -38452,7 +37193,7 @@ ${pageText}
 
         ">
 
-          ✅ Grid saved to session!
+          âœ… Grid saved to session!
 
         </div>
 
@@ -38496,7 +37237,7 @@ ${pageText}
 
         <div style="text-align: center;">
 
-          <div style="font-size: 24px; margin-bottom: 10px;">⏳</div>
+          <div style="font-size: 24px; margin-bottom: 10px;">â³</div>
 
           <div style="font-size: 16px;">Loading sessions...</div>
 
@@ -38510,13 +37251,12 @@ ${pageText}
 
     
 
-    // Get saved sessions from SQLite via background message — this guarantees we read
+    // Get saved sessions from SQLite via background message â€” this guarantees we read
     // authoritative data. storageGet(null) merges Chrome Storage + adapter but may miss
     // sessions when the adapter GET_ALL fails silently and Chrome Storage doesn't mirror them.
 
     const buildSessionList = (sessionsMap: Record<string, any>) => {
 
-      console.log('📋 Loading sessions from storage, total keys:', Object.keys(sessionsMap).length)
 
       
 
@@ -38527,7 +37267,7 @@ ${pageText}
         .filter(([key]) => key.startsWith('session_'))
 
         .map(([key, rawData]: [string, any]) => {
-          // Defensive normalization — ensure arrays are never null/undefined
+          // Defensive normalization â€” ensure arrays are never null/undefined
           const data: any = rawData || {}
           return {
             id: key,
@@ -38557,23 +37297,6 @@ ${pageText}
 
       
 
-      console.log('📋 Found sessions:', sessions.map(s => ({
-
-        id: s.id,
-
-        tabName: s.tabName,
-
-        timestamp: s.timestamp,
-
-        lastOpenedAt: s.lastOpenedAt,
-
-        isActive: s.isActive,
-
-        isLocked: s.isLocked,
-
-        hasDisplayGrids: !!s.displayGrids?.length
-
-      })))
 
       
 
@@ -38615,7 +37338,7 @@ ${pageText}
 
                     ${session.isActive ? `<span style="position: absolute; right: 8px; top: 50%; transform: translateY(-50%); background:${csTheme().accentGrad}; color: white; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 600; white-space: nowrap; pointer-events: none; z-index: 1;">ACTIVE</span>` : ''}
 
-                    <span class="session-save-indicator" data-session-id="${session.id}" style="position: absolute; right: ${session.isActive ? '50px' : '8px'}; top: 50%; transform: translateY(-50%); display: none; color: ${csTheme().accentColor}; font-size: 14px; cursor: pointer; z-index: 2;" title="Click to save">💾</span>
+                    <span class="session-save-indicator" data-session-id="${session.id}" style="position: absolute; right: ${session.isActive ? '50px' : '8px'}; top: 50%; transform: translateY(-50%); display: none; color: ${csTheme().accentColor}; font-size: 14px; cursor: pointer; z-index: 2;" title="Click to save">ðŸ’¾</span>
 
                   </div>
 
@@ -38631,11 +37354,11 @@ ${pageText}
 
                 <div style="display: flex; gap: 6px; align-items: flex-start; flex-shrink: 0;">
 
-                  <button class="edit-session-name-btn" data-session-id="${session.id}" style="background: linear-gradient(135deg, ${csTheme().accent}, #1976D2); border: none; color: white; padding: 6px 8px; border-radius: 4px; cursor: pointer; font-size: 10px; transition: all 0.2s ease;" title="Edit session name" onmouseover="this.style.transform='scale(1.05)'" onmouseout="this.style.transform='scale(1)'">✏️</button>
+                  <button class="edit-session-name-btn" data-session-id="${session.id}" style="background: linear-gradient(135deg, ${csTheme().accent}, #1976D2); border: none; color: white; padding: 6px 8px; border-radius: 4px; cursor: pointer; font-size: 10px; transition: all 0.2s ease;" title="Edit session name" onmouseover="this.style.transform='scale(1.05)'" onmouseout="this.style.transform='scale(1)'">âœÂï¸</button>
 
-                <button class="agentbox-overview-btn" data-session-id="${session.id}" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; padding: 5px 8px; border-radius: 4px; cursor: pointer; font-size: 11px;" title="Agent Box Overview">📦 Boxes</button>
+                <button class="agentbox-overview-btn" data-session-id="${session.id}" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; padding: 5px 8px; border-radius: 4px; cursor: pointer; font-size: 11px;" title="Agent Box Overview">ðŸ“¦ Boxes</button>
 
-                <button class="delete-session-btn" data-session-id="${session.id}" style="background: linear-gradient(135deg, ${csTheme().isLight ? "#dc2626" : "#f87171"}, #d32f2f); border: none; color: white; padding: 6px 8px; border-radius: 4px; cursor: pointer; font-size: 10px; transition: all 0.2s ease;" title="Delete session" onmouseover="this.style.transform='scale(1.05)'" onmouseout="this.style.transform='scale(1)'">🗝‘️</button>
+                <button class="delete-session-btn" data-session-id="${session.id}" style="background: linear-gradient(135deg, ${csTheme().isLight ? "#dc2626" : "#f87171"}, #d32f2f); border: none; color: white; padding: 6px 8px; border-radius: 4px; cursor: pointer; font-size: 10px; transition: all 0.2s ease;" title="Delete session" onmouseover="this.style.transform='scale(1.05)'" onmouseout="this.style.transform='scale(1)'">ðŸ—â€˜ï¸</button>
 
         </div>
 
@@ -38655,7 +37378,7 @@ ${pageText}
 
                   <div style=\"background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; border-radius: 6px; padding: 8px 10px; margin: 6px 0;\">
 
-                    <span style=\"font-size: 11px; font-weight: 600; color: ${csTheme().text};\">📦 Master Agent Boxes (${session.agentBoxes.length})</span>
+                    <span style=\"font-size: 11px; font-weight: 600; color: ${csTheme().text};\">ðŸ“¦ Master Agent Boxes (${session.agentBoxes.length})</span>
 
                   </div>
 
@@ -38673,7 +37396,7 @@ ${pageText}
                   return `
                   <div style=\"background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; border-radius: 6px; padding: 8px 10px; margin: 6px 0;\">
 
-                    <span style=\"font-size: 11px; font-weight: 600; color: ${csTheme().text};\">🤖 AI Agents (${realAgents.length})</span>
+                    <span style=\"font-size: 11px; font-weight: 600; color: ${csTheme().text};\">ðŸ¤– AI Agents (${realAgents.length})</span>
 
                     <div style=\"display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px;\">
 
@@ -38691,7 +37414,7 @@ ${pageText}
 
                   <div style=\"background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; border-radius: 6px; padding: 8px 10px; margin: 6px 0;\">
 
-                    <span style=\"font-size: 11px; font-weight: 600; color: ${csTheme().text};\">🖥 Master Tabs (${session.hybridAgentBoxes.length})</span>
+                    <span style=\"font-size: 11px; font-weight: 600; color: ${csTheme().text};\">ðŸ–¥Â Master Tabs (${session.hybridAgentBoxes.length})</span>
 
                     <div style=\"display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px;\">
 
@@ -38717,9 +37440,9 @@ ${pageText}
 
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
 
-                      <span style="font-size: 11px; font-weight: 600; color: ${csTheme().text};">🌐 Web Sources (${session.helperTabs.urls.length})</span>
+                      <span style="font-size: 11px; font-weight: 600; color: ${csTheme().text};">ðŸŒÂ Web Sources (${session.helperTabs.urls.length})</span>
 
-                      <button class="edit-helper-tabs-btn" data-session-id="${session.id}" style="background: #FF6B35; border: none; color: white; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: bold;" title="Edit helper tabs">✏️ Edit</button>
+                      <button class="edit-helper-tabs-btn" data-session-id="${session.id}" style="background: #FF6B35; border: none; color: white; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: bold;" title="Edit helper tabs">âœÂï¸ Edit</button>
 
           </div>
 
@@ -38745,9 +37468,9 @@ ${pageText}
 
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
 
-                      <span style="font-size: 11px; font-weight: 600; color: ${csTheme().text};">🗂 Display Grids (${session.displayGrids.length})</span>
+                      <span style="font-size: 11px; font-weight: 600; color: ${csTheme().text};">ðŸ—‚Â Display Grids (${session.displayGrids.length})</span>
 
-                      <button class="edit-display-grids-btn" data-session-id="${session.id}" style="background: #FF8C00; border: none; color: white; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: bold;" title="Edit display grids">✏️ Edit</button>
+                      <button class="edit-display-grids-btn" data-session-id="${session.id}" style="background: #FF8C00; border: none; color: white; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: bold;" title="Edit display grids">âœÂï¸ Edit</button>
 
         </div>
 
@@ -38773,7 +37496,7 @@ ${pageText}
 
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
 
-                      <span style="font-size: 11px; font-weight: 600; color: ${csTheme().text};">📄 Attached Context</span>
+                      <span style="font-size: 11px; font-weight: 600; color: ${csTheme().text};">ðŸ“„ Attached Context</span>
 
                     </div>
 
@@ -38781,19 +37504,19 @@ ${pageText}
 
                       ${session.context.userContext?.text ? `
 
-                        <span style="background: ${csTheme().cardBg}; color: ${csTheme().text}; border: 1px solid ${csTheme().border}; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 500;" title="User Context: ${session.context.userContext.text.substring(0, 100)}${session.context.userContext.text.length > 100 ? '...' : ''}">👤 User Context (${session.context.userContext.text.length} chars)</span>
+                        <span style="background: ${csTheme().cardBg}; color: ${csTheme().text}; border: 1px solid ${csTheme().border}; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 500;" title="User Context: ${session.context.userContext.text.substring(0, 100)}${session.context.userContext.text.length > 100 ? '...' : ''}">ðŸ‘¤ User Context (${session.context.userContext.text.length} chars)</span>
 
                       ` : ''}
 
                       ${session.context.publisherContext?.text ? `
 
-                        <span style="background: ${csTheme().cardBg}; color: ${csTheme().text}; border: 1px solid ${csTheme().border}; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 500;" title="Publisher Context: ${session.context.publisherContext.text.substring(0, 100)}${session.context.publisherContext.text.length > 100 ? '...' : ''}">🌐 Publisher Context (${session.context.publisherContext.text.length} chars)</span>
+                        <span style="background: ${csTheme().cardBg}; color: ${csTheme().text}; border: 1px solid ${csTheme().border}; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 500;" title="Publisher Context: ${session.context.publisherContext.text.substring(0, 100)}${session.context.publisherContext.text.length > 100 ? '...' : ''}">ðŸŒÂ Publisher Context (${session.context.publisherContext.text.length} chars)</span>
 
                       ` : ''}
 
                       ${session.context.userContext?.pdfFiles && session.context.userContext.pdfFiles.length > 0 ? `
 
-                        <span style="background: ${csTheme().cardBg}; color: ${csTheme().text}; border: 1px solid ${csTheme().border}; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 500;" title="PDF Files: ${session.context.userContext.pdfFiles.map((f: any) => f.name).join(', ')}">📁 PDF Files (${session.context.userContext.pdfFiles.length})</span>
+                        <span style="background: ${csTheme().cardBg}; color: ${csTheme().text}; border: 1px solid ${csTheme().border}; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 500;" title="PDF Files: ${session.context.userContext.pdfFiles.map((f: any) => f.name).join(', ')}">ðŸ“ PDF Files (${session.context.userContext.pdfFiles.length})</span>
 
                       ` : ''}
 
@@ -38811,7 +37534,7 @@ ${pageText}
 
             <div style="padding: 4px 4px 0 4px;">
 
-              <span style="font-size: 10px; color: ${csTheme().muted};">📅 ${session.timestamp ? new Date(session.timestamp).toLocaleString() : 'No date'}</span>
+              <span style="font-size: 10px; color: ${csTheme().muted};">ðŸ“… ${session.timestamp ? new Date(session.timestamp).toLocaleString() : 'No date'}</span>
 
             </div>
 
@@ -38829,7 +37552,7 @@ ${pageText}
 
           <div style="padding: 20px; border-bottom: 1px solid ${csTheme().border}; display: flex; justify-content: space-between; align-items: center;">
 
-            <h2 style="margin: 0; font-size: 20px;">📚 Sessions History</h2>
+            <h2 style="margin: 0; font-size: 20px;">ðŸ“š Sessions History</h2>
 
             <button id="close-sessions-lightbox" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">&times;</button>
 
@@ -38849,7 +37572,7 @@ ${pageText}
 
             <button id="clear-all-sessions" style="padding: 12px 30px; background: rgba(220,38,38,0.08); border: 1px solid rgba(220,38,38,0.25); color: ${csTheme().isLight ? "#991b1b" : "#f87171"}; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: bold;">
 
-              🗝‘️ Clear All Sessions
+              ðŸ—â€˜ï¸ Clear All Sessions
 
             </button>
 
@@ -38885,7 +37608,6 @@ ${pageText}
 
           const sessionId = btn.getAttribute('data-session-id')
 
-          console.log('📦 Direct click handler - Agent Box Overview for session:', sessionId)
 
           if (sessionId) {
 
@@ -38927,7 +37649,6 @@ ${pageText}
 
               const sessionId = (sessionEl as HTMLElement).dataset.sessionId
 
-              console.log('📦 Agent Box Overview clicked for session:', sessionId)
 
               if (sessionId) {
 
@@ -38953,9 +37674,7 @@ ${pageText}
 
           if (sessionData) {
 
-            console.log('🔧 DEBUG: Session data:', sessionData)
 
-            console.log('🔧 DEBUG: Helper tabs data:', sessionData.helperTabs)
 
             
 
@@ -38969,7 +37688,6 @@ ${pageText}
 
             setCurrentSessionKey(sessionId!)
 
-            console.log('✅ Active session key set to:', sessionId)
 
             
             // CRITICAL: Update lastOpenedAt timestamp for session sorting
@@ -38985,7 +37703,6 @@ ${pageText}
                 } else {
                   try { chrome.storage.local.set({ [sessionId as string]: updatedSession }) } catch {}
                 }
-                console.log('✅ Updated lastOpenedAt for session:', sessionId, lastOpenedAt)
               })
             } else {
               storageSet({ [sessionId as string]: updatedSession })
@@ -39015,11 +37732,8 @@ ${pageText}
 
             
 
-            console.log('🔧 DEBUG: Session data restored to currentTabData BEFORE opening windows')
 
-            console.log('🔧 DEBUG: currentTabData.displayGrids:', currentTabData.displayGrids)
 
-            console.log('✅ Session restored with agents:', sessionData.agents?.length || 0)
 
             
 
@@ -39053,7 +37767,6 @@ ${pageText}
 
             if (sessionData.helperTabs && sessionData.helperTabs.urls && sessionData.helperTabs.urls.length > 0) {
 
-              console.log('🔧 DEBUG: Opening', sessionData.helperTabs.urls.length, 'helper tabs:', sessionData.helperTabs.urls)
 
               
 
@@ -39071,7 +37784,6 @@ ${pageText}
 
                 
 
-                console.log(`🔧 DEBUG: Opening helper tab ${index + 1}:`, urlWithParams)
 
                 
 
@@ -39081,11 +37793,10 @@ ${pageText}
 
                 if (!newTab) {
 
-                  console.error(`❌ Failed to open helper tab ${index + 1} - popup blocked:`, url)
+                  console.error(`âŒ Failed to open helper tab ${index + 1} - popup blocked:`, url)
 
                 } else {
 
-                  console.log(`✅ Successfully opened helper tab ${index + 1}:`, url)
 
                 }
 
@@ -39097,13 +37808,9 @@ ${pageText}
 
               
 
-              console.log('🔧 DEBUG: Session restored - currentTabData.agentBoxes:', currentTabData.agentBoxes)
 
-              console.log('🔧 DEBUG: Session restored - currentTabData.context:', currentTabData.context)
 
-              console.log('🔧 DEBUG: Session restored - currentTabData.displayGrids:', currentTabData.displayGrids)
 
-              console.log('🔧 DEBUG: Session restored - currentTabData.isLocked:', currentTabData.isLocked)
 
               
 
@@ -39111,7 +37818,6 @@ ${pageText}
 
               setTimeout(() => {
 
-                console.log('🔧 DEBUG: About to re-render agent boxes with:', currentTabData.agentBoxes?.length || 0, 'boxes')
 
                 renderAgentBoxes()
 
@@ -39144,7 +37850,6 @@ ${pageText}
 
                   if (agentsGrid) {
 
-                    console.log('🔄 Refreshing agents grid after session restore')
 
                     renderAgentsGrid(rightSidebar)
 
@@ -39160,7 +37865,6 @@ ${pageText}
 
               if (sessionData.hybridAgentBoxes && sessionData.hybridAgentBoxes.length > 0) {
 
-                console.log('🔧 DEBUG: Restoring', sessionData.hybridAgentBoxes.length, 'master tabs')
 
                 
 
@@ -39202,7 +37906,6 @@ ${pageText}
 
                       
 
-                      console.log(`🔧 DEBUG: Opening master tab ${hybridId} with URL:`, url.toString())
 
                       const hybridTab = window.open(url.toString(), `hybrid-master-${hybridId}`)
 
@@ -39210,17 +37913,16 @@ ${pageText}
 
                       if (!hybridTab) {
 
-                        console.error(`❌ Failed to open master tab ${hybridId} - popup blocked`)
+                        console.error(`âŒ Failed to open master tab ${hybridId} - popup blocked`)
 
                       } else {
 
-                        console.log(`✅ Successfully opened master tab ${hybridId}`)
 
                       }
 
                     } catch (error) {
 
-                      console.error(`❌ Invalid URL for hybrid view ${hybridId}:`, hybridUrl, error)
+                      console.error(`âŒ Invalid URL for hybrid view ${hybridId}:`, hybridUrl, error)
 
                       // Fallback to target URL if stored URL is invalid
 
@@ -39258,41 +37960,19 @@ ${pageText}
 
               if (sessionData.displayGrids && sessionData.displayGrids.length > 0) {
 
-                console.log('🔧 DEBUG: Opening', sessionData.displayGrids.length, 'display grids:', sessionData.displayGrids)
 
-                console.log('🔧 DEBUG: Session displayGrids have configs:', sessionData.displayGrids.map((g: any) => ({ 
-
-                  layout: g.layout, 
-
-                  hasConfig: !!(g as any).config,
-
-                  slotCount: (g as any).config ? Object.keys((g as any).config.slots || {}).length : 0
-
-                })))
 
                 
 
                 // currentTabData already has displayGrids from the restore above
 
-                console.log('🔧 DEBUG: Using currentTabData.displayGrids:', currentTabData.displayGrids)
 
-                console.log('🔧 DEBUG: currentTabData.displayGrids details:', currentTabData.displayGrids.map((g: any) => ({
-
-                  layout: g.layout,
-
-                  hasConfig: !!(g as any).config,
-
-                  configSlots: (g as any).config ? (g as any).config.slots : null
-
-                })))
 
                 
 
                 sessionData.displayGrids.forEach((grid: any, index: number) => {
 
-                  console.log('🔧 DEBUG: Opening display grid ' + (index + 1) + ':', grid.layout)
 
-                  console.log('🔧 DEBUG: Grid config:', (grid as any).config)
 
                   
 
@@ -39316,7 +37996,6 @@ ${pageText}
 
                     })
 
-                    console.log('✅ Added complete grid entry to currentTabData:', grid.layout)
 
                   } else if (!(existingEntry as any).config && (grid as any).config) {
 
@@ -39324,7 +38003,6 @@ ${pageText}
 
                     (existingEntry as any).config = (grid as any).config
 
-                    console.log('✅ Updated existing grid entry with config:', grid.layout)
 
                   }
 
@@ -39332,11 +38010,9 @@ ${pageText}
 
                   if ((grid as any).config && (grid as any).config.slots) {
 
-                    console.log('✅ Grid has', Object.keys((grid as any).config.slots).length, 'configured slots')
 
                   } else {
 
-                    console.log('⚠️ Grid has no config or slots:', grid.layout)
 
                   }
 
@@ -39348,22 +38024,20 @@ ${pageText}
 
                     try {
 
-                      openGridFromSession(grid.layout, grid.sessionId)  // ← Back to V1
+                      openGridFromSession(grid.layout, grid.sessionId)  // â† Back to V1
 
-                      console.log(`✅ Successfully opened display grid ${index + 1}:`, grid.layout)
                       
                       // Notify background script on the last grid
                       if (index === sessionData.displayGrids.length - 1) {
                         setTimeout(() => {
                           chrome.runtime.sendMessage({ type: 'DISPLAY_GRIDS_OPENED' }, (response) => {
-                            console.log('🚫 Notified background: display grids restored from session')
                           })
                         }, 500)
                       }
 
                     } catch (error) {
 
-                      console.error(`❌ Failed to open display grid ${index + 1}:`, error)
+                      console.error(`âŒ Failed to open display grid ${index + 1}:`, error)
 
                     }
 
@@ -39381,7 +38055,6 @@ ${pageText}
 
                 setTimeout(() => {
 
-                  console.log('🔧 DEBUG: Navigating to master URL:', targetUrl)
 
                   window.location.href = targetUrl
 
@@ -39389,7 +38062,6 @@ ${pageText}
 
               } else {
 
-                console.log('🔧 DEBUG: Already on target URL, skipping navigation')
 
               }
 
@@ -39399,9 +38071,7 @@ ${pageText}
 
               
 
-              console.log('🔧 DEBUG: Session restored (no helper tabs) - currentTabData.agentBoxes:', currentTabData.agentBoxes)
 
-              console.log('🔧 DEBUG: Session restored (no helper tabs) - currentTabData.context:', currentTabData.context)
 
               
 
@@ -39409,7 +38079,6 @@ ${pageText}
 
               setTimeout(() => {
 
-                console.log('🔧 DEBUG: About to re-render agent boxes with:', currentTabData.agentBoxes?.length || 0, 'boxes')
 
                 renderAgentBoxes()
 
@@ -39439,7 +38108,6 @@ ${pageText}
 
                   if (agentsGrid) {
 
-                    console.log('🔄 Refreshing agents grid after session restore (no helper tabs)')
 
                     renderAgentsGrid(rightSidebar)
 
@@ -39455,7 +38123,6 @@ ${pageText}
 
               if (sessionData.hybridAgentBoxes && sessionData.hybridAgentBoxes.length > 0) {
 
-                console.log('🔧 DEBUG: Restoring', sessionData.hybridAgentBoxes.length, 'hybrid views (no helper tabs)')
 
                 
 
@@ -39497,7 +38164,6 @@ ${pageText}
 
                       
 
-                      console.log(`🔧 DEBUG: Opening master tab ${hybridId} with URL:`, url.toString())
 
                       const hybridTab = window.open(url.toString(), `hybrid-master-${hybridId}`)
 
@@ -39505,17 +38171,16 @@ ${pageText}
 
                       if (!hybridTab) {
 
-                        console.error(`❌ Failed to open master tab ${hybridId} - popup blocked`)
+                        console.error(`âŒ Failed to open master tab ${hybridId} - popup blocked`)
 
                       } else {
 
-                        console.log(`✅ Successfully opened master tab ${hybridId}`)
 
                       }
 
                     } catch (error) {
 
-                      console.error(`❌ Invalid URL for hybrid view ${hybridId}:`, hybridUrl, error)
+                      console.error(`âŒ Invalid URL for hybrid view ${hybridId}:`, hybridUrl, error)
 
                       // Fallback to target URL if stored URL is invalid
 
@@ -39555,19 +38220,14 @@ ${pageText}
 
               if (sessionData.displayGrids && sessionData.displayGrids.length > 0) {
 
-                console.log('🔧 DEBUG: Opening', sessionData.displayGrids.length, 'display grids only:', sessionData.displayGrids)
 
-                console.log('🔧 DEBUG: Updated currentTabData.displayGrids:', currentTabData.displayGrids)
 
-                console.log('🔧 DEBUG: Session data displayGrids:', sessionData.displayGrids)
 
-                console.log('🔧 DEBUG: Each grid config:', sessionData.displayGrids.map((g: any) => ({ layout: g.layout, sessionId: g.sessionId, hasConfig: !!g.config })))
 
                 
 
                 sessionData.displayGrids.forEach((grid: any, index: number) => {
 
-                  console.log(`🔧 DEBUG: Opening display grid ${index + 1}:`, grid.layout)
 
                   
 
@@ -39575,13 +38235,12 @@ ${pageText}
 
                   try {
 
-                    openGridFromSession(grid.layout, grid.sessionId)  // ← Back to V1
+                    openGridFromSession(grid.layout, grid.sessionId)  // â† Back to V1
 
-                    console.log(`✅ Successfully opened display grid ${index + 1}:`, grid.layout)
 
                   } catch (error) {
 
-                    console.error(`❌ Failed to open display grid ${index + 1}:`, error)
+                    console.error(`âŒ Failed to open display grid ${index + 1}:`, error)
 
                   }
 
@@ -39595,7 +38254,6 @@ ${pageText}
 
                   setTimeout(() => {
 
-                    console.log('🔧 DEBUG: Navigating to master URL:', targetUrl)
 
                     window.location.href = targetUrl
 
@@ -39603,13 +38261,11 @@ ${pageText}
 
                 } else {
 
-                  console.log('🔧 DEBUG: Already on target URL, skipping navigation')
 
                 }
 
               } else {
 
-                console.log('🔧 DEBUG: No helper tabs or grids found, navigating directly')
 
                 // No helper tabs or grids, navigate directly
 
@@ -39619,7 +38275,6 @@ ${pageText}
 
             }
 
-            console.log('🔄 Session restore initiated with', sessionData.helperTabs?.urls?.length || 0, 'helper tabs:', sessionData.tabName)
 
             // Show context restoration notification if context exists
 
@@ -39665,7 +38320,7 @@ ${pageText}
 
               
 
-              contextNotification.innerHTML = `📄 Context restored: ${contextItems.join(', ')}`
+              contextNotification.innerHTML = `ðŸ“„ Context restored: ${contextItems.join(', ')}`
 
               document.body.appendChild(contextNotification)
 
@@ -39737,7 +38392,7 @@ ${pageText}
           // Show save indicator
           if (saveIndicator) {
             saveIndicator.style.display = 'inline-block'
-            saveIndicator.textContent = '💾'
+            saveIndicator.textContent = 'ðŸ’¾'
             saveIndicator.style.color = '#FFB366'
             saveIndicator.style.cursor = 'pointer'
             saveIndicator.title = 'Click to save'
@@ -39751,7 +38406,7 @@ ${pageText}
           saveTimeout = setTimeout(() => {
             syncSessionName(nameInput.value, 'history', sessionId)
             if (saveIndicator) {
-              saveIndicator.textContent = '✏“'
+              saveIndicator.textContent = 'âœâ€œ'
               saveIndicator.style.color = '#4CAF50'
               setTimeout(() => {
                 if (saveIndicator) saveIndicator.style.display = 'none'
@@ -39769,7 +38424,7 @@ ${pageText}
               saveTimeout = null
             }
             syncSessionName(nameInput.value, 'history', sessionId)
-            saveIndicator.textContent = '✏“'
+            saveIndicator.textContent = 'âœâ€œ'
             saveIndicator.style.color = '#4CAF50'
             setTimeout(() => {
               if (saveIndicator) saveIndicator.style.display = 'none'
@@ -39787,7 +38442,7 @@ ${pageText}
           nameInput.style.background = csTheme().inputBg
           nameInput.style.borderColor = 'rgba(255,255,255,0.2)'
           if (saveIndicator) {
-            saveIndicator.textContent = '✏“'
+            saveIndicator.textContent = 'âœâ€œ'
             saveIndicator.style.color = '#4CAF50'
             setTimeout(() => {
               if (saveIndicator) saveIndicator.style.display = 'none'
@@ -39804,7 +38459,7 @@ ${pageText}
             }
             syncSessionName(nameInput.value, 'history', sessionId)
             if (saveIndicator) {
-              saveIndicator.textContent = '✏“'
+              saveIndicator.textContent = 'âœâ€œ'
               saveIndicator.style.color = '#4CAF50'
               setTimeout(() => {
                 if (saveIndicator) saveIndicator.style.display = 'none'
@@ -39869,7 +38524,6 @@ ${pageText}
                 console.warn('[session-delete] background delete failed, using storageRemove fallback')
                 storageRemove([sessionId!], () => { overlay.remove(); openSessionsLightbox() })
               } else {
-                console.log('[session-delete] deleted from SQLite:', sessionId)
                 overlay.remove()
                 openSessionsLightbox()
               }
@@ -39889,10 +38543,9 @@ ${pageText}
         clearAllBtn.addEventListener('click', (e) => {
           e.stopPropagation()
           
-          if (confirm(`⚠️ Are you sure you want to delete ALL sessions?\n\nThis will delete ${sessions.length} session(s) from SQLite.\n\nThis action cannot be undone!`)) {
+          if (confirm(`âš ï¸ Are you sure you want to delete ALL sessions?\n\nThis will delete ${sessions.length} session(s) from SQLite.\n\nThis action cannot be undone!`)) {
             const sessionKeys = sessions.map(s => s.id)
             
-            console.log('🗝‘️ Clearing all sessions from SQLite:', sessionKeys.length)
             
             // Show loading notification
             const notification = document.createElement('div')
@@ -39909,7 +38562,7 @@ ${pageText}
               z-index: 2147483650;
               box-shadow: 0 4px 12px rgba(0,0,0,0.2);
             `
-            notification.innerHTML = `⏳ Deleting ${sessionKeys.length} sessions...`
+            notification.innerHTML = `â³ Deleting ${sessionKeys.length} sessions...`
             document.body.appendChild(notification)
             
             // Delete all sessions from SQLite via background (authoritative path)
@@ -39926,7 +38579,7 @@ ${pageText}
               const showSuccess = () => {
                 const n = document.createElement('div')
                 n.style.cssText = 'position:fixed;top:60px;right:20px;background:rgba(76,175,80,0.9);color:white;padding:12px 20px;border-radius:8px;font-size:14px;font-weight:500;z-index:2147483650;box-shadow:0 4px 12px rgba(0,0,0,0.2);'
-                n.textContent = '✅ All sessions cleared!'
+                n.textContent = 'âœ… All sessions cleared!'
                 document.body.appendChild(n)
                 setTimeout(() => n.remove(), 3000)
                 overlay.remove(); openSessionsLightbox()
@@ -39935,7 +38588,6 @@ ${pageText}
                 console.warn('[clear-all] background delete failed, falling back to storageRemove')
                 storageRemove(sessionKeys, showSuccess)
               } else {
-                console.log('[clear-all] All sessions deleted from SQLite:', sessionKeys.length)
                 showSuccess()
               }
             })
@@ -39951,14 +38603,14 @@ ${pageText}
     // Fall back to Chrome Storage if background is unavailable.
     chrome.runtime.sendMessage({ type: 'GET_ALL_SESSIONS_FROM_SQLITE' }, (response) => {
       if (chrome.runtime.lastError) {
-        console.warn('⚠️ Background unavailable for GET_ALL_SESSIONS_FROM_SQLITE, falling back to Chrome Storage:', chrome.runtime.lastError.message)
+        console.warn('âš ï¸ Background unavailable for GET_ALL_SESSIONS_FROM_SQLITE, falling back to Chrome Storage:', chrome.runtime.lastError.message)
         storageGet(null, (allData) => buildSessionList(allData))
         return
       }
       if (response?.success && response.sessions) {
         buildSessionList(response.sessions)
       } else {
-        console.warn('⚠️ GET_ALL_SESSIONS_FROM_SQLITE returned no data, falling back to Chrome Storage')
+        console.warn('âš ï¸ GET_ALL_SESSIONS_FROM_SQLITE returned no data, falling back to Chrome Storage')
         storageGet(null, (allData) => buildSessionList(allData))
       }
     })
@@ -39969,7 +38621,6 @@ ${pageText}
 
   function openAgentBoxOverview(sessionKey: string) {
 
-    console.log('📦 Opening Agent Box Overview for session:', sessionKey)
 
     
 
@@ -40009,7 +38660,7 @@ ${pageText}
 
       <div style="background: ${csTheme().panelBg}; border: 1px solid ${csTheme().border}; border-radius: 12px; padding: 40px; color: ${csTheme().text}; text-align: center; box-shadow: ${csTheme().shadow};">
 
-        <div style="font-size: 24px; margin-bottom: 10px;">⏳</div>
+        <div style="font-size: 24px; margin-bottom: 10px;">â³</div>
 
         <div style="color: ${csTheme().muted};">Loading agent boxes...</div>
 
@@ -40021,7 +38672,6 @@ ${pageText}
 
     document.body.appendChild(overlay)
 
-    console.log('📦 Overlay created and added to DOM')
 
     
 
@@ -40059,11 +38709,8 @@ ${pageText}
         displayGrids: Array.isArray(raw.displayGrids) ? raw.displayGrids : [],
       } : null
 
-      console.log('🔍 Overview: Loaded session data:', session)
 
-      console.log('🔍 Overview: session.agentBoxes:', session?.agentBoxes)
 
-      console.log('🔍 Overview: session.displayGrids:', session?.displayGrids)
 
       
 
@@ -40071,7 +38718,6 @@ ${pageText}
 
       if (session?.agentBoxes && Array.isArray(session.agentBoxes)) {
 
-        console.log(`📊 Overview: Total agent boxes in session: ${session.agentBoxes.length}`)
 
         const masterBoxes = session.agentBoxes.filter((b: any) => b.source === 'master_tab')
 
@@ -40079,11 +38725,8 @@ ${pageText}
 
         const unknownBoxes = session.agentBoxes.filter((b: any) => !b.source)
 
-        console.log(`  ✏“ Master tab boxes: ${masterBoxes.length}`)
 
-        console.log(`  ✏“ Display grid boxes: ${gridBoxes.length}`)
 
-        console.log(`  ✏“ Unknown source boxes: ${unknownBoxes.length}`)
 
         
 
@@ -40091,13 +38734,11 @@ ${pageText}
 
         session.agentBoxes.forEach((box: any, idx: number) => {
 
-          console.log(`  [${idx}] ${box.identifier} | ${box.title} | source: ${box.source || 'none'} | boxNumber: ${box.boxNumber}`)
 
         })
 
       } else {
 
-        console.log('⚠️ Overview: No agent boxes found in session!')
 
       }
 
@@ -40109,7 +38750,7 @@ ${pageText}
 
           <div style="background: ${csTheme().panelBg}; border: 1px solid ${csTheme().border}; border-radius: 12px; padding: 40px; color: ${csTheme().text}; text-align: center; box-shadow: ${csTheme().shadow};">
 
-            <div style="font-size: 24px; margin-bottom: 10px;">❌</div>
+            <div style="font-size: 24px; margin-bottom: 10px;">âŒ</div>
 
             <div style="color: ${csTheme().muted};">Session not found</div>
 
@@ -40167,7 +38808,6 @@ ${pageText}
 
       
 
-      console.log('🔍 Overview: Main tab URL set to:', mainTabUrl)
 
       
 
@@ -40175,13 +38815,11 @@ ${pageText}
 
       if (session.agentBoxes && Array.isArray(session.agentBoxes)) {
 
-        console.log(`📊 Overview: Processing ${session.agentBoxes.length} agent boxes from session.agentBoxes`)
 
         
 
         session.agentBoxes.forEach((box: any, index: number) => {
 
-          console.log(`📦 Overview: Box ${index}:`, JSON.stringify(box, null, 2))
 
           
 
@@ -40225,7 +38863,6 @@ ${pageText}
 
             
 
-            console.log(`✅ Overview: INCLUDING Box ${index}: boxNum=${boxNumber}, agentNum=${agentNumber}, identifier=${identifier}`)
 
             
 
@@ -40369,13 +39006,12 @@ ${pageText}
 
               model: box.model,
 
-              tools: box.tools || []  // ← Add tools array
+              tools: box.tools || []  // â† Add tools array
 
             })
 
           } else {
 
-            console.log(`❌ Overview: EXCLUDING Box ${index}: no title/agent/model/provider`)
 
           }
 
@@ -40533,11 +39169,11 @@ ${pageText}
 
     } // end doOverview
 
-    // Use background message to read authoritative SQLite data — avoids storageWrapper
+    // Use background message to read authoritative SQLite data â€” avoids storageWrapper
     // falling back to Chrome Storage (which doesn't mirror session_ keys from SQLite).
     chrome.runtime.sendMessage({ type: 'GET_SESSION_FROM_SQLITE', sessionKey }, (response) => {
       if (chrome.runtime.lastError) {
-        console.warn('⚠️ Could not reach background for session read, falling back to Chrome Storage:', chrome.runtime.lastError.message)
+        console.warn('âš ï¸ Could not reach background for session read, falling back to Chrome Storage:', chrome.runtime.lastError.message)
         chrome.storage.local.get([sessionKey], (result: any) => {
           doOverview(result?.[sessionKey] || null)
         })
@@ -40547,7 +39183,7 @@ ${pageText}
       if (session && (session.agentBoxes?.length || session.agents?.length || session.tabName)) {
         doOverview(session)
       } else {
-        // SQLite returned empty — try Chrome Storage mirror as fallback
+        // SQLite returned empty â€” try Chrome Storage mirror as fallback
         chrome.storage.local.get([sessionKey], (result: any) => {
           doOverview(result?.[sessionKey] || null)
         })
@@ -40574,7 +39210,7 @@ ${pageText}
 
         <div style="padding: 20px 24px; border-bottom: 1px solid ${csTheme().border}; display:flex; align-items:center; justify-content:space-between;">
 
-          <div style="display:flex;align-items:center;gap:10px;font-size:20px;font-weight:700">🧠 Reasoning & Session Goals</div>
+          <div style="display:flex;align-items:center;gap:10px;font-size:20px;font-weight:700">ðŸ§  Reasoning & Session Goals</div>
 
           <button id="close-reasoning-lightbox" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 36px; height: 36px; border-radius: 50%; cursor: pointer; font-size: 20px; display: flex; align-items: center; justify-content: center; transition: all 0.2s;">&times;</button>
 
@@ -40588,13 +39224,13 @@ ${pageText}
 
           <button id="tab-reasoning" class="reasoning-tab active" style="padding: 10px 20px; background: rgba(255,255,255,0.25); border: none; border-bottom: 3px solid white; color: white; border-radius: 8px 8px 0 0; cursor: pointer; font-size: 14px; font-weight: 600; transition: all 0.2s;">
 
-            💡 Reasoning & Insights
+            ðŸ’¡ Reasoning & Insights
 
           </button>
 
           <button id="tab-workflows" class="reasoning-tab" style="padding: 10px 20px; background: ${csTheme().cardBg}; border: none; border-bottom: 3px solid transparent; color: rgba(255,255,255,0.7); border-radius: 8px 8px 0 0; cursor: pointer; font-size: 14px; font-weight: 600; transition: all 0.2s;">
 
-            🛠️ Workflows
+            ðŸ› ï¸ Workflows
 
           </button>
 
@@ -40616,9 +39252,9 @@ ${pageText}
 
               <div style="display:flex; align-items:center; gap:8px; margin-bottom: 16px;">
 
-                <h3 style="margin: 0; font-size: 16px; font-weight: 700;">🎯 Session Goals</h3>
+                <h3 style="margin: 0; font-size: 16px; font-weight: 700;">ðŸŽ¯ Session Goals</h3>
 
-                <span title="Defining goals helps the system detect your intent more accurately and orchestrate better actions." style="font-size:14px; opacity:0.85; cursor:help;">ℹ️</span>
+                <span title="Defining goals helps the system detect your intent more accurately and orchestrate better actions." style="font-size:14px; opacity:0.85; cursor:help;">â„¹ï¸</span>
 
               </div>
 
@@ -40630,7 +39266,7 @@ ${pageText}
 
                   <textarea id="reasoning-goal-text" placeholder="What's your goal right now?" style="width: 100%; height: 100px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.4); color: white; padding: 10px 40px 10px 12px; border-radius: 8px; font-size: 13px; resize: vertical; font-family: inherit;"></textarea>
 
-                  <button id="reasoning-goal-mic" title="Speak your goal" style="position:absolute; right:10px; bottom:10px; background:rgba(255,255,255,0.2);border:1px solid rgba(255,255,255,0.4);color:#fff;padding:4px 8px;border-radius:6px;cursor:pointer; font-size: 14px;">🎤</button>
+                  <button id="reasoning-goal-mic" title="Speak your goal" style="position:absolute; right:10px; bottom:10px; background:rgba(255,255,255,0.2);border:1px solid rgba(255,255,255,0.4);color:#fff;padding:4px 8px;border-radius:6px;cursor:pointer; font-size: 14px;">ðŸŽ¤</button>
 
                 </div>
 
@@ -40640,11 +39276,11 @@ ${pageText}
 
                   <input id="reasoning-role-text" placeholder="e.g. assistant, validator" style="width:100%; height: 48px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.4); color: white; padding: 10px 40px 10px 12px; border-radius: 8px; font-size: 13px; font-family: inherit;"/>
 
-                  <button id="reasoning-role-mic" title="Speak your role" style="position:absolute; right:10px; top: 38px; background:rgba(255,255,255,0.2);border:1px solid rgba(255,255,255,0.4);color:#fff;padding:4px 8px;border-radius:6px;cursor:pointer; font-size: 14px;">🎤</button>
+                  <button id="reasoning-role-mic" title="Speak your role" style="position:absolute; right:10px; top: 38px; background:rgba(255,255,255,0.2);border:1px solid rgba(255,255,255,0.4);color:#fff;padding:4px 8px;border-radius:6px;cursor:pointer; font-size: 14px;">ðŸŽ¤</button>
 
                   <button id="save-as-agent-btn" title="Save your Goals and Role into an Agent. This allows recurring tasks and intent detection to be refined and tailored to you." style="margin-top: 8px; padding:10px 16px; background:${csTheme().accentGrad}; border:none; color:#07210f; border-radius:8px; font-size:13px; font-weight: 600; cursor:pointer; display:flex; align-items:center; justify-content: center; gap:8px; transition: all 0.2s;">
 
-                    💾 Save as Agent
+                    ðŸ’¾ Save as Agent
 
                   </button>
 
@@ -40666,7 +39302,7 @@ ${pageText}
 
                 <div style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
 
-                  <h4 style="margin: 0; font-size: 14px; font-weight: 700;">🧭 User Intent Detection</h4>
+                  <h4 style="margin: 0; font-size: 14px; font-weight: 700;">ðŸ§­ User Intent Detection</h4>
 
                   <div style="display:flex; align-items:center; gap:8px;">
 
@@ -40692,7 +39328,7 @@ ${pageText}
 
                   <div><strong>Detected Intent:</strong> Compare product prices and find best value</div>
 
-                  <div style="opacity:0.8; margin-top: 6px;">Confidence: 72% • Updated: just now</div>
+                  <div style="opacity:0.8; margin-top: 6px;">Confidence: 72% â€¢ Updated: just now</div>
 
                 </div>
 
@@ -40706,15 +39342,15 @@ ${pageText}
 
                 <div style="display:flex; align-items:center; justify-content:space-between;">
 
-                  <h4 style="margin: 0; font-size: 14px; font-weight: 700;">🧠 Orchestration Logic</h4>
+                  <h4 style="margin: 0; font-size: 14px; font-weight: 700;">ðŸ§  Orchestration Logic</h4>
 
                   <div style="display:flex; gap:8px;">
 
-                    <button id="gen-followups-btn" title="Re-generate follow-up questions" style="padding:8px 12px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius:8px; font-size:12px; cursor:pointer; font-weight: 600; transition: all 0.2s;">🔄 Re-Generate</button>
+                    <button id="gen-followups-btn" title="Re-generate follow-up questions" style="padding:8px 12px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius:8px; font-size:12px; cursor:pointer; font-weight: 600; transition: all 0.2s;">ðŸ”„ Re-Generate</button>
 
-                    <button id="show-paths-btn" title="Show reasoning paths" style="padding:8px 12px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius:8px; font-size:12px; cursor:pointer; font-weight: 600; transition: all 0.2s;">🧭 Paths</button>
+                    <button id="show-paths-btn" title="Show reasoning paths" style="padding:8px 12px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius:8px; font-size:12px; cursor:pointer; font-weight: 600; transition: all 0.2s;">ðŸ§­ Paths</button>
 
-                    <button id="feedback-loop-btn" title="Trigger feedback loop" style="padding:8px 12px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius:8px; font-size:12px; cursor:pointer; font-weight: 600; transition: all 0.2s;">♻ Feedback</button>
+                    <button id="feedback-loop-btn" title="Trigger feedback loop" style="padding:8px 12px; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; border-radius:8px; font-size:12px; cursor:pointer; font-weight: 600; transition: all 0.2s;">â™»Â Feedback</button>
 
                   </div>
 
@@ -40722,7 +39358,7 @@ ${pageText}
 
                 <div id="orchestration-log" style="background: rgba(0,0,0,0.4); padding: 12px; border-radius: 8px; font-size: 12px; height: 140px; overflow-y: auto; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; line-height: 1.6; border: 1px solid ${csTheme().border};">
 
-                  [System] Orchestrator idle. Awaiting actions…
+                  [System] Orchestrator idle. Awaiting actionsâ€¦
 
                 </div>
 
@@ -40742,7 +39378,7 @@ ${pageText}
 
               <div style="background: rgba(255,255,255,0.15); padding: 20px; border-radius: 12px; display:flex; flex-direction:column; gap:12px;">
 
-                <div style="font-size:16px; font-weight:700;">📧 Send Email</div>
+                <div style="font-size:16px; font-weight:700;">ðŸ“§ Send Email</div>
 
                 <div style="font-size:13px; opacity:0.9; line-height: 1.5;">Draft and send a concise email.</div>
 
@@ -40752,7 +39388,7 @@ ${pageText}
 
               <div style="background: rgba(255,255,255,0.15); padding: 20px; border-radius: 12px; display:flex; flex-direction:column; gap:12px;">
 
-                <div style="font-size:16px; font-weight:700;">📅 Manage Calendar</div>
+                <div style="font-size:16px; font-weight:700;">ðŸ“… Manage Calendar</div>
 
                 <div style="font-size:13px; opacity:0.9; line-height: 1.5;">Create or reschedule meetings.</div>
 
@@ -40762,7 +39398,7 @@ ${pageText}
 
               <div style="background: rgba(255,255,255,0.15); padding: 20px; border-radius: 12px; display:flex; flex-direction:column; gap:12px;">
 
-                <div style="font-size:16px; font-weight:700;">🧹 Clean Up Draft</div>
+                <div style="font-size:16px; font-weight:700;">ðŸ§¹ Clean Up Draft</div>
 
                 <div style="font-size:13px; opacity:0.9; line-height: 1.5;">Refine text for clarity and tone.</div>
 
@@ -40906,7 +39542,7 @@ ${pageText}
 
       const log = document.getElementById('orchestration-log')
 
-      if (log) log.textContent = '[System] Re-generating follow-up questions…\n' + log.textContent
+      if (log) log.textContent = '[System] Re-generating follow-up questionsâ€¦\n' + log.textContent
 
     })
 
@@ -40916,7 +39552,7 @@ ${pageText}
 
       const log = document.getElementById('orchestration-log')
 
-      if (log) log.textContent = '[System] Displaying reasoning paths…\n' + log.textContent
+      if (log) log.textContent = '[System] Displaying reasoning pathsâ€¦\n' + log.textContent
 
     })
 
@@ -40926,7 +39562,7 @@ ${pageText}
 
       const log = document.getElementById('orchestration-log')
 
-      if (log) log.textContent = '[System] Triggering feedback loop…\n' + log.textContent
+      if (log) log.textContent = '[System] Triggering feedback loopâ€¦\n' + log.textContent
 
     })
 
@@ -41000,7 +39636,7 @@ ${pageText}
 
         <div style="padding: 20px; border-bottom: 1px solid ${csTheme().border}; display: flex; justify-content: space-between; align-items: center;">
 
-          <h2 style="margin: 0; font-size: 20px;">✏️ Edit Web Sources - ${sessionData.tabName}</h2>
+          <h2 style="margin: 0; font-size: 20px;">âœÂï¸ Edit Web Sources - ${sessionData.tabName}</h2>
 
           <button id="close-edit-helper-tabs" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">&times;</button>
 
@@ -41030,7 +39666,7 @@ ${pageText}
 
           <button id="cancel-edit-helper-tabs" style="padding: 12px 30px; background: #6c757d; border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: bold;">Cancel</button>
 
-          <button id="save-edit-helper-tabs" style="padding: 12px 30px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: bold;">💾 Save Changes</button>
+          <button id="save-edit-helper-tabs" style="padding: 12px 30px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: bold;">ðŸ’¾ Save Changes</button>
 
         </div>
 
@@ -41136,7 +39772,6 @@ ${pageText}
 
       storageSet({ [sessionId]: sessionData }, () => {
 
-        console.log('✅ Helper tabs updated for session:', sessionData.tabName)
 
         
 
@@ -41166,7 +39801,7 @@ ${pageText}
 
         `
 
-        notification.innerHTML = `✅ Helper tabs updated! (${updatedUrls.length} URLs)`
+        notification.innerHTML = `âœ… Helper tabs updated! (${updatedUrls.length} URLs)`
 
         document.body.appendChild(notification)
 
@@ -41234,7 +39869,6 @@ ${pageText}
 
         storageSet({ [sessionKey]: updatedSessionData }, () => {
 
-          console.log('📝 Updated existing session with current data:', currentTabData.tabName)
 
         })
 
@@ -41254,7 +39888,7 @@ ${pageText}
     // For history edits, use the provided session key; otherwise use current session
     const sessionKey = targetSessionKey || getCurrentSessionKey()
     if (!sessionKey) {
-      console.warn('⚠️ Cannot sync session name: No session key found')
+      console.warn('âš ï¸ Cannot sync session name: No session key found')
       return
     }
     
@@ -41270,10 +39904,9 @@ ${pageText}
         sessionData.timestamp = new Date().toISOString() // Update timestamp
         
         storageSet({ [sessionKey]: sessionData }, () => {
-          console.log(`✅ [${source}] Session name synced to storage:`, sessionKey, oldName, '→', trimmedName)
         })
       } else {
-        console.warn('⚠️ Session not found in storage:', sessionKey)
+        console.warn('âš ï¸ Session not found in storage:', sessionKey)
         return
       }
     })
@@ -41366,7 +39999,6 @@ ${pageText}
   function loadAndDisplaySessionName() {
     const sessionKey = getCurrentSessionKey()
     if (!sessionKey) {
-      console.log('⚠️ No session key - cannot load session name')
       return
     }
     
@@ -41383,9 +40015,8 @@ ${pageText}
         // Update UI
         updateSessionNameInAllUIs(sessionName, sessionKey)
         
-        console.log('✅ Loaded session name from storage:', sessionName, 'for session:', sessionKey)
       } else {
-        console.warn('⚠️ Session not found in storage:', sessionKey)
+        console.warn('âš ï¸ Session not found in storage:', sessionKey)
       }
     })
   }
@@ -41451,7 +40082,6 @@ ${pageText}
         }
       }
       
-      console.log(`[collectAgentConfigs] Collected ${agents.length} agent configurations`);
       return agents;
     } catch (error) {
       console.error('[collectAgentConfigs] Error collecting agent configs:', error);
@@ -41465,12 +40095,10 @@ ${pageText}
    */
   function restoreAgentConfigs(agents: any[]) {
     if (!agents || agents.length === 0) {
-      console.log('[restoreAgentConfigs] No agents to restore');
       return;
     }
 
     try {
-      console.log(`[restoreAgentConfigs] Restoring ${agents.length} agent configurations`);
       
       agents.forEach((agentConfig) => {
         const agentName = agentConfig.name;
@@ -41513,10 +40141,9 @@ ${pageText}
           localStorage.setItem(`agent_${identifier}_delay`, agentConfig.delay);
         }
         
-        // 🔥 CRITICAL: Restore the full config object including instructions
+        // ðŸ”¥ CRITICAL: Restore the full config object including instructions
         // This contains triggers, reasoning instructions, execution settings, etc.
         if (agentConfig.config) {
-          console.log(`[restoreAgentConfigs] Agent "${identifier}" has config:`, Object.keys(agentConfig.config));
           
           // Store full config object
           if (agentConfig.config.instructions) {
@@ -41524,22 +40151,14 @@ ${pageText}
               ? agentConfig.config.instructions 
               : JSON.stringify(agentConfig.config.instructions);
             localStorage.setItem(`agent_${identifier}_instructions`, instructionsData);
-            console.log(`[restoreAgentConfigs] ✅ Restored instructions for "${identifier}" (${instructionsData.length} chars)`);
           }
           
           // Store complete config object for safety
           localStorage.setItem(`agent_${identifier}_full_config`, JSON.stringify(agentConfig.config));
         }
 
-        console.log(`[restoreAgentConfigs] Restored agent: ${identifier}`, {
-          hasConfig: !!agentConfig.config,
-          hasInstructions: !!agentConfig.config?.instructions,
-          enabled: agentConfig.enabled,
-          number: agentConfig.number
-        });
       });
 
-      console.log('[restoreAgentConfigs] ✅ All agents restored successfully');
     } catch (error) {
       console.error('[restoreAgentConfigs] Error restoring agent configs:', error);
     }
@@ -41549,7 +40168,6 @@ ${pageText}
 
         if (currentTabData.isLocked) {
 
-      console.log('💾 Session already saved (locked):', currentTabData.tabName)
 
       return
 
@@ -41561,7 +40179,6 @@ ${pageText}
     const isPendingSessionCreation = sessionStorage.getItem('optimando-pending-session-creation') === 'true'
     
     if (isPendingSessionCreation) {
-      console.log('🏆• Creating session on first user action')
       sessionStorage.removeItem('optimando-pending-session-creation')
     }
 
@@ -41589,10 +40206,9 @@ ${pageText}
     const showSavedToast = () => {
       const notification = document.createElement('div')
       notification.style.cssText = 'position:fixed;top:60px;right:20px;background:rgba(76,175,80,0.9);color:white;padding:10px 15px;border-radius:5px;font-size:12px;z-index:2147483648;'
-      notification.textContent = `💾 Session "${currentTabData.tabName}" saved!`
+      notification.textContent = `ðŸ’¾ Session "${currentTabData.tabName}" saved!`
       document.body.appendChild(notification)
       setTimeout(() => notification.remove(), 3000)
-      console.log('💾 Session saved manually:', currentTabData.tabName)
     }
 
     const doSave = (canonicalAgents: any[]) => {
@@ -41616,7 +40232,7 @@ ${pageText}
       if (chrome?.runtime) {
         chrome.runtime.sendMessage({ type: 'SAVE_SESSION_TO_SQLITE', sessionKey, session: sessionData }, (response) => {
           if (chrome.runtime.lastError || !response?.success) {
-            console.warn('⚠️ saveCurrentSession: SQLite save failed, using storageSet fallback')
+            console.warn('âš ï¸ saveCurrentSession: SQLite save failed, using storageSet fallback')
             storageSet({ [sessionKey]: sessionData }, () => showSavedToast())
           } else {
             try { chrome.storage.local.set({ [sessionKey]: sessionData }) } catch {}
@@ -41647,7 +40263,6 @@ ${pageText}
 
   function syncSession() {
 
-    console.log('🔄 Sync functionality - placeholder')
 
     // Placeholder for sync functionality
 
@@ -41662,7 +40277,6 @@ ${pageText}
    * Allows user to choose between JSON, YAML, or MD format
    */
   function openExportFormatDialog() {
-    console.log('📤 Opening export format dialog')
     
     const overlay = document.createElement('div')
     overlay.style.cssText = `
@@ -41674,7 +40288,7 @@ ${pageText}
     
     overlay.innerHTML = `
       <div style="background: ${csTheme().panelBg}; border-radius: 16px; width: 90vw; max-width: 650px; color: ${csTheme().text}; padding: 30px; box-shadow: 0 20px 40px rgba(0,0,0,0.3);">
-        <h2 style="margin: 0 0 10px 0; font-size: 24px; font-weight: 600;">📤 Export Session</h2>
+        <h2 style="margin: 0 0 10px 0; font-size: 24px; font-weight: 600;">ðŸ“¤ Export Session</h2>
         <p style="margin: 0 0 20px 0; font-size: 14px; opacity: 0.9;">Choose what to export and select a format:</p>
         
         <!-- Quick Export Presets -->
@@ -41693,7 +40307,7 @@ ${pageText}
             margin-bottom: 8px;
             text-align: left;
           " >
-            <div style="font-size: 16px; margin-bottom: 3px;">⭐ Complete Session (Recommended)</div>
+            <div style="font-size: 16px; margin-bottom: 3px;">â­Â Complete Session (Recommended)</div>
             <div style="font-size: 11px; opacity: 0.85;">Configuration + Memory + Context - Everything!</div>
           </button>
           <button class="export-preset-btn" data-preset="config-only" style="
@@ -41854,17 +40468,16 @@ ${pageText}
    * This will fetch the session data from SQLite and download it in the specified format
    */
   async function exportCurrentSession(format: 'json' | 'yaml' | 'md', options: { includeSession: boolean, includeMemory: boolean, includeContext: boolean } = { includeSession: true, includeMemory: false, includeContext: false }) {
-    console.log(`📤 Exporting current session in ${format.toUpperCase()} format with options:`, options)
     
     const sessionKey = getCurrentSessionKey()
     
     if (!sessionKey) {
-      showNotification('⚠️ No active session to export', 'error')
+      showNotification('âš ï¸ No active session to export', 'error')
       return
     }
     
     // Show loading notification
-    const loadingNotification = showNotification('⏳ Loading session data from SQLite...', 'info', 0)
+    const loadingNotification = showNotification('â³ Loading session data from SQLite...', 'info', 0)
     
     try {
       // Fetch session data from storage (SQLite)
@@ -41872,32 +40485,23 @@ ${pageText}
         if (loadingNotification) loadingNotification.remove()
         
         if (!result[sessionKey]) {
-          showNotification('❌ Session not found in storage', 'error')
+          showNotification('âŒ Session not found in storage', 'error')
           return
         }
         
         const sessionData = result[sessionKey]
         
-        console.log('📦 Session data loaded from SQLite:', sessionData)
-        console.log('  - Session key:', sessionKey)
-        console.log('  - Session name:', sessionData.tabName)
-        console.log('  - Agent boxes:', sessionData.agentBoxes?.length || 0)
-        console.log('  - Agents:', sessionData.agents?.length || 0)
-        console.log('  - Timestamp:', sessionData.timestamp)
-        console.log('  - Export options:', options)
         
         // Collect memory data if requested
         let memoryData: any = null
         if (options.includeMemory) {
           memoryData = await collectMemoryData(sessionKey, sessionData)
-          console.log('  - Memory entries:', Object.keys(memoryData || {}).length)
         }
         
         // Collect context data if requested
         let contextData: any = null
         if (options.includeContext) {
           contextData = await collectContextData(sessionKey, sessionData)
-          console.log('  - Context entries:', Object.keys(contextData || {}).length)
         }
         
         // Prepare export data
@@ -41927,10 +40531,10 @@ ${pageText}
           exportData.helperTabs = sessionData.helperTabs || null
           exportData.displayGrids = sessionData.displayGrids || null
           
-          // ─────────────────────────────────────────────────────────────────────
+          // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
           // CANONICAL TYPE SYSTEM EXPORT (v2.1.0) - Async via TypeSystemService
           // Convert agents and agent boxes to the unified schema format
-          // ─────────────────────────────────────────────────────────────────────
+          // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
           
           // Import TypeSystemService dynamically for code splitting
           const TypeSystemService = await import('./services/TypeSystemService')
@@ -41964,11 +40568,6 @@ ${pageText}
             }
           }
           
-          console.log('📦 Converted to canonical format (async):', {
-            agents: canonicalAgents.length,
-            agentBoxes: canonicalAgentBoxes.length,
-            connections: connectionInfo.agentToBoxMapping?.length || 0
-          })
           
           // Derive hybridViews from agent boxes
           // Find all unique masterTabId values (excluding "01" which is the main tab)
@@ -41982,17 +40581,16 @@ ${pageText}
           }
           
           // Convert masterTabIds to hybridViews array
-          // masterTabId "02" → hybrid_master_id 0, "03" → 1, etc.
+          // masterTabId "02" â†’ hybrid_master_id 0, "03" â†’ 1, etc.
           const derivedHybridViews = Array.from(hybridMasterTabIds)
             .sort() // Sort to maintain order
             .map(tabId => ({
-              id: String(parseInt(tabId) - 2), // "02" → "0", "03" → "1"
+              id: String(parseInt(tabId) - 2), // "02" â†’ "0", "03" â†’ "1"
               masterTabId: tabId,
               url: sessionData.url || window.location.href,
               timestamp: new Date().toISOString()
             }))
           
-          console.log('📦 Derived hybrid views from agent boxes:', derivedHybridViews)
           
           exportData.uiState = {
             agentBoxHeights: sessionData.agentBoxHeights || {},
@@ -42072,13 +40670,12 @@ ${pageText}
         const exportType = options.includeMemory && options.includeContext ? 'Complete Session' : 
                           options.includeMemory ? 'Session + Memory' :
                           options.includeContext ? 'Session + Context' : 'Configuration'
-        showNotification(`✅ ${exportType} exported as ${format.toUpperCase()}`, 'success')
-        console.log('✅ Session exported successfully:', fileName)
+        showNotification(`âœ… ${exportType} exported as ${format.toUpperCase()}`, 'success')
       })
     } catch (error) {
       if (loadingNotification) loadingNotification.remove()
-      console.error('❌ Export failed:', error)
-      showNotification('❌ Export failed: ' + error, 'error')
+      console.error('âŒ Export failed:', error)
+      showNotification('âŒ Export failed: ' + error, 'error')
     }
   }
 
@@ -42087,7 +40684,6 @@ ${pageText}
    * This includes agent memory, conversation history, and any cached data
    */
   async function collectMemoryData(sessionKey: string, sessionData: any): Promise<any> {
-    console.log('🧠 Collecting memory data...')
     
     const memoryData: any = {
       agentMemories: {},
@@ -42117,11 +40713,10 @@ ${pageText}
       // TODO: Collect cached responses
       // This would fetch any cached AI responses associated with this session
       
-      console.log('🧠 Memory data collected:', Object.keys(memoryData.agentMemories).length, 'agent memories')
       return memoryData
       
     } catch (error) {
-      console.error('❌ Failed to collect memory data:', error)
+      console.error('âŒ Failed to collect memory data:', error)
       return null
     }
   }
@@ -42131,7 +40726,6 @@ ${pageText}
    * This includes documents, embeddings, and knowledge base entries
    */
   async function collectContextData(sessionKey: string, sessionData: any): Promise<any> {
-    console.log('📄 Collecting context data...')
     
     const contextData: any = {
       documents: [],
@@ -42161,11 +40755,10 @@ ${pageText}
       // TODO: Collect embeddings
       // This would fetch vector embeddings if stored
       
-      console.log('📄 Context data collected:', Object.keys(contextData.knowledgeBase).length, 'agent contexts')
       return contextData
       
     } catch (error) {
-      console.error('❌ Failed to collect context data:', error)
+      console.error('âŒ Failed to collect context data:', error)
       return null
     }
   }
@@ -42222,7 +40815,7 @@ ${pageText}
     
     // Build YAML
     addLine('# WR Desk Session Export')
-    addLine('# Generated by WR Desk™ Extension')
+    addLine('# Generated by WR Deskâ„¢ Extension')
     addLine('')
     
     Object.entries(data).forEach(([key, value]) => {
@@ -42248,7 +40841,7 @@ ${pageText}
     md.push(`**Version:** ${data.version}`)
     md.push('')
     
-    md.push('## 📦 Agent Boxes')
+    md.push('## ðŸ“¦ Agent Boxes')
     md.push('')
     if (data.agentBoxes && data.agentBoxes.length > 0) {
       data.agentBoxes.forEach((box: any, idx: number) => {
@@ -42263,7 +40856,7 @@ ${pageText}
       md.push('')
     }
     
-    md.push('## 🤖 Agents')
+    md.push('## ðŸ¤– Agents')
     md.push('')
     if (data.agents && data.agents.length > 0) {
       data.agents.forEach((agent: any, idx: number) => {
@@ -42280,13 +40873,13 @@ ${pageText}
       md.push('')
     }
     
-    md.push('## 🎨 UI State')
+    md.push('## ðŸŽ¨ UI State')
     md.push('')
     md.push(`- **Hybrid Views:** ${data.uiState?.hybridViews?.length || 0}`)
     md.push(`- **Custom Layout:** ${data.uiState?.customAgentLayout ? 'Yes' : 'No'}`)
     md.push('')
     
-    md.push('## 📋 Full Data (JSON)')
+    md.push('## ðŸ“‹ Full Data (JSON)')
     md.push('')
     md.push('```json')
     md.push(JSON.stringify(data, null, 2))
@@ -42294,7 +40887,7 @@ ${pageText}
     md.push('')
     
     md.push('---')
-    md.push('*Exported from WR Desk™ Extension*')
+    md.push('*Exported from WR Deskâ„¢ Extension*')
     
     return md.join('\n')
   }
@@ -42375,11 +40968,9 @@ ${pageText}
             url: window.location.href
           }
           
-          console.log('💾 Preserving old session name from storage:', oldSessionKey, 'name:', nameToPreserve, 'was:', oldSessionData.tabName)
           
           // Save the old session BEFORE creating new one
           storageSet({ [oldSessionKey]: updatedOldSession }, () => {
-            console.log('✅ Saved old session before creating new one:', oldSessionKey, 'name:', updatedOldSession.tabName)
             
             // Now proceed with creating the new session
             createNewSessionAfterSave()
@@ -42482,7 +41073,6 @@ ${pageText}
 
       const sessionKey = `session_${Date.now()}`
 
-      console.log('🔑 Generated new session key:', sessionKey)
 
       const sessionData = {
 
@@ -42500,11 +41090,9 @@ ${pageText}
 
       storageSet({ [sessionKey]: sessionData }, () => {
 
-        console.log('✅ New session added to history:', sessionKey)
 
         setCurrentSessionKey(sessionKey)
 
-        console.log('✅ Session key set in storage')
 
         
 
@@ -42512,7 +41100,6 @@ ${pageText}
 
         const verifyKey = getCurrentSessionKey()
 
-        console.log('🔍 Verification - getCurrentSessionKey() returns:', verifyKey)
 
         
 
@@ -42539,7 +41126,6 @@ ${pageText}
               agentBoxes: currentTabData.agentBoxes || []
             }
           })
-          console.log('📤 Sent UPDATE_SESSION_DATA to sidepanel with key:', sessionKey, 'name:', newSessionName)
         }, 50)
         
         // Send again after a short delay to ensure sidepanel receives it
@@ -42558,7 +41144,7 @@ ${pageText}
 
     } catch (e) {
 
-      console.error('❌ Failed to add session to history:', e)
+      console.error('âŒ Failed to add session to history:', e)
 
     }
 
@@ -42604,7 +41190,7 @@ ${pageText}
 
       if (lockBtn) {
 
-        lockBtn.innerHTML = '🔓'
+        lockBtn.innerHTML = 'ðŸ”“'
 
         lockBtn.style.background = 'rgba(255,255,255,0.1)'
 
@@ -42654,7 +41240,6 @@ ${pageText}
 
     URL.revokeObjectURL(url)
 
-    console.log('📤 Session exported:', currentTabData.tabName)
 
   }
 
@@ -42665,7 +41250,6 @@ ${pageText}
    * Supports JSON, YAML, and MD formats with automatic detection
    */
   function importSession() {
-    console.log('📥 Opening file picker for session import')
     
     const input = document.createElement('input')
     input.type = 'file'
@@ -42675,9 +41259,8 @@ ${pageText}
       const file = e.target?.files?.[0]
       if (!file) return
       
-      console.log('📥 File selected:', file.name, 'Type:', file.type, 'Size:', file.size)
       
-      const loadingNotification = showNotification('⏳ Importing session...', 'info', 0)
+      const loadingNotification = showNotification('â³ Importing session...', 'info', 0)
       
       try {
         const reader = new FileReader()
@@ -42691,13 +41274,10 @@ ${pageText}
             let importData: any
             
             if (fileName.endsWith('.json')) {
-              console.log('📥 Parsing JSON file')
               importData = JSON.parse(fileContent)
             } else if (fileName.endsWith('.yaml') || fileName.endsWith('.yml')) {
-              console.log('📥 Parsing YAML file')
               importData = parseYAML(fileContent)
             } else if (fileName.endsWith('.md')) {
-              console.log('📥 Parsing Markdown file')
               importData = parseMarkdownExport(fileContent)
             } else {
               throw new Error('Unsupported file format. Please use .json, .yaml, or .md files.')
@@ -42710,23 +41290,23 @@ ${pageText}
             
           } catch (error: any) {
             if (loadingNotification) loadingNotification.remove()
-            console.error('❌ Failed to parse import file:', error)
-            showNotification(`❌ Import failed: ${error.message || error}`, 'error')
+            console.error('âŒ Failed to parse import file:', error)
+            showNotification(`âŒ Import failed: ${error.message || error}`, 'error')
           }
         }
         
         reader.onerror = () => {
           if (loadingNotification) loadingNotification.remove()
-          console.error('❌ Failed to read file')
-          showNotification('❌ Failed to read file', 'error')
+          console.error('âŒ Failed to read file')
+          showNotification('âŒ Failed to read file', 'error')
         }
         
         reader.readAsText(file)
         
       } catch (error: any) {
         if (loadingNotification) loadingNotification.remove()
-        console.error('❌ Import error:', error)
-        showNotification(`❌ Import failed: ${error.message || error}`, 'error')
+        console.error('âŒ Import error:', error)
+        showNotification(`âŒ Import failed: ${error.message || error}`, 'error')
       }
     }
     
@@ -42848,7 +41428,6 @@ ${pageText}
    * Then save it to storage and optionally load it
    */
   async function processSessionImport(importData: any) {
-    console.log('📥 Processing import data:', importData)
     
     // Validate import data
     if (!importData || typeof importData !== 'object') {
@@ -42861,7 +41440,6 @@ ${pageText}
     let sessionData: any
     
     if (isExportFormat) {
-      console.log('📥 Import format detected: Export v1.0.0')
       
       // Extract session data from export format
       sessionData = {
@@ -42896,21 +41474,12 @@ ${pageText}
         nextNumber: importData.nextNumber || 1
       }
       
-      console.log('📦 Extracted session data:', sessionData)
-      console.log('  - Name:', sessionData.tabName)
-      console.log('  - Agent boxes:', sessionData.agentBoxes?.length || 0)
-      console.log('  - Agents:', sessionData.agents?.length || 0)
-      console.log('  - Hybrid master tabs:', sessionData.hybridViews?.length || 0)
-      console.log('  - Display grids:', sessionData.displayGrids?.length || 0)
-      console.log('  - Has memory data:', !!importData.memory)
-      console.log('  - Has context data:', !!importData.context)
       
       // Store memory and context data separately for restoration
       sessionData._importedMemory = importData.memory || null
       sessionData._importedContext = importData.context || null
       
     } else {
-      console.log('📥 Import format detected: Raw session data')
       // Raw session data (old format)
       sessionData = {
         ...importData,
@@ -42924,7 +41493,6 @@ ${pageText}
     
     // Save to storage (SQLite)
     storageSet({ [sessionKey]: sessionData }, () => {
-      console.log('✅ Session imported and saved to SQLite:', sessionKey)
       
       // Ask user if they want to load the imported session now
       const overlay = document.createElement('div')
@@ -42937,17 +41505,17 @@ ${pageText}
       
       overlay.innerHTML = `
         <div style="background: ${csTheme().panelBg}; border-radius: 16px; width: 90vw; max-width: 500px; color: ${csTheme().text}; padding: 30px; box-shadow: 0 20px 40px rgba(0,0,0,0.3); text-align: center;">
-          <div style="font-size: 48px; margin-bottom: 15px;">✅</div>
+          <div style="font-size: 48px; margin-bottom: 15px;">âœ…</div>
           <h2 style="margin: 0 0 10px 0; font-size: 22px; font-weight: 600;">Session Imported!</h2>
           <p style="margin: 0 0 10px 0; font-size: 14px; opacity: 0.9;">"${sessionData.tabName}"</p>
           <p style="margin: 0 0 15px 0; font-size: 13px; opacity: 0.8;">
-            ${sessionData.agentBoxes?.length || 0} agent boxes • 
-            ${sessionData.agents?.length || 0} agents • 
-            ${sessionData.hybridViews?.length || 0} hybrid tabs • 
+            ${sessionData.agentBoxes?.length || 0} agent boxes â€¢ 
+            ${sessionData.agents?.length || 0} agents â€¢ 
+            ${sessionData.hybridViews?.length || 0} hybrid tabs â€¢ 
             ${sessionData.displayGrids?.length || 0} display grids
           </p>
-          ${sessionData._importedMemory ? '<p style="margin: 0 0 15px 0; font-size: 12px; color: rgba(255,215,0,1);">🧠 Includes Memory Data</p>' : ''}
-          ${sessionData._importedContext ? '<p style="margin: 0 0 15px 0; font-size: 12px; color: rgba(100,200,255,1);">📄 Includes Context Data</p>' : ''}
+          ${sessionData._importedMemory ? '<p style="margin: 0 0 15px 0; font-size: 12px; color: rgba(255,215,0,1);">ðŸ§  Includes Memory Data</p>' : ''}
+          ${sessionData._importedContext ? '<p style="margin: 0 0 15px 0; font-size: 12px; color: rgba(100,200,255,1);">ðŸ“„ Includes Context Data</p>' : ''}
           
           <div style="display: flex; gap: 10px; margin-bottom: 10px;">
             <button class="import-load-btn" style="
@@ -42962,7 +41530,7 @@ ${pageText}
               cursor: pointer;
               transition: all 0.2s;
             " onmouseover="this.style.background='rgba(76, 175, 80, 0.5)'" onmouseout="this.style.background='rgba(76, 175, 80, 0.3)'">
-              ✏“ Load Now
+              âœâ€œ Load Now
             </button>
             <button class="import-close-btn" style="
               flex: 1;
@@ -42999,14 +41567,14 @@ ${pageText}
       // Handle Load Later
       overlay.querySelector('.import-close-btn')?.addEventListener('click', () => {
         overlay.remove()
-        showNotification('✅ Session saved. Open Sessions History to load it.', 'success')
+        showNotification('âœ… Session saved. Open Sessions History to load it.', 'success')
       })
       
       // Handle background click
       overlay.addEventListener('click', (e) => {
         if (e.target === overlay) {
           overlay.remove()
-          showNotification('✅ Session saved. Open Sessions History to load it.', 'success')
+          showNotification('âœ… Session saved. Open Sessions History to load it.', 'success')
         }
       })
     })
@@ -43016,12 +41584,6 @@ ${pageText}
    * Load imported session into current tab
    */
   function loadImportedSession(sessionKey: string, sessionData: any) {
-    console.log('📥 Loading imported session:', sessionKey)
-    console.log('🔍 DEBUG loadImportedSession - Full sessionData:', sessionData)
-    console.log('🔍 DEBUG loadImportedSession - sessionData.hybridViews:', sessionData.hybridViews)
-    console.log('🔍 DEBUG loadImportedSession - sessionData.agentBoxes:', sessionData.agentBoxes)
-    console.log('🔍 DEBUG loadImportedSession - Agent box masterTabIds:', 
-      sessionData.agentBoxes?.map((b: any) => ({ id: b.identifier, masterTabId: b.masterTabId })))
     
     // Restore agent configurations to localStorage
     if (sessionData.agents && sessionData.agents.length > 0) {
@@ -43080,7 +41642,6 @@ ${pageText}
     
     // Open helper tabs if they exist
     if (sessionData.helperTabs && sessionData.helperTabs.urls && sessionData.helperTabs.urls.length > 0) {
-      console.log('🔧 Opening', sessionData.helperTabs.urls.length, 'helper tabs from imported session')
       
       sessionData.helperTabs.urls.forEach((url: string, index: number) => {
         const agentId = index + 1
@@ -43090,9 +41651,8 @@ ${pageText}
         
         const newTab = window.open(urlWithParams, `helper-tab-${index}`)
         if (!newTab) {
-          console.error(`❌ Failed to open helper tab ${index + 1} - popup blocked:`, url)
+          console.error(`âŒ Failed to open helper tab ${index + 1} - popup blocked:`, url)
         } else {
-          console.log(`✅ Successfully opened helper tab ${index + 1}:`, url)
         }
       })
     }
@@ -43100,14 +41660,8 @@ ${pageText}
     // Open master tabs (hybrid views) if they exist
     // Support both new format (hybridViews) and old format (hybridAgentBoxes)
     const hybridTabs = sessionData.hybridViews || sessionData.hybridAgentBoxes || []
-    console.log('🔍 DEBUG: Checking for hybrid tabs...')
-    console.log('  - sessionData.hybridViews:', sessionData.hybridViews)
-    console.log('  - sessionData.hybridAgentBoxes:', sessionData.hybridAgentBoxes)
-    console.log('  - hybridTabs:', hybridTabs)
-    console.log('  - hybridTabs.length:', hybridTabs?.length)
     
     if (hybridTabs && hybridTabs.length > 0) {
-      console.log('🔧 Opening', hybridTabs.length, 'hybrid master tabs from imported session')
       
       setTimeout(() => {
         hybridTabs.forEach((hybridItem: any, index: number) => {
@@ -43116,7 +41670,6 @@ ${pageText}
           const hybridId = String(index)
           let hybridUrl = hybridItem.url || sessionData.url || window.location.href
           
-          console.log(`🔍 DEBUG: Processing hybrid tab ${index}:`, { hybridId, hybridItem, hybridUrl })
           
           try {
             const url = new URL(hybridUrl)
@@ -43129,33 +41682,28 @@ ${pageText}
               url.searchParams.set('optimando_theme', currentTheme)
             }
             
-            const displayTabNumber = String(parseInt(hybridId) + 2).padStart(2, '0') // 0 → 02, 1 → 03, etc.
-            console.log(`🔧 Opening Master Tab (${displayTabNumber}) with hybrid_master_id=${hybridId}, URL:`, url.toString())
+            const displayTabNumber = String(parseInt(hybridId) + 2).padStart(2, '0') // 0 â†’ 02, 1 â†’ 03, etc.
             const hybridTab = window.open(url.toString(), `hybrid-master-${hybridId}`)
             
             if (!hybridTab) {
-              console.error(`❌ Failed to open Master Tab (${displayTabNumber}) - popup blocked`)
+              console.error(`âŒ Failed to open Master Tab (${displayTabNumber}) - popup blocked`)
             } else {
-              console.log(`✅ Successfully opened Master Tab (${displayTabNumber})`)
             }
           } catch (error) {
-            console.error(`❌ Invalid URL for hybrid view ${hybridId}:`, hybridUrl, error)
+            console.error(`âŒ Invalid URL for hybrid view ${hybridId}:`, hybridUrl, error)
           }
         })
       }, 300) // Small delay after helper tabs
     } else {
-      console.log('⚠️ No hybrid master tabs to open (hybridTabs is empty or null)')
     }
     
     // Open display grids if they exist
     if (sessionData.displayGrids && sessionData.displayGrids.length > 0) {
-      console.log('🔧 Opening', sessionData.displayGrids.length, 'display grids from imported session')
       
       // Ensure currentTabData has the display grids
       if (!currentTabData.displayGrids) currentTabData.displayGrids = []
       
       sessionData.displayGrids.forEach((grid: any, index: number) => {
-        console.log('🔧 Opening display grid ' + (index + 1) + ':', grid.layout)
         
         // Add grid to currentTabData if not already there
         let existingEntry = currentTabData.displayGrids.find((g: any) => g.layout === grid.layout)
@@ -43165,51 +41713,44 @@ ${pageText}
             ...grid,
             config: grid.config
           })
-          console.log('✅ Added grid entry to currentTabData:', grid.layout)
         } else if (!existingEntry.config && grid.config) {
           existingEntry.config = grid.config
-          console.log('✅ Updated existing grid entry with config:', grid.layout)
         }
         
         // Open the grid with delay
         setTimeout(() => {
           try {
             openGridFromSession(grid.layout, grid.sessionId)
-            console.log(`✅ Successfully opened display grid ${index + 1}:`, grid.layout)
             
             // Notify background script on the last grid
             if (index === sessionData.displayGrids.length - 1) {
               setTimeout(() => {
                 chrome.runtime.sendMessage({ type: 'DISPLAY_GRIDS_OPENED' }, (response) => {
-                  console.log('✅ Notified background: display grids restored from imported session')
                 })
               }, 500)
             }
           } catch (error) {
-            console.error(`❌ Failed to open display grid ${index + 1}:`, error)
+            console.error(`âŒ Failed to open display grid ${index + 1}:`, error)
           }
         }, 400 + (index * 100)) // Start after master tabs + stagger between grids
       })
     }
     
     // Show success notification (no page reload needed)
-    showNotification('✅ Session loaded successfully!', 'success', 3000)
+    showNotification('âœ… Session loaded successfully!', 'success', 3000)
     
-    console.log('✅ Imported session fully loaded with all tabs and grids')
   }
 
   /**
    * Restore memory data from import
    */
   function restoreMemoryData(memoryData: any, sessionData: any) {
-    console.log('🧠 Restoring memory data...')
     
     try {
       if (memoryData.agentMemories) {
         Object.entries(memoryData.agentMemories).forEach(([agentName, memoryContent]) => {
           if (memoryContent) {
             localStorage.setItem(`agent_${agentName}_memory`, memoryContent as string)
-            console.log(`  - Restored memory for agent: ${agentName}`)
           }
         })
       }
@@ -43217,9 +41758,8 @@ ${pageText}
       // TODO: Restore conversation history
       // TODO: Restore cached responses
       
-      console.log('✅ Memory data restored successfully')
     } catch (error) {
-      console.error('❌ Failed to restore memory data:', error)
+      console.error('âŒ Failed to restore memory data:', error)
     }
   }
 
@@ -43227,14 +41767,12 @@ ${pageText}
    * Restore context data from import
    */
   function restoreContextData(contextData: any, sessionData: any) {
-    console.log('📄 Restoring context data...')
     
     try {
       if (contextData.knowledgeBase) {
         Object.entries(contextData.knowledgeBase).forEach(([agentName, contextContent]) => {
           if (contextContent) {
             localStorage.setItem(`agent_${agentName}_context`, contextContent as string)
-            console.log(`  - Restored context for agent: ${agentName}`)
           }
         })
       }
@@ -43242,9 +41780,8 @@ ${pageText}
       // TODO: Restore documents
       // TODO: Restore embeddings
       
-      console.log('✅ Context data restored successfully')
     } catch (error) {
-      console.error('❌ Failed to restore context data:', error)
+      console.error('âŒ Failed to restore context data:', error)
     }
   }
 
@@ -43271,11 +41808,9 @@ ${pageText}
 
     document.body.appendChild(sidebarsDiv)
 
-    console.log('✅ Extension UI added to page')
 
   } else {
 
-    console.log('ℹ️ Skipping UI injection, extension not active')
 
   }
 
@@ -43291,7 +41826,6 @@ ${pageText}
 
     document.body.style.transition = 'margin-top 0.3s ease'
 
-    console.log('📏 Initial page margin set to:', topBarHeight + 'px')
 
   }
 
@@ -43302,7 +41836,6 @@ ${pageText}
   }
   */
 
-  console.log('✅ Using native Chrome sidepanel (old overlay UI disabled)')
 
   
 
@@ -43320,13 +41853,11 @@ ${pageText}
 
   
 
-  console.log('✅ Extension loaded - Press Ctrl+Shift+H to toggle visibility')
 
   
 
   // Extension now uses Native Side Panel - no content script UI needed
 
-  console.log('✅ Content script initialized - Native Side Panel active')
 
   
 
@@ -43385,9 +41916,8 @@ ${pageText}
 
   document.getElementById('add-agent-box-btn-right-main')?.addEventListener('click', () => {
 
-    ;(window as any).lastAgentBoxClickSide = 'right'  // ← Store which side was clicked
+    ;(window as any).lastAgentBoxClickSide = 'right'  // â† Store which side was clicked
 
-    console.log('📦 Right sidebar Add Agent Box clicked')
 
     try { openAddAgentBoxDialog() } catch (e) {}
 
@@ -43401,7 +41931,7 @@ ${pageText}
 
     const currentWidth = currentTabData.uiConfig.rightSidebarWidth
 
-    // Expand cycle: 450 → 600 → 800 → 1000 → 1200 → back to 450
+    // Expand cycle: 450 â†’ 600 â†’ 800 â†’ 1000 â†’ 1200 â†’ back to 450
 
     let newWidth = 450
 
@@ -43427,7 +41957,6 @@ ${pageText}
 
     saveTabDataToStorage()
 
-    console.log('🔄 Right sidebar expanded to width:', newWidth)
 
   })
 
@@ -43442,9 +41971,8 @@ ${pageText}
 
     document.getElementById('add-agent-box-btn-right')?.addEventListener('click', () => {
 
-      ;(window as any).lastAgentBoxClickSide = 'right'  // ← Store which side was clicked
+      ;(window as any).lastAgentBoxClickSide = 'right'  // â† Store which side was clicked
 
-      console.log('📦 Right-side Add Agent Box clicked (Hybrid Master)')
 
       try { openAddAgentBoxDialog() } catch (e) {}
 
@@ -43595,7 +42123,7 @@ ${pageText}
 
       dockBtn.title = docked ? 'Undock from right sidebar' : 'Dock to right sidebar'
 
-      dockBtn.textContent = docked ? '📌✏“' : '📌'
+      dockBtn.textContent = docked ? 'ðŸ“Œâœâ€œ' : 'ðŸ“Œ'
 
     }
 
@@ -43723,7 +42251,7 @@ ${pageText}
 
       function runEmbed(items: IngestItem[], target: IngestTarget) {
 
-        showToast('Vorverarbeitung…', 'info')
+        showToast('Vorverarbeitungâ€¦', 'info')
 
         setTimeout(()=>{
 
@@ -43824,17 +42352,17 @@ ${pageText}
         <div id="ccd-header" style="display:flex; align-items:center; justify-content:space-between; padding:6px 8px; background:${hdr}; border-bottom:1px solid ${br};">
           <div style="display:flex; align-items:center; gap:8px; color:${theme==='standard'?'#0f172a':'white'}; flex:1; min-width:0;">
             <select id="ccd-mode-select" style="font-size:11px; font-weight:600; height:28px; flex-shrink:0; background:${theme==='standard'?'rgba(15,23,42,0.08)':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${theme==='standard'?'#0f172a':'inherit'}; border-radius:6px; padding:0 22px 0 8px; cursor:pointer; outline:none; appearance:none; -webkit-appearance:none; background-image:url(&quot;data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 12 12'%3E%3Cpath fill='${theme==='standard'?'%230f172a':'%23ffffff'}' d='M3 4.5L6 7.5L9 4.5'/%3E%3C/svg%3E&quot;); background-repeat:no-repeat; background-position:right 6px center;">
-              <option value="command-chat" style="background:#1e293b; color:white;">💬 WR Chat</option>
-              <option value="augmented-overlay" style="background:#1e293b; color:white;">🎯 Augmented Overlay</option>
-              <option value="mailguard" style="background:#1e293b; color:white;">🛡 WR MailGuard</option>
+              <option value="command-chat" style="background:#1e293b; color:white;">ðŸ’¬ WR Chat</option>
+              <option value="augmented-overlay" style="background:#1e293b; color:white;">ðŸŽ¯ Augmented Overlay</option>
+              <option value="mailguard" style="background:#1e293b; color:white;">ðŸ›¡Â WR MailGuard</option>
             </select>
             <div id="ccd-chat-controls" style="display:flex; gap:6px; align-items:center;">
-              <button id="ccd-bucket" title="Context Bucket: Embed context directly into the session" style="height:28px; min-width:28px; background:${theme==='standard'?'#e2e8f0':'rgba(255,255,255,0.08)'}; border:1px solid ${br}; color:#ef4444; border-radius:6px; padding:0 8px; font-size:13px; cursor:pointer; display:flex;align-items:center;justify-content:center;">🪣</button>
-              <button id="ccd-lm-one" title="LmGTFY - Capture a screen area as screenshot or stream and send it to your pre-defined automation tasks." style="height:28px; min-width:28px; background:${theme==='standard'?'#e2e8f0':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:0 8px; font-size:13px; cursor:pointer; display:flex;align-items:center;justify-content:center;">✏Ž</button>
+              <button id="ccd-bucket" title="Context Bucket: Embed context directly into the session" style="height:28px; min-width:28px; background:${theme==='standard'?'#e2e8f0':'rgba(255,255,255,0.08)'}; border:1px solid ${br}; color:#ef4444; border-radius:6px; padding:0 8px; font-size:13px; cursor:pointer; display:flex;align-items:center;justify-content:center;">ðŸª£</button>
+              <button id="ccd-lm-one" title="LmGTFY - Capture a screen area as screenshot or stream and send it to your pre-defined automation tasks." style="height:28px; min-width:28px; background:${theme==='standard'?'#e2e8f0':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:0 8px; font-size:13px; cursor:pointer; display:flex;align-items:center;justify-content:center;">âœÅ½</button>
             </div>
           </div>
           <div style="display:flex; gap:6px; align-items:center; flex-shrink:0;">
-            <button id="ccd-undock" title="Undock from sidepanel" style="background:${theme==='standard'?'#e2e8f0':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:4px 6px; font-size:10px; cursor:pointer;">↗</button>
+            <button id="ccd-undock" title="Undock from sidepanel" style="background:${theme==='standard'?'#e2e8f0':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:4px 6px; font-size:10px; cursor:pointer;">â†—</button>
           </div>
         </div>
 
@@ -43854,7 +42382,7 @@ ${pageText}
         <div id="ccd-overlay-view" style="display:none;">
           <div id="ccd-overlay-messages" style="height:160px; overflow:auto; display:flex; flex-direction:column; gap:6px; background:${theme==='standard'?'#f8fafc':'rgba(255,255,255,0.06)'}; border-left:0; border-right:0; border-top:0; padding:8px;">
             <div id="ccd-overlay-hint" style="padding:12px 14px; font-size:12px; opacity:0.8; font-style:italic; background:${theme==='standard'?'rgba(59,130,246,0.08)':'rgba(59,130,246,0.15)'}; border-radius:6px; display:flex; align-items:flex-start; gap:8px; line-height:1.5;">
-              <span style="font-size:16px;">🎯</span>
+              <span style="font-size:16px;">ðŸŽ¯</span>
               <span>Point with the cursor or select elements in order to ask questions or trigger automations directly in the UI.</span>
             </div>
           </div>
@@ -43876,7 +42404,7 @@ ${pageText}
             }
           </style>
           <div id="ccd-mailguard-hint" style="padding:12px 14px; font-size:12px; opacity:0.7; font-style:italic; border-bottom:1px solid ${br}; background:${theme==='standard'?'rgba(168,85,247,0.08)':'rgba(168,85,247,0.15)'}; display:flex; align-items:center; gap:8px;">
-            <span style="font-size:16px;">✏‰️</span>
+            <span style="font-size:16px;">âœâ€°ï¸</span>
             Compose verified WRGuard-stamped emails with built-in automation.
           </div>
           <div style="padding:12px; display:flex; flex-direction:column; gap:10px;">
@@ -43901,7 +42429,7 @@ ${pageText}
           </div>
           <div style="padding:10px 12px; border-top:1px solid ${br}; display:flex; justify-content:space-between; align-items:center; background:${theme==='standard'?'#f1f5f9':'rgba(0,0,0,0.15)'};">
             <button id="ccd-mg-discard" style="background:transparent; border:none; color:${theme==='standard'?'#64748b':'rgba(255,255,255,0.6)'}; padding:6px 10px; font-size:12px; cursor:pointer; text-decoration:underline;">Discard</button>
-            <button id="ccd-mg-send" style="background:#a855f7; border:none; color:white; border-radius:6px; padding:10px 20px; font-size:13px; font-weight:600; cursor:pointer; display:flex; align-items:center; gap:6px;">Send <span style="font-size:14px;">→</span></button>
+            <button id="ccd-mg-send" style="background:#a855f7; border:none; color:white; border-radius:6px; padding:10px 20px; font-size:13px; font-weight:600; cursor:pointer; display:flex; align-items:center; gap:6px;">Send <span style="font-size:14px;">â†’</span></button>
           </div>
         </div>
 
@@ -44018,7 +42546,7 @@ ${pageText}
         }
         attachContainer.innerHTML = ccdMgAttachments.map((att, idx) => `
           <div style="display:inline-flex; align-items:center; gap:6px; padding:4px 8px; margin:2px; background:${theme==='standard'?'rgba(34,197,94,0.1)':'rgba(34,197,94,0.15)'}; border:1px solid rgba(34,197,94,0.3); border-radius:4px; font-size:11px;">
-            <span>📄</span>
+            <span>ðŸ“„</span>
             <span style="max-width:100px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${att.name}</span>
             <span style="opacity:0.5; font-size:10px;">(${Math.round(att.size/1024)} KB)</span>
             <button data-idx="${idx}" class="ccd-mg-remove" style="background:transparent; border:none; color:${theme==='standard'?'#64748b':'rgba(255,255,255,0.5)'}; cursor:pointer; font-size:12px; padding:0 2px;">&times;</button>
@@ -44105,7 +42633,6 @@ ${pageText}
           if (!to.trim()) { alert('Please enter a recipient'); return }
           if (!subject.trim()) { alert('Please enter a subject'); return }
           if (ccdMgAttachments.length === 0) { alert('Attach at least one WR stamped PDF'); return }
-          console.log('[WR MailGuard Docked] Sending:', { to, subject, attachments: ccdMgAttachments.map(a => a.name) })
           alert('Protected email queued!')
           ;(container.querySelector('#ccd-mg-to') as HTMLInputElement).value = ''
           ;(container.querySelector('#ccd-mg-subject') as HTMLInputElement).value = ''
@@ -44166,7 +42693,7 @@ ${pageText}
 
           const tagBtn = document.createElement('button'); tagBtn.type='button'; tagBtn.title='Tags'; tagBtn.textContent='Tags'; tagBtn.style.cssText='display:inline-flex;align-items:center;gap:6px;background:'+ (theme==='standard'?'#e2e8f0':'rgba(255,255,255,0.08)') +'; border:1px solid '+br+'; color:'+fg+'; border-radius:6px; padding:2px 6px; font-size:12px; cursor:pointer'
 
-          const caret = document.createElement('span'); caret.textContent='▾'; caret.style.cssText='font-size:12px; opacity:.9'
+          const caret = document.createElement('span'); caret.textContent='â–¾'; caret.style.cssText='font-size:12px; opacity:.9'
 
           tagBtn.appendChild(caret)
 
@@ -44232,7 +42759,7 @@ ${pageText}
 
                 const deleteBtn = document.createElement('button')
 
-                deleteBtn.textContent = '×'
+                deleteBtn.textContent = 'Ã—'
 
                 deleteBtn.type = 'button'
 
@@ -44282,7 +42809,6 @@ ${pageText}
 
                     // Send trigger to Electron for execution (respects displayId for multi-monitor)
 
-                    console.log('[CONTENT] Executing trigger via Electron:', t)
 
                     chrome.runtime?.sendMessage({ 
 
@@ -44294,7 +42820,6 @@ ${pageText}
 
                   }catch(err){
 
-                    console.log('[CONTENT] Error executing trigger:', err)
 
                   }
 
@@ -44342,7 +42867,6 @@ ${pageText}
 
         try{ e.preventDefault(); e.stopPropagation() }catch{}
 
-        console.log('[CONTENT] Docked pencil button clicked')
 
         // Trigger Electron overlay for screen selection (can capture outside browser)
 
@@ -44350,11 +42874,9 @@ ${pageText}
 
             chrome.runtime?.sendMessage({ type:'ELECTRON_START_SELECTION', source:'docked-chat' })
 
-          console.log('[CONTENT] Sent ELECTRON_START_SELECTION message')
 
         }catch(err){
 
-          console.log('[CONTENT] Error sending message:', err)
 
         }
 
@@ -44533,14 +43055,14 @@ ${pageText}
           <div style="display:flex; align-items:center; gap:8px; color:${theme==='standard'?'#0f172a':'white'}">
 
             <select id="ccf-mode-select" style="font-size:11px; font-weight:600; background:${theme==='standard'?'rgba(15,23,42,0.08)':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${theme==='standard'?'#0f172a':'inherit'}; border-radius:5px; padding:4px 20px 4px 6px; cursor:pointer; outline:none; appearance:none; -webkit-appearance:none; background-image:url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 12 12'%3E%3Cpath fill='${theme==='standard'?'%230f172a':'%23ffffff'}' d='M3 4.5L6 7.5L9 4.5'/%3E%3C/svg%3E\"); background-repeat:no-repeat; background-position:right 5px center;">
-              <option value="command-chat" style="background:#1e293b; color:white;">💬 WR Chat</option>
-              <option value="augmented-overlay" style="background:#1e293b; color:white;">🎯 Augmented Overlay</option>
-              <option value="mailguard" style="background:#1e293b; color:white;">🛡 WR MailGuard</option>
+              <option value="command-chat" style="background:#1e293b; color:white;">ðŸ’¬ WR Chat</option>
+              <option value="augmented-overlay" style="background:#1e293b; color:white;">ðŸŽ¯ Augmented Overlay</option>
+              <option value="mailguard" style="background:#1e293b; color:white;">ðŸ›¡Â WR MailGuard</option>
             </select>
 
             <div id="ccf-chat-controls" style="display:flex; gap:6px; align-items:center;">
 
-              <button id="ccf-lm-one" title="LmGTFY - Capture a screen area as screenshot or stream and send it to your pre-defined automation tasks." style="background:${theme==='standard'?'#e2e8f0':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:2px 6px; font-size:12px; cursor:pointer;">✏Ž</button>
+              <button id="ccf-lm-one" title="LmGTFY - Capture a screen area as screenshot or stream and send it to your pre-defined automation tasks." style="background:${theme==='standard'?'#e2e8f0':'rgba(255,255,255,0.15)'}; border:1px solid ${br}; color:${fg}; border-radius:6px; padding:2px 6px; font-size:12px; cursor:pointer;">âœÅ½</button>
 
             </div>
 
@@ -44567,7 +43089,7 @@ ${pageText}
         <div id="ccf-overlay-view" style="display:none;">
           <div id="ccf-overlay-messages" style="height:160px; overflow:auto; display:flex; flex-direction:column; gap:6px; background:${theme==='standard'?'#f8fafc':'rgba(255,255,255,0.06)'}; border-left:0; border-right:0; border-top:0; border-bottom:1px solid ${br}; padding:8px;">
             <div id="ccf-overlay-hint" style="padding:12px 14px; font-size:12px; opacity:0.8; font-style:italic; background:${theme==='standard'?'rgba(59,130,246,0.08)':'rgba(59,130,246,0.15)'}; border-radius:6px; display:flex; align-items:flex-start; gap:8px; line-height:1.5;">
-              <span style="font-size:16px;">🎯</span>
+              <span style="font-size:16px;">ðŸŽ¯</span>
               <span>Point with the cursor or select elements in order to ask questions or trigger automations directly in the UI.</span>
             </div>
           </div>
@@ -44580,7 +43102,7 @@ ${pageText}
         <!-- MailGuard View -->
         <div id="ccf-mailguard-view" style="display:none; flex-direction:column; background:${theme==='standard'?'#f8fafc':'rgba(255,255,255,0.04)'};">
           <div id="ccf-mailguard-hint" style="padding:12px 14px; font-size:12px; opacity:0.7; font-style:italic; border-bottom:1px solid ${br}; background:${theme==='standard'?'rgba(168,85,247,0.08)':'rgba(168,85,247,0.15)'}; display:flex; align-items:center; gap:8px;">
-            <span style="font-size:16px;">✏‰️</span>
+            <span style="font-size:16px;">âœâ€°ï¸</span>
             Compose verified WRGuard-stamped emails with built-in automation.
           </div>
           <div style="padding:12px; display:flex; flex-direction:column; gap:10px;">
@@ -44604,7 +43126,7 @@ ${pageText}
           </div>
           <div style="padding:10px 12px; border-top:1px solid ${br}; display:flex; justify-content:space-between; align-items:center; background:${theme==='standard'?'#f1f5f9':'rgba(0,0,0,0.15)'};">
             <button id="ccf-mg-discard" style="background:transparent; border:none; color:${theme==='standard'?'#64748b':'rgba(255,255,255,0.6)'}; padding:6px 10px; font-size:12px; cursor:pointer; text-decoration:underline;">Discard</button>
-            <button id="ccf-mg-send" style="background:#a855f7; border:none; color:white; border-radius:6px; padding:10px 20px; font-size:13px; font-weight:600; cursor:pointer; display:flex; align-items:center; gap:6px;">Send <span style="font-size:14px;">→</span></button>
+            <button id="ccf-mg-send" style="background:#a855f7; border:none; color:white; border-radius:6px; padding:10px 20px; font-size:13px; font-weight:600; cursor:pointer; display:flex; align-items:center; gap:6px;">Send <span style="font-size:14px;">â†’</span></button>
           </div>
         </div>
 
@@ -44803,7 +43325,7 @@ ${pageText}
         }
         container.innerHTML = mgAttachments.map((att, idx) => `
           <div style="display:inline-flex; align-items:center; gap:6px; padding:4px 8px; margin:2px; background:${theme==='standard'?'rgba(34,197,94,0.1)':'rgba(34,197,94,0.15)'}; border:1px solid rgba(34,197,94,0.3); border-radius:4px; font-size:11px;">
-            <span>📄</span>
+            <span>ðŸ“„</span>
             <span style="max-width:100px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${att.name}</span>
             <span style="opacity:0.5; font-size:10px;">(${Math.round(att.size/1024)} KB)</span>
             <button data-idx="${idx}" class="ccf-mg-remove" style="background:transparent; border:none; color:${theme==='standard'?'#64748b':'rgba(255,255,255,0.5)'}; cursor:pointer; font-size:12px; padding:0 2px;">&times;</button>
@@ -44890,7 +43412,6 @@ ${pageText}
           if (!to.trim()) { alert('Please enter a recipient'); return }
           if (!subject.trim()) { alert('Please enter a subject'); return }
           if (mgAttachments.length === 0) { alert('Attach at least one WR stamped PDF'); return }
-          console.log('[WR MailGuard] Sending:', { to, subject, attachments: mgAttachments.map(a => a.name) })
           alert('Protected email queued!')
           ;(box.querySelector('#ccf-mg-to') as HTMLInputElement).value = ''
           ;(box.querySelector('#ccf-mg-subject') as HTMLInputElement).value = ''
@@ -44911,7 +43432,7 @@ ${pageText}
 
         bucket.title = 'Context Bucket: Embed context directly into the session'
 
-        bucket.textContent = '🪣'
+        bucket.textContent = 'ðŸª£'
 
         // professional theme gets pill background + border for visibility
 
@@ -44939,7 +43460,7 @@ ${pageText}
 
         ddBtn.id = 'ccf-tags-btn'
 
-        ddBtn.textContent = '▾ Tags'
+        ddBtn.textContent = 'â–¾ Tags'
 
         ddBtn.style.cssText = 'background:'+ (theme==='standard'?'#e2e8f0':'rgba(255,255,255,0.08)') +'; border:1px solid '+br+'; color:'+fg+'; border-radius:6px; padding:2px 8px; font-size:12px; cursor:pointer;'
 
@@ -45011,7 +43532,7 @@ ${pageText}
 
                   const deleteBtn = document.createElement('button')
 
-                  deleteBtn.textContent = '×'
+                  deleteBtn.textContent = 'Ã—'
 
                   deleteBtn.style.cssText = 'width:20px;height:20px;border:none;background:rgba(239,68,68,0.2);color:#ef4444;border-radius:4px;cursor:pointer;font-size:16px;line-height:1;padding:0;margin-left:8px;flex-shrink:0;'
 
@@ -45132,7 +43653,6 @@ ${pageText}
 
             // Send trigger to Electron for execution (respects displayId for multi-monitor)
 
-            console.log('[CONTENT] Executing trigger via Electron:', t)
 
             chrome.runtime?.sendMessage({ 
 
@@ -45222,7 +43742,7 @@ ${pageText}
 
                   const time=document.createElement('span'); time.textContent='00:00'
 
-                  const stop=document.createElement('button'); stop.textContent='⏹'; stop.style.cssText='background:#991b1b;border:0;color:white;padding:2px 6px;border-radius:6px;cursor:pointer'
+                  const stop=document.createElement('button'); stop.textContent='â¹'; stop.style.cssText='background:#991b1b;border:0;color:white;padding:2px 6px;border-radius:6px;cursor:pointer'
 
                   const st = document.createElement('style'); st.textContent='@keyframes pulse{0%{opacity:1}50%{opacity:.35}100%{opacity:1}}'
 
@@ -45274,7 +43794,6 @@ ${pageText}
 
           }catch(err){
 
-            console.log('[CONTENT] Error executing trigger:', err)
 
           }
 
@@ -45288,7 +43807,6 @@ ${pageText}
 
         try{ e.preventDefault(); e.stopPropagation() }catch{}
 
-        console.log('[CONTENT] Floating pencil button clicked')
 
         // Trigger Electron overlay for screen selection (can capture outside browser)
 
@@ -45296,11 +43814,9 @@ ${pageText}
 
             chrome.runtime?.sendMessage({ type:'ELECTRON_START_SELECTION', source:'floating-popup' })
 
-          console.log('[CONTENT] Sent ELECTRON_START_SELECTION message')
 
         }catch(err){
 
-          console.log('[CONTENT] Error sending message:', err)
 
         }
 
@@ -45476,7 +43992,6 @@ ${pageText}
 
       saveTabDataToStorage()
 
-      console.log('🔄 Left sidebar expanded to width:', newWidth)
 
     })
 
@@ -45512,9 +44027,8 @@ ${pageText}
 
     document.getElementById('add-agent-box-btn')?.addEventListener('click', () => {
 
-      ;(window as any).lastAgentBoxClickSide = 'left'  // ← Store which side was clicked
+      ;(window as any).lastAgentBoxClickSide = 'left'  // â† Store which side was clicked
 
-      console.log('📦 Left-side Add Agent Box clicked')
 
       openAddAgentBoxDialog()
 
@@ -45603,7 +44117,7 @@ ${pageText}
 
         // Update lock button appearance
 
-        lockBtn.innerHTML = currentTabData.isLocked ? '🔒' : '🔓'
+        lockBtn.innerHTML = currentTabData.isLocked ? 'ðŸ”’' : 'ðŸ”“'
 
         lockBtn.style.background = currentTabData.isLocked ? 'rgba(255,215,0,0.3)' : 'rgba(255,255,255,0.1)'
 
@@ -45677,7 +44191,6 @@ ${pageText}
 
           storageSet({ [sessionKey]: sessionData }, () => {
 
-            console.log('🔒 Session saved:', sessionKey, 'with', (sessionData as any).helperTabs?.urls?.length || 0, 'helper tabs,', sessionData.agentBoxes?.length || 0, 'agent boxes')
 
           })
 
@@ -45709,7 +44222,7 @@ ${pageText}
 
           `
 
-          notification.innerHTML = `🔒 Session "${currentTabData.tabName}" saved!`
+          notification.innerHTML = `ðŸ”’ Session "${currentTabData.tabName}" saved!`
 
           document.body.appendChild(notification)
 
@@ -45723,11 +44236,9 @@ ${pageText}
 
           
 
-          console.log('🔒 Session locked and saved:', currentTabData.tabName)
 
         } else {
 
-          console.log('🔓 Session unlocked:', currentTabData.tabName)
 
         }
 
@@ -45779,7 +44290,6 @@ ${pageText}
 
     
 
-    console.log('✅ Event handlers attached for reasoning section')
 
   }, 100)
 
@@ -45789,7 +44299,6 @@ ${pageText}
 
   function openBackendConfigLightbox() {
 
-    console.log('🔧 Opening Backend Config Lightbox...')
 
     import('./components/backend-config-lightbox-init').then(({ openBackendConfigLightbox: openLightbox }) => {
 
@@ -45797,7 +44306,7 @@ ${pageText}
 
     }).catch((error) => {
 
-      console.error('❌ Failed to load Backend Config Lightbox:', error)
+      console.error('âŒ Failed to load Backend Config Lightbox:', error)
 
     })
 
@@ -45857,7 +44366,6 @@ ${pageText}
 
   
 
-  console.log('✅ Lightbox and chat functions assigned to global scope:', Object.keys(globalLightboxFunctions))
 
   
 
@@ -45883,7 +44391,6 @@ function checkForElectronGridConfig() {
 
       const config = JSON.parse(electronConfig)
 
-      console.log('📨 Received grid config from Electron app:', config)
 
       
 
@@ -45951,7 +44458,6 @@ function checkForElectronGridConfig() {
 
           storageSet({ [sessionKey]: sessionData }, () => {
 
-            console.log('✅ Grid config saved to session via Electron app:', sessionKey);
 
           });
 
@@ -45971,7 +44477,7 @@ function checkForElectronGridConfig() {
 
       const note = document.createElement('div')
 
-      note.textContent = '✅ Saved grid to session via Electron app'
+      note.textContent = 'âœ… Saved grid to session via Electron app'
 
       note.style.cssText = `position:fixed;top:20px;right:20px;z-index:2147483650;background:${csTheme().accentGrad};color:#fff;padding:10px 14px;border-radius:8px;font-size:12px;box-shadow:0 4px 12px rgba(0,0,0,0.3)`
 
@@ -45983,7 +44489,6 @@ function checkForElectronGridConfig() {
 
   } catch (error) {
 
-    console.log('ℹ️ Could not check for Electron app config:', (error as Error).message);
 
   }
 
@@ -45995,7 +44500,6 @@ function checkForElectronGridConfig() {
 
 function handleElectronGridSave(config: any) {
 
-  console.log('📨 Handling Electron grid save:', config)
 
   
 
@@ -46063,7 +44567,6 @@ function handleElectronGridSave(config: any) {
 
       storageSet({ [sessionKey]: sessionData }, () => {
 
-        console.log('✅ Grid config saved to session via Electron app:', sessionKey);
 
       });
 
@@ -46077,7 +44580,7 @@ function handleElectronGridSave(config: any) {
 
   const note = document.createElement('div')
 
-  note.textContent = '✅ Saved grid to session via Electron app'
+  note.textContent = 'âœ… Saved grid to session via Electron app'
 
   note.style.cssText = `position:fixed;top:20px;right:20px;z-index:2147483650;background:${csTheme().accentGrad};color:#fff;padding:10px 14px;border-radius:8px;font-size:12px;box-shadow:0 4px 12px rgba(0,0,0,0.3)`
 
@@ -46097,15 +44600,6 @@ setInterval(checkForElectronGridConfig, 5000)
 
 // Initialize extension if active
 
-console.log('🔧 DEBUG: Final initialization check:', {
-
-  isExtensionActive,
-
-  dedicatedRole,
-
-  url: window.location.href
-
-})
 
 
 
@@ -46113,33 +44607,16 @@ console.log('🔧 DEBUG: Final initialization check:', {
 
 ;(window as any).viewOptimandoSessions = function() {
 
-  console.log('📋 Viewing all Optimando storage...')
 
   storageGet(null, (allData) => {
 
     const sessionKeys = Object.keys(allData).filter(key => key.startsWith('session_'))
 
-    console.log('📊 Found', sessionKeys.length, 'sessions:')
 
     sessionKeys.forEach(key => {
 
       const session = allData[key]
 
-      console.log(`\n📁 ${key}:`, {
-
-        tabName: session.tabName,
-
-        timestamp: session.timestamp,
-
-        isLocked: session.isLocked,
-
-        displayGrids: session.displayGrids?.length || 0,
-
-        agentBoxes: session.agentBoxes?.length || 0,
-
-        url: session.url
-
-      })
 
     })
 
@@ -46149,11 +44626,9 @@ console.log('🔧 DEBUG: Final initialization check:', {
 
     const localKeys = Object.keys(localStorage).filter(key => key.includes('optimando'))
 
-    console.log('\n📦 localStorage items:', localKeys.length)
 
     localKeys.forEach(key => {
 
-      console.log(`  - ${key}:`, localStorage.getItem(key)?.substring(0, 100) + '...')
 
     })
 
@@ -46167,7 +44642,6 @@ console.log('🔧 DEBUG: Final initialization check:', {
 
 ;(window as any).clearAllOptimandoSessions = function() {
 
-  console.log('🗝‘️ Manual NUCLEAR clear - removing EVERYTHING Optimando related')
 
   
 
@@ -46177,11 +44651,10 @@ console.log('🔧 DEBUG: Final initialization check:', {
 
     if (chrome.runtime.lastError) {
 
-      console.error('❌ Error clearing chrome.storage.local:', chrome.runtime.lastError)
+      console.error('âŒ Error clearing chrome.storage.local:', chrome.runtime.lastError)
 
     } else {
 
-      console.log('✅ Cleared ALL storage')
 
     }
 
@@ -46197,11 +44670,9 @@ console.log('🔧 DEBUG: Final initialization check:', {
 
     localStorage.removeItem(key)
 
-    console.log('  ✅ Removed localStorage:', key)
 
   })
 
-  console.log('✅ Cleared', localKeys.length, 'localStorage items')
 
   
 
@@ -46213,11 +44684,9 @@ console.log('🔧 DEBUG: Final initialization check:', {
 
     sessionStorage.removeItem(key)
 
-    console.log('  ✅ Removed sessionStorage:', key)
 
   })
 
-  console.log('✅ Cleared', sessionKeys.length, 'sessionStorage items')
 
   
 
@@ -46227,15 +44696,12 @@ console.log('🔧 DEBUG: Final initialization check:', {
 
     (window as any).currentTabData.displayGrids = []
 
-    console.log('✅ Reset currentTabData.displayGrids')
 
   }
 
   
 
-  console.log('🎯 NUCLEAR CLEAR COMPLETE - All Optimando data removed!')
 
-  console.log('⚠️ Reload the page to start fresh')
 
 }
 
@@ -46249,7 +44715,6 @@ console.log('🔧 DEBUG: Final initialization check:', {
 
 // This ensures lightboxes can be opened from sidepanel at any time
 
-console.log('🔧 Registering lightbox functions...')
 
 initializeExtension()
 
@@ -46268,14 +44733,10 @@ import('./storage/migration').then(({ autoMigrateIfNeeded }) => {
 
 if (isExtensionActive) {
 
-  console.log('🚀 Extension UI is active')
 
-  console.log('💡 TIP: To manually clear all sessions, run: clearAllOptimandoSessions()')
 
-  console.log('📌 Click the extension icon to open the Native Side Panel')
 
 } else {
 
-  console.log('ℹ️ Extension UI not active, but lightbox functions are ready')
 
 }

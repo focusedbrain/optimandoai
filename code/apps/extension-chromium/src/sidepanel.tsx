@@ -188,9 +188,8 @@ function SidepanelOrchestrator() {
         if (chrome.runtime.lastError) return
         if (response?.secret) {
           launchSecretRef.current = response.secret
-          console.log('[Sidepanel] 🔑 Launch secret ready')
         } else {
-          // Secret not yet available — retry after a short delay
+          // Secret not yet available â€” retry after a short delay
           setTimeout(fetchSecret, 1500)
         }
       })
@@ -215,12 +214,11 @@ function SidepanelOrchestrator() {
           if (chrome.runtime.lastError) { attempts++; if (attempts < 8) setTimeout(tryFetch, 500); else resolve(); return }
           if (response?.secret) {
             launchSecretRef.current = response.secret
-            console.log('[Sidepanel] 🔑 Launch secret refreshed before LLM call')
             resolve()
           } else {
             attempts++
             if (attempts < 8) setTimeout(tryFetch, 500)
-            else { console.warn('[Sidepanel] ⚠️ Launch secret unavailable after retries'); resolve() }
+            else { console.warn('[Sidepanel] âš ï¸ Launch secret unavailable after retries'); resolve() }
           }
         })
       }
@@ -273,7 +271,7 @@ function SidepanelOrchestrator() {
   // Helper to get the current BEAP view for conditional rendering
   const currentBeapView = dockedWorkspace === 'beap-messages' ? beapSubmode : null
 
-  // Search bar context label — updated by BeapInboxView / HandshakeDetailsPanel when a
+  // Search bar context label â€” updated by BeapInboxView / HandshakeDetailsPanel when a
   // message or handshake is selected. Used as the dynamic textarea placeholder.
   const [searchBarContext, setSearchBarContext] = React.useState<string>('')
   const inboxViewRef = React.useRef<BeapInboxViewHandle>(null)
@@ -317,7 +315,7 @@ function SidepanelOrchestrator() {
   const [authUserInfo, setAuthUserInfo] = useState<{ displayName?: string; email?: string; initials?: string; picture?: string }>({})
   
   // Check auth on mount, when the panel becomes visible (~session correctness), and on a slow poll.
-  // Background worker coalesces concurrent `AUTH_STATUS` → one `GET /api/auth/status` per ~45s unless `forceRefresh`.
+  // Background worker coalesces concurrent `AUTH_STATUS` â†’ one `GET /api/auth/status` per ~45s unless `forceRefresh`.
   const AUTH_STATUS_POLL_MS = 120_000
   useEffect(() => {
     const checkAuthStatus = (forceRefresh = false) => {
@@ -372,7 +370,6 @@ function SidepanelOrchestrator() {
         if (chrome.runtime.lastError) {
           console.warn('[AUTH] Sidepanel: Failed to open wrdesk.com:', chrome.runtime.lastError.message);
         } else {
-          console.log('[AUTH] Sidepanel: Open wrdesk.com result:', response?.action);
         }
       });
     }
@@ -402,7 +399,6 @@ function SidepanelOrchestrator() {
         });
       } else {
         const reason = response?.error || 'unknown';
-        console.log('[AUTH] SSO failed. Reason:', reason);
         if (response?.electronNotRunning) {
           setElectronNotRunning(true);
           setLoginError('WR Desk Orchestrator is not running.');
@@ -491,7 +487,7 @@ function SidepanelOrchestrator() {
   // BEAP Handshake Request delivery state (used in draft panels)
   const [handshakeDelivery, setHandshakeDelivery] = useState<'email' | 'download' | 'p2p'>('p2p')
   const [handshakeTo, setHandshakeTo] = useState('')
-  const [handshakeSubject, setHandshakeSubject] = useState('Request to Establish BEAP™ Secure Communication Handshake')
+  const [handshakeSubject, setHandshakeSubject] = useState('Request to Establish BEAPâ„¢ Secure Communication Handshake')
   const [handshakeMessage, setHandshakeMessage] = useState('')
   const [fingerprintCopied, setFingerprintCopied] = useState(false)
 
@@ -519,7 +515,6 @@ function SidepanelOrchestrator() {
   // Load available sessions for Draft Email session selector
   // Sessions are stored in chrome.storage.local (same as Sessions History modal)
   const loadAvailableSessions = () => {
-    console.log('[BEAP Sessions] Loading sessions from chrome.storage.local...')
     chrome.storage.local.get(null, (allData) => {
       if (chrome.runtime.lastError) {
         console.warn('[BEAP Sessions] Error:', chrome.runtime.lastError.message)
@@ -529,7 +524,6 @@ function SidepanelOrchestrator() {
       
       // Filter for session keys (format: session_*)
       const sessionEntries = Object.entries(allData).filter(([key]) => key.startsWith('session_'))
-      console.log('[BEAP Sessions] Found sessions:', sessionEntries.length)
       
       if (sessionEntries.length === 0) {
         setAvailableSessions([])
@@ -550,7 +544,6 @@ function SidepanelOrchestrator() {
           return timeB - timeA
         })
       
-      console.log('[BEAP Sessions] Parsed sessions:', sessions)
       setAvailableSessions(sessions)
     })
   }
@@ -578,7 +571,7 @@ function SidepanelOrchestrator() {
   const [isSendingBeap, setIsSendingBeap] = useState(false)
   /** P2P queue backoff: block Send until this time (ms since epoch) */
   const [beapP2pCooldownUntilMs, setBeapP2pCooldownUntilMs] = useState<number | null>(null)
-  /** P2P: relay accepted HTTP post but recipient ingest not confirmed — non-terminal pending banner */
+  /** P2P: relay accepted HTTP post but recipient ingest not confirmed â€” non-terminal pending banner */
   const [beapP2pRelayPendingMessage, setBeapP2pRelayPendingMessage] = useState<string | null>(null)
   
   // Handler for sending BEAP messages (shared across all Draft views)
@@ -592,7 +585,7 @@ function SidepanelOrchestrator() {
     
     if (!beapDraftMessage.trim()) {
       setNotification(
-        beapUiValidationFailure('BEAP™ Message (required): enter the public capsule text before sending.'),
+        beapUiValidationFailure('BEAPâ„¢ Message (required): enter the public capsule text before sending.'),
       )
       setTimeout(() => setNotification(null), 5000)
       return
@@ -663,7 +656,7 @@ function SidepanelOrchestrator() {
         
         if (result.success) {
           setBeapP2pRelayPendingMessage(null)
-          setNotification({ message: 'BEAP™ Message sent via handshake!', type: 'info' })
+          setNotification({ message: 'BEAPâ„¢ Message sent via handshake!', type: 'info' })
           setBeapDraftTo('')
           setBeapDraftMessage('')
           setBeapDraftEncryptedMessage('')
@@ -699,7 +692,7 @@ function SidepanelOrchestrator() {
           senderFingerprint: ourFingerprint,
           senderFingerprintShort: ourFingerprintShort,
           emailTo: beapDraftTo,
-          subject: 'BEAP™ Message',
+          subject: 'BEAPâ„¢ Message',
           messageBody: beapDraftMessage,
           attachments: capsuleAttachments,
           originalFiles: originalFiles.length > 0 ? originalFiles : undefined,
@@ -720,14 +713,13 @@ function SidepanelOrchestrator() {
           setBeapP2pCooldownUntilMs(null)
           setBeapP2pRelayPendingMessage(null)
           if (handshakeDelivery === 'p2p') {
-            console.log('[BEAP-SEND] P2P send success (debug):', result.coordinationRelayDelivery, result.message)
           }
           const actionLabel =
             handshakeDelivery === 'download'
               ? 'BEAP capsule downloaded'
               : handshakeDelivery === 'p2p'
                 ? 'Message sent'
-                : 'BEAP™ Message sent!'
+                : 'BEAPâ„¢ Message sent!'
           setNotification({
             message: actionLabel,
             type: 'success',
@@ -741,7 +733,7 @@ function SidepanelOrchestrator() {
           setSelectedRecipient(null)
         } else if (!result.success) {
           console.error(
-            '[BEAP-SEND] Delivery failed — full debug:',
+            '[BEAP-SEND] Delivery failed â€” full debug:',
             JSON.stringify({
               message: result.message,
               action: result.action,
@@ -781,7 +773,7 @@ function SidepanelOrchestrator() {
       }
     } catch (error) {
       const raw = error instanceof Error ? error.message : 'An unexpected error occurred'
-      console.error('[BEAP-SEND] Send exception — full debug:', raw, error)
+      console.error('[BEAP-SEND] Send exception â€” full debug:', raw, error)
       const isTechnical = /^(TypeError|ReferenceError|SyntaxError|undefined|null is not)/i.test(raw)
       setNotification({
         message: isTechnical ? 'Something went wrong. Please try again.' : raw,
@@ -803,19 +795,19 @@ function SidepanelOrchestrator() {
   
   // Get button label based on delivery method
   const getBeapSendButtonLabel = () => {
-    if (isSendingBeap) return '⏳ Processing...'
+    if (isSendingBeap) return 'â³ Processing...'
     if (
       handshakeDelivery === 'p2p' &&
       beapP2pCooldownUntilMs != null &&
       Date.now() < beapP2pCooldownUntilMs
     ) {
-      return '⏳ Cooldown…'
+      return 'â³ Cooldownâ€¦'
     }
     switch (handshakeDelivery) {
-      case 'email': return '📧 Send'
-      case 'p2p': return '🔗 Send'
-      case 'download': return '💾 Download'
-      default: return '📤 Send'
+      case 'email': return 'ðŸ“§ Send'
+      case 'p2p': return 'ðŸ”— Send'
+      case 'download': return 'ðŸ’¾ Download'
+      default: return 'ðŸ“¤ Send'
     }
   }
   
@@ -895,7 +887,7 @@ function SidepanelOrchestrator() {
         const r = response as { error?: string; errorCode?: string }
         const parts = [r.error, r.errorCode].filter((x): x is string => typeof x === 'string' && x.trim().length > 0)
         setEmailAccountsLoadError(
-          parts.length ? parts.join(' — ') : 'Could not load accounts from WR Desk™ (desktop app unreachable or request failed).',
+          parts.length ? parts.join(' â€” ') : 'Could not load accounts from WR Deskâ„¢ (desktop app unreachable or request failed).',
         )
         return
       }
@@ -918,18 +910,18 @@ function SidepanelOrchestrator() {
       }
       if (persistence?.credentialDecryptIssues?.length) {
         hints.push(
-          `${persistence.credentialDecryptIssues.length} account(s) have credentials that could not be decrypted — reconnect in WR Desk™.`,
+          `${persistence.credentialDecryptIssues.length} account(s) have credentials that could not be decrypted â€” reconnect in WR Deskâ„¢.`,
         )
       }
       if (persistence && 'secureStorageAvailable' in persistence && persistence.secureStorageAvailable === false) {
         hints.push(
-          'OS secure storage is unavailable. Adding or updating accounts in WR Desk™ may fail until the OS profile allows DPAPI / keychain.',
+          'OS secure storage is unavailable. Adding or updating accounts in WR Deskâ„¢ may fail until the OS profile allows DPAPI / keychain.',
         )
       }
       const rowsUnknown = (response as { data?: unknown }).data
       if (!Array.isArray(rowsUnknown)) {
         setEmailAccounts([])
-        setEmailAccountsLoadError(hints.join(' ') || 'WR Desk™ returned no account list.')
+        setEmailAccountsLoadError(hints.join(' ') || 'WR Deskâ„¢ returned no account list.')
         return
       }
       if (
@@ -938,14 +930,14 @@ function SidepanelOrchestrator() {
         persistence.load.ok === true &&
         persistence.load.fileMissing === true
       ) {
-        hints.push('No saved accounts file in WR Desk™ yet — connect an account from the desktop app first.')
+        hints.push('No saved accounts file in WR Deskâ„¢ yet â€” connect an account from the desktop app first.')
       } else if (
         rowsUnknown.length === 0 &&
         persistence?.load &&
         persistence.load.ok === true &&
         !persistence.load.fileMissing
       ) {
-        hints.push('WR Desk™ saved accounts file lists no accounts.')
+        hints.push('WR Deskâ„¢ saved accounts file lists no accounts.')
       }
       const rows = rowsUnknown as Array<{
         id: string
@@ -1065,7 +1057,7 @@ function SidepanelOrchestrator() {
   const [llmError, setLlmError] = useState<string | null>(null)
   const [llmRefreshTrigger, setLlmRefreshTrigger] = useState(0)
   
-  // Function to refresh available models (uses electronRpc for auth — direct fetch gets 401)
+  // Function to refresh available models (uses electronRpc for auth â€” direct fetch gets 401)
   const refreshAvailableModels = async () => {
     try {
       const result = await electronRpc('llm.status')
@@ -1086,7 +1078,6 @@ function SidepanelOrchestrator() {
           setActiveLlmModel(selectedModel)
           activeLlmModelRef.current = selectedModel
           try { localStorage.setItem('optimando-wr-chat-active-model', selectedModel) } catch {}
-          console.log('[Command Chat] Auto-selected model:', selectedModel)
         }
         setLlmError(null)
         return true
@@ -1111,7 +1102,6 @@ function SidepanelOrchestrator() {
         }
         
         const status = statusResult.data
-        console.log('[Command Chat] LLM Status:', status)
         
         // If Ollama is not installed or not running
         if (!status.installed || !status.running) {
@@ -1134,14 +1124,11 @@ function SidepanelOrchestrator() {
             setActiveLlmModel(selectedModel)
             activeLlmModelRef.current = selectedModel
             try { localStorage.setItem('optimando-wr-chat-active-model', selectedModel) } catch {}
-            console.log('[Command Chat] Auto-selected model:', selectedModel)
           }
-          console.log('[Command Chat] Available models:', status.modelsInstalled.map((m: any) => m.name))
           setLlmError(null)
         } else {
           // No models installed - show message but DON'T auto-install
-          console.log('[Command Chat] No models installed. User should install from LLM Settings.')
-          setLlmError('No models installed. Please go to Backend Configuration → LLM tab to install a model.')
+          setLlmError('No models installed. Please go to Backend Configuration â†’ LLM tab to install a model.')
         }
       } catch (error: any) {
         console.error('[Command Chat] Failed to fetch available models:', error)
@@ -1155,12 +1142,12 @@ function SidepanelOrchestrator() {
   // Periodic fallback check for newly installed models.
   // Model-install events are already handled by the chrome.storage listener below;
   // this only covers out-of-band changes (e.g. terminal ollama pull). 2-minute cadence
-  // keeps /api/llm/status → ollamaManager.listModels() from running every 10 s and
+  // keeps /api/llm/status â†’ ollamaManager.listModels() from running every 10 s and
   // keeping Gemma/Llama hot in VRAM while the user is idle.
   useEffect(() => {
     const interval = setInterval(() => {
       refreshAvailableModels()
-    }, 120000) // 2 minutes — was 10 s (caused continuous listModels spam)
+    }, 120000) // 2 minutes â€” was 10 s (caused continuous listModels spam)
     
     return () => clearInterval(interval)
   }, [])
@@ -1169,7 +1156,6 @@ function SidepanelOrchestrator() {
   useEffect(() => {
     const handleStorageChange = (changes: any, namespace: string) => {
       if (namespace === 'local' && changes['llm-model-installed']) {
-        console.log('[Command Chat] Model installation detected, refreshing...')
         setLlmRefreshTrigger(prev => prev + 1)
       }
     }
@@ -1207,7 +1193,6 @@ function SidepanelOrchestrator() {
   // Process screenshot with trigger - uses refs to avoid stale closure issues
   // This is called from the message listener when a screenshot arrives with a pending trigger
   const processScreenshotWithTrigger = async (triggerText: string, imageUrl: string) => {
-    console.log('[Sidepanel] processScreenshotWithTrigger called:', { triggerText, hasImage: !!imageUrl })
     
     // Use ref value for model to avoid stale closure
     const currentModel = activeLlmModelRef.current
@@ -1216,7 +1201,7 @@ function SidepanelOrchestrator() {
       console.warn('[Sidepanel] No LLM model available for trigger processing')
       setChatMessages(prev => [...prev, {
         role: 'assistant' as const,
-        text: `⚠️ No LLM model available. Please install a model in LLM Settings.`
+        text: `âš ï¸ No LLM model available. Please install a model in LLM Settings.`
       }])
       return
     }
@@ -1262,11 +1247,6 @@ function SidepanelOrchestrator() {
         sessionKey
       )
       
-      console.log('[Sidepanel] Screenshot routing decision (OCR-enriched):', {
-        shouldForward: routingDecision.shouldForwardToAgent,
-        matchedAgents: routingDecision.matchedAgents.length,
-        hasOcrText: !!ocrText
-      })
       
       if (routingDecision.shouldForwardToAgent && routingDecision.matchedAgents.length > 0) {
         // Show butler confirmation
@@ -1294,10 +1274,9 @@ function SidepanelOrchestrator() {
             currentModel
           )
           
-          console.log('[Sidepanel] Processing with agent:', match.agentName, 'model:', modelResolution.model)
           
           if (!modelResolution.ok) {
-            const errorMsg = `⚠️ Brain resolution failed for ${match.agentName}:\n${modelResolution.error}`
+            const errorMsg = `âš ï¸ Brain resolution failed for ${match.agentName}:\n${modelResolution.error}`
             console.warn('[Sidepanel] Brain resolution error:', modelResolution)
             if (match.agentBoxId) {
               await updateAgentBoxOutput(match.agentBoxId, errorMsg, `Agent: ${match.agentName} | Error: ${modelResolution.errorType}`, sessionKey)
@@ -1320,7 +1299,7 @@ function SidepanelOrchestrator() {
               llmMessages
             )
             if (keyError) {
-              const keyMsg = `⚠️ ${match.agentName}: ${keyError}`
+              const keyMsg = `âš ï¸ ${match.agentName}: ${keyError}`
               if (match.agentBoxId) await updateAgentBoxOutput(match.agentBoxId, keyMsg, `Missing API key`, sessionKey)
               setChatMessages(prev => [...prev, { role: 'assistant' as const, text: keyMsg }])
               continue
@@ -1353,7 +1332,7 @@ function SidepanelOrchestrator() {
                   
                   setChatMessages(prev => [...prev, {
                     role: 'assistant' as const,
-                    text: `✓ ${match.agentIcon} **${match.agentName}** processed your request.\n→ Output displayed in ${match.targetBoxLabels && match.targetBoxLabels.length > 0 ? match.targetBoxLabels.join(' & ') : `Agent Box ${String(match.agentBoxNumber).padStart(2, '0')}`}`
+                    text: `âœ“ ${match.agentIcon} **${match.agentName}** processed your request.\nâ†’ Output displayed in ${match.targetBoxLabels && match.targetBoxLabels.length > 0 ? match.targetBoxLabels.join(' & ') : `Agent Box ${String(match.agentBoxNumber).padStart(2, '0')}`}`
                   }])
                 } else {
                   setChatMessages(prev => [...prev, {
@@ -1373,7 +1352,6 @@ function SidepanelOrchestrator() {
         }
       } else {
         // No agent match - use butler response
-        console.log('[Sidepanel] No agent match, using butler response')
         const agents = await loadAgentsFromSession(sessionKey)
         const butlerPrompt = getButlerSystemPrompt(
           currentSessionName,
@@ -1415,7 +1393,7 @@ function SidepanelOrchestrator() {
       console.error('[Sidepanel] Error processing screenshot with trigger:', error)
       setChatMessages(prev => [...prev, {
         role: 'assistant' as const,
-        text: `⚠️ Error processing trigger: ${error instanceof Error ? error.message : 'Unknown error'}`
+        text: `âš ï¸ Error processing trigger: ${error instanceof Error ? error.message : 'Unknown error'}`
       }])
     } finally {
       setIsLlmLoading(false)
@@ -1479,38 +1457,33 @@ function SidepanelOrchestrator() {
         // Handle theme changes
         if (changes['optimando-ui-theme']) {
           const newTheme = changes['optimando-ui-theme'].newValue || 'standard'
-          console.log('🎨 Sidepanel: Theme changed to:', newTheme)
           setTheme(mapTheme(newTheme))
         }
         
         // Handle active session key changes - reload session data when session changes
         if (changes['optimando-active-session-key']) {
           const newSessionKey = changes['optimando-active-session-key'].newValue
-          console.log('🔄 Sidepanel: Active session key changed to:', newSessionKey)
           
           if (newSessionKey) {
             // Reload session data from SQLite
             chrome.runtime.sendMessage({ type: 'GET_ALL_SESSIONS_FROM_SQLITE' }, (response) => {
               if (chrome.runtime.lastError) {
-                console.error('❌ Error reloading sessions from SQLite:', chrome.runtime.lastError.message)
+                console.error('âŒ Error reloading sessions from SQLite:', chrome.runtime.lastError.message)
                 return
               }
               
               if (!response || !response.success || !response.sessions) {
-                console.log('⚠️ No sessions found in SQLite after session change')
                 return
               }
               
               // Find the session with the new key
               const session = response.sessions[newSessionKey]
               if (session) {
-                console.log('✅ Reloaded session after key change:', newSessionKey, session.tabName)
                 setSessionName(session.tabName || 'Unnamed Session')
                 setSessionKey(newSessionKey)
                 setIsLocked(session.isLocked || false)
                 setAgentBoxes(session.agentBoxes || [])
               } else {
-                console.log('⚠️ Session not found for key:', newSessionKey)
               }
             })
           }
@@ -1558,21 +1531,17 @@ function SidepanelOrchestrator() {
                 setMasterTabId(displayId)
                 // Store it for this tab so it persists across page refreshes
                 chrome.storage.local.set({ [storageKey]: displayId })
-                console.log('🖥️ Detected Master Tab ID:', displayId, '(stored for tab', tabId, ')')
               } else if (storedMasterTabId) {
                 // No hybrid_master_id in URL, but we have a stored value (page refreshed)
                 setMasterTabId(storedMasterTabId)
-                console.log('🖥️ Using stored Master Tab ID:', storedMasterTabId, '(tab', tabId, ')')
               } else {
                 // No hybrid_master_id and no stored value - this is Master Tab (01)
                 setMasterTabId("01")
                 // Store it for this tab so it persists across page refreshes
                 chrome.storage.local.set({ [storageKey]: "01" })
-                console.log('🖥️ Main master tab - Master Tab (01)')
               }
               
               if (shouldShowMinimal) {
-                console.log('📱 Showing minimal UI - Display grid or Edge startpage')
               }
             })
           } catch (e) {
@@ -1583,7 +1552,6 @@ function SidepanelOrchestrator() {
               const storedMasterTabId = result[storageKey]
               if (storedMasterTabId) {
                 setMasterTabId(storedMasterTabId)
-                console.log('🖥️ Using stored Master Tab ID after error:', storedMasterTabId)
               } else {
                 setMasterTabId(null)
               }
@@ -1599,14 +1567,12 @@ function SidepanelOrchestrator() {
     // Listen for tab updates (URL changes)
     const handleTabUpdate = (tabId: number, changeInfo: { url?: string; status?: string }, tab: chrome.tabs.Tab) => {
       if (changeInfo.url || changeInfo.status === 'complete') {
-        console.log('🔄 Tab URL changed, rechecking tab type')
         checkTabType()
       }
     }
 
     // Listen for when user switches tabs
     const handleTabActivated = (activeInfo: { tabId: number; windowId: number }) => {
-      console.log('🔄 Tab activated, rechecking tab type')
       checkTabType()
     }
 
@@ -1644,7 +1610,6 @@ function SidepanelOrchestrator() {
     chrome.runtime.sendMessage({ type: 'GET_STATUS' })
 
     const handleMessage = (message: any) => {
-      console.log('📨 Sidepanel received message:', message.type, message.data)
       
       if (message.type === 'STATUS_UPDATE') {
         setConnectionStatus(message.data)
@@ -1652,32 +1617,25 @@ function SidepanelOrchestrator() {
       }
       // Listen for agent box updates from content script
       else if (message.type === 'UPDATE_AGENT_BOXES') {
-        console.log('📦 Updating agent boxes:', message.data)
         setAgentBoxes(message.data || [])
       }
       // Listen for session data updates
       else if (message.type === 'UPDATE_SESSION_DATA') {
-        console.log('📥 Session data updated from broadcast:', message.data)
         if (message.data.sessionName !== undefined) {
-          console.log('  → Setting session name:', message.data.sessionName)
           setSessionName(message.data.sessionName)
         }
         if (message.data.sessionKey !== undefined) {
-          console.log('  → Setting session key:', message.data.sessionKey)
           setSessionKey(message.data.sessionKey)
         }
         if (message.data.isLocked !== undefined) {
-          console.log('  → Setting locked state:', message.data.isLocked)
           setIsLocked(message.data.isLocked)
         }
         if (message.data.agentBoxes !== undefined) {
-          console.log('  → Setting agent boxes:', message.data.agentBoxes.length)
           setAgentBoxes(message.data.agentBoxes)
         }
       }
       // Listen for agent box OUTPUT updates (from process flow)
       else if (message.type === 'UPDATE_AGENT_BOX_OUTPUT') {
-        console.log('📤 Agent box output updated:', message.data)
         if (message.data.allBoxes) {
           // Update all boxes (includes the updated one)
           setAgentBoxes(message.data.allBoxes)
@@ -1692,7 +1650,6 @@ function SidepanelOrchestrator() {
       }
       // Listen for Electron screenshot results
       else if (message.type === 'ELECTRON_SELECTION_RESULT') {
-        console.log('📷 Sidepanel received screenshot from Electron:', message.kind)
         const url = message.dataUrl || message.url
         if (url) {
           // Add screenshot to chat messages as a user message with image
@@ -1713,7 +1670,6 @@ function SidepanelOrchestrator() {
           // Using REF directly to avoid stale closure issues
           const pendingTrigger = pendingTriggerRef.current
           if (pendingTrigger?.autoProcess) {
-            console.log('[Sidepanel] Found pending trigger to auto-process:', pendingTrigger)
             
             const command = pendingTrigger.command || pendingTrigger.trigger?.name || ''
             
@@ -1722,7 +1678,6 @@ function SidepanelOrchestrator() {
             
             if (command) {
               const triggerText = command.startsWith('@') ? command : `@${command}`
-              console.log('[Sidepanel] Processing trigger:', triggerText, 'with image:', url.substring(0, 50) + '...')
               
               // Process directly using refs to avoid stale closures
               // This inline processing replaces the problematic useEffect + custom event pattern
@@ -1733,7 +1688,6 @@ function SidepanelOrchestrator() {
       }
       // Listen for trigger prompt from Electron
       else if (message.type === 'SHOW_TRIGGER_PROMPT') {
-        console.log('📝 Sidepanel received trigger prompt from Electron:', message)
         
         // Check if we're on a restricted page (display grid or MSN)
         const tabUrl = message.tabUrl || ''
@@ -1742,12 +1696,10 @@ function SidepanelOrchestrator() {
                                   tabUrl.startsWith('edge://') ||
                                   tabUrl.includes('/grid-display')
         
-        console.log('[SIDEPANEL] Is restricted page:', isRestrictedPage, 'URL:', tabUrl)
         
         // Only show inline form on restricted pages
         // On regular pages, the content script will show a modal instead
         if (!isRestrictedPage) {
-          console.log('[SIDEPANEL] Skipping inline form on regular page - modal will be shown')
           return
         }
         
@@ -1765,7 +1717,6 @@ function SidepanelOrchestrator() {
       }
       // Listen for trigger updates from other contexts
       else if (message.type === 'TRIGGERS_UPDATED') {
-        console.log('🔄 Sidepanel: Reloading triggers after update')
         chrome.storage?.local?.get(['optimando-tagged-triggers'], (data: any) => {
           const list = Array.isArray(data?.['optimando-tagged-triggers']) ? data['optimando-tagged-triggers'] : []
           setTriggers(list)
@@ -1773,22 +1724,19 @@ function SidepanelOrchestrator() {
       }
       // Listen for command append from modal
       else if (message.type === 'COMMAND_POPUP_APPEND') {
-        console.log('📝 Sidepanel received command append:', message)
         if (message.command || message.text) {
           const commandText = message.command || message.text
           // Add command message to chat
           const commandMessage = {
             role: 'user' as const,
-            text: typeof commandText === 'string' ? commandText : `📝 Command: ${commandText}`
+            text: typeof commandText === 'string' ? commandText : `ðŸ“ Command: ${commandText}`
           }
           setChatMessages(prev => [...prev, commandMessage])
-          console.log('📝 Command appended to chat:', commandText)
         }
       }
       // Listen for reload request after deletion
       else if (message.type === 'RELOAD_SESSION_FROM_SQLITE') {
         const targetSessionKey = message.sessionKey
-        console.log('🔄 Sidepanel: Reloading session from SQLite after deletion, key:', targetSessionKey)
         
         // Use specific session key if provided, otherwise get current
         if (targetSessionKey) {
@@ -1798,17 +1746,15 @@ function SidepanelOrchestrator() {
             sessionKey: targetSessionKey 
           }, (response) => {
             if (chrome.runtime.lastError) {
-              console.error('❌ Error reloading from SQLite:', chrome.runtime.lastError.message)
+              console.error('âŒ Error reloading from SQLite:', chrome.runtime.lastError.message)
               return
             }
             
             if (!response?.success || !response?.session) {
-              console.log('⚠️ Session not found in SQLite:', targetSessionKey)
               return
             }
             
             const session = response.session
-            console.log('✅ Reloaded session from SQLite:', session.tabName, 'with', session.agentBoxes?.length || 0, 'boxes')
             setSessionName(session.tabName || 'Session')
             setSessionKey(targetSessionKey)
             setIsLocked(session.isLocked || false)
@@ -1858,14 +1804,13 @@ function SidepanelOrchestrator() {
       // Load session data from SQLite (single source of truth)
       chrome.runtime.sendMessage({ type: 'GET_ALL_SESSIONS_FROM_SQLITE' }, (response) => {
         if (chrome.runtime.lastError) {
-          console.error('❌ Error loading sessions from SQLite:', chrome.runtime.lastError.message)
+          console.error('âŒ Error loading sessions from SQLite:', chrome.runtime.lastError.message)
           setSessionName('No Session')
           setSessionKey('')
           return
         }
         
         if (!response || !response.success || !response.sessions || Object.keys(response.sessions).length === 0) {
-          console.log('⚠️ No sessions found in SQLite')
           setSessionName('No Session')
           setSessionKey('')
           return
@@ -1889,7 +1834,6 @@ function SidepanelOrchestrator() {
         
         // If we found a session, use it
         if (mostRecentSession && mostRecentKey) {
-          console.log('✅ Loaded session from SQLite:', mostRecentKey, mostRecentSession.tabName)
           setSessionName(mostRecentSession.tabName || 'Unnamed Session')
           setSessionKey(mostRecentKey)
           setIsLocked(mostRecentSession.isLocked || false)
@@ -1906,12 +1850,10 @@ function SidepanelOrchestrator() {
         if (tabs[0]?.id) {
           chrome.tabs.sendMessage(tabs[0].id, { type: 'GET_SESSION_DATA' }, (response) => {
             if (chrome.runtime.lastError) {
-              console.log('⚠️ Content script not ready, loading from storage:', chrome.runtime.lastError.message)
               loadSessionDataFromStorage()
               return
             }
             if (response && response.sessionKey) {
-              console.log('✅ Received session data from content script:', response)
               setSessionName(response.sessionName || 'New Session')
               setSessionKey(response.sessionKey || '')
               setIsLocked(response.isLocked || false)
@@ -2121,28 +2063,23 @@ function SidepanelOrchestrator() {
   }
 
   const openSettings = () => {
-    console.log('🎯 Opening Settings lightbox...')
     sendToContentScript('OPEN_SETTINGS_LIGHTBOX')
   }
 
   const openMemory = () => {
-    console.log('🎯 Opening Memory lightbox...')
     sendToContentScript('OPEN_MEMORY_LIGHTBOX')
   }
 
   const openContext = () => {
-    console.log('🎯 Opening Context lightbox...')
     sendToContentScript('OPEN_CONTEXT_LIGHTBOX')
   }
 
   const openUnifiedAdmin = () => {
-    console.log('🎯 Opening Unified Admin lightbox...')
     sendToContentScript('OPEN_UNIFIED_ADMIN_LIGHTBOX')
   }
 
   const openReasoningLightbox = () => {
     // Open Electron Analysis Dashboard
-    console.log('📊 Opening Electron Analysis Dashboard...')
     // Note: showNotification is defined later in this component, but we use setNotification directly here
     // to avoid hoisting issues with const declarations
     setNotification({ message: 'Opening Analysis Dashboard...', type: 'info' })
@@ -2150,18 +2087,17 @@ function SidepanelOrchestrator() {
     
     chrome.runtime?.sendMessage({ type: 'ELECTRON_OPEN_ANALYSIS_DASHBOARD', theme }, (response) => {
       if (chrome.runtime.lastError) {
-        console.error('❌ Error:', chrome.runtime.lastError.message)
+        console.error('âŒ Error:', chrome.runtime.lastError.message)
         setNotification({ message: 'Failed to open Dashboard. Is the extension loaded?', type: 'error' })
         setTimeout(() => setNotification(null), 3000)
         return
       }
       
       if (response?.success) {
-        console.log('✅ Analysis Dashboard opened successfully')
         setNotification({ message: 'Analysis Dashboard opened', type: 'success' })
         setTimeout(() => setNotification(null), 3000)
       } else if (response?.error) {
-        console.warn('⚠️ Dashboard response:', response.error)
+        console.warn('âš ï¸ Dashboard response:', response.error)
         // Show a more helpful message
         let msg = response.error
         if (response.error.includes('not running') || response.error.includes('Start Menu')) {
@@ -2176,7 +2112,6 @@ function SidepanelOrchestrator() {
   }
 
   const openAgentsLightbox = () => {
-    console.log('🎯 Opening Agents lightbox...')
     sendToContentScript('OPEN_AGENTS_LIGHTBOX')
   }
 
@@ -2185,7 +2120,6 @@ function SidepanelOrchestrator() {
   }
 
   const openThirdPartyLicenses = () => {
-    console.log('📜 Opening Third Party Licenses...')
     setShowThirdPartyLicenses(true)
   }
 
@@ -2201,14 +2135,12 @@ function SidepanelOrchestrator() {
     // Save to storage
     import('./storage/storageWrapper').then(({ storageSet }) => {
       storageSet({ viewMode: newMode }, () => {
-        console.log('✅ View mode saved:', newMode)
       })
     })
   }
 
 
   const addAgentBox = () => {
-    console.log('🎯 Opening Add Agent Box dialog...')
     sendToContentScript('ADD_AGENT_BOX')
   }
 
@@ -2254,7 +2186,6 @@ function SidepanelOrchestrator() {
   }
 
   const editAgentBox = (boxId: string) => {
-    console.log('✏️ Editing agent box:', boxId)
     sendToContentScript('EDIT_AGENT_BOX', { box: { id: boxId } })
   }
 
@@ -2348,7 +2279,7 @@ function SidepanelOrchestrator() {
   }
 
   // Extract plain text from a PDF File by sending it to the orchestrator's
-  // /api/parser/pdf/extract endpoint — uses Node.js pdfjs with a proper worker,
+  // /api/parser/pdf/extract endpoint â€” uses Node.js pdfjs with a proper worker,
   // which is more reliable than browser-side pdfjs in the extension context.
   const extractPdfText = async (file: File, baseUrl: string = 'http://127.0.0.1:51248'): Promise<string> => {
     try {
@@ -2403,7 +2334,7 @@ function SidepanelOrchestrator() {
           const dataUrl = reader.result as string
           setChatMessages(prev => [...prev, {
             role: 'user' as const,
-            text: `📎 ${img.name || 'image'}`,
+            text: `ðŸ“Ž ${img.name || 'image'}`,
             imageUrl: dataUrl
           }])
           setTimeout(() => {
@@ -2423,13 +2354,13 @@ function SidepanelOrchestrator() {
         setPendingDocContent({ name: 'Dropped text', text: snippet })
         setChatMessages(prev => [...prev, {
           role: 'user' as const,
-          text: `📄 **Dropped text** attached — send your question below.`
+          text: `ðŸ“„ **Dropped text** attached â€” send your question below.`
         }])
         runEmbed([doc], 'session')
       } else if (doc.kind === 'url') {
         setChatMessages(prev => [...prev, {
           role: 'user' as const,
-          text: `🔗 ${doc.payload}`
+          text: `ðŸ”— ${doc.payload}`
         }])
       } else if (doc.payload instanceof File) {
         const file = doc.payload as File
@@ -2442,7 +2373,7 @@ function SidepanelOrchestrator() {
             setPendingDocContent({ name: file.name, text })
             setChatMessages(prev => [...prev, {
               role: 'user' as const,
-              text: `📄 **${file.name}** attached (${Math.round(file.size / 1024)} KB) — send your question below.`
+              text: `ðŸ“„ **${file.name}** attached (${Math.round(file.size / 1024)} KB) â€” send your question below.`
             }])
             runEmbed([doc], 'session')
             setTimeout(() => {
@@ -2451,11 +2382,11 @@ function SidepanelOrchestrator() {
           }
           reader.readAsText(file)
         } else {
-          // PDF / binary / unknown — try pdfjs text extraction first
+          // PDF / binary / unknown â€” try pdfjs text extraction first
           const file = doc.payload as File
           setChatMessages(prev => [...prev, {
             role: 'user' as const,
-            text: `📄 **${file.name}** attached (${Math.round(file.size / 1024)} KB) — extracting text…`
+            text: `ðŸ“„ **${file.name}** attached (${Math.round(file.size / 1024)} KB) â€” extracting textâ€¦`
           }])
           runEmbed([doc], 'session')
           setTimeout(() => {
@@ -2469,7 +2400,7 @@ function SidepanelOrchestrator() {
                 const updated = [...prev]
                 const last = updated[updated.length - 1]
                 if (last && last.text?.includes('extracting text')) {
-                  updated[updated.length - 1] = { ...last, text: `📄 **${file.name}** attached (${Math.round(file.size / 1024)} KB) — ${extracted.split(/\s+/).length.toLocaleString()} words extracted. Send your question below.` }
+                  updated[updated.length - 1] = { ...last, text: `ðŸ“„ **${file.name}** attached (${Math.round(file.size / 1024)} KB) â€” ${extracted.split(/\s+/).length.toLocaleString()} words extracted. Send your question below.` }
                 }
                 return updated
               })
@@ -2478,7 +2409,7 @@ function SidepanelOrchestrator() {
                 const updated = [...prev]
                 const last = updated[updated.length - 1]
                 if (last && last.text?.includes('extracting text')) {
-                  updated[updated.length - 1] = { ...last, text: `📄 **${file.name}** attached (${Math.round(file.size / 1024)} KB) — no selectable text found (scanned PDF?). Send your question below.` }
+                  updated[updated.length - 1] = { ...last, text: `ðŸ“„ **${file.name}** attached (${Math.round(file.size / 1024)} KB) â€” no selectable text found (scanned PDF?). Send your question below.` }
                 }
                 return updated
               })
@@ -2520,7 +2451,7 @@ function SidepanelOrchestrator() {
     Array.from(e.target.files || []).forEach(f => dt.items.add(f))
     const items = await parseDataTransfer(dt)
     if (items.length) {
-      // Use the same drop handler logic — no embed dialog
+      // Use the same drop handler logic â€” no embed dialog
       const syntheticEvent = { preventDefault: () => {}, dataTransfer: dt } as unknown as React.DragEvent
       // Process each item directly (mirrors handleChatDrop logic)
       for (const item of items) {
@@ -2529,7 +2460,7 @@ function SidepanelOrchestrator() {
           reader.onload = () => {
             setChatMessages(prev => [...prev, {
               role: 'user' as const,
-              text: `📎 ${item.name || 'image'}`,
+              text: `ðŸ“Ž ${item.name || 'image'}`,
               imageUrl: reader.result as string
             }])
           }
@@ -2545,17 +2476,17 @@ function SidepanelOrchestrator() {
               setPendingDocContent({ name: file.name, text })
               setChatMessages(prev => [...prev, {
                 role: 'user' as const,
-                text: `📄 **${file.name}** attached (${Math.round(file.size / 1024)} KB) — send your question below.`
+                text: `ðŸ“„ **${file.name}** attached (${Math.round(file.size / 1024)} KB) â€” send your question below.`
               }])
               runEmbed([item], 'session')
             }
             reader.readAsText(file)
           } else {
-            // PDF / binary — try pdfjs text extraction
+            // PDF / binary â€” try pdfjs text extraction
             const fileCopy = item.payload as File
             setChatMessages(prev => [...prev, {
               role: 'user' as const,
-              text: `📄 **${fileCopy.name}** attached (${Math.round(fileCopy.size / 1024)} KB) — extracting text…`
+              text: `ðŸ“„ **${fileCopy.name}** attached (${Math.round(fileCopy.size / 1024)} KB) â€” extracting textâ€¦`
             }])
             runEmbed([item], 'session')
             extractPdfText(fileCopy, 'http://127.0.0.1:51248').then(extracted => {
@@ -2566,7 +2497,7 @@ function SidepanelOrchestrator() {
                   const updated = [...prev]
                   const last = updated[updated.length - 1]
                   if (last && last.text?.includes('extracting text')) {
-                    updated[updated.length - 1] = { ...last, text: `📄 **${fileCopy.name}** attached (${Math.round(fileCopy.size / 1024)} KB) — ${extracted.split(/\s+/).length.toLocaleString()} words extracted. Send your question below.` }
+                    updated[updated.length - 1] = { ...last, text: `ðŸ“„ **${fileCopy.name}** attached (${Math.round(fileCopy.size / 1024)} KB) â€” ${extracted.split(/\s+/).length.toLocaleString()} words extracted. Send your question below.` }
                   }
                   return updated
                 })
@@ -2575,7 +2506,7 @@ function SidepanelOrchestrator() {
                   const updated = [...prev]
                   const last = updated[updated.length - 1]
                   if (last && last.text?.includes('extracting text')) {
-                    updated[updated.length - 1] = { ...last, text: `📄 **${fileCopy.name}** attached (${Math.round(fileCopy.size / 1024)} KB) — no selectable text found (scanned PDF?). Send your question below.` }
+                    updated[updated.length - 1] = { ...last, text: `ðŸ“„ **${fileCopy.name}** attached (${Math.round(fileCopy.size / 1024)} KB) â€” no selectable text found (scanned PDF?). Send your question below.` }
                   }
                   return updated
                 })
@@ -2595,7 +2526,6 @@ function SidepanelOrchestrator() {
   }
 
   const handleScreenSelect = () => {
-    console.log('📷 Sidepanel: Starting Electron screen selection', { createTrigger: createTriggerChecked, addCommand: addCommandChecked })
     chrome.runtime?.sendMessage({ 
       type: 'ELECTRON_START_SELECTION', 
       source: 'sidepanel-docked-chat',
@@ -2661,7 +2591,6 @@ function SidepanelOrchestrator() {
       if (ocrResponse.ok) {
         const ocrResult = await ocrResponse.json()
         if (ocrResult.ok && ocrResult.data?.text) {
-          console.log('[OCR] Extracted text for current turn:', ocrResult.data.text.substring(0, 100) + '...')
           return ocrResult.data.text
         }
       }
@@ -2694,7 +2623,7 @@ function SidepanelOrchestrator() {
             const ocrResult = await ocrResponse.json()
             if (ocrResult.ok && ocrResult.data?.text) {
               ocrText = ocrResult.data.text
-              const ocrMethod = ocrResult.data.method === 'cloud_vision' ? '🌐 Cloud Vision' : '📝 Local OCR'
+              const ocrMethod = ocrResult.data.method === 'cloud_vision' ? 'ðŸŒ Cloud Vision' : 'ðŸ“ Local OCR'
               return {
                 role: msg.role,
                 content: `${msg.text || 'Image content:'}\n\n[${ocrMethod} extracted text]:\n${ocrResult.data.text}`
@@ -2727,7 +2656,7 @@ function SidepanelOrchestrator() {
       return ''
     }
     
-    const lines: string[] = ['🟢 **Match Detected**\n']
+    const lines: string[] = ['ðŸŸ¢ **Match Detected**\n']
     
     for (const result of batch.results) {
       const agentNum = result.agentNumber 
@@ -2737,24 +2666,24 @@ function SidepanelOrchestrator() {
         ? `Agent ${agentNum} (${result.agentName})` 
         : result.agentName
       
-      lines.push(`• **${agentLabel}** → matched \`${result.trigger.tag}\``)
-      lines.push(`  • Trigger type: Event Trigger (${result.trigger.type})`)
+      lines.push(`â€¢ **${agentLabel}** â†’ matched \`${result.trigger.tag}\``)
+      lines.push(`  â€¢ Trigger type: Event Trigger (${result.trigger.type})`)
       
       // Show condition results
       if (result.conditionResults.conditions.length > 0) {
         const conditionSummary = result.conditionResults.allPassed 
-          ? '✓ All conditions passed' 
-          : '⚠️ Some conditions not met'
-        lines.push(`  • Conditions: ${conditionSummary}`)
+          ? 'âœ“ All conditions passed' 
+          : 'âš ï¸ Some conditions not met'
+        lines.push(`  â€¢ Conditions: ${conditionSummary}`)
       }
       
       // Show LLM and destination info
       if (result.llmConfig.isAvailable) {
-        lines.push(`  • LLM: ${result.llmConfig.provider}/${result.llmConfig.model}`)
+        lines.push(`  â€¢ LLM: ${result.llmConfig.provider}/${result.llmConfig.model}`)
       }
       if (result.executionConfig.reportTo.length > 0) {
         const destinations = result.executionConfig.reportTo.map(r => r.label).join(', ')
-        lines.push(`  • Output: ${destinations}`)
+        lines.push(`  â€¢ Output: ${destinations}`)
       }
       
       lines.push('') // Empty line between agents
@@ -2791,11 +2720,6 @@ function SidepanelOrchestrator() {
       // Wrap input with agent's reasoning instructions (Role, Reasoning Instructions)
       const reasoningContext = wrapInputForAgent(inputText, agent, ocrText)
       
-      console.log('[Chat] Processing with agent:', {
-        name: match.agentName,
-        reasoningContext: reasoningContext.substring(0, 200) + '...',
-        targetBox: match.agentBoxId
-      })
       
       // Resolve which model to use (AgentBox model > fallback)
       const modelResolution: BrainResolution = resolveModelForAgent(
@@ -2804,11 +2728,10 @@ function SidepanelOrchestrator() {
         fallbackModel
       )
       
-      console.log('[Chat] Model resolution:', modelResolution)
       
       // Surface brain resolution failures visibly
       if (!modelResolution.ok) {
-        const errorMsg = `⚠️ Brain resolution failed for ${match.agentName}:\n${modelResolution.error}`
+        const errorMsg = `âš ï¸ Brain resolution failed for ${match.agentName}:\n${modelResolution.error}`
         console.warn('[Chat] Brain resolution error:', modelResolution)
         
         if (match.agentBoxId) {
@@ -2835,7 +2758,7 @@ function SidepanelOrchestrator() {
         if (match.agentBoxId) {
           await updateAgentBoxOutput(
             match.agentBoxId,
-            `⚠️ ${keyError}`,
+            `âš ï¸ ${keyError}`,
             `Agent: ${match.agentName} | Missing API key`,
             sessionKey
           )
@@ -2918,7 +2841,6 @@ function SidepanelOrchestrator() {
   
   // Handle sending message with trigger (auto-process after screenshot)
   const handleSendMessageWithTrigger = async (triggerText: string, imageUrl?: string) => {
-    console.log('[Sidepanel] handleSendMessageWithTrigger:', { triggerText, hasImage: !!imageUrl })
     
     // Use ref for more reliable model access (avoids potential stale closure)
     const currentModel = activeLlmModelRef.current || activeLlmModel
@@ -2926,7 +2848,7 @@ function SidepanelOrchestrator() {
     if (!currentModel) {
       setChatMessages(prev => [...prev, {
         role: 'assistant' as const,
-        text: `⚠️ No LLM model available. Please install a model in LLM Settings.`
+        text: `âš ï¸ No LLM model available. Please install a model in LLM Settings.`
       }])
       return
     }
@@ -2984,11 +2906,6 @@ function SidepanelOrchestrator() {
         sessionKey
       )
       
-      console.log('[Sidepanel] Trigger routing decision (OCR-enriched):', {
-        shouldForward: routingDecision.shouldForwardToAgent,
-        matchedAgents: routingDecision.matchedAgents.length,
-        hasOcrText: !!ocrText
-      })
       
       if (routingDecision.shouldForwardToAgent && routingDecision.matchedAgents.length > 0) {
         // Show butler confirmation
@@ -3013,10 +2930,9 @@ function SidepanelOrchestrator() {
             currentModel
           )
           
-          console.log('[Sidepanel] Processing with agent:', match.agentName, 'model:', modelResolution.model)
           
           if (!modelResolution.ok) {
-            const errorMsg = `⚠️ Brain resolution failed for ${match.agentName}:\n${modelResolution.error}`
+            const errorMsg = `âš ï¸ Brain resolution failed for ${match.agentName}:\n${modelResolution.error}`
             console.warn('[Sidepanel] Brain resolution error:', modelResolution)
             if (match.agentBoxId) {
               await updateAgentBoxOutput(match.agentBoxId, errorMsg, `Agent: ${match.agentName} | Error: ${modelResolution.errorType}`, sessionKey)
@@ -3038,7 +2954,7 @@ function SidepanelOrchestrator() {
             triggerLlmMessages
           )
           if (triggerKeyError) {
-            const keyMsg = `⚠️ ${match.agentName}: ${triggerKeyError}`
+            const keyMsg = `âš ï¸ ${match.agentName}: ${triggerKeyError}`
             if (match.agentBoxId) await updateAgentBoxOutput(match.agentBoxId, keyMsg, `Missing API key`)
             setChatMessages(prev => [...prev, { role: 'assistant' as const, text: keyMsg }])
             continue
@@ -3071,7 +2987,7 @@ function SidepanelOrchestrator() {
                 
                 setChatMessages(prev => [...prev, {
                   role: 'assistant' as const,
-                  text: `✓ ${match.agentIcon} **${match.agentName}** processed your request.\n→ Output displayed in ${match.targetBoxLabels && match.targetBoxLabels.length > 0 ? match.targetBoxLabels.join(' & ') : `Agent Box ${String(match.agentBoxNumber).padStart(2, '0')}`}`
+                  text: `âœ“ ${match.agentIcon} **${match.agentName}** processed your request.\nâ†’ Output displayed in ${match.targetBoxLabels && match.targetBoxLabels.length > 0 ? match.targetBoxLabels.join(' & ') : `Agent Box ${String(match.agentBoxNumber).padStart(2, '0')}`}`
                 }])
               } else {
                 setChatMessages(prev => [...prev, {
@@ -3123,7 +3039,7 @@ function SidepanelOrchestrator() {
       console.error('[Sidepanel] Error processing trigger:', error)
       setChatMessages(prev => [...prev, {
         role: 'assistant' as const,
-        text: `⚠️ Error: ${error.message || 'Failed to process trigger'}`
+        text: `âš ï¸ Error: ${error.message || 'Failed to process trigger'}`
       }])
     } finally {
       setIsLlmLoading(false)
@@ -3149,7 +3065,7 @@ function SidepanelOrchestrator() {
     const displayText = text
 
     // If a document was attached (dropped or uploaded), consume its text and
-    // prepend it to what gets sent to the LLM — the user's typed message
+    // prepend it to what gets sent to the LLM â€” the user's typed message
     // acts as the question/instruction about the document.
     const docCtx = pendingDocContent
     if (docCtx) setPendingDocContent(null)
@@ -3200,12 +3116,12 @@ function SidepanelOrchestrator() {
       }
     }
     
-    // If empty input, show helpful hint (unless a doc is attached — doc alone is valid)
+    // If empty input, show helpful hint (unless a doc is attached â€” doc alone is valid)
     if (!text && !hasImage && !docCtx) {
       if (isLlmLoading) return
       setChatMessages([...chatMessages, {
         role: 'assistant' as const,
-        text: `💡 **How to use WR Chat:**\n\n• Ask questions about the orchestrator or your workflow\n• Trigger automations using **#tagname** (e.g., "#summarize")\n• Use the 📸 button to capture screenshots for analysis\n• Drop or upload a file 📎 to attach it, then ask a question about it\n\nTry: "What can you help me with?" or "#help"`
+        text: `ðŸ’¡ **How to use WR Chat:**\n\nâ€¢ Ask questions about the orchestrator or your workflow\nâ€¢ Trigger automations using **#tagname** (e.g., "#summarize")\nâ€¢ Use the ðŸ“¸ button to capture screenshots for analysis\nâ€¢ Drop or upload a file ðŸ“Ž to attach it, then ask a question about it\n\nTry: "What can you help me with?" or "#help"`
       }])
       setTimeout(() => {
         if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight
@@ -3219,7 +3135,7 @@ function SidepanelOrchestrator() {
     if (!activeLlmModel) {
       setChatMessages([...chatMessages, {
         role: 'assistant' as const,
-        text: `⚠️ No LLM model available. Please:\n\n1. Go to Admin panel (toggle at top)\n2. Open LLM Settings\n3. Install a trusted ultra-lightweight model:\n   • TinyLlama 1.1B (0.6GB) - Recommended\n   • Gemma 2B Q2_K (0.9GB) - Google\n   • StableLM 1.6B (1.0GB) - Stability AI\n4. Come back and try again!`
+        text: `âš ï¸ No LLM model available. Please:\n\n1. Go to Admin panel (toggle at top)\n2. Open LLM Settings\n3. Install a trusted ultra-lightweight model:\n   â€¢ TinyLlama 1.1B (0.6GB) - Recommended\n   â€¢ Gemma 2B Q2_K (0.9GB) - Google\n   â€¢ StableLM 1.6B (1.0GB) - Stability AI\n4. Come back and try again!`
       }])
       setTimeout(() => {
         if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight
@@ -3227,8 +3143,8 @@ function SidepanelOrchestrator() {
       return
     }
     
-    // Add user message — show short text; LLM uses full document content via processedMessagesForLlm below
-    const userDisplayText = text || (docCtx ? `📄 ${docCtx.name}` : '')
+    // Add user message â€” show short text; LLM uses full document content via processedMessagesForLlm below
+    const userDisplayText = text || (docCtx ? `ðŸ“„ ${docCtx.name}` : '')
     const newMessages = userDisplayText
       ? [...chatMessages, { role: 'user' as const, text: userDisplayText }]
       : [...chatMessages]
@@ -3289,17 +3205,11 @@ function SidepanelOrchestrator() {
         sessionKey
       )
       
-      console.log('[Chat] Input Coordinator routing decision (OCR-enriched):', {
-        shouldForward: routingDecision.shouldForwardToAgent,
-        matchedAgents: routingDecision.matchedAgents.length,
-        agents: routingDecision.matchedAgents.map(m => `${m.agentName} (${m.matchDetails})`),
-        hasOcrText: !!ocrText
-      })
       
       // =================================================================
       // STEP 3.1: PROCESS FULL CONVERSATION FOR LLM CONTEXT
       // processMessagesWithOCR builds the full LLM conversation array.
-      // This is separate from routing — it just formats messages for the LLM.
+      // This is separate from routing â€” it just formats messages for the LLM.
       // =================================================================
       const { processedMessages } = await processMessagesWithOCR(newMessages, baseUrl)
 
@@ -3345,12 +3255,6 @@ function SidepanelOrchestrator() {
         { sourceUrl: currentUrl, sessionKey: sessionName }
       )
       
-      console.log('[Chat] NLP Classification (diagnostic):', {
-        success: nlpResult.success,
-        triggers: nlpResult.input.triggers,
-        entities: nlpResult.input.entities.length,
-        processingTimeMs: nlpResult.processingTimeMs
-      })
       
       // =================================================================
       // STEP 4: HANDLE ROUTING DECISION
@@ -3371,7 +3275,6 @@ function SidepanelOrchestrator() {
         
         // A2. Process with each matched agent
         for (const match of routingDecision.matchedAgents) {
-          console.log(`[Chat] Processing with agent: ${match.agentName}`)
           
           // Use helper function to process with agent
           const result = await processWithAgent(
@@ -3390,12 +3293,6 @@ function SidepanelOrchestrator() {
               ? match.targetBoxIds
               : match.agentBoxId ? [match.agentBoxId] : []
 
-            console.log('[Sidepanel] A3 routing output:', {
-              agentName: match.agentName,
-              agentBoxId: match.agentBoxId,
-              targetBoxIds: match.targetBoxIds,
-              allBoxIds,
-            })
 
             if (allBoxIds.length > 0) {
               const reasoningContext = `**Agent:** ${match.agentIcon} ${match.agentName}\n**Match:** ${match.matchDetails}\n**Input:** ${displayText}`
@@ -3405,7 +3302,7 @@ function SidepanelOrchestrator() {
               }
               
               // Show brief confirmation in chat
-              const agentConfirm = `✓ ${match.agentIcon} **${match.agentName}** processed your request.\n→ Output displayed in ${match.targetBoxLabels && match.targetBoxLabels.length > 0 ? match.targetBoxLabels.join(' & ') : `Agent Box ${String(match.agentBoxNumber).padStart(2, '0')}`}`
+              const agentConfirm = `âœ“ ${match.agentIcon} **${match.agentName}** processed your request.\nâ†’ Output displayed in ${match.targetBoxLabels && match.targetBoxLabels.length > 0 ? match.targetBoxLabels.join(' & ') : `Agent Box ${String(match.agentBoxNumber).padStart(2, '0')}`}`
               setChatMessages(prev => [...prev, { role: 'assistant' as const, text: agentConfirm }])
               routeAssistantToInboxIfPending(agentConfirm)
             } else {
@@ -3417,7 +3314,7 @@ function SidepanelOrchestrator() {
             scrollToBottom()
           } else if (result.error) {
             // Show error for this agent
-            const agentErr = `⚠️ ${match.agentIcon} **${match.agentName}** error: ${result.error}`
+            const agentErr = `âš ï¸ ${match.agentIcon} **${match.agentName}** error: ${result.error}`
             setChatMessages(prev => [...prev, { role: 'assistant' as const, text: agentErr }])
             routeAssistantToInboxIfPending(agentErr)
             scrollToBottom()
@@ -3456,9 +3353,9 @@ function SidepanelOrchestrator() {
       let errorMsg = error.message || 'Failed to get response from LLM'
       
       if (errorMsg.includes('No models installed') || errorMsg.includes('Please go to LLM Settings')) {
-        errorMsg = `⚠️ No LLM model installed!\n\nTo get started:\n1. Click Admin toggle at top\n2. Go to LLM Settings\n3. Install a trusted lightweight model:\n   • TinyLlama (0.6GB) - Recommended\n   • Gemma 2B Q2_K (0.9GB) - Google\n   • StableLM (1.0GB) - Stability AI\n\nThen come back and chat!`
+        errorMsg = `âš ï¸ No LLM model installed!\n\nTo get started:\n1. Click Admin toggle at top\n2. Go to LLM Settings\n3. Install a trusted lightweight model:\n   â€¢ TinyLlama (0.6GB) - Recommended\n   â€¢ Gemma 2B Q2_K (0.9GB) - Google\n   â€¢ StableLM (1.0GB) - Stability AI\n\nThen come back and chat!`
       } else {
-        errorMsg = `⚠️ Error: ${errorMsg}\n\nTip: Make sure Ollama is running and a trusted model is installed in LLM Settings.`
+        errorMsg = `âš ï¸ Error: ${errorMsg}\n\nTip: Make sure Ollama is running and a trusted model is installed in LLM Settings.`
       }
       
       setChatMessages(prev => [...prev, { role: 'assistant' as const, text: errorMsg }])
@@ -3496,7 +3393,6 @@ function SidepanelOrchestrator() {
     activeLlmModelRef.current = modelName
     try { localStorage.setItem('optimando-wr-chat-active-model', modelName) } catch {}
     setShowModelDropdown(false)
-    console.log('[Command Chat] Model selected:', modelName)
   }
 
   // Get short model name for display (e.g., "llama3.2:3b" -> "llama3.2")
@@ -3505,7 +3401,7 @@ function SidepanelOrchestrator() {
     // Remove size suffix like :3b, :7b, :latest
     const baseName = name.split(':')[0]
     // Truncate if too long
-    return baseName.length > 12 ? baseName.slice(0, 12) + '…' : baseName
+    return baseName.length > 12 ? baseName.slice(0, 12) + 'â€¦' : baseName
   }
 
   // Render the Send button with integrated model dropdown
@@ -3581,7 +3477,7 @@ function SidepanelOrchestrator() {
             fontWeight: '700',
             lineHeight: 1
           }}>
-            {isLlmLoading ? '⏳ Thinking' : 'Send'}
+            {isLlmLoading ? 'â³ Thinking' : 'Send'}
           </span>
           <span style={{ 
             fontSize: '9px', 
@@ -3596,7 +3492,7 @@ function SidepanelOrchestrator() {
           </span>
         </button>
         
-        {/* Model dropdown toggle — refresh models when opening, retry if empty */}
+        {/* Model dropdown toggle â€” refresh models when opening, retry if empty */}
         <button
           onClick={async (e) => {
             e.stopPropagation()
@@ -3641,7 +3537,7 @@ function SidepanelOrchestrator() {
               }
             }}
           >
-            ▾
+            â–¾
           </button>
         
         {/* Model dropdown menu */}
@@ -3720,7 +3616,7 @@ function SidepanelOrchestrator() {
                   color: '#22c55e',
                   fontWeight: '700'
                 }}>
-                  {model.name === activeLlmModel ? '✓' : ''}
+                  {model.name === activeLlmModel ? 'âœ“' : ''}
                 </span>
                 <span style={{ 
                   flex: 1,
@@ -3762,7 +3658,6 @@ function SidepanelOrchestrator() {
       autoProcess: true
     }
     
-    console.log('[Sidepanel] Trigger clicked, setting pending process (ref):', pendingTriggerRef.current)
     
     // Send to Electron for screenshot capture
     chrome.runtime?.sendMessage({ type: 'ELECTRON_EXECUTE_TRIGGER', trigger })
@@ -3785,28 +3680,25 @@ function SidepanelOrchestrator() {
 
 
   const createNewSession = () => {
-    console.log('🆕 Creating new session...')
     // Send message to content script to create new session
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
       if (tabs[0]?.id) {
         const tabId = tabs[0].id
         chrome.tabs.sendMessage(tabId, { type: 'CREATE_NEW_SESSION' }, (response) => {
           if (chrome.runtime.lastError) {
-            console.error('❌ Error creating session:', chrome.runtime.lastError)
+            console.error('âŒ Error creating session:', chrome.runtime.lastError)
             showNotification('Failed to create session', 'error')
             return
           }
-          console.log('✅ Session created:', response)
           
           // Poll for updated session data after creation - multiple attempts
           let pollAttempts = 0
           const pollInterval = setInterval(() => {
             pollAttempts++
-            console.log(`🔄 Polling for new session data (attempt ${pollAttempts})...`)
             
             chrome.tabs.sendMessage(tabId, { type: 'GET_SESSION_DATA' }, (sessionResponse) => {
               if (chrome.runtime.lastError) {
-                console.error('❌ Error getting session data:', chrome.runtime.lastError)
+                console.error('âŒ Error getting session data:', chrome.runtime.lastError)
                 if (pollAttempts >= 3) {
                   clearInterval(pollInterval)
                   showNotification('Session created but data not synced', 'error')
@@ -3814,11 +3706,6 @@ function SidepanelOrchestrator() {
                 return
               }
               if (sessionResponse) {
-                console.log('📥 Received new session data:', sessionResponse)
-                console.log('  → sessionName:', sessionResponse.sessionName)
-                console.log('  → sessionKey:', sessionResponse.sessionKey)
-                console.log('  → isLocked:', sessionResponse.isLocked)
-                console.log('  → agentBoxes:', sessionResponse.agentBoxes?.length || 0)
                 
                 // Show session name (editable), sessionKey shown below in small text
                 setSessionName(sessionResponse.sessionName || 'New Session')
@@ -3827,7 +3714,7 @@ function SidepanelOrchestrator() {
                 setAgentBoxes(sessionResponse.agentBoxes || [])
                 
                 // Show success notification
-                showNotification(`🆕 New session "${sessionResponse.sessionName || sessionResponse.sessionKey}" started!`, 'success')
+                showNotification(`ðŸ†• New session "${sessionResponse.sessionName || sessionResponse.sessionKey}" started!`, 'success')
                 clearInterval(pollInterval)
               } else if (pollAttempts >= 3) {
                 clearInterval(pollInterval)
@@ -4012,7 +3899,6 @@ function SidepanelOrchestrator() {
   })
 
   const addMiniApp = () => {
-    console.log('🎯 Opening Add Mini App dialog...')
     // TODO: Implement mini-app installation dialog
     showNotification('Mini-app installation coming soon!', 'info')
   }
@@ -4045,7 +3931,7 @@ function SidepanelOrchestrator() {
           color: 'white',
           textAlign: 'center'
         }}>
-          <div style={{ fontSize: '48px', marginBottom: '16px' }}>🖥️</div>
+          <div style={{ fontSize: '48px', marginBottom: '16px' }}>ðŸ–¥ï¸</div>
           
           <>
             <div style={{
@@ -4064,7 +3950,7 @@ function SidepanelOrchestrator() {
                       <li>Open your application menu</li>
                       <li>Search for <strong>WR Desk</strong></li>
                       <li>Click to launch the application</li>
-                      <li>Wait for the tray icon (🧠) to appear</li>
+                      <li>Wait for the tray icon (ðŸ§ ) to appear</li>
                       <li>Click <strong>Retry Connection</strong> below</li>
                     </>
                   ) : (
@@ -4072,7 +3958,7 @@ function SidepanelOrchestrator() {
                       <li>Open the <strong>Start Menu</strong></li>
                       <li>Search for <strong>WR Desk</strong></li>
                       <li>Click to launch the application</li>
-                      <li>Wait for the tray icon (🧠) to appear</li>
+                      <li>Wait for the tray icon (ðŸ§ ) to appear</li>
                       <li>Click <strong>Retry Connection</strong> below</li>
                     </>
                   )}
@@ -4096,7 +3982,7 @@ function SidepanelOrchestrator() {
                   transition: 'all 0.2s'
                 }}
               >
-                {isLaunchingElectron ? '⏳ Checking...' : '🔄 Retry Connection'}
+                {isLaunchingElectron ? 'â³ Checking...' : 'ðŸ”„ Retry Connection'}
               </button>
           </>
           
@@ -4125,8 +4011,8 @@ function SidepanelOrchestrator() {
             paddingTop: '12px'
           }}>
             <strong>Tip:</strong> {platformOs === 'linux'
-              ? 'On Linux, start WR Desk from your application menu. Check the system tray (🧠) if it\'s running.'
-              : 'The dashboard normally starts automatically with Windows. Check the system tray (🧠) if it\'s running in the background.'}
+              ? 'On Linux, start WR Desk from your application menu. Check the system tray (ðŸ§ ) if it\'s running.'
+              : 'The dashboard normally starts automatically with Windows. Check the system tray (ðŸ§ ) if it\'s running in the background.'}
           </div>
         </div>
       </div>
@@ -4155,7 +4041,7 @@ function SidepanelOrchestrator() {
           color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)',
           textAlign: 'center'
         }}>
-          Loading WR Desk™…
+          Loading WR Deskâ„¢â€¦
         </div>
       </div>
     )
@@ -4394,7 +4280,7 @@ function SidepanelOrchestrator() {
             }}
             title="Open Popup Chat"
           >
-            💬
+            ðŸ’¬
           </button>
           <button
             onClick={toggleCommandChatPin}
@@ -4409,7 +4295,7 @@ function SidepanelOrchestrator() {
             }}
             title={isCommandChatPinned ? "Unpin Command Chat" : "Pin Command Chat"}
           >
-            📌
+            ðŸ“Œ
           </button>
           <div
             onClick={toggleViewMode}
@@ -4497,7 +4383,7 @@ function SidepanelOrchestrator() {
                   alignItems: 'center', justifyContent: 'center',
                   pointerEvents: 'none'
                 }}>
-                  <div style={{ fontSize: '28px', marginBottom: '6px' }}>📎</div>
+                  <div style={{ fontSize: '28px', marginBottom: '6px' }}>ðŸ“Ž</div>
                   <div style={{ color: '#a855f7', fontWeight: 700, fontSize: '13px' }}>Drop file or image here</div>
                   <div style={{ color: '#c084fc', fontSize: '11px', marginTop: '4px', opacity: 0.8 }}>Images, text files, documents</div>
                 </div>
@@ -4541,10 +4427,10 @@ function SidepanelOrchestrator() {
                       backgroundPosition: 'right 5px center'
                     }}
                   >
-                    <option value="wr-chat">💬 WR Chat</option>
-                    <option value="augmented-overlay">🎯 Augmented Overlay</option>
-                    <option value="beap-messages">📦 BEAP Messages</option>
-                    <option value="wrguard">🔒 WRGuard</option>
+                    <option value="wr-chat">ðŸ’¬ WR Chat</option>
+                    <option value="augmented-overlay">ðŸŽ¯ Augmented Overlay</option>
+                    <option value="beap-messages">ðŸ“¦ BEAP Messages</option>
+                    <option value="wrguard">ðŸ”’ WRGuard</option>
                   </select>
                   {dockedWorkspace === 'wr-chat' && (
                     <select
@@ -4605,12 +4491,12 @@ function SidepanelOrchestrator() {
                         backgroundPosition: 'right 4px center'
                       }}
                     >
-                      <option value="inbox">📥 Inbox</option>
-                      <option value="bulk-inbox">⚡ Bulk Inbox</option>
-                      <option value="draft">✏️ Draft</option>
-                      <option value="outbox">📤 Outbox</option>
-                      <option value="archived">📁 Archived</option>
-                      <option value="rejected">🚫 Rejected</option>
+                      <option value="inbox">ðŸ“¥ Inbox</option>
+                      <option value="bulk-inbox">âš¡ Bulk Inbox</option>
+                      <option value="draft">âœï¸ Draft</option>
+                      <option value="outbox">ðŸ“¤ Outbox</option>
+                      <option value="archived">ðŸ“ Archived</option>
+                      <option value="rejected">ðŸš« Rejected</option>
                     </select>
                   )}
                 </div>
@@ -4652,7 +4538,7 @@ function SidepanelOrchestrator() {
                         }
                       }}
                     >
-                      ✎
+                      âœŽ
                     </button>
                     <button
                       type="button"
@@ -4749,7 +4635,7 @@ function SidepanelOrchestrator() {
                             color: theme === 'standard' ? '#0f172a' : undefined,
                           }}
                         >
-                          ▾
+                          â–¾
                         </span>
                       </button>
                       
@@ -4833,7 +4719,7 @@ function SidepanelOrchestrator() {
                                   onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(239,68,68,0.4)'}
                                   onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(239,68,68,0.2)'}
                                 >
-                                  ×
+                                  Ã—
                                 </button>
                               </div>
                             ))
@@ -4860,7 +4746,7 @@ function SidepanelOrchestrator() {
                       justifyContent: 'center'
                     }}
                   >
-                    ↗
+                    â†—
                   </button>
                 </div>
               </div>
@@ -4881,8 +4767,8 @@ function SidepanelOrchestrator() {
                   </div>
                   <div style={{ padding: '10px 12px', borderTop: theme === 'standard' ? '1px solid #e1e8ed' : '1px solid rgba(255,255,255,0.1)', display: 'flex', gap: '6px', alignItems: 'center' }}>
                     <textarea placeholder="Message or capsule..." style={{ flex: 1, padding: '8px 10px', background: theme === 'standard' ? 'white' : 'rgba(255,255,255,0.08)', border: theme === 'standard' ? '1px solid #e1e8ed' : '1px solid rgba(255,255,255,0.15)', borderRadius: '8px', color: theme === 'standard' ? '#0f172a' : 'white', fontSize: '12px', resize: 'none', minHeight: '32px', maxHeight: '80px' }} />
-                    <button title="Build Capsule" style={{ width: '32px', height: '32px', background: theme === 'standard' ? '#f8f9fb' : 'rgba(255,255,255,0.12)', border: theme === 'standard' ? '1px solid #e1e8ed' : 'none', borderRadius: '6px', color: theme === 'standard' ? '#0f172a' : 'white', fontSize: '14px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>💊</button>
-                    <button title="AI Assistant" style={{ width: '32px', height: '32px', background: theme === 'standard' ? '#f8f9fb' : 'rgba(255,255,255,0.12)', border: theme === 'standard' ? '1px solid #e1e8ed' : 'none', borderRadius: '6px', color: theme === 'standard' ? '#0f172a' : 'white', fontSize: '14px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✨</button>
+                    <button title="Build Capsule" style={{ width: '32px', height: '32px', background: theme === 'standard' ? '#f8f9fb' : 'rgba(255,255,255,0.12)', border: theme === 'standard' ? '1px solid #e1e8ed' : 'none', borderRadius: '6px', color: theme === 'standard' ? '#0f172a' : 'white', fontSize: '14px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>ðŸ’Š</button>
+                    <button title="AI Assistant" style={{ width: '32px', height: '32px', background: theme === 'standard' ? '#f8f9fb' : 'rgba(255,255,255,0.12)', border: theme === 'standard' ? '1px solid #e1e8ed' : 'none', borderRadius: '6px', color: theme === 'standard' ? '#0f172a' : 'white', fontSize: '14px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>âœ¨</button>
                     <button title="Attach" style={{ width: '32px', height: '32px', background: theme === 'standard' ? '#f8f9fb' : 'rgba(255,255,255,0.12)', border: theme === 'standard' ? '1px solid #e1e8ed' : 'none', borderRadius: '6px', color: theme === 'standard' ? '#0f172a' : 'white', fontSize: '14px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></button>
                     <button style={{ padding: '8px 14px', background: 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)', border: 'none', borderRadius: '8px', color: 'white', fontSize: '12px', fontWeight: '600', cursor: 'pointer' }}>Send</button>
                   </div>
@@ -4894,20 +4780,20 @@ function SidepanelOrchestrator() {
                 <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: '#000', minHeight: '280px' }}>
                   <div style={{ flex: 2, display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
                     <div style={{ textAlign: 'center', color: '#666' }}>
-                      <div style={{ fontSize: '40px', marginBottom: '8px' }}>📹</div>
+                      <div style={{ fontSize: '40px', marginBottom: '8px' }}>ðŸ“¹</div>
                       <div style={{ fontSize: '12px' }}>No active stream</div>
                     </div>
                     <div style={{ position: 'absolute', bottom: '10px', left: '50%', transform: 'translateX(-50%)', display: 'flex', gap: '6px' }}>
-                      <button style={{ padding: '6px 10px', background: theme === 'standard' ? '#f8f9fb' : 'rgba(255,255,255,0.15)', border: theme === 'standard' ? '1px solid #e1e8ed' : 'none', borderRadius: '6px', color: theme === 'standard' ? '#0f172a' : 'white', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>🎥 Start</button>
-                      <button style={{ padding: '6px 10px', background: theme === 'standard' ? '#f8f9fb' : 'rgba(255,255,255,0.15)', border: theme === 'standard' ? '1px solid #e1e8ed' : 'none', borderRadius: '6px', color: theme === 'standard' ? '#0f172a' : 'white', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>🎙️ Mute</button>
-                      <button style={{ padding: '6px 10px', background: theme === 'standard' ? '#f8f9fb' : 'rgba(255,255,255,0.15)', border: theme === 'standard' ? '1px solid #e1e8ed' : 'none', borderRadius: '6px', color: theme === 'standard' ? '#0f172a' : 'white', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>📺 Share</button>
+                      <button style={{ padding: '6px 10px', background: theme === 'standard' ? '#f8f9fb' : 'rgba(255,255,255,0.15)', border: theme === 'standard' ? '1px solid #e1e8ed' : 'none', borderRadius: '6px', color: theme === 'standard' ? '#0f172a' : 'white', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>ðŸŽ¥ Start</button>
+                      <button style={{ padding: '6px 10px', background: theme === 'standard' ? '#f8f9fb' : 'rgba(255,255,255,0.15)', border: theme === 'standard' ? '1px solid #e1e8ed' : 'none', borderRadius: '6px', color: theme === 'standard' ? '#0f172a' : 'white', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>ðŸŽ™ï¸ Mute</button>
+                      <button style={{ padding: '6px 10px', background: theme === 'standard' ? '#f8f9fb' : 'rgba(255,255,255,0.15)', border: theme === 'standard' ? '1px solid #e1e8ed' : 'none', borderRadius: '6px', color: theme === 'standard' ? '#0f172a' : 'white', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>ðŸ“º Share</button>
                     </div>
                   </div>
                   <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: '120px', background: theme === 'pro' ? 'rgba(118,75,162,0.25)' : (theme === 'standard' ? '#ffffff' : 'rgba(255,255,255,0.06)') }}>
                     <div style={{ flex: 1, overflowY: 'auto', padding: '8px' }}></div>
                     <div style={{ padding: '8px', display: 'flex', gap: '6px', alignItems: 'center', borderTop: theme === 'standard' ? '1px solid #e1e8ed' : '1px solid rgba(255,255,255,0.1)' }}>
                       <textarea placeholder="Chat..." style={{ flex: 1, padding: '6px 8px', background: theme === 'standard' ? 'white' : 'rgba(255,255,255,0.08)', border: theme === 'standard' ? '1px solid #e1e8ed' : '1px solid rgba(255,255,255,0.15)', borderRadius: '6px', color: theme === 'standard' ? '#0f172a' : 'white', fontSize: '11px', resize: 'none', minHeight: '28px' }} />
-                      <button title="AI Assistant" style={{ width: '28px', height: '28px', background: theme === 'standard' ? '#f8f9fb' : 'rgba(255,255,255,0.12)', border: theme === 'standard' ? '1px solid #e1e8ed' : 'none', borderRadius: '6px', color: theme === 'standard' ? '#0f172a' : 'white', fontSize: '12px', cursor: 'pointer' }}>✨</button>
+                      <button title="AI Assistant" style={{ width: '28px', height: '28px', background: theme === 'standard' ? '#f8f9fb' : 'rgba(255,255,255,0.12)', border: theme === 'standard' ? '1px solid #e1e8ed' : 'none', borderRadius: '6px', color: theme === 'standard' ? '#0f172a' : 'white', fontSize: '12px', cursor: 'pointer' }}>âœ¨</button>
                       <button style={{ padding: '6px 12px', background: 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '11px', fontWeight: '600', cursor: 'pointer' }}>Send</button>
                     </div>
                   </div>
@@ -4920,36 +4806,36 @@ function SidepanelOrchestrator() {
                   <div style={{ flex: 2, display: 'flex' }}>
                     <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRight: '1px solid #333' }}>
                       <div style={{ textAlign: 'center', color: '#666' }}>
-                        <div style={{ fontSize: '32px' }}>👤</div>
+                        <div style={{ fontSize: '32px' }}>ðŸ‘¤</div>
                         <div style={{ fontSize: '10px', marginTop: '4px' }}>Host</div>
                       </div>
                     </div>
                     <div style={{ width: '70px', display: 'flex', flexDirection: 'column', gap: '2px', padding: '4px', overflowY: 'auto' }}>
-                      <div style={{ aspectRatio: '1', background: '#111', borderRadius: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#444', fontSize: '14px' }}>👤</div>
+                      <div style={{ aspectRatio: '1', background: '#111', borderRadius: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#444', fontSize: '14px' }}>ðŸ‘¤</div>
                       <div style={{ aspectRatio: '1', background: '#111', borderRadius: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#444', fontSize: '14px' }}>+</div>
                     </div>
                   </div>
                   <div style={{ padding: '6px 10px', borderTop: theme === 'standard' ? '1px solid #e1e8ed' : '1px solid rgba(255,255,255,0.15)', borderBottom: theme === 'standard' ? '1px solid #e1e8ed' : '1px solid rgba(255,255,255,0.15)', display: 'flex', gap: '6px', justifyContent: 'center', background: theme === 'standard' ? '#f8f9fb' : 'rgba(0,0,0,0.3)' }}>
-                    <button style={{ padding: '4px 8px', background: theme === 'standard' ? '#f8f9fb' : 'rgba(255,255,255,0.12)', border: theme === 'standard' ? '1px solid #e1e8ed' : 'none', borderRadius: '4px', color: theme === 'standard' ? '#0f172a' : 'white', fontSize: '12px', cursor: 'pointer' }}>🎥</button>
-                    <button style={{ padding: '4px 8px', background: theme === 'standard' ? '#f8f9fb' : 'rgba(255,255,255,0.12)', border: theme === 'standard' ? '1px solid #e1e8ed' : 'none', borderRadius: '4px', color: theme === 'standard' ? '#0f172a' : 'white', fontSize: '12px', cursor: 'pointer' }}>🎙️</button>
-                    <button style={{ padding: '4px 8px', background: theme === 'standard' ? '#f8f9fb' : 'rgba(255,255,255,0.12)', border: theme === 'standard' ? '1px solid #e1e8ed' : 'none', borderRadius: '4px', color: theme === 'standard' ? '#0f172a' : 'white', fontSize: '12px', cursor: 'pointer' }}>📺</button>
+                    <button style={{ padding: '4px 8px', background: theme === 'standard' ? '#f8f9fb' : 'rgba(255,255,255,0.12)', border: theme === 'standard' ? '1px solid #e1e8ed' : 'none', borderRadius: '4px', color: theme === 'standard' ? '#0f172a' : 'white', fontSize: '12px', cursor: 'pointer' }}>ðŸŽ¥</button>
+                    <button style={{ padding: '4px 8px', background: theme === 'standard' ? '#f8f9fb' : 'rgba(255,255,255,0.12)', border: theme === 'standard' ? '1px solid #e1e8ed' : 'none', borderRadius: '4px', color: theme === 'standard' ? '#0f172a' : 'white', fontSize: '12px', cursor: 'pointer' }}>ðŸŽ™ï¸</button>
+                    <button style={{ padding: '4px 8px', background: theme === 'standard' ? '#f8f9fb' : 'rgba(255,255,255,0.12)', border: theme === 'standard' ? '1px solid #e1e8ed' : 'none', borderRadius: '4px', color: theme === 'standard' ? '#0f172a' : 'white', fontSize: '12px', cursor: 'pointer' }}>ðŸ“º</button>
                     <button style={{ padding: '4px 8px', background: 'rgba(239,68,68,0.2)', border: 'none', borderRadius: '4px', color: '#ef4444', fontSize: '10px', cursor: 'pointer' }}>Leave</button>
                   </div>
                   <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: '100px', background: theme === 'pro' ? 'rgba(118,75,162,0.25)' : (theme === 'standard' ? '#ffffff' : 'rgba(255,255,255,0.06)') }}>
                     <div style={{ flex: 1, overflowY: 'auto', padding: '8px' }}></div>
                     <div style={{ padding: '8px', display: 'flex', gap: '6px', alignItems: 'center', borderTop: theme === 'standard' ? '1px solid #e1e8ed' : '1px solid rgba(255,255,255,0.1)' }}>
                       <textarea placeholder="Group chat..." style={{ flex: 1, padding: '6px 8px', background: theme === 'standard' ? 'white' : 'rgba(255,255,255,0.08)', border: theme === 'standard' ? '1px solid #e1e8ed' : '1px solid rgba(255,255,255,0.15)', borderRadius: '6px', color: theme === 'standard' ? '#0f172a' : 'white', fontSize: '11px', resize: 'none', minHeight: '28px' }} />
-                      <button title="AI Assistant" style={{ width: '28px', height: '28px', background: theme === 'standard' ? '#f8f9fb' : 'rgba(255,255,255,0.12)', border: theme === 'standard' ? '1px solid #e1e8ed' : 'none', borderRadius: '6px', color: theme === 'standard' ? '#0f172a' : 'white', fontSize: '12px', cursor: 'pointer' }}>✨</button>
+                      <button title="AI Assistant" style={{ width: '28px', height: '28px', background: theme === 'standard' ? '#f8f9fb' : 'rgba(255,255,255,0.12)', border: theme === 'standard' ? '1px solid #e1e8ed' : 'none', borderRadius: '6px', color: theme === 'standard' ? '#0f172a' : 'white', fontSize: '12px', cursor: 'pointer' }}>âœ¨</button>
                       <button style={{ padding: '6px 12px', background: 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '11px', fontWeight: '600', cursor: 'pointer' }}>Send</button>
                     </div>
                   </div>
                 </div>
               )}
 
-              {/* BEAP Handshake Request — Send Handshake Delivery */}
+              {/* BEAP Handshake Request â€” Send Handshake Delivery */}
               {dockedPanelMode === 'handshake' && (
                 <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: theme === 'pro' ? 'rgba(118,75,162,0.25)' : (theme === 'standard' ? '#ffffff' : 'rgba(255,255,255,0.06)'), minHeight: '280px', overflowY: 'auto' }}>
-                  {/* Policy section — mirrors HandshakeInitiateModal in the Electron dashboard */}
+                  {/* Policy section â€” mirrors HandshakeInitiateModal in the Electron dashboard */}
                   <div style={{ padding: '12px 16px', borderBottom: '1px solid rgba(147,51,234,0.14)' }}>
                     <h5 style={{ margin: '0 0 4px', fontSize: '11px', fontWeight: 600, color: theme === 'standard' ? '#6b7280' : '#aaa', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                       Default policy for newly attached context
@@ -5007,7 +4893,7 @@ function SidepanelOrchestrator() {
                   <div style={{ fontSize: '13px', opacity: dockedPanelMode === 'augmented-overlay' ? 0.8 : 0.6, textAlign: 'center', padding: '32px 20px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
                     {dockedPanelMode === 'augmented-overlay' ? (
                       <>
-                        <span style={{ fontSize: '24px' }}>🎯</span>
+                        <span style={{ fontSize: '24px' }}>ðŸŽ¯</span>
                         <span>Point with the cursor or select elements in order to ask questions or trigger automations directly in the UI.</span>
                       </>
                     ) : (
@@ -5078,15 +4964,15 @@ function SidepanelOrchestrator() {
                   borderTop: '1px solid rgba(168,85,247,0.2)',
                   fontSize: '11px', color: '#a855f7'
                 }}>
-                  <span>📄</span>
+                  <span>ðŸ“„</span>
                   <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    <strong>{pendingDocContent.name}</strong> attached — type your question and Send
+                    <strong>{pendingDocContent.name}</strong> attached â€” type your question and Send
                   </span>
                   <button
                     onClick={() => setPendingDocContent(null)}
                     style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#a855f7', fontSize: '14px', padding: 0, lineHeight: 1 }}
                     title="Remove attachment"
-                  >✕</button>
+                  >âœ•</button>
                 </div>
               )}
 
@@ -5169,7 +5055,7 @@ function SidepanelOrchestrator() {
                   onMouseEnter={(e) => (e.currentTarget.style.color = theme === 'standard' ? '#0f172a' : 'white')}
                   onMouseLeave={(e) => (e.currentTarget.style.color = theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.6)')}
                 >
-                  🎙️
+                  ðŸŽ™ï¸
                 </button>
                 {renderSendButton()}
           </div>
@@ -5182,7 +5068,7 @@ function SidepanelOrchestrator() {
                 borderTop: '1px solid rgba(255,255,255,0.20)'
               }}>
                 <div style={{ marginBottom: '8px', fontSize: '12px', fontWeight: '700', opacity: 0.85 }}>
-                  {showTriggerPrompt.mode === 'screenshot' ? '📸 Screenshot' : '🎥 Stream'}
+                  {showTriggerPrompt.mode === 'screenshot' ? 'ðŸ“¸ Screenshot' : 'ðŸŽ¥ Stream'}
                 </div>
                 {showTriggerPrompt.createTrigger && (
                   <input
@@ -5265,7 +5151,6 @@ function SidepanelOrchestrator() {
                           const triggers = result['optimando-tagged-triggers'] || []
                           triggers.push(triggerData)
                           chrome.storage.local.set({ 'optimando-tagged-triggers': triggers }, () => {
-                            console.log('✅ Trigger saved to storage:', triggerData)
                             setTriggers(triggers)
                             // Notify other contexts
                             try { chrome.runtime?.sendMessage({ type:'TRIGGERS_UPDATED' }) } catch {}
@@ -5297,7 +5182,6 @@ function SidepanelOrchestrator() {
                         // Use the trigger name as @trigger format for routing
                         const triggerText = triggerNameToUse.startsWith('@') ? triggerNameToUse : `@${triggerNameToUse}`
                         
-                        console.log('[Sidepanel] Auto-processing trigger creation:', { triggerText, hasImage: true })
                         
                         // Clear the prompt first
                         setShowTriggerPrompt(null)
@@ -5455,7 +5339,7 @@ function SidepanelOrchestrator() {
                           useBeapInboxStore.getState().selectMessage(messageId)
                         }}
                         replyComposerConfig={replyComposerConfig}
-                        onClassificationComplete={(count) => showNotification(`Analysis complete — ${count} message${count === 1 ? '' : 's'} classified`)}
+                        onClassificationComplete={(count) => showNotification(`Analysis complete â€” ${count} message${count === 1 ? '' : 's'} classified`)}
                         onArchiveComplete={(count) => showNotification(`Archived ${count} message${count === 1 ? '' : 's'}`)}
                       />
                     </InboxErrorBoundary>
@@ -5485,9 +5369,9 @@ function SidepanelOrchestrator() {
                         cursor: 'pointer',
                       }}
                     >
-                      <option value="email" style={{ background: theme === 'standard' ? 'white' : '#1f2937', color: theme === 'standard' ? '#1f2937' : 'white' }}>📧 Email</option>
-                      <option value="p2p" style={{ background: theme === 'standard' ? 'white' : '#1f2937', color: theme === 'standard' ? '#1f2937' : 'white' }}>🔗 P2P</option>
-                      <option value="download" style={{ background: theme === 'standard' ? 'white' : '#1f2937', color: theme === 'standard' ? '#1f2937' : 'white' }}>💾 Download (USB/Wallet)</option>
+                      <option value="email" style={{ background: theme === 'standard' ? 'white' : '#1f2937', color: theme === 'standard' ? '#1f2937' : 'white' }}>ðŸ“§ Email</option>
+                      <option value="p2p" style={{ background: theme === 'standard' ? 'white' : '#1f2937', color: theme === 'standard' ? '#1f2937' : 'white' }}>ðŸ”— P2P</option>
+                      <option value="download" style={{ background: theme === 'standard' ? 'white' : '#1f2937', color: theme === 'standard' ? '#1f2937' : 'white' }}>ðŸ’¾ Download (USB/Wallet)</option>
                     </select>
                   </div>
                   
@@ -5500,7 +5384,7 @@ function SidepanelOrchestrator() {
                   }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <span style={{ fontSize: '16px' }}>🔗</span>
+                        <span style={{ fontSize: '16px' }}>ðŸ”—</span>
                         <span style={{ fontSize: '13px', fontWeight: '600', color: theme === 'standard' ? '#0f172a' : 'white' }}>Connected Email Accounts</span>
                       </div>
                       <button
@@ -5537,14 +5421,14 @@ function SidepanelOrchestrator() {
                         border: theme === 'standard' ? '1px dashed rgba(15,23,42,0.2)' : '1px dashed rgba(255,255,255,0.2)',
                         textAlign: 'center'
                       }}>
-                        <div style={{ fontSize: '24px', marginBottom: '8px' }}>📧</div>
+                        <div style={{ fontSize: '24px', marginBottom: '8px' }}>ðŸ“§</div>
                         <div style={{ fontSize: '13px', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)', marginBottom: '4px' }}>
                           {emailAccountsLoadError?.trim()
                             ? 'No accounts loaded (see message above).'
                             : 'No email accounts connected'}
                         </div>
                         <div style={{ fontSize: '11px', color: theme === 'standard' ? '#94a3b8' : 'rgba(255,255,255,0.5)' }}>
-                          Connect your email account to send BEAP™ messages
+                          Connect your email account to send BEAPâ„¢ messages
                         </div>
                       </div>
                     ) : (
@@ -5566,7 +5450,7 @@ function SidepanelOrchestrator() {
                           >
                             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                               <span style={{ fontSize: '18px' }}>
-                                {account.provider === 'gmail' ? '📧' : account.provider === 'microsoft365' ? '📨' : account.provider === 'zoho' ? '📬' : '✉️'}
+                                {account.provider === 'gmail' ? 'ðŸ“§' : account.provider === 'microsoft365' ? 'ðŸ“¨' : account.provider === 'zoho' ? 'ðŸ“¬' : 'âœ‰ï¸'}
                               </span>
                               <div>
                                 <div style={{ fontSize: '13px', fontWeight: '500', color: theme === 'standard' ? '#0f172a' : 'white' }}>
@@ -5603,7 +5487,7 @@ function SidepanelOrchestrator() {
                                 fontSize: '14px'
                               }}
                             >
-                              ✕
+                              âœ•
                             </button>
                           </div>
                         ))}
@@ -5643,13 +5527,13 @@ function SidepanelOrchestrator() {
                   )}
                   
                   {/* ========================================== */}
-                  {/* BEAP™ MESSAGE SECTION - Adapted from Handshake Request */}
+                  {/* BEAPâ„¢ MESSAGE SECTION - Adapted from Handshake Request */}
                   {/* ========================================== */}
                   
                   {/* Header */}
                   <div style={{ padding: '12px 14px', borderBottom: `1px solid ${theme === 'standard' ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.1)'}`, display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    <span style={{ fontSize: '18px' }}>📦</span>
-                    <span style={{ fontSize: '13px', fontWeight: '600', color: theme === 'standard' ? '#1f2937' : 'white' }}>BEAP™ Message (required)</span>
+                    <span style={{ fontSize: '18px' }}>ðŸ“¦</span>
+                    <span style={{ fontSize: '13px', fontWeight: '600', color: theme === 'standard' ? '#1f2937' : 'white' }}>BEAPâ„¢ Message (required)</span>
                   </div>
                   
                   <div style={{ flex: 1, padding: '14px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '12px' }}>
@@ -5690,7 +5574,7 @@ function SidepanelOrchestrator() {
                             fontWeight: 600
                           }}
                         >
-                          {fingerprintCopied ? '✓ Copied' : 'Copy'}
+                          {fingerprintCopied ? 'âœ“ Copied' : 'Copy'}
                         </button>
                       </div>
                     </div>
@@ -5729,13 +5613,13 @@ function SidepanelOrchestrator() {
                     {/* Message Content */}
                     <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
                       <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'standard' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                        BEAP™ Message (required)
+                        BEAPâ„¢ Message (required)
                       </label>
                       <textarea
                         className="beap-textarea"
                         value={beapDraftMessage}
                         onChange={(e) => setBeapDraftMessage(e.target.value)}
-                        placeholder="Public capsule text — required before send. This is the transport-visible message body."
+                        placeholder="Public capsule text â€” required before send. This is the transport-visible message body."
                         style={{
                           flex: 1,
                           minHeight: '120px',
@@ -5757,7 +5641,7 @@ function SidepanelOrchestrator() {
                     {beapRecipientMode === 'private' && (
                       <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
                         <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'standard' ? '#7c3aed' : '#c4b5fd', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                          🔐 Encrypted Message (Private · qBEAP)
+                          ðŸ” Encrypted Message (Private Â· qBEAP)
                         </label>
                         <textarea
                           className="beap-textarea"
@@ -5780,7 +5664,7 @@ function SidepanelOrchestrator() {
                           }}
                         />
                         <div style={{ fontSize: '10px', color: theme === 'standard' ? '#7c3aed' : '#c4b5fd', marginTop: '4px' }}>
-                          ⚠️ This content is authoritative when present and never leaves the encrypted capsule.
+                          âš ï¸ This content is authoritative when present and never leaves the encrypted capsule.
                         </div>
                       </div>
                     )}
@@ -5812,7 +5696,7 @@ function SidepanelOrchestrator() {
                             cursor: 'pointer'
                           }}
                         >
-                          <option value="" style={{ background: theme === 'standard' ? '#ffffff' : '#1e293b', color: theme === 'standard' ? '#0f172a' : '#f1f5f9' }}>{availableSessions.length === 0 ? '— No sessions available —' : '— Select a session —'}</option>
+                          <option value="" style={{ background: theme === 'standard' ? '#ffffff' : '#1e293b', color: theme === 'standard' ? '#0f172a' : '#f1f5f9' }}>{availableSessions.length === 0 ? 'â€” No sessions available â€”' : 'â€” Select a session â€”'}</option>
                           {availableSessions.map((s) => (
                             <option key={s.key} value={s.key} style={{ background: theme === 'standard' ? '#ffffff' : '#1e293b', color: theme === 'standard' ? '#0f172a' : '#f1f5f9' }}>{s.name} ({new Date(s.timestamp).toLocaleDateString()})</option>
                           ))}
@@ -5931,13 +5815,13 @@ function SidepanelOrchestrator() {
                               <div key={a.id} style={{ background: theme === 'standard' ? 'rgba(0,0,0,0.03)' : 'rgba(255,255,255,0.05)', borderRadius: '4px', marginBottom: '4px', overflow: 'hidden' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 8px' }}>
                                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1, minWidth: 0 }}>
-                                    <span style={{ fontSize: '14px' }}>📄</span>
+                                    <span style={{ fontSize: '14px' }}>ðŸ“„</span>
                                     <div style={{ flex: 1, minWidth: 0 }}>
                                       <div style={{ fontSize: '11px', color: theme === 'standard' ? '#0f172a' : 'white', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                         {a.name}
                                       </div>
                                       <div style={{ fontSize: '9px', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.5)' }}>
-                                        {a.mime} · {(a.size / 1024).toFixed(0)} KB
+                                        {a.mime} Â· {(a.size / 1024).toFixed(0)} KB
                                       </div>
                                     </div>
                                   </div>
@@ -6037,7 +5921,7 @@ function SidepanelOrchestrator() {
                       color: theme === 'standard' ? '#6b7280' : 'rgba(255,255,255,0.8)',
                       marginTop: '12px'
                     }}>
-                      💡 This creates a secure BEAP™ package with your fingerprint. Your identity will be verifiable by the recipient.
+                      ðŸ’¡ This creates a secure BEAPâ„¢ package with your fingerprint. Your identity will be verifiable by the recipient.
                     </div>
                   </div>
                   
@@ -6081,19 +5965,13 @@ function SidepanelOrchestrator() {
                             ? emailAccounts.find(a => a.id === defaultEmailAccountRowId)
                             : undefined) ||
                           emailAccounts[0]
-                        console.log('[BEAP Message] Sending:', { 
-                          method: handshakeDelivery, 
-                          to: handshakeTo, 
-                          message: handshakeMessage,
-                          fromAccount: selectedAccount?.email
-                        })
                         setNotification({
                           message:
                             handshakeDelivery === 'download'
                               ? 'BEAP capsule downloaded'
                               : handshakeDelivery === 'p2p'
-                                ? 'Use BEAP Drafts for P2P — relay acceptance is not recipient delivery.'
-                                : 'BEAP™ Message sent!',
+                                ? 'Use BEAP Drafts for P2P â€” relay acceptance is not recipient delivery.'
+                                : 'BEAPâ„¢ Message sent!',
                           type: handshakeDelivery === 'download' || handshakeDelivery === 'email' ? 'success' : 'info',
                         })
                         setTimeout(() => setNotification(null), 3000)
@@ -6114,7 +5992,7 @@ function SidepanelOrchestrator() {
                         gap: '6px'
                       }}
                     >
-                      {handshakeDelivery === 'email' ? '📧 Send' : handshakeDelivery === 'p2p' ? '🔗 Send' : '💾 Download'}
+                      {handshakeDelivery === 'email' ? 'ðŸ“§ Send' : handshakeDelivery === 'p2p' ? 'ðŸ”— Send' : 'ðŸ’¾ Download'}
                     </button>
                   </div>
                     </>
@@ -6298,7 +6176,7 @@ function SidepanelOrchestrator() {
               }
             }}
           >
-            ➕ Add Mini App
+            âž• Add Mini App
           </button>
         </div>
         
@@ -6325,7 +6203,7 @@ function SidepanelOrchestrator() {
             gap: '8px'
           }}>
             <span style={{ flexShrink: 0, lineHeight: 1.4 }}>
-              {notification.type === 'success' ? '✓' : notification.type === 'info' ? 'ℹ' : '✕'}
+              {notification.type === 'success' ? 'âœ“' : notification.type === 'info' ? 'â„¹' : 'âœ•'}
             </span>
             <span style={{ flex: 1, minWidth: 0, whiteSpace: 'pre-line', lineHeight: 1.45 }}>{notification.message}</span>
           </div>
@@ -6374,7 +6252,7 @@ function SidepanelOrchestrator() {
             }}
             title="Open Popup Chat"
           >
-            💬
+            ðŸ’¬
           </button>
           <button
             onClick={toggleCommandChatPin}
@@ -6389,7 +6267,7 @@ function SidepanelOrchestrator() {
             }}
             title={isCommandChatPinned ? "Unpin Command Chat" : "Pin Command Chat"}
           >
-            📌
+            ðŸ“Œ
           </button>
           <div
             onClick={toggleViewMode}
@@ -6476,7 +6354,7 @@ function SidepanelOrchestrator() {
                 alignItems: 'center', justifyContent: 'center',
                 pointerEvents: 'none'
               }}>
-                <div style={{ fontSize: '28px', marginBottom: '6px' }}>📎</div>
+                <div style={{ fontSize: '28px', marginBottom: '6px' }}>ðŸ“Ž</div>
                 <div style={{ color: '#a855f7', fontWeight: 700, fontSize: '13px' }}>Drop file or image here</div>
                 <div style={{ color: '#c084fc', fontSize: '11px', marginTop: '4px', opacity: 0.8 }}>Images, text files, documents</div>
               </div>
@@ -6519,10 +6397,10 @@ function SidepanelOrchestrator() {
                     backgroundPosition: 'right 4px center'
                   }}
                 >
-                  <option value="wr-chat">💬 WR Chat</option>
-                  <option value="augmented-overlay">🎯 Augmented Overlay</option>
-                  <option value="beap-messages">📦 BEAP Messages</option>
-                  <option value="wrguard">🔒 WRGuard</option>
+                  <option value="wr-chat">ðŸ’¬ WR Chat</option>
+                  <option value="augmented-overlay">ðŸŽ¯ Augmented Overlay</option>
+                  <option value="beap-messages">ðŸ“¦ BEAP Messages</option>
+                  <option value="wrguard">ðŸ”’ WRGuard</option>
                 </select>
                 {dockedWorkspace === 'wr-chat' && (
                   <select
@@ -6585,12 +6463,12 @@ function SidepanelOrchestrator() {
                       backgroundPosition: 'right 4px center'
                     }}
                   >
-                    <option value="inbox">📥 Inbox</option>
-                    <option value="bulk-inbox">⚡ Bulk Inbox</option>
-                    <option value="draft">✏️ Draft</option>
-                    <option value="outbox">📤 Outbox</option>
-                    <option value="archived">📁 Archived</option>
-                    <option value="rejected">🚫 Rejected</option>
+                    <option value="inbox">ðŸ“¥ Inbox</option>
+                    <option value="bulk-inbox">âš¡ Bulk Inbox</option>
+                    <option value="draft">âœï¸ Draft</option>
+                    <option value="outbox">ðŸ“¤ Outbox</option>
+                    <option value="archived">ðŸ“ Archived</option>
+                    <option value="rejected">ðŸš« Rejected</option>
                   </select>
                 )}
               </div>
@@ -6637,7 +6515,7 @@ height: '28px',
                       }
                     }}
                   >
-                    ✎
+                    âœŽ
                   </button>
                   <button
                     type="button"
@@ -6727,7 +6605,7 @@ height: '28px',
                           color: theme === 'standard' ? '#0f172a' : undefined,
                         }}
                       >
-                        ▾
+                        â–¾
                       </span>
                     </button>
                     
@@ -6811,7 +6689,7 @@ height: '28px',
                                 onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(239,68,68,0.4)'}
                                 onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(239,68,68,0.2)'}
                               >
-                                ×
+                                Ã—
                               </button>
                             </div>
                           ))
@@ -6836,7 +6714,7 @@ height: '28px',
                     justifyContent: 'center'
                   }}
                 >
-                  ↗
+                  â†—
                 </button>
               </div>
             </div>
@@ -6855,8 +6733,8 @@ height: '28px',
                 <div style={{ flex: 1, overflowY: 'auto', padding: '12px', display: 'flex', flexDirection: 'column', gap: '8px' }}></div>
                 <div style={{ padding: '10px 12px', borderTop: '1px solid rgba(255,255,255,0.1)', display: 'flex', gap: '6px', alignItems: 'center' }}>
                   <textarea placeholder="Message or capsule..." style={{ flex: 1, padding: '8px 10px', background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '8px', color: 'white', fontSize: '12px', resize: 'none', minHeight: '32px', maxHeight: '80px' }} />
-                  <button title="Build Capsule" style={{ width: '32px', height: '32px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '14px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>💊</button>
-                  <button title="AI Assistant" style={{ width: '32px', height: '32px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '14px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✨</button>
+                  <button title="Build Capsule" style={{ width: '32px', height: '32px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '14px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>ðŸ’Š</button>
+                  <button title="AI Assistant" style={{ width: '32px', height: '32px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '14px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>âœ¨</button>
                   <button title="Attach" style={{ width: '32px', height: '32px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '14px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></button>
                   <button style={{ padding: '8px 14px', background: 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)', border: 'none', borderRadius: '8px', color: 'white', fontSize: '12px', fontWeight: '600', cursor: 'pointer' }}>Send</button>
                 </div>
@@ -6869,20 +6747,20 @@ height: '28px',
               <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: '#000', minHeight: '280px' }}>
                 <div style={{ flex: 2, display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
                   <div style={{ textAlign: 'center', color: '#666' }}>
-                    <div style={{ fontSize: '40px', marginBottom: '8px' }}>📹</div>
+                    <div style={{ fontSize: '40px', marginBottom: '8px' }}>ðŸ“¹</div>
                     <div style={{ fontSize: '12px' }}>No active stream</div>
                   </div>
                   <div style={{ position: 'absolute', bottom: '10px', left: '50%', transform: 'translateX(-50%)', display: 'flex', gap: '6px' }}>
-                    <button style={{ padding: '6px 10px', background: 'rgba(255,255,255,0.15)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>🎥 Start</button>
-                    <button style={{ padding: '6px 10px', background: 'rgba(255,255,255,0.15)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>🎙️ Mute</button>
-                    <button style={{ padding: '6px 10px', background: 'rgba(255,255,255,0.15)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>📺 Share</button>
+                    <button style={{ padding: '6px 10px', background: 'rgba(255,255,255,0.15)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>ðŸŽ¥ Start</button>
+                    <button style={{ padding: '6px 10px', background: 'rgba(255,255,255,0.15)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>ðŸŽ™ï¸ Mute</button>
+                    <button style={{ padding: '6px 10px', background: 'rgba(255,255,255,0.15)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>ðŸ“º Share</button>
                   </div>
                 </div>
                 <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: '120px', background: theme === 'pro' ? 'rgba(118,75,162,0.25)' : 'rgba(255,255,255,0.06)' }}>
                   <div style={{ flex: 1, overflowY: 'auto', padding: '8px' }}></div>
                   <div style={{ padding: '8px', display: 'flex', gap: '6px', alignItems: 'center', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
                     <textarea placeholder="Chat..." style={{ flex: 1, padding: '6px 8px', background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '6px', color: 'white', fontSize: '11px', resize: 'none', minHeight: '28px' }} />
-                    <button title="AI Assistant" style={{ width: '28px', height: '28px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '12px', cursor: 'pointer' }}>✨</button>
+                    <button title="AI Assistant" style={{ width: '28px', height: '28px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '12px', cursor: 'pointer' }}>âœ¨</button>
                     <button style={{ padding: '6px 12px', background: 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '11px', fontWeight: '600', cursor: 'pointer' }}>Send</button>
                   </div>
                 </div>
@@ -6895,36 +6773,36 @@ height: '28px',
                 <div style={{ flex: 2, display: 'flex' }}>
                   <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRight: '1px solid #333' }}>
                     <div style={{ textAlign: 'center', color: '#666' }}>
-                      <div style={{ fontSize: '32px' }}>👤</div>
+                      <div style={{ fontSize: '32px' }}>ðŸ‘¤</div>
                       <div style={{ fontSize: '10px', marginTop: '4px' }}>Host</div>
                     </div>
                   </div>
                   <div style={{ width: '70px', display: 'flex', flexDirection: 'column', gap: '2px', padding: '4px', overflowY: 'auto' }}>
-                    <div style={{ aspectRatio: '1', background: '#111', borderRadius: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#444', fontSize: '14px' }}>👤</div>
+                    <div style={{ aspectRatio: '1', background: '#111', borderRadius: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#444', fontSize: '14px' }}>ðŸ‘¤</div>
                     <div style={{ aspectRatio: '1', background: '#111', borderRadius: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#444', fontSize: '14px' }}>+</div>
                   </div>
                 </div>
                 <div style={{ padding: '6px 10px', borderTop: '1px solid rgba(255,255,255,0.15)', borderBottom: '1px solid rgba(255,255,255,0.15)', display: 'flex', gap: '6px', justifyContent: 'center', background: 'rgba(0,0,0,0.3)' }}>
-                  <button style={{ padding: '4px 8px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '4px', color: 'white', fontSize: '12px', cursor: 'pointer' }}>🎥</button>
-                  <button style={{ padding: '4px 8px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '4px', color: 'white', fontSize: '12px', cursor: 'pointer' }}>🎙️</button>
-                  <button style={{ padding: '4px 8px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '4px', color: 'white', fontSize: '12px', cursor: 'pointer' }}>📺</button>
+                  <button style={{ padding: '4px 8px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '4px', color: 'white', fontSize: '12px', cursor: 'pointer' }}>ðŸŽ¥</button>
+                  <button style={{ padding: '4px 8px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '4px', color: 'white', fontSize: '12px', cursor: 'pointer' }}>ðŸŽ™ï¸</button>
+                  <button style={{ padding: '4px 8px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '4px', color: 'white', fontSize: '12px', cursor: 'pointer' }}>ðŸ“º</button>
                   <button style={{ padding: '4px 8px', background: 'rgba(239,68,68,0.2)', border: 'none', borderRadius: '4px', color: '#ef4444', fontSize: '10px', cursor: 'pointer' }}>Leave</button>
                 </div>
                 <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: '100px', background: theme === 'pro' ? 'rgba(118,75,162,0.25)' : 'rgba(255,255,255,0.06)' }}>
                   <div style={{ flex: 1, overflowY: 'auto', padding: '8px' }}></div>
                   <div style={{ padding: '8px', display: 'flex', gap: '6px', alignItems: 'center', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
                     <textarea placeholder="Group chat..." style={{ flex: 1, padding: '6px 8px', background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '6px', color: 'white', fontSize: '11px', resize: 'none', minHeight: '28px' }} />
-                    <button title="AI Assistant" style={{ width: '28px', height: '28px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '12px', cursor: 'pointer' }}>✨</button>
+                    <button title="AI Assistant" style={{ width: '28px', height: '28px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '12px', cursor: 'pointer' }}>âœ¨</button>
                     <button style={{ padding: '6px 12px', background: 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '11px', fontWeight: '600', cursor: 'pointer' }}>Send</button>
                   </div>
                 </div>
               </div>
             )}
 
-            {/* BEAP Handshake Request — Send Handshake Delivery */}
+            {/* BEAP Handshake Request â€” Send Handshake Delivery */}
             {dockedPanelMode === 'handshake' && (
               <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: theme === 'pro' ? 'rgba(118,75,162,0.25)' : (theme === 'standard' ? '#ffffff' : 'rgba(255,255,255,0.06)'), minHeight: '280px', overflowY: 'auto' }}>
-                {/* Policy section — mirrors HandshakeInitiateModal in the Electron dashboard */}
+                {/* Policy section â€” mirrors HandshakeInitiateModal in the Electron dashboard */}
                 <div style={{ padding: '12px 16px', borderBottom: '1px solid rgba(147,51,234,0.14)' }}>
                   <h5 style={{ margin: '0 0 4px', fontSize: '11px', fontWeight: 600, color: theme === 'standard' ? '#6b7280' : '#aaa', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                     Default policy for newly attached context
@@ -6981,7 +6859,7 @@ height: '28px',
                     <div style={{ fontSize: '13px', opacity: dockedPanelMode === 'augmented-overlay' ? 0.8 : 0.6, textAlign: 'center', padding: '32px 20px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
                       {dockedPanelMode === 'augmented-overlay' ? (
                         <>
-                          <span style={{ fontSize: '24px' }}>🎯</span>
+                          <span style={{ fontSize: '24px' }}>ðŸŽ¯</span>
                           <span>Point with the cursor or select elements in order to ask questions or trigger automations directly in the UI.</span>
                         </>
                       ) : (
@@ -7052,15 +6930,15 @@ height: '28px',
                     borderTop: '1px solid rgba(168,85,247,0.2)',
                     fontSize: '11px', color: '#a855f7'
                   }}>
-                    <span>📄</span>
+                    <span>ðŸ“„</span>
                     <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      <strong>{pendingDocContent.name}</strong> attached — type your question and Send
+                      <strong>{pendingDocContent.name}</strong> attached â€” type your question and Send
                     </span>
                     <button
                       onClick={() => setPendingDocContent(null)}
                       style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#a855f7', fontSize: '14px', padding: 0, lineHeight: 1 }}
                       title="Remove attachment"
-                    >✕</button>
+                    >âœ•</button>
                   </div>
                 )}
 
@@ -7217,7 +7095,7 @@ height: '28px',
                         useBeapInboxStore.getState().selectMessage(messageId)
                       }}
                       replyComposerConfig={replyComposerConfig}
-                      onClassificationComplete={(count) => showNotification(`Analysis complete — ${count} message${count === 1 ? '' : 's'} classified`)}
+                      onClassificationComplete={(count) => showNotification(`Analysis complete â€” ${count} message${count === 1 ? '' : 's'} classified`)}
                       onArchiveComplete={(count) => showNotification(`Archived ${count} message${count === 1 ? '' : 's'}`)}
                     />
                   </InboxErrorBoundary>
@@ -7231,9 +7109,9 @@ height: '28px',
                 <div style={{ padding: '14px 18px', borderBottom: theme === 'standard' ? '1px solid rgba(147, 51, 234, 0.12)' : '1px solid rgba(255,255,255,0.1)' }}>
                   <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'standard' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Delivery Method</label>
                   <select value={handshakeDelivery} onChange={(e) => setHandshakeDelivery(e.target.value as 'email' | 'download' | 'p2p')} style={{ width: '100%', padding: '10px 12px', background: theme === 'standard' ? 'white' : '#1f2937', border: `1px solid ${theme === 'standard' ? 'rgba(147, 51, 234, 0.15)' : 'rgba(255,255,255,0.15)'}`, borderRadius: '8px', color: theme === 'standard' ? '#1f2937' : 'white', fontSize: '13px', cursor: 'pointer' }}>
-                    <option value="email" style={{ background: theme === 'standard' ? 'white' : '#1f2937', color: theme === 'standard' ? '#1f2937' : 'white' }}>📧 Email</option>
-                    <option value="p2p" style={{ background: theme === 'standard' ? 'white' : '#1f2937', color: theme === 'standard' ? '#1f2937' : 'white' }}>🔗 P2P</option>
-                    <option value="download" style={{ background: theme === 'standard' ? 'white' : '#1f2937', color: theme === 'standard' ? '#1f2937' : 'white' }}>💾 Download (USB/Wallet)</option>
+                    <option value="email" style={{ background: theme === 'standard' ? 'white' : '#1f2937', color: theme === 'standard' ? '#1f2937' : 'white' }}>ðŸ“§ Email</option>
+                    <option value="p2p" style={{ background: theme === 'standard' ? 'white' : '#1f2937', color: theme === 'standard' ? '#1f2937' : 'white' }}>ðŸ”— P2P</option>
+                    <option value="download" style={{ background: theme === 'standard' ? 'white' : '#1f2937', color: theme === 'standard' ? '#1f2937' : 'white' }}>ðŸ’¾ Download (USB/Wallet)</option>
                   </select>
                 </div>
                 
@@ -7246,7 +7124,7 @@ height: '28px',
                 }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <span style={{ fontSize: '16px' }}>🔗</span>
+                      <span style={{ fontSize: '16px' }}>ðŸ”—</span>
                       <span style={{ fontSize: '13px', fontWeight: '600', color: theme === 'standard' ? '#0f172a' : 'white' }}>Connected Email Accounts</span>
                     </div>
                     <button
@@ -7283,14 +7161,14 @@ height: '28px',
                       border: theme === 'standard' ? '1px dashed rgba(15,23,42,0.2)' : '1px dashed rgba(255,255,255,0.2)',
                       textAlign: 'center'
                     }}>
-                      <div style={{ fontSize: '24px', marginBottom: '8px' }}>📧</div>
+                      <div style={{ fontSize: '24px', marginBottom: '8px' }}>ðŸ“§</div>
                       <div style={{ fontSize: '13px', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)', marginBottom: '4px' }}>
                         {emailAccountsLoadError?.trim()
                           ? 'No accounts loaded (see message above).'
                           : 'No email accounts connected'}
                       </div>
                       <div style={{ fontSize: '11px', color: theme === 'standard' ? '#94a3b8' : 'rgba(255,255,255,0.5)' }}>
-                        Connect your email account to send BEAP™ messages
+                        Connect your email account to send BEAPâ„¢ messages
                       </div>
                     </div>
                   ) : (
@@ -7312,7 +7190,7 @@ height: '28px',
                         >
                           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                             <span style={{ fontSize: '18px' }}>
-                              {account.provider === 'gmail' ? '📧' : account.provider === 'microsoft365' ? '📨' : account.provider === 'zoho' ? '📬' : '✉️'}
+                              {account.provider === 'gmail' ? 'ðŸ“§' : account.provider === 'microsoft365' ? 'ðŸ“¨' : account.provider === 'zoho' ? 'ðŸ“¬' : 'âœ‰ï¸'}
                             </span>
                             <div>
                               <div style={{ fontSize: '13px', fontWeight: '500', color: theme === 'standard' ? '#0f172a' : 'white' }}>
@@ -7349,7 +7227,7 @@ height: '28px',
                               fontSize: '14px'
                             }}
                           >
-                            ✕
+                            âœ•
                           </button>
                         </div>
                       ))}
@@ -7367,10 +7245,10 @@ height: '28px',
                   )}
                 </div>
                 )}
-                {/* BEAP™ Message UI - App View */}
+                {/* BEAPâ„¢ Message UI - App View */}
                 <div style={{ padding: '12px 14px', borderBottom: `1px solid ${theme === 'standard' ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.1)'}`, display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  <span style={{ fontSize: '18px' }}>📦</span>
-                  <span style={{ fontSize: '13px', fontWeight: '600', color: theme === 'standard' ? '#1f2937' : 'white' }}>BEAP™ Message (required)</span>
+                  <span style={{ fontSize: '18px' }}>ðŸ“¦</span>
+                  <span style={{ fontSize: '13px', fontWeight: '600', color: theme === 'standard' ? '#1f2937' : 'white' }}>BEAPâ„¢ Message (required)</span>
                 </div>
                 <div style={{ flex: 1, padding: '14px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '12px' }}>
                   {/* Fingerprint */}
@@ -7395,15 +7273,15 @@ height: '28px',
                   {/* Delivery Method Panel - Adapts to recipient mode */}
                   <DeliveryMethodPanel deliveryMethod={handshakeDelivery} recipientMode={beapRecipientMode} selectedRecipient={selectedRecipient} emailTo={beapDraftTo} onEmailToChange={setBeapDraftTo} theme={theme} ourFingerprintShort={ourFingerprintShort} />
                   <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-                    <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'standard' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>BEAP™ Message (required)</label>
-                    <textarea className="beap-textarea" value={beapDraftMessage} onChange={(e) => setBeapDraftMessage(e.target.value)} placeholder="Public capsule text — required before send. This is the transport-visible message body." style={{ flex: 1, minHeight: '120px', background: theme === 'standard' ? 'white' : 'rgba(255,255,255,0.08)', border: theme === 'standard' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.15)', color: theme === 'standard' ? '#0f172a' : 'white', borderRadius: '6px', padding: '10px 12px', fontSize: '12px', lineHeight: '1.5', resize: 'none', outline: 'none', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' }} />
+                    <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'standard' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>BEAPâ„¢ Message (required)</label>
+                    <textarea className="beap-textarea" value={beapDraftMessage} onChange={(e) => setBeapDraftMessage(e.target.value)} placeholder="Public capsule text â€” required before send. This is the transport-visible message body." style={{ flex: 1, minHeight: '120px', background: theme === 'standard' ? 'white' : 'rgba(255,255,255,0.08)', border: theme === 'standard' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.15)', color: theme === 'standard' ? '#0f172a' : 'white', borderRadius: '6px', padding: '10px 12px', fontSize: '12px', lineHeight: '1.5', resize: 'none', outline: 'none', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' }} />
                   </div>
                   {/* Encrypted Message (qBEAP/PRIVATE only) */}
                   {beapRecipientMode === 'private' && (
                     <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-                      <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'standard' ? '#7c3aed' : '#c4b5fd', textTransform: 'uppercase', letterSpacing: '0.5px' }}>🔐 Encrypted Message (Private · qBEAP)</label>
+                      <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'standard' ? '#7c3aed' : '#c4b5fd', textTransform: 'uppercase', letterSpacing: '0.5px' }}>ðŸ” Encrypted Message (Private Â· qBEAP)</label>
                       <textarea className="beap-textarea" value={beapDraftEncryptedMessage} onChange={(e) => setBeapDraftEncryptedMessage(e.target.value)} placeholder="This message is encrypted, capsule-bound, and never transported outside the BEAP package." style={{ flex: 1, minHeight: '100px', background: theme === 'standard' ? 'rgba(139,92,246,0.05)' : 'rgba(139,92,246,0.15)', border: theme === 'standard' ? '1px solid rgba(139,92,246,0.3)' : '1px solid rgba(139,92,246,0.4)', color: theme === 'standard' ? '#0f172a' : 'white', borderRadius: '6px', padding: '10px 12px', fontSize: '12px', lineHeight: '1.5', resize: 'none', outline: 'none', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' }} />
-                      <div style={{ fontSize: '10px', color: theme === 'standard' ? '#7c3aed' : '#c4b5fd', marginTop: '4px' }}>⚠️ This content is authoritative when present and never leaves the encrypted capsule.</div>
+                      <div style={{ fontSize: '10px', color: theme === 'standard' ? '#7c3aed' : '#c4b5fd', marginTop: '4px' }}>âš ï¸ This content is authoritative when present and never leaves the encrypted capsule.</div>
                     </div>
                   )}
                   {/* Advanced: Session + Attachments (Expanded) */}
@@ -7412,7 +7290,7 @@ height: '28px',
                     <div style={{ marginBottom: '10px' }}>
                       <label style={{ fontSize: '10px', fontWeight: 500, marginBottom: '4px', display: 'block', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.6)' }}>Session (optional)</label>
                       <select value={beapDraftSessionId} onChange={(e) => setBeapDraftSessionId(e.target.value)} onClick={() => loadAvailableSessions()} style={{ width: '100%', background: theme === 'standard' ? '#ffffff' : '#1e293b', border: theme === 'standard' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.25)', color: theme === 'standard' ? '#0f172a' : '#f1f5f9', borderRadius: '6px', padding: '8px 10px', fontSize: '12px', outline: 'none', boxSizing: 'border-box', cursor: 'pointer' }}>
-                        <option value="" style={{ background: theme === 'standard' ? '#ffffff' : '#1e293b', color: theme === 'standard' ? '#0f172a' : '#f1f5f9' }}>{availableSessions.length === 0 ? '— No sessions available —' : '— Select a session —'}</option>
+                        <option value="" style={{ background: theme === 'standard' ? '#ffffff' : '#1e293b', color: theme === 'standard' ? '#0f172a' : '#f1f5f9' }}>{availableSessions.length === 0 ? 'â€” No sessions available â€”' : 'â€” Select a session â€”'}</option>
                         {availableSessions.map((s) => (<option key={s.key} value={s.key} style={{ background: theme === 'standard' ? '#ffffff' : '#1e293b', color: theme === 'standard' ? '#0f172a' : '#f1f5f9' }}>{s.name} ({new Date(s.timestamp).toLocaleDateString()})</option>))}
                       </select>
                     </div>
@@ -7431,11 +7309,11 @@ height: '28px',
                               <div key={a.id} style={{ background: theme === 'standard' ? 'rgba(0,0,0,0.03)' : 'rgba(255,255,255,0.05)', borderRadius: '4px', marginBottom: '4px', overflow: 'hidden' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 8px' }}>
                                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1, minWidth: 0 }}>
-                                    <span style={{ fontSize: '14px' }}>📄</span>
+                                    <span style={{ fontSize: '14px' }}>ðŸ“„</span>
                                     <div style={{ flex: 1, minWidth: 0 }}>
                                       <div style={{ fontSize: '11px', color: theme === 'standard' ? '#0f172a' : 'white', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.name}</div>
                                       <div style={{ fontSize: '9px', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.5)' }}>
-                                        {a.mime} · {(a.size / 1024).toFixed(0)} KB
+                                        {a.mime} Â· {(a.size / 1024).toFixed(0)} KB
                                       </div>
                                     </div>
                                   </div>
@@ -7658,7 +7536,7 @@ height: '28px',
               }
             }}
           >
-            ➕ Add Mini App
+            âž• Add Mini App
           </button>
         </div>
       </div>
@@ -7703,7 +7581,7 @@ height: '28px',
           }}
           title="Open Analysis Dashboard"
         >
-          🧠
+          ðŸ§ 
         </button>
         <div style={{
           flex: 1,
@@ -7765,7 +7643,6 @@ height: '28px',
         </button>
         <button
           onClick={() => {
-            console.log('📤 Export session...')
             sendToContentScript('EXPORT_SESSION')
           }}
           style={{
@@ -7774,7 +7651,7 @@ height: '28px',
             }}
           title="Export Session (JSON/YAML/MD)"
         >
-          💾
+          ðŸ’¾
         </button>
           <button
             onClick={openPopupChat}
@@ -7784,7 +7661,7 @@ height: '28px',
             }}
             title="Open Popup Chat"
           >
-            💬
+            ðŸ’¬
           </button>
           <button
             onClick={toggleCommandChatPin}
@@ -7798,7 +7675,7 @@ height: '28px',
             }}
             title={isCommandChatPinned ? "Unpin Command Chat" : "Pin Command Chat"}
           >
-            📌
+            ðŸ“Œ
         </button>
       </div>
 
@@ -7818,10 +7695,10 @@ height: '28px',
             {masterTabId && masterTabId !== "01" ? `Master Tab (${masterTabId})` : 'ADMIN'}
           </div>
           <div style={{ flex: 1 }} />
-          <button onClick={openUnifiedAdmin} title="Admin Configuration (Agents, Context, Memory)" style={adminIconStyle}>⚙️</button>
-          <button onClick={openAddView} title="Add View" style={adminIconStyle}>⊞</button>
-          <button onClick={openSessions} title="Sessions" style={adminIconStyle}>📚</button>
-          <button onClick={openSettings} title="Settings" style={adminIconStyle}>🔧</button>
+          <button onClick={openUnifiedAdmin} title="Admin Configuration (Agents, Context, Memory)" style={adminIconStyle}>âš™ï¸</button>
+          <button onClick={openAddView} title="Add View" style={adminIconStyle}>âŠž</button>
+          <button onClick={openSessions} title="Sessions" style={adminIconStyle}>ðŸ“š</button>
+          <button onClick={openSettings} title="Settings" style={adminIconStyle}>ðŸ”§</button>
         </div>
       </div>
 
@@ -7866,7 +7743,7 @@ height: '28px',
                 alignItems: 'center', justifyContent: 'center',
                 pointerEvents: 'none'
               }}>
-                <div style={{ fontSize: '28px', marginBottom: '6px' }}>📎</div>
+                <div style={{ fontSize: '28px', marginBottom: '6px' }}>ðŸ“Ž</div>
                 <div style={{ color: '#a855f7', fontWeight: 700, fontSize: '13px' }}>Drop file or image here</div>
                 <div style={{ color: '#c084fc', fontSize: '11px', marginTop: '4px', opacity: 0.8 }}>Images, text files, documents</div>
               </div>
@@ -7909,10 +7786,10 @@ height: '28px',
                     backgroundPosition: 'right 4px center'
                   }}
                 >
-                  <option value="wr-chat">💬 WR Chat</option>
-                  <option value="augmented-overlay">🎯 Augmented Overlay</option>
-                  <option value="beap-messages">📦 BEAP Messages</option>
-                  <option value="wrguard">🔒 WRGuard</option>
+                  <option value="wr-chat">ðŸ’¬ WR Chat</option>
+                  <option value="augmented-overlay">ðŸŽ¯ Augmented Overlay</option>
+                  <option value="beap-messages">ðŸ“¦ BEAP Messages</option>
+                  <option value="wrguard">ðŸ”’ WRGuard</option>
                 </select>
                 {dockedWorkspace === 'wr-chat' && (
                   <select
@@ -7975,12 +7852,12 @@ height: '28px',
                       backgroundPosition: 'right 4px center'
                     }}
                   >
-                    <option value="inbox">📥 Inbox</option>
-                    <option value="bulk-inbox">⚡ Bulk Inbox</option>
-                    <option value="draft">✏️ Draft</option>
-                    <option value="outbox">📤 Outbox</option>
-                    <option value="archived">📁 Archived</option>
-                    <option value="rejected">🚫 Rejected</option>
+                    <option value="inbox">ðŸ“¥ Inbox</option>
+                    <option value="bulk-inbox">âš¡ Bulk Inbox</option>
+                    <option value="draft">âœï¸ Draft</option>
+                    <option value="outbox">ðŸ“¤ Outbox</option>
+                    <option value="archived">ðŸ“ Archived</option>
+                    <option value="rejected">ðŸš« Rejected</option>
                   </select>
                 )}
               </div>
@@ -8027,7 +7904,7 @@ height: '28px',
                       }
                     }}
                   >
-                    ✎
+                    âœŽ
                   </button>
                   <button
                     type="button"
@@ -8117,7 +7994,7 @@ height: '28px',
                           color: theme === 'standard' ? '#0f172a' : undefined,
                         }}
                       >
-                        ▾
+                        â–¾
                       </span>
                     </button>
                     
@@ -8201,7 +8078,7 @@ height: '28px',
                                 onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(239,68,68,0.4)'}
                                 onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(239,68,68,0.2)'}
                               >
-                                ×
+                                Ã—
                               </button>
                             </div>
                           ))
@@ -8226,7 +8103,7 @@ height: '28px',
                     justifyContent: 'center'
                   }}
                 >
-                  ↗
+                  â†—
                 </button>
               </div>
             </div>
@@ -8245,8 +8122,8 @@ height: '28px',
                 <div style={{ flex: 1, overflowY: 'auto', padding: '12px', display: 'flex', flexDirection: 'column', gap: '8px' }}></div>
                 <div style={{ padding: '10px 12px', borderTop: '1px solid rgba(255,255,255,0.1)', display: 'flex', gap: '6px', alignItems: 'center' }}>
                   <textarea placeholder="Message or capsule..." style={{ flex: 1, padding: '8px 10px', background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '8px', color: 'white', fontSize: '12px', resize: 'none', minHeight: '32px', maxHeight: '80px' }} />
-                  <button title="Build Capsule" style={{ width: '32px', height: '32px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '14px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>💊</button>
-                  <button title="AI Assistant" style={{ width: '32px', height: '32px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '14px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✨</button>
+                  <button title="Build Capsule" style={{ width: '32px', height: '32px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '14px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>ðŸ’Š</button>
+                  <button title="AI Assistant" style={{ width: '32px', height: '32px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '14px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>âœ¨</button>
                   <button title="Attach" style={{ width: '32px', height: '32px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '14px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></button>
                   <button style={{ padding: '8px 14px', background: 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)', border: 'none', borderRadius: '8px', color: 'white', fontSize: '12px', fontWeight: '600', cursor: 'pointer' }}>Send</button>
                 </div>
@@ -8258,20 +8135,20 @@ height: '28px',
               <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: '#000', minHeight: '280px' }}>
                 <div style={{ flex: 2, display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
                   <div style={{ textAlign: 'center', color: '#666' }}>
-                    <div style={{ fontSize: '40px', marginBottom: '8px' }}>📹</div>
+                    <div style={{ fontSize: '40px', marginBottom: '8px' }}>ðŸ“¹</div>
                     <div style={{ fontSize: '12px' }}>No active stream</div>
                   </div>
                   <div style={{ position: 'absolute', bottom: '10px', left: '50%', transform: 'translateX(-50%)', display: 'flex', gap: '6px' }}>
-                    <button style={{ padding: '6px 10px', background: 'rgba(255,255,255,0.15)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>🎥 Start</button>
-                    <button style={{ padding: '6px 10px', background: 'rgba(255,255,255,0.15)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>🎙️ Mute</button>
-                    <button style={{ padding: '6px 10px', background: 'rgba(255,255,255,0.15)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>📺 Share</button>
+                    <button style={{ padding: '6px 10px', background: 'rgba(255,255,255,0.15)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>ðŸŽ¥ Start</button>
+                    <button style={{ padding: '6px 10px', background: 'rgba(255,255,255,0.15)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>ðŸŽ™ï¸ Mute</button>
+                    <button style={{ padding: '6px 10px', background: 'rgba(255,255,255,0.15)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>ðŸ“º Share</button>
                   </div>
                 </div>
                 <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: '120px', background: theme === 'pro' ? 'rgba(118,75,162,0.25)' : 'rgba(255,255,255,0.06)' }}>
                   <div style={{ flex: 1, overflowY: 'auto', padding: '8px' }}></div>
                   <div style={{ padding: '8px', display: 'flex', gap: '6px', alignItems: 'center', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
                     <textarea placeholder="Chat..." style={{ flex: 1, padding: '6px 8px', background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '6px', color: 'white', fontSize: '11px', resize: 'none', minHeight: '28px' }} />
-                    <button title="AI Assistant" style={{ width: '28px', height: '28px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '12px', cursor: 'pointer' }}>✨</button>
+                    <button title="AI Assistant" style={{ width: '28px', height: '28px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '12px', cursor: 'pointer' }}>âœ¨</button>
                     <button style={{ padding: '6px 12px', background: 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '11px', fontWeight: '600', cursor: 'pointer' }}>Send</button>
                   </div>
                 </div>
@@ -8284,36 +8161,36 @@ height: '28px',
                 <div style={{ flex: 2, display: 'flex' }}>
                   <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRight: '1px solid #333' }}>
                     <div style={{ textAlign: 'center', color: '#666' }}>
-                      <div style={{ fontSize: '32px' }}>👤</div>
+                      <div style={{ fontSize: '32px' }}>ðŸ‘¤</div>
                       <div style={{ fontSize: '10px', marginTop: '4px' }}>Host</div>
                     </div>
                   </div>
                   <div style={{ width: '70px', display: 'flex', flexDirection: 'column', gap: '2px', padding: '4px', overflowY: 'auto' }}>
-                    <div style={{ aspectRatio: '1', background: '#111', borderRadius: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#444', fontSize: '14px' }}>👤</div>
+                    <div style={{ aspectRatio: '1', background: '#111', borderRadius: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#444', fontSize: '14px' }}>ðŸ‘¤</div>
                     <div style={{ aspectRatio: '1', background: '#111', borderRadius: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#444', fontSize: '14px' }}>+</div>
                   </div>
                 </div>
                 <div style={{ padding: '6px 10px', borderTop: '1px solid rgba(255,255,255,0.15)', borderBottom: '1px solid rgba(255,255,255,0.15)', display: 'flex', gap: '6px', justifyContent: 'center', background: 'rgba(0,0,0,0.3)' }}>
-                  <button style={{ padding: '4px 8px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '4px', color: 'white', fontSize: '12px', cursor: 'pointer' }}>🎥</button>
-                  <button style={{ padding: '4px 8px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '4px', color: 'white', fontSize: '12px', cursor: 'pointer' }}>🎙️</button>
-                  <button style={{ padding: '4px 8px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '4px', color: 'white', fontSize: '12px', cursor: 'pointer' }}>📺</button>
+                  <button style={{ padding: '4px 8px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '4px', color: 'white', fontSize: '12px', cursor: 'pointer' }}>ðŸŽ¥</button>
+                  <button style={{ padding: '4px 8px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '4px', color: 'white', fontSize: '12px', cursor: 'pointer' }}>ðŸŽ™ï¸</button>
+                  <button style={{ padding: '4px 8px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '4px', color: 'white', fontSize: '12px', cursor: 'pointer' }}>ðŸ“º</button>
                   <button style={{ padding: '4px 8px', background: 'rgba(239,68,68,0.2)', border: 'none', borderRadius: '4px', color: '#ef4444', fontSize: '10px', cursor: 'pointer' }}>Leave</button>
                 </div>
                 <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: '100px', background: theme === 'pro' ? 'rgba(118,75,162,0.25)' : 'rgba(255,255,255,0.06)' }}>
                   <div style={{ flex: 1, overflowY: 'auto', padding: '8px' }}></div>
                   <div style={{ padding: '8px', display: 'flex', gap: '6px', alignItems: 'center', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
                     <textarea placeholder="Group chat..." style={{ flex: 1, padding: '6px 8px', background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '6px', color: 'white', fontSize: '11px', resize: 'none', minHeight: '28px' }} />
-                    <button title="AI Assistant" style={{ width: '28px', height: '28px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '12px', cursor: 'pointer' }}>✨</button>
+                    <button title="AI Assistant" style={{ width: '28px', height: '28px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '12px', cursor: 'pointer' }}>âœ¨</button>
                     <button style={{ padding: '6px 12px', background: 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '11px', fontWeight: '600', cursor: 'pointer' }}>Send</button>
                   </div>
                 </div>
               </div>
             )}
 
-            {/* BEAP Handshake Request — Send Handshake Delivery */}
+            {/* BEAP Handshake Request â€” Send Handshake Delivery */}
             {dockedPanelMode === 'handshake' && (
               <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: theme === 'pro' ? 'rgba(118,75,162,0.25)' : (theme === 'standard' ? '#ffffff' : 'rgba(255,255,255,0.06)'), minHeight: '280px', overflowY: 'auto' }}>
-                {/* Policy section — mirrors HandshakeInitiateModal in the Electron dashboard */}
+                {/* Policy section â€” mirrors HandshakeInitiateModal in the Electron dashboard */}
                 <div style={{ padding: '12px 16px', borderBottom: '1px solid rgba(147,51,234,0.14)' }}>
                   <h5 style={{ margin: '0 0 4px', fontSize: '11px', fontWeight: 600, color: theme === 'standard' ? '#6b7280' : '#aaa', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                     Default policy for newly attached context
@@ -8370,7 +8247,7 @@ height: '28px',
                     <div style={{ fontSize: '13px', opacity: dockedPanelMode === 'augmented-overlay' ? 0.8 : 0.6, textAlign: 'center', padding: '32px 20px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
                       {dockedPanelMode === 'augmented-overlay' ? (
                         <>
-                          <span style={{ fontSize: '24px' }}>🎯</span>
+                          <span style={{ fontSize: '24px' }}>ðŸŽ¯</span>
                           <span>Point with the cursor or select elements in order to ask questions or trigger automations directly in the UI.</span>
                         </>
                       ) : (
@@ -8441,15 +8318,15 @@ height: '28px',
                     borderTop: '1px solid rgba(168,85,247,0.2)',
                     fontSize: '11px', color: '#a855f7'
                   }}>
-                    <span>📄</span>
+                    <span>ðŸ“„</span>
                     <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      <strong>{pendingDocContent.name}</strong> attached — type your question and Send
+                      <strong>{pendingDocContent.name}</strong> attached â€” type your question and Send
                     </span>
                     <button
                       onClick={() => setPendingDocContent(null)}
                       style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#a855f7', fontSize: '14px', padding: 0, lineHeight: 1 }}
                       title="Remove attachment"
-                    >✕</button>
+                    >âœ•</button>
                   </div>
                 )}
 
@@ -8606,7 +8483,7 @@ height: '28px',
                         useBeapInboxStore.getState().selectMessage(messageId)
                       }}
                       replyComposerConfig={replyComposerConfig}
-                      onClassificationComplete={(count) => showNotification(`Analysis complete — ${count} message${count === 1 ? '' : 's'} classified`)}
+                      onClassificationComplete={(count) => showNotification(`Analysis complete â€” ${count} message${count === 1 ? '' : 's'} classified`)}
                       onArchiveComplete={(count) => showNotification(`Archived ${count} message${count === 1 ? '' : 's'}`)}
                     />
                   </InboxErrorBoundary>
@@ -8620,9 +8497,9 @@ height: '28px',
                 <div style={{ padding: '14px 18px', borderBottom: theme === 'standard' ? '1px solid rgba(147, 51, 234, 0.12)' : '1px solid rgba(255,255,255,0.1)' }}>
                   <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'standard' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Delivery Method</label>
                   <select value={handshakeDelivery} onChange={(e) => setHandshakeDelivery(e.target.value as 'email' | 'download' | 'p2p')} style={{ width: '100%', padding: '10px 12px', background: theme === 'standard' ? 'white' : '#1f2937', border: `1px solid ${theme === 'standard' ? 'rgba(147, 51, 234, 0.15)' : 'rgba(255,255,255,0.15)'}`, borderRadius: '8px', color: theme === 'standard' ? '#1f2937' : 'white', fontSize: '13px', cursor: 'pointer' }}>
-                    <option value="email" style={{ background: theme === 'standard' ? 'white' : '#1f2937', color: theme === 'standard' ? '#1f2937' : 'white' }}>📧 Email</option>
-                    <option value="p2p" style={{ background: theme === 'standard' ? 'white' : '#1f2937', color: theme === 'standard' ? '#1f2937' : 'white' }}>🔗 P2P</option>
-                    <option value="download" style={{ background: theme === 'standard' ? 'white' : '#1f2937', color: theme === 'standard' ? '#1f2937' : 'white' }}>💾 Download (USB/Wallet)</option>
+                    <option value="email" style={{ background: theme === 'standard' ? 'white' : '#1f2937', color: theme === 'standard' ? '#1f2937' : 'white' }}>ðŸ“§ Email</option>
+                    <option value="p2p" style={{ background: theme === 'standard' ? 'white' : '#1f2937', color: theme === 'standard' ? '#1f2937' : 'white' }}>ðŸ”— P2P</option>
+                    <option value="download" style={{ background: theme === 'standard' ? 'white' : '#1f2937', color: theme === 'standard' ? '#1f2937' : 'white' }}>ðŸ’¾ Download (USB/Wallet)</option>
                   </select>
                 </div>
                 
@@ -8635,7 +8512,7 @@ height: '28px',
                 }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <span style={{ fontSize: '16px' }}>🔗</span>
+                      <span style={{ fontSize: '16px' }}>ðŸ”—</span>
                       <span style={{ fontSize: '13px', fontWeight: '600', color: theme === 'standard' ? '#0f172a' : 'white' }}>Connected Email Accounts</span>
                     </div>
                     <button
@@ -8672,14 +8549,14 @@ height: '28px',
                       border: theme === 'standard' ? '1px dashed rgba(15,23,42,0.2)' : '1px dashed rgba(255,255,255,0.2)',
                       textAlign: 'center'
                     }}>
-                      <div style={{ fontSize: '24px', marginBottom: '8px' }}>📧</div>
+                      <div style={{ fontSize: '24px', marginBottom: '8px' }}>ðŸ“§</div>
                       <div style={{ fontSize: '13px', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)', marginBottom: '4px' }}>
                         {emailAccountsLoadError?.trim()
                           ? 'No accounts loaded (see message above).'
                           : 'No email accounts connected'}
                       </div>
                       <div style={{ fontSize: '11px', color: theme === 'standard' ? '#94a3b8' : 'rgba(255,255,255,0.5)' }}>
-                        Connect your email account to send BEAP™ messages
+                        Connect your email account to send BEAPâ„¢ messages
                       </div>
                     </div>
                   ) : (
@@ -8701,7 +8578,7 @@ height: '28px',
                         >
                           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                             <span style={{ fontSize: '18px' }}>
-                              {account.provider === 'gmail' ? '📧' : account.provider === 'microsoft365' ? '📨' : account.provider === 'zoho' ? '📬' : '✉️'}
+                              {account.provider === 'gmail' ? 'ðŸ“§' : account.provider === 'microsoft365' ? 'ðŸ“¨' : account.provider === 'zoho' ? 'ðŸ“¬' : 'âœ‰ï¸'}
                             </span>
                             <div>
                               <div style={{ fontSize: '13px', fontWeight: '500', color: theme === 'standard' ? '#0f172a' : 'white' }}>
@@ -8738,7 +8615,7 @@ height: '28px',
                               fontSize: '14px'
                             }}
                           >
-                            ✕
+                            âœ•
                           </button>
                         </div>
                       ))}
@@ -8757,10 +8634,10 @@ height: '28px',
                 </div>
                 )}
                 
-                {/* BEAP™ Message UI - Admin View */}
+                {/* BEAPâ„¢ Message UI - Admin View */}
                 <div style={{ padding: '12px 14px', borderBottom: `1px solid ${theme === 'standard' ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.1)'}`, display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  <span style={{ fontSize: '18px' }}>📦</span>
-                  <span style={{ fontSize: '13px', fontWeight: '600', color: theme === 'standard' ? '#1f2937' : 'white' }}>BEAP™ Message (required)</span>
+                  <span style={{ fontSize: '18px' }}>ðŸ“¦</span>
+                  <span style={{ fontSize: '13px', fontWeight: '600', color: theme === 'standard' ? '#1f2937' : 'white' }}>BEAPâ„¢ Message (required)</span>
                 </div>
                 <div style={{ flex: 1, padding: '14px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '12px' }}>
                   {/* Fingerprint */}
@@ -8785,15 +8662,15 @@ height: '28px',
                   {/* Delivery Method Panel - Adapts to recipient mode */}
                   <DeliveryMethodPanel deliveryMethod={handshakeDelivery} recipientMode={beapRecipientMode} selectedRecipient={selectedRecipient} emailTo={beapDraftTo} onEmailToChange={setBeapDraftTo} theme={theme} ourFingerprintShort={ourFingerprintShort} />
                   <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-                    <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'standard' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>BEAP™ Message (required)</label>
-                    <textarea className="beap-textarea" value={beapDraftMessage} onChange={(e) => setBeapDraftMessage(e.target.value)} placeholder="Public capsule text — required before send. This is the transport-visible message body." style={{ flex: 1, minHeight: '120px', background: theme === 'standard' ? 'white' : 'rgba(255,255,255,0.08)', border: theme === 'standard' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.15)', color: theme === 'standard' ? '#0f172a' : 'white', borderRadius: '6px', padding: '10px 12px', fontSize: '12px', lineHeight: '1.5', resize: 'none', outline: 'none', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' }} />
+                    <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'standard' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>BEAPâ„¢ Message (required)</label>
+                    <textarea className="beap-textarea" value={beapDraftMessage} onChange={(e) => setBeapDraftMessage(e.target.value)} placeholder="Public capsule text â€” required before send. This is the transport-visible message body." style={{ flex: 1, minHeight: '120px', background: theme === 'standard' ? 'white' : 'rgba(255,255,255,0.08)', border: theme === 'standard' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.15)', color: theme === 'standard' ? '#0f172a' : 'white', borderRadius: '6px', padding: '10px 12px', fontSize: '12px', lineHeight: '1.5', resize: 'none', outline: 'none', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' }} />
                   </div>
                   {/* Encrypted Message (qBEAP/PRIVATE only) */}
                   {beapRecipientMode === 'private' && (
                     <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-                      <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'standard' ? '#7c3aed' : '#c4b5fd', textTransform: 'uppercase', letterSpacing: '0.5px' }}>🔐 Encrypted Message (Private · qBEAP)</label>
+                      <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'standard' ? '#7c3aed' : '#c4b5fd', textTransform: 'uppercase', letterSpacing: '0.5px' }}>ðŸ” Encrypted Message (Private Â· qBEAP)</label>
                       <textarea className="beap-textarea" value={beapDraftEncryptedMessage} onChange={(e) => setBeapDraftEncryptedMessage(e.target.value)} placeholder="This message is encrypted, capsule-bound, and never transported outside the BEAP package." style={{ flex: 1, minHeight: '100px', background: theme === 'standard' ? 'rgba(139,92,246,0.05)' : 'rgba(139,92,246,0.15)', border: theme === 'standard' ? '1px solid rgba(139,92,246,0.3)' : '1px solid rgba(139,92,246,0.4)', color: theme === 'standard' ? '#0f172a' : 'white', borderRadius: '6px', padding: '10px 12px', fontSize: '12px', lineHeight: '1.5', resize: 'none', outline: 'none', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' }} />
-                      <div style={{ fontSize: '10px', color: theme === 'standard' ? '#7c3aed' : '#c4b5fd', marginTop: '4px' }}>⚠️ This content is authoritative when present and never leaves the encrypted capsule.</div>
+                      <div style={{ fontSize: '10px', color: theme === 'standard' ? '#7c3aed' : '#c4b5fd', marginTop: '4px' }}>âš ï¸ This content is authoritative when present and never leaves the encrypted capsule.</div>
                     </div>
                   )}
                   {/* Advanced: Session + Attachments (Fullscreen) */}
@@ -8802,7 +8679,7 @@ height: '28px',
                     <div style={{ marginBottom: '10px' }}>
                       <label style={{ fontSize: '10px', fontWeight: 500, marginBottom: '4px', display: 'block', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.6)' }}>Session (optional)</label>
                       <select value={beapDraftSessionId} onChange={(e) => setBeapDraftSessionId(e.target.value)} onClick={() => loadAvailableSessions()} style={{ width: '100%', background: theme === 'standard' ? '#ffffff' : '#1e293b', border: theme === 'standard' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.25)', color: theme === 'standard' ? '#0f172a' : '#f1f5f9', borderRadius: '6px', padding: '8px 10px', fontSize: '12px', outline: 'none', boxSizing: 'border-box', cursor: 'pointer' }}>
-                        <option value="" style={{ background: theme === 'standard' ? '#ffffff' : '#1e293b', color: theme === 'standard' ? '#0f172a' : '#f1f5f9' }}>{availableSessions.length === 0 ? '— No sessions available —' : '— Select a session —'}</option>
+                        <option value="" style={{ background: theme === 'standard' ? '#ffffff' : '#1e293b', color: theme === 'standard' ? '#0f172a' : '#f1f5f9' }}>{availableSessions.length === 0 ? 'â€” No sessions available â€”' : 'â€” Select a session â€”'}</option>
                         {availableSessions.map((s) => (<option key={s.key} value={s.key} style={{ background: theme === 'standard' ? '#ffffff' : '#1e293b', color: theme === 'standard' ? '#0f172a' : '#f1f5f9' }}>{s.name} ({new Date(s.timestamp).toLocaleDateString()})</option>))}
                       </select>
                     </div>
@@ -8821,11 +8698,11 @@ height: '28px',
                               <div key={a.id} style={{ background: theme === 'standard' ? 'rgba(0,0,0,0.03)' : 'rgba(255,255,255,0.05)', borderRadius: '4px', marginBottom: '4px', overflow: 'hidden' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 8px' }}>
                                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1, minWidth: 0 }}>
-                                    <span style={{ fontSize: '14px' }}>📄</span>
+                                    <span style={{ fontSize: '14px' }}>ðŸ“„</span>
                                     <div style={{ flex: 1, minWidth: 0 }}>
                                       <div style={{ fontSize: '11px', color: theme === 'standard' ? '#0f172a' : 'white', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.name}</div>
                                       <div style={{ fontSize: '9px', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.5)' }}>
-                                        {a.mime} · {(a.size / 1024).toFixed(0)} KB
+                                        {a.mime} Â· {(a.size / 1024).toFixed(0)} KB
                                       </div>
                                     </div>
                                   </div>
@@ -8987,7 +8864,7 @@ height: '28px',
                 borderTop: '1px solid rgba(255,255,255,0.20)'
               }}>
                 <div style={{ marginBottom: '8px', fontSize: '12px', fontWeight: '700', opacity: 0.85 }}>
-                  {showTriggerPrompt.mode === 'screenshot' ? '📸 Screenshot' : '🎥 Stream'}
+                  {showTriggerPrompt.mode === 'screenshot' ? 'ðŸ“¸ Screenshot' : 'ðŸŽ¥ Stream'}
                 </div>
                 {showTriggerPrompt.createTrigger && (
                   <input
@@ -9070,7 +8947,6 @@ height: '28px',
                           const triggers = result['optimando-tagged-triggers'] || []
                           triggers.push(triggerData)
                           chrome.storage.local.set({ 'optimando-tagged-triggers': triggers }, () => {
-                            console.log('✅ Trigger saved to storage:', triggerData)
                             setTriggers(triggers)
                             // Notify other contexts
                             try { chrome.runtime?.sendMessage({ type:'TRIGGERS_UPDATED' }) } catch {}
@@ -9102,7 +8978,6 @@ height: '28px',
                         // Use the trigger name as @trigger format for routing
                         const triggerText = triggerNameToUse.startsWith('@') ? triggerNameToUse : `@${triggerNameToUse}`
                         
-                        console.log('[Sidepanel] Auto-processing trigger creation:', { triggerText, hasImage: true })
                         
                         // Clear the prompt first
                         setShowTriggerPrompt(null)
@@ -9268,7 +9143,7 @@ height: '28px',
             letterSpacing: '0.5px',
             opacity: 0.95
           }}>
-            🖥️ Master Tab ({masterTabId})
+            ðŸ–¥ï¸ Master Tab ({masterTabId})
           </div>
         </div>
       )}
@@ -9414,7 +9289,7 @@ height: '28px',
                         e.currentTarget.style.transform = 'scale(1)'
                       }}
                     >
-                      ✏️
+                      âœï¸
                     </button>
                     <button
                       onClick={() => removeAgentBox(box.id)}
@@ -9446,7 +9321,7 @@ height: '28px',
                         e.currentTarget.style.transform = 'scale(1)'
                       }}
                     >
-                      ×
+                      Ã—
                     </button>
                   </div>
                 </div>
@@ -9468,7 +9343,7 @@ height: '28px',
                 >
                   <div style={{ fontSize: '13px', color: theme === 'dark' ? '#f1f5f9' : '#1e293b', lineHeight: '1.6' }}>
                     {isEnabled ? (
-                      box.output || <span style={{ opacity: 0.5, color: theme === 'dark' ? '#94a3b8' : '#64748b' }}>Ready for {box.title?.replace(/[📝🔍🎯🧮]/g, '').trim()}...</span>
+                      box.output || <span style={{ opacity: 0.5, color: theme === 'dark' ? '#94a3b8' : '#64748b' }}>Ready for {box.title?.replace(/[ðŸ“ðŸ”ðŸŽ¯ðŸ§®]/g, '').trim()}...</span>
                     ) : (
                       <span style={{ opacity: 0.7, color: theme === 'dark' ? '#94a3b8' : '#64748b', fontStyle: 'italic' }}>Agent disabled - toggle On to activate</span>
                     )}
@@ -9559,7 +9434,7 @@ height: '28px',
           }
         }}
       >
-        ➕ Add New Agent Box
+        âž• Add New Agent Box
       </button>
 
       {/* Runtime Controls Section */}
@@ -9583,7 +9458,7 @@ height: '28px',
           alignItems: 'center'
         }}>
           <span style={{ display: 'flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap' }}>
-            ⚡ Runtime Controls
+            âš¡ Runtime Controls
           </span>
           <div
             onClick={toggleViewMode}
@@ -9670,7 +9545,7 @@ height: '28px',
               e.currentTarget.style.boxShadow = '0 2px 6px rgba(0,0,0,0.2)'
             }}
           >
-            🔄 Sync
+            ðŸ”„ Sync
           </button>
           <button
             onClick={importSession}
@@ -9699,7 +9574,7 @@ height: '28px',
               e.currentTarget.style.boxShadow = '0 2px 6px rgba(0,0,0,0.2)'
             }}
           >
-            📥 Import
+            ðŸ“¥ Import
           </button>
           <button
             onClick={() => sendToContentScript('OPEN_BACKEND_CONFIG_LIGHTBOX')}
@@ -9728,7 +9603,7 @@ height: '28px',
               e.currentTarget.style.boxShadow = '0 2px 6px rgba(0,0,0,0.2)'
             }}
           >
-            ⚙️ Backend
+            âš™ï¸ Backend
           </button>
           <button
             onClick={() => sendToContentScript('OPEN_POLICY_LIGHTBOX')}
@@ -9758,7 +9633,7 @@ height: '28px',
               e.currentTarget.style.boxShadow = '0 2px 6px rgba(0,0,0,0.2)'
             }}
           >
-            📋 Policies
+            ðŸ“‹ Policies
           </button>
           <button
             onClick={openWRVault}
@@ -9809,7 +9684,7 @@ height: '28px',
               e.currentTarget.style.boxShadow = '0 2px 6px rgba(0,0,0,0.15)'
             }}
           >
-            🔒 WRVault
+            ðŸ”’ WRVault
           </button>
         </div>
       </div>
@@ -9864,7 +9739,7 @@ height: '28px',
           gap: '8px'
         }}>
           <span style={{ flexShrink: 0, lineHeight: 1.4 }}>
-            {notification.type === 'success' ? '✓' : notification.type === 'info' ? 'ℹ' : '✕'}
+            {notification.type === 'success' ? 'âœ“' : notification.type === 'info' ? 'â„¹' : 'âœ•'}
           </span>
           <span style={{ flex: 1, minWidth: 0, whiteSpace: 'pre-line', lineHeight: 1.45 }}>{notification.message}</span>
         </div>

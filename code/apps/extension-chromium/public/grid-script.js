@@ -1,11 +1,8 @@
 // Grid functionality for display grids
 // Prevent script from running multiple times
 if (window.gridScriptLoaded) {
-  console.log('⚠️ Grid script already loaded, skipping...');
 } else {
   window.gridScriptLoaded = true;
-  console.log('✅ Grid script loaded');
-  console.log('🔧 Setting up grid functionality...');
   
   // Get config from window.GRID_CONFIG (set by grid-display.js)
   var config = window.GRID_CONFIG || {};
@@ -27,9 +24,6 @@ if (window.gridScriptLoaded) {
   window.layout = layout;
   window.nextBoxNumber = nextBoxNumberFromConfig;
   
-  console.log('✅ Grid loaded successfully:', layout, 'Session:', sessionId);
-  console.log('🔧 Parent session key:', parentSessionKey);
-  console.log('📦 Next box number:', window.nextBoxNumber);
   
   if (layout && layout !== 'unknown') {
   document.title = 'AI Grid - ' + layout.toUpperCase();
@@ -37,21 +31,18 @@ if (window.gridScriptLoaded) {
   
   // Define openGridSlotEditor function immediately
   window.openGridSlotEditor = function(slotId) {
-    console.log('🔍 POPUP: openGridSlotEditor called with slotId:', slotId);
     const slot = document.querySelector('[data-slot-id="' + slotId + '"]');
     if (!slot) {
-      console.error('❌ POPUP: No slot found with id:', slotId);
+      console.error('âŒ POPUP: No slot found with id:', slotId);
       return;
     }
     
     const configStr = slot.getAttribute('data-slot-config') || '{}';
-    console.log('📋 POPUP: Slot config string:', configStr);
     let cfg = {};
     try { 
       cfg = JSON.parse(configStr);
-      console.log('📋 POPUP: Parsed config:', cfg);
     } catch(e) { 
-      console.error('❌ POPUP: Failed to parse config:', e);
+      console.error('âŒ POPUP: Failed to parse config:', e);
       cfg = {};
     }
     
@@ -67,7 +58,7 @@ if (window.gridScriptLoaded) {
       if (p === 'claude') return ['auto', 'claude-3-5-sonnet', 'claude-3-opus'];
       if (p === 'gemini') return ['auto', 'gemini-1.5-flash', 'gemini-1.5-pro'];
       if (p === 'grok') return ['auto', 'grok-2-mini', 'grok-2'];
-      if (p === 'image ai') return ['Nano Banana Pro', 'DALL·E 3', 'DALL·E 2', 'Flux Schnell', 'Flux Dev', 'SDXL', 'SD3 Medium', 'Stable Diffusion XL'];
+      if (p === 'image ai') return ['Nano Banana Pro', 'DALLÂ·E 3', 'DALLÂ·E 2', 'Flux Schnell', 'Flux Dev', 'SDXL', 'SD3 Medium', 'Stable Diffusion XL'];
       return ['auto'];
     }
 
@@ -75,7 +66,7 @@ if (window.gridScriptLoaded) {
       return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     }
 
-    /** Same source as WR Chat: ELECTRON_RPC llm.status → installed Ollama models */
+    /** Same source as WR Chat: ELECTRON_RPC llm.status â†’ installed Ollama models */
     function fetchLocalModelNames(cb) {
       if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.sendMessage) {
         cb([], 'Extension runtime unavailable');
@@ -105,7 +96,7 @@ if (window.gridScriptLoaded) {
     function fillModelSelect(modelSelect, provider, preferredModel) {
       var p = (provider || '').toLowerCase();
       if (p === 'local ai' || p === 'ollama') {
-        modelSelect.innerHTML = '<option value="">Loading installed models…</option>';
+        modelSelect.innerHTML = '<option value="">Loading installed modelsâ€¦</option>';
         modelSelect.disabled = true;
         fetchLocalModelNames(function (names, err) {
           modelSelect.disabled = false;
@@ -159,17 +150,10 @@ if (window.gridScriptLoaded) {
     
     // Defensive check: ensure providers array exists
     if (!providers || !Array.isArray(providers) || providers.length === 0) {
-      console.error('❌ POPUP: Providers array is invalid!', providers);
+      console.error('âŒ POPUP: Providers array is invalid!', providers);
     }
     
-    console.log('📋 POPUP: Providers:', providers, '| Current:', currentProvider, '| Models:', models);
     
-    console.log('📋 POPUP: Form will show:', {
-      title: cfg.title || ('Display Port ' + slotId),
-      agent: cfg.agent ? String(cfg.agent).replace('agent', '') : '',
-      provider: currentProvider,
-      model: cfg.model || 'auto'
-    });
     
     // Get parent session key from global config
     var parentSessionKey = (window.GRID_CONFIG && window.GRID_CONFIG.sessionKey) || '';
@@ -194,7 +178,6 @@ if (window.gridScriptLoaded) {
           var boxNum = box.boxNumber || box.number || 0;
           if (boxNum > maxBoxNumber) maxBoxNumber = boxNum;
         });
-        console.log('  ✓ Checked', session.agentBoxes.length, 'agent boxes, max:', maxBoxNumber);
       }
       
       // Check all display grid slots (backup check)
@@ -207,7 +190,6 @@ if (window.gridScriptLoaded) {
             });
           }
         });
-        console.log('  ✓ Checked', session.displayGrids.length, 'display grids');
       }
       
       return maxBoxNumber;
@@ -217,7 +199,6 @@ if (window.gridScriptLoaded) {
      * Try to get session directly from HTTP API (bypass background script)
      */
     function getSessionFromHttpApi(sessionKey, callback) {
-      console.log('🔄 Trying direct HTTP API for session:', sessionKey);
       
       // Try multiple ports in case of port conflicts
       var ports = [51248, 51249, 51250];
@@ -225,7 +206,7 @@ if (window.gridScriptLoaded) {
       
       function tryNextPort() {
         if (currentPortIndex >= ports.length) {
-          console.error('❌ All HTTP ports failed');
+          console.error('âŒ All HTTP ports failed');
           callback(null);
           return;
         }
@@ -239,11 +220,9 @@ if (window.gridScriptLoaded) {
             return response.json();
           })
           .then(function(result) {
-            console.log('✅ HTTP API success on port', port);
             callback(result.data || null);
           })
           .catch(function(err) {
-            console.log('⚠️ Port', port, 'failed:', err.message);
             currentPortIndex++;
             tryNextPort();
           });
@@ -253,16 +232,13 @@ if (window.gridScriptLoaded) {
     }
     
     function calculateNextBoxNumber(callback) {
-      console.log('🔍 calculateNextBoxNumber called, sessionKey:', parentSessionKey);
       
       if (!parentSessionKey) {
         var fallbackNumber = (typeof window.nextBoxNumber !== 'undefined') ? window.nextBoxNumber : 1;
-        console.log('⚠️ No session key, using fallback:', fallbackNumber);
         callback(fallbackNumber);
         return;
       }
       
-      console.log('🔍 Calculating next box number from SQLite...');
       
       // First try via background script
       if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
@@ -271,17 +247,15 @@ if (window.gridScriptLoaded) {
           sessionKey: parentSessionKey
         }, function(response) {
           if (chrome.runtime.lastError) {
-            console.error('❌ Background script error:', chrome.runtime.lastError.message);
+            console.error('âŒ Background script error:', chrome.runtime.lastError.message);
             // Fall back to direct HTTP API
             getSessionFromHttpApi(parentSessionKey, function(session) {
               if (session) {
                 var max = findMaxBoxNumber(session);
                 var next = max + 1;
-                console.log('✅ From HTTP API: next box number =', next);
                 callback(next);
               } else {
                 var fallbackNumber = (typeof window.nextBoxNumber !== 'undefined' && window.nextBoxNumber > 1) ? window.nextBoxNumber : 1;
-                console.log('⚠️ HTTP API failed, using fallback:', fallbackNumber);
                 callback(fallbackNumber);
               }
             });
@@ -289,17 +263,14 @@ if (window.gridScriptLoaded) {
           }
           
           if (!response || !response.success || !response.session) {
-            console.log('⚠️ No session from background, trying HTTP API...');
             // Fall back to direct HTTP API
             getSessionFromHttpApi(parentSessionKey, function(session) {
               if (session) {
                 var max = findMaxBoxNumber(session);
                 var next = max + 1;
-                console.log('✅ From HTTP API: next box number =', next);
                 callback(next);
               } else {
                 var fallbackNumber = (typeof window.nextBoxNumber !== 'undefined' && window.nextBoxNumber > 1) ? window.nextBoxNumber : 1;
-                console.log('⚠️ HTTP API failed, using fallback:', fallbackNumber);
                 callback(fallbackNumber);
               }
             });
@@ -309,21 +280,17 @@ if (window.gridScriptLoaded) {
           var session = response.session;
           var max = findMaxBoxNumber(session);
           var next = max + 1;
-          console.log('✅ From background script: next box number =', next, 'from max:', max);
           callback(next);
         });
       } else {
         // No chrome.runtime, try direct HTTP API
-        console.log('⚠️ No chrome.runtime, trying HTTP API...');
         getSessionFromHttpApi(parentSessionKey, function(session) {
           if (session) {
             var max = findMaxBoxNumber(session);
             var next = max + 1;
-            console.log('✅ From HTTP API: next box number =', next);
             callback(next);
           } else {
             var fallbackNumber = (typeof window.nextBoxNumber !== 'undefined') ? window.nextBoxNumber : 1;
-            console.log('⚠️ Using window fallback:', fallbackNumber);
             callback(fallbackNumber);
           }
         });
@@ -339,23 +306,16 @@ if (window.gridScriptLoaded) {
     var nextBoxNumber = existingBoxNumber !== null ? existingBoxNumber : 1;
     var displayBoxNumber = existingBoxNumber !== null ? String(existingBoxNumber).padStart(2, '0') : '...';
     
-    console.log('📋 POPUP: Dialog opening:', {
-      isEditing: isEditing,
-      existingBoxNumber: existingBoxNumber,
-      displayBoxNumber: displayBoxNumber,
-      cfgBoxNumber: cfg.boxNumber,
-      cfgBoxNumberType: typeof cfg.boxNumber
-    });
     
     dialog.innerHTML = 
       '<h3 style="margin:0;padding:16px 20px;font-size:18px;font-weight:600;color:#333;border-bottom:1px solid #eee;flex-shrink:0;">Setup Agent Box #' + slotId + '</h3>' +
       '<div style="flex:1;overflow-y:auto;overflow-x:hidden;padding:16px 20px;">' +
       
-      // 🆕 Agent Box Number field
+      // ðŸ†• Agent Box Number field
       '<div style="margin-bottom:14px;background:#f0f9ff;padding:12px;border-radius:8px;border:2px solid #3b82f6">' +
-        '<label style="display:block;margin-bottom:8px;font-weight:700;color:#1e40af;font-size:14px">📦 Agent Box Number</label>' +
+        '<label style="display:block;margin-bottom:8px;font-weight:700;color:#1e40af;font-size:14px">ðŸ“¦ Agent Box Number</label>' +
         '<input type="text" value="' + displayBoxNumber + '" readonly style="width:100%;padding:12px;border:2px solid #93c5fd;border-radius:8px;font-size:16px;font-weight:700;background:#dbeafe;color:#1e40af;text-align:center;letter-spacing:2px">' +
-        '<div style="font-size:11px;color:#1e40af;margin-top:6px;font-weight:600">✨ Auto-incremented from last box in session</div>' +
+        '<div style="font-size:11px;color:#1e40af;margin-top:6px;font-weight:600">âœ¨ Auto-incremented from last box in session</div>' +
       '</div>' +
       
       '<div style="margin-bottom:14px">' +
@@ -385,7 +345,7 @@ if (window.gridScriptLoaded) {
         '<select id="gs-model" style="width:100%;padding:12px;border:2px solid #ddd;border-radius:8px;font-size:14px;cursor:pointer;transition:border-color 0.2s">' +
           (currentProvider ?
             (models[0] === '__loading__'
-              ? '<option value="">Loading installed models…</option>'
+              ? '<option value="">Loading installed modelsâ€¦</option>'
               : models.map(function(m) {
                   var esc = String(m).replace(/&/g, '&amp;').replace(/"/g, '&quot;');
                   return '<option value="' + esc + '"' + ((cfg.model || '') === m ? ' selected' : '') + '>' + esc + '</option>';
@@ -399,8 +359,8 @@ if (window.gridScriptLoaded) {
       '</div>' +
       '<div style="margin-top:12px;margin-bottom:14px;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden">' +
         '<div id="gs-experts-header" style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:#f8fafc;cursor:pointer;user-select:none">' +
-          '<span style="font-weight:600;color:#334155;font-size:13px">📚 WR Experts <span style="font-weight:400;color:#94a3b8;font-size:11px">(agent-level knowledge)</span></span>' +
-          '<span id="gs-experts-toggle" style="font-size:11px;color:#64748b">▼</span>' +
+          '<span style="font-weight:600;color:#334155;font-size:13px">ðŸ“š WR Experts <span style="font-weight:400;color:#94a3b8;font-size:11px">(agent-level knowledge)</span></span>' +
+          '<span id="gs-experts-toggle" style="font-size:11px;color:#64748b">â–¼</span>' +
         '</div>' +
         '<div id="gs-experts-body" style="display:none;padding:12px;border-top:1px solid #e2e8f0">' +
           '<div id="gs-experts-list" style="display:flex;flex-direction:column;gap:8px;margin-bottom:8px"></div>' +
@@ -420,13 +380,11 @@ if (window.gridScriptLoaded) {
         '</div>' +
       '</div>';
     
-    console.log('✅ POPUP: Form HTML created');
     
     // Add dialog to overlay and overlay to document
     overlay.appendChild(dialog);
     document.body.appendChild(overlay);
     
-    console.log('✅ POPUP: Added to DOM');
     
     // Verify selects exist and recreate if missing
     setTimeout(function() {
@@ -434,7 +392,7 @@ if (window.gridScriptLoaded) {
       var modelSelect = document.getElementById('gs-model');
       
       if (!providerSelect || providerSelect.tagName !== 'SELECT') {
-        console.error('❌ POPUP: Provider select missing or wrong type! Found:', providerSelect);
+        console.error('âŒ POPUP: Provider select missing or wrong type! Found:', providerSelect);
         // Try to recreate it
         var providerLabel = dialog.querySelector('label[for="gs-provider"], label:has(+ #gs-provider)');
         if (providerLabel && providerLabel.nextElementSibling) {
@@ -449,12 +407,11 @@ if (window.gridScriptLoaded) {
           } else {
             providerLabel.parentElement.appendChild(newSelect);
           }
-          console.log('✅ POPUP: Recreated provider select');
         }
       }
       
       if (!modelSelect || modelSelect.tagName !== 'SELECT') {
-        console.error('❌ POPUP: Model select missing or wrong type! Found:', modelSelect);
+        console.error('âŒ POPUP: Model select missing or wrong type! Found:', modelSelect);
         // Try to recreate it
         var modelLabel = dialog.querySelector('label[for="gs-model"], label:has(+ #gs-model)');
         if (modelLabel && modelLabel.nextElementSibling) {
@@ -464,7 +421,7 @@ if (window.gridScriptLoaded) {
           newSelect.style.cssText = 'width:100%;padding:12px;border:2px solid #ddd;border-radius:8px;font-size:14px;cursor:pointer;transition:border-color 0.2s';
           if (currentProvider) {
             if (currentProvider.toLowerCase() === 'local ai' || storedProvider === 'ollama') {
-              newSelect.innerHTML = '<option value="">Loading installed models…</option>';
+              newSelect.innerHTML = '<option value="">Loading installed modelsâ€¦</option>';
             } else {
               var modelOpts = modelOptionsStatic(currentProvider);
               newSelect.innerHTML = modelOpts.map(function(m) {
@@ -481,10 +438,8 @@ if (window.gridScriptLoaded) {
           } else {
             modelLabel.parentElement.appendChild(newSelect);
           }
-          console.log('✅ POPUP: Recreated model select');
         }
       } else {
-        console.log('✅ POPUP: Both selects verified:', providerSelect.tagName, modelSelect.tagName);
       }
       
       // Attach provider change handler (works with original or recreated selects)
@@ -496,10 +451,8 @@ if (window.gridScriptLoaded) {
           var modelSelect = document.getElementById('gs-model');
           if (modelSelect) {
             fillModelSelect(modelSelect, provider, null);
-            console.log('🔄 POPUP: Updated models for provider:', provider);
           }
         };
-        console.log('✅ POPUP: Provider change handler attached');
       }
       if (finalModelSelect && currentProvider && (currentProvider.toLowerCase() === 'local ai' || storedProvider === 'ollama')) {
         fillModelSelect(finalModelSelect, currentProvider, cfg.model || null);
@@ -509,7 +462,6 @@ if (window.gridScriptLoaded) {
     
     // Only calculate next box number for NEW boxes (not when editing existing ones)
     if (!isEditing) {
-      console.log('🆕 CREATING new box - calculating next number from SQLite...');
       calculateNextBoxNumber(function(calculatedNumber) {
         nextBoxNumber = calculatedNumber;
         displayBoxNumber = String(nextBoxNumber).padStart(2, '0');
@@ -517,18 +469,15 @@ if (window.gridScriptLoaded) {
         var boxNumberInput = dialog.querySelector('input[readonly]');
         if (boxNumberInput) {
           boxNumberInput.value = displayBoxNumber;
-          console.log('✅ Updated box number display:', displayBoxNumber);
         }
         
         // Also update the agent number field to match box number (if not already set)
         var agentInput = document.getElementById('gs-agent');
         if (agentInput && !agentInput.value) {
           agentInput.value = String(nextBoxNumber);
-          console.log('✅ Set default agent number to match box number:', nextBoxNumber);
         }
       });
     } else {
-      console.log('📝 EDITING existing box - using stored boxNumber:', existingBoxNumber);
     }
     
     // Tools render & handlers (integrated)
@@ -537,7 +486,7 @@ if (window.gridScriptLoaded) {
       var wrap = dialog.querySelector('#gs-tools'); if (!wrap) return;
       wrap.innerHTML = (cfg.tools || []).map(function(name, idx){
         return '<span data-idx="'+idx+'" style="display:inline-flex;align-items:center;gap:6px;background:#eef2ff;color:#1e3a8a;border:1px solid #c7d2fe;padding:4px 8px;border-radius:999px;font-size:12px">'+
-               name + '<button class="gs-tool-rm" data-idx="'+idx+'" style="background:transparent;border:0;color:#1e3a8a;cursor:pointer;font-weight:700">×</button></span>'
+               name + '<button class="gs-tool-rm" data-idx="'+idx+'" style="background:transparent;border:0;color:#1e3a8a;cursor:pointer;font-weight:700">Ã—</button></span>'
       }).join('');
       (wrap.querySelectorAll('.gs-tool-rm') || []).forEach(function(btn){
         btn.addEventListener('click', function(){
@@ -577,7 +526,6 @@ if (window.gridScriptLoaded) {
       var titleInput = document.getElementById('gs-title');
       if (titleInput) {
         titleInput.focus();
-        console.log('✅ POPUP: Title input focused');
       }
     }, 0);
     
@@ -592,7 +540,6 @@ if (window.gridScriptLoaded) {
     
     // Cancel button
     document.getElementById('gs-cancel').onclick = function() {
-      console.log('❌ POPUP: Cancelled');
       overlay.remove();
     };
     
@@ -600,19 +547,12 @@ if (window.gridScriptLoaded) {
     document.getElementById('gs-delete').onclick = function() {
       // Show confirmation dialog
       if (confirm('Are you sure you want to delete this agent box?')) {
-        console.log('🗑️ POPUP: Deleting slot', slotId);
         
         // IMPORTANT: Save the identifier BEFORE clearing the config
         var boxIdentifier = cfg.identifier || '';
         var boxGridSessionId = cfg.gridSessionId || window.gridSessionId || 'unknown';
         var boxGridLayout = cfg.gridLayout || window.gridLayout || layout;
         
-        console.log('🔍 POPUP: Box to delete:', {
-          identifier: boxIdentifier,
-          slotId: slotId,
-          gridSessionId: boxGridSessionId,
-          gridLayout: boxGridLayout
-        });
         
         // Clear the slot's data attribute with empty config
         try {
@@ -625,14 +565,12 @@ if (window.gridScriptLoaded) {
           var dispEl = slot.querySelector('.slot-display-text');
           if (dispEl) dispEl.textContent = '';
           
-          console.log('✅ POPUP: Slot display cleared');
         } catch (e) {
-          console.error('❌ Error updating slot display:', e);
+          console.error('âŒ Error updating slot display:', e);
         }
         
         // Close dialog IMMEDIATELY (don't wait for background response)
         overlay.remove();
-        console.log('✅ POPUP: Dialog closed');
         
         // Get parent session key and send delete message (but don't wait for response)
         try {
@@ -648,13 +586,10 @@ if (window.gridScriptLoaded) {
               gridSessionId: boxGridSessionId,
               gridLayout: boxGridLayout
             });
-            console.log('📤 Delete message sent to background with identifier:', boxIdentifier);
           } else {
-            console.log('⚠️ No session key or identifier, skipping database deletion');
-            console.log('   parentSessionKey:', parentSessionKey, 'identifier:', boxIdentifier);
           }
         } catch (e) {
-          console.error('❌ Error sending delete message:', e);
+          console.error('âŒ Error sending delete message:', e);
         }
       }
     };
@@ -667,7 +602,7 @@ if (window.gridScriptLoaded) {
       expertsHeader.onclick = function() {
         var isOpen = expertsBody.style.display !== 'none';
         expertsBody.style.display = isOpen ? 'none' : 'block';
-        expertsToggle.textContent = isOpen ? '▼' : '▲';
+        expertsToggle.textContent = isOpen ? 'â–¼' : 'â–²';
       };
     }
     
@@ -686,7 +621,7 @@ if (window.gridScriptLoaded) {
           '<div style="font-size:10px;color:#cbd5e1;margin-top:2px">' + (expert.content || '').length + ' chars</div></div>' +
           '<div style="display:flex;gap:4px;flex-shrink:0">' +
             '<button class="gs-edit-expert" data-idx="' + idx + '" style="background:#eff6ff;border:1px solid #93c5fd;color:#2563eb;padding:3px 8px;border-radius:4px;cursor:pointer;font-size:11px">Edit</button>' +
-            '<button class="gs-del-expert" data-idx="' + idx + '" style="background:#fef2f2;border:1px solid #fca5a5;color:#dc2626;padding:3px 8px;border-radius:4px;cursor:pointer;font-size:11px">×</button>' +
+            '<button class="gs-del-expert" data-idx="' + idx + '" style="background:#fef2f2;border:1px solid #fca5a5;color:#dc2626;padding:3px 8px;border-radius:4px;cursor:pointer;font-size:11px">Ã—</button>' +
           '</div>';
         list.appendChild(row);
       });
@@ -756,7 +691,6 @@ if (window.gridScriptLoaded) {
       // Use existingBoxNumber for edits, or nextBoxNumber for new boxes
       var effectiveBoxNumber = (existingBoxNumber !== null) ? existingBoxNumber : nextBoxNumber;
       
-      console.log('💾 POPUP: Saving with boxNumber:', effectiveBoxNumber, '(isEditing:', isEditing, ')');
       
       // Build complete configuration object with all metadata
       var identifier = 'AB' + String(effectiveBoxNumber).padStart(2, '0') + String(agentNumParsed).padStart(2, '0');
@@ -794,7 +728,7 @@ if (window.gridScriptLoaded) {
       } else if (provider) {
         displayParts.push(toProviderLabelGS(provider));
       }
-      var displayText = displayParts.join(' · ');
+      var displayText = displayParts.join(' Â· ');
       var dispEl = slot.querySelector('.slot-display-text');
       if (dispEl) dispEl.textContent = displayText;
       
@@ -802,7 +736,7 @@ if (window.gridScriptLoaded) {
       var parentSessionKey = (window.GRID_CONFIG && window.GRID_CONFIG.sessionKey) || '';
       
       if (!parentSessionKey) {
-        alert('❌ No session key found! Cannot save.');
+        alert('âŒ No session key found! Cannot save.');
         overlay.remove();
         return;
       }
@@ -829,27 +763,19 @@ if (window.gridScriptLoaded) {
       
       // Field validation
       if (!agentBox.boxNumber) {
-        console.error('❌ VALIDATION ERROR: boxNumber is missing!');
-        alert('❌ Error: Box number is missing. Cannot save agent box.');
+        console.error('âŒ VALIDATION ERROR: boxNumber is missing!');
+        alert('âŒ Error: Box number is missing. Cannot save agent box.');
         overlay.remove();
         return;
       }
       
       if (!agentBox.identifier) {
-        console.error('❌ VALIDATION ERROR: identifier is missing!');
-        alert('❌ Error: Identifier is missing. Cannot save agent box.');
+        console.error('âŒ VALIDATION ERROR: identifier is missing!');
+        alert('âŒ Error: Identifier is missing. Cannot save agent box.');
         overlay.remove();
         return;
       }
       
-      console.log('📦 DIRECT SAVE: Agent box to save:', JSON.stringify(agentBox, null, 2));
-      console.log('✅ Field validation passed:', {
-        hasBoxNumber: !!agentBox.boxNumber,
-        hasIdentifier: !!agentBox.identifier,
-        hasTitle: !!agentBox.title,
-        hasSource: agentBox.source === 'display_grid',
-        hasGridInfo: !!agentBox.gridSessionId && !!agentBox.gridLayout
-      });
       
       // Collect all slot configurations for grid metadata
       var payload = {
@@ -869,7 +795,6 @@ if (window.gridScriptLoaded) {
       });
       
       // Save via background script to SQLite
-      console.log('💾 Saving via background script to SQLite...');
       chrome.runtime.sendMessage({
         type: 'SAVE_AGENT_BOX_TO_SQLITE',
         sessionKey: parentSessionKey,
@@ -882,28 +807,24 @@ if (window.gridScriptLoaded) {
         }
       }, function(response) {
         if (chrome.runtime.lastError) {
-          console.error('❌ SQLITE SAVE: Chrome runtime error:', chrome.runtime.lastError.message);
+          console.error('âŒ SQLITE SAVE: Chrome runtime error:', chrome.runtime.lastError.message);
           // Don't show popup - just log and close dialog
           overlay.remove();
           return;
         }
         
         if (!response || !response.success) {
-          console.error('❌ SQLITE SAVE: Failed:', response ? response.error : 'No response');
+          console.error('âŒ SQLITE SAVE: Failed:', response ? response.error : 'No response');
           // Don't show popup - just log and close dialog
           overlay.remove();
           return;
         }
         
-        console.log('✅ SQLITE SAVE: Success! Agent box saved to SQLite.');
-        console.log('📦 Saved agent box:', agentBox.identifier, '| Total boxes in session:', response.totalBoxes);
         
-        // ✅ Only increment nextBoxNumber for NEW boxes (not when editing)
+        // âœ… Only increment nextBoxNumber for NEW boxes (not when editing)
         if (!isEditing) {
           window.nextBoxNumber++;
-          console.log('📦 Incremented nextBoxNumber to:', window.nextBoxNumber, '(was new box)');
         } else {
-          console.log('📝 Not incrementing nextBoxNumber (was editing existing box)');
         }
         
         // Close dialog silently (no popup needed)
@@ -930,16 +851,13 @@ if (window.gridScriptLoaded) {
         }
       });
       
-      console.log('📦 Full payload to save:', payload);
       
       // Get parent session key from global config
       var parentSessionKey = (window.GRID_CONFIG && window.GRID_CONFIG.sessionKey) || '';
       
-      console.log('🔑 Parent session key:', parentSessionKey);
       
       // Try chrome.runtime.sendMessage first (if available)
       if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage && parentSessionKey) {
-        console.log('📤 Sending GRID_SAVE via chrome.runtime.sendMessage...');
         
         chrome.runtime.sendMessage({
           type: 'GRID_SAVE',
@@ -948,25 +866,21 @@ if (window.gridScriptLoaded) {
           timestamp: Date.now()
         }, function(response) {
           if (chrome.runtime.lastError) {
-            console.error('❌ chrome.runtime.sendMessage failed:', chrome.runtime.lastError);
+            console.error('âŒ chrome.runtime.sendMessage failed:', chrome.runtime.lastError);
             // Try window.opener fallback
             tryOpenerSave();
           } else if (response && response.success) {
-            console.log('✅ Save successful via background script!');
             
-            // ✅ Only increment nextBoxNumber for NEW boxes (not when editing)
+            // âœ… Only increment nextBoxNumber for NEW boxes (not when editing)
             if (!isEditing) {
               window.nextBoxNumber++;
-              console.log('📦 Incremented nextBoxNumber to:', window.nextBoxNumber, '(was new box)');
             } else {
-              console.log('📝 Not incrementing nextBoxNumber (was editing existing box)');
             }
-            console.log('📦 Saved agent box:', newConfig.identifier);
             
             // Close dialog silently
             overlay.remove();
           } else {
-            console.error('❌ Save failed:', response);
+            console.error('âŒ Save failed:', response);
             tryOpenerSave();
           }
         });
@@ -976,64 +890,49 @@ if (window.gridScriptLoaded) {
       }
       
       function tryOpenerSave() {
-        console.log('🔄 Trying window.opener relay...');
-        console.log('🔍 window.opener exists?', !!window.opener);
-        console.log('🔍 window.opener type:', typeof window.opener);
         
         if (window.opener) {
-          console.log('🔍 window.opener.optimandoSaveGridConfig type:', typeof window.opener.optimandoSaveGridConfig);
-          console.log('🔍 Available functions on window.opener:', Object.keys(window.opener).filter(k => typeof window.opener[k] === 'function').slice(0, 20));
         }
         
         // Try direct function call on parent window
         if (window.opener && typeof window.opener.optimandoSaveGridConfig === 'function') {
-          console.log('📤 Calling window.opener.optimandoSaveGridConfig directly...');
           
           window.opener.optimandoSaveGridConfig(payload, parentSessionKey)
             .then(function(response) {
-              console.log('✅ Save successful via window.opener function!');
               
-              // ✅ Only increment nextBoxNumber for NEW boxes (not when editing)
+              // âœ… Only increment nextBoxNumber for NEW boxes (not when editing)
               if (!isEditing) {
                 window.nextBoxNumber++;
-                console.log('📦 Incremented nextBoxNumber to:', window.nextBoxNumber, '(was new box)');
               } else {
-                console.log('📝 Not incrementing nextBoxNumber (was editing existing box)');
               }
-              console.log('📦 Saved agent box:', newConfig.identifier);
               
               // Close dialog silently
               overlay.remove();
             })
             .catch(function(error) {
-              console.error('❌ Opener function call failed:', error);
+              console.error('âŒ Opener function call failed:', error);
               alert('Failed to save: ' + (error.message || 'Unknown error'));
             });
         } else {
-          console.error('❌ No window.opener.optimandoSaveGridConfig function available!');
-          console.log('🔧 Attempting to call via postMessage as last resort...');
+          console.error('âŒ No window.opener.optimandoSaveGridConfig function available!');
           
           // Last resort: Try postMessage
           if (window.opener) {
             // Listen for response from parent
             var responseHandler = function(event) {
               if (event.data && event.data.type === 'OPTIMANDO_GRID_SAVE_SUCCESS') {
-                console.log('✅ Grid: Save successful via postMessage!');
                 window.removeEventListener('message', responseHandler);
                 
-                // ✅ Only increment nextBoxNumber for NEW boxes (not when editing)
+                // âœ… Only increment nextBoxNumber for NEW boxes (not when editing)
                 if (!isEditing) {
                   window.nextBoxNumber++;
-                  console.log('📦 Incremented nextBoxNumber to:', window.nextBoxNumber, '(was new box)');
                 } else {
-                  console.log('📝 Not incrementing nextBoxNumber (was editing existing box)');
                 }
-                console.log('📦 Saved agent box:', event.data.identifier || newConfig.identifier);
                 
                 // Close dialog silently
                 overlay.remove();
               } else if (event.data && event.data.type === 'OPTIMANDO_GRID_SAVE_ERROR') {
-                console.error('❌ Grid: Save failed via postMessage');
+                console.error('âŒ Grid: Save failed via postMessage');
                 window.removeEventListener('message', responseHandler);
                 alert('Failed to save: ' + (event.data.error || 'Unknown error'));
               }
@@ -1047,7 +946,6 @@ if (window.gridScriptLoaded) {
               sessionKey: parentSessionKey,
               timestamp: Date.now()
             }, '*');
-            console.log('📤 Sent postMessage to opener');
             
             // Set timeout to remove listener if no response
         setTimeout(function() {
@@ -1060,11 +958,9 @@ if (window.gridScriptLoaded) {
       }
       
       overlay.remove();
-      console.log('✅ POPUP: Dialog closed');
     };
   };
   
-  console.log('✅ openGridSlotEditor function defined and available globally');
 
   // --- Tools catalog integration ---
   function parseSlotConfig(slotEl){
@@ -1075,7 +971,7 @@ if (window.gridScriptLoaded) {
   }
   function openToolCatalog(slotId){
     var slot = document.querySelector('[data-slot-id="' + slotId + '"]');
-    if (!slot){ console.error('❌ TOOL: slot not found', slotId); return }
+    if (!slot){ console.error('âŒ TOOL: slot not found', slotId); return }
     var overlay = document.createElement('div');
     overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);backdrop-filter:blur(3px);z-index:2147483647;display:flex;align-items:center;justify-content:center';
     overlay.onclick = function(e){ if (e.target === overlay) overlay.remove() };
@@ -1123,12 +1019,11 @@ if (window.gridScriptLoaded) {
     }
   }, true);
 
-  // ✅ REMOVED: Old loading system that conflicted with locationId-based loading in grid-display.js
+  // âœ… REMOVED: Old loading system that conflicted with locationId-based loading in grid-display.js
   // Config loading is now handled in grid-display.js using locationId from session.agentBoxes
 
   // Fullscreen functionality
   function toggleFullscreen() {
-    console.log('🖥️ Fullscreen toggle clicked');
     
     if (!document.fullscreenElement && !document.webkitFullscreenElement && !document.mozFullScreenElement && !document.msFullscreenElement) {
       // Enter fullscreen
@@ -1142,7 +1037,6 @@ if (window.gridScriptLoaded) {
       } else if (elem.msRequestFullscreen) {
         elem.msRequestFullscreen();
       }
-      console.log('✅ Entering fullscreen mode');
     } else {
       // Exit fullscreen
       if (document.exitFullscreen) {
@@ -1154,7 +1048,6 @@ if (window.gridScriptLoaded) {
       } else if (document.msExitFullscreen) {
         document.msExitFullscreen();
       }
-      console.log('✅ Exiting fullscreen mode');
     }
   }
   
@@ -1164,13 +1057,12 @@ if (window.gridScriptLoaded) {
   // Attach event listeners to all edit buttons
   function attachEditButtonListeners() {
     const editButtons = document.querySelectorAll('.edit-slot');
-    console.log('🔧 Found', editButtons.length, 'edit buttons to attach listeners to');
     
     editButtons.forEach(function(btn) {
       const slotId = btn.getAttribute('data-slot-id') || btn.getAttribute('data-slot-num');
       
       if (!slotId) {
-        console.warn('⚠️ Edit button found without slot ID');
+        console.warn('âš ï¸ Edit button found without slot ID');
         return;
       }
       
@@ -1178,16 +1070,14 @@ if (window.gridScriptLoaded) {
       btn.addEventListener('click', function(e) {
         e.preventDefault();
         e.stopPropagation();
-        console.log('✏️ Edit button clicked for slot:', slotId);
         
         if (typeof window.openGridSlotEditor === 'function') {
           window.openGridSlotEditor(slotId);
         } else {
-          console.error('❌ openGridSlotEditor not available');
+          console.error('âŒ openGridSlotEditor not available');
         }
       });
       
-      console.log('✅ Attached listener to slot:', slotId);
     });
   }
   
@@ -1202,7 +1092,6 @@ if (window.gridScriptLoaded) {
   
   // Function to attach toggle listeners
   function attachToggleListeners() {
-    console.log('🔄 Attaching toggle listeners...');
     
     // Master toggle for entire grid
     var masterToggle = document.getElementById('master-grid-toggle');
@@ -1244,7 +1133,6 @@ if (window.gridScriptLoaded) {
           }
         });
         
-        console.log('✅ Master toggle: All slots ' + (isEnabled ? 'enabled' : 'disabled'));
       });
     }
     
@@ -1256,7 +1144,7 @@ if (window.gridScriptLoaded) {
       var slotId = toggle.getAttribute('data-slot-id');
       
       if (!slotId) {
-        console.warn('⚠️ Toggle found without slot ID');
+        console.warn('âš ï¸ Toggle found without slot ID');
         return;
       }
       
@@ -1281,11 +1169,9 @@ if (window.gridScriptLoaded) {
           }
         }
         
-        console.log('✅ Slot ' + slotId + ' toggle: ' + (isEnabled ? 'enabled' : 'disabled'));
       });
     });
     
-    console.log('✅ Toggle listeners attached');
   }
   
   window.attachToggleListeners = attachToggleListeners;
@@ -1356,7 +1242,7 @@ if (window.gridScriptLoaded) {
 
   function gridSlotEmptyPlaceholderHtml(cfg) {
     var agent = cfg.agent || '';
-    return '<div style="opacity: 0.6;">' + (agent ? 'Configured ✓' : 'Click ✏️ to configure') + '</div>';
+    return '<div style="opacity: 0.6;">' + (agent ? 'Configured âœ“' : 'Click âœï¸ to configure') + '</div>';
   }
 
   document.addEventListener('click', function(ev) {
@@ -1399,7 +1285,6 @@ if (window.gridScriptLoaded) {
         var boxId = message.data.agentBoxId;
         var boxUuid = message.data.agentBoxUuid || boxId;
         var output = message.data.output;
-        console.log('[GridScript] Received UPDATE_AGENT_BOX_OUTPUT for:', boxId, '(uuid:', boxUuid, ')');
 
         // Find the matching grid slot by checking each slot's config
         var slots = document.querySelectorAll('[data-slot-id]');
@@ -1424,7 +1309,6 @@ if (window.gridScriptLoaded) {
                   contentDiv.innerHTML = '<div style="word-break: break-word; width: 100%; font-size: 13px; line-height: 1.5;">' +
                     renderMarkdown(output) + '</div>';
                 }
-                console.log('[GridScript] Updated output in slot', slot.getAttribute('data-slot-id'));
               }
             }
           } catch (e) {
@@ -1433,8 +1317,6 @@ if (window.gridScriptLoaded) {
         });
       }
     });
-    console.log('✅ Grid output listener registered');
   }
   
-  console.log('✅ All grid functions loaded and available');
 }

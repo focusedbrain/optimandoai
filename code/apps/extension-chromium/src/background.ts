@@ -51,7 +51,7 @@ let mailGuardActiveTabId: number | null = null;
 let _cachedVsbt: string | null = null;
 
 // ---------------------------------------------------------------------------
-// VSBT TTL — the cached token expires after VSBT_MAX_AGE_MS.
+// VSBT TTL â€” the cached token expires after VSBT_MAX_AGE_MS.
 // If the Electron app is unreachable (crash, WS disconnect) the TTL ensures
 // the extension cannot keep using a stale session indefinitely.
 // The timestamp is set whenever _cacheVsbt(token) stores a non-null token.
@@ -61,7 +61,7 @@ export const VSBT_MAX_AGE_MS = 15 * 60 * 1000
 let _vsbtCachedAt = 0
 
 // ---------------------------------------------------------------------------
-// LAUNCH SECRET — per-launch HTTP authentication token.
+// LAUNCH SECRET â€” per-launch HTTP authentication token.
 // Received from the Electron main process via WebSocket handshake
 // (ELECTRON_HANDSHAKE message).  Attached as X-Launch-Secret header
 // on every HTTP request to 127.0.0.1:51248.  Rotates on every
@@ -70,13 +70,13 @@ let _vsbtCachedAt = 0
 let _launchSecret: string | null = null;
 
 // ---------------------------------------------------------------------------
-// WebMCP rate-limit tracking: maps tabId → last invocation timestamp (ms).
+// WebMCP rate-limit tracking: maps tabId â†’ last invocation timestamp (ms).
 // Enforces a minimum 2s gap between WEBMCP_FILL_PREVIEW calls per tab.
 // ---------------------------------------------------------------------------
 let _webMcpRateMap: Map<number, number> | null = null;
 
 // ---------------------------------------------------------------------------
-// WebMCP global rate limiter — sliding window (MAX_WEBMCP_PER_MIN in 60s)
+// WebMCP global rate limiter â€” sliding window (MAX_WEBMCP_PER_MIN in 60s)
 // ---------------------------------------------------------------------------
 /** Max WEBMCP_FILL_PREVIEW requests accepted globally in a 60-second window. */
 export const MAX_WEBMCP_PER_MIN = 20
@@ -85,7 +85,7 @@ const WEBMCP_WINDOW_MS = 60_000
 let _webMcpGlobalTimestamps: number[] = []
 
 // ---------------------------------------------------------------------------
-// WebMCP circuit breaker — trips after repeated rejection-class errors
+// WebMCP circuit breaker â€” trips after repeated rejection-class errors
 // ---------------------------------------------------------------------------
 /** Rejects in the observation window that trip the circuit. */
 export const WEBMCP_CB_THRESHOLD = 10
@@ -103,18 +103,18 @@ let _webMcpCbOpenedAt = 0
  * Fail-closed numeric sanitizer for rate-limit / circuit-breaker constants.
  *
  * Returns `fallback` if `value` is not a finite positive number.
- * Security degrades to STRICTER defaults — never looser.
+ * Security degrades to STRICTER defaults â€” never looser.
  */
 function _safePositiveInt(value: number, fallback: number): number {
   if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) return fallback
   return Math.floor(value)
 }
 
-/** Sanitized accessor for MAX_WEBMCP_PER_MIN (fallback: 10 — stricter). */
+/** Sanitized accessor for MAX_WEBMCP_PER_MIN (fallback: 10 â€” stricter). */
 function _effectiveMaxPerMin(): number { return _safePositiveInt(MAX_WEBMCP_PER_MIN, 10) }
 /** Sanitized accessor for WEBMCP_WINDOW_MS (fallback: 60 000). */
 function _effectiveWindowMs(): number { return _safePositiveInt(WEBMCP_WINDOW_MS, 60_000) }
-/** Sanitized accessor for WEBMCP_CB_THRESHOLD (fallback: 5 — stricter). */
+/** Sanitized accessor for WEBMCP_CB_THRESHOLD (fallback: 5 â€” stricter). */
 function _effectiveCbThreshold(): number { return _safePositiveInt(WEBMCP_CB_THRESHOLD, 5) }
 /** Sanitized accessor for WEBMCP_CB_WINDOW_MS (fallback: 30 000). */
 function _effectiveCbWindowMs(): number { return _safePositiveInt(WEBMCP_CB_WINDOW_MS, 30_000) }
@@ -140,12 +140,12 @@ function _recordWebMcpReject(now: number): void {
 
   if (_webMcpCbRejects.length >= cbThreshold) {
     _webMcpCbOpenedAt = now
-    console.warn('[BG] WEBMCP_CIRCUIT_OPEN: too many rejected requests — blocking for', cbCooldownMs, 'ms')
+    console.warn('[BG] WEBMCP_CIRCUIT_OPEN: too many rejected requests â€” blocking for', cbCooldownMs, 'ms')
   }
 }
 
 // ---------------------------------------------------------------------------
-// Audit Export — UI context allowlist
+// Audit Export â€” UI context allowlist
 //
 // EXPORT_AUDIT_LOG is privileged: only popup-chat.html and sidepanel.html may call
 // it, and only when the vault is unlocked (VSBT present).
@@ -165,7 +165,7 @@ export type AuditExportErrorCode = 'FORBIDDEN' | 'LOCKED' | 'HA_BLOCKED' | 'INTE
  * (popup or sidepanel), NOT from a content-script or external page.
  *
  * Fail-closed checks (all must pass):
- *   1. sender.tab must NOT be defined — content scripts always have a tab,
+ *   1. sender.tab must NOT be defined â€” content scripts always have a tab,
  *      whereas popup / sidepanel messages do not attach a tab object.
  *   2. sender.url must be a non-empty string starting with
  *      chrome-extension://<extensionId>/.
@@ -181,7 +181,7 @@ function _isExtensionUiContext(
 ): boolean {
   if (!sender || !sender.url || typeof sender.url !== 'string') return false
 
-  // ── Fail-closed: content scripts always have sender.tab ──
+  // â”€â”€ Fail-closed: content scripts always have sender.tab â”€â”€
   // Popup / sidepanel messages do NOT have sender.tab.
   if (sender.tab) return false
 
@@ -201,11 +201,11 @@ function _isExtensionUiContext(
  *
  * The VSBT is set on successful vault login and cleared on logout/lock/WS-close.
  * Expires after VSBT_MAX_AGE_MS (fail-closed: stale token = locked).
- * This is a synchronous, zero-overhead check — no Electron RPC needed.
+ * This is a synchronous, zero-overhead check â€” no Electron RPC needed.
  */
 function _isVaultUnlocked(): boolean {
   if (typeof _cachedVsbt !== 'string' || _cachedVsbt.length === 0) return false
-  // TTL check — if the token is older than VSBT_MAX_AGE_MS, treat as expired
+  // TTL check â€” if the token is older than VSBT_MAX_AGE_MS, treat as expired
   if (_vsbtCachedAt > 0 && (Date.now() - _vsbtCachedAt) >= VSBT_MAX_AGE_MS) {
     _cacheVsbt(null) // proactively clear expired token
     return false
@@ -217,13 +217,13 @@ function _isVaultUnlocked(): boolean {
  * Log an EXPORT_AUDIT_LOG access decision (allowed or blocked).
  *
  * Uses dynamic import of hardening to avoid top-level dependency.
- * Message is generic — no tabId, URL, sender.url, vault state, or secrets.
+ * Message is generic â€” no tabId, URL, sender.url, vault state, or secrets.
  *
  * Codes:
- *   EXPORT_AUDIT_ALLOWED          — successful export (info / security under HA)
- *   EXPORT_AUDIT_BLOCKED_CONTEXT  — sender is not an allowed UI context
- *   EXPORT_AUDIT_BLOCKED_LOCKED   — vault is locked / VSBT absent
- *   EXPORT_AUDIT_BLOCKED_HA       — blocked because HA mode is active (always security)
+ *   EXPORT_AUDIT_ALLOWED          â€” successful export (info / security under HA)
+ *   EXPORT_AUDIT_BLOCKED_CONTEXT  â€” sender is not an allowed UI context
+ *   EXPORT_AUDIT_BLOCKED_LOCKED   â€” vault is locked / VSBT absent
+ *   EXPORT_AUDIT_BLOCKED_HA       â€” blocked because HA mode is active (always security)
  *
  * @param code  Audit event code
  * @param msg   Short, safe message (no PII/secrets/URLs)
@@ -261,7 +261,7 @@ function _auditExportLog(
 async function ensureLaunchSecret(maxWaitMs = 10000): Promise<boolean> {
   if (_launchSecret) return true;
 
-  // Trigger WebSocket (re)connection — this is a no-op if already connected
+  // Trigger WebSocket (re)connection â€” this is a no-op if already connected
   try { await connectToWebSocketServer(); } catch { /* ignore */ }
 
   // Poll until the handshake delivers the secret or we time out
@@ -294,11 +294,9 @@ if (typeof chrome !== 'undefined' && chrome.storage?.session) {
       if (age < VSBT_MAX_AGE_MS) {
         _cachedVsbt = result._vsbt
         _vsbtCachedAt = result._vsbtAt
-        console.log('[BG] Restored VSBT from session storage')
       } else {
-        // Expired — clear stale session storage
+        // Expired â€” clear stale session storage
         chrome.storage.session.remove(['_vsbt', '_vsbtAt']).catch(() => {})
-        console.log('[BG] VSBT from session storage expired — discarded')
       }
     }
   }).catch(() => {})
@@ -323,11 +321,9 @@ const HEALTH_CHECK_TIMEOUT = 5000;    // 5 second timeout for health checks
  */
 function startHealthMonitor(): void {
   if (healthMonitorInterval) {
-    console.log('[BG-HEALTH] Monitor already running');
     return;
   }
   
-  console.log('[BG-HEALTH] Starting connection health monitor');
   
   // Initial health check after 5 seconds
   setTimeout(() => performHealthCheck(), 5000);
@@ -348,7 +344,7 @@ async function performHealthCheck(): Promise<void> {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), HEALTH_CHECK_TIMEOUT);
     
-    // Use /api/health instead of /api/orchestrator/status — the health endpoint
+    // Use /api/health instead of /api/orchestrator/status â€” the health endpoint
     // is always available and doesn't depend on optional services like the DB.
     // /api/orchestrator/status can return 500 if the SQLite service fails to init,
     // causing the extension to incorrectly report "Desktop app not running."
@@ -369,7 +365,6 @@ async function performHealthCheck(): Promise<void> {
     
     if (healthy) {
       if (!isElectronHealthy || consecutiveFailures > 0) {
-        console.log('[BG-HEALTH] ✅ Electron connection restored');
       }
       isElectronHealthy = true;
       consecutiveFailures = 0;
@@ -379,20 +374,16 @@ async function performHealthCheck(): Promise<void> {
   } catch {
     consecutiveFailures++;
     isElectronHealthy = false;
-    console.log(`[BG-HEALTH] ❌ Health check failed (${consecutiveFailures}/${MAX_CONSECUTIVE_FAILURES})`);
     
     if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
-      console.log('[BG-HEALTH] 🔄 Max failures reached, attempting recovery...');
       consecutiveFailures = 0;  // Reset to prevent spam
       
       // Try to restart Electron
       electronLaunchAttempted = false;  // Allow new launch attempt
       const launched = await ensureElectronRunning();
       if (launched) {
-        console.log('[BG-HEALTH] ✅ Electron recovered successfully');
         isElectronHealthy = true;
       } else {
-        console.log('[BG-HEALTH] ⚠️ Could not recover Electron, will retry next interval');
       }
     }
   }
@@ -462,7 +453,7 @@ const DEFAULT_RETRY_CONFIG = {
 };
 
 // =================================================================
-// Build Integrity Check — defense-in-depth kill-switch trigger
+// Build Integrity Check â€” defense-in-depth kill-switch trigger
 // =================================================================
 //
 // On extension startup, queries the Electron app's /api/integrity
@@ -471,7 +462,7 @@ const DEFAULT_RETRY_CONFIG = {
 //
 // This is a best-effort check: if the Electron app is not running
 // or the endpoint is unreachable, writes remain enabled (fail-open
-// for availability — the kill-switch can still be set manually).
+// for availability â€” the kill-switch can still be set manually).
 //
 
 async function checkElectronIntegrity(): Promise<void> {
@@ -494,7 +485,7 @@ async function checkElectronIntegrity(): Promise<void> {
     const status = await response.json()
 
     if (status && status.verified === false) {
-      console.warn('[BG-INTEGRITY] ⚠ BUILD NOT VERIFIED — enabling writes kill-switch')
+      console.warn('[BG-INTEGRITY] âš  BUILD NOT VERIFIED â€” enabling writes kill-switch')
       console.warn('[BG-INTEGRITY] Reason:', status.summary)
 
       // Enable the writes kill-switch via chrome.storage.local
@@ -506,10 +497,9 @@ async function checkElectronIntegrity(): Promise<void> {
         console.error('[BG-INTEGRITY] Failed to set kill-switch:', storageErr)
       }
     } else if (status && status.verified === true) {
-      console.log('[BG-INTEGRITY] Build integrity verified')
     }
   } catch {
-    // Electron not running or endpoint unreachable — fail open for availability
+    // Electron not running or endpoint unreachable â€” fail open for availability
     // The kill-switch can still be manually enabled if needed.
   }
 }
@@ -620,7 +610,6 @@ async function isElectronReady(): Promise<{ running: boolean; ready: boolean; oa
 async function ensureElectronRunning(): Promise<boolean> {
   // Check if already running
   if (await isElectronRunning()) {
-    console.log('[BG] ✅ Electron app is already running');
     return true;
   }
   
@@ -633,7 +622,7 @@ async function ensureElectronRunning(): Promise<boolean> {
  */
 function calculateBackoff(attempt: number, baseDelay: number, maxDelay: number): number {
   const delay = Math.min(baseDelay * Math.pow(2, attempt), maxDelay);
-  // Add jitter (±25%)
+  // Add jitter (Â±25%)
   const jitter = delay * 0.25 * (Math.random() * 2 - 1);
   return Math.floor(delay + jitter);
 }
@@ -684,7 +673,7 @@ async function electronRequest(
   if (!electronRunning) {
     return { 
       ok: false, 
-      error: 'WR Desk™ desktop app is not running. Please start it manually or check if it is installed.',
+      error: 'WR Deskâ„¢ desktop app is not running. Please start it manually or check if it is installed.',
       errorCode: 'ELECTRON_NOT_RUNNING'
     };
   }
@@ -705,16 +694,14 @@ async function electronRequest(
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     if (attempt > 0) {
       const delay = calculateBackoff(attempt - 1, baseDelayMs, maxDelayMs);
-      console.log(`[BG] Retry ${attempt}/${maxRetries} after ${delay}ms...`);
       await new Promise(r => setTimeout(r, delay));
       
       // Check if Electron is still running before retry
       if (!(await isElectronRunning())) {
-        console.log('[BG] Electron stopped running, attempting to restart...');
         if (!(await ensureElectronRunning())) {
           return {
             ok: false,
-            error: 'WR Desk™ desktop app stopped unexpectedly. Please restart it.',
+            error: 'WR Deskâ„¢ desktop app stopped unexpectedly. Please restart it.',
             errorCode: 'ELECTRON_STOPPED'
           };
         }
@@ -723,7 +710,6 @@ async function electronRequest(
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => {
-      console.log(`[BG] Request timeout after ${timeoutMs}ms: ${endpoint}`);
       controller.abort();
     }, timeoutMs);
 
@@ -778,7 +764,7 @@ async function electronRequest(
       }
 
       const data = await response.json();
-      /** WR Desk APIs use `{ ok: boolean, data?, error? }` with HTTP 200 — honor body.ok for truthful success. */
+      /** WR Desk APIs use `{ ok: boolean, data?, error? }` with HTTP 200 â€” honor body.ok for truthful success. */
       if (data && typeof data === 'object' && 'ok' in data && data.ok === false) {
         const body = data as {
           ok?: boolean
@@ -823,7 +809,7 @@ async function electronRequest(
       }
 
       if (err.message?.includes('Failed to fetch') || err.message?.includes('NetworkError')) {
-        lastError = 'Cannot connect to WR Desk™ desktop app';
+        lastError = 'Cannot connect to WR Deskâ„¢ desktop app';
         lastErrorCode = 'NETWORK_ERROR';
         continue;
       }
@@ -836,7 +822,7 @@ async function electronRequest(
   // All retries exhausted
   return { 
     ok: false, 
-    error: `${lastError}. Please try again or restart WR Desk™.`,
+    error: `${lastError}. Please try again or restart WR Deskâ„¢.`,
     errorCode: lastErrorCode
   };
 }
@@ -885,14 +871,12 @@ function connectToWebSocketServer(forceReconnect = false): Promise<boolean> {
     
     // If already connected, resolve immediately
     if (ws && ws.readyState === WebSocket.OPEN) {
-      console.log('[BG] ✅ WebSocket already connected');
       resolve(true);
       return;
     }
     
     // If connecting, wait for result
     if (ws && ws.readyState === WebSocket.CONNECTING && !forceReconnect) {
-      console.log('[BG] ⏳ WebSocket connection in progress...');
       // Wait up to 3 seconds for connection
       const checkInterval = setInterval(() => {
         if (ws && ws.readyState === WebSocket.OPEN) {
@@ -924,13 +908,11 @@ function connectToWebSocketServer(forceReconnect = false): Promise<boolean> {
     const wsUrl = 'ws://127.0.0.1:51247/';
 
     try {
-      console.log(`[BG] 🔗 Connecting to WebSocket (attempt ${connectionAttempts}): ${wsUrl}`);
 
       ws = new WebSocket(wsUrl);
       
       const connectionTimeout = setTimeout(() => {
         if (ws && ws.readyState === WebSocket.CONNECTING) {
-          console.log('[BG] ⏱️ Connection timeout, closing...');
           try { ws.close(); } catch {}
           ws = null;
           isConnecting = false;
@@ -943,7 +925,6 @@ function connectToWebSocketServer(forceReconnect = false): Promise<boolean> {
         isConnecting = false;
         connectionAttempts = 0; // Reset on success
         lastConnectionTime = Date.now();
-        console.log('[BG] ✅ WebSocket connected successfully!');
 
         // Send initial ping
         ws?.send(JSON.stringify({ type: 'ping', from: 'extension', timestamp: Date.now() }));
@@ -960,7 +941,6 @@ function connectToWebSocketServer(forceReconnect = false): Promise<boolean> {
         
         // Auto-restore MailGuard if it was active before disconnect
         if (mailGuardShouldBeActive && lastMailGuardWindowInfo) {
-          console.log('[BG] 🛡️ Auto-restoring MailGuard overlay after reconnection...');
           try {
             ws?.send(JSON.stringify({ 
               type: 'MAILGUARD_ACTIVATE', 
@@ -982,7 +962,6 @@ function connectToWebSocketServer(forceReconnect = false): Promise<boolean> {
           
           // Check if this is a vault RPC response
           if (data.id && globalThis.vaultRpcCallbacks && globalThis.vaultRpcCallbacks.has(data.id)) {
-            console.log('[BG] Vault RPC response received for ID:', data.id)
             const callback = globalThis.vaultRpcCallbacks.get(data.id)
             globalThis.vaultRpcCallbacks.delete(data.id)
             callback?.(data)
@@ -991,7 +970,6 @@ function connectToWebSocketServer(forceReconnect = false): Promise<boolean> {
           
           // Check if this is an email gateway response
           if (data.id && globalThis.emailCallbacks && globalThis.emailCallbacks.has(data.id)) {
-            console.log('[BG] 📧 Email response received for ID:', data.id)
             const callback = globalThis.emailCallbacks.get(data.id)
             globalThis.emailCallbacks.delete(data.id)
             callback?.(data)
@@ -1008,13 +986,10 @@ function connectToWebSocketServer(forceReconnect = false): Promise<boolean> {
               // HTTP request.  Without it, the server returns 401.
               if (data.launchSecret && typeof data.launchSecret === 'string') {
                 _launchSecret = data.launchSecret
-                console.log('[BG] 🔑 Launch secret received from Electron handshake')
               }
               if (data.message) {
-                console.log('[BG] 📋 Electron Handshake:', data.message)
               }
             } else if (data.type === 'ELECTRON_LOG') {
-              console.log('[BG] 📋 Electron Log:', data.message, data.rawMessage || data.parsedMessage || '')
               try { chrome.runtime.sendMessage({ type: 'ELECTRON_LOG', data }) } catch {}
             } else if (data.type === 'SELECTION_RESULT' || data.type === 'SELECTION_RESULT_IMAGE' || data.type === 'SELECTION_RESULT_VIDEO') {
               const kind = data.kind || (data.type.includes('VIDEO') ? 'video' : 'image')
@@ -1030,14 +1005,12 @@ function connectToWebSocketServer(forceReconnect = false): Promise<boolean> {
               try { chrome.runtime.sendMessage({ type: 'TRIGGERS_UPDATED' }) } catch {}
             } else if (data.type === 'P2P_BEAP_RECEIVED') {
               const handshakeId = typeof data.handshakeId === 'string' ? data.handshakeId : ''
-              console.log('[BG] P2P BEAP received notification', handshakeId)
               try {
                 chrome.runtime.sendMessage({ type: 'P2P_BEAP_RECEIVED', handshakeId })
               } catch {
-                /* no receiver (e.g. inbox not open) — 5s poll will catch pending rows */
+                /* no receiver (e.g. inbox not open) â€” 5s poll will catch pending rows */
               }
             } else if (data.type === 'SHOW_TRIGGER_PROMPT') {
-              console.log('📝 Received SHOW_TRIGGER_PROMPT from Electron:', data)
               chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
                 const tabId = tabs[0]?.id
                 const tabUrl = tabs[0]?.url || ''
@@ -1056,14 +1029,12 @@ function connectToWebSocketServer(forceReconnect = false): Promise<boolean> {
                 }
                 
                 try { chrome.tabs.sendMessage(tabId, message) } catch (e) {
-                  console.log('❌ Failed to send SHOW_TRIGGER_PROMPT to content script:', e)
                 }
                 try { chrome.runtime.sendMessage(message) } catch {}
               })
             } 
             // ===== MAILGUARD HANDLERS =====
             else if (data.type === 'MAILGUARD_ACTIVATED') {
-              console.log('[BG] 🛡️ MailGuard activated')
               // Query all email tabs (Gmail and Outlook)
               chrome.tabs.query({}, (tabs) => {
                 tabs.filter(t => 
@@ -1078,7 +1049,6 @@ function connectToWebSocketServer(forceReconnect = false): Promise<boolean> {
                 })
               })
             } else if (data.type === 'MAILGUARD_DEACTIVATED') {
-              console.log('[BG] 🛡️ MailGuard deactivated')
               // Query all email tabs (Gmail and Outlook)
               chrome.tabs.query({}, (tabs) => {
                 tabs.filter(t => 
@@ -1096,11 +1066,9 @@ function connectToWebSocketServer(forceReconnect = false): Promise<boolean> {
               // Open popup from Electron dashboard request
               // Guard: prevent multiple popups from rapid/double clicks
               if (creatingDashboardPopup) {
-                console.log('[BG] 📨 OPEN_COMMAND_CENTER_POPUP ignored (creation already in progress)')
                 return
               }
               creatingDashboardPopup = true
-              console.log('[BG] 📨 OPEN_COMMAND_CENTER_POPUP from Electron, launchMode:', data.launchMode, 'bounds:', data.bounds, 'windowState:', data.windowState)
               const themeHint = typeof data.theme === 'string' ? data.theme : null
               const launchModeHint = typeof data.launchMode === 'string' ? data.launchMode : null
               const dashboardBounds = data.bounds && typeof data.bounds === 'object' ? data.bounds : null
@@ -1129,7 +1097,6 @@ function connectToWebSocketServer(forceReconnect = false): Promise<boolean> {
 
               const trackPopupId = (winId: number) => {
                 dashboardPopupWindowId = winId
-                console.log('[BG] 📌 Tracking popup window id for focus-restore:', winId)
               }
               
               // Prevent duplicates: if our tracked popup already exists, update its bounds and focus
@@ -1186,14 +1153,12 @@ function connectToWebSocketServer(forceReconnect = false): Promise<boolean> {
               }
             } else if (data.type === 'CLOSE_COMMAND_CENTER_POPUP') {
               // Close popup on logout from Electron dashboard
-              console.log('[BG] 📨 CLOSE_COMMAND_CENTER_POPUP from Electron - closing popup window')
               try {
                 chrome.windows.getAll({ populate: false, windowTypes: ['popup'] }, (wins) => {
                   wins.forEach(w => {
                     if (w.type === 'popup' && typeof w.id === 'number') {
                       try {
                         chrome.windows.remove(w.id)
-                        console.log('[BG] ✅ Closed popup window:', w.id)
                       } catch {}
                     }
                   })
@@ -1202,7 +1167,6 @@ function connectToWebSocketServer(forceReconnect = false): Promise<boolean> {
                 console.error('[BG] Error closing popup:', err)
               }
             } else if (data.type === 'MAILGUARD_EXTRACT_EMAIL') {
-              console.log('[BG] 🛡️ MailGuard extract email request:', data.rowId)
               // Query both Gmail and Outlook tabs
               chrome.tabs.query({ active: true }, (tabs) => {
                 const emailTab = tabs.find(t => 
@@ -1212,15 +1176,12 @@ function connectToWebSocketServer(forceReconnect = false): Promise<boolean> {
                   t.url?.includes('outlook.office365.com')
                 )
                 if (emailTab?.id) {
-                  console.log('[BG] 🛡️ Sending extract request to tab:', emailTab.url)
                   try { chrome.tabs.sendMessage(emailTab.id, { type: 'MAILGUARD_EXTRACT_EMAIL', rowId: data.rowId }) } catch {}
                 } else {
-                  console.log('[BG] 🛡️ No email tab found for extraction')
                 }
               })
             } else if (data.type === 'MAILGUARD_SCROLL') {
               // Forward scroll events to email tabs for passthrough scrolling
-              console.log('[BG] 🛡️ MAILGUARD_SCROLL received, forwarding to tabs...')
               chrome.tabs.query({}, (tabs) => {
                 const emailTabs = tabs.filter(t => 
                   t.url?.includes('mail.google.com') || 
@@ -1228,10 +1189,8 @@ function connectToWebSocketServer(forceReconnect = false): Promise<boolean> {
                   t.url?.includes('outlook.office.com') ||
                   t.url?.includes('outlook.office365.com')
                 )
-                console.log('[BG] 🛡️ Found', emailTabs.length, 'email tabs')
                 emailTabs.forEach(tab => {
                   if (tab.id) {
-                    console.log('[BG] 🛡️ Sending scroll to tab:', tab.id, tab.url)
                     try { 
                       chrome.tabs.sendMessage(tab.id, { 
                         type: 'MAILGUARD_SCROLL', 
@@ -1241,13 +1200,11 @@ function connectToWebSocketServer(forceReconnect = false): Promise<boolean> {
                         y: data.y
                       }) 
                     } catch (e) {
-                      console.log('[BG] 🛡️ Failed to send scroll:', e)
                     }
                   }
                 })
               })
             } else if (data.type === 'MAILGUARD_STATUS_RESPONSE') {
-              console.log('[BG] 🛡️ MailGuard status:', data.active)
               // Query all email tabs (Gmail and Outlook)
               chrome.tabs.query({}, (tabs) => {
                 tabs.filter(t => 
@@ -1270,7 +1227,6 @@ function connectToWebSocketServer(forceReconnect = false): Promise<boolean> {
 
       ws.addEventListener('error', (error) => {
         clearTimeout(connectionTimeout);
-        console.log(`[BG] ❌ WebSocket error`);
         isConnecting = false;
         chrome.action.setBadgeText({ text: 'OFF' });
         chrome.action.setBadgeBackgroundColor({ color: '#FF0000' });
@@ -1280,13 +1236,12 @@ function connectToWebSocketServer(forceReconnect = false): Promise<boolean> {
 
       ws.addEventListener('close', (event) => {
         clearTimeout(connectionTimeout);
-        console.log(`[BG] 🔌 WebSocket closed (Code: ${event.code})`);
         ws = null;
         isConnecting = false;
         
         // Fail-closed: clear VSBT on WS disconnect.  If Electron crashed or
         // was killed, the vault session is no longer valid.  The user must
-        // re-unlock after reconnection.  This closes the "Electron crash →
+        // re-unlock after reconnection.  This closes the "Electron crash â†’
         // stale VSBT" staleness window.
         _cacheVsbt(null)
         
@@ -1298,7 +1253,6 @@ function connectToWebSocketServer(forceReconnect = false): Promise<boolean> {
         
         // Quick reconnect with exponential backoff (max 5 seconds)
         const delay = Math.min(500 * Math.pow(1.5, connectionAttempts), 5000);
-        console.log(`[BG] 🔄 Reconnecting in ${delay}ms...`);
         setTimeout(() => {
           if (!ws || ws.readyState !== WebSocket.OPEN) {
             connectToWebSocketServer();
@@ -1309,7 +1263,6 @@ function connectToWebSocketServer(forceReconnect = false): Promise<boolean> {
       });
 
     } catch (error) {
-      console.log(`[BG] ❌ Connection error: ${error}`);
       isConnecting = false;
       chrome.action.setBadgeBackgroundColor({ color: '#FF0000' });
       resolve(false);
@@ -1324,7 +1277,6 @@ async function ensureConnection(maxRetries = 3): Promise<boolean> {
       return true;
     }
     
-    console.log(`[BG] 🔄 Ensuring connection (attempt ${i + 1}/${maxRetries})...`);
     const connected = await connectToWebSocketServer(i > 0); // Force reconnect after first attempt
     
     if (connected) {
@@ -1350,12 +1302,10 @@ function startHeartbeat() {
       try {
         ws.send(JSON.stringify({ type: 'ping', from: 'extension', timestamp: Date.now() }));
       } catch (err) {
-        console.log('[BG] 💔 Heartbeat send failed, reconnecting...');
         stopHeartbeat();
         connectToWebSocketServer();
       }
     } else {
-      console.log('[BG] 💔 Heartbeat: connection lost, reconnecting...');
       stopHeartbeat();
       connectToWebSocketServer();
     }
@@ -1373,7 +1323,6 @@ function stopHeartbeat() {
 // Start automatic connection with aggressive retry
 function startAutoConnect() {
   if (!WS_ENABLED) return;
-  console.log('[BG] 🚀 Starting WebSocket auto-connect...');
 
   // Connect immediately
   connectToWebSocketServer();
@@ -1403,7 +1352,6 @@ function toggleSidebars() {
     // Update status for this tab
     tabSidebarStatus.set(tabId, newStatus);
     
-    console.log(`🔄 Tab ${tabId}: Sidebars ${newStatus ? 'einblenden' : 'ausblenden'}`);
     
     // Send message to this specific tab
     try {
@@ -1412,7 +1360,7 @@ function toggleSidebars() {
         visible: newStatus 
       });
     } catch (err) {
-      console.warn('⚠️ Failed to send message to tab, it may have closed:', err)
+      console.warn('âš ï¸ Failed to send message to tab, it may have closed:', err)
     }
 
     // Update badge to show status for current tab
@@ -1436,11 +1384,9 @@ function setupKeepAlive() {
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === 'keepAlive') {
     // Just wake up - the alarm listener itself keeps the service worker alive
-    console.log('[BG] ⏰ Keep-alive ping');
   } else if (alarm.name === 'checkConnection') {
     // Check and reconnect if needed
     if (!ws || ws.readyState !== WebSocket.OPEN) {
-      console.log('[BG] ⏰ Connection check: not connected, reconnecting...');
       connectToWebSocketServer();
     }
   }
@@ -1448,7 +1394,6 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 
 // Start connection when extension loads
 chrome.runtime.onStartup.addListener(() => {
-  console.log('[BG] 🚀 Extension started');
   setupKeepAlive();
   if (WS_ENABLED) {
     connectToWebSocketServer();
@@ -1457,7 +1402,6 @@ chrome.runtime.onStartup.addListener(() => {
 });
 
 chrome.runtime.onInstalled.addListener(() => {
-  console.log('[BG] 📦 Extension installed');
   setupKeepAlive();
   if (WS_ENABLED) {
     connectToWebSocketServer();
@@ -1467,7 +1411,6 @@ chrome.runtime.onInstalled.addListener(() => {
 
 // Also try to connect when service worker wakes up for any reason
 if (WS_ENABLED) {
-  console.log('[BG] 🔌 Service worker active, checking connection...');
   setupKeepAlive();
   // Small delay to let things initialize
   setTimeout(() => {
@@ -1487,14 +1430,12 @@ chrome.action.onClicked.addListener(async (tab) => {
   try {
     // Check if display grids are active for this tab
     if (tab.id && tabDisplayGridsActive.get(tab.id)) {
-      console.log('🚫 Side panel blocked - display grids are active');
       return;
     }
     
     // Open side panel for the current tab
     if (tab.id && chrome.sidePanel) {
       await chrome.sidePanel.open({ tabId: tab.id })
-      console.log('✅ Side panel opened')
     }
     
     // Check if user is logged in - if not, open wrdesk.com immediately
@@ -1525,19 +1466,16 @@ async function openWrdeskHomeIfNeeded(): Promise<void> {
     const { wrdeskHomeOpenedAt } = await chrome.storage.session.get('wrdeskHomeOpenedAt');
     const now = Date.now();
     if (wrdeskHomeOpenedAt && (now - wrdeskHomeOpenedAt) < 5000) {
-      console.log('[BG] openWrdeskHomeIfNeeded: debounced (opened recently)');
       return;
     }
     
     // Check if wrdesk.com is already open in any tab
     const existingTabs = await chrome.tabs.query({ url: 'https://wrdesk.com/*' });
     if (existingTabs.length > 0) {
-      console.log('[BG] openWrdeskHomeIfNeeded: tab already exists, skipping');
       return;
     }
     
     // Create new tab
-    console.log('[BG] openWrdeskHomeIfNeeded: creating new tab');
     await chrome.tabs.create({ url: 'https://wrdesk.com', active: true });
     await chrome.storage.session.set({ wrdeskHomeOpenedAt: now });
   } catch (e: any) {
@@ -1570,13 +1508,11 @@ chrome.tabs.onActivated.addListener((activeInfo) => {
   if (mailGuardShouldBeActive && mailGuardActiveTabId !== null) {
     if (tabId === mailGuardActiveTabId) {
       // User switched back to the email tab - show overlay
-      console.log('[BG] 🛡️ Tab switch: showing MailGuard overlay (back to email tab)');
       if (ws && ws.readyState === WebSocket.OPEN) {
         try { ws.send(JSON.stringify({ type: 'MAILGUARD_SHOW' })) } catch {}
       }
     } else {
       // User switched to a different tab - hide overlay
-      console.log('[BG] 🛡️ Tab switch: hiding MailGuard overlay (left email tab)');
       if (ws && ws.readyState === WebSocket.OPEN) {
         try { ws.send(JSON.stringify({ type: 'MAILGUARD_HIDE' })) } catch {}
       }
@@ -1596,7 +1532,6 @@ chrome.tabs.onRemoved.addListener((tabId) => {
 chrome.windows.onRemoved.addListener((windowId) => {
   if (windowId === dashboardPopupWindowId) {
     dashboardPopupWindowId = null
-    console.log('[BG] 🔙 Dashboard popup closed — restoring focus to Electron dashboard')
     if (ws && ws.readyState === WebSocket.OPEN) {
       try { ws.send(JSON.stringify({ type: 'FOCUS_DASHBOARD' })) } catch {}
     }
@@ -1630,7 +1565,6 @@ async function checkAndLaunchElectronApp(sendResponse: (response: any) => void, 
     
     if (isRunning) {
       // App is running, try WebSocket connection again
-      console.log('[BG] Electron app is running, retrying WebSocket connection...')
       connectToWebSocketServer()
       setTimeout(async () => {
         if (ws && ws.readyState === WebSocket.OPEN) {
@@ -1638,7 +1572,6 @@ async function checkAndLaunchElectronApp(sendResponse: (response: any) => void, 
           try { sendResponse({ success: true }) } catch {}
         } else {
           // WebSocket still not connected, but app is running - try direct HTTP to open window
-          console.log('[BG] WebSocket not ready, trying direct HTTP to open dashboard...')
           try {
             const response = await fetch(`${ELECTRON_BASE_URL}/api/dashboard/open`, {
               method: 'POST',
@@ -1659,14 +1592,12 @@ async function checkAndLaunchElectronApp(sendResponse: (response: any) => void, 
     }
     
     // App is not running - try to launch automatically first (user already clicked the brain icon)
-    console.log('[BG] Electron app is not running, attempting to launch...')
     
     // Try to launch directly since user explicitly clicked the brain icon
     const launched = await launchElectronAppDirect()
     
     if (launched) {
       // Successfully launched - wait for it to be ready and open dashboard
-      console.log('[BG] ✅ Electron app launched successfully')
       setTimeout(async () => {
         connectToWebSocketServer()
         setTimeout(() => {
@@ -1681,7 +1612,6 @@ async function checkAndLaunchElectronApp(sendResponse: (response: any) => void, 
       }, 1000)
     } else {
       // Failed to launch - show clickable notification (Windows compatible, no buttons)
-      console.log('[BG] ⚠️ Auto-launch failed, showing notification to guide user...')
       
       // Create a unique notification ID to track this notification
       const notificationId = 'wrcode-launch-' + Date.now()
@@ -1709,10 +1639,8 @@ async function checkAndLaunchElectronApp(sendResponse: (response: any) => void, 
             // Check if user started the app manually (no custom protocol launch)
             const running = await isElectronRunning()
             if (running) {
-              console.log('[BG] ✅ App is now running after user action')
               try { sendResponse({ success: true }) } catch {}
             } else {
-              console.log('[BG] App still not running - user may need to start from Start Menu')
               try { sendResponse({ success: false, error: 'Please start WR Desk from the Start Menu.' }) } catch {}
             }
           }
@@ -1750,17 +1678,14 @@ async function checkAndLaunchElectronApp(sendResponse: (response: any) => void, 
  * @returns true if app is already running, false otherwise (does NOT attempt auto-launch)
  */
 async function launchElectronAppDirect(): Promise<boolean> {
-  console.log('[BG] 🔍 Checking if Electron app is running (no protocol launch)...')
   
   // Check if already running
   if (await isElectronRunning()) {
-    console.log('[BG] ✅ App is already running')
     return true
   }
   
   // Prevent concurrent check attempts
   if (electronLaunchInProgress) {
-    console.log('[BG] ⏳ Check already in progress, waiting...')
     for (let i = 0; i < 30; i++) {
       await new Promise(r => setTimeout(r, 500))
       if (!electronLaunchInProgress) break
@@ -1775,27 +1700,24 @@ async function launchElectronAppDirect(): Promise<boolean> {
     // ============================================================================
     // Protocol launch (wrcode://, wrdesk://) DISABLED on all platforms.
     // - Windows: Caused "Open Electron?" prompts and "Cannot find module" errors.
-    // - Linux: Triggers "xdg-open öffnen?" when protocol handler not registered
+    // - Linux: Triggers "xdg-open Ã¶ffnen?" when protocol handler not registered
     //   (common in dev mode or when .desktop file doesn't register the handler).
     // Users must start WR Desk manually from application menu or desktop shortcut.
     // ============================================================================
 
     // Wait briefly and check if app is starting (user may have started manually)
-    console.log('[BG] ⏳ Waiting briefly to see if app is starting...')
     for (let i = 0; i < 4; i++) {
       await new Promise(r => setTimeout(r, 500))
       if (await isElectronRunning()) {
-        console.log('[BG] ✅ App detected - it was starting up')
         electronLaunchInProgress = false
         return true
       }
     }
     
-    console.log('[BG] ❌ App is not running - user must start manually')
     electronLaunchInProgress = false
     return false
   } catch (err) {
-    console.error('[BG] ❌ Error checking app status:', err)
+    console.error('[BG] âŒ Error checking app status:', err)
     electronLaunchInProgress = false
     return false
   }
@@ -1809,7 +1731,6 @@ async function launchElectronAppDirect(): Promise<boolean> {
  */
 async function launchElectronApp(sendResponse: (response: any) => void): Promise<void> {
   try {
-    console.log('[BG] Checking if Electron app is running...')
     
     const launched = await launchElectronAppDirect()
     
@@ -1823,7 +1744,6 @@ async function launchElectronApp(sendResponse: (response: any) => void): Promise
             try { sendResponse({ success: true }) } catch {}
           } else {
             // App started but WebSocket not ready - try HTTP fallback
-            console.log('[BG] WebSocket not ready, trying HTTP to open dashboard...')
             try {
               const response = await fetch(`${ELECTRON_BASE_URL}/api/dashboard/open`, {
                 method: 'POST',
@@ -1861,8 +1781,8 @@ async function launchElectronApp(sendResponse: (response: any) => void): Promise
 
 // Handle messages from content script
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-  // ════════════════════════════════════════════════════════════════════════
-  // UNIVERSAL SENDER GATE — reject messages from foreign extensions.
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // UNIVERSAL SENDER GATE â€” reject messages from foreign extensions.
   //
   // Every message that triggers a side-effect (auth, vault, Electron IPC,
   // WebMCP, etc.) MUST originate from our own extension contexts (content
@@ -1870,10 +1790,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   // are rejected immediately.
   //
   // This gate runs BEFORE any handler dispatch.
-  // ════════════════════════════════════════════════════════════════════════
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
   if (!msg || !msg.type) return true
 
-  // BEAP PQ auth headers — used by beapCrypto for qBEAP ML-KEM calls to Electron
+  // BEAP PQ auth headers â€” used by beapCrypto for qBEAP ML-KEM calls to Electron
   if (msg.type === 'BEAP_GET_PQ_HEADERS') {
     sendResponse({
       headers: _launchSecret ? { 'X-Launch-Secret': _launchSecret } : {}
@@ -1919,22 +1839,17 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true
   }
 
-  /** Extension Stage-5 → Electron inbox: merge decrypted depackaged_json / attachments into local DB. */
+  /** Extension Stage-5 â†’ Electron inbox: merge decrypted depackaged_json / attachments into local DB. */
   if (msg.type === 'ELECTRON_INBOX_MERGE_DEPACKAGED') {
     ;(async () => {
       try {
         const secretOk = await ensureLaunchSecret(20000)
         if (!secretOk) {
-          console.warn('[MERGE] X-Launch-Secret not ready after 20s — merge may return 401')
+          console.warn('[MERGE] X-Launch-Secret not ready after 20s â€” merge may return 401')
         }
         const payload = msg.payload ?? {}
         const bodyStr = JSON.stringify(payload)
         const mergeUrl = `${ELECTRON_BASE_URL}/api/inbox/merge-depackaged`
-        console.log('[MERGE] POSTing to Electron:', {
-          url: mergeUrl,
-          payloadSize: bodyStr.length,
-          hasAuth: !!_launchSecret,
-        })
         const r = await electronRequest('/api/inbox/merge-depackaged', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -1942,13 +1857,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         })
         const dataOk = r.data && typeof r.data === 'object' && (r.data as { ok?: boolean }).ok === false
         const effectiveOk = r.ok && !dataOk
-        console.log('[MERGE] Electron response:', {
-          ok: r.ok,
-          effectiveOk,
-          error: r.error,
-          errorCode: r.errorCode,
-          messageId: (r.data as { messageId?: string })?.messageId,
-        })
         try {
           sendResponse({
             ok: effectiveOk,
@@ -1970,8 +1878,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true
   }
 
-  // ════════════════════════════════════════════════════════════════════════
-  // WEBMCP FILL PREVIEW — route to content script for overlay preview
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // WEBMCP FILL PREVIEW â€” route to content script for overlay preview
   //
   // Defense-in-depth layers (order matters):
   //   1. Sender gate (already checked above)
@@ -1981,7 +1889,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   //   5. Global sliding-window rate limiter (MAX_WEBMCP_PER_MIN / 60 s)
   //   6. Restricted URL check
   //   7. Forward to content script
-  // ════════════════════════════════════════════════════════════════════════
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
   if (msg.type === 'WEBMCP_FILL_PREVIEW') {
     const now = Date.now()
 
@@ -1994,7 +1902,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       ...(extra ? { retryAfterMs: extra.retryAfterMs } : {}),
     })
 
-    // ── Layer 2: Circuit breaker (fail-closed via sanitized accessors) ──
+    // â”€â”€ Layer 2: Circuit breaker (fail-closed via sanitized accessors) â”€â”€
     // If the circuit is open, reject immediately until cooldown expires.
     if (_webMcpCbOpenedAt > 0) {
       const cbCooldownMs = _effectiveCbCooldownMs()
@@ -2004,12 +1912,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         sendResponse(_bgErr('TEMP_BLOCKED', 'Temporarily blocked', { retryAfterMs }))
         return true
       }
-      // Cooldown expired — close circuit, reset reject history
+      // Cooldown expired â€” close circuit, reset reject history
       _webMcpCbOpenedAt = 0
       _webMcpCbRejects = []
     }
 
-    // ── Layer 3: Schema validation ──
+    // â”€â”€ Layer 3: Schema validation â”€â”€
     const params = msg.params
     if (!params || typeof params !== 'object' || !params.itemId || !params.tabId) {
       _recordWebMcpReject(now)
@@ -2024,7 +1932,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       return true
     }
 
-    // ── Layer 4: Per-tab rate limiter (2 s per tab) ──
+    // â”€â”€ Layer 4: Per-tab rate limiter (2 s per tab) â”€â”€
     if (!_webMcpRateMap) _webMcpRateMap = new Map()
     const lastInvoke = _webMcpRateMap.get(tabId) ?? 0
     if (now - lastInvoke < 2000) {
@@ -2035,7 +1943,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     }
     _webMcpRateMap.set(tabId, now)
 
-    // ── Layer 5: Global sliding-window rate limiter (fail-closed via sanitized accessors) ──
+    // â”€â”€ Layer 5: Global sliding-window rate limiter (fail-closed via sanitized accessors) â”€â”€
     // Prune timestamps older than the window, then check count.
     const effectiveWindowMs = _effectiveWindowMs()
     const effectiveMaxPerMin = _effectiveMaxPerMin()
@@ -2050,7 +1958,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     }
     _webMcpGlobalTimestamps.push(now)
 
-    // ── Layer 6: Restricted URL check (async) ──
+    // â”€â”€ Layer 6: Restricted URL check (async) â”€â”€
     ;(async () => {
       try {
         const tab = await chrome.tabs.get(tabId)
@@ -2089,12 +1997,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true // async
   }
 
-  // ════════════════════════════════════════════════════════════════════════
-  // VAULT_SET_WRITES_DISABLED — Global writes kill-switch toggle
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // VAULT_SET_WRITES_DISABLED â€” Global writes kill-switch toggle
   //
   // Operator/admin control: enable/disable ALL DOM write operations.
   // Gated by sender.id (already validated above) and strict schema.
-  // ════════════════════════════════════════════════════════════════════════
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
   if (msg.type === 'VAULT_SET_WRITES_DISABLED') {
     const { disabled } = msg
     if (typeof disabled !== 'boolean') {
@@ -2105,7 +2013,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       try {
         const { setWritesDisabled } = await import('./vault/autofill/writesKillSwitch')
         await setWritesDisabled(disabled)
-        console.log(`[BG] Writes kill-switch set to: ${disabled}`)
         sendResponse({ success: true, disabled })
       } catch (err: any) {
         console.error('[BG] Failed to set writes kill-switch:', err)
@@ -2115,41 +2022,41 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true // async
   }
 
-  // ════════════════════════════════════════════════════════════════════════
-  // EXPORT_AUDIT_LOG — Export sanitized audit log as JSONL
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // EXPORT_AUDIT_LOG â€” Export sanitized audit log as JSONL
   //
   // Privileged operation.  Defense layers (in order):
   //   1. Universal sender gate (already enforced above)
-  //   2. Context gate — sender must be extension UI (no sender.tab,
+  //   2. Context gate â€” sender must be extension UI (no sender.tab,
   //      sender.url matches chrome-extension://<id>/popup|sidepanel)
-  //   3. Vault unlocked gate — VSBT must be present (cleared on lock/logout)
-  //   4. HA gate — if HA mode active, block export entirely (fail-closed)
+  //   3. Vault unlocked gate â€” VSBT must be present (cleared on lock/logout)
+  //   4. HA gate â€” if HA mode active, block export entirely (fail-closed)
   //   5. Export logic
   //
   // On rejection: { success:false, error:{ code, message }, resultVersion }
   // On success:   { success:true, jsonl, truncated, resultVersion }
   // Hard cap: MAX_EXPORT_BYTES (512 KB); truncated=true if exceeded.
-  // ════════════════════════════════════════════════════════════════════════
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
   if (msg.type === 'EXPORT_AUDIT_LOG') {
-    // ── Layer 2: Context gate (fail-closed, synchronous) ──
+    // â”€â”€ Layer 2: Context gate (fail-closed, synchronous) â”€â”€
     // Reject if sender.tab exists (content-script), or sender.url is
     // missing / not from our extension's allowed UI pages.
     if (!_isExtensionUiContext(sender, chrome.runtime.id)) {
-      _auditExportLog('EXPORT_AUDIT_BLOCKED_CONTEXT', 'Audit export rejected — invalid context', true)
+      _auditExportLog('EXPORT_AUDIT_BLOCKED_CONTEXT', 'Audit export rejected â€” invalid context', true)
       sendResponse({ success: false, error: { code: 'FORBIDDEN' as AuditExportErrorCode, message: 'Forbidden' }, resultVersion: AUDIT_EXPORT_RESULT_VERSION })
       return true
     }
 
-    // ── Layer 3: Vault unlocked gate (fail-closed, synchronous) ──
+    // â”€â”€ Layer 3: Vault unlocked gate (fail-closed, synchronous) â”€â”€
     // VSBT is cleared synchronously on lock (/lock endpoint) and logout
     // (AUTH_LOGOUT). If the cache is stale, we fail-closed (empty = locked).
     if (!_isVaultUnlocked()) {
-      _auditExportLog('EXPORT_AUDIT_BLOCKED_LOCKED', 'Audit export rejected — vault locked', true)
+      _auditExportLog('EXPORT_AUDIT_BLOCKED_LOCKED', 'Audit export rejected â€” vault locked', true)
       sendResponse({ success: false, error: { code: 'LOCKED' as AuditExportErrorCode, message: 'Vault is locked' }, resultVersion: AUDIT_EXPORT_RESULT_VERSION })
       return true
     }
 
-    // ── Layer 4 + 5: HA gate + export (async for dynamic import) ──
+    // â”€â”€ Layer 4 + 5: HA gate + export (async for dynamic import) â”€â”€
     ;(async () => {
       try {
         let ha = true // fail-closed default
@@ -2157,24 +2064,24 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           const { isHAEnforced } = await import('./vault/autofill/haGuard')
           ha = isHAEnforced()
         } catch {
-          // Cannot determine HA state — fail-closed: treat as HA active
+          // Cannot determine HA state â€” fail-closed: treat as HA active
         }
 
-        // ── Layer 4: HA gate — block entirely under HA (fail-closed) ──
+        // â”€â”€ Layer 4: HA gate â€” block entirely under HA (fail-closed) â”€â”€
         if (ha) {
-          _auditExportLog('EXPORT_AUDIT_BLOCKED_HA', 'Audit export rejected — HA mode active', true)
+          _auditExportLog('EXPORT_AUDIT_BLOCKED_HA', 'Audit export rejected â€” HA mode active', true)
           sendResponse({ success: false, error: { code: 'HA_BLOCKED' as AuditExportErrorCode, message: 'Export blocked by security policy' }, resultVersion: AUDIT_EXPORT_RESULT_VERSION })
           return
         }
 
-        // ── Layer 4b: Double-check VSBT (guard against async race) ──
+        // â”€â”€ Layer 4b: Double-check VSBT (guard against async race) â”€â”€
         if (!_isVaultUnlocked()) {
-          _auditExportLog('EXPORT_AUDIT_BLOCKED_LOCKED', 'Audit export rejected — vault locked (async recheck)', false)
+          _auditExportLog('EXPORT_AUDIT_BLOCKED_LOCKED', 'Audit export rejected â€” vault locked (async recheck)', false)
           sendResponse({ success: false, error: { code: 'LOCKED' as AuditExportErrorCode, message: 'Vault is locked' }, resultVersion: AUDIT_EXPORT_RESULT_VERSION })
           return
         }
 
-        // ── Layer 5: Export logic ──
+        // â”€â”€ Layer 5: Export logic â”€â”€
         const { exportAuditLogJsonl } = await import('./vault/autofill/hardening')
         const result = exportAuditLogJsonl()
         _auditExportLog('EXPORT_AUDIT_ALLOWED', 'Audit log exported', false)
@@ -2188,7 +2095,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
   // Check desktop app status (for BackendConfigLightbox)
   if (msg.type === 'CHECK_DESKTOP_APP_STATUS') {
-    console.log('[BG] Checking desktop app status...');
     (async () => {
       try {
         const response = await fetch(`${ELECTRON_BASE_URL}/api/orchestrator/status`, {
@@ -2196,29 +2102,27 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           headers: _electronHeaders(),
           signal: AbortSignal.timeout(3000),
         });
-        console.log('[BG] Desktop app responded:', response.status);
         sendResponse({ running: true, status: response.status });
       } catch (e: any) {
-        console.log('[BG] Desktop app check failed:', e.name, e.message);
         sendResponse({ running: false, error: e.message });
       }
     })();
     return true; // Keep channel open for async response
   }
 
-  // ── Typed Electron RPC (replaces ELECTRON_API_PROXY) ──────────────────────
+  // â”€â”€ Typed Electron RPC (replaces ELECTRON_API_PROXY) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   //
   // SECURITY: No generic proxy.  Each RPC method maps to exactly one
   // hardcoded HTTP endpoint.  Payload is Zod-validated, sender is
   // checked (extension ID only), and the launch secret is injected
-  // server-side — never exposed to the caller.
+  // server-side â€” never exposed to the caller.
   //
   // See: src/rpc/electronRpc.ts for the full registry + schemas.
   //
-  // Waits for launch secret before dispatching — same as AUTH_LOGIN.
+  // Waits for launch secret before dispatching â€” same as AUTH_LOGIN.
   // Without this, the sidepanel/popup Command Chat can open before the
   // WebSocket handshake completes, causing 401 and "No models available".
-  // ─────────────────────────────────────────────────────────────────────────
+  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   if (msg && msg.type === 'ELECTRON_RPC') {
     ;(async () => {
       await ensureLaunchSecret(10000)
@@ -2237,19 +2141,18 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   
   // Handle SSO login request
   // New approach: Extension gets auth URL from Electron and opens it in a Chrome tab directly.
-  // This avoids all Windows "App auswählen" / Smart App Control issues.
+  // This avoids all Windows "App auswÃ¤hlen" / Smart App Control issues.
   if (msg && msg.type === 'AUTH_LOGIN') {
-    console.log('[BG] AUTH_LOGIN request received');
     (async () => {
       try {
-        // ── Step 0: Ensure launch secret is available ──
+        // â”€â”€ Step 0: Ensure launch secret is available â”€â”€
         // After a machine restart or service-worker restart the WebSocket
         // handshake may not have completed yet.  Without the secret every
         // HTTP request to Electron (except /api/health) returns 401.
         const hasSecret = await ensureLaunchSecret(10000);
 
         if (!hasSecret) {
-          // Secret still missing – check if Electron is at least alive
+          // Secret still missing â€“ check if Electron is at least alive
           // via the secret-exempt /api/health endpoint.
           // Retry up to 3 times (app may still be starting on Linux)
           let healthCheck: Response | null = null;
@@ -2264,16 +2167,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
           if (healthCheck && healthCheck.ok) {
             // Electron is running but the WebSocket handshake hasn't completed.
-            console.log('[AUTH] Electron running but launch secret not yet received');
-            sendResponse({ ok: false, error: 'Connecting to desktop app – please try again in a few seconds.' });
+            sendResponse({ ok: false, error: 'Connecting to desktop app â€“ please try again in a few seconds.' });
           } else {
-            console.log('[AUTH] Electron not reachable (no secret, health check failed)');
             sendResponse({ ok: false, electronNotRunning: true, error: 'Desktop app is not running.' });
           }
           return;
         }
 
-        // ── Step 0b: Authenticated health check ──
+        // â”€â”€ Step 0b: Authenticated health check â”€â”€
         // Use /api/health rather than /api/orchestrator/status so we don't
         // false-negative when the SQLite orchestrator service is still initializing.
         const healthCheck = await fetch(`${ELECTRON_BASE_URL}/api/health`, {
@@ -2283,16 +2184,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         }).catch(() => null);
         
         const electronReachable = healthCheck && healthCheck.ok;
-        console.log('[BG][A] Health check: electronReachable=' + electronReachable);
         
         if (!electronReachable) {
-          console.log('[AUTH] Electron not reachable (authenticated check failed)');
           sendResponse({ ok: false, electronNotRunning: true, error: 'Desktop app is not running.' });
           return;
         }
         
         // Step 1: Get auth URL from Electron (Electron starts loopback server but does NOT open browser)
-        console.log('[BG] Requesting auth URL from Electron...');
         const urlResponse = await fetch(`${ELECTRON_BASE_URL}/api/auth/login-url`, {
           method: 'POST',
           headers: _electronHeaders(),
@@ -2307,19 +2205,15 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         }
         
         // Step 2: Open the auth URL in a Chrome tab (this is 100% reliable - we ARE Chrome!)
-        console.log('[BG] Opening auth URL in Chrome tab...');
         const authTab = await chrome.tabs.create({ url: urlData.authUrl, active: true });
-        console.log('[BG] Auth tab created: id=' + authTab.id);
         
         // Step 3: Wait for Electron to receive the callback (long-poll)
-        console.log('[BG] Waiting for SSO callback via Electron...');
         const waitResponse = await fetch(`${ELECTRON_BASE_URL}/api/auth/login-wait`, {
           method: 'POST',
           headers: _electronHeaders(),
           signal: AbortSignal.timeout(130000), // 130s = Electron's 120s LOGIN_TIMEOUT_MS + 10s buffer
         });
         const waitData = await waitResponse.json();
-        console.log('[BG] AUTH_LOGIN response:', waitData);
         
         if (waitData.ok) {
           authStatusHttpCache = null
@@ -2356,7 +2250,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       const ttl = authStatusHttpCache.ok ? AUTH_STATUS_CACHE_OK_MS : AUTH_STATUS_CACHE_ERR_MS
       if (now - authStatusHttpCache.at < ttl) {
         if (DEBUG_AUTH_STATUS_LOG) {
-          console.log('[BG] AUTH_STATUS cache hit (age ms=' + (now - authStatusHttpCache.at) + ', ok=' + authStatusHttpCache.ok + ')')
         }
         const p = authStatusHttpCache.payload
         sendResponse({
@@ -2371,7 +2264,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     }
 
-    if (DEBUG_AUTH_STATUS_LOG) console.log('[BG] AUTH_STATUS → GET /api/auth/status' + (forceRefresh ? ' (force)' : ''))
+    if (DEBUG_AUTH_STATUS_LOG) console.log('[BG] AUTH_STATUS â†’ GET /api/auth/status' + (forceRefresh ? ' (force)' : ''))
     ;(async () => {
       try {
         // Ensure launch secret is available (may need WebSocket handshake)
@@ -2384,7 +2277,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         });
         const data = await response.json();
         if (DEBUG_AUTH_STATUS_LOG) {
-          console.log('[BG][B] AUTH_STATUS response: loggedIn=' + data.loggedIn + ', tier=' + (data.tier ?? 'null') + ', hasDisplayName=' + !!data.displayName);
         }
         const payload: AuthStatusResponsePayload = {
           loggedIn: !!data.loggedIn,
@@ -2444,7 +2336,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   // Handle logout request
   // Clears session on backend and all cached auth state
   if (msg && msg.type === 'AUTH_LOGOUT') {
-    console.log('[BG] AUTH_LOGOUT request received');
     authStatusHttpCache = null
     // Immediately clear VSBT (fail-closed: no stale session survives logout)
     _cacheVsbt(null)
@@ -2468,7 +2359,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           signal: AbortSignal.timeout(10000),
         });
         const data = await response.json();
-        console.log('[BG] AUTH_LOGOUT response:', data);
         // Clear stored state
         await clearAuthState();
         sendResponse({ ok: data.ok, error: data.error });
@@ -2485,7 +2375,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   // Handle "Open WRDesk Home" - opens wrdesk.com if not already open (NO tab spam)
   // Used when extension popup/sidepanel is opened in logged-out state
   if (msg && msg.type === 'OPEN_WRDESK_HOME_IF_NEEDED') {
-    console.log('[BG] OPEN_WRDESK_HOME_IF_NEEDED request received');
     (async () => {
       try {
         // Check if we've already opened wrdesk.com recently (debounce within 5 seconds)
@@ -2494,7 +2383,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         const now = Date.now();
         
         if (lastOpened && (now - lastOpened) < 5000) {
-          console.log('[BG] OPEN_WRDESK_HOME_IF_NEEDED: debounced (opened recently)');
           sendResponse({ ok: true, action: 'debounced' });
           return;
         }
@@ -2503,13 +2391,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         const existingTabs = await chrome.tabs.query({ url: 'https://wrdesk.com/*' });
         
         if (existingTabs.length > 0) {
-          console.log('[BG] OPEN_WRDESK_HOME_IF_NEEDED: tab already exists, skipping');
           sendResponse({ ok: true, action: 'already_open', tabId: existingTabs[0].id });
           return;
         }
         
         // No existing tab - create one without stealing focus
-        console.log('[BG] OPEN_WRDESK_HOME_IF_NEEDED: creating new tab');
         const newTab = await chrome.tabs.create({ 
           url: 'https://wrdesk.com',
           active: false  // Do NOT steal focus
@@ -2529,7 +2415,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
   // Handle "Create Account" - opens wrdesk.com
   if (msg && msg.type === 'OPEN_REGISTER_PAGE') {
-    console.log('[BG] OPEN_REGISTER_PAGE request received');
     (async () => {
       try {
         // Check if wrdesk.com is already open
@@ -2537,11 +2422,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         if (existingTabs.length > 0 && existingTabs[0].id) {
           // Activate existing tab
           await chrome.tabs.update(existingTabs[0].id, { active: true });
-          console.log('[BG] OPEN_REGISTER_PAGE: activated existing wrdesk.com tab');
         } else {
           // Open new tab
           await chrome.tabs.create({ url: 'https://wrdesk.com', active: true });
-          console.log('[BG] OPEN_REGISTER_PAGE: opened new wrdesk.com tab');
         }
         sendResponse({ ok: true });
       } catch (e: any) {
@@ -2559,8 +2442,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
   // Check if this is a vault RPC message (has type: 'VAULT_RPC')
   if (msg && msg.type === 'VAULT_RPC') {
-    console.log('[BG] Received VAULT_RPC:', msg.method)
-    console.log('[BG] WS state:', ws ? `readyState=${ws.readyState}` : 'null', '| launchSecret:', _launchSecret ? 'set' : 'NOT SET')
 
     if (!ws || ws.readyState !== WebSocket.OPEN) {
       console.error('[BG] WebSocket not connected for vault RPC')
@@ -2585,10 +2466,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
               if (age < VSBT_MAX_AGE_MS) {
                 _cachedVsbt = stored._vsbt
                 _vsbtCachedAt = stored._vsbtAt
-                console.log('[BG] VAULT_RPC: recovered VSBT from session storage for bind')
               }
             }
-          } catch { /* storage unavailable — fall through, bind will be skipped */ }
+          } catch { /* storage unavailable â€” fall through, bind will be skipped */ }
         }
 
         // If this RPC requires a bound session and we have a cached VSBT (from HTTP unlock),
@@ -2609,7 +2489,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             params: { vsbt: _cachedVsbt }
           }))
           await bindPromise
-          console.log('[BG] WebSocket vault session bound via vault.bind')
         }
 
         const rpcMessage = {
@@ -2617,7 +2496,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           method: msg.method,
           params: msg.params || {}
         }
-        console.log('[BG] Forwarding to WebSocket:', rpcMessage)
         ws.send(JSON.stringify(rpcMessage))
 
         if (!globalThis.vaultRpcCallbacks) globalThis.vaultRpcCallbacks = new Map()
@@ -2632,20 +2510,16 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   
   if (!msg || !msg.type) return true;
 
-  console.log(`📨 Nachricht erhalten: ${msg.type}`);
 
   switch (msg.type) {
     case 'VAULT_HTTP_API': {
       // Relay vault HTTP API calls from content scripts (bypasses CSP)
       const { endpoint, body, vsbt } = msg
-      console.log('[BG] Relaying vault HTTP API call:', endpoint)
-      console.log('[BG] Request body:', body)
 
       // Resolve the effective VSBT: prefer the one sent by the content script,
       // fall back to the background-cached copy (survives content script reloads).
       const effectiveVsbt = vsbt || _cachedVsbt
       if (!vsbt && _cachedVsbt) {
-        console.log('[BG] Content script had no VSBT — using background-cached token')
       }
 
       const VAULT_API_URL = 'http://127.0.0.1:51248/api/vault'
@@ -2655,7 +2529,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       const retryFetch = async (url: string, options: RequestInit, retries = 3, delay = 500): Promise<Response> => {
         for (let i = 0; i < retries; i++) {
           try {
-            console.log(`[BG] Fetch attempt ${i + 1}/${retries}:`, url)
             const response = await fetch(url, options)
             // If successful, return immediately
             if (response.ok || i === retries - 1) {
@@ -2684,7 +2557,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       const isGetRequest = endpoint === '/health'
       const method = isGetRequest ? 'GET' : 'POST'
       
-      console.log('[BG] Fetching:', fullUrl, 'Method:', method)
       
       // Create abort controller for timeout
       const controller = new AbortController()
@@ -2712,13 +2584,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       retryFetch(fullUrl, fetchOptions)
         .then(response => {
           clearTimeout(timeoutId) // Clear timeout on successful response
-          console.log('[BG] Vault API response status:', response.status, response.statusText)
           // Fail-closed: 401 means the session is no longer valid on the
           // Electron side.  Clear the VSBT immediately to prevent stale
           // session usage across the extension.
           if (response.status === 401) {
             _cacheVsbt(null)
-            console.log('[BG] VSBT cleared — Electron returned 401 (session invalid)')
           }
           if (!response.ok) {
             return response.text().then(text => {
@@ -2729,17 +2599,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           return response.json()
         })
         .then(data => {
-          console.log('[BG] Vault API response data:', data)
 
           // Cache VSBT from unlock/create responses so it survives content-script reloads
           if (data?.sessionToken) {
             _cacheVsbt(data.sessionToken)
-            console.log('[BG] VSBT cached from', endpoint)
           }
           // Clear VSBT cache when the vault is locked or deleted
           if (data?.success && (endpoint === '/lock' || endpoint === '/delete')) {
             _cacheVsbt(null)
-            console.log('[BG] VSBT cache cleared on', endpoint)
           }
 
           // Check if sendResponse is still valid (service worker might have suspended)
@@ -2998,23 +2865,19 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
     case 'LAUNCH_ELECTRON_APP': {
       // Launch Electron app - try multiple approaches with improved feedback
-      console.log('[BG] 🚀 LAUNCH_ELECTRON_APP request received');
       (async () => {
         try {
           // First check if already running
           if (await isElectronRunning()) {
-            console.log('[BG] ✅ Electron is already running');
             connectToWebSocketServer();
             sendResponse({ success: true });
             return;
           }
           
           // Try the improved multi-method launcher
-          console.log('[BG] 🚀 Trying to launch via launchElectronAppDirect...');
           const launched = await launchElectronAppDirect();
           
           if (launched) {
-            console.log('[BG] ✅ Electron started successfully');
             setTimeout(() => {
               connectToWebSocketServer();
               setTimeout(() => {
@@ -3030,7 +2893,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           }
           
           // All launch methods failed - show manual instructions immediately
-          console.log('[BG] ❌ All launch methods failed - showing manual instructions');
           
           // Show a clickable notification with clear instructions
           chrome.notifications.create('wrdesk-launch-help', {
@@ -3062,9 +2924,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
     // ===== MAILGUARD MESSAGE HANDLERS =====
     case 'MAILGUARD_ACTIVATE': {
-      console.log('[BG] 🛡️ MailGuard activate request received')
-      console.log('[BG] 🛡️ Window info:', msg.windowInfo)
-      console.log('[BG] 🛡️ Theme:', msg.theme)
       
       // Store state for auto-restore after reconnection
       mailGuardShouldBeActive = true;
@@ -3073,10 +2932,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       
       // Track which tab has MailGuard active (for hide/show on tab switch)
       mailGuardActiveTabId = sender.tab?.id ?? null;
-      console.log('[BG] 🛡️ MailGuard active on tab:', mailGuardActiveTabId);
       
       if (!WS_ENABLED) {
-        console.log('[BG] 🛡️ WebSocket disabled')
         try { sendResponse({ success: false, error: 'WebSocket disabled' }) } catch {}
         break
       }
@@ -3084,25 +2941,22 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       // Use robust connection with retries
       ensureConnection(5).then((connected) => {
         if (connected && ws && ws.readyState === WebSocket.OPEN) {
-          console.log('[BG] 🛡️ Connection ready, sending MAILGUARD_ACTIVATE...')
           try { 
             ws.send(JSON.stringify({ 
               type: 'MAILGUARD_ACTIVATE', 
               windowInfo: msg.windowInfo, 
               theme: msg.theme || 'default' 
             })) 
-            console.log('[BG] 🛡️ MAILGUARD_ACTIVATE sent successfully!')
             try { sendResponse({ success: true }) } catch {}
           } catch (e) {
-            console.error('[BG] 🛡️ Error sending MAILGUARD_ACTIVATE:', e)
+            console.error('[BG] ðŸ›¡ï¸ Error sending MAILGUARD_ACTIVATE:', e)
             try { sendResponse({ success: false, error: 'Failed to send message' }) } catch {}
           }
         } else {
-          console.log('[BG] 🛡️ Connection failed after retries')
           try { 
             sendResponse({ 
               success: false, 
-              error: 'Could not connect to WR Desk™. Make sure the Electron app is running.' 
+              error: 'Could not connect to WR Deskâ„¢. Make sure the Electron app is running.' 
             }) 
           } catch {}
         }
@@ -3112,7 +2966,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     }
     
     case 'MAILGUARD_DEACTIVATE': {
-      console.log('[BG] 🛡️ MailGuard deactivate request')
       // Clear the stored state so it doesn't auto-restore
       mailGuardShouldBeActive = false;
       lastMailGuardWindowInfo = null;
@@ -3150,7 +3003,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     case 'MAILGUARD_UPDATE_BOUNDS': {
       // Content script sends email list container bounds to forward to Electron
       // This is used to position the overlay only over the email list area (not sidebar)
-      console.log('[BG] 🛡️ Forwarding email list bounds to Electron')
       if (WS_ENABLED && ws && ws.readyState === WebSocket.OPEN) {
         try { ws.send(JSON.stringify({ type: 'MAILGUARD_UPDATE_BOUNDS', bounds: msg.bounds })) } catch {}
       }
@@ -3169,7 +3021,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     case 'MAILGUARD_HIDE_FOR_LIGHTBOX': {
       // Hide overlay when a lightbox is opened from sidepanel
       // Click blocking remains active in the content script
-      console.log('[BG] 🛡️ Hiding overlay for lightbox')
       if (WS_ENABLED && ws && ws.readyState === WebSocket.OPEN) {
         try { ws.send(JSON.stringify({ type: 'MAILGUARD_HIDE' })) } catch {}
       }
@@ -3178,7 +3029,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     
     case 'MAILGUARD_SHOW_AFTER_LIGHTBOX': {
       // Show overlay after lightbox is closed
-      console.log('[BG] 🛡️ Showing overlay after lightbox closed')
       if (WS_ENABLED && ws && ws.readyState === WebSocket.OPEN) {
         try { ws.send(JSON.stringify({ type: 'MAILGUARD_SHOW' })) } catch {}
       }
@@ -3187,7 +3037,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     
     case 'MAILGUARD_EMAIL_CONTENT': {
       // Content script sends sanitized email content to forward to Electron
-      console.log('[BG] 🛡️ Forwarding sanitized email to Electron')
       if (WS_ENABLED && ws && ws.readyState === WebSocket.OPEN) {
         try { ws.send(JSON.stringify({ type: 'MAILGUARD_EMAIL_CONTENT', email: msg.email })) } catch {}
       }
@@ -3207,7 +3056,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     
     case 'MAILGUARD_CLOSE_LIGHTBOX': {
       // Forward close lightbox command to Electron
-      console.log('[BG] 🛡️ Closing MailGuard lightbox')
       if (WS_ENABLED && ws && ws.readyState === WebSocket.OPEN) {
         try { ws.send(JSON.stringify({ type: 'MAILGUARD_CLOSE_LIGHTBOX' })) } catch {}
       }
@@ -3217,11 +3065,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     // ===== EMAIL GATEWAY MESSAGE HANDLERS (using HTTP API with auto-start) =====
     // ===== EMAIL GATEWAY MESSAGE HANDLERS (using robust HTTP client) =====
     case 'EMAIL_LIST_ACCOUNTS': {
-      console.log('[BG] 📧 Email list accounts request')
       
       electronRequest('/api/email/accounts')
         .then(result => {
-          console.log('[BG] 📧 Email accounts response:', result.ok ? 'success' : result.error)
           if (result.ok) {
             sendResponse({
               ok: true,
@@ -3237,7 +3083,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     }
     
     case 'EMAIL_CONNECT_GMAIL': {
-      console.log('[BG] 📧 Email connect Gmail request (OAuth flow)')
       
       // Use OAuth-specific request with health check
       electronOAuthRequest('/api/email/accounts/connect/gmail', {
@@ -3255,7 +3100,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         })
       })
         .then(result => {
-          console.log('[BG] 📧 Gmail connect response:', result.ok ? 'success' : result.error)
           if (result.ok) {
             sendResponse({ ok: true, data: result.data })
           } else {
@@ -3274,7 +3118,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     }
     
     case 'EMAIL_CONNECT_OUTLOOK': {
-      console.log('[BG] 📧 Email connect Outlook request (OAuth flow)')
       
       // Use OAuth-specific request with health check
       electronOAuthRequest('/api/email/accounts/connect/outlook', {
@@ -3288,7 +3131,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         })
       })
         .then(result => {
-          console.log('[BG] 📧 Outlook connect response:', result.ok ? 'success' : result.error)
           if (result.ok) {
             sendResponse({ ok: true, data: result.data })
           } else {
@@ -3307,7 +3149,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     }
 
     case 'EMAIL_CONNECT_ZOHO': {
-      console.log('[BG] 📧 Email connect Zoho request (OAuth flow)')
       electronOAuthRequest('/api/email/accounts/connect/zoho', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -3319,7 +3160,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         }),
       })
         .then((result) => {
-          console.log('[BG] 📧 Zoho connect response:', result.ok ? 'success' : result.error)
           if (result.ok) {
             sendResponse({ ok: true, data: result.data })
           } else {
@@ -3337,7 +3177,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     }
     
     case 'EMAIL_CONNECT_IMAP': {
-      console.log('[BG] 📧 Email connect IMAP request')
       
       electronRequest('/api/email/accounts/connect/imap', {
         method: 'POST',
@@ -3353,7 +3192,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         })
       })
         .then(result => {
-          console.log('[BG] 📧 IMAP connect response:', result.ok ? 'success' : result.error)
           if (result.ok) {
             sendResponse(result.data)
           } else {
@@ -3365,7 +3203,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     }
 
     case 'EMAIL_CONNECT_CUSTOM_MAILBOX': {
-      console.log('[BG] 📧 Email connect custom IMAP+SMTP request')
       electronRequest('/api/email/accounts/connect/custom-mailbox', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -3389,7 +3226,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         })
       })
         .then(result => {
-          console.log('[BG] 📧 Custom mailbox connect:', result.ok ? 'success' : result.error)
           if (result.ok) {
             sendResponse(result.data)
           } else {
@@ -3400,13 +3236,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     }
     
     case 'EMAIL_DELETE_ACCOUNT': {
-      console.log('[BG] 📧 Email delete account request:', msg.accountId)
       
       electronRequest(`/api/email/accounts/${msg.accountId}`, {
         method: 'DELETE'
       })
         .then(result => {
-          console.log('[BG] 📧 Delete account response:', result.ok ? 'success' : result.error)
           if (result.ok) {
             sendResponse(result.data)
           } else {
@@ -3424,7 +3258,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         sendResponse({ ok: false, error: 'accountId and paused (boolean) required' })
         return false
       }
-      console.log('[BG] 📧 Email set processing paused:', accountId, paused)
       electronRequest(`/api/email/accounts/${encodeURIComponent(accountId)}/processing-pause`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -3445,7 +3278,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     }
     
     case 'EMAIL_SEND': {
-      console.log('[BG] 📧 Email send request')
       
       electronRequest('/api/email/send', {
         method: 'POST',
@@ -3470,7 +3302,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     }
     
     case 'BEAP_GENERATE_DRAFT': {
-      console.log('[BG] 📝 BEAP draft generation request')
       electronRequest('/api/llm/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -3492,14 +3323,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     }
     
     case 'EMAIL_SEND_BEAP': {
-      console.log('[BG] 📧 BEAP email send request')
       
       electronRequest('/api/email/send-beap', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           to: msg.to,
-          subject: msg.subject || 'BEAP™ Secure Message',
+          subject: msg.subject || 'BEAPâ„¢ Secure Message',
           body: msg.body || '',
           attachments: msg.attachments || []
         })
@@ -3520,11 +3350,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     }
     
     case 'EMAIL_CHECK_GMAIL_CREDENTIALS': {
-      console.log('[BG] 📧 Check Gmail credentials')
       
       electronRequest('/api/email/credentials/gmail')
         .then(result => {
-          console.log('[BG] 📧 Gmail credentials check:', result.ok ? 'configured' : 'not configured')
           sendResponse(result.ok ? { ok: true, data: result.data } : { ok: false, error: result.error })
         })
       
@@ -3532,7 +3360,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     }
     
     case 'EMAIL_SAVE_GMAIL_CREDENTIALS': {
-      console.log('[BG] 📧 Save Gmail credentials')
       
       electronRequest('/api/email/credentials/gmail', {
         method: 'POST',
@@ -3540,7 +3367,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         body: JSON.stringify({ clientId: msg.clientId, clientSecret: msg.clientSecret, storeInVault: msg.storeInVault !== false })
       })
         .then(result => {
-          console.log('[BG] 📧 Gmail credentials save:', result.ok ? 'success' : result.error)
           sendResponse(
             result.ok
               ? { ok: true, savedToVault: (result as { savedToVault?: boolean }).savedToVault }
@@ -3552,11 +3378,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     }
     
     case 'EMAIL_CHECK_OUTLOOK_CREDENTIALS': {
-      console.log('[BG] 📧 Check Outlook credentials')
       
       electronRequest('/api/email/credentials/outlook')
         .then(result => {
-          console.log('[BG] 📧 Outlook credentials check:', result.ok ? 'configured' : 'not configured')
           sendResponse(result.ok ? { ok: true, data: result.data } : { ok: false, error: result.error })
         })
       
@@ -3564,7 +3388,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     }
     
     case 'EMAIL_SAVE_OUTLOOK_CREDENTIALS': {
-      console.log('[BG] 📧 Save Outlook credentials')
       
       electronRequest('/api/email/credentials/outlook', {
         method: 'POST',
@@ -3572,7 +3395,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         body: JSON.stringify({ clientId: msg.clientId, clientSecret: msg.clientSecret, tenantId: msg.tenantId, storeInVault: msg.storeInVault !== false })
       })
         .then(result => {
-          console.log('[BG] 📧 Outlook credentials save:', result.ok ? 'success' : result.error)
           sendResponse(
             result.ok
               ? { ok: true, savedToVault: (result as { savedToVault?: boolean }).savedToVault }
@@ -3584,7 +3406,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     }
 
     case 'EMAIL_CHECK_ZOHO_CREDENTIALS': {
-      console.log('[BG] 📧 Check Zoho credentials')
       electronRequest('/api/email/credentials/zoho')
         .then((result) => {
           sendResponse(result.ok ? { ok: true, data: result.data } : { ok: false, error: result.error })
@@ -3593,7 +3414,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     }
 
     case 'EMAIL_SAVE_ZOHO_CREDENTIALS': {
-      console.log('[BG] 📧 Save Zoho credentials')
       electronRequest('/api/email/credentials/zoho', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -3615,16 +3435,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     }
     
     case 'EMAIL_GET_PRESETS': {
-      console.log('[BG] 📧 Email get IMAP presets request (via HTTP)')
       
       fetch('http://127.0.0.1:51248/api/email/presets', { headers: _electronHeaders() })
         .then(res => res.json())
         .then(data => {
-          console.log('[BG] 📧 IMAP presets response:', data)
           sendResponse(data)
         })
         .catch(err => {
-          console.error('[BG] 📧 IMAP presets error:', err)
+          console.error('[BG] ðŸ“§ IMAP presets error:', err)
           sendResponse({ ok: false, error: err.message || 'Failed to fetch presets' })
         })
       
@@ -3632,16 +3450,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     }
     
     case 'EMAIL_GET_MESSAGE': {
-      console.log('[BG] 📧 Email get message request (via HTTP):', msg.accountId, msg.messageId)
       
       fetch(`http://127.0.0.1:51248/api/email/accounts/${msg.accountId}/messages/${msg.messageId}`, { headers: _electronHeaders() })
         .then(res => res.json())
         .then(data => {
-          console.log('[BG] 📧 Get message response:', data)
           sendResponse(data)
         })
         .catch(err => {
-          console.error('[BG] 📧 Get message error:', err)
+          console.error('[BG] ðŸ“§ Get message error:', err)
           sendResponse({ ok: false, error: err.message || 'Failed to fetch message' })
         })
       
@@ -3649,7 +3465,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     }
     
     case 'EMAIL_LIST_MESSAGES': {
-      console.log('[BG] 📧 Email list messages request (via HTTP):', msg.accountId)
       
       const params = new URLSearchParams()
       if (msg.folder) params.append('folder', msg.folder)
@@ -3660,11 +3475,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       fetch(`http://127.0.0.1:51248/api/email/accounts/${msg.accountId}/messages?${params}`, { headers: _electronHeaders() })
         .then(res => res.json())
         .then(data => {
-          console.log('[BG] 📧 List messages response:', data)
           sendResponse(data)
         })
         .catch(err => {
-          console.error('[BG] 📧 List messages error:', err)
+          console.error('[BG] ðŸ“§ List messages error:', err)
           sendResponse({ ok: false, error: err.message || 'Failed to list messages' })
         })
       
@@ -3683,7 +3497,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           
           if (hybridMasterId !== null) {
             // This is a master tab - DO NOT disable sidepanel
-            console.log(`🖥️ Master tab detected (ID: ${hybridMasterId}) - keeping sidepanel enabled`);
             try { sendResponse({ success: true, isMasterTab: true }) } catch {}
             break;
           }
@@ -3693,7 +3506,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         
         // This is a display grid tab - just track it (sidepanel controls its own width now)
         tabDisplayGridsActive.set(tabId, true);
-        console.log(`📱 Display grid tab ${tabId} - sidepanel will adjust width to 0`);
       }
       try { sendResponse({ success: true }) } catch {}
       break;
@@ -3703,7 +3515,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       if (sender.tab?.id) {
         const tabId = sender.tab.id;
         tabDisplayGridsActive.set(tabId, false);
-        console.log(`✅ Display grids closed for tab ${tabId} - sidepanel will adjust width`);
       }
       try { sendResponse({ success: true }) } catch {}
       break;
@@ -3711,10 +3522,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     case 'DELETE_DISPLAY_GRID_AGENT_BOX': {
       // Delete agent box from display grid - remove from SQLite database
       const { sessionKey, identifier } = msg;
-      console.log('🗑️ BG: Deleting display grid agent box:', identifier, 'from session:', sessionKey);
       
       if (!sessionKey || !identifier) {
-        console.error('❌ BG: Missing sessionKey or identifier');
+        console.error('âŒ BG: Missing sessionKey or identifier');
         try { sendResponse({ success: false, error: 'Missing sessionKey or identifier' }) } catch {}
         break;
       }
@@ -3735,7 +3545,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             session.agentBoxes = session.agentBoxes.filter((box: any) => box.identifier !== identifier);
             const afterCount = session.agentBoxes.length;
             
-            console.log(`🗑️ BG: Removed ${beforeCount - afterCount} agent box(es) from SQLite, ${afterCount} remaining`);
             
             // Save back to SQLite
             return fetch('http://127.0.0.1:51248/api/orchestrator/set', {
@@ -3744,7 +3553,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
               body: JSON.stringify({ key: sessionKey, value: session })
             })
           } else {
-            console.warn('⚠️ BG: No agentBoxes array in session');
+            console.warn('âš ï¸ BG: No agentBoxes array in session');
             throw new Error('No agentBoxes in session')
           }
         })
@@ -3755,11 +3564,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           return response.json()
         })
         .then(() => {
-          console.log('✅ BG: Agent box deleted from SQLite database');
           try { sendResponse({ success: true }) } catch {}
         })
         .catch(error => {
-          console.error('❌ BG: Error deleting from SQLite:', error);
+          console.error('âŒ BG: Error deleting from SQLite:', error);
           try { sendResponse({ success: false, error: String(error) }) } catch {}
         })
       
@@ -3769,19 +3577,15 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     case 'DELETE_AGENT_BOX_FROM_SQLITE': {
       // Delete agent box from master tab - remove from SQLite database
       const { sessionKey, agentId, identifier } = msg;
-      console.log('🗑️ BG: DELETE_AGENT_BOX_FROM_SQLITE');
-      console.log('🔑 BG: Session key:', sessionKey);
-      console.log('🆔 BG: Agent ID:', agentId);
-      console.log('🏷️ BG: Identifier:', identifier);
       
       if (!sessionKey) {
-        console.error('❌ BG: Missing sessionKey');
+        console.error('âŒ BG: Missing sessionKey');
         try { sendResponse({ success: false, error: 'Missing sessionKey' }) } catch {}
         return true;
       }
       
       if (!agentId && !identifier) {
-        console.error('❌ BG: Missing both agentId and identifier');
+        console.error('âŒ BG: Missing both agentId and identifier');
         try { sendResponse({ success: false, error: 'Missing both agentId and identifier' }) } catch {}
         return true;
       }
@@ -3797,16 +3601,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         .then((result: any) => {
           const session = result.data || {}
           
-          console.log('📋 BG: Loaded session from SQLite');
-          console.log('📊 BG: Agent boxes before deletion:', session.agentBoxes?.length || 0);
           
           if (session.agentBoxes && Array.isArray(session.agentBoxes)) {
             const beforeCount = session.agentBoxes.length;
             
             // Log all agent boxes for debugging
-            console.log('🔍 BG: All agent boxes in session:');
             session.agentBoxes.forEach((box: any, index: number) => {
-              console.log(`  [${index}] id=${box.id}, identifier=${box.identifier}`);
             });
             
             // Remove by EITHER identifier OR id (master tab boxes use 'id', display grid boxes use 'identifier')
@@ -3816,7 +3616,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
               const shouldRemove = matchesIdentifier || matchesId;
               
               if (shouldRemove) {
-                console.log(`🗑️ BG: Removing box: id=${box.id}, identifier=${box.identifier}`);
               }
               
               return !shouldRemove;
@@ -3825,10 +3624,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             const afterCount = session.agentBoxes.length;
             const removedCount = beforeCount - afterCount;
             
-            console.log(`🗑️ BG: Removed ${removedCount} agent box(es) from SQLite, ${afterCount} remaining`);
             
             if (removedCount === 0) {
-              console.warn('⚠️ BG: No agent boxes were removed! Check if id/identifier match.');
+              console.warn('âš ï¸ BG: No agent boxes were removed! Check if id/identifier match.');
             }
             
             // Save back to SQLite
@@ -3838,7 +3636,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
               body: JSON.stringify({ key: sessionKey, value: session })
             })
           } else {
-            console.warn('⚠️ BG: No agentBoxes array in session');
+            console.warn('âš ï¸ BG: No agentBoxes array in session');
             throw new Error('No agentBoxes in session')
           }
         })
@@ -3849,11 +3647,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           return response.json()
         })
         .then(() => {
-          console.log('✅ BG: Agent box deleted from SQLite database');
           try { sendResponse({ success: true }) } catch {}
         })
         .catch(error => {
-          console.error('❌ BG: Error deleting from SQLite:', error);
+          console.error('âŒ BG: Error deleting from SQLite:', error);
           try { sendResponse({ success: false, error: String(error) }) } catch {}
         })
       
@@ -3863,7 +3660,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       // Expand sidepanel (sidepanel will adjust width automatically)
       if (sender.tab?.id) {
         const tabId = sender.tab.id;
-        console.log(`🔓 Expanding sidepanel for tab ${tabId} - width will auto-adjust`);
         tabDisplayGridsActive.set(tabId, false);
         try { sendResponse({ success: true }) } catch {}
       } else {
@@ -3904,7 +3700,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     }
 
     case 'SAVE_GRID_CONFIG':
-      console.log('📥 SAVE_GRID_CONFIG received');
       sendResponse({ success: true, message: 'Config received' });
       break;
     case 'OG_TOGGLE_OVERLAY':
@@ -3987,7 +3782,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     
     case 'PING': {
       // Simple ping-pong to wake up service worker
-      console.log('🏓 BG: Received PING')
       try { sendResponse({ success: true }) } catch {}
       return true
     }
@@ -3995,14 +3789,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     // Removed DB_WEBSOCKET_MESSAGE handler - database operations now use HTTP API directly
     
     case 'GRID_SAVE': {
-      console.log('📥 BG: Received GRID_SAVE message:', msg)
       const { payload } = msg
       
-      console.log('📦 BG: Payload:', JSON.stringify(payload, null, 2))
-      console.log('🔑 BG: Session key:', payload.sessionKey)
       
       if (!payload.sessionKey) {
-        console.error('❌ BG: No sessionKey provided')
+        console.error('âŒ BG: No sessionKey provided')
         try { sendResponse({ success: false, error: 'No session key' }) } catch {}
         break
       }
@@ -4012,22 +3803,18 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         storageGet([payload.sessionKey], (result: any) => {
         const session = result[payload.sessionKey] || {}
         
-        console.log('📋 BG: Loaded session:', JSON.stringify(session, null, 2))
         
         // Initialize arrays if needed
         if (!session.displayGrids) {
-          console.log('🆕 BG: Initializing displayGrids array')
           session.displayGrids = []
         }
         if (!session.agentBoxes) {
-          console.log('🆕 BG: Initializing agentBoxes array')
           session.agentBoxes = []
         }
         
         // Find or create grid entry
         let gridEntry = session.displayGrids.find((g: any) => g.sessionId === payload.sessionId)
         if (!gridEntry) {
-          console.log('🆕 BG: Creating new grid entry for sessionId:', payload.sessionId)
           gridEntry = {
             layout: payload.layout,
             sessionId: payload.sessionId,
@@ -4036,14 +3823,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           }
           session.displayGrids.push(gridEntry)
         } else {
-          console.log('♻️ BG: Updating existing grid entry for sessionId:', payload.sessionId)
           gridEntry.config = payload.config || gridEntry.config
           gridEntry.agentBoxes = payload.agentBoxes || []
         }
         
         // Merge agent boxes into session (deduplicating by identifier)
         if (payload.agentBoxes && payload.agentBoxes.length > 0) {
-          console.log('📦 BG: Merging', payload.agentBoxes.length, 'agent boxes into session')
           
           payload.agentBoxes.forEach((newBox: any) => {
             const existingIndex = session.agentBoxes.findIndex(
@@ -4052,22 +3837,16 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             if (existingIndex !== -1) {
               // Update existing
               session.agentBoxes[existingIndex] = newBox
-              console.log('♻️ BG: Updated existing agent box:', newBox.identifier)
             } else {
               // Add new
               session.agentBoxes.push(newBox)
-              console.log('🆕 BG: Added new agent box:', newBox.identifier)
             }
           })
         }
         
-        console.log('💾 BG: Saving session with', session.agentBoxes.length, 'total agent boxes')
-        console.log('📊 BG: Full grid entry:', JSON.stringify(gridEntry, null, 2))
         
         // Save updated session using storage wrapper
         storageSet({ [payload.sessionKey]: session }, () => {
-          console.log('✅ BG: Session saved with grid config and agent boxes!')
-          console.log('✅ BG: Total agent boxes in session:', session.agentBoxes.length)
           try { sendResponse({ success: true }) } catch {}
         })
       });
@@ -4077,12 +3856,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     }
     
     case 'GET_SESSION_FROM_SQLITE': {
-      console.log('📥 BG: GET_SESSION_FROM_SQLITE for key:', msg.sessionKey)
       
       if (!msg.sessionKey) {
-        console.error('❌ BG: No sessionKey provided')
+        console.error('âŒ BG: No sessionKey provided')
         try { sendResponse({ success: false, error: 'No session key' }) } catch (e) {
-          console.error('❌ BG: Failed to send error response:', e)
+          console.error('âŒ BG: Failed to send error response:', e)
         }
         return true
       }
@@ -4097,26 +3875,24 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         })
         .then((result: any) => {
           const session = result.data || null
-          console.log('✅ BG: Loaded session from SQLite via HTTP:', session ? 'Found' : 'Not found')
           try { 
             sendResponse({ 
               success: true, 
               session: session 
             }) 
           } catch (e) {
-            console.error('❌ BG: Failed to send response:', e)
+            console.error('âŒ BG: Failed to send response:', e)
           }
         })
         .catch((error: any) => {
-          console.error('❌ BG: Error loading session via HTTP:', error)
+          console.error('âŒ BG: Error loading session via HTTP:', error)
           // Fallback to Chrome Storage
           chrome.storage.local.get([msg.sessionKey], (result: any) => {
             const session = result[msg.sessionKey] || null
-            console.log('⚠️ BG: Fallback to Chrome Storage:', session ? 'Found' : 'Not found')
             try {
               sendResponse({ success: true, session: session })
             } catch (e) {
-              console.error('❌ BG: Failed to send fallback response:', e)
+              console.error('âŒ BG: Failed to send fallback response:', e)
             }
           })
         })
@@ -4129,7 +3905,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       const { sessionKey, session } = msg
       
       if (!sessionKey || !session) {
-        console.error('❌ BG: Missing sessionKey or session data')
+        console.error('âŒ BG: Missing sessionKey or session data')
         try { sendResponse({ success: false, error: 'Missing data' }) } catch {}
         return true
       }
@@ -4147,17 +3923,16 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           return response.json()
         })
         .then(() => {
-          console.log('✅ BG: Session saved to SQLite:', sessionKey)
           // Mirror to Chrome Storage so fallback reads stay fresh
           chrome.storage.local.set({ [sessionKey]: session }, () => {
             if (chrome.runtime.lastError) {
-              console.warn('⚠️ BG: Chrome mirror write failed (non-fatal):', chrome.runtime.lastError.message)
+              console.warn('âš ï¸ BG: Chrome mirror write failed (non-fatal):', chrome.runtime.lastError.message)
             }
           })
           try { sendResponse({ success: true }) } catch {}
         })
         .catch((error: any) => {
-          console.error('❌ BG: Error saving session to SQLite:', error)
+          console.error('âŒ BG: Error saving session to SQLite:', error)
           try { sendResponse({ success: false, error: String(error) }) } catch {}
         })
       
@@ -4165,7 +3940,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     }
     
     case 'GET_ALL_SESSIONS_FROM_SQLITE': {
-      console.log('📥 BG: GET_ALL_SESSIONS_FROM_SQLITE')
       
       const chromeStorageFallback = () => {
         chrome.storage.local.get(null, (allData: any) => {
@@ -4173,13 +3947,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           Object.entries(allData || {}).forEach(([k, v]) => {
             if (k.startsWith('session_')) chromeSessions[k] = v
           })
-          console.log('⚠️ BG: Chrome Storage fallback found sessions:', Object.keys(chromeSessions).length)
           try { sendResponse({ success: true, sessions: chromeSessions }) } catch (e) {}
         })
       }
 
       // Use /api/orchestrator/get-all which returns ALL key-value pairs at once
-      // Then filter for session_ keys — no /keys endpoint exists on the server
+      // Then filter for session_ keys â€” no /keys endpoint exists on the server
       fetch('http://127.0.0.1:51248/api/orchestrator/get-all', { headers: _electronHeaders() })
         .then(response => {
           if (!response.ok) throw new Error(`HTTP ${response.status}`)
@@ -4192,18 +3965,17 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             if (k.startsWith('session_') && v) sessionsMap[k] = v
           })
           
-          console.log('✅ BG: Loaded all sessions from SQLite via get-all:', Object.keys(sessionsMap).length)
 
           if (Object.keys(sessionsMap).length > 0) {
             try { sendResponse({ success: true, sessions: sessionsMap }) } catch (e) {}
           } else {
-            // SQLite returned zero sessions — fall back to Chrome Storage mirror
-            console.warn('⚠️ BG: SQLite returned 0 sessions, falling back to Chrome Storage')
+            // SQLite returned zero sessions â€” fall back to Chrome Storage mirror
+            console.warn('âš ï¸ BG: SQLite returned 0 sessions, falling back to Chrome Storage')
             chromeStorageFallback()
           }
         })
         .catch((error: any) => {
-          console.error('❌ BG: Error loading all sessions from SQLite:', error)
+          console.error('âŒ BG: Error loading all sessions from SQLite:', error)
           // On any error (including 404), fall back to Chrome Storage
           chromeStorageFallback()
         })
@@ -4213,7 +3985,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
     case 'DELETE_SESSIONS_FROM_SQLITE': {
       const { sessionKeys } = msg
-      console.log('📥 BG: DELETE_SESSIONS_FROM_SQLITE', sessionKeys)
 
       if (!Array.isArray(sessionKeys) || sessionKeys.length === 0) {
         try { sendResponse({ success: false, error: 'No keys provided' }) } catch {}
@@ -4228,14 +3999,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       })
         .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json() })
         .then(() => {
-          console.log('✅ BG: Sessions deleted from SQLite:', sessionKeys.length)
           // Also remove from Chrome Storage (mirror cleanup)
           chrome.storage.local.remove(sessionKeys, () => {
             try { sendResponse({ success: true }) } catch {}
           })
         })
         .catch((error: any) => {
-          console.error('❌ BG: Error deleting sessions from SQLite:', error)
+          console.error('âŒ BG: Error deleting sessions from SQLite:', error)
           // Still try Chrome Storage cleanup
           chrome.storage.local.remove(sessionKeys, () => {
             try { sendResponse({ success: false, error: String(error) }) } catch {}
@@ -4246,14 +4016,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     }
 
     case 'SAVE_AGENT_BOX_TO_SQLITE': {
-      console.log('📥 BG: SAVE_AGENT_BOX_TO_SQLITE')
-      console.log('📦 BG: Agent box:', msg.agentBox)
-      console.log('🔑 BG: Session key:', msg.sessionKey)
       
       if (!msg.sessionKey || !msg.agentBox) {
-        console.error('❌ BG: Missing sessionKey or agentBox')
+        console.error('âŒ BG: Missing sessionKey or agentBox')
         try { sendResponse({ success: false, error: 'Missing required data' }) } catch (e) {
-          console.error('❌ BG: Failed to send error response:', e)
+          console.error('âŒ BG: Failed to send error response:', e)
         }
         return true
       }
@@ -4269,13 +4036,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         .then((result: any) => {
           const session = result.data || {}
           
-          console.log('📋 BG: Loaded session from SQLite via HTTP:', session ? 'Found' : 'Not found')
-          console.log('📊 BG: Session before save:', {
-            hasAgentBoxes: !!session.agentBoxes,
-            agentBoxesCount: session.agentBoxes?.length || 0,
-            hasDisplayGrids: !!session.displayGrids,
-            displayGridsCount: session.displayGrids?.length || 0
-          })
           
           // Initialize arrays if needed
           if (!session.agentBoxes) session.agentBoxes = []
@@ -4288,10 +4048,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           
           if (existingIndex !== -1) {
             session.agentBoxes[existingIndex] = msg.agentBox
-            console.log('♻️ BG: Updated existing agent box:', msg.agentBox.identifier)
           } else {
             session.agentBoxes.push(msg.agentBox)
-            console.log('🆕 BG: Added new agent box:', msg.agentBox.identifier)
           }
           
           // session.agents is intentionally NOT modified here.
@@ -4300,16 +4058,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           // Auto-creating shells from box data caused box titles to appear as "AI Agents"
           // in Sessions History.  The canonical session.agents array is preserved as-is.
           if (!session.agents) session.agents = []
-          console.log(`[BG] SAVE_AGENT_BOX_TO_SQLITE: preserving ${session.agents.length} existing agents unchanged`)
           
-          // 🔍 DEBUG: Log the agentBox being saved
-          console.log('📦 BG: AgentBox details:', {
-            identifier: msg.agentBox.identifier,
-            locationId: msg.agentBox.locationId,
-            boxNumber: msg.agentBox.boxNumber,
-            title: msg.agentBox.title,
-            source: msg.agentBox.source
-          })
+          // ðŸ” DEBUG: Log the agentBox being saved
           
           // Update or add grid metadata if provided
           if (msg.gridMetadata) {
@@ -4318,18 +4068,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             )
             if (gridIndex !== -1) {
               session.displayGrids[gridIndex] = msg.gridMetadata
-              console.log('♻️ BG: Updated grid metadata')
             } else {
               session.displayGrids.push(msg.gridMetadata)
-              console.log('🆕 BG: Added grid metadata')
             }
           }
           
-          console.log('💾 BG: Saving to SQLite with', session.agentBoxes.length, 'agent boxes')
           
-          // 🔍 DEBUG: Log all agentBoxes being saved
+          // ðŸ” DEBUG: Log all agentBoxes being saved
           session.agentBoxes.forEach((box: any, index: number) => {
-            console.log(`  [${index}] ${box.identifier}: locationId=${box.locationId || 'MISSING'}`)
           })
           
           // Save updated session using direct HTTP API (correct format: {key, value})
@@ -4343,14 +4089,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           if (!response.ok) {
             // Get error details from response
             return response.text().then(errorText => {
-              console.error('❌ BG: SQLite HTTP error:', response.status, errorText)
+              console.error('âŒ BG: SQLite HTTP error:', response.status, errorText)
               throw new Error(`HTTP ${response.status}: ${errorText}`)
             })
           }
           return response.json()
         })
         .then((result: any) => {
-          console.log('✅ BG: Session saved to SQLite via HTTP!')
           // Get updated session to count boxes
           return fetch(`http://127.0.0.1:51248/api/orchestrator/get?key=${encodeURIComponent(msg.sessionKey)}`, { headers: _electronHeaders() })
         })
@@ -4359,8 +4104,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           const session = result.data || {}
           const totalBoxes = session.agentBoxes?.length || 0
           
-          console.log('✅ BG: Session saved to SQLite successfully!')
-          console.log('📦 BG: Session now has', totalBoxes, 'agentBoxes')
           
           try { 
             sendResponse({ 
@@ -4368,18 +4111,18 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
               totalBoxes: totalBoxes
             }) 
           } catch (e) {
-            console.error('❌ BG: Failed to send response:', e)
+            console.error('âŒ BG: Failed to send response:', e)
           }
         })
         .catch((error: any) => {
-          console.error('❌ BG: Error saving to SQLite via HTTP:', error)
-          console.error('❌ BG: Error details:', error.message)
-          console.error('❌ BG: SQLite is the only backend - fix the Electron app!')
+          console.error('âŒ BG: Error saving to SQLite via HTTP:', error)
+          console.error('âŒ BG: Error details:', error.message)
+          console.error('âŒ BG: SQLite is the only backend - fix the Electron app!')
           
           try {
             sendResponse({ success: false, error: 'Failed to save to SQLite: ' + String(error) })
           } catch (e) {
-            console.error('❌ BG: Failed to send error response:', e)
+            console.error('âŒ BG: Failed to send error response:', e)
           }
         })
       
@@ -4387,12 +4130,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     }
 
     case 'UPDATE_BOX_OUTPUT_SQLITE': {
-      console.log('📥 BG: UPDATE_BOX_OUTPUT_SQLITE for box:', msg.agentBoxId)
       
       if (!msg.sessionKey || !msg.agentBoxId || msg.output === undefined) {
-        console.error('❌ BG: Missing required data for UPDATE_BOX_OUTPUT_SQLITE')
+        console.error('âŒ BG: Missing required data for UPDATE_BOX_OUTPUT_SQLITE')
         try { sendResponse({ success: false, error: 'Missing required data' }) } catch (e) {
-          console.error('❌ BG: Failed to send error response:', e)
+          console.error('âŒ BG: Failed to send error response:', e)
         }
         return true
       }
@@ -4414,15 +4156,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           )
           
           if (boxIndex === -1) {
-            console.warn('⚠️ BG: Box not found for output update:', msg.agentBoxId)
-            console.warn('⚠️ BG: Available boxes:', session.agentBoxes.map((b: any) => ({ id: b.id, identifier: b.identifier })))
+            console.warn('âš ï¸ BG: Box not found for output update:', msg.agentBoxId)
+            console.warn('âš ï¸ BG: Available boxes:', session.agentBoxes.map((b: any) => ({ id: b.id, identifier: b.identifier })))
             throw new Error('Box not found: ' + msg.agentBoxId)
           }
           
           session.agentBoxes[boxIndex].output = msg.output
           session.agentBoxes[boxIndex].lastUpdated = new Date().toISOString()
           
-          console.log('📝 BG: Updating output for box:', session.agentBoxes[boxIndex].identifier || session.agentBoxes[boxIndex].id)
           
           return fetch('http://127.0.0.1:51248/api/orchestrator/set', {
             method: 'POST',
@@ -4434,7 +4175,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           })
         })
         .then((session: any) => {
-          console.log('✅ BG: Box output saved to SQLite')
           
           // Resolve canonical identifier for the box that was updated.
           // master-tab boxes have id=UUID and identifier="AB0101"; grid boxes have id=identifier="AB0592".
@@ -4461,13 +4201,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           })
           
           try { sendResponse({ success: true }) } catch (e) {
-            console.error('❌ BG: Failed to send success response:', e)
+            console.error('âŒ BG: Failed to send success response:', e)
           }
         })
         .catch((error: any) => {
-          console.error('❌ BG: Error in UPDATE_BOX_OUTPUT_SQLITE:', error.message)
+          console.error('âŒ BG: Error in UPDATE_BOX_OUTPUT_SQLITE:', error.message)
           try { sendResponse({ success: false, error: String(error) }) } catch (e) {
-            console.error('❌ BG: Failed to send error response:', e)
+            console.error('âŒ BG: Failed to send error response:', e)
           }
         })
       
