@@ -4225,17 +4225,25 @@ function initializeExtension() {
 
               
 
-              <div class="scope-toggle-container" style="margin: 8px 0; display: flex; align-items: center; justify-content: center; gap: 8px;">
+              <div class="scope-toggle-container" style="margin: 8px 0; display: flex; align-items: center; justify-content: center;">
 
-                <span style="font-size: 9px; color: ${csTheme().muted};">Session</span>
+                <div style="display: inline-flex; border-radius: 14px; overflow: hidden; border: 1.5px solid ${isAccount ? '#16a34a' : '#6366f1'}; background: ${csTheme().isLight ? '#f1f5f9' : 'rgba(255,255,255,0.07)'};">
 
-                <button class="scope-toggle-switch" data-agent="${a.key}" style="position: relative; width: 40px; height: 20px; background: ${isAccount ? '#16a34a' : csTheme().inputBg}; border: 1px solid ${csTheme().border}; border-radius: 10px; cursor: pointer; transition: background 0.3s;">
+                  <button class="scope-pill-session scope-toggle-switch" data-agent="${a.key}" data-target="session"
+                    style="padding: 3px 10px; font-size: 9px; font-weight: 600; border: none; cursor: pointer; transition: all 0.2s;
+                      background: ${!isAccount ? '#6366f1' : 'transparent'};
+                      color: ${!isAccount ? '#ffffff' : csTheme().muted};">
+                    Session
+                  </button>
 
-                  <div style="position: absolute; top: 2px; left: ${isAccount ? '22px' : '2px'}; width: 16px; height: 16px; background: white; border-radius: 50%; transition: left 0.3s;"></div>
+                  <button class="scope-pill-account scope-toggle-switch" data-agent="${a.key}" data-target="account"
+                    style="padding: 3px 10px; font-size: 9px; font-weight: 600; border: none; cursor: pointer; transition: all 0.2s;
+                      background: ${isAccount ? '#16a34a' : 'transparent'};
+                      color: ${isAccount ? '#ffffff' : csTheme().muted};">
+                    Account
+                  </button>
 
-                </button>
-
-                <span style="font-size: 9px; color: ${csTheme().muted};">Account</span>
+                </div>
 
               </div>
 
@@ -4333,23 +4341,27 @@ function initializeExtension() {
 
             // Scope toggle switch handler
 
-            const scopeSwitch = card.querySelector('.scope-toggle-switch') as HTMLElement | null
+            const scopeSwitches = card.querySelectorAll('.scope-toggle-switch') as NodeListOf<HTMLElement>
 
-            scopeSwitch?.addEventListener('click', (e: any) => {
+            scopeSwitches.forEach((scopeSwitch) => {
 
-              e.stopPropagation()
+              scopeSwitch.addEventListener('click', (e: any) => {
 
-              const agentKey = scopeSwitch.getAttribute('data-agent')
+                e.stopPropagation()
 
-              const currentScope = a.scope
+                const agentKey = scopeSwitch.getAttribute('data-agent')
 
-              const newScope = currentScope === 'session' ? 'account' : 'session'
+                const targetScope = scopeSwitch.getAttribute('data-target') || (a.scope === 'session' ? 'account' : 'session')
 
-              
+                const currentScope = a.scope
 
-              toggleAgentScope(agentKey ?? '', currentScope, newScope, () => {
+                if (targetScope === currentScope) return // already active, no-op
 
-                renderAgentsGrid(overlay, filter)
+                toggleAgentScope(agentKey ?? '', currentScope, targetScope, () => {
+
+                  renderAgentsGrid(overlay, filter)
+
+                })
 
               })
 
