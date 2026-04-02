@@ -228,7 +228,23 @@ function createMasterSchema(): any {
             "memorySettings": { "type": "object" },
             "listening": { "type": "object" },
             "reasoningSections": { "type": "array" },
-            "executionSections": { "type": "array" }
+            "executionSections": { "type": "array" },
+            "wrExperts": {
+              "type": "array",
+              "description": "Agent-level text-only expert documents. Reusable knowledge, not tools or triggers.",
+              "items": {
+                "type": "object",
+                "required": ["id", "name", "content"],
+                "properties": {
+                  "id": { "type": "string" },
+                  "name": { "type": "string" },
+                  "content": { "type": "string", "description": "Plain text content only" },
+                  "description": { "type": "string" },
+                  "createdAt": { "type": "string", "format": "date-time" },
+                  "updatedAt": { "type": "string", "format": "date-time" }
+                }
+              }
+            }
           }
         }
       },
@@ -329,10 +345,11 @@ function createUnifiedTemplate(): any {
         "executionSections": [
           {
             "applyForList": ["TRIGGER01"],
-            "executionMode": "agent_workflow",
+            "executionMode": "agent_only",
             "destinations": [{ "kind": "agentBox", "agents": ["AB0101"] }]
           }
-        ]
+        ],
+        "wrExperts": []
       }
     ],
     

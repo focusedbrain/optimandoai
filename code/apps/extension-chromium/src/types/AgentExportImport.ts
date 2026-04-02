@@ -120,6 +120,9 @@ export interface AgentExportFormat {
   
   /** Agent context files */
   agentContextFiles?: any[];
+  
+  /** WR Expert documents (agent-level text-only knowledge) */
+  wrExperts?: any[];
 }
 
 export interface AgentImportResult {
@@ -372,6 +375,26 @@ export function exportAgentToJson(agentConfig: any): AgentExportFormat {
     }));
   }
   
+  // Export WR Experts (agent-level text-only knowledge documents)
+  if (agentConfig.wrExperts && agentConfig.wrExperts.length > 0) {
+    exported.wrExperts = agentConfig.wrExperts.map((expert: any) => ({
+      _schema: {
+        id: 'agent.wrExpert',
+        label: 'WR Expert',
+        key: 'wrExpert',
+        description: 'Agent-level text-only expert document.',
+        type: 'object',
+        required: false,
+      },
+      id: expert.id || '',
+      name: expert.name || '',
+      content: expert.content || '',
+      description: expert.description || '',
+      createdAt: expert.createdAt || '',
+      updatedAt: expert.updatedAt || '',
+    }));
+  }
+  
   return exported;
 }
 
@@ -548,7 +571,7 @@ export function importAgentFromJson(jsonData: string | AgentExportFormat | any):
       agent.execution = {
         applyFor: extractValue(data.execution.applyFor) || '__any__',
         applyForList: extractValue(data.execution.applyForList) || ['__any__'],
-        executionMode: extractValue(data.execution.executionMode) || 'agent_workflow',
+        executionMode: extractValue(data.execution.executionMode) || 'agent_only',
         specialDestinations: extractValue(data.execution.specialDestinations) || [],
         workflows: extractValue(data.execution.workflows) || [],
         executionWorkflows: extractValue(data.execution.executionWorkflows) || [],
@@ -569,6 +592,18 @@ export function importAgentFromJson(jsonData: string | AgentExportFormat | any):
     // Note: Agent context files are not imported by default (would need file data)
     if (data.agentContextFiles && data.agentContextFiles.length > 0) {
       warnings.push(`${data.agentContextFiles.length} context file(s) were not imported (file data not included)`);
+    }
+    
+    // Import WR Experts (text-only, fully portable — import them directly)
+    if (data.wrExperts && Array.isArray(data.wrExperts) && data.wrExperts.length > 0) {
+      agent.wrExperts = data.wrExperts.map((expert: any) => ({
+        id: expert.id || `expert-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+        name: expert.name || '',
+        content: expert.content || '',
+        description: expert.description || '',
+        createdAt: expert.createdAt || new Date().toISOString(),
+        updatedAt: expert.updatedAt || new Date().toISOString(),
+      }));
     }
     
     if (errors.length > 0) {

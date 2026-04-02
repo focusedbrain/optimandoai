@@ -23,6 +23,7 @@
 
 /** Valid execution modes */
 export const ExecutionModeValues = [
+  'agent_only',
   'agent_workflow',
   'direct_response', 
   'workflow_only',
@@ -393,6 +394,16 @@ export interface CanonicalAgentConfig {
   // Files
   agentContextFiles?: any[];
   
+  /** Agent-level WR Expert documents (text-only reusable knowledge) */
+  wrExperts?: Array<{
+    id: string;
+    name: string;
+    content: string;
+    description?: string;
+    createdAt?: string;
+    updatedAt?: string;
+  }>;
+  
   // @deprecated v2.1.0 - use reasoningSections[0] instead
   // reasoning?: CanonicalReasoning;
   // @deprecated v2.1.0 - use executionSections[0] instead
@@ -544,7 +555,7 @@ function toCanonicalReasoningSection(sec: any): CanonicalReasoning {
 function toCanonicalExecutionSection(sec: any): CanonicalExecution {
   return {
     applyForList: normalizeApplyForList(sec.applyFor, sec.applyForList),
-    executionMode: sec.executionMode || 'agent_workflow',
+    executionMode: sec.executionMode || 'agent_only',
     destinations: normalizeDestinations(sec.destinations, sec.specialDestinations),
     executionWorkflows: sec.executionWorkflows || [],
   };
@@ -638,6 +649,11 @@ export function toCanonicalAgent(data: any): CanonicalAgentConfig {
   // Agent context files
   if (data.agentContextFiles && data.agentContextFiles.length > 0) {
     canonical.agentContextFiles = data.agentContextFiles;
+  }
+  
+  // WR Experts — agent-level text-only knowledge documents
+  if (data.wrExperts && data.wrExperts.length > 0) {
+    canonical.wrExperts = data.wrExperts;
   }
   
   return canonical;

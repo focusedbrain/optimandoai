@@ -223,6 +223,21 @@ export const AgentIdentitySchema: Record<string, SchemaNode> = {
       order: 6,
     },
   },
+  
+  wrExperts: {
+    id: 'agent.wrExperts',
+    humanLabel: 'WR Experts',
+    machineKey: 'wrExperts',
+    description: 'Agent-level text-only expert documents. Reusable knowledge that can be attached to reasoning or execution sections. Each expert has an id, name, content (text only), and optional description.',
+    type: 'array',
+    required: false,
+    default: [],
+    parentId: 'agent',
+    display: {
+      order: 7,
+      collapsible: true,
+    },
+  },
 };
 
 // =============================================================================
@@ -1088,7 +1103,7 @@ export const ExecutionElementsSchema: Record<string, SchemaNode> = {
     description: 'Controls how output is generated: agent response only, agent + workflows, or workflows only.',
     type: 'enum',
     required: false,
-    default: 'agent_workflow',
+    default: 'agent_only',
     parentId: 'agent.execution',
     enumOptions: [
       { value: 'agent_only', label: 'Agent response only', description: 'Returns output from Agent Box only' },

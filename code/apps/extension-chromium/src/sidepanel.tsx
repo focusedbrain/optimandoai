@@ -196,7 +196,37 @@ function SidepanelOrchestrator() {
       })
     }
     fetchSecret()
+    // Refresh the secret every 60s to handle Electron restarts (secret rotation)
+    // and service worker sleep/wake cycles which reset the in-memory _launchSecret.
+    const interval = setInterval(fetchSecret, 60_000)
+    return () => clearInterval(interval)
   }, [])
+
+  /**
+   * Ensure launch secret is available before making an LLM call.
+   * Re-fetches from background if missing (handles SW sleep/wake and Electron restarts).
+   */
+  const ensureLaunchSecret = (): Promise<void> => {
+    if (launchSecretRef.current) return Promise.resolve()
+    return new Promise((resolve) => {
+      let attempts = 0
+      const tryFetch = () => {
+        chrome.runtime.sendMessage({ type: 'GET_LAUNCH_SECRET' }, (response: { secret?: string | null } | undefined) => {
+          if (chrome.runtime.lastError) { attempts++; if (attempts < 8) setTimeout(tryFetch, 500); else resolve(); return }
+          if (response?.secret) {
+            launchSecretRef.current = response.secret
+            console.log('[Sidepanel] 🔑 Launch secret refreshed before LLM call')
+            resolve()
+          } else {
+            attempts++
+            if (attempts < 8) setTimeout(tryFetch, 500)
+            else { console.warn('[Sidepanel] ⚠️ Launch secret unavailable after retries'); resolve() }
+          }
+        })
+      }
+      tryFetch()
+    })
+  }
 
   // Deep linking: ?message=id, ?handshake=id, or #message=id, #handshake=id (R.8)
   useEffect(() => {
@@ -1295,6 +1325,9 @@ function SidepanelOrchestrator() {
               setChatMessages(prev => [...prev, { role: 'assistant' as const, text: keyMsg }])
               continue
             }
+
+            // Ensure launch secret is fresh before the LLM call (handles SW sleep/wake)
+            await ensureLaunchSecret()
 
             const agentResponse = await fetch(`${baseUrl}/api/llm/chat`, {
               method: 'POST',
@@ -2796,6 +2829,9 @@ function SidepanelOrchestrator() {
         return { success: false, error: keyError }
       }
 
+      // Ensure launch secret is fresh before the LLM call (handles SW sleep/wake)
+      await ensureLaunchSecret()
+
       const response = await fetch(`${baseUrl}/api/llm/chat`, {
         method: 'POST',
         headers: electronFetchHeaders(),
@@ -2993,6 +3029,9 @@ function SidepanelOrchestrator() {
             setChatMessages(prev => [...prev, { role: 'assistant' as const, text: keyMsg }])
             continue
           }
+
+          // Ensure launch secret is fresh before the LLM call (handles SW sleep/wake)
+          await ensureLaunchSecret()
 
           const agentResponse = await fetch(`${baseUrl}/api/llm/chat`, {
             method: 'POST',
