@@ -19,6 +19,7 @@ import { createRoot } from 'react-dom/client'
 import { useUIStore } from './stores/useUIStore'
 import { 
   CommandChatView,
+  PopupChatView,
   P2PChatPlaceholder,
   P2PStreamPlaceholder,
   GroupChatPlaceholder
@@ -1863,12 +1864,13 @@ function PopupChatApp() {
     switch (dockedSubmode) {
       case 'command':
         return (
-          <CommandChatView
+          <PopupChatView
             theme={theme}
             availableModels={availableModels}
             activeLlmModel={activeLlmModel}
             onModelSelect={(name) => { setActiveLlmModel(name); activeLlmModelRef.current = name }}
             onRefreshModels={refreshPopupModels}
+            sessionName="Popup Session"
           />
         )
       case 'p2p-chat':
@@ -1917,12 +1919,13 @@ function PopupChatApp() {
         )
       default:
         return (
-          <CommandChatView
+          <PopupChatView
             theme={theme}
             availableModels={availableModels}
             activeLlmModel={activeLlmModel}
             onModelSelect={(name) => { setActiveLlmModel(name); activeLlmModelRef.current = name }}
             onRefreshModels={refreshPopupModels}
+            sessionName="Popup Session"
           />
         )
     }
