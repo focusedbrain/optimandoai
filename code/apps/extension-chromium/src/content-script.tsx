@@ -2906,13 +2906,28 @@ function initializeExtension() {
         if (chrome?.runtime) {
           chrome.runtime.sendMessage({ type: 'GET_SESSION_FROM_SQLITE', sessionKey: existingKey }, (response) => {
             if (chrome.runtime.lastError) {
-              console.warn('⚠️ ensureActiveSession: GET_SESSION_FROM_SQLITE failed, using empty session:', chrome.runtime.lastError.message)
-              loadExisting({})
+              console.warn('⚠️ ensureActiveSession: GET_SESSION_FROM_SQLITE failed, falling back to Chrome Storage:', chrome.runtime.lastError.message)
+              // Fallback: try chrome.storage.local (may have older data but better than empty)
+              chrome.storage.local.get([existingKey], (result: any) => {
+                const fallback = result?.[existingKey] || {}
+                console.log('⚠️ ensureActiveSession: Chrome Storage fallback result:', fallback?.tabName || '(empty)')
+                loadExisting(fallback)
+              })
               return
             }
-            const session = response?.session || {}
-            console.log('✅ ensureActiveSession: loaded from SQLite:', session?.tabName || '(no name)')
-            loadExisting(session)
+            const session = response?.session
+            if (session && (session.agents?.length || session.agentBoxes?.length || session.tabName)) {
+              console.log('✅ ensureActiveSession: loaded from SQLite:', session?.tabName || '(no name)')
+              loadExisting(session)
+            } else {
+              // SQLite returned null/empty — fall back to Chrome Storage in case it has data
+              console.warn('⚠️ ensureActiveSession: SQLite returned empty, trying Chrome Storage fallback')
+              chrome.storage.local.get([existingKey], (result: any) => {
+                const fallback = result?.[existingKey] || {}
+                console.log('⚠️ ensureActiveSession: Chrome Storage fallback result:', fallback?.tabName || '(still empty)')
+                loadExisting(fallback)
+              })
+            }
           })
         } else {
           loadExisting({})
@@ -2972,6 +2987,8 @@ function initializeExtension() {
           console.warn('⚠️ ensureActiveSession: SQLite save failed, falling back to storageSet:', chrome.runtime.lastError?.message)
           storageSet({ [newKey]: newSession }, doSave)
         } else {
+          // Also mirror to Chrome Storage so the fallback path in ensureActiveSession has data
+          try { chrome.storage.local.set({ [newKey]: newSession }) } catch {}
           doSave()
         }
       })
@@ -3096,6 +3113,8 @@ function initializeExtension() {
           })
         } else if (response?.success) {
           console.log('✅ ensureSessionInHistory: session synced to SQLite')
+          // Also mirror to Chrome Storage so the fallback read path always has data
+          try { chrome.storage.local.set({ [sessionKey]: completeSessionData }) } catch {}
           if (callback) callback()
         } else {
           console.warn('⚠️ ensureSessionInHistory: SQLite save returned failure, writing to Chrome Storage as fallback')
