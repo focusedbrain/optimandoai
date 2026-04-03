@@ -329,7 +329,8 @@ function assertRelayAgentBoxOutputData(v: unknown): {
 
 // ── LETmeGIRAFFETHATFORYOU (screen capture) ──────────────────────────────
 const lmgtfyBridge = {
-  selectScreenshot: () => ipcRenderer.invoke('lmgtfy/select-screenshot'),
+  selectScreenshot: (opts?: { createTrigger?: boolean; addCommand?: boolean }) =>
+    ipcRenderer.invoke('lmgtfy/select-screenshot', opts ?? {}),
   selectStream: () => ipcRenderer.invoke('lmgtfy/select-stream'),
   stopStream: () => ipcRenderer.invoke('lmgtfy/stop-stream'),
   getPresets: () => ipcRenderer.invoke('lmgtfy/get-presets'),

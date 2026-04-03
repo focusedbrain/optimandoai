@@ -4,7 +4,7 @@
  */
 
 type LmgtfyBridge = {
-  selectScreenshot?: () => Promise<unknown>
+  selectScreenshot?: (opts?: { createTrigger?: boolean; addCommand?: boolean }) => Promise<unknown>
 }
 
 function getLmgtfyBridge(): LmgtfyBridge | undefined {
@@ -20,7 +20,14 @@ export function startWrChatScreenCapture(options?: {
 }): void {
   const bridge = getLmgtfyBridge()
   if (typeof bridge?.selectScreenshot === 'function') {
-    void bridge.selectScreenshot().catch((err: unknown) => {
+    const bridgeOpts =
+      options?.createTrigger !== undefined || options?.addCommand !== undefined
+        ? {
+            ...(options?.createTrigger !== undefined && { createTrigger: options.createTrigger }),
+            ...(options?.addCommand !== undefined && { addCommand: options.addCommand }),
+          }
+        : undefined
+    void bridge.selectScreenshot(bridgeOpts).catch((err: unknown) => {
       console.warn('[WrChatCapture] LETmeGIRAFFETHATFORYOU.selectScreenshot failed', err)
     })
     return

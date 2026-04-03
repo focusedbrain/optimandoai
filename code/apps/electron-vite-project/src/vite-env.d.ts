@@ -9,7 +9,7 @@ interface CapturePresetPayload {
 }
 
 interface LmgtfyBridge {
-  selectScreenshot: () => Promise<unknown>
+  selectScreenshot: (opts?: { createTrigger?: boolean; addCommand?: boolean }) => Promise<unknown>
   selectStream: () => Promise<unknown>
   stopStream: () => Promise<unknown>
   getPresets: () => Promise<{ regions?: unknown[] }>

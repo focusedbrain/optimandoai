@@ -47,7 +47,8 @@ export const WrChatCaptureButton: React.FC<WrChatCaptureButtonProps> = ({
     startWrChatScreenCapture({ source, createTrigger, addCommand })
   }, [source, createTrigger, addCommand])
 
-  const iconSize = variant === 'comfortable' ? 12 : 18
+  /** Compact docked row is 26px tall (matches workspace/submode selects); icon scales to fit */
+  const iconSize = variant === 'comfortable' ? 12 : 16
 
   // PopupChatView header: match Clear / Tags
   if (variant === 'comfortable') {
@@ -125,8 +126,8 @@ export const WrChatCaptureButton: React.FC<WrChatCaptureButtonProps> = ({
   const baseEnterprise = (): React.CSSProperties => ({
     borderRadius: '6px',
     padding: '0 8px',
-    height: '28px',
-    minWidth: '28px',
+    height: '26px',
+    minWidth: '26px',
     cursor: 'pointer',
     display: 'flex',
     alignItems: 'center',
@@ -158,8 +159,8 @@ export const WrChatCaptureButton: React.FC<WrChatCaptureButtonProps> = ({
   const baseAppBar = (): React.CSSProperties => ({
     borderRadius: '6px',
     padding: '0 8px',
-    height: '28px',
-    minWidth: '28px',
+    height: '26px',
+    minWidth: '26px',
     cursor: 'pointer',
     display: 'flex',
     alignItems: 'center',

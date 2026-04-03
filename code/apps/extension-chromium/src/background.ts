@@ -1096,23 +1096,18 @@ function connectToWebSocketServer(forceReconnect = false): Promise<boolean> {
               }
             } else if (data.type === 'SHOW_TRIGGER_PROMPT') {
               chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-                const tabId = tabs[0]?.id
                 const tabUrl = tabs[0]?.url || ''
-                if (!tabId) return
-                
-                const message = { 
-                  type: 'SHOW_TRIGGER_PROMPT', 
-                  mode: data.mode, 
-                  rect: data.rect, 
-                  displayId: data.displayId, 
-                  imageUrl: data.imageUrl, 
+                const message = {
+                  type: 'SHOW_TRIGGER_PROMPT',
+                  mode: data.mode,
+                  rect: data.rect,
+                  displayId: data.displayId,
+                  imageUrl: data.imageUrl,
                   videoUrl: data.videoUrl,
                   createTrigger: data.createTrigger,
                   addCommand: data.addCommand,
-                  tabUrl: tabUrl
-                }
-                
-                try { chrome.tabs.sendMessage(tabId, message) } catch (e) {
+                  tabUrl,
+                  forSidepanel: true,
                 }
                 try { chrome.runtime.sendMessage(message) } catch {}
               })
@@ -2767,12 +2762,16 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     }
     case 'ELECTRON_START_SELECTION': {
       try {
+        const mergedOpts =
+          typeof msg.options === 'object' && msg.options !== null ? { ...msg.options } : {}
+        if (msg.createTrigger !== undefined) mergedOpts.createTrigger = msg.createTrigger
+        if (msg.addCommand !== undefined) mergedOpts.addCommand = msg.addCommand
         if (WS_ENABLED && ws && ws.readyState === WebSocket.OPEN) {
           const payload = {
             type: 'START_SELECTION',
             source: msg.source || 'browser',
             mode: msg.mode || 'area',
-            options: msg.options || {}
+            options: mergedOpts,
           }
           try { ws.send(JSON.stringify(payload)) } catch {}
           try { sendResponse({ success: true }) } catch {}
@@ -2783,7 +2782,16 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             const temp = new WebSocket(url)
             temp.addEventListener('open', () => {
               try { ws = temp as any } catch {}
-              try { ws?.send(JSON.stringify({ type: 'START_SELECTION', source: msg.source || 'browser', mode: msg.mode || 'area', options: msg.options || {} })) } catch {}
+              try {
+                ws?.send(
+                  JSON.stringify({
+                    type: 'START_SELECTION',
+                    source: msg.source || 'browser',
+                    mode: msg.mode || 'area',
+                    options: mergedOpts,
+                  }),
+                )
+              } catch {}
               try { sendResponse({ success: true }) } catch {}
             })
             temp.addEventListener('error', () => { try { sendResponse({ success:false, error:'WS not connected' }) } catch {} })

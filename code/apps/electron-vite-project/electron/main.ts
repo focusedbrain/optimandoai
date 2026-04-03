@@ -1253,12 +1253,18 @@ async function createWindow() {
           const rect = msg.rect || { x:0,y:0,w:0,h:0 }
           const displayId = Number(msg.displayId)||0
           const sel = { displayId, x: rect.x, y: rect.y, w: rect.w, h: rect.h, dpr: 1 }
-          const { filePath } = await captureScreenshot(sel as any)
-          await postScreenshotToPopup(filePath, { x: sel.x, y: sel.y, w: sel.w, h: sel.h, dpr: 1 })
-          // Close all overlay windows if requested
           if (msg.closeOverlay) {
             try { closeAllOverlays() } catch {}
+            await new Promise((r) => setTimeout(r, 60))
           }
+          const { filePath } = await captureScreenshot(sel as any)
+          await postScreenshotToPopup(filePath, { x: sel.x, y: sel.y, w: sel.w, h: sel.h, dpr: 1 })
+          let imageDataUrl = ''
+          try {
+            const fs = await import('node:fs')
+            const data = fs.readFileSync(filePath)
+            imageDataUrl = 'data:image/png;base64,' + data.toString('base64')
+          } catch {}
           // Show trigger prompt UI in extension popup if requested
           if (msg.createTrigger || msg.addCommand) {
             console.log('[MAIN] Requesting trigger prompt in extension for screenshot')
@@ -1271,9 +1277,10 @@ async function createWindow() {
                     mode: 'screenshot',
                     rect,
                     displayId,
-                    imageUrl: filePath, // Send the file path so extension can display the image
+                    imageUrl: imageDataUrl || filePath,
                     createTrigger: !!msg.createTrigger,
-                    addCommand: !!msg.addCommand
+                    addCommand: !!msg.addCommand,
+                    forSidepanel: true,
                   }))
                 } catch {}
               })
@@ -1349,7 +1356,8 @@ async function createWindow() {
                     displayId: triggerInfo.displayId,
                     videoUrl: out, // Send the video file path
                     createTrigger: !!triggerInfo.createTrigger,
-                    addCommand: !!triggerInfo.addCommand
+                    addCommand: !!triggerInfo.addCommand,
+                    forSidepanel: true,
                   }))
                 } catch {}
               })
@@ -1731,10 +1739,11 @@ async function createWindow() {
     })
   } catch {}
   // Preload bridge (dashboard WR Chat, etc.) — same overlay as extension START_SELECTION
-  registerHandler(LmgtfyChannels.SelectScreenshot, async () => {
+  registerHandler(LmgtfyChannels.SelectScreenshot, async (_e, payload?: { createTrigger?: boolean; addCommand?: boolean }) => {
     try {
       closeAllOverlays()
-      beginOverlay('screenshot')
+      const p = payload && typeof payload === 'object' ? payload : {}
+      beginOverlay('screenshot', { createTrigger: !!p.createTrigger, addCommand: !!p.addCommand })
       return { ok: true as const }
     } catch (e) {
       console.error('[MAIN] lmgtfy/select-screenshot:', e)
@@ -4935,7 +4944,11 @@ app.whenReady().then(async () => {
                 console.log('[MAIN] Closing existing overlays before creating new ones')
                 closeAllOverlays()
                 console.log('[MAIN] Calling beginOverlay()...')
-                beginOverlay()
+                const opt = msg.options && typeof msg.options === 'object' ? msg.options as Record<string, unknown> : {}
+                beginOverlay(undefined, {
+                  createTrigger: !!opt.createTrigger,
+                  addCommand: !!opt.addCommand,
+                })
                 console.log('[MAIN] ✅ beginOverlay() completed successfully')
               } catch (overlayErr: any) {
                 console.error('[MAIN] ❌ ERROR in beginOverlay():', overlayErr)

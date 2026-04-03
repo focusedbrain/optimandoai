@@ -2006,6 +2006,8 @@ try {
 
       if (msg.type === 'SHOW_TRIGGER_PROMPT'){
 
+        if (msg.forSidepanel) return
+
         // Show trigger name input in docked chat or floating popup
 
 

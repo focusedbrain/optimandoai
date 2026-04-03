@@ -32,7 +32,12 @@ export function closeAllOverlays() {
 }
 
 // Fire-and-forget interactive overlay that stays open until closed or stopped (for popup parity)
-export function beginOverlay(_expectedMode?: 'screenshot' | 'stream'): void {
+export function beginOverlay(
+  _expectedMode?: 'screenshot' | 'stream',
+  initialFlags?: { createTrigger?: boolean; addCommand?: boolean },
+): void {
+  const trigInit = initialFlags?.createTrigger === true
+  const cmdInit = initialFlags?.addCommand === true
   try {
     console.log('[OVERLAY] beginOverlay() called')
     // Close any existing overlays first
@@ -136,6 +141,8 @@ export function beginOverlay(_expectedMode?: 'screenshot' | 'stream'): void {
           try { tb.insertBefore(timer, btnStop.nextSibling) } catch { try { tb.insertBefore(timer, btnClose) } catch {} }
           const cbTrig=document.getElementById('cbTrig');
           const cbCommand=document.getElementById('cbCommand');
+          try { if (cbTrig) cbTrig.checked = ${trigInit} } catch {}
+          try { if (cbCommand) cbCommand.checked = ${cmdInit} } catch {}
           function placeToolbar(){
             if (locked) { tb.style.left=tbX+'px'; tb.style.top=tbY+'px'; tb.style.display='flex'; return }
             const x=Math.min(sx,ex), y=Math.min(sy,ey);

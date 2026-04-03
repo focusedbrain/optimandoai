@@ -1710,21 +1710,6 @@ function SidepanelOrchestrator() {
       }
       // Listen for trigger prompt from Electron
       else if (message.type === 'SHOW_TRIGGER_PROMPT') {
-        
-        // Check if we're on a restricted page (display grid or MSN)
-        const tabUrl = message.tabUrl || ''
-        const isRestrictedPage = tabUrl.includes('/grid-display') || 
-                                  tabUrl.includes('msn.com/') ||
-                                  tabUrl.startsWith('edge://') ||
-                                  tabUrl.includes('/grid-display')
-        
-        
-        // Only show inline form on restricted pages
-        // On regular pages, the content script will show a modal instead
-        if (!isRestrictedPage) {
-          return
-        }
-        
         setShowTriggerPrompt({
           mode: message.mode,
           rect: message.rect,
@@ -5138,6 +5123,7 @@ function SidepanelOrchestrator() {
                             setTriggers(triggers)
                             // Notify other contexts
                             try { chrome.runtime?.sendMessage({ type:'TRIGGERS_UPDATED' }) } catch {}
+                            try { window.dispatchEvent(new CustomEvent('optimando-triggers-updated')) } catch {}
                           })
                         })
                         
@@ -8870,6 +8856,7 @@ function SidepanelOrchestrator() {
                             setTriggers(triggers)
                             // Notify other contexts
                             try { chrome.runtime?.sendMessage({ type:'TRIGGERS_UPDATED' }) } catch {}
+                            try { window.dispatchEvent(new CustomEvent('optimando-triggers-updated')) } catch {}
                           })
                         })
                         
