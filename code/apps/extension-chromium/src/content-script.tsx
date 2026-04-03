@@ -2870,9 +2870,30 @@ function initializeExtension() {
     // Read current session from SQLite via background to get authoritative agentBoxes —
     // storageGet() routes through storageWrapper which may fall back to Chrome Storage
     // (empty for session_ keys), causing agentBoxes to be silently zeroed on every agent save.
-    const doSaveSession = (storedBoxes: any[]) => {
+    const doSaveSession = (storedBoxes: any[], storedGrids: any[]) => {
       if (storedBoxes.length > completeSessionData.agentBoxes.length) {
         completeSessionData.agentBoxes = storedBoxes
+      }
+
+      // Merge displayGrids from SQLite with in-memory displayGrids — keep the
+      // most-recent entry per layout so a stale in-memory session never overwrites
+      // agentNumber (or other slot config) that was just saved by SAVE_AGENT_BOX_TO_SQLITE.
+      if (storedGrids.length > 0) {
+        const incomingGrids: any[] = completeSessionData.displayGrids || []
+        const mergedMap = new Map<string, any>()
+        // Seed with stored (SQLite) grids — these are authoritative
+        storedGrids.forEach((g: any) => {
+          mergedMap.set(g.layout || g.sessionId, g)
+        })
+        // Overlay with incoming only when incoming is genuinely newer
+        incomingGrids.forEach((inGrid: any) => {
+          const key = inGrid.layout || inGrid.sessionId
+          const existing = mergedMap.get(key)
+          const existTs = existing ? new Date(existing.timestamp || 0).getTime() : -1
+          const inTs    = new Date(inGrid.timestamp || 0).getTime()
+          if (!existing || inTs > existTs) mergedMap.set(key, inGrid)
+        })
+        completeSessionData.displayGrids = Array.from(mergedMap.values())
       }
 
 
@@ -2914,14 +2935,15 @@ function initializeExtension() {
       chrome.runtime.sendMessage({ type: 'GET_SESSION_FROM_SQLITE', sessionKey }, (response) => {
         if (chrome.runtime.lastError) {
           console.warn('[TRACE] ensureSessionInHistory: could not read SQLite, proceeding without merge:', chrome.runtime.lastError.message)
-          doSaveSession([])
+          doSaveSession([], [])
           return
         }
         const storedBoxes: any[] = response?.session?.agentBoxes || []
-        doSaveSession(storedBoxes)
+        const storedGrids: any[] = response?.session?.displayGrids || []
+        doSaveSession(storedBoxes, storedGrids)
       })
     } else {
-      doSaveSession([])
+      doSaveSession([], [])
     }
 
   }
