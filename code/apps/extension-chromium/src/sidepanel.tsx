@@ -33,6 +33,7 @@ import { formatErrorForNotification, isConnectionError } from './utils/errorMess
 import { ConnectEmailLaunchSource, useConnectEmailFlow } from './shared/email/connectEmailFlow'
 import { pickDefaultEmailAccountRowId } from './shared/email/pickDefaultAccountRow'
 import { ThirdPartyLicensesView } from './bundled-tools'
+import { WrChatCaptureButton } from './ui/components/WrChatCaptureButton'
 import { WRGuardWorkspace, useWRGuardStore } from './wrguard'
 import { RecipientModeSwitch, RecipientHandshakeSelect, DeliveryMethodPanel, executeDeliveryAction, BeapMessageListView, BeapBulkInbox, initBeapPqAuth } from './beap-messages'
 import type { BeapBulkInboxHandle } from './beap-messages'
@@ -2546,15 +2547,6 @@ function SidepanelOrchestrator() {
     setPendingItems([])
   }
 
-  const handleScreenSelect = () => {
-    chrome.runtime?.sendMessage({ 
-      type: 'ELECTRON_START_SELECTION', 
-      source: 'sidepanel-docked-chat',
-      createTrigger: createTriggerChecked,
-      addCommand: addCommandChecked
-    })
-  }
-
   /** Clear WR Chat transcript, composer, and pending attachment (docked + shared state). */
   const clearWrChat = useCallback(() => {
     setChatMessages([])
@@ -4524,43 +4516,14 @@ function SidepanelOrchestrator() {
                 {/* Controls */}
                 <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
                   {((dockedPanelMode as string) !== 'admin' && dockedWorkspace !== 'beap-messages' && dockedWorkspace !== 'wrguard') && <>
-                    <button 
-                      onClick={handleScreenSelect}
-                      title="LmGTFY - Capture a screen area as screenshot or stream"
-                      style={{
-                        ...chatControlButtonStyle(),
-                        borderRadius: '6px',
-                        padding: '0 8px',
-                        height: '22px',
-                        minWidth: '22px',
-                        fontSize: '13px',
-                        cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        transition: 'all 0.2s ease'
-                      }}
-                      onMouseEnter={(e) => {
-                        if (theme === 'standard') {
-                          e.currentTarget.style.background = '#eef3f6'
-                        } else if (theme === 'dark') {
-                          e.currentTarget.style.background = 'rgba(255,255,255,0.25)'
-                        } else {
-                          e.currentTarget.style.background = 'rgba(118,75,162,0.6)'
-                        }
-                      }}
-                      onMouseLeave={(e) => {
-                        if (theme === 'standard') {
-                          e.currentTarget.style.background = '#f8f9fb'
-                        } else if (theme === 'dark') {
-                          e.currentTarget.style.background = 'rgba(255,255,255,0.15)'
-                        } else {
-                          e.currentTarget.style.background = 'rgba(118,75,162,0.35)'
-                        }
-                      }}
-                    >
-                      ✎
-                    </button>
+                    <WrChatCaptureButton
+                      variant="compact"
+                      theme={theme}
+                      sidepanelPreset="enterprise"
+                      source="sidepanel-docked-chat"
+                      createTrigger={createTriggerChecked}
+                      addCommand={addCommandChecked}
+                    />
                     <button
                       type="button"
                       onClick={clearWrChat}
@@ -6498,46 +6461,14 @@ function SidepanelOrchestrator() {
               {/* Controls */}
               <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
                 {(dockedPanelMode as string) !== 'admin' && dockedPanelMode !== 'beap-messages' && dockedPanelMode !== 'augmented-overlay' && dockedWorkspace !== 'wrguard' && <>
-                  <button 
-                    onClick={handleScreenSelect}
-                    title="LmGTFY - Capture a screen area as screenshot or stream"
-                    style={{
-                      ...chatControlButtonStyle(),
-                      borderRadius: '6px',
-                      padding: '0 8px',
-height: '28px',
-                        minWidth: '28px',
-                        background: 'rgba(255,255,255,0.15)',
-                        border: 'none',
-                        color: '#ffffff',
-                        fontSize: '14px',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      transition: 'all 0.2s ease'
-                    }}
-                    onMouseEnter={(e) => {
-                      if (theme === 'standard') {
-                        e.currentTarget.style.background = 'rgba(15,23,42,0.12)'
-                      } else if (theme === 'dark') {
-                        e.currentTarget.style.background = 'rgba(255,255,255,0.25)'
-                      } else {
-                        e.currentTarget.style.background = 'rgba(118,75,162,0.6)'
-                      }
-                    }}
-                    onMouseLeave={(e) => {
-                      if (theme === 'standard') {
-                        e.currentTarget.style.background = 'rgba(15,23,42,0.08)'
-                      } else if (theme === 'dark') {
-                        e.currentTarget.style.background = 'rgba(255,255,255,0.15)'
-                      } else {
-                        e.currentTarget.style.background = 'rgba(118,75,162,0.35)'
-                      }
-                    }}
-                  >
-                    ✎
-                  </button>
+                  <WrChatCaptureButton
+                    variant="compact"
+                    theme={theme}
+                    sidepanelPreset="appBar"
+                    source="sidepanel-docked-chat"
+                    createTrigger={createTriggerChecked}
+                    addCommand={addCommandChecked}
+                  />
                   <button
                     type="button"
                     onClick={clearWrChat}
@@ -7887,46 +7818,14 @@ height: '28px',
               {/* Controls */}
               <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
                 {(dockedPanelMode as string) !== 'admin' && dockedPanelMode !== 'beap-messages' && dockedPanelMode !== 'augmented-overlay' && dockedWorkspace !== 'wrguard' && <>
-                  <button 
-                    onClick={handleScreenSelect}
-                    title="LmGTFY - Capture a screen area as screenshot or stream"
-                    style={{
-                      ...chatControlButtonStyle(),
-                      borderRadius: '6px',
-                      padding: '0 8px',
-height: '28px',
-                        minWidth: '28px',
-                        background: 'rgba(255,255,255,0.15)',
-                        border: 'none',
-                        color: '#ffffff',
-                        fontSize: '14px',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      transition: 'all 0.2s ease'
-                    }}
-                    onMouseEnter={(e) => {
-                      if (theme === 'standard') {
-                        e.currentTarget.style.background = 'rgba(15,23,42,0.12)'
-                      } else if (theme === 'dark') {
-                        e.currentTarget.style.background = 'rgba(255,255,255,0.25)'
-                      } else {
-                        e.currentTarget.style.background = 'rgba(118,75,162,0.6)'
-                      }
-                    }}
-                    onMouseLeave={(e) => {
-                      if (theme === 'standard') {
-                        e.currentTarget.style.background = 'rgba(15,23,42,0.08)'
-                      } else if (theme === 'dark') {
-                        e.currentTarget.style.background = 'rgba(255,255,255,0.15)'
-                      } else {
-                        e.currentTarget.style.background = 'rgba(118,75,162,0.35)'
-                      }
-                    }}
-                  >
-                    ✎
-                  </button>
+                  <WrChatCaptureButton
+                    variant="compact"
+                    theme={theme}
+                    sidepanelPreset="appBar"
+                    source="sidepanel-docked-chat"
+                    createTrigger={createTriggerChecked}
+                    addCommand={addCommandChecked}
+                  />
                   <button
                     type="button"
                     onClick={clearWrChat}

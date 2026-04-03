@@ -6,7 +6,8 @@
  * overlay, orchestrator-side PDF extraction, pending-doc injection, OCR for images.
  */
 
-import React, { useState, useRef, useEffect, useCallback } from 'react'
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react'
+import { WrChatCaptureButton } from './WrChatCaptureButton'
 
 const BASE_URL = 'http://127.0.0.1:51248'
 
@@ -643,6 +644,11 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
   const noModels = availableModels.length === 0
   const canSend = !isLoading && (!!input.trim() || !!pendingDoc)
 
+  const captureSource = useMemo(
+    () => (wrChatEmbedContext === 'dashboard' ? 'wr-chat-dashboard' : 'wr-chat-popup'),
+    [wrChatEmbedContext],
+  )
+
   return (
     <div
       style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden', position: 'relative', background: colors.bg }}
@@ -663,7 +669,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
         </div>
       )}
 
-      {/* Header — docked WR Chat parity: minimal Clear control */}
+      {/* Header — Clear, Tags, screen capture (LmGTFY) */}
       <div style={{
         padding: '8px 12px', fontSize: '11px', fontWeight: 600,
         display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px',
@@ -673,7 +679,12 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
           padding: '3px 8px', borderRadius: '4px', fontSize: '10px',
           background: colors.badgeBg, color: colors.badgeText
         }}>⚡ Command Session</span>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+          <WrChatCaptureButton
+            variant="comfortable"
+            theme={theme}
+            source={captureSource}
+          />
           <button
             type="button"
             onClick={handleClearChat}
