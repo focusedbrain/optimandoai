@@ -1065,6 +1065,28 @@ function connectToWebSocketServer(forceReconnect = false): Promise<boolean> {
               try { chrome.runtime.sendMessage({ type: 'ELECTRON_SELECTION_RESULT', kind, dataUrl }) } catch {}
             } else if (data.type === 'TRIGGERS_UPDATED') {
               try { chrome.runtime.sendMessage({ type: 'TRIGGERS_UPDATED' }) } catch {}
+            } else if (data.type === 'UPDATE_AGENT_BOX_OUTPUT') {
+              // Relay from Electron main (dashboard WR Chat persisted via HTTP shim — same payload as MV3 background after UPDATE_BOX_OUTPUT_SQLITE).
+              const inner = data.data
+              if (inner && typeof inner === 'object') {
+                const d = inner as { agentBoxId?: string; agentBoxUuid?: string; output?: string; allBoxes?: unknown[] }
+                console.log('[AgentBoxFix] bg:ws UPDATE_AGENT_BOX_OUTPUT → runtime.sendMessage', {
+                  agentBoxId: d.agentBoxId,
+                  agentBoxUuid: d.agentBoxUuid,
+                  outputLen: typeof d.output === 'string' ? d.output.length : -1,
+                  allBoxesLen: Array.isArray(d.allBoxes) ? d.allBoxes.length : -1,
+                })
+                try {
+                  chrome.runtime.sendMessage({
+                    type: 'UPDATE_AGENT_BOX_OUTPUT',
+                    data: inner,
+                  })
+                } catch {
+                  /* no listener */
+                }
+              } else {
+                console.log('[AgentBoxFix] bg:ws UPDATE_AGENT_BOX_OUTPUT skipped (no data object)')
+              }
             } else if (data.type === 'P2P_BEAP_RECEIVED') {
               const handshakeId = typeof data.handshakeId === 'string' ? data.handshakeId : ''
               try {

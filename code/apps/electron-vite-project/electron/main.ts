@@ -1169,6 +1169,37 @@ async function createWindow() {
         console.log('[MAIN] ⚠️ No WebSocket clients connected - WR Chat popup may not open')
       }
     })
+
+    /** Dashboard WR Chat: after SQLite persist in renderer shim, relay same contract as MV3 background UPDATE_BOX_OUTPUT_SQLITE broadcast. */
+    ipcMain.on('RELAY_UPDATE_AGENT_BOX_OUTPUT', (_e, payload: unknown) => {
+      if (!payload || typeof payload !== 'object') return
+      const p = payload as Record<string, unknown>
+      if (
+        typeof p.agentBoxId !== 'string' ||
+        typeof p.agentBoxUuid !== 'string' ||
+        typeof p.output !== 'string' ||
+        !Array.isArray(p.allBoxes)
+      ) {
+        return
+      }
+      console.log('[AgentBoxFix] main:relay UPDATE_AGENT_BOX_OUTPUT → extension WS', {
+        agentBoxId: p.agentBoxId,
+        agentBoxUuid: p.agentBoxUuid,
+        outputLen: p.output.length,
+        allBoxesLen: p.allBoxes.length,
+        wsClientCount: wsClients.filter((c: { readyState: number }) => c.readyState === 1).length,
+      })
+      broadcastToExtensions({
+        type: 'UPDATE_AGENT_BOX_OUTPUT',
+        data: {
+          agentBoxId: p.agentBoxId,
+          agentBoxUuid: p.agentBoxUuid,
+          output: p.output,
+          allBoxes: p.allBoxes,
+        },
+      })
+    })
+
     ipcMain.on('OPEN_BEAP_DRAFT', () => {
       console.log('[MAIN] 📨 BEAP Draft requested from dashboard')
       openBeapPopup('dashboard-beap-draft')

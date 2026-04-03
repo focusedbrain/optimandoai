@@ -1,0 +1,21 @@
+.wr-chat-dashboard-view {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+}
+
+.wr-chat-dashboard-view--boot {
+  padding: 24px;
+  font-size: 0.95rem;
+  opacity: 0.85;
+}
+
+.wr-chat-dashboard-view__chat {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}

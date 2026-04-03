@@ -30,6 +30,13 @@ interface AnalysisDashboardBridge {
   openEmailCompose: () => void
   openHandshakeRequest: () => void
   openWrChat: () => void
+  /** Relay live Agent Box refresh to extension after dashboard WR Chat persists output (matches MV3 background broadcast). */
+  relayAgentBoxOutputLive: (data: {
+    agentBoxId: string
+    agentBoxUuid: string
+    output: string
+    allBoxes: unknown[]
+  }) => void
 }
 
 interface LifecycleBridge {

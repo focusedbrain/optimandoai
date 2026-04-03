@@ -7,6 +7,7 @@ import HandshakeInitiateModal from './components/HandshakeInitiateModal'
 import SettingsView from './components/SettingsView'
 import EmailInboxView from './components/EmailInboxView'
 import EmailInboxBulkView from './components/EmailInboxBulkView'
+import WrChatDashboardPanel from './components/WrChatDashboardPanel'
 import { useEmailInboxStore, type InboxFilter } from './stores/useEmailInboxStore'
 import { subscribeInboxNewMessagesBackgroundRefresh } from './utils/inboxNewMessagesBackgroundRefresh'
 import { type AnalysisOpenPayload, sanitizeAnalysisOpenPayload } from './components/analysis'
@@ -15,7 +16,7 @@ import './components/handshakeViewTypes'
 import { DebugLogViewer } from './components/DebugLogViewer'
 // === END TEMPORARY DEBUG LOG VIEWER ===
 
-type DashboardView = 'analysis' | 'handshakes' | 'beap-inbox' | 'settings'
+type DashboardView = 'analysis' | 'wr-chat' | 'handshakes' | 'beap-inbox' | 'settings'
 type ExtensionTheme = 'pro' | 'dark' | 'standard'
 
 function mapThemeToCss(theme: ExtensionTheme): string {
@@ -118,7 +119,7 @@ function App() {
 
   // Clear selected message and attachment when switching to views that don't support message focus
   useEffect(() => {
-    if (activeView === 'analysis' || activeView === 'settings') {
+    if (activeView === 'analysis' || activeView === 'wr-chat' || activeView === 'settings') {
       setSelectedMessageId(null)
       setSelectedAttachmentId(null)
     }
@@ -222,10 +223,12 @@ function App() {
           >
             Analysis
           </button>
+          {/* WR Chat: primary entry = in-dashboard view (WrChatDashboardPanel). Rollback: replace onClick with
+              `() => window.analysisDashboard?.openWrChat()` and remove activeView wr-chat branch in main if desired. */}
           <button
-            className="nav-tab"
-            onClick={() => window.analysisDashboard?.openWrChat()}
-            title="Open WR Chat popup"
+            className={`nav-tab${activeView === 'wr-chat' ? ' nav-tab--active' : ''}`}
+            onClick={() => setActiveView('wr-chat')}
+            title="WR Chat (in dashboard)"
           >
             WR Chat
           </button>
@@ -321,6 +324,8 @@ function App() {
           )
         ) : activeView === 'settings' ? (
           <SettingsView />
+        ) : activeView === 'wr-chat' ? (
+          <WrChatDashboardPanel extensionTheme={extensionTheme} />
         ) : (
           <AnalysisCanvas 
             deepLinkPayload={deepLinkPayload ?? undefined}

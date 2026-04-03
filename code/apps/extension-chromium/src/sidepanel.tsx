@@ -1332,7 +1332,7 @@ function SidepanelOrchestrator() {
                   
                   setChatMessages(prev => [...prev, {
                     role: 'assistant' as const,
-                    text: `✓ ${match.agentIcon} **${match.agentName}** processed your request.\n→ Output displayed in ${match.targetBoxLabels && match.targetBoxLabels.length > 0 ? match.targetBoxLabels.join(' & ') : `Agent Box ${String(match.agentBoxNumber).padStart(2, '0')}`}`
+                    text: `✓ ${match.agentIcon} **${match.agentName}** processed your request.\n→ Output saved for ${match.targetBoxLabels && match.targetBoxLabels.length > 0 ? match.targetBoxLabels.join(' & ') : `Agent Box ${String(match.agentBoxNumber).padStart(2, '0')}`}`
                   }])
                 } else {
                   setChatMessages(prev => [...prev, {
@@ -1636,16 +1636,37 @@ function SidepanelOrchestrator() {
       }
       // Listen for agent box OUTPUT updates (from process flow)
       else if (message.type === 'UPDATE_AGENT_BOX_OUTPUT') {
+        const d = message.data as {
+          allBoxes?: unknown[]
+          agentBoxId?: string
+          agentBoxUuid?: string
+          output?: string
+        }
+        console.log('[AgentBoxFix] sidepanel:UPDATE_AGENT_BOX_OUTPUT', {
+          hasAllBoxes: Array.isArray(d?.allBoxes),
+          allBoxesLen: Array.isArray(d?.allBoxes) ? d.allBoxes.length : 0,
+          agentBoxId: d?.agentBoxId,
+          agentBoxUuid: d?.agentBoxUuid,
+          outputLen: typeof d?.output === 'string' ? d.output.length : -1,
+        })
         if (message.data.allBoxes) {
           // Update all boxes (includes the updated one)
+          console.log('[AgentBoxFix] sidepanel:render path=allBoxes setCount=' + message.data.allBoxes.length)
           setAgentBoxes(message.data.allBoxes)
         } else if (message.data.agentBoxId && message.data.output !== undefined) {
           // Update specific box output (including cleared empty string)
-          setAgentBoxes(prev => prev.map(box => 
-            box.id === message.data.agentBoxId 
-              ? { ...box, output: message.data.output }
-              : box
-          ))
+          setAgentBoxes(prev => {
+            const id = message.data.agentBoxId as string
+            const matchedBefore = prev.filter((box) => box.id === id || (box as { identifier?: string }).identifier === id).length
+            const next = prev.map(box =>
+              box.id === message.data.agentBoxId
+                ? { ...box, output: message.data.output }
+                : box
+            )
+            const changed = next.some((box, i) => box.output !== prev[i]?.output)
+            console.log('[AgentBoxFix] sidepanel:render path=perBox idMatchCandidates=' + matchedBefore + ' stateRowChanged=' + changed)
+            return next
+          })
         }
       }
       // Listen for Electron screenshot results
@@ -2987,7 +3008,7 @@ function SidepanelOrchestrator() {
                 
                 setChatMessages(prev => [...prev, {
                   role: 'assistant' as const,
-                  text: `✓ ${match.agentIcon} **${match.agentName}** processed your request.\n→ Output displayed in ${match.targetBoxLabels && match.targetBoxLabels.length > 0 ? match.targetBoxLabels.join(' & ') : `Agent Box ${String(match.agentBoxNumber).padStart(2, '0')}`}`
+                  text: `✓ ${match.agentIcon} **${match.agentName}** processed your request.\n→ Output saved for ${match.targetBoxLabels && match.targetBoxLabels.length > 0 ? match.targetBoxLabels.join(' & ') : `Agent Box ${String(match.agentBoxNumber).padStart(2, '0')}`}`
                 }])
               } else {
                 setChatMessages(prev => [...prev, {
@@ -3302,7 +3323,7 @@ function SidepanelOrchestrator() {
               }
               
               // Show brief confirmation in chat
-              const agentConfirm = `✓ ${match.agentIcon} **${match.agentName}** processed your request.\n→ Output displayed in ${match.targetBoxLabels && match.targetBoxLabels.length > 0 ? match.targetBoxLabels.join(' & ') : `Agent Box ${String(match.agentBoxNumber).padStart(2, '0')}`}`
+              const agentConfirm = `✓ ${match.agentIcon} **${match.agentName}** processed your request.\n→ Output saved for ${match.targetBoxLabels && match.targetBoxLabels.length > 0 ? match.targetBoxLabels.join(' & ') : `Agent Box ${String(match.agentBoxNumber).padStart(2, '0')}`}`
               setChatMessages(prev => [...prev, { role: 'assistant' as const, text: agentConfirm }])
               routeAssistantToInboxIfPending(agentConfirm)
             } else {

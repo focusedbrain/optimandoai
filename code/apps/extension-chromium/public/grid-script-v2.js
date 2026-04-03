@@ -877,14 +877,21 @@ if (window.gridScriptV2Loaded) {
         var boxId = message.data.agentBoxId;
         var boxUuid = message.data.agentBoxUuid || boxId;
         var output = message.data.output;
+        console.log('[AgentBoxFix] grid:onMessage UPDATE_AGENT_BOX_OUTPUT', {
+          agentBoxId: boxId,
+          agentBoxUuid: boxUuid,
+          outputLen: output != null && output !== '' ? String(output).length : 0,
+        });
 
         var slots = document.querySelectorAll('[data-slot-id]');
+        var agentBoxFixMatchCount = 0;
         slots.forEach(function(slot) {
           var configStr = slot.getAttribute('data-slot-config');
           if (!configStr) return;
           try {
             var cfg = JSON.parse(configStr);
             if (cfg.id === boxId || cfg.identifier === boxId || cfg.id === boxUuid || cfg.identifier === boxUuid) {
+              agentBoxFixMatchCount++;
               var contentDiv = slot.children[1];
               if (contentDiv) {
                 if (output === undefined || output === null || output === '') {
@@ -905,6 +912,7 @@ if (window.gridScriptV2Loaded) {
             // Ignore JSON parse errors for unconfigured slots
           }
         });
+        console.log('[AgentBoxFix] grid:render slotsMatched=' + agentBoxFixMatchCount + ' slotElements=' + slots.length);
       }
     });
   }

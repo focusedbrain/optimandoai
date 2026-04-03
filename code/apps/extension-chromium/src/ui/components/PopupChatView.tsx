@@ -26,6 +26,10 @@ export interface PopupChatViewProps {
   onModelSelect?: (name: string) => void
   onRefreshModels?: () => Promise<void>
   sessionName?: string
+  /** When set (e.g. Electron dashboard), persist message list to localStorage for this key. */
+  persistTranscriptStorageKey?: string
+  /** Mark Electron dashboard embed — optional defensive branches (no popup window). */
+  wrChatEmbedContext?: 'dashboard'
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -109,6 +113,8 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
   onModelSelect,
   onRefreshModels,
   sessionName = 'Active Session',
+  persistTranscriptStorageKey,
+  wrChatEmbedContext,
 }) => {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [input, setInput] = useState('')
@@ -120,6 +126,8 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
   /** Saved area triggers — same storage key as docked WR Chat */
   const [triggers, setTriggers] = useState<any[]>([])
   const [showTagsMenu, setShowTagsMenu] = useState(false)
+  /** When false, skip persisting until localStorage transcript has been read (dashboard embed). */
+  const [transcriptHydrated, setTranscriptHydrated] = useState(() => !persistTranscriptStorageKey)
 
   const secretRef = useRef<string | null>(null)
   const chatRef = useRef<HTMLDivElement>(null)
@@ -185,6 +193,36 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
     return () => window.removeEventListener('optimando-triggers-updated', onUpd)
   }, [])
 
+  // Dashboard embed: restore / persist transcript (optional)
+  useEffect(() => {
+    if (!persistTranscriptStorageKey) {
+      setTranscriptHydrated(true)
+      return
+    }
+    setTranscriptHydrated(false)
+    try {
+      const raw = localStorage.getItem(persistTranscriptStorageKey)
+      if (raw) {
+        const parsed = JSON.parse(raw) as ChatMessage[]
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setMessages(parsed)
+        }
+      }
+    } catch {
+      /* noop */
+    }
+    setTranscriptHydrated(true)
+  }, [persistTranscriptStorageKey])
+
+  useEffect(() => {
+    if (!persistTranscriptStorageKey || !transcriptHydrated) return
+    try {
+      localStorage.setItem(persistTranscriptStorageKey, JSON.stringify(messages))
+    } catch {
+      /* quota / private mode */
+    }
+  }, [messages, persistTranscriptStorageKey, transcriptHydrated])
+
   useEffect(() => {
     if (!showTagsMenu) return
     const handler = (e: MouseEvent) => {
@@ -198,6 +236,10 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
 
   const handlePopupTriggerClick = (trigger: any) => {
     setShowTagsMenu(false)
+    if (wrChatEmbedContext === 'dashboard') {
+      // Extension background would execute automation; dashboard shim no-ops — skip noisy send.
+      return
+    }
     try {
       chrome.runtime?.sendMessage({ type: 'ELECTRON_EXECUTE_TRIGGER', trigger })
     } catch {
@@ -495,7 +537,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
                     }
                   } catch {}
                   const boxNum = String(match.agentBoxNumber ?? '').padStart(2, '0')
-                  const confirm = `✓ ${match.agentIcon} **${match.agentName}** processed your request.\n→ Output displayed in Agent Box ${boxNum}`
+                  const confirm = `✓ ${match.agentIcon} **${match.agentName}** processed your request.\n→ Output saved for Agent Box ${boxNum}`
                   setMessages(prev => [...prev, { role: 'assistant', text: confirm }])
                 } else {
                   // No Agent Box configured — print full reply inline
@@ -549,6 +591,21 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() }
   }
+
+  const handleClearChat = useCallback(() => {
+    setMessages([])
+    setInput('')
+    setPendingDoc(null)
+    setIsLoading(false)
+    setShowTagsMenu(false)
+    if (persistTranscriptStorageKey) {
+      try {
+        localStorage.removeItem(persistTranscriptStorageKey)
+      } catch {
+        /* noop */
+      }
+    }
+  }, [persistTranscriptStorageKey])
 
   // ── Theme ────────────────────────────────────────────────────────────────────
 
@@ -619,13 +676,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <button
             type="button"
-            onClick={() => {
-              setMessages([])
-              setInput('')
-              setPendingDoc(null)
-              setIsLoading(false)
-              setShowTagsMenu(false)
-            }}
+            onClick={handleClearChat}
             title="Clear chat"
             style={{
               padding: '0 8px',

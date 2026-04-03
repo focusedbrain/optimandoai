@@ -281,6 +281,37 @@ function assertBeapSessionImportPayload(v: unknown): {
   return { sessionId, sessionName, config, sourceMessageId, handshakeId }
 }
 
+/**
+ * Same contract as `background.ts` `UPDATE_BOX_OUTPUT_SQLITE` → `chrome.runtime.sendMessage` payload:
+ * - `agentBoxId`: canonical (`identifier || id || msg.agentBoxId`)
+ * - `agentBoxUuid`: original `msg.agentBoxId` from processFlow (UUID or short id — never the canonical-only fallback alone)
+ * - `output`: same string written to the box
+ * - `allBoxes`: `session.agentBoxes` after mutation
+ */
+function assertRelayAgentBoxOutputData(v: unknown): {
+  agentBoxId: string
+  agentBoxUuid: string
+  output: string
+  allBoxes: unknown[]
+} {
+  if (!v || typeof v !== 'object') throw new Error('relayAgentBoxOutput: expected object')
+  const o = v as Record<string, unknown>
+  const agentBoxId =
+    typeof o.agentBoxId === 'string' && o.agentBoxId.length > 0 && o.agentBoxId.length <= 512
+      ? o.agentBoxId
+      : (() => {
+          throw new Error('relayAgentBoxOutput.agentBoxId: required string (max 512)')
+        })()
+  if (typeof o.agentBoxUuid !== 'string' || o.agentBoxUuid.length === 0 || o.agentBoxUuid.length > 512) {
+    throw new Error('relayAgentBoxOutput.agentBoxUuid: required non-empty string (max 512)')
+  }
+  if (typeof o.output !== 'string') throw new Error('relayAgentBoxOutput.output: expected string')
+  if (o.output.length > 4_000_000) throw new Error('relayAgentBoxOutput.output: exceeds max length')
+  if (!Array.isArray(o.allBoxes)) throw new Error('relayAgentBoxOutput.allBoxes: expected array')
+  if (o.allBoxes.length > 500) throw new Error('relayAgentBoxOutput.allBoxes: array too large')
+  return { agentBoxId, agentBoxUuid: o.agentBoxUuid, output: o.output, allBoxes: o.allBoxes }
+}
+
 // ============================================================================
 // §2  Channel Allowlists (compile-time constants)
 // ============================================================================
@@ -288,7 +319,7 @@ function assertBeapSessionImportPayload(v: unknown): {
 // Allowed channel documentation (not enforced at runtime — kept for audit):
 // INVOKE:  lmgtfy/select-screenshot, lmgtfy/select-stream, lmgtfy/stop-stream,
 //          lmgtfy/get-presets, lmgtfy/capture-preset, lmgtfy/save-preset, integrity:status
-// SEND:    REQUEST_THEME, SET_THEME, OPEN_BEAP_INBOX
+// SEND:    REQUEST_THEME, SET_THEME, OPEN_BEAP_INBOX, RELAY_UPDATE_AGENT_BOX_OUTPUT
 // LISTEN:  main-process-message, lmgtfy.capture, hotkey, TRIGGERS_UPDATED,
 //          OPEN_ANALYSIS_DASHBOARD, THEME_CHANGED
 
@@ -378,6 +409,11 @@ contextBridge.exposeInMainWorld('analysisDashboard', {
   },
   openWrChat: () => {
     ipcRenderer.send('OPEN_WR_CHAT')
+  },
+  /** After dashboard WR Chat persists agent box output via HTTP shim, relay live UI update to the extension (WS → background → runtime). */
+  relayAgentBoxOutputLive: (payload: unknown) => {
+    const validated = assertRelayAgentBoxOutputData(payload)
+    ipcRenderer.send('RELAY_UPDATE_AGENT_BOX_OUTPUT', validated)
   },
 })
 
