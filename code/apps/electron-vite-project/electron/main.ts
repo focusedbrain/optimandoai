@@ -1730,14 +1730,26 @@ async function createWindow() {
       })
     })
   } catch {}
-  // Old IPC handlers (now using simple overlay for screenshots)
+  // Preload bridge (dashboard WR Chat, etc.) — same overlay as extension START_SELECTION
   registerHandler(LmgtfyChannels.SelectScreenshot, async () => {
-    // Using simple overlay now via WebSocket START_SELECTION
-    return null
+    try {
+      closeAllOverlays()
+      beginOverlay('screenshot')
+      return { ok: true as const }
+    } catch (e) {
+      console.error('[MAIN] lmgtfy/select-screenshot:', e)
+      return null
+    }
   })
   registerHandler(LmgtfyChannels.SelectStream, async () => {
-    // Using simple overlay now via WebSocket START_SELECTION
-    return null
+    try {
+      closeAllOverlays()
+      beginOverlay('stream')
+      return { ok: true as const }
+    } catch (e) {
+      console.error('[MAIN] lmgtfy/select-stream:', e)
+      return null
+    }
   })
   registerHandler(LmgtfyChannels.StopStream, async () => {
     if (!activeStop || !win) return null
