@@ -3937,6 +3937,18 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           })
           session.displayGrids = merged
 
+          // Deduplicate merged result by layout — keep only the newest entry per
+          // layout so downstream code always picks the right agentNumber.
+          const mergeLayoutMap = new Map<string, any>()
+          merged.forEach((g: any) => {
+            const key = g.layout || g.sessionId
+            const existing = mergeLayoutMap.get(key)
+            const existTs = existing ? new Date(existing.timestamp || 0).getTime() : -1
+            const currTs  = new Date(g.timestamp || 0).getTime()
+            if (!existing || currTs >= existTs) mergeLayoutMap.set(key, g)
+          })
+          session.displayGrids = Array.from(mergeLayoutMap.values())
+
           // Save to SQLite via HTTP API
           return fetch('http://127.0.0.1:51248/api/orchestrator/set', {
             method: 'POST',
@@ -4091,14 +4103,35 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           
           // Update or add grid metadata if provided
           if (msg.gridMetadata) {
-            const gridIndex = session.displayGrids.findIndex(
+            // Match by sessionId first; fall back to layout so we never create
+            // duplicate entries for the same layout (which causes loadSavedConfig
+            // to always pick the first/old entry and show the wrong agentNumber).
+            let gridIndex = session.displayGrids.findIndex(
               (g: any) => g.sessionId === msg.gridMetadata.sessionId
             )
+            if (gridIndex === -1) {
+              gridIndex = session.displayGrids.findIndex(
+                (g: any) => g.layout === msg.gridMetadata.layout
+              )
+            }
             if (gridIndex !== -1) {
               session.displayGrids[gridIndex] = msg.gridMetadata
             } else {
               session.displayGrids.push(msg.gridMetadata)
             }
+
+            // Deduplicate: keep only the most-recent entry per layout so that
+            // grid-display-v2.html's .find(g => g.layout === layout) always
+            // returns the correct (latest) configuration.
+            const layoutMap = new Map<string, any>()
+            session.displayGrids.forEach((g: any) => {
+              const key = g.layout || g.sessionId
+              const existing = layoutMap.get(key)
+              const existTs = existing ? new Date(existing.timestamp || 0).getTime() : -1
+              const currTs  = new Date(g.timestamp || 0).getTime()
+              if (!existing || currTs >= existTs) layoutMap.set(key, g)
+            })
+            session.displayGrids = Array.from(layoutMap.values())
           }
           
           

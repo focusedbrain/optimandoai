@@ -157,7 +157,14 @@
                 chrome.storage.local.get([sessionKey], (result) => {
                     const session = result[sessionKey];
                     if (session && session.displayGrids) {
-                        const gridEntry = session.displayGrids.find(g => g.layout === layout);
+                        // Pick the most-recent entry for this layout (not just the first)
+                        // to avoid stale duplicate entries showing the old agentNumber.
+                        const candidates = session.displayGrids.filter(g => g.layout === layout);
+                        const gridEntry = candidates.reduce((best, current) => {
+                            const bestTs   = best    ? new Date(best.timestamp    || 0).getTime() : -1;
+                            const currentTs = new Date(current.timestamp || 0).getTime();
+                            return currentTs >= bestTs ? current : best;
+                        }, null);
                         if (gridEntry && gridEntry.config && gridEntry.config.slots) {
                             console.log('✅ Loaded saved config:', gridEntry.config.slots);
                             buildGrid(gridEntry.config.slots);
