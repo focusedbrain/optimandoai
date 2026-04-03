@@ -2875,22 +2875,24 @@ function initializeExtension() {
         completeSessionData.agentBoxes = storedBoxes
       }
 
-      // Merge displayGrids from SQLite with in-memory displayGrids — keep the
-      // most-recent entry per layout so a stale in-memory session never overwrites
-      // agentNumber (or other slot config) that was just saved by SAVE_AGENT_BOX_TO_SQLITE.
+      // Merge displayGrids from SQLite with in-memory displayGrids — key by sessionId
+      // when present (one grid tab = one sessionId). Keying by layout alone merged
+      // unrelated shells and let a newer empty grid overwrite slot configs + agentNumber.
+      const gridMergeKey = (g: any) =>
+        g && g.sessionId && String(g.sessionId).length
+          ? `sid:${g.sessionId}`
+          : `layout:${g.layout || 'default'}`
       if (storedGrids.length > 0) {
         const incomingGrids: any[] = completeSessionData.displayGrids || []
         const mergedMap = new Map<string, any>()
-        // Seed with stored (SQLite) grids — these are authoritative
         storedGrids.forEach((g: any) => {
-          mergedMap.set(g.layout || g.sessionId, g)
+          mergedMap.set(gridMergeKey(g), g)
         })
-        // Overlay with incoming only when incoming is genuinely newer
         incomingGrids.forEach((inGrid: any) => {
-          const key = inGrid.layout || inGrid.sessionId
+          const key = gridMergeKey(inGrid)
           const existing = mergedMap.get(key)
           const existTs = existing ? new Date(existing.timestamp || 0).getTime() : -1
-          const inTs    = new Date(inGrid.timestamp || 0).getTime()
+          const inTs = new Date(inGrid.timestamp || 0).getTime()
           if (!existing || inTs > existTs) mergedMap.set(key, inGrid)
         })
         completeSessionData.displayGrids = Array.from(mergedMap.values())

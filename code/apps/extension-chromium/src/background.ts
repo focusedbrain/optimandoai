@@ -3920,31 +3920,38 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           const existingGrids: any[] = (existingResult.data || {}).displayGrids || []
           const incomingGrids: any[] = session.displayGrids || []
 
-          // Merge: for each layout, keep whichever entry has the newer timestamp
+          const gridMergeKey = (g: any) =>
+            g && g.sessionId && String(g.sessionId).length
+              ? `sid:${g.sessionId}`
+              : `layout:${g.layout || 'default'}`
+
+          const sameGrid = (a: any, b: any) => {
+            if (a.sessionId && b.sessionId) return a.sessionId === b.sessionId
+            if (!a.sessionId && !b.sessionId) return a.layout === b.layout
+            return false
+          }
+
+          // Merge: match by sessionId when both have it; never collapse two grids that share a layout.
           const merged = [...existingGrids]
           incomingGrids.forEach((inGrid: any) => {
-            const idx = merged.findIndex(
-              (g: any) => g.layout === inGrid.layout || g.sessionId === inGrid.sessionId
-            )
+            const idx = merged.findIndex((g: any) => sameGrid(g, inGrid))
             if (idx === -1) {
               merged.push(inGrid)
             } else {
               const existTs = new Date((merged[idx] as any).timestamp || 0).getTime()
-              const inTs   = new Date((inGrid as any).timestamp || 0).getTime()
+              const inTs = new Date((inGrid as any).timestamp || 0).getTime()
               if (inTs > existTs) merged[idx] = inGrid
-              // else keep existing (written by SAVE_AGENT_BOX_TO_SQLITE — more recent)
             }
           })
           session.displayGrids = merged
 
-          // Deduplicate merged result by layout — keep only the newest entry per
-          // layout so downstream code always picks the right agentNumber.
+          // Dedupe by sessionId (or layout for legacy entries without sessionId)
           const mergeLayoutMap = new Map<string, any>()
           merged.forEach((g: any) => {
-            const key = g.layout || g.sessionId
+            const key = gridMergeKey(g)
             const existing = mergeLayoutMap.get(key)
             const existTs = existing ? new Date(existing.timestamp || 0).getTime() : -1
-            const currTs  = new Date(g.timestamp || 0).getTime()
+            const currTs = new Date(g.timestamp || 0).getTime()
             if (!existing || currTs >= existTs) mergeLayoutMap.set(key, g)
           })
           session.displayGrids = Array.from(mergeLayoutMap.values())
@@ -4125,10 +4132,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             // returns the correct (latest) configuration.
             const layoutMap = new Map<string, any>()
             session.displayGrids.forEach((g: any) => {
-              const key = g.layout || g.sessionId
+              const key =
+                g.sessionId && String(g.sessionId).length
+                  ? `sid:${g.sessionId}`
+                  : `layout:${g.layout || 'default'}`
               const existing = layoutMap.get(key)
               const existTs = existing ? new Date(existing.timestamp || 0).getTime() : -1
-              const currTs  = new Date(g.timestamp || 0).getTime()
+              const currTs = new Date(g.timestamp || 0).getTime()
               if (!existing || currTs >= existTs) layoutMap.set(key, g)
             })
             session.displayGrids = Array.from(layoutMap.values())

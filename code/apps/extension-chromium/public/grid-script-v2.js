@@ -329,7 +329,7 @@ if (window.gridScriptV2Loaded) {
       '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">' +
         '<div>' +
           '<label style="display:block;margin-bottom:8px;font-weight:600;color:#444;font-size:14px">AI Agent</label>' +
-          '<input id="gs-agent" type="number" min="1" max="99" placeholder="e.g. 1" value="' + (cfg.agentNumber ? cfg.agentNumber : (cfg.agent ? String(cfg.agent).replace('agent', '') : '')) + '" style="width:100%;padding:12px;border:2px solid #ddd;border-radius:8px;font-size:14px;transition:border-color 0.2s">' +
+          '<input id="gs-agent" type="number" min="1" max="99" placeholder="e.g. 1" value="' + (function () { var n = cfg.agentNumber; if (typeof n === 'number' && !isNaN(n) && n > 0) return String(n); if (cfg.agent) return String(cfg.agent).replace('agent', ''); return ''; })() + '" style="width:100%;padding:12px;border:2px solid #ddd;border-radius:8px;font-size:14px;transition:border-color 0.2s">' +
         '</div>' +
         '<div>' +
           '<label style="display:block;margin-bottom:8px;font-weight:600;color:#444;font-size:14px">Provider</label>' +
@@ -384,11 +384,13 @@ if (window.gridScriptV2Loaded) {
     overlay.appendChild(dialog);
     document.body.appendChild(overlay);
     
-    // Set default agent number to match box number (if not already set)
+    // Default AI Agent field to box number only when nothing was persisted (avoid forcing 1)
     setTimeout(function() {
       var agentInput = document.getElementById('gs-agent');
-      if (agentInput && !agentInput.value) {
-        agentInput.value = String(nextBoxNumber);
+      if (!agentInput) return;
+      var hasSaved = (typeof cfg.agentNumber === 'number' && cfg.agentNumber > 0) || (cfg.agent && String(cfg.agent).replace('agent', '').length > 0);
+      if (!hasSaved && !String(agentInput.value || '').trim()) {
+        agentInput.value = String(effectiveBoxNumber);
       }
     }, 50);
     

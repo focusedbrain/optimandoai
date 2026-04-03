@@ -157,11 +157,17 @@
                 chrome.storage.local.get([sessionKey], (result) => {
                     const session = result[sessionKey];
                     if (session && session.displayGrids) {
-                        // Pick the most-recent entry for this layout (not just the first)
-                        // to avoid stale duplicate entries showing the old agentNumber.
-                        const candidates = session.displayGrids.filter(g => g.layout === layout);
-                        const gridEntry = candidates.reduce((best, current) => {
-                            const bestTs   = best    ? new Date(best.timestamp    || 0).getTime() : -1;
+                        // Match this grid tab: same sessionId from URL (unique per open) + layout.
+                        // Using layout alone breaks when multiple grid tabs share a layout — a
+                        // newer shell entry (no slots yet) can win by timestamp and wipe agentNumber.
+                        let candidates = session.displayGrids.filter(function (g) {
+                            return g.layout === layout && g.sessionId === sessionId;
+                        });
+                        if (candidates.length === 0) {
+                            candidates = session.displayGrids.filter(function (g) { return g.layout === layout; });
+                        }
+                        const gridEntry = candidates.reduce(function (best, current) {
+                            const bestTs = best ? new Date(best.timestamp || 0).getTime() : -1;
                             const currentTs = new Date(current.timestamp || 0).getTime();
                             return currentTs >= bestTs ? current : best;
                         }, null);
@@ -203,8 +209,13 @@
                 }
                 const displayText = displayParts.join(' · ');
                 
-                // Build AB code
-                const agentNumForAB = savedAgent ? String(savedAgent).replace('agent', '').padStart(2, '0') : '';
+                // Build AB code (prefer agent string; else agentNumber from saved slot config)
+                let agentNumForAB = '';
+                if (savedAgent) {
+                    agentNumForAB = String(savedAgent).replace('agent', '').padStart(2, '0');
+                } else if (typeof savedConfig.agentNumber === 'number' && savedConfig.agentNumber > 0) {
+                    agentNumForAB = String(savedConfig.agentNumber).padStart(2, '0');
+                }
                 const boxNumForAB = savedBoxNumber > 0 ? String(savedBoxNumber).padStart(2, '0') : String(slotNum).padStart(2, '0');
                 const abCode = `AB${boxNumForAB}${agentNumForAB}`;
                 
