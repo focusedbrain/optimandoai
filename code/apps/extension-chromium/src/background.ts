@@ -431,6 +431,68 @@ type AuthStatusResponsePayload = {
 let authStatusHttpCache: { at: number; ok: boolean; payload: AuthStatusResponsePayload } | null = null
 
 /**
+ * Stable agent-box identity for merge/dedupe. Does NOT treat AB{box}{agent} `identifier`
+ * as primary — that string changes when the user changes AI agent assignment on the grid.
+ * Grid: same display port is always `gridSessionId` + `gridLayout` + `slotId` (one key for legacy + new).
+ * Sidebar: stable `id` (custom uuid). Legacy: `identifier` only.
+ */
+function stableAgentBoxKey(box: any): string | null {
+  if (!box || typeof box !== 'object') return null
+  const sid = box.gridSessionId
+  const lay = box.gridLayout
+  const slot = box.slotId
+  if (sid != null && lay != null && slot != null && String(slot) !== '') {
+    return `slot:${String(sid)}:${String(lay)}:${String(slot)}`
+  }
+  const lid = box.locationId
+  if (lid != null && String(lid).trim()) return `loc:${String(lid)}`
+  const bid = box.id
+  if (bid != null && String(bid).trim()) return `id:${String(bid)}`
+  const idf = box.identifier
+  if (idf != null && String(idf).trim()) return `idf:${String(idf)}`
+  return null
+}
+
+function findAgentBoxIndexByStableKey(agentBoxes: any[], incoming: any): number {
+  const inKey = stableAgentBoxKey(incoming)
+  if (inKey) {
+    const idx = agentBoxes.findIndex((b: any) => stableAgentBoxKey(b) === inKey)
+    if (idx !== -1) return idx
+  }
+  if (incoming.identifier) {
+    return agentBoxes.findIndex((b: any) => b.identifier === incoming.identifier)
+  }
+  return -1
+}
+
+/** Collapse duplicate rows that share the same stable key (legacy identifier drift). */
+function dedupeAgentBoxesByStableKey(agentBoxes: any[]): any[] {
+  const groups = new Map<string, any[]>()
+  agentBoxes.forEach((box, i) => {
+    let k = stableAgentBoxKey(box)
+    if (!k && box.identifier) k = `idf:${String(box.identifier)}`
+    if (!k) k = `orphan:${i}`
+    if (!groups.has(k)) groups.set(k, [])
+    groups.get(k)!.push(box)
+  })
+  const out: any[] = []
+  for (const [, boxes] of groups) {
+    if (boxes.length === 1) {
+      out.push(boxes[0])
+      continue
+    }
+    const best = boxes.reduce((a, b) => {
+      const ta = new Date(a.timestamp || 0).getTime()
+      const tb = new Date(b.timestamp || 0).getTime()
+      if (tb !== ta) return tb > ta ? b : a
+      return Object.keys(b).length >= Object.keys(a).length ? b : a
+    })
+    out.push(best)
+  }
+  return out
+}
+
+/**
  * Build headers for a direct fetch() call to the Electron HTTP API.
  * Automatically injects the per-launch auth secret (X-Launch-Secret).
  * Use this for all scattered fetch() calls that bypass electronRequest().
@@ -3831,17 +3893,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         if (payload.agentBoxes && payload.agentBoxes.length > 0) {
           
           payload.agentBoxes.forEach((newBox: any) => {
-            const existingIndex = session.agentBoxes.findIndex(
-              (b: any) => b.identifier === newBox.identifier
-            )
+            const existingIndex = findAgentBoxIndexByStableKey(session.agentBoxes, newBox)
             if (existingIndex !== -1) {
-              // Update existing
               session.agentBoxes[existingIndex] = newBox
             } else {
-              // Add new
               session.agentBoxes.push(newBox)
             }
           })
+          session.agentBoxes = dedupeAgentBoxesByStableKey(session.agentBoxes)
         }
         
         
@@ -3875,6 +3934,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         })
         .then((result: any) => {
           const session = result.data || null
+          if (session && Array.isArray(session.agentBoxes)) {
+            session.agentBoxes = dedupeAgentBoxesByStableKey(session.agentBoxes)
+          }
           try { 
             sendResponse({ 
               success: true, 
@@ -3889,6 +3951,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           // Fallback to Chrome Storage
           chrome.storage.local.get([msg.sessionKey], (result: any) => {
             const session = result[msg.sessionKey] || null
+            if (session && Array.isArray(session.agentBoxes)) {
+              session.agentBoxes = dedupeAgentBoxesByStableKey(session.agentBoxes)
+            }
             try {
               sendResponse({ success: true, session: session })
             } catch (e) {
@@ -3955,6 +4020,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             if (!existing || currTs >= existTs) mergeLayoutMap.set(key, g)
           })
           session.displayGrids = Array.from(mergeLayoutMap.values())
+
+          if (session.agentBoxes && Array.isArray(session.agentBoxes)) {
+            session.agentBoxes = dedupeAgentBoxesByStableKey(session.agentBoxes)
+          }
 
           // Save to SQLite via HTTP API
           return fetch('http://127.0.0.1:51248/api/orchestrator/set', {
@@ -4088,16 +4157,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           if (!session.agentBoxes) session.agentBoxes = []
           if (!session.displayGrids) session.displayGrids = []
           
-          // Add or update agent box
-          const existingIndex = session.agentBoxes.findIndex(
-            (b: any) => b.identifier === msg.agentBox.identifier
-          )
-          
+          // Upsert by stable location/id — not by identifier (AB{box}{agent} changes with AI agent)
+          const existingIndex = findAgentBoxIndexByStableKey(session.agentBoxes, msg.agentBox)
           if (existingIndex !== -1) {
             session.agentBoxes[existingIndex] = msg.agentBox
           } else {
             session.agentBoxes.push(msg.agentBox)
           }
+          session.agentBoxes = dedupeAgentBoxesByStableKey(session.agentBoxes)
           
           // session.agents is intentionally NOT modified here.
           // Agent records must only be created when the user explicitly saves an agent

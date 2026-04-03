@@ -5618,7 +5618,7 @@ function initializeExtension() {
 
         <div style="margin-bottom: 16px;">
 
-          <label style="display: block; margin-bottom: 8px; color: #555; font-weight: bold;">Agent Number:</label>
+          <label style="display: block; margin-bottom: 8px; color: #555; font-weight: bold;">AI Agent:</label>
 
             <input id="agent-number" type="number" value="${nextBoxNumber}" min="1" max="99" placeholder="e.g., 5" style="width: 100%; padding: 10px; border: 2px solid #ddd; border-radius: 6px; font-size: 14px;">
 
@@ -6410,20 +6410,19 @@ function initializeExtension() {
 
         <div style="margin-bottom: 16px;">
 
-          <label style="display: block; margin-bottom: 8px; color: #555; font-weight: bold;">Agent Number:</label>
+          <label style="display: block; margin-bottom: 8px; color: #555; font-weight: bold;">AI Agent:</label>
 
           <input id="edit-agent-number" type="number" value="${
-            // PRIORITY: Use agentNumber first (primary source), then fall back to parsing agentId/model
-            agentBox.agentNumber 
+            agentBox.agentNumber != null && agentBox.agentNumber > 0
               ? agentBox.agentNumber
-              : agentBox.agentId && agentBox.agentId.match(/agent(\d+)/) 
-                ? agentBox.agentId.match(/agent(\d+)/)[1] 
+              : agentBox.agentId && agentBox.agentId.match(/agent(\d+)/)
+                ? agentBox.agentId.match(/agent(\d+)/)[1]
                 : agentBox.model && agentBox.model.match(/agent(\d+)/)
                   ? agentBox.model.match(/agent(\d+)/)[1]
-                  : agentBox.boxNumber || 1
-          }" min="1" max="99" style="width: 100%; padding: 10px; border: 2px solid #ddd; border-radius: 6px; font-size: 14px;">
+                  : ''
+          }" min="1" max="99" placeholder="e.g. 2" style="width: 100%; padding: 10px; border: 2px solid #ddd; border-radius: 6px; font-size: 14px;">
 
-          <div style="font-size: 11px; color: #888; margin-top: 4px;">Which agent to allocate to this box</div>
+          <div style="font-size: 11px; color: #888; margin-top: 4px;">Which agent to allocate to this box (not the display port / box index)</div>
 
         </div>
 
@@ -7082,7 +7081,11 @@ function initializeExtension() {
 
     }
 
-    
+    // Keep display identifier AB{box}{agent} in sync (not used for merge identity)
+    const bn = agentBox.boxNumber ?? agentBox.number
+    if (bn != null && typeof agentBox.agentNumber === 'number' && agentBox.agentNumber > 0) {
+      agentBox.identifier = `AB${String(bn).padStart(2, '0')}${String(agentBox.agentNumber).padStart(2, '0')}`
+    }
 
     // Save to localStorage for immediate UI persistence
     saveTabDataToStorage()

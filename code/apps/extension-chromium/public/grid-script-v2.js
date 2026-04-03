@@ -616,9 +616,10 @@ if (window.gridScriptV2Loaded) {
       var locationLabel = gridLayout + ' Display Grid - Slot ' + slotId;
       
       // Include box number and location in config (use effectiveBoxNumber)
+      // Display-only code (AB + box + agent); persistence identity is locationId (stable per slot)
       var identifier = 'AB' + String(effectiveBoxNumber).padStart(2, '0') + (agentNum ? String(agentNum).padStart(2, '0') : '00');
       var newConfig = { 
-        id: identifier,
+        id: locationId,
         title: title, 
         agent: agent, 
         provider: provider, 
@@ -636,10 +637,11 @@ if (window.gridScriptV2Loaded) {
         source: 'display_grid'
       };
       
-      // Create full agent box object for SQLite storage (id = identifier for grid boxes)
+      // Persisted id = locationId so SAVE_AGENT_BOX upserts one row per slot when AI agent changes
       var agentBox = {
-        id: newConfig.identifier,
-        identifier: newConfig.identifier,
+        id: locationId,
+        identifier: identifier,
+        agentId: agent || (agentNum ? ('agent' + agentNum) : ''),
         boxNumber: newConfig.boxNumber,
         title: newConfig.title,
         agentNumber: newConfig.agentNumber,
