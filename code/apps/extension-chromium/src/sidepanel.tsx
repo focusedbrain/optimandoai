@@ -317,7 +317,6 @@ function SidepanelOrchestrator() {
   const [anchoredTriggerKeys, setAnchoredTriggerKeys] = useState<string[]>([])
   const [showTagsMenu, setShowTagsMenu] = useState(false)
   /** Resets after each run so the same trigger can be selected again. */
-  const [wrChatTriggerSelectValue, setWrChatTriggerSelectValue] = useState('')
   const [showEmbedDialog, setShowEmbedDialog] = useState(false)
   const [pendingItems, setPendingItems] = useState<any[]>([])
   const [embedTarget, setEmbedTarget] = useState<'session' | 'account'>('session')
@@ -4046,35 +4045,6 @@ function SidepanelOrchestrator() {
     try { window.dispatchEvent(new CustomEvent('optimando-sp-trigger-dispatched')) } catch { /* noop */ }
   }
 
-  const wrChatTriggerOptionLabel = (t: any, i: number) => {
-    const name = String(t?.name ?? '').trim()
-    const cmd = String(t?.command ?? '').trim()
-    const tag = normaliseTriggerTag(name) || normaliseTriggerTag(cmd)
-    if (tag) return tag
-    return name || cmd || `Trigger ${i + 1}`
-  }
-
-  const handleWrChatTriggerSelect = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const v = e.target.value
-    setWrChatTriggerSelectValue('')
-    if (v === '') return
-    const idx = Number(v)
-    if (Number.isNaN(idx) || !triggers[idx]) return
-    handleTriggerClick(triggers[idx])
-  }
-
-  const wrChatTriggerSelectStyle: React.CSSProperties = {
-    height: '22px',
-    minWidth: '96px',
-    maxWidth: '200px',
-    fontSize: '10px',
-    padding: '0 6px',
-    borderRadius: '6px',
-    cursor: 'pointer',
-    outline: 'none',
-    flexShrink: 1,
-  }
-
   const handleDeleteTrigger = (index: number) => {
     const t = triggers[index]
     const label = String(t?.name ?? t?.command ?? `Trigger ${index + 1}`)
@@ -5025,7 +4995,7 @@ function SidepanelOrchestrator() {
                   )}
                 </div>
                 {/* Controls */}
-                <div style={{ display: 'flex', gap: '4px', alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end', minWidth: 0 }}>
+                <div style={{ display: 'flex', gap: '4px', alignItems: 'center', flexWrap: 'nowrap', justifyContent: 'flex-end', minWidth: 0 }}>
                   {((dockedPanelMode as string) !== 'admin' && dockedWorkspace !== 'beap-messages' && dockedWorkspace !== 'wrguard') && <>
                     <WrChatCaptureButton
                       variant="compact"
@@ -5096,11 +5066,11 @@ function SidepanelOrchestrator() {
                             title={`Run: ${trigger.name || trigger.command || 'trigger'}`}
                             onClick={() => handleTriggerClick(trigger)}
                             style={{
-                              height: 28,
-                              padding: '0 8px',
-                              fontSize: 11,
+                              height: 22,
+                              padding: '0 7px',
+                              fontSize: 10,
                               fontWeight: 500,
-                              borderRadius: 14,
+                              borderRadius: 11,
                               cursor: 'pointer',
                               border: '1px solid rgba(99,102,241,0.5)',
                               background: 'rgba(99,102,241,0.18)',
@@ -5110,7 +5080,7 @@ function SidepanelOrchestrator() {
                               alignItems: 'center',
                               gap: 3,
                               flexShrink: 0,
-                              maxWidth: 120,
+                              maxWidth: 110,
                               overflow: 'hidden',
                               textOverflow: 'ellipsis',
                               transition: 'background 0.15s',
@@ -5123,41 +5093,16 @@ function SidepanelOrchestrator() {
                           </button>
                         )
                       })}
-                    <select
-                      value={wrChatTriggerSelectValue}
-                      onChange={handleWrChatTriggerSelect}
-                      title="Run saved trigger — headless capture, post with #tag in WR Chat"
-                      aria-label="Run saved trigger"
-                      style={{
-                        ...wrChatTriggerSelectStyle,
-                        height: '28px',
-                        fontSize: '11px',
-                        ...(theme === 'standard'
-                          ? { background: '#ffffff', border: '1px solid #94a3b8', color: '#0f172a' }
-                          : {
-                              background: 'rgba(255,255,255,0.15)',
-                              border: '1px solid rgba(255,255,255,0.25)',
-                              color: theme === 'dark' ? '#f1f5f9' : '#ffffff',
-                            }),
-                      }}
-                    >
-                      <option value="">Trigger…</option>
-                      {triggers.map((t, i) => (
-                        <option key={i} value={String(i)}>
-                          {wrChatTriggerOptionLabel(t, i)}
-                        </option>
-                      ))}
-                    </select>
                     <div style={{ position: 'relative' }}>
                       <button 
                         onClick={() => setShowTagsMenu(!showTagsMenu)}
                         title="Tags - Quick access to saved triggers"
                         style={{
                           ...chatControlButtonStyle(),
-                          borderRadius: '14px',
-                          padding: '0 12px',
-                          height: '28px',
-                          fontSize: '12px',
+                          borderRadius: '6px',
+                          padding: '0 10px',
+                          height: '22px',
+                          fontSize: '10px',
                           ...(theme === 'standard'
                             ? { border: 'none' }
                             : {
@@ -7007,7 +6952,7 @@ function SidepanelOrchestrator() {
               {/* Divider */}
               <div style={{ width: '1px', height: '16px', background: theme === 'standard' ? 'rgba(15,23,42,0.15)' : 'rgba(168,85,247,0.3)', margin: '0 4px' }} />
               {/* Controls */}
-              <div style={{ display: 'flex', gap: '4px', alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end', minWidth: 0 }}>
+              <div style={{ display: 'flex', gap: '4px', alignItems: 'center', flexWrap: 'nowrap', justifyContent: 'flex-end', minWidth: 0 }}>
                 {(dockedPanelMode as string) !== 'admin' && dockedPanelMode !== 'beap-messages' && dockedPanelMode !== 'augmented-overlay' && dockedWorkspace !== 'wrguard' && <>
                   <WrChatCaptureButton
                     variant="compact"
@@ -7105,29 +7050,6 @@ function SidepanelOrchestrator() {
                         </button>
                       )
                     })}
-                  <select
-                    value={wrChatTriggerSelectValue}
-                    onChange={handleWrChatTriggerSelect}
-                    title="Run saved trigger — headless capture, post with #tag in WR Chat"
-                    aria-label="Run saved trigger"
-                    style={{
-                      ...wrChatTriggerSelectStyle,
-                      ...(theme === 'standard'
-                        ? { background: '#ffffff', border: '1px solid #94a3b8', color: '#0f172a' }
-                        : {
-                            background: 'rgba(255,255,255,0.15)',
-                            border: '1px solid rgba(255,255,255,0.25)',
-                            color: theme === 'dark' ? '#f1f5f9' : '#ffffff',
-                          }),
-                    }}
-                  >
-                    <option value="">Trigger…</option>
-                    {triggers.map((t, i) => (
-                      <option key={i} value={String(i)}>
-                        {wrChatTriggerOptionLabel(t, i)}
-                      </option>
-                    ))}
-                  </select>
                   <div style={{ position: 'relative' }}>
                     <button 
                       onClick={() => setShowTagsMenu(!showTagsMenu)}
@@ -8363,7 +8285,7 @@ function SidepanelOrchestrator() {
               {/* Divider */}
               <div style={{ width: '1px', height: '16px', background: theme === 'standard' ? 'rgba(15,23,42,0.15)' : 'rgba(168,85,247,0.3)', margin: '0 4px' }} />
               {/* Controls */}
-              <div style={{ display: 'flex', gap: '4px', alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end', minWidth: 0 }}>
+              <div style={{ display: 'flex', gap: '4px', alignItems: 'center', flexWrap: 'nowrap', justifyContent: 'flex-end', minWidth: 0 }}>
                 {(dockedPanelMode as string) !== 'admin' && dockedPanelMode !== 'beap-messages' && dockedPanelMode !== 'augmented-overlay' && dockedWorkspace !== 'wrguard' && <>
                   <WrChatCaptureButton
                     variant="compact"
@@ -8461,29 +8383,6 @@ function SidepanelOrchestrator() {
                         </button>
                       )
                     })}
-                  <select
-                    value={wrChatTriggerSelectValue}
-                    onChange={handleWrChatTriggerSelect}
-                    title="Run saved trigger — headless capture, post with #tag in WR Chat"
-                    aria-label="Run saved trigger"
-                    style={{
-                      ...wrChatTriggerSelectStyle,
-                      ...(theme === 'standard'
-                        ? { background: '#ffffff', border: '1px solid #94a3b8', color: '#0f172a' }
-                        : {
-                            background: 'rgba(255,255,255,0.15)',
-                            border: '1px solid rgba(255,255,255,0.25)',
-                            color: theme === 'dark' ? '#f1f5f9' : '#ffffff',
-                          }),
-                    }}
-                  >
-                    <option value="">Trigger…</option>
-                    {triggers.map((t, i) => (
-                      <option key={i} value={String(i)}>
-                        {wrChatTriggerOptionLabel(t, i)}
-                      </option>
-                    ))}
-                  </select>
                   <div style={{ position: 'relative' }}>
                     <button 
                       onClick={() => setShowTagsMenu(!showTagsMenu)}
