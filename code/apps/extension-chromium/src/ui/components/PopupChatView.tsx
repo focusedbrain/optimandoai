@@ -1977,17 +1977,17 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
           </div>
         )}
         {messages.map((msg, i) => {
-          const hasImageOnly = !!(msg.imageUrl && !msg.videoUrl && !msg.text)
+          const hasImage = !!(msg.imageUrl && !msg.videoUrl)
           return (
           <div key={i} style={{
             maxWidth: '85%',
-            padding: hasImageOnly ? 0 : '10px 12px',
+            padding: hasImage ? 0 : '10px 12px',
             borderRadius: '10px',
             fontSize: '12px', lineHeight: 1.45,
             alignSelf: msg.role === 'user' ? 'flex-end' : 'flex-start',
             wordBreak: 'break-word', overflowWrap: 'anywhere',
-            background: hasImageOnly ? 'transparent' : (msg.role === 'user' ? colors.userBubbleBg : colors.aiBubbleBg),
-            border: hasImageOnly ? 'none' : (msg.role === 'user' ? colors.userBubbleBorder : colors.aiBubbleBorder),
+            background: hasImage ? 'transparent' : (msg.role === 'user' ? colors.userBubbleBg : colors.aiBubbleBg),
+            border: hasImage ? 'none' : (msg.role === 'user' ? colors.userBubbleBorder : colors.aiBubbleBorder),
             color: colors.bubbleText,
             overflow: 'hidden',
           }}>
@@ -1999,9 +1999,17 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
               />
             )}
             {msg.imageUrl && !msg.videoUrl && (
-              <img src={msg.imageUrl} alt="screenshot" style={{ maxWidth: '100%', borderRadius: 8, display: 'block', marginBottom: msg.text ? 6 : 0 }} />
+              <img src={msg.imageUrl} alt="screenshot" style={{ maxWidth: '100%', borderRadius: 8, display: 'block' }} />
             )}
-            {msg.text && <span style={{ whiteSpace: 'pre-wrap' }}>{msg.text}</span>}
+            {msg.text && (
+              <div style={{
+                marginTop: hasImage ? 4 : 0,
+                padding: hasImage ? '4px 8px' : 0,
+                fontSize: '11px',
+                opacity: hasImage ? 0.75 : 1,
+                whiteSpace: 'pre-wrap',
+              }}>{msg.text}</div>
+            )}
           </div>
           )
         })}

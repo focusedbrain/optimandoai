@@ -5363,21 +5363,21 @@ function SidepanelOrchestrator() {
                     >
                       <div style={{
                         maxWidth: '85%',
-                        padding: msg.imageUrl && !msg.text ? 0 : '10px 14px',
+                        padding: msg.imageUrl ? 0 : '10px 14px',
                         borderRadius: '12px',
                         fontSize: '13px',
                         lineHeight: '1.5',
                         wordBreak: 'break-word',
                         overflowWrap: 'anywhere',
                         overflow: 'hidden',
-                        background: msg.imageUrl && !msg.text ? 'transparent' : (msg.role === 'user' ? 'rgba(34,197,94,0.15)' : 'rgba(255,255,255,0.12)'),
-                        border: msg.imageUrl && !msg.text ? 'none' : (msg.role === 'user' ? '1px solid rgba(34,197,94,0.5)' : '1px solid rgba(255,255,255,0.25)')
+                        background: msg.imageUrl ? 'transparent' : (msg.role === 'user' ? 'rgba(34,197,94,0.15)' : 'rgba(255,255,255,0.12)'),
+                        border: msg.imageUrl ? 'none' : (msg.role === 'user' ? '1px solid rgba(34,197,94,0.5)' : '1px solid rgba(255,255,255,0.25)')
                       }}>
                         {msg.imageUrl && (
-                          <img src={msg.imageUrl} alt="screenshot" style={{ maxWidth: '100%', borderRadius: 8, display: 'block', marginBottom: msg.text ? 6 : 0 }} />
+                          <img src={msg.imageUrl} alt="screenshot" style={{ maxWidth: '100%', borderRadius: 8, display: 'block' }} />
                         )}
                         {msg.text ? (
-                          <div style={{ whiteSpace: 'pre-wrap' }}>{msg.text}</div>
+                          <div style={{ marginTop: msg.imageUrl ? 4 : 0, padding: msg.imageUrl ? '4px 8px' : 0, fontSize: msg.imageUrl ? '11px' : '13px', opacity: msg.imageUrl ? 0.75 : 1, whiteSpace: 'pre-wrap' }}>{msg.text}</div>
                         ) : null}                      </div>
                     </div>
                   ))
@@ -7312,21 +7312,21 @@ function SidepanelOrchestrator() {
                       >
                         <div style={{
                           maxWidth: '85%',
-                          padding: msg.imageUrl && !msg.text ? 0 : '10px 14px',
+                          padding: msg.imageUrl ? 0 : '10px 14px',
                           borderRadius: '12px',
                           fontSize: '13px',
                           lineHeight: '1.5',
                           wordBreak: 'break-word',
                           overflowWrap: 'anywhere',
                           overflow: 'hidden',
-                          background: msg.imageUrl && !msg.text ? 'transparent' : (msg.role === 'user' ? 'rgba(34,197,94,0.15)' : 'rgba(255,255,255,0.12)'),
-                          border: msg.imageUrl && !msg.text ? 'none' : (msg.role === 'user' ? '1px solid rgba(34,197,94,0.5)' : '1px solid rgba(255,255,255,0.25)')
+                          background: msg.imageUrl ? 'transparent' : (msg.role === 'user' ? 'rgba(34,197,94,0.15)' : 'rgba(255,255,255,0.12)'),
+                          border: msg.imageUrl ? 'none' : (msg.role === 'user' ? '1px solid rgba(34,197,94,0.5)' : '1px solid rgba(255,255,255,0.25)')
                         }}>
                           {msg.imageUrl && (
-                            <img src={msg.imageUrl} alt="screenshot" style={{ maxWidth: '100%', borderRadius: 8, display: 'block', marginBottom: msg.text ? 6 : 0 }} />
+                            <img src={msg.imageUrl} alt="screenshot" style={{ maxWidth: '100%', borderRadius: 8, display: 'block' }} />
                           )}
                           {msg.text ? (
-                            <div style={{ whiteSpace: 'pre-wrap' }}>{msg.text}</div>
+                            <div style={{ marginTop: msg.imageUrl ? 4 : 0, padding: msg.imageUrl ? '4px 8px' : 0, fontSize: msg.imageUrl ? '11px' : '13px', opacity: msg.imageUrl ? 0.75 : 1, whiteSpace: 'pre-wrap' }}>{msg.text}</div>
                           ) : null}
                         </div>
                       </div>
@@ -8648,21 +8648,21 @@ function SidepanelOrchestrator() {
                       >
                         <div style={{
                           maxWidth: '85%',
-                          padding: msg.imageUrl && !msg.text ? 0 : '10px 14px',
+                          padding: msg.imageUrl ? 0 : '10px 14px',
                           borderRadius: '12px',
                           fontSize: '13px',
                           lineHeight: '1.5',
                           wordBreak: 'break-word',
                           overflowWrap: 'anywhere',
                           overflow: 'hidden',
-                          background: msg.imageUrl && !msg.text ? 'transparent' : (msg.role === 'user' ? 'rgba(34,197,94,0.15)' : 'rgba(255,255,255,0.12)'),
-                          border: msg.imageUrl && !msg.text ? 'none' : (msg.role === 'user' ? '1px solid rgba(34,197,94,0.5)' : '1px solid rgba(255,255,255,0.25)')
+                          background: msg.imageUrl ? 'transparent' : (msg.role === 'user' ? 'rgba(34,197,94,0.15)' : 'rgba(255,255,255,0.12)'),
+                          border: msg.imageUrl ? 'none' : (msg.role === 'user' ? '1px solid rgba(34,197,94,0.5)' : '1px solid rgba(255,255,255,0.25)')
                         }}>
                           {msg.imageUrl && (
-                            <img src={msg.imageUrl} alt="screenshot" style={{ maxWidth: '100%', borderRadius: 8, display: 'block', marginBottom: msg.text ? 6 : 0 }} />
+                            <img src={msg.imageUrl} alt="screenshot" style={{ maxWidth: '100%', borderRadius: 8, display: 'block' }} />
                           )}
                           {msg.text ? (
-                            <div style={{ whiteSpace: 'pre-wrap' }}>{msg.text}</div>
+                            <div style={{ marginTop: msg.imageUrl ? 4 : 0, padding: msg.imageUrl ? '4px 8px' : 0, fontSize: msg.imageUrl ? '11px' : '13px', opacity: msg.imageUrl ? 0.75 : 1, whiteSpace: 'pre-wrap' }}>{msg.text}</div>
                           ) : null}
                         </div>
                       </div>
