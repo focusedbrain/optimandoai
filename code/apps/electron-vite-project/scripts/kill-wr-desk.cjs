@@ -24,7 +24,7 @@ function getActiveWindowsOutputBasename() {
   try {
     const text = fs.readFileSync(cfgPath, 'utf8')
     // File literally contains JS-escaped backslashes: 'C:\\build-output\\build010'
-    const m = text.match(/return\s+['"]C:\\\\build-output\\\\(build\d+)['"]/)
+    const m = text.match(/return\s+['"]C:\\\\build-output\\\\((?:bui|build)\d+)['"]/)
     if (m) return m[1]
   } catch {
     /* fall through */

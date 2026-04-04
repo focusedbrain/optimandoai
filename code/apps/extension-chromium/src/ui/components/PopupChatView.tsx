@@ -9,6 +9,8 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { WrChatCaptureButton } from './WrChatCaptureButton'
 import { WrChatDiffButton } from './WrChatDiffButton'
+import WrChatWatchdogButton from './WrChatWatchdogButton'
+import { formatWatchdogAlert, type WatchdogThreat } from '../../utils/formatWatchdogAlert'
 import { normaliseTriggerTag } from '../../utils/normaliseTriggerTag'
 import { enrichRouteTextWithOcr } from '../../services/processFlow'
 import { mergeTaggedTriggersFromHost } from '../../utils/mergeTaggedTriggersFromHost'
@@ -1370,6 +1372,22 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
   )
   handleDiffMessageRef.current = handleDiffMessage
 
+  /** Watchdog: show pre-computed threat analysis as an assistant bubble (no extra LLM call). */
+  const handleWatchdogAlert = useCallback((threats: WatchdogThreat[]) => {
+    const alertMessage = formatWatchdogAlert(threats)
+    setMessages((prev) => [
+      ...prev,
+      {
+        role: 'assistant' as const,
+        text: alertMessage,
+        timestamp: Date.now(),
+      },
+    ])
+    scrollToBottom()
+  }, [])
+  const handleWatchdogAlertRef = useRef(handleWatchdogAlert)
+  handleWatchdogAlertRef.current = handleWatchdogAlert
+
   useEffect(() => {
     if (isLoading) return
     const next = diffMessageQueueRef.current.shift()
@@ -1623,6 +1641,28 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
     }
   }, [wrChatEmbedContext])
 
+  // Dashboard embed: IPC relay for Watchdog threats (same pattern as onDashboardDiffResult).
+  useEffect(() => {
+    if (wrChatEmbedContext !== 'dashboard') return
+    const bridge = (
+      typeof window !== 'undefined'
+        ? (window as Window & {
+            LETmeGIRAFFETHATFORYOU?: { onDashboardWatchdogAlert?: (cb: (p: unknown) => void) => () => void }
+          }).LETmeGIRAFFETHATFORYOU
+        : undefined
+    )
+    if (!bridge?.onDashboardWatchdogAlert) return
+    const unsub = bridge.onDashboardWatchdogAlert((payload: unknown) => {
+      const p = payload as { threats?: unknown[] }
+      const threats = p?.threats
+      if (!Array.isArray(threats) || threats.length === 0) return
+      handleWatchdogAlertRef.current(threats as WatchdogThreat[])
+    })
+    return () => {
+      try { unsub() } catch { /* noop */ }
+    }
+  }, [wrChatEmbedContext])
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() }
   }
@@ -1731,6 +1771,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
             addCommand={true}
           />
           <WrChatDiffButton variant="comfortable" theme={theme} onDiffMessage={handleDiffMessage} />
+          <WrChatWatchdogButton theme={theme} onWatchdogAlert={handleWatchdogAlert} />
           <button
             type="button"
             onClick={handleClearChat}

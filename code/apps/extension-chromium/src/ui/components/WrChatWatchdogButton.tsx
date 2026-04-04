@@ -1,0 +1,354 @@
+import React, { useCallback, useEffect, useRef, useState } from 'react'
+import type { WatchdogThreat } from '../../utils/formatWatchdogAlert'
+import WatchdogIcon from './WatchdogIcon'
+
+const BASE_URL = 'http://127.0.0.1:51248'
+
+export type { WatchdogThreat }
+
+export interface WrChatWatchdogButtonProps {
+  theme?: string
+  onWatchdogAlert: (threats: WatchdogThreat[]) => void
+}
+
+const TOOLTIP_MAIN = 'Watchdog: Click to scan, check for continuous monitoring'
+
+function getLaunchSecret(): Promise<string | null> {
+  return new Promise((resolve) => {
+    try {
+      chrome.runtime.sendMessage({ type: 'GET_LAUNCH_SECRET' }, (resp: { secret?: string } | null) => {
+        if (chrome.runtime.lastError) resolve(null)
+        else resolve(resp?.secret?.trim() ? resp.secret : null)
+      })
+    } catch {
+      resolve(null)
+    }
+  })
+}
+
+function buildHeaders(secret: string | null): Record<string, string> {
+  return { 'Content-Type': 'application/json', 'X-Launch-Secret': secret ?? '' }
+}
+
+export default function WrChatWatchdogButton({ theme = 'pro', onWatchdogAlert }: WrChatWatchdogButtonProps) {
+  const [continuousEnabled, setContinuousEnabled] = useState(false)
+  const [scanning, setScanning] = useState(false)
+  const [hostOnline, setHostOnline] = useState(true)
+  const [busyFlash, setBusyFlash] = useState(false)
+  const [cleanFlash, setCleanFlash] = useState(false)
+  const busyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const cleanTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  /** Dedupe: same scan triggers WATCHDOG_ALERT via runtime and threats in POST /scan JSON. */
+  const lastAlertScanIdRef = useRef<string | null>(null)
+
+  const onWatchdogAlertDeduped = useCallback(
+    (scanId: string | undefined, threats: WatchdogThreat[]) => {
+      if (!Array.isArray(threats) || threats.length === 0) return
+      const sid = (scanId ?? '').trim()
+      if (sid && lastAlertScanIdRef.current === sid) return
+      if (sid) lastAlertScanIdRef.current = sid
+      onWatchdogAlert(threats)
+    },
+    [onWatchdogAlert],
+  )
+
+  const isLight = theme === 'standard'
+  const isDark = theme === 'dark'
+
+  const syncStatus = useCallback(async () => {
+    try {
+      const secret = await getLaunchSecret()
+      const res = await fetch(`${BASE_URL}/api/wrchat/watchdog/status`, {
+        method: 'GET',
+        headers: buildHeaders(secret),
+        signal: AbortSignal.timeout(15000),
+      })
+      if (!res.ok) {
+        setHostOnline(false)
+        return
+      }
+      setHostOnline(true)
+      const j = (await res.json().catch(() => null)) as {
+        continuous?: boolean
+        scanning?: boolean
+        config?: { enabled?: boolean }
+      } | null
+      if (!j || typeof j !== 'object') return
+      if (typeof j.continuous === 'boolean') setContinuousEnabled(j.continuous)
+      if (typeof j.scanning === 'boolean') setScanning(j.scanning)
+    } catch {
+      setHostOnline(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    void syncStatus()
+  }, [syncStatus])
+
+  useEffect(() => {
+    const onVis = () => {
+      if (document.visibilityState === 'visible') void syncStatus()
+    }
+    document.addEventListener('visibilitychange', onVis)
+    return () => document.removeEventListener('visibilitychange', onVis)
+  }, [syncStatus])
+
+  useEffect(() => {
+    const onMsg = (message: unknown) => {
+      if (!message || typeof message !== 'object') return
+      const msg = message as {
+        type?: string
+        threats?: unknown
+        scanId?: string
+      }
+      if (msg.type === 'WATCHDOG_ALERT' && Array.isArray(msg.threats) && msg.threats.length > 0) {
+        try {
+          onWatchdogAlertDeduped(msg.scanId, msg.threats as WatchdogThreat[])
+        } catch {
+          /* noop */
+        }
+        return
+      }
+      if (msg.type === 'WATCHDOG_SCAN_CLEAN') {
+        setCleanFlash(true)
+        if (cleanTimerRef.current) clearTimeout(cleanTimerRef.current)
+        cleanTimerRef.current = setTimeout(() => {
+          setCleanFlash(false)
+          cleanTimerRef.current = null
+        }, 2000)
+      }
+    }
+    try {
+      chrome.runtime.onMessage.addListener(onMsg)
+      return () => {
+        try {
+          chrome.runtime.onMessage.removeListener(onMsg)
+        } catch {
+          /* noop */
+        }
+        if (busyTimerRef.current) clearTimeout(busyTimerRef.current)
+        if (cleanTimerRef.current) clearTimeout(cleanTimerRef.current)
+      }
+    } catch {
+      return undefined
+    }
+  }, [onWatchdogAlertDeduped])
+
+  const handleScanClick = useCallback(
+    async (e: React.MouseEvent) => {
+      e.preventDefault()
+      e.stopPropagation()
+      try {
+        const secret = await getLaunchSecret()
+        setScanning(true)
+        const res = await fetch(`${BASE_URL}/api/wrchat/watchdog/scan`, {
+          method: 'POST',
+          headers: buildHeaders(secret),
+          signal: AbortSignal.timeout(600_000),
+        })
+        if (res.status === 429) {
+          setBusyFlash(true)
+          if (busyTimerRef.current) clearTimeout(busyTimerRef.current)
+          busyTimerRef.current = setTimeout(() => {
+            setBusyFlash(false)
+            busyTimerRef.current = null
+          }, 2500)
+          return
+        }
+        if (!res.ok) {
+          setHostOnline(false)
+          return
+        }
+        setHostOnline(true)
+        const j = (await res.json().catch(() => null)) as {
+          result?: { threats?: WatchdogThreat[]; scanId?: string }
+        } | null
+        const threats = j?.result?.threats
+        const scanId = typeof j?.result?.scanId === 'string' ? j.result.scanId : undefined
+        if (Array.isArray(threats) && threats.length > 0) {
+          try {
+            onWatchdogAlertDeduped(scanId, threats)
+          } catch {
+            /* noop */
+          }
+        }
+      } catch {
+        setHostOnline(false)
+      } finally {
+        try {
+          const secret = await getLaunchSecret()
+          const r = await fetch(`${BASE_URL}/api/wrchat/watchdog/status`, {
+            method: 'GET',
+            headers: buildHeaders(secret),
+            signal: AbortSignal.timeout(10000),
+          })
+          if (r.ok) {
+            const st = (await r.json().catch(() => null)) as { scanning?: boolean } | null
+            if (st && typeof st.scanning === 'boolean') setScanning(st.scanning)
+            else setScanning(false)
+          } else {
+            setScanning(false)
+          }
+        } catch {
+          setScanning(false)
+        }
+      }
+    },
+    [onWatchdogAlertDeduped],
+  )
+
+  const handleCheckboxChange = useCallback(
+    async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const next = e.target.checked
+      const prev = continuousEnabled
+      setContinuousEnabled(next)
+      try {
+        const secret = await getLaunchSecret()
+        const res = await fetch(`${BASE_URL}/api/wrchat/watchdog/continuous`, {
+          method: 'POST',
+          headers: buildHeaders(secret),
+          body: JSON.stringify({ enabled: next }),
+          signal: AbortSignal.timeout(30000),
+        })
+        if (!res.ok) {
+          setContinuousEnabled(prev)
+          return
+        }
+        setHostOnline(true)
+      } catch {
+        setContinuousEnabled(prev)
+        setHostOnline(false)
+      }
+    },
+    [continuousEnabled],
+  )
+
+  const stopCheckboxBubble = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation()
+  }, [])
+
+  const continuousPulse = continuousEnabled
+  const showBusyTitle = busyFlash ? 'Scan already running' : TOOLTIP_MAIN
+
+  const buttonStyleComfortable: React.CSSProperties = {
+    padding: '0 8px',
+    height: '22px',
+    fontSize: '10px',
+    fontWeight: 500,
+    borderRadius: '6px',
+    cursor: 'pointer',
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 4,
+    minWidth: 28,
+    boxSizing: 'border-box',
+    border: isLight
+      ? '1px solid #94a3b8'
+      : isDark
+        ? '1px solid rgba(255,255,255,0.2)'
+        : '1px solid rgba(255,255,255,0.45)',
+    background: isLight ? '#ffffff' : isDark ? 'rgba(255,255,255,0.1)' : 'rgba(118,75,162,0.35)',
+    color: isLight ? '#0f172a' : isDark ? '#f1f5f9' : '#ffffff',
+    transition: 'background 0.2s ease, box-shadow 0.2s ease',
+    ...(continuousPulse && !cleanFlash
+      ? { animation: 'wr-watchdog-border-pulse 2s ease-in-out infinite' }
+      : {}),
+    ...(cleanFlash
+      ? {
+          boxShadow: '0 0 0 2px rgba(34,197,94,0.85)',
+        }
+      : {}),
+    ...(!hostOnline ? { opacity: 0.55 } : {}),
+  }
+
+  return (
+    <>
+      <style>{`
+        @keyframes wr-watchdog-border-pulse {
+          0%, 100% { box-shadow: 0 0 0 1px rgba(34,197,94,0.45); }
+          50% { box-shadow: 0 0 0 3px rgba(34,197,94,0.35); }
+        }
+        @keyframes wr-watchdog-scan-pulse {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.55; }
+        }
+        .wr-watchdog-icon-wrap.scanning {
+          display: inline-flex;
+          animation: wr-watchdog-scan-pulse 0.85s ease-in-out infinite;
+        }
+      `}</style>
+      <div
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: 5,
+          position: 'relative',
+        }}
+      >
+        <button
+          type="button"
+          onClick={handleScanClick}
+          title={showBusyTitle}
+          aria-label="Watchdog scan"
+          disabled={!hostOnline}
+          style={buttonStyleComfortable}
+          onMouseEnter={(e) => {
+            if (!hostOnline) return
+            if (isLight) {
+              e.currentTarget.style.background = '#eef3f6'
+              e.currentTarget.style.color = '#0f172a'
+            } else if (isDark) {
+              e.currentTarget.style.background = 'rgba(255,255,255,0.2)'
+            } else {
+              e.currentTarget.style.background = 'rgba(118,75,162,0.6)'
+            }
+          }}
+          onMouseLeave={(e) => {
+            if (isLight) {
+              e.currentTarget.style.background = '#ffffff'
+              e.currentTarget.style.color = '#0f172a'
+            } else if (isDark) {
+              e.currentTarget.style.background = 'rgba(255,255,255,0.1)'
+            } else {
+              e.currentTarget.style.background = 'rgba(118,75,162,0.35)'
+            }
+          }}
+        >
+          <span className={`wr-watchdog-icon-wrap ${scanning ? 'scanning' : ''}`} style={{ display: 'inline-flex' }}>
+            <WatchdogIcon size={16} />
+          </span>
+          {cleanFlash ? (
+            <span style={{ fontSize: 11, lineHeight: 1, color: '#22c55e', marginLeft: 2 }} aria-hidden>
+              ✓
+            </span>
+          ) : null}
+        </button>
+        <label
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            cursor: hostOnline ? 'pointer' : 'not-allowed',
+            margin: 0,
+          }}
+          onClick={stopCheckboxBubble}
+          onMouseDown={stopCheckboxBubble}
+        >
+          <input
+            type="checkbox"
+            checked={continuousEnabled}
+            onChange={handleCheckboxChange}
+            disabled={!hostOnline}
+            title="Continuous monitoring (every interval)"
+            style={{
+              width: 13,
+              height: 13,
+              margin: 0,
+              cursor: hostOnline ? 'pointer' : 'not-allowed',
+              accentColor: '#22c55e',
+            }}
+          />
+        </label>
+      </div>
+    </>
+  )
+}

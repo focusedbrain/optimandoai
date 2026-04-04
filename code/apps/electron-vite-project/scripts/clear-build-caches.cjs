@@ -30,8 +30,8 @@ function getActiveExtensionOutDir(extensionRoot) {
   }
 }
 
-/** Names like build2, build542, build02 — legacy Vite outputs under extension-chromium. */
-const EXTENSION_BUILD_DIR_RE = /^build\d+$/
+/** Names like build542, bui4447 — Vite extension outputs under extension-chromium. */
+const EXTENSION_BUILD_DIR_RE = /^(?:build\d+|bui\d+)$/
 
 /**
  * Remove every `build<number>` directory except the active outDir from vite.config.ts.

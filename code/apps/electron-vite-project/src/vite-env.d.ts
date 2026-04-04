@@ -20,6 +20,14 @@ interface LmgtfyBridge {
   onTriggersUpdated: (cb: () => void) => () => void
   onDashboardCommandAppend: (cb: (payload: unknown) => void) => () => void
   onDashboardTriggerPrompt: (cb: (payload: unknown) => void) => () => void
+  onDashboardSelectionResult?: (cb: (payload: unknown) => void) => () => void
+  onDashboardDiffResult?: (cb: (payload: unknown) => void) => () => void
+  /** Main sends `{ scanId, threats }` when Electron watchdog completes a scan with threats. */
+  onDashboardWatchdogAlert?: (cb: (payload: unknown) => void) => () => void
+  /** Alias of `onDashboardWatchdogAlert` (same `watchdog-alert` IPC). */
+  onWatchdogAlert?: (cb: (payload: unknown) => void) => () => void
+  /** Removes all `watchdog-alert` listeners. */
+  removeWatchdogAlertListener?: () => void
 }
 
 interface AnalysisDashboardBridge {

@@ -334,6 +334,16 @@ function assertRelayAgentBoxOutputData(v: unknown): {
 // ============================================================================
 
 // ── LETmeGIRAFFETHATFORYOU (screen capture) ──────────────────────────────
+
+/** Shared implementation: main → renderer `watchdog-alert` IPC (dashboard Watchdog alerts). */
+function subscribeWatchdogAlertIpc(cb: (payload: unknown) => void): () => void {
+  const handler = (_e: Electron.IpcRendererEvent, d: unknown) => cb(d)
+  ipcRenderer.on('watchdog-alert', handler)
+  return () => {
+    ipcRenderer.removeListener('watchdog-alert', handler)
+  }
+}
+
 const lmgtfyBridge = {
   selectScreenshot: (opts?: { createTrigger?: boolean; addCommand?: boolean }) =>
     ipcRenderer.invoke('lmgtfy/select-screenshot', opts ?? {}),
@@ -387,6 +397,14 @@ const lmgtfyBridge = {
     const handler = (_e: Electron.IpcRendererEvent, d: unknown) => cb(d)
     ipcRenderer.on('lmgtfy-dashboard-diff-result', handler)
     return () => { ipcRenderer.removeListener('lmgtfy-dashboard-diff-result', handler) }
+  },
+  /** Dashboard WR Chat: Watchdog scan completed with threats — main → `watchdog-alert` IPC. */
+  onDashboardWatchdogAlert: subscribeWatchdogAlertIpc,
+  /** Same channel as `onDashboardWatchdogAlert` — checklist / alternate name. */
+  onWatchdogAlert: subscribeWatchdogAlertIpc,
+  /** Clears every `watchdog-alert` listener (prefer per-subscription cleanup returned by onWatchdogAlert). */
+  removeWatchdogAlertListener: () => {
+    ipcRenderer.removeAllListeners('watchdog-alert')
   },
 }
 

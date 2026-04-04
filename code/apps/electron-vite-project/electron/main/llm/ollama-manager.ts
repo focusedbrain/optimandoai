@@ -620,6 +620,11 @@ export class OllamaManager {
   getDownloadProgress(): any {
     return this.downloadProgress
   }
+
+  /** Ollama HTTP API base URL (typically localhost). Exposed for Watchdog privacy audits. */
+  getBaseUrl(): string {
+    return this.baseUrl
+  }
 }
 
 // Singleton instance

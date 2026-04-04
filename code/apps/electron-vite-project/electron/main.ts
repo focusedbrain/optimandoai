@@ -785,6 +785,11 @@ import {
   normalisePresetTag,
 } from './lmgtfy/presets'
 import { diffWatcherService, type DiffTrigger } from './diffWatcher'
+import {
+  watchdogService,
+  type WatchdogConfig,
+  type WatchdogScanRequest,
+} from './watchdog/watchdogService'
 import { registerDbHandlers, testConnection, syncChromeDataToPostgres, getConfig, getPostgresAdapter } from './ipc/db'
 import { handleVaultRPC } from './main/vault/rpc'
 import { handleHandshakeRPC, registerHandshakeRoutes, setSSOSessionProvider, setOidcTokenProvider, getCurrentSession } from './main/handshake/ipc'
@@ -2241,6 +2246,12 @@ app.on('will-quit', async () => {
 
   try {
     diffWatcherService.stopAll()
+  } catch {
+    /* noop */
+  }
+
+  try {
+    watchdogService.cleanup()
   } catch {
     /* noop */
   }
@@ -5489,6 +5500,15 @@ app.whenReady().then(async () => {
               console.log('[MAIN] Received EXECUTE_TRIGGER from extension:', msg.trigger, 'surface=', msg.targetSurface)
               void executeTriggerFromExtension(msg.trigger, msg.targetSurface)
             }
+            if (msg.type === 'WATCHDOG_DOM_RESPONSE') {
+              try {
+                const raw = (msg as { snapshots?: unknown }).snapshots
+                const snapshots = Array.isArray(raw) ? raw : []
+                watchdogService.handleDomResponse(snapshots as WatchdogScanRequest['domSnapshots'])
+              } catch (wdErr) {
+                console.warn('[MAIN] WATCHDOG_DOM_RESPONSE handling failed:', wdErr)
+              }
+            }
             // Database operations via WebSocket
             if (msg.type === 'DB_TEST_CONNECTION') {
               console.log('[MAIN] ===== DB_TEST_CONNECTION HANDLER STARTED =====')
@@ -6324,6 +6344,63 @@ app.whenReady().then(async () => {
         res.json({ ok: true, status })
       } catch (error: any) {
         res.status(500).json({ ok: false, error: error.message || 'status failed' })
+      }
+    })
+
+    // ── Watchdog (security scanner) ─────────────────────────────────────────
+    httpApp.post('/api/wrchat/watchdog/scan', async (_req, res) => {
+      try {
+        if (watchdogService.isScanning()) {
+          res.status(429).json({ status: 'busy', message: 'Scan already running' })
+          return
+        }
+        const result = await watchdogService.runScan()
+        res.json({ result })
+      } catch (error: any) {
+        console.error('[HTTP] POST /api/wrchat/watchdog/scan:', error)
+        res.status(500).json({ error: error?.message || 'watchdog scan failed' })
+      }
+    })
+    httpApp.post('/api/wrchat/watchdog/continuous', async (req, res) => {
+      try {
+        const body = req.body && typeof req.body === 'object' ? (req.body as { enabled?: unknown }) : {}
+        if (typeof body.enabled !== 'boolean') {
+          res.status(400).json({ error: 'enabled (boolean) is required' })
+          return
+        }
+        if (body.enabled) {
+          watchdogService.startContinuous()
+          res.json({ status: 'started' })
+        } else {
+          watchdogService.stopContinuous()
+          res.json({ status: 'stopped' })
+        }
+      } catch (error: any) {
+        console.error('[HTTP] POST /api/wrchat/watchdog/continuous:', error)
+        res.status(500).json({ error: error?.message || 'watchdog continuous failed' })
+      }
+    })
+    httpApp.get('/api/wrchat/watchdog/status', (_req, res) => {
+      try {
+        res.json({
+          continuous: watchdogService.isContinuousRunning(),
+          scanning: watchdogService.isScanning(),
+          config: watchdogService.getConfig(),
+        })
+      } catch (error: any) {
+        console.error('[HTTP] GET /api/wrchat/watchdog/status:', error)
+        res.status(500).json({ error: error?.message || 'watchdog status failed' })
+      }
+    })
+    httpApp.post('/api/wrchat/watchdog/config', (req, res) => {
+      try {
+        const body =
+          req.body && typeof req.body === 'object' ? (req.body as Partial<WatchdogConfig>) : {}
+        watchdogService.setConfig(body)
+        res.json(watchdogService.getConfig())
+      } catch (error: any) {
+        console.error('[HTTP] POST /api/wrchat/watchdog/config:', error)
+        res.status(500).json({ error: error?.message || 'watchdog config failed' })
       }
     })
 
@@ -9719,6 +9796,30 @@ app.whenReady().then(async () => {
 
     wireDiffWatcherHostCallbacks()
     startPersistedDiffWatchers()
+
+    watchdogService.setBroadcast((msg) => broadcastToExtensions(msg))
+    watchdogService.setOnScanComplete((result) => {
+      try {
+        if (result.clean && result.scanId) {
+          broadcastToExtensions({ type: 'WATCHDOG_SCAN_CLEAN', scanId: result.scanId })
+        } else if (result.threats.length > 0) {
+          broadcastToExtensions({
+            type: 'WATCHDOG_ALERT',
+            scanId: result.scanId,
+            threats: result.threats,
+          })
+          if (win && !win.isDestroyed()) {
+            try {
+              win.webContents.send('watchdog-alert', { scanId: result.scanId, threats: result.threats })
+            } catch {
+              /* no window */
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('[Watchdog] onScanComplete relay failed:', e)
+      }
+    })
 
     // P2P outbound queue + P2P server startup (default-on, start as soon as db available)
     let p2pServerStarted = false

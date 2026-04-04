@@ -7,10 +7,10 @@ const appDir = __dirname
 
 /**
  * Parsed by scripts/kill-wr-desk.cjs — must contain a line matching:
- *   return 'C:\\build-output\\bui2257'
+ *   return 'C:\\build-output\\bui4447'
  */
 function windowsOutputDirMarker() {
-  return 'C:\\build-output\\bui2257'
+  return 'C:\\build-output\\bui4447'
 }
 
 function tesseractCoreWasmPath() {

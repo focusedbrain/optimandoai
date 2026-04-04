@@ -38,6 +38,8 @@ import { pickDefaultEmailAccountRowId } from './shared/email/pickDefaultAccountR
 import { ThirdPartyLicensesView } from './bundled-tools'
 import { WrChatCaptureButton } from './ui/components/WrChatCaptureButton'
 import { WrChatDiffButton } from './ui/components/WrChatDiffButton'
+import WrChatWatchdogButton from './ui/components/WrChatWatchdogButton'
+import { formatWatchdogAlert, type WatchdogThreat } from './utils/formatWatchdogAlert'
 import { WRGuardWorkspace, useWRGuardStore } from './wrguard'
 import { RecipientModeSwitch, RecipientHandshakeSelect, DeliveryMethodPanel, executeDeliveryAction, BeapMessageListView, BeapBulkInbox, initBeapPqAuth } from './beap-messages'
 import type { BeapBulkInboxHandle } from './beap-messages'
@@ -3760,6 +3762,20 @@ function SidepanelOrchestrator() {
     })
   }, [isLlmLoading])
 
+  const handleWatchdogAlert = React.useCallback((threats: WatchdogThreat[]) => {
+    const alertMessage = formatWatchdogAlert(threats)
+    setChatMessages((prev) => [
+      ...prev,
+      {
+        role: 'assistant' as const,
+        text: alertMessage,
+      },
+    ])
+    setTimeout(() => {
+      if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight
+    }, 0)
+  }, [])
+
   const handleChatKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
@@ -5191,6 +5207,9 @@ function SidepanelOrchestrator() {
                       )}
                     </div>
                   </>}
+                  {(dockedPanelMode as string) !== 'admin' && (
+                    <WrChatWatchdogButton theme={theme} onWatchdogAlert={handleWatchdogAlert} />
+                  )}
                   <button 
                     onClick={toggleCommandChatPin}
                     title="Unpin from sidepanel"
@@ -7155,6 +7174,9 @@ function SidepanelOrchestrator() {
                     )}
                   </div>
                 </>}
+                {(dockedPanelMode as string) !== 'admin' && (
+                  <WrChatWatchdogButton theme={theme} onWatchdogAlert={handleWatchdogAlert} />
+                )}
                 <button 
                   onClick={toggleCommandChatPin}
                   title="Unpin from sidepanel"
@@ -8503,6 +8525,9 @@ function SidepanelOrchestrator() {
                     )}
                   </div>
                 </>}
+                {(dockedPanelMode as string) !== 'admin' && (
+                  <WrChatWatchdogButton theme={theme} onWatchdogAlert={handleWatchdogAlert} />
+                )}
                 <button 
                   onClick={toggleCommandChatPin}
                   title="Unpin from sidepanel"

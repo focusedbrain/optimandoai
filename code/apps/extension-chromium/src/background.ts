@@ -1,6 +1,7 @@
 import { handleElectronRpc, type ElectronRpcRequest } from './rpc/electronRpc'
 import { WEBMCP_RESULT_VERSION } from './vault/autofill/webMcpConstants'
 import type { BgWebMcpErrorCode } from './vault/autofill/webMcpAdapter'
+import { extractAllTabsDom } from './utils/watchdogDomExtract'
 
 try {
   const m = chrome.runtime.getManifest()
@@ -1149,6 +1150,58 @@ function connectToWebSocketServer(forceReconnect = false): Promise<boolean> {
                   type: 'DIFF_ERROR',
                   triggerId: data.triggerId,
                   error: typeof data.error === 'string' ? data.error : String(data.error ?? ''),
+                })
+              } catch {
+                /* no listener */
+              }
+            } else if (data.type === 'WATCHDOG_REQUEST_DOM') {
+              const sock = ws
+              void (async () => {
+                try {
+                  const maxTabs =
+                    typeof data.maxTabs === 'number' && Number.isFinite(data.maxTabs)
+                      ? Math.floor(data.maxTabs)
+                      : 20
+                  const maxCharsPerTab =
+                    typeof data.maxCharsPerTab === 'number' && Number.isFinite(data.maxCharsPerTab)
+                      ? Math.floor(data.maxCharsPerTab)
+                      : typeof (data as { maxDomCharsPerTab?: unknown }).maxDomCharsPerTab === 'number' &&
+                          Number.isFinite((data as { maxDomCharsPerTab: number }).maxDomCharsPerTab)
+                        ? Math.floor((data as { maxDomCharsPerTab: number }).maxDomCharsPerTab)
+                        : 8000
+                  const maxTotalDomChars =
+                    typeof data.maxTotalDomChars === 'number' && Number.isFinite(data.maxTotalDomChars)
+                      ? Math.floor(data.maxTotalDomChars)
+                      : 100_000
+                  const snapshots = await extractAllTabsDom(maxTabs, maxCharsPerTab, maxTotalDomChars)
+                  if (sock && sock.readyState === WebSocket.OPEN) {
+                    sock.send(JSON.stringify({ type: 'WATCHDOG_DOM_RESPONSE', snapshots }))
+                  }
+                } catch {
+                  try {
+                    if (sock && sock.readyState === WebSocket.OPEN) {
+                      sock.send(JSON.stringify({ type: 'WATCHDOG_DOM_RESPONSE', snapshots: [] }))
+                    }
+                  } catch {
+                    /* ignore */
+                  }
+                }
+              })()
+            } else if (data.type === 'WATCHDOG_ALERT') {
+              try {
+                chrome.runtime.sendMessage({
+                  type: 'WATCHDOG_ALERT',
+                  scanId: typeof data.scanId === 'string' ? data.scanId : '',
+                  threats: Array.isArray(data.threats) ? data.threats : [],
+                })
+              } catch {
+                /* no listener */
+              }
+            } else if (data.type === 'WATCHDOG_SCAN_CLEAN') {
+              try {
+                chrome.runtime.sendMessage({
+                  type: 'WATCHDOG_SCAN_CLEAN',
+                  scanId: typeof data.scanId === 'string' ? data.scanId : '',
                 })
               } catch {
                 /* no listener */

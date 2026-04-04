@@ -134,6 +134,8 @@ apps/extension-chromium/build143/
 apps/extension-chromium/build003/
 apps/extension-chromium/build009/
 apps/extension-chromium/build5586/
+# Vite extension outDir stamp folders (e.g. bui4447)
+apps/extension-chromium/bui*/
 
 # Windows-style path accidentally created as a real directory on Linux (cross-platform builds)
 apps/electron-vite-project/C:*/
