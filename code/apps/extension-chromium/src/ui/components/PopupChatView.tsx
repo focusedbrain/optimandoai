@@ -54,6 +54,11 @@ function buildHeaders(secret: string | null, extra?: Record<string, string>): Re
   return { 'Content-Type': 'application/json', 'X-Launch-Secret': secret ?? '', ...extra }
 }
 
+function toBase64ForOllama(dataUrl: string): string {
+  const idx = dataUrl.indexOf(',')
+  return idx !== -1 ? dataUrl.slice(idx + 1) : dataUrl
+}
+
 function resolveModelIdForChat(
   active: string | undefined,
   models: Array<{ name: string }> | undefined,
@@ -658,7 +663,13 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
             const agentRes: Response = await fetch(`${BASE_URL}/api/llm/chat`, {
               method: 'POST',
               headers: buildHeaders(secretRef.current),
-              body: JSON.stringify({ modelId: modelToUse, messages: agentMessages })
+              body: JSON.stringify({
+                modelId: modelToUse,
+                messages: agentMessages,
+                ...(hasImage && currentTurnImageUrl
+                  ? { images: [toBase64ForOllama(currentTurnImageUrl)] }
+                  : {}),
+              }),
             })
             if (agentRes.ok) {
               const agentJson = await agentRes.json()
@@ -708,7 +719,13 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
         const butlerRes: Response = await fetch(`${BASE_URL}/api/llm/chat`, {
           method: 'POST',
           headers: buildHeaders(secretRef.current),
-          body: JSON.stringify({ modelId, messages: butlerMessages })
+          body: JSON.stringify({
+            modelId,
+            messages: butlerMessages,
+            ...(hasImage && currentTurnImageUrl
+              ? { images: [toBase64ForOllama(currentTurnImageUrl)] }
+              : {}),
+          }),
         })
         if (butlerRes.ok) {
           const butlerJson = await butlerRes.json()
@@ -831,7 +848,11 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
               const agentRes: Response = await fetch(`${BASE_URL}/api/llm/chat`, {
                 method: 'POST',
                 headers: buildHeaders(secretRef.current),
-                body: JSON.stringify({ modelId: modelToUse, messages: agentMessages }),
+                body: JSON.stringify({
+                  modelId: modelToUse,
+                  messages: agentMessages,
+                  ...(hasImage && mediaUrl ? { images: [toBase64ForOllama(mediaUrl)] } : {}),
+                }),
               })
               if (agentRes.ok) {
                 const agentJson = await agentRes.json()
@@ -881,7 +902,11 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
           const butlerRes: Response = await fetch(`${BASE_URL}/api/llm/chat`, {
             method: 'POST',
             headers: buildHeaders(secretRef.current),
-            body: JSON.stringify({ modelId, messages: butlerMessages }),
+            body: JSON.stringify({
+              modelId,
+              messages: butlerMessages,
+              ...(hasImage && mediaUrl ? { images: [toBase64ForOllama(mediaUrl)] } : {}),
+            }),
           })
           if (butlerRes.ok) {
             const butlerJson = await butlerRes.json()

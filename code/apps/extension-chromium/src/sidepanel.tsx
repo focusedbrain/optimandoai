@@ -65,6 +65,11 @@ interface ConnectionStatus {
   readyState?: number
 }
 
+function toBase64ForOllama(dataUrl: string): string {
+  const idx = dataUrl.indexOf(',')
+  return idx !== -1 ? dataUrl.slice(idx + 1) : dataUrl
+}
+
 // Enhanced type for draft attachments with parsing/rasterization state
 type DraftAttachment = {
   id: string
@@ -1351,7 +1356,10 @@ function SidepanelOrchestrator() {
             const agentResponse: Response = await fetch(`${baseUrl}/api/llm/chat`, {
               method: 'POST',
               headers: electronFetchHeaders(),
-              body: JSON.stringify(llmBody)
+              body: JSON.stringify({
+                ...llmBody,
+                ...(imageUrl ? { images: [toBase64ForOllama(imageUrl)] } : {}),
+              }),
             })
             
             if (agentResponse.ok) {
@@ -1408,8 +1416,9 @@ function SidepanelOrchestrator() {
               messages: [
                 { role: 'system', content: butlerPrompt },
                 { role: 'user', content: enrichedTriggerText },
-              ]
-            })
+              ],
+              ...(imageUrl ? { images: [toBase64ForOllama(imageUrl)] } : {}),
+            }),
           })
           
           if (butlerResponse.ok) {
@@ -2723,7 +2732,8 @@ function SidepanelOrchestrator() {
     ocrText: string,
     processedMessages: Array<{role: string, content: string}>,
     fallbackModel: string,
-    baseUrl: string
+    baseUrl: string,
+    visionImageUrl?: string | null,
   ): Promise<{ success: boolean, output?: string, error?: string }> => {
     try {
       // Load full agent config
@@ -2792,7 +2802,10 @@ function SidepanelOrchestrator() {
       const response: Response = await fetch(`${baseUrl}/api/llm/chat`, {
         method: 'POST',
         headers: electronFetchHeaders(),
-        body: JSON.stringify(llmBody)
+        body: JSON.stringify({
+          ...llmBody,
+          ...(visionImageUrl ? { images: [toBase64ForOllama(visionImageUrl)] } : {}),
+        }),
       })
       
       if (!response.ok) {
@@ -2819,7 +2832,8 @@ function SidepanelOrchestrator() {
   const getButlerResponse = async (
     messages: Array<{role: string, content: string}>,
     model: string,
-    baseUrl: string
+    baseUrl: string,
+    visionImageUrl?: string | null,
   ): Promise<{ success: boolean, response?: string, error?: string }> => {
     try {
       const agents = await loadAgentsFromSession(sessionKey)
@@ -2837,8 +2851,9 @@ function SidepanelOrchestrator() {
           messages: [
             { role: 'system', content: butlerPrompt },
             ...messages
-          ]
-        })
+          ],
+          ...(visionImageUrl ? { images: [toBase64ForOllama(visionImageUrl)] } : {}),
+        }),
       })
       
       if (!response.ok) {
@@ -2998,7 +3013,10 @@ function SidepanelOrchestrator() {
           const agentResponse: Response = await fetch(`${baseUrl}/api/llm/chat`, {
             method: 'POST',
             headers: electronFetchHeaders(),
-            body: JSON.stringify(triggerLlmBody)
+            body: JSON.stringify({
+              ...triggerLlmBody,
+              ...(imageUrl ? { images: [toBase64ForOllama(imageUrl)] } : {}),
+            }),
           })
           
           if (agentResponse.ok) {
@@ -3047,8 +3065,9 @@ function SidepanelOrchestrator() {
             messages: [
               { role: 'system', content: butlerPrompt },
               { role: 'user', content: enrichedTriggerText },
-            ]
-          })
+            ],
+            ...(imageUrl ? { images: [toBase64ForOllama(imageUrl)] } : {}),
+          }),
         })
         
         if (response.ok) {
@@ -3312,7 +3331,8 @@ function SidepanelOrchestrator() {
             ocrText,
             processedMessagesForLlm,
             activeLlmModel,
-            baseUrl
+            baseUrl,
+            currentTurnImageUrl,
           )
           
           if (result.success && result.output) {
@@ -3363,7 +3383,7 @@ function SidepanelOrchestrator() {
         // PATH C: BUTLER LLM RESPONSE
         // No agent match - use butler personality for general questions
         // =================================================================
-        const butlerResult = await getButlerResponse(processedMessagesForLlm, activeLlmModel, baseUrl)
+        const butlerResult = await getButlerResponse(processedMessagesForLlm, activeLlmModel, baseUrl, currentTurnImageUrl)
         
         if (butlerResult.success && butlerResult.response) {
           setChatMessages([...newMessages, { role: 'assistant' as const, text: butlerResult.response }])

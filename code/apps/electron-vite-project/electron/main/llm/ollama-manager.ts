@@ -547,15 +547,25 @@ export class OllamaManager {
       })
     }
     try {
+      const allImages = messages.flatMap((m) => (m.images?.length ? m.images : []))
+      const serializedMessages = messages.map((m) => ({
+        role: m.role,
+        content: m.content,
+        ...(m.images && m.images.length > 0 ? { images: m.images } : {}),
+      }))
+      const body: Record<string, unknown> = {
+        model: modelId,
+        messages: serializedMessages,
+        stream: false,
+        keep_alive: '2m',
+      }
+      if (allImages.length > 0) {
+        body.images = allImages
+      }
       const response = await fetch(`${this.baseUrl}/api/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: modelId,
-          messages,
-          stream: false,
-          keep_alive: '2m',
-        }),
+        body: JSON.stringify(body),
         signal: AbortSignal.timeout(120000) // 2 minute timeout
       })
       

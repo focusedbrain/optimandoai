@@ -95,6 +95,8 @@ export interface LlmConfig {
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant'
   content: string
+  /** Vision: base64 without data URI prefix — forwarded to Ollama `images` for capable models. */
+  images?: string[]
 }
 
 /**

@@ -14,6 +14,47 @@ import {
   recordVaultLock,
 } from './main/autosortDiagnostics'
 import { surfaceFromSource } from './wrChatSurface'
+import type { ChatMessage } from './main/llm/types'
+
+function stripDataUriPrefixForLlm(s: string): string {
+  const idx = s.indexOf(',')
+  return idx !== -1 ? s.slice(idx + 1) : s
+}
+
+function enrichHttpChatMessages(body: { messages?: unknown; images?: unknown }): ChatMessage[] {
+  const raw = body.messages as Array<{ role?: string; content?: unknown; images?: unknown }> | undefined
+  if (!Array.isArray(raw)) {
+    return []
+  }
+  const topLevel = Array.isArray(body.images)
+    ? (body.images as string[]).map(stripDataUriPrefixForLlm).filter((s) => s.length > 0)
+    : []
+  const out: ChatMessage[] = raw.map((msg) => {
+    const imgs = Array.isArray(msg.images)
+      ? (msg.images as string[]).map(stripDataUriPrefixForLlm).filter((s) => s.length > 0)
+      : []
+    const content = typeof msg.content === 'string' ? msg.content : String(msg.content ?? '')
+    const role =
+      msg.role === 'system' || msg.role === 'user' || msg.role === 'assistant' ? msg.role : 'user'
+    return {
+      role,
+      content,
+      ...(imgs.length ? { images: imgs } : {}),
+    }
+  })
+  if (topLevel.length > 0) {
+    for (let i = out.length - 1; i >= 0; i--) {
+      if (out[i].role === 'user') {
+        out[i] = {
+          ...out[i],
+          images: [...(out[i].images ?? []), ...topLevel],
+        }
+        break
+      }
+    }
+  }
+  return out
+}
 
 /** When true, log every `GET /api/auth/status` request and response summary (verbose). */
 const DEBUG_AUTH_STATUS_HTTP = false
@@ -7970,6 +8011,8 @@ app.whenReady().then(async () => {
           return
         }
 
+        const enrichedMessages = enrichHttpChatMessages(req.body)
+
         // Cloud provider dispatch: when provider + apiKey are present, call the cloud API directly
         if (provider && apiKey) {
           console.log('[HTTP-LLM] Cloud dispatch:', provider, modelId)
@@ -7994,7 +8037,7 @@ app.whenReady().then(async () => {
           activeModelId = resolved
         }
         
-        const response = await ollamaManager.chat(activeModelId, messages)
+        const response = await ollamaManager.chat(activeModelId, enrichedMessages)
         res.json({ ok: true, data: response })
       } catch (error: any) {
         console.error('[HTTP-LLM] Error in chat:', error)

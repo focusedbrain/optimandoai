@@ -2768,11 +2768,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     }
     case 'ELECTRON_START_SELECTION': {
       try {
+        console.log('[BG] ELECTRON_START_SELECTION received, WS readyState:', ws ? ws.readyState : 'no ws')
         const mergedOpts =
           typeof msg.options === 'object' && msg.options !== null ? { ...msg.options } : {}
         if (msg.createTrigger !== undefined) mergedOpts.createTrigger = msg.createTrigger
         if (msg.addCommand !== undefined) mergedOpts.addCommand = msg.addCommand
         if (WS_ENABLED && ws && ws.readyState === WebSocket.OPEN) {
+          console.log('[BG] Sending START_SELECTION over existing WS')
           const payload = {
             type: 'START_SELECTION',
             source: msg.source || 'browser',
@@ -2782,12 +2784,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           try { ws.send(JSON.stringify(payload)) } catch {}
           try { sendResponse({ success: true }) } catch {}
         } else {
-          console.warn('[BG] WebSocket not OPEN for START_SELECTION — on-demand connect to ws://127.0.0.1:51247/')
+          console.warn('[BG] WS not OPEN — opening on-demand connection to ws://127.0.0.1:51247/')
           // Try to connect on-demand to 127.0.0.1:51247 and retry
           try {
             const url = 'ws://127.0.0.1:51247/'
             const temp = new WebSocket(url)
             temp.addEventListener('open', () => {
+              console.log('[BG] On-demand WS opened — sending START_SELECTION')
               try { ws = temp as any } catch {}
               try {
                 ws?.send(
@@ -2801,7 +2804,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
               } catch {}
               try { sendResponse({ success: true }) } catch {}
             })
-            temp.addEventListener('error', () => { try { sendResponse({ success:false, error:'WS not connected' }) } catch {} })
+            temp.addEventListener('error', (e) => {
+              console.error('[BG] On-demand WS error:', e)
+              try { sendResponse({ success:false, error:'WS not connected' }) } catch {}
+            })
           } catch { try { sendResponse({ success:false, error:'WS not connected' }) } catch {} }
         }
       } catch { try { sendResponse({ success:false }) } catch {} }
