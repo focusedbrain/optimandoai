@@ -12,6 +12,8 @@ export interface WrChatWatchdogButtonProps {
 }
 
 const TOOLTIP_MAIN = 'Watchdog: Click to scan, check for continuous monitoring'
+const TOOLTIP_CLEAN = 'Nothing suspicious found on the screens'
+const CLEAN_FLASH_MS = 3200
 
 function getLaunchSecret(): Promise<string | null> {
   return new Promise((resolve) => {
@@ -51,6 +53,15 @@ export default function WrChatWatchdogButton({ theme = 'pro', onWatchdogAlert }:
     },
     [onWatchdogAlert],
   )
+
+  const scheduleCleanFlash = useCallback(() => {
+    setCleanFlash(true)
+    if (cleanTimerRef.current) clearTimeout(cleanTimerRef.current)
+    cleanTimerRef.current = setTimeout(() => {
+      setCleanFlash(false)
+      cleanTimerRef.current = null
+    }, CLEAN_FLASH_MS)
+  }, [])
 
   const isLight = theme === 'standard'
   const isDark = theme === 'dark'
@@ -110,12 +121,7 @@ export default function WrChatWatchdogButton({ theme = 'pro', onWatchdogAlert }:
         return
       }
       if (msg.type === 'WATCHDOG_SCAN_CLEAN') {
-        setCleanFlash(true)
-        if (cleanTimerRef.current) clearTimeout(cleanTimerRef.current)
-        cleanTimerRef.current = setTimeout(() => {
-          setCleanFlash(false)
-          cleanTimerRef.current = null
-        }, 2000)
+        scheduleCleanFlash()
       }
     }
     try {
@@ -132,7 +138,7 @@ export default function WrChatWatchdogButton({ theme = 'pro', onWatchdogAlert }:
     } catch {
       return undefined
     }
-  }, [onWatchdogAlertDeduped])
+  }, [onWatchdogAlertDeduped, scheduleCleanFlash])
 
   const handleScanClick = useCallback(
     async (e: React.MouseEvent) => {
@@ -171,6 +177,9 @@ export default function WrChatWatchdogButton({ theme = 'pro', onWatchdogAlert }:
           } catch {
             /* noop */
           }
+        } else if (Array.isArray(threats) && threats.length === 0) {
+          /** Manual scan finished clean — green icon feedback (same as WATCHDOG_SCAN_CLEAN). */
+          scheduleCleanFlash()
         }
       } catch {
         setHostOnline(false)
@@ -194,7 +203,7 @@ export default function WrChatWatchdogButton({ theme = 'pro', onWatchdogAlert }:
         }
       }
     },
-    [onWatchdogAlertDeduped],
+    [onWatchdogAlertDeduped, scheduleCleanFlash],
   )
 
   const handleCheckboxChange = useCallback(
@@ -229,6 +238,7 @@ export default function WrChatWatchdogButton({ theme = 'pro', onWatchdogAlert }:
 
   const continuousPulse = continuousEnabled
   const showBusyTitle = busyFlash ? 'Scan already running' : TOOLTIP_MAIN
+  const scanButtonTitle = cleanFlash ? TOOLTIP_CLEAN : showBusyTitle
 
   const buttonStyleComfortable: React.CSSProperties = {
     padding: '0 8px',
@@ -255,7 +265,13 @@ export default function WrChatWatchdogButton({ theme = 'pro', onWatchdogAlert }:
       : {}),
     ...(cleanFlash
       ? {
-          boxShadow: '0 0 0 2px rgba(34,197,94,0.85)',
+          boxShadow: '0 0 0 2px rgba(34,197,94,0.9), 0 0 12px rgba(34,197,94,0.35)',
+          background: isLight
+            ? 'rgba(220,252,231,0.98)'
+            : isDark
+              ? 'rgba(34,197,94,0.22)'
+              : 'rgba(34,197,94,0.42)',
+          borderColor: 'rgba(34,197,94,0.75)',
         }
       : {}),
     ...(!hostOnline ? { opacity: 0.55 } : {}),
@@ -288,12 +304,12 @@ export default function WrChatWatchdogButton({ theme = 'pro', onWatchdogAlert }:
         <button
           type="button"
           onClick={handleScanClick}
-          title={showBusyTitle}
-          aria-label="Watchdog scan"
+          title={scanButtonTitle}
+          aria-label={cleanFlash ? TOOLTIP_CLEAN : 'Watchdog scan'}
           disabled={!hostOnline}
           style={buttonStyleComfortable}
           onMouseEnter={(e) => {
-            if (!hostOnline) return
+            if (!hostOnline || cleanFlash) return
             if (isLight) {
               e.currentTarget.style.background = '#eef3f6'
               e.currentTarget.style.color = '#0f172a'
@@ -304,6 +320,7 @@ export default function WrChatWatchdogButton({ theme = 'pro', onWatchdogAlert }:
             }
           }}
           onMouseLeave={(e) => {
+            if (cleanFlash) return
             if (isLight) {
               e.currentTarget.style.background = '#ffffff'
               e.currentTarget.style.color = '#0f172a'
@@ -314,15 +331,51 @@ export default function WrChatWatchdogButton({ theme = 'pro', onWatchdogAlert }:
             }
           }}
         >
-          <span className={`wr-watchdog-icon-wrap ${scanning ? 'scanning' : ''}`} style={{ display: 'inline-flex' }}>
+          <span
+            className={`wr-watchdog-icon-wrap ${scanning ? 'scanning' : ''}`}
+            style={{
+              display: 'inline-flex',
+              borderRadius: 6,
+              padding: cleanFlash ? '1px 3px' : 0,
+              background: cleanFlash ? 'rgba(34,197,94,0.28)' : 'transparent',
+              transition: 'background 0.2s ease',
+            }}
+          >
             <WatchdogIcon size={16} />
           </span>
           {cleanFlash ? (
-            <span style={{ fontSize: 11, lineHeight: 1, color: '#22c55e', marginLeft: 2 }} aria-hidden>
+            <span
+              style={{
+                fontSize: 12,
+                lineHeight: 1,
+                color: isLight ? '#16a34a' : '#4ade80',
+                marginLeft: 2,
+                fontWeight: 700,
+              }}
+              aria-hidden
+            >
               ✓
             </span>
           ) : null}
         </button>
+        {cleanFlash ? (
+          <span
+            aria-live="polite"
+            style={{
+              position: 'absolute',
+              width: 1,
+              height: 1,
+              padding: 0,
+              margin: -1,
+              overflow: 'hidden',
+              clip: 'rect(0, 0, 0, 0)',
+              whiteSpace: 'nowrap',
+              border: 0,
+            }}
+          >
+            {TOOLTIP_CLEAN}
+          </span>
+        ) : null}
         <label
           style={{
             display: 'inline-flex',

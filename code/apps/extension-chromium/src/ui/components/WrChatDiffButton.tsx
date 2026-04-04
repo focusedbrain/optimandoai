@@ -57,6 +57,10 @@ export type WrChatDiffButtonProps = {
   sidepanelPreset?: 'enterprise' | 'appBar'
   /** Parent injects diff text into WR Chat (same role as send). */
   onDiffMessage: (message: string) => void
+  /** IDs of diff watchers pinned to the top-edge strip. */
+  pinnedDiffIds?: string[]
+  /** Toggle pin state for a diff watcher. */
+  onToggleDiffPin?: (id: string) => void
 }
 
 export const WrChatDiffButton: React.FC<WrChatDiffButtonProps> = ({
@@ -64,6 +68,8 @@ export const WrChatDiffButton: React.FC<WrChatDiffButtonProps> = ({
   theme,
   sidepanelPreset,
   onDiffMessage,
+  pinnedDiffIds = [],
+  onToggleDiffPin,
 }) => {
   const [watchers, setWatchers] = useState<DiffTrigger[]>([])
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -267,6 +273,8 @@ export const WrChatDiffButton: React.FC<WrChatDiffButtonProps> = ({
           onDelete={handleDelete}
           theme={theme}
           hostOffline={hostOffline}
+          pinnedDiffIds={pinnedDiffIds}
+          onToggleDiffPin={onToggleDiffPin}
         />
         <button
           type="button"
@@ -488,6 +496,8 @@ export const WrChatDiffButton: React.FC<WrChatDiffButtonProps> = ({
         onDelete={handleDelete}
         theme={theme}
         hostOffline={hostOffline}
+        pinnedDiffIds={pinnedDiffIds}
+        onToggleDiffPin={onToggleDiffPin}
       />
       <button
         type="button"

@@ -23,30 +23,24 @@ const BASE_URL = 'http://127.0.0.1:51248'
 
 /** One emoji per pinned slot (heart, football, …) — not pill buttons. */
 const PINNED_TRIGGER_EMOJIS = [
-  '❤️',
-  '⚽',
-  '⭐',
-  '🎵',
-  '🎨',
-  '🚀',
-  '🌿',
-  '🍀',
-  '🎯',
-  '💡',
-  '🔔',
-  '📎',
-  '🦋',
-  '🌙',
-  '☀️',
-  '🎸',
-  '🎮',
-  '🏀',
-  '🎾',
-  '🏈',
+  '🔴', '🟠', '🟡', '🟢', '🔵', '🟣', '🟤',
+  '❤️', '🧡', '💛', '💚', '💙', '💜', '🖤',
+  '⭐', '🌟', '✨', '💫', '🔥', '⚡', '🌈',
+  '🎯', '🎨', '🎸', '🎵', '🚀', '🌿', '🍀',
+  '💡', '🔔', '🦋', '🌙', '☀️', '⚽', '🎮',
 ] as const
 
-function emojiForPinnedIndex(i: number): string {
-  return PINNED_TRIGGER_EMOJIS[i % PINNED_TRIGGER_EMOJIS.length] ?? '📌'
+/** Derives a stable 0-based colour index from a trigger key string. */
+function stableIndexForKey(key: string): number {
+  let h = 0
+  for (let i = 0; i < key.length; i++) {
+    h = (Math.imul(31, h) + key.charCodeAt(i)) >>> 0
+  }
+  return h % PINNED_TRIGGER_EMOJIS.length
+}
+
+function emojiForTriggerKey(key: string): string {
+  return PINNED_TRIGGER_EMOJIS[stableIndexForKey(key)] ?? '📌'
 }
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -254,6 +248,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
   /** Saved area triggers — same storage key as docked WR Chat */
   const [triggers, setTriggers] = useState<any[]>([])
   const [anchoredTriggerKeys, setAnchoredTriggerKeys] = useState<string[]>([])
+  const [pinnedDiffIds, setPinnedDiffIds] = useState<string[]>([])
   const [showTagsMenu, setShowTagsMenu] = useState(false)
   /** When false, skip persisting until localStorage transcript has been read (dashboard embed). */
   const [transcriptHydrated, setTranscriptHydrated] = useState(() => !persistTranscriptStorageKey)
@@ -337,7 +332,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
 
   // Tags list — parity with docked WR Chat (sidepanel); merge from host keeps dashboard ↔ extension in sync.
   useEffect(() => {
-    const KEYS = ['optimando-tagged-triggers', 'optimando-anchored-trigger-keys']
+    const KEYS = ['optimando-tagged-triggers', 'optimando-anchored-trigger-keys', 'optimando-pinned-diff-ids']
     const load = () => {
       try {
         chrome.storage?.local?.get(KEYS, (data: Record<string, unknown>) => {
@@ -349,6 +344,10 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
             ? (data['optimando-anchored-trigger-keys'] as string[])
             : []
           setAnchoredTriggerKeys(anchored)
+          const diffPinned = Array.isArray(data?.['optimando-pinned-diff-ids'])
+            ? (data['optimando-pinned-diff-ids'] as string[])
+            : []
+          setPinnedDiffIds(diffPinned)
         })
       } catch {
         setTriggers([])
@@ -359,7 +358,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
     window.addEventListener('optimando-triggers-updated', onUpd)
     const onStorage: Parameters<typeof chrome.storage.onChanged.addListener>[0] = (changes, area) => {
       if (area !== 'local') return
-      if (changes['optimando-tagged-triggers'] || changes['optimando-anchored-trigger-keys']) load()
+      if (changes['optimando-tagged-triggers'] || changes['optimando-anchored-trigger-keys'] || changes['optimando-pinned-diff-ids']) load()
     }
     try {
       chrome.storage?.onChanged?.addListener(onStorage)
@@ -655,6 +654,16 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
     },
     [triggerAnchorKey],
   )
+
+  const handleToggleDiffPin = useCallback((id: string) => {
+    setPinnedDiffIds((prev) => {
+      const next = prev.includes(id) ? prev.filter((k) => k !== id) : [...prev, id]
+      try {
+        chrome.storage?.local?.set({ 'optimando-pinned-diff-ids': next })
+      } catch { /* noop */ }
+      return next
+    })
+  }, [])
 
   const scrollToBottom = () => {
     setTimeout(() => { if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight }, 0)
@@ -1840,7 +1849,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
             createTrigger={true}
             addCommand={true}
           />
-          <WrChatDiffButton variant="comfortable" theme={theme} onDiffMessage={handleDiffMessage} />
+          <WrChatDiffButton variant="comfortable" theme={theme} onDiffMessage={handleDiffMessage} pinnedDiffIds={pinnedDiffIds} onToggleDiffPin={handleToggleDiffPin} />
           <button
             type="button"
             onClick={handleClearChat}
@@ -1987,16 +1996,16 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
                       {/* Pin / anchor icon */}
                       <button
                         type="button"
-                        title={anchoredTriggerKeys.includes(triggerAnchorKey(trigger)) ? 'Unpin from chat edge' : 'Pin to chat edge (unique emoji)'}
+                        title={anchoredTriggerKeys.includes(triggerAnchorKey(trigger)) ? 'Remove icon from top edge' : 'Show icon shortcut at top edge of chat'}
                         onClick={(e) => { e.stopPropagation(); handleToggleAnchor(trigger) }}
                         style={{
-                          width: 20,
+                          width: 22,
                           height: 20,
                           flexShrink: 0,
                           border: 'none',
                           borderRadius: 4,
                           cursor: 'pointer',
-                          fontSize: 12,
+                          fontSize: 13,
                           padding: 0,
                           display: 'flex',
                           alignItems: 'center',
@@ -2014,7 +2023,9 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
                             : 'rgba(255,255,255,0.08)'
                         }}
                       >
-                        📌
+                        {anchoredTriggerKeys.includes(triggerAnchorKey(trigger))
+                          ? emojiForTriggerKey(triggerAnchorKey(trigger))
+                          : '◎'}
                       </button>
                       {/* Trigger name / run button */}
                       <button
@@ -2076,7 +2087,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
         </div>
       </div>
 
-      {/* Messages — pinned triggers as edge emoji strip (not header pills) */}
+      {/* Messages area with top-edge icon strip for pinned triggers */}
       <div
         ref={chatRef}
         style={{
@@ -2084,12 +2095,12 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
           overflowY: 'auto',
           overflowX: 'hidden',
           padding: '12px',
-          paddingRight: pinnedTriggersOnEdge.length > 0 ? 40 : 12,
           display: 'flex',
           flexDirection: 'column',
           gap: '10px',
           position: 'relative',
           minHeight: 0,
+          paddingTop: pinnedTriggersOnEdge.length > 0 ? 42 : 12,
         }}
       >
         {pinnedTriggersOnEdge.length > 0 && (
@@ -2098,37 +2109,35 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
             aria-label="Pinned tag shortcuts"
             style={{
               position: 'absolute',
-              right: 4,
-              top: '50%',
-              transform: 'translateY(-50%)',
+              top: 4,
+              left: 8,
+              right: 8,
               display: 'flex',
-              flexDirection: 'column',
+              flexDirection: 'row',
               alignItems: 'center',
-              gap: 10,
+              flexWrap: 'nowrap',
+              gap: 6,
               zIndex: 6,
-              pointerEvents: 'auto',
-              maxHeight: 'min(70vh, calc(100% - 16px))',
-              overflowY: 'auto',
-              overflowX: 'hidden',
-              paddingLeft: 2,
-              scrollbarWidth: 'thin',
+              overflowX: 'auto',
+              overflowY: 'hidden',
+              scrollbarWidth: 'none',
+              paddingBottom: 2,
             }}
           >
-            {pinnedTriggersOnEdge.map((trigger, idx) => {
-              const emoji = emojiForPinnedIndex(idx)
-              const label = String(trigger.name || trigger.command || `Trigger ${idx + 1}`).slice(0, 120)
+            {pinnedTriggersOnEdge.map((trigger) => {
+              const key = triggerAnchorKey(trigger)
+              const emoji = emojiForTriggerKey(key)
+              const label = String(trigger.name || trigger.command || 'Trigger').slice(0, 80)
               return (
                 <span
-                  key={triggerAnchorKey(trigger)}
+                  key={key}
                   role="button"
                   tabIndex={0}
                   title={`Run: ${label}`}
                   onClick={(e) => {
                     e.preventDefault()
                     e.stopPropagation()
-                    try {
-                      void handlePopupTriggerClick(trigger)
-                    } catch (err) {
+                    try { void handlePopupTriggerClick(trigger) } catch (err) {
                       console.warn('[PopupChatView] pinned trigger click failed:', err)
                     }
                   }}
@@ -2136,21 +2145,23 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
                     if (e.key !== 'Enter' && e.key !== ' ') return
                     e.preventDefault()
                     e.stopPropagation()
-                    try {
-                      void handlePopupTriggerClick(trigger)
-                    } catch (err) {
+                    try { void handlePopupTriggerClick(trigger) } catch (err) {
                       console.warn('[PopupChatView] pinned trigger keydown failed:', err)
                     }
                   }}
                   style={{
-                    fontSize: 22,
+                    fontSize: 18,
                     lineHeight: 1,
                     cursor: 'pointer',
                     userSelect: 'none',
+                    flexShrink: 0,
                     filter: isLight
                       ? 'drop-shadow(0 1px 2px rgba(0,0,0,0.35))'
                       : 'drop-shadow(0 1px 3px rgba(0,0,0,0.55))',
+                    transition: 'transform 0.12s',
                   }}
+                  onMouseEnter={(e) => { (e.currentTarget as HTMLSpanElement).style.transform = 'scale(1.3)' }}
+                  onMouseLeave={(e) => { (e.currentTarget as HTMLSpanElement).style.transform = 'scale(1)' }}
                 >
                   {emoji}
                 </span>

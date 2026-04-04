@@ -3294,13 +3294,7 @@ function SidepanelOrchestrator() {
     const pendingTrigger = pendingTriggerRef.current
     const msSinceTagConsume = Date.now() - sidepanelTagResultConsumedAtRef.current
 
-    // Tag flow: duplicate SELECTION_RESULT (WS/storage) after HTTP or first path already posted — ignore.
-    if (pendingTrigger?.autoProcess && msSinceTagConsume < 10_000) {
-      pendingTriggerRef.current = null
-      try { window.dispatchEvent(new CustomEvent('optimando-sp-trigger-result-received')) } catch { /* noop */ }
-      console.log('[Sidepanel] processElectronSelectionForTags: duplicate tag result discarded (', msSinceTagConsume, 'ms since consume)')
-      return
-    }
+    // Duplicate SELECTION_RESULT (WS + storage fallback, or after direct HTTP execute-trigger) — ignore.
     if (!pendingTrigger?.autoProcess && msSinceTagConsume < 10_000) {
       try { window.dispatchEvent(new CustomEvent('optimando-sp-trigger-result-received')) } catch { /* noop */ }
       console.log('[Sidepanel] processElectronSelectionForTags: duplicate capture discarded (', msSinceTagConsume, 'ms since consume)')
@@ -5173,45 +5167,7 @@ function SidepanelOrchestrator() {
                       </svg>
                       Clear
                     </button>
-                    {/* Anchored trigger chips — 1-click execution */}
-                    {anchoredTriggerKeys.length > 0 && triggers
-                      .filter((t) => anchoredTriggerKeys.includes(triggerAnchorKey(t)))
-                      .map((trigger, idx) => {
-                        const label = String(trigger.name || trigger.command || `T${idx + 1}`).slice(0, 18)
-                        return (
-                          <button
-                            key={triggerAnchorKey(trigger)}
-                            type="button"
-                            title={`Run: ${trigger.name || trigger.command || 'trigger'}`}
-                            onClick={() => handleTriggerClick(trigger)}
-                            style={{
-                              height: 22,
-                              padding: '0 7px',
-                              fontSize: 10,
-                              fontWeight: 500,
-                              borderRadius: 11,
-                              cursor: 'pointer',
-                              border: '1px solid rgba(99,102,241,0.5)',
-                              background: 'rgba(99,102,241,0.18)',
-                              color: '#a5b4fc',
-                              whiteSpace: 'nowrap',
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: 3,
-                              flexShrink: 0,
-                              maxWidth: 110,
-                              overflow: 'hidden',
-                              textOverflow: 'ellipsis',
-                              transition: 'background 0.15s',
-                            }}
-                            onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(99,102,241,0.35)' }}
-                            onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(99,102,241,0.18)' }}
-                          >
-                            <span style={{ fontSize: 9 }}>📌</span>
-                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 88 }}>{label}</span>
-                          </button>
-                        )
-                      })}
+                    {/* Anchored triggers shown as icons on the top edge of the chat inner frame — not as chips here */}
                     <div style={{ position: 'relative' }}>
                       <button 
                         onClick={() => setShowTagsMenu(!showTagsMenu)}
@@ -7144,45 +7100,7 @@ function SidepanelOrchestrator() {
                     </svg>
                     Clear
                   </button>
-                  {/* Anchored trigger chips — 1-click execution */}
-                  {anchoredTriggerKeys.length > 0 && triggers
-                    .filter((t) => anchoredTriggerKeys.includes(triggerAnchorKey(t)))
-                    .map((trigger, idx) => {
-                      const label = String(trigger.name || trigger.command || `T${idx + 1}`).slice(0, 18)
-                      return (
-                        <button
-                          key={triggerAnchorKey(trigger)}
-                          type="button"
-                          title={`Run: ${trigger.name || trigger.command || 'trigger'}`}
-                          onClick={() => handleTriggerClick(trigger)}
-                          style={{
-                            height: 22,
-                            padding: '0 7px',
-                            fontSize: 10,
-                            fontWeight: 500,
-                            borderRadius: 11,
-                            cursor: 'pointer',
-                            border: '1px solid rgba(99,102,241,0.5)',
-                            background: 'rgba(99,102,241,0.18)',
-                            color: '#a5b4fc',
-                            whiteSpace: 'nowrap',
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: 3,
-                            flexShrink: 0,
-                            maxWidth: 110,
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            transition: 'background 0.15s',
-                          }}
-                          onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(99,102,241,0.35)' }}
-                          onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(99,102,241,0.18)' }}
-                        >
-                          <span style={{ fontSize: 9 }}>📌</span>
-                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 80 }}>{label}</span>
-                        </button>
-                      )
-                    })}
+                  {/* Anchored triggers shown as icons on the top edge of the chat inner frame — not as chips here */}
                   <div style={{ position: 'relative' }}>
                     <button 
                       onClick={() => setShowTagsMenu(!showTagsMenu)}
@@ -8492,45 +8410,7 @@ function SidepanelOrchestrator() {
                     </svg>
                     Clear
                   </button>
-                  {/* Anchored trigger chips — 1-click execution */}
-                  {anchoredTriggerKeys.length > 0 && triggers
-                    .filter((t) => anchoredTriggerKeys.includes(triggerAnchorKey(t)))
-                    .map((trigger, idx) => {
-                      const label = String(trigger.name || trigger.command || `T${idx + 1}`).slice(0, 18)
-                      return (
-                        <button
-                          key={triggerAnchorKey(trigger)}
-                          type="button"
-                          title={`Run: ${trigger.name || trigger.command || 'trigger'}`}
-                          onClick={() => handleTriggerClick(trigger)}
-                          style={{
-                            height: 22,
-                            padding: '0 7px',
-                            fontSize: 10,
-                            fontWeight: 500,
-                            borderRadius: 11,
-                            cursor: 'pointer',
-                            border: '1px solid rgba(99,102,241,0.5)',
-                            background: 'rgba(99,102,241,0.18)',
-                            color: '#a5b4fc',
-                            whiteSpace: 'nowrap',
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: 3,
-                            flexShrink: 0,
-                            maxWidth: 110,
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            transition: 'background 0.15s',
-                          }}
-                          onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(99,102,241,0.35)' }}
-                          onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(99,102,241,0.18)' }}
-                        >
-                          <span style={{ fontSize: 9 }}>📌</span>
-                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 80 }}>{label}</span>
-                        </button>
-                      )
-                    })}
+                  {/* Anchored triggers shown as icons on the top edge of the chat inner frame — not as chips here */}
                   <div style={{ position: 'relative' }}>
                     <button 
                       onClick={() => setShowTagsMenu(!showTagsMenu)}

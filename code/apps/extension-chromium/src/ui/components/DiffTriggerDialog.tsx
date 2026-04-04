@@ -28,6 +28,10 @@ export interface DiffTriggerDialogProps {
   theme?: 'pro' | 'dark' | 'standard'
   /** When true, LIST view shows host offline instead of watchers. */
   hostOffline?: boolean
+  /** IDs of diff watchers that have been pinned to the top-edge strip. */
+  pinnedDiffIds?: string[]
+  /** Toggle pin state for a diff watcher by ID. */
+  onToggleDiffPin?: (id: string) => void
 }
 
 type ViewMode = 'list' | 'edit'
@@ -50,6 +54,8 @@ export const DiffTriggerDialog: React.FC<DiffTriggerDialogProps> = ({
   onDelete,
   theme = 'standard',
   hostOffline = false,
+  pinnedDiffIds = [],
+  onToggleDiffPin,
 }) => {
   const isLight = theme === 'standard'
   const [view, setView] = useState<ViewMode>('list')
@@ -333,6 +339,25 @@ export const DiffTriggerDialog: React.FC<DiffTriggerDialogProps> = ({
                             transition: 'left 0.15s',
                           }}
                         />
+                      </button>
+                      <button
+                        type="button"
+                        title={pinnedDiffIds.includes(w.id) ? 'Remove icon from top edge' : 'Show icon shortcut at top edge of chat'}
+                        onClick={() => onToggleDiffPin?.(w.id)}
+                        style={{
+                          flexShrink: 0,
+                          width: 28,
+                          height: 28,
+                          borderRadius: 6,
+                          border: 'none',
+                          background: pinnedDiffIds.includes(w.id) ? 'rgba(99,102,241,0.45)' : isLight ? '#ffffff' : 'rgba(255,255,255,0.12)',
+                          cursor: 'pointer',
+                          fontSize: 15,
+                          lineHeight: 1,
+                          padding: 0,
+                        }}
+                      >
+                        {pinnedDiffIds.includes(w.id) ? '🟣' : '◎'}
                       </button>
                       <button
                         type="button"
