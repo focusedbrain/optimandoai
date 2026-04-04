@@ -154,6 +154,9 @@ export default defineConfig({
               output: {
                 // Use 'auto' interop for CommonJS modules like electron
                 interop: 'auto',
+                // Single chunk avoids cross-chunk circular deps → TDZ errors at runtime
+                // ("Cannot access <var> before initialization" in minified main-*.js).
+                inlineDynamicImports: true,
                 // Inject __dirname and __filename shims for CommonJS packages bundled in ESM
                 intro: `
 import { fileURLToPath as ___fileURLToPath } from 'url';
