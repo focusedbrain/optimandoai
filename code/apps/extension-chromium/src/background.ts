@@ -3044,6 +3044,38 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             body: JSON.stringify({ trigger: msg.trigger, targetSurface }),
           })
           if (r.ok) {
+            // When no WebSocket client is connected, Electron returns the capture in JSON so WR Chat popup/sidepanel still receive ELECTRON_SELECTION_RESULT.
+            try {
+              const j = (await r.json()) as {
+                ok?: boolean
+                dataUrl?: string
+                promptContext?: string
+                kind?: string
+              }
+              if (typeof j.dataUrl === 'string' && j.dataUrl.length > 0) {
+                const selectionPayload = {
+                  type: 'ELECTRON_SELECTION_RESULT' as const,
+                  kind: j.kind || 'image',
+                  dataUrl: j.dataUrl,
+                  promptContext: j.promptContext,
+                }
+                try {
+                  chrome.runtime.sendMessage(selectionPayload)
+                } catch {
+                  /* no listener */
+                }
+                // Service worker sendMessage often does not reach sidepanel/popup; mirror via storage so WR Chat can listen.
+                try {
+                  await chrome.storage.local.set({
+                    'optimando-wrchat-selection-fallback': selectionPayload,
+                  })
+                } catch {
+                  /* quota / oversized screenshot — rely on sendMessage only */
+                }
+              }
+            } catch {
+              /* non-JSON or empty body */
+            }
             try { sendResponse({ success: true }) } catch {}
           } else {
             try { sendResponse({ success: false, error: `HTTP ${r.status}` }) } catch {}

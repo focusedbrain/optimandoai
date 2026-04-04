@@ -32,6 +32,7 @@ import { nlpClassifier, type ClassifiedInput } from './nlp'
 import { inputCoordinator } from './services/InputCoordinator'
 import { formatErrorForNotification, isConnectionError } from './utils/errorMessages'
 import { normaliseTriggerTag } from './utils/normaliseTriggerTag'
+import { mergeTaggedTriggersFromHost } from './utils/mergeTaggedTriggersFromHost'
 import { ConnectEmailLaunchSource, useConnectEmailFlow } from './shared/email/connectEmailFlow'
 import { pickDefaultEmailAccountRowId } from './shared/email/pickDefaultAccountRow'
 import { ThirdPartyLicensesView } from './bundled-tools'
@@ -939,7 +940,12 @@ function SidepanelOrchestrator() {
   const handleSendMessageWithTriggerRef = useRef<
     (displayTextForChat: string, imageUrl?: string, routingText?: string) => Promise<void>
   | null>(null)
-  
+
+  /** Tags flow after headless capture — used from runtime.onMessage and storage fallback (SW → sidepanel delivery). */
+  const processElectronSelectionForTagsRef = useRef<
+    (message: { promptContext?: string; dataUrl?: string; url?: string }) => void
+  >(() => {})
+
   // LLM state
   const [activeLlmModel, setActiveLlmModel] = useState<string>('')
   const [availableModels, setAvailableModels] = useState<Array<{ name: string; size?: string }>>([])
@@ -1784,27 +1790,7 @@ function SidepanelOrchestrator() {
       }
       // Electron screenshot result: do not append to the thread here — user message + image is only from Save or processScreenshotWithTrigger (Tags flow).
       else if (message.type === 'ELECTRON_SELECTION_RESULT') {
-        const pc = message.promptContext
-        // Same rule as SHOW_TRIGGER_PROMPT: only reject when another surface is explicitly set.
-        if (pc !== undefined && pc !== 'sidepanel') return
-        const url = message.dataUrl || message.url
-        if (!url) return
-        const pendingTrigger = pendingTriggerRef.current
-        if (pendingTrigger?.autoProcess) {
-          const tr = pendingTrigger.trigger
-          const nameT = String(tr?.name ?? '').trim()
-          const commandT = String(pendingTrigger.command ?? tr?.command ?? '').trim()
-          const tagFromName = normaliseTriggerTag(nameT)
-          const routeForLlm = commandT || tagFromName
-          const displayForChat = commandT || (nameT ? nameT : '') || tagFromName
-          pendingTriggerRef.current = null
-          const fn = handleSendMessageWithTriggerRef.current
-          if (fn) {
-            const displayLine = (displayForChat || tagFromName || '[Screenshot]').trim()
-            const routeLine = ((routeForLlm || tagFromName).trim() || displayLine)
-            void fn(displayLine, url, routeLine)
-          }
-        }
+        processElectronSelectionForTagsRef.current(message)
       }
       // Listen for trigger prompt from Electron
       else if (message.type === 'SHOW_TRIGGER_PROMPT') {
@@ -2334,6 +2320,20 @@ function SidepanelOrchestrator() {
   }
 
 
+  // Pull tags from Electron host (WR Desk dashboard) into chrome.storage so they match popup/dashboard WR Chat.
+  useEffect(() => {
+    void mergeTaggedTriggersFromHost()
+    const t = setInterval(() => void mergeTaggedTriggersFromHost(), 45_000)
+    const onVis = () => {
+      if (document.visibilityState === 'visible') void mergeTaggedTriggersFromHost()
+    }
+    document.addEventListener('visibilitychange', onVis)
+    return () => {
+      clearInterval(t)
+      document.removeEventListener('visibilitychange', onVis)
+    }
+  }, [])
+
   // Load triggers
   useEffect(() => {
     if (!isCommandChatPinned) return
@@ -2347,7 +2347,23 @@ function SidepanelOrchestrator() {
     
     loadTriggers()
     window.addEventListener('optimando-triggers-updated', loadTriggers)
-    return () => window.removeEventListener('optimando-triggers-updated', loadTriggers)
+    const onStorage: Parameters<typeof chrome.storage.onChanged.addListener>[0] = (changes, area) => {
+      if (area !== 'local' || !changes['optimando-tagged-triggers']) return
+      loadTriggers()
+    }
+    try {
+      chrome.storage?.onChanged?.addListener(onStorage)
+    } catch {
+      /* noop */
+    }
+    return () => {
+      window.removeEventListener('optimando-triggers-updated', loadTriggers)
+      try {
+        chrome.storage?.onChanged?.removeListener(onStorage)
+      } catch {
+        /* noop */
+      }
+    }
   }, [isCommandChatPinned])
 
   // Chat resize handling
@@ -2703,50 +2719,85 @@ function SidepanelOrchestrator() {
   }
 
   /**
-   * Process input with OCR if images are present (full conversation context for LLM).
-   * This builds the LLM message array; routing uses runOcrForCurrentTurn separately.
+   * Build LLM-ready messages with OCR text embedded for user image bubbles.
+   * IMPORTANT: Only the latest screenshot in the thread should run OCR (or use precomputed
+   * text from runOcrForCurrentTurn). Re-running OCR on every historical image caused N×
+   * /api/ocr/process per Send and made the sidepanel feel extremely slow.
    */
   const processMessagesWithOCR = async (
     messages: Array<{role: 'user' | 'assistant', text: string, imageUrl?: string}>,
-    baseUrl: string
+    baseUrl: string,
+    options?: { lastTurnOcrText?: string },
   ): Promise<{ processedMessages: Array<{role: string, content: string}>, ocrText: string }> => {
+    let lastUserImageIdx = -1
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === 'user' && messages[i].imageUrl) {
+        lastUserImageIdx = i
+        break
+      }
+    }
+
     let ocrText = ''
-    
-    const processedMessages = await Promise.all(messages.map(async (msg) => {
+    if (lastUserImageIdx >= 0 && options?.lastTurnOcrText !== undefined) {
+      ocrText = options.lastTurnOcrText
+    }
+
+    const processedMessages: Array<{ role: string; content: string }> = []
+
+    for (let idx = 0; idx < messages.length; idx++) {
+      const msg = messages[idx]
       if (msg.imageUrl && msg.role === 'user') {
-        try {
-          const ocrResponse = await fetch(`${baseUrl}/api/ocr/process`, {
-            method: 'POST',
-            headers: electronFetchHeaders(),
-            body: JSON.stringify({ image: msg.imageUrl }),
-            signal: AbortSignal.timeout(120000),
-          })
-          
-          if (ocrResponse.ok) {
-            const ocrResult = await ocrResponse.json()
-            if (ocrResult.ok && ocrResult.data?.text) {
-              ocrText = ocrResult.data.text
-              const ocrMethod = ocrResult.data.method === 'cloud_vision' ? '🌐 Cloud Vision' : '📝 Local OCR'
-              return {
-                role: msg.role,
-                content: `${msg.text || 'Image content:'}\n\n[${ocrMethod} extracted text]:\n${ocrResult.data.text}`
+        if (idx === lastUserImageIdx) {
+          let text: string | undefined
+          if (options?.lastTurnOcrText !== undefined) {
+            text = options.lastTurnOcrText || undefined
+          } else {
+            try {
+              const ocrResponse = await fetch(`${baseUrl}/api/ocr/process`, {
+                method: 'POST',
+                headers: electronFetchHeaders(),
+                body: JSON.stringify({ image: msg.imageUrl }),
+                signal: AbortSignal.timeout(120000),
+              })
+              if (ocrResponse.ok) {
+                const ocrResult = await ocrResponse.json()
+                if (ocrResult.ok && ocrResult.data?.text) {
+                  text = ocrResult.data.text as string
+                  ocrText = text
+                }
               }
+            } catch (e) {
+              console.warn('[Chat] OCR processing failed:', e)
             }
           }
-        } catch (e) {
-          console.warn('[Chat] OCR processing failed:', e)
+          if (text) {
+            processedMessages.push({
+              role: msg.role,
+              content: `${msg.text || 'Image content:'}\n\n[📝 OCR extracted text]:\n${text}`,
+            })
+          } else {
+            processedMessages.push({
+              role: msg.role,
+              content: msg.text || '[Image attached - OCR unavailable]',
+            })
+          }
+        } else {
+          const cap = (msg.text || '').trim()
+          processedMessages.push({
+            role: msg.role,
+            content: cap
+              ? `${cap}\n\n[Earlier screenshot in thread — OCR not re-run for speed]`
+              : '[Earlier screenshot in thread — OCR not re-run for speed]',
+          })
         }
-        return {
+      } else {
+        processedMessages.push({
           role: msg.role,
-          content: msg.text || '[Image attached - OCR unavailable]'
-        }
+          content: msg.text,
+        })
       }
-      return {
-        role: msg.role,
-        content: msg.text
-      }
-    }))
-    
+    }
+
     return { processedMessages, ocrText }
   }
   
@@ -3202,6 +3253,47 @@ function SidepanelOrchestrator() {
 
   handleSendMessageWithTriggerRef.current = handleSendMessageWithTrigger
 
+  processElectronSelectionForTagsRef.current = (message: {
+    promptContext?: string
+    dataUrl?: string
+    url?: string
+  }) => {
+    const pc = message.promptContext
+    if (pc !== undefined && pc !== 'sidepanel') return
+    const url = message.dataUrl || message.url
+    if (!url) return
+    const pendingTrigger = pendingTriggerRef.current
+    if (!pendingTrigger?.autoProcess) return
+    const tr = pendingTrigger.trigger
+    const nameT = String(tr?.name ?? '').trim()
+    const commandT = String(pendingTrigger.command ?? tr?.command ?? '').trim()
+    const tagFromName = normaliseTriggerTag(nameT)
+    const routeForLlm = commandT || tagFromName
+    const displayForChat = commandT || (nameT ? nameT : '') || tagFromName
+    pendingTriggerRef.current = null
+    const fn = handleSendMessageWithTriggerRef.current
+    if (fn) {
+      const displayLine = (displayForChat || tagFromName || '[Screenshot]').trim()
+      const routeLine = ((routeForLlm || tagFromName).trim() || displayLine)
+      void fn(displayLine, url, routeLine)
+    }
+  }
+
+  useEffect(() => {
+    const KEY = 'optimando-wrchat-selection-fallback'
+    const onStorage = (changes: chrome.storage.StorageChange, area: string) => {
+      if (area !== 'local' || !changes[KEY]?.newValue) return
+      const message = changes[KEY].newValue as { promptContext?: string; dataUrl?: string; url?: string }
+      try {
+        processElectronSelectionForTagsRef.current(message)
+      } finally {
+        void chrome.storage.local.remove(KEY)
+      }
+    }
+    chrome.storage.onChanged.addListener(onStorage)
+    return () => chrome.storage.onChanged.removeListener(onStorage)
+  }, [])
+
   const routeAssistantToInboxIfPending = React.useCallback((response: string) => {
     const ctx = pendingInboxAiRef.current
     if (ctx) {
@@ -3364,7 +3456,11 @@ function SidepanelOrchestrator() {
       // processMessagesWithOCR builds the full LLM conversation array.
       // This is separate from routing — it just formats messages for the LLM.
       // =================================================================
-      const { processedMessages } = await processMessagesWithOCR(newMessages, baseUrl)
+      const { processedMessages } = await processMessagesWithOCR(
+        newMessages,
+        baseUrl,
+        hasImage ? { lastTurnOcrText: ocrText } : undefined,
+      )
 
       let processedMessagesForLlm = processedMessages
 

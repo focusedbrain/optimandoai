@@ -6053,6 +6053,7 @@ app.whenReady().then(async () => {
     })
 
     // POST /api/lmgtfy/execute-trigger — same as WebSocket EXECUTE_TRIGGER.
+    // When no extension WebSocket is connected, include dataUrl in the JSON body so the MV3 background can forward to WR Chat popup/sidepanel.
     httpApp.post('/api/lmgtfy/execute-trigger', async (req, res) => {
       try {
         const body = req.body && typeof req.body === 'object' ? (req.body as Record<string, unknown>) : {}
@@ -6065,8 +6066,18 @@ app.whenReady().then(async () => {
           body.targetSurface === 'popup' || body.targetSurface === 'dashboard' || body.targetSurface === 'sidepanel'
             ? body.targetSurface
             : undefined
-        void executeTriggerFromExtension(trigger, targetSurface)
-        res.json({ ok: true })
+        const result = await executeTriggerFromExtension(trigger, targetSurface)
+        const wsOpen = wsClients.filter((c: { readyState: number }) => c.readyState === 1).length
+        if (result?.dataUrl && wsOpen === 0) {
+          res.json({
+            ok: true,
+            dataUrl: result.dataUrl,
+            promptContext: result.promptContext,
+            kind: result.kind || 'image',
+          })
+        } else {
+          res.json({ ok: true })
+        }
       } catch (error: any) {
         console.error('[HTTP] POST /api/lmgtfy/execute-trigger:', error)
         res.status(500).json({ ok: false, error: error.message || 'execute-trigger failed' })
@@ -9664,11 +9675,12 @@ app.whenReady().then(async () => {
 })
 
 // Helpers to relay capture bytes to extension (WebSocket) and close overlay; chat thread is updated on Save only.
+/** Returns capture payload so HTTP /api/lmgtfy/execute-trigger can deliver to the extension when no WS client is connected. */
 async function postScreenshotToPopup(
   filePath: string,
   sel: { x: number; y: number; w: number; h: number; dpr: number },
   opts?: { promptContext?: LmgtfyPromptSurface },
-) {
+): Promise<{ dataUrl: string; promptContext: LmgtfyPromptSurface } | undefined> {
   try {
     emitCapture(win!, { event: LmgtfyChannels.OnCaptureEvent, mode: 'screenshot', filePath, thumbnailPath: '', meta: { x: sel.x, y: sel.y, w: sel.w, h: sel.h, dpr: sel.dpr } })
   } catch {}
@@ -9686,7 +9698,10 @@ async function postScreenshotToPopup(
     }
     // Thread append is Save-only (sendWithTriggerAndImage / handleSendMessageWithTrigger); do not COMMAND_POPUP_APPEND here.
     try { win?.webContents.send('overlay-close') } catch {}
-  } catch {}
+    return { dataUrl, promptContext: pc }
+  } catch {
+    return undefined
+  }
 }
 
 async function postStreamToPopup(filePath: string, opts?: { promptContext?: LmgtfyPromptSurface }) {
@@ -9715,7 +9730,10 @@ async function postStreamToPopup(filePath: string, opts?: { promptContext?: Lmgt
 }
 
 /** Headless trigger execution from extension WS or HTTP — sets surface so SELECTION_RESULT routes to the right WR Chat. */
-async function executeTriggerFromExtension(trigger: any, targetSurfaceRaw: string | undefined): Promise<void> {
+async function executeTriggerFromExtension(
+  trigger: any,
+  targetSurfaceRaw: string | undefined,
+): Promise<{ dataUrl: string; promptContext: string; kind: string } | undefined> {
   try {
     const surface: LmgtfyPromptSurface =
       targetSurfaceRaw === 'popup' || targetSurfaceRaw === 'dashboard' || targetSurfaceRaw === 'sidepanel'
@@ -9736,16 +9754,22 @@ async function executeTriggerFromExtension(trigger: any, targetSurfaceRaw: strin
     if (mode === 'screenshot') {
       console.log('[MAIN] Executing screenshot trigger headlessly surface=', surface)
       const { filePath } = await captureScreenshot(sel as any)
-      await postScreenshotToPopup(filePath, { x: sel.x, y: sel.y, w: sel.w, h: sel.h, dpr: 1 }, { promptContext: surface })
+      const posted = await postScreenshotToPopup(filePath, { x: sel.x, y: sel.y, w: sel.w, h: sel.h, dpr: 1 }, { promptContext: surface })
       console.log('[MAIN] Screenshot trigger executed and posted')
+      if (posted) {
+        return { dataUrl: posted.dataUrl, promptContext: posted.promptContext, kind: 'image' }
+      }
+      return undefined
     } else {
       console.log('[MAIN] Executing stream trigger with visible overlay surface=', surface)
       showStreamTriggerOverlay(sel.displayId, { x: sel.x, y: sel.y, w: sel.w, h: sel.h })
       const controller = await startRegionStream(sel as any)
       activeStop = controller.stop
       console.log('[MAIN] Stream trigger started')
+      return undefined
     }
   } catch (err) {
     console.log('[MAIN] Error processing EXECUTE_TRIGGER:', err)
+    return undefined
   }
 }

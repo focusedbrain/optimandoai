@@ -10,6 +10,7 @@ import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { WrChatCaptureButton } from './WrChatCaptureButton'
 import { normaliseTriggerTag } from '../../utils/normaliseTriggerTag'
 import { enrichRouteTextWithOcr } from '../../services/processFlow'
+import { mergeTaggedTriggersFromHost } from '../../utils/mergeTaggedTriggersFromHost'
 
 const BASE_URL = 'http://127.0.0.1:51248'
 
@@ -50,6 +51,14 @@ async function getLaunchSecret(): Promise<string | null> {
   })
 }
 
+/** Dashboard embed can send capture before the mount-time secret retry runs — refresh before OCR/LLM. */
+async function ensureLaunchSecret(secretRef: { current: string | null }): Promise<string | null> {
+  if (secretRef.current) return secretRef.current
+  const s = await getLaunchSecret()
+  if (s) secretRef.current = s
+  return secretRef.current
+}
+
 function buildHeaders(secret: string | null, extra?: Record<string, string>): Record<string, string> {
   return { 'Content-Type': 'application/json', 'X-Launch-Secret': secret ?? '', ...extra }
 }
@@ -57,6 +66,14 @@ function buildHeaders(secret: string | null, extra?: Record<string, string>): Re
 function toBase64ForOllama(dataUrl: string): string {
   const idx = dataUrl.indexOf(',')
   return idx !== -1 ? dataUrl.slice(idx + 1) : dataUrl
+}
+
+/** Reject paths / garbage passed as "base64" — Ollama vision + Gemma otherwise surface img-0 / can't-read-image behavior. */
+function isPlausibleVisionBase64(b64: string): boolean {
+  if (!b64 || b64.length < 48) return false
+  if (/^[A-Za-z]:[\\/]/.test(b64)) return false
+  if (b64.startsWith('\\\\')) return false
+  return true
 }
 
 /** Blob / file paths are not valid OCR or vision payloads; normalize to a data URL (Electron dashboard often differs from extension popup). */
@@ -138,11 +155,13 @@ async function mapChatToLlmMessages(
         const content = ocr
           ? `${msg.text || 'Image:'}\n\n[OCR extracted text]:\n${ocr}`
           : msg.text || '[Image attached - OCR unavailable]'
-        const attachVision = idx === lastUserImageIdx && !!msg.imageUrl
+        const b64 = toBase64ForOllama(resolved)
+        const attachVision =
+          idx === lastUserImageIdx && !!msg.imageUrl && isPlausibleVisionBase64(b64)
         return {
           role: 'user',
           content,
-          ...(attachVision ? { images: [toBase64ForOllama(resolved)] } : {}),
+          ...(attachVision ? { images: [b64] } : {}),
         }
       }
       if (msg.videoUrl && msg.role === 'user') {
@@ -278,6 +297,9 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
       captureMode: 'screenshot' | 'stream',
     ) => Promise<void>
   | null>(null)
+  const processPopupElectronSelectionRef = useRef<
+    (message: { promptContext?: string; dataUrl?: string; url?: string }) => void
+  >(() => {})
 
   // Fetch launch secret once on mount
   useEffect(() => {
@@ -316,7 +338,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
     return () => { clearTimeout(t); document.removeEventListener('click', handler) }
   }, [showModelDropdown])
 
-  // Tags list — parity with docked WR Chat (sidepanel); optional merge from host file (dashboard sync).
+  // Tags list — parity with docked WR Chat (sidepanel); merge from host keeps dashboard ↔ extension in sync.
   useEffect(() => {
     const load = () => {
       try {
@@ -333,44 +355,37 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
     load()
     const onUpd = () => load()
     window.addEventListener('optimando-triggers-updated', onUpd)
-    return () => window.removeEventListener('optimando-triggers-updated', onUpd)
-  }, [])
-
-  useEffect(() => {
-    if (wrChatEmbedContext === 'dashboard') return
-    void (async () => {
+    const onStorage: Parameters<typeof chrome.storage.onChanged.addListener>[0] = (changes, area) => {
+      if (area !== 'local' || !changes['optimando-tagged-triggers']) return
+      load()
+    }
+    try {
+      chrome.storage?.onChanged?.addListener(onStorage)
+    } catch {
+      /* noop */
+    }
+    return () => {
+      window.removeEventListener('optimando-triggers-updated', onUpd)
       try {
-        const secret = await getLaunchSecret()
-        const r = await fetch(`${BASE_URL}/api/wrchat/tagged-triggers`, {
-          headers: buildHeaders(secret),
-        })
-        if (!r.ok) return
-        const j = (await r.json()) as { triggers?: unknown[] }
-        if (!Array.isArray(j.triggers) || j.triggers.length === 0) return
-        chrome.storage?.local?.get(['optimando-tagged-triggers'], (data: Record<string, unknown>) => {
-          const local = Array.isArray(data?.['optimando-tagged-triggers'])
-            ? (data['optimando-tagged-triggers'] as any[])
-            : []
-          const merged = [...local]
-          const keys = new Set(local.map((t: any) => `${String(t?.name ?? '')}|${t?.at ?? 0}`))
-          for (const t of j.triggers as any[]) {
-            const k = `${String(t?.name ?? '')}|${t?.at ?? 0}`
-            if (!keys.has(k)) {
-              merged.push(t)
-              keys.add(k)
-            }
-          }
-          if (merged.length > local.length) {
-            chrome.storage?.local?.set({ 'optimando-tagged-triggers': merged }, () => {
-              setTriggers(merged)
-            })
-          }
-        })
+        chrome.storage?.onChanged?.removeListener(onStorage)
       } catch {
         /* noop */
       }
-    })()
-  }, [wrChatEmbedContext])
+    }
+  }, [])
+
+  useEffect(() => {
+    void mergeTaggedTriggersFromHost()
+    const t = setInterval(() => void mergeTaggedTriggersFromHost(), 45_000)
+    const onVis = () => {
+      if (document.visibilityState === 'visible') void mergeTaggedTriggersFromHost()
+    }
+    document.addEventListener('visibilitychange', onVis)
+    return () => {
+      clearInterval(t)
+      document.removeEventListener('visibilitychange', onVis)
+    }
+  }, [])
 
   // Agent box broadcast: only the originating WR Chat surface should react (popup vs dashboard embed).
   useEffect(() => {
@@ -767,15 +782,16 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
     scrollToBottom()
 
     try {
+      const secret = await ensureLaunchSecret(secretRef)
       // OCR for image if present
       let ocrText = ''
       if (hasImage && currentTurnImageUrl) {
         const resolvedImg = await resolveImageUrlForBackend(currentTurnImageUrl)
-        ocrText = await runOcr(resolvedImg, secretRef.current)
+        ocrText = await runOcr(resolvedImg, secret)
       }
 
       // Build messages array for LLM (vision base64 on the last user image message — not only top-level `images`)
-      let processedMessages = await mapChatToLlmMessages(newMessages, secretRef.current)
+      let processedMessages = await mapChatToLlmMessages(newMessages, secret)
 
       // Inject doc content into last user message
       if (docCtx) {
@@ -838,7 +854,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
             const modelToUse = match.agentBoxModel || modelId
             const agentRes: Response = await fetch(`${BASE_URL}/api/llm/chat`, {
               method: 'POST',
-              headers: buildHeaders(secretRef.current),
+              headers: buildHeaders(secret),
               body: JSON.stringify({
                 modelId: modelToUse,
                 messages: agentMessages,
@@ -892,7 +908,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
         ]
         const butlerRes: Response = await fetch(`${BASE_URL}/api/llm/chat`, {
           method: 'POST',
-          headers: buildHeaders(secretRef.current),
+          headers: buildHeaders(secret),
           body: JSON.stringify({
             modelId,
             messages: butlerMessages,
@@ -954,15 +970,16 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
       scrollToBottom()
 
       try {
+        const secret = await ensureLaunchSecret(secretRef)
         let ocrText = ''
         if (!isVideo && mediaUrl) {
           const resolvedMedia = await resolveImageUrlForBackend(mediaUrl)
-          ocrText = await runOcr(resolvedMedia, secretRef.current)
+          ocrText = await runOcr(resolvedMedia, secret)
         }
         const enrichedText = enrichRouteTextWithOcr(routeText, ocrText)
         const hasImage = !isVideo && !!mediaUrl
 
-        const processedMessages = await mapChatToLlmMessages(newMessages, secretRef.current)
+        const processedMessages = await mapChatToLlmMessages(newMessages, secret)
 
         let answered = false
         try {
@@ -1006,7 +1023,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
               const modelToUse = match.agentBoxModel || modelId
               const agentRes: Response = await fetch(`${BASE_URL}/api/llm/chat`, {
                 method: 'POST',
-                headers: buildHeaders(secretRef.current),
+                headers: buildHeaders(secret),
                 body: JSON.stringify({
                   modelId: modelToUse,
                   messages: agentMessages,
@@ -1060,7 +1077,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
           const butlerMessages = [{ role: 'system', content: butlerPrompt }, ...processedMessages]
           const butlerRes: Response = await fetch(`${BASE_URL}/api/llm/chat`, {
             method: 'POST',
-            headers: buildHeaders(secretRef.current),
+            headers: buildHeaders(secret),
             body: JSON.stringify({
               modelId,
               messages: butlerMessages,
@@ -1096,28 +1113,35 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
 
   sendWithTriggerAndImageRef.current = sendWithTriggerAndImage
 
+  processPopupElectronSelectionRef.current = (message: {
+    promptContext?: string
+    dataUrl?: string
+    url?: string
+  }) => {
+    const pc = message.promptContext
+    if (pc !== undefined && pc !== 'popup') return
+    const url = message.dataUrl || message.url
+    if (!url) return
+    const pending = pendingTriggerRef.current
+    if (!pending?.autoProcess) return
+    const tr = pending.trigger
+    const nameT = String(tr?.name ?? '').trim()
+    const commandT = String(pending.command ?? tr?.command ?? '').trim()
+    const tagFromName = normaliseTriggerTag(nameT)
+    const routeForLlm = commandT || tagFromName
+    const displayForChat = commandT || (nameT ? nameT : '') || tagFromName
+    pendingTriggerRef.current = null
+    const displayLine = (displayForChat || tagFromName || '[Screenshot]').trim()
+    const routeLine = (routeForLlm || tagFromName).trim() || displayLine
+    void sendWithTriggerAndImageRef.current?.(displayLine, routeLine, url, 'screenshot')
+  }
+
   // Extension popup: headless capture result → same #tag + command routing as docked sidepanel.
   useEffect(() => {
     if (wrChatEmbedContext === 'dashboard') return
     const onMsg = (message: { type?: string; promptContext?: string; dataUrl?: string; url?: string }) => {
       if (message.type !== 'ELECTRON_SELECTION_RESULT') return
-      // Only reject when another surface is explicitly set (missing promptContext = same as docked sidepanel fix).
-      const pc = message.promptContext
-      if (pc !== undefined && pc !== 'popup') return
-      const url = message.dataUrl || message.url
-      if (!url) return
-      const pending = pendingTriggerRef.current
-      if (!pending?.autoProcess) return
-      const tr = pending.trigger
-      const nameT = String(tr?.name ?? '').trim()
-      const commandT = String(pending.command ?? tr?.command ?? '').trim()
-      const tagFromName = normaliseTriggerTag(nameT)
-      const routeForLlm = commandT || tagFromName
-      const displayForChat = commandT || (nameT ? nameT : '') || tagFromName
-      pendingTriggerRef.current = null
-      const displayLine = (displayForChat || tagFromName || '[Screenshot]').trim()
-      const routeLine = (routeForLlm || tagFromName).trim() || displayLine
-      void sendWithTriggerAndImageRef.current?.(displayLine, routeLine, url, 'screenshot')
+      processPopupElectronSelectionRef.current(message)
     }
     try {
       chrome.runtime.onMessage.addListener(onMsg)
@@ -1131,6 +1155,23 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
     } catch {
       return undefined
     }
+  }, [wrChatEmbedContext])
+
+  // Service worker often does not deliver sendMessage to sidepanel/popup; background also writes chrome.storage.
+  useEffect(() => {
+    if (wrChatEmbedContext === 'dashboard') return
+    const KEY = 'optimando-wrchat-selection-fallback'
+    const onStorage = (changes: chrome.storage.StorageChange, area: string) => {
+      if (area !== 'local' || !changes[KEY]?.newValue) return
+      const message = changes[KEY].newValue as { promptContext?: string; dataUrl?: string; url?: string }
+      try {
+        processPopupElectronSelectionRef.current(message)
+      } finally {
+        void chrome.storage.local.remove(KEY)
+      }
+    }
+    chrome.storage.onChanged.addListener(onStorage)
+    return () => chrome.storage.onChanged.removeListener(onStorage)
   }, [wrChatEmbedContext])
 
   // Dashboard embed: IPC relay from main when promptContext is dashboard (no chrome.runtime).
