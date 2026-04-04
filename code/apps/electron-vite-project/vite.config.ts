@@ -148,8 +148,9 @@ export default defineConfig({
                 'canvas',             // Native: node-canvas
                 'keytar',             // Native: OS keychain
                 'better-sqlite3',     // Native: SQLite bindings
-                'pg-native',          // Optional native dep of pg — external so pg can bundle (pg has JS fallback)
-                // pg: BUNDLED — externalizing caused "Cannot find module pg-pool" in asar (pnpm layout)
+                'pg-native',          // Optional native dep of pg
+                // Do not bundle pg: Rollup CJS→ESM interop can TDZ at runtime on namespace default export.
+                'pg',
               ],
               output: {
                 // Use 'auto' interop for CommonJS modules like electron
