@@ -3736,27 +3736,30 @@ function SidepanelOrchestrator() {
     }
   }
 
+  const handleSendMessageRef = React.useRef(handleSendMessage)
+  handleSendMessageRef.current = handleSendMessage
+
   React.useEffect(() => {
     if (isLlmLoading) return
     const next = diffMessageQueueRef.current.shift()
     if (!next) return
-    void handleSendMessage({ textOverride: next }).catch((err) => {
+    void handleSendMessageRef.current({ textOverride: next }).catch((err) => {
       console.error('[Chat] diff queue flush:', err)
     })
   }, [isLlmLoading])
 
   /** Folder diff from Electron (fire-and-forget text — not `pendingTriggerRef` / capture flow). */
-  const handleDiffMessage = (message: string) => {
+  const handleDiffMessage = React.useCallback((message: string) => {
     const t = (message ?? '').trim()
     if (!t) return
     if (isLlmLoading) {
       diffMessageQueueRef.current.push(t)
       return
     }
-    void handleSendMessage({ textOverride: t }).catch((err) => {
+    void handleSendMessageRef.current({ textOverride: t }).catch((err) => {
       console.error('[Chat] handleDiffMessage:', err)
     })
-  }
+  }, [isLlmLoading])
 
   const handleChatKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {

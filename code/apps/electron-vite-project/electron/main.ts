@@ -909,7 +909,7 @@ function wireDiffWatcherHostCallbacks(): void {
     const tag = trigger?.tag ?? '#'
     const triggerName = trigger?.name ?? triggerId
     const cmdPart = trigger?.command?.trim() ? `${trigger.command.trim()}\n` : ''
-    const messageString = `${tag}\n${cmdPart}\`\`\`\n${diffText}\n\`\`\``
+    const messageString = `${tag}\n${cmdPart}\`\`\`diff\n${diffText}\n\`\`\``
     const payload = JSON.stringify({
       type: 'DIFF_RESULT',
       triggerId,

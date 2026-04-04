@@ -1358,7 +1358,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
     [messages, activeLlmModel, availableModels, isConnected, sessionName, wrChatEmbedContext],
   )
 
-  const enqueueDiffMessage = useCallback(
+  const handleDiffMessage = useCallback(
     (message: string) => {
       const text = (message ?? '').trim()
       if (!text) return
@@ -1703,7 +1703,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
             createTrigger={true}
             addCommand={true}
           />
-          <WrChatDiffButton variant="comfortable" theme={theme} onDiffMessage={enqueueDiffMessage} />
+          <WrChatDiffButton variant="comfortable" theme={theme} onDiffMessage={handleDiffMessage} />
           <button
             type="button"
             onClick={handleClearChat}

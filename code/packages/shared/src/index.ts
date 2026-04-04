@@ -1,5 +1,8 @@
 export const APP_NAME = "WR Desk™ Orchestrator";
 
+// WR Chat diff watchers (folder watch triggers)
+export type { DiffTrigger } from './wrChat/diffTrigger';
+
 // Security utilities
 export {
   sanitizeReturnTo,
