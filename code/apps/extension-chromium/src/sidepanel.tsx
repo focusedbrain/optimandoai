@@ -5427,20 +5427,8 @@ function SidepanelOrchestrator() {
                         background: msg.role === 'user' ? 'rgba(34,197,94,0.15)' : 'rgba(255,255,255,0.12)',
                         border: msg.role === 'user' ? '1px solid rgba(34,197,94,0.5)' : '1px solid rgba(255,255,255,0.25)'
                       }}>
-                        {msg.imageUrl ? (
-                          <img 
-                            src={msg.imageUrl} 
-                            alt="Screenshot" 
-                            style={{ 
-                              maxWidth: '100%', 
-                              height: 'auto', 
-                              borderRadius: '8px',
-                              display: 'block'
-                            }} 
-                          />
-                        ) : null}
                         {msg.text ? (
-                          <div style={{ marginTop: msg.imageUrl ? 8 : 0, whiteSpace: 'pre-wrap' }}>{msg.text}</div>
+                          <div style={{ whiteSpace: 'pre-wrap' }}>{msg.text}</div>
                         ) : null}
                       </div>
                     </div>
@@ -7408,20 +7396,8 @@ function SidepanelOrchestrator() {
                           background: msg.role === 'user' ? 'rgba(34,197,94,0.15)' : 'rgba(255,255,255,0.12)',
                           border: msg.role === 'user' ? '1px solid rgba(34,197,94,0.5)' : '1px solid rgba(255,255,255,0.25)'
                         }}>
-                          {msg.imageUrl ? (
-                            <img 
-                              src={msg.imageUrl} 
-                              alt="Screenshot" 
-                              style={{ 
-                                maxWidth: '100%', 
-                                height: 'auto', 
-                                borderRadius: '8px',
-                                display: 'block'
-                              }} 
-                            />
-                          ) : null}
                           {msg.text ? (
-                            <div style={{ marginTop: msg.imageUrl ? 8 : 0, whiteSpace: 'pre-wrap' }}>{msg.text}</div>
+                            <div style={{ whiteSpace: 'pre-wrap' }}>{msg.text}</div>
                           ) : null}
                         </div>
                       </div>
@@ -8775,20 +8751,8 @@ function SidepanelOrchestrator() {
                           background: msg.role === 'user' ? 'rgba(34,197,94,0.15)' : 'rgba(255,255,255,0.12)',
                           border: msg.role === 'user' ? '1px solid rgba(34,197,94,0.5)' : '1px solid rgba(255,255,255,0.25)'
                         }}>
-                          {msg.imageUrl ? (
-                            <img 
-                              src={msg.imageUrl} 
-                              alt="Screenshot" 
-                              style={{ 
-                                maxWidth: '100%', 
-                                height: 'auto', 
-                                borderRadius: '8px',
-                                display: 'block'
-                              }} 
-                            />
-                          ) : null}
                           {msg.text ? (
-                            <div style={{ marginTop: msg.imageUrl ? 8 : 0, whiteSpace: 'pre-wrap' }}>{msg.text}</div>
+                            <div style={{ whiteSpace: 'pre-wrap' }}>{msg.text}</div>
                           ) : null}
                         </div>
                       </div>

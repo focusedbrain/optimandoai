@@ -1983,9 +1983,6 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
                 style={{ maxWidth: '100%', borderRadius: 6, display: 'block', marginBottom: msg.text ? 6 : 0 }}
               />
             )}
-            {msg.imageUrl && !msg.videoUrl && (
-              <img src={msg.imageUrl} alt="attachment" style={{ maxWidth: '100%', borderRadius: 6, display: 'block', marginBottom: msg.text ? 6 : 0 }} />
-            )}
             {msg.text && <span style={{ whiteSpace: 'pre-wrap' }}>{msg.text}</span>}
           </div>
         ))}
