@@ -2902,8 +2902,9 @@ function SidepanelOrchestrator() {
     routingText?: string,
   ) => {
     const routeText = routingText ?? displayTextForChat
+    const routeTag = normaliseTriggerTag(routeText)
     const displayLine =
-      (displayTextForChat || '').trim() || (imageUrl ? '[Screenshot]' : '')
+      (displayTextForChat || '').trim() || routeTag || (imageUrl ? '[Screenshot]' : '')
 
     const resolveWrChatModelId = (): string => {
       const m = (activeLlmModelRef.current || activeLlmModel || '').trim()
@@ -3015,7 +3016,11 @@ function SidepanelOrchestrator() {
           
           const triggerLlmMessages = [
             { role: 'system', content: wrappedInput },
-            { role: 'user', content: enrichedTriggerText },
+            {
+              role: 'user',
+              content: enrichedTriggerText,
+              ...(imageUrl ? { images: [toBase64ForOllama(imageUrl)] } : {}),
+            },
           ]
           const { body: triggerLlmBody, error: triggerKeyError } = await buildLlmRequestBody(
             modelResolution as BrainResolution & { ok: true },
@@ -3036,7 +3041,6 @@ function SidepanelOrchestrator() {
             headers: electronFetchHeaders(),
             body: JSON.stringify({
               ...triggerLlmBody,
-              ...(imageUrl ? { images: [toBase64ForOllama(imageUrl)] } : {}),
             }),
             signal: AbortSignal.timeout(600000),
           })
@@ -3086,9 +3090,12 @@ function SidepanelOrchestrator() {
             modelId: currentModel,
             messages: [
               { role: 'system', content: butlerPrompt },
-              { role: 'user', content: enrichedTriggerText },
+              {
+                role: 'user',
+                content: enrichedTriggerText,
+                ...(imageUrl ? { images: [toBase64ForOllama(imageUrl)] } : {}),
+              },
             ],
-            ...(imageUrl ? { images: [toBase64ForOllama(imageUrl)] } : {}),
           }),
           signal: AbortSignal.timeout(600000),
         })
@@ -3100,7 +3107,18 @@ function SidepanelOrchestrator() {
               role: 'assistant' as const,
               text: result.data.content
             }])
+          } else {
+            setChatMessages(prev => [...prev, {
+              role: 'assistant' as const,
+              text: `⚠️ LLM returned no content (ok=${String(result?.ok)}).`,
+            }])
           }
+        } else {
+          const errText = await response.text().catch(() => response.statusText)
+          setChatMessages(prev => [...prev, {
+            role: 'assistant' as const,
+            text: `❌ LLM error (${response.status}): ${errText.slice(0, 500)}`,
+          }])
         }
       }
       

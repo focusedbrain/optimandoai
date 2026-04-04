@@ -559,7 +559,10 @@ export class OllamaManager {
         stream: false,
         keep_alive: '2m',
       }
-      if (allImages.length > 0) {
+      // Do NOT also set root `images` when messages already carry `images` — duplicate payloads
+      // confuse vision models (e.g. Gemma) and can surface as `[img-0]` / missing attachment errors.
+      const hasPerMessageImages = messages.some((m) => (m.images?.length ?? 0) > 0)
+      if (allImages.length > 0 && !hasPerMessageImages) {
         body.images = allImages
       }
       const response = await fetch(`${this.baseUrl}/api/chat`, {

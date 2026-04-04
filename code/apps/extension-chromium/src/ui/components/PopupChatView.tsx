@@ -59,6 +59,42 @@ function toBase64ForOllama(dataUrl: string): string {
   return idx !== -1 ? dataUrl.slice(idx + 1) : dataUrl
 }
 
+const LLM_FETCH_TIMEOUT_MS = 600_000
+
+/** Map chat UI messages to Ollama /api/llm/chat shape: attach vision base64 on the last user message that has an image (not only top-level `images`). */
+async function mapChatToLlmMessages(
+  newMessages: ChatMessage[],
+  secret: string | null,
+): Promise<Array<{ role: string; content: string; images?: string[] }>> {
+  let lastUserImageIdx = -1
+  for (let i = newMessages.length - 1; i >= 0; i--) {
+    if (newMessages[i].role === 'user' && newMessages[i].imageUrl) {
+      lastUserImageIdx = i
+      break
+    }
+  }
+  return Promise.all(
+    newMessages.map(async (msg, idx) => {
+      if (msg.imageUrl && msg.role === 'user') {
+        const ocr = await runOcr(msg.imageUrl, secret)
+        const content = ocr
+          ? `${msg.text || 'Image:'}\n\n[OCR extracted text]:\n${ocr}`
+          : msg.text || '[Image attached - OCR unavailable]'
+        const attachVision = idx === lastUserImageIdx && !!msg.imageUrl
+        return {
+          role: 'user',
+          content,
+          ...(attachVision ? { images: [toBase64ForOllama(msg.imageUrl)] } : {}),
+        }
+      }
+      if (msg.videoUrl && msg.role === 'user') {
+        return { role: 'user', content: `${msg.text || 'Video:'}\n[Video attached]` }
+      }
+      return { role: msg.role as string, content: msg.text ?? '' }
+    }),
+  )
+}
+
 function resolveModelIdForChat(
   active: string | undefined,
   models: Array<{ name: string }> | undefined,
@@ -652,19 +688,8 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
         ocrText = await runOcr(currentTurnImageUrl, secretRef.current)
       }
 
-      // Build messages array for LLM
-      let processedMessages = await Promise.all(newMessages.map(async (msg) => {
-        if (msg.imageUrl && msg.role === 'user') {
-          const ocr = await runOcr(msg.imageUrl, secretRef.current)
-          return {
-            role: msg.role as string,
-            content: ocr
-              ? `${msg.text || 'Image:'}\n\n[OCR extracted text]:\n${ocr}`
-              : msg.text || '[Image attached - OCR unavailable]'
-          }
-        }
-        return { role: msg.role as string, content: msg.text ?? '' }
-      }))
+      // Build messages array for LLM (vision base64 on the last user image message — not only top-level `images`)
+      let processedMessages = await mapChatToLlmMessages(newMessages, secretRef.current)
 
       // Inject doc content into last user message
       if (docCtx) {
@@ -731,10 +756,8 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
               body: JSON.stringify({
                 modelId: modelToUse,
                 messages: agentMessages,
-                ...(hasImage && currentTurnImageUrl
-                  ? { images: [toBase64ForOllama(currentTurnImageUrl)] }
-                  : {}),
               }),
+              signal: AbortSignal.timeout(LLM_FETCH_TIMEOUT_MS),
             })
             if (agentRes.ok) {
               const agentJson = await agentRes.json()
@@ -787,10 +810,8 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
           body: JSON.stringify({
             modelId,
             messages: butlerMessages,
-            ...(hasImage && currentTurnImageUrl
-              ? { images: [toBase64ForOllama(currentTurnImageUrl)] }
-              : {}),
           }),
+          signal: AbortSignal.timeout(LLM_FETCH_TIMEOUT_MS),
         })
         if (butlerRes.ok) {
           const butlerJson = await butlerRes.json()
@@ -833,7 +854,9 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
       }
       if (isLoading) return
 
-      const displayLabel = (displayText || '').trim() || (isVideo ? '[Stream]' : '[Screenshot]')
+      const routeTag = normaliseTriggerTag(routeText)
+      const displayLabel =
+        (displayText || '').trim() || routeTag || (isVideo ? '[Stream]' : '[Screenshot]')
       const userMsg: ChatMessage = isVideo
         ? { role: 'user', text: displayLabel, videoUrl: mediaUrl }
         : { role: 'user', text: displayLabel, imageUrl: mediaUrl }
@@ -852,23 +875,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
         const enrichedText = enrichRouteTextWithOcr(routeText, ocrText)
         const hasImage = !isVideo && !!mediaUrl
 
-        let processedMessages = await Promise.all(
-          newMessages.map(async (msg) => {
-            if (msg.imageUrl && msg.role === 'user') {
-              const ocr = await runOcr(msg.imageUrl, secretRef.current)
-              return {
-                role: msg.role as string,
-                content: ocr
-                  ? `${msg.text || 'Image:'}\n\n[OCR extracted text]:\n${ocr}`
-                  : msg.text || '[Image attached - OCR unavailable]',
-              }
-            }
-            if (msg.videoUrl && msg.role === 'user') {
-              return { role: msg.role as string, content: `${msg.text || 'Video:'}\n[Video attached]` }
-            }
-            return { role: msg.role as string, content: msg.text ?? '' }
-          }),
-        )
+        const processedMessages = await mapChatToLlmMessages(newMessages, secretRef.current)
 
         let answered = false
         try {
@@ -916,8 +923,8 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
                 body: JSON.stringify({
                   modelId: modelToUse,
                   messages: agentMessages,
-                  ...(hasImage && mediaUrl ? { images: [toBase64ForOllama(mediaUrl)] } : {}),
                 }),
+                signal: AbortSignal.timeout(LLM_FETCH_TIMEOUT_MS),
               })
               if (agentRes.ok) {
                 const agentJson = await agentRes.json()
@@ -970,8 +977,8 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
             body: JSON.stringify({
               modelId,
               messages: butlerMessages,
-              ...(hasImage && mediaUrl ? { images: [toBase64ForOllama(mediaUrl)] } : {}),
             }),
+            signal: AbortSignal.timeout(LLM_FETCH_TIMEOUT_MS),
           })
           if (butlerRes.ok) {
             const butlerJson = await butlerRes.json()

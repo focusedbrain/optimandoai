@@ -1470,7 +1470,7 @@ export function getCloudApiKey(provider: string): Promise<string | null> {
 
 export type LlmRequestBody = {
   modelId: string
-  messages: Array<{ role: string; content: string }>
+  messages: Array<{ role: string; content: string; images?: string[] }>
   provider?: string
   apiKey?: string
 }
@@ -1482,7 +1482,7 @@ export type LlmRequestBody = {
  */
 export async function buildLlmRequestBody(
   modelResolution: BrainResolution & { ok: true },
-  messages: Array<{ role: string; content: string }>
+  messages: Array<{ role: string; content: string; images?: string[] }>
 ): Promise<{ body: LlmRequestBody; error?: string }> {
   const body: LlmRequestBody = { modelId: modelResolution.model, messages }
 
