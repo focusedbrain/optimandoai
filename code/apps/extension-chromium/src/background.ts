@@ -2782,7 +2782,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           try { ws.send(JSON.stringify(payload)) } catch {}
           try { sendResponse({ success: true }) } catch {}
         } else {
-          // Try to connect on-demand to 127.0.0.1:53247 and retry
+          console.warn('[BG] WebSocket not OPEN for START_SELECTION — on-demand connect to ws://127.0.0.1:51247/')
+          // Try to connect on-demand to 127.0.0.1:51247 and retry
           try {
             const url = 'ws://127.0.0.1:51247/'
             const temp = new WebSocket(url)

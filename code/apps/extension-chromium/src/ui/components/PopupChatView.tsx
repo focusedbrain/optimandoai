@@ -112,11 +112,15 @@ async function extractPdfText(file: File, secret: string | null): Promise<string
 
 async function runOcr(imageUrl: string, secret: string | null): Promise<string> {
   try {
-    const res = await fetch(`${BASE_URL}/api/ocr/process`, {
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 5000)
+    const res: Response = await fetch(`${BASE_URL}/api/ocr/process`, {
       method: 'POST',
       headers: buildHeaders(secret),
-      body: JSON.stringify({ image: imageUrl })
+      body: JSON.stringify({ image: imageUrl }),
+      signal: controller.signal,
     })
+    clearTimeout(timeout)
     if (!res.ok) return ''
     const json = await res.json()
     return json.ok && json.data?.text ? (json.data.text as string) : ''
@@ -651,7 +655,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
             ]
             // Use agent's own model if configured, otherwise fall back to active model
             const modelToUse = match.agentBoxModel || modelId
-            const agentRes = await fetch(`${BASE_URL}/api/llm/chat`, {
+            const agentRes: Response = await fetch(`${BASE_URL}/api/llm/chat`, {
               method: 'POST',
               headers: buildHeaders(secretRef.current),
               body: JSON.stringify({ modelId: modelToUse, messages: agentMessages })
@@ -701,7 +705,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
           { role: 'system', content: butlerPrompt },
           ...processedMessages
         ]
-        const butlerRes = await fetch(`${BASE_URL}/api/llm/chat`, {
+        const butlerRes: Response = await fetch(`${BASE_URL}/api/llm/chat`, {
           method: 'POST',
           headers: buildHeaders(secretRef.current),
           body: JSON.stringify({ modelId, messages: butlerMessages })
@@ -824,7 +828,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
                 ...processedMessages.filter(m => m.role === 'user'),
               ]
               const modelToUse = match.agentBoxModel || modelId
-              const agentRes = await fetch(`${BASE_URL}/api/llm/chat`, {
+              const agentRes: Response = await fetch(`${BASE_URL}/api/llm/chat`, {
                 method: 'POST',
                 headers: buildHeaders(secretRef.current),
                 body: JSON.stringify({ modelId: modelToUse, messages: agentMessages }),
@@ -874,7 +878,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
           const { getButlerSystemPrompt } = await import('../../services/processFlow')
           const butlerPrompt = getButlerSystemPrompt(sessionName, 0, isConnected)
           const butlerMessages = [{ role: 'system', content: butlerPrompt }, ...processedMessages]
-          const butlerRes = await fetch(`${BASE_URL}/api/llm/chat`, {
+          const butlerRes: Response = await fetch(`${BASE_URL}/api/llm/chat`, {
             method: 'POST',
             headers: buildHeaders(secretRef.current),
             body: JSON.stringify({ modelId, messages: butlerMessages }),

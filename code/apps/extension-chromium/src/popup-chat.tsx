@@ -41,7 +41,7 @@ import {
 import { runDraftAttachmentParseWithFallback, draftAttachmentParseRejectedUpdate } from './beap-builder'
 import { BeapDocumentReaderModal, AttachmentStatusBadge } from './beap-builder/components'
 import type { CapsuleAttachment, RasterProof, RasterPageData } from './beap-builder'
-import { electronRpc } from './rpc/electronRpc'
+import { electronRpc, type ElectronRpcResponse } from './rpc/electronRpc'
 import { getVaultStatus } from './vault/api'
 import type { ClientSendFailureDebug, OutboundRequestDebugSnapshot } from './handshake/handshakeRpc'
 import {
@@ -56,6 +56,20 @@ import { pickDefaultEmailAccountRowId } from './shared/email/pickDefaultAccountR
 // =============================================================================
 
 type Theme = 'pro' | 'dark' | 'standard'
+
+/** Shape of `llm.status` body (flat or nested under `.data`). */
+type LlmStatusData = {
+  installed?: boolean
+  running?: boolean
+  modelsInstalled?: Array<{ name: string }>
+}
+
+function unwrapLlmStatusPayload(data: unknown): LlmStatusData | null {
+  if (data == null || typeof data !== 'object') return null
+  const o = data as { data?: LlmStatusData }
+  if (o.data !== undefined && o.data !== null) return o.data
+  return data as LlmStatusData
+}
 
 function toBeapTheme(t: Theme): 'pro' | 'standard' | 'hacker' {
   return t === 'dark' ? 'hacker' : t
@@ -218,6 +232,14 @@ function PopupChatApp() {
       document.removeEventListener('visibilitychange', onVis);
     };
   }, []);
+
+  // If AUTH_STATUS never resolves (e.g. background hung), leave infinite "Loading…"
+  useEffect(() => {
+    const fallback = setTimeout(() => {
+      if (isLoggedIn === null) setIsLoggedIn(false)
+    }, 3000)
+    return () => clearTimeout(fallback)
+  }, [isLoggedIn])
   
   // Platform detection for Linux vs Windows copy and Start Desktop App button
   useEffect(() => {
@@ -432,9 +454,14 @@ function PopupChatApp() {
   // Command Chat: refresh models from backend (uses electronRpc)
   const refreshPopupModels = async () => {
     try {
-      const result = await electronRpc('llm.status')
-      const statusResult = result.success && result.data ? { ok: result.data?.ok ?? result.success, data: result.data?.data ?? result.data } : { ok: false, data: null }
-      if (statusResult.ok && statusResult.data?.modelsInstalled?.length > 0) {
+      const result: ElectronRpcResponse = await electronRpc('llm.status')
+      const inner = unwrapLlmStatusPayload(result.data)
+      const outer = result.data as { ok?: boolean } | undefined
+      const statusResult =
+        result.success && inner != null
+          ? { ok: outer?.ok ?? result.success, data: inner }
+          : { ok: false, data: null as LlmStatusData | null }
+      if (statusResult.ok && statusResult.data?.modelsInstalled?.length) {
         const models = statusResult.data.modelsInstalled
         setAvailableModels(models)
         const currentModel = activeLlmModelRef.current || activeLlmModel
@@ -1869,7 +1896,7 @@ function PopupChatApp() {
             availableModels={availableModels}
             activeLlmModel={activeLlmModel}
             onModelSelect={(name) => { setActiveLlmModel(name); activeLlmModelRef.current = name }}
-            onRefreshModels={refreshPopupModels}
+            onRefreshModels={async () => { await refreshPopupModels() }}
             sessionName="Popup Session"
           />
         )
@@ -1924,7 +1951,7 @@ function PopupChatApp() {
             availableModels={availableModels}
             activeLlmModel={activeLlmModel}
             onModelSelect={(name) => { setActiveLlmModel(name); activeLlmModelRef.current = name }}
-            onRefreshModels={refreshPopupModels}
+            onRefreshModels={async () => { await refreshPopupModels() }}
             sessionName="Popup Session"
           />
         )

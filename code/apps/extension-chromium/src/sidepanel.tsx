@@ -53,7 +53,7 @@ import { useHandshakes } from './handshake/useHandshakes'
 import { runDraftAttachmentParseWithFallback, draftAttachmentParseRejectedUpdate } from './beap-builder'
 import { BeapDocumentReaderModal, AttachmentStatusBadge } from './beap-builder/components'
 import type { CapsuleAttachment, RasterProof, RasterPageData } from './beap-builder'
-import { electronRpc } from './rpc/electronRpc'
+import { electronRpc, type ElectronRpcResponse } from './rpc/electronRpc'
 import { getVaultStatus } from './vault/api'
 import type { ClientSendFailureDebug, OutboundRequestDebugSnapshot } from './handshake/handshakeRpc'
 import {
@@ -89,6 +89,20 @@ type SessionOption = {
   key: string
   name: string
   timestamp: string
+}
+
+/** Shape of `llm.status` body (flat or nested under `.data`). */
+type LlmStatusData = {
+  installed?: boolean
+  running?: boolean
+  modelsInstalled?: Array<{ name: string }>
+}
+
+function unwrapLlmStatusPayload(data: unknown): LlmStatusData | null {
+  if (data == null || typeof data !== 'object') return null
+  const o = data as { data?: LlmStatusData }
+  if (o.data !== undefined && o.data !== null) return o.data
+  return data as LlmStatusData
 }
 
 function beapUiValidationFailure(message: string): {
@@ -1065,11 +1079,17 @@ function SidepanelOrchestrator() {
   // Function to refresh available models (uses electronRpc for auth — direct fetch gets 401)
   const refreshAvailableModels = async () => {
     try {
-      const result = await electronRpc('llm.status')
-      const statusResult = result.success && result.data ? { ok: result.data?.ok ?? result.success, data: result.data?.data ?? result.data } : { ok: false, data: null }
+      const result: ElectronRpcResponse = await electronRpc('llm.status')
+      const inner = unwrapLlmStatusPayload(result.data)
+      const outer = result.data as { ok?: boolean } | undefined
+      const statusResult =
+        result.success && inner != null
+          ? { ok: outer?.ok ?? result.success, data: inner }
+          : { ok: false, data: null as LlmStatusData | null }
       
-      if (statusResult.ok && statusResult.data?.modelsInstalled?.length > 0) {
-        const models = statusResult.data.modelsInstalled
+      const modelsList = statusResult.ok ? statusResult.data?.modelsInstalled : undefined
+      if (modelsList && modelsList.length > 0) {
+        const models = modelsList
         setAvailableModels(models)
         
         // Only set active model if not already set OR if current selection no longer exists
@@ -1098,8 +1118,13 @@ function SidepanelOrchestrator() {
   useEffect(() => {
     const fetchFirstAvailableModel = async () => {
       try {
-        const result = await electronRpc('llm.status')
-        const statusResult = result.success && result.data ? { ok: result.data?.ok ?? result.success, data: result.data?.data ?? result.data } : { ok: false, data: null }
+        const result: ElectronRpcResponse = await electronRpc('llm.status')
+        const inner = unwrapLlmStatusPayload(result.data)
+        const outer = result.data as { ok?: boolean } | undefined
+        const statusResult =
+          result.success && inner != null
+            ? { ok: outer?.ok ?? result.success, data: inner }
+            : { ok: false, data: null as LlmStatusData | null }
         
         if (!statusResult.ok || !statusResult.data) {
           setLlmError('LLM service not available')
@@ -1323,7 +1348,7 @@ function SidepanelOrchestrator() {
             // Ensure launch secret is fresh before the LLM call (handles SW sleep/wake)
             await ensureLaunchSecret()
 
-            const agentResponse = await fetch(`${baseUrl}/api/llm/chat`, {
+            const agentResponse: Response = await fetch(`${baseUrl}/api/llm/chat`, {
               method: 'POST',
               headers: electronFetchHeaders(),
               body: JSON.stringify(llmBody)
@@ -1375,7 +1400,7 @@ function SidepanelOrchestrator() {
         )
         
         try {
-          const butlerResponse = await fetch(`${baseUrl}/api/llm/chat`, {
+          const butlerResponse: Response = await fetch(`${baseUrl}/api/llm/chat`, {
             method: 'POST',
             headers: electronFetchHeaders(),
             body: JSON.stringify({
@@ -2764,7 +2789,7 @@ function SidepanelOrchestrator() {
       // Ensure launch secret is fresh before the LLM call (handles SW sleep/wake)
       await ensureLaunchSecret()
 
-      const response = await fetch(`${baseUrl}/api/llm/chat`, {
+      const response: Response = await fetch(`${baseUrl}/api/llm/chat`, {
         method: 'POST',
         headers: electronFetchHeaders(),
         body: JSON.stringify(llmBody)
@@ -2804,7 +2829,7 @@ function SidepanelOrchestrator() {
         connectionStatus.isConnected
       )
       
-      const response = await fetch(`${baseUrl}/api/llm/chat`, {
+      const response: Response = await fetch(`${baseUrl}/api/llm/chat`, {
         method: 'POST',
         headers: electronFetchHeaders(),
         body: JSON.stringify({
@@ -2970,7 +2995,7 @@ function SidepanelOrchestrator() {
           // Ensure launch secret is fresh before the LLM call (handles SW sleep/wake)
           await ensureLaunchSecret()
 
-          const agentResponse = await fetch(`${baseUrl}/api/llm/chat`, {
+          const agentResponse: Response = await fetch(`${baseUrl}/api/llm/chat`, {
             method: 'POST',
             headers: electronFetchHeaders(),
             body: JSON.stringify(triggerLlmBody)
@@ -3014,7 +3039,7 @@ function SidepanelOrchestrator() {
           connectionStatus.isConnected
         )
         
-        const response = await fetch(`${baseUrl}/api/llm/chat`, {
+        const response: Response = await fetch(`${baseUrl}/api/llm/chat`, {
           method: 'POST',
           headers: electronFetchHeaders(),
           body: JSON.stringify({

@@ -2351,8 +2351,19 @@ app.whenReady().then(async () => {
       }
     } catch (emailImportErr) {
       console.error('[MAIN] FATAL: Failed to import email/ipc module:', emailImportErr)
+      console.error('[MAIN] FATAL — email/inbox IPC registration failed', emailImportErr)
       if (emailImportErr instanceof Error && emailImportErr.stack) {
         console.error('[MAIN] FATAL stack:', emailImportErr.stack)
+      }
+      try {
+        const fs = await import('fs')
+        const bootLogPath = path.join(os.homedir(), '.opengiraffe', 'logs', 'main.log')
+        fs.appendFileSync(
+          bootLogPath,
+          `[${new Date().toISOString()}] [MAIN] FATAL — email/inbox IPC registration failed: ${String(emailImportErr)}\n`,
+        )
+      } catch {
+        /* never throw from diagnostics */
       }
     }
 
