@@ -226,8 +226,6 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
   const [triggers, setTriggers] = useState<any[]>([])
   const [anchoredTriggerKeys, setAnchoredTriggerKeys] = useState<string[]>([])
   const [showTagsMenu, setShowTagsMenu] = useState(false)
-  /** Resets after each run so the same trigger can be chosen again from the select. */
-  const [triggerSelectValue, setTriggerSelectValue] = useState('')
   /** When false, skip persisting until localStorage transcript has been read (dashboard embed). */
   const [transcriptHydrated, setTranscriptHydrated] = useState(() => !persistTranscriptStorageKey)
   /** Capture tag/command prompt — same surface as sidepanel, filtered by promptContext (popup vs dashboard). */
@@ -505,14 +503,6 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
     return () => { clearTimeout(t); document.removeEventListener('click', handler) }
   }, [showTagsMenu])
 
-  const triggerOptionLabel = (t: any, i: number) => {
-    const name = String(t?.name ?? '').trim()
-    const cmd = String(t?.command ?? '').trim()
-    const tag = normaliseTriggerTag(name) || normaliseTriggerTag(cmd)
-    if (tag) return tag
-    return name || cmd || `Trigger ${i + 1}`
-  }
-
   const handlePopupTriggerClick = (trigger: any) => {
     setShowTagsMenu(false)
     pendingTriggerRef.current = {
@@ -574,15 +564,6 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
     } catch {
       /* noop */
     }
-  }
-
-  const handleTriggerSelectChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const v = e.target.value
-    setTriggerSelectValue('')
-    if (v === '') return
-    const idx = Number(v)
-    if (Number.isNaN(idx) || !triggers[idx]) return
-    handlePopupTriggerClick(triggers[idx])
   }
 
   const handleDeleteTrigger = useCallback(
@@ -1792,37 +1773,6 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
                 </button>
               )
             })}
-          <select
-            value={triggerSelectValue}
-            onChange={handleTriggerSelectChange}
-            title="Run saved trigger — headless capture, post with #tag in WR Chat"
-            aria-label="Run saved trigger"
-            style={{
-              height: 22,
-              minWidth: 96,
-              maxWidth: 200,
-              fontSize: 10,
-              padding: '0 6px',
-              borderRadius: 6,
-              cursor: 'pointer',
-              outline: 'none',
-              flexShrink: 1,
-              ...(isLight
-                ? { background: '#ffffff', border: '1px solid #94a3b8', color: '#0f172a' }
-                : {
-                    background: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(118,75,162,0.35)',
-                    border: isDark ? '1px solid rgba(255,255,255,0.25)' : '1px solid rgba(255,255,255,0.45)',
-                    color: colors.headerText,
-                  }),
-            }}
-          >
-            <option value="">Trigger…</option>
-            {triggers.map((t, i) => (
-              <option key={i} value={String(i)}>
-                {triggerOptionLabel(t, i)}
-              </option>
-            ))}
-          </select>
           <div ref={tagsMenuRef} style={{ position: 'relative' }}>
             <button
               type="button"
