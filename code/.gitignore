@@ -38,7 +38,7 @@ apps/extension-chromium/build005/
 apps/extension-chromium/build105/
 apps/extension-chromium/build805/
 apps/extension-chromium/build822/
-apps/extension-chromium/build0015/
+apps/extension-chromium/build0016/
 apps/extension-chromium/build2315/
 apps/extension-chromium/build15/
 apps/extension-chromium/build525/
@@ -64,6 +64,7 @@ apps/extension-chromium/build008/
 apps/extension-chromium/build010/
 apps/extension-chromium/build077/
 apps/extension-chromium/build047/
+apps/extension-chromium/build17/
 apps/extension-chromium/build011/
 apps/extension-chromium/build012/
 apps/extension-chromium/build0781/
@@ -76,7 +77,6 @@ apps/extension-chromium/build0010/
 apps/extension-chromium/build0011/
 apps/extension-chromium/build0012/
 apps/extension-chromium/build0013/
-apps/extension-chromium/build0014/
 apps/extension-chromium/build010/
 apps/extension-chromium/build0021/
 apps/extension-chromium/build0121/
@@ -120,6 +120,7 @@ apps/extension-chromium/build7543/
 apps/extension-chromium/build43/
 apps/extension-chromium/build143/
 apps/extension-chromium/build003/
+apps/extension-chromium/build009/
 
 # Windows-style path accidentally created as a real directory on Linux (cross-platform builds)
 apps/electron-vite-project/C:*/
