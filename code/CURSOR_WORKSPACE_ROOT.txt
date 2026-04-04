@@ -1,0 +1,3 @@
+This folder (code_clean\code\code) is the monorepo root: pnpm workspaces, apps/extension-chromium, apps/electron-vite-project.
+The Git repository root is the parent directory: code_clean\code (where .git lives).
+Do not use a duplicate "apps" folder next to this "code" folder — that was an old mistake and has been removed.
