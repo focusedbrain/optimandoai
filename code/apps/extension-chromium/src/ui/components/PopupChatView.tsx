@@ -255,6 +255,9 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
   const diffMessageQueueRef = useRef<string[]>([])
   /** Set after `sendWithTriggerAndImage` — dashboard tag HTTP + IPC share this. */
   const runDashboardPendingCaptureRef = useRef<(dataUrl: string, kind?: string) => void>(() => {})
+  /** Timestamp (ms) of the last time a dashboard trigger was auto-processed.
+   *  Used to discard duplicate screenshot deliveries from the IPC + HTTP race. */
+  const dashboardTriggerLastConsumedAt = useRef<number>(0)
   const sendWithTriggerAndImageRef = useRef<
     (
       displayText: string,
@@ -517,6 +520,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
       command: trigger.command || trigger.name,
       autoProcess: true,
     }
+    dashboardTriggerLastConsumedAt.current = 0
     if (wrChatEmbedContext === 'dashboard') {
       void (async () => {
         try {
@@ -1399,8 +1403,15 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
     console.log('[WRChat][dashboard-trigger] runDashboardPendingCapture: dataUrl length:', dataUrl.length)
     const pending = pendingTriggerRef.current
     if (!pending?.autoProcess) {
-      // No pending trigger — manual Capture button. Attach the screenshot to the
-      // composer so the user can type a question and send it through the OCR/LLM pipeline.
+      // No pending trigger — could be a manual Capture button OR a duplicate delivery
+      // (IPC path already consumed the trigger; HTTP path arrives shortly after).
+      // Discard if a trigger was consumed within the last 10 s to avoid a spurious chip.
+      const msSinceConsumed = Date.now() - dashboardTriggerLastConsumedAt.current
+      if (msSinceConsumed < 10_000) {
+        console.log('[WRChat][dashboard-capture] duplicate delivery discarded — trigger consumed', msSinceConsumed, 'ms ago')
+        return
+      }
+      // Genuine manual Capture — attach to composer so user can type a question.
       console.log('[WRChat][dashboard-capture] no pending trigger — attaching screenshot to composer')
       setPendingCaptureUrl(dataUrl)
       scrollToBottom()
@@ -1413,6 +1424,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
     const routeForLlm = commandT || tagFromName
     const displayForChat = commandT || (nameT ? nameT : '') || tagFromName
     pendingTriggerRef.current = null
+    dashboardTriggerLastConsumedAt.current = Date.now()
     const displayLine = (displayForChat || tagFromName || '[Screenshot]').trim()
     const routeLine = (routeForLlm || tagFromName).trim() || displayLine
     // dataUrl is already a resolved data: URL — passes straight through resolveImageUrlForBackend.
