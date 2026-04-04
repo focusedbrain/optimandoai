@@ -565,6 +565,7 @@ export class OllamaManager {
       if (allImages.length > 0 && !hasPerMessageImages) {
         body.images = allImages
       }
+      console.log('[ollamaManager.chat] model:', modelId, '| total images:', allImages.length, '| hasPerMessageImages:', hasPerMessageImages, '| first img b64 length:', allImages[0]?.length ?? 0)
       const response = await fetch(`${this.baseUrl}/api/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

@@ -84,7 +84,7 @@ export function isPlausibleVisionBase64(b64: string | null): boolean {
   if (b64.startsWith('blob:') || b64.startsWith('file:') || b64.startsWith('http')) return false
   if (/^[A-Za-z]:[\\/]/.test(b64)) return false
   if (b64.startsWith('\\\\')) return false
-  if (/[/\\]/.test(b64.slice(0, 10))) return false
+  // NOTE: do NOT reject on '/' in first 10 chars — base64 alphabet includes '/' and JPEG encodes to '/9j/4...'
   return true
 }
 

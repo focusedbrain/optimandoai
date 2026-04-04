@@ -131,16 +131,19 @@ async function mapChatToLlmMessages(
           ? pre.resolvedDataUrl
           : await resolveImageUrlForBackend(msg.imageUrl, { secret, isDashboard: opts?.isDashboard })
         const ocr = usePre ? pre.ocrText : await runOcr(resolved ?? '', secret)
-        const content = ocr
-          ? `${msg.text || 'Image:'}\n\n[OCR extracted text]:\n${ocr}`
-          : msg.text || '[Image attached - OCR unavailable]'
         const b64 = resolved ? toBase64ForOllama(resolved) : null
         const attachVision = idx === lastUserImageIdx && isPlausibleVisionBase64(b64)
-        // Only attach the images key when we have at least one valid base64 string.
         const images = attachVision && b64 ? [b64] : []
+        console.log('[mapChatToLlm] idx:', idx, '| lastUserImageIdx:', lastUserImageIdx, '| resolved length:', resolved?.length ?? 0, '| b64 length:', b64?.length ?? 0, '| attachVision:', attachVision, '| images count:', images.length)
+        const baseText = msg.text || 'Screenshot'
+        const enrichedContent = ocr
+          ? `${baseText}\n\n[OCR extracted text]:\n${ocr}`
+          : images.length > 0
+            ? `${baseText}\n\n[A screenshot is attached. Please analyse it and describe what you see.]`
+            : baseText
         return {
           role: 'user',
-          content,
+          content: enrichedContent,
           ...(images.length > 0 ? { images } : {}),
         }
       }
@@ -211,7 +214,7 @@ async function extractPdfText(file: File, secret: string | null): Promise<string
 async function runOcr(imageUrl: string, secret: string | null): Promise<string> {
   try {
     const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), 5000)
+    const timeout = setTimeout(() => controller.abort(), 15_000)
     const res: Response = await fetch(`${BASE_URL}/api/ocr/process`, {
       method: 'POST',
       headers: buildHeaders(secret),
@@ -1079,7 +1082,9 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
         let ocrText = ''
         if (!isVideo && mediaUrl) {
           resolvedMedia = await resolveImageUrlForBackend(mediaUrl, { secret, isDashboard })
+          console.log('[sendWithTriggerAndImage] resolvedMedia length:', resolvedMedia?.length ?? 0, '| secret present:', !!secret, '| isDashboard:', isDashboard)
           ocrText = await runOcr(resolvedMedia ?? '', secret)
+          console.log('[sendWithTriggerAndImage] ocrText length:', ocrText.length)
         }
         const enrichedText = enrichRouteTextWithOcr(routeText, ocrText)
         const hasImage = !isVideo && !!mediaUrl
@@ -1094,6 +1099,9 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
           ),
           import('../../services/processFlow'),
         ])
+
+        const imagesInMessages = processedMessages.filter(m => (m as any).images?.length > 0).length
+        console.log('[sendWithTriggerAndImage] processedMessages count:', processedMessages.length, '| messages with images:', imagesInMessages)
 
         let answered = false
         try {
@@ -1187,6 +1195,8 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
           const { getButlerSystemPrompt } = processFlow
           const butlerPrompt = getButlerSystemPrompt(sessionName, 0, isConnected)
           const butlerMessages = [{ role: 'system', content: butlerPrompt }, ...processedMessages]
+          const butlerImgCount = butlerMessages.filter(m => (m as any).images?.length > 0).length
+          console.log('[sendWithTriggerAndImage] butler call | model:', modelId, '| msgs with images:', butlerImgCount, '| secret:', !!secret)
           const butlerRes: Response = await fetch(`${BASE_URL}/api/llm/chat`, {
             method: 'POST',
             headers: buildHeaders(secret),

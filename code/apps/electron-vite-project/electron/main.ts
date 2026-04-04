@@ -17,6 +17,7 @@ import { surfaceFromSource } from './wrChatSurface'
 import type { ChatMessage } from './main/llm/types'
 
 function stripDataUriPrefixForLlm(s: string): string {
+  if (!s.startsWith('data:')) return s
   const idx = s.indexOf(',')
   return idx !== -1 ? s.slice(idx + 1) : s
 }
@@ -52,6 +53,10 @@ function enrichHttpChatMessages(body: { messages?: unknown; images?: unknown }):
         break
       }
     }
+  }
+  const msgsWithImages = out.filter(m => (m.images?.length ?? 0) > 0).length
+  if (msgsWithImages > 0) {
+    console.log('[enrichHttpChatMessages] msgs with images:', msgsWithImages, '| first image b64 length:', out.find(m => m.images?.length)?.images?.[0]?.length ?? 0)
   }
   return out
 }
