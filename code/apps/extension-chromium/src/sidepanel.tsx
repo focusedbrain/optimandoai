@@ -5363,19 +5363,22 @@ function SidepanelOrchestrator() {
                     >
                       <div style={{
                         maxWidth: '85%',
-                        padding: '10px 14px',
+                        padding: msg.imageUrl && !msg.text ? 0 : '10px 14px',
                         borderRadius: '12px',
                         fontSize: '13px',
                         lineHeight: '1.5',
                         wordBreak: 'break-word',
                         overflowWrap: 'anywhere',
-                        background: msg.role === 'user' ? 'rgba(34,197,94,0.15)' : 'rgba(255,255,255,0.12)',
-                        border: msg.role === 'user' ? '1px solid rgba(34,197,94,0.5)' : '1px solid rgba(255,255,255,0.25)'
+                        overflow: 'hidden',
+                        background: msg.imageUrl && !msg.text ? 'transparent' : (msg.role === 'user' ? 'rgba(34,197,94,0.15)' : 'rgba(255,255,255,0.12)'),
+                        border: msg.imageUrl && !msg.text ? 'none' : (msg.role === 'user' ? '1px solid rgba(34,197,94,0.5)' : '1px solid rgba(255,255,255,0.25)')
                       }}>
+                        {msg.imageUrl && (
+                          <img src={msg.imageUrl} alt="screenshot" style={{ maxWidth: '100%', borderRadius: 8, display: 'block', marginBottom: msg.text ? 6 : 0 }} />
+                        )}
                         {msg.text ? (
                           <div style={{ whiteSpace: 'pre-wrap' }}>{msg.text}</div>
-                        ) : null}
-                      </div>
+                        ) : null}                      </div>
                     </div>
                   ))
                 )}
@@ -7309,15 +7312,19 @@ function SidepanelOrchestrator() {
                       >
                         <div style={{
                           maxWidth: '85%',
-                          padding: '10px 14px',
+                          padding: msg.imageUrl && !msg.text ? 0 : '10px 14px',
                           borderRadius: '12px',
                           fontSize: '13px',
                           lineHeight: '1.5',
                           wordBreak: 'break-word',
                           overflowWrap: 'anywhere',
-                          background: msg.role === 'user' ? 'rgba(34,197,94,0.15)' : 'rgba(255,255,255,0.12)',
-                          border: msg.role === 'user' ? '1px solid rgba(34,197,94,0.5)' : '1px solid rgba(255,255,255,0.25)'
+                          overflow: 'hidden',
+                          background: msg.imageUrl && !msg.text ? 'transparent' : (msg.role === 'user' ? 'rgba(34,197,94,0.15)' : 'rgba(255,255,255,0.12)'),
+                          border: msg.imageUrl && !msg.text ? 'none' : (msg.role === 'user' ? '1px solid rgba(34,197,94,0.5)' : '1px solid rgba(255,255,255,0.25)')
                         }}>
+                          {msg.imageUrl && (
+                            <img src={msg.imageUrl} alt="screenshot" style={{ maxWidth: '100%', borderRadius: 8, display: 'block', marginBottom: msg.text ? 6 : 0 }} />
+                          )}
                           {msg.text ? (
                             <div style={{ whiteSpace: 'pre-wrap' }}>{msg.text}</div>
                           ) : null}
@@ -8641,15 +8648,19 @@ function SidepanelOrchestrator() {
                       >
                         <div style={{
                           maxWidth: '85%',
-                          padding: '10px 14px',
+                          padding: msg.imageUrl && !msg.text ? 0 : '10px 14px',
                           borderRadius: '12px',
                           fontSize: '13px',
                           lineHeight: '1.5',
                           wordBreak: 'break-word',
                           overflowWrap: 'anywhere',
-                          background: msg.role === 'user' ? 'rgba(34,197,94,0.15)' : 'rgba(255,255,255,0.12)',
-                          border: msg.role === 'user' ? '1px solid rgba(34,197,94,0.5)' : '1px solid rgba(255,255,255,0.25)'
+                          overflow: 'hidden',
+                          background: msg.imageUrl && !msg.text ? 'transparent' : (msg.role === 'user' ? 'rgba(34,197,94,0.15)' : 'rgba(255,255,255,0.12)'),
+                          border: msg.imageUrl && !msg.text ? 'none' : (msg.role === 'user' ? '1px solid rgba(34,197,94,0.5)' : '1px solid rgba(255,255,255,0.25)')
                         }}>
+                          {msg.imageUrl && (
+                            <img src={msg.imageUrl} alt="screenshot" style={{ maxWidth: '100%', borderRadius: 8, display: 'block', marginBottom: msg.text ? 6 : 0 }} />
+                          )}
                           {msg.text ? (
                             <div style={{ whiteSpace: 'pre-wrap' }}>{msg.text}</div>
                           ) : null}

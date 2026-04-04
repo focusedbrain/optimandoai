@@ -1976,15 +1976,20 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
             Type a command to get started…
           </div>
         )}
-        {messages.map((msg, i) => (
+        {messages.map((msg, i) => {
+          const hasImageOnly = !!(msg.imageUrl && !msg.videoUrl && !msg.text)
+          return (
           <div key={i} style={{
-            maxWidth: '85%', padding: '10px 12px', borderRadius: '10px',
+            maxWidth: '85%',
+            padding: hasImageOnly ? 0 : '10px 12px',
+            borderRadius: '10px',
             fontSize: '12px', lineHeight: 1.45,
             alignSelf: msg.role === 'user' ? 'flex-end' : 'flex-start',
             wordBreak: 'break-word', overflowWrap: 'anywhere',
-            background: msg.role === 'user' ? colors.userBubbleBg : colors.aiBubbleBg,
-            border: msg.role === 'user' ? colors.userBubbleBorder : colors.aiBubbleBorder,
-            color: colors.bubbleText
+            background: hasImageOnly ? 'transparent' : (msg.role === 'user' ? colors.userBubbleBg : colors.aiBubbleBg),
+            border: hasImageOnly ? 'none' : (msg.role === 'user' ? colors.userBubbleBorder : colors.aiBubbleBorder),
+            color: colors.bubbleText,
+            overflow: 'hidden',
           }}>
             {msg.videoUrl && (
               <video
@@ -1993,9 +1998,13 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
                 style={{ maxWidth: '100%', borderRadius: 6, display: 'block', marginBottom: msg.text ? 6 : 0 }}
               />
             )}
+            {msg.imageUrl && !msg.videoUrl && (
+              <img src={msg.imageUrl} alt="screenshot" style={{ maxWidth: '100%', borderRadius: 8, display: 'block', marginBottom: msg.text ? 6 : 0 }} />
+            )}
             {msg.text && <span style={{ whiteSpace: 'pre-wrap' }}>{msg.text}</span>}
           </div>
-        ))}
+          )
+        })}
         {isLoading && (
           <div style={{
             maxWidth: '85%', padding: '10px 12px', borderRadius: '10px',
