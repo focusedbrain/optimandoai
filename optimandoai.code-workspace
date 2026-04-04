@@ -1,0 +1,12 @@
+{
+  "folders": [
+    {
+      "path": "code",
+      "name": "code (pnpm workspace)"
+    }
+  ],
+  "settings": {
+    "git.autoRepositoryDetection": "subFolders",
+    "git.repositoryScanMaxDepth": 4
+  }
+}
