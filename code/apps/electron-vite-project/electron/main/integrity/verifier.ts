@@ -19,12 +19,9 @@
 
 import { createHash } from 'node:crypto'
 import { readFileSync, existsSync } from 'node:fs'
-import { dirname, join, resolve } from 'node:path'
+import { join, resolve } from 'node:path'
 import { execSync } from 'node:child_process'
-import { fileURLToPath } from 'node:url'
 import { app } from 'electron'
-
-const __dirname = dirname(fileURLToPath(import.meta.url))
 
 // ============================================================================
 // §1  Types

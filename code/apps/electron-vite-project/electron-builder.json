@@ -1,6 +1,7 @@
 {
   "appId": "com.wrcode.desktop",
   "productName": "WR Desk™",
+  "electronVersion": "30.5.1",
   "icon": "public/giraffe",
   "directories": {
     "output": "dist/release",

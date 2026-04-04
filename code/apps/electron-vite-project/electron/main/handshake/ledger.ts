@@ -17,15 +17,12 @@
  *     (only hashes, which are non-reversible)
  */
 
-import { join, dirname } from 'path'
+import { join } from 'path'
 import { existsSync, mkdirSync } from 'fs'
 import { createRequire } from 'module'
 import { homedir } from 'os'
 import { createHash, createHmac } from 'crypto'
-import { fileURLToPath } from 'url'
 import { migrateHandshakeTables } from './db'
-
-const __dirname = dirname(fileURLToPath(import.meta.url))
 
 const _require = createRequire(import.meta.url)
 

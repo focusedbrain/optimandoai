@@ -10,11 +10,8 @@
  */
 
 import { fork, type ChildProcess } from 'child_process'
-import { dirname, join } from 'path'
-import { fileURLToPath } from 'url'
+import { join } from 'path'
 import type { SandboxTask, SandboxResult } from './types'
-
-const __dirname = dirname(fileURLToPath(import.meta.url))
 
 let worker: ChildProcess | null = null
 let workerPath = join(__dirname, 'sandboxWorker.js')
