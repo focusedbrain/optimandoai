@@ -7,10 +7,10 @@ const appDir = __dirname
 
 /**
  * Parsed by scripts/kill-wr-desk.cjs — must contain a line matching:
- *   return 'C:\\build-output\\build05'
+ *   return 'C:\\build-output\\build08'
  */
 function windowsOutputDirMarker() {
-  return 'C:\\build-output\\build05'
+  return 'C:\\build-output\\build08'
 }
 
 function tesseractCoreWasmPath() {
@@ -46,6 +46,8 @@ if (fs.existsSync(tesseractLang)) {
 }
 
 module.exports = {
+  /** pnpm hoists `electron` to the workspace root; electron-builder looks in app/node_modules first. */
+  electronVersion: '30.5.1',
   appId: 'com.optimandoai.wrdesk',
   productName: 'WR Desk™',
   copyright: 'Copyright © Optimando AI',
