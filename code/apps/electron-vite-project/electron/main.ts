@@ -761,6 +761,7 @@ import { getQueueStatus, getQueueEntries } from './main/handshake/outboundQueue'
 import { migrateHandshakeTables } from './main/handshake/db'
 import { completePendingContextSyncs, tryEnqueueContextSync } from './main/handshake/contextSyncEnqueue'
 import { setEmailFunctions } from './main/email/beapSync'
+import { registerEmailHandlers, registerInboxHandlers } from './main/email/ipc'
 import { activateMailGuard, deactivateMailGuard, updateEmailRows, updateProtectedArea, updateWindowPosition, showSanitizedEmail, closeLightbox, isMailGuardActive, hideOverlay, showOverlay } from './mailguard/overlay'
 
 // Storage for email row preview data (for Gmail API matching)
@@ -2315,7 +2316,8 @@ app.whenReady().then(async () => {
     // (e.g. setupFileLogging, handshake IPC wiring, session, ports, HTTP) cannot skip
     // registration and leave `inbox:dashboardSnapshot` / `email:listAccounts` missing.
     try {
-      const { registerEmailHandlers, registerInboxHandlers } = await import('./main/email/ipc')
+      // Static import at module top — do not use dynamic import() here: a separate Rollup chunk
+      // can fail to load in packaged win-unpacked builds, leaving email:listAccounts unregistered.
       const getInboxDb = () => getLedgerDb() ?? (globalThis as any).__og_vault_service_ref?.getDb?.() ?? (globalThis as any).__og_vault_service_ref?.db ?? null
       const getAnthropicApiKey = async () => {
         try {
