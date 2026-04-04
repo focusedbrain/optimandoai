@@ -8,6 +8,8 @@
 
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { WrChatCaptureButton } from './WrChatCaptureButton'
+import { normaliseTriggerTag } from '../../utils/normaliseTriggerTag'
+import { enrichRouteTextWithOcr } from '../../services/processFlow'
 
 const BASE_URL = 'http://127.0.0.1:51248'
 
@@ -15,8 +17,10 @@ const BASE_URL = 'http://127.0.0.1:51248'
 
 interface ChatMessage {
   role: 'user' | 'assistant'
-  text: string
+  /** User messages may pair `text` + `imageUrl` / `videoUrl` in one bubble (capture Save path). */
+  text?: string
   imageUrl?: string
+  videoUrl?: string
   timestamp?: number
 }
 
@@ -47,9 +51,23 @@ async function getLaunchSecret(): Promise<string | null> {
 }
 
 function buildHeaders(secret: string | null, extra?: Record<string, string>): Record<string, string> {
-  const h: Record<string, string> = { 'Content-Type': 'application/json', ...extra }
-  if (secret) h['X-Launch-Secret'] = secret
-  return h
+  return { 'Content-Type': 'application/json', 'X-Launch-Secret': secret ?? '', ...extra }
+}
+
+function resolveModelIdForChat(
+  active: string | undefined,
+  models: Array<{ name: string }> | undefined,
+): string {
+  const t = (active ?? '').trim()
+  if (t) return t
+  const m0 = models?.[0]?.name
+  if (m0) return m0
+  try {
+    const w = (window as unknown as { llm?: { models?: Array<{ id?: string; name?: string }> } }).llm?.models?.[0]
+    return (w?.id || w?.name || '') as string
+  } catch {
+    return ''
+  }
 }
 
 async function parseDataTransfer(dt: DataTransfer): Promise<any[]> {
@@ -129,6 +147,18 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
   const [showTagsMenu, setShowTagsMenu] = useState(false)
   /** When false, skip persisting until localStorage transcript has been read (dashboard embed). */
   const [transcriptHydrated, setTranscriptHydrated] = useState(() => !persistTranscriptStorageKey)
+  /** Capture tag/command prompt — same surface as sidepanel, filtered by promptContext (popup vs dashboard). */
+  const [showTriggerPrompt, setShowTriggerPrompt] = useState<{
+    mode: string
+    rect: unknown
+    imageUrl?: string
+    videoUrl?: string
+    createTrigger: boolean
+    addCommand: boolean
+    name?: string
+    command?: string
+    bounds?: unknown
+  } | null>(null)
 
   const secretRef = useRef<string | null>(null)
   const chatRef = useRef<HTMLDivElement>(null)
@@ -193,6 +223,101 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
     window.addEventListener('optimando-triggers-updated', onUpd)
     return () => window.removeEventListener('optimando-triggers-updated', onUpd)
   }, [])
+
+  // Agent box broadcast: only the originating WR Chat surface should react (popup vs dashboard embed).
+  useEffect(() => {
+    try {
+      if (typeof chrome === 'undefined' || !chrome.runtime?.onMessage?.addListener) return
+    } catch {
+      return
+    }
+    const expected = wrChatEmbedContext === 'dashboard' ? 'dashboard' : 'popup'
+    const onMsg = (message: { type?: string; data?: { sourceSurface?: string } }) => {
+      if (message.type !== 'UPDATE_AGENT_BOX_OUTPUT' || !message.data) return
+      const src = message.data.sourceSurface
+      if (src !== undefined && src !== expected) return
+      /* No agent-box grid in this view; gate prevents mis-attributed live updates if extended later. */
+    }
+    chrome.runtime.onMessage.addListener(onMsg)
+    return () => {
+      try {
+        chrome.runtime.onMessage.removeListener(onMsg)
+      } catch {
+        /* noop */
+      }
+    }
+  }, [wrChatEmbedContext])
+
+  // Extension popup WR Chat: SHOW_TRIGGER_PROMPT only — thread messages come exclusively from Save (sendWithTriggerAndImage).
+  useEffect(() => {
+    if (wrChatEmbedContext === 'dashboard') return
+    const onMsg = (message: any) => {
+      if (message.type === 'SHOW_TRIGGER_PROMPT') {
+        const pc = message.promptContext as string | undefined
+        if (pc !== 'popup') return
+        setShowTriggerPrompt({
+          mode: message.mode || 'screenshot',
+          rect: message.rect,
+          bounds: message.bounds,
+          imageUrl: message.imageUrl,
+          videoUrl: message.videoUrl,
+          createTrigger: !!message.createTrigger,
+          addCommand: !!message.addCommand,
+          name: '',
+          command: '',
+        })
+        return
+      }
+    }
+    try {
+      chrome.runtime.onMessage.addListener(onMsg)
+      return () => {
+        try { chrome.runtime.onMessage.removeListener(onMsg) } catch { /* noop */ }
+      }
+    } catch {
+      return undefined
+    }
+  }, [wrChatEmbedContext])
+
+  // Electron dashboard embed: same capture UI via preload IPC (no chrome.runtime)
+  useEffect(() => {
+    if (wrChatEmbedContext !== 'dashboard') return
+    const bridge =
+      typeof window !== 'undefined'
+        ? (window as Window & { LETmeGIRAFFETHATFORYOU?: {
+            onDashboardCommandAppend?: (cb: (p: unknown) => void) => () => void
+            onDashboardTriggerPrompt?: (cb: (p: unknown) => void) => () => void
+          } }).LETmeGIRAFFETHATFORYOU
+        : undefined
+    if (!bridge?.onDashboardTriggerPrompt) return
+    const unsubTrig = bridge.onDashboardTriggerPrompt((payload: unknown) => {
+      const p = payload as {
+        promptContext?: string
+        mode?: string
+        rect?: unknown
+        bounds?: unknown
+        imageUrl?: string
+        videoUrl?: string
+        createTrigger?: boolean
+        addCommand?: boolean
+      }
+      if (p?.promptContext && p.promptContext !== 'dashboard') return
+      setShowTriggerPrompt({
+        mode: p?.mode || 'screenshot',
+        rect: p?.rect,
+        bounds: p?.bounds,
+        imageUrl: p?.imageUrl,
+        videoUrl: p?.videoUrl,
+        createTrigger: !!p?.createTrigger,
+        addCommand: !!p?.addCommand,
+        name: '',
+        command: '',
+      })
+    })
+    return () => {
+      try { unsubTrig() } catch { /* noop */ }
+    }
+  }, [wrChatEmbedContext])
 
   // Dashboard embed: restore / persist transcript (optional)
   useEffect(() => {
@@ -420,7 +545,8 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
 
     if (isLoading) return
 
-    if (!activeLlmModel) {
+    const modelId = resolveModelIdForChat(activeLlmModel, availableModels)
+    if (!modelId) {
       setMessages(prev => [...prev, {
         role: 'assistant',
         text: `⚠️ No LLM model available. Please go to Admin panel → LLM Settings and install a model.`
@@ -462,7 +588,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
               : msg.text || '[Image attached - OCR unavailable]'
           }
         }
-        return { role: msg.role as string, content: msg.text }
+        return { role: msg.role as string, content: msg.text ?? '' }
       }))
 
       // Inject doc content into last user message
@@ -483,7 +609,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
       let answered = false
       try {
         const { routeInput, wrapInputForAgent, updateAgentBoxOutput, loadAgentsFromSession, getButlerSystemPrompt: _getButler } = await import('../../services/processFlow')
-        const enrichedText = ocrText ? `${llmText}\n\n[Image Text]:\n${ocrText}` : llmText
+        const enrichedText = enrichRouteTextWithOcr(llmText, ocrText)
 
         let currentUrl = ''
         try {
@@ -491,7 +617,14 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
           currentUrl = tab?.url || ''
         } catch {}
 
-        const routingDecision = await routeInput(enrichedText, hasImage, isConnected, sessionName, activeLlmModel, currentUrl)
+        const routingDecision = await routeInput(
+          enrichedText,
+          hasImage,
+          { isConnected },
+          sessionName,
+          modelId,
+          currentUrl,
+        )
 
         if (routingDecision.shouldForwardToAgent && routingDecision.matchedAgents.length > 0) {
           // Show Butler's forwarding confirmation first
@@ -508,7 +641,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
             // Find the full AgentConfig so wrapInputForAgent gets reasoning/role/goals
             const agentConfig = allAgents.find((a: any) => a.id === match.agentId)
             const agentInput = agentConfig
-              ? wrapInputForAgent(enrichedText, agentConfig, ocrText)
+              ? wrapInputForAgent(llmText, agentConfig, ocrText)
               : enrichedText
 
             const agentMessages = [
@@ -516,7 +649,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
               ...processedMessages.filter(m => m.role === 'user')
             ]
             // Use agent's own model if configured, otherwise fall back to active model
-            const modelToUse = match.agentBoxModel || activeLlmModel
+            const modelToUse = match.agentBoxModel || modelId
             const agentRes = await fetch(`${BASE_URL}/api/llm/chat`, {
               method: 'POST',
               headers: buildHeaders(secretRef.current),
@@ -534,11 +667,16 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
                 if (allBoxIds.length > 0) {
                   try {
                     for (const boxId of allBoxIds) {
-                      await updateAgentBoxOutput(boxId, agentReply)
+                      await updateAgentBoxOutput(
+                        boxId,
+                        agentReply,
+                        undefined,
+                        undefined,
+                        wrChatEmbedContext === 'dashboard' ? 'dashboard' : 'popup',
+                      )
                     }
                   } catch {}
-                  const boxNum = String(match.agentBoxNumber ?? '').padStart(2, '0')
-                  const confirm = `✓ ${match.agentIcon} **${match.agentName}** processed your request.\n→ Output saved for Agent Box ${boxNum}`
+                  const confirm = `[Agent: ${match.agentName}] responded. See agent box.`
                   setMessages(prev => [...prev, { role: 'assistant', text: confirm }])
                 } else {
                   // No Agent Box configured — print full reply inline
@@ -565,7 +703,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
         const butlerRes = await fetch(`${BASE_URL}/api/llm/chat`, {
           method: 'POST',
           headers: buildHeaders(secretRef.current),
-          body: JSON.stringify({ modelId: activeLlmModel, messages: butlerMessages })
+          body: JSON.stringify({ modelId, messages: butlerMessages })
         })
         if (butlerRes.ok) {
           const butlerJson = await butlerRes.json()
@@ -587,7 +725,185 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
       setIsLoading(false)
       scrollToBottom()
     }
-  }, [input, messages, pendingDoc, activeLlmModel, isLoading, isConnected, sessionName])
+  }, [input, messages, pendingDoc, activeLlmModel, availableModels, isLoading, isConnected, sessionName, wrChatEmbedContext])
+
+  /** After capture Save with tag/command — displayText is what appears in chat; routeText drives routing/LLM. */
+  const sendWithTriggerAndImage = useCallback(
+    async (
+      displayText: string,
+      routeText: string,
+      mediaUrl: string | undefined,
+      captureMode: 'screenshot' | 'stream',
+    ) => {
+      const isVideo = captureMode === 'stream'
+      const modelId = resolveModelIdForChat(activeLlmModel, availableModels)
+      if (!modelId) {
+        setMessages(prev => [
+          ...prev,
+          { role: 'assistant', text: `⚠️ No LLM model available. Please go to Admin panel → LLM Settings and install a model.` },
+        ])
+        return
+      }
+      if (isLoading) return
+
+      const displayLabel = (displayText || '').trim() || (isVideo ? '[Stream]' : '[Screenshot]')
+      const userMsg: ChatMessage = isVideo
+        ? { role: 'user', text: displayLabel, videoUrl: mediaUrl }
+        : { role: 'user', text: displayLabel, imageUrl: mediaUrl }
+
+      const newMessages = [...messages, userMsg]
+      setMessages(newMessages)
+      setInput('')
+      setIsLoading(true)
+      scrollToBottom()
+
+      try {
+        let ocrText = ''
+        if (!isVideo && mediaUrl) {
+          ocrText = await runOcr(mediaUrl, secretRef.current)
+        }
+        const enrichedText = enrichRouteTextWithOcr(routeText, ocrText)
+        const hasImage = !isVideo && !!mediaUrl
+
+        let processedMessages = await Promise.all(
+          newMessages.map(async (msg) => {
+            if (msg.imageUrl && msg.role === 'user') {
+              const ocr = await runOcr(msg.imageUrl, secretRef.current)
+              return {
+                role: msg.role as string,
+                content: ocr
+                  ? `${msg.text || 'Image:'}\n\n[OCR extracted text]:\n${ocr}`
+                  : msg.text || '[Image attached - OCR unavailable]',
+              }
+            }
+            if (msg.videoUrl && msg.role === 'user') {
+              return { role: msg.role as string, content: `${msg.text || 'Video:'}\n[Video attached]` }
+            }
+            return { role: msg.role as string, content: msg.text ?? '' }
+          }),
+        )
+
+        let answered = false
+        try {
+          const { routeInput, wrapInputForAgent, updateAgentBoxOutput, loadAgentsFromSession } = await import(
+            '../../services/processFlow',
+          )
+          let currentUrl = ''
+          try {
+            const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
+            currentUrl = tab?.url || ''
+          } catch {
+            /* noop */
+          }
+
+          const routingDecision = await routeInput(
+            enrichedText,
+            hasImage,
+            { isConnected },
+            sessionName,
+            modelId,
+            currentUrl,
+          )
+
+          if (routingDecision.shouldForwardToAgent && routingDecision.matchedAgents.length > 0) {
+            if (routingDecision.butlerResponse) {
+              setMessages(prev => [...prev, { role: 'assistant', text: routingDecision.butlerResponse }])
+            }
+            let allAgents: any[] = []
+            try {
+              allAgents = await loadAgentsFromSession()
+            } catch {
+              /* noop */
+            }
+            for (const match of routingDecision.matchedAgents) {
+              const agentConfig = allAgents.find((a: any) => a.id === match.agentId)
+              const agentInput = agentConfig ? wrapInputForAgent(routeText, agentConfig, ocrText) : enrichedText
+              const agentMessages = [
+                { role: 'system', content: agentInput },
+                ...processedMessages.filter(m => m.role === 'user'),
+              ]
+              const modelToUse = match.agentBoxModel || modelId
+              const agentRes = await fetch(`${BASE_URL}/api/llm/chat`, {
+                method: 'POST',
+                headers: buildHeaders(secretRef.current),
+                body: JSON.stringify({ modelId: modelToUse, messages: agentMessages }),
+              })
+              if (agentRes.ok) {
+                const agentJson = await agentRes.json()
+                const agentReply = agentJson.ok && agentJson.data?.content ? agentJson.data.content : ''
+                if (agentReply) {
+                  const allBoxIds =
+                    match.targetBoxIds && match.targetBoxIds.length > 0
+                      ? match.targetBoxIds
+                      : match.agentBoxId
+                        ? [match.agentBoxId]
+                        : []
+                  if (allBoxIds.length > 0) {
+                    try {
+                      for (const boxId of allBoxIds) {
+                        await updateAgentBoxOutput(
+                          boxId,
+                          agentReply,
+                          undefined,
+                          undefined,
+                          wrChatEmbedContext === 'dashboard' ? 'dashboard' : 'popup',
+                        )
+                      }
+                    } catch {
+                      /* noop */
+                    }
+                    const confirm = `[Agent: ${match.agentName}] responded. See agent box.`
+                    setMessages(prev => [...prev, { role: 'assistant', text: confirm }])
+                  } else {
+                    setMessages(prev => [
+                      ...prev,
+                      { role: 'assistant', text: `${match.agentIcon} **${match.agentName}**:\n\n${agentReply}` },
+                    ])
+                  }
+                  answered = true
+                }
+              }
+            }
+          }
+        } catch (e) {
+          console.warn('[PopupChat] sendWithTriggerAndImage agent routing failed:', e)
+        }
+
+        if (!answered) {
+          const { getButlerSystemPrompt } = await import('../../services/processFlow')
+          const butlerPrompt = getButlerSystemPrompt(sessionName, 0, isConnected)
+          const butlerMessages = [{ role: 'system', content: butlerPrompt }, ...processedMessages]
+          const butlerRes = await fetch(`${BASE_URL}/api/llm/chat`, {
+            method: 'POST',
+            headers: buildHeaders(secretRef.current),
+            body: JSON.stringify({ modelId, messages: butlerMessages }),
+          })
+          if (butlerRes.ok) {
+            const butlerJson = await butlerRes.json()
+            const butlerReply = butlerJson.ok && butlerJson.data?.content ? butlerJson.data.content : ''
+            if (butlerReply) {
+              setMessages(prev => [...prev, { role: 'assistant', text: butlerReply }])
+            } else {
+              setMessages(prev => [
+                ...prev,
+                { role: 'assistant', text: `⚠️ LLM returned an empty response. The model may still be loading — please try again.` },
+              ])
+            }
+          } else {
+            const errText = await butlerRes.text().catch(() => butlerRes.statusText)
+            setMessages(prev => [...prev, { role: 'assistant', text: `❌ LLM error (${butlerRes.status}): ${errText}` }])
+          }
+        }
+      } catch (err: any) {
+        console.error('[PopupChat] sendWithTriggerAndImage error:', err)
+        setMessages(prev => [...prev, { role: 'assistant', text: `❌ Error: ${err?.message || 'Unknown error'}` }])
+      } finally {
+        setIsLoading(false)
+        scrollToBottom()
+      }
+    },
+    [messages, activeLlmModel, availableModels, isLoading, isConnected, sessionName, wrChatEmbedContext],
+  )
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() }
@@ -599,6 +915,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
     setPendingDoc(null)
     setIsLoading(false)
     setShowTagsMenu(false)
+    setShowTriggerPrompt(null)
     if (persistTranscriptStorageKey) {
       try {
         localStorage.removeItem(persistTranscriptStorageKey)
@@ -617,19 +934,19 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
   const colors = {
     bg: isLight ? '#f8f9fb' : 'transparent',
     header: isLight ? '#ffffff' : isPro ? 'rgba(0,0,0,0.15)' : 'rgba(0,0,0,0.2)',
-    headerBorder: isLight ? '#e1e8ed' : 'rgba(255,255,255,0.1)',
+    headerBorder: isLight ? '#94a3b8' : 'rgba(255,255,255,0.1)',
     headerText: isLight ? '#0f172a' : 'white',
     badgeBg: isLight ? 'rgba(59,130,246,0.1)' : 'rgba(255,255,255,0.15)',
     badgeText: isLight ? '#2563eb' : 'white',
-    composerBorder: isLight ? '1px solid #e1e8ed' : '1px solid rgba(255,255,255,0.12)',
+    composerBorder: isLight ? '1px solid #94a3b8' : '1px solid rgba(255,255,255,0.12)',
     composerBg: isLight ? '#ffffff' : 'transparent',
     inputBg: isLight ? '#ffffff' : 'rgba(255,255,255,0.08)',
-    inputBorder: isLight ? '1px solid #e1e8ed' : '1px solid rgba(255,255,255,0.18)',
+    inputBorder: isLight ? '1px solid #94a3b8' : '1px solid rgba(255,255,255,0.18)',
     inputText: isLight ? '#0f172a' : '#f1f5f9',
     userBubbleBg: isLight ? 'rgba(34,197,94,0.1)' : 'rgba(34,197,94,0.14)',
     userBubbleBorder: isLight ? '1px solid rgba(34,197,94,0.3)' : '1px solid rgba(34,197,94,0.5)',
     aiBubbleBg: isLight ? '#ffffff' : 'rgba(255,255,255,0.1)',
-    aiBubbleBorder: isLight ? '1px solid #e1e8ed' : '1px solid rgba(255,255,255,0.2)',
+    aiBubbleBorder: isLight ? '1px solid #94a3b8' : '1px solid rgba(255,255,255,0.2)',
     bubbleText: isLight ? '#0f172a' : '#f1f5f9',
     muted: isLight ? '#64748b' : 'rgba(255,255,255,0.5)',
     pendingBg: isLight ? 'rgba(99,102,241,0.08)' : 'rgba(99,102,241,0.15)',
@@ -637,7 +954,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
     pendingText: isLight ? '#4338ca' : '#a5b4fc',
     dragOverlay: 'rgba(99,102,241,0.85)',
     btnBg: isLight ? '#f1f5f9' : 'rgba(255,255,255,0.08)',
-    btnBorder: isLight ? '#e1e8ed' : 'rgba(255,255,255,0.18)',
+    btnBorder: isLight ? '#94a3b8' : 'rgba(255,255,255,0.18)',
     btnText: isLight ? '#374151' : 'rgba(255,255,255,0.75)',
   }
 
@@ -649,6 +966,10 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
     [wrChatEmbedContext],
   )
 
+  const captureBorderDefault = isLight ? '1px solid #94a3b8' : '1px solid rgba(255,255,255,0.45)'
+  const captureBorderFocus = isLight ? '1px solid #6366f1' : '1px solid rgba(255,255,255,0.80)'
+  const captureLabelColor = isLight ? '#475569' : 'rgba(255,255,255,0.70)'
+
   return (
     <div
       style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden', position: 'relative', background: colors.bg }}
@@ -656,6 +977,9 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
+      <style>{`
+        .wr-capture-field::placeholder { color: rgba(150,150,150,0.7); }
+      `}</style>
       {/* Drag overlay */}
       {isDragging && (
         <div style={{
@@ -697,7 +1021,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
               opacity: 0.55,
               borderRadius: '6px',
               cursor: 'pointer',
-              border: isLight ? '1px solid #e1e8ed' : `1px solid ${colors.btnBorder}`,
+              border: isLight ? '1px solid #94a3b8' : `1px solid ${colors.btnBorder}`,
               background: isLight ? '#ffffff' : colors.btnBg,
               color: isLight ? '#0f172a' : colors.headerText,
               transition: 'background 0.2s ease',
@@ -738,7 +1062,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
                 alignItems: 'center',
                 gap: 4,
                 border: isLight
-                  ? '1px solid #e1e8ed'
+                  ? '1px solid #94a3b8'
                   : isDark
                     ? '1px solid rgba(255,255,255,0.2)'
                     : '1px solid rgba(255,255,255,0.45)',
@@ -846,7 +1170,14 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
             border: msg.role === 'user' ? colors.userBubbleBorder : colors.aiBubbleBorder,
             color: colors.bubbleText
           }}>
-            {msg.imageUrl && (
+            {msg.videoUrl && (
+              <video
+                src={msg.videoUrl}
+                controls
+                style={{ maxWidth: '100%', borderRadius: 6, display: 'block', marginBottom: msg.text ? 6 : 0 }}
+              />
+            )}
+            {msg.imageUrl && !msg.videoUrl && (
               <img src={msg.imageUrl} alt="attachment" style={{ maxWidth: '100%', borderRadius: 6, display: 'block', marginBottom: msg.text ? 6 : 0 }} />
             )}
             {msg.text && <span style={{ whiteSpace: 'pre-wrap' }}>{msg.text}</span>}
@@ -876,6 +1207,206 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
           <button onClick={() => setPendingDoc(null)} style={{
             background: 'none', border: 'none', cursor: 'pointer', padding: '0 4px', color: 'inherit', fontSize: 13
           }}>×</button>
+        </div>
+      )}
+
+      {/* Capture tag/command — same panel as docked sidepanel; only for this surface (popup vs dashboard) */}
+      {showTriggerPrompt && (
+        <div style={{
+          padding: '12px 14px',
+          background: isLight ? '#f8fafc' : 'rgba(0,0,0,0.35)',
+          borderTop: isLight ? '1px solid #94a3b8' : '1px solid rgba(255,255,255,0.20)',
+        }}>
+          <div style={{
+            marginBottom: '8px',
+            fontSize: '12px',
+            fontWeight: 700,
+            color: isLight ? '#0f172a' : captureLabelColor,
+            opacity: isLight ? 1 : 1,
+          }}>
+            {showTriggerPrompt.mode === 'screenshot' ? '📸 Screenshot' : '🎥 Stream'}
+          </div>
+          {showTriggerPrompt.createTrigger && (
+            <>
+              <label
+                htmlFor="wr-capture-trigger-name"
+                style={{ display: 'block', fontSize: '11px', fontWeight: 600, marginBottom: 4, color: isLight ? '#475569' : 'rgba(255,255,255,0.70)' }}
+              >
+                Trigger Name
+              </label>
+              <input
+                id="wr-capture-trigger-name"
+                type="text"
+                className="wr-capture-field"
+                placeholder="Trigger Name"
+                value={showTriggerPrompt.name || ''}
+                onChange={(e) => setShowTriggerPrompt({ ...showTriggerPrompt, name: e.target.value })}
+                onFocus={(e) => { e.currentTarget.style.border = captureBorderFocus }}
+                onBlur={(e) => { e.currentTarget.style.border = captureBorderDefault }}
+                style={{
+                width: '100%',
+                boxSizing: 'border-box',
+                padding: '8px 10px',
+                background: isLight ? '#ffffff' : 'rgba(255,255,255,0.12)',
+                border: captureBorderDefault,
+                color: isLight ? '#0f172a' : '#f8fafc',
+                borderRadius: '6px',
+                fontSize: '12px',
+                marginBottom: '8px',
+              }}
+              />
+            </>
+          )}
+          {showTriggerPrompt.addCommand && (
+            <>
+              <label
+                htmlFor="wr-capture-optional-command"
+                style={{ display: 'block', fontSize: '11px', fontWeight: 600, marginBottom: 4, color: isLight ? '#475569' : 'rgba(255,255,255,0.70)' }}
+              >
+                Optional Command
+              </label>
+              <textarea
+                id="wr-capture-optional-command"
+                className="wr-capture-field"
+                placeholder="Optional Command"
+                value={showTriggerPrompt.command || ''}
+                onChange={(e) => setShowTriggerPrompt({ ...showTriggerPrompt, command: e.target.value })}
+                onFocus={(e) => { e.currentTarget.style.border = captureBorderFocus }}
+                onBlur={(e) => { e.currentTarget.style.border = captureBorderDefault }}
+                style={{
+                width: '100%',
+                boxSizing: 'border-box',
+                padding: '8px 10px',
+                background: isLight ? '#ffffff' : 'rgba(255,255,255,0.12)',
+                border: captureBorderDefault,
+                color: isLight ? '#0f172a' : '#f8fafc',
+                borderRadius: '6px',
+                fontSize: '12px',
+                minHeight: '60px',
+                marginBottom: '8px',
+                resize: 'vertical',
+                fontFamily: 'inherit',
+              }}
+              />
+            </>
+          )}
+          <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+            <button
+              type="button"
+              onClick={() => setShowTriggerPrompt(null)}
+              style={{
+                padding: '6px 12px',
+                background: isLight ? '#ffffff' : 'rgba(255,255,255,0.15)',
+                border: isLight ? '1px solid #94a3b8' : '1px solid rgba(255,255,255,0.25)',
+                color: isLight ? '#0f172a' : '#ffffff',
+                borderRadius: '6px',
+                cursor: 'pointer',
+                fontSize: '12px',
+              }}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={async () => {
+                const name = showTriggerPrompt.name?.trim() || ''
+                const command = showTriggerPrompt.command?.trim() || ''
+                const mode = showTriggerPrompt.mode === 'stream' ? 'stream' : 'screenshot'
+                const mediaUrl = mode === 'stream' ? showTriggerPrompt.videoUrl : showTriggerPrompt.imageUrl
+
+                if (showTriggerPrompt.createTrigger) {
+                  if (!name) {
+                    alert('Please enter a trigger name')
+                    return
+                  }
+                  const triggerData = {
+                    name,
+                    command,
+                    at: Date.now(),
+                    rect: showTriggerPrompt.rect,
+                    bounds: showTriggerPrompt.bounds,
+                    mode: showTriggerPrompt.mode,
+                  }
+                  try {
+                    chrome.storage?.local?.get(['optimando-tagged-triggers'], (result: Record<string, unknown>) => {
+                      const triggers = Array.isArray(result['optimando-tagged-triggers'])
+                        ? [...(result['optimando-tagged-triggers'] as unknown[])]
+                        : []
+                      triggers.push(triggerData)
+                      chrome.storage?.local?.set({ 'optimando-tagged-triggers': triggers }, () => {
+                        setTriggers(triggers as any[])
+                        try { chrome.runtime?.sendMessage({ type: 'TRIGGERS_UPDATED' }) } catch { /* noop */ }
+                        try { window.dispatchEvent(new CustomEvent('optimando-triggers-updated')) } catch { /* noop */ }
+                      })
+                    })
+                  } catch {
+                    /* noop */
+                  }
+                  try {
+                    chrome.runtime?.sendMessage({
+                      type: 'ELECTRON_SAVE_TRIGGER',
+                      name,
+                      mode: showTriggerPrompt.mode,
+                      rect: showTriggerPrompt.rect,
+                      displayId: 0,
+                      imageUrl: showTriggerPrompt.imageUrl,
+                      videoUrl: showTriggerPrompt.videoUrl,
+                      command: command || undefined,
+                    })
+                  } catch {
+                    /* noop */
+                  }
+                }
+
+                const triggerNameToUse = name || command
+                const nameT = name.trim()
+                const commandT = command.trim()
+                const tagFromName = normaliseTriggerTag(nameT)
+                const triggerTagFallback = normaliseTriggerTag(triggerNameToUse.trim())
+                const displayForChat = commandT || (nameT ? nameT : '') || triggerTagFallback
+                const routeForLlm = commandT || tagFromName || triggerTagFallback
+
+                const shouldAutoProcess =
+                  showTriggerPrompt.addCommand || (showTriggerPrompt.createTrigger && !!triggerNameToUse)
+
+                // Invariant: one new user bubble per Save — combined text + image/video only here or in the non-auto branch below (never from ELECTRON_SELECTION_RESULT).
+                if (shouldAutoProcess && triggerNameToUse && mediaUrl) {
+                  setShowTriggerPrompt(null)
+                  await sendWithTriggerAndImage(
+                    displayForChat,
+                    routeForLlm,
+                    mediaUrl,
+                    mode === 'stream' ? 'stream' : 'screenshot',
+                  )
+                } else if (mediaUrl) {
+                  const caption =
+                    (commandT || (nameT ? nameT : '') || tagFromName || (mode === 'stream' ? '[Stream]' : '[Screenshot]')).trim() ||
+                    (mode === 'stream' ? '[Stream]' : '[Screenshot]')
+                  if (mode === 'stream') {
+                    setMessages(prev => [...prev, { role: 'user', text: caption, videoUrl: mediaUrl }])
+                  } else {
+                    setMessages(prev => [...prev, { role: 'user', text: caption, imageUrl: mediaUrl }])
+                  }
+                  setShowTriggerPrompt(null)
+                  setTimeout(() => { if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight }, 0)
+                } else {
+                  setShowTriggerPrompt(null)
+                }
+              }}
+              style={{
+                padding: '6px 12px',
+                background: '#22c55e',
+                border: '1px solid #16a34a',
+                color: '#0b1e12',
+                borderRadius: '6px',
+                cursor: 'pointer',
+                fontSize: '12px',
+                fontWeight: 700,
+              }}
+            >
+              Save
+            </button>
+          </div>
         </div>
       )}
 

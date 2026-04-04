@@ -28,7 +28,13 @@ function buildUpdateAgentBoxOutputRelayData(
   },
   msgAgentBoxId: string,
   output: string,
-): { agentBoxId: string; agentBoxUuid: string; output: string; allBoxes: typeof session.agentBoxes } {
+): {
+  agentBoxId: string
+  agentBoxUuid: string
+  output: string
+  allBoxes: typeof session.agentBoxes
+  sourceSurface: 'dashboard'
+} {
   const updatedBox = session.agentBoxes.find(
     (b) => b.id === msgAgentBoxId || b.identifier === msgAgentBoxId,
   )
@@ -38,6 +44,7 @@ function buildUpdateAgentBoxOutputRelayData(
     agentBoxUuid: msgAgentBoxId,
     output,
     allBoxes: session.agentBoxes,
+    sourceSurface: 'dashboard',
   }
 }
 
@@ -306,7 +313,7 @@ export function ensureWrdeskChromeShim(): void {
       }
 
       if (t === 'UPDATE_BOX_OUTPUT_SQLITE') {
-        const m = msg as { sessionKey?: string; agentBoxId?: string; output?: string }
+        const m = msg as { sessionKey?: string; agentBoxId?: string; output?: string; sourceSurface?: string }
         if (!m.sessionKey || !m.agentBoxId || m.output === undefined) {
           finish({ success: false, error: 'Missing required data' })
           return

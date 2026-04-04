@@ -1056,13 +1056,19 @@ function connectToWebSocketServer(forceReconnect = false): Promise<boolean> {
             } else if (data.type === 'SELECTION_RESULT' || data.type === 'SELECTION_RESULT_IMAGE' || data.type === 'SELECTION_RESULT_VIDEO') {
               const kind = data.kind || (data.type.includes('VIDEO') ? 'video' : 'image')
               const dataUrl = data.dataUrl || data.url || null
+              const promptContext =
+                typeof data.promptContext === 'string' ? data.promptContext : undefined
               chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
                 const tabId = tabs[0]?.id
                 if (!tabId) return
-                try { chrome.tabs.sendMessage(tabId, { type: 'ELECTRON_SELECTION_RESULT', kind, dataUrl }) } catch {}
+                try {
+                  chrome.tabs.sendMessage(tabId, { type: 'ELECTRON_SELECTION_RESULT', kind, dataUrl, promptContext })
+                } catch {}
               })
-              try { chrome.runtime.sendMessage({ type: 'COMMAND_POPUP_APPEND', kind, url: dataUrl }) } catch {}
-              try { chrome.runtime.sendMessage({ type: 'ELECTRON_SELECTION_RESULT', kind, dataUrl }) } catch {}
+              // Do not COMMAND_POPUP_APPEND on capture — chat image+command is Save-only (avoids duplicate thread lines).
+              try {
+                chrome.runtime.sendMessage({ type: 'ELECTRON_SELECTION_RESULT', kind, dataUrl, promptContext })
+              } catch {}
             } else if (data.type === 'TRIGGERS_UPDATED') {
               try { chrome.runtime.sendMessage({ type: 'TRIGGERS_UPDATED' }) } catch {}
             } else if (data.type === 'UPDATE_AGENT_BOX_OUTPUT') {
@@ -1107,7 +1113,7 @@ function connectToWebSocketServer(forceReconnect = false): Promise<boolean> {
                   createTrigger: data.createTrigger,
                   addCommand: data.addCommand,
                   tabUrl,
-                  forSidepanel: true,
+                  promptContext: data.promptContext,
                 }
                 try { chrome.runtime.sendMessage(message) } catch {}
               })
@@ -2859,14 +2865,17 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     case 'ELECTRON_SAVE_TRIGGER': {
       try {
         if (WS_ENABLED && ws && ws.readyState === WebSocket.OPEN) {
-          const payload = {
+          const payload: Record<string, unknown> = {
             type: 'SAVE_TRIGGER',
             name: msg.name,
             mode: msg.mode,
             rect: msg.rect,
             displayId: msg.displayId,
             imageUrl: msg.imageUrl,
-            videoUrl: msg.videoUrl
+            videoUrl: msg.videoUrl,
+          }
+          if (typeof msg.command === 'string' && msg.command.trim().length > 0) {
+            payload.command = msg.command.trim()
           }
           try { ws.send(JSON.stringify(payload)) } catch {}
           try { sendResponse({ success: true }) } catch {}
@@ -2880,14 +2889,17 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       // Extension-native trigger (no displayId) - forward to Electron
       try {
         if (WS_ENABLED && ws && ws.readyState === WebSocket.OPEN) {
-          const payload = {
+          const payload: Record<string, unknown> = {
             type: 'SAVE_TRIGGER',
             name: msg.name,
             mode: msg.mode,
             rect: msg.rect,
             displayId: undefined, // Extension trigger has no displayId
             imageUrl: msg.imageUrl,
-            videoUrl: msg.videoUrl
+            videoUrl: msg.videoUrl,
+          }
+          if (typeof msg.command === 'string' && msg.command.trim().length > 0) {
+            payload.command = msg.command.trim()
           }
           try { ws.send(JSON.stringify(payload)) } catch {}
           try { sendResponse({ success: true }) } catch {}
@@ -3850,7 +3862,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     case 'COMMAND_POPUP_APPEND': {
       try {
         // Forward to popup page to append media
-        chrome.runtime.sendMessage({ type: 'COMMAND_POPUP_APPEND', kind: msg.kind, url: msg.url })
+        chrome.runtime.sendMessage({
+          type: 'COMMAND_POPUP_APPEND',
+          kind: msg.kind,
+          url: msg.url,
+          ...(typeof msg.promptContext === 'string' ? { promptContext: msg.promptContext } : {}),
+        })
       } catch {}
       try { sendResponse({ success: true }) } catch {}
       break
@@ -4368,7 +4385,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
               agentBoxId: canonicalId,
               agentBoxUuid: msg.agentBoxId,
               output: msg.output,
-              allBoxes: session.agentBoxes
+              allBoxes: session.agentBoxes,
+              ...(typeof (msg as { sourceSurface?: string }).sourceSurface === 'string'
+                ? { sourceSurface: (msg as { sourceSurface: string }).sourceSurface }
+                : {}),
             }
           }).catch(() => {
             // Ignore errors from no listeners

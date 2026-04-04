@@ -16,6 +16,7 @@ import {
   routeInput, 
   getButlerSystemPrompt, 
   wrapInputForAgent,
+  enrichRouteTextWithOcr,
   loadAgentsFromSession,
   updateAgentBoxOutput,
   getAgentById,
@@ -30,6 +31,7 @@ import {
 import { nlpClassifier, type ClassifiedInput } from './nlp'
 import { inputCoordinator } from './services/InputCoordinator'
 import { formatErrorForNotification, isConnectionError } from './utils/errorMessages'
+import { normaliseTriggerTag } from './utils/normaliseTriggerTag'
 import { ConnectEmailLaunchSource, useConnectEmailFlow } from './shared/email/connectEmailFlow'
 import { pickDefaultEmailAccountRowId } from './shared/email/pickDefaultAccountRow'
 import { ThirdPartyLicensesView } from './bundled-tools'
@@ -170,8 +172,10 @@ function SidepanelOrchestrator() {
    * Injects X-Launch-Secret when available (mirrors background._electronHeaders).
    */
   const electronFetchHeaders = (extra?: Record<string, string>): Record<string, string> => {
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-    if (launchSecretRef.current) headers['X-Launch-Secret'] = launchSecretRef.current
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'X-Launch-Secret': launchSecretRef.current ?? '',
+    }
     if (extra) Object.assign(headers, extra)
     return headers
   }
@@ -1194,9 +1198,26 @@ function SidepanelOrchestrator() {
   // Process screenshot with trigger - uses refs to avoid stale closure issues
   // This is called from the message listener when a screenshot arrives with a pending trigger
   const processScreenshotWithTrigger = async (triggerText: string, imageUrl: string) => {
-    
-    // Use ref value for model to avoid stale closure
-    const currentModel = activeLlmModelRef.current
+    // Single user bubble for this path (Tags auto-process): text + image together — not from ELECTRON_SELECTION_RESULT.
+    const userLine = (triggerText || '').trim() || '[Screenshot]'
+    setChatMessages(prev => [...prev, { role: 'user' as const, text: userLine, imageUrl }])
+    setTimeout(() => {
+      if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight
+    }, 0)
+
+    const resolveWrChatModelId = (): string => {
+      const m = (activeLlmModelRef.current || activeLlmModel || '').trim()
+      if (m) return m
+      const first = availableModels[0]?.name
+      if (first) return first
+      try {
+        const w = (window as unknown as { llm?: { models?: Array<{ id?: string; name?: string }> } }).llm?.models?.[0]
+        return ((w?.id || w?.name) as string) || ''
+      } catch {
+        return ''
+      }
+    }
+    const currentModel = resolveWrChatModelId()
     
     if (!currentModel) {
       console.warn('[Sidepanel] No LLM model available for trigger processing')
@@ -1232,10 +1253,7 @@ function SidepanelOrchestrator() {
         ocrText = await runOcrForCurrentTurn(imageUrl, baseUrl)
       }
 
-      // Build enriched text for routing (typed + OCR)
-      const enrichedTriggerText = ocrText
-        ? `${triggerText}\n\n[Image Text]:\n${ocrText}`
-        : triggerText
+      const enrichedTriggerText = enrichRouteTextWithOcr(triggerText, ocrText)
 
       // Route the input with OCR-enriched text
       const routingDecision = await routeInput(
@@ -1280,20 +1298,16 @@ function SidepanelOrchestrator() {
             const errorMsg = `⚠️ Brain resolution failed for ${match.agentName}:\n${modelResolution.error}`
             console.warn('[Sidepanel] Brain resolution error:', modelResolution)
             if (match.agentBoxId) {
-              await updateAgentBoxOutput(match.agentBoxId, errorMsg, `Agent: ${match.agentName} | Error: ${modelResolution.errorType}`, sessionKey)
+              await updateAgentBoxOutput(match.agentBoxId, errorMsg, `Agent: ${match.agentName} | Error: ${modelResolution.errorType}`, sessionKey, 'sidepanel')
             }
             setChatMessages(prev => [...prev, { role: 'assistant' as const, text: errorMsg }])
             continue
           }
           
-          const processedContent = ocrText 
-            ? `${triggerText}\n\n[Extracted Text]:\n${ocrText}`
-            : triggerText
-          
           try {
             const llmMessages = [
               { role: 'system', content: wrappedInput },
-              { role: 'user', content: processedContent }
+              { role: 'user', content: enrichedTriggerText },
             ]
             const { body: llmBody, error: keyError } = await buildLlmRequestBody(
               modelResolution as BrainResolution & { ok: true },
@@ -1301,7 +1315,7 @@ function SidepanelOrchestrator() {
             )
             if (keyError) {
               const keyMsg = `⚠️ ${match.agentName}: ${keyError}`
-              if (match.agentBoxId) await updateAgentBoxOutput(match.agentBoxId, keyMsg, `Missing API key`, sessionKey)
+              if (match.agentBoxId) await updateAgentBoxOutput(match.agentBoxId, keyMsg, `Missing API key`, sessionKey, 'sidepanel')
               setChatMessages(prev => [...prev, { role: 'assistant' as const, text: keyMsg }])
               continue
             }
@@ -1328,12 +1342,12 @@ function SidepanelOrchestrator() {
                   const reasoningContext = `**Agent:** ${match.agentIcon} ${match.agentName}\n**Match:** ${match.matchDetails}\n**Input:** ${triggerText}`
                   
                   for (const boxId of allBoxIds) {
-                    await updateAgentBoxOutput(boxId, agentOutput, reasoningContext, sessionKey)
+                    await updateAgentBoxOutput(boxId, agentOutput, reasoningContext, sessionKey, 'sidepanel')
                   }
                   
                   setChatMessages(prev => [...prev, {
                     role: 'assistant' as const,
-                    text: `✓ ${match.agentIcon} **${match.agentName}** processed your request.\n→ Output saved for ${match.targetBoxLabels && match.targetBoxLabels.length > 0 ? match.targetBoxLabels.join(' & ') : `Agent Box ${String(match.agentBoxNumber).padStart(2, '0')}`}`
+                    text: `[Agent: ${match.agentName}] responded. See agent box.`,
                   }])
                 } else {
                   setChatMessages(prev => [...prev, {
@@ -1360,10 +1374,6 @@ function SidepanelOrchestrator() {
           currentConnectionStatus.isConnected
         )
         
-        const processedContent = ocrText 
-          ? `${triggerText}\n\n[Extracted Text from Image]:\n${ocrText}`
-          : triggerText
-        
         try {
           const butlerResponse = await fetch(`${baseUrl}/api/llm/chat`, {
             method: 'POST',
@@ -1372,7 +1382,7 @@ function SidepanelOrchestrator() {
               modelId: currentModel,
               messages: [
                 { role: 'system', content: butlerPrompt },
-                { role: 'user', content: processedContent }
+                { role: 'user', content: enrichedTriggerText },
               ]
             })
           })
@@ -1642,6 +1652,10 @@ function SidepanelOrchestrator() {
           agentBoxId?: string
           agentBoxUuid?: string
           output?: string
+          sourceSurface?: string
+        }
+        if (d.sourceSurface !== undefined && d.sourceSurface !== 'sidepanel') {
+          return
         }
         console.log('[AgentBoxFix] sidepanel:UPDATE_AGENT_BOX_OUTPUT', {
           hasAllBoxes: Array.isArray(d?.allBoxes),
@@ -1670,46 +1684,26 @@ function SidepanelOrchestrator() {
           })
         }
       }
-      // Listen for Electron screenshot results
+      // Electron screenshot result: do not append to the thread here — user message + image is only from Save or processScreenshotWithTrigger (Tags flow).
       else if (message.type === 'ELECTRON_SELECTION_RESULT') {
+        const pc = message.promptContext
+        if (pc !== 'sidepanel') return
         const url = message.dataUrl || message.url
-        if (url) {
-          // Add screenshot to chat messages as a user message with image
-          const imageMessage = {
-            role: 'user' as const,
-            text: `![Screenshot](${url})`,
-            imageUrl: url
-          }
-          setChatMessages(prev => [...prev, imageMessage])
-          // Scroll to bottom
-          setTimeout(() => {
-            if (chatRef.current) {
-              chatRef.current.scrollTop = chatRef.current.scrollHeight
-            }
-          }, 100)
-          
-          // Check if there's a pending trigger to auto-process
-          // Using REF directly to avoid stale closure issues
-          const pendingTrigger = pendingTriggerRef.current
-          if (pendingTrigger?.autoProcess) {
-            
-            const command = pendingTrigger.command || pendingTrigger.trigger?.name || ''
-            
-            // Clear pending trigger FIRST
-            pendingTriggerRef.current = null
-            
-            if (command) {
-              const triggerText = command.startsWith('@') ? command : `@${command}`
-              
-              // Process directly using refs to avoid stale closures
-              // This inline processing replaces the problematic useEffect + custom event pattern
-              processScreenshotWithTrigger(triggerText, url)
-            }
+        if (!url) return
+        const pendingTrigger = pendingTriggerRef.current
+        if (pendingTrigger?.autoProcess) {
+          const command = pendingTrigger.command || pendingTrigger.trigger?.name || ''
+          pendingTriggerRef.current = null
+          if (command) {
+            const triggerText = command.startsWith('@') ? command : `@${command}`
+            processScreenshotWithTrigger(triggerText, url)
           }
         }
       }
       // Listen for trigger prompt from Electron
       else if (message.type === 'SHOW_TRIGGER_PROMPT') {
+        const pc = message.promptContext
+        if (pc !== 'sidepanel') return
         setShowTriggerPrompt({
           mode: message.mode,
           rect: message.rect,
@@ -2737,7 +2731,8 @@ function SidepanelOrchestrator() {
             match.agentBoxId,
             errorMsg,
             `Agent: ${match.agentName} | Provider: ${modelResolution.provider} | Error: ${modelResolution.errorType}`,
-            sessionKey
+            sessionKey,
+            'sidepanel',
           )
         }
         
@@ -2758,7 +2753,8 @@ function SidepanelOrchestrator() {
             match.agentBoxId,
             `⚠️ ${keyError}`,
             `Agent: ${match.agentName} | Missing API key`,
-            sessionKey
+            sessionKey,
+            'sidepanel',
           )
         }
         return { success: false, error: keyError }
@@ -2838,10 +2834,28 @@ function SidepanelOrchestrator() {
   }
   
   // Handle sending message with trigger (auto-process after screenshot)
-  const handleSendMessageWithTrigger = async (triggerText: string, imageUrl?: string) => {
-    
-    // Use ref for more reliable model access (avoids potential stale closure)
-    const currentModel = activeLlmModelRef.current || activeLlmModel
+  const handleSendMessageWithTrigger = async (
+    displayTextForChat: string,
+    imageUrl?: string,
+    routingText?: string,
+  ) => {
+    const routeText = routingText ?? displayTextForChat
+    const displayLine =
+      (displayTextForChat || '').trim() || (imageUrl ? '[Screenshot]' : '')
+
+    const resolveWrChatModelId = (): string => {
+      const m = (activeLlmModelRef.current || activeLlmModel || '').trim()
+      if (m) return m
+      const first = availableModels[0]?.name
+      if (first) return first
+      try {
+        const w = (window as unknown as { llm?: { models?: Array<{ id?: string; name?: string }> } }).llm?.models?.[0]
+        return ((w?.id || w?.name) as string) || ''
+      } catch {
+        return ''
+      }
+    }
+    const currentModel = resolveWrChatModelId()
     
     if (!currentModel) {
       setChatMessages(prev => [...prev, {
@@ -2858,13 +2872,13 @@ function SidepanelOrchestrator() {
     if (imageUrl) {
       newMessages.push({
         role: 'user' as const,
-        text: triggerText,
+        text: displayLine,
         imageUrl
       })
     } else {
       newMessages.push({
         role: 'user' as const,
-        text: triggerText
+        text: displayLine
       })
     }
     
@@ -2888,10 +2902,8 @@ function SidepanelOrchestrator() {
         ocrText = await runOcrForCurrentTurn(imageUrl, baseUrl)
       }
 
-      // Build enriched text for routing (typed + OCR)
-      const enrichedTriggerText = ocrText
-        ? `${triggerText}\n\n[Image Text]:\n${ocrText}`
-        : triggerText
+      // Build enriched text for routing (typed + OCR) — same as PopupChatView / dashboard embed
+      const enrichedTriggerText = enrichRouteTextWithOcr(routeText, ocrText)
 
       // Route the input with OCR-enriched text
       const routingDecision = await routeInput(
@@ -2919,7 +2931,7 @@ function SidepanelOrchestrator() {
           const agent = agents.find(a => a.id === match.agentId)
           if (!agent) continue
           
-          const wrappedInput = wrapInputForAgent(triggerText, agent, ocrText)
+          const wrappedInput = wrapInputForAgent(routeText, agent, ocrText)
           
           // Resolve model
           const modelResolution: BrainResolution = resolveModelForAgent(
@@ -2933,19 +2945,15 @@ function SidepanelOrchestrator() {
             const errorMsg = `⚠️ Brain resolution failed for ${match.agentName}:\n${modelResolution.error}`
             console.warn('[Sidepanel] Brain resolution error:', modelResolution)
             if (match.agentBoxId) {
-              await updateAgentBoxOutput(match.agentBoxId, errorMsg, `Agent: ${match.agentName} | Error: ${modelResolution.errorType}`, sessionKey)
+              await updateAgentBoxOutput(match.agentBoxId, errorMsg, `Agent: ${match.agentName} | Error: ${modelResolution.errorType}`, sessionKey, 'sidepanel')
             }
             setChatMessages(prev => [...prev, { role: 'assistant' as const, text: errorMsg }])
             continue
           }
           
-          const processedContent = ocrText 
-            ? `${triggerText}\n\n[Extracted Text]:\n${ocrText}`
-            : triggerText
-          
           const triggerLlmMessages = [
             { role: 'system', content: wrappedInput },
-            { role: 'user', content: processedContent }
+            { role: 'user', content: enrichedTriggerText },
           ]
           const { body: triggerLlmBody, error: triggerKeyError } = await buildLlmRequestBody(
             modelResolution as BrainResolution & { ok: true },
@@ -2953,7 +2961,7 @@ function SidepanelOrchestrator() {
           )
           if (triggerKeyError) {
             const keyMsg = `⚠️ ${match.agentName}: ${triggerKeyError}`
-            if (match.agentBoxId) await updateAgentBoxOutput(match.agentBoxId, keyMsg, `Missing API key`)
+            if (match.agentBoxId) await updateAgentBoxOutput(match.agentBoxId, keyMsg, `Missing API key`, undefined, 'sidepanel')
             setChatMessages(prev => [...prev, { role: 'assistant' as const, text: keyMsg }])
             continue
           }
@@ -2977,15 +2985,15 @@ function SidepanelOrchestrator() {
                 : match.agentBoxId ? [match.agentBoxId] : []
 
               if (allBoxIds.length > 0) {
-                const reasoningContext = `**Agent:** ${match.agentIcon} ${match.agentName}\n**Match:** ${match.matchDetails}\n**Input:** ${triggerText}`
+                const reasoningContext = `**Agent:** ${match.agentIcon} ${match.agentName}\n**Match:** ${match.matchDetails}\n**Input:** ${displayTextForChat}`
                 
                 for (const boxId of allBoxIds) {
-                  await updateAgentBoxOutput(boxId, agentOutput, reasoningContext)
+                  await updateAgentBoxOutput(boxId, agentOutput, reasoningContext, undefined, 'sidepanel')
                 }
                 
                 setChatMessages(prev => [...prev, {
                   role: 'assistant' as const,
-                  text: `✓ ${match.agentIcon} **${match.agentName}** processed your request.\n→ Output saved for ${match.targetBoxLabels && match.targetBoxLabels.length > 0 ? match.targetBoxLabels.join(' & ') : `Agent Box ${String(match.agentBoxNumber).padStart(2, '0')}`}`
+                  text: `[Agent: ${match.agentName}] responded. See agent box.`,
                 }])
               } else {
                 setChatMessages(prev => [...prev, {
@@ -3012,7 +3020,7 @@ function SidepanelOrchestrator() {
             modelId: currentModel,
             messages: [
               { role: 'system', content: butlerPrompt },
-              { role: 'user', content: ocrText ? `${triggerText}\n\n[Image Text]:\n${ocrText}` : triggerText }
+              { role: 'user', content: enrichedTriggerText },
             ]
           })
         })
@@ -3183,10 +3191,7 @@ function SidepanelOrchestrator() {
         ocrText = await runOcrForCurrentTurn(currentTurnImageUrl, baseUrl)
       }
 
-      // Build enriched text: typed text + OCR text (for routing)
-      const enrichedRouteText = ocrText
-        ? `${llmRouteText}\n\n[Image Text]:\n${ocrText}`
-        : llmRouteText
+      const enrichedRouteText = enrichRouteTextWithOcr(llmRouteText, ocrText)
 
       // =================================================================
       // STEP 3: ROUTE INPUT THROUGH INPUT COORDINATOR (with OCR-enriched text)
@@ -3296,11 +3301,10 @@ function SidepanelOrchestrator() {
               const reasoningContext = `**Agent:** ${match.agentIcon} ${match.agentName}\n**Match:** ${match.matchDetails}\n**Input:** ${displayText}`
               
               for (const boxId of allBoxIds) {
-                await updateAgentBoxOutput(boxId, result.output, reasoningContext, sessionKey)
+                await updateAgentBoxOutput(boxId, result.output, reasoningContext, sessionKey, 'sidepanel')
               }
               
-              // Show brief confirmation in chat
-              const agentConfirm = `✓ ${match.agentIcon} **${match.agentName}** processed your request.\n→ Output saved for ${match.targetBoxLabels && match.targetBoxLabels.length > 0 ? match.targetBoxLabels.join(' & ') : `Agent Box ${String(match.agentBoxNumber).padStart(2, '0')}`}`
+              const agentConfirm = `[Agent: ${match.agentName}] responded. See agent box.`
               setChatMessages(prev => [...prev, { role: 'assistant' as const, text: agentConfirm }])
               routeAssistantToInboxIfPending(agentConfirm)
             } else {
@@ -3753,7 +3757,7 @@ function SidepanelOrchestrator() {
     if (theme === 'standard') {
       return {
         background: '#ffffff',
-        border: '1px solid #e1e8ed',
+        border: '1px solid #94a3b8',
         color: '#0f172a'
       }
     } else if (theme === 'dark') {
@@ -3805,7 +3809,7 @@ function SidepanelOrchestrator() {
     flexShrink: 0,
     ...(theme === 'standard' ? {
       background: '#ffffff',
-      border: '1px solid #e1e8ed',
+      border: '1px solid #94a3b8',
       color: '#0f172a'
     } : theme === 'dark' ? {
       background: 'rgba(255,255,255,0.1)',
@@ -3832,7 +3836,7 @@ function SidepanelOrchestrator() {
     flexShrink: 0,
     ...(theme === 'standard' ? {
       background: '#ffffff',
-      border: '1px solid #e1e8ed',
+      border: '1px solid #94a3b8',
       color: '#0f172a'
     } : theme === 'dark' ? {
       background: 'rgba(255,255,255,0.1)',
@@ -3855,7 +3859,7 @@ function SidepanelOrchestrator() {
   const chatControlButtonStyle = () => ({
     ...(theme === 'standard' ? {
       background: '#ffffff',
-      border: '1px solid #e1e8ed',
+      border: '1px solid #94a3b8',
       color: '#0f172a'
     } : theme === 'dark' ? {
       background: 'rgba(255,255,255,0.1)',
@@ -3874,7 +3878,7 @@ function SidepanelOrchestrator() {
     padding: '12px 18px',
     ...(theme === 'standard' ? {
       background: '#ffffff',
-      border: '1px solid #e1e8ed',
+      border: '1px solid #94a3b8',
       color: '#0f172a'
     } : theme === 'dark' ? {
       background: 'rgba(255,255,255,0.15)',
@@ -4393,7 +4397,7 @@ function SidepanelOrchestrator() {
                 justifyContent: 'space-between',
                 padding: '6px 10px',
                 background: theme === 'standard' ? '#ffffff' : theme === 'dark' ? 'linear-gradient(180deg, rgba(15,23,42,0.95) 0%, rgba(30,41,59,0.9) 100%)' : 'linear-gradient(180deg, rgba(15,10,30,0.95) 0%, rgba(30,20,50,0.9) 100%)',
-                borderBottom: theme === 'standard' ? '1px solid #e1e8ed' : '1px solid rgba(168,85,247,0.3)',
+                borderBottom: theme === 'standard' ? '1px solid #94a3b8' : '1px solid rgba(168,85,247,0.3)',
                 boxShadow: '0 2px 8px rgba(0,0,0,0.2)',
                 color: themeColors.text
               }}>
@@ -4729,16 +4733,16 @@ function SidepanelOrchestrator() {
                       <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#6b7280' }} />
                       <span style={{ fontSize: '12px', opacity: 0.7, color: theme === 'standard' ? '#0f172a' : 'inherit' }}>No peer connected</span>
                     </div>
-                    <button style={{ padding: '4px 10px', background: theme === 'standard' ? '#f8f9fb' : 'rgba(255,255,255,0.12)', border: theme === 'standard' ? '1px solid #e1e8ed' : 'none', borderRadius: '6px', color: theme === 'standard' ? '#0f172a' : 'white', fontSize: '11px', cursor: 'pointer' }}>Connect</button>
+                    <button style={{ padding: '4px 10px', background: theme === 'standard' ? '#f8f9fb' : 'rgba(255,255,255,0.12)', border: theme === 'standard' ? '1px solid #94a3b8' : 'none', borderRadius: '6px', color: theme === 'standard' ? '#0f172a' : 'white', fontSize: '11px', cursor: 'pointer' }}>Connect</button>
                   </div>
                   <div style={{ flex: 1, overflowY: 'auto', padding: '12px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
                     {/* Empty messages area */}
                   </div>
-                  <div style={{ padding: '10px 12px', borderTop: theme === 'standard' ? '1px solid #e1e8ed' : '1px solid rgba(255,255,255,0.1)', display: 'flex', gap: '6px', alignItems: 'center' }}>
-                    <textarea placeholder="Message or capsule..." style={{ flex: 1, padding: '8px 10px', background: theme === 'standard' ? 'white' : 'rgba(255,255,255,0.08)', border: theme === 'standard' ? '1px solid #e1e8ed' : '1px solid rgba(255,255,255,0.15)', borderRadius: '8px', color: theme === 'standard' ? '#0f172a' : 'white', fontSize: '12px', resize: 'none', minHeight: '32px', maxHeight: '80px' }} />
-                    <button title="Build Capsule" style={{ width: '32px', height: '32px', background: theme === 'standard' ? '#f8f9fb' : 'rgba(255,255,255,0.12)', border: theme === 'standard' ? '1px solid #e1e8ed' : 'none', borderRadius: '6px', color: theme === 'standard' ? '#0f172a' : 'white', fontSize: '14px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>💊</button>
-                    <button title="AI Assistant" style={{ width: '32px', height: '32px', background: theme === 'standard' ? '#f8f9fb' : 'rgba(255,255,255,0.12)', border: theme === 'standard' ? '1px solid #e1e8ed' : 'none', borderRadius: '6px', color: theme === 'standard' ? '#0f172a' : 'white', fontSize: '14px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✨</button>
-                    <button title="Attach" style={{ width: '32px', height: '32px', background: theme === 'standard' ? '#f8f9fb' : 'rgba(255,255,255,0.12)', border: theme === 'standard' ? '1px solid #e1e8ed' : 'none', borderRadius: '6px', color: theme === 'standard' ? '#0f172a' : 'white', fontSize: '14px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></button>
+                  <div style={{ padding: '10px 12px', borderTop: theme === 'standard' ? '1px solid #94a3b8' : '1px solid rgba(255,255,255,0.1)', display: 'flex', gap: '6px', alignItems: 'center' }}>
+                    <textarea placeholder="Message or capsule..." style={{ flex: 1, padding: '8px 10px', background: theme === 'standard' ? 'white' : 'rgba(255,255,255,0.08)', border: theme === 'standard' ? '1px solid #94a3b8' : '1px solid rgba(255,255,255,0.15)', borderRadius: '8px', color: theme === 'standard' ? '#0f172a' : 'white', fontSize: '12px', resize: 'none', minHeight: '32px', maxHeight: '80px' }} />
+                    <button title="Build Capsule" style={{ width: '32px', height: '32px', background: theme === 'standard' ? '#f8f9fb' : 'rgba(255,255,255,0.12)', border: theme === 'standard' ? '1px solid #94a3b8' : 'none', borderRadius: '6px', color: theme === 'standard' ? '#0f172a' : 'white', fontSize: '14px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>💊</button>
+                    <button title="AI Assistant" style={{ width: '32px', height: '32px', background: theme === 'standard' ? '#f8f9fb' : 'rgba(255,255,255,0.12)', border: theme === 'standard' ? '1px solid #94a3b8' : 'none', borderRadius: '6px', color: theme === 'standard' ? '#0f172a' : 'white', fontSize: '14px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✨</button>
+                    <button title="Attach" style={{ width: '32px', height: '32px', background: theme === 'standard' ? '#f8f9fb' : 'rgba(255,255,255,0.12)', border: theme === 'standard' ? '1px solid #94a3b8' : 'none', borderRadius: '6px', color: theme === 'standard' ? '#0f172a' : 'white', fontSize: '14px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></button>
                     <button style={{ padding: '8px 14px', background: 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)', border: 'none', borderRadius: '8px', color: 'white', fontSize: '12px', fontWeight: '600', cursor: 'pointer' }}>Send</button>
                   </div>
                 </div>
@@ -4753,16 +4757,16 @@ function SidepanelOrchestrator() {
                       <div style={{ fontSize: '12px' }}>No active stream</div>
                     </div>
                     <div style={{ position: 'absolute', bottom: '10px', left: '50%', transform: 'translateX(-50%)', display: 'flex', gap: '6px' }}>
-                      <button style={{ padding: '6px 10px', background: theme === 'standard' ? '#f8f9fb' : 'rgba(255,255,255,0.15)', border: theme === 'standard' ? '1px solid #e1e8ed' : 'none', borderRadius: '6px', color: theme === 'standard' ? '#0f172a' : 'white', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>🎥 Start</button>
-                      <button style={{ padding: '6px 10px', background: theme === 'standard' ? '#f8f9fb' : 'rgba(255,255,255,0.15)', border: theme === 'standard' ? '1px solid #e1e8ed' : 'none', borderRadius: '6px', color: theme === 'standard' ? '#0f172a' : 'white', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>🎙️ Mute</button>
-                      <button style={{ padding: '6px 10px', background: theme === 'standard' ? '#f8f9fb' : 'rgba(255,255,255,0.15)', border: theme === 'standard' ? '1px solid #e1e8ed' : 'none', borderRadius: '6px', color: theme === 'standard' ? '#0f172a' : 'white', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>📺 Share</button>
+                      <button style={{ padding: '6px 10px', background: theme === 'standard' ? '#f8f9fb' : 'rgba(255,255,255,0.15)', border: theme === 'standard' ? '1px solid #94a3b8' : 'none', borderRadius: '6px', color: theme === 'standard' ? '#0f172a' : 'white', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>🎥 Start</button>
+                      <button style={{ padding: '6px 10px', background: theme === 'standard' ? '#f8f9fb' : 'rgba(255,255,255,0.15)', border: theme === 'standard' ? '1px solid #94a3b8' : 'none', borderRadius: '6px', color: theme === 'standard' ? '#0f172a' : 'white', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>🎙️ Mute</button>
+                      <button style={{ padding: '6px 10px', background: theme === 'standard' ? '#f8f9fb' : 'rgba(255,255,255,0.15)', border: theme === 'standard' ? '1px solid #94a3b8' : 'none', borderRadius: '6px', color: theme === 'standard' ? '#0f172a' : 'white', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>📺 Share</button>
                     </div>
                   </div>
                   <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: '120px', background: theme === 'pro' ? 'rgba(118,75,162,0.25)' : (theme === 'standard' ? '#ffffff' : 'rgba(255,255,255,0.06)') }}>
                     <div style={{ flex: 1, overflowY: 'auto', padding: '8px' }}></div>
-                    <div style={{ padding: '8px', display: 'flex', gap: '6px', alignItems: 'center', borderTop: theme === 'standard' ? '1px solid #e1e8ed' : '1px solid rgba(255,255,255,0.1)' }}>
-                      <textarea placeholder="Chat..." style={{ flex: 1, padding: '6px 8px', background: theme === 'standard' ? 'white' : 'rgba(255,255,255,0.08)', border: theme === 'standard' ? '1px solid #e1e8ed' : '1px solid rgba(255,255,255,0.15)', borderRadius: '6px', color: theme === 'standard' ? '#0f172a' : 'white', fontSize: '11px', resize: 'none', minHeight: '28px' }} />
-                      <button title="AI Assistant" style={{ width: '28px', height: '28px', background: theme === 'standard' ? '#f8f9fb' : 'rgba(255,255,255,0.12)', border: theme === 'standard' ? '1px solid #e1e8ed' : 'none', borderRadius: '6px', color: theme === 'standard' ? '#0f172a' : 'white', fontSize: '12px', cursor: 'pointer' }}>✨</button>
+                    <div style={{ padding: '8px', display: 'flex', gap: '6px', alignItems: 'center', borderTop: theme === 'standard' ? '1px solid #94a3b8' : '1px solid rgba(255,255,255,0.1)' }}>
+                      <textarea placeholder="Chat..." style={{ flex: 1, padding: '6px 8px', background: theme === 'standard' ? 'white' : 'rgba(255,255,255,0.08)', border: theme === 'standard' ? '1px solid #94a3b8' : '1px solid rgba(255,255,255,0.15)', borderRadius: '6px', color: theme === 'standard' ? '#0f172a' : 'white', fontSize: '11px', resize: 'none', minHeight: '28px' }} />
+                      <button title="AI Assistant" style={{ width: '28px', height: '28px', background: theme === 'standard' ? '#f8f9fb' : 'rgba(255,255,255,0.12)', border: theme === 'standard' ? '1px solid #94a3b8' : 'none', borderRadius: '6px', color: theme === 'standard' ? '#0f172a' : 'white', fontSize: '12px', cursor: 'pointer' }}>✨</button>
                       <button style={{ padding: '6px 12px', background: 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '11px', fontWeight: '600', cursor: 'pointer' }}>Send</button>
                     </div>
                   </div>
@@ -4784,17 +4788,17 @@ function SidepanelOrchestrator() {
                       <div style={{ aspectRatio: '1', background: '#111', borderRadius: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#444', fontSize: '14px' }}>+</div>
                     </div>
                   </div>
-                  <div style={{ padding: '6px 10px', borderTop: theme === 'standard' ? '1px solid #e1e8ed' : '1px solid rgba(255,255,255,0.15)', borderBottom: theme === 'standard' ? '1px solid #e1e8ed' : '1px solid rgba(255,255,255,0.15)', display: 'flex', gap: '6px', justifyContent: 'center', background: theme === 'standard' ? '#f8f9fb' : 'rgba(0,0,0,0.3)' }}>
-                    <button style={{ padding: '4px 8px', background: theme === 'standard' ? '#f8f9fb' : 'rgba(255,255,255,0.12)', border: theme === 'standard' ? '1px solid #e1e8ed' : 'none', borderRadius: '4px', color: theme === 'standard' ? '#0f172a' : 'white', fontSize: '12px', cursor: 'pointer' }}>🎥</button>
-                    <button style={{ padding: '4px 8px', background: theme === 'standard' ? '#f8f9fb' : 'rgba(255,255,255,0.12)', border: theme === 'standard' ? '1px solid #e1e8ed' : 'none', borderRadius: '4px', color: theme === 'standard' ? '#0f172a' : 'white', fontSize: '12px', cursor: 'pointer' }}>🎙️</button>
-                    <button style={{ padding: '4px 8px', background: theme === 'standard' ? '#f8f9fb' : 'rgba(255,255,255,0.12)', border: theme === 'standard' ? '1px solid #e1e8ed' : 'none', borderRadius: '4px', color: theme === 'standard' ? '#0f172a' : 'white', fontSize: '12px', cursor: 'pointer' }}>📺</button>
+                  <div style={{ padding: '6px 10px', borderTop: theme === 'standard' ? '1px solid #94a3b8' : '1px solid rgba(255,255,255,0.15)', borderBottom: theme === 'standard' ? '1px solid #94a3b8' : '1px solid rgba(255,255,255,0.15)', display: 'flex', gap: '6px', justifyContent: 'center', background: theme === 'standard' ? '#f8f9fb' : 'rgba(0,0,0,0.3)' }}>
+                    <button style={{ padding: '4px 8px', background: theme === 'standard' ? '#f8f9fb' : 'rgba(255,255,255,0.12)', border: theme === 'standard' ? '1px solid #94a3b8' : 'none', borderRadius: '4px', color: theme === 'standard' ? '#0f172a' : 'white', fontSize: '12px', cursor: 'pointer' }}>🎥</button>
+                    <button style={{ padding: '4px 8px', background: theme === 'standard' ? '#f8f9fb' : 'rgba(255,255,255,0.12)', border: theme === 'standard' ? '1px solid #94a3b8' : 'none', borderRadius: '4px', color: theme === 'standard' ? '#0f172a' : 'white', fontSize: '12px', cursor: 'pointer' }}>🎙️</button>
+                    <button style={{ padding: '4px 8px', background: theme === 'standard' ? '#f8f9fb' : 'rgba(255,255,255,0.12)', border: theme === 'standard' ? '1px solid #94a3b8' : 'none', borderRadius: '4px', color: theme === 'standard' ? '#0f172a' : 'white', fontSize: '12px', cursor: 'pointer' }}>📺</button>
                     <button style={{ padding: '4px 8px', background: 'rgba(239,68,68,0.2)', border: 'none', borderRadius: '4px', color: '#ef4444', fontSize: '10px', cursor: 'pointer' }}>Leave</button>
                   </div>
                   <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: '100px', background: theme === 'pro' ? 'rgba(118,75,162,0.25)' : (theme === 'standard' ? '#ffffff' : 'rgba(255,255,255,0.06)') }}>
                     <div style={{ flex: 1, overflowY: 'auto', padding: '8px' }}></div>
-                    <div style={{ padding: '8px', display: 'flex', gap: '6px', alignItems: 'center', borderTop: theme === 'standard' ? '1px solid #e1e8ed' : '1px solid rgba(255,255,255,0.1)' }}>
-                      <textarea placeholder="Group chat..." style={{ flex: 1, padding: '6px 8px', background: theme === 'standard' ? 'white' : 'rgba(255,255,255,0.08)', border: theme === 'standard' ? '1px solid #e1e8ed' : '1px solid rgba(255,255,255,0.15)', borderRadius: '6px', color: theme === 'standard' ? '#0f172a' : 'white', fontSize: '11px', resize: 'none', minHeight: '28px' }} />
-                      <button title="AI Assistant" style={{ width: '28px', height: '28px', background: theme === 'standard' ? '#f8f9fb' : 'rgba(255,255,255,0.12)', border: theme === 'standard' ? '1px solid #e1e8ed' : 'none', borderRadius: '6px', color: theme === 'standard' ? '#0f172a' : 'white', fontSize: '12px', cursor: 'pointer' }}>✨</button>
+                    <div style={{ padding: '8px', display: 'flex', gap: '6px', alignItems: 'center', borderTop: theme === 'standard' ? '1px solid #94a3b8' : '1px solid rgba(255,255,255,0.1)' }}>
+                      <textarea placeholder="Group chat..." style={{ flex: 1, padding: '6px 8px', background: theme === 'standard' ? 'white' : 'rgba(255,255,255,0.08)', border: theme === 'standard' ? '1px solid #94a3b8' : '1px solid rgba(255,255,255,0.15)', borderRadius: '6px', color: theme === 'standard' ? '#0f172a' : 'white', fontSize: '11px', resize: 'none', minHeight: '28px' }} />
+                      <button title="AI Assistant" style={{ width: '28px', height: '28px', background: theme === 'standard' ? '#f8f9fb' : 'rgba(255,255,255,0.12)', border: theme === 'standard' ? '1px solid #94a3b8' : 'none', borderRadius: '6px', color: theme === 'standard' ? '#0f172a' : 'white', fontSize: '12px', cursor: 'pointer' }}>✨</button>
                       <button style={{ padding: '6px 12px', background: 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '11px', fontWeight: '600', cursor: 'pointer' }}>Send</button>
                     </div>
                   </div>
@@ -4854,7 +4858,7 @@ function SidepanelOrchestrator() {
                   flexDirection: 'column',
                   gap: '10px',
                   background: theme === 'pro' ? 'rgba(118,75,162,0.25)' : theme === 'standard' ? '#f8f9fb' : 'rgba(255,255,255,0.06)',
-                  borderBottom: theme === 'standard' ? '1px solid #e1e8ed' : '1px solid rgba(255,255,255,0.20)',
+                  borderBottom: theme === 'standard' ? '1px solid #94a3b8' : '1px solid rgba(255,255,255,0.20)',
                   padding: '14px'
                 }}
               >
@@ -4966,7 +4970,7 @@ function SidepanelOrchestrator() {
                     minHeight: '40px',
                     resize: 'vertical',
                     background: theme === 'standard' ? '#ffffff' : 'rgba(255,255,255,0.08)',
-                    border: theme === 'standard' ? '1px solid #e1e8ed' : '1px solid rgba(255,255,255,0.20)',
+                    border: theme === 'standard' ? '1px solid #94a3b8' : '1px solid rgba(255,255,255,0.20)',
                     color: theme === 'standard' ? '#0f172a' : 'white',
                     borderRadius: '8px',
                     padding: '10px 12px',
@@ -5033,43 +5037,83 @@ function SidepanelOrchestrator() {
             {showTriggerPrompt && (
               <div style={{
                 padding: '12px 14px',
-                background: 'rgba(255,255,255,0.08)',
-                borderTop: '1px solid rgba(255,255,255,0.20)'
+                background: theme === 'standard' ? '#f8fafc' : 'rgba(0,0,0,0.35)',
+                borderTop: theme === 'standard' ? '1px solid #94a3b8' : '1px solid rgba(255,255,255,0.20)'
               }}>
-                <div style={{ marginBottom: '8px', fontSize: '12px', fontWeight: '700', opacity: 0.85 }}>
+                <style>{`
+                  .wr-capture-field::placeholder { color: rgba(150,150,150,0.7); }
+                `}</style>
+                <div style={{
+                  marginBottom: '8px',
+                  fontSize: '12px',
+                  fontWeight: '700',
+                  color: theme === 'standard' ? '#0f172a' : 'rgba(255,255,255,0.70)',
+                  opacity: 1
+                }}>
                   {showTriggerPrompt.mode === 'screenshot' ? '📸 Screenshot' : '🎥 Stream'}
                 </div>
                 {showTriggerPrompt.createTrigger && (
-                  <input
-                    type="text"
-                    placeholder="Trigger Name"
-                    value={showTriggerPrompt.name || ''}
-                    onChange={(e) => setShowTriggerPrompt({ ...showTriggerPrompt, name: e.target.value })}
-                    style={{
+                  <>
+                    <label
+                      htmlFor="wr-capture-trigger-name-docked"
+                      style={{ display: 'block', fontSize: '11px', fontWeight: 600, marginBottom: 4, color: theme === 'standard' ? '#475569' : 'rgba(255,255,255,0.70)' }}
+                    >
+                      Trigger Name
+                    </label>
+                    <input
+                      id="wr-capture-trigger-name-docked"
+                      type="text"
+                      className="wr-capture-field"
+                      placeholder="Trigger Name"
+                      value={showTriggerPrompt.name || ''}
+                      onChange={(e) => setShowTriggerPrompt({ ...showTriggerPrompt, name: e.target.value })}
+                      onFocus={(e) => {
+                        e.currentTarget.style.border = theme === 'standard' ? '1px solid #6366f1' : '1px solid rgba(255,255,255,0.80)'
+                      }}
+                      onBlur={(e) => {
+                        e.currentTarget.style.border = theme === 'standard' ? '1px solid #94a3b8' : '1px solid rgba(255,255,255,0.45)'
+                      }}
+                      style={{
                       width: '100%',
                       boxSizing: 'border-box',
                       padding: '8px 10px',
-                      background: 'rgba(255,255,255,0.08)',
-                      border: '1px solid rgba(255,255,255,0.20)',
-                      color: 'white',
+                      background: theme === 'standard' ? '#ffffff' : 'rgba(255,255,255,0.12)',
+                      border: theme === 'standard' ? '1px solid #94a3b8' : '1px solid rgba(255,255,255,0.45)',
+                      color: theme === 'standard' ? '#0f172a' : '#f8fafc',
                       borderRadius: '6px',
                       fontSize: '12px',
                       marginBottom: '8px'
                     }}
-                  />
+                    />
+                  </>
                 )}
                 {showTriggerPrompt.addCommand && (
-                  <textarea
-                    placeholder="Optional Command"
-                    value={showTriggerPrompt.command || ''}
-                    onChange={(e) => setShowTriggerPrompt({ ...showTriggerPrompt, command: e.target.value })}
-                    style={{
+                  <>
+                    <label
+                      htmlFor="wr-capture-optional-command-docked"
+                      style={{ display: 'block', fontSize: '11px', fontWeight: 600, marginBottom: 4, color: theme === 'standard' ? '#475569' : 'rgba(255,255,255,0.70)' }}
+                    >
+                      Optional Command
+                    </label>
+                    <textarea
+                      id="wr-capture-optional-command-docked"
+                      className="wr-capture-field"
+                      placeholder="Optional Command"
+                      value={showTriggerPrompt.command || ''}
+                      onChange={(e) => setShowTriggerPrompt({ ...showTriggerPrompt, command: e.target.value })}
+                      onFocus={(e) => {
+                        e.currentTarget.style.border = theme === 'standard' ? '1px solid #6366f1' : '1px solid rgba(255,255,255,0.80)'
+                      }}
+                      onBlur={(e) => {
+                        e.currentTarget.style.border = theme === 'standard' ? '1px solid #94a3b8' : '1px solid rgba(255,255,255,0.45)'
+                      }}
+                      style={{
                       width: '100%',
                       boxSizing: 'border-box',
                       padding: '8px 10px',
-                      background: 'rgba(255,255,255,0.08)',
-                      border: '1px solid rgba(255,255,255,0.20)',
-                      color: 'white',
+                      background: theme === 'standard' ? '#ffffff' : 'rgba(255,255,255,0.12)',
+                      border: theme === 'standard' ? '1px solid #94a3b8' : '1px solid rgba(255,255,255,0.45)',
+                      color: theme === 'standard' ? '#0f172a' : '#f8fafc',
                       borderRadius: '6px',
                       fontSize: '12px',
                       minHeight: '60px',
@@ -5077,16 +5121,17 @@ function SidepanelOrchestrator() {
                       resize: 'vertical',
                       fontFamily: 'inherit'
                     }}
-                  />
+                    />
+                  </>
                 )}
                 <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
                   <button
                     onClick={() => setShowTriggerPrompt(null)}
                     style={{
                       padding: '6px 12px',
-                      background: 'rgba(255,255,255,0.15)',
-                      border: '1px solid rgba(255,255,255,0.25)',
-                      color: 'white',
+                      background: theme === 'standard' ? '#ffffff' : 'rgba(255,255,255,0.15)',
+                      border: theme === 'standard' ? '1px solid #94a3b8' : '1px solid rgba(255,255,255,0.25)',
+                      color: theme === 'standard' ? '#0f172a' : 'white',
                       borderRadius: '6px',
                       cursor: 'pointer',
                       fontSize: '12px'
@@ -5147,25 +5192,29 @@ function SidepanelOrchestrator() {
                       // Auto-process: If there's a command or trigger name, send to LLM
                       const triggerNameToUse = name || command
                       const shouldAutoProcess = showTriggerPrompt.addCommand || (showTriggerPrompt.createTrigger && triggerNameToUse)
-                      
+                      const nameT = name.trim()
+                      const commandT = command.trim()
+                      const tagFromName = normaliseTriggerTag(nameT)
+                      const triggerTagFallback = normaliseTriggerTag(triggerNameToUse.trim())
+                      const displayForChat = commandT || (nameT ? nameT : '') || triggerTagFallback
+                      const routeForLlm = commandT || tagFromName || triggerTagFallback
+
                       if (shouldAutoProcess && triggerNameToUse && showTriggerPrompt.imageUrl) {
-                        // Use the trigger name as @trigger format for routing
-                        const triggerText = triggerNameToUse.startsWith('@') ? triggerNameToUse : `@${triggerNameToUse}`
-                        
-                        
                         // Clear the prompt first
                         setShowTriggerPrompt(null)
                         setCreateTriggerChecked(false)
                         setAddCommandChecked(false)
-                        
-                        // Send to LLM for processing
-                        handleSendMessageWithTrigger(triggerText, showTriggerPrompt.imageUrl)
+
+                        // Send to LLM for processing (command text shown in chat; routing prefers command over @tag)
+                        handleSendMessageWithTrigger(displayForChat, showTriggerPrompt.imageUrl, routeForLlm)
                       } else {
                         // Just post the screenshot to chat (no auto-process)
                         if (showTriggerPrompt.imageUrl) {
+                          // Invariant: exactly one user message with image + label; no duplicate from ELECTRON_SELECTION_RESULT.
+                          const caption = commandT || (nameT ? nameT : '') || tagFromName || '[Screenshot]'
                           const imageMessage = {
                             role: 'user' as const,
-                            text: `![Screenshot](${showTriggerPrompt.imageUrl})`,
+                            text: caption,
                             imageUrl: showTriggerPrompt.imageUrl
                           }
                           setChatMessages(prev => [...prev, imageMessage])
@@ -5176,7 +5225,7 @@ function SidepanelOrchestrator() {
                             }
                           }, 100)
                         }
-                        
+
                         // Clear the prompt
                         setShowTriggerPrompt(null)
                         setCreateTriggerChecked(false)
@@ -5321,7 +5370,7 @@ function SidepanelOrchestrator() {
                   {beapSubmode === 'draft' && (
                     <>
                   {/* DELIVERY METHOD - FIRST */}
-                  <div style={{ padding: '14px 18px', borderBottom: theme === 'standard' ? '1px solid #e1e8ed' : '1px solid rgba(255,255,255,0.1)' }}>
+                  <div style={{ padding: '14px 18px', borderBottom: theme === 'standard' ? '1px solid #94a3b8' : '1px solid rgba(255,255,255,0.1)' }}>
                     <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'standard' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                       Delivery Method
                     </label>
@@ -5332,7 +5381,7 @@ function SidepanelOrchestrator() {
                         width: '100%',
                         padding: '10px 12px',
                         background: theme === 'standard' ? 'white' : '#1f2937',
-                        border: `1px solid ${theme === 'standard' ? '#e1e8ed' : 'rgba(255,255,255,0.15)'}`,
+                        border: `1px solid ${theme === 'standard' ? '#94a3b8' : 'rgba(255,255,255,0.15)'}`,
                         borderRadius: '8px',
                         color: theme === 'standard' ? '#1f2937' : 'white',
                         fontSize: '13px',
@@ -5349,7 +5398,7 @@ function SidepanelOrchestrator() {
                   {handshakeDelivery === 'email' && (
                   <div style={{ 
                     padding: '16px 18px', 
-                    borderBottom: theme === 'standard' ? '1px solid #e1e8ed' : '1px solid rgba(255,255,255,0.1)',
+                    borderBottom: theme === 'standard' ? '1px solid #94a3b8' : '1px solid rgba(255,255,255,0.1)',
                     background: theme === 'standard' ? 'rgba(59,130,246,0.05)' : 'rgba(59,130,246,0.1)'
                   }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
@@ -5388,7 +5437,7 @@ function SidepanelOrchestrator() {
                         padding: '20px', 
                         background: theme === 'standard' ? 'white' : 'rgba(255,255,255,0.05)',
                         borderRadius: '8px',
-                        border: theme === 'standard' ? '1px dashed rgba(15,23,42,0.2)' : '1px dashed rgba(255,255,255,0.2)',
+                        border: theme === 'standard' ? '1px dashed #94a3b8' : '1px dashed rgba(255,255,255,0.2)',
                         textAlign: 'center'
                       }}>
                         <div style={{ fontSize: '24px', marginBottom: '8px' }}>📧</div>
@@ -5476,7 +5525,7 @@ function SidepanelOrchestrator() {
                           style={{
                             width: '100%',
                             background: theme === 'standard' ? 'white' : 'rgba(255,255,255,0.1)',
-                            border: theme === 'standard' ? '1px solid #e1e8ed' : '1px solid rgba(255,255,255,0.2)',
+                            border: theme === 'standard' ? '1px solid #94a3b8' : '1px solid rgba(255,255,255,0.2)',
                             color: theme === 'standard' ? '#0f172a' : 'white',
                             borderRadius: '6px',
                             padding: '8px 12px',
@@ -5594,7 +5643,7 @@ function SidepanelOrchestrator() {
                           flex: 1,
                           minHeight: '120px',
                           background: theme === 'standard' ? 'white' : 'rgba(255,255,255,0.08)',
-                          border: theme === 'standard' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.15)',
+                          border: theme === 'standard' ? '1px solid #94a3b8' : '1px solid rgba(255,255,255,0.15)',
                           color: theme === 'standard' ? '#0f172a' : 'white',
                           borderRadius: '6px',
                           padding: '10px 12px',
@@ -5640,7 +5689,7 @@ function SidepanelOrchestrator() {
                     )}
                     
                     {/* Advanced: Session + Attachments */}
-                    <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: theme === 'standard' ? '1px solid #e1e8ed' : '1px solid rgba(255,255,255,0.1)' }}>
+                    <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: theme === 'standard' ? '1px solid #94a3b8' : '1px solid rgba(255,255,255,0.1)' }}>
                       <div style={{ fontSize: '11px', fontWeight: 600, marginBottom: '8px', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.6)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                         Advanced (Optional)
                       </div>
@@ -5656,7 +5705,7 @@ function SidepanelOrchestrator() {
                           style={{
                             width: '100%',
                             background: theme === 'standard' ? '#ffffff' : '#1e293b',
-                            border: theme === 'standard' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.25)',
+                            border: theme === 'standard' ? '1px solid #94a3b8' : '1px solid rgba(255,255,255,0.25)',
                             color: theme === 'standard' ? '#0f172a' : '#f1f5f9',
                             borderRadius: '6px',
                             padding: '8px 10px',
@@ -5802,7 +5851,7 @@ function SidepanelOrchestrator() {
                                         onClick={() => setBeapDraftReaderModalId(a.id)}
                                         style={{
                                           background: 'transparent',
-                                          border: theme === 'standard' ? '1px solid #e1e8ed' : '1px solid rgba(255,255,255,0.2)',
+                                          border: theme === 'standard' ? '1px solid #94a3b8' : '1px solid rgba(255,255,255,0.2)',
                                           color: theme === 'standard' ? '#475569' : 'rgba(255,255,255,0.75)',
                                           borderRadius: '4px',
                                           padding: '2px 8px',
@@ -5876,7 +5925,7 @@ function SidepanelOrchestrator() {
                                 )}
                               </div>
                             )})}
-                            <button onClick={() => { setBeapDraftReaderModalId(null); setBeapDraftAttachments([]) }} style={{ background: 'transparent', border: theme === 'standard' ? '1px solid #e1e8ed' : '1px solid rgba(255,255,255,0.2)', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.6)', borderRadius: '4px', padding: '4px 8px', fontSize: '10px', cursor: 'pointer', marginTop: '4px' }}>Clear all</button>
+                            <button onClick={() => { setBeapDraftReaderModalId(null); setBeapDraftAttachments([]) }} style={{ background: 'transparent', border: theme === 'standard' ? '1px solid #94a3b8' : '1px solid rgba(255,255,255,0.2)', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.6)', borderRadius: '4px', padding: '4px 8px', fontSize: '10px', cursor: 'pointer', marginTop: '4px' }}>Clear all</button>
                           </div>
                         )}
                       </div>
@@ -5898,7 +5947,7 @@ function SidepanelOrchestrator() {
                   {/* Action Buttons */}
                   <div style={{
                     padding: '12px 14px',
-                    borderTop: theme === 'standard' ? '1px solid #e1e8ed' : '1px solid rgba(255,255,255,0.1)',
+                    borderTop: theme === 'standard' ? '1px solid #94a3b8' : '1px solid rgba(255,255,255,0.1)',
                     display: 'flex',
                     justifyContent: 'flex-end',
                     gap: '8px',
@@ -5911,7 +5960,7 @@ function SidepanelOrchestrator() {
                       }}
                       style={{
                         background: 'transparent',
-                        border: theme === 'standard' ? '1px solid #e1e8ed' : '1px solid rgba(255,255,255,0.2)',
+                        border: theme === 'standard' ? '1px solid #94a3b8' : '1px solid rgba(255,255,255,0.2)',
                         color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.7)',
                         borderRadius: '6px',
                         padding: '8px 16px',
@@ -6352,7 +6401,7 @@ function SidepanelOrchestrator() {
                     height: '22px',
                     width: '90px',
                     background: selectboxStyle.background,
-                    border: theme === 'standard' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(168,85,247,0.4)',
+                    border: theme === 'standard' ? '1px solid #94a3b8' : '1px solid rgba(168,85,247,0.4)',
                     color: selectboxStyle.color,
                     borderRadius: '4px',
                     padding: '0 18px 0 6px',
@@ -6666,14 +6715,14 @@ function SidepanelOrchestrator() {
                     <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#6b7280' }} />
                     <span style={{ fontSize: '12px', opacity: 0.7 }}>No peer connected</span>
                   </div>
-                  <button style={{ padding: '4px 10px', background: theme === 'standard' ? '#f8f9fb' : 'rgba(255,255,255,0.12)', border: theme === 'standard' ? '1px solid #e1e8ed' : 'none', borderRadius: '6px', color: theme === 'standard' ? '#0f172a' : 'white', fontSize: '11px', cursor: 'pointer' }}>Connect</button>
+                  <button style={{ padding: '4px 10px', background: theme === 'standard' ? '#f8f9fb' : 'rgba(255,255,255,0.12)', border: theme === 'standard' ? '1px solid #94a3b8' : 'none', borderRadius: '6px', color: theme === 'standard' ? '#0f172a' : 'white', fontSize: '11px', cursor: 'pointer' }}>Connect</button>
                 </div>
                 <div style={{ flex: 1, overflowY: 'auto', padding: '12px', display: 'flex', flexDirection: 'column', gap: '8px' }}></div>
                 <div style={{ padding: '10px 12px', borderTop: '1px solid rgba(255,255,255,0.1)', display: 'flex', gap: '6px', alignItems: 'center' }}>
-                  <textarea placeholder="Message or capsule..." style={{ flex: 1, padding: '8px 10px', background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '8px', color: 'white', fontSize: '12px', resize: 'none', minHeight: '32px', maxHeight: '80px' }} />
-                  <button title="Build Capsule" style={{ width: '32px', height: '32px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '14px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>💊</button>
-                  <button title="AI Assistant" style={{ width: '32px', height: '32px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '14px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✨</button>
-                  <button title="Attach" style={{ width: '32px', height: '32px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '14px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></button>
+                  <textarea placeholder="Message or capsule..." style={{ flex: 1, padding: '8px 10px', background: theme === 'standard' ? 'white' : 'rgba(255,255,255,0.08)', border: theme === 'standard' ? '1px solid #94a3b8' : '1px solid rgba(255,255,255,0.15)', borderRadius: '8px', color: theme === 'standard' ? '#0f172a' : 'white', fontSize: '12px', resize: 'none', minHeight: '32px', maxHeight: '80px' }} />
+                  <button title="Build Capsule" style={{ width: '32px', height: '32px', background: theme === 'standard' ? '#f8f9fb' : 'rgba(255,255,255,0.12)', border: theme === 'standard' ? '1px solid #94a3b8' : 'none', borderRadius: '6px', color: theme === 'standard' ? '#0f172a' : 'white', fontSize: '14px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>💊</button>
+                  <button title="AI Assistant" style={{ width: '32px', height: '32px', background: theme === 'standard' ? '#f8f9fb' : 'rgba(255,255,255,0.12)', border: theme === 'standard' ? '1px solid #94a3b8' : 'none', borderRadius: '6px', color: theme === 'standard' ? '#0f172a' : 'white', fontSize: '14px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✨</button>
+                  <button title="Attach" style={{ width: '32px', height: '32px', background: theme === 'standard' ? '#f8f9fb' : 'rgba(255,255,255,0.12)', border: theme === 'standard' ? '1px solid #94a3b8' : 'none', borderRadius: '6px', color: theme === 'standard' ? '#0f172a' : 'white', fontSize: '14px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></button>
                   <button style={{ padding: '8px 14px', background: 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)', border: 'none', borderRadius: '8px', color: 'white', fontSize: '12px', fontWeight: '600', cursor: 'pointer' }}>Send</button>
                 </div>
               </div>
@@ -6697,8 +6746,8 @@ function SidepanelOrchestrator() {
                 <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: '120px', background: theme === 'pro' ? 'rgba(118,75,162,0.25)' : 'rgba(255,255,255,0.06)' }}>
                   <div style={{ flex: 1, overflowY: 'auto', padding: '8px' }}></div>
                   <div style={{ padding: '8px', display: 'flex', gap: '6px', alignItems: 'center', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
-                    <textarea placeholder="Chat..." style={{ flex: 1, padding: '6px 8px', background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '6px', color: 'white', fontSize: '11px', resize: 'none', minHeight: '28px' }} />
-                    <button title="AI Assistant" style={{ width: '28px', height: '28px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '12px', cursor: 'pointer' }}>✨</button>
+                    <textarea placeholder="Chat..." style={{ flex: 1, padding: '6px 8px', background: theme === 'standard' ? 'white' : 'rgba(255,255,255,0.08)', border: theme === 'standard' ? '1px solid #94a3b8' : '1px solid rgba(255,255,255,0.15)', borderRadius: '6px', color: theme === 'standard' ? '#0f172a' : 'white', fontSize: '11px', resize: 'none', minHeight: '28px' }} />
+                    <button title="AI Assistant" style={{ width: '28px', height: '28px', background: theme === 'standard' ? '#f8f9fb' : 'rgba(255,255,255,0.12)', border: theme === 'standard' ? '1px solid #94a3b8' : 'none', borderRadius: '6px', color: theme === 'standard' ? '#0f172a' : 'white', fontSize: '12px', cursor: 'pointer' }}>✨</button>
                     <button style={{ padding: '6px 12px', background: 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '11px', fontWeight: '600', cursor: 'pointer' }}>Send</button>
                   </div>
                 </div>
@@ -6729,8 +6778,8 @@ function SidepanelOrchestrator() {
                 <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: '100px', background: theme === 'pro' ? 'rgba(118,75,162,0.25)' : 'rgba(255,255,255,0.06)' }}>
                   <div style={{ flex: 1, overflowY: 'auto', padding: '8px' }}></div>
                   <div style={{ padding: '8px', display: 'flex', gap: '6px', alignItems: 'center', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
-                    <textarea placeholder="Group chat..." style={{ flex: 1, padding: '6px 8px', background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '6px', color: 'white', fontSize: '11px', resize: 'none', minHeight: '28px' }} />
-                    <button title="AI Assistant" style={{ width: '28px', height: '28px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '12px', cursor: 'pointer' }}>✨</button>
+                    <textarea placeholder="Group chat..." style={{ flex: 1, padding: '6px 8px', background: theme === 'standard' ? 'white' : 'rgba(255,255,255,0.08)', border: theme === 'standard' ? '1px solid #94a3b8' : '1px solid rgba(255,255,255,0.15)', borderRadius: '6px', color: theme === 'standard' ? '#0f172a' : 'white', fontSize: '11px', resize: 'none', minHeight: '28px' }} />
+                    <button title="AI Assistant" style={{ width: '28px', height: '28px', background: theme === 'standard' ? '#f8f9fb' : 'rgba(255,255,255,0.12)', border: theme === 'standard' ? '1px solid #94a3b8' : 'none', borderRadius: '6px', color: theme === 'standard' ? '#0f172a' : 'white', fontSize: '12px', cursor: 'pointer' }}>✨</button>
                     <button style={{ padding: '6px 12px', background: 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '11px', fontWeight: '600', cursor: 'pointer' }}>Send</button>
                   </div>
                 </div>
@@ -6901,7 +6950,7 @@ function SidepanelOrchestrator() {
                       minHeight: '40px',
                       resize: 'vertical',
                       background: theme === 'standard' ? '#ffffff' : 'rgba(255,255,255,0.08)',
-                      border: theme === 'standard' ? '1px solid #e1e8ed' : '1px solid rgba(255,255,255,0.20)',
+                      border: theme === 'standard' ? '1px solid #94a3b8' : '1px solid rgba(255,255,255,0.20)',
                       color: theme === 'standard' ? '#0f172a' : 'white',
                       borderRadius: '8px',
                       padding: '10px 12px',
@@ -7046,7 +7095,7 @@ function SidepanelOrchestrator() {
                 {/* DELIVERY METHOD - FIRST */}
                 <div style={{ padding: '14px 18px', borderBottom: theme === 'standard' ? '1px solid rgba(147, 51, 234, 0.12)' : '1px solid rgba(255,255,255,0.1)' }}>
                   <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'standard' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Delivery Method</label>
-                  <select value={handshakeDelivery} onChange={(e) => setHandshakeDelivery(e.target.value as 'email' | 'download' | 'p2p')} style={{ width: '100%', padding: '10px 12px', background: theme === 'standard' ? 'white' : '#1f2937', border: `1px solid ${theme === 'standard' ? 'rgba(147, 51, 234, 0.15)' : 'rgba(255,255,255,0.15)'}`, borderRadius: '8px', color: theme === 'standard' ? '#1f2937' : 'white', fontSize: '13px', cursor: 'pointer' }}>
+                  <select value={handshakeDelivery} onChange={(e) => setHandshakeDelivery(e.target.value as 'email' | 'download' | 'p2p')} style={{ width: '100%', padding: '10px 12px', background: theme === 'standard' ? 'white' : '#1f2937', border: `1px solid ${theme === 'standard' ? '#94a3b8' : 'rgba(255,255,255,0.15)'}`, borderRadius: '8px', color: theme === 'standard' ? '#1f2937' : 'white', fontSize: '13px', cursor: 'pointer' }}>
                     <option value="email" style={{ background: theme === 'standard' ? 'white' : '#1f2937', color: theme === 'standard' ? '#1f2937' : 'white' }}>📧 Email</option>
                     <option value="p2p" style={{ background: theme === 'standard' ? 'white' : '#1f2937', color: theme === 'standard' ? '#1f2937' : 'white' }}>🔗 P2P</option>
                     <option value="download" style={{ background: theme === 'standard' ? 'white' : '#1f2937', color: theme === 'standard' ? '#1f2937' : 'white' }}>💾 Download (USB/Wallet)</option>
@@ -7096,7 +7145,7 @@ function SidepanelOrchestrator() {
                       padding: '20px', 
                       background: theme === 'standard' ? 'white' : 'rgba(255,255,255,0.05)',
                       borderRadius: '8px',
-                      border: theme === 'standard' ? '1px dashed rgba(15,23,42,0.2)' : '1px dashed rgba(255,255,255,0.2)',
+                      border: theme === 'standard' ? '1px dashed #94a3b8' : '1px dashed rgba(255,255,255,0.2)',
                       textAlign: 'center'
                     }}>
                       <div style={{ fontSize: '24px', marginBottom: '8px' }}>📧</div>
@@ -7176,7 +7225,7 @@ function SidepanelOrchestrator() {
                   {emailAccounts.length > 0 && (
                     <div style={{ marginTop: '12px' }}>
                       <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'standard' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Send From:</label>
-                      <select value={selectedEmailAccountId || defaultEmailAccountRowId || ''} onChange={(e) => setSelectedEmailAccountId(e.target.value)} style={{ width: '100%', background: theme === 'standard' ? 'white' : 'rgba(255,255,255,0.1)', border: theme === 'standard' ? '1px solid #e1e8ed' : '1px solid rgba(255,255,255,0.2)', color: theme === 'standard' ? '#0f172a' : 'white', borderRadius: '6px', padding: '8px 12px', fontSize: '13px', cursor: 'pointer', outline: 'none' }}>
+                      <select value={selectedEmailAccountId || defaultEmailAccountRowId || ''} onChange={(e) => setSelectedEmailAccountId(e.target.value)} style={{ width: '100%', background: theme === 'standard' ? 'white' : 'rgba(255,255,255,0.1)', border: theme === 'standard' ? '1px solid #94a3b8' : '1px solid rgba(255,255,255,0.2)', color: theme === 'standard' ? '#0f172a' : 'white', borderRadius: '6px', padding: '8px 12px', fontSize: '13px', cursor: 'pointer', outline: 'none' }}>
                         {emailAccounts.map(account => (<option key={account.id} value={account.id}>{account.email || account.displayName} ({account.provider})</option>))}
                       </select>
                     </div>
@@ -7212,7 +7261,7 @@ function SidepanelOrchestrator() {
                   <DeliveryMethodPanel deliveryMethod={handshakeDelivery} recipientMode={beapRecipientMode} selectedRecipient={selectedRecipient} emailTo={beapDraftTo} onEmailToChange={setBeapDraftTo} theme={theme} ourFingerprintShort={ourFingerprintShort} />
                   <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
                     <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'standard' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>BEAP™ Message (required)</label>
-                    <textarea className="beap-textarea" value={beapDraftMessage} onChange={(e) => setBeapDraftMessage(e.target.value)} placeholder="Public capsule text — required before send. This is the transport-visible message body." style={{ flex: 1, minHeight: '120px', background: theme === 'standard' ? 'white' : 'rgba(255,255,255,0.08)', border: theme === 'standard' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.15)', color: theme === 'standard' ? '#0f172a' : 'white', borderRadius: '6px', padding: '10px 12px', fontSize: '12px', lineHeight: '1.5', resize: 'none', outline: 'none', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' }} />
+                    <textarea className="beap-textarea" value={beapDraftMessage} onChange={(e) => setBeapDraftMessage(e.target.value)} placeholder="Public capsule text — required before send. This is the transport-visible message body." style={{ flex: 1, minHeight: '120px', background: theme === 'standard' ? 'white' : 'rgba(255,255,255,0.08)', border: theme === 'standard' ? '1px solid #94a3b8' : '1px solid rgba(255,255,255,0.15)', color: theme === 'standard' ? '#0f172a' : 'white', borderRadius: '6px', padding: '10px 12px', fontSize: '12px', lineHeight: '1.5', resize: 'none', outline: 'none', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' }} />
                   </div>
                   {/* Encrypted Message (qBEAP/PRIVATE only) */}
                   {beapRecipientMode === 'private' && (
@@ -7227,7 +7276,7 @@ function SidepanelOrchestrator() {
                     <div style={{ fontSize: '11px', fontWeight: 600, marginBottom: '8px', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.6)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Advanced (Optional)</div>
                     <div style={{ marginBottom: '10px' }}>
                       <label style={{ fontSize: '10px', fontWeight: 500, marginBottom: '4px', display: 'block', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.6)' }}>Session (optional)</label>
-                      <select value={beapDraftSessionId} onChange={(e) => setBeapDraftSessionId(e.target.value)} onClick={() => loadAvailableSessions()} style={{ width: '100%', background: theme === 'standard' ? '#ffffff' : '#1e293b', border: theme === 'standard' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.25)', color: theme === 'standard' ? '#0f172a' : '#f1f5f9', borderRadius: '6px', padding: '8px 10px', fontSize: '12px', outline: 'none', boxSizing: 'border-box', cursor: 'pointer' }}>
+                      <select value={beapDraftSessionId} onChange={(e) => setBeapDraftSessionId(e.target.value)} onClick={() => loadAvailableSessions()} style={{ width: '100%', background: theme === 'standard' ? '#ffffff' : '#1e293b', border: theme === 'standard' ? '1px solid #94a3b8' : '1px solid rgba(255,255,255,0.25)', color: theme === 'standard' ? '#0f172a' : '#f1f5f9', borderRadius: '6px', padding: '8px 10px', fontSize: '12px', outline: 'none', boxSizing: 'border-box', cursor: 'pointer' }}>
                         <option value="" style={{ background: theme === 'standard' ? '#ffffff' : '#1e293b', color: theme === 'standard' ? '#0f172a' : '#f1f5f9' }}>{availableSessions.length === 0 ? '— No sessions available —' : '— Select a session —'}</option>
                         {availableSessions.map((s) => (<option key={s.key} value={s.key} style={{ background: theme === 'standard' ? '#ffffff' : '#1e293b', color: theme === 'standard' ? '#0f172a' : '#f1f5f9' }}>{s.name} ({new Date(s.timestamp).toLocaleDateString()})</option>))}
                       </select>
@@ -7262,7 +7311,7 @@ function SidepanelOrchestrator() {
                                         onClick={() => setBeapDraftReaderModalId(a.id)}
                                         style={{
                                           background: 'transparent',
-                                          border: theme === 'standard' ? '1px solid #e1e8ed' : '1px solid rgba(255,255,255,0.2)',
+                                          border: theme === 'standard' ? '1px solid #94a3b8' : '1px solid rgba(255,255,255,0.2)',
                                           color: theme === 'standard' ? '#475569' : 'rgba(255,255,255,0.75)',
                                           borderRadius: '4px',
                                           padding: '2px 8px',
@@ -7336,7 +7385,7 @@ function SidepanelOrchestrator() {
                                 )}
                               </div>
                             )})}
-                          <button onClick={() => { setBeapDraftReaderModalId(null); setBeapDraftAttachments([]) }} style={{ background: 'transparent', border: theme === 'standard' ? '1px solid #e1e8ed' : '1px solid rgba(255,255,255,0.2)', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.6)', borderRadius: '4px', padding: '4px 8px', fontSize: '10px', cursor: 'pointer', marginTop: '4px' }}>Clear all</button>
+                          <button onClick={() => { setBeapDraftReaderModalId(null); setBeapDraftAttachments([]) }} style={{ background: 'transparent', border: theme === 'standard' ? '1px solid #94a3b8' : '1px solid rgba(255,255,255,0.2)', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.6)', borderRadius: '4px', padding: '4px 8px', fontSize: '10px', cursor: 'pointer', marginTop: '4px' }}>Clear all</button>
                         </div>
                       )}
                     </div>
@@ -7376,7 +7425,7 @@ function SidepanelOrchestrator() {
                   </div>
                 )}
                 <div style={{ padding: '12px 14px', borderTop: theme === 'standard' ? '1px solid rgba(147, 51, 234, 0.12)' : '1px solid rgba(255,255,255,0.1)', display: 'flex', justifyContent: 'flex-end', gap: '8px', background: theme === 'standard' ? '#ffffff' : 'rgba(0,0,0,0.2)' }}>
-                  <button onClick={() => { setBeapP2pRelayPendingMessage(null); setBeapDraftTo(''); setBeapDraftMessage(''); setBeapDraftEncryptedMessage(''); setBeapDraftSessionId(''); setBeapDraftReaderModalId(null); setBeapDraftAttachments([]); setSelectedRecipient(null) }} style={{ background: 'transparent', border: theme === 'standard' ? '1px solid #e1e8ed' : '1px solid rgba(255,255,255,0.2)', color: theme === 'standard' ? '#536471' : 'rgba(255,255,255,0.7)', borderRadius: '6px', padding: '8px 16px', fontSize: '12px', cursor: 'pointer' }}>Clear</button>
+                  <button onClick={() => { setBeapP2pRelayPendingMessage(null); setBeapDraftTo(''); setBeapDraftMessage(''); setBeapDraftEncryptedMessage(''); setBeapDraftSessionId(''); setBeapDraftReaderModalId(null); setBeapDraftAttachments([]); setSelectedRecipient(null) }} style={{ background: 'transparent', border: theme === 'standard' ? '1px solid #94a3b8' : '1px solid rgba(255,255,255,0.2)', color: theme === 'standard' ? '#536471' : 'rgba(255,255,255,0.7)', borderRadius: '6px', padding: '8px 16px', fontSize: '12px', cursor: 'pointer' }}>Clear</button>
                   <button onClick={handleSendBeapMessage} disabled={isBeapSendDisabled} style={{ background: isBeapSendDisabled ? 'rgba(168,85,247,0.5)' : 'linear-gradient(135deg, #a855f7 0%, #9333ea 100%)', border: 'none', color: 'white', borderRadius: '6px', padding: '8px 20px', fontSize: '12px', fontWeight: 600, cursor: isBeapSendDisabled ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: '6px', opacity: isBeapSendDisabled ? 0.7 : 1 }}>{getBeapSendButtonLabel()}</button>
                 </div>
                   </>
@@ -7502,7 +7551,7 @@ function SidepanelOrchestrator() {
       {/* Session Controls at the very top - Two Rows */}
       <div style={{ 
         padding: '12px 16px',
-        borderBottom: theme === 'standard' ? '1px solid #e1e8ed' : theme === 'dark' ? '1px solid rgba(255,255,255,0.2)' : '1px solid rgba(255,255,255,0.2)',
+        borderBottom: theme === 'standard' ? '1px solid #94a3b8' : theme === 'dark' ? '1px solid rgba(255,255,255,0.2)' : '1px solid rgba(255,255,255,0.2)',
         display: 'flex',
         flexDirection: 'column',
         gap: '8px',
@@ -7709,7 +7758,7 @@ function SidepanelOrchestrator() {
                     height: '22px',
                     width: '90px',
                     background: selectboxStyle.background,
-                    border: theme === 'standard' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(168,85,247,0.4)',
+                    border: theme === 'standard' ? '1px solid #94a3b8' : '1px solid rgba(168,85,247,0.4)',
                     color: selectboxStyle.color,
                     borderRadius: '4px',
                     padding: '0 18px 0 6px',
@@ -8023,14 +8072,14 @@ function SidepanelOrchestrator() {
                     <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#6b7280' }} />
                     <span style={{ fontSize: '12px', opacity: 0.7 }}>No peer connected</span>
                   </div>
-                  <button style={{ padding: '4px 10px', background: theme === 'standard' ? '#f8f9fb' : 'rgba(255,255,255,0.12)', border: theme === 'standard' ? '1px solid #e1e8ed' : 'none', borderRadius: '6px', color: theme === 'standard' ? '#0f172a' : 'white', fontSize: '11px', cursor: 'pointer' }}>Connect</button>
+                  <button style={{ padding: '4px 10px', background: theme === 'standard' ? '#f8f9fb' : 'rgba(255,255,255,0.12)', border: theme === 'standard' ? '1px solid #94a3b8' : 'none', borderRadius: '6px', color: theme === 'standard' ? '#0f172a' : 'white', fontSize: '11px', cursor: 'pointer' }}>Connect</button>
                 </div>
                 <div style={{ flex: 1, overflowY: 'auto', padding: '12px', display: 'flex', flexDirection: 'column', gap: '8px' }}></div>
                 <div style={{ padding: '10px 12px', borderTop: '1px solid rgba(255,255,255,0.1)', display: 'flex', gap: '6px', alignItems: 'center' }}>
-                  <textarea placeholder="Message or capsule..." style={{ flex: 1, padding: '8px 10px', background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '8px', color: 'white', fontSize: '12px', resize: 'none', minHeight: '32px', maxHeight: '80px' }} />
-                  <button title="Build Capsule" style={{ width: '32px', height: '32px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '14px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>💊</button>
-                  <button title="AI Assistant" style={{ width: '32px', height: '32px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '14px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✨</button>
-                  <button title="Attach" style={{ width: '32px', height: '32px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '14px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></button>
+                  <textarea placeholder="Message or capsule..." style={{ flex: 1, padding: '8px 10px', background: theme === 'standard' ? 'white' : 'rgba(255,255,255,0.08)', border: theme === 'standard' ? '1px solid #94a3b8' : '1px solid rgba(255,255,255,0.15)', borderRadius: '8px', color: theme === 'standard' ? '#0f172a' : 'white', fontSize: '12px', resize: 'none', minHeight: '32px', maxHeight: '80px' }} />
+                  <button title="Build Capsule" style={{ width: '32px', height: '32px', background: theme === 'standard' ? '#f8f9fb' : 'rgba(255,255,255,0.12)', border: theme === 'standard' ? '1px solid #94a3b8' : 'none', borderRadius: '6px', color: theme === 'standard' ? '#0f172a' : 'white', fontSize: '14px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>💊</button>
+                  <button title="AI Assistant" style={{ width: '32px', height: '32px', background: theme === 'standard' ? '#f8f9fb' : 'rgba(255,255,255,0.12)', border: theme === 'standard' ? '1px solid #94a3b8' : 'none', borderRadius: '6px', color: theme === 'standard' ? '#0f172a' : 'white', fontSize: '14px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✨</button>
+                  <button title="Attach" style={{ width: '32px', height: '32px', background: theme === 'standard' ? '#f8f9fb' : 'rgba(255,255,255,0.12)', border: theme === 'standard' ? '1px solid #94a3b8' : 'none', borderRadius: '6px', color: theme === 'standard' ? '#0f172a' : 'white', fontSize: '14px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></button>
                   <button style={{ padding: '8px 14px', background: 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)', border: 'none', borderRadius: '8px', color: 'white', fontSize: '12px', fontWeight: '600', cursor: 'pointer' }}>Send</button>
                 </div>
               </div>
@@ -8053,8 +8102,8 @@ function SidepanelOrchestrator() {
                 <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: '120px', background: theme === 'pro' ? 'rgba(118,75,162,0.25)' : 'rgba(255,255,255,0.06)' }}>
                   <div style={{ flex: 1, overflowY: 'auto', padding: '8px' }}></div>
                   <div style={{ padding: '8px', display: 'flex', gap: '6px', alignItems: 'center', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
-                    <textarea placeholder="Chat..." style={{ flex: 1, padding: '6px 8px', background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '6px', color: 'white', fontSize: '11px', resize: 'none', minHeight: '28px' }} />
-                    <button title="AI Assistant" style={{ width: '28px', height: '28px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '12px', cursor: 'pointer' }}>✨</button>
+                    <textarea placeholder="Chat..." style={{ flex: 1, padding: '6px 8px', background: theme === 'standard' ? 'white' : 'rgba(255,255,255,0.08)', border: theme === 'standard' ? '1px solid #94a3b8' : '1px solid rgba(255,255,255,0.15)', borderRadius: '6px', color: theme === 'standard' ? '#0f172a' : 'white', fontSize: '11px', resize: 'none', minHeight: '28px' }} />
+                    <button title="AI Assistant" style={{ width: '28px', height: '28px', background: theme === 'standard' ? '#f8f9fb' : 'rgba(255,255,255,0.12)', border: theme === 'standard' ? '1px solid #94a3b8' : 'none', borderRadius: '6px', color: theme === 'standard' ? '#0f172a' : 'white', fontSize: '12px', cursor: 'pointer' }}>✨</button>
                     <button style={{ padding: '6px 12px', background: 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '11px', fontWeight: '600', cursor: 'pointer' }}>Send</button>
                   </div>
                 </div>
@@ -8085,8 +8134,8 @@ function SidepanelOrchestrator() {
                 <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: '100px', background: theme === 'pro' ? 'rgba(118,75,162,0.25)' : 'rgba(255,255,255,0.06)' }}>
                   <div style={{ flex: 1, overflowY: 'auto', padding: '8px' }}></div>
                   <div style={{ padding: '8px', display: 'flex', gap: '6px', alignItems: 'center', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
-                    <textarea placeholder="Group chat..." style={{ flex: 1, padding: '6px 8px', background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '6px', color: 'white', fontSize: '11px', resize: 'none', minHeight: '28px' }} />
-                    <button title="AI Assistant" style={{ width: '28px', height: '28px', background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '12px', cursor: 'pointer' }}>✨</button>
+                    <textarea placeholder="Group chat..." style={{ flex: 1, padding: '6px 8px', background: theme === 'standard' ? 'white' : 'rgba(255,255,255,0.08)', border: theme === 'standard' ? '1px solid #94a3b8' : '1px solid rgba(255,255,255,0.15)', borderRadius: '6px', color: theme === 'standard' ? '#0f172a' : 'white', fontSize: '11px', resize: 'none', minHeight: '28px' }} />
+                    <button title="AI Assistant" style={{ width: '28px', height: '28px', background: theme === 'standard' ? '#f8f9fb' : 'rgba(255,255,255,0.12)', border: theme === 'standard' ? '1px solid #94a3b8' : 'none', borderRadius: '6px', color: theme === 'standard' ? '#0f172a' : 'white', fontSize: '12px', cursor: 'pointer' }}>✨</button>
                     <button style={{ padding: '6px 12px', background: 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '11px', fontWeight: '600', cursor: 'pointer' }}>Send</button>
                   </div>
                 </div>
@@ -8257,7 +8306,7 @@ function SidepanelOrchestrator() {
                       minHeight: '40px',
                       resize: 'vertical',
                       background: theme === 'standard' ? '#ffffff' : 'rgba(255,255,255,0.08)',
-                      border: theme === 'standard' ? '1px solid #e1e8ed' : '1px solid rgba(255,255,255,0.20)',
+                      border: theme === 'standard' ? '1px solid #94a3b8' : '1px solid rgba(255,255,255,0.20)',
                       color: theme === 'standard' ? '#0f172a' : 'white',
                       borderRadius: '8px',
                       padding: '10px 12px',
@@ -8402,7 +8451,7 @@ function SidepanelOrchestrator() {
                 {/* DELIVERY METHOD - FIRST */}
                 <div style={{ padding: '14px 18px', borderBottom: theme === 'standard' ? '1px solid rgba(147, 51, 234, 0.12)' : '1px solid rgba(255,255,255,0.1)' }}>
                   <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'standard' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Delivery Method</label>
-                  <select value={handshakeDelivery} onChange={(e) => setHandshakeDelivery(e.target.value as 'email' | 'download' | 'p2p')} style={{ width: '100%', padding: '10px 12px', background: theme === 'standard' ? 'white' : '#1f2937', border: `1px solid ${theme === 'standard' ? 'rgba(147, 51, 234, 0.15)' : 'rgba(255,255,255,0.15)'}`, borderRadius: '8px', color: theme === 'standard' ? '#1f2937' : 'white', fontSize: '13px', cursor: 'pointer' }}>
+                  <select value={handshakeDelivery} onChange={(e) => setHandshakeDelivery(e.target.value as 'email' | 'download' | 'p2p')} style={{ width: '100%', padding: '10px 12px', background: theme === 'standard' ? 'white' : '#1f2937', border: `1px solid ${theme === 'standard' ? '#94a3b8' : 'rgba(255,255,255,0.15)'}`, borderRadius: '8px', color: theme === 'standard' ? '#1f2937' : 'white', fontSize: '13px', cursor: 'pointer' }}>
                     <option value="email" style={{ background: theme === 'standard' ? 'white' : '#1f2937', color: theme === 'standard' ? '#1f2937' : 'white' }}>📧 Email</option>
                     <option value="p2p" style={{ background: theme === 'standard' ? 'white' : '#1f2937', color: theme === 'standard' ? '#1f2937' : 'white' }}>🔗 P2P</option>
                     <option value="download" style={{ background: theme === 'standard' ? 'white' : '#1f2937', color: theme === 'standard' ? '#1f2937' : 'white' }}>💾 Download (USB/Wallet)</option>
@@ -8452,7 +8501,7 @@ function SidepanelOrchestrator() {
                       padding: '20px', 
                       background: theme === 'standard' ? 'white' : 'rgba(255,255,255,0.05)',
                       borderRadius: '8px',
-                      border: theme === 'standard' ? '1px dashed rgba(15,23,42,0.2)' : '1px dashed rgba(255,255,255,0.2)',
+                      border: theme === 'standard' ? '1px dashed #94a3b8' : '1px dashed rgba(255,255,255,0.2)',
                       textAlign: 'center'
                     }}>
                       <div style={{ fontSize: '24px', marginBottom: '8px' }}>📧</div>
@@ -8532,7 +8581,7 @@ function SidepanelOrchestrator() {
                   {emailAccounts.length > 0 && (
                     <div style={{ marginTop: '12px' }}>
                       <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'standard' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Send From:</label>
-                      <select value={selectedEmailAccountId || defaultEmailAccountRowId || ''} onChange={(e) => setSelectedEmailAccountId(e.target.value)} style={{ width: '100%', background: theme === 'standard' ? 'white' : 'rgba(255,255,255,0.1)', border: theme === 'standard' ? '1px solid #e1e8ed' : '1px solid rgba(255,255,255,0.2)', color: theme === 'standard' ? '#0f172a' : 'white', borderRadius: '6px', padding: '8px 12px', fontSize: '13px', cursor: 'pointer', outline: 'none' }}>
+                      <select value={selectedEmailAccountId || defaultEmailAccountRowId || ''} onChange={(e) => setSelectedEmailAccountId(e.target.value)} style={{ width: '100%', background: theme === 'standard' ? 'white' : 'rgba(255,255,255,0.1)', border: theme === 'standard' ? '1px solid #94a3b8' : '1px solid rgba(255,255,255,0.2)', color: theme === 'standard' ? '#0f172a' : 'white', borderRadius: '6px', padding: '8px 12px', fontSize: '13px', cursor: 'pointer', outline: 'none' }}>
                         {emailAccounts.map(account => (<option key={account.id} value={account.id}>{account.email || account.displayName} ({account.provider})</option>))}
                       </select>
                     </div>
@@ -8569,7 +8618,7 @@ function SidepanelOrchestrator() {
                   <DeliveryMethodPanel deliveryMethod={handshakeDelivery} recipientMode={beapRecipientMode} selectedRecipient={selectedRecipient} emailTo={beapDraftTo} onEmailToChange={setBeapDraftTo} theme={theme} ourFingerprintShort={ourFingerprintShort} />
                   <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
                     <label style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', display: 'block', color: theme === 'standard' ? '#6b7280' : 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>BEAP™ Message (required)</label>
-                    <textarea className="beap-textarea" value={beapDraftMessage} onChange={(e) => setBeapDraftMessage(e.target.value)} placeholder="Public capsule text — required before send. This is the transport-visible message body." style={{ flex: 1, minHeight: '120px', background: theme === 'standard' ? 'white' : 'rgba(255,255,255,0.08)', border: theme === 'standard' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.15)', color: theme === 'standard' ? '#0f172a' : 'white', borderRadius: '6px', padding: '10px 12px', fontSize: '12px', lineHeight: '1.5', resize: 'none', outline: 'none', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' }} />
+                    <textarea className="beap-textarea" value={beapDraftMessage} onChange={(e) => setBeapDraftMessage(e.target.value)} placeholder="Public capsule text — required before send. This is the transport-visible message body." style={{ flex: 1, minHeight: '120px', background: theme === 'standard' ? 'white' : 'rgba(255,255,255,0.08)', border: theme === 'standard' ? '1px solid #94a3b8' : '1px solid rgba(255,255,255,0.15)', color: theme === 'standard' ? '#0f172a' : 'white', borderRadius: '6px', padding: '10px 12px', fontSize: '12px', lineHeight: '1.5', resize: 'none', outline: 'none', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' }} />
                   </div>
                   {/* Encrypted Message (qBEAP/PRIVATE only) */}
                   {beapRecipientMode === 'private' && (
@@ -8584,7 +8633,7 @@ function SidepanelOrchestrator() {
                     <div style={{ fontSize: '11px', fontWeight: 600, marginBottom: '8px', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.6)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Advanced (Optional)</div>
                     <div style={{ marginBottom: '10px' }}>
                       <label style={{ fontSize: '10px', fontWeight: 500, marginBottom: '4px', display: 'block', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.6)' }}>Session (optional)</label>
-                      <select value={beapDraftSessionId} onChange={(e) => setBeapDraftSessionId(e.target.value)} onClick={() => loadAvailableSessions()} style={{ width: '100%', background: theme === 'standard' ? '#ffffff' : '#1e293b', border: theme === 'standard' ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.25)', color: theme === 'standard' ? '#0f172a' : '#f1f5f9', borderRadius: '6px', padding: '8px 10px', fontSize: '12px', outline: 'none', boxSizing: 'border-box', cursor: 'pointer' }}>
+                      <select value={beapDraftSessionId} onChange={(e) => setBeapDraftSessionId(e.target.value)} onClick={() => loadAvailableSessions()} style={{ width: '100%', background: theme === 'standard' ? '#ffffff' : '#1e293b', border: theme === 'standard' ? '1px solid #94a3b8' : '1px solid rgba(255,255,255,0.25)', color: theme === 'standard' ? '#0f172a' : '#f1f5f9', borderRadius: '6px', padding: '8px 10px', fontSize: '12px', outline: 'none', boxSizing: 'border-box', cursor: 'pointer' }}>
                         <option value="" style={{ background: theme === 'standard' ? '#ffffff' : '#1e293b', color: theme === 'standard' ? '#0f172a' : '#f1f5f9' }}>{availableSessions.length === 0 ? '— No sessions available —' : '— Select a session —'}</option>
                         {availableSessions.map((s) => (<option key={s.key} value={s.key} style={{ background: theme === 'standard' ? '#ffffff' : '#1e293b', color: theme === 'standard' ? '#0f172a' : '#f1f5f9' }}>{s.name} ({new Date(s.timestamp).toLocaleDateString()})</option>))}
                       </select>
@@ -8619,7 +8668,7 @@ function SidepanelOrchestrator() {
                                         onClick={() => setBeapDraftReaderModalId(a.id)}
                                         style={{
                                           background: 'transparent',
-                                          border: theme === 'standard' ? '1px solid #e1e8ed' : '1px solid rgba(255,255,255,0.2)',
+                                          border: theme === 'standard' ? '1px solid #94a3b8' : '1px solid rgba(255,255,255,0.2)',
                                           color: theme === 'standard' ? '#475569' : 'rgba(255,255,255,0.75)',
                                           borderRadius: '4px',
                                           padding: '2px 8px',
@@ -8693,7 +8742,7 @@ function SidepanelOrchestrator() {
                                 )}
                               </div>
                             )})}
-                          <button onClick={() => { setBeapDraftReaderModalId(null); setBeapDraftAttachments([]) }} style={{ background: 'transparent', border: theme === 'standard' ? '1px solid #e1e8ed' : '1px solid rgba(255,255,255,0.2)', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.6)', borderRadius: '4px', padding: '4px 8px', fontSize: '10px', cursor: 'pointer', marginTop: '4px' }}>Clear all</button>
+                          <button onClick={() => { setBeapDraftReaderModalId(null); setBeapDraftAttachments([]) }} style={{ background: 'transparent', border: theme === 'standard' ? '1px solid #94a3b8' : '1px solid rgba(255,255,255,0.2)', color: theme === 'standard' ? '#64748b' : 'rgba(255,255,255,0.6)', borderRadius: '4px', padding: '4px 8px', fontSize: '10px', cursor: 'pointer', marginTop: '4px' }}>Clear all</button>
                         </div>
                       )}
                     </div>
@@ -8733,7 +8782,7 @@ function SidepanelOrchestrator() {
                   </div>
                 )}
                 <div style={{ padding: '12px 14px', borderTop: theme === 'standard' ? '1px solid rgba(147, 51, 234, 0.12)' : '1px solid rgba(255,255,255,0.1)', display: 'flex', justifyContent: 'flex-end', gap: '8px', background: theme === 'standard' ? '#ffffff' : 'rgba(0,0,0,0.2)' }}>
-                  <button onClick={() => { setBeapP2pRelayPendingMessage(null); setBeapDraftTo(''); setBeapDraftMessage(''); setBeapDraftEncryptedMessage(''); setBeapDraftSessionId(''); setBeapDraftReaderModalId(null); setBeapDraftAttachments([]); setSelectedRecipient(null) }} style={{ background: 'transparent', border: theme === 'standard' ? '1px solid #e1e8ed' : '1px solid rgba(255,255,255,0.2)', color: theme === 'standard' ? '#536471' : 'rgba(255,255,255,0.7)', borderRadius: '6px', padding: '8px 16px', fontSize: '12px', cursor: 'pointer' }}>Clear</button>
+                  <button onClick={() => { setBeapP2pRelayPendingMessage(null); setBeapDraftTo(''); setBeapDraftMessage(''); setBeapDraftEncryptedMessage(''); setBeapDraftSessionId(''); setBeapDraftReaderModalId(null); setBeapDraftAttachments([]); setSelectedRecipient(null) }} style={{ background: 'transparent', border: theme === 'standard' ? '1px solid #94a3b8' : '1px solid rgba(255,255,255,0.2)', color: theme === 'standard' ? '#536471' : 'rgba(255,255,255,0.7)', borderRadius: '6px', padding: '8px 16px', fontSize: '12px', cursor: 'pointer' }}>Clear</button>
                   <button onClick={handleSendBeapMessage} disabled={isBeapSendDisabled} style={{ background: isBeapSendDisabled ? 'rgba(168,85,247,0.5)' : 'linear-gradient(135deg, #a855f7 0%, #9333ea 100%)', border: 'none', color: 'white', borderRadius: '6px', padding: '8px 20px', fontSize: '12px', fontWeight: 600, cursor: isBeapSendDisabled ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: '6px', opacity: isBeapSendDisabled ? 0.7 : 1 }}>{getBeapSendButtonLabel()}</button>
                 </div>
                   </>
@@ -8766,43 +8815,83 @@ function SidepanelOrchestrator() {
             {showTriggerPrompt && (
               <div style={{
                 padding: '12px 14px',
-                background: 'rgba(255,255,255,0.08)',
-                borderTop: '1px solid rgba(255,255,255,0.20)'
+                background: theme === 'standard' ? '#f8fafc' : 'rgba(0,0,0,0.35)',
+                borderTop: theme === 'standard' ? '1px solid #94a3b8' : '1px solid rgba(255,255,255,0.20)'
               }}>
-                <div style={{ marginBottom: '8px', fontSize: '12px', fontWeight: '700', opacity: 0.85 }}>
+                <style>{`
+                  .wr-capture-field::placeholder { color: rgba(150,150,150,0.7); }
+                `}</style>
+                <div style={{
+                  marginBottom: '8px',
+                  fontSize: '12px',
+                  fontWeight: '700',
+                  color: theme === 'standard' ? '#0f172a' : 'rgba(255,255,255,0.70)',
+                  opacity: 1
+                }}>
                   {showTriggerPrompt.mode === 'screenshot' ? '📸 Screenshot' : '🎥 Stream'}
                 </div>
                 {showTriggerPrompt.createTrigger && (
-                  <input
-                    type="text"
-                    placeholder="Trigger Name"
-                    value={showTriggerPrompt.name || ''}
-                    onChange={(e) => setShowTriggerPrompt({ ...showTriggerPrompt, name: e.target.value })}
-                    style={{
+                  <>
+                    <label
+                      htmlFor="wr-capture-trigger-name-docked2"
+                      style={{ display: 'block', fontSize: '11px', fontWeight: 600, marginBottom: 4, color: theme === 'standard' ? '#475569' : 'rgba(255,255,255,0.70)' }}
+                    >
+                      Trigger Name
+                    </label>
+                    <input
+                      id="wr-capture-trigger-name-docked2"
+                      type="text"
+                      className="wr-capture-field"
+                      placeholder="Trigger Name"
+                      value={showTriggerPrompt.name || ''}
+                      onChange={(e) => setShowTriggerPrompt({ ...showTriggerPrompt, name: e.target.value })}
+                      onFocus={(e) => {
+                        e.currentTarget.style.border = theme === 'standard' ? '1px solid #6366f1' : '1px solid rgba(255,255,255,0.80)'
+                      }}
+                      onBlur={(e) => {
+                        e.currentTarget.style.border = theme === 'standard' ? '1px solid #94a3b8' : '1px solid rgba(255,255,255,0.45)'
+                      }}
+                      style={{
                       width: '100%',
                       boxSizing: 'border-box',
                       padding: '8px 10px',
-                      background: 'rgba(255,255,255,0.08)',
-                      border: '1px solid rgba(255,255,255,0.20)',
-                      color: 'white',
+                      background: theme === 'standard' ? '#ffffff' : 'rgba(255,255,255,0.12)',
+                      border: theme === 'standard' ? '1px solid #94a3b8' : '1px solid rgba(255,255,255,0.45)',
+                      color: theme === 'standard' ? '#0f172a' : '#f8fafc',
                       borderRadius: '6px',
                       fontSize: '12px',
                       marginBottom: '8px'
                     }}
-                  />
+                    />
+                  </>
                 )}
                 {showTriggerPrompt.addCommand && (
-                  <textarea
-                    placeholder="Optional Command"
-                    value={showTriggerPrompt.command || ''}
-                    onChange={(e) => setShowTriggerPrompt({ ...showTriggerPrompt, command: e.target.value })}
-                    style={{
+                  <>
+                    <label
+                      htmlFor="wr-capture-optional-command-docked2"
+                      style={{ display: 'block', fontSize: '11px', fontWeight: 600, marginBottom: 4, color: theme === 'standard' ? '#475569' : 'rgba(255,255,255,0.70)' }}
+                    >
+                      Optional Command
+                    </label>
+                    <textarea
+                      id="wr-capture-optional-command-docked2"
+                      className="wr-capture-field"
+                      placeholder="Optional Command"
+                      value={showTriggerPrompt.command || ''}
+                      onChange={(e) => setShowTriggerPrompt({ ...showTriggerPrompt, command: e.target.value })}
+                      onFocus={(e) => {
+                        e.currentTarget.style.border = theme === 'standard' ? '1px solid #6366f1' : '1px solid rgba(255,255,255,0.80)'
+                      }}
+                      onBlur={(e) => {
+                        e.currentTarget.style.border = theme === 'standard' ? '1px solid #94a3b8' : '1px solid rgba(255,255,255,0.45)'
+                      }}
+                      style={{
                       width: '100%',
                       boxSizing: 'border-box',
                       padding: '8px 10px',
-                      background: 'rgba(255,255,255,0.08)',
-                      border: '1px solid rgba(255,255,255,0.20)',
-                      color: 'white',
+                      background: theme === 'standard' ? '#ffffff' : 'rgba(255,255,255,0.12)',
+                      border: theme === 'standard' ? '1px solid #94a3b8' : '1px solid rgba(255,255,255,0.45)',
+                      color: theme === 'standard' ? '#0f172a' : '#f8fafc',
                       borderRadius: '6px',
                       fontSize: '12px',
                       minHeight: '60px',
@@ -8810,16 +8899,17 @@ function SidepanelOrchestrator() {
                       resize: 'vertical',
                       fontFamily: 'inherit'
                     }}
-                  />
+                    />
+                  </>
                 )}
                 <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
                   <button
                     onClick={() => setShowTriggerPrompt(null)}
                     style={{
                       padding: '6px 12px',
-                      background: 'rgba(255,255,255,0.15)',
-                      border: '1px solid rgba(255,255,255,0.25)',
-                      color: 'white',
+                      background: theme === 'standard' ? '#ffffff' : 'rgba(255,255,255,0.15)',
+                      border: theme === 'standard' ? '1px solid #94a3b8' : '1px solid rgba(255,255,255,0.25)',
+                      color: theme === 'standard' ? '#0f172a' : 'white',
                       borderRadius: '6px',
                       cursor: 'pointer',
                       fontSize: '12px'
@@ -8880,25 +8970,28 @@ function SidepanelOrchestrator() {
                       // Auto-process: If there's a command or trigger name, send to LLM
                       const triggerNameToUse = name || command
                       const shouldAutoProcess = showTriggerPrompt.addCommand || (showTriggerPrompt.createTrigger && triggerNameToUse)
-                      
+                      const nameT = name.trim()
+                      const commandT = command.trim()
+                      const tagFromName = normaliseTriggerTag(nameT)
+                      const triggerTagFallback = normaliseTriggerTag(triggerNameToUse.trim())
+                      const displayForChat = commandT || (nameT ? nameT : '') || triggerTagFallback
+                      const routeForLlm = commandT || tagFromName || triggerTagFallback
+
                       if (shouldAutoProcess && triggerNameToUse && showTriggerPrompt.imageUrl) {
-                        // Use the trigger name as @trigger format for routing
-                        const triggerText = triggerNameToUse.startsWith('@') ? triggerNameToUse : `@${triggerNameToUse}`
-                        
-                        
                         // Clear the prompt first
                         setShowTriggerPrompt(null)
                         setCreateTriggerChecked(false)
                         setAddCommandChecked(false)
-                        
-                        // Send to LLM for processing
-                        handleSendMessageWithTrigger(triggerText, showTriggerPrompt.imageUrl)
+
+                        handleSendMessageWithTrigger(displayForChat, showTriggerPrompt.imageUrl, routeForLlm)
                       } else {
                         // Just post the screenshot to chat (no auto-process)
                         if (showTriggerPrompt.imageUrl) {
+                          // Invariant: exactly one user message with image + label; no duplicate from ELECTRON_SELECTION_RESULT.
+                          const caption = commandT || (nameT ? nameT : '') || tagFromName || '[Screenshot]'
                           const imageMessage = {
                             role: 'user' as const,
-                            text: `![Screenshot](${showTriggerPrompt.imageUrl})`,
+                            text: caption,
                             imageUrl: showTriggerPrompt.imageUrl
                           }
                           setChatMessages(prev => [...prev, imageMessage])
@@ -8909,7 +9002,7 @@ function SidepanelOrchestrator() {
                             }
                           }, 100)
                         }
-                        
+
                         // Clear the prompt
                         setShowTriggerPrompt(null)
                         setCreateTriggerChecked(false)
@@ -9145,7 +9238,7 @@ function SidepanelOrchestrator() {
                       onClick={(e) => {
                         e.stopPropagation()
                         void (async () => {
-                          await updateAgentBoxOutput(box.id, '', undefined, sessionKey)
+                          await updateAgentBoxOutput(box.id, '', undefined, sessionKey, 'sidepanel')
                           setAgentBoxes((prev) =>
                             prev.map((b) => (b.id === box.id ? { ...b, output: '' } : b)),
                           )
@@ -9548,7 +9641,7 @@ function SidepanelOrchestrator() {
               padding: '12px',
               ...(theme === 'standard' ? {
                 background: 'rgba(15,23,42,0.08)',
-                border: '1px solid rgba(15,23,42,0.2)',
+                border: '1px solid #94a3b8',
                 color: '#0f172a'
               } : theme === 'dark' ? {
                 background: 'rgba(255,255,255,0.1)',

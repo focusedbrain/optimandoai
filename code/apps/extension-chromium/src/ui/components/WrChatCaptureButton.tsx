@@ -30,7 +30,8 @@ export type WrChatCaptureButtonProps = {
   theme: 'pro' | 'dark' | 'standard'
   /** Sidepanel docked layouts only */
   sidepanelPreset?: 'enterprise' | 'appBar'
-  source?: string
+  /** Must match keys in `SOURCE_TO_SURFACE` (wrChatSurface.ts) so main routes prompts to this surface. */
+  source: string
   createTrigger?: boolean
   addCommand?: boolean
 }
@@ -71,7 +72,7 @@ export const WrChatCaptureButton: React.FC<WrChatCaptureButtonProps> = ({
           alignItems: 'center',
           gap: 4,
           border: isLight
-            ? '1px solid #e1e8ed'
+            ? '1px solid #94a3b8'
             : isDark
               ? '1px solid rgba(255,255,255,0.2)'
               : '1px solid rgba(255,255,255,0.45)',
@@ -122,7 +123,7 @@ export const WrChatCaptureButton: React.FC<WrChatCaptureButtonProps> = ({
   const isStandard = theme === 'standard'
   const isDark = theme === 'dark'
 
-  /** Matches sidepanel `chatControlButtonStyle` — standard = dark ink on white (readable on white WR Chat header) */
+  /** Matches sidepanel docked controls (Tags / Clear): standard = white fill; pro/dark = light frosted `rgba(255,255,255,0.15)` */
   const baseEnterprise = (): React.CSSProperties => ({
     borderRadius: '6px',
     padding: '0 8px',
@@ -136,21 +137,21 @@ export const WrChatCaptureButton: React.FC<WrChatCaptureButtonProps> = ({
     ...(isStandard
       ? {
           color: '#0f172a',
-          border: '1px solid #e1e8ed',
+          border: '1px solid #94a3b8',
           background: '#ffffff',
           boxShadow: 'none',
         }
       : isDark
         ? {
             color: '#f1f5f9',
-            border: '1px solid rgba(255,255,255,0.2)',
-            background: 'rgba(255,255,255,0.1)',
+            border: 'none',
+            background: 'rgba(255,255,255,0.15)',
             boxShadow: 'none',
           }
         : {
             color: '#ffffff',
-            border: '1px solid rgba(255,255,255,0.45)',
-            background: 'rgba(118,75,162,0.35)',
+            border: 'none',
+            background: 'rgba(255,255,255,0.15)',
             boxShadow: 'none',
           }),
   })
@@ -171,7 +172,7 @@ export const WrChatCaptureButton: React.FC<WrChatCaptureButtonProps> = ({
       ? {
           color: '#0f172a',
           background: 'rgba(15,23,42,0.08)',
-          border: '1px solid rgba(15,23,42,0.12)',
+          border: '1px solid #94a3b8',
         }
       : isDark
         ? {
@@ -180,8 +181,8 @@ export const WrChatCaptureButton: React.FC<WrChatCaptureButtonProps> = ({
           }
         : {
             color: '#ffffff',
-            background: 'rgba(118,75,162,0.35)',
-            border: '1px solid rgba(255,255,255,0.45)',
+            background: 'rgba(255,255,255,0.15)',
+            border: 'none',
           }),
   })
 
@@ -194,10 +195,10 @@ export const WrChatCaptureButton: React.FC<WrChatCaptureButtonProps> = ({
       el.style.background = '#eef3f6'
       el.style.color = '#0f172a'
     } else if (isDark) {
-      el.style.background = 'rgba(255,255,255,0.25)'
+      el.style.background = 'rgba(255,255,255,0.22)'
       el.style.color = '#f1f5f9'
     } else {
-      el.style.background = 'rgba(118,75,162,0.6)'
+      el.style.background = 'rgba(255,255,255,0.25)'
       el.style.color = '#ffffff'
     }
   }
@@ -207,10 +208,10 @@ export const WrChatCaptureButton: React.FC<WrChatCaptureButtonProps> = ({
       el.style.background = '#ffffff'
       el.style.color = '#0f172a'
     } else if (isDark) {
-      el.style.background = 'rgba(255,255,255,0.1)'
+      el.style.background = 'rgba(255,255,255,0.15)'
       el.style.color = '#f1f5f9'
     } else {
-      el.style.background = 'rgba(118,75,162,0.35)'
+      el.style.background = 'rgba(255,255,255,0.15)'
       el.style.color = '#ffffff'
     }
   }
@@ -221,10 +222,10 @@ export const WrChatCaptureButton: React.FC<WrChatCaptureButtonProps> = ({
       el.style.background = 'rgba(15,23,42,0.12)'
       el.style.color = '#0f172a'
     } else if (isDark) {
-      el.style.background = 'rgba(255,255,255,0.25)'
+      el.style.background = 'rgba(255,255,255,0.22)'
       el.style.color = '#f1f5f9'
     } else {
-      el.style.background = 'rgba(118,75,162,0.6)'
+      el.style.background = 'rgba(255,255,255,0.25)'
       el.style.color = '#ffffff'
     }
   }
@@ -237,7 +238,7 @@ export const WrChatCaptureButton: React.FC<WrChatCaptureButtonProps> = ({
       el.style.background = 'rgba(255,255,255,0.15)'
       el.style.color = '#f1f5f9'
     } else {
-      el.style.background = 'rgba(118,75,162,0.35)'
+      el.style.background = 'rgba(255,255,255,0.15)'
       el.style.color = '#ffffff'
     }
   }

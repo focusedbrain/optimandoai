@@ -3,6 +3,12 @@
  * extension contexts use chrome.runtime → background WebSocket.
  */
 
+import { SOURCE_TO_SURFACE } from './wrChatSurface'
+
+/** Canonical default `source` when omitted — matches `SOURCE_TO_SURFACE` entry for `sidepanel`. */
+const DEFAULT_WR_CHAT_CAPTURE_SOURCE =
+  Object.keys(SOURCE_TO_SURFACE).find((k) => SOURCE_TO_SURFACE[k] === 'sidepanel') ?? 'sidepanel-docked-chat'
+
 type LmgtfyBridge = {
   selectScreenshot?: (opts?: { createTrigger?: boolean; addCommand?: boolean }) => Promise<unknown>
 }
@@ -33,7 +39,8 @@ export function startWrChatScreenCapture(options?: {
     return
   }
 
-  const source = options?.source ?? 'wr-chat'
+  /** Default matches docked WR Chat; popup/dashboard pass explicit `source` via WrChatCaptureButton. */
+  const source = options?.source ?? DEFAULT_WR_CHAT_CAPTURE_SOURCE
   try {
     chrome.runtime?.sendMessage({
       type: 'ELECTRON_START_SELECTION',

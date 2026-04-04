@@ -13,6 +13,7 @@
 
 // Import canonical provider identity constants
 import { PROVIDER_IDS, toProviderId, toProviderLabel, CLOUD_DEFAULT_MODELS, PROVIDER_API_KEY_NAMES, type ProviderId } from '../constants/providers'
+import type { WrChatSurface } from '../ui/components/wrChatSurface'
 
 // Import the unified Input Coordinator
 import { InputCoordinator, inputCoordinator } from './InputCoordinator'
@@ -171,6 +172,12 @@ export interface AgentMatch {
   targetBoxLabels?: string[]
 }
 
+/**
+ * Agent config from session / AI Instructions. `capabilities` may omit `listening`
+ * when the user only configures WR Chat triggers in the UI; `InputCoordinator` then
+ * treats `listening.unifiedTriggers` / `listening.triggers` entries with `type` wrchat
+ * as an implicit listener gate (see `hasWRChatTrigger`).
+ */
 export interface AgentConfig {
   id: string
   name: string
@@ -400,33 +407,51 @@ export async function loadAgentsFromSession(providedSessionKey?: string): Promis
     
 
     return new Promise((resolve) => {
+      let settled = false
+      const finish = (agents: AgentConfig[]) => {
+        if (settled) return
+        settled = true
+        resolve(agents)
+      }
+      const t = setTimeout(() => {
+        console.warn('[ProcessFlow] loadAgentsFromSession: sendMessage timed out, using storage fallback')
+        loadAgentsFromChromeStorage(sessionKey).then(finish)
+      }, 12_000)
       try {
+        if (typeof chrome?.runtime?.sendMessage !== 'function') {
+          clearTimeout(t)
+          void loadAgentsFromChromeStorage(sessionKey).then(finish)
+          return
+        }
         // Load from SQLite via background script (single source of truth)
-        chrome.runtime?.sendMessage({ 
-          type: 'GET_SESSION_FROM_SQLITE', 
-          sessionKey 
-        }, (response) => {
-          if (chrome.runtime.lastError) {
-            console.warn('[ProcessFlow] Error loading from SQLite:', chrome.runtime.lastError.message)
-            // Fallback to chrome.storage.local
-            loadAgentsFromChromeStorage(sessionKey).then(resolve)
-            return
-          }
-          
-          if (!response?.success || !response?.session) {
-            console.warn('[ProcessFlow] No session data found in SQLite for key:', sessionKey)
-            // Fallback to chrome.storage.local
-            loadAgentsFromChromeStorage(sessionKey).then(resolve)
-            return
-          }
-          
-          const session = response.session
-          const agents = parseAgentsFromSession(session)
-          resolve(agents)
-        })
+        chrome.runtime.sendMessage(
+          {
+            type: 'GET_SESSION_FROM_SQLITE',
+            sessionKey,
+          },
+          (response) => {
+            clearTimeout(t)
+            if (chrome.runtime.lastError) {
+              console.warn('[ProcessFlow] Error loading from SQLite:', chrome.runtime.lastError.message)
+              loadAgentsFromChromeStorage(sessionKey).then(finish)
+              return
+            }
+
+            if (!response?.success || !response?.session) {
+              console.warn('[ProcessFlow] No session data found in SQLite for key:', sessionKey)
+              loadAgentsFromChromeStorage(sessionKey).then(finish)
+              return
+            }
+
+            const session = response.session
+            const agents = parseAgentsFromSession(session)
+            finish(agents)
+          },
+        )
       } catch (e) {
+        clearTimeout(t)
         console.warn('[ProcessFlow] Failed to load agents from SQLite:', e)
-        loadAgentsFromChromeStorage(sessionKey).then(resolve)
+        loadAgentsFromChromeStorage(sessionKey).then(finish)
       }
     })
   } catch (e) {
@@ -573,29 +598,49 @@ export async function loadAgentBoxesFromSession(providedSessionKey?: string): Pr
     
 
     return new Promise((resolve) => {
+      let settled = false
+      const finish = (boxes: AgentBox[]) => {
+        if (settled) return
+        settled = true
+        resolve(boxes)
+      }
+      const t = setTimeout(() => {
+        console.warn('[ProcessFlow] loadAgentBoxesFromSession: sendMessage timed out, using storage fallback')
+        loadAgentBoxesFromChromeStorage(sessionKey).then(finish)
+      }, 12_000)
       try {
-        chrome.runtime?.sendMessage({
-          type: 'GET_SESSION_FROM_SQLITE',
-          sessionKey
-        }, (response) => {
-          if (chrome.runtime.lastError) {
-            console.warn('[ProcessFlow] Error loading boxes from SQLite:', chrome.runtime.lastError.message)
-            loadAgentBoxesFromChromeStorage(sessionKey).then(resolve)
-            return
-          }
+        if (typeof chrome?.runtime?.sendMessage !== 'function') {
+          clearTimeout(t)
+          void loadAgentBoxesFromChromeStorage(sessionKey).then(finish)
+          return
+        }
+        chrome.runtime.sendMessage(
+          {
+            type: 'GET_SESSION_FROM_SQLITE',
+            sessionKey,
+          },
+          (response) => {
+            clearTimeout(t)
+            if (chrome.runtime.lastError) {
+              console.warn('[ProcessFlow] Error loading boxes from SQLite:', chrome.runtime.lastError.message)
+              loadAgentBoxesFromChromeStorage(sessionKey).then(finish)
+              return
+            }
 
-          if (!response?.success || !response?.session) {
-            console.warn('[ProcessFlow] No session in SQLite for boxes, falling back to chrome.storage.local')
-            loadAgentBoxesFromChromeStorage(sessionKey).then(resolve)
-            return
-          }
+            if (!response?.success || !response?.session) {
+              console.warn('[ProcessFlow] No session in SQLite for boxes, falling back to chrome.storage.local')
+              loadAgentBoxesFromChromeStorage(sessionKey).then(finish)
+              return
+            }
 
-          const boxes = normalizeAgentBoxes(response.session.agentBoxes || [])
-          resolve(boxes)
-        })
+            const boxes = normalizeAgentBoxes(response.session.agentBoxes || [])
+            finish(boxes)
+          },
+        )
       } catch (e) {
+        clearTimeout(t)
         console.warn('[ProcessFlow] Failed to load agent boxes from SQLite:', e)
-        loadAgentBoxesFromChromeStorage(sessionKey).then(resolve)
+        loadAgentBoxesFromChromeStorage(sessionKey).then(finish)
       }
     })
   } catch (e) {
@@ -733,15 +778,30 @@ export function matchInputToAgents(
   agentBoxes: AgentBox[],
   currentUrl?: string
 ): AgentMatch[] {
-  // Delegate to the unified InputCoordinator
-  return inputCoordinator.routeToAgents(
-    input,
-    inputType,
-    hasImage,
-    agents,
-    agentBoxes,
-    currentUrl
-  )
+  const routingDebug =
+    (typeof import.meta !== 'undefined' && (import.meta as { env?: { DEV?: boolean } }).env?.DEV === true) ||
+    (typeof process !== 'undefined' && process.env?.NODE_ENV !== 'production')
+  if (routingDebug) {
+    const inputTriggers = inputCoordinator.extractTriggerPatterns(input)
+    for (const agent of agents) {
+      if (!agent.enabled) continue
+      const hasListenerCapability = agent.capabilities?.includes('listening') ?? false
+      const hasWRChatTrigger = inputCoordinator.hasWRChatTrigger(agent)
+      const evaluation = inputCoordinator.evaluateAgentListener(
+        agent,
+        input,
+        inputType,
+        hasImage,
+        inputTriggers,
+        currentUrl,
+      )
+      const status = evaluation.matchType === 'none' ? 'rejected' : 'accepted'
+      console.debug(
+        `[matchInputToAgents] ${agent.name ?? agent.id} | hasListenerCapability=${hasListenerCapability} | hasWRChatTrigger=${hasWRChatTrigger} | ${status} | ${evaluation.matchDetails}`,
+      )
+    }
+  }
+  return inputCoordinator.routeToAgents(input, inputType, hasImage, agents, agentBoxes, currentUrl)
 }
 
 /**
@@ -1104,16 +1164,30 @@ export function generateEventTagRoutingSummary(batch: EventTagRoutingBatch): str
 }
 
 /**
+ * Route text + OCR for `routeInput` / `matchInputToAgents` (same shape on all WR Chat surfaces).
+ */
+export function enrichRouteTextWithOcr(routeText: string, ocrText: string): string {
+  return [routeText, ocrText].filter(Boolean).join('\n\n[OCR]:\n')
+}
+
+/**
  * Forward input to agent for processing
  * Wraps input with agent's reasoning instructions
  */
 export function wrapInputForAgent(
-  input: string,
+  routeText: string,
   agent: AgentConfig,
-  imageText?: string
+  ocrText?: string
 ): string {
+  const ocrBlock =
+    ocrText && String(ocrText).trim().length > 0
+      ? `\n\n---\n[OCR text from screenshot]:\n${String(ocrText).trim()}`
+      : ''
+
   const reasoning = agent.reasoning
-  if (!reasoning) return input
+  if (!reasoning) {
+    return routeText + ocrBlock
+  }
 
   let wrappedInput = ''
 
@@ -1137,11 +1211,10 @@ export function wrapInputForAgent(
   }
 
   // Add the actual input
-  wrappedInput += `[User Input]\n${input}`
+  wrappedInput += `[User Input]\n${routeText}`
 
-  // Add image text if available
-  if (imageText) {
-    wrappedInput += `\n\n[Extracted Image Text]\n${imageText}`
+  if (ocrBlock) {
+    wrappedInput += ocrBlock
   }
 
   // Append output formatting directive if set (injected last, scoped to output only)
@@ -1157,12 +1230,14 @@ export function wrapInputForAgent(
  * Primary: SQLite via background handler (works for both sidepanel and grid boxes).
  * Fallback: chrome.storage.local.
  * The background handler also broadcasts UPDATE_AGENT_BOX_OUTPUT to all extension pages.
+ * @param sourceSurface — WR Chat surface that initiated the agent run; listeners filter on this.
  */
 export async function updateAgentBoxOutput(
   agentBoxId: string,
   output: string,
   reasoningContext?: string,
-  providedSessionKey?: string
+  providedSessionKey?: string,
+  sourceSurface?: WrChatSurface
 ): Promise<boolean> {
   try {
     const sessionKey = providedSessionKey || await getCurrentSessionKeyAsync()
@@ -1175,30 +1250,51 @@ export async function updateAgentBoxOutput(
     const formattedOutput = output
 
     return new Promise((resolve) => {
+      let settled = false
+      const finish = (ok: boolean) => {
+        if (settled) return
+        settled = true
+        resolve(ok)
+      }
+      const t = setTimeout(() => {
+        console.warn('[ProcessFlow] updateAgentBoxOutput: sendMessage timed out, using storage fallback')
+        updateAgentBoxOutputInChromeStorage(sessionKey, agentBoxId, formattedOutput, sourceSurface).then(finish)
+      }, 12_000)
       try {
-        chrome.runtime?.sendMessage({
-          type: 'UPDATE_BOX_OUTPUT_SQLITE',
-          sessionKey,
-          agentBoxId,
-          output: formattedOutput
-        }, (response) => {
-          if (chrome.runtime.lastError) {
-            console.warn('[ProcessFlow] SQLite output update failed:', chrome.runtime.lastError.message)
-            updateAgentBoxOutputInChromeStorage(sessionKey, agentBoxId, formattedOutput).then(resolve)
-            return
-          }
+        if (typeof chrome?.runtime?.sendMessage !== 'function') {
+          clearTimeout(t)
+          void updateAgentBoxOutputInChromeStorage(sessionKey, agentBoxId, formattedOutput, sourceSurface).then(finish)
+          return
+        }
+        chrome.runtime.sendMessage(
+          {
+            type: 'UPDATE_BOX_OUTPUT_SQLITE',
+            sessionKey,
+            agentBoxId,
+            output: formattedOutput,
+            ...(sourceSurface ? { sourceSurface } : {}),
+          },
+          (response) => {
+            clearTimeout(t)
+            if (chrome.runtime.lastError) {
+              console.warn('[ProcessFlow] SQLite output update failed:', chrome.runtime.lastError.message)
+              updateAgentBoxOutputInChromeStorage(sessionKey, agentBoxId, formattedOutput, sourceSurface).then(finish)
+              return
+            }
 
-          if (!response?.success) {
-            console.warn('[ProcessFlow] SQLite output update returned failure, trying chrome.storage fallback')
-            updateAgentBoxOutputInChromeStorage(sessionKey, agentBoxId, formattedOutput).then(resolve)
-            return
-          }
+            if (!response?.success) {
+              console.warn('[ProcessFlow] SQLite output update returned failure, trying chrome.storage fallback')
+              updateAgentBoxOutputInChromeStorage(sessionKey, agentBoxId, formattedOutput, sourceSurface).then(finish)
+              return
+            }
 
-          resolve(true)
-        })
+            finish(true)
+          },
+        )
       } catch (e) {
+        clearTimeout(t)
         console.warn('[ProcessFlow] Failed to send UPDATE_BOX_OUTPUT_SQLITE:', e)
-        updateAgentBoxOutputInChromeStorage(sessionKey, agentBoxId, formattedOutput).then(resolve)
+        updateAgentBoxOutputInChromeStorage(sessionKey, agentBoxId, formattedOutput, sourceSurface).then(finish)
       }
     })
   } catch (e) {
@@ -1213,7 +1309,8 @@ export async function updateAgentBoxOutput(
 async function updateAgentBoxOutputInChromeStorage(
   sessionKey: string,
   agentBoxId: string,
-  formattedOutput: string
+  formattedOutput: string,
+  sourceSurface?: WrChatSurface
 ): Promise<boolean> {
   return new Promise((resolve) => {
     chrome.storage?.local?.get([sessionKey], (data: any) => {
@@ -1241,7 +1338,8 @@ async function updateAgentBoxOutputInChromeStorage(
           data: {
             agentBoxId,
             output: formattedOutput,
-            allBoxes: session.agentBoxes
+            allBoxes: session.agentBoxes,
+            ...(sourceSurface ? { sourceSurface } : {}),
           }
         })
 

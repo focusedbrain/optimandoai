@@ -13,6 +13,25 @@
  */
 
 import type { AgentConfig, AgentBox, AgentMatch, RoutingDecision } from './processFlow'
+
+/** WR Chat trigger types from AI Instructions / unified triggers — implicit listener capability. */
+function isWRChatTriggerType(type: unknown): boolean {
+  if (typeof type !== 'string' || !type.trim()) return false
+  const n = type.toLowerCase().replace(/[^a-z]/g, '')
+  return n === 'wrchat'
+}
+
+/** Dev / non-production routing diagnostics (Vite `import.meta.env.DEV` or `process.env.NODE_ENV`). */
+function routingDebugEnabled(): boolean {
+  try {
+    if (typeof import.meta !== 'undefined' && (import.meta as { env?: { DEV?: boolean } }).env?.DEV === true) {
+      return true
+    }
+  } catch {
+    /* noop */
+  }
+  return typeof process !== 'undefined' && process.env?.NODE_ENV !== 'production'
+}
 import type { ClassifiedInput, AgentAllocation, AgentReasoning, OutputSlot } from '../nlp/types'
 import type {
   EventTagRoutingResult,
@@ -90,6 +109,9 @@ export class InputCoordinator {
    * Extract trigger patterns from input text
    * Looks for #TriggerName or #tag17 patterns (primary format)
    * Also supports @TriggerName for backward compatibility
+   *
+   * Returns **bare** names (no #/@). Matching against agent config uses
+   * case-insensitive comparison on both sides (see evaluateListener / routeToEventTagAgents).
    */
   extractTriggerPatterns(input: string): string[] {
     const patterns: string[] = []
@@ -97,13 +119,13 @@ export class InputCoordinator {
     // Match #TriggerName or #tag17 patterns (primary format)
     const hashMatches = input.match(/#[\w-]+/g)
     if (hashMatches) {
-      patterns.push(...hashMatches.map(m => m.substring(1)))
+      patterns.push(...hashMatches.map(m => m.substring(1).toLowerCase()))
     }
     
     // Match @TriggerName patterns (backward compatibility)
     const atMatches = input.match(/@[\w-]+/g)
     if (atMatches) {
-      patterns.push(...atMatches.map(m => m.substring(1)))
+      patterns.push(...atMatches.map(m => m.substring(1).toLowerCase()))
     }
     
     return patterns
@@ -157,8 +179,13 @@ export class InputCoordinator {
    * Returns { valid: boolean, matchedKeyword?: string }
    * - valid=true if no keywords configured OR at least one keyword found
    * - matchedKeyword contains the first keyword that was found (for display)
+   * - rejectReason when valid=false (for devtools routing debug)
    */
-  private checkTriggerKeywords(trigger: any, input: string): { valid: boolean; matchedKeyword?: string } {
+  private checkTriggerKeywords(trigger: any, input: string): {
+    valid: boolean
+    matchedKeyword?: string
+    rejectReason?: string
+  } {
     const inputLower = input.toLowerCase()
     
     // Check eventTagConditions for body_keywords
@@ -169,7 +196,13 @@ export class InputCoordinator {
           inputLower.includes(kw.toLowerCase())
         )
         this.log(`Keyword check (eventTagConditions): keywords=${keywordCondition.keywords.join(',')}, matched=${matchedKeyword || 'none'}`)
-        return { valid: !!matchedKeyword, matchedKeyword }
+        if (!matchedKeyword) {
+          return {
+            valid: false,
+            rejectReason: `eventTagConditions.body_keywords: input missing one of [${keywordCondition.keywords.join(', ')}]`,
+          }
+        }
+        return { valid: true, matchedKeyword }
       }
     }
     
@@ -179,7 +212,13 @@ export class InputCoordinator {
       if (keywords.length > 0) {
         const matchedKeyword = keywords.find((kw: string) => inputLower.includes(kw.toLowerCase()))
         this.log(`Keyword check (trigger.keywords): keywords=${keywords.join(',')}, matched=${matchedKeyword || 'none'}`)
-        return { valid: !!matchedKeyword, matchedKeyword }
+        if (!matchedKeyword) {
+          return {
+            valid: false,
+            rejectReason: `trigger.keywords: input missing one of [${keywords.join(', ')}]`,
+          }
+        }
+        return { valid: true, matchedKeyword }
       }
     }
     
@@ -189,12 +228,35 @@ export class InputCoordinator {
       if (keywords.length > 0) {
         const matchedKeyword = keywords.find((kw: string) => inputLower.includes(kw.toLowerCase()))
         this.log(`Keyword check (expectedContext): keywords=${keywords.join(',')}, matched=${matchedKeyword || 'none'}`)
-        return { valid: !!matchedKeyword, matchedKeyword }
+        if (!matchedKeyword) {
+          return {
+            valid: false,
+            rejectReason: `expectedContext: input missing one of [${keywords.join(', ')}]`,
+          }
+        }
+        return { valid: true, matchedKeyword }
       }
     }
     
     // No keywords configured = always match (no keyword to display)
     return { valid: true }
+  }
+
+  /**
+   * True if the agent has a WR Chat unified/listener trigger (AI Instructions UI).
+   * Such triggers implicitly satisfy the listener capability gate — no separate
+   * `capabilities` checkbox is required.
+   */
+  hasWRChatTrigger(agent: AgentConfig): boolean {
+    const listening = agent.listening
+    if (!listening) return false
+    for (const tr of listening.unifiedTriggers ?? []) {
+      if (isWRChatTriggerType((tr as { type?: unknown }).type)) return true
+    }
+    for (const tr of listening.triggers ?? []) {
+      if (isWRChatTriggerType((tr as { type?: unknown }).type)) return true
+    }
+    return false
   }
 
   /**
@@ -207,9 +269,12 @@ export class InputCoordinator {
    * If an agent has no active Listener, it does NOT receive external input.
    * 
    * Decision logic:
-   * - No listener capability or no active triggers -> reject (matchType = 'none')
+   * - No listener capability (and no implicit WR Chat trigger) or no active triggers -> reject
    * - Listener active and trigger matches -> forward (matchType = trigger type)
    * - Listener active but no match -> reject (matchType = 'none')
+   *
+   * WR Chat triggers (`type` wrchat / WRChat / wr-chat) grant the listener gate without
+   * `capabilities` containing `listening`, matching the AI Instructions UI.
    */
   evaluateAgentListener(
     agent: AgentConfig,
@@ -221,8 +286,10 @@ export class InputCoordinator {
   ): ListenerEvaluation {
     const listening = agent.listening
     
-    // Check if agent has listener capability
+    // Explicit capability OR at least one WR Chat trigger (implicit listener for WR Chat routing)
     const hasListenerCapability = agent.capabilities?.includes('listening') ?? false
+    const hasWRChatTrigger = this.hasWRChatTrigger(agent)
+    const passesListenerCapabilityGate = hasListenerCapability || hasWRChatTrigger
     
     // Check if any listener mode is enabled (legacy format)
     const passiveEnabled = listening?.passiveEnabled ?? false
@@ -235,21 +302,22 @@ export class InputCoordinator {
     // Listener is active if any trigger system has triggers
     const isListenerActive = passiveEnabled || activeEnabled || hasUnifiedTriggers || hasLegacyTriggers
     
-    this.log(`Agent "${agent.name}" - hasListenerCapability: ${hasListenerCapability}, isListenerActive: ${isListenerActive}, hasUnifiedTriggers: ${hasUnifiedTriggers}`)
+    this.log(`Agent "${agent.name}" - hasListenerCapability: ${hasListenerCapability}, hasWRChatTrigger: ${hasWRChatTrigger}, isListenerActive: ${isListenerActive}, hasUnifiedTriggers: ${hasUnifiedTriggers}`)
 
-    // STRICT CHAIN: No listener capability or no active triggers -> agent cannot receive external input.
-    // Reasoning and Execution must never listen to the outside world directly.
-    if (!hasListenerCapability || !isListenerActive) {
-      this.log(`Agent "${agent.name}" REJECTED: no active Listener — strict chain requires Listener -> Reasoning -> Execution`)
+    // STRICT CHAIN: No listener path (explicit or WR Chat) or no configured triggers -> reject.
+    if (!passesListenerCapabilityGate || !isListenerActive) {
+      this.log(`Agent "${agent.name}" REJECTED: no listener gate or no triggers — strict chain requires Listener -> Reasoning -> Execution`)
       return {
-        hasListener: hasListenerCapability,
+        hasListener: passesListenerCapabilityGate,
         isListenerActive: false,
         matchesPassiveTrigger: false,
         matchesActiveTrigger: false,
         matchesExpectedContext: false,
         matchesApplyFor: false,
         matchType: 'none',
-        matchDetails: 'No active listener — external input requires a Listener trigger (Listener → Reasoning → Execution)'
+        matchDetails: !isListenerActive
+          ? 'No active listener — agent has no triggers configured'
+          : 'No active listener — external input requires listening capability or a WR Chat trigger (Listener → Reasoning → Execution)'
       }
     }
 
@@ -311,7 +379,10 @@ export class InputCoordinator {
     // Check unified triggers (new format) — includes wrchat, direct_tag, etc.
     if (listening?.unifiedTriggers && inputTriggers.length > 0) {
       for (const trigger of listening.unifiedTriggers) {
-        const triggerTag = trigger.tag?.replace('#', '') || trigger.tagName || ''
+        const triggerTag =
+          (typeof trigger.tag === 'string' ? trigger.tag.replace(/^[@#]+/, '') : '') ||
+          trigger.tagName ||
+          ''
         
         if (triggerTag && inputTriggers.some(t => 
           t.toLowerCase() === triggerTag.toLowerCase()
@@ -320,6 +391,11 @@ export class InputCoordinator {
           const keywordResult = this.checkTriggerKeywords(trigger, input)
           if (!keywordResult.valid) {
             this.log(`Agent "${agent.name}" trigger #${triggerTag} - keywords NOT matched, skipping`)
+            if (routingDebugEnabled()) {
+              console.debug(
+                `[InputCoordinator.routing] ${agent.name ?? agent.id} | keyword gate rejected #${triggerTag}: ${keywordResult.rejectReason ?? 'keywords not matched'}`,
+              )
+            }
             continue
           }
           
@@ -339,7 +415,11 @@ export class InputCoordinator {
     // Also check listening.triggers (alternative storage)
     if (listening?.triggers && Array.isArray(listening.triggers) && inputTriggers.length > 0) {
       for (const trigger of listening.triggers) {
-        const triggerTag = trigger.tag?.replace('#', '') || trigger.tagName || trigger.name || ''
+        const triggerTag =
+          (typeof trigger.tag === 'string' ? trigger.tag.replace(/^[@#]+/, '') : '') ||
+          trigger.tagName ||
+          trigger.name ||
+          ''
         
         if (triggerTag && inputTriggers.some(t => 
           t.toLowerCase() === triggerTag.toLowerCase()
@@ -348,6 +428,11 @@ export class InputCoordinator {
           const keywordResult = this.checkTriggerKeywords(trigger, input)
           if (!keywordResult.valid) {
             this.log(`Agent "${agent.name}" trigger #${triggerTag} - keywords NOT matched, skipping`)
+            if (routingDebugEnabled()) {
+              console.debug(
+                `[InputCoordinator.routing] ${agent.name ?? agent.id} | keyword gate rejected #${triggerTag}: ${keywordResult.rejectReason ?? 'keywords not matched'}`,
+              )
+            }
             continue
           }
           
@@ -886,9 +971,9 @@ export class InputCoordinator {
     
     const { classifiedInput, agents, agentBoxes, currentUrl, sessionKey } = input
     
-    // Extract triggers from the classified input (without # prefix for matching)
+    // Extract triggers from the classified input (bare names; case-insensitive vs agent tags)
     const triggersFound = classifiedInput.triggers || []
-    const triggerNames = triggersFound.map(t => t.startsWith('#') ? t.substring(1) : t)
+    const triggerNames = triggersFound.map(t => t.replace(/^[@#]+/, '').toLowerCase())
     
     this.log('=== Event Tag Routing Start ===')
     this.log(`Input: "${classifiedInput.rawText.substring(0, 50)}${classifiedInput.rawText.length > 50 ? '...' : ''}"`)
@@ -925,7 +1010,10 @@ export class InputCoordinator {
       
       // Check each trigger for a match
       for (const trigger of eventTagTriggers) {
-        const triggerTag = trigger.tag?.replace('#', '') || trigger.tagName || ''
+        const triggerTag =
+          (typeof trigger.tag === 'string' ? trigger.tag.replace(/^[@#]+/, '') : '') ||
+          trigger.tagName ||
+          ''
         
         if (!triggerTag) continue
         
@@ -1270,7 +1358,7 @@ export class InputCoordinator {
     trigger: any
   ): ResolvedReasoningConfig {
     const reasoning = agent.reasoning || {}
-    const triggerId = trigger.id || `ID#${trigger.tag?.replace('#', '') || trigger.tagName || ''}`
+    const triggerId = trigger.id || `ID#${(typeof trigger.tag === 'string' ? trigger.tag.replace(/^[@#]+/, '') : '') || trigger.tagName || ''}`
     
     // Check if there are multiple reasoning sections
     const reasoningSections = reasoning.sections || []
@@ -1316,7 +1404,7 @@ export class InputCoordinator {
     agentBoxes: EventTagRoutingInput['agentBoxes']
   ): ResolvedExecutionConfig {
     const execution = agent.execution || {}
-    const triggerId = trigger.id || `ID#${trigger.tag?.replace('#', '') || trigger.tagName || ''}`
+    const triggerId = trigger.id || `ID#${(typeof trigger.tag === 'string' ? trigger.tag.replace(/^[@#]+/, '') : '') || trigger.tagName || ''}`
     
     // Check if there are multiple execution sections
     const executionSections = execution.executionSections || []

@@ -874,6 +874,8 @@ if (window.gridScriptV2Loaded) {
   if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage) {
     chrome.runtime.onMessage.addListener(function(message) {
       if (message.type === 'UPDATE_AGENT_BOX_OUTPUT' && message.data) {
+        var src = message.data.sourceSurface;
+        if (src !== undefined && src !== 'sidepanel') return;
         var boxId = message.data.agentBoxId;
         var boxUuid = message.data.agentBoxUuid || boxId;
         var output = message.data.output;

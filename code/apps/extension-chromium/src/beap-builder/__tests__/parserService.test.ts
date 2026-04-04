@@ -13,9 +13,9 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
-// Mock pdfjs-dist — it uses Promise.withResolvers (Node 22+) and fails in test env.
+// Mock pdfjs legacy build — it uses Promise.withResolvers (Node 22+) and fails in test env.
 // Browser extraction will fail, so tests exercise the Electron fallback path.
-vi.mock('pdfjs-dist', () => ({
+vi.mock('pdfjs-dist/legacy/build/pdf.mjs', () => ({
   getDocument: () => ({ promise: Promise.reject(new Error('PDF load failed (mocked)')) }),
   GlobalWorkerOptions: {},
   version: '4.4.168',

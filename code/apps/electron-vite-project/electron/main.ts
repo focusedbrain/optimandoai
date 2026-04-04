@@ -13,6 +13,7 @@ import {
   getAutosortDiagMainState,
   recordVaultLock,
 } from './main/autosortDiagnostics'
+import { surfaceFromSource } from '../../extension-chromium/src/ui/components/wrChatSurface'
 
 /** When true, log every `GET /api/auth/status` request and response summary (verbose). */
 const DEBUG_AUTH_STATUS_HTTP = false
@@ -792,6 +793,16 @@ let win: BrowserWindow | null
 let pendingLaunchMode: 'screenshot' | 'stream' | null = null
 let tray: Tray | null = null
 let activeStop: null | (() => Promise<string>) = null
+
+/** Where WR Chat should show capture prompt + screenshot (set when capture starts). */
+type LmgtfyPromptSurface = 'sidepanel' | 'popup' | 'dashboard'
+let lmgtfyActivePromptSurface: LmgtfyPromptSurface = 'sidepanel'
+/** Last `source` from START_SELECTION / preload — drives `surfaceFromSource` for SHOW_TRIGGER_PROMPT. */
+let lmgtfyLastSelectionSource: string | undefined
+
+function resolveLmgtfyPromptSurfaceFromSource(source: string | undefined): LmgtfyPromptSurface {
+  return surfaceFromSource(source) as LmgtfyPromptSurface
+}
 // HTTP bridge server — started early so /api/health is reachable immediately.
 // Full Express routes mount on this server once initialization completes.
 let httpBridgeServer: http.Server | null = null
@@ -1182,6 +1193,13 @@ async function createWindow() {
       ) {
         return
       }
+      const surface = (p as { sourceSurface?: string }).sourceSurface
+      if (surface !== 'dashboard') {
+        console.log('[AgentBoxFix] main:relay UPDATE_AGENT_BOX_OUTPUT skipped (not dashboard surface)', {
+          sourceSurface: surface,
+        })
+        return
+      }
       console.log('[AgentBoxFix] main:relay UPDATE_AGENT_BOX_OUTPUT → extension WS', {
         agentBoxId: p.agentBoxId,
         agentBoxUuid: p.agentBoxUuid,
@@ -1196,6 +1214,7 @@ async function createWindow() {
           agentBoxUuid: p.agentBoxUuid,
           output: p.output,
           allBoxes: p.allBoxes,
+          sourceSurface: 'dashboard' as const,
         },
       })
     })
@@ -1253,41 +1272,60 @@ async function createWindow() {
           const rect = msg.rect || { x:0,y:0,w:0,h:0 }
           const displayId = Number(msg.displayId)||0
           const sel = { displayId, x: rect.x, y: rect.y, w: rect.w, h: rect.h, dpr: 1 }
-          if (msg.closeOverlay) {
-            try { closeAllOverlays() } catch {}
-            await new Promise((r) => setTimeout(r, 60))
-          }
-          const { filePath } = await captureScreenshot(sel as any)
-          await postScreenshotToPopup(filePath, { x: sel.x, y: sel.y, w: sel.w, h: sel.h, dpr: 1 })
-          let imageDataUrl = ''
           try {
-            const fs = await import('node:fs')
-            const data = fs.readFileSync(filePath)
-            imageDataUrl = 'data:image/png;base64,' + data.toString('base64')
-          } catch {}
-          // Show trigger prompt UI in extension popup if requested
-          if (msg.createTrigger || msg.addCommand) {
-            console.log('[MAIN] Requesting trigger prompt in extension for screenshot')
-            try {
-              // Send to extension via WebSocket to show trigger prompt in popup
-              wsClients.forEach(client => {
-                try {
-                  client.send(JSON.stringify({
-                    type: 'SHOW_TRIGGER_PROMPT',
-                    mode: 'screenshot',
-                    rect,
-                    displayId,
-                    imageUrl: imageDataUrl || filePath,
-                    createTrigger: !!msg.createTrigger,
-                    addCommand: !!msg.addCommand,
-                    forSidepanel: true,
-                  }))
-                } catch {}
-              })
-              console.log('[MAIN] Trigger prompt request sent to extension')
-            } catch (err) {
-              console.log('[MAIN] Error sending trigger prompt request:', err)
+            if (msg.closeOverlay) {
+              try { closeAllOverlays() } catch {}
+              // Let DWM / desktop capturer settle after fullscreen transparent overlays close (Windows can hang getSources if too soon).
+              await new Promise((r) => setTimeout(r, 280))
             }
+            const { filePath } = await captureScreenshot(sel as any)
+            await postScreenshotToPopup(filePath, { x: sel.x, y: sel.y, w: sel.w, h: sel.h, dpr: 1 })
+            let imageDataUrl = ''
+            try {
+              const fs = await import('node:fs')
+              const data = fs.readFileSync(filePath)
+              imageDataUrl = 'data:image/png;base64,' + data.toString('base64')
+            } catch {}
+            // Show trigger prompt UI in extension popup if requested
+            if (msg.createTrigger || msg.addCommand) {
+              console.log('[MAIN] Requesting trigger prompt in extension for screenshot')
+              try {
+                // Send to extension via WebSocket to show trigger prompt in popup
+                const promptContext = surfaceFromSource(lmgtfyLastSelectionSource) as LmgtfyPromptSurface
+                wsClients.forEach(client => {
+                  try {
+                    client.send(JSON.stringify({
+                      type: 'SHOW_TRIGGER_PROMPT',
+                      mode: 'screenshot',
+                      rect,
+                      displayId,
+                      imageUrl: imageDataUrl || filePath,
+                      createTrigger: !!msg.createTrigger,
+                      addCommand: !!msg.addCommand,
+                      promptContext,
+                    }))
+                  } catch {}
+                })
+                if (lmgtfyActivePromptSurface === 'dashboard' && win && !win.isDestroyed()) {
+                  try {
+                    win.webContents.send('lmgtfy-show-trigger-prompt', {
+                      mode: 'screenshot',
+                      rect,
+                      displayId,
+                      imageUrl: imageDataUrl || filePath,
+                      createTrigger: !!msg.createTrigger,
+                      addCommand: !!msg.addCommand,
+                      promptContext,
+                    })
+                  } catch {}
+                }
+                console.log('[MAIN] Trigger prompt request sent to extension')
+              } catch (err) {
+                console.log('[MAIN] Error sending trigger prompt request:', err)
+              }
+            }
+          } catch (capErr) {
+            console.error('[MAIN] Screenshot capture/post failed:', capErr)
           }
           return
         }
@@ -1295,10 +1333,15 @@ async function createWindow() {
           const dataUrl = typeof msg.dataUrl === 'string' ? msg.dataUrl : ''
           if (dataUrl) {
             try {
-              const payload = JSON.stringify({ type: 'SELECTION_RESULT_VIDEO', kind: 'video', dataUrl })
+              const payload = JSON.stringify({
+                type: 'SELECTION_RESULT_VIDEO',
+                kind: 'video',
+                dataUrl,
+                promptContext: surfaceFromSource(lmgtfyLastSelectionSource) as LmgtfyPromptSurface,
+              })
               wsClients.forEach((c) => { try { c.send(payload) } catch {} })
             } catch {}
-            try { const { webContents } = await import('electron'); webContents.getAllWebContents().forEach(c=>{ try{ c.send('COMMAND_POPUP_APPEND',{ kind:'video', url: dataUrl }) }catch{} }) } catch {}
+            // Thread append is Save-only; do not COMMAND_POPUP_APPEND here.
           }
           // Close all overlay windows after video is posted
           try { closeAllOverlays() } catch {}
@@ -1317,7 +1360,14 @@ async function createWindow() {
             activeStop = controller.stop
             // Store trigger info for after recording
             if (shouldCreateTrigger || shouldAddCommand) {
-              (activeStop as any)._triggerInfo = { mode: 'stream', rect, displayId, createTrigger: !!shouldCreateTrigger, addCommand: !!shouldAddCommand }
+              (activeStop as any)._triggerInfo = {
+                mode: 'stream',
+                rect,
+                displayId,
+                createTrigger: !!shouldCreateTrigger,
+                addCommand: !!shouldAddCommand,
+                promptContext: lmgtfyActivePromptSurface,
+              }
               console.log('[MAIN] Storing trigger info for after stream stops')
             }
             console.log('[MAIN] Stream recording started successfully')
@@ -1347,6 +1397,7 @@ async function createWindow() {
             console.log('[MAIN] Requesting trigger prompt in extension for stream')
             try {
               // Send to extension via WebSocket to show trigger prompt in popup
+              const promptContext = surfaceFromSource(lmgtfyLastSelectionSource) as LmgtfyPromptSurface
               wsClients.forEach(client => {
                 try {
                   client.send(JSON.stringify({
@@ -1357,10 +1408,23 @@ async function createWindow() {
                     videoUrl: out, // Send the video file path
                     createTrigger: !!triggerInfo.createTrigger,
                     addCommand: !!triggerInfo.addCommand,
-                    forSidepanel: true,
+                    promptContext,
                   }))
                 } catch {}
               })
+              if (lmgtfyActivePromptSurface === 'dashboard' && win && !win.isDestroyed()) {
+                try {
+                  win.webContents.send('lmgtfy-show-trigger-prompt', {
+                    mode: triggerInfo.mode,
+                    rect: triggerInfo.rect,
+                    displayId: triggerInfo.displayId,
+                    videoUrl: out,
+                    createTrigger: !!triggerInfo.createTrigger,
+                    addCommand: !!triggerInfo.addCommand,
+                    promptContext,
+                  })
+                } catch {}
+              }
               console.log('[MAIN] Trigger prompt request sent to extension')
             } catch (err) {
               console.log('[MAIN] Error sending trigger prompt request:', err)
@@ -1741,6 +1805,8 @@ async function createWindow() {
   // Preload bridge (dashboard WR Chat, etc.) — same overlay as extension START_SELECTION
   registerHandler(LmgtfyChannels.SelectScreenshot, async (_e, payload?: { createTrigger?: boolean; addCommand?: boolean }) => {
     try {
+      lmgtfyLastSelectionSource = 'wr-chat-dashboard'
+      lmgtfyActivePromptSurface = 'dashboard'
       closeAllOverlays()
       const p = payload && typeof payload === 'object' ? payload : {}
       beginOverlay('screenshot', { createTrigger: !!p.createTrigger, addCommand: !!p.addCommand })
@@ -1752,6 +1818,8 @@ async function createWindow() {
   })
   registerHandler(LmgtfyChannels.SelectStream, async () => {
     try {
+      lmgtfyLastSelectionSource = 'wr-chat-dashboard'
+      lmgtfyActivePromptSurface = 'dashboard'
       closeAllOverlays()
       beginOverlay('stream')
       return { ok: true as const }
@@ -4944,7 +5012,16 @@ app.whenReady().then(async () => {
                 console.log('[MAIN] Closing existing overlays before creating new ones')
                 closeAllOverlays()
                 console.log('[MAIN] Calling beginOverlay()...')
-                const opt = msg.options && typeof msg.options === 'object' ? msg.options as Record<string, unknown> : {}
+                const opt = msg.options && typeof msg.options === 'object' ? { ...(msg.options as Record<string, unknown>) } : {}
+                const src =
+                  typeof (msg as { source?: string }).source === 'string'
+                    ? (msg as { source: string }).source
+                    : typeof opt.source === 'string'
+                      ? (opt.source as string)
+                      : 'browser'
+                if (!(opt as { source?: string }).source) (opt as { source?: string }).source = src
+                lmgtfyLastSelectionSource = src
+                lmgtfyActivePromptSurface = resolveLmgtfyPromptSurfaceFromSource(src)
                 beginOverlay(undefined, {
                   createTrigger: !!opt.createTrigger,
                   addCommand: !!opt.addCommand,
@@ -5160,6 +5237,9 @@ app.whenReady().then(async () => {
                 upsertRegion({
                   id: undefined,
                   name: msg.name,
+                  ...(typeof msg.command === 'string' && msg.command.trim().length > 0
+                    ? { command: msg.command.trim() }
+                    : {}),
                   displayId: displayId,
                   x: msg.rect.x,
                   y: msg.rect.y,
@@ -9411,7 +9491,7 @@ app.whenReady().then(async () => {
   }
 })
 
-// Helpers to post to popup chat and close overlay via background
+// Helpers to relay capture bytes to extension (WebSocket) and close overlay; chat thread is updated on Save only.
 async function postScreenshotToPopup(filePath: string, sel: { x:number,y:number,w:number,h:number,dpr:number }){
   try {
     emitCapture(win!, { event: LmgtfyChannels.OnCaptureEvent, mode: 'screenshot', filePath, thumbnailPath: '', meta: { x: sel.x, y: sel.y, w: sel.w, h: sel.h, dpr: sel.dpr } })
@@ -9420,10 +9500,10 @@ async function postScreenshotToPopup(filePath: string, sel: { x:number,y:number,
     const fs = await import('node:fs')
     const data = fs.readFileSync(filePath)
     const dataUrl = 'data:image/png;base64,' + data.toString('base64')
-    const payload = JSON.stringify({ type: 'SELECTION_RESULT_IMAGE', kind: 'image', dataUrl })
+    const pc = surfaceFromSource(lmgtfyLastSelectionSource) as LmgtfyPromptSurface
+    const payload = JSON.stringify({ type: 'SELECTION_RESULT_IMAGE', kind: 'image', dataUrl, promptContext: pc })
     wsClients.forEach((c) => { try { c.send(payload) } catch {} })
-    // Ask popup to append directly and show thumbnail
-    try { const { webContents } = await import('electron'); webContents.getAllWebContents().forEach(c=>{ try{ c.send('COMMAND_POPUP_APPEND',{ kind:'image', url: dataUrl, thumbnail: dataUrl }) }catch{} }) } catch {}
+    // Thread append is Save-only (sendWithTriggerAndImage / handleSendMessageWithTrigger); do not COMMAND_POPUP_APPEND here.
     try { win?.webContents.send('overlay-close') } catch {}
   } catch {}
 }
@@ -9440,9 +9520,10 @@ async function postStreamToPopup(filePath: string){
       const base64 = data.toString('base64')
       dataUrl = 'data:video/mp4;base64,' + base64
     } catch {}
-    const payload = JSON.stringify({ type: 'SELECTION_RESULT_VIDEO', kind: 'video', dataUrl })
+    const pc = surfaceFromSource(lmgtfyLastSelectionSource) as LmgtfyPromptSurface
+    const payload = JSON.stringify({ type: 'SELECTION_RESULT_VIDEO', kind: 'video', dataUrl, promptContext: pc })
     wsClients.forEach((c) => { try { c.send(payload) } catch {} })
-    try { const { webContents } = await import('electron'); webContents.getAllWebContents().forEach(c=>{ try{ c.send('COMMAND_POPUP_APPEND',{ kind:'video', url: dataUrl, thumbnail: dataUrl }) }catch{} }) } catch {}
+    // Thread append is Save-only; do not COMMAND_POPUP_APPEND here.
     try { win?.webContents.send('overlay-close') } catch {}
   } catch {}
 }

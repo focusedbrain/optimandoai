@@ -18,6 +18,8 @@ interface LmgtfyBridge {
   onCapture: (cb: (payload: unknown) => void) => () => void
   onHotkey: (cb: (kind: string) => void) => () => void
   onTriggersUpdated: (cb: () => void) => () => void
+  onDashboardCommandAppend: (cb: (payload: unknown) => void) => () => void
+  onDashboardTriggerPrompt: (cb: (payload: unknown) => void) => () => void
 }
 
 interface AnalysisDashboardBridge {
@@ -36,6 +38,7 @@ interface AnalysisDashboardBridge {
     agentBoxUuid: string
     output: string
     allBoxes: unknown[]
+    sourceSurface?: 'dashboard' | 'sidepanel' | 'popup'
   }) => void
 }
 

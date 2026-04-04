@@ -61,14 +61,14 @@ function resolveExtensionPdfWorkerSrc(viteUrl: string): string {
   return viteUrl
 }
 
-async function initPdfjs(): Promise<typeof import('pdfjs-dist')> {
+async function initPdfjs(): Promise<typeof import('pdfjs-dist/legacy/build/pdf.mjs')> {
   if (_pdfjsInit) {
-    return (await import('pdfjs-dist')) as typeof import('pdfjs-dist')
+    return (await import('pdfjs-dist/legacy/build/pdf.mjs')) as typeof import('pdfjs-dist/legacy/build/pdf.mjs')
   }
-  const pdfjsLib = await import('pdfjs-dist')
+  const pdfjsLib = await import('pdfjs-dist/legacy/build/pdf.mjs')
   if (typeof window !== 'undefined' && pdfjsLib.GlobalWorkerOptions) {
     try {
-      const workerUrl = (await import('pdfjs-dist/build/pdf.worker.mjs?url')).default
+      const workerUrl = (await import('pdfjs-dist/legacy/build/pdf.worker.mjs?url')).default
       pdfjsLib.GlobalWorkerOptions.workerSrc = resolveExtensionPdfWorkerSrc(workerUrl)
     } catch {
       // Worker init may fail; getDocument may still work
@@ -82,8 +82,8 @@ async function initPdfjs(): Promise<typeof import('pdfjs-dist')> {
  * Render a PDF page to base64 PNG using pdfjs canvas rendering.
  */
 async function renderPageToPng(
-  pdfjsLib: typeof import('pdfjs-dist'),
-  pdf: Awaited<ReturnType<typeof import('pdfjs-dist').getDocument>>,
+  pdfjsLib: typeof import('pdfjs-dist/legacy/build/pdf.mjs'),
+  pdf: Awaited<ReturnType<typeof import('pdfjs-dist/legacy/build/pdf.mjs').getDocument>>,
   pageNum: number
 ): Promise<string> {
   const page = await pdf.getPage(pageNum)

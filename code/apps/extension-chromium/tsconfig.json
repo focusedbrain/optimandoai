@@ -16,5 +16,5 @@
       "@shared-extension/*": ["../../packages/shared-extension/src/*"]
     }
   },
-  "exclude": ["**/__tests__/**", "**/*.test.ts", "**/*.test.tsx", "**/*.spec.ts", "**/*.spec.tsx"]
+  "exclude": ["**/__tests__/**"]
 }

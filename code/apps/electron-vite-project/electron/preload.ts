@@ -293,6 +293,7 @@ function assertRelayAgentBoxOutputData(v: unknown): {
   agentBoxUuid: string
   output: string
   allBoxes: unknown[]
+  sourceSurface: 'dashboard' | 'sidepanel' | 'popup'
 } {
   if (!v || typeof v !== 'object') throw new Error('relayAgentBoxOutput: expected object')
   const o = v as Record<string, unknown>
@@ -309,7 +310,12 @@ function assertRelayAgentBoxOutputData(v: unknown): {
   if (o.output.length > 4_000_000) throw new Error('relayAgentBoxOutput.output: exceeds max length')
   if (!Array.isArray(o.allBoxes)) throw new Error('relayAgentBoxOutput.allBoxes: expected array')
   if (o.allBoxes.length > 500) throw new Error('relayAgentBoxOutput.allBoxes: array too large')
-  return { agentBoxId, agentBoxUuid: o.agentBoxUuid, output: o.output, allBoxes: o.allBoxes }
+  const raw = o.sourceSurface
+  const sourceSurface =
+    raw === 'dashboard' || raw === 'sidepanel' || raw === 'popup'
+      ? raw
+      : 'dashboard'
+  return { agentBoxId, agentBoxUuid: o.agentBoxUuid, output: o.output, allBoxes: o.allBoxes, sourceSurface }
 }
 
 // ============================================================================
@@ -358,6 +364,17 @@ const lmgtfyBridge = {
     const handler = () => cb()
     ipcRenderer.on('TRIGGERS_UPDATED', handler)
     return () => { ipcRenderer.removeListener('TRIGGERS_UPDATED', handler) }
+  },
+  /** Dashboard WR Chat: append capture media in the same window (no chrome.runtime). */
+  onDashboardCommandAppend: (cb: (payload: unknown) => void) => {
+    const handler = (_e: Electron.IpcRendererEvent, d: unknown) => cb(d)
+    ipcRenderer.on('COMMAND_POPUP_APPEND', handler)
+    return () => { ipcRenderer.removeListener('COMMAND_POPUP_APPEND', handler) }
+  },
+  onDashboardTriggerPrompt: (cb: (payload: unknown) => void) => {
+    const handler = (_e: Electron.IpcRendererEvent, d: unknown) => cb(d)
+    ipcRenderer.on('lmgtfy-show-trigger-prompt', handler)
+    return () => { ipcRenderer.removeListener('lmgtfy-show-trigger-prompt', handler) }
   },
 }
 
