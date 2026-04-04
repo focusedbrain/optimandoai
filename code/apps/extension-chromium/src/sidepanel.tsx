@@ -70,6 +70,63 @@ function toBase64ForOllama(dataUrl: string): string {
   return idx !== -1 ? dataUrl.slice(idx + 1) : dataUrl
 }
 
+/** Blob / file paths are not valid OCR or vision payloads; normalize to a data URL (matches PopupChatView). */
+function isLikelyFilesystemPath(s: string): boolean {
+  if (!s || s.length < 2) return false
+  if (/^[A-Za-z]:[\\/]/.test(s)) return true
+  if (s.startsWith('\\\\')) return true
+  return false
+}
+
+function pathToFileUrlString(p: string): string {
+  const normalized = p.replace(/\\/g, '/')
+  if (/^[A-Za-z]:/.test(normalized)) return 'file:///' + normalized
+  if (normalized.startsWith('//')) return 'file:' + normalized
+  return 'file://' + normalized
+}
+
+async function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onloadend = () => resolve(typeof reader.result === 'string' ? reader.result : '')
+    reader.onerror = () => reject(reader.error)
+    reader.readAsDataURL(blob)
+  })
+}
+
+async function resolveImageUrlForBackend(imageUrl: string): Promise<string> {
+  if (!imageUrl) return ''
+  if (imageUrl.startsWith('data:')) return imageUrl
+  if (imageUrl.startsWith('blob:')) {
+    try {
+      const r = await fetch(imageUrl)
+      const blob = await r.blob()
+      return await blobToDataUrl(blob)
+    } catch {
+      return imageUrl
+    }
+  }
+  if (imageUrl.startsWith('file:')) {
+    try {
+      const r = await fetch(imageUrl)
+      const blob = await r.blob()
+      return await blobToDataUrl(blob)
+    } catch {
+      return imageUrl
+    }
+  }
+  if (isLikelyFilesystemPath(imageUrl)) {
+    try {
+      const r = await fetch(pathToFileUrlString(imageUrl))
+      const blob = await r.blob()
+      return await blobToDataUrl(blob)
+    } catch {
+      return imageUrl
+    }
+  }
+  return imageUrl
+}
+
 // Enhanced type for draft attachments with parsing/rasterization state
 type DraftAttachment = {
   id: string
@@ -865,8 +922,9 @@ function SidepanelOrchestrator() {
   const [isLoadingEmailAccounts, setIsLoadingEmailAccounts] = useState(false)
   const [masterTabId, setMasterTabId] = useState<string | null>(null) // For Master Tab (01), (02), (03), etc. (01 = first tab, doesn't show title in UI)
   const [showTriggerPrompt, setShowTriggerPrompt] = useState<{mode: string, rect: any, imageUrl: string, videoUrl?: string, createTrigger: boolean, addCommand: boolean, name?: string, command?: string, bounds?: any} | null>(null)
-  const [createTriggerChecked, setCreateTriggerChecked] = useState(false)
-  const [addCommandChecked, setAddCommandChecked] = useState(false)
+  /** Default on: area capture should open the Save dialog ready to save a tag + optional command (WR Chat product default). */
+  const [createTriggerChecked, setCreateTriggerChecked] = useState(true)
+  const [addCommandChecked, setAddCommandChecked] = useState(true)
   const chatRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   
@@ -1727,7 +1785,8 @@ function SidepanelOrchestrator() {
       // Electron screenshot result: do not append to the thread here — user message + image is only from Save or processScreenshotWithTrigger (Tags flow).
       else if (message.type === 'ELECTRON_SELECTION_RESULT') {
         const pc = message.promptContext
-        if (pc !== 'sidepanel') return
+        // Same rule as SHOW_TRIGGER_PROMPT: only reject when another surface is explicitly set.
+        if (pc !== undefined && pc !== 'sidepanel') return
         const url = message.dataUrl || message.url
         if (!url) return
         const pendingTrigger = pendingTriggerRef.current
@@ -1739,15 +1798,11 @@ function SidepanelOrchestrator() {
           const routeForLlm = commandT || tagFromName
           const displayForChat = commandT || (nameT ? nameT : '') || tagFromName
           pendingTriggerRef.current = null
-          if (routeForLlm || displayForChat) {
-            const fn = handleSendMessageWithTriggerRef.current
-            if (fn) {
-              void fn(
-                (displayForChat || tagFromName || '[Screenshot]').trim(),
-                url,
-                (routeForLlm || tagFromName).trim() || undefined,
-              )
-            }
+          const fn = handleSendMessageWithTriggerRef.current
+          if (fn) {
+            const displayLine = (displayForChat || tagFromName || '[Screenshot]').trim()
+            const routeLine = ((routeForLlm || tagFromName).trim() || displayLine)
+            void fn(displayLine, url, routeLine)
           }
         }
       }
@@ -1756,6 +1811,8 @@ function SidepanelOrchestrator() {
         const pc = message.promptContext
         // Accept if promptContext matches this surface OR is absent (backward-compat with overlay paths that don't set lmgtfyLastSelectionSource).
         if (pc !== undefined && pc !== 'sidepanel') return
+        // New capture prompt supersedes any pending Tags auto-process so SELECTION_RESULT cannot pair with the wrong flow.
+        pendingTriggerRef.current = null
         setShowTriggerPrompt({
           mode: message.mode,
           rect: message.rect,
@@ -2903,8 +2960,6 @@ function SidepanelOrchestrator() {
   ) => {
     const routeText = routingText ?? displayTextForChat
     const routeTag = normaliseTriggerTag(routeText)
-    const displayLine =
-      (displayTextForChat || '').trim() || routeTag || (imageUrl ? '[Screenshot]' : '')
 
     const resolveWrChatModelId = (): string => {
       const m = (activeLlmModelRef.current || activeLlmModel || '').trim()
@@ -2927,21 +2982,28 @@ function SidepanelOrchestrator() {
       }])
       return
     }
+
+    let effectiveImageUrl: string | undefined = imageUrl
+    if (imageUrl) {
+      effectiveImageUrl = await resolveImageUrlForBackend(imageUrl)
+    }
+
+    const displayLine =
+      (displayTextForChat || '').trim() || routeTag || (effectiveImageUrl ? '[Screenshot]' : '')
     
     // Build messages including the image if provided
     const newMessages: Array<{role: 'user' | 'assistant', text: string, imageUrl?: string}> = []
     
-    // Add the trigger text as user message
-    if (imageUrl) {
+    if (effectiveImageUrl) {
       newMessages.push({
         role: 'user' as const,
         text: displayLine,
-        imageUrl
+        imageUrl: effectiveImageUrl,
       })
     } else {
       newMessages.push({
         role: 'user' as const,
-        text: displayLine
+        text: displayLine,
       })
     }
     
@@ -2961,8 +3023,8 @@ function SidepanelOrchestrator() {
       
       // OCR before routing: extract text from image first
       let ocrText = ''
-      if (imageUrl) {
-        ocrText = await runOcrForCurrentTurn(imageUrl, baseUrl)
+      if (effectiveImageUrl) {
+        ocrText = await runOcrForCurrentTurn(effectiveImageUrl, baseUrl)
       }
 
       // Build enriched text for routing (typed + OCR) — same as PopupChatView / dashboard embed
@@ -2971,7 +3033,7 @@ function SidepanelOrchestrator() {
       // Route the input with OCR-enriched text
       const routingDecision = await routeInput(
         enrichedTriggerText,
-        !!imageUrl,
+        !!effectiveImageUrl,
         connectionStatus,
         sessionName,
         currentModel,
@@ -3019,7 +3081,7 @@ function SidepanelOrchestrator() {
             {
               role: 'user',
               content: enrichedTriggerText,
-              ...(imageUrl ? { images: [toBase64ForOllama(imageUrl)] } : {}),
+              ...(effectiveImageUrl ? { images: [toBase64ForOllama(effectiveImageUrl)] } : {}),
             },
           ]
           const { body: triggerLlmBody, error: triggerKeyError } = await buildLlmRequestBody(
@@ -3093,7 +3155,7 @@ function SidepanelOrchestrator() {
               {
                 role: 'user',
                 content: enrichedTriggerText,
-                ...(imageUrl ? { images: [toBase64ForOllama(imageUrl)] } : {}),
+                ...(effectiveImageUrl ? { images: [toBase64ForOllama(effectiveImageUrl)] } : {}),
               },
             ],
           }),
@@ -3757,7 +3819,9 @@ function SidepanelOrchestrator() {
   }
 
   const handleDeleteTrigger = (index: number) => {
-    if (!confirm(`Delete trigger "${triggers[index].name || `Trigger ${index + 1}`}"?`)) return
+    const t = triggers[index]
+    const label = String(t?.name ?? t?.command ?? `Trigger ${index + 1}`)
+    if (!confirm(`Delete trigger "${label}"?`)) return
     
     const key = 'optimando-tagged-triggers'
     chrome.storage?.local?.get([key], (data: any) => {
@@ -4759,7 +4823,7 @@ function SidepanelOrchestrator() {
                                     minWidth: 0
                                   }}
                                 >
-                                  {trigger.name || `Trigger ${i + 1}`}
+                                  {trigger.name || trigger.command || `Trigger ${i + 1}`}
                                 </button>
                                 <button
                                   onClick={(e) => {
@@ -5233,57 +5297,54 @@ function SidepanelOrchestrator() {
                   </button>
                   <button
                     onClick={async () => {
-                      const name = showTriggerPrompt.name?.trim() || ''
-                      const command = showTriggerPrompt.command?.trim() || ''
-                      
-                      // If createTrigger is checked, save the trigger
-                      if (showTriggerPrompt.createTrigger) {
+                      const snap = showTriggerPrompt
+                      if (!snap) return
+                      const name = snap.name?.trim() || ''
+                      const command = snap.command?.trim() || ''
+
+                      if (snap.createTrigger) {
                         if (!name) {
                           alert('Please enter a trigger name')
                           return
                         }
-                        
+
                         const triggerData = {
                           name,
                           command,
                           at: Date.now(),
-                          rect: showTriggerPrompt.rect,
-                          bounds: showTriggerPrompt.bounds,
-                          mode: showTriggerPrompt.mode
+                          rect: snap.rect,
+                          bounds: snap.bounds,
+                          mode: snap.mode,
                         }
-                        
-                        // Save to chrome.storage for dropdown
+
                         chrome.storage.local.get(['optimando-tagged-triggers'], (result) => {
                           const triggers = result['optimando-tagged-triggers'] || []
                           triggers.push(triggerData)
                           chrome.storage.local.set({ 'optimando-tagged-triggers': triggers }, () => {
                             setTriggers(triggers)
-                            // Notify other contexts
-                            try { chrome.runtime?.sendMessage({ type:'TRIGGERS_UPDATED' }) } catch {}
+                            try { chrome.runtime?.sendMessage({ type: 'TRIGGERS_UPDATED' }) } catch {}
                             try { window.dispatchEvent(new CustomEvent('optimando-triggers-updated')) } catch {}
                           })
                         })
-                        
-                        // Send trigger to Electron
+
                         try {
                           chrome.runtime?.sendMessage({
                             type: 'ELECTRON_SAVE_TRIGGER',
                             name,
-                            mode: showTriggerPrompt.mode,
-                            rect: showTriggerPrompt.rect,
-                            displayId: 0, // Main display for sidepanel
-                            imageUrl: showTriggerPrompt.imageUrl,
-                            videoUrl: showTriggerPrompt.videoUrl,
-                            command: command || undefined
+                            mode: snap.mode,
+                            rect: snap.rect,
+                            displayId: 0,
+                            imageUrl: snap.imageUrl,
+                            videoUrl: snap.videoUrl,
+                            command: command || undefined,
                           })
                         } catch (err) {
                           console.error('Error sending trigger to Electron:', err)
                         }
                       }
-                      
-                      // Auto-process: If there's a command or trigger name, send to LLM
+
                       const triggerNameToUse = name || command
-                      const shouldAutoProcess = showTriggerPrompt.addCommand || (showTriggerPrompt.createTrigger && triggerNameToUse)
+                      const shouldAutoProcess = snap.addCommand || (snap.createTrigger && triggerNameToUse)
                       const nameT = name.trim()
                       const commandT = command.trim()
                       const tagFromName = normaliseTriggerTag(nameT)
@@ -5291,37 +5352,29 @@ function SidepanelOrchestrator() {
                       const displayForChat = commandT || (nameT ? nameT : '') || triggerTagFallback
                       const routeForLlm = commandT || tagFromName || triggerTagFallback
 
-                      if (shouldAutoProcess && triggerNameToUse && showTriggerPrompt.imageUrl) {
-                        // Clear the prompt first
+                      if (shouldAutoProcess && triggerNameToUse && snap.imageUrl) {
                         setShowTriggerPrompt(null)
-                        setCreateTriggerChecked(false)
-                        setAddCommandChecked(false)
-
-                        // Send to LLM for processing (command text shown in chat; routing prefers command over @tag)
-                        handleSendMessageWithTrigger(displayForChat, showTriggerPrompt.imageUrl, routeForLlm)
+                        setCreateTriggerChecked(true)
+                        setAddCommandChecked(true)
+                        handleSendMessageWithTrigger(displayForChat, snap.imageUrl, routeForLlm)
                       } else {
-                        // Just post the screenshot to chat (no auto-process)
-                        if (showTriggerPrompt.imageUrl) {
-                          // Invariant: exactly one user message with image + label; no duplicate from ELECTRON_SELECTION_RESULT.
+                        if (snap.imageUrl) {
                           const caption = commandT || (nameT ? nameT : '') || tagFromName || '[Screenshot]'
                           const imageMessage = {
                             role: 'user' as const,
                             text: caption,
-                            imageUrl: showTriggerPrompt.imageUrl
+                            imageUrl: snap.imageUrl,
                           }
-                          setChatMessages(prev => [...prev, imageMessage])
-                          // Scroll to bottom
+                          setChatMessages((prev) => [...prev, imageMessage])
                           setTimeout(() => {
                             if (chatRef.current) {
                               chatRef.current.scrollTop = chatRef.current.scrollHeight
                             }
                           }, 100)
                         }
-
-                        // Clear the prompt
                         setShowTriggerPrompt(null)
-                        setCreateTriggerChecked(false)
-                        setAddCommandChecked(false)
+                        setCreateTriggerChecked(true)
+                        setAddCommandChecked(true)
                       }
                     }}
                     style={{
@@ -6744,7 +6797,7 @@ function SidepanelOrchestrator() {
                                   minWidth: 0
                                 }}
                               >
-                                {trigger.name || `Trigger ${i + 1}`}
+                                {trigger.name || trigger.command || `Trigger ${i + 1}`}
                               </button>
                               <button
                                 onClick={(e) => {
@@ -8102,7 +8155,7 @@ function SidepanelOrchestrator() {
                                   minWidth: 0
                                 }}
                               >
-                                {trigger.name || `Trigger ${i + 1}`}
+                                {trigger.name || trigger.command || `Trigger ${i + 1}`}
                               </button>
                               <button
                                 onClick={(e) => {
@@ -9013,57 +9066,54 @@ function SidepanelOrchestrator() {
                   </button>
                   <button
                     onClick={async () => {
-                      const name = showTriggerPrompt.name?.trim() || ''
-                      const command = showTriggerPrompt.command?.trim() || ''
-                      
-                      // If createTrigger is checked, save the trigger
-                      if (showTriggerPrompt.createTrigger) {
+                      const snap = showTriggerPrompt
+                      if (!snap) return
+                      const name = snap.name?.trim() || ''
+                      const command = snap.command?.trim() || ''
+
+                      if (snap.createTrigger) {
                         if (!name) {
                           alert('Please enter a trigger name')
                           return
                         }
-                        
+
                         const triggerData = {
                           name,
                           command,
                           at: Date.now(),
-                          rect: showTriggerPrompt.rect,
-                          bounds: showTriggerPrompt.bounds,
-                          mode: showTriggerPrompt.mode
+                          rect: snap.rect,
+                          bounds: snap.bounds,
+                          mode: snap.mode,
                         }
-                        
-                        // Save to chrome.storage for dropdown
+
                         chrome.storage.local.get(['optimando-tagged-triggers'], (result) => {
                           const triggers = result['optimando-tagged-triggers'] || []
                           triggers.push(triggerData)
                           chrome.storage.local.set({ 'optimando-tagged-triggers': triggers }, () => {
                             setTriggers(triggers)
-                            // Notify other contexts
-                            try { chrome.runtime?.sendMessage({ type:'TRIGGERS_UPDATED' }) } catch {}
+                            try { chrome.runtime?.sendMessage({ type: 'TRIGGERS_UPDATED' }) } catch {}
                             try { window.dispatchEvent(new CustomEvent('optimando-triggers-updated')) } catch {}
                           })
                         })
-                        
-                        // Send trigger to Electron
+
                         try {
                           chrome.runtime?.sendMessage({
                             type: 'ELECTRON_SAVE_TRIGGER',
                             name,
-                            mode: showTriggerPrompt.mode,
-                            rect: showTriggerPrompt.rect,
-                            displayId: 0, // Main display for sidepanel
-                            imageUrl: showTriggerPrompt.imageUrl,
-                            videoUrl: showTriggerPrompt.videoUrl,
-                            command: command || undefined
+                            mode: snap.mode,
+                            rect: snap.rect,
+                            displayId: 0,
+                            imageUrl: snap.imageUrl,
+                            videoUrl: snap.videoUrl,
+                            command: command || undefined,
                           })
                         } catch (err) {
                           console.error('Error sending trigger to Electron:', err)
                         }
                       }
-                      
-                      // Auto-process: If there's a command or trigger name, send to LLM
+
                       const triggerNameToUse = name || command
-                      const shouldAutoProcess = showTriggerPrompt.addCommand || (showTriggerPrompt.createTrigger && triggerNameToUse)
+                      const shouldAutoProcess = snap.addCommand || (snap.createTrigger && triggerNameToUse)
                       const nameT = name.trim()
                       const commandT = command.trim()
                       const tagFromName = normaliseTriggerTag(nameT)
@@ -9071,36 +9121,29 @@ function SidepanelOrchestrator() {
                       const displayForChat = commandT || (nameT ? nameT : '') || triggerTagFallback
                       const routeForLlm = commandT || tagFromName || triggerTagFallback
 
-                      if (shouldAutoProcess && triggerNameToUse && showTriggerPrompt.imageUrl) {
-                        // Clear the prompt first
+                      if (shouldAutoProcess && triggerNameToUse && snap.imageUrl) {
                         setShowTriggerPrompt(null)
-                        setCreateTriggerChecked(false)
-                        setAddCommandChecked(false)
-
-                        handleSendMessageWithTrigger(displayForChat, showTriggerPrompt.imageUrl, routeForLlm)
+                        setCreateTriggerChecked(true)
+                        setAddCommandChecked(true)
+                        handleSendMessageWithTrigger(displayForChat, snap.imageUrl, routeForLlm)
                       } else {
-                        // Just post the screenshot to chat (no auto-process)
-                        if (showTriggerPrompt.imageUrl) {
-                          // Invariant: exactly one user message with image + label; no duplicate from ELECTRON_SELECTION_RESULT.
+                        if (snap.imageUrl) {
                           const caption = commandT || (nameT ? nameT : '') || tagFromName || '[Screenshot]'
                           const imageMessage = {
                             role: 'user' as const,
                             text: caption,
-                            imageUrl: showTriggerPrompt.imageUrl
+                            imageUrl: snap.imageUrl,
                           }
-                          setChatMessages(prev => [...prev, imageMessage])
-                          // Scroll to bottom
+                          setChatMessages((prev) => [...prev, imageMessage])
                           setTimeout(() => {
                             if (chatRef.current) {
                               chatRef.current.scrollTop = chatRef.current.scrollHeight
                             }
                           }, 100)
                         }
-
-                        // Clear the prompt
                         setShowTriggerPrompt(null)
-                        setCreateTriggerChecked(false)
-                        setAddCommandChecked(false)
+                        setCreateTriggerChecked(true)
+                        setAddCommandChecked(true)
                       }
                     }}
                     style={{

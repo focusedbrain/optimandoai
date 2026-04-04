@@ -9725,13 +9725,20 @@ async function executeTriggerFromExtension(trigger: any, targetSurfaceRaw: strin
     lmgtfyActivePromptSurface = surface
     const t = trigger
     const displayId = t.displayId ?? screen.getPrimaryDisplay().id
-    const sel = { displayId, x: t.rect.x, y: t.rect.y, w: t.rect.w, h: t.rect.h, dpr: 1 }
-    if (t.mode === 'screenshot') {
+    const rr = t.rect && typeof t.rect === 'object' ? (t.rect as Record<string, unknown>) : {}
+    const x = Number(rr.x ?? 0)
+    const y = Number(rr.y ?? 0)
+    const w = Number(rr.w ?? rr.width ?? 0)
+    const h = Number(rr.h ?? rr.height ?? 0)
+    const sel = { displayId, x, y, w, h, dpr: 1 }
+    // Storage-tagged triggers often omit mode; default to screenshot so headless execute always does something.
+    const mode: 'screenshot' | 'stream' = t.mode === 'stream' ? 'stream' : 'screenshot'
+    if (mode === 'screenshot') {
       console.log('[MAIN] Executing screenshot trigger headlessly surface=', surface)
       const { filePath } = await captureScreenshot(sel as any)
       await postScreenshotToPopup(filePath, { x: sel.x, y: sel.y, w: sel.w, h: sel.h, dpr: 1 }, { promptContext: surface })
       console.log('[MAIN] Screenshot trigger executed and posted')
-    } else if (t.mode === 'stream') {
+    } else {
       console.log('[MAIN] Executing stream trigger with visible overlay surface=', surface)
       showStreamTriggerOverlay(sel.displayId, { x: sel.x, y: sel.y, w: sel.w, h: sel.h })
       const controller = await startRegionStream(sel as any)

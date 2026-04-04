@@ -59,6 +59,63 @@ function toBase64ForOllama(dataUrl: string): string {
   return idx !== -1 ? dataUrl.slice(idx + 1) : dataUrl
 }
 
+/** Blob / file paths are not valid OCR or vision payloads; normalize to a data URL (Electron dashboard often differs from extension popup). */
+function isLikelyFilesystemPath(s: string): boolean {
+  if (!s || s.length < 2) return false
+  if (/^[A-Za-z]:[\\/]/.test(s)) return true
+  if (s.startsWith('\\\\')) return true
+  return false
+}
+
+function pathToFileUrlString(p: string): string {
+  const normalized = p.replace(/\\/g, '/')
+  if (/^[A-Za-z]:/.test(normalized)) return 'file:///' + normalized
+  if (normalized.startsWith('//')) return 'file:' + normalized
+  return 'file://' + normalized
+}
+
+async function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onloadend = () => resolve(typeof reader.result === 'string' ? reader.result : '')
+    reader.onerror = () => reject(reader.error)
+    reader.readAsDataURL(blob)
+  })
+}
+
+async function resolveImageUrlForBackend(imageUrl: string): Promise<string> {
+  if (!imageUrl) return ''
+  if (imageUrl.startsWith('data:')) return imageUrl
+  if (imageUrl.startsWith('blob:')) {
+    try {
+      const r = await fetch(imageUrl)
+      const blob = await r.blob()
+      return await blobToDataUrl(blob)
+    } catch {
+      return imageUrl
+    }
+  }
+  if (imageUrl.startsWith('file:')) {
+    try {
+      const r = await fetch(imageUrl)
+      const blob = await r.blob()
+      return await blobToDataUrl(blob)
+    } catch {
+      return imageUrl
+    }
+  }
+  if (isLikelyFilesystemPath(imageUrl)) {
+    try {
+      const r = await fetch(pathToFileUrlString(imageUrl))
+      const blob = await r.blob()
+      return await blobToDataUrl(blob)
+    } catch {
+      return imageUrl
+    }
+  }
+  return imageUrl
+}
+
 const LLM_FETCH_TIMEOUT_MS = 600_000
 
 /** Map chat UI messages to Ollama /api/llm/chat shape: attach vision base64 on the last user message that has an image (not only top-level `images`). */
@@ -76,7 +133,8 @@ async function mapChatToLlmMessages(
   return Promise.all(
     newMessages.map(async (msg, idx) => {
       if (msg.imageUrl && msg.role === 'user') {
-        const ocr = await runOcr(msg.imageUrl, secret)
+        const resolved = await resolveImageUrlForBackend(msg.imageUrl)
+        const ocr = await runOcr(resolved, secret)
         const content = ocr
           ? `${msg.text || 'Image:'}\n\n[OCR extracted text]:\n${ocr}`
           : msg.text || '[Image attached - OCR unavailable]'
@@ -84,7 +142,7 @@ async function mapChatToLlmMessages(
         return {
           role: 'user',
           content,
-          ...(attachVision ? { images: [toBase64ForOllama(msg.imageUrl)] } : {}),
+          ...(attachVision ? { images: [toBase64ForOllama(resolved)] } : {}),
         }
       }
       if (msg.videoUrl && msg.role === 'user') {
@@ -484,6 +542,33 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
     }
   }
 
+  const handleDeleteTrigger = useCallback(
+    (index: number) => {
+      const t = triggers[index]
+      const label = String(t?.name ?? t?.command ?? `Trigger ${index + 1}`)
+      if (!confirm(`Delete trigger "${label}"?`)) return
+      const key = 'optimando-tagged-triggers'
+      chrome.storage?.local?.get([key], (data: Record<string, unknown>) => {
+        const list = Array.isArray(data?.[key]) ? [...(data[key] as unknown[])] : []
+        list.splice(index, 1)
+        chrome.storage?.local?.set({ [key]: list }, () => {
+          setTriggers(list as any[])
+          try {
+            chrome.runtime?.sendMessage({ type: 'TRIGGERS_UPDATED' })
+          } catch {
+            /* noop */
+          }
+          try {
+            window.dispatchEvent(new CustomEvent('optimando-triggers-updated'))
+          } catch {
+            /* noop */
+          }
+        })
+      })
+    },
+    [triggers],
+  )
+
   const scrollToBottom = () => {
     setTimeout(() => { if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight }, 0)
   }
@@ -685,7 +770,8 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
       // OCR for image if present
       let ocrText = ''
       if (hasImage && currentTurnImageUrl) {
-        ocrText = await runOcr(currentTurnImageUrl, secretRef.current)
+        const resolvedImg = await resolveImageUrlForBackend(currentTurnImageUrl)
+        ocrText = await runOcr(resolvedImg, secretRef.current)
       }
 
       // Build messages array for LLM (vision base64 on the last user image message — not only top-level `images`)
@@ -870,7 +956,8 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
       try {
         let ocrText = ''
         if (!isVideo && mediaUrl) {
-          ocrText = await runOcr(mediaUrl, secretRef.current)
+          const resolvedMedia = await resolveImageUrlForBackend(mediaUrl)
+          ocrText = await runOcr(resolvedMedia, secretRef.current)
         }
         const enrichedText = enrichRouteTextWithOcr(routeText, ocrText)
         const hasImage = !isVideo && !!mediaUrl
@@ -1014,7 +1101,9 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
     if (wrChatEmbedContext === 'dashboard') return
     const onMsg = (message: { type?: string; promptContext?: string; dataUrl?: string; url?: string }) => {
       if (message.type !== 'ELECTRON_SELECTION_RESULT') return
-      if (message.promptContext !== 'popup') return
+      // Only reject when another surface is explicitly set (missing promptContext = same as docked sidepanel fix).
+      const pc = message.promptContext
+      if (pc !== undefined && pc !== 'popup') return
       const url = message.dataUrl || message.url
       if (!url) return
       const pending = pendingTriggerRef.current
@@ -1026,12 +1115,9 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
       const routeForLlm = commandT || tagFromName
       const displayForChat = commandT || (nameT ? nameT : '') || tagFromName
       pendingTriggerRef.current = null
-      void sendWithTriggerAndImageRef.current?.(
-        (displayForChat || tagFromName || '[Screenshot]').trim(),
-        (routeForLlm || tagFromName).trim() || '',
-        url,
-        'screenshot',
-      )
+      const displayLine = (displayForChat || tagFromName || '[Screenshot]').trim()
+      const routeLine = (routeForLlm || tagFromName).trim() || displayLine
+      void sendWithTriggerAndImageRef.current?.(displayLine, routeLine, url, 'screenshot')
     }
     try {
       chrome.runtime.onMessage.addListener(onMsg)
@@ -1072,12 +1158,9 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
       const routeForLlm = commandT || tagFromName
       const displayForChat = commandT || (nameT ? nameT : '') || tagFromName
       pendingTriggerRef.current = null
-      void sendWithTriggerAndImageRef.current?.(
-        (displayForChat || tagFromName || '[Screenshot]').trim(),
-        (routeForLlm || tagFromName).trim() || '',
-        url,
-        'screenshot',
-      )
+      const displayLine = (displayForChat || tagFromName || '[Screenshot]').trim()
+      const routeLine = (routeForLlm || tagFromName).trim() || displayLine
+      void sendWithTriggerAndImageRef.current?.(displayLine, routeLine, url, 'screenshot')
     })
     return () => {
       try {
@@ -1302,21 +1385,15 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
                   <div style={{ padding: '8px 10px', fontSize: 12, opacity: 0.8 }}>No tags yet</div>
                 ) : (
                   triggers.map((trigger, i) => (
-                    <button
+                    <div
                       key={i}
-                      type="button"
-                      onClick={() => handlePopupTriggerClick(trigger)}
                       style={{
-                        display: 'block',
-                        width: '100%',
-                        textAlign: 'left',
-                        padding: '8px 10px',
-                        fontSize: 12,
-                        cursor: 'pointer',
-                        background: 'transparent',
-                        border: 'none',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: 8,
+                        padding: '6px 8px',
                         borderBottom: i < triggers.length - 1 ? '1px solid rgba(255,255,255,0.2)' : 'none',
-                        color: 'inherit',
                       }}
                       onMouseEnter={(e) => {
                         e.currentTarget.style.background = 'rgba(255,255,255,0.06)'
@@ -1325,8 +1402,60 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
                         e.currentTarget.style.background = 'transparent'
                       }}
                     >
-                      {trigger.name || trigger.command || `Trigger ${i + 1}`}
-                    </button>
+                      <button
+                        type="button"
+                        onClick={() => handlePopupTriggerClick(trigger)}
+                        style={{
+                          flex: 1,
+                          minWidth: 0,
+                          textAlign: 'left',
+                          padding: '2px 0',
+                          fontSize: 12,
+                          cursor: 'pointer',
+                          background: 'transparent',
+                          border: 'none',
+                          color: 'inherit',
+                          whiteSpace: 'nowrap',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                        }}
+                      >
+                        {trigger.name || trigger.command || `Trigger ${i + 1}`}
+                      </button>
+                      <button
+                        type="button"
+                        title="Delete trigger"
+                        aria-label={`Delete trigger ${trigger.name || trigger.command || i + 1}`}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          handleDeleteTrigger(i)
+                        }}
+                        style={{
+                          width: 22,
+                          height: 22,
+                          flexShrink: 0,
+                          border: 'none',
+                          background: 'rgba(239,68,68,0.22)',
+                          color: '#f87171',
+                          borderRadius: 4,
+                          cursor: 'pointer',
+                          fontSize: 16,
+                          lineHeight: 1,
+                          padding: 0,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.background = 'rgba(239,68,68,0.45)'
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.background = 'rgba(239,68,68,0.22)'
+                        }}
+                      >
+                        ×
+                      </button>
+                    </div>
                   ))
                 )}
               </div>
