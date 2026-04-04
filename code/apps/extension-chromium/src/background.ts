@@ -2822,25 +2822,65 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       // Open the Electron Analysis Dashboard window
       (async () => {
         try {
-          // First check if WebSocket is connected
+          const themePayload: Record<string, unknown> = { type: 'OPEN_ANALYSIS_DASHBOARD' }
+          if (msg.theme && ['standard', 'dark', 'pro'].includes(msg.theme)) themePayload.theme = msg.theme
+
+          // 1) Prefer HTTP when we have X-Launch-Secret — Electron main sometimes does not
+          //    run the WebSocket on('message') path even when the socket is OPEN; HTTP
+          //    calls openDashboardWindow() directly and is reliable.
+          if (_launchSecret) {
+            try {
+              const resp = await fetch(`${ELECTRON_BASE_URL}/api/dashboard/open`, {
+                method: 'POST',
+                headers: { ..._electronHeaders(), 'Content-Type': 'application/json' },
+                body: '{}',
+                signal: AbortSignal.timeout(8000),
+              })
+              if (resp.ok) {
+                if (WS_ENABLED && ws && ws.readyState === WebSocket.OPEN) {
+                  try { ws.send(JSON.stringify(themePayload)) } catch {}
+                }
+                try { sendResponse({ success: true }) } catch {}
+                return
+              }
+            } catch {
+              // fall through to WebSocket / launch paths
+            }
+          }
+
+          // 2) WebSocket path (when connected and HTTP was not available or failed)
           if (WS_ENABLED && ws && ws.readyState === WebSocket.OPEN) {
-            const payload: Record<string, unknown> = { type: 'OPEN_ANALYSIS_DASHBOARD' }
-            if (msg.theme && ['standard', 'dark', 'pro'].includes(msg.theme)) payload.theme = msg.theme
-            try { ws.send(JSON.stringify(payload)) } catch {}
+            try { ws.send(JSON.stringify(themePayload)) } catch {}
+            await new Promise((r) => setTimeout(r, 2000))
+            if (_launchSecret) {
+              try {
+                const resp = await fetch(`${ELECTRON_BASE_URL}/api/dashboard/open`, {
+                  method: 'POST',
+                  headers: { ..._electronHeaders(), 'Content-Type': 'application/json' },
+                  body: '{}',
+                  signal: AbortSignal.timeout(8000),
+                })
+                if (resp.ok) {
+                  try { sendResponse({ success: true }) } catch {}
+                  return
+                }
+              } catch {
+                /* fall through */
+              }
+            }
             try { sendResponse({ success: true }) } catch {}
             return
           }
-          
-          // Try to connect on-demand
+
+          // 3) On-demand WebSocket + launch
           const url = 'ws://127.0.0.1:51247/'
           const temp = new WebSocket(url)
-          
+
           const timeout = setTimeout(() => {
             temp.close()
-            // Check if Electron app is running via HTTP
             checkAndLaunchElectronApp(sendResponse, msg.theme)
-          }, 2000) // 2 second timeout
-          
+          }, 2000)
+
           temp.addEventListener('open', () => {
             clearTimeout(timeout)
             try { ws = temp as any } catch {}
@@ -2849,14 +2889,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             try { ws?.send(JSON.stringify(payload)) } catch {}
             try { sendResponse({ success: true }) } catch {}
           })
-          
+
           temp.addEventListener('error', () => {
             clearTimeout(timeout)
-            // Check if Electron app is running via HTTP
             checkAndLaunchElectronApp(sendResponse, msg.theme)
           })
         } catch (err) {
-          // Check if Electron app is running via HTTP
           checkAndLaunchElectronApp(sendResponse, msg.theme)
         }
       })()
