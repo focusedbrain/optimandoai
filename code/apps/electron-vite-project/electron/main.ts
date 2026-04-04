@@ -5999,6 +5999,39 @@ app.whenReady().then(async () => {
       }
     })
 
+    // POST /api/lmgtfy/start-selection — same overlay as WebSocket START_SELECTION (extension sidepanel/popup).
+    // Prefer HTTP from the extension renderer when WS to :51247 is flaky; dashboard still uses IPC preload.
+    httpApp.post('/api/lmgtfy/start-selection', async (req, res) => {
+      try {
+        const body = req.body && typeof req.body === 'object' ? (req.body as Record<string, unknown>) : {}
+        const mergedOpts: Record<string, unknown> =
+          typeof body.options === 'object' && body.options !== null
+            ? { ...(body.options as Record<string, unknown>) }
+            : {}
+        if (body.createTrigger !== undefined) mergedOpts.createTrigger = body.createTrigger
+        if (body.addCommand !== undefined) mergedOpts.addCommand = body.addCommand
+        const src =
+          typeof body.source === 'string'
+            ? body.source
+            : typeof mergedOpts.source === 'string'
+              ? (mergedOpts.source as string)
+              : 'browser'
+        if (!mergedOpts.source) mergedOpts.source = src
+        console.log('[HTTP] POST /api/lmgtfy/start-selection', { source: src })
+        closeAllOverlays()
+        lmgtfyLastSelectionSource = src
+        lmgtfyActivePromptSurface = resolveLmgtfyPromptSurfaceFromSource(src)
+        beginOverlay(undefined, {
+          createTrigger: !!mergedOpts.createTrigger,
+          addCommand: !!mergedOpts.addCommand,
+        })
+        res.json({ ok: true })
+      } catch (error: any) {
+        console.error('[HTTP] POST /api/lmgtfy/start-selection:', error)
+        res.status(500).json({ ok: false, error: error.message || 'Failed to start selection' })
+      }
+    })
+
     // POST /api/db/test-connection - Test PostgreSQL connection
     httpApp.post('/api/db/test-connection', async (req, res) => {
       try {
