@@ -7,6 +7,9 @@ import { join, dirname } from 'path'
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs'
 import { createRequire } from 'module'
 import { homedir } from 'os'
+import { fileURLToPath } from 'url'
+
+const __dirname = dirname(fileURLToPath(import.meta.url))
 
 const require = createRequire(import.meta.url)
 

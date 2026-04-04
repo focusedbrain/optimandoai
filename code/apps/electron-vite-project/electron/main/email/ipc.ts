@@ -24,6 +24,9 @@ import {
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
+import { fileURLToPath } from 'url'
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 /** Per-call ⚡ logs for `inbox:aiAnalyzeMessage` — keep false in production. */
 const DEBUG_INBOX_AI_IPC_VERBOSE = false
