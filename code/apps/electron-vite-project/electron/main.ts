@@ -780,8 +780,11 @@ import {
   upsertRegion,
   loadTaggedTriggersList,
   saveTaggedTriggersList,
+  loadDiffWatchersList,
+  saveDiffWatchersList,
   normalisePresetTag,
 } from './lmgtfy/presets'
+import { diffWatcherService, type DiffTrigger } from './diffWatcher'
 import { registerDbHandlers, testConnection, syncChromeDataToPostgres, getConfig, getPostgresAdapter } from './ipc/db'
 import { handleVaultRPC } from './main/vault/rpc'
 import { handleHandshakeRPC, registerHandshakeRoutes, setSSOSessionProvider, setOidcTokenProvider, getCurrentSession } from './main/handshake/ipc'
@@ -879,6 +882,93 @@ export function broadcastToExtensions(message: Record<string, unknown>): void {
         socket.send(json)
       }
     } catch { /* ignore */ }
+  }
+}
+
+// --- WR Chat diff watchers (folder snapshots, WebSocket DIFF_RESULT / DIFF_ERROR) ---
+let diffWatcherHostCallbacksWired = false
+
+function persistDiffWatcherDisabled(triggerId: string): void {
+  try {
+    const list = loadDiffWatchersList()
+    const idx = list.findIndex((t) => t.id === triggerId)
+    if (idx < 0) return
+    list[idx] = { ...list[idx], enabled: false, updatedAt: Date.now() }
+    saveDiffWatchersList(list)
+  } catch (e) {
+    console.error('[diff-watchers] persistDiffWatcherDisabled failed:', e)
+  }
+}
+
+function wireDiffWatcherHostCallbacks(): void {
+  if (diffWatcherHostCallbacksWired) return
+  diffWatcherHostCallbacksWired = true
+  diffWatcherService.setOnDiffReady((triggerId, diffText) => {
+    const list = loadDiffWatchersList()
+    const trigger = list.find((t) => t.id === triggerId)
+    const tag = trigger?.tag ?? '#'
+    const triggerName = trigger?.name ?? triggerId
+    const cmdPart = trigger?.command?.trim() ? `${trigger.command.trim()}\n` : ''
+    const messageString = `${tag}\n${cmdPart}\`\`\`\n${diffText}\n\`\`\``
+    const payload = JSON.stringify({
+      type: 'DIFF_RESULT',
+      triggerId,
+      triggerName,
+      tag,
+      message: messageString,
+    })
+    wsClients.forEach((c) => {
+      try {
+        c.send(payload)
+      } catch {
+        /* noop */
+      }
+    })
+  })
+  diffWatcherService.setOnError((triggerId, error) => {
+    persistDiffWatcherDisabled(triggerId)
+    const payload = JSON.stringify({ type: 'DIFF_ERROR', triggerId, error })
+    wsClients.forEach((c) => {
+      try {
+        c.send(payload)
+      } catch {
+        /* noop */
+      }
+    })
+  })
+}
+
+function reconcileDiffWatchersAfterSave(previous: DiffTrigger[], next: DiffTrigger[]): void {
+  const nextIds = new Set(next.map((t) => t.id))
+  for (const t of previous) {
+    if (!nextIds.has(t.id)) {
+      diffWatcherService.stop(t.id)
+    }
+  }
+  for (const t of next) {
+    if (t.type !== 'diff') continue
+    if (!t.enabled && diffWatcherService.isWatching(t.id)) {
+      diffWatcherService.stop(t.id)
+    }
+  }
+  for (const t of next) {
+    if (t.type !== 'diff') continue
+    if (t.enabled && !diffWatcherService.isWatching(t.id)) {
+      diffWatcherService.start(t)
+    }
+  }
+}
+
+function startPersistedDiffWatchers(): void {
+  try {
+    const list = loadDiffWatchersList()
+    for (const t of list) {
+      if (t.type === 'diff' && t.enabled && !diffWatcherService.isWatching(t.id)) {
+        diffWatcherService.start(t)
+      }
+    }
+  } catch (e) {
+    console.error('[diff-watchers] startPersistedDiffWatchers failed:', e)
   }
 }
 
@@ -2139,7 +2229,13 @@ app.on('open-url', (event, url) => {
 
 app.on('will-quit', async () => {
   globalShortcut.unregisterAll()
-  
+
+  try {
+    diffWatcherService.stopAll()
+  } catch {
+    /* noop */
+  }
+
   // Final cleanup of OAuth server (in case before-quit didn't run)
   try {
     const { oauthServerManager } = await import('./main/email/oauth-server')
@@ -2520,6 +2616,20 @@ app.whenReady().then(async () => {
       return { ok: true }
     })
     console.log('[MAIN] IPC handler registered: dashboard:open')
+
+    ipcMain.handle('PICK_DIRECTORY', async () => {
+      const parent =
+        win && !win.isDestroyed()
+          ? win
+          : BrowserWindow.getAllWindows().find((w) => !w.isDestroyed()) ?? undefined
+      const result = await dialog.showOpenDialog(parent ?? null, {
+        properties: ['openDirectory'],
+        title: 'Select folder to watch',
+      })
+      if (result.canceled || result.filePaths.length === 0) return null
+      return result.filePaths[0]
+    })
+    console.log('[MAIN] IPC handler registered: PICK_DIRECTORY')
     
     // Get build integrity status (offline verification)
     ipcMain.handle('integrity:status', async () => {
@@ -5335,6 +5445,32 @@ app.whenReady().then(async () => {
                   headless: msg.mode === 'screenshot'
                 })
                 updateTrayMenu()
+
+                // Also update tagged-triggers.json so executeTriggerFromExtension can always
+                // recover coords even if chrome.storage.onChanged POST hasn't fired yet.
+                try {
+                  const existingList = loadTaggedTriggersList() as Array<Record<string, unknown>>
+                  const triggerKey = tag || (typeof msg.name === 'string' ? msg.name.replace(/^[#@]+/, '').toLowerCase().trim() : '')
+                  const triggerEntry: Record<string, unknown> = {
+                    name: msg.name,
+                    command: msg.command || undefined,
+                    at: Date.now(),
+                    rect: { x: msg.rect.x, y: msg.rect.y, w: msg.rect.w, h: msg.rect.h },
+                    mode: msg.mode,
+                    ...(displayId ? { displayId } : {}),
+                  }
+                  const idx = existingList.findIndex((t) => {
+                    const tName = String(t?.name ?? '').replace(/^[#@]+/, '').toLowerCase().trim()
+                    return triggerKey && tName === triggerKey
+                  })
+                  if (idx >= 0) existingList[idx] = triggerEntry
+                  else existingList.unshift(triggerEntry)
+                  saveTaggedTriggersList(existingList)
+                  console.log('[MAIN] Trigger rect written to tagged-triggers.json for cross-surface recovery')
+                } catch (ttErr) {
+                  console.warn('[MAIN] Failed to update tagged-triggers.json from SAVE_TRIGGER:', ttErr)
+                }
+
                 console.log('[MAIN] Trigger saved to Electron presets with displayId:', displayId)
               } catch (err) {
                 console.log('[MAIN] Error saving trigger:', err)
@@ -6045,6 +6181,31 @@ app.whenReady().then(async () => {
           headless: body.mode === 'screenshot',
         })
         updateTrayMenu()
+
+        // Mirror to tagged-triggers.json so executeTriggerFromExtension can recover coords
+        // when chrome.storage hasn't round-tripped the rect back yet.
+        try {
+          const existingList = loadTaggedTriggersList() as Array<Record<string, unknown>>
+          const triggerKey = tag || name.replace(/^[#@]+/, '').toLowerCase().trim()
+          const triggerEntry: Record<string, unknown> = {
+            name: name || undefined,
+            command: typeof body.command === 'string' && body.command.trim() ? body.command.trim() : undefined,
+            at: Date.now(),
+            rect: { x: rect.x, y: rect.y, w: rect.w, h: rect.h },
+            mode: body.mode,
+            displayId,
+          }
+          const idx = existingList.findIndex((t) => {
+            const tName = String(t?.name ?? '').replace(/^[#@]+/, '').toLowerCase().trim()
+            return triggerKey && tName === triggerKey
+          })
+          if (idx >= 0) existingList[idx] = triggerEntry
+          else existingList.unshift(triggerEntry)
+          saveTaggedTriggersList(existingList)
+        } catch (ttErr) {
+          console.warn('[HTTP] POST /api/lmgtfy/save-trigger: tagged-triggers.json update failed:', ttErr)
+        }
+
         res.json({ ok: true })
       } catch (error: any) {
         console.error('[HTTP] POST /api/lmgtfy/save-trigger:', error)
@@ -6069,23 +6230,26 @@ app.whenReady().then(async () => {
         console.log('[execute-trigger] starting — surface:', targetSurface, '| trigger:', JSON.stringify(trigger).slice(0, 200))
         const result = await executeTriggerFromExtension(trigger, targetSurface)
         console.log('[execute-trigger] result dataUrl length:', result?.dataUrl?.length ?? 0, '| promptContext:', result?.promptContext)
-        const wsOpen = wsClients.filter((c: { readyState: number }) => c.readyState === 1).length
-        // Dashboard renderer may miss IPC (preload timing) or need HTTP fallback when WS is open (HTTP used to omit dataUrl).
-        const dashboardNeedsBody = targetSurface === 'dashboard'
-        if (result?.dataUrl && (wsOpen === 0 || dashboardNeedsBody)) {
-          console.log('[execute-trigger] returning dataUrl in HTTP body (dashboard or no WS clients)')
+        // Always return dataUrl in the HTTP body when the capture succeeded.
+        // The background.ts consumer writes it to chrome.storage for reliable delivery
+        // (storage-fallback path). WS delivery via postScreenshotToPopup is a best-effort
+        // side-channel — never rely on it as the sole delivery mechanism, because WS clients
+        // belonging to the Electron window don't map to the extension popup page.
+        if (result?.dataUrl) {
+          console.log('[execute-trigger] returning dataUrl in HTTP body')
           res.json({
             ok: true,
             dataUrl: result.dataUrl,
             promptContext: result.promptContext,
             kind: result.kind || 'image',
           })
-        } else if (result === undefined && targetSurface === 'dashboard') {
+        } else if (result === undefined) {
           // Capture failed — tell the client explicitly so it can show an error.
-          console.error('[execute-trigger] capture returned no result for dashboard surface')
+          console.error('[execute-trigger] capture returned no result for surface:', targetSurface)
           res.json({ ok: false, error: 'Trigger capture failed — screenshot could not be taken' })
         } else {
-          console.log('[execute-trigger] returning ok:true without dataUrl (WS delivery or stream mode)')
+          // Stream mode or capture succeeded but no dataUrl (e.g. video path handled separately).
+          console.log('[execute-trigger] returning ok:true without dataUrl (stream mode)')
           res.json({ ok: true })
         }
       } catch (error: any) {
@@ -6116,6 +6280,41 @@ app.whenReady().then(async () => {
       } catch (error: any) {
         console.error('[HTTP] POST /api/wrchat/tagged-triggers:', error)
         res.status(500).json({ ok: false, error: error.message || 'write failed' })
+      }
+    })
+
+    // GET/POST /api/wrchat/diff-watchers — persisted folder diff triggers + reconcile DiffWatcherService
+    httpApp.get('/api/wrchat/diff-watchers', (_req, res) => {
+      try {
+        const watchers = loadDiffWatchersList()
+        res.json({ ok: true, watchers })
+      } catch (error: any) {
+        res.status(500).json({ ok: false, error: error.message || 'read failed' })
+      }
+    })
+    httpApp.post('/api/wrchat/diff-watchers', async (req, res) => {
+      try {
+        const body = req.body && typeof req.body === 'object' ? (req.body as Record<string, unknown>) : {}
+        const watchers = body.watchers
+        if (!Array.isArray(watchers)) {
+          res.status(400).json({ ok: false, error: 'watchers must be an array' })
+          return
+        }
+        const previous = loadDiffWatchersList()
+        saveDiffWatchersList(watchers as DiffTrigger[])
+        reconcileDiffWatchersAfterSave(previous, watchers as DiffTrigger[])
+        res.json({ ok: true })
+      } catch (error: any) {
+        console.error('[HTTP] POST /api/wrchat/diff-watchers:', error)
+        res.status(500).json({ ok: false, error: error.message || 'write failed' })
+      }
+    })
+    httpApp.get('/api/wrchat/diff-watchers/status', (_req, res) => {
+      try {
+        const status = diffWatcherService.getStatus()
+        res.json({ ok: true, status })
+      } catch (error: any) {
+        res.status(500).json({ ok: false, error: error.message || 'status failed' })
       }
     })
 
@@ -9509,6 +9708,9 @@ app.whenReady().then(async () => {
       })
     }
 
+    wireDiffWatcherHostCallbacks()
+    startPersistedDiffWatchers()
+
     // P2P outbound queue + P2P server startup (default-on, start as soon as db available)
     let p2pServerStarted = false
     let coordinationWsClient: ReturnType<typeof createCoordinationWsClient> | null = null
@@ -9755,13 +9957,41 @@ async function executeTriggerFromExtension(
     lmgtfyActivePromptSurface = surface
     const t = trigger
     const rawId = t.displayId
-    const displayId =
+    let displayId =
       typeof rawId === 'number' && rawId > 0 ? rawId : screen.getPrimaryDisplay().id
     const rr = t.rect && typeof t.rect === 'object' ? (t.rect as Record<string, unknown>) : {}
-    const x = Number(rr.x ?? t.x ?? 0)
-    const y = Number(rr.y ?? t.y ?? 0)
-    const w = Number(rr.w ?? rr.width ?? t.w ?? 0)
-    const h = Number(rr.h ?? rr.height ?? t.h ?? 0)
+    let x = Number(rr.x ?? t.x ?? 0)
+    let y = Number(rr.y ?? t.y ?? 0)
+    let w = Number(rr.w ?? rr.width ?? t.w ?? 0)
+    let h = Number(rr.h ?? rr.height ?? t.h ?? 0)
+
+    // If the inline rect is missing or zero-sized, fall back to the region preset saved in regions.json.
+    // This covers triggers recorded via ELECTRON_SAVE_TRIGGER whose rect wasn't round-tripped back to
+    // chrome.storage — regions.json always has the authoritative coords written by upsertRegion.
+    if ((w === 0 || h === 0) && (t.name || t.command)) {
+      try {
+        const presets = loadPresets()
+        const triggerName = String(t.name ?? t.command ?? '').trim()
+        const triggerTag = normalisePresetTag(triggerName)
+        const match = presets.regions.find((r) =>
+          (triggerTag && r.tag && r.tag === triggerTag) ||
+          (r.name && r.name.trim().toLowerCase() === triggerName.toLowerCase())
+        )
+        if (match && match.w > 0 && match.h > 0) {
+          console.log('[executeTriggerFromExtension] rect missing from trigger — recovered from regions.json:', { name: match.name, x: match.x, y: match.y, w: match.w, h: match.h, displayId: match.displayId })
+          x = match.x
+          y = match.y
+          w = match.w
+          h = match.h
+          if (typeof match.displayId === 'number' && match.displayId > 0) displayId = match.displayId
+        } else {
+          console.warn('[executeTriggerFromExtension] trigger has no rect and no matching region preset — will capture full screen at 0,0')
+        }
+      } catch (lookupErr) {
+        console.warn('[executeTriggerFromExtension] regions.json lookup failed:', lookupErr)
+      }
+    }
+
     const sel = { displayId, x, y, w, h, dpr: 1 }
     console.log('[executeTriggerFromExtension] surface:', surface, '| coords:', { displayId, x, y, w, h })
     // Storage-tagged triggers often omit mode; default to screenshot so headless execute always does something.

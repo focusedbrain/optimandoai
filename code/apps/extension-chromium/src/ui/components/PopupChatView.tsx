@@ -8,6 +8,7 @@
 
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { WrChatCaptureButton } from './WrChatCaptureButton'
+import { WrChatDiffButton } from './WrChatDiffButton'
 import { normaliseTriggerTag } from '../../utils/normaliseTriggerTag'
 import { enrichRouteTextWithOcr } from '../../services/processFlow'
 import { mergeTaggedTriggersFromHost } from '../../utils/mergeTaggedTriggersFromHost'
@@ -218,10 +219,12 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
   const [isLoading, setIsLoading] = useState(false)
   const [isDragging, setIsDragging] = useState(false)
   const [pendingDoc, setPendingDoc] = useState<{ name: string; text: string } | null>(null)
+  const [pendingCaptureUrl, setPendingCaptureUrl] = useState<string | null>(null)
   const [showModelDropdown, setShowModelDropdown] = useState(false)
   const [isConnected, setIsConnected] = useState(false)
   /** Saved area triggers — same storage key as docked WR Chat */
   const [triggers, setTriggers] = useState<any[]>([])
+  const [anchoredTriggerKeys, setAnchoredTriggerKeys] = useState<string[]>([])
   const [showTagsMenu, setShowTagsMenu] = useState(false)
   /** Resets after each run so the same trigger can be chosen again from the select. */
   const [triggerSelectValue, setTriggerSelectValue] = useState('')
@@ -249,6 +252,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
   const tagsMenuRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const pendingTriggerRef = useRef<{ trigger: any; command?: string; autoProcess: boolean } | null>(null)
+  const diffMessageQueueRef = useRef<string[]>([])
   /** Set after `sendWithTriggerAndImage` — dashboard tag HTTP + IPC share this. */
   const runDashboardPendingCaptureRef = useRef<(dataUrl: string, kind?: string) => void>(() => {})
   const sendWithTriggerAndImageRef = useRef<
@@ -302,13 +306,18 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
 
   // Tags list — parity with docked WR Chat (sidepanel); merge from host keeps dashboard ↔ extension in sync.
   useEffect(() => {
+    const KEYS = ['optimando-tagged-triggers', 'optimando-anchored-trigger-keys']
     const load = () => {
       try {
-        chrome.storage?.local?.get(['optimando-tagged-triggers'], (data: Record<string, unknown>) => {
+        chrome.storage?.local?.get(KEYS, (data: Record<string, unknown>) => {
           const list = Array.isArray(data?.['optimando-tagged-triggers'])
             ? (data['optimando-tagged-triggers'] as any[])
             : []
           setTriggers(list)
+          const anchored = Array.isArray(data?.['optimando-anchored-trigger-keys'])
+            ? (data['optimando-anchored-trigger-keys'] as string[])
+            : []
+          setAnchoredTriggerKeys(anchored)
         })
       } catch {
         setTriggers([])
@@ -318,8 +327,8 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
     const onUpd = () => load()
     window.addEventListener('optimando-triggers-updated', onUpd)
     const onStorage: Parameters<typeof chrome.storage.onChanged.addListener>[0] = (changes, area) => {
-      if (area !== 'local' || !changes['optimando-tagged-triggers']) return
-      load()
+      if (area !== 'local') return
+      if (changes['optimando-tagged-triggers'] || changes['optimando-anchored-trigger-keys']) load()
     }
     try {
       chrome.storage?.onChanged?.addListener(onStorage)
@@ -599,6 +608,24 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
     [triggers],
   )
 
+  /** Stable key for a trigger used as the anchor identifier. */
+  const triggerAnchorKey = (t: any): string =>
+    String(t?.name ?? t?.command ?? '').trim() || JSON.stringify(t).slice(0, 60)
+
+  const handleToggleAnchor = useCallback(
+    (trigger: any) => {
+      const key = triggerAnchorKey(trigger)
+      setAnchoredTriggerKeys((prev) => {
+        const next = prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]
+        try {
+          chrome.storage?.local?.set({ 'optimando-anchored-trigger-keys': next })
+        } catch { /* noop */ }
+        return next
+      })
+    },
+    [],
+  )
+
   const scrollToBottom = () => {
     setTimeout(() => { if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight }, 0)
   }
@@ -755,8 +782,12 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
     const docCtx = pendingDoc
     if (docCtx) setPendingDoc(null)
 
+    // Manual screenshot capture (dashboard Capture button) — treat as image attachment
+    const captureUrl = pendingCaptureUrl
+    if (captureUrl) setPendingCaptureUrl(null)
+
     const lastUserMsgWithImage = [...messages].reverse().find(m => m.role === 'user' && m.imageUrl)
-    const currentTurnImageUrl = lastUserMsgWithImage?.imageUrl
+    const currentTurnImageUrl = captureUrl || lastUserMsgWithImage?.imageUrl
     const hasImage = !!currentTurnImageUrl
 
     if (!text && !hasImage && !docCtx) {
@@ -786,9 +817,13 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
       ? `[Attached document: ${docCtx.name}]\n\n${docCtx.text}\n\n---\n${text}`
       : text
 
-    const userDisplayText = text || (docCtx ? `📄 ${docCtx.name}` : '')
+    const userDisplayText = text || (captureUrl ? '📸 Screenshot' : docCtx ? `📄 ${docCtx.name}` : '')
+    // When a manual capture is attached, embed imageUrl directly in the user message bubble.
     const newMessages: ChatMessage[] = userDisplayText
-      ? [...messages, { role: 'user' as const, text: userDisplayText }]
+      ? [...messages, captureUrl
+          ? { role: 'user' as const, text: userDisplayText, imageUrl: captureUrl }
+          : { role: 'user' as const, text: userDisplayText }
+        ]
       : [...messages]
 
     setMessages(newMessages)
@@ -962,7 +997,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
       setIsLoading(false)
       scrollToBottom()
     }
-  }, [input, messages, pendingDoc, activeLlmModel, availableModels, isLoading, isConnected, sessionName, wrChatEmbedContext])
+  }, [input, messages, pendingDoc, pendingCaptureUrl, activeLlmModel, availableModels, isLoading, isConnected, sessionName, wrChatEmbedContext])
 
   /** After capture Save with tag/command — displayText is what appears in chat; routeText drives routing/LLM. */
   const sendWithTriggerAndImage = useCallback(
@@ -1147,6 +1182,207 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
     [messages, activeLlmModel, availableModels, isLoading, isConnected, sessionName, wrChatEmbedContext],
   )
 
+  /** Folder diff from Electron — same LLM path as sendWithTriggerAndImage, text-only (no image). */
+  const processDiffMessage = useCallback(
+    async (message: string) => {
+      const text = (message ?? '').trim()
+      if (!text) return
+
+      const modelId = resolveModelIdForChat(activeLlmModel, availableModels)
+      if (!modelId) {
+        setMessages((prev) => [
+          ...prev,
+          {
+            role: 'assistant',
+            text: `⚠️ No LLM model available. Please go to Admin panel → LLM Settings and install a model.`,
+          },
+        ])
+        return
+      }
+
+      const userMsg: ChatMessage = { role: 'user', text }
+      const newMessages = [...messages, userMsg]
+      setMessages(newMessages)
+      setInput('')
+      setIsLoading(true)
+      scrollToBottom()
+
+      try {
+        const secret = await ensureLaunchSecret(secretRef)
+        const isDashboard = wrChatEmbedContext === 'dashboard'
+        const enrichedText = enrichRouteTextWithOcr(text, '')
+        const hasImage = false
+
+        const [processedMessages, processFlow] = await Promise.all([
+          mapChatToLlmMessages(newMessages, secret, { isDashboard }),
+          import('../../services/processFlow'),
+        ])
+
+        let answered = false
+        try {
+          const { routeInput, wrapInputForAgent, updateAgentBoxOutput, loadAgentsFromSession } = processFlow
+          let currentUrl = ''
+          try {
+            const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
+            currentUrl = tab?.url || ''
+          } catch {
+            /* noop */
+          }
+
+          const routingDecision = await routeInput(
+            enrichedText,
+            hasImage,
+            { isConnected },
+            sessionName,
+            modelId,
+            currentUrl,
+          )
+
+          if (routingDecision.shouldForwardToAgent && routingDecision.matchedAgents.length > 0) {
+            if (routingDecision.butlerResponse) {
+              setMessages((prev) => [...prev, { role: 'assistant', text: routingDecision.butlerResponse }])
+            }
+            let allAgents: any[] = []
+            try {
+              allAgents = await loadAgentsFromSession()
+            } catch {
+              /* noop */
+            }
+            for (const match of routingDecision.matchedAgents) {
+              const agentConfig = allAgents.find((a: any) => a.id === match.agentId)
+              const agentInput = agentConfig ? wrapInputForAgent(text, agentConfig, '') : enrichedText
+              const agentMessages = [
+                { role: 'system', content: agentInput },
+                ...processedMessages.filter((m) => m.role === 'user'),
+              ]
+              const modelToUse = match.agentBoxModel || modelId
+              const agentRes: Response = await fetch(`${BASE_URL}/api/llm/chat`, {
+                method: 'POST',
+                headers: buildHeaders(secret),
+                body: JSON.stringify({
+                  modelId: modelToUse,
+                  messages: agentMessages,
+                }),
+                signal: AbortSignal.timeout(LLM_FETCH_TIMEOUT_MS),
+              })
+              if (agentRes.ok) {
+                const agentJson = await agentRes.json()
+                const agentReply = agentJson.ok && agentJson.data?.content ? agentJson.data.content : ''
+                if (agentReply) {
+                  const allBoxIds =
+                    match.targetBoxIds && match.targetBoxIds.length > 0
+                      ? match.targetBoxIds
+                      : match.agentBoxId
+                        ? [match.agentBoxId]
+                        : []
+                  if (allBoxIds.length > 0) {
+                    try {
+                      for (const boxId of allBoxIds) {
+                        await updateAgentBoxOutput(
+                          boxId,
+                          agentReply,
+                          undefined,
+                          undefined,
+                          wrChatEmbedContext === 'dashboard' ? 'dashboard' : 'popup',
+                        )
+                      }
+                    } catch {
+                      /* noop */
+                    }
+                    const confirm = `[Agent: ${match.agentName}] responded. See agent box.`
+                    setMessages((prev) => [...prev, { role: 'assistant', text: confirm }])
+                  } else {
+                    setMessages((prev) => [
+                      ...prev,
+                      {
+                        role: 'assistant',
+                        text: `${match.agentIcon} **${match.agentName}**:\n\n${agentReply}`,
+                      },
+                    ])
+                  }
+                  answered = true
+                }
+              }
+            }
+          }
+        } catch (e) {
+          console.warn('[PopupChat] handleDiffMessage agent routing failed:', e)
+        }
+
+        if (!answered) {
+          const { getButlerSystemPrompt } = processFlow
+          const butlerPrompt = getButlerSystemPrompt(sessionName, 0, isConnected)
+          const butlerMessages = [{ role: 'system', content: butlerPrompt }, ...processedMessages]
+          const butlerRes: Response = await fetch(`${BASE_URL}/api/llm/chat`, {
+            method: 'POST',
+            headers: buildHeaders(secret),
+            body: JSON.stringify({
+              modelId,
+              messages: butlerMessages,
+            }),
+            signal: AbortSignal.timeout(LLM_FETCH_TIMEOUT_MS),
+          })
+          if (butlerRes.ok) {
+            const butlerJson = await butlerRes.json()
+            const butlerReply = butlerJson.ok && butlerJson.data?.content ? butlerJson.data.content : ''
+            if (butlerReply) {
+              setMessages((prev) => [...prev, { role: 'assistant', text: butlerReply }])
+            } else {
+              setMessages((prev) => [
+                ...prev,
+                {
+                  role: 'assistant',
+                  text: `⚠️ LLM returned an empty response. The model may still be loading — please try again.`,
+                },
+              ])
+            }
+          } else {
+            const errText = await butlerRes.text().catch(() => butlerRes.statusText)
+            setMessages((prev) => [
+              ...prev,
+              { role: 'assistant', text: `❌ LLM error (${butlerRes.status}): ${errText}` },
+            ])
+          }
+        }
+      } catch (err: any) {
+        console.error('[PopupChat] handleDiffMessage error:', err)
+        setMessages((prev) => [
+          ...prev,
+          { role: 'assistant', text: `❌ Error: ${err?.message || 'Unknown error'}` },
+        ])
+      } finally {
+        setIsLoading(false)
+        scrollToBottom()
+      }
+    },
+    [messages, activeLlmModel, availableModels, isConnected, sessionName, wrChatEmbedContext],
+  )
+
+  const enqueueDiffMessage = useCallback(
+    (message: string) => {
+      const text = (message ?? '').trim()
+      if (!text) return
+      if (isLoading) {
+        diffMessageQueueRef.current.push(text)
+        return
+      }
+      void processDiffMessage(text).catch((err) => {
+        console.error('[PopupChat] processDiffMessage:', err)
+      })
+    },
+    [isLoading, processDiffMessage],
+  )
+
+  useEffect(() => {
+    if (isLoading) return
+    const next = diffMessageQueueRef.current.shift()
+    if (next) {
+      void processDiffMessage(next).catch((err) => {
+        console.error('[PopupChat] processDiffMessage (queued):', err)
+      })
+    }
+  }, [isLoading, processDiffMessage])
+
   sendWithTriggerAndImageRef.current = sendWithTriggerAndImage
 
   runDashboardPendingCaptureRef.current = (dataUrl: string, kind?: string) => {
@@ -1162,7 +1398,14 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
     }
     console.log('[WRChat][dashboard-trigger] runDashboardPendingCapture: dataUrl length:', dataUrl.length)
     const pending = pendingTriggerRef.current
-    if (!pending?.autoProcess) return
+    if (!pending?.autoProcess) {
+      // No pending trigger — manual Capture button. Attach the screenshot to the
+      // composer so the user can type a question and send it through the OCR/LLM pipeline.
+      console.log('[WRChat][dashboard-capture] no pending trigger — attaching screenshot to composer')
+      setPendingCaptureUrl(dataUrl)
+      scrollToBottom()
+      return
+    }
     const tr = pending.trigger
     const nameT = String(tr?.name ?? '').trim()
     const commandT = String(pending.command ?? tr?.command ?? '').trim()
@@ -1361,6 +1604,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
     setMessages([])
     setInput('')
     setPendingDoc(null)
+    setPendingCaptureUrl(null)
     setIsLoading(false)
     setShowTagsMenu(false)
     setShowTriggerPrompt(null)
@@ -1407,7 +1651,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
   }
 
   const noModels = availableModels.length === 0
-  const canSend = !isLoading && (!!input.trim() || !!pendingDoc)
+  const canSend = !isLoading && (!!input.trim() || !!pendingDoc || !!pendingCaptureUrl)
 
   const captureSource = useMemo(
     () => (wrChatEmbedContext === 'dashboard' ? 'wr-chat-dashboard' : 'wr-chat-popup'),
@@ -1459,6 +1703,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
             createTrigger={true}
             addCommand={true}
           />
+          <WrChatDiffButton variant="comfortable" theme={theme} onDiffMessage={enqueueDiffMessage} />
           <button
             type="button"
             onClick={handleClearChat}
@@ -1496,6 +1741,45 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
           >
             Clear
           </button>
+          {/* Anchored trigger chips — 1-click execution */}
+          {anchoredTriggerKeys.length > 0 && triggers
+            .filter((t) => anchoredTriggerKeys.includes(triggerAnchorKey(t)))
+            .map((trigger, idx) => {
+              const label = String(trigger.name || trigger.command || `T${idx + 1}`).slice(0, 18)
+              return (
+                <button
+                  key={triggerAnchorKey(trigger)}
+                  type="button"
+                  title={`Run: ${trigger.name || trigger.command || 'trigger'}`}
+                  onClick={() => handlePopupTriggerClick(trigger)}
+                  style={{
+                    height: 22,
+                    padding: '0 7px',
+                    fontSize: 10,
+                    fontWeight: 500,
+                    borderRadius: 11,
+                    cursor: 'pointer',
+                    border: '1px solid rgba(99,102,241,0.5)',
+                    background: 'rgba(99,102,241,0.18)',
+                    color: '#a5b4fc',
+                    whiteSpace: 'nowrap',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 3,
+                    flexShrink: 0,
+                    maxWidth: 110,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    transition: 'background 0.15s',
+                  }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(99,102,241,0.35)' }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(99,102,241,0.18)' }}
+                >
+                  <span style={{ fontSize: 9 }}>📌</span>
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 80 }}>{label}</span>
+                </button>
+              )
+            })}
           <select
             value={triggerSelectValue}
             onChange={handleTriggerSelectChange}
@@ -1607,10 +1891,9 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
                       style={{
                         display: 'flex',
                         alignItems: 'center',
-                        justifyContent: 'space-between',
-                        gap: 8,
-                        padding: '6px 8px',
-                        borderBottom: i < triggers.length - 1 ? '1px solid rgba(255,255,255,0.2)' : 'none',
+                        gap: 4,
+                        padding: '5px 8px',
+                        borderBottom: i < triggers.length - 1 ? '1px solid rgba(255,255,255,0.12)' : 'none',
                       }}
                       onMouseEnter={(e) => {
                         e.currentTarget.style.background = 'rgba(255,255,255,0.06)'
@@ -1619,6 +1902,39 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
                         e.currentTarget.style.background = 'transparent'
                       }}
                     >
+                      {/* Pin / anchor icon */}
+                      <button
+                        type="button"
+                        title={anchoredTriggerKeys.includes(triggerAnchorKey(trigger)) ? 'Unpin from toolbar' : 'Pin to toolbar for 1-click access'}
+                        onClick={(e) => { e.stopPropagation(); handleToggleAnchor(trigger) }}
+                        style={{
+                          width: 20,
+                          height: 20,
+                          flexShrink: 0,
+                          border: 'none',
+                          borderRadius: 4,
+                          cursor: 'pointer',
+                          fontSize: 12,
+                          padding: 0,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          background: anchoredTriggerKeys.includes(triggerAnchorKey(trigger))
+                            ? 'rgba(99,102,241,0.45)'
+                            : 'rgba(255,255,255,0.08)',
+                          color: anchoredTriggerKeys.includes(triggerAnchorKey(trigger)) ? '#a5b4fc' : 'rgba(255,255,255,0.5)',
+                          transition: 'background 0.15s',
+                        }}
+                        onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(99,102,241,0.35)' }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.background = anchoredTriggerKeys.includes(triggerAnchorKey(trigger))
+                            ? 'rgba(99,102,241,0.45)'
+                            : 'rgba(255,255,255,0.08)'
+                        }}
+                      >
+                        📌
+                      </button>
+                      {/* Trigger name / run button */}
                       <button
                         type="button"
                         onClick={() => handlePopupTriggerClick(trigger)}
@@ -1639,6 +1955,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
                       >
                         {trigger.name || trigger.command || `Trigger ${i + 1}`}
                       </button>
+                      {/* Delete button */}
                       <button
                         type="button"
                         title="Delete trigger"
@@ -1648,27 +1965,23 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
                           handleDeleteTrigger(i)
                         }}
                         style={{
-                          width: 22,
-                          height: 22,
+                          width: 20,
+                          height: 20,
                           flexShrink: 0,
                           border: 'none',
                           background: 'rgba(239,68,68,0.22)',
                           color: '#f87171',
                           borderRadius: 4,
                           cursor: 'pointer',
-                          fontSize: 16,
+                          fontSize: 15,
                           lineHeight: 1,
                           padding: 0,
                           display: 'flex',
                           alignItems: 'center',
                           justifyContent: 'center',
                         }}
-                        onMouseEnter={(e) => {
-                          e.currentTarget.style.background = 'rgba(239,68,68,0.45)'
-                        }}
-                        onMouseLeave={(e) => {
-                          e.currentTarget.style.background = 'rgba(239,68,68,0.22)'
-                        }}
+                        onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(239,68,68,0.45)' }}
+                        onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(239,68,68,0.22)' }}
                       >
                         ×
                       </button>
@@ -1736,6 +2049,25 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
             <strong>{pendingDoc.name}</strong> attached — type your question and Send
           </span>
           <button onClick={() => setPendingDoc(null)} style={{
+            background: 'none', border: 'none', cursor: 'pointer', padding: '0 4px', color: 'inherit', fontSize: 13
+          }}>×</button>
+        </div>
+      )}
+
+      {pendingCaptureUrl && (
+        <div style={{
+          margin: '0 8px', padding: '6px 10px', borderRadius: 6, display: 'flex', alignItems: 'center', gap: 8,
+          background: colors.pendingBg, border: `1px solid ${colors.pendingBorder}`, color: colors.pendingText, fontSize: 11
+        }}>
+          <img
+            src={pendingCaptureUrl}
+            alt="Captured region"
+            style={{ width: 44, height: 30, objectFit: 'cover', borderRadius: 3, flexShrink: 0, border: '1px solid rgba(255,255,255,0.15)' }}
+          />
+          <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            📸 <strong>Screenshot captured</strong> — type your question and Send (or just Send for OCR)
+          </span>
+          <button onClick={() => setPendingCaptureUrl(null)} style={{
             background: 'none', border: 'none', cursor: 'pointer', padding: '0 4px', color: 'inherit', fontSize: 13
           }}>×</button>
         </div>

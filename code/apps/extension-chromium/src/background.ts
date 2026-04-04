@@ -1131,6 +1131,28 @@ function connectToWebSocketServer(forceReconnect = false): Promise<boolean> {
               try {
                 chrome.runtime.sendMessage({ type: 'ELECTRON_SELECTION_RESULT', kind, dataUrl, promptContext })
               } catch {}
+            } else if (data.type === 'DIFF_RESULT') {
+              try {
+                chrome.runtime.sendMessage({
+                  type: 'DIFF_RESULT',
+                  triggerId: data.triggerId,
+                  triggerName: data.triggerName,
+                  tag: data.tag,
+                  message: data.message,
+                })
+              } catch {
+                /* no WR Chat surface listening */
+              }
+            } else if (data.type === 'DIFF_ERROR') {
+              try {
+                chrome.runtime.sendMessage({
+                  type: 'DIFF_ERROR',
+                  triggerId: data.triggerId,
+                  error: typeof data.error === 'string' ? data.error : String(data.error ?? ''),
+                })
+              } catch {
+                /* no listener */
+              }
             } else if (data.type === 'TRIGGERS_UPDATED') {
               try { chrome.runtime.sendMessage({ type: 'TRIGGERS_UPDATED' }) } catch {}
             } else if (data.type === 'UPDATE_AGENT_BOX_OUTPUT') {
@@ -3059,18 +3081,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         msg.targetSurface === 'popup' || msg.targetSurface === 'dashboard' || msg.targetSurface === 'sidepanel'
           ? msg.targetSurface
           : 'sidepanel'
-      const payload = {
-        type: 'EXECUTE_TRIGGER',
-        trigger: msg.trigger,
-        targetSurface,
-      }
       ;(async () => {
         try {
-          if (WS_ENABLED && ws && ws.readyState === WebSocket.OPEN) {
-            try { ws.send(JSON.stringify(payload)) } catch {}
-            try { sendResponse({ success: true }) } catch {}
-            return
-          }
+          // Always use HTTP for ELECTRON_EXECUTE_TRIGGER — the HTTP path writes the
+          // dataUrl to chrome.storage (storage-fallback), which is the only reliable
+          // delivery to the popup/sidepanel. WS is fire-and-forget with no storage write.
           await ensureLaunchSecret(8000)
           const r = await fetch(`${ELECTRON_BASE_URL}/api/lmgtfy/execute-trigger`, {
             method: 'POST',

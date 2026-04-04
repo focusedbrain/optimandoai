@@ -2,6 +2,8 @@ import { app } from 'electron'
 import fs from 'node:fs'
 import path from 'node:path'
 
+import type { DiffTrigger } from '../diffWatcher'
+
 export interface RegionPreset {
   id: string
   name?: string
@@ -36,6 +38,10 @@ function getFilePath() {
 
 function getTaggedTriggersPath() {
   return path.join(getRootDir(), 'tagged-triggers.json')
+}
+
+function getDiffWatchersPath() {
+  return path.join(getRootDir(), 'diff-watchers.json')
 }
 
 /** Same normalisation as extension `normaliseTriggerTag` — persisted for stable agent matching. */
@@ -94,6 +100,35 @@ export function loadTaggedTriggersList(): unknown[] {
 export function saveTaggedTriggersList(triggers: unknown[]): void {
   ensureDir()
   fs.writeFileSync(getTaggedTriggersPath(), JSON.stringify({ triggers }, null, 2), 'utf8')
+}
+
+export function loadDiffWatchersList(): DiffTrigger[] {
+  try {
+    ensureDir()
+    const fp = getDiffWatchersPath()
+    if (!fs.existsSync(fp)) return []
+    const raw = fs.readFileSync(fp, 'utf8')
+    let data: unknown
+    try {
+      data = JSON.parse(raw)
+    } catch (parseErr) {
+      console.error('[loadDiffWatchersList] JSON parse error — returning empty list.', parseErr)
+      return []
+    }
+    if (!data || typeof data !== 'object' || !Array.isArray((data as { watchers?: unknown }).watchers)) {
+      console.error('[loadDiffWatchersList] Unexpected structure (expected { watchers: [...] }) — returning empty list.', typeof data)
+      return []
+    }
+    return (data as { watchers: DiffTrigger[] }).watchers
+  } catch (err) {
+    console.error('[loadDiffWatchersList] Failed to read diff-watchers file:', err)
+    return []
+  }
+}
+
+export function saveDiffWatchersList(triggers: DiffTrigger[]): void {
+  ensureDir()
+  fs.writeFileSync(getDiffWatchersPath(), JSON.stringify({ watchers: triggers }, null, 2), 'utf8')
 }
 
 export function upsertRegion(preset: Omit<RegionPreset, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }): RegionPreset {

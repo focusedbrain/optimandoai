@@ -1072,6 +1072,11 @@ contextBridge.exposeInMainWorld('lifecycle', {
   },
 })
 
+// ── WR Chat (dashboard / Diff) — not to be confused with inbox file picker (`emailInbox.showOpenDialogForAttachments`, files only)
+contextBridge.exposeInMainWorld('wrChat', {
+  pickDirectory: (): Promise<string | null> => ipcRenderer.invoke('PICK_DIRECTORY'),
+})
+
 // === TEMPORARY DEBUG LOG BRIDGE (remove before production) ===
 contextBridge.exposeInMainWorld('debugLogs', {
   onLog: (callback: (entry: { ts: string; level: string; line: string }) => void) => {

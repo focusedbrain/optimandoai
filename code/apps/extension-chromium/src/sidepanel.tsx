@@ -37,6 +37,7 @@ import { ConnectEmailLaunchSource, useConnectEmailFlow } from './shared/email/co
 import { pickDefaultEmailAccountRowId } from './shared/email/pickDefaultAccountRow'
 import { ThirdPartyLicensesView } from './bundled-tools'
 import { WrChatCaptureButton } from './ui/components/WrChatCaptureButton'
+import { WrChatDiffButton } from './ui/components/WrChatDiffButton'
 import { WRGuardWorkspace, useWRGuardStore } from './wrguard'
 import { RecipientModeSwitch, RecipientHandshakeSelect, DeliveryMethodPanel, executeDeliveryAction, BeapMessageListView, BeapBulkInbox, initBeapPqAuth } from './beap-messages'
 import type { BeapBulkInboxHandle } from './beap-messages'
@@ -313,6 +314,7 @@ function SidepanelOrchestrator() {
   const [chatHeight, setChatHeight] = useState(200)
   const [isResizingChat, setIsResizingChat] = useState(false)
   const [triggers, setTriggers] = useState<any[]>([])
+  const [anchoredTriggerKeys, setAnchoredTriggerKeys] = useState<string[]>([])
   const [showTagsMenu, setShowTagsMenu] = useState(false)
   /** Resets after each run so the same trigger can be selected again. */
   const [wrChatTriggerSelectValue, setWrChatTriggerSelectValue] = useState('')
@@ -892,6 +894,8 @@ function SidepanelOrchestrator() {
     command?: string
     autoProcess: boolean
   } | null>(null)
+  /** Queued folder-diff lines when LLM is busy — flushed when `isLlmLoading` becomes false. */
+  const diffMessageQueueRef = useRef<string[]>([])
 
   const handleSendMessageWithTriggerRef = useRef<
     (displayTextForChat: string, imageUrl?: string, routingText?: string) => Promise<void>
@@ -2301,18 +2305,21 @@ function SidepanelOrchestrator() {
   useEffect(() => {
     if (!isCommandChatPinned) return
     
+    const KEYS = ['optimando-tagged-triggers', 'optimando-anchored-trigger-keys']
     const loadTriggers = () => {
-      chrome.storage?.local?.get(['optimando-tagged-triggers'], (data: any) => {
+      chrome.storage?.local?.get(KEYS, (data: any) => {
         const list = Array.isArray(data?.['optimando-tagged-triggers']) ? data['optimando-tagged-triggers'] : []
         setTriggers(list)
+        const anchored = Array.isArray(data?.['optimando-anchored-trigger-keys']) ? data['optimando-anchored-trigger-keys'] : []
+        setAnchoredTriggerKeys(anchored)
       })
     }
     
     loadTriggers()
     window.addEventListener('optimando-triggers-updated', loadTriggers)
     const onStorage: Parameters<typeof chrome.storage.onChanged.addListener>[0] = (changes, area) => {
-      if (area !== 'local' || !changes['optimando-tagged-triggers']) return
-      loadTriggers()
+      if (area !== 'local') return
+      if (changes['optimando-tagged-triggers'] || changes['optimando-anchored-trigger-keys']) loadTriggers()
     }
     try {
       chrome.storage?.onChanged?.addListener(onStorage)
@@ -2667,7 +2674,7 @@ function SidepanelOrchestrator() {
         method: 'POST',
         headers: electronFetchHeaders(),
         body: JSON.stringify({ image: imageUrl }),
-        signal: AbortSignal.timeout(120000),
+        signal: AbortSignal.timeout(5000),
       })
       if (ocrResponse.ok) {
         const ocrResult = await ocrResponse.json()
@@ -2720,7 +2727,7 @@ function SidepanelOrchestrator() {
                 method: 'POST',
                 headers: electronFetchHeaders(),
                 body: JSON.stringify({ image: msg.imageUrl }),
-                signal: AbortSignal.timeout(120000),
+                signal: AbortSignal.timeout(5000),
               })
               if (ocrResponse.ok) {
                 const ocrResult = await ocrResponse.json()
@@ -2824,6 +2831,7 @@ function SidepanelOrchestrator() {
     fallbackModel: string,
     baseUrl: string,
     visionImageUrl?: string | null,
+    opts?: { preResolvedVisionB64?: string | null },
   ): Promise<{ success: boolean, output?: string, error?: string }> => {
     try {
       // Load full agent config
@@ -2889,9 +2897,12 @@ function SidepanelOrchestrator() {
       // Ensure launch secret is fresh before the LLM call (handles SW sleep/wake)
       await ensureLaunchSecret()
 
-      // Resolve and validate the vision image before including it in the request.
+      // Use pre-resolved vision base64 if provided to avoid a redundant resolveImageUrlForBackend call
       let safeVisionB64: string | null = null
-      if (visionImageUrl) {
+      if (opts?.preResolvedVisionB64 !== undefined) {
+        const b64 = opts.preResolvedVisionB64 ? toBase64ForOllama(opts.preResolvedVisionB64) : null
+        if (isPlausibleVisionBase64(b64)) safeVisionB64 = b64
+      } else if (visionImageUrl) {
         const resolvedVision = await resolveImageUrlForBackend(visionImageUrl)
         const b64 = resolvedVision ? toBase64ForOllama(resolvedVision) : null
         if (isPlausibleVisionBase64(b64)) safeVisionB64 = b64
@@ -2933,18 +2944,27 @@ function SidepanelOrchestrator() {
     model: string,
     baseUrl: string,
     visionImageUrl?: string | null,
+    opts?: { enabledAgentCount?: number; preResolvedVisionB64?: string | null },
   ): Promise<{ success: boolean, response?: string, error?: string }> => {
     try {
-      const agents = await loadAgentsFromSession(sessionKey)
+      // Use pre-resolved agent count if provided to avoid a redundant loadAgentsFromSession call
+      let enabledCount = opts?.enabledAgentCount
+      if (enabledCount === undefined) {
+        const agents = await loadAgentsFromSession(sessionKey)
+        enabledCount = agents.filter((a: any) => a.enabled).length
+      }
       const butlerPrompt = getButlerSystemPrompt(
         sessionName,
-        agents.filter(a => a.enabled).length,
+        enabledCount,
         connectionStatus.isConnected
       )
 
-      // Resolve and validate the vision image before including it.
+      // Use pre-resolved vision if provided to avoid a redundant resolveImageUrlForBackend call
       let safeVisionB64: string | null = null
-      if (visionImageUrl) {
+      if (opts?.preResolvedVisionB64 !== undefined) {
+        const b64 = opts.preResolvedVisionB64 ? toBase64ForOllama(opts.preResolvedVisionB64) : null
+        if (isPlausibleVisionBase64(b64)) safeVisionB64 = b64
+      } else if (visionImageUrl) {
         const resolvedVision = await resolveImageUrlForBackend(visionImageUrl)
         const b64 = resolvedVision ? toBase64ForOllama(resolvedVision) : null
         if (isPlausibleVisionBase64(b64)) safeVisionB64 = b64
@@ -3088,7 +3108,7 @@ function SidepanelOrchestrator() {
           text: routingDecision.butlerResponse
         }])
         
-        // Process with each matched agent
+        // Process with each matched agent — load agents once for the whole batch
         const agents = await loadAgentsFromSession(sessionKey)
         
         for (const match of routingDecision.matchedAgents) {
@@ -3176,11 +3196,12 @@ function SidepanelOrchestrator() {
           }
         }
       } else {
-        // No agent match - use butler response
-        const agents = await loadAgentsFromSession(sessionKey)
+        // No agent match — use butler response; skip loadAgentsFromSession since we already
+        // know the count from the agents loaded during routing (routeInput loads them internally)
+        const butlerAgents = await loadAgentsFromSession(sessionKey)
         const butlerPrompt = getButlerSystemPrompt(
           sessionName,
-          agents.filter(a => a.enabled).length,
+          butlerAgents.filter((a: any) => a.enabled).length,
           connectionStatus.isConnected
         )
         
@@ -3382,8 +3403,8 @@ function SidepanelOrchestrator() {
     }
   }, [])
 
-  const handleSendMessage = async () => {
-    const text = (pendingInboxAiRef.current?.query ?? chatInput).trim()
+  const handleSendMessage = async (options?: { textOverride?: string }) => {
+    const text = (options?.textOverride ?? pendingInboxAiRef.current?.query ?? chatInput).trim()
     const displayText = text
 
     // If a document was attached (dropped or uploaded), consume its text and
@@ -3518,31 +3539,27 @@ function SidepanelOrchestrator() {
       const enrichedRouteText = enrichRouteTextWithOcr(llmRouteText, ocrText)
 
       // =================================================================
-      // STEP 3: ROUTE INPUT THROUGH INPUT COORDINATOR (with OCR-enriched text)
-      // The InputCoordinator decides which agents should receive the input.
-      // Now uses OCR text so image-derived triggers work.
+      // STEP 3: ROUTE INPUT + BUILD LLM MESSAGES (in parallel)
+      // routeInput decides which agents receive the input.
+      // processMessagesWithOCR builds the LLM conversation array.
+      // Both are independent after OCR completes — run in parallel.
       // =================================================================
-      const routingDecision = await routeInput(
-        enrichedRouteText,
-        hasImage,
-        connectionStatus,
-        sessionName,
-        activeLlmModel,
-        currentUrl,
-        sessionKey
-      )
-      
-      
-      // =================================================================
-      // STEP 3.1: PROCESS FULL CONVERSATION FOR LLM CONTEXT
-      // processMessagesWithOCR builds the full LLM conversation array.
-      // This is separate from routing — it just formats messages for the LLM.
-      // =================================================================
-      const { processedMessages } = await processMessagesWithOCR(
-        newMessages,
-        baseUrl,
-        hasImage ? { lastTurnOcrText: ocrText } : undefined,
-      )
+      const [routingDecision, { processedMessages }] = await Promise.all([
+        routeInput(
+          enrichedRouteText,
+          hasImage,
+          connectionStatus,
+          sessionName,
+          activeLlmModel,
+          currentUrl,
+          sessionKey
+        ),
+        processMessagesWithOCR(
+          newMessages,
+          baseUrl,
+          hasImage ? { lastTurnOcrText: ocrText } : undefined,
+        ),
+      ])
 
       let processedMessagesForLlm = processedMessages
 
@@ -3618,6 +3635,7 @@ function SidepanelOrchestrator() {
             activeLlmModel,
             baseUrl,
             resolvedCurrentTurnImageUrl,
+            { preResolvedVisionB64: resolvedCurrentTurnImageUrl },
           )
           
           if (result.success && result.output) {
@@ -3668,7 +3686,13 @@ function SidepanelOrchestrator() {
         // PATH C: BUTLER LLM RESPONSE
         // No agent match - use butler personality for general questions
         // =================================================================
-        const butlerResult = await getButlerResponse(processedMessagesForLlm, activeLlmModel, baseUrl, resolvedCurrentTurnImageUrl)
+        const butlerResult = await getButlerResponse(
+          processedMessagesForLlm,
+          activeLlmModel,
+          baseUrl,
+          resolvedCurrentTurnImageUrl,
+          { preResolvedVisionB64: resolvedCurrentTurnImageUrl },
+        )
         
         if (butlerResult.success && butlerResult.response) {
           setChatMessages([...newMessages, { role: 'assistant' as const, text: butlerResult.response }])
@@ -3710,6 +3734,28 @@ function SidepanelOrchestrator() {
       }
       setIsLlmLoading(false)
     }
+  }
+
+  React.useEffect(() => {
+    if (isLlmLoading) return
+    const next = diffMessageQueueRef.current.shift()
+    if (!next) return
+    void handleSendMessage({ textOverride: next }).catch((err) => {
+      console.error('[Chat] diff queue flush:', err)
+    })
+  }, [isLlmLoading])
+
+  /** Folder diff from Electron (fire-and-forget text — not `pendingTriggerRef` / capture flow). */
+  const handleDiffMessage = (message: string) => {
+    const t = (message ?? '').trim()
+    if (!t) return
+    if (isLlmLoading) {
+      diffMessageQueueRef.current.push(t)
+      return
+    }
+    void handleSendMessage({ textOverride: t }).catch((err) => {
+      console.error('[Chat] handleDiffMessage:', err)
+    })
   }
 
   const handleChatKeyDown = (e: React.KeyboardEvent) => {
@@ -4043,6 +4089,116 @@ function SidepanelOrchestrator() {
     })
   }
 
+  const triggerAnchorKey = (t: any): string =>
+    String(t?.name ?? t?.command ?? '').trim() || JSON.stringify(t).slice(0, 60)
+
+  const handleToggleAnchor = (trigger: any) => {
+    const key = triggerAnchorKey(trigger)
+    setAnchoredTriggerKeys((prev) => {
+      const next = prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]
+      try {
+        chrome.storage?.local?.set({ 'optimando-anchored-trigger-keys': next })
+      } catch { /* noop */ }
+      return next
+    })
+  }
+
+  /** Shared trigger row used in all Tags dropdowns (identical across all 3 sidepanel layouts). */
+  const renderTriggerRow = (trigger: any, i: number, totalCount: number) => {
+    const isAnchored = anchoredTriggerKeys.includes(triggerAnchorKey(trigger))
+    return (
+      <div
+        key={i}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 4,
+          padding: '5px 8px',
+          borderBottom: i < totalCount - 1 ? '1px solid rgba(255,255,255,0.12)' : 'none',
+        }}
+        onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.background = 'rgba(255,255,255,0.06)' }}
+        onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.background = 'transparent' }}
+      >
+        {/* Pin / anchor icon */}
+        <button
+          type="button"
+          title={isAnchored ? 'Unpin from toolbar' : 'Pin to toolbar for 1-click access'}
+          onClick={(e) => { e.stopPropagation(); handleToggleAnchor(trigger) }}
+          style={{
+            width: 20,
+            height: 20,
+            flexShrink: 0,
+            border: 'none',
+            borderRadius: 4,
+            cursor: 'pointer',
+            fontSize: 12,
+            padding: 0,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            background: isAnchored ? 'rgba(99,102,241,0.45)' : 'rgba(255,255,255,0.08)',
+            color: isAnchored ? '#a5b4fc' : 'rgba(255,255,255,0.5)',
+            transition: 'background 0.15s',
+          }}
+          onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(99,102,241,0.35)' }}
+          onMouseLeave={(e) => {
+            (e.currentTarget as HTMLButtonElement).style.background = isAnchored
+              ? 'rgba(99,102,241,0.45)'
+              : 'rgba(255,255,255,0.08)'
+          }}
+        >
+          📌
+        </button>
+        {/* Trigger name / run */}
+        <button
+          type="button"
+          onClick={() => handleTriggerClick(trigger)}
+          style={{
+            flex: 1,
+            minWidth: 0,
+            textAlign: 'left',
+            padding: '2px 0',
+            fontSize: 12,
+            cursor: 'pointer',
+            background: 'transparent',
+            border: 'none',
+            color: 'inherit',
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+          }}
+        >
+          {trigger.name || trigger.command || `Trigger ${i + 1}`}
+        </button>
+        {/* Delete */}
+        <button
+          type="button"
+          title="Delete trigger"
+          onClick={(e) => { e.stopPropagation(); handleDeleteTrigger(i) }}
+          style={{
+            width: 20,
+            height: 20,
+            flexShrink: 0,
+            border: 'none',
+            background: 'rgba(239,68,68,0.22)',
+            color: '#f87171',
+            borderRadius: 4,
+            cursor: 'pointer',
+            fontSize: 15,
+            lineHeight: 1,
+            padding: 0,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+          onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(239,68,68,0.45)' }}
+          onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(239,68,68,0.22)' }}
+        >
+          ×
+        </button>
+      </div>
+    )
+  }
 
   const createNewSession = () => {
     // Send message to content script to create new session
@@ -4876,6 +5032,12 @@ function SidepanelOrchestrator() {
                       createTrigger={createTriggerChecked}
                       addCommand={addCommandChecked}
                     />
+                    <WrChatDiffButton
+                      variant="compact"
+                      theme={theme}
+                      sidepanelPreset="enterprise"
+                      onDiffMessage={handleDiffMessage}
+                    />
                     <button
                       type="button"
                       onClick={clearWrChat}
@@ -4919,6 +5081,45 @@ function SidepanelOrchestrator() {
                     >
                       Clear
                     </button>
+                    {/* Anchored trigger chips — 1-click execution */}
+                    {anchoredTriggerKeys.length > 0 && triggers
+                      .filter((t) => anchoredTriggerKeys.includes(triggerAnchorKey(t)))
+                      .map((trigger, idx) => {
+                        const label = String(trigger.name || trigger.command || `T${idx + 1}`).slice(0, 18)
+                        return (
+                          <button
+                            key={triggerAnchorKey(trigger)}
+                            type="button"
+                            title={`Run: ${trigger.name || trigger.command || 'trigger'}`}
+                            onClick={() => handleTriggerClick(trigger)}
+                            style={{
+                              height: 28,
+                              padding: '0 8px',
+                              fontSize: 11,
+                              fontWeight: 500,
+                              borderRadius: 14,
+                              cursor: 'pointer',
+                              border: '1px solid rgba(99,102,241,0.5)',
+                              background: 'rgba(99,102,241,0.18)',
+                              color: '#a5b4fc',
+                              whiteSpace: 'nowrap',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 3,
+                              flexShrink: 0,
+                              maxWidth: 120,
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              transition: 'background 0.15s',
+                            }}
+                            onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(99,102,241,0.35)' }}
+                            onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(99,102,241,0.18)' }}
+                          >
+                            <span style={{ fontSize: 9 }}>📌</span>
+                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 88 }}>{label}</span>
+                          </button>
+                        )
+                      })}
                     <select
                       value={wrChatTriggerSelectValue}
                       onChange={handleWrChatTriggerSelect}
@@ -5000,7 +5201,7 @@ function SidepanelOrchestrator() {
                         </span>
                       </button>
                       
-                      {/* Tags Dropdown Menu */}
+                        {/* Tags Dropdown Menu */}
                       {showTagsMenu && (
                         <div 
                           style={{
@@ -5025,65 +5226,7 @@ function SidepanelOrchestrator() {
                               No tags yet
                             </div>
                           ) : (
-                            triggers.map((trigger, i) => (
-                              <div 
-                                key={i}
-                                style={{
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  justifyContent: 'space-between',
-                                  padding: '6px 8px',
-                                  borderBottom: '1px solid rgba(255,255,255,0.20)',
-                                  cursor: 'pointer'
-                                }}
-                                onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.06)'}
-                                onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
-                              >
-                                <button
-                                  onClick={() => handleTriggerClick(trigger)}
-                                  style={{
-                                    flex: 1,
-                                    textAlign: 'left',
-                                    padding: 0,
-                                    fontSize: '12px',
-                                    background: 'transparent',
-                                    border: 0,
-                                    color: 'inherit',
-                                    cursor: 'pointer',
-                                    whiteSpace: 'nowrap',
-                                    overflow: 'hidden',
-                                    textOverflow: 'ellipsis',
-                                    minWidth: 0
-                                  }}
-                                >
-                                  {trigger.name || trigger.command || `Trigger ${i + 1}`}
-                                </button>
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation()
-                                    handleDeleteTrigger(i)
-                                  }}
-                                  style={{
-                                    width: '20px',
-                                    height: '20px',
-                                    border: 'none',
-                                    background: 'rgba(239,68,68,0.2)',
-                                    color: '#ef4444',
-                                    borderRadius: '4px',
-                                    cursor: 'pointer',
-                                    fontSize: '16px',
-                                    lineHeight: 1,
-                                    padding: 0,
-                                    marginLeft: '8px',
-                                    flexShrink: 0
-                                  }}
-                                  onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(239,68,68,0.4)'}
-                                  onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(239,68,68,0.2)'}
-                                >
-                                  ×
-                                </button>
-                              </div>
-                            ))
+                            triggers.map((trigger, i) => renderTriggerRow(trigger, i, triggers.length))
                           )}
                         </div>
                       )}
@@ -6883,6 +7026,12 @@ function SidepanelOrchestrator() {
                     createTrigger={createTriggerChecked}
                     addCommand={addCommandChecked}
                   />
+                  <WrChatDiffButton
+                    variant="compact"
+                    theme={theme}
+                    sidepanelPreset="appBar"
+                    onDiffMessage={handleDiffMessage}
+                  />
                   <button
                     type="button"
                     onClick={clearWrChat}
@@ -6926,6 +7075,45 @@ function SidepanelOrchestrator() {
                   >
                     Clear
                   </button>
+                  {/* Anchored trigger chips — 1-click execution */}
+                  {anchoredTriggerKeys.length > 0 && triggers
+                    .filter((t) => anchoredTriggerKeys.includes(triggerAnchorKey(t)))
+                    .map((trigger, idx) => {
+                      const label = String(trigger.name || trigger.command || `T${idx + 1}`).slice(0, 18)
+                      return (
+                        <button
+                          key={triggerAnchorKey(trigger)}
+                          type="button"
+                          title={`Run: ${trigger.name || trigger.command || 'trigger'}`}
+                          onClick={() => handleTriggerClick(trigger)}
+                          style={{
+                            height: 22,
+                            padding: '0 7px',
+                            fontSize: 10,
+                            fontWeight: 500,
+                            borderRadius: 11,
+                            cursor: 'pointer',
+                            border: '1px solid rgba(99,102,241,0.5)',
+                            background: 'rgba(99,102,241,0.18)',
+                            color: '#a5b4fc',
+                            whiteSpace: 'nowrap',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 3,
+                            flexShrink: 0,
+                            maxWidth: 110,
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            transition: 'background 0.15s',
+                          }}
+                          onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(99,102,241,0.35)' }}
+                          onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(99,102,241,0.18)' }}
+                        >
+                          <span style={{ fontSize: 9 }}>📌</span>
+                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 80 }}>{label}</span>
+                        </button>
+                      )
+                    })}
                   <select
                     value={wrChatTriggerSelectValue}
                     onChange={handleWrChatTriggerSelect}
@@ -7023,65 +7211,7 @@ function SidepanelOrchestrator() {
                             No tags yet
                           </div>
                         ) : (
-                          triggers.map((trigger, i) => (
-                            <div 
-                              key={i}
-                              style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'space-between',
-                                padding: '6px 8px',
-                                borderBottom: '1px solid rgba(255,255,255,0.20)',
-                                cursor: 'pointer'
-                              }}
-                              onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.06)'}
-                              onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
-                            >
-                              <button
-                                onClick={() => handleTriggerClick(trigger)}
-                                style={{
-                                  flex: 1,
-                                  textAlign: 'left',
-                                  padding: 0,
-                                  fontSize: '12px',
-                                  background: 'transparent',
-                                  border: 0,
-                                  color: 'inherit',
-                                  cursor: 'pointer',
-                                  whiteSpace: 'nowrap',
-                                  overflow: 'hidden',
-                                  textOverflow: 'ellipsis',
-                                  minWidth: 0
-                                }}
-                              >
-                                {trigger.name || trigger.command || `Trigger ${i + 1}`}
-                              </button>
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  handleDeleteTrigger(i)
-                                }}
-                                style={{
-                                  width: '20px',
-                                  height: '20px',
-                                  border: 'none',
-                                  background: 'rgba(239,68,68,0.2)',
-                                  color: '#ef4444',
-                                  borderRadius: '4px',
-                                  cursor: 'pointer',
-                                  fontSize: '16px',
-                                  lineHeight: 1,
-                                  padding: 0,
-                                  marginLeft: '8px',
-                                  flexShrink: 0
-                                }}
-                                onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(239,68,68,0.4)'}
-                                onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(239,68,68,0.2)'}
-                              >
-                                ×
-                              </button>
-                            </div>
-                          ))
+                          triggers.map((trigger, i) => renderTriggerRow(trigger, i, triggers.length))
                         )}
                       </div>
                     )}
@@ -8264,6 +8394,12 @@ function SidepanelOrchestrator() {
                     createTrigger={createTriggerChecked}
                     addCommand={addCommandChecked}
                   />
+                  <WrChatDiffButton
+                    variant="compact"
+                    theme={theme}
+                    sidepanelPreset="appBar"
+                    onDiffMessage={handleDiffMessage}
+                  />
                   <button
                     type="button"
                     onClick={clearWrChat}
@@ -8307,6 +8443,45 @@ function SidepanelOrchestrator() {
                   >
                     Clear
                   </button>
+                  {/* Anchored trigger chips — 1-click execution */}
+                  {anchoredTriggerKeys.length > 0 && triggers
+                    .filter((t) => anchoredTriggerKeys.includes(triggerAnchorKey(t)))
+                    .map((trigger, idx) => {
+                      const label = String(trigger.name || trigger.command || `T${idx + 1}`).slice(0, 18)
+                      return (
+                        <button
+                          key={triggerAnchorKey(trigger)}
+                          type="button"
+                          title={`Run: ${trigger.name || trigger.command || 'trigger'}`}
+                          onClick={() => handleTriggerClick(trigger)}
+                          style={{
+                            height: 22,
+                            padding: '0 7px',
+                            fontSize: 10,
+                            fontWeight: 500,
+                            borderRadius: 11,
+                            cursor: 'pointer',
+                            border: '1px solid rgba(99,102,241,0.5)',
+                            background: 'rgba(99,102,241,0.18)',
+                            color: '#a5b4fc',
+                            whiteSpace: 'nowrap',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 3,
+                            flexShrink: 0,
+                            maxWidth: 110,
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            transition: 'background 0.15s',
+                          }}
+                          onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(99,102,241,0.35)' }}
+                          onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(99,102,241,0.18)' }}
+                        >
+                          <span style={{ fontSize: 9 }}>📌</span>
+                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 80 }}>{label}</span>
+                        </button>
+                      )
+                    })}
                   <select
                     value={wrChatTriggerSelectValue}
                     onChange={handleWrChatTriggerSelect}
@@ -8404,65 +8579,7 @@ function SidepanelOrchestrator() {
                             No tags yet
                           </div>
                         ) : (
-                          triggers.map((trigger, i) => (
-                            <div 
-                              key={i}
-                              style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'space-between',
-                                padding: '6px 8px',
-                                borderBottom: '1px solid rgba(255,255,255,0.20)',
-                                cursor: 'pointer'
-                              }}
-                              onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.06)'}
-                              onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
-                            >
-                              <button
-                                onClick={() => handleTriggerClick(trigger)}
-                                style={{
-                                  flex: 1,
-                                  textAlign: 'left',
-                                  padding: 0,
-                                  fontSize: '12px',
-                                  background: 'transparent',
-                                  border: 0,
-                                  color: 'inherit',
-                                  cursor: 'pointer',
-                                  whiteSpace: 'nowrap',
-                                  overflow: 'hidden',
-                                  textOverflow: 'ellipsis',
-                                  minWidth: 0
-                                }}
-                              >
-                                {trigger.name || trigger.command || `Trigger ${i + 1}`}
-                              </button>
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  handleDeleteTrigger(i)
-                                }}
-                                style={{
-                                  width: '20px',
-                                  height: '20px',
-                                  border: 'none',
-                                  background: 'rgba(239,68,68,0.2)',
-                                  color: '#ef4444',
-                                  borderRadius: '4px',
-                                  cursor: 'pointer',
-                                  fontSize: '16px',
-                                  lineHeight: 1,
-                                  padding: 0,
-                                  marginLeft: '8px',
-                                  flexShrink: 0
-                                }}
-                                onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(239,68,68,0.4)'}
-                                onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(239,68,68,0.2)'}
-                              >
-                                ×
-                              </button>
-                            </div>
-                          ))
+                          triggers.map((trigger, i) => renderTriggerRow(trigger, i, triggers.length))
                         )}
                       </div>
                     )}

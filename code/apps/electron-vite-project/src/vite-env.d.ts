@@ -46,6 +46,11 @@ interface LifecycleBridge {
   onMainProcessMessage: (cb: (message: string) => void) => () => void
 }
 
+/** WR Chat dashboard helpers (`PICK_DIRECTORY` IPC). */
+interface WrChatBridge {
+  pickDirectory: () => Promise<string | null>
+}
+
 interface IntegrityCheck {
   name: string
   status: 'pass' | 'fail' | 'skip'
@@ -164,6 +169,8 @@ interface Window {
   LETmeGIRAFFETHATFORYOU?: LmgtfyBridge
   analysisDashboard?: AnalysisDashboardBridge
   lifecycle?: LifecycleBridge
+  /** Native folder picker for WR Chat Diff — `await window.wrChat?.pickDirectory()`. */
+  wrChat?: WrChatBridge
   integrity?: IntegrityBridge
   debugLogs?: DebugLogsBridge
   orchestrator?: OrchestratorBridge
