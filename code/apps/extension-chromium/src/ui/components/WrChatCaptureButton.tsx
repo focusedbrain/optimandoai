@@ -167,7 +167,6 @@ export const WrChatCaptureButton: React.FC<WrChatCaptureButtonProps> = ({
     alignItems: 'center',
     justifyContent: 'center',
     transition: 'all 0.2s ease',
-    border: 'none',
     ...(isStandard
       ? {
           color: '#0f172a',

@@ -254,7 +254,8 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
     const onMsg = (message: any) => {
       if (message.type === 'SHOW_TRIGGER_PROMPT') {
         const pc = message.promptContext as string | undefined
-        if (pc !== 'popup') return
+        // Accept if promptContext matches this surface OR is absent (backward-compat with overlay paths that don't set lmgtfyLastSelectionSource).
+        if (pc !== undefined && pc !== 'popup') return
         setShowTriggerPrompt({
           mode: message.mode || 'screenshot',
           rect: message.rect,
@@ -1008,6 +1009,8 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
             variant="comfortable"
             theme={theme}
             source={captureSource}
+            createTrigger={true}
+            addCommand={true}
           />
           <button
             type="button"

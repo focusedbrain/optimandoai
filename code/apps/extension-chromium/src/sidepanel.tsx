@@ -1703,7 +1703,8 @@ function SidepanelOrchestrator() {
       // Listen for trigger prompt from Electron
       else if (message.type === 'SHOW_TRIGGER_PROMPT') {
         const pc = message.promptContext
-        if (pc !== 'sidepanel') return
+        // Accept if promptContext matches this surface OR is absent (backward-compat with overlay paths that don't set lmgtfyLastSelectionSource).
+        if (pc !== undefined && pc !== 'sidepanel') return
         setShowTriggerPrompt({
           mode: message.mode,
           rect: message.rect,

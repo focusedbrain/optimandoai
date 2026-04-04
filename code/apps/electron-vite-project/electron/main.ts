@@ -13,7 +13,7 @@ import {
   getAutosortDiagMainState,
   recordVaultLock,
 } from './main/autosortDiagnostics'
-import { surfaceFromSource } from '../../extension-chromium/src/ui/components/wrChatSurface'
+import { surfaceFromSource } from './wrChatSurface'
 
 /** When true, log every `GET /api/auth/status` request and response summary (verbose). */
 const DEBUG_AUTH_STATUS_HTTP = false
