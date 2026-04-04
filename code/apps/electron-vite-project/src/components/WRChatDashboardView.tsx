@@ -54,13 +54,30 @@ export default function WRChatDashboardView({ theme }: WRChatDashboardViewProps)
         return
       }
       const d = res.data
-      setAvailableModels(
-        (d.modelsInstalled || []).map((m) => ({
-          name: m.name,
-          size: m.size != null ? String(m.size) : undefined,
-        })),
-      )
-      setActiveLlmModel(d.activeModel)
+      const installed = (d.modelsInstalled || []).map((m) => ({
+        name: m.name,
+        size: m.size != null ? String(m.size) : undefined,
+      }))
+      setAvailableModels(installed)
+      let preferred = d.activeModel as string | undefined
+      try {
+        const saved = localStorage.getItem('optimando-wr-chat-active-model')
+        if (saved && installed.some((m) => m.name === saved)) {
+          preferred = saved
+          if (typeof window.llm?.setActiveModel === 'function') {
+            void window.llm.setActiveModel(saved)
+          }
+        }
+      } catch {
+        /* ignore */
+      }
+      if (!preferred && installed.length > 0) {
+        const visionFirst = installed.find((m) =>
+          /gemma3|llava|moondream|vision|qwen2-vl|minicpm-v/i.test(m.name),
+        )
+        preferred = visionFirst?.name ?? installed[0].name
+      }
+      setActiveLlmModel(preferred)
     } catch (e) {
       wrChatDashboardWarn('refreshModels failed:', e instanceof Error ? e.message : e)
     }
@@ -70,6 +87,49 @@ export default function WRChatDashboardView({ theme }: WRChatDashboardViewProps)
     if (!ready) return
     void refreshModels()
   }, [ready, refreshModels])
+
+  /** Merge host-stored tags (extension mirror) into dashboard localStorage so Tags menus stay aligned. */
+  useLayoutEffect(() => {
+    if (!ready) return
+    void (async () => {
+      try {
+        const fn = window.handshakeView?.pqHeaders
+        if (typeof fn !== 'function') return
+        const h = await fn()
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+        if (h && typeof h === 'object') {
+          for (const [key, val] of Object.entries(h)) {
+            if (typeof val === 'string') headers[key] = val
+          }
+        }
+        const r = await fetch('http://127.0.0.1:51248/api/wrchat/tagged-triggers', { headers })
+        if (!r.ok) return
+        const j = (await r.json()) as { triggers?: unknown[] }
+        if (!Array.isArray(j.triggers) || j.triggers.length === 0) return
+        try {
+          const raw = localStorage.getItem('optimando-tagged-triggers')
+          const local = raw ? (JSON.parse(raw) as unknown[]) : []
+          const merged = Array.isArray(local) ? [...local] : []
+          const keys = new Set(
+            merged.map((t: { name?: string; at?: number }) => `${String(t?.name ?? '')}|${t?.at ?? 0}`),
+          )
+          for (const t of j.triggers as { name?: string; at?: number }[]) {
+            const key = `${String(t?.name ?? '')}|${t?.at ?? 0}`
+            if (!keys.has(key)) {
+              merged.push(t)
+              keys.add(key)
+            }
+          }
+          localStorage.setItem('optimando-tagged-triggers', JSON.stringify(merged))
+          window.dispatchEvent(new CustomEvent('optimando-triggers-updated'))
+        } catch {
+          /* ignore */
+        }
+      } catch {
+        /* ignore */
+      }
+    })()
+  }, [ready])
 
   useLayoutEffect(() => {
     if (!ready) return
@@ -82,6 +142,11 @@ export default function WRChatDashboardView({ theme }: WRChatDashboardViewProps)
 
   const onModelSelect = useCallback((name: string) => {
     setActiveLlmModel(name)
+    try {
+      localStorage.setItem('optimando-wr-chat-active-model', name)
+    } catch {
+      /* ignore */
+    }
     if (typeof window.llm?.setActiveModel !== 'function') {
       wrChatDashboardWarn('window.llm.setActiveModel unavailable — model selection may not persist')
       return

@@ -409,6 +409,34 @@ startHealthMonitor();
 
 const ELECTRON_BASE_URL = 'http://127.0.0.1:51248';
 
+/** Debounced mirror of `optimando-tagged-triggers` to Electron host file (dashboard / multi-surface sync). */
+let taggedTriggersPersistTimer: ReturnType<typeof setTimeout> | null = null
+try {
+  chrome.storage?.onChanged?.addListener((changes, area) => {
+    if (area !== 'local' || !changes['optimando-tagged-triggers']) return
+    const next = changes['optimando-tagged-triggers'].newValue
+    if (!Array.isArray(next)) return
+    if (taggedTriggersPersistTimer) clearTimeout(taggedTriggersPersistTimer)
+    taggedTriggersPersistTimer = setTimeout(() => {
+      taggedTriggersPersistTimer = null
+      void (async () => {
+        try {
+          await ensureLaunchSecret(8000)
+          await fetch(`${ELECTRON_BASE_URL}/api/wrchat/tagged-triggers`, {
+            method: 'POST',
+            headers: _electronHeaders(),
+            body: JSON.stringify({ triggers: next }),
+          })
+        } catch {
+          /* non-fatal */
+        }
+      })()
+    }, 400)
+  })
+} catch {
+  /* noop */
+}
+
 /** Verbose AUTH_STATUS / HTTP auth logging (default off). */
 const DEBUG_AUTH_STATUS_LOG = false
 
@@ -2908,66 +2936,123 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       return true // Indicate async response
     }
     case 'ELECTRON_SAVE_TRIGGER': {
-      try {
-        if (WS_ENABLED && ws && ws.readyState === WebSocket.OPEN) {
-          const payload: Record<string, unknown> = {
-            type: 'SAVE_TRIGGER',
-            name: msg.name,
-            mode: msg.mode,
-            rect: msg.rect,
-            displayId: msg.displayId,
-            imageUrl: msg.imageUrl,
-            videoUrl: msg.videoUrl,
+      const payload: Record<string, unknown> = {
+        type: 'SAVE_TRIGGER',
+        name: msg.name,
+        mode: msg.mode,
+        rect: msg.rect,
+        displayId: msg.displayId,
+        imageUrl: msg.imageUrl,
+        videoUrl: msg.videoUrl,
+      }
+      if (typeof msg.command === 'string' && msg.command.trim().length > 0) {
+        payload.command = msg.command.trim()
+      }
+      ;(async () => {
+        try {
+          if (WS_ENABLED && ws && ws.readyState === WebSocket.OPEN) {
+            try { ws.send(JSON.stringify(payload)) } catch {}
+            try { sendResponse({ success: true }) } catch {}
+            return
           }
-          if (typeof msg.command === 'string' && msg.command.trim().length > 0) {
-            payload.command = msg.command.trim()
+          await ensureLaunchSecret(8000)
+          const r = await fetch(`${ELECTRON_BASE_URL}/api/lmgtfy/save-trigger`, {
+            method: 'POST',
+            headers: _electronHeaders(),
+            body: JSON.stringify({
+              name: msg.name,
+              mode: msg.mode,
+              rect: msg.rect,
+              displayId: msg.displayId,
+              command: typeof msg.command === 'string' ? msg.command.trim() : undefined,
+            }),
+          })
+          if (r.ok) {
+            try { sendResponse({ success: true }) } catch {}
+          } else {
+            try { sendResponse({ success: false, error: `HTTP ${r.status}` }) } catch {}
           }
-          try { ws.send(JSON.stringify(payload)) } catch {}
-          try { sendResponse({ success: true }) } catch {}
-        } else {
-          try { sendResponse({ success: false, error: 'WS not connected' }) } catch {}
+        } catch {
+          try { sendResponse({ success: false, error: 'save-trigger failed' }) } catch {}
         }
-      } catch { try { sendResponse({ success:false }) } catch {} }
-      break
+      })()
+      return true
     }
     case 'EXTENSION_SAVE_TRIGGER': {
-      // Extension-native trigger (no displayId) - forward to Electron
-      try {
-        if (WS_ENABLED && ws && ws.readyState === WebSocket.OPEN) {
-          const payload: Record<string, unknown> = {
-            type: 'SAVE_TRIGGER',
-            name: msg.name,
-            mode: msg.mode,
-            rect: msg.rect,
-            displayId: undefined, // Extension trigger has no displayId
-            imageUrl: msg.imageUrl,
-            videoUrl: msg.videoUrl,
+      const payload: Record<string, unknown> = {
+        type: 'SAVE_TRIGGER',
+        name: msg.name,
+        mode: msg.mode,
+        rect: msg.rect,
+        displayId: undefined,
+        imageUrl: msg.imageUrl,
+        videoUrl: msg.videoUrl,
+      }
+      if (typeof msg.command === 'string' && msg.command.trim().length > 0) {
+        payload.command = msg.command.trim()
+      }
+      ;(async () => {
+        try {
+          if (WS_ENABLED && ws && ws.readyState === WebSocket.OPEN) {
+            try { ws.send(JSON.stringify(payload)) } catch {}
+            try { sendResponse({ success: true }) } catch {}
+            return
           }
-          if (typeof msg.command === 'string' && msg.command.trim().length > 0) {
-            payload.command = msg.command.trim()
+          await ensureLaunchSecret(8000)
+          const r = await fetch(`${ELECTRON_BASE_URL}/api/lmgtfy/save-trigger`, {
+            method: 'POST',
+            headers: _electronHeaders(),
+            body: JSON.stringify({
+              name: msg.name,
+              mode: msg.mode,
+              rect: msg.rect,
+              command: typeof msg.command === 'string' ? msg.command.trim() : undefined,
+            }),
+          })
+          if (r.ok) {
+            try { sendResponse({ success: true }) } catch {}
+          } else {
+            try { sendResponse({ success: false, error: `HTTP ${r.status}` }) } catch {}
           }
-          try { ws.send(JSON.stringify(payload)) } catch {}
-          try { sendResponse({ success: true }) } catch {}
-        } else {
-          try { sendResponse({ success: false, error: 'WS not connected' }) } catch {}
+        } catch {
+          try { sendResponse({ success: false, error: 'save-trigger failed' }) } catch {}
         }
-      } catch { try { sendResponse({ success:false }) } catch {} }
-      break
+      })()
+      return true
     }
     case 'ELECTRON_EXECUTE_TRIGGER': {
-      try {
-        if (WS_ENABLED && ws && ws.readyState === WebSocket.OPEN) {
-          const payload = {
-            type: 'EXECUTE_TRIGGER',
-            trigger: msg.trigger
+      const targetSurface =
+        msg.targetSurface === 'popup' || msg.targetSurface === 'dashboard' || msg.targetSurface === 'sidepanel'
+          ? msg.targetSurface
+          : 'sidepanel'
+      const payload = {
+        type: 'EXECUTE_TRIGGER',
+        trigger: msg.trigger,
+        targetSurface,
+      }
+      ;(async () => {
+        try {
+          if (WS_ENABLED && ws && ws.readyState === WebSocket.OPEN) {
+            try { ws.send(JSON.stringify(payload)) } catch {}
+            try { sendResponse({ success: true }) } catch {}
+            return
           }
-          try { ws.send(JSON.stringify(payload)) } catch {}
-          try { sendResponse({ success: true }) } catch {}
-        } else {
-          try { sendResponse({ success: false, error: 'WS not connected' }) } catch {}
+          await ensureLaunchSecret(8000)
+          const r = await fetch(`${ELECTRON_BASE_URL}/api/lmgtfy/execute-trigger`, {
+            method: 'POST',
+            headers: _electronHeaders(),
+            body: JSON.stringify({ trigger: msg.trigger, targetSurface }),
+          })
+          if (r.ok) {
+            try { sendResponse({ success: true }) } catch {}
+          } else {
+            try { sendResponse({ success: false, error: `HTTP ${r.status}` }) } catch {}
+          }
+        } catch {
+          try { sendResponse({ success: false, error: 'execute-trigger failed' }) } catch {}
         }
-      } catch { try { sendResponse({ success:false }) } catch {} }
-      break
+      })()
+      return true
     }
     case 'REQUEST_START_SELECTION_POPUP': {
       try {

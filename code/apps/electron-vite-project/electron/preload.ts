@@ -376,6 +376,12 @@ const lmgtfyBridge = {
     ipcRenderer.on('lmgtfy-show-trigger-prompt', handler)
     return () => { ipcRenderer.removeListener('lmgtfy-show-trigger-prompt', handler) }
   },
+  /** Dashboard WR Chat: headless capture result (same payload shape as extension SELECTION_RESULT). */
+  onDashboardSelectionResult: (cb: (payload: unknown) => void) => {
+    const handler = (_e: Electron.IpcRendererEvent, d: unknown) => cb(d)
+    ipcRenderer.on('lmgtfy-dashboard-selection-result', handler)
+    return () => { ipcRenderer.removeListener('lmgtfy-dashboard-selection-result', handler) }
+  },
 }
 
 contextBridge.exposeInMainWorld('LETmeGIRAFFETHATFORYOU', lmgtfyBridge)

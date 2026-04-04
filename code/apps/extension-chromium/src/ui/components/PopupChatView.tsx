@@ -175,6 +175,15 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
   const modelDropdownRef = useRef<HTMLDivElement>(null)
   const tagsMenuRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const pendingTriggerRef = useRef<{ trigger: any; command?: string; autoProcess: boolean } | null>(null)
+  const sendWithTriggerAndImageRef = useRef<
+    (
+      displayText: string,
+      routeText: string,
+      mediaUrl: string | undefined,
+      captureMode: 'screenshot' | 'stream',
+    ) => Promise<void>
+  | null>(null)
 
   // Fetch launch secret once on mount
   useEffect(() => {
@@ -213,7 +222,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
     return () => { clearTimeout(t); document.removeEventListener('click', handler) }
   }, [showModelDropdown])
 
-  // Tags list — parity with docked WR Chat (sidepanel)
+  // Tags list — parity with docked WR Chat (sidepanel); optional merge from host file (dashboard sync).
   useEffect(() => {
     const load = () => {
       try {
@@ -232,6 +241,42 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
     window.addEventListener('optimando-triggers-updated', onUpd)
     return () => window.removeEventListener('optimando-triggers-updated', onUpd)
   }, [])
+
+  useEffect(() => {
+    if (wrChatEmbedContext === 'dashboard') return
+    void (async () => {
+      try {
+        const secret = await getLaunchSecret()
+        const r = await fetch(`${BASE_URL}/api/wrchat/tagged-triggers`, {
+          headers: buildHeaders(secret),
+        })
+        if (!r.ok) return
+        const j = (await r.json()) as { triggers?: unknown[] }
+        if (!Array.isArray(j.triggers) || j.triggers.length === 0) return
+        chrome.storage?.local?.get(['optimando-tagged-triggers'], (data: Record<string, unknown>) => {
+          const local = Array.isArray(data?.['optimando-tagged-triggers'])
+            ? (data['optimando-tagged-triggers'] as any[])
+            : []
+          const merged = [...local]
+          const keys = new Set(local.map((t: any) => `${String(t?.name ?? '')}|${t?.at ?? 0}`))
+          for (const t of j.triggers as any[]) {
+            const k = `${String(t?.name ?? '')}|${t?.at ?? 0}`
+            if (!keys.has(k)) {
+              merged.push(t)
+              keys.add(k)
+            }
+          }
+          if (merged.length > local.length) {
+            chrome.storage?.local?.set({ 'optimando-tagged-triggers': merged }, () => {
+              setTriggers(merged)
+            })
+          }
+        })
+      } catch {
+        /* noop */
+      }
+    })()
+  }, [wrChatEmbedContext])
 
   // Agent box broadcast: only the originating WR Chat surface should react (popup vs dashboard embed).
   useEffect(() => {
@@ -372,12 +417,32 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
 
   const handlePopupTriggerClick = (trigger: any) => {
     setShowTagsMenu(false)
+    pendingTriggerRef.current = {
+      trigger,
+      command: trigger.command || trigger.name,
+      autoProcess: true,
+    }
     if (wrChatEmbedContext === 'dashboard') {
-      // Extension background would execute automation; dashboard shim no-ops — skip noisy send.
+      void (async () => {
+        try {
+          const secret = await getLaunchSecret()
+          await fetch(`${BASE_URL}/api/lmgtfy/execute-trigger`, {
+            method: 'POST',
+            headers: buildHeaders(secret),
+            body: JSON.stringify({ trigger, targetSurface: 'dashboard' }),
+          })
+        } catch {
+          /* noop */
+        }
+      })()
       return
     }
     try {
-      chrome.runtime?.sendMessage({ type: 'ELECTRON_EXECUTE_TRIGGER', trigger })
+      chrome.runtime?.sendMessage({
+        type: 'ELECTRON_EXECUTE_TRIGGER',
+        trigger,
+        targetSurface: 'popup',
+      })
     } catch {
       /* noop */
     }
@@ -934,6 +999,87 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
     },
     [messages, activeLlmModel, availableModels, isLoading, isConnected, sessionName, wrChatEmbedContext],
   )
+
+  sendWithTriggerAndImageRef.current = sendWithTriggerAndImage
+
+  // Extension popup: headless capture result → same #tag + command routing as docked sidepanel.
+  useEffect(() => {
+    if (wrChatEmbedContext === 'dashboard') return
+    const onMsg = (message: { type?: string; promptContext?: string; dataUrl?: string; url?: string }) => {
+      if (message.type !== 'ELECTRON_SELECTION_RESULT') return
+      if (message.promptContext !== 'popup') return
+      const url = message.dataUrl || message.url
+      if (!url) return
+      const pending = pendingTriggerRef.current
+      if (!pending?.autoProcess) return
+      const tr = pending.trigger
+      const nameT = String(tr?.name ?? '').trim()
+      const commandT = String(pending.command ?? tr?.command ?? '').trim()
+      const tagFromName = normaliseTriggerTag(nameT)
+      const routeForLlm = commandT || tagFromName
+      const displayForChat = commandT || (nameT ? nameT : '') || tagFromName
+      pendingTriggerRef.current = null
+      void sendWithTriggerAndImageRef.current?.(
+        (displayForChat || tagFromName || '[Screenshot]').trim(),
+        (routeForLlm || tagFromName).trim() || '',
+        url,
+        'screenshot',
+      )
+    }
+    try {
+      chrome.runtime.onMessage.addListener(onMsg)
+      return () => {
+        try {
+          chrome.runtime.onMessage.removeListener(onMsg)
+        } catch {
+          /* noop */
+        }
+      }
+    } catch {
+      return undefined
+    }
+  }, [wrChatEmbedContext])
+
+  // Dashboard embed: IPC relay from main when promptContext is dashboard (no chrome.runtime).
+  useEffect(() => {
+    if (wrChatEmbedContext !== 'dashboard') return
+    const bridge = (
+      typeof window !== 'undefined'
+        ? (window as Window & {
+            LETmeGIRAFFETHATFORYOU?: { onDashboardSelectionResult?: (cb: (p: unknown) => void) => () => void }
+          }).LETmeGIRAFFETHATFORYOU
+        : undefined
+    )
+    if (!bridge?.onDashboardSelectionResult) return
+    const unsub = bridge.onDashboardSelectionResult((payload: unknown) => {
+      const p = payload as { dataUrl?: string; promptContext?: string; kind?: string }
+      if (p?.promptContext && p.promptContext !== 'dashboard') return
+      const url = p?.dataUrl
+      if (!url || p?.kind !== 'image') return
+      const pending = pendingTriggerRef.current
+      if (!pending?.autoProcess) return
+      const tr = pending.trigger
+      const nameT = String(tr?.name ?? '').trim()
+      const commandT = String(pending.command ?? tr?.command ?? '').trim()
+      const tagFromName = normaliseTriggerTag(nameT)
+      const routeForLlm = commandT || tagFromName
+      const displayForChat = commandT || (nameT ? nameT : '') || tagFromName
+      pendingTriggerRef.current = null
+      void sendWithTriggerAndImageRef.current?.(
+        (displayForChat || tagFromName || '[Screenshot]').trim(),
+        (routeForLlm || tagFromName).trim() || '',
+        url,
+        'screenshot',
+      )
+    })
+    return () => {
+      try {
+        unsub()
+      } catch {
+        /* noop */
+      }
+    }
+  }, [wrChatEmbedContext])
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() }

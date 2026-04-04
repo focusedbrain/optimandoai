@@ -775,7 +775,13 @@ async function ensurePortsAvailable(): Promise<void> {
 import { registerHandler, LmgtfyChannels, emitCapture } from './lmgtfy/ipc'
 import { beginOverlay, closeAllOverlays, showStreamTriggerOverlay } from './lmgtfy/overlay'
 import { captureScreenshot, startRegionStream } from './lmgtfy/capture'
-import { loadPresets, upsertRegion } from './lmgtfy/presets'
+import {
+  loadPresets,
+  upsertRegion,
+  loadTaggedTriggersList,
+  saveTaggedTriggersList,
+  normalisePresetTag,
+} from './lmgtfy/presets'
 import { registerDbHandlers, testConnection, syncChromeDataToPostgres, getConfig, getPostgresAdapter } from './ipc/db'
 import { handleVaultRPC } from './main/vault/rpc'
 import { handleHandshakeRPC, registerHandshakeRoutes, setSSOSessionProvider, setOidcTokenProvider, getCurrentSession } from './main/handshake/ipc'
@@ -844,6 +850,13 @@ let lmgtfyLastSelectionSource: string | undefined
 
 function resolveLmgtfyPromptSurfaceFromSource(source: string | undefined): LmgtfyPromptSurface {
   return surfaceFromSource(source) as LmgtfyPromptSurface
+}
+
+/** WR Chat surface → lmgtfy `source` string (for `lmgtfyLastSelectionSource` / headless execute). */
+function sourceForExecuteSurface(surface: LmgtfyPromptSurface): string {
+  if (surface === 'popup') return 'wr-chat-popup'
+  if (surface === 'dashboard') return 'wr-chat-dashboard'
+  return 'sidepanel-docked-chat'
 }
 // HTTP bridge server — started early so /api/health is reachable immediately.
 // Full Express routes mount on this server once initialization completes.
@@ -5305,12 +5318,14 @@ app.whenReady().then(async () => {
                   console.log('[MAIN] No displayId provided, detected display from cursor:', displayId)
                 }
                 
+                const tag = normalisePresetTag(typeof msg.name === 'string' ? msg.name : '')
                 upsertRegion({
                   id: undefined,
                   name: msg.name,
                   ...(typeof msg.command === 'string' && msg.command.trim().length > 0
                     ? { command: msg.command.trim() }
                     : {}),
+                  ...(tag ? { tag } : {}),
                   displayId: displayId,
                   x: msg.rect.x,
                   y: msg.rect.y,
@@ -5326,42 +5341,8 @@ app.whenReady().then(async () => {
               }
             }
             if (msg.type === 'EXECUTE_TRIGGER') {
-              // Extension requests execution of a saved trigger
-              console.log('[MAIN] Received EXECUTE_TRIGGER from extension:', msg.trigger)
-              try {
-                const t = msg.trigger
-                // If no displayId (extension-native trigger), use primary display
-                const displayId = t.displayId ?? screen.getPrimaryDisplay().id
-                const sel = { displayId: displayId, x: t.rect.x, y: t.rect.y, w: t.rect.w, h: t.rect.h, dpr: 1 }
-                if (t.mode === 'screenshot') {
-                  // Headless screenshot
-                  console.log('[MAIN] Executing screenshot trigger headlessly')
-                  ;(async () => {
-                    try {
-                      const { filePath } = await captureScreenshot(sel as any)
-                      await postScreenshotToPopup(filePath, { x: sel.x, y: sel.y, w: sel.w, h: sel.h, dpr: 1 })
-                      console.log('[MAIN] Screenshot trigger executed and posted')
-                    } catch (err) {
-                      console.log('[MAIN] Error executing screenshot trigger:', err)
-                    }
-                  })()
-                } else if (t.mode === 'stream') {
-                  // Visible stream overlay
-                  console.log('[MAIN] Executing stream trigger with visible overlay')
-                  ;(async () => {
-                    try {
-                      showStreamTriggerOverlay(sel.displayId, { x: sel.x, y: sel.y, w: sel.w, h: sel.h })
-                      const controller = await startRegionStream(sel as any)
-                      activeStop = controller.stop
-                      console.log('[MAIN] Stream trigger started')
-                    } catch (err) {
-                      console.log('[MAIN] Error executing stream trigger:', err)
-                    }
-                  })()
-                }
-              } catch (err) {
-                console.log('[MAIN] Error processing EXECUTE_TRIGGER:', err)
-              }
+              console.log('[MAIN] Received EXECUTE_TRIGGER from extension:', msg.trigger, 'surface=', msg.targetSurface)
+              void executeTriggerFromExtension(msg.trigger, msg.targetSurface)
             }
             // Database operations via WebSocket
             if (msg.type === 'DB_TEST_CONNECTION') {
@@ -6029,6 +6010,91 @@ app.whenReady().then(async () => {
       } catch (error: any) {
         console.error('[HTTP] POST /api/lmgtfy/start-selection:', error)
         res.status(500).json({ ok: false, error: error.message || 'Failed to start selection' })
+      }
+    })
+
+    // POST /api/lmgtfy/save-trigger — same as WebSocket SAVE_TRIGGER when extension WS is down.
+    httpApp.post('/api/lmgtfy/save-trigger', async (req, res) => {
+      try {
+        const body = req.body && typeof req.body === 'object' ? (req.body as Record<string, unknown>) : {}
+        const name = typeof body.name === 'string' ? body.name : ''
+        const rect = body.rect as { x: number; y: number; w: number; h: number } | undefined
+        if (!rect || [rect.x, rect.y, rect.w, rect.h].some((n) => typeof n !== 'number')) {
+          res.status(400).json({ ok: false, error: 'invalid rect' })
+          return
+        }
+        let displayId = typeof body.displayId === 'number' ? body.displayId : undefined
+        if (displayId == null) {
+          const cursorPoint = screen.getCursorScreenPoint()
+          displayId = screen.getDisplayNearestPoint(cursorPoint).id
+        }
+        const tag = normalisePresetTag(name)
+        upsertRegion({
+          id: undefined,
+          name: name || undefined,
+          ...(typeof body.command === 'string' && body.command.trim().length > 0
+            ? { command: body.command.trim() }
+            : {}),
+          ...(tag ? { tag } : {}),
+          displayId,
+          x: rect.x,
+          y: rect.y,
+          w: rect.w,
+          h: rect.h,
+          mode: body.mode as 'screenshot' | 'stream',
+          headless: body.mode === 'screenshot',
+        })
+        updateTrayMenu()
+        res.json({ ok: true })
+      } catch (error: any) {
+        console.error('[HTTP] POST /api/lmgtfy/save-trigger:', error)
+        res.status(500).json({ ok: false, error: error.message || 'save-trigger failed' })
+      }
+    })
+
+    // POST /api/lmgtfy/execute-trigger — same as WebSocket EXECUTE_TRIGGER.
+    httpApp.post('/api/lmgtfy/execute-trigger', async (req, res) => {
+      try {
+        const body = req.body && typeof req.body === 'object' ? (req.body as Record<string, unknown>) : {}
+        const trigger = body.trigger
+        if (!trigger || typeof trigger !== 'object') {
+          res.status(400).json({ ok: false, error: 'missing trigger' })
+          return
+        }
+        const targetSurface =
+          body.targetSurface === 'popup' || body.targetSurface === 'dashboard' || body.targetSurface === 'sidepanel'
+            ? body.targetSurface
+            : undefined
+        void executeTriggerFromExtension(trigger, targetSurface)
+        res.json({ ok: true })
+      } catch (error: any) {
+        console.error('[HTTP] POST /api/lmgtfy/execute-trigger:', error)
+        res.status(500).json({ ok: false, error: error.message || 'execute-trigger failed' })
+      }
+    })
+
+    // GET/POST /api/wrchat/tagged-triggers — host copy for dashboard ↔ extension sync.
+    httpApp.get('/api/wrchat/tagged-triggers', (_req, res) => {
+      try {
+        const triggers = loadTaggedTriggersList()
+        res.json({ ok: true, triggers })
+      } catch (error: any) {
+        res.status(500).json({ ok: false, error: error.message || 'read failed' })
+      }
+    })
+    httpApp.post('/api/wrchat/tagged-triggers', async (req, res) => {
+      try {
+        const body = req.body && typeof req.body === 'object' ? (req.body as Record<string, unknown>) : {}
+        const triggers = body.triggers
+        if (!Array.isArray(triggers)) {
+          res.status(400).json({ ok: false, error: 'triggers must be an array' })
+          return
+        }
+        saveTaggedTriggersList(triggers)
+        res.json({ ok: true })
+      } catch (error: any) {
+        console.error('[HTTP] POST /api/wrchat/tagged-triggers:', error)
+        res.status(500).json({ ok: false, error: error.message || 'write failed' })
       }
     })
 
@@ -9598,7 +9664,11 @@ app.whenReady().then(async () => {
 })
 
 // Helpers to relay capture bytes to extension (WebSocket) and close overlay; chat thread is updated on Save only.
-async function postScreenshotToPopup(filePath: string, sel: { x:number,y:number,w:number,h:number,dpr:number }){
+async function postScreenshotToPopup(
+  filePath: string,
+  sel: { x: number; y: number; w: number; h: number; dpr: number },
+  opts?: { promptContext?: LmgtfyPromptSurface },
+) {
   try {
     emitCapture(win!, { event: LmgtfyChannels.OnCaptureEvent, mode: 'screenshot', filePath, thumbnailPath: '', meta: { x: sel.x, y: sel.y, w: sel.w, h: sel.h, dpr: sel.dpr } })
   } catch {}
@@ -9606,15 +9676,20 @@ async function postScreenshotToPopup(filePath: string, sel: { x:number,y:number,
     const fs = await import('node:fs')
     const data = fs.readFileSync(filePath)
     const dataUrl = 'data:image/png;base64,' + data.toString('base64')
-    const pc = surfaceFromSource(lmgtfyLastSelectionSource) as LmgtfyPromptSurface
+    const pc = (opts?.promptContext ?? surfaceFromSource(lmgtfyLastSelectionSource)) as LmgtfyPromptSurface
     const payload = JSON.stringify({ type: 'SELECTION_RESULT_IMAGE', kind: 'image', dataUrl, promptContext: pc })
     wsClients.forEach((c) => { try { c.send(payload) } catch {} })
+    if (pc === 'dashboard' && win && !win.isDestroyed()) {
+      try {
+        win.webContents.send('lmgtfy-dashboard-selection-result', { kind: 'image', dataUrl, promptContext: pc })
+      } catch {}
+    }
     // Thread append is Save-only (sendWithTriggerAndImage / handleSendMessageWithTrigger); do not COMMAND_POPUP_APPEND here.
     try { win?.webContents.send('overlay-close') } catch {}
   } catch {}
 }
 
-async function postStreamToPopup(filePath: string){
+async function postStreamToPopup(filePath: string, opts?: { promptContext?: LmgtfyPromptSurface }) {
   try {
     emitCapture(win!, { event: LmgtfyChannels.OnCaptureEvent, mode: 'stream', filePath, thumbnailPath: '', meta: { presetName: 'finalized', x: 0, y: 0, w: 0, h: 0, dpr: 1 } })
   } catch {}
@@ -9626,10 +9701,44 @@ async function postStreamToPopup(filePath: string){
       const base64 = data.toString('base64')
       dataUrl = 'data:video/mp4;base64,' + base64
     } catch {}
-    const pc = surfaceFromSource(lmgtfyLastSelectionSource) as LmgtfyPromptSurface
+    const pc = (opts?.promptContext ?? surfaceFromSource(lmgtfyLastSelectionSource)) as LmgtfyPromptSurface
     const payload = JSON.stringify({ type: 'SELECTION_RESULT_VIDEO', kind: 'video', dataUrl, promptContext: pc })
     wsClients.forEach((c) => { try { c.send(payload) } catch {} })
+    if (pc === 'dashboard' && win && !win.isDestroyed()) {
+      try {
+        win.webContents.send('lmgtfy-dashboard-selection-result', { kind: 'video', dataUrl, promptContext: pc })
+      } catch {}
+    }
     // Thread append is Save-only; do not COMMAND_POPUP_APPEND here.
     try { win?.webContents.send('overlay-close') } catch {}
   } catch {}
+}
+
+/** Headless trigger execution from extension WS or HTTP — sets surface so SELECTION_RESULT routes to the right WR Chat. */
+async function executeTriggerFromExtension(trigger: any, targetSurfaceRaw: string | undefined): Promise<void> {
+  try {
+    const surface: LmgtfyPromptSurface =
+      targetSurfaceRaw === 'popup' || targetSurfaceRaw === 'dashboard' || targetSurfaceRaw === 'sidepanel'
+        ? targetSurfaceRaw
+        : 'sidepanel'
+    lmgtfyLastSelectionSource = sourceForExecuteSurface(surface)
+    lmgtfyActivePromptSurface = surface
+    const t = trigger
+    const displayId = t.displayId ?? screen.getPrimaryDisplay().id
+    const sel = { displayId, x: t.rect.x, y: t.rect.y, w: t.rect.w, h: t.rect.h, dpr: 1 }
+    if (t.mode === 'screenshot') {
+      console.log('[MAIN] Executing screenshot trigger headlessly surface=', surface)
+      const { filePath } = await captureScreenshot(sel as any)
+      await postScreenshotToPopup(filePath, { x: sel.x, y: sel.y, w: sel.w, h: sel.h, dpr: 1 }, { promptContext: surface })
+      console.log('[MAIN] Screenshot trigger executed and posted')
+    } else if (t.mode === 'stream') {
+      console.log('[MAIN] Executing stream trigger with visible overlay surface=', surface)
+      showStreamTriggerOverlay(sel.displayId, { x: sel.x, y: sel.y, w: sel.w, h: sel.h })
+      const controller = await startRegionStream(sel as any)
+      activeStop = controller.stop
+      console.log('[MAIN] Stream trigger started')
+    }
+  } catch (err) {
+    console.log('[MAIN] Error processing EXECUTE_TRIGGER:', err)
+  }
 }

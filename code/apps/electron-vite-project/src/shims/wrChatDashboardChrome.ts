@@ -137,6 +137,21 @@ function writeStorageItems(items: Record<string, unknown>): void {
     } else {
       localStorage.setItem(k, JSON.stringify(v))
     }
+    if (k === 'optimando-tagged-triggers') {
+      void (async () => {
+        try {
+          const headers = await getAuthHeaders()
+          const triggers = Array.isArray(v) ? v : []
+          await fetch(`${BASE_URL}/api/wrchat/tagged-triggers`, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({ triggers }),
+          })
+        } catch {
+          /* non-fatal */
+        }
+      })()
+    }
   }
 }
 

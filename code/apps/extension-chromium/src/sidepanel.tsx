@@ -877,6 +877,10 @@ function SidepanelOrchestrator() {
     command?: string
     autoProcess: boolean
   } | null>(null)
+
+  const handleSendMessageWithTriggerRef = useRef<
+    (displayTextForChat: string, imageUrl?: string, routingText?: string) => Promise<void>
+  | null>(null)
   
   // LLM state
   const [activeLlmModel, setActiveLlmModel] = useState<string>('')
@@ -1360,6 +1364,7 @@ function SidepanelOrchestrator() {
                 ...llmBody,
                 ...(imageUrl ? { images: [toBase64ForOllama(imageUrl)] } : {}),
               }),
+              signal: AbortSignal.timeout(600000),
             })
             
             if (agentResponse.ok) {
@@ -1419,6 +1424,7 @@ function SidepanelOrchestrator() {
               ],
               ...(imageUrl ? { images: [toBase64ForOllama(imageUrl)] } : {}),
             }),
+            signal: AbortSignal.timeout(600000),
           })
           
           if (butlerResponse.ok) {
@@ -1726,11 +1732,22 @@ function SidepanelOrchestrator() {
         if (!url) return
         const pendingTrigger = pendingTriggerRef.current
         if (pendingTrigger?.autoProcess) {
-          const command = pendingTrigger.command || pendingTrigger.trigger?.name || ''
+          const tr = pendingTrigger.trigger
+          const nameT = String(tr?.name ?? '').trim()
+          const commandT = String(pendingTrigger.command ?? tr?.command ?? '').trim()
+          const tagFromName = normaliseTriggerTag(nameT)
+          const routeForLlm = commandT || tagFromName
+          const displayForChat = commandT || (nameT ? nameT : '') || tagFromName
           pendingTriggerRef.current = null
-          if (command) {
-            const triggerText = command.startsWith('@') ? command : `@${command}`
-            processScreenshotWithTrigger(triggerText, url)
+          if (routeForLlm || displayForChat) {
+            const fn = handleSendMessageWithTriggerRef.current
+            if (fn) {
+              void fn(
+                (displayForChat || tagFromName || '[Screenshot]').trim(),
+                url,
+                (routeForLlm || tagFromName).trim() || undefined,
+              )
+            }
           }
         }
       }
@@ -2613,7 +2630,8 @@ function SidepanelOrchestrator() {
       const ocrResponse = await fetch(`${baseUrl}/api/ocr/process`, {
         method: 'POST',
         headers: electronFetchHeaders(),
-        body: JSON.stringify({ image: imageUrl })
+        body: JSON.stringify({ image: imageUrl }),
+        signal: AbortSignal.timeout(120000),
       })
       if (ocrResponse.ok) {
         const ocrResult = await ocrResponse.json()
@@ -2643,7 +2661,8 @@ function SidepanelOrchestrator() {
           const ocrResponse = await fetch(`${baseUrl}/api/ocr/process`, {
             method: 'POST',
             headers: electronFetchHeaders(),
-            body: JSON.stringify({ image: msg.imageUrl })
+            body: JSON.stringify({ image: msg.imageUrl }),
+            signal: AbortSignal.timeout(120000),
           })
           
           if (ocrResponse.ok) {
@@ -2806,6 +2825,7 @@ function SidepanelOrchestrator() {
           ...llmBody,
           ...(visionImageUrl ? { images: [toBase64ForOllama(visionImageUrl)] } : {}),
         }),
+        signal: AbortSignal.timeout(600000),
       })
       
       if (!response.ok) {
@@ -2854,6 +2874,7 @@ function SidepanelOrchestrator() {
           ],
           ...(visionImageUrl ? { images: [toBase64ForOllama(visionImageUrl)] } : {}),
         }),
+        signal: AbortSignal.timeout(600000),
       })
       
       if (!response.ok) {
@@ -3017,6 +3038,7 @@ function SidepanelOrchestrator() {
               ...triggerLlmBody,
               ...(imageUrl ? { images: [toBase64ForOllama(imageUrl)] } : {}),
             }),
+            signal: AbortSignal.timeout(600000),
           })
           
           if (agentResponse.ok) {
@@ -3068,6 +3090,7 @@ function SidepanelOrchestrator() {
             ],
             ...(imageUrl ? { images: [toBase64ForOllama(imageUrl)] } : {}),
           }),
+          signal: AbortSignal.timeout(600000),
         })
         
         if (response.ok) {
@@ -3096,6 +3119,8 @@ function SidepanelOrchestrator() {
       setIsLlmLoading(false)
     }
   }
+
+  handleSendMessageWithTriggerRef.current = handleSendMessageWithTrigger
 
   const routeAssistantToInboxIfPending = React.useCallback((response: string) => {
     const ctx = pendingInboxAiRef.current
@@ -3296,14 +3321,16 @@ function SidepanelOrchestrator() {
       // STEP 3.5: NLP CLASSIFICATION (diagnostics, does not override routing)
       // Classify input text (or OCR text) for structured logging.
       // Routing authority is Step 3 above (routeInput with enriched text).
+      // Do not await — wink-nlp init can block the UI thread for a long time and
+      // leave Send stuck on "Thinking" while the LLM path is otherwise ready.
       // =================================================================
-      const nlpResult = await nlpClassifier.classify(
-        enrichedRouteText,
-        ocrText ? 'ocr' : 'inline_chat',
-        { sourceUrl: currentUrl, sessionKey: sessionName }
-      )
-      
-      
+      void nlpClassifier
+        .classify(enrichedRouteText, ocrText ? 'ocr' : 'inline_chat', {
+          sourceUrl: currentUrl,
+          sessionKey: sessionName,
+        })
+        .catch((e) => console.warn('[Chat] NLP classify failed:', e))
+
       // =================================================================
       // STEP 4: HANDLE ROUTING DECISION
       // =================================================================
@@ -3708,7 +3735,7 @@ function SidepanelOrchestrator() {
     
     
     // Send to Electron for screenshot capture
-    chrome.runtime?.sendMessage({ type: 'ELECTRON_EXECUTE_TRIGGER', trigger })
+    chrome.runtime?.sendMessage({ type: 'ELECTRON_EXECUTE_TRIGGER', trigger, targetSurface: 'sidepanel' })
   }
 
   const handleDeleteTrigger = (index: number) => {
@@ -4950,9 +4977,10 @@ function SidepanelOrchestrator() {
                               display: 'block'
                             }} 
                           />
-                        ) : (
-                          msg.text
-                        )}
+                        ) : null}
+                        {msg.text ? (
+                          <div style={{ marginTop: msg.imageUrl ? 8 : 0, whiteSpace: 'pre-wrap' }}>{msg.text}</div>
+                        ) : null}
                       </div>
                     </div>
                   ))
@@ -6930,9 +6958,10 @@ function SidepanelOrchestrator() {
                                 display: 'block'
                               }} 
                             />
-                          ) : (
-                            msg.text
-                          )}
+                          ) : null}
+                          {msg.text ? (
+                            <div style={{ marginTop: msg.imageUrl ? 8 : 0, whiteSpace: 'pre-wrap' }}>{msg.text}</div>
+                          ) : null}
                         </div>
                       </div>
                     ))
@@ -8286,9 +8315,10 @@ function SidepanelOrchestrator() {
                                 display: 'block'
                               }} 
                             />
-                          ) : (
-                            msg.text
-                          )}
+                          ) : null}
+                          {msg.text ? (
+                            <div style={{ marginTop: msg.imageUrl ? 8 : 0, whiteSpace: 'pre-wrap' }}>{msg.text}</div>
+                          ) : null}
                         </div>
                       </div>
                     ))
