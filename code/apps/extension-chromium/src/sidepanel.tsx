@@ -4924,7 +4924,7 @@ function SidepanelOrchestrator() {
                 color: themeColors.text
               }}>
                 {/* Selectors */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0 }}>
                   <select
                     key={`workspace-select-minimal-${theme}`}
                     value={dockedWorkspace}
@@ -5025,7 +5025,7 @@ function SidepanelOrchestrator() {
                   )}
                 </div>
                 {/* Controls */}
-                <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                <div style={{ display: 'flex', gap: '4px', alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end', minWidth: 0 }}>
                   {((dockedPanelMode as string) !== 'admin' && dockedWorkspace !== 'beap-messages' && dockedWorkspace !== 'wrguard') && <>
                     <WrChatCaptureButton
                       variant="compact"
@@ -6915,7 +6915,7 @@ function SidepanelOrchestrator() {
               color: themeColors.text
             }}>
               {/* Selectors */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0 }}>
                 <select
                   key={`workspace-select-app-${theme}`}
                   value={dockedWorkspace}
@@ -7019,7 +7019,7 @@ function SidepanelOrchestrator() {
               {/* Divider */}
               <div style={{ width: '1px', height: '16px', background: theme === 'standard' ? 'rgba(15,23,42,0.15)' : 'rgba(168,85,247,0.3)', margin: '0 4px' }} />
               {/* Controls */}
-              <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+              <div style={{ display: 'flex', gap: '4px', alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end', minWidth: 0 }}>
                 {(dockedPanelMode as string) !== 'admin' && dockedPanelMode !== 'beap-messages' && dockedPanelMode !== 'augmented-overlay' && dockedWorkspace !== 'wrguard' && <>
                   <WrChatCaptureButton
                     variant="compact"
@@ -8283,7 +8283,7 @@ function SidepanelOrchestrator() {
               color: themeColors.text
             }}>
               {/* Selectors */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0 }}>
                 <select
                   key={`workspace-select-admin-${theme}`}
                   value={dockedWorkspace}
@@ -8387,7 +8387,7 @@ function SidepanelOrchestrator() {
               {/* Divider */}
               <div style={{ width: '1px', height: '16px', background: theme === 'standard' ? 'rgba(15,23,42,0.15)' : 'rgba(168,85,247,0.3)', margin: '0 4px' }} />
               {/* Controls */}
-              <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+              <div style={{ display: 'flex', gap: '4px', alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end', minWidth: 0 }}>
                 {(dockedPanelMode as string) !== 'admin' && dockedPanelMode !== 'beap-messages' && dockedPanelMode !== 'augmented-overlay' && dockedWorkspace !== 'wrguard' && <>
                   <WrChatCaptureButton
                     variant="compact"

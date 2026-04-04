@@ -48,8 +48,8 @@ export const WrChatCaptureButton: React.FC<WrChatCaptureButtonProps> = ({
     startWrChatScreenCapture({ source, createTrigger, addCommand })
   }, [source, createTrigger, addCommand])
 
-  /** Compact docked row is 26px tall (matches workspace/submode selects); icon scales to fit */
-  const iconSize = variant === 'comfortable' ? 12 : 16
+  /** Sidepanel compact row: smaller icon so selects stay in frame; popup comfortable stays readable */
+  const iconSize = variant === 'comfortable' ? 12 : 11
 
   // PopupChatView header: match Clear / Tags
   if (variant === 'comfortable') {
@@ -126,9 +126,9 @@ export const WrChatCaptureButton: React.FC<WrChatCaptureButtonProps> = ({
   /** Matches sidepanel docked controls (Tags / Clear): standard = white fill; pro/dark = light frosted `rgba(255,255,255,0.15)` */
   const baseEnterprise = (): React.CSSProperties => ({
     borderRadius: '6px',
-    padding: '0 8px',
-    height: '26px',
-    minWidth: '26px',
+    padding: '0 5px',
+    height: '24px',
+    minWidth: '22px',
     cursor: 'pointer',
     display: 'flex',
     alignItems: 'center',
@@ -159,9 +159,9 @@ export const WrChatCaptureButton: React.FC<WrChatCaptureButtonProps> = ({
   /** App chrome row: standard theme uses a light header — never white icon on white */
   const baseAppBar = (): React.CSSProperties => ({
     borderRadius: '6px',
-    padding: '0 8px',
-    height: '26px',
-    minWidth: '26px',
+    padding: '0 5px',
+    height: '24px',
+    minWidth: '22px',
     cursor: 'pointer',
     display: 'flex',
     alignItems: 'center',

@@ -208,15 +208,17 @@ export const WrChatDiffButton: React.FC<WrChatDiffButtonProps> = ({
 
   const isLight = theme === 'standard'
   const isDark = theme === 'dark'
-  const iconSize = variant === 'comfortable' ? 12 : 16
+  /** Compact sidepanel: smaller glyph + dot so workspace/trigger selects are not squeezed */
+  const iconSize = variant === 'comfortable' ? 12 : 11
   const preset = sidepanelPreset ?? 'enterprise'
+  const dotSize = variant === 'comfortable' ? 6 : 4
 
   const dot = anyActive ? (
     <span
       title="At least one watcher is on"
       style={{
-        width: 6,
-        height: 6,
+        width: dotSize,
+        height: dotSize,
         borderRadius: '50%',
         background: '#22c55e',
         flexShrink: 0,
@@ -331,9 +333,9 @@ export const WrChatDiffButton: React.FC<WrChatDiffButtonProps> = ({
   const isStandard = theme === 'standard'
   const baseEnterprise = (): React.CSSProperties => ({
     borderRadius: '6px',
-    padding: '0 8px',
-    height: '26px',
-    minWidth: '26px',
+    padding: '0 5px',
+    height: '24px',
+    minWidth: '22px',
     cursor: 'pointer',
     display: 'flex',
     alignItems: 'center',
@@ -364,9 +366,9 @@ export const WrChatDiffButton: React.FC<WrChatDiffButtonProps> = ({
 
   const baseAppBar = (): React.CSSProperties => ({
     borderRadius: '6px',
-    padding: '0 8px',
-    height: '26px',
-    minWidth: '26px',
+    padding: '0 5px',
+    height: '24px',
+    minWidth: '22px',
     cursor: 'pointer',
     display: 'flex',
     alignItems: 'center',
