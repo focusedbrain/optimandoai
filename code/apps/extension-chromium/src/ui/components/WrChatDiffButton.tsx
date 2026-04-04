@@ -34,13 +34,19 @@ export function WrChatDiffIcon({ size = 16 }: { size?: number }) {
       xmlns="http://www.w3.org/2000/svg"
       aria-hidden
     >
-      <path
-        d="M7 8h6M7 12h4M7 16h6M15 8l3 3-3 3"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
+      {/* Left column — removed lines */}
+      <line x1="3" y1="6" x2="10" y2="6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+      <line x1="3" y1="10" x2="10" y2="10" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+      {/* Minus badge */}
+      <circle cx="7" cy="15" r="4" stroke="currentColor" strokeWidth="1.6" />
+      <line x1="4.8" y1="15" x2="9.2" y2="15" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      {/* Right column — added lines */}
+      <line x1="14" y1="6" x2="21" y2="6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+      <line x1="14" y1="10" x2="21" y2="10" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+      {/* Plus badge */}
+      <circle cx="17" cy="15" r="4" stroke="currentColor" strokeWidth="1.6" />
+      <line x1="14.8" y1="15" x2="19.2" y2="15" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      <line x1="17" y1="12.8" x2="17" y2="17.2" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
     </svg>
   )
 }

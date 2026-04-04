@@ -14,13 +14,14 @@ export function WrChatCaptureIcon({ size = 18 }: { size?: number }) {
       xmlns="http://www.w3.org/2000/svg"
       aria-hidden
     >
-      <path
-        d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-      />
-      <circle cx="12" cy="12" r="2.5" fill="currentColor" />
+      {/* Camera body */}
+      <rect x="2" y="7" width="20" height="14" rx="2" stroke="currentColor" strokeWidth="1.8" />
+      {/* Lens */}
+      <circle cx="12" cy="14" r="3.5" stroke="currentColor" strokeWidth="1.8" />
+      {/* Viewfinder bump */}
+      <path d="M8 7V5.5a1 1 0 0 1 1-1h2.5l1.5 2.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      {/* Dot in lens */}
+      <circle cx="12" cy="14" r="1.2" fill="currentColor" />
     </svg>
   )
 }

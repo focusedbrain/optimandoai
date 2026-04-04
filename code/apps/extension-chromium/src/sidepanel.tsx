@@ -5052,6 +5052,12 @@ function SidepanelOrchestrator() {
                         }
                       }}
                     >
+                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" aria-hidden>
+                        <polyline points="3 6 5 6 21 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                        <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                        <path d="M10 11v6M14 11v6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                        <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
                       Clear
                     </button>
                     {/* Anchored trigger chips — 1-click execution */}
@@ -5137,6 +5143,11 @@ function SidepanelOrchestrator() {
                           }
                         }}
                       >
+                        {/* Tag / label icon */}
+                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" aria-hidden>
+                          <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                          <circle cx="7" cy="7" r="1.5" fill="currentColor" />
+                        </svg>
                         Tags{' '}
                         <span
                           style={{
@@ -7012,6 +7023,12 @@ function SidepanelOrchestrator() {
                       }
                     }}
                   >
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" aria-hidden>
+                      <polyline points="3 6 5 6 21 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                      <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                      <path d="M10 11v6M14 11v6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                      <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
                     Clear
                   </button>
                   {/* Anchored trigger chips — 1-click execution */}
@@ -7090,6 +7107,11 @@ function SidepanelOrchestrator() {
                         }
                       }}
                     >
+                      {/* Tag / label icon */}
+                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" aria-hidden>
+                        <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                        <circle cx="7" cy="7" r="1.5" fill="currentColor" />
+                      </svg>
                       Tags{' '}
                       <span
                         style={{
@@ -8349,6 +8371,12 @@ function SidepanelOrchestrator() {
                       }
                     }}
                   >
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" aria-hidden>
+                      <polyline points="3 6 5 6 21 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                      <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                      <path d="M10 11v6M14 11v6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                      <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
                     Clear
                   </button>
                   {/* Anchored trigger chips — 1-click execution */}
@@ -8427,6 +8455,11 @@ function SidepanelOrchestrator() {
                         }
                       }}
                     >
+                      {/* Tag / label icon */}
+                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" aria-hidden>
+                        <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                        <circle cx="7" cy="7" r="1.5" fill="currentColor" />
+                      </svg>
                       Tags{' '}
                       <span
                         style={{
