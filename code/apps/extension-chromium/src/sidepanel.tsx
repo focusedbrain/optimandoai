@@ -105,6 +105,20 @@ type LlmStatusData = {
   modelsInstalled?: Array<{ name: string }>
 }
 
+// ── Pinned-trigger emoji helpers ─────────────────────────────────────────────
+const SP_PINNED_EMOJIS = [
+  '🔴', '🟠', '🟡', '🟢', '🔵', '🟣', '🟤',
+  '❤️', '🧡', '💛', '💚', '💙', '💜', '🖤',
+  '⭐', '🌟', '✨', '💫', '🔥', '⚡', '🌈',
+  '🎯', '🎨', '🎸', '🎵', '🚀', '🌿', '🍀',
+  '💡', '🔔', '🦋', '🌙', '☀️', '⚽', '🎮',
+]
+function spEmojiForKey(key: string): string {
+  let h = 0
+  for (let i = 0; i < key.length; i++) h = (Math.imul(31, h) + key.charCodeAt(i)) >>> 0
+  return SP_PINNED_EMOJIS[h % SP_PINNED_EMOJIS.length] ?? '📌'
+}
+
 function unwrapLlmStatusPayload(data: unknown): LlmStatusData | null {
   if (data == null || typeof data !== 'object') return null
   const o = data as { data?: LlmStatusData }
@@ -315,6 +329,8 @@ function SidepanelOrchestrator() {
   const [isResizingChat, setIsResizingChat] = useState(false)
   const [triggers, setTriggers] = useState<any[]>([])
   const [anchoredTriggerKeys, setAnchoredTriggerKeys] = useState<string[]>([])
+  const [pinnedDiffIds, setPinnedDiffIds] = useState<string[]>([])
+  const [diffWatchers, setDiffWatchers] = useState<any[]>([])
   const [showTagsMenu, setShowTagsMenu] = useState(false)
   /** Resets after each run so the same trigger can be selected again. */
   const [showEmbedDialog, setShowEmbedDialog] = useState(false)
@@ -885,6 +901,7 @@ function SidepanelOrchestrator() {
   const [addCommandChecked, setAddCommandChecked] = useState(true)
   const chatRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const diffDialogOpenRef = useRef<(() => void) | null>(null)
   
   // Pending trigger state - for auto-processing after screenshot capture
   // Using REF instead of state to avoid stale closure issues in message handlers
@@ -2306,13 +2323,15 @@ function SidepanelOrchestrator() {
   useEffect(() => {
     if (!isCommandChatPinned) return
     
-    const KEYS = ['optimando-tagged-triggers', 'optimando-anchored-trigger-keys']
+    const KEYS = ['optimando-tagged-triggers', 'optimando-anchored-trigger-keys', 'optimando-pinned-diff-ids']
     const loadTriggers = () => {
       chrome.storage?.local?.get(KEYS, (data: any) => {
         const list = Array.isArray(data?.['optimando-tagged-triggers']) ? data['optimando-tagged-triggers'] : []
         setTriggers(list)
         const anchored = Array.isArray(data?.['optimando-anchored-trigger-keys']) ? data['optimando-anchored-trigger-keys'] : []
         setAnchoredTriggerKeys(anchored)
+        const diffPinned = Array.isArray(data?.['optimando-pinned-diff-ids']) ? data['optimando-pinned-diff-ids'] : []
+        setPinnedDiffIds(diffPinned)
       })
     }
     
@@ -2320,7 +2339,7 @@ function SidepanelOrchestrator() {
     window.addEventListener('optimando-triggers-updated', loadTriggers)
     const onStorage: Parameters<typeof chrome.storage.onChanged.addListener>[0] = (changes, area) => {
       if (area !== 'local') return
-      if (changes['optimando-tagged-triggers'] || changes['optimando-anchored-trigger-keys']) loadTriggers()
+      if (changes['optimando-tagged-triggers'] || changes['optimando-anchored-trigger-keys'] || changes['optimando-pinned-diff-ids']) loadTriggers()
     }
     try {
       chrome.storage?.onChanged?.addListener(onStorage)
@@ -4183,9 +4202,20 @@ function SidepanelOrchestrator() {
     })
   }
 
+  const handleToggleDiffPin = (id: string) => {
+    setPinnedDiffIds((prev) => {
+      const next = prev.includes(id) ? prev.filter((k) => k !== id) : [...prev, id]
+      try {
+        chrome.storage?.local?.set({ 'optimando-pinned-diff-ids': next })
+      } catch { /* noop */ }
+      return next
+    })
+  }
+
   /** Shared trigger row used in all Tags dropdowns (identical across all 3 sidepanel layouts). */
   const renderTriggerRow = (trigger: any, i: number, totalCount: number) => {
     const isAnchored = anchoredTriggerKeys.includes(triggerAnchorKey(trigger))
+    const anchorKey = triggerAnchorKey(trigger)
     return (
       <div
         key={i}
@@ -4202,16 +4232,16 @@ function SidepanelOrchestrator() {
         {/* Pin / anchor icon */}
         <button
           type="button"
-          title={isAnchored ? 'Unpin from toolbar' : 'Pin to toolbar for 1-click access'}
+          title={isAnchored ? 'Remove icon from top edge' : 'Show icon shortcut at top edge of chat'}
           onClick={(e) => { e.stopPropagation(); handleToggleAnchor(trigger) }}
           style={{
-            width: 20,
+            width: 22,
             height: 20,
             flexShrink: 0,
             border: 'none',
             borderRadius: 4,
             cursor: 'pointer',
-            fontSize: 12,
+            fontSize: 13,
             padding: 0,
             display: 'flex',
             alignItems: 'center',
@@ -4227,7 +4257,7 @@ function SidepanelOrchestrator() {
               : 'rgba(255,255,255,0.08)'
           }}
         >
-          📌
+          {isAnchored ? spEmojiForKey(anchorKey) : '◎'}
         </button>
         {/* Trigger name / run */}
         <button
@@ -5117,6 +5147,10 @@ function SidepanelOrchestrator() {
                       theme={theme}
                       sidepanelPreset="enterprise"
                       onDiffMessage={handleDiffMessage}
+                      pinnedDiffIds={pinnedDiffIds}
+                      onToggleDiffPin={handleToggleDiffPin}
+                      onWatchersChange={setDiffWatchers}
+                      openDialogRef={diffDialogOpenRef}
                     />
                     <button
                       type="button"
@@ -5418,9 +5452,37 @@ function SidepanelOrchestrator() {
                   gap: '10px',
                   background: theme === 'pro' ? 'rgba(118,75,162,0.25)' : theme === 'standard' ? '#f8f9fb' : 'rgba(255,255,255,0.06)',
                   borderBottom: theme === 'standard' ? '1px solid #94a3b8' : '1px solid rgba(255,255,255,0.20)',
-                  padding: '14px'
+                  padding: '14px',
+                  position: 'relative',
+                  paddingTop: (anchoredTriggerKeys.length > 0 || pinnedDiffIds.length > 0) ? 40 : 14,
                 }}
               >
+                {/* Top-edge pinned icon strip */}
+                {(anchoredTriggerKeys.length > 0 || pinnedDiffIds.length > 0) && (
+                  <div role="toolbar" aria-label="Pinned shortcuts" style={{ position: 'absolute', top: 4, left: 8, right: 8, display: 'flex', flexDirection: 'row', flexWrap: 'nowrap', gap: 6, zIndex: 6, overflowX: 'auto', scrollbarWidth: 'none' }}>
+                    {triggers.filter((t) => anchoredTriggerKeys.includes(triggerAnchorKey(t))).map((trigger) => {
+                      const key = triggerAnchorKey(trigger)
+                      return (
+                        <span key={key} role="button" tabIndex={0} title={`Run: ${String(trigger.name || trigger.command || 'Trigger').slice(0, 80)}`}
+                          onClick={() => { try { handleTriggerClick(trigger) } catch { /* noop */ } }}
+                          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); try { handleTriggerClick(trigger) } catch { /* noop */ } } }}
+                          style={{ fontSize: 18, lineHeight: 1, cursor: 'pointer', userSelect: 'none', flexShrink: 0, transition: 'transform 0.12s', filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.4))' }}
+                          onMouseEnter={(e) => { (e.currentTarget as HTMLSpanElement).style.transform = 'scale(1.3)' }}
+                          onMouseLeave={(e) => { (e.currentTarget as HTMLSpanElement).style.transform = 'scale(1)' }}
+                        >{spEmojiForKey(key)}</span>
+                      )
+                    })}
+                    {diffWatchers.filter((w) => pinnedDiffIds.includes(w?.id ?? '')).map((watcher) => (
+                      <span key={`diff:${watcher.id}`} role="button" tabIndex={0} title={`Diff: ${String(watcher.name || watcher.tag || 'Diff').slice(0, 80)} — click to open`}
+                        onClick={() => { try { diffDialogOpenRef.current?.() } catch { /* noop */ } }}
+                        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); try { diffDialogOpenRef.current?.() } catch { /* noop */ } } }}
+                        style={{ fontSize: 18, lineHeight: 1, cursor: 'pointer', userSelect: 'none', flexShrink: 0, transition: 'transform 0.12s', filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.4))' }}
+                        onMouseEnter={(e) => { (e.currentTarget as HTMLSpanElement).style.transform = 'scale(1.3)' }}
+                        onMouseLeave={(e) => { (e.currentTarget as HTMLSpanElement).style.transform = 'scale(1)' }}
+                      >{spEmojiForKey(`diff:${watcher.id ?? watcher.name ?? ''}`)}</span>
+                    ))}
+                  </div>
+                )}
                 {chatMessages.length === 0 ? (
                   <div style={{ fontSize: '13px', opacity: dockedPanelMode === 'augmented-overlay' ? 0.8 : 0.6, textAlign: 'center', padding: '32px 20px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
                     {dockedPanelMode === 'augmented-overlay' ? (
@@ -7050,6 +7112,10 @@ function SidepanelOrchestrator() {
                     theme={theme}
                     sidepanelPreset="appBar"
                     onDiffMessage={handleDiffMessage}
+                    pinnedDiffIds={pinnedDiffIds}
+                    onToggleDiffPin={handleToggleDiffPin}
+                    onWatchersChange={setDiffWatchers}
+                    openDialogRef={diffDialogOpenRef}
                   />
                   <button
                     type="button"
@@ -7340,9 +7406,37 @@ function SidepanelOrchestrator() {
                     gap: '10px',
                     background: theme === 'pro' ? 'rgba(118,75,162,0.25)' : 'rgba(255,255,255,0.06)',
                     borderBottom: '1px solid rgba(255,255,255,0.20)',
-                    padding: '14px'
+                    padding: '14px',
+                    position: 'relative',
+                    paddingTop: (anchoredTriggerKeys.length > 0 || pinnedDiffIds.length > 0) ? 40 : 14,
                   }}
                 >
+                  {/* Top-edge pinned icon strip */}
+                  {(anchoredTriggerKeys.length > 0 || pinnedDiffIds.length > 0) && (
+                    <div role="toolbar" aria-label="Pinned shortcuts" style={{ position: 'absolute', top: 4, left: 8, right: 8, display: 'flex', flexDirection: 'row', flexWrap: 'nowrap', gap: 6, zIndex: 6, overflowX: 'auto', scrollbarWidth: 'none' }}>
+                      {triggers.filter((t) => anchoredTriggerKeys.includes(triggerAnchorKey(t))).map((trigger) => {
+                        const key = triggerAnchorKey(trigger)
+                        return (
+                          <span key={key} role="button" tabIndex={0} title={`Run: ${String(trigger.name || trigger.command || 'Trigger').slice(0, 80)}`}
+                            onClick={() => { try { handleTriggerClick(trigger) } catch { /* noop */ } }}
+                            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); try { handleTriggerClick(trigger) } catch { /* noop */ } } }}
+                            style={{ fontSize: 18, lineHeight: 1, cursor: 'pointer', userSelect: 'none', flexShrink: 0, transition: 'transform 0.12s', filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.4))' }}
+                            onMouseEnter={(e) => { (e.currentTarget as HTMLSpanElement).style.transform = 'scale(1.3)' }}
+                            onMouseLeave={(e) => { (e.currentTarget as HTMLSpanElement).style.transform = 'scale(1)' }}
+                          >{spEmojiForKey(key)}</span>
+                        )
+                      })}
+                      {diffWatchers.filter((w) => pinnedDiffIds.includes(w?.id ?? '')).map((watcher) => (
+                        <span key={`diff:${watcher.id}`} role="button" tabIndex={0} title={`Diff: ${String(watcher.name || watcher.tag || 'Diff').slice(0, 80)} — click to open`}
+                          onClick={() => { try { diffDialogOpenRef.current?.() } catch { /* noop */ } }}
+                          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); try { diffDialogOpenRef.current?.() } catch { /* noop */ } } }}
+                          style={{ fontSize: 18, lineHeight: 1, cursor: 'pointer', userSelect: 'none', flexShrink: 0, transition: 'transform 0.12s', filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.4))' }}
+                          onMouseEnter={(e) => { (e.currentTarget as HTMLSpanElement).style.transform = 'scale(1.3)' }}
+                          onMouseLeave={(e) => { (e.currentTarget as HTMLSpanElement).style.transform = 'scale(1)' }}
+                        >{spEmojiForKey(`diff:${watcher.id ?? watcher.name ?? ''}`)}</span>
+                      ))}
+                    </div>
+                  )}
                   {chatMessages.length === 0 ? (
                     <div style={{ fontSize: '13px', opacity: dockedPanelMode === 'augmented-overlay' ? 0.8 : 0.6, textAlign: 'center', padding: '32px 20px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
                       {dockedPanelMode === 'augmented-overlay' ? (
@@ -8360,6 +8454,10 @@ function SidepanelOrchestrator() {
                     theme={theme}
                     sidepanelPreset="appBar"
                     onDiffMessage={handleDiffMessage}
+                    pinnedDiffIds={pinnedDiffIds}
+                    onToggleDiffPin={handleToggleDiffPin}
+                    onWatchersChange={setDiffWatchers}
+                    openDialogRef={diffDialogOpenRef}
                   />
                   <button
                     type="button"
@@ -8649,9 +8747,37 @@ function SidepanelOrchestrator() {
                     gap: '10px',
                     background: theme === 'pro' ? 'rgba(118,75,162,0.25)' : 'rgba(255,255,255,0.06)',
                     borderBottom: '1px solid rgba(255,255,255,0.20)',
-                    padding: '14px'
+                    padding: '14px',
+                    position: 'relative',
+                    paddingTop: (anchoredTriggerKeys.length > 0 || pinnedDiffIds.length > 0) ? 40 : 14,
                   }}
                 >
+                  {/* Top-edge pinned icon strip */}
+                  {(anchoredTriggerKeys.length > 0 || pinnedDiffIds.length > 0) && (
+                    <div role="toolbar" aria-label="Pinned shortcuts" style={{ position: 'absolute', top: 4, left: 8, right: 8, display: 'flex', flexDirection: 'row', flexWrap: 'nowrap', gap: 6, zIndex: 6, overflowX: 'auto', scrollbarWidth: 'none' }}>
+                      {triggers.filter((t) => anchoredTriggerKeys.includes(triggerAnchorKey(t))).map((trigger) => {
+                        const key = triggerAnchorKey(trigger)
+                        return (
+                          <span key={key} role="button" tabIndex={0} title={`Run: ${String(trigger.name || trigger.command || 'Trigger').slice(0, 80)}`}
+                            onClick={() => { try { handleTriggerClick(trigger) } catch { /* noop */ } }}
+                            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); try { handleTriggerClick(trigger) } catch { /* noop */ } } }}
+                            style={{ fontSize: 18, lineHeight: 1, cursor: 'pointer', userSelect: 'none', flexShrink: 0, transition: 'transform 0.12s', filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.4))' }}
+                            onMouseEnter={(e) => { (e.currentTarget as HTMLSpanElement).style.transform = 'scale(1.3)' }}
+                            onMouseLeave={(e) => { (e.currentTarget as HTMLSpanElement).style.transform = 'scale(1)' }}
+                          >{spEmojiForKey(key)}</span>
+                        )
+                      })}
+                      {diffWatchers.filter((w) => pinnedDiffIds.includes(w?.id ?? '')).map((watcher) => (
+                        <span key={`diff:${watcher.id}`} role="button" tabIndex={0} title={`Diff: ${String(watcher.name || watcher.tag || 'Diff').slice(0, 80)} — click to open`}
+                          onClick={() => { try { diffDialogOpenRef.current?.() } catch { /* noop */ } }}
+                          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); try { diffDialogOpenRef.current?.() } catch { /* noop */ } } }}
+                          style={{ fontSize: 18, lineHeight: 1, cursor: 'pointer', userSelect: 'none', flexShrink: 0, transition: 'transform 0.12s', filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.4))' }}
+                          onMouseEnter={(e) => { (e.currentTarget as HTMLSpanElement).style.transform = 'scale(1.3)' }}
+                          onMouseLeave={(e) => { (e.currentTarget as HTMLSpanElement).style.transform = 'scale(1)' }}
+                        >{spEmojiForKey(`diff:${watcher.id ?? watcher.name ?? ''}`)}</span>
+                      ))}
+                    </div>
+                  )}
                   {chatMessages.length === 0 ? (
                     <div style={{ fontSize: '13px', opacity: dockedPanelMode === 'augmented-overlay' ? 0.8 : 0.6, textAlign: 'center', padding: '32px 20px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
                       {dockedPanelMode === 'augmented-overlay' ? (

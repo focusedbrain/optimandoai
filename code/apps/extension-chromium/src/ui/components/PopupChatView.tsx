@@ -249,6 +249,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
   const [triggers, setTriggers] = useState<any[]>([])
   const [anchoredTriggerKeys, setAnchoredTriggerKeys] = useState<string[]>([])
   const [pinnedDiffIds, setPinnedDiffIds] = useState<string[]>([])
+  const [diffWatchers, setDiffWatchers] = useState<any[]>([])
   const [showTagsMenu, setShowTagsMenu] = useState(false)
   /** When false, skip persisting until localStorage transcript has been read (dashboard embed). */
   const [transcriptHydrated, setTranscriptHydrated] = useState(() => !persistTranscriptStorageKey)
@@ -276,6 +277,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
   const pendingTriggerRef = useRef<{ trigger: any; command?: string; autoProcess: boolean } | null>(null)
   const diffMessageQueueRef = useRef<string[]>([])
   const handleDiffMessageRef = useRef<(message: string) => void>(() => {})
+  const diffDialogOpenRef = useRef<(() => void) | null>(null)
   /** Set after `sendWithTriggerAndImage` — dashboard tag HTTP + IPC share this. */
   const runDashboardPendingCaptureRef = useRef<(dataUrl: string, kind?: string) => void>(() => {})
   /** Timestamp (ms) of the last time a dashboard trigger was auto-processed.
@@ -1799,6 +1801,13 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
     }
   }, [triggers, anchoredTriggerKeys, triggerAnchorKey])
 
+  const pinnedDiffWatchers = useMemo(
+    () => (Array.isArray(diffWatchers) ? diffWatchers.filter((w) => pinnedDiffIds.includes(w?.id ?? '')) : []),
+    [diffWatchers, pinnedDiffIds],
+  )
+
+  const hasAnyPinnedEdgeItems = pinnedTriggersOnEdge.length > 0 || pinnedDiffWatchers.length > 0
+
   const captureSource = useMemo(
     () => (wrChatEmbedContext === 'dashboard' ? 'wr-chat-dashboard' : 'wr-chat-popup'),
     [wrChatEmbedContext],
@@ -1849,7 +1858,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
             createTrigger={true}
             addCommand={true}
           />
-          <WrChatDiffButton variant="comfortable" theme={theme} onDiffMessage={handleDiffMessage} pinnedDiffIds={pinnedDiffIds} onToggleDiffPin={handleToggleDiffPin} />
+          <WrChatDiffButton variant="comfortable" theme={theme} onDiffMessage={handleDiffMessage} pinnedDiffIds={pinnedDiffIds} onToggleDiffPin={handleToggleDiffPin} onWatchersChange={setDiffWatchers} openDialogRef={diffDialogOpenRef} />
           <button
             type="button"
             onClick={handleClearChat}
@@ -2100,10 +2109,10 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
           gap: '10px',
           position: 'relative',
           minHeight: 0,
-          paddingTop: pinnedTriggersOnEdge.length > 0 ? 42 : 12,
+          paddingTop: hasAnyPinnedEdgeItems ? 42 : 12,
         }}
       >
-        {pinnedTriggersOnEdge.length > 0 && (
+        {hasAnyPinnedEdgeItems && (
           <div
             role="toolbar"
             aria-label="Pinned tag shortcuts"
@@ -2148,6 +2157,44 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
                     try { void handlePopupTriggerClick(trigger) } catch (err) {
                       console.warn('[PopupChatView] pinned trigger keydown failed:', err)
                     }
+                  }}
+                  style={{
+                    fontSize: 18,
+                    lineHeight: 1,
+                    cursor: 'pointer',
+                    userSelect: 'none',
+                    flexShrink: 0,
+                    filter: isLight
+                      ? 'drop-shadow(0 1px 2px rgba(0,0,0,0.35))'
+                      : 'drop-shadow(0 1px 3px rgba(0,0,0,0.55))',
+                    transition: 'transform 0.12s',
+                  }}
+                  onMouseEnter={(e) => { (e.currentTarget as HTMLSpanElement).style.transform = 'scale(1.3)' }}
+                  onMouseLeave={(e) => { (e.currentTarget as HTMLSpanElement).style.transform = 'scale(1)' }}
+                >
+                  {emoji}
+                </span>
+              )
+            })}
+            {pinnedDiffWatchers.map((watcher) => {
+              const emoji = emojiForTriggerKey(`diff:${watcher.id ?? watcher.name ?? ''}`)
+              const label = String(watcher.name || watcher.tag || 'Diff').slice(0, 80)
+              return (
+                <span
+                  key={`diff:${watcher.id}`}
+                  role="button"
+                  tabIndex={0}
+                  title={`Diff: ${label} — click to open`}
+                  onClick={(e) => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    try { diffDialogOpenRef.current?.() } catch { /* noop */ }
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key !== 'Enter' && e.key !== ' ') return
+                    e.preventDefault()
+                    e.stopPropagation()
+                    try { diffDialogOpenRef.current?.() } catch { /* noop */ }
                   }}
                   style={{
                     fontSize: 18,

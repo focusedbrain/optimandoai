@@ -61,6 +61,10 @@ export type WrChatDiffButtonProps = {
   pinnedDiffIds?: string[]
   /** Toggle pin state for a diff watcher. */
   onToggleDiffPin?: (id: string) => void
+  /** Parent can track current watcher list (for top-edge strip rendering). */
+  onWatchersChange?: (watchers: DiffTrigger[]) => void
+  /** Imperative handle to open the dialog from outside (e.g. pinned icon click). */
+  openDialogRef?: React.MutableRefObject<(() => void) | null>
 }
 
 export const WrChatDiffButton: React.FC<WrChatDiffButtonProps> = ({
@@ -70,6 +74,8 @@ export const WrChatDiffButton: React.FC<WrChatDiffButtonProps> = ({
   onDiffMessage,
   pinnedDiffIds = [],
   onToggleDiffPin,
+  onWatchersChange,
+  openDialogRef,
 }) => {
   const [watchers, setWatchers] = useState<DiffTrigger[]>([])
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -118,6 +124,10 @@ export const WrChatDiffButton: React.FC<WrChatDiffButtonProps> = ({
       /* ignore */
     })
   }, [dialogOpen, loadWatchers])
+
+  useEffect(() => {
+    onWatchersChange?.(watchers)
+  }, [watchers, onWatchersChange])
 
   useEffect(() => {
     if (!diffPulse) return
@@ -217,6 +227,11 @@ export const WrChatDiffButton: React.FC<WrChatDiffButtonProps> = ({
   }, [onDiffMessage])
 
   const onClick = useCallback(() => setDialogOpen(true), [])
+
+  useEffect(() => {
+    if (openDialogRef) openDialogRef.current = () => setDialogOpen(true)
+    return () => { if (openDialogRef) openDialogRef.current = null }
+  }, [openDialogRef])
 
   const isLight = theme === 'standard'
   const isDark = theme === 'dark'
