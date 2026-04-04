@@ -251,6 +251,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
   const fileInputRef = useRef<HTMLInputElement>(null)
   const pendingTriggerRef = useRef<{ trigger: any; command?: string; autoProcess: boolean } | null>(null)
   const diffMessageQueueRef = useRef<string[]>([])
+  const handleDiffMessageRef = useRef<(message: string) => void>(() => {})
   /** Set after `sendWithTriggerAndImage` — dashboard tag HTTP + IPC share this. */
   const runDashboardPendingCaptureRef = useRef<(dataUrl: string, kind?: string) => void>(() => {})
   /** Timestamp (ms) of the last time a dashboard trigger was auto-processed.
@@ -1367,6 +1368,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
     },
     [isLoading, processDiffMessage],
   )
+  handleDiffMessageRef.current = handleDiffMessage
 
   useEffect(() => {
     if (isLoading) return
@@ -1596,6 +1598,28 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
       } catch {
         /* noop */
       }
+    }
+  }, [wrChatEmbedContext])
+
+  // Dashboard embed: IPC relay for folder-diff results (chrome.runtime unavailable in Electron webview).
+  useEffect(() => {
+    if (wrChatEmbedContext !== 'dashboard') return
+    const bridge = (
+      typeof window !== 'undefined'
+        ? (window as Window & {
+            LETmeGIRAFFETHATFORYOU?: { onDashboardDiffResult?: (cb: (p: unknown) => void) => () => void }
+          }).LETmeGIRAFFETHATFORYOU
+        : undefined
+    )
+    if (!bridge?.onDashboardDiffResult) return
+    const unsub = bridge.onDashboardDiffResult((payload: unknown) => {
+      const p = payload as { message?: string }
+      const msg = p?.message
+      if (typeof msg !== 'string' || !msg.trim()) return
+      handleDiffMessageRef.current(msg)
+    })
+    return () => {
+      try { unsub() } catch { /* noop */ }
     }
   }, [wrChatEmbedContext])
 

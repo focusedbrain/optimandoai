@@ -924,6 +924,15 @@ function wireDiffWatcherHostCallbacks(): void {
         /* noop */
       }
     })
+    // Also deliver directly to the dashboard webview via IPC (chrome.runtime is not
+    // available in the Electron-embedded dashboard, so WS→background→sendMessage won't reach it).
+    if (win && !win.isDestroyed()) {
+      try {
+        win.webContents.send('lmgtfy-dashboard-diff-result', { message: messageString, tag, triggerName, triggerId })
+      } catch {
+        /* noop */
+      }
+    }
   })
   diffWatcherService.setOnError((triggerId, error) => {
     persistDiffWatcherDisabled(triggerId)

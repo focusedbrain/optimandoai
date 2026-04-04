@@ -382,6 +382,12 @@ const lmgtfyBridge = {
     ipcRenderer.on('lmgtfy-dashboard-selection-result', handler)
     return () => { ipcRenderer.removeListener('lmgtfy-dashboard-selection-result', handler) }
   },
+  /** Dashboard WR Chat: folder diff result — forwarded when a watched folder changes. */
+  onDashboardDiffResult: (cb: (payload: unknown) => void) => {
+    const handler = (_e: Electron.IpcRendererEvent, d: unknown) => cb(d)
+    ipcRenderer.on('lmgtfy-dashboard-diff-result', handler)
+    return () => { ipcRenderer.removeListener('lmgtfy-dashboard-diff-result', handler) }
+  },
 }
 
 contextBridge.exposeInMainWorld('LETmeGIRAFFETHATFORYOU', lmgtfyBridge)
