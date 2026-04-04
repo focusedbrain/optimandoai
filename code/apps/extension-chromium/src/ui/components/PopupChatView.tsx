@@ -9,7 +9,6 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { WrChatCaptureButton } from './WrChatCaptureButton'
 import { WrChatDiffButton } from './WrChatDiffButton'
-import WrChatWatchdogButton from './WrChatWatchdogButton'
 import { formatWatchdogAlert, type WatchdogThreat } from '../../utils/formatWatchdogAlert'
 import { normaliseTriggerTag } from '../../utils/normaliseTriggerTag'
 import { enrichRouteTextWithOcr } from '../../services/processFlow'
@@ -21,6 +20,34 @@ import {
 } from '../../utils/image-resolve'
 
 const BASE_URL = 'http://127.0.0.1:51248'
+
+/** One emoji per pinned slot (heart, football, …) — not pill buttons. */
+const PINNED_TRIGGER_EMOJIS = [
+  '❤️',
+  '⚽',
+  '⭐',
+  '🎵',
+  '🎨',
+  '🚀',
+  '🌿',
+  '🍀',
+  '🎯',
+  '💡',
+  '🔔',
+  '📎',
+  '🦋',
+  '🌙',
+  '☀️',
+  '🎸',
+  '🎮',
+  '🏀',
+  '🎾',
+  '🏈',
+] as const
+
+function emojiForPinnedIndex(i: number): string {
+  return PINNED_TRIGGER_EMOJIS[i % PINNED_TRIGGER_EMOJIS.length] ?? '📌'
+}
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -607,8 +634,13 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
   )
 
   /** Stable key for a trigger used as the anchor identifier. */
-  const triggerAnchorKey = (t: any): string =>
-    String(t?.name ?? t?.command ?? '').trim() || JSON.stringify(t).slice(0, 60)
+  const triggerAnchorKey = useCallback((t: any): string => {
+    try {
+      return String(t?.name ?? t?.command ?? '').trim() || JSON.stringify(t).slice(0, 60)
+    } catch {
+      return 'trigger'
+    }
+  }, [])
 
   const handleToggleAnchor = useCallback(
     (trigger: any) => {
@@ -621,7 +653,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
         return next
       })
     },
-    [],
+    [triggerAnchorKey],
   )
 
   const scrollToBottom = () => {
@@ -1663,6 +1695,29 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
     }
   }, [wrChatEmbedContext])
 
+  // Dashboard: header Watchdog (App.tsx) dispatches this — same handler as IPC path.
+  useEffect(() => {
+    if (wrChatEmbedContext !== 'dashboard') return
+    const onWinAlert = (ev: Event) => {
+      try {
+        const ce = ev as CustomEvent
+        const threats = ce.detail
+        if (!Array.isArray(threats) || threats.length === 0) return
+        handleWatchdogAlertRef.current(threats as WatchdogThreat[])
+      } catch {
+        /* never throw from alert UI */
+      }
+    }
+    window.addEventListener('wrchat-watchdog-alert', onWinAlert as EventListener)
+    return () => {
+      try {
+        window.removeEventListener('wrchat-watchdog-alert', onWinAlert as EventListener)
+      } catch {
+        /* noop */
+      }
+    }
+  }, [wrChatEmbedContext])
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() }
   }
@@ -1720,6 +1775,21 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
   const noModels = availableModels.length === 0
   const canSend = !isLoading && (!!input.trim() || !!pendingDoc || !!pendingCaptureUrl)
 
+  const pinnedTriggersOnEdge = useMemo(() => {
+    try {
+      if (!Array.isArray(triggers) || anchoredTriggerKeys.length === 0) return []
+      return triggers.filter((t) => {
+        try {
+          return anchoredTriggerKeys.includes(triggerAnchorKey(t))
+        } catch {
+          return false
+        }
+      })
+    } catch {
+      return []
+    }
+  }, [triggers, anchoredTriggerKeys, triggerAnchorKey])
+
   const captureSource = useMemo(
     () => (wrChatEmbedContext === 'dashboard' ? 'wr-chat-dashboard' : 'wr-chat-popup'),
     [wrChatEmbedContext],
@@ -1771,7 +1841,6 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
             addCommand={true}
           />
           <WrChatDiffButton variant="comfortable" theme={theme} onDiffMessage={handleDiffMessage} />
-          <WrChatWatchdogButton theme={theme} onWatchdogAlert={handleWatchdogAlert} />
           <button
             type="button"
             onClick={handleClearChat}
@@ -1819,45 +1888,6 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
             </svg>
             Clear
           </button>
-          {/* Anchored trigger chips — 1-click execution */}
-          {anchoredTriggerKeys.length > 0 && triggers
-            .filter((t) => anchoredTriggerKeys.includes(triggerAnchorKey(t)))
-            .map((trigger, idx) => {
-              const label = String(trigger.name || trigger.command || `T${idx + 1}`).slice(0, 18)
-              return (
-                <button
-                  key={triggerAnchorKey(trigger)}
-                  type="button"
-                  title={`Run: ${trigger.name || trigger.command || 'trigger'}`}
-                  onClick={() => handlePopupTriggerClick(trigger)}
-                  style={{
-                    height: 22,
-                    padding: '0 7px',
-                    fontSize: 10,
-                    fontWeight: 500,
-                    borderRadius: 11,
-                    cursor: 'pointer',
-                    border: '1px solid rgba(99,102,241,0.5)',
-                    background: 'rgba(99,102,241,0.18)',
-                    color: '#a5b4fc',
-                    whiteSpace: 'nowrap',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: 3,
-                    flexShrink: 0,
-                    maxWidth: 110,
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    transition: 'background 0.15s',
-                  }}
-                  onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(99,102,241,0.35)' }}
-                  onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(99,102,241,0.18)' }}
-                >
-                  <span style={{ fontSize: 9 }}>📌</span>
-                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 80 }}>{label}</span>
-                </button>
-              )
-            })}
           <div ref={tagsMenuRef} style={{ position: 'relative' }}>
             <button
               type="button"
@@ -1957,7 +1987,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
                       {/* Pin / anchor icon */}
                       <button
                         type="button"
-                        title={anchoredTriggerKeys.includes(triggerAnchorKey(trigger)) ? 'Unpin from toolbar' : 'Pin to toolbar for 1-click access'}
+                        title={anchoredTriggerKeys.includes(triggerAnchorKey(trigger)) ? 'Unpin from chat edge' : 'Pin to chat edge (unique emoji)'}
                         onClick={(e) => { e.stopPropagation(); handleToggleAnchor(trigger) }}
                         style={{
                           width: 20,
@@ -2046,11 +2076,88 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
         </div>
       </div>
 
-      {/* Messages */}
-      <div ref={chatRef} style={{
-        flex: 1, overflowY: 'auto', overflowX: 'hidden',
-        padding: '12px', display: 'flex', flexDirection: 'column', gap: '10px'
-      }}>
+      {/* Messages — pinned triggers as edge emoji strip (not header pills) */}
+      <div
+        ref={chatRef}
+        style={{
+          flex: 1,
+          overflowY: 'auto',
+          overflowX: 'hidden',
+          padding: '12px',
+          paddingRight: pinnedTriggersOnEdge.length > 0 ? 40 : 12,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '10px',
+          position: 'relative',
+          minHeight: 0,
+        }}
+      >
+        {pinnedTriggersOnEdge.length > 0 && (
+          <div
+            role="toolbar"
+            aria-label="Pinned tag shortcuts"
+            style={{
+              position: 'absolute',
+              right: 4,
+              top: '50%',
+              transform: 'translateY(-50%)',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: 10,
+              zIndex: 6,
+              pointerEvents: 'auto',
+              maxHeight: 'min(70vh, calc(100% - 16px))',
+              overflowY: 'auto',
+              overflowX: 'hidden',
+              paddingLeft: 2,
+              scrollbarWidth: 'thin',
+            }}
+          >
+            {pinnedTriggersOnEdge.map((trigger, idx) => {
+              const emoji = emojiForPinnedIndex(idx)
+              const label = String(trigger.name || trigger.command || `Trigger ${idx + 1}`).slice(0, 120)
+              return (
+                <span
+                  key={triggerAnchorKey(trigger)}
+                  role="button"
+                  tabIndex={0}
+                  title={`Run: ${label}`}
+                  onClick={(e) => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    try {
+                      void handlePopupTriggerClick(trigger)
+                    } catch (err) {
+                      console.warn('[PopupChatView] pinned trigger click failed:', err)
+                    }
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key !== 'Enter' && e.key !== ' ') return
+                    e.preventDefault()
+                    e.stopPropagation()
+                    try {
+                      void handlePopupTriggerClick(trigger)
+                    } catch (err) {
+                      console.warn('[PopupChatView] pinned trigger keydown failed:', err)
+                    }
+                  }}
+                  style={{
+                    fontSize: 22,
+                    lineHeight: 1,
+                    cursor: 'pointer',
+                    userSelect: 'none',
+                    filter: isLight
+                      ? 'drop-shadow(0 1px 2px rgba(0,0,0,0.35))'
+                      : 'drop-shadow(0 1px 3px rgba(0,0,0,0.55))',
+                  }}
+                >
+                  {emoji}
+                </span>
+              )
+            })}
+          </div>
+        )}
         {messages.length === 0 && (
           <div style={{ opacity: 0.5, textAlign: 'center', padding: '20px', fontSize: '12px', color: colors.muted }}>
             Type a command to get started…

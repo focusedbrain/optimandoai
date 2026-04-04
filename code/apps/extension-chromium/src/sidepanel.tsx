@@ -38,8 +38,6 @@ import { pickDefaultEmailAccountRowId } from './shared/email/pickDefaultAccountR
 import { ThirdPartyLicensesView } from './bundled-tools'
 import { WrChatCaptureButton } from './ui/components/WrChatCaptureButton'
 import { WrChatDiffButton } from './ui/components/WrChatDiffButton'
-import WrChatWatchdogButton from './ui/components/WrChatWatchdogButton'
-import { formatWatchdogAlert, type WatchdogThreat } from './utils/formatWatchdogAlert'
 import { WRGuardWorkspace, useWRGuardStore } from './wrguard'
 import { RecipientModeSwitch, RecipientHandshakeSelect, DeliveryMethodPanel, executeDeliveryAction, BeapMessageListView, BeapBulkInbox, initBeapPqAuth } from './beap-messages'
 import type { BeapBulkInboxHandle } from './beap-messages'
@@ -895,6 +893,8 @@ function SidepanelOrchestrator() {
     command?: string
     autoProcess: boolean
   } | null>(null)
+  /** When a tag-trigger result was applied to WR Chat (HTTP path or SELECTION_RESULT) — drops duplicate WS/storage delivery within 10s. */
+  const sidepanelTagResultConsumedAtRef = useRef(0)
   /** Queued folder-diff lines when LLM is busy — flushed when `isLlmLoading` becomes false. */
   const diffMessageQueueRef = useRef<string[]>([])
 
@@ -3292,7 +3292,42 @@ function SidepanelOrchestrator() {
     }
 
     const pendingTrigger = pendingTriggerRef.current
-    if (!pendingTrigger?.autoProcess) return
+    const msSinceTagConsume = Date.now() - sidepanelTagResultConsumedAtRef.current
+
+    // Tag flow: duplicate SELECTION_RESULT (WS/storage) after HTTP or first path already posted — ignore.
+    if (pendingTrigger?.autoProcess && msSinceTagConsume < 10_000) {
+      pendingTriggerRef.current = null
+      try { window.dispatchEvent(new CustomEvent('optimando-sp-trigger-result-received')) } catch { /* noop */ }
+      console.log('[Sidepanel] processElectronSelectionForTags: duplicate tag result discarded (', msSinceTagConsume, 'ms since consume)')
+      return
+    }
+    if (!pendingTrigger?.autoProcess && msSinceTagConsume < 10_000) {
+      try { window.dispatchEvent(new CustomEvent('optimando-sp-trigger-result-received')) } catch { /* noop */ }
+      console.log('[Sidepanel] processElectronSelectionForTags: duplicate capture discarded (', msSinceTagConsume, 'ms since consume)')
+      return
+    }
+
+    if (!pendingTrigger?.autoProcess) {
+      // Manual region capture (no tag): show image in WR Chat without auto-running the LLM (matches dashboard pending-capture intent).
+      void (async () => {
+        const resolved = await resolveImageUrlForBackend(rawUrl)
+        if (!resolved) {
+          setChatMessages(prev => [...prev, {
+            role: 'assistant' as const,
+            text: '⚠️ Capture could not be attached — image data was invalid.',
+          }])
+          return
+        }
+        sidepanelTagResultConsumedAtRef.current = Date.now()
+        setChatMessages(prev => [...prev, { role: 'user' as const, text: '[Screenshot]', imageUrl: resolved }])
+        setTimeout(() => {
+          if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight
+        }, 0)
+        try { window.dispatchEvent(new CustomEvent('optimando-sp-trigger-result-received')) } catch { /* noop */ }
+      })()
+      return
+    }
+
     const tr = pendingTrigger.trigger
     const nameT = String(tr?.name ?? '').trim()
     const commandT = String(pendingTrigger.command ?? tr?.command ?? '').trim()
@@ -3300,6 +3335,7 @@ function SidepanelOrchestrator() {
     const routeForLlm = commandT || tagFromName
     const displayForChat = commandT || (nameT ? nameT : '') || tagFromName
     pendingTriggerRef.current = null
+    sidepanelTagResultConsumedAtRef.current = Date.now()
     const fn = handleSendMessageWithTriggerRef.current
     if (fn) {
       const displayLine = (displayForChat || tagFromName || '[Screenshot]').trim()
@@ -3762,20 +3798,6 @@ function SidepanelOrchestrator() {
     })
   }, [isLlmLoading])
 
-  const handleWatchdogAlert = React.useCallback((threats: WatchdogThreat[]) => {
-    const alertMessage = formatWatchdogAlert(threats)
-    setChatMessages((prev) => [
-      ...prev,
-      {
-        role: 'assistant' as const,
-        text: alertMessage,
-      },
-    ])
-    setTimeout(() => {
-      if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight
-    }, 0)
-  }, [])
-
   const handleChatKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
@@ -4046,19 +4068,94 @@ function SidepanelOrchestrator() {
 
   const handleTriggerClick = (trigger: any) => {
     setShowTagsMenu(false)
-    
-    // Set pending trigger for auto-processing when screenshot returns
-    // Using REF to avoid stale closure issues in the message handler
+
+    const capturedTrigger = trigger
+    // New tag run — do not treat the next result as a duplicate of the previous capture (mirrors PopupChatView dashboard).
+    sidepanelTagResultConsumedAtRef.current = 0
     pendingTriggerRef.current = {
-      trigger,
-      command: trigger.command || trigger.name,
-      autoProcess: true
+      trigger: capturedTrigger,
+      command: capturedTrigger.command || capturedTrigger.name,
+      autoProcess: true,
     }
-    
-    // Send to Electron for screenshot capture
-    chrome.runtime?.sendMessage({ type: 'ELECTRON_EXECUTE_TRIGGER', trigger, targetSurface: 'sidepanel' })
-    // Signal the storage-fallback poller that a trigger is in flight.
+
     try { window.dispatchEvent(new CustomEvent('optimando-sp-trigger-dispatched')) } catch { /* noop */ }
+
+    const nameT = String(capturedTrigger?.name ?? '').trim()
+    const commandT = String(capturedTrigger.command ?? capturedTrigger.name ?? '').trim()
+    const tagFromName = normaliseTriggerTag(nameT)
+    const routeForLlm = commandT || tagFromName
+    const displayForChat = commandT || (nameT ? nameT : '') || tagFromName
+    const displayLine = (displayForChat || tagFromName || '[Screenshot]').trim()
+    const routeLine = ((routeForLlm || tagFromName).trim() || displayLine)
+
+    void (async () => {
+      const ensureSecret = async () => {
+        if (launchSecretRef.current) return
+        await new Promise<void>((resolve) => {
+          try {
+            chrome.runtime.sendMessage({ type: 'GET_LAUNCH_SECRET' }, (response: { secret?: string | null } | undefined) => {
+              if (chrome.runtime.lastError) {
+                resolve()
+                return
+              }
+              if (response?.secret) launchSecretRef.current = response.secret
+              resolve()
+            })
+          } catch {
+            resolve()
+          }
+        })
+      }
+      await ensureSecret()
+
+      const fn = handleSendMessageWithTriggerRef.current
+      try {
+        const res = await fetch('http://127.0.0.1:51248/api/lmgtfy/execute-trigger', {
+          method: 'POST',
+          headers: electronFetchHeaders(),
+          body: JSON.stringify({ trigger: capturedTrigger, targetSurface: 'sidepanel' }),
+          signal: AbortSignal.timeout(120_000),
+        })
+        const json = (await res.json().catch(() => null)) as {
+          ok?: boolean
+          dataUrl?: string
+          kind?: string
+          error?: string
+        } | null
+
+        if (json?.ok && typeof json.dataUrl === 'string' && json.dataUrl.length > 0 && (!json.kind || json.kind === 'image')) {
+          if (Date.now() - sidepanelTagResultConsumedAtRef.current < 10_000) {
+            pendingTriggerRef.current = null
+            try { window.dispatchEvent(new CustomEvent('optimando-sp-trigger-result-received')) } catch { /* noop */ }
+            console.log('[Sidepanel] execute-trigger HTTP: result already applied (WS/storage won), skipping duplicate')
+            return
+          }
+          sidepanelTagResultConsumedAtRef.current = Date.now()
+          pendingTriggerRef.current = null
+          try { window.dispatchEvent(new CustomEvent('optimando-sp-trigger-result-received')) } catch { /* noop */ }
+          if (fn) await fn(displayLine, json.dataUrl, routeLine)
+          return
+        }
+
+        const errorText = json?.error || (json?.ok === false ? 'Trigger capture failed' : 'No screenshot received from trigger')
+        console.error('[Sidepanel] execute-trigger failed:', errorText)
+        pendingTriggerRef.current = null
+        try { window.dispatchEvent(new CustomEvent('optimando-sp-trigger-result-received')) } catch { /* noop */ }
+        setChatMessages(prev => [...prev, {
+          role: 'assistant' as const,
+          text: `⚠️ Trigger capture failed: ${errorText}. Check that the WR Desk app is running and the trigger region is valid.`,
+        }])
+      } catch (err: unknown) {
+        console.error('[Sidepanel] execute-trigger fetch error:', err)
+        pendingTriggerRef.current = null
+        try { window.dispatchEvent(new CustomEvent('optimando-sp-trigger-result-received')) } catch { /* noop */ }
+        const msg = err instanceof Error ? err.message : 'Network error'
+        setChatMessages(prev => [...prev, {
+          role: 'assistant' as const,
+          text: `⚠️ Trigger capture failed: ${msg}. Is the WR Desk app running?`,
+        }])
+      }
+    })()
   }
 
   const handleDeleteTrigger = (index: number) => {
@@ -5207,9 +5304,6 @@ function SidepanelOrchestrator() {
                       )}
                     </div>
                   </>}
-                  {(dockedPanelMode as string) !== 'admin' && (
-                    <WrChatWatchdogButton theme={theme} onWatchdogAlert={handleWatchdogAlert} />
-                  )}
                   <button 
                     onClick={toggleCommandChatPin}
                     title="Unpin from sidepanel"
@@ -7174,9 +7268,6 @@ function SidepanelOrchestrator() {
                     )}
                   </div>
                 </>}
-                {(dockedPanelMode as string) !== 'admin' && (
-                  <WrChatWatchdogButton theme={theme} onWatchdogAlert={handleWatchdogAlert} />
-                )}
                 <button 
                   onClick={toggleCommandChatPin}
                   title="Unpin from sidepanel"
@@ -8525,9 +8616,6 @@ function SidepanelOrchestrator() {
                     )}
                   </div>
                 </>}
-                {(dockedPanelMode as string) !== 'admin' && (
-                  <WrChatWatchdogButton theme={theme} onWatchdogAlert={handleWatchdogAlert} />
-                )}
                 <button 
                   onClick={toggleCommandChatPin}
                   title="Unpin from sidepanel"

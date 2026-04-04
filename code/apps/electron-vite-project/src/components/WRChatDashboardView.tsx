@@ -17,12 +17,9 @@ interface WRChatDashboardViewProps {
  * Dashboard embed for WR Chat: installs a minimal `chrome.*` shim, bootstraps orchestrator
  * session keys when needed, sets runtime surface flag, then mounts `PopupChatView`.
  *
- * **Watchdog alerts:** Same wiring as folder-diff (`DIFF_RESULT` → `onDashboardDiffResult`): Electron
- * main sends `watchdog-alert` IPC; preload exposes `LETmeGIRAFFETHATFORYOU.onDashboardWatchdogAlert`
- * (subscription returns a cleanup, not `removeAllListeners`). `PopupChatView` with
- * `wrChatEmbedContext="dashboard"` subscribes and appends assistant bubbles — no extra prop here.
- * `WrChatWatchdogButton` still handles HTTP scan responses and extension `runtime.onMessage`; IPC is
- * the reliable path for continuous / background scans in the dashboard when WebSocket/runtime is thin.
+ * **Watchdog alerts:** Main sends `watchdog-alert` IPC → `onDashboardWatchdogAlert`; `PopupChatView`
+ * (dashboard) appends assistant bubbles. **Scan / continuous UI** lives in `App.tsx` next to Inbox (not
+ * in the WR Chat header). Header button dispatches `wrchat-watchdog-alert`; this view still handles IPC.
  */
 export default function WRChatDashboardView({ theme }: WRChatDashboardViewProps) {
   const [ready, setReady] = useState(false)

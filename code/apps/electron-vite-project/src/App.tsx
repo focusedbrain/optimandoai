@@ -8,6 +8,7 @@ import SettingsView from './components/SettingsView'
 import EmailInboxView from './components/EmailInboxView'
 import EmailInboxBulkView from './components/EmailInboxBulkView'
 import WrChatDashboardPanel from './components/WrChatDashboardPanel'
+import { WrChatWatchdogButton } from '@ext/ui/components'
 import { useEmailInboxStore, type InboxFilter } from './stores/useEmailInboxStore'
 import { subscribeInboxNewMessagesBackgroundRefresh } from './utils/inboxNewMessagesBackgroundRefresh'
 import { type AnalysisOpenPayload, sanitizeAnalysisOpenPayload } from './components/analysis'
@@ -238,6 +239,23 @@ function App() {
           >
             Handshakes
           </button>
+          {activeView === 'wr-chat' && (
+            <div
+              className="app-header__wr-watchdog"
+              style={{ display: 'flex', alignItems: 'center', flexShrink: 0, marginRight: 4 }}
+            >
+              <WrChatWatchdogButton
+                theme={extensionTheme}
+                onWatchdogAlert={(threats) => {
+                  try {
+                    window.dispatchEvent(new CustomEvent('wrchat-watchdog-alert', { detail: threats }))
+                  } catch {
+                    /* noop */
+                  }
+                }}
+              />
+            </div>
+          )}
           <div
             role="button"
             tabIndex={0}
