@@ -534,6 +534,40 @@ function _electronHeaders(extra?: Record<string, string>): Record<string, string
   return headers
 }
 
+/**
+ * Compress a PNG/JPEG data URL to fit within chrome.storage quota.
+ * Resizes to maxWidth (default 1280 px) if the image is wider, then re-encodes
+ * as JPEG at 0.82 quality. Uses OffscreenCanvas which is available in MV3
+ * service workers (Chrome 94+). Returns null if compression is not possible.
+ */
+async function compressDataUrlForStorage(dataUrl: string, maxWidth = 1280): Promise<string | null> {
+  try {
+    if (typeof OffscreenCanvas === 'undefined' || typeof createImageBitmap === 'undefined') return null
+    const res = await fetch(dataUrl)
+    const blob = await res.blob()
+    const bmp = await createImageBitmap(blob)
+    const srcW = bmp.width
+    const srcH = bmp.height
+    const scale = srcW > maxWidth ? maxWidth / srcW : 1
+    const dstW = Math.max(1, Math.round(srcW * scale))
+    const dstH = Math.max(1, Math.round(srcH * scale))
+    const canvas = new OffscreenCanvas(dstW, dstH)
+    const ctx = canvas.getContext('2d')
+    if (!ctx) { bmp.close(); return null }
+    ctx.drawImage(bmp, 0, 0, dstW, dstH)
+    bmp.close()
+    const outBlob = await canvas.convertToBlob({ type: 'image/jpeg', quality: 0.82 })
+    return new Promise((resolve) => {
+      const reader = new FileReader()
+      reader.onloadend = () => resolve(typeof reader.result === 'string' ? reader.result : null)
+      reader.onerror = () => resolve(null)
+      reader.readAsDataURL(outBlob)
+    })
+  } catch {
+    return null
+  }
+}
+
 // Retry configuration
 const DEFAULT_RETRY_CONFIG = {
   maxRetries: 3,
@@ -3053,24 +3087,36 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
                 kind?: string
               }
               if (typeof j.dataUrl === 'string' && j.dataUrl.length > 0) {
+                // Compress large screenshots before writing to chrome.storage to avoid quota errors.
+                let storageDataUrl = j.dataUrl
+                try {
+                  const compressed = await compressDataUrlForStorage(j.dataUrl, 1280)
+                  if (compressed) storageDataUrl = compressed
+                } catch {
+                  /* compression failed — store original, may hit quota */
+                }
                 const selectionPayload = {
                   type: 'ELECTRON_SELECTION_RESULT' as const,
                   kind: j.kind || 'image',
-                  dataUrl: j.dataUrl,
+                  dataUrl: j.dataUrl,        // full-res for runtime sendMessage (same process, no quota)
                   promptContext: j.promptContext,
+                  ts: Date.now(),            // TTL field — consumers reject entries older than 30 s
                 }
                 try {
                   chrome.runtime.sendMessage(selectionPayload)
                 } catch {
                   /* no listener */
                 }
-                // Service worker sendMessage often does not reach sidepanel/popup; mirror via storage so WR Chat can listen.
+                // ALWAYS write to storage as fallback — not only when sendMessage might fail.
+                // Use the compressed dataUrl to stay within chrome.storage quota limits.
+                const storagePayload = { ...selectionPayload, dataUrl: storageDataUrl }
                 try {
                   await chrome.storage.local.set({
-                    'optimando-wrchat-selection-fallback': selectionPayload,
+                    'optimando-wrchat-selection-fallback': storagePayload,
                   })
                 } catch {
-                  /* quota / oversized screenshot — rely on sendMessage only */
+                  /* quota exceeded even after compression — runtime sendMessage is the only path */
+                  console.warn('[BG] execute-trigger: storage write failed (quota), relying on sendMessage only')
                 }
               }
             } catch {

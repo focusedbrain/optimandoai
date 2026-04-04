@@ -107,19 +107,38 @@ export default function WRChatDashboardView({ theme }: WRChatDashboardViewProps)
         const j = (await r.json()) as { triggers?: unknown[] }
         if (!Array.isArray(j.triggers) || j.triggers.length === 0) return
         try {
+          type T = { name?: string; updatedAt?: number; at?: number; [k: string]: unknown }
+          const normKey = (t: T) => String(t?.name ?? '').replace(/^#/, '').toLowerCase().trim()
+          const ts = (t: T) => t?.updatedAt ?? t?.at ?? 0
+
           const raw = localStorage.getItem('optimando-tagged-triggers')
-          const local = raw ? (JSON.parse(raw) as unknown[]) : []
-          const merged = Array.isArray(local) ? [...local] : []
-          const keys = new Set(
-            merged.map((t: { name?: string; at?: number }) => `${String(t?.name ?? '')}|${t?.at ?? 0}`),
-          )
-          for (const t of j.triggers as { name?: string; at?: number }[]) {
-            const key = `${String(t?.name ?? '')}|${t?.at ?? 0}`
-            if (!keys.has(key)) {
-              merged.push(t)
-              keys.add(key)
+          const local: T[] = raw ? (JSON.parse(raw) as T[]) : []
+          const safLocal: T[] = Array.isArray(local) ? local : []
+
+          // Build map keyed by normalised tag name — freshest entry wins.
+          const map = new Map<string, T>()
+          for (const t of safLocal) {
+            const k = normKey(t)
+            if (k) map.set(k, t)
+          }
+
+          let changed = false
+          for (const t of j.triggers as T[]) {
+            const k = normKey(t)
+            if (!k) continue
+            const existing = map.get(k)
+            if (!existing) {
+              map.set(k, t)
+              changed = true
+            } else if (ts(t) > ts(existing)) {
+              map.set(k, t)
+              changed = true
             }
           }
+
+          if (!changed) return
+          const keyless = safLocal.filter(t => !normKey(t))
+          const merged = [...map.values(), ...keyless]
           localStorage.setItem('optimando-tagged-triggers', JSON.stringify(merged))
           window.dispatchEvent(new CustomEvent('optimando-triggers-updated'))
         } catch {

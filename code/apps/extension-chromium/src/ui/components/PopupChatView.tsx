@@ -11,6 +11,11 @@ import { WrChatCaptureButton } from './WrChatCaptureButton'
 import { normaliseTriggerTag } from '../../utils/normaliseTriggerTag'
 import { enrichRouteTextWithOcr } from '../../services/processFlow'
 import { mergeTaggedTriggersFromHost } from '../../utils/mergeTaggedTriggersFromHost'
+import {
+  toBase64ForOllama,
+  isPlausibleVisionBase64,
+  resolveImageUrlForBackend,
+} from '../../utils/image-resolve'
 
 const BASE_URL = 'http://127.0.0.1:51248'
 
@@ -63,79 +68,15 @@ function buildHeaders(secret: string | null, extra?: Record<string, string>): Re
   return { 'Content-Type': 'application/json', 'X-Launch-Secret': secret ?? '', ...extra }
 }
 
-function toBase64ForOllama(dataUrl: string): string {
-  const idx = dataUrl.indexOf(',')
-  return idx !== -1 ? dataUrl.slice(idx + 1) : dataUrl
-}
-
-/** Reject paths / garbage passed as "base64" — Ollama vision + Gemma otherwise surface img-0 / can't-read-image behavior. */
-function isPlausibleVisionBase64(b64: string): boolean {
-  if (!b64 || b64.length < 48) return false
-  if (/^[A-Za-z]:[\\/]/.test(b64)) return false
-  if (b64.startsWith('\\\\')) return false
-  return true
-}
-
-/** Blob / file paths are not valid OCR or vision payloads; normalize to a data URL (Electron dashboard often differs from extension popup). */
-function isLikelyFilesystemPath(s: string): boolean {
-  if (!s || s.length < 2) return false
-  if (/^[A-Za-z]:[\\/]/.test(s)) return true
-  if (s.startsWith('\\\\')) return true
-  return false
-}
-
-function pathToFileUrlString(p: string): string {
-  const normalized = p.replace(/\\/g, '/')
-  if (/^[A-Za-z]:/.test(normalized)) return 'file:///' + normalized
-  if (normalized.startsWith('//')) return 'file:' + normalized
-  return 'file://' + normalized
-}
-
-async function blobToDataUrl(blob: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onloadend = () => resolve(typeof reader.result === 'string' ? reader.result : '')
-    reader.onerror = () => reject(reader.error)
-    reader.readAsDataURL(blob)
-  })
-}
-
-async function resolveImageUrlForBackend(imageUrl: string): Promise<string> {
-  if (!imageUrl) return ''
-  if (imageUrl.startsWith('data:')) return imageUrl
-  if (imageUrl.startsWith('blob:')) {
-    try {
-      const r = await fetch(imageUrl)
-      const blob = await r.blob()
-      return await blobToDataUrl(blob)
-    } catch {
-      return imageUrl
-    }
-  }
-  if (imageUrl.startsWith('file:')) {
-    try {
-      const r = await fetch(imageUrl)
-      const blob = await r.blob()
-      return await blobToDataUrl(blob)
-    } catch {
-      return imageUrl
-    }
-  }
-  if (isLikelyFilesystemPath(imageUrl)) {
-    try {
-      const r = await fetch(pathToFileUrlString(imageUrl))
-      const blob = await r.blob()
-      return await blobToDataUrl(blob)
-    } catch {
-      return imageUrl
-    }
-  }
-  return imageUrl
-}
-
 const LLM_FETCH_TIMEOUT_MS = 600_000
 
-/** Map chat UI messages to Ollama /api/llm/chat shape: attach vision base64 on the last user message that has an image (not only top-level `images`). */
+/**
+ * Map chat UI messages to Ollama /api/llm/chat shape: attach vision base64 on
+ * the last user message that has an image (not only top-level `images`).
+ *
+ * When `opts.isDashboard` is true the resolver uses the orchestrator HTTP
+ * fallback for blob:/file: URLs that cannot be fetched cross-process.
+ */
 async function mapChatToLlmMessages(
   newMessages: ChatMessage[],
   secret: string | null,
@@ -145,6 +86,8 @@ async function mapChatToLlmMessages(
      * pass it here to avoid duplicate /api/ocr/process + fetch (often saves several seconds per turn).
      */
     lastImagePrecomputed?: { resolvedDataUrl: string; ocrText: string }
+    /** Pass true when running inside the Electron dashboard embed. */
+    isDashboard?: boolean
   },
 ): Promise<Array<{ role: string; content: string; images?: string[] }>> {
   let lastUserImageIdx = -1
@@ -159,18 +102,22 @@ async function mapChatToLlmMessages(
       if (msg.imageUrl && msg.role === 'user') {
         const pre = opts?.lastImagePrecomputed
         const usePre = !!pre && idx === lastUserImageIdx
-        const resolved = usePre ? pre.resolvedDataUrl : await resolveImageUrlForBackend(msg.imageUrl)
-        const ocr = usePre ? pre.ocrText : await runOcr(resolved, secret)
+        // resolveImageUrlForBackend now returns null on failure instead of falling through.
+        const resolved = usePre
+          ? pre.resolvedDataUrl
+          : await resolveImageUrlForBackend(msg.imageUrl, { secret, isDashboard: opts?.isDashboard })
+        const ocr = usePre ? pre.ocrText : await runOcr(resolved ?? '', secret)
         const content = ocr
           ? `${msg.text || 'Image:'}\n\n[OCR extracted text]:\n${ocr}`
           : msg.text || '[Image attached - OCR unavailable]'
-        const b64 = toBase64ForOllama(resolved)
-        const attachVision =
-          idx === lastUserImageIdx && !!msg.imageUrl && isPlausibleVisionBase64(b64)
+        const b64 = resolved ? toBase64ForOllama(resolved) : null
+        const attachVision = idx === lastUserImageIdx && isPlausibleVisionBase64(b64)
+        // Only attach the images key when we have at least one valid base64 string.
+        const images = attachVision && b64 ? [b64] : []
         return {
           role: 'user',
           content,
-          ...(attachVision ? { images: [b64] } : {}),
+          ...(images.length > 0 ? { images } : {}),
         }
       }
       if (msg.videoUrl && msg.role === 'user') {
@@ -395,10 +342,14 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
     const onVis = () => {
       if (document.visibilityState === 'visible') void mergeTaggedTriggersFromHost()
     }
+    // Re-sync when the dashboard broadcasts a successful host-file write.
+    const onHostSynced = () => { void mergeTaggedTriggersFromHost() }
     document.addEventListener('visibilitychange', onVis)
+    window.addEventListener('optimando-triggers-synced-to-host', onHostSynced)
     return () => {
       clearInterval(t)
       document.removeEventListener('visibilitychange', onVis)
+      window.removeEventListener('optimando-triggers-synced-to-host', onHostSynced)
     }
   }, [])
 
@@ -570,13 +521,31 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
             ok?: boolean
             dataUrl?: string
             kind?: string
+            error?: string
           } | null
+          console.log('[WRChat][dashboard-trigger] execute-trigger response ok:', json?.ok, '| dataUrl length:', json?.dataUrl?.length ?? 0)
           if (json?.ok && json.dataUrl) {
             const k = json.kind
             if (!k || k === 'image') runDashboardPendingCaptureRef.current(json.dataUrl, k || 'image')
+          } else {
+            // Server returned an explicit failure or no dataUrl — show user feedback.
+            const errorText = json?.error || (json?.ok === false ? 'Trigger capture failed' : 'No screenshot received from trigger')
+            console.error('[WRChat][dashboard-trigger] failed:', errorText)
+            pendingTriggerRef.current = null
+            setMessages(prev => [...prev, {
+              role: 'assistant' as const,
+              text: `⚠️ Trigger capture failed: ${errorText}. Check that the Electron app is running and the trigger region is valid.`,
+            }])
+            scrollToBottom()
           }
-        } catch {
-          /* noop */
+        } catch (err: any) {
+          console.error('[WRChat][dashboard-trigger] fetch error:', err)
+          pendingTriggerRef.current = null
+          setMessages(prev => [...prev, {
+            role: 'assistant' as const,
+            text: `⚠️ Trigger capture failed: ${err?.message || 'Network error'}. Is the WR Desk app running?`,
+          }])
+          scrollToBottom()
         }
       })()
       return
@@ -587,6 +556,8 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
         trigger,
         targetSurface: 'popup',
       })
+      // Signal the storage-fallback poller that a trigger is now in flight.
+      try { window.dispatchEvent(new CustomEvent('optimando-trigger-dispatched')) } catch { /* noop */ }
     } catch {
       /* noop */
     }
@@ -827,12 +798,13 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
 
     try {
       const secret = await ensureLaunchSecret(secretRef)
+      const isDashboard = wrChatEmbedContext === 'dashboard'
       // OCR for image if present
-      let resolvedImg = ''
+      let resolvedImg: string | null = null
       let ocrText = ''
       if (hasImage && currentTurnImageUrl) {
-        resolvedImg = await resolveImageUrlForBackend(currentTurnImageUrl)
-        ocrText = await runOcr(resolvedImg, secret)
+        resolvedImg = await resolveImageUrlForBackend(currentTurnImageUrl, { secret, isDashboard })
+        ocrText = await runOcr(resolvedImg ?? '', secret)
       }
 
       // Build messages array for LLM (vision base64 on the last user image message — not only top-level `images`)
@@ -841,8 +813,8 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
           newMessages,
           secret,
           hasImage && currentTurnImageUrl && resolvedImg
-            ? { lastImagePrecomputed: { resolvedDataUrl: resolvedImg, ocrText } }
-            : undefined,
+            ? { lastImagePrecomputed: { resolvedDataUrl: resolvedImg, ocrText }, isDashboard }
+            : { isDashboard },
         ),
         import('../../services/processFlow'),
       ])
@@ -1026,11 +998,12 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
 
       try {
         const secret = await ensureLaunchSecret(secretRef)
-        let resolvedMedia = ''
+        const isDashboard = wrChatEmbedContext === 'dashboard'
+        let resolvedMedia: string | null = null
         let ocrText = ''
         if (!isVideo && mediaUrl) {
-          resolvedMedia = await resolveImageUrlForBackend(mediaUrl)
-          ocrText = await runOcr(resolvedMedia, secret)
+          resolvedMedia = await resolveImageUrlForBackend(mediaUrl, { secret, isDashboard })
+          ocrText = await runOcr(resolvedMedia ?? '', secret)
         }
         const enrichedText = enrichRouteTextWithOcr(routeText, ocrText)
         const hasImage = !isVideo && !!mediaUrl
@@ -1040,8 +1013,8 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
             newMessages,
             secret,
             !isVideo && mediaUrl && resolvedMedia
-              ? { lastImagePrecomputed: { resolvedDataUrl: resolvedMedia, ocrText } }
-              : undefined,
+              ? { lastImagePrecomputed: { resolvedDataUrl: resolvedMedia, ocrText }, isDashboard }
+              : { isDashboard },
           ),
           import('../../services/processFlow'),
         ])
@@ -1178,7 +1151,16 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
 
   runDashboardPendingCaptureRef.current = (dataUrl: string, kind?: string) => {
     if (kind === 'video' || kind === 'stream') return
-    if (!dataUrl) return
+    if (!dataUrl || !dataUrl.startsWith('data:')) {
+      console.error('[WRChat][dashboard-trigger] runDashboardPendingCapture: invalid or missing dataUrl (length:', dataUrl?.length ?? 0, ')')
+      setMessages(prev => [...prev, {
+        role: 'assistant' as const,
+        text: '⚠️ Trigger capture failed — the screenshot data was empty or invalid.',
+      }])
+      scrollToBottom()
+      return
+    }
+    console.log('[WRChat][dashboard-trigger] runDashboardPendingCapture: dataUrl length:', dataUrl.length)
     const pending = pendingTriggerRef.current
     if (!pending?.autoProcess) return
     const tr = pending.trigger
@@ -1190,6 +1172,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
     pendingTriggerRef.current = null
     const displayLine = (displayForChat || tagFromName || '[Screenshot]').trim()
     const routeLine = (routeForLlm || tagFromName).trim() || displayLine
+    // dataUrl is already a resolved data: URL — passes straight through resolveImageUrlForBackend.
     void sendWithTriggerAndImageRef.current?.(displayLine, routeLine, dataUrl, 'screenshot')
   }
 
@@ -1202,6 +1185,21 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
     if (pc !== undefined && pc !== 'popup') return
     const url = message.dataUrl || message.url
     if (!url) return
+    // Require a resolved data: URL — reject blob:, file:, or raw paths that
+    // could cause [img-0] errors downstream. resolveImageUrlForBackend in
+    // sendWithTriggerAndImage provides a second gate but this keeps parity
+    // with the sidepanel's processElectronSelectionForTagsRef.
+    if (!url.startsWith('data:')) {
+      console.error('[WRChat][popup-trigger] received non-data: URL from trigger result — discarding', url.slice(0, 80))
+      pendingTriggerRef.current = null
+      try { window.dispatchEvent(new CustomEvent('optimando-trigger-result-received')) } catch { /* noop */ }
+      setMessages(prev => [...prev, {
+        role: 'assistant' as const,
+        text: '⚠️ Trigger capture failed — screenshot was not a valid image. Please try again.',
+      }])
+      scrollToBottom()
+      return
+    }
     const pending = pendingTriggerRef.current
     if (!pending?.autoProcess) return
     const tr = pending.trigger
@@ -1213,6 +1211,8 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
     pendingTriggerRef.current = null
     const displayLine = (displayForChat || tagFromName || '[Screenshot]').trim()
     const routeLine = (routeForLlm || tagFromName).trim() || displayLine
+    // Cancel the poll+timeout in the storage-fallback effect since we have the result now.
+    try { window.dispatchEvent(new CustomEvent('optimando-trigger-result-received')) } catch { /* noop */ }
     void sendWithTriggerAndImageRef.current?.(displayLine, routeLine, url, 'screenshot')
   }
 
@@ -1237,22 +1237,93 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
     }
   }, [wrChatEmbedContext])
 
-  // Service worker often does not deliver sendMessage to sidepanel/popup; background also writes chrome.storage.
+  // Storage-fallback delivery for trigger results:
+  //   - Fires on chrome.storage.onChanged (covers SW sleep / popup re-open race).
+  //   - Also checks on mount so a result written before the popup opened is consumed.
+  //   - Enforces a 30-second TTL (entries with ts older than 30 s are discarded).
+  //   - While a trigger is pending, polls every 500 ms and times out after 15 s.
   useEffect(() => {
     if (wrChatEmbedContext === 'dashboard') return
     const KEY = 'optimando-wrchat-selection-fallback'
-    const onStorage = (changes: chrome.storage.StorageChange, area: string) => {
-      if (area !== 'local' || !changes[KEY]?.newValue) return
-      const message = changes[KEY].newValue as { promptContext?: string; dataUrl?: string; url?: string }
-      try {
-        processPopupElectronSelectionRef.current(message)
-      } finally {
-        void chrome.storage.local.remove(KEY)
-      }
+    const STALE_MS = 30_000
+    const TRIGGER_TIMEOUT_MS = 15_000
+    const POLL_MS = 500
+
+    let triggerPendingAt: number | null = null
+    let pollInterval: ReturnType<typeof setInterval> | null = null
+    let timeoutHandle: ReturnType<typeof setTimeout> | null = null
+
+    function clearPollAndTimeout() {
+      if (pollInterval !== null) { clearInterval(pollInterval); pollInterval = null }
+      if (timeoutHandle !== null) { clearTimeout(timeoutHandle); timeoutHandle = null }
+      triggerPendingAt = null
     }
-    chrome.storage.onChanged.addListener(onStorage)
-    return () => chrome.storage.onChanged.removeListener(onStorage)
-  }, [wrChatEmbedContext])
+
+    function consumeFallbackEntry(entry: unknown) {
+      if (!entry || typeof entry !== 'object') return false
+      const rec = entry as { ts?: number; dataUrl?: string; promptContext?: string; url?: string; kind?: string }
+      // TTL check — ignore entries older than STALE_MS.
+      if (typeof rec.ts === 'number' && Date.now() - rec.ts > STALE_MS) {
+        void chrome.storage.local.remove(KEY)
+        return false
+      }
+      void chrome.storage.local.remove(KEY)
+      clearPollAndTimeout()
+      processPopupElectronSelectionRef.current(rec)
+      return true
+    }
+
+    function checkStorage() {
+      try {
+        chrome.storage.local.get([KEY], (data: Record<string, unknown>) => {
+          if (data?.[KEY]) consumeFallbackEntry(data[KEY])
+        })
+      } catch { /* noop */ }
+    }
+
+    // On-mount check — picks up results written before this popup instance existed.
+    checkStorage()
+
+    // onChanged fires synchronously whenever the value changes — most reliable delivery path.
+    const onStorageChanged = (changes: chrome.storage.StorageChange, area: string) => {
+      if (area !== 'local' || !changes[KEY]?.newValue) return
+      consumeFallbackEntry(changes[KEY].newValue)
+    }
+    try { chrome.storage.onChanged.addListener(onStorageChanged) } catch { /* noop */ }
+
+    // Listen for when a trigger is dispatched so we can start the poll + timeout.
+    const onTriggerDispatched = () => {
+      triggerPendingAt = Date.now()
+      if (pollInterval !== null) clearInterval(pollInterval)
+      pollInterval = setInterval(checkStorage, POLL_MS)
+      if (timeoutHandle !== null) clearTimeout(timeoutHandle)
+      timeoutHandle = setTimeout(() => {
+        clearPollAndTimeout()
+        // Only show timeout message if pendingTriggerRef still has an entry
+        // (i.e. nothing consumed it via sendMessage path either).
+        if (pendingTriggerRef.current?.autoProcess) {
+          pendingTriggerRef.current = null
+          setMessages(prev => [...prev, {
+            role: 'assistant' as const,
+            text: '⚠️ Trigger timed out — no screenshot was received within 15 seconds. Is the WR Desk app running?',
+          }])
+          scrollToBottom()
+        }
+      }, TRIGGER_TIMEOUT_MS)
+    }
+    window.addEventListener('optimando-trigger-dispatched', onTriggerDispatched)
+
+    // Cancel the poll+timeout when a result arrives via the runtime sendMessage path.
+    const onTriggerResultReceived = () => clearPollAndTimeout()
+    window.addEventListener('optimando-trigger-result-received', onTriggerResultReceived)
+
+    return () => {
+      clearPollAndTimeout()
+      try { chrome.storage.onChanged.removeListener(onStorageChanged) } catch { /* noop */ }
+      window.removeEventListener('optimando-trigger-dispatched', onTriggerDispatched)
+      window.removeEventListener('optimando-trigger-result-received', onTriggerResultReceived)
+    }
+  }, [wrChatEmbedContext]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Dashboard embed: IPC relay from main when promptContext is dashboard (no chrome.runtime).
   useEffect(() => {
@@ -1459,7 +1530,11 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
           <div ref={tagsMenuRef} style={{ position: 'relative' }}>
             <button
               type="button"
-              onClick={() => setShowTagsMenu(!showTagsMenu)}
+              onClick={() => {
+                const opening = !showTagsMenu
+                setShowTagsMenu(opening)
+                if (opening) void mergeTaggedTriggersFromHost()
+              }}
               title="Tags - Quick access to saved triggers"
               style={{
                 padding: '0 10px',

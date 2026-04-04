@@ -73,9 +73,20 @@ export function loadTaggedTriggersList(): unknown[] {
     const fp = getTaggedTriggersPath()
     if (!fs.existsSync(fp)) return []
     const raw = fs.readFileSync(fp, 'utf8')
-    const data = JSON.parse(raw)
-    return Array.isArray(data?.triggers) ? data.triggers : []
-  } catch {
+    let data: unknown
+    try {
+      data = JSON.parse(raw)
+    } catch (parseErr) {
+      console.error('[loadTaggedTriggersList] JSON parse error — returning empty list. File may be corrupt.', parseErr)
+      return []
+    }
+    if (!data || typeof data !== 'object' || !Array.isArray((data as { triggers?: unknown }).triggers)) {
+      console.error('[loadTaggedTriggersList] Unexpected structure (expected { triggers: [...] }) — returning empty list.', typeof data)
+      return []
+    }
+    return (data as { triggers: unknown[] }).triggers
+  } catch (err) {
+    console.error('[loadTaggedTriggersList] Failed to read triggers file:', err)
     return []
   }
 }

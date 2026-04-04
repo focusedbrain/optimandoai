@@ -139,16 +139,35 @@ function writeStorageItems(items: Record<string, unknown>): void {
     }
     if (k === 'optimando-tagged-triggers') {
       void (async () => {
-        try {
-          const headers = await getAuthHeaders()
-          const triggers = Array.isArray(v) ? v : []
-          await fetch(`${BASE_URL}/api/wrchat/tagged-triggers`, {
-            method: 'POST',
-            headers,
-            body: JSON.stringify({ triggers }),
-          })
-        } catch {
-          /* non-fatal */
+        const headers = await getAuthHeaders()
+        const triggers = Array.isArray(v) ? v : []
+        const body = JSON.stringify({ triggers })
+
+        const attemptPost = async (): Promise<boolean> => {
+          try {
+            const r = await fetch(`${BASE_URL}/api/wrchat/tagged-triggers`, {
+              method: 'POST',
+              headers,
+              body,
+            })
+            return r.ok
+          } catch {
+            return false
+          }
+        }
+
+        let ok = await attemptPost()
+        if (!ok) {
+          // Retry once after 2 s.
+          await new Promise(res => setTimeout(res, 2000))
+          ok = await attemptPost()
+          if (!ok) {
+            console.warn('[wrChatDashboardChrome] POST /api/wrchat/tagged-triggers failed after retry — host file may be stale')
+          }
+        }
+        if (ok) {
+          // Notify other open surfaces that the host copy was refreshed.
+          try { window.dispatchEvent(new CustomEvent('optimando-triggers-synced-to-host')) } catch { /* noop */ }
         }
       })()
     }

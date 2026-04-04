@@ -61,71 +61,14 @@ import {
   formatOversizeAttachmentRejection,
   MAX_BEAP_DRAFT_ATTACHMENT_BYTES,
 } from './beap-messages/attachmentPickerLimits'
+import {
+  toBase64ForOllama,
+  isPlausibleVisionBase64,
+  resolveImageUrlForBackend,
+} from './utils/image-resolve'
 interface ConnectionStatus {
   isConnected: boolean
   readyState?: number
-}
-
-function toBase64ForOllama(dataUrl: string): string {
-  const idx = dataUrl.indexOf(',')
-  return idx !== -1 ? dataUrl.slice(idx + 1) : dataUrl
-}
-
-/** Blob / file paths are not valid OCR or vision payloads; normalize to a data URL (matches PopupChatView). */
-function isLikelyFilesystemPath(s: string): boolean {
-  if (!s || s.length < 2) return false
-  if (/^[A-Za-z]:[\\/]/.test(s)) return true
-  if (s.startsWith('\\\\')) return true
-  return false
-}
-
-function pathToFileUrlString(p: string): string {
-  const normalized = p.replace(/\\/g, '/')
-  if (/^[A-Za-z]:/.test(normalized)) return 'file:///' + normalized
-  if (normalized.startsWith('//')) return 'file:' + normalized
-  return 'file://' + normalized
-}
-
-async function blobToDataUrl(blob: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onloadend = () => resolve(typeof reader.result === 'string' ? reader.result : '')
-    reader.onerror = () => reject(reader.error)
-    reader.readAsDataURL(blob)
-  })
-}
-
-async function resolveImageUrlForBackend(imageUrl: string): Promise<string> {
-  if (!imageUrl) return ''
-  if (imageUrl.startsWith('data:')) return imageUrl
-  if (imageUrl.startsWith('blob:')) {
-    try {
-      const r = await fetch(imageUrl)
-      const blob = await r.blob()
-      return await blobToDataUrl(blob)
-    } catch {
-      return imageUrl
-    }
-  }
-  if (imageUrl.startsWith('file:')) {
-    try {
-      const r = await fetch(imageUrl)
-      const blob = await r.blob()
-      return await blobToDataUrl(blob)
-    } catch {
-      return imageUrl
-    }
-  }
-  if (isLikelyFilesystemPath(imageUrl)) {
-    try {
-      const r = await fetch(pathToFileUrlString(imageUrl))
-      const blob = await r.blob()
-      return await blobToDataUrl(blob)
-    } catch {
-      return imageUrl
-    }
-  }
-  return imageUrl
 }
 
 // Enhanced type for draft attachments with parsing/rasterization state
@@ -1359,9 +1302,15 @@ function SidepanelOrchestrator() {
       const currentSessionName = sessionNameRef.current
       
       // OCR before routing: extract text from screenshot first
+      // Resolve the image URL (already a data: URL from trigger path, but guard defensively).
+      const resolvedScreenshotUrl = await resolveImageUrlForBackend(imageUrl)
+      const screenshotVisionB64: string | null = (() => {
+        const b64 = resolvedScreenshotUrl ? toBase64ForOllama(resolvedScreenshotUrl) : null
+        return isPlausibleVisionBase64(b64) ? b64 : null
+      })()
       let ocrText = ''
-      if (imageUrl) {
-        ocrText = await runOcrForCurrentTurn(imageUrl, baseUrl)
+      if (resolvedScreenshotUrl) {
+        ocrText = await runOcrForCurrentTurn(resolvedScreenshotUrl, baseUrl)
       }
 
       const enrichedTriggerText = enrichRouteTextWithOcr(triggerText, ocrText)
@@ -1439,7 +1388,7 @@ function SidepanelOrchestrator() {
               headers: electronFetchHeaders(),
               body: JSON.stringify({
                 ...llmBody,
-                ...(imageUrl ? { images: [toBase64ForOllama(imageUrl)] } : {}),
+                ...(screenshotVisionB64 ? { images: [screenshotVisionB64] } : {}),
               }),
               signal: AbortSignal.timeout(600000),
             })
@@ -1499,7 +1448,7 @@ function SidepanelOrchestrator() {
                 { role: 'system', content: butlerPrompt },
                 { role: 'user', content: enrichedTriggerText },
               ],
-              ...(imageUrl ? { images: [toBase64ForOllama(imageUrl)] } : {}),
+              ...(screenshotVisionB64 ? { images: [screenshotVisionB64] } : {}),
             }),
             signal: AbortSignal.timeout(600000),
           })
@@ -2940,12 +2889,20 @@ function SidepanelOrchestrator() {
       // Ensure launch secret is fresh before the LLM call (handles SW sleep/wake)
       await ensureLaunchSecret()
 
+      // Resolve and validate the vision image before including it in the request.
+      let safeVisionB64: string | null = null
+      if (visionImageUrl) {
+        const resolvedVision = await resolveImageUrlForBackend(visionImageUrl)
+        const b64 = resolvedVision ? toBase64ForOllama(resolvedVision) : null
+        if (isPlausibleVisionBase64(b64)) safeVisionB64 = b64
+      }
+
       const response: Response = await fetch(`${baseUrl}/api/llm/chat`, {
         method: 'POST',
         headers: electronFetchHeaders(),
         body: JSON.stringify({
           ...llmBody,
-          ...(visionImageUrl ? { images: [toBase64ForOllama(visionImageUrl)] } : {}),
+          ...(safeVisionB64 ? { images: [safeVisionB64] } : {}),
         }),
         signal: AbortSignal.timeout(600000),
       })
@@ -2984,7 +2941,15 @@ function SidepanelOrchestrator() {
         agents.filter(a => a.enabled).length,
         connectionStatus.isConnected
       )
-      
+
+      // Resolve and validate the vision image before including it.
+      let safeVisionB64: string | null = null
+      if (visionImageUrl) {
+        const resolvedVision = await resolveImageUrlForBackend(visionImageUrl)
+        const b64 = resolvedVision ? toBase64ForOllama(resolvedVision) : null
+        if (isPlausibleVisionBase64(b64)) safeVisionB64 = b64
+      }
+
       const response: Response = await fetch(`${baseUrl}/api/llm/chat`, {
         method: 'POST',
         headers: electronFetchHeaders(),
@@ -2994,7 +2959,7 @@ function SidepanelOrchestrator() {
             { role: 'system', content: butlerPrompt },
             ...messages
           ],
-          ...(visionImageUrl ? { images: [toBase64ForOllama(visionImageUrl)] } : {}),
+          ...(safeVisionB64 ? { images: [safeVisionB64] } : {}),
         }),
         signal: AbortSignal.timeout(600000),
       })
@@ -3048,9 +3013,12 @@ function SidepanelOrchestrator() {
       return
     }
 
-    let effectiveImageUrl: string | undefined = imageUrl
+    let effectiveImageUrl: string | null = null
     if (imageUrl) {
       effectiveImageUrl = await resolveImageUrlForBackend(imageUrl)
+      if (!effectiveImageUrl) {
+        console.warn('[Sidepanel] trigger image could not be resolved — proceeding text-only')
+      }
     }
 
     const displayLine =
@@ -3091,6 +3059,12 @@ function SidepanelOrchestrator() {
       if (effectiveImageUrl) {
         ocrText = await runOcrForCurrentTurn(effectiveImageUrl, baseUrl)
       }
+
+      // Pre-compute validated base64 for vision calls — null means text-only degradation.
+      const triggerVisionB64: string | null = (() => {
+        const b64 = effectiveImageUrl ? toBase64ForOllama(effectiveImageUrl) : null
+        return isPlausibleVisionBase64(b64) ? b64 : null
+      })()
 
       // Build enriched text for routing (typed + OCR) — same as PopupChatView / dashboard embed
       const enrichedTriggerText = enrichRouteTextWithOcr(routeText, ocrText)
@@ -3146,7 +3120,7 @@ function SidepanelOrchestrator() {
             {
               role: 'user',
               content: enrichedTriggerText,
-              ...(effectiveImageUrl ? { images: [toBase64ForOllama(effectiveImageUrl)] } : {}),
+              ...(triggerVisionB64 ? { images: [triggerVisionB64] } : {}),
             },
           ]
           const { body: triggerLlmBody, error: triggerKeyError } = await buildLlmRequestBody(
@@ -3220,7 +3194,7 @@ function SidepanelOrchestrator() {
               {
                 role: 'user',
                 content: enrichedTriggerText,
-                ...(effectiveImageUrl ? { images: [toBase64ForOllama(effectiveImageUrl)] } : {}),
+                ...(triggerVisionB64 ? { images: [triggerVisionB64] } : {}),
               },
             ],
           }),
@@ -3271,11 +3245,30 @@ function SidepanelOrchestrator() {
     promptContext?: string
     dataUrl?: string
     url?: string
+    ts?: number
   }) => {
     const pc = message.promptContext
     if (pc !== undefined && pc !== 'sidepanel') return
-    const url = message.dataUrl || message.url
-    if (!url) return
+    const rawUrl = message.dataUrl || message.url
+    if (!rawUrl) {
+      console.warn('[Sidepanel] processElectronSelectionForTags: received message with no dataUrl/url — ignoring')
+      return
+    }
+
+    // Validate: must be a proper data URL (blob: and raw paths are rejected here;
+    // handleSendMessageWithTrigger will run resolveImageUrlForBackend for further hardening).
+    if (!rawUrl.startsWith('data:')) {
+      console.error('[Sidepanel] processElectronSelectionForTags: dataUrl is not a data: URL, discarding', rawUrl.slice(0, 80))
+      setChatMessages(prev => [...prev, {
+        role: 'assistant' as const,
+        text: '⚠️ Trigger capture failed — screenshot was not a valid image. Please try again.',
+      }])
+      pendingTriggerRef.current = null
+      // Cancel pending poll/timeout.
+      try { window.dispatchEvent(new CustomEvent('optimando-sp-trigger-result-received')) } catch { /* noop */ }
+      return
+    }
+
     const pendingTrigger = pendingTriggerRef.current
     if (!pendingTrigger?.autoProcess) return
     const tr = pendingTrigger.trigger
@@ -3289,23 +3282,90 @@ function SidepanelOrchestrator() {
     if (fn) {
       const displayLine = (displayForChat || tagFromName || '[Screenshot]').trim()
       const routeLine = ((routeForLlm || tagFromName).trim() || displayLine)
-      void fn(displayLine, url, routeLine)
+      // Signal that a result arrived so the poll+timeout stops.
+      try { window.dispatchEvent(new CustomEvent('optimando-sp-trigger-result-received')) } catch { /* noop */ }
+      void fn(displayLine, rawUrl, routeLine)
     }
   }
 
+  // Storage-fallback delivery for trigger results (side panel):
+  //   - Checks on mount in case a result was written before this panel was ready.
+  //   - Fires on chrome.storage.onChanged for synchronous delivery.
+  //   - Enforces a 30-second TTL so stale entries are discarded.
+  //   - Polls every 500 ms while a trigger is in-flight; times out after 15 s.
   useEffect(() => {
     const KEY = 'optimando-wrchat-selection-fallback'
+    const STALE_MS = 30_000
+    const TRIGGER_TIMEOUT_MS = 15_000
+    const POLL_MS = 500
+
+    let pollInterval: ReturnType<typeof setInterval> | null = null
+    let timeoutHandle: ReturnType<typeof setTimeout> | null = null
+
+    function clearPollAndTimeout() {
+      if (pollInterval !== null) { clearInterval(pollInterval); pollInterval = null }
+      if (timeoutHandle !== null) { clearTimeout(timeoutHandle); timeoutHandle = null }
+    }
+
+    function consumeFallbackEntry(entry: unknown) {
+      if (!entry || typeof entry !== 'object') return false
+      const rec = entry as { ts?: number; dataUrl?: string; promptContext?: string; url?: string }
+      // Discard stale entries.
+      if (typeof rec.ts === 'number' && Date.now() - rec.ts > STALE_MS) {
+        void chrome.storage.local.remove(KEY)
+        return false
+      }
+      void chrome.storage.local.remove(KEY)
+      clearPollAndTimeout()
+      processElectronSelectionForTagsRef.current(rec)
+      return true
+    }
+
+    function checkStorage() {
+      try {
+        chrome.storage.local.get([KEY], (data: Record<string, unknown>) => {
+          if (data?.[KEY]) consumeFallbackEntry(data[KEY])
+        })
+      } catch { /* noop */ }
+    }
+
+    // On-mount check — picks up results written before this panel was ready.
+    checkStorage()
+
     const onStorage = (changes: chrome.storage.StorageChange, area: string) => {
       if (area !== 'local' || !changes[KEY]?.newValue) return
-      const message = changes[KEY].newValue as { promptContext?: string; dataUrl?: string; url?: string }
-      try {
-        processElectronSelectionForTagsRef.current(message)
-      } finally {
-        void chrome.storage.local.remove(KEY)
-      }
+      consumeFallbackEntry(changes[KEY].newValue)
     }
-    chrome.storage.onChanged.addListener(onStorage)
-    return () => chrome.storage.onChanged.removeListener(onStorage)
+    try { chrome.storage.onChanged.addListener(onStorage) } catch { /* noop */ }
+
+    // Start poll + timeout when a trigger is dispatched.
+    const onTriggerDispatched = () => {
+      if (pollInterval !== null) clearInterval(pollInterval)
+      pollInterval = setInterval(checkStorage, POLL_MS)
+      if (timeoutHandle !== null) clearTimeout(timeoutHandle)
+      timeoutHandle = setTimeout(() => {
+        clearPollAndTimeout()
+        if (pendingTriggerRef.current?.autoProcess) {
+          pendingTriggerRef.current = null
+          setChatMessages(prev => [...prev, {
+            role: 'assistant' as const,
+            text: '⚠️ Trigger timed out — no screenshot was received within 15 seconds. Is the WR Desk app running?',
+          }])
+        }
+      }, TRIGGER_TIMEOUT_MS)
+    }
+    window.addEventListener('optimando-sp-trigger-dispatched', onTriggerDispatched)
+
+    // Cancel poll+timeout when a result arrives (via sendMessage or storage path).
+    const onTriggerResultReceived = () => clearPollAndTimeout()
+    window.addEventListener('optimando-sp-trigger-result-received', onTriggerResultReceived)
+
+    return () => {
+      clearPollAndTimeout()
+      try { chrome.storage.onChanged.removeListener(onStorage) } catch { /* noop */ }
+      window.removeEventListener('optimando-sp-trigger-dispatched', onTriggerDispatched)
+      window.removeEventListener('optimando-sp-trigger-result-received', onTriggerResultReceived)
+    }
   }, [])
 
   const routeAssistantToInboxIfPending = React.useCallback((response: string) => {
@@ -3441,10 +3501,18 @@ function SidepanelOrchestrator() {
       // STEP 2: OCR FOR CURRENT TURN (runs BEFORE routing)
       // Extract text from the current turn's image so OCR-derived
       // triggers can influence agent matching.
+      // Resolve the image to a data URL first (hardened — never passes raw blob/path).
       // =================================================================
-      let ocrText = ''
+      let resolvedCurrentTurnImageUrl: string | null = null
       if (hasImage && currentTurnImageUrl) {
-        ocrText = await runOcrForCurrentTurn(currentTurnImageUrl, baseUrl)
+        resolvedCurrentTurnImageUrl = await resolveImageUrlForBackend(currentTurnImageUrl)
+        if (!resolvedCurrentTurnImageUrl) {
+          console.warn('[Sidepanel] handleSendMessage: current-turn image could not be resolved — sending text-only')
+        }
+      }
+      let ocrText = ''
+      if (resolvedCurrentTurnImageUrl) {
+        ocrText = await runOcrForCurrentTurn(resolvedCurrentTurnImageUrl, baseUrl)
       }
 
       const enrichedRouteText = enrichRouteTextWithOcr(llmRouteText, ocrText)
@@ -3549,7 +3617,7 @@ function SidepanelOrchestrator() {
             processedMessagesForLlm,
             activeLlmModel,
             baseUrl,
-            currentTurnImageUrl,
+            resolvedCurrentTurnImageUrl,
           )
           
           if (result.success && result.output) {
@@ -3600,7 +3668,7 @@ function SidepanelOrchestrator() {
         // PATH C: BUTLER LLM RESPONSE
         // No agent match - use butler personality for general questions
         // =================================================================
-        const butlerResult = await getButlerResponse(processedMessagesForLlm, activeLlmModel, baseUrl, currentTurnImageUrl)
+        const butlerResult = await getButlerResponse(processedMessagesForLlm, activeLlmModel, baseUrl, resolvedCurrentTurnImageUrl)
         
         if (butlerResult.success && butlerResult.response) {
           setChatMessages([...newMessages, { role: 'assistant' as const, text: butlerResult.response }])
@@ -3919,13 +3987,14 @@ function SidepanelOrchestrator() {
     // Using REF to avoid stale closure issues in the message handler
     pendingTriggerRef.current = {
       trigger,
-      command: trigger.command || trigger.name, // Use command or trigger name
+      command: trigger.command || trigger.name,
       autoProcess: true
     }
     
-    
     // Send to Electron for screenshot capture
     chrome.runtime?.sendMessage({ type: 'ELECTRON_EXECUTE_TRIGGER', trigger, targetSurface: 'sidepanel' })
+    // Signal the storage-fallback poller that a trigger is in flight.
+    try { window.dispatchEvent(new CustomEvent('optimando-sp-trigger-dispatched')) } catch { /* noop */ }
   }
 
   const wrChatTriggerOptionLabel = (t: any, i: number) => {

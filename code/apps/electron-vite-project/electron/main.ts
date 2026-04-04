@@ -6066,18 +6066,26 @@ app.whenReady().then(async () => {
           body.targetSurface === 'popup' || body.targetSurface === 'dashboard' || body.targetSurface === 'sidepanel'
             ? body.targetSurface
             : undefined
+        console.log('[execute-trigger] starting — surface:', targetSurface, '| trigger:', JSON.stringify(trigger).slice(0, 200))
         const result = await executeTriggerFromExtension(trigger, targetSurface)
+        console.log('[execute-trigger] result dataUrl length:', result?.dataUrl?.length ?? 0, '| promptContext:', result?.promptContext)
         const wsOpen = wsClients.filter((c: { readyState: number }) => c.readyState === 1).length
         // Dashboard renderer may miss IPC (preload timing) or need HTTP fallback when WS is open (HTTP used to omit dataUrl).
         const dashboardNeedsBody = targetSurface === 'dashboard'
         if (result?.dataUrl && (wsOpen === 0 || dashboardNeedsBody)) {
+          console.log('[execute-trigger] returning dataUrl in HTTP body (dashboard or no WS clients)')
           res.json({
             ok: true,
             dataUrl: result.dataUrl,
             promptContext: result.promptContext,
             kind: result.kind || 'image',
           })
+        } else if (result === undefined && targetSurface === 'dashboard') {
+          // Capture failed — tell the client explicitly so it can show an error.
+          console.error('[execute-trigger] capture returned no result for dashboard surface')
+          res.json({ ok: false, error: 'Trigger capture failed — screenshot could not be taken' })
         } else {
+          console.log('[execute-trigger] returning ok:true without dataUrl (WS delivery or stream mode)')
           res.json({ ok: true })
         }
       } catch (error: any) {
@@ -9690,6 +9698,7 @@ async function postScreenshotToPopup(
     const fs = await import('node:fs')
     const data = fs.readFileSync(filePath)
     const dataUrl = 'data:image/png;base64,' + data.toString('base64')
+    console.log('[postScreenshotToPopup] dataUrl length:', dataUrl.length, '| filePath:', filePath)
     const pc = (opts?.promptContext ?? surfaceFromSource(lmgtfyLastSelectionSource)) as LmgtfyPromptSurface
     const payload = JSON.stringify({ type: 'SELECTION_RESULT_IMAGE', kind: 'image', dataUrl, promptContext: pc })
     wsClients.forEach((c) => { try { c.send(payload) } catch {} })
@@ -9701,7 +9710,8 @@ async function postScreenshotToPopup(
     // Thread append is Save-only (sendWithTriggerAndImage / handleSendMessageWithTrigger); do not COMMAND_POPUP_APPEND here.
     try { win?.webContents.send('overlay-close') } catch {}
     return { dataUrl, promptContext: pc }
-  } catch {
+  } catch (err) {
+    console.error('[postScreenshotToPopup] failed to read screenshot file:', err)
     return undefined
   }
 }
@@ -9753,16 +9763,18 @@ async function executeTriggerFromExtension(
     const w = Number(rr.w ?? rr.width ?? t.w ?? 0)
     const h = Number(rr.h ?? rr.height ?? t.h ?? 0)
     const sel = { displayId, x, y, w, h, dpr: 1 }
+    console.log('[executeTriggerFromExtension] surface:', surface, '| coords:', { displayId, x, y, w, h })
     // Storage-tagged triggers often omit mode; default to screenshot so headless execute always does something.
     const mode: 'screenshot' | 'stream' = t.mode === 'stream' ? 'stream' : 'screenshot'
     if (mode === 'screenshot') {
       console.log('[MAIN] Executing screenshot trigger headlessly surface=', surface)
       const { filePath } = await captureScreenshot(sel as any)
       const posted = await postScreenshotToPopup(filePath, { x: sel.x, y: sel.y, w: sel.w, h: sel.h, dpr: 1 }, { promptContext: surface })
-      console.log('[MAIN] Screenshot trigger executed and posted')
+      console.log('[MAIN] Screenshot trigger posted — dataUrl length:', posted?.dataUrl?.length ?? 0, '| promptContext:', posted?.promptContext)
       if (posted) {
         return { dataUrl: posted.dataUrl, promptContext: posted.promptContext, kind: 'image' }
       }
+      console.error('[MAIN] postScreenshotToPopup returned undefined — screenshot file unreadable?')
       return undefined
     } else {
       console.log('[MAIN] Executing stream trigger with visible overlay surface=', surface)
@@ -9773,7 +9785,7 @@ async function executeTriggerFromExtension(
       return undefined
     }
   } catch (err) {
-    console.log('[MAIN] Error processing EXECUTE_TRIGGER:', err)
+    console.error('[MAIN] Error processing EXECUTE_TRIGGER:', err)
     return undefined
   }
 }
