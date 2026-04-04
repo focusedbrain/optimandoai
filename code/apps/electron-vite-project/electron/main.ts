@@ -4441,54 +4441,6 @@ app.whenReady().then(async () => {
     // Register IPC handlers
     registerLlmHandlers()
     console.log('[MAIN] LLM IPC handlers registered')
-    
-    // Register Email Gateway + Inbox IPC handlers
-    // IMPORTANT: registerInboxHandlers runs BEFORE registerEmailHandlers so
-    // `inbox:dashboardSnapshot` is always registered even if the email gateway
-    // fails during handler setup ("No handler registered for 'inbox:dashboardSnapshot'").
-    try {
-      const { registerEmailHandlers, registerInboxHandlers } = await import('./main/email/ipc')
-      const getInboxDb = () => getLedgerDb() ?? (globalThis as any).__og_vault_service_ref?.getDb?.() ?? (globalThis as any).__og_vault_service_ref?.db ?? null
-      const getAnthropicApiKey = async () => {
-        try {
-          const { vaultService } = await import('./main/vault/rpc')
-          return await vaultService.getAnthropicApiKeyForInbox()
-        } catch {
-          return null
-        }
-      }
-      // Inbox first: Analysis dashboard needs `inbox:dashboardSnapshot` even when
-      // registerEmailHandlers fails (gateway init, vault, etc.).
-      try {
-        registerInboxHandlers(getInboxDb, null, getAnthropicApiKey)
-        setBeapInboxDashboardNotifier((handshakeId) => {
-          console.log('[BEAP-INBOX] Notifying dashboard of new BEAP messages')
-          for (const w of BrowserWindow.getAllWindows()) {
-            w.webContents.send('inbox:beapInboxUpdated', { handshakeId })
-          }
-        })
-        console.log('[MAIN] Inbox IPC handlers registered (includes inbox:dashboardSnapshot)')
-      } catch (inboxRegErr) {
-        console.error('[MAIN] FATAL: registerInboxHandlers failed — Analysis dashboard will not load data:', inboxRegErr)
-        if (inboxRegErr instanceof Error && inboxRegErr.stack) {
-          console.error('[MAIN] registerInboxHandlers stack:', inboxRegErr.stack)
-        }
-      }
-      try {
-        registerEmailHandlers(getInboxDb)
-        console.log('[MAIN] Email Gateway IPC handlers registered')
-      } catch (emailRegErr) {
-        console.error('[MAIN] registerEmailHandlers failed (inbox handlers already registered):', emailRegErr)
-        if (emailRegErr instanceof Error && emailRegErr.stack) {
-          console.error('[MAIN] registerEmailHandlers stack:', emailRegErr.stack)
-        }
-      }
-    } catch (emailImportErr) {
-      console.error('[MAIN] FATAL: Failed to import email/ipc module:', emailImportErr)
-      if (emailImportErr instanceof Error && emailImportErr.stack) {
-        console.error('[MAIN] FATAL stack:', emailImportErr.stack)
-      }
-    }
 
     // Wire BEAP handshake → email transport bridge
     try {
@@ -4567,6 +4519,50 @@ app.whenReady().then(async () => {
   } catch (error) {
     console.error('[MAIN] Error initializing LLM services:', error)
     // Continue app startup even if LLM init fails
+  }
+
+  // Email + Inbox IPC must run even when LLM init throws (registerLlmHandlers / ollama import, etc.),
+  // otherwise Analysis dashboard and email:listAccounts have no handlers.
+  try {
+    const { registerEmailHandlers, registerInboxHandlers } = await import('./main/email/ipc')
+    const getInboxDb = () => getLedgerDb() ?? (globalThis as any).__og_vault_service_ref?.getDb?.() ?? (globalThis as any).__og_vault_service_ref?.db ?? null
+    const getAnthropicApiKey = async () => {
+      try {
+        const { vaultService } = await import('./main/vault/rpc')
+        return await vaultService.getAnthropicApiKeyForInbox()
+      } catch {
+        return null
+      }
+    }
+    try {
+      registerInboxHandlers(getInboxDb, null, getAnthropicApiKey)
+      setBeapInboxDashboardNotifier((handshakeId) => {
+        console.log('[BEAP-INBOX] Notifying dashboard of new BEAP messages')
+        for (const w of BrowserWindow.getAllWindows()) {
+          w.webContents.send('inbox:beapInboxUpdated', { handshakeId })
+        }
+      })
+      console.log('[MAIN] Inbox IPC handlers registered (includes inbox:dashboardSnapshot)')
+    } catch (inboxRegErr) {
+      console.error('[MAIN] FATAL: registerInboxHandlers failed — Analysis dashboard will not load data:', inboxRegErr)
+      if (inboxRegErr instanceof Error && inboxRegErr.stack) {
+        console.error('[MAIN] registerInboxHandlers stack:', inboxRegErr.stack)
+      }
+    }
+    try {
+      registerEmailHandlers(getInboxDb)
+      console.log('[MAIN] Email Gateway IPC handlers registered')
+    } catch (emailRegErr) {
+      console.error('[MAIN] registerEmailHandlers failed (inbox handlers may still be registered):', emailRegErr)
+      if (emailRegErr instanceof Error && emailRegErr.stack) {
+        console.error('[MAIN] registerEmailHandlers stack:', emailRegErr.stack)
+      }
+    }
+  } catch (emailImportErr) {
+    console.error('[MAIN] FATAL: Failed to import email/ipc module:', emailImportErr)
+    if (emailImportErr instanceof Error && emailImportErr.stack) {
+      console.error('[MAIN] FATAL stack:', emailImportErr.stack)
+    }
   }
 
   // Initialize OCR services
