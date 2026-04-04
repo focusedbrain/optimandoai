@@ -8,7 +8,7 @@ import manifest from './manifest.config.ts'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 /** Build stamp (also set as import.meta.env). */
-const VITE_EXT_BUILD_STAMP = 'build771'
+const VITE_EXT_BUILD_STAMP = 'build781'
 
 export default defineConfig({
   plugins: [react(), crx({ manifest })],
@@ -23,7 +23,7 @@ export default defineConfig({
   },
   build: {
     // Literal string required by apps/electron-vite-project/scripts/clear-build-caches.cjs (regex on vite.config.ts)
-    outDir: 'build771',
+    outDir: 'build781',
     emptyOutDir: true,
     rollupOptions: {
       output: {

@@ -24,13 +24,18 @@ import {
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
+import { fileURLToPath } from 'node:url'
 
 /** Per-call ⚡ logs for `inbox:aiAnalyzeMessage` — keep false in production. */
 const DEBUG_INBOX_AI_IPC_VERBOSE = false
 
 // ── WRExpert.md: user-editable AI behaviour (userData, survives app updates) ──
 const RULES_PATH = path.join(app.getPath('userData'), 'WRExpert.md')
-const DEFAULT_RULES_PATH = path.join(__dirname, '../../WRExpert.default.md')
+/** Bundled main chunk lives in dist-electron/ — same base as main.ts (not per-source __dirname in ESM). */
+const DEFAULT_RULES_PATH = path.join(
+  path.dirname(fileURLToPath(import.meta.url)),
+  '../electron/WRExpert.default.md',
+)
 
 const DEFAULT_WREXPERT_CONTENT = `# WRExpert.md — WR Desk Inbox AI Behaviour
 # This is your personal AI expert. Edit this file to teach the AI how to
