@@ -527,9 +527,19 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
             error?: string
           } | null
           console.log('[WRChat][dashboard-trigger] execute-trigger response ok:', json?.ok, '| dataUrl length:', json?.dataUrl?.length ?? 0)
-          if (json?.ok && json.dataUrl) {
-            const k = json.kind
-            if (!k || k === 'image') runDashboardPendingCaptureRef.current(json.dataUrl, k || 'image')
+          if (json?.ok && json.dataUrl && (!json.kind || json.kind === 'image')) {
+            // Mark as consumed so the IPC listener (which may also fire) discards its copy.
+            dashboardTriggerLastConsumedAt.current = Date.now()
+            const tr = pendingTriggerRef.current?.trigger ?? trigger
+            const nameT = String(tr?.name ?? '').trim()
+            const commandT = String(pendingTriggerRef.current?.command ?? tr?.command ?? '').trim()
+            const tagFromName = normaliseTriggerTag(nameT)
+            const routeForLlm = commandT || tagFromName
+            const displayForChat = commandT || (nameT ? nameT : '') || tagFromName
+            pendingTriggerRef.current = null
+            const displayLine = (displayForChat || tagFromName || '[Screenshot]').trim()
+            const routeLine = (routeForLlm || tagFromName).trim() || displayLine
+            void sendWithTriggerAndImageRef.current?.(displayLine, routeLine, json.dataUrl, 'screenshot')
           } else {
             // Server returned an explicit failure or no dataUrl — show user feedback.
             const errorText = json?.error || (json?.ok === false ? 'Trigger capture failed' : 'No screenshot received from trigger')
@@ -1384,12 +1394,12 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
     console.log('[WRChat][dashboard-trigger] runDashboardPendingCapture: dataUrl length:', dataUrl.length)
     const pending = pendingTriggerRef.current
     if (!pending?.autoProcess) {
-      // No pending trigger — could be a manual Capture button OR a duplicate delivery
-      // (IPC path already consumed the trigger; HTTP path arrives shortly after).
-      // Discard if a trigger was consumed within the last 10 s to avoid a spurious chip.
+      // pendingTriggerRef is null — either the HTTP path already processed this trigger
+      // (dashboardTriggerLastConsumedAt was set), or this is a genuine manual Capture.
       const msSinceConsumed = Date.now() - dashboardTriggerLastConsumedAt.current
       if (msSinceConsumed < 10_000) {
-        console.log('[WRChat][dashboard-capture] duplicate delivery discarded — trigger consumed', msSinceConsumed, 'ms ago')
+        // HTTP path already handled it — discard IPC duplicate silently.
+        console.log('[WRChat][dashboard-capture] IPC duplicate discarded — trigger consumed', msSinceConsumed, 'ms ago')
         return
       }
       // Genuine manual Capture — attach to composer so user can type a question.
