@@ -6068,7 +6068,9 @@ app.whenReady().then(async () => {
             : undefined
         const result = await executeTriggerFromExtension(trigger, targetSurface)
         const wsOpen = wsClients.filter((c: { readyState: number }) => c.readyState === 1).length
-        if (result?.dataUrl && wsOpen === 0) {
+        // Dashboard renderer may miss IPC (preload timing) or need HTTP fallback when WS is open (HTTP used to omit dataUrl).
+        const dashboardNeedsBody = targetSurface === 'dashboard'
+        if (result?.dataUrl && (wsOpen === 0 || dashboardNeedsBody)) {
           res.json({
             ok: true,
             dataUrl: result.dataUrl,
@@ -9742,12 +9744,14 @@ async function executeTriggerFromExtension(
     lmgtfyLastSelectionSource = sourceForExecuteSurface(surface)
     lmgtfyActivePromptSurface = surface
     const t = trigger
-    const displayId = t.displayId ?? screen.getPrimaryDisplay().id
+    const rawId = t.displayId
+    const displayId =
+      typeof rawId === 'number' && rawId > 0 ? rawId : screen.getPrimaryDisplay().id
     const rr = t.rect && typeof t.rect === 'object' ? (t.rect as Record<string, unknown>) : {}
-    const x = Number(rr.x ?? 0)
-    const y = Number(rr.y ?? 0)
-    const w = Number(rr.w ?? rr.width ?? 0)
-    const h = Number(rr.h ?? rr.height ?? 0)
+    const x = Number(rr.x ?? t.x ?? 0)
+    const y = Number(rr.y ?? t.y ?? 0)
+    const w = Number(rr.w ?? rr.width ?? t.w ?? 0)
+    const h = Number(rr.h ?? rr.height ?? t.h ?? 0)
     const sel = { displayId, x, y, w, h, dpr: 1 }
     // Storage-tagged triggers often omit mode; default to screenshot so headless execute always does something.
     const mode: 'screenshot' | 'stream' = t.mode === 'stream' ? 'stream' : 'screenshot'

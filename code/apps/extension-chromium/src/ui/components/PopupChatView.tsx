@@ -139,6 +139,13 @@ const LLM_FETCH_TIMEOUT_MS = 600_000
 async function mapChatToLlmMessages(
   newMessages: ChatMessage[],
   secret: string | null,
+  opts?: {
+    /**
+     * When callers already resolved + OCR'd the last user image (handleSend / sendWithTriggerAndImage),
+     * pass it here to avoid duplicate /api/ocr/process + fetch (often saves several seconds per turn).
+     */
+    lastImagePrecomputed?: { resolvedDataUrl: string; ocrText: string }
+  },
 ): Promise<Array<{ role: string; content: string; images?: string[] }>> {
   let lastUserImageIdx = -1
   for (let i = newMessages.length - 1; i >= 0; i--) {
@@ -150,8 +157,10 @@ async function mapChatToLlmMessages(
   return Promise.all(
     newMessages.map(async (msg, idx) => {
       if (msg.imageUrl && msg.role === 'user') {
-        const resolved = await resolveImageUrlForBackend(msg.imageUrl)
-        const ocr = await runOcr(resolved, secret)
+        const pre = opts?.lastImagePrecomputed
+        const usePre = !!pre && idx === lastUserImageIdx
+        const resolved = usePre ? pre.resolvedDataUrl : await resolveImageUrlForBackend(msg.imageUrl)
+        const ocr = usePre ? pre.ocrText : await runOcr(resolved, secret)
         const content = ocr
           ? `${msg.text || 'Image:'}\n\n[OCR extracted text]:\n${ocr}`
           : msg.text || '[Image attached - OCR unavailable]'
@@ -267,12 +276,16 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
   /** Saved area triggers — same storage key as docked WR Chat */
   const [triggers, setTriggers] = useState<any[]>([])
   const [showTagsMenu, setShowTagsMenu] = useState(false)
+  /** Resets after each run so the same trigger can be chosen again from the select. */
+  const [triggerSelectValue, setTriggerSelectValue] = useState('')
   /** When false, skip persisting until localStorage transcript has been read (dashboard embed). */
   const [transcriptHydrated, setTranscriptHydrated] = useState(() => !persistTranscriptStorageKey)
   /** Capture tag/command prompt — same surface as sidepanel, filtered by promptContext (popup vs dashboard). */
   const [showTriggerPrompt, setShowTriggerPrompt] = useState<{
     mode: string
     rect: unknown
+    /** Display from Electron overlay (required for headless replay on the correct monitor). */
+    displayId?: number
     imageUrl?: string
     videoUrl?: string
     createTrigger: boolean
@@ -289,6 +302,8 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
   const tagsMenuRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const pendingTriggerRef = useRef<{ trigger: any; command?: string; autoProcess: boolean } | null>(null)
+  /** Set after `sendWithTriggerAndImage` — dashboard tag HTTP + IPC share this. */
+  const runDashboardPendingCaptureRef = useRef<(dataUrl: string, kind?: string) => void>(() => {})
   const sendWithTriggerAndImageRef = useRef<
     (
       displayText: string,
@@ -422,6 +437,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
         setShowTriggerPrompt({
           mode: message.mode || 'screenshot',
           rect: message.rect,
+          displayId: typeof message.displayId === 'number' ? message.displayId : undefined,
           bounds: message.bounds,
           imageUrl: message.imageUrl,
           videoUrl: message.videoUrl,
@@ -459,6 +475,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
         promptContext?: string
         mode?: string
         rect?: unknown
+        displayId?: number
         bounds?: unknown
         imageUrl?: string
         videoUrl?: string
@@ -469,6 +486,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
       setShowTriggerPrompt({
         mode: p?.mode || 'screenshot',
         rect: p?.rect,
+        displayId: typeof p?.displayId === 'number' ? p.displayId : undefined,
         bounds: p?.bounds,
         imageUrl: p?.imageUrl,
         videoUrl: p?.videoUrl,
@@ -524,6 +542,14 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
     return () => { clearTimeout(t); document.removeEventListener('click', handler) }
   }, [showTagsMenu])
 
+  const triggerOptionLabel = (t: any, i: number) => {
+    const name = String(t?.name ?? '').trim()
+    const cmd = String(t?.command ?? '').trim()
+    const tag = normaliseTriggerTag(name) || normaliseTriggerTag(cmd)
+    if (tag) return tag
+    return name || cmd || `Trigger ${i + 1}`
+  }
+
   const handlePopupTriggerClick = (trigger: any) => {
     setShowTagsMenu(false)
     pendingTriggerRef.current = {
@@ -535,11 +561,20 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
       void (async () => {
         try {
           const secret = await getLaunchSecret()
-          await fetch(`${BASE_URL}/api/lmgtfy/execute-trigger`, {
+          const res = await fetch(`${BASE_URL}/api/lmgtfy/execute-trigger`, {
             method: 'POST',
             headers: buildHeaders(secret),
             body: JSON.stringify({ trigger, targetSurface: 'dashboard' }),
           })
+          const json = (await res.json().catch(() => null)) as {
+            ok?: boolean
+            dataUrl?: string
+            kind?: string
+          } | null
+          if (json?.ok && json.dataUrl) {
+            const k = json.kind
+            if (!k || k === 'image') runDashboardPendingCaptureRef.current(json.dataUrl, k || 'image')
+          }
         } catch {
           /* noop */
         }
@@ -555,6 +590,15 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
     } catch {
       /* noop */
     }
+  }
+
+  const handleTriggerSelectChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const v = e.target.value
+    setTriggerSelectValue('')
+    if (v === '') return
+    const idx = Number(v)
+    if (Number.isNaN(idx) || !triggers[idx]) return
+    handlePopupTriggerClick(triggers[idx])
   }
 
   const handleDeleteTrigger = useCallback(
@@ -784,14 +828,25 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
     try {
       const secret = await ensureLaunchSecret(secretRef)
       // OCR for image if present
+      let resolvedImg = ''
       let ocrText = ''
       if (hasImage && currentTurnImageUrl) {
-        const resolvedImg = await resolveImageUrlForBackend(currentTurnImageUrl)
+        resolvedImg = await resolveImageUrlForBackend(currentTurnImageUrl)
         ocrText = await runOcr(resolvedImg, secret)
       }
 
       // Build messages array for LLM (vision base64 on the last user image message — not only top-level `images`)
-      let processedMessages = await mapChatToLlmMessages(newMessages, secret)
+      const [processedMessagesRaw, processFlow] = await Promise.all([
+        mapChatToLlmMessages(
+          newMessages,
+          secret,
+          hasImage && currentTurnImageUrl && resolvedImg
+            ? { lastImagePrecomputed: { resolvedDataUrl: resolvedImg, ocrText } }
+            : undefined,
+        ),
+        import('../../services/processFlow'),
+      ])
+      let processedMessages = processedMessagesRaw
 
       // Inject doc content into last user message
       if (docCtx) {
@@ -810,7 +865,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
       // Try routing via processFlow agents, fall back to Butler
       let answered = false
       try {
-        const { routeInput, wrapInputForAgent, updateAgentBoxOutput, loadAgentsFromSession, getButlerSystemPrompt: _getButler } = await import('../../services/processFlow')
+        const { routeInput, wrapInputForAgent, updateAgentBoxOutput, loadAgentsFromSession, getButlerSystemPrompt: _getButler } = processFlow
         const enrichedText = enrichRouteTextWithOcr(llmText, ocrText)
 
         let currentUrl = ''
@@ -899,7 +954,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
 
       if (!answered) {
         // PATH B: Butler (general assistant)
-        const { getButlerSystemPrompt } = await import('../../services/processFlow')
+        const { getButlerSystemPrompt } = processFlow
         const agentCount = 0
         const butlerPrompt = getButlerSystemPrompt(sessionName, agentCount, isConnected)
         const butlerMessages = [
@@ -971,21 +1026,29 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
 
       try {
         const secret = await ensureLaunchSecret(secretRef)
+        let resolvedMedia = ''
         let ocrText = ''
         if (!isVideo && mediaUrl) {
-          const resolvedMedia = await resolveImageUrlForBackend(mediaUrl)
+          resolvedMedia = await resolveImageUrlForBackend(mediaUrl)
           ocrText = await runOcr(resolvedMedia, secret)
         }
         const enrichedText = enrichRouteTextWithOcr(routeText, ocrText)
         const hasImage = !isVideo && !!mediaUrl
 
-        const processedMessages = await mapChatToLlmMessages(newMessages, secret)
+        const [processedMessages, processFlow] = await Promise.all([
+          mapChatToLlmMessages(
+            newMessages,
+            secret,
+            !isVideo && mediaUrl && resolvedMedia
+              ? { lastImagePrecomputed: { resolvedDataUrl: resolvedMedia, ocrText } }
+              : undefined,
+          ),
+          import('../../services/processFlow'),
+        ])
 
         let answered = false
         try {
-          const { routeInput, wrapInputForAgent, updateAgentBoxOutput, loadAgentsFromSession } = await import(
-            '../../services/processFlow',
-          )
+          const { routeInput, wrapInputForAgent, updateAgentBoxOutput, loadAgentsFromSession } = processFlow
           let currentUrl = ''
           try {
             const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
@@ -1072,7 +1135,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
         }
 
         if (!answered) {
-          const { getButlerSystemPrompt } = await import('../../services/processFlow')
+          const { getButlerSystemPrompt } = processFlow
           const butlerPrompt = getButlerSystemPrompt(sessionName, 0, isConnected)
           const butlerMessages = [{ role: 'system', content: butlerPrompt }, ...processedMessages]
           const butlerRes: Response = await fetch(`${BASE_URL}/api/llm/chat`, {
@@ -1112,6 +1175,23 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
   )
 
   sendWithTriggerAndImageRef.current = sendWithTriggerAndImage
+
+  runDashboardPendingCaptureRef.current = (dataUrl: string, kind?: string) => {
+    if (kind === 'video' || kind === 'stream') return
+    if (!dataUrl) return
+    const pending = pendingTriggerRef.current
+    if (!pending?.autoProcess) return
+    const tr = pending.trigger
+    const nameT = String(tr?.name ?? '').trim()
+    const commandT = String(pending.command ?? tr?.command ?? '').trim()
+    const tagFromName = normaliseTriggerTag(nameT)
+    const routeForLlm = commandT || tagFromName
+    const displayForChat = commandT || (nameT ? nameT : '') || tagFromName
+    pendingTriggerRef.current = null
+    const displayLine = (displayForChat || tagFromName || '[Screenshot]').trim()
+    const routeLine = (routeForLlm || tagFromName).trim() || displayLine
+    void sendWithTriggerAndImageRef.current?.(displayLine, routeLine, dataUrl, 'screenshot')
+  }
 
   processPopupElectronSelectionRef.current = (message: {
     promptContext?: string
@@ -1189,19 +1269,9 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
       const p = payload as { dataUrl?: string; promptContext?: string; kind?: string }
       if (p?.promptContext && p.promptContext !== 'dashboard') return
       const url = p?.dataUrl
-      if (!url || p?.kind !== 'image') return
-      const pending = pendingTriggerRef.current
-      if (!pending?.autoProcess) return
-      const tr = pending.trigger
-      const nameT = String(tr?.name ?? '').trim()
-      const commandT = String(pending.command ?? tr?.command ?? '').trim()
-      const tagFromName = normaliseTriggerTag(nameT)
-      const routeForLlm = commandT || tagFromName
-      const displayForChat = commandT || (nameT ? nameT : '') || tagFromName
-      pendingTriggerRef.current = null
-      const displayLine = (displayForChat || tagFromName || '[Screenshot]').trim()
-      const routeLine = (routeForLlm || tagFromName).trim() || displayLine
-      void sendWithTriggerAndImageRef.current?.(displayLine, routeLine, url, 'screenshot')
+      if (!url) return
+      if (p?.kind && p.kind !== 'image') return
+      runDashboardPendingCaptureRef.current(url, p?.kind || 'image')
     })
     return () => {
       try {
@@ -1355,6 +1425,37 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
           >
             Clear
           </button>
+          <select
+            value={triggerSelectValue}
+            onChange={handleTriggerSelectChange}
+            title="Run saved trigger — headless capture, post with #tag in WR Chat"
+            aria-label="Run saved trigger"
+            style={{
+              height: 22,
+              minWidth: 96,
+              maxWidth: 200,
+              fontSize: 10,
+              padding: '0 6px',
+              borderRadius: 6,
+              cursor: 'pointer',
+              outline: 'none',
+              flexShrink: 1,
+              ...(isLight
+                ? { background: '#ffffff', border: '1px solid #94a3b8', color: '#0f172a' }
+                : {
+                    background: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(118,75,162,0.35)',
+                    border: isDark ? '1px solid rgba(255,255,255,0.25)' : '1px solid rgba(255,255,255,0.45)',
+                    color: colors.headerText,
+                  }),
+            }}
+          >
+            <option value="">Trigger…</option>
+            {triggers.map((t, i) => (
+              <option key={i} value={String(i)}>
+                {triggerOptionLabel(t, i)}
+              </option>
+            ))}
+          </select>
           <div ref={tagsMenuRef} style={{ position: 'relative' }}>
             <button
               type="button"
@@ -1681,6 +1782,9 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
                     rect: showTriggerPrompt.rect,
                     bounds: showTriggerPrompt.bounds,
                     mode: showTriggerPrompt.mode,
+                    ...(typeof showTriggerPrompt.displayId === 'number' && showTriggerPrompt.displayId > 0
+                      ? { displayId: showTriggerPrompt.displayId }
+                      : {}),
                   }
                   try {
                     chrome.storage?.local?.get(['optimando-tagged-triggers'], (result: Record<string, unknown>) => {
@@ -1703,7 +1807,10 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
                       name,
                       mode: showTriggerPrompt.mode,
                       rect: showTriggerPrompt.rect,
-                      displayId: 0,
+                      displayId:
+                        typeof showTriggerPrompt.displayId === 'number' && showTriggerPrompt.displayId > 0
+                          ? showTriggerPrompt.displayId
+                          : undefined,
                       imageUrl: showTriggerPrompt.imageUrl,
                       videoUrl: showTriggerPrompt.videoUrl,
                       command: command || undefined,

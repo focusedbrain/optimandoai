@@ -371,6 +371,8 @@ function SidepanelOrchestrator() {
   const [isResizingChat, setIsResizingChat] = useState(false)
   const [triggers, setTriggers] = useState<any[]>([])
   const [showTagsMenu, setShowTagsMenu] = useState(false)
+  /** Resets after each run so the same trigger can be selected again. */
+  const [wrChatTriggerSelectValue, setWrChatTriggerSelectValue] = useState('')
   const [showEmbedDialog, setShowEmbedDialog] = useState(false)
   const [pendingItems, setPendingItems] = useState<any[]>([])
   const [embedTarget, setEmbedTarget] = useState<'session' | 'account'>('session')
@@ -922,7 +924,18 @@ function SidepanelOrchestrator() {
   )
   const [isLoadingEmailAccounts, setIsLoadingEmailAccounts] = useState(false)
   const [masterTabId, setMasterTabId] = useState<string | null>(null) // For Master Tab (01), (02), (03), etc. (01 = first tab, doesn't show title in UI)
-  const [showTriggerPrompt, setShowTriggerPrompt] = useState<{mode: string, rect: any, imageUrl: string, videoUrl?: string, createTrigger: boolean, addCommand: boolean, name?: string, command?: string, bounds?: any} | null>(null)
+  const [showTriggerPrompt, setShowTriggerPrompt] = useState<{
+    mode: string
+    rect: any
+    displayId?: number
+    imageUrl: string
+    videoUrl?: string
+    createTrigger: boolean
+    addCommand: boolean
+    name?: string
+    command?: string
+    bounds?: any
+  } | null>(null)
   /** Default on: area capture should open the Save dialog ready to save a tag + optional command (WR Chat product default). */
   const [createTriggerChecked, setCreateTriggerChecked] = useState(true)
   const [addCommandChecked, setAddCommandChecked] = useState(true)
@@ -1802,6 +1815,7 @@ function SidepanelOrchestrator() {
         setShowTriggerPrompt({
           mode: message.mode,
           rect: message.rect,
+          displayId: typeof message.displayId === 'number' ? message.displayId : undefined,
           bounds: message.bounds,
           imageUrl: message.imageUrl,
           videoUrl: message.videoUrl,
@@ -3914,6 +3928,35 @@ function SidepanelOrchestrator() {
     chrome.runtime?.sendMessage({ type: 'ELECTRON_EXECUTE_TRIGGER', trigger, targetSurface: 'sidepanel' })
   }
 
+  const wrChatTriggerOptionLabel = (t: any, i: number) => {
+    const name = String(t?.name ?? '').trim()
+    const cmd = String(t?.command ?? '').trim()
+    const tag = normaliseTriggerTag(name) || normaliseTriggerTag(cmd)
+    if (tag) return tag
+    return name || cmd || `Trigger ${i + 1}`
+  }
+
+  const handleWrChatTriggerSelect = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const v = e.target.value
+    setWrChatTriggerSelectValue('')
+    if (v === '') return
+    const idx = Number(v)
+    if (Number.isNaN(idx) || !triggers[idx]) return
+    handleTriggerClick(triggers[idx])
+  }
+
+  const wrChatTriggerSelectStyle: React.CSSProperties = {
+    height: '22px',
+    minWidth: '96px',
+    maxWidth: '200px',
+    fontSize: '10px',
+    padding: '0 6px',
+    borderRadius: '6px',
+    cursor: 'pointer',
+    outline: 'none',
+    flexShrink: 1,
+  }
+
   const handleDeleteTrigger = (index: number) => {
     const t = triggers[index]
     const label = String(t?.name ?? t?.command ?? `Trigger ${index + 1}`)
@@ -4807,6 +4850,31 @@ function SidepanelOrchestrator() {
                     >
                       Clear
                     </button>
+                    <select
+                      value={wrChatTriggerSelectValue}
+                      onChange={handleWrChatTriggerSelect}
+                      title="Run saved trigger — headless capture, post with #tag in WR Chat"
+                      aria-label="Run saved trigger"
+                      style={{
+                        ...wrChatTriggerSelectStyle,
+                        height: '28px',
+                        fontSize: '11px',
+                        ...(theme === 'standard'
+                          ? { background: '#ffffff', border: '1px solid #94a3b8', color: '#0f172a' }
+                          : {
+                              background: 'rgba(255,255,255,0.15)',
+                              border: '1px solid rgba(255,255,255,0.25)',
+                              color: theme === 'dark' ? '#f1f5f9' : '#ffffff',
+                            }),
+                      }}
+                    >
+                      <option value="">Trigger…</option>
+                      {triggers.map((t, i) => (
+                        <option key={i} value={String(i)}>
+                          {wrChatTriggerOptionLabel(t, i)}
+                        </option>
+                      ))}
+                    </select>
                     <div style={{ position: 'relative' }}>
                       <button 
                         onClick={() => setShowTagsMenu(!showTagsMenu)}
@@ -5411,6 +5479,7 @@ function SidepanelOrchestrator() {
                           rect: snap.rect,
                           bounds: snap.bounds,
                           mode: snap.mode,
+                          ...(typeof snap.displayId === 'number' && snap.displayId > 0 ? { displayId: snap.displayId } : {}),
                         }
 
                         chrome.storage.local.get(['optimando-tagged-triggers'], (result) => {
@@ -5429,7 +5498,7 @@ function SidepanelOrchestrator() {
                             name,
                             mode: snap.mode,
                             rect: snap.rect,
-                            displayId: 0,
+                            displayId: typeof snap.displayId === 'number' && snap.displayId > 0 ? snap.displayId : undefined,
                             imageUrl: snap.imageUrl,
                             videoUrl: snap.videoUrl,
                             command: command || undefined,
@@ -6788,6 +6857,29 @@ function SidepanelOrchestrator() {
                   >
                     Clear
                   </button>
+                  <select
+                    value={wrChatTriggerSelectValue}
+                    onChange={handleWrChatTriggerSelect}
+                    title="Run saved trigger — headless capture, post with #tag in WR Chat"
+                    aria-label="Run saved trigger"
+                    style={{
+                      ...wrChatTriggerSelectStyle,
+                      ...(theme === 'standard'
+                        ? { background: '#ffffff', border: '1px solid #94a3b8', color: '#0f172a' }
+                        : {
+                            background: 'rgba(255,255,255,0.15)',
+                            border: '1px solid rgba(255,255,255,0.25)',
+                            color: theme === 'dark' ? '#f1f5f9' : '#ffffff',
+                          }),
+                    }}
+                  >
+                    <option value="">Trigger…</option>
+                    {triggers.map((t, i) => (
+                      <option key={i} value={String(i)}>
+                        {wrChatTriggerOptionLabel(t, i)}
+                      </option>
+                    ))}
+                  </select>
                   <div style={{ position: 'relative' }}>
                     <button 
                       onClick={() => setShowTagsMenu(!showTagsMenu)}
@@ -8146,6 +8238,29 @@ function SidepanelOrchestrator() {
                   >
                     Clear
                   </button>
+                  <select
+                    value={wrChatTriggerSelectValue}
+                    onChange={handleWrChatTriggerSelect}
+                    title="Run saved trigger — headless capture, post with #tag in WR Chat"
+                    aria-label="Run saved trigger"
+                    style={{
+                      ...wrChatTriggerSelectStyle,
+                      ...(theme === 'standard'
+                        ? { background: '#ffffff', border: '1px solid #94a3b8', color: '#0f172a' }
+                        : {
+                            background: 'rgba(255,255,255,0.15)',
+                            border: '1px solid rgba(255,255,255,0.25)',
+                            color: theme === 'dark' ? '#f1f5f9' : '#ffffff',
+                          }),
+                    }}
+                  >
+                    <option value="">Trigger…</option>
+                    {triggers.map((t, i) => (
+                      <option key={i} value={String(i)}>
+                        {wrChatTriggerOptionLabel(t, i)}
+                      </option>
+                    ))}
+                  </select>
                   <div style={{ position: 'relative' }}>
                     <button 
                       onClick={() => setShowTagsMenu(!showTagsMenu)}
@@ -9180,6 +9295,7 @@ function SidepanelOrchestrator() {
                           rect: snap.rect,
                           bounds: snap.bounds,
                           mode: snap.mode,
+                          ...(typeof snap.displayId === 'number' && snap.displayId > 0 ? { displayId: snap.displayId } : {}),
                         }
 
                         chrome.storage.local.get(['optimando-tagged-triggers'], (result) => {
@@ -9198,7 +9314,7 @@ function SidepanelOrchestrator() {
                             name,
                             mode: snap.mode,
                             rect: snap.rect,
-                            displayId: 0,
+                            displayId: typeof snap.displayId === 'number' && snap.displayId > 0 ? snap.displayId : undefined,
                             imageUrl: snap.imageUrl,
                             videoUrl: snap.videoUrl,
                             command: command || undefined,
