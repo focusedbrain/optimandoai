@@ -206,9 +206,17 @@ export default function WrChatWatchdogButton({ theme = 'pro', onWatchdogAlert }:
     [onWatchdogAlertDeduped, scheduleCleanFlash],
   )
 
-  const handleCheckboxChange = useCallback(
-    async (e: React.ChangeEvent<HTMLInputElement>) => {
-      const next = e.target.checked
+
+  const stopCheckboxBubble = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation()
+  }, [])
+
+  const handleToggleContinuous = useCallback(
+    async (e: React.MouseEvent | React.KeyboardEvent) => {
+      e.preventDefault()
+      e.stopPropagation()
+      if (!hostOnline) return
+      const next = !continuousEnabled
       const prev = continuousEnabled
       setContinuousEnabled(next)
       try {
@@ -229,12 +237,8 @@ export default function WrChatWatchdogButton({ theme = 'pro', onWatchdogAlert }:
         setHostOnline(false)
       }
     },
-    [continuousEnabled],
+    [continuousEnabled, hostOnline],
   )
-
-  const stopCheckboxBubble = useCallback((e: React.MouseEvent) => {
-    e.stopPropagation()
-  }, [])
 
   const continuousPulse = continuousEnabled
   const showIntervalOnIcon = continuousPulse && !cleanFlash
@@ -393,24 +397,45 @@ export default function WrChatWatchdogButton({ theme = 'pro', onWatchdogAlert }:
             {TOOLTIP_CLEAN}
           </span>
         ) : null}
-        <input
-          type="checkbox"
-          checked={continuousEnabled}
-          onChange={handleCheckboxChange}
-          disabled={!hostOnline}
+        {/* Custom checkbox span — <input> inside <button> is invalid HTML and breaks the DOM */}
+        <span
+          role="checkbox"
+          aria-checked={continuousEnabled}
+          aria-disabled={!hostOnline}
           title="Continuous monitoring (every interval)"
-          onClick={stopCheckboxBubble}
+          onClick={handleToggleContinuous}
           onMouseDown={stopCheckboxBubble}
+          onKeyDown={(e) => {
+            if (e.key === ' ' || e.key === 'Enter') void handleToggleContinuous(e)
+          }}
+          tabIndex={hostOnline ? 0 : -1}
           style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
             width: 11,
             height: 11,
-            margin: 0,
-            marginLeft: 2,
-            cursor: hostOnline ? 'pointer' : 'not-allowed',
-            accentColor: '#22c55e',
+            marginLeft: 3,
             flexShrink: 0,
+            borderRadius: 2,
+            border: continuousEnabled
+              ? '1.5px solid #22c55e'
+              : isLight
+                ? '1.5px solid #94a3b8'
+                : '1.5px solid rgba(255,255,255,0.55)',
+            background: continuousEnabled ? '#22c55e' : 'transparent',
+            cursor: hostOnline ? 'pointer' : 'not-allowed',
+            opacity: hostOnline ? 1 : 0.5,
+            transition: 'background 0.15s ease, border-color 0.15s ease',
+            boxSizing: 'border-box',
           }}
-        />
+        >
+          {continuousEnabled && (
+            <svg width="7" height="7" viewBox="0 0 8 8" fill="none" aria-hidden>
+              <polyline points="1.5,4 3.5,6 6.5,2" stroke="#fff" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          )}
+        </span>
       </button>
     </>
   )

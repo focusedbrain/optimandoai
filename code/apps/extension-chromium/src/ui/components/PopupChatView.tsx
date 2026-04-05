@@ -1092,9 +1092,9 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
         }
         // When routeText is empty (manual capture from Capture button), use OCR text for routing so
         // agent tags embedded in the screenshot can be matched. Fall back to a generic hint.
+        const hasImage = !isVideo && !!mediaUrl
         const effectiveRouteText = routeText || ocrText || (hasImage ? '[screenshot]' : '')
         const enrichedText = enrichRouteTextWithOcr(effectiveRouteText, ocrText)
-        const hasImage = !isVideo && !!mediaUrl
 
         const [processedMessages, processFlow] = await Promise.all([
           mapChatToLlmMessages(
