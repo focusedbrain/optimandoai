@@ -38,6 +38,8 @@ import { pickDefaultEmailAccountRowId } from './shared/email/pickDefaultAccountR
 import { ThirdPartyLicensesView } from './bundled-tools'
 import { WrChatCaptureButton } from './ui/components/WrChatCaptureButton'
 import { WrChatDiffButton } from './ui/components/WrChatDiffButton'
+import WrChatWatchdogButton from './ui/components/WrChatWatchdogButton'
+import { formatWatchdogAlert, type WatchdogThreat } from './utils/formatWatchdogAlert'
 import { WRGuardWorkspace, useWRGuardStore } from './wrguard'
 import { RecipientModeSwitch, RecipientHandshakeSelect, DeliveryMethodPanel, executeDeliveryAction, BeapMessageListView, BeapBulkInbox, initBeapPqAuth } from './beap-messages'
 import type { BeapBulkInboxHandle } from './beap-messages'
@@ -3107,7 +3109,9 @@ function SidepanelOrchestrator() {
       })()
 
       // Build enriched text for routing (typed + OCR) — same as PopupChatView / dashboard embed
-      const enrichedTriggerText = enrichRouteTextWithOcr(routeText, ocrText)
+      // When routeText is empty (capture-only), use OCR text so agent tags in the image can match
+      const effectiveRouteTextForMatch = routeText || ocrText || (effectiveImageUrl ? '[screenshot]' : '')
+      const enrichedTriggerText = enrichRouteTextWithOcr(effectiveRouteTextForMatch, ocrText)
 
       // Route the input with OCR-enriched text
       const routingDecision = await routeInput(
@@ -3135,7 +3139,7 @@ function SidepanelOrchestrator() {
           const agent = agents.find(a => a.id === match.agentId)
           if (!agent) continue
           
-          const wrappedInput = wrapInputForAgent(routeText, agent, ocrText)
+          const wrappedInput = wrapInputForAgent(routeText || ocrText || '[screenshot]', agent, ocrText)
           
           // Resolve model
           const modelResolution: BrainResolution = resolveModelForAgent(
@@ -3586,7 +3590,9 @@ function SidepanelOrchestrator() {
         ocrText = await runOcrForCurrentTurn(resolvedCurrentTurnImageUrl, baseUrl)
       }
 
-      const enrichedRouteText = enrichRouteTextWithOcr(llmRouteText, ocrText)
+      // When user typed nothing (screenshot-only send), use OCR text so agent tags can match
+      const effectiveLlmRouteText = llmRouteText || ocrText || (resolvedCurrentTurnImageUrl ? '[screenshot]' : '')
+      const enrichedRouteText = enrichRouteTextWithOcr(effectiveLlmRouteText, ocrText)
 
       // =================================================================
       // STEP 3: ROUTE INPUT + BUILD LLM MESSAGES (in parallel)
@@ -3677,9 +3683,11 @@ function SidepanelOrchestrator() {
         for (const match of routingDecision.matchedAgents) {
           
           // Use helper function to process with agent
+          // When user typed nothing (screenshot-only), use OCR text as the primary input
+          const effectiveInputForAgent = llmRouteText || ocrText || (resolvedCurrentTurnImageUrl ? '[screenshot]' : '')
           const result = await processWithAgent(
             match,
-            llmRouteText,
+            effectiveInputForAgent,
             ocrText,
             processedMessagesForLlm,
             activeLlmModel,
@@ -3810,6 +3818,20 @@ function SidepanelOrchestrator() {
       console.error('[Chat] handleDiffMessage:', err)
     })
   }, [isLlmLoading])
+
+  const handleWatchdogAlert = React.useCallback((threats: WatchdogThreat[]) => {
+    const alertMessage = formatWatchdogAlert(threats)
+    setChatMessages((prev) => [
+      ...prev,
+      {
+        role: 'assistant' as const,
+        text: alertMessage,
+      },
+    ])
+    setTimeout(() => {
+      if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight
+    }, 0)
+  }, [])
 
   const handleChatKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -5504,7 +5526,8 @@ function SidepanelOrchestrator() {
                       }}
                     >
                       <div style={{
-                        maxWidth: '85%',
+                        maxWidth: msg.imageUrl ? '100%' : '85%',
+                        width: msg.imageUrl ? '100%' : undefined,
                         padding: msg.imageUrl ? 0 : '10px 14px',
                         borderRadius: '12px',
                         fontSize: '13px',
@@ -5516,7 +5539,7 @@ function SidepanelOrchestrator() {
                         border: msg.imageUrl ? 'none' : (msg.role === 'user' ? '1px solid rgba(34,197,94,0.5)' : '1px solid rgba(255,255,255,0.25)')
                       }}>
                         {msg.imageUrl && (
-                          <img src={msg.imageUrl} alt="screenshot" style={{ maxWidth: '100%', borderRadius: 8, display: 'block' }} />
+                          <img src={msg.imageUrl} alt="screenshot" style={{ width: '100%', maxWidth: '100%', borderRadius: 8, display: 'block' }} />
                         )}
                         {msg.text ? (
                           <div style={{ marginTop: msg.imageUrl ? 4 : 0, padding: msg.imageUrl ? '4px 8px' : 0, fontSize: msg.imageUrl ? '11px' : '13px', opacity: msg.imageUrl ? 0.75 : 1, whiteSpace: 'pre-wrap' }}>{msg.text}</div>
@@ -7458,7 +7481,8 @@ function SidepanelOrchestrator() {
                         }}
                       >
                         <div style={{
-                          maxWidth: '85%',
+                          maxWidth: msg.imageUrl ? '100%' : '85%',
+                          width: msg.imageUrl ? '100%' : undefined,
                           padding: msg.imageUrl ? 0 : '10px 14px',
                           borderRadius: '12px',
                           fontSize: '13px',
@@ -7470,7 +7494,7 @@ function SidepanelOrchestrator() {
                           border: msg.imageUrl ? 'none' : (msg.role === 'user' ? '1px solid rgba(34,197,94,0.5)' : '1px solid rgba(255,255,255,0.25)')
                         }}>
                           {msg.imageUrl && (
-                            <img src={msg.imageUrl} alt="screenshot" style={{ maxWidth: '100%', borderRadius: 8, display: 'block' }} />
+                            <img src={msg.imageUrl} alt="screenshot" style={{ width: '100%', maxWidth: '100%', borderRadius: 8, display: 'block' }} />
                           )}
                           {msg.text ? (
                             <div style={{ marginTop: msg.imageUrl ? 4 : 0, padding: msg.imageUrl ? '4px 8px' : 0, fontSize: msg.imageUrl ? '11px' : '13px', opacity: msg.imageUrl ? 0.75 : 1, whiteSpace: 'pre-wrap' }}>{msg.text}</div>
@@ -8254,21 +8278,29 @@ function SidepanelOrchestrator() {
         </button>
       </div>
 
-        {/* Row 2: ADMIN/Master Tab Label + 4 Admin Icons (matching width) */}
+        {/* Row 2: Watchdog (replaces ADMIN) or Master Tab label + 4 Admin Icons */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-      <div style={{
-            fontSize: masterTabId ? '9px' : '11px', 
-            fontWeight: '700', 
-            opacity: 0.85, 
-            textTransform: 'uppercase', 
-            letterSpacing: masterTabId ? '0.4px' : '0.5px',
-            width: masterTabId ? '65px' : '32px',
-            textAlign: 'center',
-            lineHeight: masterTabId ? '1.1' : 'normal',
-            whiteSpace: masterTabId ? 'normal' : 'nowrap'
-          }}>
-            {masterTabId && masterTabId !== "01" ? `Master Tab (${masterTabId})` : 'ADMIN'}
-          </div>
+          {masterTabId && masterTabId !== '01' ? (
+            <div
+              style={{
+                fontSize: masterTabId ? '9px' : '11px',
+                fontWeight: '700',
+                opacity: 0.85,
+                textTransform: 'uppercase',
+                letterSpacing: masterTabId ? '0.4px' : '0.5px',
+                width: '65px',
+                textAlign: 'center',
+                lineHeight: masterTabId ? '1.1' : 'normal',
+                whiteSpace: masterTabId ? 'normal' : 'nowrap',
+              }}
+            >
+              {`Master Tab (${masterTabId})`}
+            </div>
+          ) : (
+            <div style={{ display: 'flex', alignItems: 'center', flexShrink: 0 }}>
+              <WrChatWatchdogButton theme={theme} onWatchdogAlert={handleWatchdogAlert} />
+            </div>
+          )}
           <div style={{ flex: 1 }} />
           <button onClick={openUnifiedAdmin} title="Admin Configuration (Agents, Context, Memory)" style={adminIconStyle}>⚙️</button>
           <button onClick={openAddView} title="Add View" style={adminIconStyle}>⊞</button>
@@ -8799,7 +8831,8 @@ function SidepanelOrchestrator() {
                         }}
                       >
                         <div style={{
-                          maxWidth: '85%',
+                          maxWidth: msg.imageUrl ? '100%' : '85%',
+                          width: msg.imageUrl ? '100%' : undefined,
                           padding: msg.imageUrl ? 0 : '10px 14px',
                           borderRadius: '12px',
                           fontSize: '13px',
@@ -8811,7 +8844,7 @@ function SidepanelOrchestrator() {
                           border: msg.imageUrl ? 'none' : (msg.role === 'user' ? '1px solid rgba(34,197,94,0.5)' : '1px solid rgba(255,255,255,0.25)')
                         }}>
                           {msg.imageUrl && (
-                            <img src={msg.imageUrl} alt="screenshot" style={{ maxWidth: '100%', borderRadius: 8, display: 'block' }} />
+                            <img src={msg.imageUrl} alt="screenshot" style={{ width: '100%', maxWidth: '100%', borderRadius: 8, display: 'block' }} />
                           )}
                           {msg.text ? (
                             <div style={{ marginTop: msg.imageUrl ? 4 : 0, padding: msg.imageUrl ? '4px 8px' : 0, fontSize: msg.imageUrl ? '11px' : '13px', opacity: msg.imageUrl ? 0.75 : 1, whiteSpace: 'pre-wrap' }}>{msg.text}</div>

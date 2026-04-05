@@ -917,7 +917,9 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
       let answered = false
       try {
         const { routeInput, wrapInputForAgent, updateAgentBoxOutput, loadAgentsFromSession, getButlerSystemPrompt: _getButler } = processFlow
-        const enrichedText = enrichRouteTextWithOcr(llmText, ocrText)
+        // When user typed nothing (screenshot-only send), use OCR text so agent tags in the image can match
+        const effectiveLlmText = llmText || ocrText || (hasImage ? '[screenshot]' : '')
+        const enrichedText = enrichRouteTextWithOcr(effectiveLlmText, ocrText)
 
         let currentUrl = ''
         try {
@@ -948,8 +950,10 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
           for (const match of routingDecision.matchedAgents) {
             // Find the full AgentConfig so wrapInputForAgent gets reasoning/role/goals
             const agentConfig = allAgents.find((a: any) => a.id === match.agentId)
+            // When user typed nothing (screenshot-only), use OCR text as the primary input
+            const effectiveInput = llmText || ocrText || '[screenshot]'
             const agentInput = agentConfig
-              ? wrapInputForAgent(llmText, agentConfig, ocrText)
+              ? wrapInputForAgent(effectiveInput, agentConfig, ocrText)
               : enrichedText
 
             const agentMessages = [
@@ -1086,7 +1090,10 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
           ocrText = await runOcr(resolvedMedia ?? '', secret)
           console.log('[sendWithTriggerAndImage] ocrText length:', ocrText.length)
         }
-        const enrichedText = enrichRouteTextWithOcr(routeText, ocrText)
+        // When routeText is empty (manual capture from Capture button), use OCR text for routing so
+        // agent tags embedded in the screenshot can be matched. Fall back to a generic hint.
+        const effectiveRouteText = routeText || ocrText || (hasImage ? '[screenshot]' : '')
+        const enrichedText = enrichRouteTextWithOcr(effectiveRouteText, ocrText)
         const hasImage = !isVideo && !!mediaUrl
 
         const [processedMessages, processFlow] = await Promise.all([
@@ -1135,7 +1142,9 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
             }
             for (const match of routingDecision.matchedAgents) {
               const agentConfig = allAgents.find((a: any) => a.id === match.agentId)
-              const agentInput = agentConfig ? wrapInputForAgent(routeText, agentConfig, ocrText) : enrichedText
+              // When routeText is empty (manual capture), use OCR text as the primary input for the agent
+              const effectiveRouteText = routeText || ocrText || displayText
+              const agentInput = agentConfig ? wrapInputForAgent(effectiveRouteText, agentConfig, ocrText) : enrichedText
               const agentMessages = [
                 { role: 'system', content: agentInput },
                 ...processedMessages.filter(m => m.role === 'user'),
@@ -1475,10 +1484,11 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
         console.log('[WRChat][dashboard-capture] IPC duplicate discarded — trigger consumed', msSinceConsumed, 'ms ago')
         return
       }
-      // Genuine manual Capture — attach to composer so user can type a question.
-      console.log('[WRChat][dashboard-capture] no pending trigger — attaching screenshot to composer')
-      setPendingCaptureUrl(dataUrl)
-      scrollToBottom()
+      // Genuine manual Capture — auto-submit immediately: run OCR + route through agents + Butler.
+      // The label '[Screenshot]' drives the display; OCR text drives agent routing.
+      console.log('[WRChat][dashboard-capture] no pending trigger — auto-submitting screenshot for OCR + LLM')
+      dashboardTriggerLastConsumedAt.current = Date.now()
+      void sendWithTriggerAndImageRef.current?.('[Screenshot]', '', dataUrl, 'screenshot')
       return
     }
     const tr = pending.trigger
@@ -2235,7 +2245,8 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
           const hasImage = !!(msg.imageUrl && !msg.videoUrl)
           return (
           <div key={i} style={{
-            maxWidth: '85%',
+            maxWidth: hasImage ? '100%' : '85%',
+            width: hasImage ? '100%' : undefined,
             padding: hasImage ? 0 : '10px 12px',
             borderRadius: '10px',
             fontSize: '12px', lineHeight: 1.45,
@@ -2254,7 +2265,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
               />
             )}
             {msg.imageUrl && !msg.videoUrl && (
-              <img src={msg.imageUrl} alt="screenshot" style={{ maxWidth: '100%', borderRadius: 8, display: 'block' }} />
+              <img src={msg.imageUrl} alt="screenshot" style={{ width: '100%', maxWidth: '100%', borderRadius: 8, display: 'block' }} />
             )}
             {msg.text && (
               <div style={{
