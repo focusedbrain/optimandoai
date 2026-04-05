@@ -5181,7 +5181,7 @@ function SidepanelOrchestrator() {
                       style={{
                         ...chatControlButtonStyle(),
                         borderRadius: '6px',
-                        padding: '0 8px',
+                        padding: '0 5px',
                         height: '22px',
                         fontSize: '10px',
                         fontWeight: 500,
@@ -5192,6 +5192,7 @@ function SidepanelOrchestrator() {
                         alignItems: 'center',
                         justifyContent: 'center',
                         transition: 'all 0.2s ease',
+                        minWidth: 22,
                         ...(theme === 'standard' ? { color: '#0f172a' } : {}),
                       }}
                       onMouseEnter={(e) => {
@@ -5215,13 +5216,12 @@ function SidepanelOrchestrator() {
                         }
                       }}
                     >
-                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" aria-hidden>
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden>
                         <polyline points="3 6 5 6 21 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
                         <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
                         <path d="M10 11v6M14 11v6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
                         <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
                       </svg>
-                      Clear
                     </button>
                     {/* Anchored triggers shown as icons on the top edge of the chat inner frame — not as chips here */}
                     <div style={{ position: 'relative' }}>
@@ -7165,7 +7165,7 @@ function SidepanelOrchestrator() {
                     style={{
                       ...chatControlButtonStyle(),
                       borderRadius: '6px',
-                      padding: '0 8px',
+                      padding: '0 5px',
                       height: '22px',
                       fontSize: '10px',
                       fontWeight: 500,
@@ -7176,6 +7176,7 @@ function SidepanelOrchestrator() {
                       alignItems: 'center',
                       justifyContent: 'center',
                       transition: 'all 0.2s ease',
+                      minWidth: 22,
                       ...(theme === 'standard' ? { color: '#0f172a' } : {}),
                     }}
                     onMouseEnter={(e) => {
@@ -7199,13 +7200,12 @@ function SidepanelOrchestrator() {
                       }
                     }}
                   >
-                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" aria-hidden>
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden>
                       <polyline points="3 6 5 6 21 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
                       <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
                       <path d="M10 11v6M14 11v6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
                       <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
                     </svg>
-                    Clear
                   </button>
                   {/* Anchored triggers shown as icons on the top edge of the chat inner frame — not as chips here */}
                   <div style={{ position: 'relative' }}>
@@ -8534,7 +8534,7 @@ function SidepanelOrchestrator() {
                     style={{
                       ...chatControlButtonStyle(),
                       borderRadius: '6px',
-                      padding: '0 8px',
+                      padding: '0 5px',
                       height: '22px',
                       fontSize: '10px',
                       fontWeight: 500,
@@ -8545,6 +8545,7 @@ function SidepanelOrchestrator() {
                       alignItems: 'center',
                       justifyContent: 'center',
                       transition: 'all 0.2s ease',
+                      minWidth: 22,
                       ...(theme === 'standard' ? { color: '#0f172a' } : {}),
                     }}
                     onMouseEnter={(e) => {
@@ -8568,13 +8569,12 @@ function SidepanelOrchestrator() {
                       }
                     }}
                   >
-                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" aria-hidden>
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden>
                       <polyline points="3 6 5 6 21 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
                       <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
                       <path d="M10 11v6M14 11v6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
                       <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
                     </svg>
-                    Clear
                   </button>
                   {/* Anchored triggers shown as icons on the top edge of the chat inner frame — not as chips here */}
                   <div style={{ position: 'relative' }}>
