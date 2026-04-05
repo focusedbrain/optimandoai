@@ -1508,14 +1508,14 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
         console.log('[WRChat][dashboard-capture] IPC duplicate discarded — trigger consumed', msSinceConsumed, 'ms ago')
         return
       }
-      // Manual Capture: add the screenshot to the chat thread (same as sidepanel
-      // processElectronSelectionForTags) so the image is visible and handleSend can
-      // find it via lastUserMsgWithImage → run OCR → send extracted text + command
-      // to the LLM.  Do NOT auto-submit — the user types a command first.
-      console.log('[WRChat][dashboard-capture] no pending trigger — adding screenshot to chat for OCR on next send')
+      // Manual Capture: do nothing here — the trigger dialog (lmgtfy-show-trigger-prompt
+      // IPC) arrives right after this and carries the same imageUrl.  The user types a
+      // command in the dialog and clicks Save, which calls sendWithTriggerAndImage to
+      // run OCR + send command+image to the LLM.  This matches the sidepanel flow
+      // where processPopupElectronSelectionRef also returns early when
+      // !pending?.autoProcess (line ~1560).
+      console.log('[WRChat][dashboard-capture] no pending trigger — deferring to trigger dialog')
       dashboardTriggerLastConsumedAt.current = Date.now()
-      setMessages(prev => [...prev, { role: 'user' as const, text: '[Screenshot]', imageUrl: dataUrl }])
-      scrollToBottom()
       return
     }
     const tr = pending.trigger
