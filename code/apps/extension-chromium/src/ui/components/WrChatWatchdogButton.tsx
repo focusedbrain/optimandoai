@@ -17,15 +17,39 @@ const CLEAN_FLASH_MS = 3200
 
 function getLaunchSecret(): Promise<string | null> {
   return new Promise((resolve) => {
+    // Extension context: use chrome.runtime message to background.
     try {
       chrome.runtime.sendMessage({ type: 'GET_LAUNCH_SECRET' }, (resp: { secret?: string } | null) => {
-        if (chrome.runtime.lastError) resolve(null)
-        else resolve(resp?.secret?.trim() ? resp.secret : null)
+        if (chrome.runtime.lastError) {
+          // Fall through to Electron fallback below.
+          resolveElectronFallback(resolve)
+        } else {
+          const s = resp?.secret?.trim() ? resp.secret : null
+          if (s) resolve(s)
+          else resolveElectronFallback(resolve)
+        }
       })
     } catch {
-      resolve(null)
+      // chrome.runtime not available (Electron dashboard renderer) — use pqHeaders fallback.
+      resolveElectronFallback(resolve)
     }
   })
+}
+
+/** Electron-only: pull X-Launch-Secret from window.handshakeView.pqHeaders(). */
+function resolveElectronFallback(resolve: (v: string | null) => void): void {
+  try {
+    const pqHeaders = (window as any).handshakeView?.pqHeaders
+    if (typeof pqHeaders === 'function') {
+      ;(pqHeaders() as Promise<Record<string, string>>)
+        .then((h) => resolve(h?.['X-Launch-Secret']?.trim() || null))
+        .catch(() => resolve(null))
+    } else {
+      resolve(null)
+    }
+  } catch {
+    resolve(null)
+  }
 }
 
 function buildHeaders(secret: string | null): Record<string, string> {
