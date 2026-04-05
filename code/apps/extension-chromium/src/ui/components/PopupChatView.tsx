@@ -502,6 +502,10 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
         addCommand?: boolean
       }
       if (p?.promptContext && p.promptContext !== 'dashboard') return
+      // Trigger dialog takes ownership of the image — clear any pendingCaptureUrl
+      // set by the earlier lmgtfy-dashboard-selection-result IPC so handleSend
+      // doesn't double-attach the same screenshot.
+      setPendingCaptureUrl(null)
       setShowTriggerPrompt({
         mode: p?.mode || 'screenshot',
         rect: p?.rect,
@@ -1508,11 +1512,15 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
         console.log('[WRChat][dashboard-capture] IPC duplicate discarded — trigger consumed', msSinceConsumed, 'ms ago')
         return
       }
-      // Genuine manual Capture — auto-submit immediately: run OCR + route through agents + Butler.
-      // The label '[Screenshot]' drives the display; OCR text drives agent routing.
-      console.log('[WRChat][dashboard-capture] no pending trigger — auto-submitting screenshot for OCR + LLM')
+      // Manual Capture: do NOT auto-submit. The Capture button sends createTrigger+addCommand,
+      // so a trigger dialog (lmgtfy-show-trigger-prompt) will arrive shortly — let the user
+      // type a command and click Save, matching popup/docked behaviour where OCR text is sent
+      // together with the user's command to the LLM.
+      // Store the image as pendingCaptureUrl so handleSend can attach it if the user types
+      // a message directly (fallback when no trigger dialog shows).
+      console.log('[WRChat][dashboard-capture] no pending trigger — storing as pendingCaptureUrl for trigger dialog / handleSend')
       dashboardTriggerLastConsumedAt.current = Date.now()
-      void sendWithTriggerAndImageRef.current?.('[Screenshot]', '', dataUrl, 'screenshot')
+      setPendingCaptureUrl(dataUrl)
       return
     }
     const tr = pending.trigger
@@ -2448,7 +2456,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
           <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
             <button
               type="button"
-              onClick={() => setShowTriggerPrompt(null)}
+              onClick={() => { setPendingCaptureUrl(null); setShowTriggerPrompt(null) }}
               style={{
                 padding: '6px 12px',
                 background: isLight ? '#ffffff' : 'rgba(255,255,255,0.15)',
@@ -2464,6 +2472,9 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
             <button
               type="button"
               onClick={async () => {
+                // Clear any leftover pendingCaptureUrl from the dashboard selection-result IPC
+                // so a subsequent handleSend never double-attaches a stale screenshot.
+                setPendingCaptureUrl(null)
                 const name = showTriggerPrompt.name?.trim() || ''
                 const command = showTriggerPrompt.command?.trim() || ''
                 const mode = showTriggerPrompt.mode === 'stream' ? 'stream' : 'screenshot'
