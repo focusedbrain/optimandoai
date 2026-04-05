@@ -73,11 +73,35 @@ async function getLaunchSecret(): Promise<string | null> {
   return new Promise((resolve) => {
     try {
       chrome.runtime.sendMessage({ type: 'GET_LAUNCH_SECRET' }, (resp: any) => {
-        if (chrome.runtime.lastError) { resolve(null); return }
-        resolve(resp?.secret ?? null)
+        if (chrome.runtime.lastError) {
+          resolveViaHandshakeBridge(resolve)
+        } else {
+          const s = resp?.secret?.trim() ? resp.secret : null
+          if (s) resolve(s)
+          else resolveViaHandshakeBridge(resolve)
+        }
       })
-    } catch { resolve(null) }
+    } catch {
+      // chrome.runtime not available (Electron dashboard) — use preload bridge directly.
+      resolveViaHandshakeBridge(resolve)
+    }
   })
+}
+
+/** Electron-only fallback: pull X-Launch-Secret from window.handshakeView.pqHeaders(). */
+function resolveViaHandshakeBridge(resolve: (v: string | null) => void): void {
+  try {
+    const pqHeaders = (window as any).handshakeView?.pqHeaders
+    if (typeof pqHeaders === 'function') {
+      ;(pqHeaders() as Promise<Record<string, string>>)
+        .then((h) => resolve(h?.['X-Launch-Secret']?.trim() || null))
+        .catch(() => resolve(null))
+    } else {
+      resolve(null)
+    }
+  } catch {
+    resolve(null)
+  }
 }
 
 /** Dashboard embed can send capture before the mount-time secret retry runs — refresh before OCR/LLM. */

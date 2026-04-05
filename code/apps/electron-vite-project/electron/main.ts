@@ -10035,7 +10035,7 @@ app.whenReady().then(async () => {
 async function postScreenshotToPopup(
   filePath: string,
   sel: { x: number; y: number; w: number; h: number; dpr: number },
-  opts?: { promptContext?: LmgtfyPromptSurface },
+  opts?: { promptContext?: LmgtfyPromptSurface; skipDashboardIpc?: boolean },
 ): Promise<{ dataUrl: string; promptContext: LmgtfyPromptSurface } | undefined> {
   try {
     emitCapture(win!, { event: LmgtfyChannels.OnCaptureEvent, mode: 'screenshot', filePath, thumbnailPath: '', meta: { x: sel.x, y: sel.y, w: sel.w, h: sel.h, dpr: sel.dpr } })
@@ -10048,7 +10048,9 @@ async function postScreenshotToPopup(
     const pc = (opts?.promptContext ?? surfaceFromSource(lmgtfyLastSelectionSource)) as LmgtfyPromptSurface
     const payload = JSON.stringify({ type: 'SELECTION_RESULT_IMAGE', kind: 'image', dataUrl, promptContext: pc })
     wsClients.forEach((c) => { try { c.send(payload) } catch {} })
-    if (pc === 'dashboard' && win && !win.isDestroyed()) {
+    // Only send the IPC to the dashboard window when this is a manual capture (not a trigger execution).
+    // Trigger execution delivers via HTTP response body — sending IPC here causes a double-post.
+    if (pc === 'dashboard' && !opts?.skipDashboardIpc && win && !win.isDestroyed()) {
       try {
         win.webContents.send('lmgtfy-dashboard-selection-result', { kind: 'image', dataUrl, promptContext: pc })
       } catch {}
@@ -10143,7 +10145,7 @@ async function executeTriggerFromExtension(
     if (mode === 'screenshot') {
       console.log('[MAIN] Executing screenshot trigger headlessly surface=', surface)
       const { filePath } = await captureScreenshot(sel as any)
-      const posted = await postScreenshotToPopup(filePath, { x: sel.x, y: sel.y, w: sel.w, h: sel.h, dpr: 1 }, { promptContext: surface })
+      const posted = await postScreenshotToPopup(filePath, { x: sel.x, y: sel.y, w: sel.w, h: sel.h, dpr: 1 }, { promptContext: surface, skipDashboardIpc: true })
       console.log('[MAIN] Screenshot trigger posted — dataUrl length:', posted?.dataUrl?.length ?? 0, '| promptContext:', posted?.promptContext)
       if (posted) {
         return { dataUrl: posted.dataUrl, promptContext: posted.promptContext, kind: 'image' }
