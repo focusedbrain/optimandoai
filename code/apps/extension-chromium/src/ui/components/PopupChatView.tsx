@@ -1508,14 +1508,16 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
         console.log('[WRChat][dashboard-capture] IPC duplicate discarded — trigger consumed', msSinceConsumed, 'ms ago')
         return
       }
-      // Manual Capture: do nothing here — the trigger dialog (lmgtfy-show-trigger-prompt
-      // IPC) arrives right after this and carries the same imageUrl.  The user types a
-      // command in the dialog and clicks Save, which calls sendWithTriggerAndImage to
-      // run OCR + send command+image to the LLM.  This matches the sidepanel flow
-      // where processPopupElectronSelectionRef also returns early when
-      // !pending?.autoProcess (line ~1560).
-      console.log('[WRChat][dashboard-capture] no pending trigger — deferring to trigger dialog')
+      // Manual Capture: add screenshot to chat so handleSend (user types in input)
+      // can find it via lastUserMsgWithImage → resolve → OCR → enriched LLM call.
+      // This matches sidepanel processElectronSelectionForTagsRef (sidepanel.tsx ~3339)
+      // which also adds [Screenshot] to chat when !pendingTrigger?.autoProcess.
+      // The trigger dialog (lmgtfy-show-trigger-prompt) may also arrive and its Save
+      // path (sendWithTriggerAndImage) will OCR the image from showTriggerPrompt.imageUrl.
+      console.log('[WRChat][dashboard-capture] no pending trigger — adding screenshot to chat for handleSend OCR')
       dashboardTriggerLastConsumedAt.current = Date.now()
+      setMessages(prev => [...prev, { role: 'user' as const, text: '[Screenshot]', imageUrl: dataUrl }])
+      scrollToBottom()
       return
     }
     const tr = pending.trigger
@@ -2288,15 +2290,14 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
           const hasImage = !!(msg.imageUrl && !msg.videoUrl)
           return (
           <div key={i} style={{
-            maxWidth: hasImage ? '100%' : '85%',
-            width: hasImage ? '100%' : undefined,
-            padding: hasImage ? 0 : '10px 12px',
+            maxWidth: '85%',
+            padding: '10px 12px',
             borderRadius: '10px',
             fontSize: '12px', lineHeight: 1.45,
             alignSelf: msg.role === 'user' ? 'flex-end' : 'flex-start',
             wordBreak: 'break-word', overflowWrap: 'anywhere',
-            background: hasImage ? 'transparent' : (msg.role === 'user' ? colors.userBubbleBg : colors.aiBubbleBg),
-            border: hasImage ? 'none' : (msg.role === 'user' ? colors.userBubbleBorder : colors.aiBubbleBorder),
+            background: msg.role === 'user' ? colors.userBubbleBg : colors.aiBubbleBg,
+            border: msg.role === 'user' ? colors.userBubbleBorder : colors.aiBubbleBorder,
             color: colors.bubbleText,
             overflow: 'hidden',
           }}>
@@ -2308,14 +2309,21 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
               />
             )}
             {msg.imageUrl && !msg.videoUrl && (
-              <img src={msg.imageUrl} alt="screenshot" style={{ width: '100%', maxWidth: '100%', borderRadius: 8, display: 'block' }} />
+              <img
+                src={msg.imageUrl}
+                alt="screenshot"
+                style={{
+                  maxWidth: '75%',
+                  borderRadius: 6,
+                  display: 'block',
+                  border: '1px solid rgba(255,255,255,0.12)',
+                }}
+              />
             )}
             {msg.text && (
               <div style={{
-                marginTop: hasImage ? 4 : 0,
-                padding: hasImage ? '4px 8px' : 0,
+                marginTop: hasImage ? 6 : 0,
                 fontSize: '11px',
-                opacity: hasImage ? 0.75 : 1,
                 whiteSpace: 'pre-wrap',
               }}>{msg.text}</div>
             )}
