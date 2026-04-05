@@ -5494,15 +5494,33 @@ function SidepanelOrchestrator() {
                         >{spEmojiForKey(key)}</span>
                       )
                     })}
-                    {diffWatchers.filter((w) => pinnedDiffIds.includes(w?.id ?? '')).map((watcher) => (
-                      <span key={`diff:${watcher.id}`} role="button" tabIndex={0} title={`Diff: ${String(watcher.name || watcher.tag || 'Diff').slice(0, 80)} — click to open`}
-                        onClick={() => { try { diffDialogOpenRef.current?.() } catch { /* noop */ } }}
-                        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); try { diffDialogOpenRef.current?.() } catch { /* noop */ } } }}
+                    {diffWatchers.filter((w) => pinnedDiffIds.includes(w?.id ?? '')).map((watcher) => {
+                      const runDiffNow = () => {
+                        const watcherId = watcher.id as string
+                        if (!watcherId) return
+                        new Promise<string | null>((resolve) => {
+                          try {
+                            chrome.runtime.sendMessage({ type: 'GET_LAUNCH_SECRET' }, (resp: { secret?: string | null } | undefined) => {
+                              if (chrome.runtime.lastError) resolve(null); else resolve(resp?.secret?.trim() ? resp.secret : null)
+                            })
+                          } catch { resolve(null) }
+                        }).then((secret) =>
+                          fetch(`http://127.0.0.1:51248/api/wrchat/diff-watchers/${encodeURIComponent(watcherId)}/run`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json', 'X-Launch-Secret': secret ?? '' },
+                            signal: AbortSignal.timeout(15000),
+                          }).catch((err) => console.warn('[WRChat] diff runNow failed:', err))
+                        ).catch(() => { /* noop */ })
+                      }
+                      return (
+                      <span key={`diff:${watcher.id}`} role="button" tabIndex={0} title={`Diff: ${String(watcher.name || watcher.tag || 'Diff').slice(0, 80)} — click to run diff now`}
+                        onClick={() => { runDiffNow() }}
+                        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); runDiffNow() } }}
                         style={{ fontSize: 18, lineHeight: 1, cursor: 'pointer', userSelect: 'none', flexShrink: 0, transition: 'transform 0.12s', filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.4))' }}
                         onMouseEnter={(e) => { (e.currentTarget as HTMLSpanElement).style.transform = 'scale(1.3)' }}
                         onMouseLeave={(e) => { (e.currentTarget as HTMLSpanElement).style.transform = 'scale(1)' }}
                       >{spEmojiForKey(`diff:${watcher.id ?? watcher.name ?? ''}`)}</span>
-                    ))}
+                      )})}
                   </div>
                 )}
                 {chatMessages.length === 0 ? (
@@ -7449,15 +7467,33 @@ function SidepanelOrchestrator() {
                           >{spEmojiForKey(key)}</span>
                         )
                       })}
-                      {diffWatchers.filter((w) => pinnedDiffIds.includes(w?.id ?? '')).map((watcher) => (
-                        <span key={`diff:${watcher.id}`} role="button" tabIndex={0} title={`Diff: ${String(watcher.name || watcher.tag || 'Diff').slice(0, 80)} — click to open`}
-                          onClick={() => { try { diffDialogOpenRef.current?.() } catch { /* noop */ } }}
-                          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); try { diffDialogOpenRef.current?.() } catch { /* noop */ } } }}
+                      {diffWatchers.filter((w) => pinnedDiffIds.includes(w?.id ?? '')).map((watcher) => {
+                        const runDiffNow = () => {
+                          const watcherId = watcher.id as string
+                          if (!watcherId) return
+                          new Promise<string | null>((resolve) => {
+                            try {
+                              chrome.runtime.sendMessage({ type: 'GET_LAUNCH_SECRET' }, (resp: { secret?: string | null } | undefined) => {
+                                if (chrome.runtime.lastError) resolve(null); else resolve(resp?.secret?.trim() ? resp.secret : null)
+                              })
+                            } catch { resolve(null) }
+                          }).then((secret) =>
+                            fetch(`http://127.0.0.1:51248/api/wrchat/diff-watchers/${encodeURIComponent(watcherId)}/run`, {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json', 'X-Launch-Secret': secret ?? '' },
+                              signal: AbortSignal.timeout(15000),
+                            }).catch((err) => console.warn('[WRChat] diff runNow failed:', err))
+                          ).catch(() => { /* noop */ })
+                        }
+                        return (
+                        <span key={`diff:${watcher.id}`} role="button" tabIndex={0} title={`Diff: ${String(watcher.name || watcher.tag || 'Diff').slice(0, 80)} — click to run diff now`}
+                          onClick={() => { runDiffNow() }}
+                          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); runDiffNow() } }}
                           style={{ fontSize: 18, lineHeight: 1, cursor: 'pointer', userSelect: 'none', flexShrink: 0, transition: 'transform 0.12s', filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.4))' }}
                           onMouseEnter={(e) => { (e.currentTarget as HTMLSpanElement).style.transform = 'scale(1.3)' }}
                           onMouseLeave={(e) => { (e.currentTarget as HTMLSpanElement).style.transform = 'scale(1)' }}
                         >{spEmojiForKey(`diff:${watcher.id ?? watcher.name ?? ''}`)}</span>
-                      ))}
+                        )})}
                     </div>
                   )}
                   {chatMessages.length === 0 ? (
@@ -8799,15 +8835,33 @@ function SidepanelOrchestrator() {
                           >{spEmojiForKey(key)}</span>
                         )
                       })}
-                      {diffWatchers.filter((w) => pinnedDiffIds.includes(w?.id ?? '')).map((watcher) => (
-                        <span key={`diff:${watcher.id}`} role="button" tabIndex={0} title={`Diff: ${String(watcher.name || watcher.tag || 'Diff').slice(0, 80)} — click to open`}
-                          onClick={() => { try { diffDialogOpenRef.current?.() } catch { /* noop */ } }}
-                          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); try { diffDialogOpenRef.current?.() } catch { /* noop */ } } }}
+                      {diffWatchers.filter((w) => pinnedDiffIds.includes(w?.id ?? '')).map((watcher) => {
+                        const runDiffNow = () => {
+                          const watcherId = watcher.id as string
+                          if (!watcherId) return
+                          new Promise<string | null>((resolve) => {
+                            try {
+                              chrome.runtime.sendMessage({ type: 'GET_LAUNCH_SECRET' }, (resp: { secret?: string | null } | undefined) => {
+                                if (chrome.runtime.lastError) resolve(null); else resolve(resp?.secret?.trim() ? resp.secret : null)
+                              })
+                            } catch { resolve(null) }
+                          }).then((secret) =>
+                            fetch(`http://127.0.0.1:51248/api/wrchat/diff-watchers/${encodeURIComponent(watcherId)}/run`, {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json', 'X-Launch-Secret': secret ?? '' },
+                              signal: AbortSignal.timeout(15000),
+                            }).catch((err) => console.warn('[WRChat] diff runNow failed:', err))
+                          ).catch(() => { /* noop */ })
+                        }
+                        return (
+                        <span key={`diff:${watcher.id}`} role="button" tabIndex={0} title={`Diff: ${String(watcher.name || watcher.tag || 'Diff').slice(0, 80)} — click to run diff now`}
+                          onClick={() => { runDiffNow() }}
+                          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); runDiffNow() } }}
                           style={{ fontSize: 18, lineHeight: 1, cursor: 'pointer', userSelect: 'none', flexShrink: 0, transition: 'transform 0.12s', filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.4))' }}
                           onMouseEnter={(e) => { (e.currentTarget as HTMLSpanElement).style.transform = 'scale(1.3)' }}
                           onMouseLeave={(e) => { (e.currentTarget as HTMLSpanElement).style.transform = 'scale(1)' }}
                         >{spEmojiForKey(`diff:${watcher.id ?? watcher.name ?? ''}`)}</span>
-                      ))}
+                        )})}
                     </div>
                   )}
                   {chatMessages.length === 0 ? (

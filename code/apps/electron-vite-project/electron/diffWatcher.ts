@@ -29,10 +29,10 @@ type WatcherEntry = {
 }
 
 const DEFAULT_DEBOUNCE_MS = 500
-const DEFAULT_MAX_BYTES = 65536
+const DEFAULT_MAX_BYTES = 2_097_152 // 2 MB per file — allow big diffs
 const DEFAULT_MAX_FILES = 500
 const BINARY_PROBE_LEN = 512
-const MAX_DIFF_LINES = 400
+const MAX_DIFF_LINES = 10_000 // allow large diffs; post everything, LLM decides relevance
 
 /** Default text-like extensions (lowercase, with dot). */
 const DEFAULT_ALLOWED_EXTENSIONS = new Set([
@@ -422,7 +422,9 @@ export class DiffWatcherService {
 
     let fsWatcher: fs.FSWatcher
     try {
-      fsWatcher = fs.watch(watchPath, { persistent: true }, (_event, filename) => {
+      // recursive: true catches subdirectory changes too (supported on Windows natively,
+      // emulated via inotify on Linux, and supported on macOS via FSEvents).
+      fsWatcher = fs.watch(watchPath, { persistent: true, recursive: true }, (_event, filename) => {
         const ent = this.watchers.get(id)
         if (!ent) return
         void filename
@@ -472,6 +474,25 @@ export class DiffWatcherService {
 
   isWatching(id: string): boolean {
     return this.watchers.has(id)
+  }
+
+  /**
+   * Manually trigger an immediate diff computation for the given watcher ID.
+   * If the watcher is not currently active, starts it first.
+   * Returns true if triggered, false if the watcher ID is unknown / not persisted.
+   */
+  runNow(id: string): boolean {
+    const entry = this.watchers.get(id)
+    if (!entry) return false
+    this.clearDebounce(entry)
+    try {
+      this.computeDiff(id)
+    } catch (e) {
+      console.error('[diffWatcher] runNow computeDiff error:', e)
+      const msg = e instanceof Error ? e.message : String(e)
+      try { this.onError(id, msg) } catch { /* noop */ }
+    }
+    return true
   }
 
   getStatus(): Array<{ id: string; name: string; watching: boolean; watchPath: string }> {

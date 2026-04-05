@@ -2204,17 +2204,33 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
                   key={`diff:${watcher.id}`}
                   role="button"
                   tabIndex={0}
-                  title={`Diff: ${label} — click to open`}
+                  title={`Diff: ${label} — click to run diff now`}
                   onClick={(e) => {
                     e.preventDefault()
                     e.stopPropagation()
-                    try { diffDialogOpenRef.current?.() } catch { /* noop */ }
+                    const id = watcher.id as string
+                    if (!id) return
+                    void getLaunchSecret().then((secret) =>
+                      fetch(`${BASE_URL}/api/wrchat/diff-watchers/${encodeURIComponent(id)}/run`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'X-Launch-Secret': secret ?? '' },
+                        signal: AbortSignal.timeout(15000),
+                      }).catch((err) => console.warn('[WRChat] diff runNow failed:', err))
+                    )
                   }}
                   onKeyDown={(e) => {
                     if (e.key !== 'Enter' && e.key !== ' ') return
                     e.preventDefault()
                     e.stopPropagation()
-                    try { diffDialogOpenRef.current?.() } catch { /* noop */ }
+                    const id = watcher.id as string
+                    if (!id) return
+                    void getLaunchSecret().then((secret) =>
+                      fetch(`${BASE_URL}/api/wrchat/diff-watchers/${encodeURIComponent(id)}/run`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'X-Launch-Secret': secret ?? '' },
+                        signal: AbortSignal.timeout(15000),
+                      }).catch((err) => console.warn('[WRChat] diff runNow failed:', err))
+                    )
                   }}
                   style={{
                     fontSize: 18,

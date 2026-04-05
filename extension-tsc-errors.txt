@@ -1,0 +1,244 @@
+﻿src/beap-builder/parserService.ts(119,16): error TS2345: Argument of type '(item: { str?: string; }) => string' is not assignable to parameter of type '(value: TextItem | TextMarkedContent, index: number, array: (TextItem | TextMarkedContent)[]) => string'.
+  Types of parameters 'item' and 'value' are incompatible.
+    Type 'TextItem | TextMarkedContent' is not assignable to type '{ str?: string | undefined; }'.
+      Type 'TextMarkedContent' has no properties in common with type '{ str?: string | undefined; }'.
+src/beap-builder/visionExtractionService.ts(89,26): error TS2339: Property 'getPage' does not exist on type 'PDFDocumentLoadingTask'.
+src/beap-builder/visionExtractionService.ts(200,59): error TS2345: Argument of type 'PDFDocumentProxy' is not assignable to parameter of type 'PDFDocumentLoadingTask'.
+  Type 'PDFDocumentProxy' is missing the following properties from type 'PDFDocumentLoadingTask': _capability, _worker, docId, destroyed, and 3 more.
+src/beap-messages/hooks/useBeapDraftActions.ts(135,12): error TS2678: Type '"messenger"' is not comparable to type 'DeliveryMethod'.
+src/beap-messages/hooks/useBeapDraftActions.ts(202,55): error TS2367: This comparison appears to be unintentional because the types '"download" | "p2p"' and '"messenger"' have no overlap.
+src/beap-messages/hooks/useBeapDraftActions.ts(262,55): error TS2367: This comparison appears to be unintentional because the types '"download" | "p2p"' and '"messenger"' have no overlap.
+src/beap-messages/hooks/useBulkClassification.ts(43,3): error TS2459: Module '"../services/beapClassificationEngine"' declares 'GatingAuditStore' locally, but it is not exported.
+src/beap-messages/sandbox/sandbox.ts(36,8): error TS2305: Module '"../services"' has no exported member 'SenderIdentity'.
+src/beap-messages/sandbox/sandbox.ts(37,8): error TS2305: Module '"../services"' has no exported member 'KnownReceiver'.
+src/beap-messages/services/beapDecrypt.ts(307,26): error TS2304: Cannot find name 'ProcessingRetention'.
+src/beap-messages/services/beapDecrypt.ts(313,27): error TS2304: Cannot find name 'ProcessingRetention'.
+src/beap-messages/services/beapDecrypt.ts(341,18): error TS2304: Cannot find name 'ProcessingRetention'.
+src/beap-messages/services/beapDecrypt.ts(351,18): error TS2304: Cannot find name 'ProcessingRetention'.
+src/beap-messages/services/beapDecrypt.ts(400,32): error TS2304: Cannot find name 'ProcessingRetention'.
+src/beap-messages/services/beapDecrypt.ts(411,28): error TS2304: Cannot find name 'ProcessingRetention'.
+src/beap-messages/services/beapDecrypt.ts(440,29): error TS2304: Cannot find name 'ProcessingRetention'.
+src/beap-messages/services/BeapPackageBuilder.ts(105,3): error TS2300: Duplicate identifier 'OuterEnvelopeHeader'.
+src/beap-messages/services/BeapPackageBuilder.ts(504,15): error TS2300: Duplicate identifier 'OuterEnvelopeHeader'.
+src/beap-messages/services/BeapPackageBuilder.ts(2156,11): error TS2322: Type '"p2p_serialization"' is not assignable to type '"package_build" | "preflight" | "send_exception" | "transport_exception" | "p2p_transport" | "ui_validation"'.
+src/beap-messages/services/BeapPackageBuilder.ts(2169,11): error TS2322: Type '"p2p_serialization"' is not assignable to type '"package_build" | "preflight" | "send_exception" | "transport_exception" | "p2p_transport" | "ui_validation"'.
+src/beap-messages/services/depackagingPipeline.ts(636,86): error TS2339: Property 'chunks' does not exist on type 'ChunkingMetadata'.
+src/beap-messages/services/depackagingPipeline.ts(639,37): error TS2339: Property 'chunks' does not exist on type 'ChunkingMetadata'.
+src/beap-messages/services/depackagingPipeline.ts(692,17): error TS2339: Property 'chunking' does not exist on type 'BeapArtefactEncrypted'.
+src/beap-messages/services/depackagingPipeline.ts(692,42): error TS2339: Property 'chunking' does not exist on type 'BeapArtefactEncrypted'.
+src/beap-messages/services/depackagingPipeline.ts(693,35): error TS2339: Property 'chunking' does not exist on type 'BeapArtefactEncrypted'.
+src/beap-messages/services/depackagingPipeline.ts(694,34): error TS2339: Property 'chunking' does not exist on type 'BeapArtefactEncrypted'.
+src/beap-messages/services/depackagingPipeline.ts(905,88): error TS2339: Property 'chunks' does not exist on type 'ChunkingMetadata'.
+src/beap-messages/services/depackagingPipeline.ts(909,39): error TS2339: Property 'chunks' does not exist on type 'ChunkingMetadata'.
+src/beap-messages/services/depackagingPipeline.ts(1239,20): error TS2345: Argument of type 'GateResult<Gate1Context>' is not assignable to parameter of type 'GateResult<undefined>'.
+  Type 'Gate1Context' is not assignable to type 'undefined'.
+src/beap-messages/services/depackagingPipeline.ts(1246,20): error TS2345: Argument of type 'GateResult<Gate2Context>' is not assignable to parameter of type 'GateResult<undefined>'.
+  Type 'Gate2Context' is not assignable to type 'undefined'.
+src/beap-messages/services/depackagingPipeline.ts(1253,20): error TS2345: Argument of type 'GateResult<Gate3Context>' is not assignable to parameter of type 'GateResult<undefined>'.
+  Type 'Gate3Context' is not assignable to type 'undefined'.
+src/beap-messages/services/depackagingPipeline.ts(1260,20): error TS2345: Argument of type 'GateResult<Gate4Context>' is not assignable to parameter of type 'GateResult<undefined>'.
+  Type 'Gate4Context' is not assignable to type 'undefined'.
+src/beap-messages/services/depackagingPipeline.ts(1267,20): error TS2345: Argument of type 'GateResult<Gate5Context>' is not assignable to parameter of type 'GateResult<undefined>'.
+  Type 'Gate5Context' is not assignable to type 'undefined'.
+src/beap-messages/services/depackagingPipeline.ts(1274,20): error TS2345: Argument of type 'GateResult<Gate6Context>' is not assignable to parameter of type 'GateResult<undefined>'.
+  Type 'Gate6Context' is not assignable to type 'undefined'.
+src/beap-messages/services/poae.ts(500,30): error TS2345: Argument of type 'string' is not assignable to parameter of type 'Uint8Array<ArrayBufferLike>'.
+src/beap-messages/services/poae.ts(600,66): error TS2345: Argument of type 'Uint8Array<ArrayBufferLike>' is not assignable to parameter of type 'string'.
+src/beap-messages/services/poae.ts(695,30): error TS2345: Argument of type 'string' is not assignable to parameter of type 'Uint8Array<ArrayBufferLike>'.
+src/beap-messages/services/signingKeyVault.ts(184,53): error TS2345: Argument of type 'Uint8Array<ArrayBufferLike>' is not assignable to parameter of type 'BufferSource'.
+  Type 'Uint8Array<ArrayBufferLike>' is not assignable to type 'ArrayBufferView<ArrayBuffer>'.
+    Types of property 'buffer' are incompatible.
+      Type 'ArrayBufferLike' is not assignable to type 'ArrayBuffer'.
+        Type 'SharedArrayBuffer' is not assignable to type 'ArrayBuffer'.
+          Types of property '[Symbol.toStringTag]' are incompatible.
+            Type '"SharedArrayBuffer"' is not assignable to type '"ArrayBuffer"'.
+src/beap-messages/services/signingKeyVault.ts(231,5): error TS2769: No overload matches this call.
+  The last overload gave the following error.
+    Argument of type 'Uint8Array<ArrayBufferLike>' is not assignable to parameter of type 'BufferSource'.
+      Type 'Uint8Array<ArrayBufferLike>' is not assignable to type 'ArrayBufferView<ArrayBuffer>'.
+        Types of property 'buffer' are incompatible.
+          Type 'ArrayBufferLike' is not assignable to type 'ArrayBuffer'.
+            Type 'SharedArrayBuffer' is not assignable to type 'ArrayBuffer'.
+              Types of property '[Symbol.toStringTag]' are incompatible.
+                Type '"SharedArrayBuffer"' is not assignable to type '"ArrayBuffer"'.
+src/beap-messages/services/signingKeyVault.ts(292,24): error TS2322: Type 'Uint8Array<ArrayBufferLike>' is not assignable to type 'BufferSource'.
+  Type 'Uint8Array<ArrayBufferLike>' is not assignable to type 'ArrayBufferView<ArrayBuffer>'.
+    Types of property 'buffer' are incompatible.
+      Type 'ArrayBufferLike' is not assignable to type 'ArrayBuffer'.
+        Type 'SharedArrayBuffer' is not assignable to type 'ArrayBuffer'.
+          Types of property '[Symbol.toStringTag]' are incompatible.
+            Type '"SharedArrayBuffer"' is not assignable to type '"ArrayBuffer"'.
+src/beap-messages/services/signingKeyVault.ts(311,24): error TS2322: Type 'Uint8Array<ArrayBufferLike>' is not assignable to type 'BufferSource'.
+  Type 'Uint8Array<ArrayBufferLike>' is not assignable to type 'ArrayBufferView<ArrayBuffer>'.
+    Types of property 'buffer' are incompatible.
+      Type 'ArrayBufferLike' is not assignable to type 'ArrayBuffer'.
+        Type 'SharedArrayBuffer' is not assignable to type 'ArrayBuffer'.
+          Types of property '[Symbol.toStringTag]' are incompatible.
+            Type '"SharedArrayBuffer"' is not assignable to type '"ArrayBuffer"'.
+src/beap-messages/services/signingKeyVault.ts(382,55): error TS2345: Argument of type 'Uint8Array<ArrayBufferLike>' is not assignable to parameter of type 'BufferSource'.
+  Type 'Uint8Array<ArrayBufferLike>' is not assignable to type 'ArrayBufferView<ArrayBuffer>'.
+    Types of property 'buffer' are incompatible.
+      Type 'ArrayBufferLike' is not assignable to type 'ArrayBuffer'.
+        Type 'SharedArrayBuffer' is not assignable to type 'ArrayBuffer'.
+          Types of property '[Symbol.toStringTag]' are incompatible.
+            Type '"SharedArrayBuffer"' is not assignable to type '"ArrayBuffer"'.
+src/components/P2pOutboundDebugModal.tsx(111,19): error TS2339: Property 'url' does not exist on type 'ClientSendFailureDebug | OutboundRequestDebugSnapshot'.
+  Property 'url' does not exist on type 'ClientSendFailureDebug'.
+src/components/P2pOutboundDebugModal.tsx(112,22): error TS2339: Property 'method' does not exist on type 'ClientSendFailureDebug | OutboundRequestDebugSnapshot'.
+  Property 'method' does not exist on type 'ClientSendFailureDebug'.
+src/components/P2pOutboundDebugModal.tsx(113,28): error TS2339: Property 'content_type' does not exist on type 'ClientSendFailureDebug | OutboundRequestDebugSnapshot'.
+  Property 'content_type' does not exist on type 'ClientSendFailureDebug'.
+src/components/P2pOutboundDebugModal.tsx(114,36): error TS2339: Property 'content_length_bytes' does not exist on type 'ClientSendFailureDebug | OutboundRequestDebugSnapshot'.
+  Property 'content_length_bytes' does not exist on type 'ClientSendFailureDebug'.
+src/components/P2pOutboundDebugModal.tsx(115,25): error TS2339: Property 'body_type' does not exist on type 'ClientSendFailureDebug | OutboundRequestDebugSnapshot'.
+  Property 'body_type' does not exist on type 'ClientSendFailureDebug'.
+src/components/P2pOutboundDebugModal.tsx(116,45): error TS2339: Property 'top_level_keys' does not exist on type 'ClientSendFailureDebug | OutboundRequestDebugSnapshot'.
+  Property 'top_level_keys' does not exist on type 'ClientSendFailureDebug'.
+src/components/P2pOutboundDebugModal.tsx(117,41): error TS2339: Property 'body_looks_double_encoded' does not exist on type 'ClientSendFailureDebug | OutboundRequestDebugSnapshot'.
+  Property 'body_looks_double_encoded' does not exist on type 'ClientSendFailureDebug'.
+src/components/P2pOutboundDebugModal.tsx(118,21): error TS2339: Property 'route' does not exist on type 'ClientSendFailureDebug | OutboundRequestDebugSnapshot'.
+  Property 'route' does not exist on type 'ClientSendFailureDebug'.
+src/components/P2pOutboundDebugModal.tsx(119,27): error TS2339: Property 'http_status' does not exist on type 'ClientSendFailureDebug | OutboundRequestDebugSnapshot'.
+  Property 'http_status' does not exist on type 'ClientSendFailureDebug'.
+src/components/P2pOutboundDebugModal.tsx(120,15): error TS2339: Property 'response_body_snippet' does not exist on type 'ClientSendFailureDebug | OutboundRequestDebugSnapshot'.
+  Property 'response_body_snippet' does not exist on type 'ClientSendFailureDebug'.
+src/components/P2pOutboundDebugModal.tsx(120,54): error TS2339: Property 'response_body_snippet' does not exist on type 'ClientSendFailureDebug | OutboundRequestDebugSnapshot'.
+  Property 'response_body_snippet' does not exist on type 'ClientSendFailureDebug'.
+src/components/P2pOutboundDebugModal.tsx(121,42): error TS2339: Property 'response_body_snippet' does not exist on type 'ClientSendFailureDebug | OutboundRequestDebugSnapshot'.
+  Property 'response_body_snippet' does not exist on type 'ClientSendFailureDebug'.
+src/components/P2pOutboundDebugModal.tsx(123,15): error TS2339: Property 'transport_error' does not exist on type 'ClientSendFailureDebug | OutboundRequestDebugSnapshot'.
+  Property 'transport_error' does not exist on type 'ClientSendFailureDebug'.
+src/components/P2pOutboundDebugModal.tsx(123,60): error TS2339: Property 'transport_error' does not exist on type 'ClientSendFailureDebug | OutboundRequestDebugSnapshot'.
+  Property 'transport_error' does not exist on type 'ClientSendFailureDebug'.
+src/components/P2pOutboundDebugModal.tsx(124,15): error TS2339: Property 'coordination_single_post_json' does not exist on type 'ClientSendFailureDebug | OutboundRequestDebugSnapshot'.
+  Property 'coordination_single_post_json' does not exist on type 'ClientSendFailureDebug'.
+src/components/P2pOutboundDebugModal.tsx(125,50): error TS2339: Property 'coordination_single_post_json' does not exist on type 'ClientSendFailureDebug | OutboundRequestDebugSnapshot'.
+  Property 'coordination_single_post_json' does not exist on type 'ClientSendFailureDebug'.
+src/components/P2pOutboundDebugModal.tsx(127,15): error TS2339: Property 'expected_coordination_routing_keys' does not exist on type 'ClientSendFailureDebug | OutboundRequestDebugSnapshot'.
+  Property 'expected_coordination_routing_keys' does not exist on type 'ClientSendFailureDebug'.
+src/components/P2pOutboundDebugModal.tsx(128,70): error TS2339: Property 'expected_coordination_routing_keys' does not exist on type 'ClientSendFailureDebug | OutboundRequestDebugSnapshot'.
+  Property 'expected_coordination_routing_keys' does not exist on type 'ClientSendFailureDebug'.
+src/components/P2pOutboundDebugModal.tsx(130,15): error TS2339: Property 'missing_coordination_top_level_fields' does not exist on type 'ClientSendFailureDebug | OutboundRequestDebugSnapshot'.
+  Property 'missing_coordination_top_level_fields' does not exist on type 'ClientSendFailureDebug'.
+src/components/P2pOutboundDebugModal.tsx(130,70): error TS2339: Property 'missing_coordination_top_level_fields' does not exist on type 'ClientSendFailureDebug | OutboundRequestDebugSnapshot'.
+  Property 'missing_coordination_top_level_fields' does not exist on type 'ClientSendFailureDebug'.
+src/components/P2pOutboundDebugModal.tsx(131,73): error TS2339: Property 'missing_coordination_top_level_fields' does not exist on type 'ClientSendFailureDebug | OutboundRequestDebugSnapshot'.
+  Property 'missing_coordination_top_level_fields' does not exist on type 'ClientSendFailureDebug'.
+src/components/P2pOutboundDebugModal.tsx(133,15): error TS2339: Property 'coordination_source_format' does not exist on type 'ClientSendFailureDebug | OutboundRequestDebugSnapshot'.
+  Property 'coordination_source_format' does not exist on type 'ClientSendFailureDebug'.
+src/components/P2pOutboundDebugModal.tsx(134,47): error TS2339: Property 'coordination_source_format' does not exist on type 'ClientSendFailureDebug | OutboundRequestDebugSnapshot'.
+  Property 'coordination_source_format' does not exist on type 'ClientSendFailureDebug'.
+src/components/P2pOutboundDebugModal.tsx(136,15): error TS2339: Property 'coordination_normalized_shape' does not exist on type 'ClientSendFailureDebug | OutboundRequestDebugSnapshot'.
+  Property 'coordination_normalized_shape' does not exist on type 'ClientSendFailureDebug'.
+src/components/P2pOutboundDebugModal.tsx(137,50): error TS2339: Property 'coordination_normalized_shape' does not exist on type 'ClientSendFailureDebug | OutboundRequestDebugSnapshot'.
+  Property 'coordination_normalized_shape' does not exist on type 'ClientSendFailureDebug'.
+src/components/P2pOutboundDebugModal.tsx(139,15): error TS2339: Property 'derived_relay_capsule_type' does not exist on type 'ClientSendFailureDebug | OutboundRequestDebugSnapshot'.
+  Property 'derived_relay_capsule_type' does not exist on type 'ClientSendFailureDebug'.
+src/components/P2pOutboundDebugModal.tsx(142,19): error TS2339: Property 'derived_relay_capsule_type' does not exist on type 'ClientSendFailureDebug | OutboundRequestDebugSnapshot'.
+  Property 'derived_relay_capsule_type' does not exist on type 'ClientSendFailureDebug'.
+src/components/P2pOutboundDebugModal.tsx(142,72): error TS2339: Property 'derived_relay_capsule_type' does not exist on type 'ClientSendFailureDebug | OutboundRequestDebugSnapshot'.
+  Property 'derived_relay_capsule_type' does not exist on type 'ClientSendFailureDebug'.
+src/components/P2pOutboundDebugModal.tsx(146,15): error TS2339: Property 'relay_capsule_type_field_name' does not exist on type 'ClientSendFailureDebug | OutboundRequestDebugSnapshot'.
+  Property 'relay_capsule_type_field_name' does not exist on type 'ClientSendFailureDebug'.
+src/components/P2pOutboundDebugModal.tsx(147,50): error TS2339: Property 'relay_capsule_type_field_name' does not exist on type 'ClientSendFailureDebug | OutboundRequestDebugSnapshot'.
+  Property 'relay_capsule_type_field_name' does not exist on type 'ClientSendFailureDebug'.
+src/components/P2pOutboundDebugModal.tsx(149,15): error TS2339: Property 'serialized_capsule_type_field_present' does not exist on type 'ClientSendFailureDebug | OutboundRequestDebugSnapshot'.
+  Property 'serialized_capsule_type_field_present' does not exist on type 'ClientSendFailureDebug'.
+src/components/P2pOutboundDebugModal.tsx(150,58): error TS2339: Property 'serialized_capsule_type_field_present' does not exist on type 'ClientSendFailureDebug | OutboundRequestDebugSnapshot'.
+  Property 'serialized_capsule_type_field_present' does not exist on type 'ClientSendFailureDebug'.
+src/components/P2pOutboundDebugModal.tsx(152,15): error TS2339: Property 'serialized_capsule_type_value' does not exist on type 'ClientSendFailureDebug | OutboundRequestDebugSnapshot'.
+  Property 'serialized_capsule_type_value' does not exist on type 'ClientSendFailureDebug'.
+src/components/P2pOutboundDebugModal.tsx(155,19): error TS2339: Property 'serialized_capsule_type_value' does not exist on type 'ClientSendFailureDebug | OutboundRequestDebugSnapshot'.
+  Property 'serialized_capsule_type_value' does not exist on type 'ClientSendFailureDebug'.
+src/components/P2pOutboundDebugModal.tsx(155,75): error TS2339: Property 'serialized_capsule_type_value' does not exist on type 'ClientSendFailureDebug | OutboundRequestDebugSnapshot'.
+  Property 'serialized_capsule_type_value' does not exist on type 'ClientSendFailureDebug'.
+src/components/P2pOutboundDebugModal.tsx(159,15): error TS2339: Property 'relay_validator_contract_matches' does not exist on type 'ClientSendFailureDebug | OutboundRequestDebugSnapshot'.
+  Property 'relay_validator_contract_matches' does not exist on type 'ClientSendFailureDebug'.
+src/components/P2pOutboundDebugModal.tsx(160,53): error TS2339: Property 'relay_validator_contract_matches' does not exist on type 'ClientSendFailureDebug | OutboundRequestDebugSnapshot'.
+  Property 'relay_validator_contract_matches' does not exist on type 'ClientSendFailureDebug'.
+src/components/P2pOutboundDebugModal.tsx(162,15): error TS2339: Property 'relay_envelope_matches_expectations' does not exist on type 'ClientSendFailureDebug | OutboundRequestDebugSnapshot'.
+  Property 'relay_envelope_matches_expectations' does not exist on type 'ClientSendFailureDebug'.
+src/components/P2pOutboundDebugModal.tsx(163,56): error TS2339: Property 'relay_envelope_matches_expectations' does not exist on type 'ClientSendFailureDebug | OutboundRequestDebugSnapshot'.
+  Property 'relay_envelope_matches_expectations' does not exist on type 'ClientSendFailureDebug'.
+src/components/P2pOutboundDebugModal.tsx(165,15): error TS2339: Property 'relay_allowed_types_from_response' does not exist on type 'ClientSendFailureDebug | OutboundRequestDebugSnapshot'.
+  Property 'relay_allowed_types_from_response' does not exist on type 'ClientSendFailureDebug'.
+src/components/P2pOutboundDebugModal.tsx(165,66): error TS2339: Property 'relay_allowed_types_from_response' does not exist on type 'ClientSendFailureDebug | OutboundRequestDebugSnapshot'.
+  Property 'relay_allowed_types_from_response' does not exist on type 'ClientSendFailureDebug'.
+src/components/P2pOutboundDebugModal.tsx(166,54): error TS2339: Property 'relay_allowed_types_from_response' does not exist on type 'ClientSendFailureDebug | OutboundRequestDebugSnapshot'.
+  Property 'relay_allowed_types_from_response' does not exist on type 'ClientSendFailureDebug'.
+src/components/P2pOutboundDebugModal.tsx(168,15): error TS2339: Property 'canon_chunking_summary' does not exist on type 'ClientSendFailureDebug | OutboundRequestDebugSnapshot'.
+  Property 'canon_chunking_summary' does not exist on type 'ClientSendFailureDebug'.
+src/components/P2pOutboundDebugModal.tsx(172,32): error TS2339: Property 'canon_chunking_summary' does not exist on type 'ClientSendFailureDebug | OutboundRequestDebugSnapshot'.
+  Property 'canon_chunking_summary' does not exist on type 'ClientSendFailureDebug'.
+src/components/P2pOutboundDebugModal.tsx(177,26): error TS2339: Property 'request_shape' does not exist on type 'ClientSendFailureDebug | OutboundRequestDebugSnapshot'.
+  Property 'request_shape' does not exist on type 'ClientSendFailureDebug'.
+src/handshake/components/HandshakeAcceptModal.tsx(403,47): error TS18048: 'adhocBlockPolicy.policy' is possibly 'undefined'.
+src/handshake/components/HandshakeContextProfilePicker.tsx(14,58): error TS2307: Cannot find module '../../../../packages/shared/src/handshake/types' or its corresponding type declarations.
+src/handshake/components/HandshakeRequestForm.tsx(575,43): error TS18048: 'adhocBlockPolicy.policy' is possibly 'undefined'.
+src/handshake/components/InitiateHandshakeDialog.tsx(426,45): error TS18048: 'adhocBlockPolicy.policy' is possibly 'undefined'.
+src/handshake/components/SendHandshakeDelivery.tsx(865,45): error TS18048: 'adhocBlockPolicy.policy' is possibly 'undefined'.
+src/handshake/pendingP2PBeapQueue.ts(29,19): error TS2345: Argument of type '{ ok?: boolean | undefined; error?: string | undefined; }' is not assignable to parameter of type '{ ok: boolean; error?: string | undefined; } | PromiseLike<{ ok: boolean; error?: string | undefined; }>'.
+  Type '{ ok?: boolean | undefined; error?: string | undefined; }' is not assignable to type '{ ok: boolean; error?: string | undefined; }'.
+    Types of property 'ok' are incompatible.
+      Type 'boolean | undefined' is not assignable to type 'boolean'.
+        Type 'undefined' is not assignable to type 'boolean'.
+src/ingress/importPipeline.ts(35,42): error TS2305: Module '"../beap-messages/sandbox"' has no exported member 'RejectionReasonUI'.
+src/ingress/importPipeline.ts(724,43): error TS2345: Argument of type 'string | undefined' is not assignable to parameter of type 'string'.
+  Type 'undefined' is not assignable to type 'string'.
+src/popup-chat.tsx(436,79): error TS2339: Property 'ok' does not exist on type '{}'.
+src/popup-chat.tsx(436,120): error TS2339: Property 'data' does not exist on type '{}'.
+src/popup-chat.tsx(1872,13): error TS2322: Type '() => Promise<boolean>' is not assignable to type '() => Promise<void>'.
+  Type 'Promise<boolean>' is not assignable to type 'Promise<void>'.
+    Type 'boolean' is not assignable to type 'void'.
+src/popup-chat.tsx(1927,13): error TS2322: Type '() => Promise<boolean>' is not assignable to type '() => Promise<void>'.
+  Type 'Promise<boolean>' is not assignable to type 'Promise<void>'.
+    Type 'boolean' is not assignable to type 'void'.
+src/services/InputCoordinator.ts(402,43): error TS2339: Property 'type' does not exist on type '{ tag?: string | undefined; tagName?: string | undefined; keywords?: string[] | undefined; keywordMode?: string | undefined; }'.
+src/shared/components/EmailConnectWizard.tsx(222,32): error TS2339: Property 'emailAccounts' does not exist on type 'Window & typeof globalThis'.
+src/shared/components/EmailConnectWizard.tsx(250,32): error TS2339: Property 'emailAccounts' does not exist on type 'Window & typeof globalThis'.
+src/shared/components/EmailConnectWizard.tsx(898,60): error TS2339: Property 'emailAccounts' does not exist on type 'Window & typeof globalThis'.
+src/shared/components/EmailConnectWizard.tsx(899,38): error TS2339: Property 'emailAccounts' does not exist on type 'Window & typeof globalThis'.
+src/sidepanel.tsx(1069,79): error TS2339: Property 'ok' does not exist on type '{}'.
+src/sidepanel.tsx(1069,120): error TS2339: Property 'data' does not exist on type '{}'.
+src/sidepanel.tsx(1102,81): error TS2339: Property 'ok' does not exist on type '{}'.
+src/sidepanel.tsx(1102,122): error TS2339: Property 'data' does not exist on type '{}'.
+src/sidepanel.tsx(3092,62): error TS18048: 'att' is possibly 'undefined'.
+src/tests/wrChatPipeline.test.ts(60,29): error TS2353: Object literal may only specify known properties, and 'type' does not exist in type '{ tag?: string | undefined; tagName?: string | undefined; keywords?: string[] | undefined; keywordMode?: string | undefined; }'.
+src/tests/wrChatPipeline.test.ts(75,13): error TS2322: Type 'string' is not assignable to type 'string[]'.
+src/vault/autofill/committer.ts(111,5): error TS2578: Unused '@ts-expect-error' directive.
+src/vault/autofill/tierConfig.ts(245,13): error TS2322: Type '"unknown"' is not assignable to type 'never'.
+src/vault/vault-ui-typescript.ts(3113,3): error TS2322: Type 'Record<string, string>[]' is not assignable to type '{ type: string; iban?: string | undefined; bic?: string | undefined; bank_name?: string | undefined; account_holder?: string | undefined; cc_number?: string | undefined; cc_holder?: string | undefined; cc_expiry?: string | undefined; cc_cvv?: string | undefined; paypal_email?: string | undefined; }[]'.
+  Property 'type' is missing in type 'Record<string, string>' but required in type '{ type: string; iban?: string | undefined; bic?: string | undefined; bank_name?: string | undefined; account_holder?: string | undefined; cc_number?: string | undefined; cc_holder?: string | undefined; cc_expiry?: string | undefined; cc_cvv?: string | undefined; paypal_email?: string | undefined; }'.
+vite.config.ts(6,22): error TS5097: An import path can only end with a '.ts' extension when 'allowImportingTsExtensions' is enabled.
+vite.config.ts(14,13): error TS2769: No overload matches this call.
+  The last overload gave the following error.
+    Type 'Plugin<any>[]' is not assignable to type 'PluginOption'.
+      Type 'Plugin<any>[]' is not assignable to type 'PluginOption[]'.
+        Type 'Plugin<any>' is not assignable to type 'PluginOption'.
+          Type 'import("C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/node_modules/@vitejs/plugin-react/node_modules/vite/dist/node/index").Plugin<any>' is not assignable to type 'import("C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/node_modules/vite/dist/node/index").Plugin<any>'.
+            Types of property 'apply' are incompatible.
+              Type '"serve" | "build" | ((this: void, config: import("C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/node_modules/@vitejs/plugin-react/node_modules/vite/dist/node/index").UserConfig, env: import("C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/node_modules/@vitejs/plu...' is not assignable to type '"serve" | "build" | ((this: void, config: import("C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/node_modules/vite/dist/node/index").UserConfig, env: import("C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/node_modules/vite/dist/node/index").ConfigEnv) => boolean)...'.
+                Type '(this: void, config: UserConfig, env: ConfigEnv) => boolean' is not assignable to type '"serve" | "build" | ((this: void, config: UserConfig, env: ConfigEnv) => boolean) | undefined'.
+                  Type '(this: void, config: import("C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/node_modules/@vitejs/plugin-react/node_modules/vite/dist/node/index").UserConfig, env: import("C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/node_modules/@vitejs/plugin-react/node_module...' is not assignable to type '(this: void, config: import("C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/node_modules/vite/dist/node/index").UserConfig, env: import("C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/node_modules/vite/dist/node/index").ConfigEnv) => boolean'.
+                    Types of parameters 'config' and 'config' are incompatible.
+                      Type 'import("C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/node_modules/vite/dist/node/index").UserConfig' is not assignable to type 'import("C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/node_modules/@vitejs/plugin-react/node_modules/vite/dist/node/index").UserConfig'.
+                        Types of property 'plugins' are incompatible.
+                          Type 'import("C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/node_modules/vite/dist/node/index").PluginOption[] | undefined' is not assignable to type 'import("C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/node_modules/@vitejs/plugin-react/node_modules/vite/dist/node/index").PluginOption[] | undefined'.
+                            Type 'import("C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/node_modules/vite/dist/node/index").PluginOption[]' is not assignable to type 'import("C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/node_modules/@vitejs/plugin-react/node_modules/vite/dist/node/index").PluginOption[]'.
+                              Type 'import("C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/node_modules/vite/dist/node/index").PluginOption' is not assignable to type 'import("C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/node_modules/@vitejs/plugin-react/node_modules/vite/dist/node/index").PluginOption'.
+                                Type 'Plugin<any>' is not assignable to type 'PluginOption'.
+                                  Type 'import("C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/node_modules/vite/dist/node/index").Plugin<any>' is not assignable to type 'import("C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/node_modules/@vitejs/plugin-react/node_modules/vite/dist/node/index").Plugin<any>'.
+                                    Types of property 'apply' are incompatible.
+                                      Type '"serve" | "build" | ((this: void, config: import("C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/node_modules/vite/dist/node/index").UserConfig, env: import("C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/node_modules/vite/dist/node/index").ConfigEnv) => boolean)...' is not assignable to type '"serve" | "build" | ((this: void, config: import("C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/node_modules/@vitejs/plugin-react/node_modules/vite/dist/node/index").UserConfig, env: import("C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/node_modules/@vitejs/plu...'.
+                                        Type '(this: void, config: UserConfig, env: ConfigEnv) => boolean' is not assignable to type '"serve" | "build" | ((this: void, config: UserConfig, env: ConfigEnv) => boolean) | undefined'.
+                                          Type '(this: void, config: import("C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/node_modules/vite/dist/node/index").UserConfig, env: import("C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/node_modules/vite/dist/node/index").ConfigEnv) => boolean' is not assignable to type '(this: void, config: import("C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/node_modules/@vitejs/plugin-react/node_modules/vite/dist/node/index").UserConfig, env: import("C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/node_modules/@vitejs/plugin-react/node_module...'.
+                                            Types of parameters 'config' and 'config' are incompatible.
+                                              Type 'import("C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/node_modules/@vitejs/plugin-react/node_modules/vite/dist/node/index").UserConfig' is not assignable to type 'import("C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/node_modules/vite/dist/node/index").UserConfig'.
+                                                Types of property 'plugins' are incompatible.
+                                                  Type 'import("C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/node_modules/@vitejs/plugin-react/node_modules/vite/dist/node/index").PluginOption[] | undefined' is not assignable to type 'import("C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/node_modules/vite/dist/node/index").PluginOption[] | undefined'.
+                                                    Type 'import("C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/node_modules/@vitejs/plugin-react/node_modules/vite/dist/node/index").PluginOption[]' is not assignable to type 'import("C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/node_modules/vite/dist/node/index").PluginOption[]'.
+                                                      Type 'import("C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/node_modules/@vitejs/plugin-react/node_modules/vite/dist/node/index").PluginOption' is not assignable to type 'import("C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/node_modules/vite/dist/node/index").PluginOption'.
+                                                        Type 'Promise<false | Plugin<any> | PluginOption[] | null | undefined>' is not assignable to type 'PluginOption'.
+                                                          Type 'Promise<false | import("C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/node_modules/@vitejs/plugin-react/node_modules/vite/dist/node/index").Plugin<any> | import("C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/node_modules/@vitejs/plugin-react/node_modules/vite/d...' is not assignable to type 'Promise<false | import("C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/node_modules/vite/dist/node/index").Plugin<any> | import("C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/node_modules/vite/dist/node/index").PluginOption[] | null | undefined>'.
+                                                            Type 'false | import("C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/node_modules/@vitejs/plugin-react/node_modules/vite/dist/node/index").Plugin<any> | import("C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/node_modules/@vitejs/plugin-react/node_modules/vite/dist/node...' is not assignable to type 'false | import("C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/node_modules/vite/dist/node/index").Plugin<any> | import("C:/Users/oscar/OneDrive/Desktop/Work/dev/optimandoai/code_clean/code/code/node_modules/vite/dist/node/index").PluginOption[] | null | undefined'.
+                                                              Type 'Plugin<any>' is not assignable to type 'false | Plugin<any> | PluginOption[] | null | undefined'.

@@ -239,23 +239,6 @@ function App() {
           >
             Handshakes
           </button>
-          {activeView === 'wr-chat' && (
-            <div
-              className="app-header__wr-watchdog"
-              style={{ display: 'flex', alignItems: 'center', flexShrink: 0, marginRight: 4 }}
-            >
-              <WrChatWatchdogButton
-                theme={extensionTheme}
-                onWatchdogAlert={(threats) => {
-                  try {
-                    window.dispatchEvent(new CustomEvent('wrchat-watchdog-alert', { detail: threats }))
-                  } catch {
-                    /* noop */
-                  }
-                }}
-              />
-            </div>
-          )}
           <div
             role="button"
             tabIndex={0}
@@ -277,6 +260,22 @@ function App() {
                 onChange={(e) => setInboxBulkMode(e.target.checked)}
               />
             </label>
+          </div>
+          <div
+            className="app-header__wr-watchdog"
+            style={{ display: 'flex', alignItems: 'center', flexShrink: 0, marginLeft: 6 }}
+            title="Watchdog security scan"
+          >
+            <WrChatWatchdogButton
+              theme={extensionTheme}
+              onWatchdogAlert={(threats) => {
+                try {
+                  window.dispatchEvent(new CustomEvent('wrchat-watchdog-alert', { detail: threats }))
+                } catch {
+                  /* noop */
+                }
+              }}
+            />
           </div>
         </nav>
         <HybridSearch

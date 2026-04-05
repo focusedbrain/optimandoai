@@ -237,8 +237,13 @@ export default function WrChatWatchdogButton({ theme = 'pro', onWatchdogAlert }:
   }, [])
 
   const continuousPulse = continuousEnabled
+  const showIntervalOnIcon = continuousPulse && !cleanFlash
   const showBusyTitle = busyFlash ? 'Scan already running' : TOOLTIP_MAIN
-  const scanButtonTitle = cleanFlash ? TOOLTIP_CLEAN : showBusyTitle
+  const scanButtonTitle = cleanFlash
+    ? TOOLTIP_CLEAN
+    : continuousPulse
+      ? `${TOOLTIP_MAIN} — Interval monitoring is on`
+      : showBusyTitle
 
   const buttonStyleComfortable: React.CSSProperties = {
     padding: '0 8px',
@@ -284,6 +289,10 @@ export default function WrChatWatchdogButton({ theme = 'pro', onWatchdogAlert }:
           0%, 100% { box-shadow: 0 0 0 1px rgba(34,197,94,0.45); }
           50% { box-shadow: 0 0 0 3px rgba(34,197,94,0.35); }
         }
+        @keyframes wr-watchdog-icon-interval-pulse {
+          0%, 100% { box-shadow: 0 0 0 1px rgba(34,197,94,0.55); }
+          50% { box-shadow: 0 0 0 5px rgba(34,197,94,0.3); }
+        }
         @keyframes wr-watchdog-scan-pulse {
           0%, 100% { opacity: 1; }
           50% { opacity: 0.55; }
@@ -291,6 +300,15 @@ export default function WrChatWatchdogButton({ theme = 'pro', onWatchdogAlert }:
         .wr-watchdog-icon-wrap.scanning {
           display: inline-flex;
           animation: wr-watchdog-scan-pulse 0.85s ease-in-out infinite;
+        }
+        .wr-watchdog-icon-wrap.interval-on:not(.scanning) {
+          display: inline-flex;
+          animation: wr-watchdog-icon-interval-pulse 2s ease-in-out infinite;
+        }
+        .wr-watchdog-icon-wrap.interval-on.scanning {
+          display: inline-flex;
+          animation: wr-watchdog-scan-pulse 0.85s ease-in-out infinite,
+            wr-watchdog-icon-interval-pulse 2s ease-in-out infinite;
         }
       `}</style>
       <div
@@ -305,7 +323,9 @@ export default function WrChatWatchdogButton({ theme = 'pro', onWatchdogAlert }:
           type="button"
           onClick={handleScanClick}
           title={scanButtonTitle}
-          aria-label={cleanFlash ? TOOLTIP_CLEAN : 'Watchdog scan'}
+          aria-label={
+            cleanFlash ? TOOLTIP_CLEAN : continuousPulse ? 'Watchdog scan — interval monitoring on' : 'Watchdog scan'
+          }
           disabled={!hostOnline}
           style={buttonStyleComfortable}
           onMouseEnter={(e) => {
@@ -332,12 +352,18 @@ export default function WrChatWatchdogButton({ theme = 'pro', onWatchdogAlert }:
           }}
         >
           <span
-            className={`wr-watchdog-icon-wrap ${scanning ? 'scanning' : ''}`}
+            className={`wr-watchdog-icon-wrap ${scanning ? 'scanning' : ''} ${showIntervalOnIcon ? 'interval-on' : ''}`}
             style={{
               display: 'inline-flex',
-              borderRadius: 6,
-              padding: cleanFlash ? '1px 3px' : 0,
-              background: cleanFlash ? 'rgba(34,197,94,0.28)' : 'transparent',
+              alignItems: 'center',
+              justifyContent: 'center',
+              borderRadius: 8,
+              padding: cleanFlash ? '1px 3px' : showIntervalOnIcon ? '2px 4px' : 0,
+              background: cleanFlash
+                ? 'rgba(34,197,94,0.28)'
+                : showIntervalOnIcon
+                  ? 'rgba(34,197,94,0.12)'
+                  : 'transparent',
               transition: 'background 0.2s ease',
             }}
           >

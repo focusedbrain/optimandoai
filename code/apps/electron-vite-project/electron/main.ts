@@ -6351,6 +6351,35 @@ app.whenReady().then(async () => {
         res.status(500).json({ ok: false, error: error.message || 'status failed' })
       }
     })
+    // POST /api/wrchat/diff-watchers/:id/run — manually trigger an immediate diff for a watcher
+    httpApp.post('/api/wrchat/diff-watchers/:id/run', (req, res) => {
+      try {
+        const { id } = req.params
+        // If the watcher is not active yet, try to start it first
+        if (!diffWatcherService.isWatching(id)) {
+          const list = loadDiffWatchersList()
+          const trigger = list.find((t) => t.id === id)
+          if (!trigger) {
+            res.status(404).json({ ok: false, error: 'watcher not found' })
+            return
+          }
+          if (trigger.type !== 'diff') {
+            res.status(400).json({ ok: false, error: 'not a diff watcher' })
+            return
+          }
+          diffWatcherService.start(trigger)
+        }
+        const triggered = diffWatcherService.runNow(id)
+        if (!triggered) {
+          res.status(404).json({ ok: false, error: 'watcher not active' })
+          return
+        }
+        res.json({ ok: true })
+      } catch (error: any) {
+        console.error('[HTTP] POST /api/wrchat/diff-watchers/:id/run:', error)
+        res.status(500).json({ ok: false, error: error.message || 'run failed' })
+      }
+    })
 
     // ── Watchdog (security scanner) ─────────────────────────────────────────
     httpApp.post('/api/wrchat/watchdog/scan', async (_req, res) => {
