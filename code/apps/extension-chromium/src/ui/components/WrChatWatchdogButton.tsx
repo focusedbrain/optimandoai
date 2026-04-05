@@ -311,79 +311,70 @@ export default function WrChatWatchdogButton({ theme = 'pro', onWatchdogAlert }:
             wr-watchdog-icon-interval-pulse 2s ease-in-out infinite;
         }
       `}</style>
-      <div
-        style={{
-          display: 'inline-flex',
-          alignItems: 'center',
-          gap: 5,
-          position: 'relative',
+      <button
+        type="button"
+        onClick={handleScanClick}
+        title={scanButtonTitle}
+        aria-label={
+          cleanFlash ? TOOLTIP_CLEAN : continuousPulse ? 'Watchdog scan — interval monitoring on' : 'Watchdog scan'
+        }
+        disabled={!hostOnline}
+        style={buttonStyleComfortable}
+        onMouseEnter={(e) => {
+          if (!hostOnline || cleanFlash) return
+          if (isLight) {
+            e.currentTarget.style.background = '#eef3f6'
+            e.currentTarget.style.color = '#0f172a'
+          } else if (isDark) {
+            e.currentTarget.style.background = 'rgba(255,255,255,0.2)'
+          } else {
+            e.currentTarget.style.background = 'rgba(118,75,162,0.6)'
+          }
+        }}
+        onMouseLeave={(e) => {
+          if (cleanFlash) return
+          if (isLight) {
+            e.currentTarget.style.background = '#ffffff'
+            e.currentTarget.style.color = '#0f172a'
+          } else if (isDark) {
+            e.currentTarget.style.background = 'rgba(255,255,255,0.1)'
+          } else {
+            e.currentTarget.style.background = 'rgba(118,75,162,0.35)'
+          }
         }}
       >
-        <button
-          type="button"
-          onClick={handleScanClick}
-          title={scanButtonTitle}
-          aria-label={
-            cleanFlash ? TOOLTIP_CLEAN : continuousPulse ? 'Watchdog scan — interval monitoring on' : 'Watchdog scan'
-          }
-          disabled={!hostOnline}
-          style={buttonStyleComfortable}
-          onMouseEnter={(e) => {
-            if (!hostOnline || cleanFlash) return
-            if (isLight) {
-              e.currentTarget.style.background = '#eef3f6'
-              e.currentTarget.style.color = '#0f172a'
-            } else if (isDark) {
-              e.currentTarget.style.background = 'rgba(255,255,255,0.2)'
-            } else {
-              e.currentTarget.style.background = 'rgba(118,75,162,0.6)'
-            }
-          }}
-          onMouseLeave={(e) => {
-            if (cleanFlash) return
-            if (isLight) {
-              e.currentTarget.style.background = '#ffffff'
-              e.currentTarget.style.color = '#0f172a'
-            } else if (isDark) {
-              e.currentTarget.style.background = 'rgba(255,255,255,0.1)'
-            } else {
-              e.currentTarget.style.background = 'rgba(118,75,162,0.35)'
-            }
+        <span
+          className={`wr-watchdog-icon-wrap ${scanning ? 'scanning' : ''} ${showIntervalOnIcon ? 'interval-on' : ''}`}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            borderRadius: 8,
+            padding: cleanFlash ? '1px 3px' : showIntervalOnIcon ? '2px 4px' : 0,
+            background: cleanFlash
+              ? 'rgba(34,197,94,0.28)'
+              : showIntervalOnIcon
+                ? 'rgba(34,197,94,0.12)'
+                : 'transparent',
+            transition: 'background 0.2s ease',
           }}
         >
+          <WatchdogIcon size={16} />
+        </span>
+        {cleanFlash ? (
           <span
-            className={`wr-watchdog-icon-wrap ${scanning ? 'scanning' : ''} ${showIntervalOnIcon ? 'interval-on' : ''}`}
             style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              borderRadius: 8,
-              padding: cleanFlash ? '1px 3px' : showIntervalOnIcon ? '2px 4px' : 0,
-              background: cleanFlash
-                ? 'rgba(34,197,94,0.28)'
-                : showIntervalOnIcon
-                  ? 'rgba(34,197,94,0.12)'
-                  : 'transparent',
-              transition: 'background 0.2s ease',
+              fontSize: 12,
+              lineHeight: 1,
+              color: isLight ? '#16a34a' : '#4ade80',
+              marginLeft: 2,
+              fontWeight: 700,
             }}
+            aria-hidden
           >
-            <WatchdogIcon size={16} />
+            ✓
           </span>
-          {cleanFlash ? (
-            <span
-              style={{
-                fontSize: 12,
-                lineHeight: 1,
-                color: isLight ? '#16a34a' : '#4ade80',
-                marginLeft: 2,
-                fontWeight: 700,
-              }}
-              aria-hidden
-            >
-              ✓
-            </span>
-          ) : null}
-        </button>
+        ) : null}
         {cleanFlash ? (
           <span
             aria-live="polite"
@@ -402,32 +393,25 @@ export default function WrChatWatchdogButton({ theme = 'pro', onWatchdogAlert }:
             {TOOLTIP_CLEAN}
           </span>
         ) : null}
-        <label
-          style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            cursor: hostOnline ? 'pointer' : 'not-allowed',
-            margin: 0,
-          }}
+        <input
+          type="checkbox"
+          checked={continuousEnabled}
+          onChange={handleCheckboxChange}
+          disabled={!hostOnline}
+          title="Continuous monitoring (every interval)"
           onClick={stopCheckboxBubble}
           onMouseDown={stopCheckboxBubble}
-        >
-          <input
-            type="checkbox"
-            checked={continuousEnabled}
-            onChange={handleCheckboxChange}
-            disabled={!hostOnline}
-            title="Continuous monitoring (every interval)"
-            style={{
-              width: 13,
-              height: 13,
-              margin: 0,
-              cursor: hostOnline ? 'pointer' : 'not-allowed',
-              accentColor: '#22c55e',
-            }}
-          />
-        </label>
-      </div>
+          style={{
+            width: 11,
+            height: 11,
+            margin: 0,
+            marginLeft: 2,
+            cursor: hostOnline ? 'pointer' : 'not-allowed',
+            accentColor: '#22c55e',
+            flexShrink: 0,
+          }}
+        />
+      </button>
     </>
   )
 }
