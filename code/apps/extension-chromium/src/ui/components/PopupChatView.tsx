@@ -204,6 +204,7 @@ function resolveModelIdForChat(
   }
 }
 
+
 async function parseDataTransfer(dt: DataTransfer): Promise<any[]> {
   const out: any[] = []
   try {
@@ -978,18 +979,8 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
       const effectiveLlmText = llmText || ocrText || (hasImage ? '[screenshot]' : '')
       const enrichedText = enrichRouteTextWithOcr(effectiveLlmText, ocrText)
 
-      // Fresh user message for dashboard + screenshot (reused by both agent and butler paths).
-      // Declared before the try block so the butler fallback outside catch can use it.
-      // When OCR returned nothing but vision base64 is available, append a hint so
-      // vision-capable models know to examine the attached image.
-      const freshContentForSend = (() => {
-        if (!useFreshPayload) return enrichedText
-        if (ocrText) return enrichedText
-        if (visionB64ForSend) return `${enrichedText}\n\n[A screenshot is attached. Please analyse it and describe what you see.]`
-        return enrichedText
-      })()
       const freshUserMessage: Record<string, unknown> | null = useFreshPayload
-        ? { role: 'user', content: freshContentForSend, ...(visionB64ForSend ? { images: [visionB64ForSend] } : {}) }
+        ? { role: 'user', content: enrichedText, ...(visionB64ForSend ? { images: [visionB64ForSend] } : {}) }
         : null
 
       // Try routing via processFlow agents, fall back to Butler
@@ -1090,7 +1081,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
           : [{ role: 'system', content: butlerPrompt }, ...processedMessages]
         console.log('[handleSend] butler call | model:', modelId,
           '| freshPayload:', useFreshPayload,
-          '| contentLength:', useFreshPayload ? freshContentForSend.length : enrichedText?.length,
+          '| contentLength:', enrichedText?.length,
           '| ocrText:', ocrText.length,
           '| has vision:', !!visionB64ForSend,
           '| msg count:', butlerMessages.length,
@@ -1099,7 +1090,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
           method: 'POST',
           headers: buildHeaders(secret),
           body: JSON.stringify({
-            modelId,
+            modelId: modelId,
             messages: butlerMessages,
           }),
           signal: AbortSignal.timeout(LLM_FETCH_TIMEOUT_MS),
@@ -1213,17 +1204,8 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
         }
 
         // Build the fresh user message once — reused by both agent and butler paths when
-        // useFreshPayload is true (dashboard + screenshot).
-        // When OCR returned nothing but vision base64 is available, append a hint so
-        // vision-capable models know to examine the attached image.
-        const freshContent = (() => {
-          if (!useFreshPayload) return enrichedText
-          if (ocrText) return enrichedText
-          if (visionB64) return `${enrichedText}\n\n[A screenshot is attached. Please analyse it and describe what you see.]`
-          return enrichedText
-        })()
         const freshUserMessage: Record<string, unknown> | null = useFreshPayload
-          ? { role: 'user', content: freshContent, ...(visionB64 ? { images: [visionB64] } : {}) }
+          ? { role: 'user', content: enrichedText, ...(visionB64 ? { images: [visionB64] } : {}) }
           : null
 
         let answered = false
@@ -1325,7 +1307,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
             : [{ role: 'system', content: butlerPrompt }, ...processedMessages]
           console.log('[sendWithTriggerAndImage] butler call | model:', modelId,
             '| freshPayload:', useFreshPayload,
-            '| contentLength:', useFreshPayload ? freshContent.length : enrichedText?.length,
+            '| contentLength:', enrichedText?.length,
             '| ocrText:', ocrText.length,
             '| has vision:', !!visionB64,
             '| msg count:', butlerMessages.length,
@@ -1334,7 +1316,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
             method: 'POST',
             headers: buildHeaders(secret),
             body: JSON.stringify({
-              modelId,
+              modelId: modelId,
               messages: butlerMessages,
             }),
             signal: AbortSignal.timeout(LLM_FETCH_TIMEOUT_MS),

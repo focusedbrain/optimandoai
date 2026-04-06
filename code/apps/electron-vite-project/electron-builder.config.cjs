@@ -7,10 +7,10 @@ const appDir = __dirname
 
 /**
  * Parsed by scripts/kill-wr-desk.cjs — must contain a line matching:
- *   return 'C:\\build-output\\build010'
+ *   return 'C:\\build-output\\build011'
  */
 function windowsOutputDirMarker() {
-  return 'C:\\build-output\\build010'
+  return 'C:\\build-output\\build011'
 }
 
 const workspaceRoot = path.resolve(appDir, '../..')
@@ -86,6 +86,7 @@ module.exports = {
     'node_modules/postgres-*/**',
     'node_modules/pg-int8/**',
     'node_modules/tesseract.js/**',
+    'node_modules/tesseract.js-core/**',
     'node_modules/node-fetch/**',
     'node_modules/whatwg-url/**',
     'node_modules/tr46/**',

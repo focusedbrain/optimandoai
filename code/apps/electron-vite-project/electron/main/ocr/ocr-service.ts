@@ -134,7 +134,8 @@ export class OCRService {
       // In dev mode: all three options are omitted → Tesseract uses its built-in
       // defaults (CDN for lang data, package-local worker and core paths).
 
-      this.worker = await createWorker(language, 1, {
+      const INIT_TIMEOUT_MS = 30_000
+      const workerPromise = createWorker(language, 1, {
         ...workerOptions,
         logger: (m) => {
           if (m.status === 'recognizing text') {
@@ -142,10 +143,15 @@ export class OCRService {
           }
         },
         errorHandler: (err) => {
-          console.error('[OCR] Worker error:', err)
-          this.lastError = (err as any).message || String(err)
+          console.error('[OCR] Worker error:', err instanceof Error ? err.message : JSON.stringify(err))
+          this.lastError = (err as any).message || JSON.stringify(err) || String(err)
         },
       })
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error(`Tesseract worker initialization timed out after ${INIT_TIMEOUT_MS}ms`)), INIT_TIMEOUT_MS)
+      )
+
+      this.worker = await Promise.race([workerPromise, timeoutPromise])
 
       this.currentLanguage = language
       this.lastError = null
@@ -153,9 +159,10 @@ export class OCRService {
       console.log(`[OCR] Worker initialized successfully`)
     } catch (error: any) {
       this.ocrAvailable = false
-      console.error('[OCR] Failed to initialize worker:', error)
+      const msg = error?.message || JSON.stringify(error) || String(error)
+      console.error('[OCR] Failed to initialize worker:', msg)
       console.error('[OCR] Worker initialization failed — OCR will not be available for scanned documents.')
-      this.lastError = error.message || String(error)
+      this.lastError = msg
       throw error
     }
   }

@@ -1049,7 +1049,10 @@ process.on('SIGINT', () => {
 process.on('uncaughtException', (err: any) => {
   // Silently ignore EPIPE errors (broken stdout/stderr pipe from background terminal)
   if (err?.code === 'EPIPE') return
-  console.error('[MAIN] Uncaught exception:', err)
+  const detail = err instanceof Error
+    ? `${err.message}\n${err.stack}`
+    : JSON.stringify(err, Object.getOwnPropertyNames(err || {}))
+  console.error('[MAIN] Uncaught exception:', detail)
   // Don't exit - try to keep running
 })
 
@@ -2332,7 +2335,10 @@ app.commandLine.appendSwitch('no-sandbox')
 process.on('uncaughtException', (error: any) => {
   // Silently ignore EPIPE errors (broken stdout/stderr pipe from background terminal)
   if (error?.code === 'EPIPE') return
-  console.error('[MAIN] Uncaught exception:', error)
+  const detail = error instanceof Error
+    ? `${error.message}\n${error.stack}`
+    : JSON.stringify(error, Object.getOwnPropertyNames(error || {}))
+  console.error('[MAIN] Uncaught exception:', detail)
 })
 
 process.on('unhandledRejection', (reason) => {
