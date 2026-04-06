@@ -23,7 +23,8 @@ import {
   PopupChatView,
   P2PChatPlaceholder,
   P2PStreamPlaceholder,
-  GroupChatPlaceholder
+  GroupChatPlaceholder,
+  AddModeWizardHost,
 } from './ui/components'
 import { WRGuardWorkspace, useWRGuardStore } from './wrguard'
 import { formatFingerprintShort } from './handshake/fingerprint'
@@ -2211,6 +2212,7 @@ function PopupChatApp() {
   
   return (
     <div style={containerStyles}>
+      <AddModeWizardHost theme={theme} />
       {/* Toast Notification */}
       {toastMessage && (
         <div style={{

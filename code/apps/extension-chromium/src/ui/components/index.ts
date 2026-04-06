@@ -6,6 +6,7 @@
 
 export { ModeSelect } from './ModeSelect'
 export { CustomModeWizard } from './CustomModeWizard'
+export { AddModeWizardHost } from './AddModeWizardHost'
 export { ComposerToolbelt } from './ComposerToolbelt'
 export { AIAssistPopover } from './AIAssistPopover'
 export { ModeHeaderBadge } from './ModeHeaderBadge'

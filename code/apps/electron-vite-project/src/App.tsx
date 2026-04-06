@@ -8,7 +8,7 @@ import SettingsView from './components/SettingsView'
 import EmailInboxView from './components/EmailInboxView'
 import EmailInboxBulkView from './components/EmailInboxBulkView'
 import WrChatDashboardPanel from './components/WrChatDashboardPanel'
-import { WrMultiTriggerBar } from '@ext/ui/components'
+import { WrMultiTriggerBar, AddModeWizardHost } from '@ext/ui/components'
 import { useEmailInboxStore, type InboxFilter } from './stores/useEmailInboxStore'
 import { subscribeInboxNewMessagesBackgroundRefresh } from './utils/inboxNewMessagesBackgroundRefresh'
 import { registerWrDeskOptimizerHttpBridge } from './lib/wrDeskOptimizerHttpBridge'
@@ -414,6 +414,7 @@ function App() {
         <DebugLogViewer />
         {/* === END TEMPORARY DEBUG LOG VIEWER === */}
       </main>
+      <AddModeWizardHost theme={extensionTheme} />
     </div>
   )
 }

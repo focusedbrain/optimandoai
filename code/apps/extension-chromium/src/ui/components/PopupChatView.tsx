@@ -13,11 +13,6 @@ import { formatWatchdogAlert, type WatchdogThreat } from '../../utils/formatWatc
 import { normaliseTriggerTag } from '../../utils/normaliseTriggerTag'
 import { enrichRouteTextWithOcr } from '../../services/processFlow'
 import { WRCHAT_APPEND_ASSISTANT_EVENT, useChatFocusStore } from '../../stores/chatFocusStore'
-import { useUIStore } from '../../stores/useUIStore'
-import { useCustomModesStore } from '../../stores/useCustomModesStore'
-import { CustomModeWizard } from './CustomModeWizard'
-import { WRCHAT_OPEN_CUSTOM_MODE_WIZARD_EVENT } from './wrMultiTrigger/WrMultiTriggerBar'
-import type { LightboxTheme } from '../../shared/ui/lightboxTheme'
 import { getChatFocusLlmPrefix } from '../../utils/chatFocusLlmPrefix'
 import { prependHiddenContextToLastUserContent } from '../../utils/prependChatFocusToLastUser'
 import ChatFocusBanner from './ChatFocusBanner'
@@ -29,14 +24,6 @@ import {
 } from '../../utils/image-resolve'
 
 const BASE_URL = 'http://127.0.0.1:51248'
-
-function dashboardThemeToLightbox(theme: string): LightboxTheme {
-  const t = theme.toLowerCase()
-  if (t === 'dark') return 'dark'
-  if (t === 'pro') return 'professional'
-  if (t === 'standard') return 'default'
-  return 'default'
-}
 
 /** One emoji per pinned slot (heart, football, …) — not pill buttons. */
 const PINNED_TRIGGER_EMOJIS = [
@@ -321,11 +308,6 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
   const [showTagsMenu, setShowTagsMenu] = useState(false)
   /** When false, skip persisting until localStorage transcript has been read (dashboard embed). */
   const [transcriptHydrated, setTranscriptHydrated] = useState(() => !persistTranscriptStorageKey)
-  /** Electron header "Add Mode" dispatches WRCHAT_OPEN_CUSTOM_MODE_WIZARD_EVENT — docked UI uses ModeSelect instead. */
-  const [addModeWizardOpen, setAddModeWizardOpen] = useState(false)
-  const setWorkspace = useUIStore((s) => s.setWorkspace)
-  const setMode = useUIStore((s) => s.setMode)
-  const addMode = useCustomModesStore((s) => s.addMode)
   /** Capture tag/command prompt — same surface as sidepanel, filtered by promptContext (popup vs dashboard). */
   const [showTriggerPrompt, setShowTriggerPrompt] = useState<{
     mode: string
@@ -398,12 +380,6 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
     }
     window.addEventListener(WRCHAT_APPEND_ASSISTANT_EVENT, onAppend as EventListener)
     return () => window.removeEventListener(WRCHAT_APPEND_ASSISTANT_EVENT, onAppend as EventListener)
-  }, [])
-
-  useEffect(() => {
-    const onOpenWizard = () => setAddModeWizardOpen(true)
-    window.addEventListener(WRCHAT_OPEN_CUSTOM_MODE_WIZARD_EVENT, onOpenWizard)
-    return () => window.removeEventListener(WRCHAT_OPEN_CUSTOM_MODE_WIZARD_EVENT, onOpenWizard)
   }, [])
 
   // Check connection status
@@ -2009,7 +1985,6 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
   const captureLabelColor = isLight ? '#475569' : 'rgba(255,255,255,0.70)'
 
   return (
-    <>
     <div
       style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden', position: 'relative', background: colors.bg }}
       onDragOver={handleDragOver}
@@ -2842,18 +2817,6 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
         </div>
       </div>
     </div>
-
-    <CustomModeWizard
-      open={addModeWizardOpen}
-      onClose={() => setAddModeWizardOpen(false)}
-      theme={dashboardThemeToLightbox(theme)}
-      onSave={(draft) => {
-        const id = addMode(draft)
-        setWorkspace('wr-chat')
-        setMode(id)
-      }}
-    />
-    </>
   )
 }
 

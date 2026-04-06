@@ -1,4 +1,5 @@
 import type { TriggerProjectEntry } from '../types/triggerTypes'
+import { ensureLaunchSecretForElectronHttp, fetchWithElectronHttpReady } from './ensureLaunchSecretForElectronHttp'
 
 const BASE_URL = 'http://127.0.0.1:51248'
 
@@ -46,12 +47,15 @@ function buildHeaders(secret: string | null): Record<string, string> {
  */
 export async function fetchTriggerProjects(): Promise<TriggerProjectEntry[]> {
   try {
+    await ensureLaunchSecretForElectronHttp()
     const secret = await getLaunchSecret()
-    const res = await fetch(`${BASE_URL}/api/projects/trigger-list`, {
-      method: 'GET',
-      headers: buildHeaders(secret),
-      signal: AbortSignal.timeout(15_000),
-    })
+    const res = await fetchWithElectronHttpReady(() =>
+      fetch(`${BASE_URL}/api/projects/trigger-list`, {
+        method: 'GET',
+        headers: buildHeaders(secret),
+        signal: AbortSignal.timeout(15_000),
+      }),
+    )
     if (!res.ok) return []
     const data: unknown = await res.json().catch(() => null)
     if (!Array.isArray(data)) return []

@@ -39,6 +39,7 @@ import { ThirdPartyLicensesView } from './bundled-tools'
 import { WrChatCaptureButton } from './ui/components/WrChatCaptureButton'
 import { WrChatDiffButton } from './ui/components/WrChatDiffButton'
 import WrMultiTriggerBar from './ui/components/wrMultiTrigger/WrMultiTriggerBar'
+import { AddModeWizardHost } from './ui/components/AddModeWizardHost'
 import ChatFocusBanner from './ui/components/ChatFocusBanner'
 import { WRCHAT_APPEND_ASSISTANT_EVENT, useChatFocusStore } from './stores/chatFocusStore'
 import { getChatFocusLlmPrefix } from './utils/chatFocusLlmPrefix'
@@ -4984,7 +4985,8 @@ function SidepanelOrchestrator() {
       }}>
         {/* Electron Not Running Dialog */}
         <ElectronNotRunningDialog />
-        
+        <AddModeWizardHost theme={theme} />
+
         {/* Top Bar: 2 Small Icons + Toggle */}
         <div style={{ 
           padding: '8px 12px',
@@ -6967,7 +6969,8 @@ function SidepanelOrchestrator() {
       }}>
         {/* Electron Not Running Dialog */}
         <ElectronNotRunningDialog />
-        
+        <AddModeWizardHost theme={theme} />
+
         {/* Top Bar: Icons + Toggle */}
         <div style={{ 
           padding: '8px 12px',
@@ -8267,7 +8270,8 @@ function SidepanelOrchestrator() {
     }}>
       {/* Electron Not Running Dialog */}
       <ElectronNotRunningDialog />
-      
+      <AddModeWizardHost theme={theme} />
+
       {/* Session Controls at the very top - Two Rows */}
       <div style={{ 
         padding: '12px 16px',

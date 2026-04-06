@@ -186,7 +186,7 @@ export const ModeSelect: React.FC<ModeSelectProps> = ({
 
           <optgroup label="Add" style={optionStyle}>
             <option value={ADD_MODE_VALUE} style={optionStyle}>
-              + Add Mode…
+              + Add Mode
             </option>
           </optgroup>
 

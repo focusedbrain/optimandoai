@@ -309,19 +309,12 @@ What information would you like to add?`
 
   const handleAddModeRowClick = useCallback(() => {
     setDropdownOpen(false)
-    const openWizard = () => {
-      try {
-        window.dispatchEvent(new CustomEvent(WRCHAT_OPEN_CUSTOM_MODE_WIZARD_EVENT))
-      } catch {
-        /* noop */
-      }
+    try {
+      window.dispatchEvent(new CustomEvent(WRCHAT_OPEN_CUSTOM_MODE_WIZARD_EVENT))
+    } catch {
+      /* noop */
     }
-    if (onEnsureWrChatOpen) {
-      onEnsureWrChatOpen(openWizard)
-    } else {
-      openWizard()
-    }
-  }, [onEnsureWrChatOpen])
+  }, [])
 
   const isLight = theme === 'standard'
   const isDark = theme === 'dark'
@@ -459,7 +452,7 @@ What information would you like to add?`
               <span style={{ fontSize: 14, lineHeight: 1 }} aria-hidden>
                 ✨
               </span>
-              <span>+ Add Mode…</span>
+              <span>+ Add Mode</span>
             </button>
           </li>
         </ul>

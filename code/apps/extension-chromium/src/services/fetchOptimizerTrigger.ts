@@ -1,3 +1,5 @@
+import { ensureLaunchSecretForElectronHttp, fetchWithElectronHttpReady } from './ensureLaunchSecretForElectronHttp'
+
 const BASE_URL = 'http://127.0.0.1:51248'
 
 function getLaunchSecret(): Promise<string | null> {
@@ -40,10 +42,14 @@ function buildHeaders(secret: string | null): Record<string, string> {
 
 export async function getOptimizerStatus(projectId: string): Promise<{ enabled: boolean; intervalMs: number }> {
   try {
+    await ensureLaunchSecretForElectronHttp()
     const secret = await getLaunchSecret()
-    const res = await fetch(
-      `${BASE_URL}/api/projects/${encodeURIComponent(projectId)}/optimize/status`,
-      { method: 'GET', headers: buildHeaders(secret), signal: AbortSignal.timeout(15_000) },
+    const res = await fetchWithElectronHttpReady(() =>
+      fetch(`${BASE_URL}/api/projects/${encodeURIComponent(projectId)}/optimize/status`, {
+        method: 'GET',
+        headers: buildHeaders(secret),
+        signal: AbortSignal.timeout(15_000),
+      }),
     )
     if (!res.ok) return { enabled: false, intervalMs: 300_000 }
     const j = (await res.json().catch(() => null)) as { enabled?: boolean; intervalMs?: number } | null
@@ -61,15 +67,15 @@ export async function setOptimizerContinuous(
   enabled: boolean,
 ): Promise<{ enabled: boolean; intervalMs: number }> {
   try {
+    await ensureLaunchSecretForElectronHttp()
     const secret = await getLaunchSecret()
-    const res = await fetch(
-      `${BASE_URL}/api/projects/${encodeURIComponent(projectId)}/optimize/continuous`,
-      {
+    const res = await fetchWithElectronHttpReady(() =>
+      fetch(`${BASE_URL}/api/projects/${encodeURIComponent(projectId)}/optimize/continuous`, {
         method: 'POST',
         headers: buildHeaders(secret),
         body: JSON.stringify({ enabled }),
         signal: AbortSignal.timeout(30_000),
-      },
+      }),
     )
     if (!res.ok) return { enabled: false, intervalMs: 300_000 }
     const j = (await res.json().catch(() => null)) as { enabled?: boolean; intervalMs?: number } | null
@@ -84,12 +90,15 @@ export async function setOptimizerContinuous(
 
 export async function triggerOptimizerSnapshot(projectId: string): Promise<void> {
   try {
+    await ensureLaunchSecretForElectronHttp()
     const secret = await getLaunchSecret()
-    await fetch(`${BASE_URL}/api/projects/${encodeURIComponent(projectId)}/optimize/snapshot`, {
-      method: 'POST',
-      headers: buildHeaders(secret),
-      signal: AbortSignal.timeout(600_000),
-    })
+    await fetchWithElectronHttpReady(() =>
+      fetch(`${BASE_URL}/api/projects/${encodeURIComponent(projectId)}/optimize/snapshot`, {
+        method: 'POST',
+        headers: buildHeaders(secret),
+        signal: AbortSignal.timeout(600_000),
+      }),
+    )
   } catch {
     /* noop */
   }
