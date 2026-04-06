@@ -6,6 +6,8 @@
  * used with any state management solution (Zustand, Redux, vanilla, etc.)
  */
 
+import { isCustomModeId } from './customModeTypes'
+
 // =============================================================================
 // Core Types
 // =============================================================================
@@ -16,9 +18,14 @@
 export type Workspace = 'wr-chat' | 'mailguard' | 'overlay' | 'wrguard'
 
 /**
- * Modes within the WR Chat workspace
+ * Built-in modes within the WR Chat workspace (unchanged set).
  */
-export type Mode = 'commands' | 'p2p' | 'p2p_stream' | 'group' | 'admin_policies'
+export type BuiltInMode = 'commands' | 'p2p' | 'p2p_stream' | 'group' | 'admin_policies'
+
+/**
+ * WR Chat mode: built-ins or user-defined (`custom:<uuid>`).
+ */
+export type Mode = BuiltInMode | string
 
 /**
  * Composer input modes
@@ -63,7 +70,7 @@ export const initialUIState: UIState = {
 // =============================================================================
 
 export interface ModeInfo {
-  id: Mode
+  id: BuiltInMode
   label: string
   shortLabel: string
   icon: string
@@ -72,7 +79,7 @@ export interface ModeInfo {
   requiresAdmin: boolean
 }
 
-export const MODE_INFO: Record<Mode, ModeInfo> = {
+export const MODE_INFO: Record<BuiltInMode, ModeInfo> = {
   commands: {
     id: 'commands',
     label: 'Commands',
@@ -164,14 +171,14 @@ export const WORKSPACE_INFO: Record<Workspace, WorkspaceInfo> = {
  */
 export function switchMode(state: UIState, mode: Mode): UIState {
   // Don't allow switching to admin mode unless user is admin
-  if (mode === 'admin_policies' && state.role !== 'admin') {
+  if (!isCustomModeId(mode) && mode === 'admin_policies' && state.role !== 'admin') {
     return state
   }
-  
+
   return {
     ...state,
     mode,
-    composerMode: 'text' // Reset to text when switching modes
+    composerMode: 'text', // Reset to text when switching modes
   }
 }
 
@@ -203,16 +210,16 @@ export function setComposerMode(state: UIState, composerMode: ComposerMode): UIS
  */
 export function setRole(state: UIState, role: Role): UIState {
   // If switching from admin to user, reset admin mode
-  if (role === 'user' && state.mode === 'admin_policies') {
+  if (role === 'user' && !isCustomModeId(state.mode) && state.mode === 'admin_policies') {
     return {
       ...state,
       role,
-      mode: 'commands'
+      mode: 'commands',
     }
   }
   return {
     ...state,
-    role
+    role,
   }
 }
 
@@ -228,7 +235,10 @@ export function getDisplayLabel(state: UIState): string {
   if (state.workspace !== 'wr-chat') {
     return workspace.label
   }
-  const mode = MODE_INFO[state.mode]
+  if (isCustomModeId(state.mode)) {
+    return `${workspace.label} · Custom mode`
+  }
+  const mode = MODE_INFO[state.mode as BuiltInMode]
   return `${workspace.label} · ${mode.label}`
 }
 
@@ -237,10 +247,16 @@ export function getDisplayLabel(state: UIState): string {
  */
 export function getShortDisplayLabel(state: UIState): { workspace: string; mode: string } {
   const workspace = WORKSPACE_INFO[state.workspace]
-  const mode = MODE_INFO[state.mode]
+  if (state.workspace !== 'wr-chat') {
+    return { workspace: workspace.label, mode: '' }
+  }
+  if (isCustomModeId(state.mode)) {
+    return { workspace: workspace.label, mode: 'Custom' }
+  }
+  const mode = MODE_INFO[state.mode as BuiltInMode]
   return {
     workspace: workspace.label,
-    mode: state.workspace === 'wr-chat' ? mode.shortLabel : ''
+    mode: mode.shortLabel,
   }
 }
 
@@ -251,17 +267,30 @@ export function isPlaceholderMode(state: UIState): boolean {
   if (state.workspace !== 'wr-chat') {
     return false // MailGuard and Overlay are functional
   }
-  return MODE_INFO[state.mode].isPlaceholder
+  if (isCustomModeId(state.mode)) {
+    return false
+  }
+  return MODE_INFO[state.mode as BuiltInMode].isPlaceholder
 }
 
 /**
  * Get available modes for the current role
  */
-export function getAvailableModes(role: Role): Mode[] {
-  return (Object.keys(MODE_INFO) as Mode[]).filter(mode => {
+export function getAvailableModes(role: Role): BuiltInMode[] {
+  return (Object.keys(MODE_INFO) as BuiltInMode[]).filter((mode) => {
     const info = MODE_INFO[mode]
     return !info.requiresAdmin || role === 'admin'
   })
+}
+
+/**
+ * Map UI mode to a built-in for capability checks. Custom modes inherit Commands behavior by default.
+ */
+export function resolveModeForCapabilities(mode: Mode): BuiltInMode {
+  if (isCustomModeId(mode)) {
+    return 'commands'
+  }
+  return mode as BuiltInMode
 }
 
 

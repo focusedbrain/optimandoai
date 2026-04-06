@@ -42,6 +42,11 @@ import WrMultiTriggerBar from './ui/components/wrMultiTrigger/WrMultiTriggerBar'
 import ChatFocusBanner from './ui/components/ChatFocusBanner'
 import { WRCHAT_APPEND_ASSISTANT_EVENT, useChatFocusStore } from './stores/chatFocusStore'
 import { getChatFocusLlmPrefix } from './utils/chatFocusLlmPrefix'
+import { getCustomModeLlmPrefix, mergeLlmContextPrefixes } from './utils/customModeLlmPrefix'
+import {
+  getActiveCustomModeRuntime,
+  getEffectiveLlmModelNameForActiveMode,
+} from './stores/activeCustomModeRuntime'
 import { prependHiddenContextToLastUserContent } from './utils/prependChatFocusToLastUser'
 import { formatWatchdogAlert, type WatchdogThreat } from './utils/formatWatchdogAlert'
 import { WRGuardWorkspace, useWRGuardStore } from './wrguard'
@@ -1288,7 +1293,7 @@ function SidepanelOrchestrator() {
     }, 0)
 
     const resolveWrChatModelId = (): string => {
-      const m = (activeLlmModelRef.current || activeLlmModel || '').trim()
+      const m = getEffectiveLlmModelNameForActiveMode(activeLlmModelRef.current, activeLlmModel)
       if (m) return m
       const first = availableModels[0]?.name
       if (first) return first
@@ -1342,16 +1347,24 @@ function SidepanelOrchestrator() {
       }
 
       const enrichedTriggerText = enrichRouteTextWithOcr(triggerText, ocrText)
+      const sessionKeyForRouteScreenshot = getActiveCustomModeRuntime()?.sessionId?.trim() || sessionKey
+      const mergedContextPrefixScreenshot = mergeLlmContextPrefixes(
+        getChatFocusLlmPrefix(useChatFocusStore.getState()),
+        getCustomModeLlmPrefix(getActiveCustomModeRuntime()),
+      )
+      const enrichedRouteTextForScreenshot = mergedContextPrefixScreenshot
+        ? `${mergedContextPrefixScreenshot}\n\n${enrichedTriggerText}`
+        : enrichedTriggerText
 
       // Route the input with OCR-enriched text
       const routingDecision = await routeInput(
-        enrichedTriggerText,
+        enrichedRouteTextForScreenshot,
         true, // hasImage = true (screenshot always has image)
         currentConnectionStatus,
         currentSessionName,
         currentModel,
         currentUrl,
-        sessionKey
+        sessionKeyForRouteScreenshot
       )
       
       
@@ -1363,7 +1376,7 @@ function SidepanelOrchestrator() {
         }])
         
         // Process with each matched agent
-        const agents = await loadAgentsFromSession(sessionKey)
+        const agents = await loadAgentsFromSession(sessionKeyForRouteScreenshot)
         
         for (const match of routingDecision.matchedAgents) {
           const agent = agents.find(a => a.id === match.agentId)
@@ -1386,7 +1399,7 @@ function SidepanelOrchestrator() {
             const errorMsg = `⚠️ Brain resolution failed for ${match.agentName}:\n${modelResolution.error}`
             console.warn('[Sidepanel] Brain resolution error:', modelResolution)
             if (match.agentBoxId) {
-              await updateAgentBoxOutput(match.agentBoxId, errorMsg, `Agent: ${match.agentName} | Error: ${modelResolution.errorType}`, sessionKey, 'sidepanel')
+              await updateAgentBoxOutput(match.agentBoxId, errorMsg, `Agent: ${match.agentName} | Error: ${modelResolution.errorType}`, sessionKeyForRouteScreenshot, 'sidepanel')
             }
             setChatMessages(prev => [...prev, { role: 'assistant' as const, text: errorMsg }])
             continue
@@ -1403,7 +1416,7 @@ function SidepanelOrchestrator() {
             )
             if (keyError) {
               const keyMsg = `⚠️ ${match.agentName}: ${keyError}`
-              if (match.agentBoxId) await updateAgentBoxOutput(match.agentBoxId, keyMsg, `Missing API key`, sessionKey, 'sidepanel')
+              if (match.agentBoxId) await updateAgentBoxOutput(match.agentBoxId, keyMsg, `Missing API key`, sessionKeyForRouteScreenshot, 'sidepanel')
               setChatMessages(prev => [...prev, { role: 'assistant' as const, text: keyMsg }])
               continue
             }
@@ -3057,7 +3070,7 @@ function SidepanelOrchestrator() {
     const routeTag = normaliseTriggerTag(routeText)
 
     const resolveWrChatModelId = (): string => {
-      const m = (activeLlmModelRef.current || activeLlmModel || '').trim()
+      const m = getEffectiveLlmModelNameForActiveMode(activeLlmModelRef.current, activeLlmModel)
       if (m) return m
       const first = availableModels[0]?.name
       if (first) return first
@@ -3135,9 +3148,13 @@ function SidepanelOrchestrator() {
       // When routeText is empty (capture-only), use OCR text so agent tags in the image can match
       const effectiveRouteTextForMatch = routeText || ocrText || (effectiveImageUrl ? '[screenshot]' : '')
       const enrichedTriggerText = enrichRouteTextWithOcr(effectiveRouteTextForMatch, ocrText)
-      const focusPrefixTrigger = getChatFocusLlmPrefix(useChatFocusStore.getState())
-      const enrichedTriggerTextForLlm = focusPrefixTrigger
-        ? `${focusPrefixTrigger}\n\n${enrichedTriggerText}`
+      const sessionKeyForRouteTrigger = getActiveCustomModeRuntime()?.sessionId?.trim() || sessionKey
+      const mergedContextPrefixTrigger = mergeLlmContextPrefixes(
+        getChatFocusLlmPrefix(useChatFocusStore.getState()),
+        getCustomModeLlmPrefix(getActiveCustomModeRuntime()),
+      )
+      const enrichedTriggerTextForLlm = mergedContextPrefixTrigger
+        ? `${mergedContextPrefixTrigger}\n\n${enrichedTriggerText}`
         : enrichedTriggerText
 
       // Route the input with OCR-enriched text
@@ -3148,7 +3165,7 @@ function SidepanelOrchestrator() {
         sessionName,
         currentModel,
         currentUrl,
-        sessionKey
+        sessionKeyForRouteTrigger
       )
       
       
@@ -3160,7 +3177,7 @@ function SidepanelOrchestrator() {
         }])
         
         // Process with each matched agent — load agents once for the whole batch
-        const agents = await loadAgentsFromSession(sessionKey)
+        const agents = await loadAgentsFromSession(sessionKeyForRouteTrigger)
         
         for (const match of routingDecision.matchedAgents) {
           const agent = agents.find(a => a.id === match.agentId)
@@ -3180,7 +3197,7 @@ function SidepanelOrchestrator() {
             const errorMsg = `⚠️ Brain resolution failed for ${match.agentName}:\n${modelResolution.error}`
             console.warn('[Sidepanel] Brain resolution error:', modelResolution)
             if (match.agentBoxId) {
-              await updateAgentBoxOutput(match.agentBoxId, errorMsg, `Agent: ${match.agentName} | Error: ${modelResolution.errorType}`, sessionKey, 'sidepanel')
+              await updateAgentBoxOutput(match.agentBoxId, errorMsg, `Agent: ${match.agentName} | Error: ${modelResolution.errorType}`, sessionKeyForRouteTrigger, 'sidepanel')
             }
             setChatMessages(prev => [...prev, { role: 'assistant' as const, text: errorMsg }])
             continue
@@ -3249,7 +3266,7 @@ function SidepanelOrchestrator() {
       } else {
         // No agent match — use butler response; skip loadAgentsFromSession since we already
         // know the count from the agents loaded during routing (routeInput loads them internally)
-        const butlerAgents = await loadAgentsFromSession(sessionKey)
+        const butlerAgents = await loadAgentsFromSession(sessionKeyForRouteTrigger)
         const butlerPrompt = getButlerSystemPrompt(
           sessionName,
           butlerAgents.filter((a: any) => a.enabled).length,
@@ -3555,8 +3572,9 @@ function SidepanelOrchestrator() {
     
     if (isLlmLoading) return
     
-    // Check if model is available
-    if (!activeLlmModel) {
+    // Check if model is available (custom mode can supply model name without picker selection)
+    const effectiveLlmModel = getEffectiveLlmModelNameForActiveMode(activeLlmModelRef.current, activeLlmModel)
+    if (!effectiveLlmModel) {
       setChatMessages([...chatMessages, {
         role: 'assistant' as const,
         text: `⚠️ No LLM model available. Please:\n\n1. Go to Admin panel (toggle at top)\n2. Open LLM Settings\n3. Install a trusted ultra-lightweight model:\n   • TinyLlama 1.1B (0.6GB) - Recommended\n   • Gemma 2B Q2_K (0.9GB) - Google\n   • StableLM 1.6B (1.0GB) - Stability AI\n4. Come back and try again!`
@@ -3587,7 +3605,8 @@ function SidepanelOrchestrator() {
     
     try {
       const baseUrl = 'http://127.0.0.1:51248'
-      
+      const sessionKeyForRoute = getActiveCustomModeRuntime()?.sessionId?.trim() || sessionKey
+
       // =================================================================
       // STEP 1: GET CURRENT CONTEXT
       // =================================================================
@@ -3620,8 +3639,13 @@ function SidepanelOrchestrator() {
       // When user typed nothing (screenshot-only send), use OCR text so agent tags can match
       const effectiveLlmRouteText = llmRouteText || ocrText || (resolvedCurrentTurnImageUrl ? '[screenshot]' : '')
       const enrichedRouteText = enrichRouteTextWithOcr(effectiveLlmRouteText, ocrText)
-      const focusPrefix = getChatFocusLlmPrefix(useChatFocusStore.getState())
-      const enrichedRouteTextForLlm = focusPrefix ? `${focusPrefix}\n\n${enrichedRouteText}` : enrichedRouteText
+      const mergedContextPrefix = mergeLlmContextPrefixes(
+        getChatFocusLlmPrefix(useChatFocusStore.getState()),
+        getCustomModeLlmPrefix(getActiveCustomModeRuntime()),
+      )
+      const enrichedRouteTextForLlm = mergedContextPrefix
+        ? `${mergedContextPrefix}\n\n${enrichedRouteText}`
+        : enrichedRouteText
 
       // =================================================================
       // STEP 3: ROUTE INPUT + BUILD LLM MESSAGES (in parallel)
@@ -3635,9 +3659,9 @@ function SidepanelOrchestrator() {
           hasImage,
           connectionStatus,
           sessionName,
-          activeLlmModel,
+          effectiveLlmModel,
           currentUrl,
-          sessionKey
+          sessionKeyForRoute
         ),
         processMessagesWithOCR(
           newMessages,
@@ -3677,8 +3701,8 @@ function SidepanelOrchestrator() {
         }
       }
 
-      if (focusPrefix) {
-        processedMessagesForLlm = prependHiddenContextToLastUserContent(processedMessagesForLlm, focusPrefix)
+      if (mergedContextPrefix) {
+        processedMessagesForLlm = prependHiddenContextToLastUserContent(processedMessagesForLlm, mergedContextPrefix)
       }
       
       // =================================================================
@@ -3723,7 +3747,7 @@ function SidepanelOrchestrator() {
             effectiveInputForAgent,
             ocrText,
             processedMessagesForLlm,
-            activeLlmModel,
+            effectiveLlmModel,
             baseUrl,
             resolvedCurrentTurnImageUrl,
             { preResolvedVisionB64: resolvedCurrentTurnImageUrl },
@@ -3741,7 +3765,7 @@ function SidepanelOrchestrator() {
               const reasoningContext = `**Agent:** ${match.agentIcon} ${match.agentName}\n**Match:** ${match.matchDetails}\n**Input:** ${displayText}`
               
               for (const boxId of allBoxIds) {
-                await updateAgentBoxOutput(boxId, result.output, reasoningContext, sessionKey, 'sidepanel')
+                await updateAgentBoxOutput(boxId, result.output, reasoningContext, sessionKeyForRoute, 'sidepanel')
               }
               
               const agentConfirm = `[Agent: ${match.agentName}] responded. See agent box.`
@@ -3779,7 +3803,7 @@ function SidepanelOrchestrator() {
         // =================================================================
         const butlerResult = await getButlerResponse(
           processedMessagesForLlm,
-          activeLlmModel,
+          effectiveLlmModel,
           baseUrl,
           resolvedCurrentTurnImageUrl,
           { preResolvedVisionB64: resolvedCurrentTurnImageUrl },

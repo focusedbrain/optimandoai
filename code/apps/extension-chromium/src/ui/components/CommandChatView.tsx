@@ -7,6 +7,7 @@
 
 import React, { useState, useRef, useEffect, useCallback } from 'react'
 import { useUIStore } from '../../stores/useUIStore'
+import { useActiveCustomModeRuntime } from '../../stores/activeCustomModeRuntime'
 import { getPrimaryButtonLabel, shouldShowModelInButton } from '../../shared/ui/capabilities'
 import ComposerToolbelt from './ComposerToolbelt'
 import AIAssistPopover from './AIAssistPopover'
@@ -55,6 +56,10 @@ export const CommandChatView: React.FC<CommandChatViewProps> = ({
   onRefreshModels
 }) => {
   const { mode, composerMode, setComposerMode } = useUIStore()
+  const customModeRuntime = useActiveCustomModeRuntime()
+  const resolvedModelLabel = customModeRuntime?.modelName?.trim() || modelName
+  const resolvedActiveLlm =
+    customModeRuntime?.modelName?.trim() || activeLlmModel || availableModels[0]?.name || 'No model'
   const [messages, setMessages] = useState<ChatMessage[]>(initialMessages)
   const [inputText, setInputText] = useState('')
   const [showAIAssist, setShowAIAssist] = useState(false)
@@ -428,7 +433,7 @@ export const CommandChatView: React.FC<CommandChatViewProps> = ({
                   }}
                 >
                   <span style={styles.sendText}>{isLoading ? '...' : buttonLabel}</span>
-                  <span style={styles.sendModel}>{activeLlmModel || availableModels[0]?.name || 'No model'}</span>
+                  <span style={styles.sendModel}>{resolvedActiveLlm}</span>
                 </button>
                 <button
                   onClick={async () => {
@@ -494,8 +499,14 @@ export const CommandChatView: React.FC<CommandChatViewProps> = ({
                           fontSize: '12px',
                           cursor: 'pointer',
                           color: effectiveTheme === 'standard' ? '#0f172a' : 'inherit',
-                          background: m.name === activeLlmModel ? 'rgba(34,197,94,0.12)' : 'transparent',
-                          borderLeft: m.name === activeLlmModel ? '3px solid #22c55e' : '3px solid transparent'
+                          background:
+                            m.name === (customModeRuntime?.modelName?.trim() || activeLlmModel)
+                              ? 'rgba(34,197,94,0.12)'
+                              : 'transparent',
+                          borderLeft:
+                            m.name === (customModeRuntime?.modelName?.trim() || activeLlmModel)
+                              ? '3px solid #22c55e'
+                              : '3px solid transparent'
                         }}
                       >
                         {m.name}
@@ -515,7 +526,7 @@ export const CommandChatView: React.FC<CommandChatViewProps> = ({
               >
                 <span style={styles.sendText}>{isLoading ? '...' : buttonLabel}</span>
                 {showModelInButton && (
-                  <span style={styles.sendModel}>{modelName}</span>
+                  <span style={styles.sendModel}>{resolvedModelLabel}</span>
                 )}
               </button>
             )}

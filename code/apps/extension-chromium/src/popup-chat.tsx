@@ -17,6 +17,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react'
 import { createRoot } from 'react-dom/client'
 import { useUIStore } from './stores/useUIStore'
+import { isCustomModeId } from './shared/ui/customModeTypes'
 import { 
   CommandChatView,
   PopupChatView,
@@ -366,7 +367,10 @@ function PopupChatApp() {
   useEffect(() => {
     if (dockedWorkspace === 'wr-chat' && dockedSubmode === 'command') {
       useUIStore.getState().setWorkspace('wr-chat')
-      useUIStore.getState().setMode('commands')
+      const currentMode = useUIStore.getState().mode
+      if (!isCustomModeId(currentMode)) {
+        useUIStore.getState().setMode('commands')
+      }
     }
   }, [dockedWorkspace, dockedSubmode])
   const [hsPolicy, setHsPolicy] = useState<{ ai_processing_mode: 'none' | 'local_only' | 'internal_and_cloud' }>({ ai_processing_mode: 'local_only' })

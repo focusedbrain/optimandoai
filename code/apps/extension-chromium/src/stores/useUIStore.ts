@@ -9,6 +9,7 @@ import { create } from 'zustand'
 import {
   UIState,
   Mode,
+  BuiltInMode,
   Workspace,
   ComposerMode,
   Role,
@@ -20,7 +21,7 @@ import {
   getDisplayLabel,
   getShortDisplayLabel,
   isPlaceholderMode,
-  getAvailableModes
+  getAvailableModes,
 } from '../shared/ui/uiState'
 
 // =============================================================================
@@ -39,7 +40,7 @@ interface UIStoreState extends UIState {
   getDisplayLabel: () => string
   getShortDisplayLabel: () => { workspace: string; mode: string }
   isPlaceholder: () => boolean
-  getAvailableModes: () => Mode[]
+  getAvailableModes: () => BuiltInMode[]
 }
 
 // =============================================================================

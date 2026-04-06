@@ -5,7 +5,7 @@
  * This module provides pure functions for determining UI state.
  */
 
-import { Mode, ComposerMode, Role, UIState } from './uiState'
+import { Mode, ComposerMode, Role, UIState, BuiltInMode, resolveModeForCapabilities } from './uiState'
 
 // =============================================================================
 // Composer Button Configuration
@@ -34,7 +34,8 @@ export const COMPOSER_BUTTONS: ComposerButtonConfig[] = [
  * Get which composer buttons are enabled for a given mode
  */
 export function getEnabledComposerButtons(mode: Mode): Set<ComposerMode> {
-  switch (mode) {
+  const m: BuiltInMode = resolveModeForCapabilities(mode)
+  switch (m) {
     case 'commands':
       // Commands: Text, Capsule, AI Assist enabled; Audio/Video disabled
       return new Set(['text', 'capsule', 'ai_assist'])
@@ -68,7 +69,8 @@ export function isComposerButtonEnabled(mode: Mode, button: ComposerMode): boole
  * Get the primary action button label based on mode
  */
 export function getPrimaryButtonLabel(mode: Mode): string {
-  switch (mode) {
+  const m = resolveModeForCapabilities(mode)
+  switch (m) {
     case 'commands':
       return 'Run'
     case 'p2p':
@@ -87,7 +89,7 @@ export function getPrimaryButtonLabel(mode: Mode): string {
  * Only for Commands mode
  */
 export function shouldShowModelInButton(mode: Mode): boolean {
-  return mode === 'commands'
+  return resolveModeForCapabilities(mode) === 'commands'
 }
 
 /**
@@ -96,7 +98,8 @@ export function shouldShowModelInButton(mode: Mode): boolean {
  * In other modes: only inside AI Assist popover
  */
 export function getModelSelectorLocation(mode: Mode): 'button' | 'ai_assist_only' | 'hidden' {
-  switch (mode) {
+  const m = resolveModeForCapabilities(mode)
+  switch (m) {
     case 'commands':
       return 'button'
     case 'p2p':
@@ -114,7 +117,7 @@ export function getModelSelectorLocation(mode: Mode): 'button' | 'ai_assist_only
  * Should the composer be visible at all?
  */
 export function isComposerVisible(mode: Mode): boolean {
-  return mode !== 'admin_policies'
+  return resolveModeForCapabilities(mode) !== 'admin_policies'
 }
 
 /**
@@ -129,17 +132,18 @@ export function isAdminModeVisible(role: Role): boolean {
  */
 export function canPerformAction(state: UIState, action: 'send' | 'run' | 'ai_assist'): boolean {
   const { mode, composerMode, workspace } = state
-  
+  const m = resolveModeForCapabilities(mode)
+
   // Non-chat workspaces have their own logic
   if (workspace !== 'wr-chat') {
     return true
   }
-  
+
   switch (action) {
     case 'send':
-      return mode !== 'admin_policies' && mode !== 'commands'
+      return m !== 'admin_policies' && m !== 'commands'
     case 'run':
-      return mode === 'commands'
+      return m === 'commands'
     case 'ai_assist':
       return composerMode === 'ai_assist' && isComposerButtonEnabled(mode, 'ai_assist')
     default:
@@ -157,7 +161,8 @@ export type LayoutType = 'chat' | 'stream' | 'admin'
  * Get the layout type for a given mode
  */
 export function getLayoutType(mode: Mode): LayoutType {
-  switch (mode) {
+  const m = resolveModeForCapabilities(mode)
+  switch (m) {
     case 'p2p_stream':
       return 'stream'
     case 'admin_policies':
@@ -178,7 +183,7 @@ export function isChatListVisible(mode: Mode): boolean {
  * Should the video grid placeholder be visible?
  */
 export function isVideoGridVisible(mode: Mode): boolean {
-  return mode === 'p2p_stream'
+  return resolveModeForCapabilities(mode) === 'p2p_stream'
 }
 
 // =============================================================================
