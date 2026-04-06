@@ -14,8 +14,11 @@ export default function ChatFocusBanner({ theme = 'pro' }: { theme?: string }) {
   const textColor = isLight ? '#0f172a' : '#f1f5f9'
 
   let label: React.ReactNode
+  let hint: string
   if (chatFocusMode.mode === 'scam-watchdog') {
     label = <>🐕 ScamWatchdog</>
+    hint =
+      'Share anything that looks suspicious: photos, pasted text, links, or attachments. We help assess scam, fraud, or phishing risk.'
   } else {
     const icon = focusMeta?.projectIcon?.trim() || '📊'
     const title = focusMeta?.projectTitle?.trim() || 'Project'
@@ -24,6 +27,8 @@ export default function ChatFocusBanner({ theme = 'pro' }: { theme?: string }) {
         <span aria-hidden>{icon}</span> Optimizing: {title}
       </>
     )
+    hint =
+      'Add context the optimizer can use (goals, constraints, milestones, or files) so auto-optimization runs on solid information.'
   }
 
   return (
@@ -32,10 +37,10 @@ export default function ChatFocusBanner({ theme = 'pro' }: { theme?: string }) {
       style={{
         flexShrink: 0,
         display: 'flex',
-        alignItems: 'center',
+        alignItems: 'flex-start',
         justifyContent: 'space-between',
         gap: 8,
-        padding: '6px 10px',
+        padding: '8px 10px',
         marginBottom: 8,
         borderRadius: 8,
         background: bg,
@@ -45,7 +50,20 @@ export default function ChatFocusBanner({ theme = 'pro' }: { theme?: string }) {
         color: textColor,
       }}
     >
-      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</div>
+        <div
+          style={{
+            marginTop: 4,
+            fontSize: 10,
+            fontWeight: 400,
+            lineHeight: 1.35,
+            opacity: 0.92,
+          }}
+        >
+          {hint}
+        </div>
+      </div>
       <button
         type="button"
         title="Clear focus mode"

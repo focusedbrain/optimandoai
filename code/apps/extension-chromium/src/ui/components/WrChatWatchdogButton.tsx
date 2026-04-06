@@ -10,9 +10,9 @@ export type { WatchdogThreat }
 export interface WrChatWatchdogButtonProps {
   theme?: string
   onWatchdogAlert: (threats: WatchdogThreat[]) => void
-  /** Function selector inside the bar — after scan icon, before speech bubble. */
+  /** Function selector inside the bar — after scan icon. */
   selectorSlot?: React.ReactNode
-  /** Inserted between icon and checkbox (e.g. speech bubble in WrMultiTriggerBar). */
+  /** Speech bubble — last in the bar, after the continuous checkbox (WrMultiTriggerBar). */
   middleSlot?: React.ReactNode
 }
 

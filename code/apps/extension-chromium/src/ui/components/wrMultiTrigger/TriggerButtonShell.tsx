@@ -1,7 +1,7 @@
 import React, { useCallback } from 'react'
 
 export interface TriggerButtonShellProps {
-  /** Function selector (e.g. dropdown) — directly after the main scan icon, before the speech bubble. */
+  /** Function selector (e.g. dropdown) — directly after the main scan icon. */
   selectorSlot?: React.ReactNode
   icon: React.ReactNode
   scanning: boolean
@@ -11,7 +11,7 @@ export interface TriggerButtonShellProps {
   onCheckboxToggle: (enabled: boolean) => void
   checkboxChecked: boolean
   disabled?: boolean
-  /** Speech bubble — after the selector, before the continuous checkbox. */
+  /** Speech bubble — last in the bar, after the continuous monitoring checkbox. */
   middleSlot?: React.ReactNode
   /** Visual theme — matches WrChatWatchdogButton (standard | dark | pro). */
   theme?: string
@@ -116,7 +116,6 @@ export function TriggerButtonShell({
         {icon}
       </button>
       {selectorSlot}
-      {middleSlot}
       <label
         onClick={stopCheckboxBubble}
         onMouseDown={stopCheckboxBubble}
@@ -139,6 +138,7 @@ export function TriggerButtonShell({
           style={{ accentColor: '#22c55e', cursor: disabled ? 'not-allowed' : 'pointer' }}
         />
       </label>
+      {middleSlot}
       {cleanFlash ? (
         <span className="sr-only" style={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden' }}>
           {cleanFlashAnnouncement}
