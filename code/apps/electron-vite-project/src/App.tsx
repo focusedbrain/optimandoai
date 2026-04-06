@@ -12,6 +12,7 @@ import { WrMultiTriggerBar } from '@ext/ui/components'
 import { useEmailInboxStore, type InboxFilter } from './stores/useEmailInboxStore'
 import { subscribeInboxNewMessagesBackgroundRefresh } from './utils/inboxNewMessagesBackgroundRefresh'
 import { registerWrDeskOptimizerHttpBridge } from './lib/wrDeskOptimizerHttpBridge'
+import { WRDESK_AUTO_OPTIM_ACTIVATE_SESSIONS } from './lib/wrdeskUiEvents'
 import { type AnalysisOpenPayload, sanitizeAnalysisOpenPayload } from './components/analysis'
 import './components/handshakeViewTypes'
 // === TEMPORARY DEBUG LOG VIEWER (remove before production) ===
@@ -121,6 +122,37 @@ function App() {
     const cleanup = window.analysisDashboard?.onOpen(handleOpenAnalysisDashboard)
     return () => { cleanup?.() }
   }, [handleOpenAnalysisDashboard])
+
+  /** Auto-optimization: switch to WR Chat, bring window forward, activate each linked session key. */
+  useEffect(() => {
+    const handler = (ev: Event) => {
+      const ce = ev as CustomEvent<{ sessionIds?: string[] }>
+      const ids = (ce.detail?.sessionIds ?? []).filter(
+        (id): id is string => typeof id === 'string' && id.length > 0,
+      )
+      if (ids.length === 0) return
+      setActiveView('wr-chat')
+      window.setTimeout(() => {
+        try {
+          window.analysisDashboard?.openWrChat?.()
+        } catch {
+          /* noop */
+        }
+        ids.forEach((id, i) => {
+          window.setTimeout(() => {
+            try {
+              localStorage.setItem('optimando-active-session-key', id)
+              localStorage.setItem('optimando-global-active-session', id)
+            } catch {
+              /* noop */
+            }
+          }, i * 200)
+        })
+      }, 0)
+    }
+    window.addEventListener(WRDESK_AUTO_OPTIM_ACTIVATE_SESSIONS, handler)
+    return () => window.removeEventListener(WRDESK_AUTO_OPTIM_ACTIVATE_SESSIONS, handler)
+  }, [])
 
   const handleDeepLinkConsumed = useCallback(() => setDeepLinkPayload(null), [])
 

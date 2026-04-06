@@ -69,7 +69,7 @@ interface ProjectActions {
   removeAttachment: (projectId: string, attachmentId: string) => void
 
   // ── Session linking ───────────────────────────────────────────────────────
-  linkSession: (projectId: string, sessionId: string | null) => void
+  setLinkedSessionIds: (projectId: string, sessionIds: string[]) => void
   setOrchestratorSessions: (sessions: OrchestratorSession[]) => void
 
   /** Sets or clears project icon (emoji string). Empty string clears `icon`. */
@@ -229,11 +229,11 @@ export const useProjectStore = create<ProjectState & ProjectActions>()(
         })),
 
       // ── Session linking ───────────────────────────────────────────────────
-      linkSession: (projectId, sessionId) =>
+      setLinkedSessionIds: (projectId, sessionIds) =>
         set((s) => ({
           projects: patchProject(s.projects, projectId, (p) => ({
             ...p,
-            linkedSessionId: sessionId,
+            linkedSessionIds: [...sessionIds],
             updatedAt: now(),
           })),
         })),
@@ -293,9 +293,22 @@ export const useProjectStore = create<ProjectState & ProjectActions>()(
       storage: createJSONStorage(() => localStorage),
       /**
        * Bump `version` when the stored schema changes in a breaking way.
-       * V2: replace storage with an IPC-backed adapter.
+       * V2: `linkedSessionId` → `linkedSessionIds[]`
        */
-      version: 1,
+      version: 2,
+      migrate: (persistedState: unknown, version: number) => {
+        if (version >= 2) return persistedState as object
+        const ps = persistedState as { state?: { projects?: Array<Record<string, unknown>> } }
+        if (ps?.state?.projects && Array.isArray(ps.state.projects)) {
+          ps.state.projects = ps.state.projects.map((p) => {
+            if (Array.isArray(p.linkedSessionIds)) return p as Record<string, unknown>
+            const ids = p.linkedSessionId ? [String(p.linkedSessionId)] : []
+            const { linkedSessionId: _ls, ...rest } = p
+            return { ...rest, linkedSessionIds: ids }
+          })
+        }
+        return persistedState as object
+      },
     },
   ),
 )

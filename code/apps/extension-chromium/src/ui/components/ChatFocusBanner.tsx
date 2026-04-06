@@ -14,7 +14,7 @@ export default function ChatFocusBanner({ theme = 'pro' }: { theme?: string }) {
   const textColor = isLight ? '#0f172a' : '#f1f5f9'
 
   let label: React.ReactNode
-  let hint: string
+  let hint: React.ReactNode
   if (chatFocusMode.mode === 'scam-watchdog') {
     label = <>🐕 ScamWatchdog</>
     hint =
@@ -27,8 +27,18 @@ export default function ChatFocusBanner({ theme = 'pro' }: { theme?: string }) {
         <span aria-hidden>{icon}</span> Optimizing: {title}
       </>
     )
-    hint =
-      'Add context the optimizer can use (goals, constraints, milestones, or files) so auto-optimization runs on solid information.'
+    hint = (
+      <>
+        <p style={{ margin: 0 }}>
+          Auto-Optimization mode turns wrchat into a focused optimization workspace.
+        </p>
+        <p style={{ margin: '6px 0 0' }}>
+          In this mode, wrchat uses the project description and milestones as the foundation for improving the
+          project automatically. Users can also add extra information such as goals, constraints, milestones, or
+          relevant files to give the optimizer more context and help it make better optimization decisions.
+        </p>
+      </>
+    )
   }
 
   return (
@@ -59,6 +69,7 @@ export default function ChatFocusBanner({ theme = 'pro' }: { theme?: string }) {
             fontWeight: 400,
             lineHeight: 1.35,
             opacity: 0.92,
+            whiteSpace: 'normal',
           }}
         >
           {hint}

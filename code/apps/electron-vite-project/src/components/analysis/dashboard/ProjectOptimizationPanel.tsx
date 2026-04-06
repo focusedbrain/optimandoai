@@ -52,6 +52,7 @@ import {
   stopAutoOptimization,
   triggerSnapshotOptimization,
 } from '../../../lib/autoOptimizationEngine'
+import { refreshOrchestratorSessionsFromBridge } from '../../../lib/refreshOrchestratorSessions'
 import { BeapDocumentReaderModal } from '@ext/beap-builder/components/BeapDocumentReaderModal'
 import { AttachmentStatusBadge } from '@ext/beap-builder/components/AttachmentStatusBadge'
 import type { AttachmentParseStatus } from '@ext/beap-builder/components/AttachmentStatusBadge'
@@ -220,6 +221,7 @@ export function ProjectOptimizationPanel({
   // ── Auto-optimization engine (V1 stub) ────────────────────────────────────
   const autoOptEnabled  = activeProject?.autoOptimizationEnabled ?? false
   const autoOptInterval = activeProject?.autoOptimizationIntervalMs ?? 300_000
+  const linkedSessionIdsKey = activeProject?.linkedSessionIds?.join('\u0001') ?? ''
 
   useEffect(() => {
     const project = useProjectStore.getState().getActiveProject()
@@ -230,7 +232,7 @@ export function ProjectOptimizationPanel({
     }
     return () => stopAutoOptimization()
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeProjectId, autoOptEnabled, autoOptInterval])
+  }, [activeProjectId, autoOptEnabled, autoOptInterval, linkedSessionIdsKey])
 
   const [runBusy, setRunBusy] = useState(false)
 
@@ -296,7 +298,7 @@ export function ProjectOptimizationPanel({
   const [formGoals, setFormGoals]                       = useState('')
   const [formMilestones, setFormMilestones]             = useState<ProjectMilestone[]>([])
   const [formAttachments, setFormAttachments]           = useState<ProjectAttachment[]>([])
-  const [formLinkedSessionId, setFormLinkedSessionId]   = useState<string | null>(null)
+  const [formLinkedSessionIds, setFormLinkedSessionIds]   = useState<string[]>([])
   const [formIntervalMs, setFormIntervalMs]             = useState(300_000)
   /** Emoji or empty — persisted with project; edits can sync via setProjectIcon immediately. */
   const [formIcon, setFormIcon]                         = useState('')
@@ -315,6 +317,29 @@ export function ProjectOptimizationPanel({
 
   const fileInputRef  = useRef<HTMLInputElement>(null)
   const titleInputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    void refreshOrchestratorSessionsFromBridge()
+  }, [])
+
+  useEffect(() => {
+    if (setupMode === 'collapsed') return
+    void refreshOrchestratorSessionsFromBridge()
+  }, [setupMode])
+
+  const toggleFormLinkedSessionId = useCallback((id: string) => {
+    setFormLinkedSessionIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+    )
+  }, [])
+
+  const selectAllFormLinkedSessions = useCallback(() => {
+    setFormLinkedSessionIds(orchestratorSessions.map((s) => s.id))
+  }, [orchestratorSessions])
+
+  const clearFormLinkedSessions = useCallback(() => {
+    setFormLinkedSessionIds([])
+  }, [])
 
   // Notify parent when editing state changes (for sticky/stretch layout toggle)
   useEffect(() => {
@@ -564,7 +589,7 @@ export function ProjectOptimizationPanel({
     setFormGoals('')
     setFormMilestones([])
     setFormAttachments([])
-    setFormLinkedSessionId(null)
+    setFormLinkedSessionIds([])
     setFormIntervalMs(300_000)
     setFormIcon('')
     setNewMilestoneInput('')
@@ -584,7 +609,7 @@ export function ProjectOptimizationPanel({
     setFormGoals(p.goals)
     setFormMilestones(p.milestones.map((m) => ({ ...m })))
     setFormAttachments(p.attachments.map((a) => ({ ...a })))
-    setFormLinkedSessionId(p.linkedSessionId)
+    setFormLinkedSessionIds([...(p.linkedSessionIds ?? [])])
     setFormIntervalMs(p.autoOptimizationIntervalMs)
     setFormIcon(p.icon ?? '')
     setNewMilestoneInput('')
@@ -612,7 +637,7 @@ export function ProjectOptimizationPanel({
       goals: formGoals.trim(),
       milestones: formMilestones,
       attachments: formAttachments,
-      linkedSessionId: formLinkedSessionId,
+      linkedSessionIds: [...formLinkedSessionIds],
       autoOptimizationEnabled: currentEnabled,
       autoOptimizationIntervalMs: formIntervalMs,
       ...(formIcon.trim() ? { icon: formIcon.trim() } : { icon: undefined }),
@@ -627,7 +652,7 @@ export function ProjectOptimizationPanel({
     setSetupMode('collapsed')
   }, [
     formTitle, formDescription, formGoals, formMilestones, formAttachments,
-    formLinkedSessionId, formIntervalMs, formIcon, setupMode, activeProjectId,
+    formLinkedSessionIds, formIntervalMs, formIcon, setupMode, activeProjectId,
     clearFormChatContext,
   ])
 
@@ -924,30 +949,101 @@ export function ProjectOptimizationPanel({
               </div>
             </div>
 
-            {/* Session (optional) */}
+            {/* Sessions (optional, multi-select) */}
             <div>
-              <label
-                htmlFor="pop-form-session"
-                style={{ fontSize: 11, fontWeight: 600, color: '#64748b', textTransform: 'uppercase', display: 'block', marginBottom: 6, letterSpacing: '0.5px' }}
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  gap: 8,
+                  marginBottom: 6,
+                  flexWrap: 'wrap',
+                }}
               >
-                Session (optional)
-              </label>
-              <select
-                id="pop-form-session"
-                value={formLinkedSessionId ?? ''}
-                onChange={(e) => setFormLinkedSessionId(e.target.value || null)}
-                style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: 8, background: '#ffffff', color: '#0f172a', border: '1px solid #cbd5e1', fontSize: 13, outline: 'none' }}
-                onFocus={(e) => { e.currentTarget.style.boxShadow = '0 0 0 2px rgba(99,102,241,0.4)' }}
-                onBlur={(e) => { e.currentTarget.style.boxShadow = 'none' }}
+                <span
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 600,
+                    color: '#64748b',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.5px',
+                  }}
+                >
+                  Sessions (optional)
+                </span>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  <button
+                    type="button"
+                    onClick={selectAllFormLinkedSessions}
+                    disabled={orchestratorSessions.length === 0}
+                    style={{
+                      padding: '4px 10px',
+                      fontSize: 11,
+                      fontWeight: 600,
+                      borderRadius: 4,
+                      border: '1px solid #cbd5e1',
+                      background: '#ffffff',
+                      cursor: orchestratorSessions.length === 0 ? 'not-allowed' : 'pointer',
+                    }}
+                  >
+                    Select all
+                  </button>
+                  <button
+                    type="button"
+                    onClick={clearFormLinkedSessions}
+                    style={{
+                      padding: '4px 10px',
+                      fontSize: 11,
+                      fontWeight: 600,
+                      borderRadius: 4,
+                      border: '1px solid #cbd5e1',
+                      background: '#ffffff',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Clear
+                  </button>
+                </div>
+              </div>
+              <div
+                id="pop-form-sessions"
+                style={{
+                  maxHeight: 160,
+                  overflowY: 'auto',
+                  boxSizing: 'border-box',
+                  padding: '8px 10px',
+                  borderRadius: 8,
+                  background: '#ffffff',
+                  border: '1px solid #cbd5e1',
+                  fontSize: 13,
+                }}
               >
-                <option value="">— No session —</option>
-                {orchestratorSessions.length === 0
-                  ? <option value="" disabled>No sessions available</option>
-                  : orchestratorSessions.map((s) => (
-                      <option key={s.id} value={s.id}>{s.name}</option>
-                    ))
-                }
-              </select>
+                {orchestratorSessions.length === 0 ? (
+                  <span style={{ color: '#64748b', fontSize: 12 }}>No sessions in history — ensure the orchestrator DB is connected.</span>
+                ) : (
+                  orchestratorSessions.map((s) => (
+                    <label
+                      key={s.id}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 8,
+                        marginBottom: 6,
+                        cursor: 'pointer',
+                        color: '#0f172a',
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={formLinkedSessionIds.includes(s.id)}
+                        onChange={() => toggleFormLinkedSessionId(s.id)}
+                      />
+                      <span>{s.name}</span>
+                    </label>
+                  ))
+                )}
+              </div>
             </div>
 
             {/* Description */}

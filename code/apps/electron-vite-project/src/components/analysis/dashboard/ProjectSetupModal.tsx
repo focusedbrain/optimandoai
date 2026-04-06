@@ -19,6 +19,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { WRDESK_FOCUS_AI_CHAT_EVENT } from '../../../lib/wrdeskUiEvents'
+import { refreshOrchestratorSessionsFromBridge } from '../../../lib/refreshOrchestratorSessions'
 import { useProjectSetupChatContextStore } from '../../../stores/useProjectSetupChatContextStore'
 import { useProjectStore } from '../../../stores/useProjectStore'
 import {
@@ -72,7 +73,7 @@ export function ProjectSetupModal({ open, onClose, activeProjectId }: ProjectSet
   const [goals,              setGoals]              = useState('')
   const [milestones,         setMilestones]         = useState<ModalMilestone[]>([])
   const [localAttachments,   setLocalAttachments]   = useState<ProjectAttachment[]>([])
-  const [linkedSessionId,    setLinkedSessionId]    = useState<string | null>(null)
+  const [linkedSessionIds,   setLinkedSessionIds]   = useState<string[]>([])
   const [intervalMs,         setIntervalMs]         = useState(300000)
   const [newMilestoneInput,  setNewMilestoneInput]  = useState('')
 
@@ -102,7 +103,7 @@ export function ProjectSetupModal({ open, onClose, activeProjectId }: ProjectSet
         })),
       )
       setLocalAttachments([...editingProject.attachments])
-      setLinkedSessionId(editingProject.linkedSessionId)
+      setLinkedSessionIds([...(editingProject.linkedSessionIds ?? [])])
       setIntervalMs(editingProject.autoOptimizationIntervalMs)
     } else {
       setTitle('')
@@ -110,7 +111,7 @@ export function ProjectSetupModal({ open, onClose, activeProjectId }: ProjectSet
       setGoals('')
       setMilestones([])
       setLocalAttachments([])
-      setLinkedSessionId(null)
+      setLinkedSessionIds([])
       setIntervalMs(300000)
       setNewMilestoneInput('')
       setIncludeDescription(false)
@@ -118,9 +119,7 @@ export function ProjectSetupModal({ open, onClose, activeProjectId }: ProjectSet
       setIncludeMilestones(false)
     }
 
-    // TODO: Replace with actual IPC call when available:
-    // const sessions = await window.emailInbox.getOrchestratorSessions?.()
-    // useProjectStore.getState().setOrchestratorSessions(sessions ?? [])
+    void refreshOrchestratorSessionsFromBridge()
   }, [open, editingProject])
 
   // ── Focus title input on open ──────────────────────────────────────────────
@@ -222,6 +221,20 @@ export function ProjectSetupModal({ open, onClose, activeProjectId }: ProjectSet
     setLocalAttachments((prev) => prev.filter((a) => a.id !== id))
   }, [])
 
+  const toggleLinkedSessionId = useCallback((id: string) => {
+    setLinkedSessionIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+    )
+  }, [])
+
+  const selectAllLinkedSessions = useCallback(() => {
+    setLinkedSessionIds(orchestratorSessions.map((s) => s.id))
+  }, [orchestratorSessions])
+
+  const clearLinkedSessions = useCallback(() => {
+    setLinkedSessionIds([])
+  }, [])
+
   // ── Save ──────────────────────────────────────────────────────────────────
   const handleSave = useCallback(() => {
     const trimmedTitle = title.trim()
@@ -233,7 +246,7 @@ export function ProjectSetupModal({ open, onClose, activeProjectId }: ProjectSet
       goals: goals.trim(),
       milestones,
       attachments: localAttachments,
-      linkedSessionId,
+      linkedSessionIds: [...linkedSessionIds],
       autoOptimizationEnabled: editingProject?.autoOptimizationEnabled ?? false,
       autoOptimizationIntervalMs: intervalMs,
     }
@@ -248,7 +261,7 @@ export function ProjectSetupModal({ open, onClose, activeProjectId }: ProjectSet
     onClose()
   }, [
     title, description, goals, milestones, localAttachments,
-    linkedSessionId, intervalMs, isEditMode, editingProject,
+    linkedSessionIds, intervalMs, isEditMode, editingProject,
     createProject, updateProject, setActiveProject, onClose,
   ])
 
@@ -304,23 +317,60 @@ export function ProjectSetupModal({ open, onClose, activeProjectId }: ProjectSet
               />
             </div>
             <div className="psm__field-col psm__field-col--fixed">
-              <div className="psm__label-row">
-                <label className="psm__label" htmlFor="psm-session">Linked session</label>
+              <div className="psm__label-row" style={{ justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                <label className="psm__label" id="psm-session-label">Linked sessions</label>
+                <span style={{ display: 'flex', gap: 6 }}>
+                  <button
+                    type="button"
+                    className="psm__ai-btn"
+                    style={{ fontSize: 11, padding: '2px 8px' }}
+                    onClick={selectAllLinkedSessions}
+                    disabled={orchestratorSessions.length === 0}
+                  >
+                    Select all
+                  </button>
+                  <button
+                    type="button"
+                    className="psm__ai-btn"
+                    style={{ fontSize: 11, padding: '2px 8px' }}
+                    onClick={clearLinkedSessions}
+                  >
+                    Clear
+                  </button>
+                </span>
               </div>
-              <select
-                id="psm-session"
+              <div
                 className="psm__select"
-                value={linkedSessionId ?? ''}
-                onChange={(e) => setLinkedSessionId(e.target.value || null)}
+                role="group"
+                aria-labelledby="psm-session-label"
+                style={{
+                  maxHeight: 140,
+                  overflowY: 'auto',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 6,
+                  padding: '8px 10px',
+                  height: 'auto',
+                }}
               >
-                <option value="">— No session —</option>
-                {orchestratorSessions.length === 0 && (
-                  <option value="" disabled>No sessions available</option>
+                {orchestratorSessions.length === 0 ? (
+                  <span className="psm__session-hint" style={{ margin: 0 }}>No sessions in history</span>
+                ) : (
+                  orchestratorSessions.map((s) => (
+                    <label
+                      key={s.id}
+                      style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13 }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={linkedSessionIds.includes(s.id)}
+                        onChange={() => toggleLinkedSessionId(s.id)}
+                      />
+                      <span>{s.name}</span>
+                    </label>
+                  ))
                 )}
-                {orchestratorSessions.map((s) => (
-                  <option key={s.id} value={s.id}>{s.name}</option>
-                ))}
-              </select>
+              </div>
               <p className="psm__session-hint">Sessions from orchestrator history</p>
             </div>
           </div>

@@ -4,31 +4,40 @@
  * Sets up an interval that triggers the orchestration session when
  * auto-optimization is enabled on a project.
  *
- * V1: logs to console only. The actual DOM capture, context assembly,
- * and orchestrator IPC call will be wired in V2.
- *
- * DO NOT import in the main process.
+ * V1: logs to console; dispatches WRDESK_AUTO_OPTIM_ACTIVATE_SESSIONS so the app
+ * can open WR Chat and activate each linked orchestrator session.
  */
 
 import type { Project } from '../types/projectTypes'
-
-// ── Interval handle ───────────────────────────────────────────────────────────
+import { WRDESK_AUTO_OPTIM_ACTIVATE_SESSIONS } from './wrdeskUiEvents'
 
 let intervalHandle: ReturnType<typeof setInterval> | null = null
 
-// ── Public API ────────────────────────────────────────────────────────────────
+function dispatchSessionActivation(sessionIds: string[]): void {
+  if (sessionIds.length === 0) return
+  try {
+    window.dispatchEvent(
+      new CustomEvent(WRDESK_AUTO_OPTIM_ACTIVATE_SESSIONS, {
+        detail: { sessionIds: [...sessionIds] },
+      }),
+    )
+  } catch {
+    /* noop */
+  }
+}
 
 /**
  * Starts the auto-optimization interval for the given project.
  * Clears any previously running interval first.
- * No-ops if the project has auto-optimization disabled or no linked session.
+ * No-ops if the project has auto-optimization disabled or no linked sessions.
  */
 export function startAutoOptimization(project: Project): void {
   stopAutoOptimization()
 
-  if (!project.autoOptimizationEnabled || !project.linkedSessionId) {
+  const ids = project.linkedSessionIds ?? []
+  if (!project.autoOptimizationEnabled || ids.length === 0) {
     console.log(
-      `[AutoOpt] Not starting: ${!project.autoOptimizationEnabled ? 'disabled' : 'no linked session'}`,
+      `[AutoOpt] Not starting: ${!project.autoOptimizationEnabled ? 'disabled' : 'no linked sessions'}`,
     )
     return
   }
@@ -37,10 +46,10 @@ export function startAutoOptimization(project: Project): void {
 
   console.log(
     `[AutoOpt] Starting for project "${project.title}" every ${intervalMs}ms`,
-    `(session: ${project.linkedSessionId})`,
+    `(sessions: ${ids.length})`,
+    ids,
   )
 
-  // Trigger once immediately, then on each interval tick.
   triggerOptimizationRun(project)
 
   intervalHandle = setInterval(() => {
@@ -60,40 +69,33 @@ export function stopAutoOptimization(): void {
 /**
  * One-shot snapshot optimization — same run logic as the interval tick,
  * but without starting a recurring interval.
- * Called when the user clicks "Snapshot-Optimization".
  */
 export function triggerSnapshotOptimization(project: Project): void {
   console.log('[AutoOpt] Snapshot optimization triggered')
   triggerOptimizationRun(project)
 }
 
-// ── Internal ──────────────────────────────────────────────────────────────────
-
 function triggerOptimizationRun(project: Project): void {
-  // TODO: Implement the actual orchestration trigger.
-  // Steps when ready:
-  //   1. Gather project context: title, description, goals, active milestone,
-  //      attachment contents (project.attachments)
-  //   2. Gather captured input: DOM state, command chat entries, top chat history
-  //      (from the capture mechanism — not yet implemented)
-  //   3. Send context + captured input to the orchestration session
-  //      (project.linkedSessionId) via IPC:
-  //      window.orchestrator?.triggerSession(project.linkedSessionId, context)
-  //   4. The session runs the configured AI agents and writes output back
-  //      to the agent grid in the dashboard.
+  const ids = project.linkedSessionIds ?? []
+  if (ids.length === 0) {
+    console.warn('[AutoOpt] No linked sessions; skip run')
+    return
+  }
+
+  dispatchSessionActivation(ids)
 
   const activeMilestone = project.milestones.find((m) => !m.completed)
 
-  const context = {
-    projectTitle:    project.title,
-    description:     project.description,
-    goals:           project.goals,
-    activeMilestone: activeMilestone?.title ?? null,
-    attachmentCount: project.attachments.length,
-    sessionId:       project.linkedSessionId,
-    timestamp:       new Date().toISOString(),
+  for (const sessionId of ids) {
+    const context = {
+      projectTitle: project.title,
+      description: project.description,
+      goals: project.goals,
+      activeMilestone: activeMilestone?.title ?? null,
+      attachmentCount: project.attachments.length,
+      sessionId,
+      timestamp: new Date().toISOString(),
+    }
+    console.log('[AutoOpt] Trigger optimization run:', context)
   }
-
-  console.log('[AutoOpt] Trigger optimization run:', context)
-  // TODO: window.orchestrator?.triggerSession(project.linkedSessionId, context)
 }
