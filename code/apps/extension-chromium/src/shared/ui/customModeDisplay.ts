@@ -2,7 +2,7 @@
  * Safe display helpers for custom mode rows and draft fields (persisted data may be partial or legacy).
  */
 
-import type { CustomRunMode, SessionMode } from './customModeTypes'
+import type { SessionMode } from './customModeTypes'
 
 export function safeCustomModeRowLabel(name: unknown, icon: unknown): { label: string; iconChar: string } {
   const n = typeof name === 'string' && name.trim() ? name.trim() : 'Custom mode'
@@ -21,9 +21,3 @@ export function coerceSessionMode(value: unknown, allowed: readonly SessionMode[
     : 'shared'
 }
 
-/** Coerce unknown persisted run mode for UI. */
-export function coerceRunMode(value: unknown, allowed: readonly CustomRunMode[]): CustomRunMode {
-  return typeof value === 'string' && (allowed as readonly string[]).includes(value)
-    ? (value as CustomRunMode)
-    : 'chat'
-}

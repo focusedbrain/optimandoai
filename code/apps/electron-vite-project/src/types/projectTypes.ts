@@ -49,7 +49,7 @@ export interface Project {
   attachments: ProjectAttachment[]
   /** Emoji or icon id — optional; used when surfacing the project in triggers (e.g. Watchdog). */
   icon?: string
-  /** Orchestrator session IDs to run auto-optimization against (multi-select in project UI). */
+  /** Orchestrator session for auto-optimization (at most one; stored as 0–1 IDs). */
   linkedSessionIds: string[]
   autoOptimizationEnabled: boolean
   /** Interval in ms; default 300 000 (5 min). */

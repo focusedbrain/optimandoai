@@ -327,18 +327,8 @@ export function ProjectOptimizationPanel({
     void refreshOrchestratorSessionsFromBridge()
   }, [setupMode])
 
-  const toggleFormLinkedSessionId = useCallback((id: string) => {
-    setFormLinkedSessionIds((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
-    )
-  }, [])
-
-  const selectAllFormLinkedSessions = useCallback(() => {
-    setFormLinkedSessionIds(orchestratorSessions.map((s) => s.id))
-  }, [orchestratorSessions])
-
-  const clearFormLinkedSessions = useCallback(() => {
-    setFormLinkedSessionIds([])
+  const setFormLinkedSessionSingle = useCallback((id: string | null) => {
+    setFormLinkedSessionIds(id ? [id] : [])
   }, [])
 
   // Notify parent when editing state changes (for sticky/stretch layout toggle)
@@ -609,7 +599,7 @@ export function ProjectOptimizationPanel({
     setFormGoals(p.goals)
     setFormMilestones(p.milestones.map((m) => ({ ...m })))
     setFormAttachments(p.attachments.map((a) => ({ ...a })))
-    setFormLinkedSessionIds([...(p.linkedSessionIds ?? [])])
+    setFormLinkedSessionIds((p.linkedSessionIds ?? []).slice(0, 1))
     setFormIntervalMs(p.autoOptimizationIntervalMs)
     setFormIcon(p.icon ?? '')
     setNewMilestoneInput('')
@@ -637,7 +627,7 @@ export function ProjectOptimizationPanel({
       goals: formGoals.trim(),
       milestones: formMilestones,
       attachments: formAttachments,
-      linkedSessionIds: [...formLinkedSessionIds],
+      linkedSessionIds: formLinkedSessionIds[0] ? [formLinkedSessionIds[0]] : [],
       autoOptimizationEnabled: currentEnabled,
       autoOptimizationIntervalMs: formIntervalMs,
       ...(formIcon.trim() ? { icon: formIcon.trim() } : { icon: undefined }),
@@ -949,63 +939,21 @@ export function ProjectOptimizationPanel({
               </div>
             </div>
 
-            {/* Sessions (optional, multi-select) */}
+            {/* Linked session for auto-optimization (single select) */}
             <div>
-              <div
+              <span
                 style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  gap: 8,
+                  fontSize: 11,
+                  fontWeight: 600,
+                  color: '#64748b',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.5px',
+                  display: 'block',
                   marginBottom: 6,
-                  flexWrap: 'wrap',
                 }}
               >
-                <span
-                  style={{
-                    fontSize: 11,
-                    fontWeight: 600,
-                    color: '#64748b',
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.5px',
-                  }}
-                >
-                  Sessions (optional)
-                </span>
-                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                  <button
-                    type="button"
-                    onClick={selectAllFormLinkedSessions}
-                    disabled={orchestratorSessions.length === 0}
-                    style={{
-                      padding: '4px 10px',
-                      fontSize: 11,
-                      fontWeight: 600,
-                      borderRadius: 4,
-                      border: '1px solid #cbd5e1',
-                      background: '#ffffff',
-                      cursor: orchestratorSessions.length === 0 ? 'not-allowed' : 'pointer',
-                    }}
-                  >
-                    Select all
-                  </button>
-                  <button
-                    type="button"
-                    onClick={clearFormLinkedSessions}
-                    style={{
-                      padding: '4px 10px',
-                      fontSize: 11,
-                      fontWeight: 600,
-                      borderRadius: 4,
-                      border: '1px solid #cbd5e1',
-                      background: '#ffffff',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    Clear
-                  </button>
-                </div>
-              </div>
+                Linked session (auto-optimization, optional)
+              </span>
               <div
                 id="pop-form-sessions"
                 style={{
@@ -1024,9 +972,8 @@ export function ProjectOptimizationPanel({
                     No WR Chat sessions found — open WR Chat at least once, or ensure the orchestrator database is connected.
                   </span>
                 ) : (
-                  orchestratorSessions.map((s) => (
+                  <>
                     <label
-                      key={s.id}
                       style={{
                         display: 'flex',
                         alignItems: 'center',
@@ -1037,13 +984,35 @@ export function ProjectOptimizationPanel({
                       }}
                     >
                       <input
-                        type="checkbox"
-                        checked={formLinkedSessionIds.includes(s.id)}
-                        onChange={() => toggleFormLinkedSessionId(s.id)}
+                        type="radio"
+                        name="pop-form-linked-session"
+                        checked={formLinkedSessionIds.length === 0}
+                        onChange={() => setFormLinkedSessionSingle(null)}
                       />
-                      <span>{s.name}</span>
+                      <span>None</span>
                     </label>
-                  ))
+                    {orchestratorSessions.map((s) => (
+                      <label
+                        key={s.id}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 8,
+                          marginBottom: 6,
+                          cursor: 'pointer',
+                          color: '#0f172a',
+                        }}
+                      >
+                        <input
+                          type="radio"
+                          name="pop-form-linked-session"
+                          checked={formLinkedSessionIds[0] === s.id}
+                          onChange={() => setFormLinkedSessionSingle(s.id)}
+                        />
+                        <span>{s.name}</span>
+                      </label>
+                    ))}
+                  </>
                 )}
               </div>
             </div>

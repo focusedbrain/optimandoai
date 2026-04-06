@@ -7,6 +7,7 @@ import { persist, createJSONStorage } from 'zustand/middleware'
 import type { CustomModeDefinition, CustomModeDraft } from '../shared/ui/customModeTypes'
 import {
   buildCustomModeFromDraft,
+  getCustomModeScopeFromMetadata,
   normalizeCustomModeFields,
   normalizeCustomModeNameKey,
 } from '../shared/ui/customModeTypes'
@@ -14,6 +15,7 @@ import {
   CUSTOM_MODES_PERSIST_KEY,
   migrateCustomModesPersistedState,
 } from '../shared/ui/customModePersistence'
+import { syncCustomModeDiffWatcher } from '../services/syncCustomModeDiffWatcher'
 
 const SCHEMA_VERSION = 2
 
@@ -60,19 +62,24 @@ export const useCustomModesStore = create<CustomModesState>()(
           modes: s.modes.map((m) => {
             if (m.id !== id) return m
             const now = new Date().toISOString()
-            return normalizeCustomModeFields({
+            const next = normalizeCustomModeFields({
               ...m,
               ...patch,
               id,
               type: 'custom',
               updatedAt: now,
             })
+            const scope = getCustomModeScopeFromMetadata(next.metadata as Record<string, unknown> | undefined)
+            void syncCustomModeDiffWatcher(id, next.name, scope.diffWatchFolder || null)
+            return next
           }),
         }))
       },
 
       removeMode: (id) => {
         if (!id.startsWith('custom:')) return
+        const existing = get().modes.find((m) => m.id === id)
+        void syncCustomModeDiffWatcher(id, existing?.name ?? 'Mode', null)
         set((s) => ({ modes: s.modes.filter((m) => m.id !== id) }))
       },
 

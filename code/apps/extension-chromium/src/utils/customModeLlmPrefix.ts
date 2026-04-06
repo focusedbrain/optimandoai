@@ -18,10 +18,17 @@ export function getCustomModeLlmPrefix(runtime: CustomModeRuntimeConfig | null):
     parts.push(`[Session mode: ${runtime.sessionMode}]`)
   }
 
-  if (runtime.runMode === 'chat_scan') {
-    parts.push('[Run mode: chat + scan]')
-  } else if (runtime.runMode === 'interval' && runtime.intervalMinutes != null) {
-    parts.push(`[Run mode: interval — every ${runtime.intervalMinutes} min]`)
+  if (runtime.intervalMinutes != null && runtime.intervalMinutes >= 1) {
+    parts.push(`[Periodic scan every ${runtime.intervalMinutes} min]`)
+  }
+
+  const scopeUrls = runtime.scopeUrls?.filter((u) => u.trim()) ?? []
+  if (scopeUrls.length) {
+    parts.push(`[Scope URLs: ${scopeUrls.join('; ')}]`)
+  }
+  const diffFolder = runtime.diffWatchFolder?.trim()
+  if (diffFolder) {
+    parts.push(`[Diff watch folder: ${diffFolder}]`)
   }
 
   if (parts.length === 0) return null

@@ -3,7 +3,8 @@
  * Built-in modes do not produce this shape; use {@link resolveModeForCapabilities} for UI behavior.
  */
 
-import type { CustomModeDefinition, CustomRunMode, SessionMode } from './customModeTypes'
+import type { CustomModeDefinition, SessionMode } from './customModeTypes'
+import { getCustomModeScopeFromMetadata } from './customModeTypes'
 
 export interface CustomModeRuntimeConfig {
   modeId: string
@@ -15,11 +16,15 @@ export interface CustomModeRuntimeConfig {
   sessionMode: SessionMode
   searchFocus: string
   ignoreInstructions: string
-  runMode: CustomRunMode
   intervalMinutes: number | null
+  /** Optional http(s) URLs / host patterns this mode should prioritize. */
+  scopeUrls: string[]
+  /** Optional folder path for desktop file-change diff triggers. */
+  diffWatchFolder: string
 }
 
 export function customModeDefinitionToRuntime(def: CustomModeDefinition): CustomModeRuntimeConfig {
+  const scope = getCustomModeScopeFromMetadata(def.metadata as Record<string, unknown> | undefined)
   return {
     modeId: def.id,
     name: def.name,
@@ -30,7 +35,8 @@ export function customModeDefinitionToRuntime(def: CustomModeDefinition): Custom
     sessionMode: def.sessionMode,
     searchFocus: def.searchFocus,
     ignoreInstructions: def.ignoreInstructions,
-    runMode: def.runMode,
     intervalMinutes: def.intervalMinutes,
+    scopeUrls: scope.scopeUrls,
+    diffWatchFolder: scope.diffWatchFolder,
   }
 }

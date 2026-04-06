@@ -4,9 +4,9 @@
 
 import React from 'react'
 import type { CustomModeDraft } from '../../../../shared/ui/customModeTypes'
-import { coerceRunMode, safeDraftString } from '../../../../shared/ui/customModeDisplay'
+import { getScopeUrlsDraftText } from '../../../../shared/ui/customModeTypes'
+import { safeDraftString } from '../../../../shared/ui/customModeDisplay'
 import { getThemeTokens } from '../../../../shared/ui/lightboxTheme'
-import { RUN_MODE_VALUES, WIZARD_RUN_MODES, WIZARD_SESSION_MODES } from '../wizardConstants'
 import { wizardReviewRowStyle } from '../wizardStyles'
 
 export function StepReview({
@@ -17,22 +17,25 @@ export function StepReview({
   t: ReturnType<typeof getThemeTokens>
 }) {
   const sid = typeof data.sessionId === 'string' ? data.sessionId.trim() : ''
-  const sessionLabel = sid
-    ? `Pinned: ${sid.slice(0, 24)}${sid.length > 24 ? '…' : ''}`
-    : 'Default'
-
-  const sessionModeLabel =
-    WIZARD_SESSION_MODES.find((s) => s.value === data.sessionMode)?.label ?? String(data.sessionMode ?? '—')
-  const runModeSafe = coerceRunMode(data.runMode, RUN_MODE_VALUES)
-  const runLabel = WIZARD_RUN_MODES.find((r) => r.value === runModeSafe)?.label ?? String(data.runMode ?? '—')
+  const sessionName =
+    typeof (data.metadata as { _sessionLabel?: string } | undefined)?._sessionLabel === 'string'
+      ? (data.metadata as { _sessionLabel: string })._sessionLabel.trim()
+      : ''
+  const sessionLabel = sessionName
+    ? sessionName
+    : sid
+      ? `Linked session: ${sid.slice(0, 28)}${sid.length > 28 ? '…' : ''}`
+      : 'None (default WR Chat session)'
   const intervalLine =
-    runModeSafe === 'interval' && data.intervalMinutes != null
-      ? `${data.intervalMinutes} min`
-      : '—'
+    data.intervalMinutes != null && data.intervalMinutes >= 1 ? `${data.intervalMinutes} min` : '—'
 
   const nameSafe = safeDraftString(data.name).trim()
   const modelSafe = safeDraftString(data.modelName).trim()
   const focusSafe = safeDraftString(data.searchFocus).trim()
+  const md = data.metadata && typeof data.metadata === 'object' ? (data.metadata as Record<string, unknown>) : undefined
+  const scopeUrlsReview = getScopeUrlsDraftText(md).trim()
+  const diffFolderReview =
+    md && typeof md.diffWatchFolder === 'string' ? md.diffWatchFolder.trim() : ''
 
   const rows: { k: string; v: string }[] = [
     { k: 'Name', v: nameSafe || '—' },
@@ -44,11 +47,11 @@ export function StepReview({
       ? [{ k: 'Endpoint', v: safeDraftString(data.endpoint).trim() || '—' }]
       : []),
     { k: 'Session', v: sessionLabel },
-    { k: 'Session mode', v: sessionModeLabel },
     { k: 'Focus', v: focusSafe || '—' },
+    { k: 'Scope URLs', v: scopeUrlsReview || '—' },
+    { k: 'Diff folder', v: diffFolderReview || '—' },
     { k: 'Ignore', v: safeDraftString(data.ignoreInstructions).trim() || '—' },
-    { k: 'Run', v: runLabel },
-    { k: 'Interval', v: intervalLine },
+    { k: 'Periodic scan', v: intervalLine },
   ]
 
   return (

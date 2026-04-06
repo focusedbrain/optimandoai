@@ -4,6 +4,7 @@
  */
 
 import type { CustomModeDraft } from '../../../shared/ui/customModeTypes'
+import { getScopeUrlsDraftText, isValidCustomModeScopeUrlLine } from '../../../shared/ui/customModeTypes'
 import type { AddModeWizardStepIndex } from './addModeWizardTypes'
 
 function isValidHttpUrl(s: string): boolean {
@@ -27,28 +28,44 @@ export function getInlineFieldErrorsForStep(
     case 0:
       if (!data.name?.trim()) out.name = 'Enter a mode name.'
       return out
-    case 1:
-      if (!data.modelName?.trim()) out.modelName = 'Enter a model name.'
-      {
-        const p = (data.modelProvider ?? 'ollama').trim().toLowerCase()
-        if (p === 'ollama') {
-          const ep = data.endpoint?.trim() ?? ''
-          if (!ep) out.endpoint = 'Enter the Ollama endpoint URL.'
-          else if (!isValidHttpUrl(ep)) out.endpoint = 'Enter a valid http(s) URL.'
+    case 1: {
+      const p = (data.modelProvider ?? 'ollama').trim().toLowerCase()
+      if (p === 'ollama') {
+        const ep = data.endpoint?.trim() ?? ''
+        if (!ep) out.endpoint = 'Enter the Ollama endpoint URL.'
+        else if (!isValidHttpUrl(ep)) out.endpoint = 'Enter a valid http(s) URL.'
+        const mn = data.modelName?.trim() ?? ''
+        if (!mn) out.modelName = 'Select an installed model.'
+        else {
+          const tags = (data.metadata as { _ollamaTags?: string[] } | undefined)?._ollamaTags
+          if (tags && tags.length > 0 && !tags.includes(mn)) {
+            out.modelName = 'Pick an installed model from the list (or fix the endpoint).'
+          }
         }
+      } else if (!data.modelName?.trim()) {
+        out.modelName = 'Enter a model name.'
       }
       return out
-    case 3:
+    }
+    case 3: {
       if (!data.searchFocus?.trim()) out.searchFocus = 'Describe what this mode should look for.'
-      return out
-    case 4:
-      if (data.runMode === 'interval') {
-        const n = data.intervalMinutes
-        if (n === null || n === undefined || !Number.isFinite(n) || n < 1) {
-          out.intervalMinutes = 'Set an interval of at least 1 minute.'
+      const md = data.metadata as Record<string, unknown> | undefined
+      const scopeText = getScopeUrlsDraftText(md)
+      for (const line of scopeText.split('\n')) {
+        if (!isValidCustomModeScopeUrlLine(line)) {
+          out.scopeUrls = 'Each line must be a valid http(s) URL or host pattern.'
+          break
         }
       }
       return out
+    }
+    case 4: {
+      const n = data.intervalMinutes
+      if (n !== null && n !== undefined && (!Number.isFinite(n) || n < 1)) {
+        out.intervalMinutes = 'Use at least 1 minute, or leave empty for no periodic scan.'
+      }
+      return out
+    }
     default:
       return out
   }
@@ -64,27 +81,39 @@ export function validateAddModeWizardStep(
       return null
     }
     case 1: {
-      if (!data.modelName?.trim()) return 'Enter a model name.'
       const p = (data.modelProvider ?? 'ollama').trim().toLowerCase()
       if (p === 'ollama') {
         const ep = data.endpoint?.trim() ?? ''
         if (!ep) return 'Enter the Ollama endpoint URL.'
         if (!isValidHttpUrl(ep)) return 'Enter a valid http(s) URL for the endpoint.'
+        const mn = data.modelName?.trim() ?? ''
+        if (!mn) return 'Select an installed model.'
+        const tags = (data.metadata as { _ollamaTags?: string[] } | undefined)?._ollamaTags
+        if (tags && tags.length > 0 && !tags.includes(mn)) {
+          return 'Pick an installed model from the list (or fix the endpoint).'
+        }
+        return null
       }
+      if (!data.modelName?.trim()) return 'Enter a model name.'
       return null
     }
     case 2:
       return null
     case 3: {
       if (!data.searchFocus?.trim()) return 'Describe what this mode should look for.'
+      const md = data.metadata as Record<string, unknown> | undefined
+      const scopeText = getScopeUrlsDraftText(md)
+      for (const line of scopeText.split('\n')) {
+        if (!isValidCustomModeScopeUrlLine(line)) {
+          return 'Each scope URL line must be a valid http(s) URL or host pattern.'
+        }
+      }
       return null
     }
     case 4: {
-      if (data.runMode === 'interval') {
-        const n = data.intervalMinutes
-        if (n === null || n === undefined || !Number.isFinite(n) || n < 1) {
-          return 'Set an interval of at least 1 minute.'
-        }
+      const n = data.intervalMinutes
+      if (n !== null && n !== undefined && (!Number.isFinite(n) || n < 1)) {
+        return 'Use at least 1 minute, or leave empty for no periodic scan.'
       }
       return null
     }

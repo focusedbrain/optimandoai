@@ -11,9 +11,6 @@ export type ModeTypeKind = 'built-in' | 'custom'
 
 export type SessionMode = 'shared' | 'dedicated' | 'fresh'
 
-/** How the mode runs in the shell (stored form). */
-export type CustomRunMode = 'chat' | 'chat_scan' | 'interval'
-
 export interface CustomModeDefinition {
   /** Stable id, format `custom:<uuid>` */
   id: string
@@ -29,13 +26,70 @@ export interface CustomModeDefinition {
   sessionMode: SessionMode
   searchFocus: string
   ignoreInstructions: string
-  runMode: CustomRunMode
-  /** Set when `runMode === 'interval'`; otherwise `null` */
+  /**
+   * Optional periodic scan interval (minutes). Chat and manual scan are always available;
+   * when set, periodic runs are also scheduled.
+   */
   intervalMinutes: number | null
   createdAt: string
   updatedAt: string
   /** Future: expert presets, LoRA ids, provider tokens, etc. */
   metadata?: Record<string, unknown>
+}
+
+/** Persisted optional scope: websites (http(s) URLs or host patterns) and folder diff watch path. */
+export type CustomModeScopeMetadata = {
+  /** Pages or sites this mode should prioritize (full URLs or host patterns). */
+  scopeUrls?: string[]
+  /** Absolute path watched for file add/change diffs (Electron desktop). */
+  diffWatchFolder?: string
+}
+
+/** Wizard-only draft for the scope URL textarea (stripped before persist). */
+export const CUSTOM_MODE_SCOPE_URLS_DRAFT_KEY = '_scopeUrlsDraft' as const
+
+export function getCustomModeScopeFromMetadata(
+  metadata: Record<string, unknown> | undefined,
+): { scopeUrls: string[]; diffWatchFolder: string } {
+  if (!metadata || typeof metadata !== 'object') return { scopeUrls: [], diffWatchFolder: '' }
+  const scopeUrls = Array.isArray(metadata.scopeUrls)
+    ? (metadata.scopeUrls as unknown[])
+        .filter((x): x is string => typeof x === 'string')
+        .map((s) => s.trim())
+        .filter(Boolean)
+    : []
+  const diffWatchFolder = typeof metadata.diffWatchFolder === 'string' ? metadata.diffWatchFolder.trim() : ''
+  return { scopeUrls, diffWatchFolder }
+}
+
+/** Textarea value for the scope URLs step (draft or joined persisted URLs). */
+export function getScopeUrlsDraftText(metadata: Record<string, unknown> | undefined): string {
+  if (!metadata || typeof metadata !== 'object') return ''
+  const draft = metadata[CUSTOM_MODE_SCOPE_URLS_DRAFT_KEY]
+  if (typeof draft === 'string') return draft
+  if (Array.isArray(metadata.scopeUrls)) {
+    return (metadata.scopeUrls as string[]).filter((s) => typeof s === 'string').join('\n')
+  }
+  return ''
+}
+
+/**
+ * True if the line is empty or looks like an http(s) URL or host/path pattern for scoping.
+ */
+export function isValidCustomModeScopeUrlLine(line: string): boolean {
+  const t = line.trim()
+  if (!t) return true
+  try {
+    const u = new URL(t)
+    return u.protocol === 'http:' || u.protocol === 'https:'
+  } catch {
+    try {
+      new URL(`https://${t}`)
+      return true
+    } catch {
+      return /^[\w.\-\/*:?]+$/.test(t) && (t.includes('.') || t.includes('*'))
+    }
+  }
 }
 
 /** Input for creating a new custom mode (server assigns id + timestamps). */
@@ -55,7 +109,6 @@ export function defaultCustomModeDraft(): CustomModeDraft {
     sessionMode: 'shared',
     searchFocus: '',
     ignoreInstructions: '',
-    runMode: 'chat',
     intervalMinutes: null,
     metadata: undefined,
   }
@@ -107,19 +160,7 @@ export function normalizeCustomModeFields(
 ): CustomModeDefinition {
   const now = new Date().toISOString()
   const id = partial.id?.startsWith('custom:') ? partial.id : createCustomModeId()
-  const runMode: CustomRunMode =
-    partial.runMode === 'chat' || partial.runMode === 'chat_scan' || partial.runMode === 'interval'
-      ? partial.runMode
-      : 'chat'
-  let intervalMinutes: number | null =
-    partial.intervalMinutes !== undefined && partial.intervalMinutes !== null
-      ? Math.max(1, Math.floor(Number(partial.intervalMinutes)))
-      : null
-  if (runMode !== 'interval') {
-    intervalMinutes = null
-  } else if (intervalMinutes === null || !Number.isFinite(intervalMinutes)) {
-    intervalMinutes = 5
-  }
+  const intervalMinutes = migrateIntervalMinutes(partial)
 
   return {
     id,
@@ -140,17 +181,68 @@ export function normalizeCustomModeFields(
         : 'shared',
     searchFocus: typeof partial.searchFocus === 'string' ? partial.searchFocus : '',
     ignoreInstructions: typeof partial.ignoreInstructions === 'string' ? partial.ignoreInstructions : '',
-    runMode,
     intervalMinutes,
     createdAt: partial.createdAt && isIsoDate(partial.createdAt) ? partial.createdAt : now,
     updatedAt: partial.updatedAt && isIsoDate(partial.updatedAt) ? partial.updatedAt : now,
-    metadata:
-      partial.metadata && typeof partial.metadata === 'object' && !Array.isArray(partial.metadata)
-        ? { ...partial.metadata }
-        : undefined,
+    metadata: sanitizeCustomModeMetadataForPersist(partial.metadata),
   }
+}
+
+/** Drop wizard-only keys (e.g. live Ollama tag lists) before persisting. */
+function sanitizeCustomModeMetadataForPersist(
+  metadata: CustomModeDefinition['metadata'],
+): CustomModeDefinition['metadata'] {
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return undefined
+  const m = { ...metadata } as Record<string, unknown>
+  delete m._ollamaTags
+  delete m._sessionLabel
+
+  const draftUrls = m[CUSTOM_MODE_SCOPE_URLS_DRAFT_KEY]
+  if (typeof draftUrls === 'string') {
+    const scopeUrls = draftUrls
+      .split('\n')
+      .map((s) => s.trim())
+      .filter(Boolean)
+    if (scopeUrls.length) m.scopeUrls = scopeUrls
+    else delete m.scopeUrls
+  } else if (Array.isArray(m.scopeUrls)) {
+    const scopeUrls = (m.scopeUrls as unknown[])
+      .filter((x): x is string => typeof x === 'string')
+      .map((s) => s.trim())
+      .filter(Boolean)
+    if (scopeUrls.length) m.scopeUrls = scopeUrls
+    else delete m.scopeUrls
+  }
+  delete m[CUSTOM_MODE_SCOPE_URLS_DRAFT_KEY]
+
+  if (typeof m.diffWatchFolder === 'string') {
+    const fp = m.diffWatchFolder.trim()
+    if (fp) m.diffWatchFolder = fp
+    else delete m.diffWatchFolder
+  }
+
+  return Object.keys(m).length ? (m as Record<string, unknown>) : undefined
 }
 
 function isIsoDate(s: string): boolean {
   return !Number.isNaN(Date.parse(s))
+}
+
+/** Legacy rows stored `runMode` + `intervalMinutes`; new schema uses only `intervalMinutes`. */
+function migrateIntervalMinutes(
+  partial: Partial<CustomModeDefinition> & { runMode?: unknown },
+): number | null {
+  const hasLegacyRun = 'runMode' in partial && partial.runMode !== undefined
+  if (hasLegacyRun) {
+    if (partial.runMode === 'interval') {
+      const n = partial.intervalMinutes
+      if (n === undefined || n === null || !Number.isFinite(Number(n))) return 5
+      return Math.max(1, Math.floor(Number(n)))
+    }
+    return null
+  }
+  if (partial.intervalMinutes === undefined || partial.intervalMinutes === null) return null
+  const n = Math.floor(Number(partial.intervalMinutes))
+  if (!Number.isFinite(n) || n < 1) return null
+  return n
 }

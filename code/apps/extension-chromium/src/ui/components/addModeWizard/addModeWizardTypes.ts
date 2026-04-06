@@ -15,7 +15,7 @@ export const ADD_MODE_WIZARD_STEPS = [
   'Model',
   'Session',
   'Focus',
-  'Run',
+  'Schedule',
   'Review',
 ] as const
 

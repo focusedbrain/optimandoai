@@ -103,7 +103,7 @@ export function ProjectSetupModal({ open, onClose, activeProjectId }: ProjectSet
         })),
       )
       setLocalAttachments([...editingProject.attachments])
-      setLinkedSessionIds([...(editingProject.linkedSessionIds ?? [])])
+      setLinkedSessionIds((editingProject.linkedSessionIds ?? []).slice(0, 1))
       setIntervalMs(editingProject.autoOptimizationIntervalMs)
     } else {
       setTitle('')
@@ -221,18 +221,9 @@ export function ProjectSetupModal({ open, onClose, activeProjectId }: ProjectSet
     setLocalAttachments((prev) => prev.filter((a) => a.id !== id))
   }, [])
 
-  const toggleLinkedSessionId = useCallback((id: string) => {
-    setLinkedSessionIds((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
-    )
-  }, [])
-
-  const selectAllLinkedSessions = useCallback(() => {
-    setLinkedSessionIds(orchestratorSessions.map((s) => s.id))
-  }, [orchestratorSessions])
-
-  const clearLinkedSessions = useCallback(() => {
-    setLinkedSessionIds([])
+  /** Auto-optimization uses a single linked WR Chat session (stored as a one-element array). */
+  const setLinkedSessionSingle = useCallback((id: string | null) => {
+    setLinkedSessionIds(id ? [id] : [])
   }, [])
 
   // ── Save ──────────────────────────────────────────────────────────────────
@@ -246,7 +237,7 @@ export function ProjectSetupModal({ open, onClose, activeProjectId }: ProjectSet
       goals: goals.trim(),
       milestones,
       attachments: localAttachments,
-      linkedSessionIds: [...linkedSessionIds],
+      linkedSessionIds: linkedSessionIds[0] ? [linkedSessionIds[0]] : [],
       autoOptimizationEnabled: editingProject?.autoOptimizationEnabled ?? false,
       autoOptimizationIntervalMs: intervalMs,
     }
@@ -317,27 +308,8 @@ export function ProjectSetupModal({ open, onClose, activeProjectId }: ProjectSet
               />
             </div>
             <div className="psm__field-col psm__field-col--fixed">
-              <div className="psm__label-row" style={{ justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
-                <label className="psm__label" id="psm-session-label">Linked sessions</label>
-                <span style={{ display: 'flex', gap: 6 }}>
-                  <button
-                    type="button"
-                    className="psm__ai-btn"
-                    style={{ fontSize: 11, padding: '2px 8px' }}
-                    onClick={selectAllLinkedSessions}
-                    disabled={orchestratorSessions.length === 0}
-                  >
-                    Select all
-                  </button>
-                  <button
-                    type="button"
-                    className="psm__ai-btn"
-                    style={{ fontSize: 11, padding: '2px 8px' }}
-                    onClick={clearLinkedSessions}
-                  >
-                    Clear
-                  </button>
-                </span>
+              <div className="psm__label-row">
+                <label className="psm__label" id="psm-session-label">Linked session (auto-optimization)</label>
               </div>
               <div
                 className="psm__select"
@@ -358,22 +330,36 @@ export function ProjectSetupModal({ open, onClose, activeProjectId }: ProjectSet
                     No WR Chat sessions found — open WR Chat at least once.
                   </span>
                 ) : (
-                  orchestratorSessions.map((s) => (
+                  <>
                     <label
-                      key={s.id}
                       style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13 }}
                     >
                       <input
-                        type="checkbox"
-                        checked={linkedSessionIds.includes(s.id)}
-                        onChange={() => toggleLinkedSessionId(s.id)}
+                        type="radio"
+                        name="psm-linked-session"
+                        checked={linkedSessionIds.length === 0}
+                        onChange={() => setLinkedSessionSingle(null)}
                       />
-                      <span>{s.name}</span>
+                      <span>None</span>
                     </label>
-                  ))
+                    {orchestratorSessions.map((s) => (
+                      <label
+                        key={s.id}
+                        style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13 }}
+                      >
+                        <input
+                          type="radio"
+                          name="psm-linked-session"
+                          checked={linkedSessionIds[0] === s.id}
+                          onChange={() => setLinkedSessionSingle(s.id)}
+                        />
+                        <span>{s.name}</span>
+                      </label>
+                    ))}
+                  </>
                 )}
               </div>
-              <p className="psm__session-hint">All WR Chat sessions from orchestrator storage (same list as session history)</p>
+              <p className="psm__session-hint">Pick one WR Chat session for auto-optimization (same list as session history).</p>
             </div>
           </div>
 

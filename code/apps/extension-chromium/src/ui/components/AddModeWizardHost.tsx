@@ -7,6 +7,8 @@ import React, { useEffect, useMemo, useState } from 'react'
 import type { LightboxTheme } from '../../shared/ui/lightboxTheme'
 import { useCustomModesStore } from '../../stores/useCustomModesStore'
 import { useUIStore } from '../../stores/useUIStore'
+import { getCustomModeScopeFromMetadata } from '../../shared/ui/customModeTypes'
+import { syncCustomModeDiffWatcher } from '../../services/syncCustomModeDiffWatcher'
 import { CustomModeWizard } from './CustomModeWizard'
 import { WRCHAT_OPEN_CUSTOM_MODE_WIZARD_EVENT } from './wrMultiTrigger/WrMultiTriggerBar'
 
@@ -15,11 +17,17 @@ export interface AddModeWizardHostProps {
   theme?: string
 }
 
+/**
+ * Align with `getThemeTokens` in lightboxTheme.ts:
+ * - `pro` / `default` → purple Pro (PRO_TOKENS)
+ * - `standard` / `professional` → light Standard (STANDARD_TOKENS)
+ * - `dark` → DARK_TOKENS
+ */
 function mapThemeToLightbox(theme: string | undefined): LightboxTheme {
   const t = (theme ?? 'default').toLowerCase()
   if (t === 'dark') return 'dark'
-  if (t === 'pro') return 'professional'
-  if (t === 'standard') return 'default'
+  if (t === 'pro') return 'default'
+  if (t === 'standard') return 'professional'
   if (t === 'professional') return 'professional'
   if (t === 'default') return 'default'
   return 'default'
@@ -45,6 +53,11 @@ export function AddModeWizardHost({ theme }: AddModeWizardHostProps) {
       theme={lightboxTheme}
       onSave={(draft) => {
         const id = addMode(draft)
+        const def = useCustomModesStore.getState().getById(id)
+        if (def) {
+          const scope = getCustomModeScopeFromMetadata(def.metadata as Record<string, unknown> | undefined)
+          void syncCustomModeDiffWatcher(id, def.name, scope.diffWatchFolder || null)
+        }
         setWorkspace('wr-chat')
         setMode(id)
       }}

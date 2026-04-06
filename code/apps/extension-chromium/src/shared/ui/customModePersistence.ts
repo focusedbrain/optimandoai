@@ -5,7 +5,6 @@
 
 import {
   type CustomModeDefinition,
-  type CustomRunMode,
   type SessionMode,
   DEFAULT_OLLAMA_ENDPOINT,
   normalizeCustomModeFields,
@@ -78,14 +77,9 @@ function migrateLegacyNestedRow(r: Record<string, unknown>): CustomModeDefinitio
   const focus = (r.focus as Record<string, unknown>) ?? {}
 
   const runBehavior = String(r.runBehavior ?? '')
-  let runMode: CustomRunMode = 'chat'
-  if (runBehavior === 'chat_only') runMode = 'chat'
-  else if (runBehavior === 'chat_and_scan') runMode = 'chat_scan'
-  else if (runBehavior === 'interval') runMode = 'interval'
-
   const intervalMs = typeof r.intervalMs === 'number' ? r.intervalMs : null
   let intervalMinutes: number | null = null
-  if (runMode === 'interval') {
+  if (runBehavior === 'interval') {
     intervalMinutes = Math.max(1, Math.round((intervalMs ?? 300_000) / 60_000))
   }
 
@@ -113,7 +107,6 @@ function migrateLegacyNestedRow(r: Record<string, unknown>): CustomModeDefinitio
       focus.ignoreInstructions !== undefined && focus.ignoreInstructions !== null
         ? String(focus.ignoreInstructions)
         : '',
-    runMode,
     intervalMinutes,
     createdAt,
     updatedAt: createdAt,

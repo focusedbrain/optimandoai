@@ -1,12 +1,12 @@
 /**
- * Wizard step: session preset, session ID, session mode.
+ * Wizard step: link this custom mode to a WR Chat session from orchestrator history.
+ * Session mode (shared/dedicated/fresh) is not exposed — routing matches other WR Chat modes (icon + speech bubble).
  */
 
-import React from 'react'
+import React, { useCallback, useEffect, useState } from 'react'
 import type { CustomModeDraft } from '../../../../shared/ui/customModeTypes'
-import { coerceSessionMode } from '../../../../shared/ui/customModeDisplay'
+import { fetchOrchestratorSessionsForWizard } from '../../../../services/fetchOrchestratorSessionsList'
 import { getThemeTokens, inputStyle, labelStyle } from '../../../../shared/ui/lightboxTheme'
-import { SESSION_MODE_VALUES, WIZARD_SESSION_MODES } from '../wizardConstants'
 import { wizardFieldColumnStyle } from '../wizardStyles'
 
 export function StepSession({
@@ -18,80 +18,109 @@ export function StepSession({
   setData: (patch: Partial<CustomModeDraft>) => void
   t: ReturnType<typeof getThemeTokens>
 }) {
-  const hasSessionId = Boolean(data.sessionId?.trim())
-  const preset = hasSessionId ? 'custom' : 'default'
-  const sessionModeValid = coerceSessionMode(data.sessionMode, SESSION_MODE_VALUES)
+  const [sessions, setSessions] = useState<{ id: string; name: string }[]>([])
+  const [loading, setLoading] = useState(false)
+  const [hint, setHint] = useState<string | null>(null)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    setHint(null)
+    try {
+      const list = await fetchOrchestratorSessionsForWizard()
+      setSessions(list)
+      if (list.length === 0) {
+        setHint(
+          'No sessions in history yet — open WR Chat at least once, or ensure WR Desk is running.',
+        )
+      }
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    void load()
+  }, [load])
+
+  /** Custom modes always use shared session semantics; speech-bubble focus selects the mode like other triggers. */
+  useEffect(() => {
+    setData({ sessionMode: 'shared' })
+  }, [setData])
+
+  const currentId = typeof data.sessionId === 'string' ? data.sessionId.trim() : ''
+  const selectValue =
+    currentId && sessions.some((s) => s.id === currentId)
+      ? currentId
+      : currentId
+        ? `__orphan__:${currentId}`
+        : ''
 
   return (
     <div style={wizardFieldColumnStyle()}>
-      <div>
-        <label htmlFor="cmw-session-preset" style={labelStyle(t)}>
-          Session
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
+        <label htmlFor="cmw-session-history" style={labelStyle(t)}>
+          WR Chat session
         </label>
-        <select
-          id="cmw-session-preset"
-          value={preset}
-          onChange={(e) => {
-            if (e.target.value === 'default') setData({ sessionId: null })
-            else setData({ sessionId: data.sessionId || '' })
+        <button
+          type="button"
+          onClick={() => void load()}
+          disabled={loading}
+          style={{
+            ...inputStyle(t),
+            padding: '6px 10px',
+            fontSize: 11,
+            fontWeight: 600,
+            cursor: loading ? 'wait' : 'pointer',
+            width: 'auto',
           }}
-          style={{ ...inputStyle(t), cursor: 'pointer' }}
         >
-          <option value="default">Default (no specific session ID)</option>
-          <option value="custom">Pin a session ID…</option>
-        </select>
+          {loading ? 'Loading…' : 'Refresh'}
+        </button>
       </div>
-      {preset === 'custom' ? (
-        <div>
-          <label htmlFor="cmw-session-id" style={labelStyle(t)}>
-            Session ID
-          </label>
-          <input
-            id="cmw-session-id"
-            type="text"
-            value={data.sessionId ?? ''}
-            onChange={(e) => setData({ sessionId: e.target.value.trim() ? e.target.value : null })}
-            placeholder="Paste or enter a session UUID"
-            style={inputStyle(t)}
-            autoComplete="off"
-          />
-        </div>
-      ) : null}
-      <div>
-        <span style={labelStyle(t)}>Session mode</span>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {WIZARD_SESSION_MODES.map((sm) => {
-            const checked = sessionModeValid === sm.value
-            return (
-              <label
-                key={sm.value}
-                style={{
-                  display: 'flex',
-                  alignItems: 'flex-start',
-                  gap: 10,
-                  cursor: 'pointer',
-                  padding: '10px 12px',
-                  borderRadius: 10,
-                  border: `1px solid ${checked ? t.accentColor : t.border}`,
-                  background: checked ? t.cardBg : 'transparent',
-                }}
-              >
-                <input
-                  type="radio"
-                  name="cmw-session-mode"
-                  checked={checked}
-                  onChange={() => setData({ sessionMode: sm.value })}
-                  style={{ marginTop: 3 }}
-                />
-                <span>
-                  <span style={{ display: 'block', fontSize: 13, fontWeight: 600, color: t.text }}>{sm.label}</span>
-                  <span style={{ fontSize: 11, color: t.textMuted }}>{sm.hint}</span>
-                </span>
-              </label>
-            )
-          })}
-        </div>
-      </div>
+      <p style={{ margin: '0 0 10px', fontSize: 12, color: t.textMuted, lineHeight: 1.45 }}>
+        Optional: tie this mode to a session from your history so WR Chat uses that thread when you select the mode
+        (same flow as other modes — pick the icon, then use the speech bubble to focus WR Chat).
+      </p>
+      {hint ? <p style={{ margin: '0 0 8px', fontSize: 11, color: t.textMuted }}>{hint}</p> : null}
+      <select
+        id="cmw-session-history"
+        value={selectValue}
+        onChange={(e) => {
+          const v = e.target.value
+          if (v.startsWith('__orphan__:')) return
+          if (v === '') {
+            setData({
+              sessionId: null,
+              sessionMode: 'shared',
+              metadata: { _sessionLabel: '' },
+            })
+            return
+          }
+          const row = sessions.find((s) => s.id === v)
+          setData({
+            sessionId: v,
+            sessionMode: 'shared',
+            metadata: { _sessionLabel: row?.name ?? v },
+          })
+        }}
+        disabled={loading && sessions.length === 0}
+        style={{ ...inputStyle(t), cursor: 'pointer' }}
+      >
+        <option value="">
+          {loading && sessions.length === 0 ? 'Loading sessions…' : 'None — default WR Chat session'}
+        </option>
+        {selectValue.startsWith('__orphan__:') ? (
+          <option value={selectValue} disabled>
+            {currentId.slice(0, 20)}
+            {currentId.length > 20 ? '…' : ''} (not in current history)
+          </option>
+        ) : null}
+        {sessions.map((s) => (
+          <option key={s.id} value={s.id}>
+            {s.name}
+          </option>
+        ))}
+      </select>
     </div>
   )
 }

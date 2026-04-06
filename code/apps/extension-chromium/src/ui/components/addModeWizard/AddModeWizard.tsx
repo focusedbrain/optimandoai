@@ -80,7 +80,13 @@ export const AddModeWizard: React.FC<AddModeWizardProps> = ({
   }, [data])
 
   const mergeData = useCallback((patch: Partial<CustomModeDraft>) => {
-    setData((prev) => ({ ...prev, ...patch }))
+    setData((prev) => {
+      const next = { ...prev, ...patch }
+      if (patch.metadata !== undefined && prev.metadata && typeof prev.metadata === 'object') {
+        next.metadata = { ...prev.metadata, ...patch.metadata }
+      }
+      return next
+    })
   }, [])
 
   const runValidation = useCallback(
@@ -193,13 +199,16 @@ export const AddModeWizard: React.FC<AddModeWizardProps> = ({
   const panelSx = useMemo(
     (): React.CSSProperties => ({
       ...panelStyle(t),
-      maxWidth: 440,
+      maxWidth: 480,
       width: '100%',
-      maxHeight: 'min(90vh, 640px)',
+      maxHeight: 'min(90vh, 680px)',
       display: 'flex',
       flexDirection: 'column',
       overflow: 'hidden',
       outline: 'none',
+      borderRadius: 16,
+      border: `1px solid ${t.border}`,
+      boxShadow: `${t.panelShadow}, 0 0 0 1px ${t.accentColor}14, inset 0 1px 0 ${t.isLight ? 'rgba(255,255,255,0.85)' : 'rgba(255,255,255,0.06)'}`,
     }),
     [t],
   )
@@ -229,19 +238,48 @@ export const AddModeWizard: React.FC<AddModeWizardProps> = ({
         <div
           style={{
             display: 'flex',
-            alignItems: 'flex-start',
+            alignItems: 'stretch',
             justifyContent: 'space-between',
-            gap: 12,
-            padding: '16px 18px',
+            gap: 0,
             borderBottom: `1px solid ${t.border}`,
             flexShrink: 0,
+            background: t.headerBg,
           }}
         >
+          <div
+            style={{
+              width: 4,
+              flexShrink: 0,
+              background: t.accentGradient,
+              borderRadius: '16px 0 0 0',
+            }}
+            aria-hidden
+          />
+          <div
+            style={{
+              flex: 1,
+              display: 'flex',
+              alignItems: 'flex-start',
+              justifyContent: 'space-between',
+              gap: 12,
+              padding: '18px 20px 16px 14px',
+            }}
+          >
           <div>
-            <h2 id={titleId} style={{ margin: 0, fontSize: 17, fontWeight: 700, color: t.text }}>
+            <h2
+              id={titleId}
+              style={{
+                margin: 0,
+                fontSize: 18,
+                fontWeight: 700,
+                letterSpacing: '-0.02em',
+                color: t.text,
+                fontFamily: 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif',
+              }}
+            >
               Add mode
             </h2>
-            <p id={descId} style={{ margin: '6px 0 0', fontSize: 12, color: t.textMuted }}>
+            <p id={descId} style={{ margin: '8px 0 0', fontSize: 12, color: t.textMuted, lineHeight: 1.45 }}>
               Step {step + 1} of {ADD_MODE_WIZARD_STEPS.length} — {ADD_MODE_WIZARD_STEPS[step]}
             </p>
           </div>
@@ -257,19 +295,21 @@ export const AddModeWizard: React.FC<AddModeWizardProps> = ({
           >
             ×
           </button>
+          </div>
         </div>
 
-        <div style={{ padding: '10px 18px 0', flexShrink: 0 }} aria-hidden>
-          <div style={{ display: 'flex', gap: 4 }}>
+        <div style={{ padding: '12px 20px 0', flexShrink: 0 }} aria-hidden>
+          <div style={{ display: 'flex', gap: 6 }}>
             {ADD_MODE_WIZARD_STEPS.map((label, i) => (
               <div
                 key={label}
                 style={{
                   flex: 1,
-                  height: 3,
-                  borderRadius: 2,
-                  background: i <= step ? t.accentColor : t.border,
-                  opacity: i <= step ? 1 : 0.45,
+                  height: 4,
+                  borderRadius: 4,
+                  background: i < step ? t.accentGradient : i === step ? t.accentGradient : t.border,
+                  opacity: i <= step ? 1 : 0.35,
+                  boxShadow: i === step ? `0 0 12px ${t.accentColor}55` : undefined,
                 }}
                 title={`${label}${i < step ? ' — completed' : i === step ? ' — current' : ''}`}
               />
