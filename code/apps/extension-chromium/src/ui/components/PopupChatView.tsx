@@ -1508,16 +1508,14 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
         console.log('[WRChat][dashboard-capture] IPC duplicate discarded — trigger consumed', msSinceConsumed, 'ms ago')
         return
       }
-      // Manual Capture: add screenshot to chat so handleSend (user types in input)
-      // can find it via lastUserMsgWithImage → resolve → OCR → enriched LLM call.
-      // This matches sidepanel processElectronSelectionForTagsRef (sidepanel.tsx ~3339)
-      // which also adds [Screenshot] to chat when !pendingTrigger?.autoProcess.
-      // The trigger dialog (lmgtfy-show-trigger-prompt) may also arrive and its Save
-      // path (sendWithTriggerAndImage) will OCR the image from showTriggerPrompt.imageUrl.
-      console.log('[WRChat][dashboard-capture] no pending trigger — adding screenshot to chat for handleSend OCR')
+      // Dashboard manual capture should not append a user bubble yet. The dashboard
+      // always opens the trigger prompt after Capture, and Save should produce the
+      // single combined user bubble (image + command) via sendWithTriggerAndImage.
+      // Keep a fallback pending attachment so direct Send still works if the prompt
+      // is dismissed or never appears.
+      console.log('[WRChat][dashboard-capture] no pending trigger — storing pending capture for prompt / direct send')
       dashboardTriggerLastConsumedAt.current = Date.now()
-      setMessages(prev => [...prev, { role: 'user' as const, text: '[Screenshot]', imageUrl: dataUrl }])
-      scrollToBottom()
+      setPendingCaptureUrl(dataUrl)
       return
     }
     const tr = pending.trigger
@@ -2543,6 +2541,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
 
                 // Invariant: one new user bubble per Save — combined text + image/video only here or in the non-auto branch below (never from ELECTRON_SELECTION_RESULT).
                 if (shouldAutoProcess && triggerNameToUse && mediaUrl) {
+                  if (wrChatEmbedContext === 'dashboard') setPendingCaptureUrl(null)
                   setShowTriggerPrompt(null)
                   await sendWithTriggerAndImage(
                     displayForChat,
@@ -2559,9 +2558,11 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
                   } else {
                     setMessages(prev => [...prev, { role: 'user', text: caption, imageUrl: mediaUrl }])
                   }
+                  if (wrChatEmbedContext === 'dashboard') setPendingCaptureUrl(null)
                   setShowTriggerPrompt(null)
                   setTimeout(() => { if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight }, 0)
                 } else {
+                  if (wrChatEmbedContext === 'dashboard') setPendingCaptureUrl(null)
                   setShowTriggerPrompt(null)
                 }
               }}
