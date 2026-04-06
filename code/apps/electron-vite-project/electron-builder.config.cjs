@@ -7,10 +7,10 @@ const appDir = __dirname
 
 /**
  * Parsed by scripts/kill-wr-desk.cjs — must contain a line matching:
- *   return 'C:\\build-output\\build011'
+ *   return 'C:\\build-output\\build012'
  */
 function windowsOutputDirMarker() {
-  return 'C:\\build-output\\build011'
+  return 'C:\\build-output\\build012'
 }
 
 const workspaceRoot = path.resolve(appDir, '../..')
@@ -30,22 +30,13 @@ function tesseractCoreWasmPath() {
   ])
 }
 
-function tesseractWorkerPath() {
-  return findFile([
-    path.join(appDir, 'node_modules/tesseract.js/dist/worker.min.js'),
-    path.join(workspaceRoot, 'node_modules/tesseract.js/dist/worker.min.js'),
-  ])
-}
+// worker.min.js is the browser build — NOT used in Electron (Node worker_threads).
+// tesseract.js resolves its own Node-compatible worker from the asarUnpacked package.
+// Only the WASM core needs to be extracted as an extraResource.
 
-const workerFile = tesseractWorkerPath()
 const extraResources = [
   { from: 'resources', to: '.', filter: ['**/*'] },
 ]
-if (workerFile) {
-  extraResources.push({ from: workerFile, to: 'tesseract-worker/worker.min.js' })
-} else {
-  console.warn('[electron-builder] tesseract.js worker.min.js NOT FOUND — OCR will not work in packaged app')
-}
 
 const wasm = tesseractCoreWasmPath()
 if (wasm) {

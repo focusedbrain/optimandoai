@@ -97,20 +97,17 @@ export class OCRService {
 
       if (app.isPackaged) {
         const resourcesPath = process.resourcesPath
-
-        const workerPath = path.join(resourcesPath, 'tesseract-worker', 'worker.min.js')
-        const corePath = path.join(resourcesPath, 'tesseract-worker', 'tesseract-core-simd-lstm.wasm.js')
-
         console.log(`[OCR] Packaged mode | resourcesPath: ${resourcesPath}`)
-        console.log(`[OCR] worker exists: ${fs.existsSync(workerPath)} | core exists: ${fs.existsSync(corePath)}`)
 
-        if (fs.existsSync(workerPath)) {
-          workerOptions.workerPath = workerPath
-        } else {
-          console.warn(`[OCR] worker.min.js NOT FOUND at ${workerPath} — Tesseract will try default paths`)
-        }
+        // Do NOT set workerPath — worker.min.js is the browser build and crashes
+        // in Node worker_threads with "addEventListener is not a function".
+        // tesseract.js automatically uses its own Node-compatible worker script
+        // from the asarUnpacked node_modules/tesseract.js package.
+
+        const corePath = path.join(resourcesPath, 'tesseract-worker', 'tesseract-core-simd-lstm.wasm.js')
         if (fs.existsSync(corePath)) {
           workerOptions.corePath = corePath
+          console.log(`[OCR] Using bundled WASM core`)
         } else {
           console.warn(`[OCR] WASM core NOT FOUND at ${corePath} — Tesseract will try default paths`)
         }
