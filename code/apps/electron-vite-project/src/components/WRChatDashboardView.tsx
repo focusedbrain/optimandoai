@@ -1,7 +1,6 @@
 import { useCallback, useLayoutEffect, useState } from 'react'
 import { PopupChatView } from '@ext/ui/components'
 import { ensureOrchestratorSessionForDashboard } from '../lib/wrChatDashboardBootstrap'
-import { WR_CHAT_DASHBOARD_TRANSCRIPT_KEY } from '../lib/wrChatDashboardConstants'
 import { wrChatDashboardWarn } from '../lib/wrChatDashboardLog'
 import { setWrChatRuntimeSurface } from '../lib/wrChatRuntimeMode'
 import { ensureWrdeskChromeShim } from '../shims/wrChatDashboardChrome'
@@ -195,7 +194,6 @@ export default function WRChatDashboardView({ theme }: WRChatDashboardViewProps)
           onModelSelect={onModelSelect}
           onRefreshModels={refreshModels}
           sessionName="Dashboard"
-          persistTranscriptStorageKey={WR_CHAT_DASHBOARD_TRANSCRIPT_KEY}
           wrChatEmbedContext="dashboard"
         />
       </div>
