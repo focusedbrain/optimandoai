@@ -16,11 +16,11 @@ export interface CustomModeRuntimeConfig {
   sessionMode: SessionMode
   searchFocus: string
   ignoreInstructions: string
-  intervalMinutes: number | null
+  intervalSeconds: number | null
   /** Optional http(s) URLs / host patterns this mode should prioritize. */
   scopeUrls: string[]
-  /** Optional folder path for desktop file-change diff triggers. */
-  diffWatchFolder: string
+  /** Optional folder paths for desktop file-change diff triggers. */
+  diffWatchFolders: string[]
 }
 
 export function customModeDefinitionToRuntime(def: CustomModeDefinition): CustomModeRuntimeConfig {
@@ -35,8 +35,8 @@ export function customModeDefinitionToRuntime(def: CustomModeDefinition): Custom
     sessionMode: def.sessionMode,
     searchFocus: def.searchFocus,
     ignoreInstructions: def.ignoreInstructions,
-    intervalMinutes: def.intervalMinutes,
+    intervalSeconds: def.intervalSeconds,
     scopeUrls: scope.scopeUrls,
-    diffWatchFolder: scope.diffWatchFolder,
+    diffWatchFolders: scope.diffWatchFolders,
   }
 }

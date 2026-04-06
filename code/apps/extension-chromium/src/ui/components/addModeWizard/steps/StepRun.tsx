@@ -4,6 +4,7 @@
 
 import React from 'react'
 import type { CustomModeDraft } from '../../../../shared/ui/customModeTypes'
+import { CUSTOM_MODE_INTERVAL_PRESET_OPTIONS } from '../../../../shared/ui/customModeIntervalPresets'
 import { getThemeTokens, inputStyle, labelStyle } from '../../../../shared/ui/lightboxTheme'
 import type { InlineFieldErrors } from '../addModeWizardValidation'
 import { inputStyleWithError, wizardFieldColumnStyle } from '../wizardStyles'
@@ -20,39 +21,42 @@ export function StepRun({
   t: ReturnType<typeof getThemeTokens>
   fieldErrors: InlineFieldErrors
 }) {
-  const intErr = fieldErrors.intervalMinutes
+  const intErr = fieldErrors.intervalSeconds
+  const val = data.intervalSeconds
 
   return (
     <div style={wizardFieldColumnStyle()}>
       <p style={{ margin: '0 0 12px', fontSize: 13, color: t.textMuted, lineHeight: 1.45 }}>
-        Chat and manual scan are always available. Optionally set an interval (minutes) to also run a periodic scan on
-        that schedule.
+        Chat and manual scan are always available. Optionally choose an interval to also run a periodic scan on that
+        schedule.
       </p>
       <div>
         <label htmlFor="cmw-interval" style={labelStyle(t)}>
-          Periodic scan interval (minutes){' '}
+          Periodic scan interval{' '}
           <span style={{ fontWeight: 400, textTransform: 'none', opacity: 0.85 }}>(optional)</span>
         </label>
-        <input
+        <select
           id="cmw-interval"
-          type="number"
-          min={1}
-          step={1}
-          value={data.intervalMinutes ?? ''}
+          value={val == null ? '' : String(val)}
           onChange={(e) => {
             const v = e.target.value
-            if (v === '') {
-              setData({ intervalMinutes: null })
-              return
-            }
-            const n = parseInt(v, 10)
-            setData({ intervalMinutes: Number.isFinite(n) ? Math.max(1, n) : null })
+            setData({ intervalSeconds: v === '' ? null : Number(v) })
           }}
-          placeholder="Leave empty for no schedule"
-          style={inputStyleWithError(inputStyle(t), t, intErr)}
+          style={inputStyleWithError(
+            { ...inputStyle(t), fontSize: 13, minHeight: 36, cursor: 'pointer' },
+            t,
+            intErr,
+          )}
           aria-invalid={intErr ? true : undefined}
           aria-describedby={intErr ? 'cmw-interval-err' : undefined}
-        />
+        >
+          <option value="">None</option>
+          {CUSTOM_MODE_INTERVAL_PRESET_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
         <WizardFieldError id="cmw-interval-err" message={intErr} t={t} />
       </div>
     </div>

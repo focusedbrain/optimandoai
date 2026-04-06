@@ -4,7 +4,12 @@
 
 import React, { useMemo } from 'react'
 import type { CustomModeDraft } from '../../../../shared/ui/customModeTypes'
-import { CUSTOM_MODE_SCOPE_URLS_DRAFT_KEY, getScopeUrlsDraftText } from '../../../../shared/ui/customModeTypes'
+import {
+  CUSTOM_MODE_DIFF_FOLDERS_DRAFT_KEY,
+  CUSTOM_MODE_SCOPE_URLS_DRAFT_KEY,
+  getDiffWatchFoldersDraftText,
+  getScopeUrlsDraftText,
+} from '../../../../shared/ui/customModeTypes'
 import { safeDraftString } from '../../../../shared/ui/customModeDisplay'
 import { getThemeTokens, inputStyle, labelStyle } from '../../../../shared/ui/lightboxTheme'
 import type { InlineFieldErrors } from '../addModeWizardValidation'
@@ -23,15 +28,13 @@ export function StepFocus({
   t: ReturnType<typeof getThemeTokens>
   fieldErrors: InlineFieldErrors
 }) {
-  const sfErr = fieldErrors.searchFocus
   const scopeUrlErr = fieldErrors.scopeUrls
   const md = useMemo(
     () => (data.metadata && typeof data.metadata === 'object' ? (data.metadata as Record<string, unknown>) : {}),
     [data.metadata],
   )
   const scopeUrlsText = getScopeUrlsDraftText(md)
-  const diffFolder =
-    typeof md.diffWatchFolder === 'string' ? md.diffWatchFolder : ''
+  const diffFoldersText = getDiffWatchFoldersDraftText(md)
   const canBrowse = typeof getElectronPickDirectory() === 'function'
 
   const patchMetadata = (patch: Record<string, unknown>) => {
@@ -47,19 +50,16 @@ export function StepFocus({
     <div style={wizardFieldColumnStyle()}>
       <div>
         <label htmlFor="cmw-focus" style={labelStyle(t)}>
-          What this mode should look for <span aria-hidden="true">*</span>
+          What this mode should look for{' '}
+          <span style={{ fontWeight: 400, textTransform: 'none', opacity: 0.85 }}>(optional)</span>
         </label>
         <textarea
           id="cmw-focus"
           value={safeDraftString(data.searchFocus)}
           onChange={(e) => setData({ searchFocus: e.target.value })}
           placeholder="Topics, signals, or goals the assistant should prioritize in this mode…"
-          style={inputStyleWithError(wizardTextareaStyle(t), t, sfErr)}
-          aria-invalid={sfErr ? true : undefined}
-          aria-describedby={sfErr ? 'cmw-focus-err' : undefined}
-          aria-required
+          style={wizardTextareaStyle(t)}
         />
-        <WizardFieldError id="cmw-focus-err" message={sfErr} t={t} />
       </div>
       <div>
         <label htmlFor="cmw-ignore" style={labelStyle(t)}>
@@ -96,30 +96,24 @@ export function StepFocus({
         <WizardFieldError id="cmw-scope-urls-err" message={scopeUrlErr} t={t} />
       </div>
       <div>
-        <label htmlFor="cmw-diff-folder" style={labelStyle(t)}>
-          Diff watch folder{' '}
+        <label htmlFor="cmw-diff-folders" style={labelStyle(t)}>
+          Diff watch folders{' '}
           <span style={{ fontWeight: 400, textTransform: 'none', opacity: 0.85 }}>(optional)</span>
         </label>
         <p style={{ margin: '0 0 12px', fontSize: 12, color: t.textMuted, lineHeight: 1.45 }}>
-          When the desktop app is running, file adds or changes under this folder can post a diff into WR Chat (same as
-          the Diff button). Leave empty to rely on URLs / focus only.
+          When the desktop app is running, file adds or changes under these folders can post a diff into WR Chat (same
+          as the Diff button). One absolute path per line. Leave empty to rely on URLs / focus only.
         </p>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'stretch', flexWrap: 'wrap' }}>
-          <input
-            id="cmw-diff-folder"
-            type="text"
-            value={diffFolder}
-            onChange={(e) => patchMetadata({ diffWatchFolder: e.target.value })}
-            placeholder="C:\path\to\project"
-            style={{
-              flex: '1 1 200px',
-              minWidth: 0,
-              ...inputStyle(t),
-              fontSize: 13,
-            }}
-            autoComplete="off"
-            spellCheck={false}
-          />
+        <textarea
+          id="cmw-diff-folders"
+          value={diffFoldersText}
+          onChange={(e) => patchMetadata({ [CUSTOM_MODE_DIFF_FOLDERS_DRAFT_KEY]: e.target.value })}
+          placeholder={'C:\\path\\to\\project\nD:\\other\\repo'}
+          rows={3}
+          style={wizardTextareaStyle(t)}
+          spellCheck={false}
+        />
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginTop: 8 }}>
           {canBrowse && (
             <button
               type="button"
@@ -128,7 +122,10 @@ export function StepFocus({
                   const pick = getElectronPickDirectory()
                   if (!pick) return
                   const p = await pick()
-                  if (p) patchMetadata({ diffWatchFolder: p })
+                  if (!p) return
+                  const cur = diffFoldersText.trim()
+                  const next = cur ? `${cur}\n${p}` : p
+                  patchMetadata({ [CUSTOM_MODE_DIFF_FOLDERS_DRAFT_KEY]: next })
                 })()
               }}
               style={{
@@ -143,7 +140,7 @@ export function StepFocus({
                 whiteSpace: 'nowrap',
               }}
             >
-              Browse…
+              Add folder…
             </button>
           )}
         </div>

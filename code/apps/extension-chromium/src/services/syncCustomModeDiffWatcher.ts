@@ -20,21 +20,35 @@ function getLaunchSecret(): Promise<string | null> {
   })
 }
 
-export function customModeDiffWatcherId(modeId: string): string {
+function modeDiffWatcherIdPrefix(modeId: string): string {
   const uuid = modeId.startsWith('custom:') ? modeId.slice('custom:'.length) : modeId
   return `cmdiff-${uuid}`
 }
 
+/** Stable id for the nth folder watcher (`0` = first path). Legacy single-folder id `cmdiff-<uuid>` is removed on sync. */
+export function customModeDiffWatcherId(modeId: string, index: number): string {
+  return `${modeDiffWatcherIdPrefix(modeId)}-${index}`
+}
+
+function isModeOwnedDiffWatcherId(modeId: string, watcherId: string): boolean {
+  const prefix = modeDiffWatcherIdPrefix(modeId)
+  return watcherId === prefix || watcherId.startsWith(`${prefix}-`)
+}
+
 /**
- * Upsert or remove the folder diff watcher for this mode. Safe to call when the desktop app is offline (no-op).
+ * Upsert or remove folder diff watchers for this mode. Safe to call when the desktop app is offline (no-op).
  */
 export async function syncCustomModeDiffWatcher(
   modeId: string,
   modeName: string,
-  diffWatchFolder: string | null | undefined,
+  diffWatchFolders: string[] | null | undefined,
 ): Promise<void> {
-  const triggerId = customModeDiffWatcherId(modeId)
-  const folder = typeof diffWatchFolder === 'string' ? diffWatchFolder.trim() : ''
+  const raw = Array.isArray(diffWatchFolders) ? diffWatchFolders : []
+  const seen = new Set<string>()
+  const folders = raw
+    .map((f) => (typeof f === 'string' ? f.trim() : ''))
+    .filter(Boolean)
+    .filter((f) => (seen.has(f) ? false : (seen.add(f), true)))
 
   try {
     const secret = await getLaunchSecret()
@@ -47,22 +61,22 @@ export async function syncCustomModeDiffWatcher(
     const j = (await r.json().catch(() => ({}))) as { watchers?: unknown }
     if (!Array.isArray(j.watchers)) return
 
-    let list = (j.watchers as DiffTrigger[]).filter((w) => w.id !== triggerId)
+    let list = (j.watchers as DiffTrigger[]).filter((w) => !isModeOwnedDiffWatcherId(modeId, w.id))
 
-    if (folder) {
+    if (folders.length > 0) {
       const uuidShort = modeId.replace(/^custom:/, '').slice(0, 8)
       const tag = normaliseTriggerTag(`#cm-${uuidShort}`) || '#cmdiff'
-      const safeName = `Mode: ${(modeName || 'Untitled').trim()}`.slice(0, 120)
-      const trigger: DiffTrigger = {
+      const safeNameBase = `Mode: ${(modeName || 'Untitled').trim()}`.slice(0, 100)
+      const triggers: DiffTrigger[] = folders.map((folder, index) => ({
         type: 'diff',
-        id: triggerId,
-        name: safeName,
+        id: customModeDiffWatcherId(modeId, index),
+        name: folders.length > 1 ? `${safeNameBase} (${index + 1})`.slice(0, 120) : `${safeNameBase}`.slice(0, 120),
         tag,
         watchPath: folder,
         enabled: true,
         updatedAt: Date.now(),
-      }
-      list = [...list, trigger]
+      }))
+      list = [...list, ...triggers]
     }
 
     const post = await fetch(`${BASE_URL}/api/wrchat/diff-watchers`, {

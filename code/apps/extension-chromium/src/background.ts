@@ -2,6 +2,7 @@ import { handleElectronRpc, type ElectronRpcRequest } from './rpc/electronRpc'
 import { WEBMCP_RESULT_VERSION } from './vault/autofill/webMcpConstants'
 import type { BgWebMcpErrorCode } from './vault/autofill/webMcpAdapter'
 import { extractAllTabsDom } from './utils/watchdogDomExtract'
+import { maybePresentOrchestratorDisplayGridSession } from './services/presentOrchestratorDisplayGridSession'
 
 try {
   const m = chrome.runtime.getManifest()
@@ -4368,6 +4369,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
               console.warn('⚠️ BG: Chrome mirror write failed (non-fatal):', chrome.runtime.lastError.message)
             }
           })
+          void maybePresentOrchestratorDisplayGridSession(sessionKey, session as Record<string, unknown>)
           try { sendResponse({ success: true }) } catch {}
         })
         .catch((error: any) => {
@@ -4378,83 +4380,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       return true  // Keep message channel open for async response
     }
 
-    /** Add Mode wizard: merged session list from GET /api/orchestrator/sessions (requires X-Launch-Secret). */
-    case 'GET_ORCHESTRATOR_SESSIONS_FOR_WIZARD': {
-      ;(async () => {
-        try {
-          await ensureLaunchSecret(20000)
-          if (!_launchSecret) {
-            console.warn('[BG] GET_ORCHESTRATOR_SESSIONS_FOR_WIZARD: launch secret not ready')
-            try {
-              sendResponse({ ok: false, sessions: [], error: 'launch_secret_unavailable' })
-            } catch {
-              /* noop */
-            }
-            return
-          }
-          const r = await fetch(`${ELECTRON_BASE_URL}/api/orchestrator/sessions`, {
-            method: 'GET',
-            headers: _electronHeaders(),
-            signal: AbortSignal.timeout(20000),
-          })
-          if (!r.ok) {
-            console.warn('[BG] GET_ORCHESTRATOR_SESSIONS_FOR_WIZARD: HTTP', r.status)
-            try {
-              sendResponse({ ok: false, sessions: [], error: `http_${r.status}` })
-            } catch {
-              /* noop */
-            }
-            return
-          }
-          const body: unknown = await r.json().catch(() => null)
-          if (!body || typeof body !== 'object') {
-            try {
-              sendResponse({ ok: true, sessions: [] })
-            } catch {
-              /* noop */
-            }
-            return
-          }
-          const o = body as Record<string, unknown>
-          const raw = o.data
-          const list = Array.isArray(raw) ? raw : []
-          const sessions: { id: string; name: string }[] = []
-          for (const row of list) {
-            if (!row || typeof row !== 'object') continue
-            const rec = row as Record<string, unknown>
-            const id = String(rec.id ?? '').trim()
-            if (!id) continue
-            const name =
-              typeof rec.name === 'string' && rec.name.trim()
-                ? rec.name.trim()
-                : id
-            sessions.push({ id, name })
-          }
-          sessions.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }))
-          try {
-            sendResponse({ ok: true, sessions })
-          } catch {
-            /* noop */
-          }
-        } catch (e: unknown) {
-          console.error('[BG] GET_ORCHESTRATOR_SESSIONS_FOR_WIZARD:', e)
-          try {
-            sendResponse({ ok: false, sessions: [], error: e instanceof Error ? e.message : String(e) })
-          } catch {
-            /* noop */
-          }
-        }
-      })()
-      return true
-    }
-
     case 'GET_ALL_SESSIONS_FROM_SQLITE': {
       
       const chromeStorageFallback = () => {
         chrome.storage.local.get(null, (allData: any) => {
           const chromeSessions: Record<string, any> = {}
           Object.entries(allData || {}).forEach(([k, v]) => {
-            if (k.startsWith('session_')) chromeSessions[k] = v
+            if (k.startsWith('session_') || k.startsWith('archive_session_')) chromeSessions[k] = v
           })
           try { sendResponse({ success: true, sessions: chromeSessions }) } catch (e) {}
         })
@@ -4471,7 +4403,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           const allData: Record<string, any> = result.data || {}
           const sessionsMap: Record<string, any> = {}
           Object.entries(allData).forEach(([k, v]) => {
-            if (k.startsWith('session_') && v) sessionsMap[k] = v
+            if ((k.startsWith('session_') || k.startsWith('archive_session_')) && v) sessionsMap[k] = v
           })
           
 

@@ -142,7 +142,7 @@ apps/extension-chromium/build016/
 apps/extension-chromium/build516/
 apps/extension-chromium/build226/
 apps/extension-chromium/build526/
-apps/extension-chromium/build996/
+apps/extension-chromium/build1022/
 
 # Windows-style path accidentally created as a real directory on Linux (cross-platform builds)
 apps/electron-vite-project/C:*/

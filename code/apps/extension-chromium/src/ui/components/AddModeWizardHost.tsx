@@ -56,7 +56,7 @@ export function AddModeWizardHost({ theme }: AddModeWizardHostProps) {
         const def = useCustomModesStore.getState().getById(id)
         if (def) {
           const scope = getCustomModeScopeFromMetadata(def.metadata as Record<string, unknown> | undefined)
-          void syncCustomModeDiffWatcher(id, def.name, scope.diffWatchFolder || null)
+          void syncCustomModeDiffWatcher(id, def.name, scope.diffWatchFolders)
         }
         setWorkspace('wr-chat')
         setMode(id)

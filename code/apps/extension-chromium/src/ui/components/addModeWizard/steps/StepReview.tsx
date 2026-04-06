@@ -4,7 +4,8 @@
 
 import React from 'react'
 import type { CustomModeDraft } from '../../../../shared/ui/customModeTypes'
-import { getScopeUrlsDraftText } from '../../../../shared/ui/customModeTypes'
+import { getDiffWatchFoldersDraftText, getScopeUrlsDraftText } from '../../../../shared/ui/customModeTypes'
+import { formatCustomModeIntervalPresetLabel } from '../../../../shared/ui/customModeIntervalPresets'
 import { safeDraftString } from '../../../../shared/ui/customModeDisplay'
 import { getThemeTokens } from '../../../../shared/ui/lightboxTheme'
 import { wizardReviewRowStyle } from '../wizardStyles'
@@ -27,7 +28,9 @@ export function StepReview({
       ? `Linked session: ${sid.slice(0, 28)}${sid.length > 28 ? '…' : ''}`
       : 'None (default WR Chat session)'
   const intervalLine =
-    data.intervalMinutes != null && data.intervalMinutes >= 1 ? `${data.intervalMinutes} min` : '—'
+    data.intervalSeconds != null && data.intervalSeconds >= 1
+      ? formatCustomModeIntervalPresetLabel(data.intervalSeconds)
+      : '—'
 
   const nameSafe = safeDraftString(data.name).trim()
   const modelSafe = safeDraftString(data.modelName).trim()
@@ -35,7 +38,12 @@ export function StepReview({
   const md = data.metadata && typeof data.metadata === 'object' ? (data.metadata as Record<string, unknown>) : undefined
   const scopeUrlsReview = getScopeUrlsDraftText(md).trim()
   const diffFolderReview =
-    md && typeof md.diffWatchFolder === 'string' ? md.diffWatchFolder.trim() : ''
+    getDiffWatchFoldersDraftText(md)
+      .trim()
+      .split('\n')
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .join('; ') || '—'
 
   const rows: { k: string; v: string }[] = [
     { k: 'Name', v: nameSafe || '—' },
@@ -49,7 +57,7 @@ export function StepReview({
     { k: 'Session', v: sessionLabel },
     { k: 'Focus', v: focusSafe || '—' },
     { k: 'Scope URLs', v: scopeUrlsReview || '—' },
-    { k: 'Diff folder', v: diffFolderReview || '—' },
+    { k: 'Diff watch folders', v: diffFolderReview },
     { k: 'Ignore', v: safeDraftString(data.ignoreInstructions).trim() || '—' },
     { k: 'Periodic scan', v: intervalLine },
   ]

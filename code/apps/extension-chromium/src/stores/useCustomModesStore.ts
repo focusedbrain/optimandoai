@@ -70,7 +70,7 @@ export const useCustomModesStore = create<CustomModesState>()(
               updatedAt: now,
             })
             const scope = getCustomModeScopeFromMetadata(next.metadata as Record<string, unknown> | undefined)
-            void syncCustomModeDiffWatcher(id, next.name, scope.diffWatchFolder || null)
+            void syncCustomModeDiffWatcher(id, next.name, scope.diffWatchFolders)
             return next
           }),
         }))

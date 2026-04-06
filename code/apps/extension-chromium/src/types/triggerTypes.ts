@@ -27,6 +27,8 @@ export interface TriggerProjectEntry {
   /** Emoji or icon id — only projects WITH icons appear */
   icon: string
   activeMilestoneTitle?: string
+  /** When set, extension can map orchestrator session → auto-optimizer project */
+  linkedSessionIds?: string[]
 }
 
 /**

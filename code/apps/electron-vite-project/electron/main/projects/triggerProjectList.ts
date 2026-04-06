@@ -5,6 +5,8 @@ export type TriggerProjectEntry = {
   title: string
   icon: string
   activeMilestoneTitle?: string
+  /** Orchestrator session keys linked for auto-optimization (extension matches WR Chat session). */
+  linkedSessionIds?: string[]
 }
 
 /**
@@ -58,6 +60,10 @@ export async function readTriggerProjectEntriesFromRenderer(): Promise<TriggerPr
         icon: icon.trim(),
       }
       if (activeTitle) entry.activeMilestoneTitle = activeTitle
+      const linked = Array.isArray(o.linkedSessionIds)
+        ? (o.linkedSessionIds as unknown[]).filter((x): x is string => typeof x === 'string' && x.trim().length > 0)
+        : []
+      if (linked.length) entry.linkedSessionIds = linked
       out.push(entry)
     }
     return out

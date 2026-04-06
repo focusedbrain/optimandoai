@@ -3,6 +3,7 @@
  */
 
 import type { CustomModeRuntimeConfig } from '../shared/ui/customModeRuntime'
+import { formatCustomModeIntervalPresetLabel } from '../shared/ui/customModeIntervalPresets'
 
 export function getCustomModeLlmPrefix(runtime: CustomModeRuntimeConfig | null): string | null {
   if (!runtime) return null
@@ -18,17 +19,17 @@ export function getCustomModeLlmPrefix(runtime: CustomModeRuntimeConfig | null):
     parts.push(`[Session mode: ${runtime.sessionMode}]`)
   }
 
-  if (runtime.intervalMinutes != null && runtime.intervalMinutes >= 1) {
-    parts.push(`[Periodic scan every ${runtime.intervalMinutes} min]`)
+  if (runtime.intervalSeconds != null && runtime.intervalSeconds >= 1) {
+    parts.push(`[Periodic scan every ${formatCustomModeIntervalPresetLabel(runtime.intervalSeconds)}]`)
   }
 
   const scopeUrls = runtime.scopeUrls?.filter((u) => u.trim()) ?? []
   if (scopeUrls.length) {
     parts.push(`[Scope URLs: ${scopeUrls.join('; ')}]`)
   }
-  const diffFolder = runtime.diffWatchFolder?.trim()
-  if (diffFolder) {
-    parts.push(`[Diff watch folder: ${diffFolder}]`)
+  const diffFolders = runtime.diffWatchFolders?.map((p) => p.trim()).filter(Boolean) ?? []
+  if (diffFolders.length) {
+    parts.push(`[Diff watch folders: ${diffFolders.join('; ')}]`)
   }
 
   if (parts.length === 0) return null

@@ -1,4 +1,8 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
+import { useUIStore } from './stores/useUIStore'
+import { useCustomModesStore } from './stores/useCustomModesStore'
+import { useChatFocusStore } from './stores/chatFocusStore'
+import { fetchTriggerProjects } from './services/fetchTriggerProjects'
 import { createRoot } from 'react-dom/client'
 import { BackendSwitcherInline } from './components/BackendSwitcherInline'
 import { PackageBuilderPolicy } from './policy/components/PackageBuilderPolicy'
@@ -1541,6 +1545,100 @@ function SidepanelOrchestrator() {
       });
     });
   }, [])
+
+  const applyOrchestratorWrChatPresent = useCallback(async (sessionKey: string) => {
+    const sk = sessionKey.trim()
+    if (!sk) return
+    useUIStore.getState().setWorkspace('wr-chat')
+    setDockedWorkspace('wr-chat')
+    setDockedSubmode('command')
+    setIsCommandChatPinned(true)
+    try {
+      chrome.storage.local.set({ commandChatPinned: true })
+    } catch {
+      /* noop */
+    }
+
+    chrome.runtime.sendMessage({ type: 'GET_SESSION_FROM_SQLITE', sessionKey: sk }, (response) => {
+      if (chrome.runtime.lastError || !response?.success || !response?.session) return
+      const session = response.session as {
+        tabName?: string
+        isLocked?: boolean
+        agentBoxes?: unknown[]
+      }
+      setSessionName(session.tabName || 'Session')
+      setSessionKey(sk)
+      setIsLocked(session.isLocked || false)
+      setAgentBoxes(session.agentBoxes || [])
+    })
+
+    let custom = useCustomModesStore.getState().modes.find(
+      (m) => m.sessionId && m.sessionId.trim() === sk,
+    )
+    if (!custom) {
+      await new Promise((r) => setTimeout(r, 250))
+      custom = useCustomModesStore.getState().modes.find(
+        (m) => m.sessionId && m.sessionId.trim() === sk,
+      )
+    }
+    if (custom) {
+      useUIStore.getState().setMode(custom.id)
+      useChatFocusStore.getState().clearChatFocusMode()
+      return
+    }
+
+    try {
+      const projects = await fetchTriggerProjects()
+      const proj = projects.find((p) => (p.linkedSessionIds ?? []).some((id) => id === sk))
+      if (proj) {
+        useUIStore.getState().setMode('commands')
+        const icon = proj.icon?.trim() || '📊'
+        const title = proj.title?.trim() || 'Project'
+        const mile = proj.activeMilestoneTitle?.trim() || 'No active milestone'
+        const intro = `${icon} **Optimization Mode: ${title}**
+Active milestone: ${mile}
+
+I'm now focused on optimizing this project. Share context, blockers, or reference materials.`
+        useChatFocusStore.getState().setChatFocusWithIntro(
+          { mode: 'auto-optimizer', projectId: proj.projectId },
+          { projectTitle: title, activeMilestoneTitle: mile, projectIcon: icon },
+          intro,
+        )
+        return
+      }
+    } catch {
+      /* noop */
+    }
+
+    useUIStore.getState().setMode('commands')
+    useChatFocusStore.getState().clearChatFocusMode()
+  }, [])
+
+  useEffect(() => {
+    const onStorage = (changes: Record<string, chrome.storage.StorageChange>, area: chrome.storage.AreaName) => {
+      if (area !== 'local') return
+      const ch = changes['orchestrator_wrchat_present_request']
+      if (!ch?.newValue) return
+      const v = ch.newValue as { sessionKey?: string } | null
+      const sk = typeof v?.sessionKey === 'string' ? v.sessionKey.trim() : ''
+      if (!sk) return
+      void chrome.storage.local.remove('orchestrator_wrchat_present_request')
+      void applyOrchestratorWrChatPresent(sk)
+    }
+    chrome.storage.onChanged.addListener(onStorage)
+    return () => chrome.storage.onChanged.removeListener(onStorage)
+  }, [applyOrchestratorWrChatPresent])
+
+  useEffect(() => {
+    chrome.storage.local.get('orchestrator_wrchat_present_request', (r) => {
+      const v = r['orchestrator_wrchat_present_request'] as { sessionKey?: string } | undefined
+      const sk = typeof v?.sessionKey === 'string' ? v.sessionKey.trim() : ''
+      if (!sk) return
+      void chrome.storage.local.remove('orchestrator_wrchat_present_request', () => {
+        void applyOrchestratorWrChatPresent(sk)
+      })
+    })
+  }, [applyOrchestratorWrChatPresent])
 
   // Mirror sessionKey to chrome.storage.local so processFlow.ts can discover it
   // (processFlow runs in the sidepanel context but reads from chrome.storage.local)

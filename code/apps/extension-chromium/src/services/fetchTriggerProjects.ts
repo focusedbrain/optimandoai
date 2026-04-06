@@ -75,6 +75,10 @@ export async function fetchTriggerProjects(): Promise<TriggerProjectEntry[]> {
       if (typeof o.activeMilestoneTitle === 'string' && o.activeMilestoneTitle.trim()) {
         entry.activeMilestoneTitle = o.activeMilestoneTitle.trim()
       }
+      if (Array.isArray(o.linkedSessionIds)) {
+        const linked = o.linkedSessionIds.filter((x): x is string => typeof x === 'string' && x.trim().length > 0)
+        if (linked.length) entry.linkedSessionIds = linked
+      }
       out.push(entry)
     }
     return out

@@ -6,6 +6,11 @@
  * without breaking the core shape.
  */
 
+import {
+  isCustomModeIntervalPresetSeconds,
+  snapSecondsToIntervalPreset,
+} from './customModeIntervalPresets'
+
 /** Persisted custom rows are always `custom`; `built-in` documents the union for tooling/UI. */
 export type ModeTypeKind = 'built-in' | 'custom'
 
@@ -27,39 +32,52 @@ export interface CustomModeDefinition {
   searchFocus: string
   ignoreInstructions: string
   /**
-   * Optional periodic scan interval (minutes). Chat and manual scan are always available;
-   * when set, periodic runs are also scheduled.
+   * Optional periodic scan interval (seconds). Only preset values from the wizard select are stored.
+   * Chat and manual scan are always available; when set, periodic runs are also scheduled.
    */
-  intervalMinutes: number | null
+  intervalSeconds: number | null
   createdAt: string
   updatedAt: string
   /** Future: expert presets, LoRA ids, provider tokens, etc. */
   metadata?: Record<string, unknown>
 }
 
-/** Persisted optional scope: websites (http(s) URLs or host patterns) and folder diff watch path. */
+/** Persisted optional scope: websites (http(s) URLs or host patterns) and folder diff watch paths. */
 export type CustomModeScopeMetadata = {
   /** Pages or sites this mode should prioritize (full URLs or host patterns). */
   scopeUrls?: string[]
-  /** Absolute path watched for file add/change diffs (Electron desktop). */
+  /** Absolute paths watched for file add/change diffs (Electron desktop). */
+  diffWatchFolders?: string[]
+  /** @deprecated Use `diffWatchFolders`. Migrated on read. */
   diffWatchFolder?: string
 }
 
 /** Wizard-only draft for the scope URL textarea (stripped before persist). */
 export const CUSTOM_MODE_SCOPE_URLS_DRAFT_KEY = '_scopeUrlsDraft' as const
 
+/** Wizard-only draft for multi-line diff folder paths (stripped before persist). */
+export const CUSTOM_MODE_DIFF_FOLDERS_DRAFT_KEY = '_diffWatchFoldersDraft' as const
+
 export function getCustomModeScopeFromMetadata(
   metadata: Record<string, unknown> | undefined,
-): { scopeUrls: string[]; diffWatchFolder: string } {
-  if (!metadata || typeof metadata !== 'object') return { scopeUrls: [], diffWatchFolder: '' }
+): { scopeUrls: string[]; diffWatchFolders: string[] } {
+  if (!metadata || typeof metadata !== 'object') return { scopeUrls: [], diffWatchFolders: [] }
   const scopeUrls = Array.isArray(metadata.scopeUrls)
     ? (metadata.scopeUrls as unknown[])
         .filter((x): x is string => typeof x === 'string')
         .map((s) => s.trim())
         .filter(Boolean)
     : []
-  const diffWatchFolder = typeof metadata.diffWatchFolder === 'string' ? metadata.diffWatchFolder.trim() : ''
-  return { scopeUrls, diffWatchFolder }
+  let diffWatchFolders: string[] = []
+  if (Array.isArray(metadata.diffWatchFolders)) {
+    diffWatchFolders = (metadata.diffWatchFolders as unknown[])
+      .filter((x): x is string => typeof x === 'string')
+      .map((s) => s.trim())
+      .filter(Boolean)
+  } else if (typeof metadata.diffWatchFolder === 'string' && metadata.diffWatchFolder.trim()) {
+    diffWatchFolders = [metadata.diffWatchFolder.trim()]
+  }
+  return { scopeUrls, diffWatchFolders }
 }
 
 /** Textarea value for the scope URLs step (draft or joined persisted URLs). */
@@ -70,6 +88,18 @@ export function getScopeUrlsDraftText(metadata: Record<string, unknown> | undefi
   if (Array.isArray(metadata.scopeUrls)) {
     return (metadata.scopeUrls as string[]).filter((s) => typeof s === 'string').join('\n')
   }
+  return ''
+}
+
+/** Textarea value for diff watch folders (draft or joined persisted paths). */
+export function getDiffWatchFoldersDraftText(metadata: Record<string, unknown> | undefined): string {
+  if (!metadata || typeof metadata !== 'object') return ''
+  const draft = metadata[CUSTOM_MODE_DIFF_FOLDERS_DRAFT_KEY]
+  if (typeof draft === 'string') return draft
+  if (Array.isArray(metadata.diffWatchFolders)) {
+    return (metadata.diffWatchFolders as string[]).filter((s) => typeof s === 'string').join('\n')
+  }
+  if (typeof metadata.diffWatchFolder === 'string') return metadata.diffWatchFolder
   return ''
 }
 
@@ -109,7 +139,7 @@ export function defaultCustomModeDraft(): CustomModeDraft {
     sessionMode: 'shared',
     searchFocus: '',
     ignoreInstructions: '',
-    intervalMinutes: null,
+    intervalSeconds: null,
     metadata: undefined,
   }
 }
@@ -156,11 +186,11 @@ export function buildCustomModeFromDraft(draft: CustomModeDraft): CustomModeDefi
  * Apply safe defaults and clamp invalid values (single source of truth for “empty store” / partial rows).
  */
 export function normalizeCustomModeFields(
-  partial: Partial<CustomModeDefinition> & { id?: string },
+  partial: Partial<CustomModeDefinition> & { id?: string; intervalMinutes?: number | null },
 ): CustomModeDefinition {
   const now = new Date().toISOString()
   const id = partial.id?.startsWith('custom:') ? partial.id : createCustomModeId()
-  const intervalMinutes = migrateIntervalMinutes(partial)
+  const intervalSeconds = migrateIntervalSeconds(partial)
 
   return {
     id,
@@ -181,7 +211,7 @@ export function normalizeCustomModeFields(
         : 'shared',
     searchFocus: typeof partial.searchFocus === 'string' ? partial.searchFocus : '',
     ignoreInstructions: typeof partial.ignoreInstructions === 'string' ? partial.ignoreInstructions : '',
-    intervalMinutes,
+    intervalSeconds,
     createdAt: partial.createdAt && isIsoDate(partial.createdAt) ? partial.createdAt : now,
     updatedAt: partial.updatedAt && isIsoDate(partial.updatedAt) ? partial.updatedAt : now,
     metadata: sanitizeCustomModeMetadataForPersist(partial.metadata),
@@ -196,6 +226,33 @@ function sanitizeCustomModeMetadataForPersist(
   const m = { ...metadata } as Record<string, unknown>
   delete m._ollamaTags
   delete m._sessionLabel
+
+  const draftDiff = m[CUSTOM_MODE_DIFF_FOLDERS_DRAFT_KEY]
+  if (typeof draftDiff === 'string') {
+    const folders = draftDiff
+      .split('\n')
+      .map((s) => s.trim())
+      .filter(Boolean)
+    const seen = new Set<string>()
+    const uniq = folders.filter((f) => (seen.has(f) ? false : (seen.add(f), true)))
+    if (uniq.length) m.diffWatchFolders = uniq
+    else delete m.diffWatchFolders
+  } else if (Array.isArray(m.diffWatchFolders)) {
+    const seen = new Set<string>()
+    const folders = (m.diffWatchFolders as unknown[])
+      .filter((x): x is string => typeof x === 'string')
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .filter((f) => (seen.has(f) ? false : (seen.add(f), true)))
+    if (folders.length) m.diffWatchFolders = folders
+    else delete m.diffWatchFolders
+  }
+  if (typeof m.diffWatchFolder === 'string') {
+    const fp = m.diffWatchFolder.trim()
+    if (fp && !Array.isArray(m.diffWatchFolders)) m.diffWatchFolders = [fp]
+    delete m.diffWatchFolder
+  }
+  delete m[CUSTOM_MODE_DIFF_FOLDERS_DRAFT_KEY]
 
   const draftUrls = m[CUSTOM_MODE_SCOPE_URLS_DRAFT_KEY]
   if (typeof draftUrls === 'string') {
@@ -215,12 +272,6 @@ function sanitizeCustomModeMetadataForPersist(
   }
   delete m[CUSTOM_MODE_SCOPE_URLS_DRAFT_KEY]
 
-  if (typeof m.diffWatchFolder === 'string') {
-    const fp = m.diffWatchFolder.trim()
-    if (fp) m.diffWatchFolder = fp
-    else delete m.diffWatchFolder
-  }
-
   return Object.keys(m).length ? (m as Record<string, unknown>) : undefined
 }
 
@@ -228,21 +279,28 @@ function isIsoDate(s: string): boolean {
   return !Number.isNaN(Date.parse(s))
 }
 
-/** Legacy rows stored `runMode` + `intervalMinutes`; new schema uses only `intervalMinutes`. */
-function migrateIntervalMinutes(
-  partial: Partial<CustomModeDefinition> & { runMode?: unknown },
+/** Legacy rows used `runMode` + `intervalMinutes` (minutes); v2 used `intervalMinutes`; current schema uses `intervalSeconds` (presets). */
+function migrateIntervalSeconds(
+  partial: Partial<CustomModeDefinition> & { runMode?: unknown; intervalMinutes?: number | null },
 ): number | null {
   const hasLegacyRun = 'runMode' in partial && partial.runMode !== undefined
   if (hasLegacyRun) {
     if (partial.runMode === 'interval') {
       const n = partial.intervalMinutes
-      if (n === undefined || n === null || !Number.isFinite(Number(n))) return 5
-      return Math.max(1, Math.floor(Number(n)))
+      if (n === undefined || n === null || !Number.isFinite(Number(n))) {
+        return snapSecondsToIntervalPreset(300) ?? 300
+      }
+      return snapSecondsToIntervalPreset(Math.max(1, Math.floor(Number(n))) * 60)
     }
     return null
   }
+  if (partial.intervalSeconds != null && partial.intervalSeconds !== undefined) {
+    const s = Number(partial.intervalSeconds)
+    if (!Number.isFinite(s) || s <= 0) return null
+    return isCustomModeIntervalPresetSeconds(s) ? s : snapSecondsToIntervalPreset(s)
+  }
   if (partial.intervalMinutes === undefined || partial.intervalMinutes === null) return null
-  const n = Math.floor(Number(partial.intervalMinutes))
-  if (!Number.isFinite(n) || n < 1) return null
-  return n
+  const mins = Math.floor(Number(partial.intervalMinutes))
+  if (!Number.isFinite(mins) || mins < 1) return null
+  return snapSecondsToIntervalPreset(mins * 60)
 }

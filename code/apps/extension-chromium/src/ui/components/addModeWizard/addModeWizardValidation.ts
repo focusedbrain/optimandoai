@@ -5,6 +5,7 @@
 
 import type { CustomModeDraft } from '../../../shared/ui/customModeTypes'
 import { getScopeUrlsDraftText, isValidCustomModeScopeUrlLine } from '../../../shared/ui/customModeTypes'
+import { isCustomModeIntervalPresetSeconds } from '../../../shared/ui/customModeIntervalPresets'
 import type { AddModeWizardStepIndex } from './addModeWizardTypes'
 
 function isValidHttpUrl(s: string): boolean {
@@ -48,7 +49,6 @@ export function getInlineFieldErrorsForStep(
       return out
     }
     case 3: {
-      if (!data.searchFocus?.trim()) out.searchFocus = 'Describe what this mode should look for.'
       const md = data.metadata as Record<string, unknown> | undefined
       const scopeText = getScopeUrlsDraftText(md)
       for (const line of scopeText.split('\n')) {
@@ -60,9 +60,9 @@ export function getInlineFieldErrorsForStep(
       return out
     }
     case 4: {
-      const n = data.intervalMinutes
-      if (n !== null && n !== undefined && (!Number.isFinite(n) || n < 1)) {
-        out.intervalMinutes = 'Use at least 1 minute, or leave empty for no periodic scan.'
+      const n = data.intervalSeconds
+      if (n !== null && n !== undefined && (!Number.isFinite(n) || !isCustomModeIntervalPresetSeconds(n))) {
+        out.intervalSeconds = 'Pick a valid interval or None.'
       }
       return out
     }
@@ -100,7 +100,6 @@ export function validateAddModeWizardStep(
     case 2:
       return null
     case 3: {
-      if (!data.searchFocus?.trim()) return 'Describe what this mode should look for.'
       const md = data.metadata as Record<string, unknown> | undefined
       const scopeText = getScopeUrlsDraftText(md)
       for (const line of scopeText.split('\n')) {
@@ -111,9 +110,9 @@ export function validateAddModeWizardStep(
       return null
     }
     case 4: {
-      const n = data.intervalMinutes
-      if (n !== null && n !== undefined && (!Number.isFinite(n) || n < 1)) {
-        return 'Use at least 1 minute, or leave empty for no periodic scan.'
+      const n = data.intervalSeconds
+      if (n !== null && n !== undefined && (!Number.isFinite(n) || !isCustomModeIntervalPresetSeconds(n))) {
+        return 'Pick a valid interval or None.'
       }
       return null
     }
