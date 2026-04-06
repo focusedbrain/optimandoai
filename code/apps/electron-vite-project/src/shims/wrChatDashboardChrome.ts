@@ -305,7 +305,7 @@ export function ensureWrdeskChromeShim(): void {
             const allData = result.data || {}
             const sessionsMap: Record<string, unknown> = {}
             Object.entries(allData).forEach(([k, v]) => {
-              if (k.startsWith('session_') && v) sessionsMap[k] = v
+              if ((k.startsWith('session_') || k.startsWith('archive_session_')) && v) sessionsMap[k] = v
             })
             if (Object.keys(sessionsMap).length > 0) {
               finish({ success: true, sessions: sessionsMap })

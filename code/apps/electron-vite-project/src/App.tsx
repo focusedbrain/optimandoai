@@ -12,6 +12,7 @@ import { WrMultiTriggerBar, AddModeWizardHost } from '@ext/ui/components'
 import { useEmailInboxStore, type InboxFilter } from './stores/useEmailInboxStore'
 import { subscribeInboxNewMessagesBackgroundRefresh } from './utils/inboxNewMessagesBackgroundRefresh'
 import { registerWrDeskOptimizerHttpBridge } from './lib/wrDeskOptimizerHttpBridge'
+import { ensureWrdeskChromeShim } from './shims/wrChatDashboardChrome'
 import { WRDESK_AUTO_OPTIM_ACTIVATE_SESSIONS } from './lib/wrdeskUiEvents'
 import { type AnalysisOpenPayload, sanitizeAnalysisOpenPayload } from './components/analysis'
 import './components/handshakeViewTypes'
@@ -64,6 +65,11 @@ function App() {
     Array<{ id: string; email: string; status?: string; processingPaused?: boolean }>
   >([])
   const [emailAccountsLoadError, setEmailAccountsLoadError] = useState<string | null>(null)
+  /** Install before any embedded @ext UI (e.g. Add Mode wizard) calls `chrome.runtime.sendMessage`. */
+  useEffect(() => {
+    ensureWrdeskChromeShim()
+  }, [])
+
   useEffect(() => {
     const root = document.documentElement
     const cssTheme = mapThemeToCss(extensionTheme)
