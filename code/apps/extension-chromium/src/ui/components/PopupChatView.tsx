@@ -248,6 +248,7 @@ async function runOcr(imageUrl: string, secret: string | null): Promise<string> 
   try {
     const controller = new AbortController()
     const timeout = setTimeout(() => controller.abort(), 15_000)
+    console.log('[runOcr] calling /api/ocr/process | image length:', imageUrl?.length ?? 0, '| starts with data::', imageUrl?.startsWith('data:'))
     const res: Response = await fetch(`${BASE_URL}/api/ocr/process`, {
       method: 'POST',
       headers: buildHeaders(secret),
@@ -255,10 +256,23 @@ async function runOcr(imageUrl: string, secret: string | null): Promise<string> 
       signal: controller.signal,
     })
     clearTimeout(timeout)
-    if (!res.ok) return ''
+    if (!res.ok) {
+      const errBody = await res.text().catch(() => res.statusText)
+      console.warn('[runOcr] HTTP error:', res.status, errBody.slice(0, 300))
+      return ''
+    }
     const json = await res.json()
-    return json.ok && json.data?.text ? (json.data.text as string) : ''
-  } catch { return '' }
+    if (!json.ok) {
+      console.warn('[runOcr] OCR returned ok:false |', json.error || 'no error message')
+      return ''
+    }
+    const text = json.data?.text ?? ''
+    console.log('[runOcr] OCR result | text length:', text.length, '| confidence:', json.data?.confidence, '| method:', json.data?.method)
+    return text
+  } catch (err) {
+    console.warn('[runOcr] exception:', err instanceof Error ? err.message : err)
+    return ''
+  }
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -966,8 +980,16 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
 
       // Fresh user message for dashboard + screenshot (reused by both agent and butler paths).
       // Declared before the try block so the butler fallback outside catch can use it.
+      // When OCR returned nothing but vision base64 is available, append a hint so
+      // vision-capable models know to examine the attached image.
+      const freshContentForSend = (() => {
+        if (!useFreshPayload) return enrichedText
+        if (ocrText) return enrichedText
+        if (visionB64ForSend) return `${enrichedText}\n\n[A screenshot is attached. Please analyse it and describe what you see.]`
+        return enrichedText
+      })()
       const freshUserMessage: Record<string, unknown> | null = useFreshPayload
-        ? { role: 'user', content: enrichedText, ...(visionB64ForSend ? { images: [visionB64ForSend] } : {}) }
+        ? { role: 'user', content: freshContentForSend, ...(visionB64ForSend ? { images: [visionB64ForSend] } : {}) }
         : null
 
       // Try routing via processFlow agents, fall back to Butler
@@ -1021,6 +1043,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
               body: JSON.stringify({
                 modelId: modelToUse,
                 messages: agentMessages,
+                ...(useFreshPayload && visionB64ForSend ? { images: [visionB64ForSend] } : {}),
               }),
               signal: AbortSignal.timeout(LLM_FETCH_TIMEOUT_MS),
             })
@@ -1068,6 +1091,9 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
           : [{ role: 'system', content: butlerPrompt }, ...processedMessages]
         console.log('[handleSend] butler call | model:', modelId,
           '| freshPayload:', useFreshPayload,
+          '| contentLength:', useFreshPayload ? freshContentForSend.length : enrichedText?.length,
+          '| ocrText:', ocrText.length,
+          '| has vision:', !!visionB64ForSend,
           '| msg count:', butlerMessages.length,
           '| secret:', !!secret)
         const butlerRes: Response = await fetch(`${BASE_URL}/api/llm/chat`, {
@@ -1076,6 +1102,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
           body: JSON.stringify({
             modelId,
             messages: butlerMessages,
+            ...(useFreshPayload && visionB64ForSend ? { images: [visionB64ForSend] } : {}),
           }),
           signal: AbortSignal.timeout(LLM_FETCH_TIMEOUT_MS),
         })
@@ -1189,8 +1216,16 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
 
         // Build the fresh user message once — reused by both agent and butler paths when
         // useFreshPayload is true (dashboard + screenshot).
+        // When OCR returned nothing but vision base64 is available, append a hint so
+        // vision-capable models know to examine the attached image.
+        const freshContent = (() => {
+          if (!useFreshPayload) return enrichedText
+          if (ocrText) return enrichedText
+          if (visionB64) return `${enrichedText}\n\n[A screenshot is attached. Please analyse it and describe what you see.]`
+          return enrichedText
+        })()
         const freshUserMessage: Record<string, unknown> | null = useFreshPayload
-          ? { role: 'user', content: enrichedText, ...(visionB64 ? { images: [visionB64] } : {}) }
+          ? { role: 'user', content: freshContent, ...(visionB64 ? { images: [visionB64] } : {}) }
           : null
 
         let answered = false
@@ -1240,6 +1275,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
                 body: JSON.stringify({
                   modelId: modelToUse,
                   messages: agentMessages,
+                  ...(useFreshPayload && visionB64 ? { images: [visionB64] } : {}),
                 }),
                 signal: AbortSignal.timeout(LLM_FETCH_TIMEOUT_MS),
               })
@@ -1292,7 +1328,8 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
             : [{ role: 'system', content: butlerPrompt }, ...processedMessages]
           console.log('[sendWithTriggerAndImage] butler call | model:', modelId,
             '| freshPayload:', useFreshPayload,
-            '| enrichedText length:', enrichedText?.length,
+            '| contentLength:', useFreshPayload ? freshContent.length : enrichedText?.length,
+            '| ocrText:', ocrText.length,
             '| has vision:', !!visionB64,
             '| msg count:', butlerMessages.length,
             '| secret:', !!secret)
@@ -1302,6 +1339,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
             body: JSON.stringify({
               modelId,
               messages: butlerMessages,
+              ...(useFreshPayload && visionB64 ? { images: [visionB64] } : {}),
             }),
             signal: AbortSignal.timeout(LLM_FETCH_TIMEOUT_MS),
           })
