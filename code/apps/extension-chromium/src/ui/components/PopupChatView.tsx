@@ -919,24 +919,35 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
         ocrText = await runOcr(resolvedImg ?? '', secret)
       }
 
-      // Build messages array for LLM (vision base64 on the last user image message — not only top-level `images`)
+      // For dashboard + screenshot, build a fresh 2-message payload (matching sidepanel's
+      // handleSendMessageWithTrigger). For all other cases, build processedMessages as before.
+      const useFreshPayload = isDashboard && hasImage
+
+      const visionB64ForSend: string | null = (() => {
+        if (!hasImage || !resolvedImg) return null
+        const b64 = toBase64ForOllama(resolvedImg)
+        return isPlausibleVisionBase64(b64) ? b64 : null
+      })()
+
       const llmSourceMessages =
         isDashboard && hasImage ? sliceMessagesFromLastUserImage(newMessages) : newMessages
 
       const [processedMessagesRaw, processFlow] = await Promise.all([
-        mapChatToLlmMessages(
-          llmSourceMessages,
-          secret,
-          hasImage && currentTurnImageUrl && resolvedImg
-            ? { lastImagePrecomputed: { resolvedDataUrl: resolvedImg, ocrText }, isDashboard }
-            : { isDashboard },
-        ),
+        useFreshPayload
+          ? Promise.resolve([])
+          : mapChatToLlmMessages(
+              llmSourceMessages,
+              secret,
+              hasImage && currentTurnImageUrl && resolvedImg
+                ? { lastImagePrecomputed: { resolvedDataUrl: resolvedImg, ocrText }, isDashboard }
+                : { isDashboard },
+            ),
         import('../../services/processFlow'),
       ])
       let processedMessages = processedMessagesRaw
 
-      // Inject doc content into last user message
-      if (docCtx) {
+      // Inject doc content into last user message (only for non-fresh-payload path)
+      if (docCtx && !useFreshPayload) {
         processedMessages = [...processedMessages]
         for (let i = processedMessages.length - 1; i >= 0; i--) {
           if (processedMessages[i].role === 'user') {
@@ -949,13 +960,20 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
         }
       }
 
+      // When user typed nothing (screenshot-only send), use OCR text so agent tags in the image can match
+      const effectiveLlmText = llmText || ocrText || (hasImage ? '[screenshot]' : '')
+      const enrichedText = enrichRouteTextWithOcr(effectiveLlmText, ocrText)
+
+      // Fresh user message for dashboard + screenshot (reused by both agent and butler paths).
+      // Declared before the try block so the butler fallback outside catch can use it.
+      const freshUserMessage: Record<string, unknown> | null = useFreshPayload
+        ? { role: 'user', content: enrichedText, ...(visionB64ForSend ? { images: [visionB64ForSend] } : {}) }
+        : null
+
       // Try routing via processFlow agents, fall back to Butler
       let answered = false
       try {
         const { routeInput, wrapInputForAgent, updateAgentBoxOutput, loadAgentsFromSession, getButlerSystemPrompt: _getButler } = processFlow
-        // When user typed nothing (screenshot-only send), use OCR text so agent tags in the image can match
-        const effectiveLlmText = llmText || ocrText || (hasImage ? '[screenshot]' : '')
-        const enrichedText = enrichRouteTextWithOcr(effectiveLlmText, ocrText)
 
         let currentUrl = ''
         try {
@@ -984,19 +1002,18 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
 
           // PATH A: Agent processing
           for (const match of routingDecision.matchedAgents) {
-            // Find the full AgentConfig so wrapInputForAgent gets reasoning/role/goals
             const agentConfig = allAgents.find((a: any) => a.id === match.agentId)
-            // When user typed nothing (screenshot-only), use OCR text as the primary input
             const effectiveInput = llmText || ocrText || '[screenshot]'
             const agentInput = agentConfig
               ? wrapInputForAgent(effectiveInput, agentConfig, ocrText)
               : enrichedText
 
-            const agentMessages = [
-              { role: 'system', content: agentInput },
-              ...processedMessages.filter(m => m.role === 'user')
-            ]
-            // Use agent's own model if configured, otherwise fall back to active model
+            const agentMessages = useFreshPayload
+              ? [{ role: 'system', content: agentInput }, freshUserMessage!]
+              : [
+                  { role: 'system', content: agentInput },
+                  ...processedMessages.filter(m => m.role === 'user'),
+                ]
             const modelToUse = match.agentBoxModel || modelId
             const agentRes: Response = await fetch(`${BASE_URL}/api/llm/chat`, {
               method: 'POST',
@@ -1011,7 +1028,6 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
               const agentJson = await agentRes.json()
               const agentReply = (agentJson.ok && agentJson.data?.content) ? agentJson.data.content : ''
               if (agentReply) {
-                // Send to ALL target boxes (sidebar + display grid), same as docked sidepanel
                 const allBoxIds = match.targetBoxIds && match.targetBoxIds.length > 0
                   ? match.targetBoxIds
                   : match.agentBoxId ? [match.agentBoxId] : []
@@ -1031,7 +1047,6 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
                   const confirm = `[Agent: ${match.agentName}] responded. See agent box.`
                   setMessages(prev => [...prev, { role: 'assistant', text: confirm }])
                 } else {
-                  // No Agent Box configured — print full reply inline
                   setMessages(prev => [...prev, { role: 'assistant', text: `${match.agentIcon} **${match.agentName}**:\n\n${agentReply}` }])
                 }
                 answered = true
@@ -1048,10 +1063,13 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
         const { getButlerSystemPrompt } = processFlow
         const agentCount = 0
         const butlerPrompt = getButlerSystemPrompt(sessionName, agentCount, isConnected)
-        const butlerMessages = [
-          { role: 'system', content: butlerPrompt },
-          ...processedMessages
-        ]
+        const butlerMessages = useFreshPayload
+          ? [{ role: 'system', content: butlerPrompt }, freshUserMessage!]
+          : [{ role: 'system', content: butlerPrompt }, ...processedMessages]
+        console.log('[handleSend] butler call | model:', modelId,
+          '| freshPayload:', useFreshPayload,
+          '| msg count:', butlerMessages.length,
+          '| secret:', !!secret)
         const butlerRes: Response = await fetch(`${BASE_URL}/api/llm/chat`, {
           method: 'POST',
           headers: buildHeaders(secret),
@@ -1131,22 +1149,49 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
         const hasImage = !isVideo && !!mediaUrl
         const effectiveRouteText = routeText || ocrText || (hasImage ? '[screenshot]' : '')
         const enrichedText = enrichRouteTextWithOcr(effectiveRouteText, ocrText)
+
+        // Pre-compute validated vision base64 for LLM calls (same as sidepanel's triggerVisionB64).
+        const visionB64: string | null = (() => {
+          if (!hasImage || !resolvedMedia) return null
+          const b64 = toBase64ForOllama(resolvedMedia)
+          return isPlausibleVisionBase64(b64) ? b64 : null
+        })()
+
+        // For dashboard + screenshot flows, build a fresh single user message (matching
+        // sidepanel's handleSendMessageWithTrigger) instead of forwarding accumulated
+        // conversation history via processedMessages. This prevents stale context from
+        // watchdog alerts, prior captures, or agent responses contaminating the LLM input.
+        // processedMessages is still built for popup context (which has no persistent state).
+        const useFreshPayload = isDashboard && hasImage
+
         const llmSourceMessages =
           isDashboard && hasImage ? sliceMessagesFromLastUserImage(newMessages) : newMessages
 
+        // NOTE: processedMessages is used for popup context and for non-image flows.
+        // For dashboard screenshot+command flows we use a fresh 2-message payload below.
         const [processedMessages, processFlow] = await Promise.all([
-          mapChatToLlmMessages(
-            llmSourceMessages,
-            secret,
-            !isVideo && mediaUrl && resolvedMedia
-              ? { lastImagePrecomputed: { resolvedDataUrl: resolvedMedia, ocrText }, isDashboard }
-              : { isDashboard },
-          ),
+          useFreshPayload
+            ? Promise.resolve([])
+            : mapChatToLlmMessages(
+                llmSourceMessages,
+                secret,
+                !isVideo && mediaUrl && resolvedMedia
+                  ? { lastImagePrecomputed: { resolvedDataUrl: resolvedMedia, ocrText }, isDashboard }
+                  : { isDashboard },
+              ),
           import('../../services/processFlow'),
         ])
 
-        const imagesInMessages = processedMessages.filter(m => (m as any).images?.length > 0).length
-        console.log('[sendWithTriggerAndImage] processedMessages count:', processedMessages.length, '| messages with images:', imagesInMessages)
+        if (!useFreshPayload) {
+          const imagesInMessages = processedMessages.filter(m => (m as any).images?.length > 0).length
+          console.log('[sendWithTriggerAndImage] processedMessages count:', processedMessages.length, '| messages with images:', imagesInMessages)
+        }
+
+        // Build the fresh user message once — reused by both agent and butler paths when
+        // useFreshPayload is true (dashboard + screenshot).
+        const freshUserMessage: Record<string, unknown> | null = useFreshPayload
+          ? { role: 'user', content: enrichedText, ...(visionB64 ? { images: [visionB64] } : {}) }
+          : null
 
         let answered = false
         try {
@@ -1180,13 +1225,14 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
             }
             for (const match of routingDecision.matchedAgents) {
               const agentConfig = allAgents.find((a: any) => a.id === match.agentId)
-              // When routeText is empty (manual capture), use OCR text as the primary input for the agent
               const effectiveRouteText = routeText || ocrText || displayText
               const agentInput = agentConfig ? wrapInputForAgent(effectiveRouteText, agentConfig, ocrText) : enrichedText
-              const agentMessages = [
-                { role: 'system', content: agentInput },
-                ...processedMessages.filter(m => m.role === 'user'),
-              ]
+              const agentMessages = useFreshPayload
+                ? [{ role: 'system', content: agentInput }, freshUserMessage!]
+                : [
+                    { role: 'system', content: agentInput },
+                    ...processedMessages.filter(m => m.role === 'user'),
+                  ]
               const modelToUse = match.agentBoxModel || modelId
               const agentRes: Response = await fetch(`${BASE_URL}/api/llm/chat`, {
                 method: 'POST',
@@ -1241,9 +1287,15 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
         if (!answered) {
           const { getButlerSystemPrompt } = processFlow
           const butlerPrompt = getButlerSystemPrompt(sessionName, 0, isConnected)
-          const butlerMessages = [{ role: 'system', content: butlerPrompt }, ...processedMessages]
-          const butlerImgCount = butlerMessages.filter(m => (m as any).images?.length > 0).length
-          console.log('[sendWithTriggerAndImage] butler call | model:', modelId, '| msgs with images:', butlerImgCount, '| secret:', !!secret)
+          const butlerMessages = useFreshPayload
+            ? [{ role: 'system', content: butlerPrompt }, freshUserMessage!]
+            : [{ role: 'system', content: butlerPrompt }, ...processedMessages]
+          console.log('[sendWithTriggerAndImage] butler call | model:', modelId,
+            '| freshPayload:', useFreshPayload,
+            '| enrichedText length:', enrichedText?.length,
+            '| has vision:', !!visionB64,
+            '| msg count:', butlerMessages.length,
+            '| secret:', !!secret)
           const butlerRes: Response = await fetch(`${BASE_URL}/api/llm/chat`, {
             method: 'POST',
             headers: buildHeaders(secret),
