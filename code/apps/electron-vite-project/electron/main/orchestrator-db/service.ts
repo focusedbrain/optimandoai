@@ -328,6 +328,68 @@ export class OrchestratorService {
     }
   }
 
+  /**
+   * All sessions selectable for auto-optimization / project linking.
+   * Merges the `sessions` table with WR Chat `session_*` rows in the settings KV
+   * (same keys as GET_ALL_SESSIONS_FROM_SQLITE / `/api/orchestrator/get-all` filter).
+   * The table alone is often empty while history lives under `session_*`.
+   */
+  async listAllSessionsForUi(): Promise<Array<{ id: string; name: string; created_at: string }>> {
+    await this.ensureConnected()
+
+    const tableRows = await this.listSessions()
+    let allKv: Record<string, unknown>
+    try {
+      allKv = await this.getAll()
+    } catch {
+      allKv = {}
+    }
+
+    const byId = new Map<string, { id: string; name: string; created_at: string }>()
+
+    for (const row of tableRows) {
+      const ca = row.created_at
+      const createdStr =
+        typeof ca === 'number'
+          ? new Date(ca).toISOString()
+          : typeof ca === 'string'
+            ? ca
+            : new Date().toISOString()
+      byId.set(row.id, { id: row.id, name: row.name || 'Session', created_at: createdStr })
+    }
+
+    for (const [key, value] of Object.entries(allKv)) {
+      const isKvSession =
+        key.startsWith('session_') || key.startsWith('archive_session_')
+      if (!isKvSession || value == null || typeof value !== 'object') continue
+      const v = value as Record<string, unknown>
+      const baseName =
+        typeof v.sessionName === 'string' && v.sessionName.trim()
+          ? v.sessionName.trim()
+          : typeof v.name === 'string' && v.name.trim()
+            ? v.name.trim()
+            : typeof v.tabName === 'string' && v.tabName.trim()
+              ? v.tabName.trim()
+              : key
+      const name = key.startsWith('archive_session_') ? `Archived: ${baseName}` : baseName
+      const ts =
+        typeof v.timestamp === 'string' && v.timestamp
+          ? v.timestamp
+          : typeof v.lastOpenedAt === 'string' && v.lastOpenedAt
+            ? v.lastOpenedAt
+            : typeof v.createdAt === 'string' && v.createdAt
+              ? v.createdAt
+              : new Date().toISOString()
+      if (!byId.has(key)) {
+        byId.set(key, { id: key, name, created_at: ts })
+      }
+    }
+
+    const merged = [...byId.values()]
+    merged.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+    return merged
+  }
+
   // ==========================================================================
   // Migration from Chrome Storage
   // ==========================================================================

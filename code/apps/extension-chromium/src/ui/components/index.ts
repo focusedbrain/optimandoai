@@ -21,6 +21,7 @@ export { formatWatchdogAlert } from '../../utils/formatWatchdogAlert'
 export {
   WrMultiTriggerBar,
   WRCHAT_CHAT_FOCUS_REQUEST_EVENT,
+  WRCHAT_OPEN_CUSTOM_MODE_WIZARD_EVENT,
   type WrMultiTriggerBarProps,
   TriggerButtonShell,
   type TriggerButtonShellProps,

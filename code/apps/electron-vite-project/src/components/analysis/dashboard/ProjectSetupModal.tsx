@@ -354,7 +354,9 @@ export function ProjectSetupModal({ open, onClose, activeProjectId }: ProjectSet
                 }}
               >
                 {orchestratorSessions.length === 0 ? (
-                  <span className="psm__session-hint" style={{ margin: 0 }}>No sessions in history</span>
+                  <span className="psm__session-hint" style={{ margin: 0 }}>
+                    No WR Chat sessions found — open WR Chat at least once.
+                  </span>
                 ) : (
                   orchestratorSessions.map((s) => (
                     <label
@@ -371,7 +373,7 @@ export function ProjectSetupModal({ open, onClose, activeProjectId }: ProjectSet
                   ))
                 )}
               </div>
-              <p className="psm__session-hint">Sessions from orchestrator history</p>
+              <p className="psm__session-hint">All WR Chat sessions from orchestrator storage (same list as session history)</p>
             </div>
           </div>
 

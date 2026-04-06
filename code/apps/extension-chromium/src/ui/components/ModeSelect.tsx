@@ -85,7 +85,7 @@ export const ModeSelect: React.FC<ModeSelectProps> = ({
     const ws = WORKSPACE_INFO[workspace]
     if (isCustomModeId(mode)) {
       const cm = customModes.find((m) => m.id === mode)
-      const { label, iconChar } = safeCustomLabel(cm?.name, cm?.icon)
+      const { label, iconChar } = safeCustomModeRowLabel(cm?.name, cm?.icon)
       return compact ? `${ws.icon} ${iconChar} ${label}` : `${ws.icon} ${ws.label} · ${label}`
     }
     const m = MODE_INFO[mode as BuiltInMode]

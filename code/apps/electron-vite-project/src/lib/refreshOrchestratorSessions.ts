@@ -11,13 +11,19 @@ function mapRow(r: unknown): OrchestratorSession | null {
   const id = typeof o.id === 'string' ? o.id : null
   if (!id) return null
   const name = typeof o.name === 'string' ? o.name : 'Session'
-  const createdAt =
-    typeof o.created_at === 'string'
-      ? o.created_at
-      : typeof o.updated_at === 'string'
-        ? o.updated_at
-        : new Date().toISOString()
+  const createdAt = pickSessionIsoDate(o)
   return { id, name, createdAt }
+}
+
+/** IPC / HTTP may send `created_at` as ISO string or ms number (legacy Session rows). */
+function pickSessionIsoDate(o: Record<string, unknown>): string {
+  const ca = o.created_at
+  if (typeof ca === 'string' && ca) return ca
+  if (typeof ca === 'number' && Number.isFinite(ca)) return new Date(ca).toISOString()
+  const ua = o.updated_at
+  if (typeof ua === 'string' && ua) return ua
+  if (typeof ua === 'number' && Number.isFinite(ua)) return new Date(ua).toISOString()
+  return new Date().toISOString()
 }
 
 export function refreshOrchestratorSessionsFromBridge(): Promise<void> {

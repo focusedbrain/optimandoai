@@ -3233,7 +3233,7 @@ app.whenReady().then(async () => {
       try {
         const { getOrchestratorService } = await import('./main/orchestrator-db/service')
         const service = getOrchestratorService()
-        const sessions = await service.listSessions()
+        const sessions = await service.listAllSessionsForUi()
         return { success: true, data: sessions }
       } catch (err: any) {
         console.error('[MAIN] orchestrator:listSessions', err?.message ?? err)
@@ -8189,12 +8189,22 @@ app.whenReady().then(async () => {
       }
     })
 
-    // GET /api/orchestrator/sessions - List automation sessions (orchestrator SQLite)
+    // GET /api/orchestrator/sessions - List automation + WR Chat `session_*` KV sessions
     httpApp.get('/api/orchestrator/sessions', async (_req, res) => {
       try {
         const { getOrchestratorService } = await import('./main/orchestrator-db/service')
         const service = getOrchestratorService()
-        const sessions = await service.listSessions()
+        const flat = await service.listAllSessionsForUi()
+        const sessions = flat.map((m) => {
+          const t = new Date(m.created_at).getTime()
+          return {
+            id: m.id,
+            name: m.name,
+            config: {},
+            created_at: Number.isFinite(t) ? t : Date.now(),
+            updated_at: Number.isFinite(t) ? t : Date.now(),
+          }
+        })
         res.json({ success: true, data: sessions })
       } catch (error: any) {
         console.error('[HTTP-ORCHESTRATOR] Error in sessions:', error)

@@ -1020,7 +1020,9 @@ export function ProjectOptimizationPanel({
                 }}
               >
                 {orchestratorSessions.length === 0 ? (
-                  <span style={{ color: '#64748b', fontSize: 12 }}>No sessions in history — ensure the orchestrator DB is connected.</span>
+                  <span style={{ color: '#64748b', fontSize: 12 }}>
+                    No WR Chat sessions found — open WR Chat at least once, or ensure the orchestrator database is connected.
+                  </span>
                 ) : (
                   orchestratorSessions.map((s) => (
                     <label

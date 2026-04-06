@@ -15,6 +15,9 @@ import { TriggerButtonShell } from './TriggerButtonShell'
 /** Dispatched on speech bubble click (also calls `onChatFocusRequest` if provided). */
 export const WRCHAT_CHAT_FOCUS_REQUEST_EVENT = 'wrchat-chat-focus-request'
 
+/** Open Add Mode wizard (PopupChatView listens; use after switching to WR Chat). */
+export const WRCHAT_OPEN_CUSTOM_MODE_WIZARD_EVENT = 'wrchat-open-custom-mode-wizard'
+
 export type WrMultiTriggerBarProps = {
   theme?: string
   onWatchdogAlert: (threats: WatchdogThreat[]) => void
@@ -304,6 +307,22 @@ What information would you like to add?`
     [activeFunctionId, emitChatFocus],
   )
 
+  const handleAddModeRowClick = useCallback(() => {
+    setDropdownOpen(false)
+    const openWizard = () => {
+      try {
+        window.dispatchEvent(new CustomEvent(WRCHAT_OPEN_CUSTOM_MODE_WIZARD_EVENT))
+      } catch {
+        /* noop */
+      }
+    }
+    if (onEnsureWrChatOpen) {
+      onEnsureWrChatOpen(openWizard)
+    } else {
+      openWizard()
+    }
+  }, [onEnsureWrChatOpen])
+
   const isLight = theme === 'standard'
   const isDark = theme === 'dark'
   const dropdownSurface = isLight
@@ -404,6 +423,45 @@ What information would you like to add?`
               </li>
             )
           })}
+          <li
+            role="presentation"
+            style={{
+              borderTop: `1px solid ${dropdownSurface.border}`,
+              marginTop: 4,
+              paddingTop: 4,
+            }}
+          >
+            <button
+              type="button"
+              role="option"
+              onClick={handleAddModeRowClick}
+              style={{
+                width: '100%',
+                textAlign: 'left',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                padding: '8px 12px',
+                border: 'none',
+                background: 'transparent',
+                color: dropdownSurface.text,
+                cursor: 'pointer',
+                fontSize: 12,
+                fontWeight: 600,
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = dropdownSurface.hover
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = 'transparent'
+              }}
+            >
+              <span style={{ fontSize: 14, lineHeight: 1 }} aria-hidden>
+                ✨
+              </span>
+              <span>+ Add Mode…</span>
+            </button>
+          </li>
         </ul>
       ) : null}
     </div>
