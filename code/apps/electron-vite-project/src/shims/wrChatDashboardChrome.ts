@@ -10,7 +10,7 @@ import { wrChatDashboardWarn } from '../lib/wrChatDashboardLog'
  * - GET_ALL_SESSIONS_FROM_SQLITE / GET_SESSION_FROM_SQLITE / UPDATE_BOX_OUTPUT_SQLITE → same HTTP as extension background
  * - GET_STATUS → dashboard is always backed by a running app
  * - chrome.storage.local → localStorage for keys WR Chat reads/writes
- * - chrome.tabs.query → synthetic WR Desk tab URL for routing context
+ * - chrome.tabs.query → empty synthetic tab (dashboard has no real website URL context)
  * - ELECTRON_EXECUTE_TRIGGER → no-op (extension background would handle automation)
  */
 
@@ -241,7 +241,7 @@ export function ensureWrdeskChromeShim(): void {
     ): Promise<chrome.tabs.Tab[]> {
       const result: chrome.tabs.Tab[] = [
         {
-          url: 'wrdesk://dashboard/wr-chat',
+          url: '',
           active: true,
         } as chrome.tabs.Tab,
       ]

@@ -179,6 +179,15 @@ async function mapChatToLlmMessages(
   )
 }
 
+function sliceMessagesFromLastUserImage(messages: ChatMessage[]): ChatMessage[] {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role === 'user' && messages[i].imageUrl) {
+      return messages.slice(i)
+    }
+  }
+  return messages
+}
+
 function resolveModelIdForChat(
   active: string | undefined,
   models: Array<{ name: string }> | undefined,
@@ -911,9 +920,12 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
       }
 
       // Build messages array for LLM (vision base64 on the last user image message — not only top-level `images`)
+      const llmSourceMessages =
+        isDashboard && hasImage ? sliceMessagesFromLastUserImage(newMessages) : newMessages
+
       const [processedMessagesRaw, processFlow] = await Promise.all([
         mapChatToLlmMessages(
-          newMessages,
+          llmSourceMessages,
           secret,
           hasImage && currentTurnImageUrl && resolvedImg
             ? { lastImagePrecomputed: { resolvedDataUrl: resolvedImg, ocrText }, isDashboard }
@@ -1119,10 +1131,12 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
         const hasImage = !isVideo && !!mediaUrl
         const effectiveRouteText = routeText || ocrText || (hasImage ? '[screenshot]' : '')
         const enrichedText = enrichRouteTextWithOcr(effectiveRouteText, ocrText)
+        const llmSourceMessages =
+          isDashboard && hasImage ? sliceMessagesFromLastUserImage(newMessages) : newMessages
 
         const [processedMessages, processFlow] = await Promise.all([
           mapChatToLlmMessages(
-            newMessages,
+            llmSourceMessages,
             secret,
             !isVideo && mediaUrl && resolvedMedia
               ? { lastImagePrecomputed: { resolvedDataUrl: resolvedMedia, ocrText }, isDashboard }
