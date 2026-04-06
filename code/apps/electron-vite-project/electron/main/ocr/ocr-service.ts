@@ -98,15 +98,23 @@ export class OCRService {
       if (app.isPackaged) {
         const resourcesPath = process.resourcesPath
 
-        // Worker script and WASM core are always bundled via extraResources
-        workerOptions.workerPath = path.join(resourcesPath, 'tesseract-worker', 'worker.min.js')
-        workerOptions.corePath = path.join(resourcesPath, 'tesseract-worker', 'tesseract-core-simd-lstm.wasm.js')
+        const workerPath = path.join(resourcesPath, 'tesseract-worker', 'worker.min.js')
+        const corePath = path.join(resourcesPath, 'tesseract-worker', 'tesseract-core-simd-lstm.wasm.js')
 
-        // Language data: use bundled file if present (offline-capable),
-        // otherwise fall back to CDN (requires internet access).
-        // For combined language strings like 'spa+eng+deu', check if ALL
-        // component languages are present locally. If any is missing we let
-        // Tesseract fetch from CDN (it handles mixed local+CDN gracefully).
+        console.log(`[OCR] Packaged mode | resourcesPath: ${resourcesPath}`)
+        console.log(`[OCR] worker exists: ${fs.existsSync(workerPath)} | core exists: ${fs.existsSync(corePath)}`)
+
+        if (fs.existsSync(workerPath)) {
+          workerOptions.workerPath = workerPath
+        } else {
+          console.warn(`[OCR] worker.min.js NOT FOUND at ${workerPath} — Tesseract will try default paths`)
+        }
+        if (fs.existsSync(corePath)) {
+          workerOptions.corePath = corePath
+        } else {
+          console.warn(`[OCR] WASM core NOT FOUND at ${corePath} — Tesseract will try default paths`)
+        }
+
         const localLangDir = path.join(resourcesPath, 'tesseract-lang')
         const langCodes = language.split('+')
         const allBundled = langCodes.every(code =>

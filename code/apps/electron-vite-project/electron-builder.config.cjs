@@ -7,30 +7,45 @@ const appDir = __dirname
 
 /**
  * Parsed by scripts/kill-wr-desk.cjs — must contain a line matching:
- *   return 'C:\\build-output\\build009'
+ *   return 'C:\\build-output\\build010'
  */
 function windowsOutputDirMarker() {
-  return 'C:\\build-output\\build009'
+  return 'C:\\build-output\\build010'
 }
 
-function tesseractCoreWasmPath() {
-  const candidates = [
-    path.join(appDir, 'node_modules/tesseract.js-core/tesseract-core-simd-lstm.wasm.js'),
-    path.join(appDir, '../../node_modules/.pnpm/tesseract.js-core@5.1.1/node_modules/tesseract.js-core/tesseract-core-simd-lstm.wasm.js'),
-  ]
+const workspaceRoot = path.resolve(appDir, '../..')
+
+function findFile(candidates) {
   for (const p of candidates) {
     if (fs.existsSync(p)) return p
   }
   return null
 }
 
+function tesseractCoreWasmPath() {
+  return findFile([
+    path.join(appDir, 'node_modules/tesseract.js-core/tesseract-core-simd-lstm.wasm.js'),
+    path.join(workspaceRoot, 'node_modules/tesseract.js-core/tesseract-core-simd-lstm.wasm.js'),
+    path.join(workspaceRoot, 'node_modules/.pnpm/tesseract.js-core@5.1.1/node_modules/tesseract.js-core/tesseract-core-simd-lstm.wasm.js'),
+  ])
+}
+
+function tesseractWorkerPath() {
+  return findFile([
+    path.join(appDir, 'node_modules/tesseract.js/dist/worker.min.js'),
+    path.join(workspaceRoot, 'node_modules/tesseract.js/dist/worker.min.js'),
+  ])
+}
+
+const workerFile = tesseractWorkerPath()
 const extraResources = [
   { from: 'resources', to: '.', filter: ['**/*'] },
-  {
-    from: path.join(appDir, 'node_modules/tesseract.js/dist/worker.min.js'),
-    to: 'tesseract-worker/worker.min.js',
-  },
 ]
+if (workerFile) {
+  extraResources.push({ from: workerFile, to: 'tesseract-worker/worker.min.js' })
+} else {
+  console.warn('[electron-builder] tesseract.js worker.min.js NOT FOUND — OCR will not work in packaged app')
+}
 
 const wasm = tesseractCoreWasmPath()
 if (wasm) {

@@ -247,7 +247,7 @@ async function extractPdfText(file: File, secret: string | null): Promise<string
 async function runOcr(imageUrl: string, secret: string | null): Promise<string> {
   try {
     const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), 15_000)
+    const timeout = setTimeout(() => controller.abort(), 60_000)
     console.log('[runOcr] calling /api/ocr/process | image length:', imageUrl?.length ?? 0, '| starts with data::', imageUrl?.startsWith('data:'))
     const res: Response = await fetch(`${BASE_URL}/api/ocr/process`, {
       method: 'POST',
@@ -1043,7 +1043,6 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
               body: JSON.stringify({
                 modelId: modelToUse,
                 messages: agentMessages,
-                ...(useFreshPayload && visionB64ForSend ? { images: [visionB64ForSend] } : {}),
               }),
               signal: AbortSignal.timeout(LLM_FETCH_TIMEOUT_MS),
             })
@@ -1102,7 +1101,6 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
           body: JSON.stringify({
             modelId,
             messages: butlerMessages,
-            ...(useFreshPayload && visionB64ForSend ? { images: [visionB64ForSend] } : {}),
           }),
           signal: AbortSignal.timeout(LLM_FETCH_TIMEOUT_MS),
         })
@@ -1275,7 +1273,6 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
                 body: JSON.stringify({
                   modelId: modelToUse,
                   messages: agentMessages,
-                  ...(useFreshPayload && visionB64 ? { images: [visionB64] } : {}),
                 }),
                 signal: AbortSignal.timeout(LLM_FETCH_TIMEOUT_MS),
               })
@@ -1339,7 +1336,6 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
             body: JSON.stringify({
               modelId,
               messages: butlerMessages,
-              ...(useFreshPayload && visionB64 ? { images: [visionB64] } : {}),
             }),
             signal: AbortSignal.timeout(LLM_FETCH_TIMEOUT_MS),
           })
