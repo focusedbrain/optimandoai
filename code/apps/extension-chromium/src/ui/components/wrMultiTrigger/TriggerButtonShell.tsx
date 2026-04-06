@@ -1,8 +1,8 @@
 import React, { useCallback } from 'react'
 
 export interface TriggerButtonShellProps {
-  /** Function selector (e.g. dropdown) — rendered inside the bar before the main icon. */
-  leadingSlot?: React.ReactNode
+  /** Function selector (e.g. dropdown) — directly after the main scan icon, before the speech bubble. */
+  selectorSlot?: React.ReactNode
   icon: React.ReactNode
   scanning: boolean
   intervalOn: boolean
@@ -11,7 +11,7 @@ export interface TriggerButtonShellProps {
   onCheckboxToggle: (enabled: boolean) => void
   checkboxChecked: boolean
   disabled?: boolean
-  /** Optional slot between icon and checkbox (e.g. speech bubble). */
+  /** Speech bubble — after the selector, before the continuous checkbox. */
   middleSlot?: React.ReactNode
   /** Visual theme — matches WrChatWatchdogButton (standard | dark | pro). */
   theme?: string
@@ -28,7 +28,7 @@ const stopCheckboxBubble = (e: React.MouseEvent) => {
 }
 
 export function TriggerButtonShell({
-  leadingSlot,
+  selectorSlot,
   icon,
   scanning,
   intervalOn,
@@ -84,7 +84,6 @@ export function TriggerButtonShell({
         boxSizing: 'border-box',
       }}
     >
-      {leadingSlot}
       <button
         type="button"
         title={scanButtonTitle}
@@ -116,6 +115,7 @@ export function TriggerButtonShell({
       >
         {icon}
       </button>
+      {selectorSlot}
       {middleSlot}
       <label
         onClick={stopCheckboxBubble}

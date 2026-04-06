@@ -324,10 +324,9 @@ What information would you like to add?`
           display: 'inline-flex',
           alignItems: 'center',
           justifyContent: 'center',
-          gap: 2,
-          minWidth: 28,
+          minWidth: 24,
           height: 28,
-          padding: '0 4px',
+          padding: '0 5px',
           borderRadius: 6,
           border: 'none',
           background: isLight ? 'rgba(15,23,42,0.06)' : 'rgba(255,255,255,0.08)',
@@ -336,14 +335,7 @@ What information would you like to add?`
           flexShrink: 0,
         }}
       >
-        {activeFunctionId.type === 'watchdog' ? (
-          <WatchdogIcon size={14} />
-        ) : (
-          <span style={{ fontSize: 13, lineHeight: 1 }} aria-hidden>
-            {activeProject?.icon ?? '📊'}
-          </span>
-        )}
-        <span style={{ fontSize: 8, lineHeight: 1, opacity: 0.75 }} aria-hidden>
+        <span style={{ fontSize: 9, lineHeight: 1, opacity: 0.85 }} aria-hidden>
           ▼
         </span>
       </button>
@@ -432,7 +424,7 @@ What information would you like to add?`
           <WrChatWatchdogButton
             theme={theme}
             onWatchdogAlert={onWatchdogAlert}
-            leadingSlot={dropdownLeadingSlot}
+            selectorSlot={dropdownLeadingSlot}
             middleSlot={
               <SpeechBubbleButton tooltip={speechTooltipWatchdog} onPress={emitChatFocus} />
             }
@@ -440,7 +432,7 @@ What information would you like to add?`
         ) : (
           <TriggerButtonShell
             theme={theme}
-            leadingSlot={dropdownLeadingSlot}
+            selectorSlot={dropdownLeadingSlot}
             icon={
               <span style={{ fontSize: 14, lineHeight: 1 }} aria-hidden>
                 {activeProject?.icon ?? '📊'}
