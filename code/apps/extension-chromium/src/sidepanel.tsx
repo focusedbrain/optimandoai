@@ -38,7 +38,11 @@ import { pickDefaultEmailAccountRowId } from './shared/email/pickDefaultAccountR
 import { ThirdPartyLicensesView } from './bundled-tools'
 import { WrChatCaptureButton } from './ui/components/WrChatCaptureButton'
 import { WrChatDiffButton } from './ui/components/WrChatDiffButton'
-import WrChatWatchdogButton from './ui/components/WrChatWatchdogButton'
+import WrMultiTriggerBar from './ui/components/wrMultiTrigger/WrMultiTriggerBar'
+import ChatFocusBanner from './ui/components/ChatFocusBanner'
+import { WRCHAT_APPEND_ASSISTANT_EVENT, useChatFocusStore } from './stores/chatFocusStore'
+import { getChatFocusLlmPrefix } from './utils/chatFocusLlmPrefix'
+import { prependHiddenContextToLastUserContent } from './utils/prependChatFocusToLastUser'
 import { formatWatchdogAlert, type WatchdogThreat } from './utils/formatWatchdogAlert'
 import { WRGuardWorkspace, useWRGuardStore } from './wrguard'
 import { RecipientModeSwitch, RecipientHandshakeSelect, DeliveryMethodPanel, executeDeliveryAction, BeapMessageListView, BeapBulkInbox, initBeapPqAuth } from './beap-messages'
@@ -3112,10 +3116,14 @@ function SidepanelOrchestrator() {
       // When routeText is empty (capture-only), use OCR text so agent tags in the image can match
       const effectiveRouteTextForMatch = routeText || ocrText || (effectiveImageUrl ? '[screenshot]' : '')
       const enrichedTriggerText = enrichRouteTextWithOcr(effectiveRouteTextForMatch, ocrText)
+      const focusPrefixTrigger = getChatFocusLlmPrefix(useChatFocusStore.getState())
+      const enrichedTriggerTextForLlm = focusPrefixTrigger
+        ? `${focusPrefixTrigger}\n\n${enrichedTriggerText}`
+        : enrichedTriggerText
 
       // Route the input with OCR-enriched text
       const routingDecision = await routeInput(
-        enrichedTriggerText,
+        enrichedTriggerTextForLlm,
         !!effectiveImageUrl,
         connectionStatus,
         sessionName,
@@ -3163,7 +3171,7 @@ function SidepanelOrchestrator() {
             { role: 'system', content: wrappedInput },
             {
               role: 'user',
-              content: enrichedTriggerText,
+              content: enrichedTriggerTextForLlm,
               ...(triggerVisionB64 ? { images: [triggerVisionB64] } : {}),
             },
           ]
@@ -3238,7 +3246,7 @@ function SidepanelOrchestrator() {
               { role: 'system', content: butlerPrompt },
               {
                 role: 'user',
-                content: enrichedTriggerText,
+                content: enrichedTriggerTextForLlm,
                 ...(triggerVisionB64 ? { images: [triggerVisionB64] } : {}),
               },
             ],
@@ -3593,6 +3601,8 @@ function SidepanelOrchestrator() {
       // When user typed nothing (screenshot-only send), use OCR text so agent tags can match
       const effectiveLlmRouteText = llmRouteText || ocrText || (resolvedCurrentTurnImageUrl ? '[screenshot]' : '')
       const enrichedRouteText = enrichRouteTextWithOcr(effectiveLlmRouteText, ocrText)
+      const focusPrefix = getChatFocusLlmPrefix(useChatFocusStore.getState())
+      const enrichedRouteTextForLlm = focusPrefix ? `${focusPrefix}\n\n${enrichedRouteText}` : enrichedRouteText
 
       // =================================================================
       // STEP 3: ROUTE INPUT + BUILD LLM MESSAGES (in parallel)
@@ -3602,7 +3612,7 @@ function SidepanelOrchestrator() {
       // =================================================================
       const [routingDecision, { processedMessages }] = await Promise.all([
         routeInput(
-          enrichedRouteText,
+          enrichedRouteTextForLlm,
           hasImage,
           connectionStatus,
           sessionName,
@@ -3647,6 +3657,10 @@ function SidepanelOrchestrator() {
           }
         }
       }
+
+      if (focusPrefix) {
+        processedMessagesForLlm = prependHiddenContextToLastUserContent(processedMessagesForLlm, focusPrefix)
+      }
       
       // =================================================================
       // STEP 3.5: NLP CLASSIFICATION (diagnostics, does not override routing)
@@ -3656,7 +3670,7 @@ function SidepanelOrchestrator() {
       // leave Send stuck on "Thinking" while the LLM path is otherwise ready.
       // =================================================================
       void nlpClassifier
-        .classify(enrichedRouteText, ocrText ? 'ocr' : 'inline_chat', {
+        .classify(enrichedRouteTextForLlm, ocrText ? 'ocr' : 'inline_chat', {
           sourceUrl: currentUrl,
           sessionKey: sessionName,
         })
@@ -3831,6 +3845,20 @@ function SidepanelOrchestrator() {
     setTimeout(() => {
       if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight
     }, 0)
+  }, [])
+
+  React.useEffect(() => {
+    const onAppend = (ev: Event) => {
+      const d = (ev as CustomEvent<{ text?: string }>).detail
+      const t = (d?.text ?? '').trim()
+      if (!t) return
+      setChatMessages((prev) => [...prev, { role: 'assistant' as const, text: t }])
+      setTimeout(() => {
+        if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight
+      }, 0)
+    }
+    window.addEventListener(WRCHAT_APPEND_ASSISTANT_EVENT, onAppend as EventListener)
+    return () => window.removeEventListener(WRCHAT_APPEND_ASSISTANT_EVENT, onAppend as EventListener)
   }, [])
 
   const handleChatKeyDown = (e: React.KeyboardEvent) => {
@@ -5479,6 +5507,7 @@ function SidepanelOrchestrator() {
                   paddingTop: (anchoredTriggerKeys.length > 0 || pinnedDiffIds.length > 0) ? 40 : 14,
                 }}
               >
+                <ChatFocusBanner theme={theme} />
                 {/* Top-edge pinned icon strip */}
                 {(anchoredTriggerKeys.length > 0 || pinnedDiffIds.length > 0) && (
                   <div role="toolbar" aria-label="Pinned shortcuts" style={{ position: 'absolute', top: 4, left: 8, right: 8, display: 'flex', flexDirection: 'row', flexWrap: 'nowrap', gap: 6, zIndex: 6, overflowX: 'auto', scrollbarWidth: 'none' }}>
@@ -8334,7 +8363,13 @@ function SidepanelOrchestrator() {
             </div>
           ) : (
             <div style={{ display: 'flex', alignItems: 'center', flexShrink: 0 }}>
-              <WrChatWatchdogButton theme={theme} onWatchdogAlert={handleWatchdogAlert} />
+              <WrMultiTriggerBar
+                theme={theme}
+                onWatchdogAlert={handleWatchdogAlert}
+                onChatFocusRequest={(mode) => {
+                  useChatFocusStore.getState().setChatFocusMode(mode)
+                }}
+              />
             </div>
           )}
           <div style={{ flex: 1 }} />

@@ -17,8 +17,9 @@ interface WRChatDashboardViewProps {
  * session keys when needed, sets runtime surface flag, then mounts `PopupChatView`.
  *
  * **Watchdog alerts:** Main sends `watchdog-alert` IPC → `onDashboardWatchdogAlert`; `PopupChatView`
- * (dashboard) appends assistant bubbles. **Scan / continuous UI** is always in `App.tsx` (right of Inbox
- * in the main nav). It dispatches `wrchat-watchdog-alert` when WR Chat is open; this view still handles IPC.
+ * (dashboard) appends assistant bubbles. **Scan / continuous UI** is in `App.tsx` (right of Inbox).
+ * It dispatches `wrchat-watchdog-alert` when threats are found; **`WrMultiTriggerBar`** also updates
+ * **`useChatFocusStore`**, dispatches `wrchat-append-assistant` (intro), and `wrchat-chat-focus-request` on speech-bubble focus — same module as the docked extension sidepanel.
  */
 export default function WRChatDashboardView({ theme }: WRChatDashboardViewProps) {
   const [ready, setReady] = useState(false)

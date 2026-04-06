@@ -47,6 +47,8 @@ export interface Project {
   goals: string
   milestones: ProjectMilestone[]
   attachments: ProjectAttachment[]
+  /** Emoji or icon id — optional; used when surfacing the project in triggers (e.g. Watchdog). */
+  icon?: string
   /** References an external orchestrator session by ID. Null = unlinked. */
   linkedSessionId: string | null
   autoOptimizationEnabled: boolean

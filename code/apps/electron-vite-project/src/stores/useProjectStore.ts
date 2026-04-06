@@ -72,6 +72,9 @@ interface ProjectActions {
   linkSession: (projectId: string, sessionId: string | null) => void
   setOrchestratorSessions: (sessions: OrchestratorSession[]) => void
 
+  /** Sets or clears project icon (emoji string). Empty string clears `icon`. */
+  setProjectIcon: (projectId: string, icon: string) => void
+
   // ── Auto-optimization ─────────────────────────────────────────────────────
   setAutoOptimization: (projectId: string, enabled: boolean) => void
   setAutoOptimizationInterval: (projectId: string, intervalMs: number) => void
@@ -236,6 +239,17 @@ export const useProjectStore = create<ProjectState & ProjectActions>()(
         })),
 
       setOrchestratorSessions: (sessions) => set({ orchestratorSessions: sessions }),
+
+      setProjectIcon: (projectId, icon) => {
+        const trimmed = icon.trim()
+        set((s) => ({
+          projects: patchProject(s.projects, projectId, (p) => ({
+            ...p,
+            ...(trimmed ? { icon: trimmed } : { icon: undefined }),
+            updatedAt: now(),
+          })),
+        }))
+      },
 
       // ── Auto-optimization ─────────────────────────────────────────────────
       setAutoOptimization: (projectId, enabled) =>

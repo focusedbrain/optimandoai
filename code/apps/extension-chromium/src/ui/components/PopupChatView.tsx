@@ -12,6 +12,10 @@ import { WrChatDiffButton } from './WrChatDiffButton'
 import { formatWatchdogAlert, type WatchdogThreat } from '../../utils/formatWatchdogAlert'
 import { normaliseTriggerTag } from '../../utils/normaliseTriggerTag'
 import { enrichRouteTextWithOcr } from '../../services/processFlow'
+import { WRCHAT_APPEND_ASSISTANT_EVENT, useChatFocusStore } from '../../stores/chatFocusStore'
+import { getChatFocusLlmPrefix } from '../../utils/chatFocusLlmPrefix'
+import { prependHiddenContextToLastUserContent } from '../../utils/prependChatFocusToLastUser'
+import ChatFocusBanner from './ChatFocusBanner'
 import { mergeTaggedTriggersFromHost } from '../../utils/mergeTaggedTriggersFromHost'
 import {
   toBase64ForOllama,
@@ -362,6 +366,20 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
       }
     }, 3000)
     return () => { cancelled = true; clearTimeout(timer) }
+  }, [])
+
+  useEffect(() => {
+    const onAppend = (ev: Event) => {
+      const d = (ev as CustomEvent<{ text?: string }>).detail
+      const t = (d?.text ?? '').trim()
+      if (!t) return
+      setMessages((prev) => [...prev, { role: 'assistant', text: t }])
+      setTimeout(() => {
+        if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight
+      }, 0)
+    }
+    window.addEventListener(WRCHAT_APPEND_ASSISTANT_EVENT, onAppend as EventListener)
+    return () => window.removeEventListener(WRCHAT_APPEND_ASSISTANT_EVENT, onAppend as EventListener)
   }, [])
 
   // Check connection status
@@ -978,9 +996,15 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
       // When user typed nothing (screenshot-only send), use OCR text so agent tags in the image can match
       const effectiveLlmText = llmText || ocrText || (hasImage ? '[screenshot]' : '')
       const enrichedText = enrichRouteTextWithOcr(effectiveLlmText, ocrText)
+      const focusPrefix = getChatFocusLlmPrefix(useChatFocusStore.getState())
+      const enrichedForRoute = focusPrefix ? `${focusPrefix}\n\n${enrichedText}` : enrichedText
+
+      if (focusPrefix && !useFreshPayload) {
+        processedMessages = prependHiddenContextToLastUserContent(processedMessages, focusPrefix)
+      }
 
       const freshUserMessage: Record<string, unknown> | null = useFreshPayload
-        ? { role: 'user', content: enrichedText, ...(visionB64ForSend ? { images: [visionB64ForSend] } : {}) }
+        ? { role: 'user', content: enrichedForRoute, ...(visionB64ForSend ? { images: [visionB64ForSend] } : {}) }
         : null
 
       // Try routing via processFlow agents, fall back to Butler
@@ -995,7 +1019,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
         } catch {}
 
         const routingDecision = await routeInput(
-          enrichedText,
+          enrichedForRoute,
           hasImage,
           { isConnected },
           sessionName,
@@ -1019,7 +1043,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
             const effectiveInput = llmText || ocrText || '[screenshot]'
             const agentInput = agentConfig
               ? wrapInputForAgent(effectiveInput, agentConfig, ocrText)
-              : enrichedText
+              : enrichedForRoute
 
             const agentMessages = useFreshPayload
               ? [{ role: 'system', content: agentInput }, freshUserMessage!]
@@ -1165,6 +1189,8 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
         const hasImage = !isVideo && !!mediaUrl
         const effectiveRouteText = routeText || ocrText || (hasImage ? '[screenshot]' : '')
         const enrichedText = enrichRouteTextWithOcr(effectiveRouteText, ocrText)
+        const focusPrefixTrig = getChatFocusLlmPrefix(useChatFocusStore.getState())
+        const enrichedForRouteTrig = focusPrefixTrig ? `${focusPrefixTrig}\n\n${enrichedText}` : enrichedText
 
         // Pre-compute validated vision base64 for LLM calls (same as sidepanel's triggerVisionB64).
         const visionB64: string | null = (() => {
@@ -1185,7 +1211,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
 
         // NOTE: processedMessages is used for popup context and for non-image flows.
         // For dashboard screenshot+command flows we use a fresh 2-message payload below.
-        const [processedMessages, processFlow] = await Promise.all([
+        const [processedMessagesRaw, processFlow] = await Promise.all([
           useFreshPayload
             ? Promise.resolve([])
             : mapChatToLlmMessages(
@@ -1198,6 +1224,11 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
           import('../../services/processFlow'),
         ])
 
+        let processedMessages = processedMessagesRaw
+        if (focusPrefixTrig && !useFreshPayload) {
+          processedMessages = prependHiddenContextToLastUserContent(processedMessages, focusPrefixTrig)
+        }
+
         if (!useFreshPayload) {
           const imagesInMessages = processedMessages.filter(m => (m as any).images?.length > 0).length
           console.log('[sendWithTriggerAndImage] processedMessages count:', processedMessages.length, '| messages with images:', imagesInMessages)
@@ -1205,7 +1236,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
 
         // Build the fresh user message once — reused by both agent and butler paths when
         const freshUserMessage: Record<string, unknown> | null = useFreshPayload
-          ? { role: 'user', content: enrichedText, ...(visionB64 ? { images: [visionB64] } : {}) }
+          ? { role: 'user', content: enrichedForRouteTrig, ...(visionB64 ? { images: [visionB64] } : {}) }
           : null
 
         let answered = false
@@ -1220,7 +1251,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
           }
 
           const routingDecision = await routeInput(
-            enrichedText,
+            enrichedForRouteTrig,
             hasImage,
             { isConnected },
             sessionName,
@@ -1241,7 +1272,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
             for (const match of routingDecision.matchedAgents) {
               const agentConfig = allAgents.find((a: any) => a.id === match.agentId)
               const effectiveRouteText = routeText || ocrText || displayText
-              const agentInput = agentConfig ? wrapInputForAgent(effectiveRouteText, agentConfig, ocrText) : enrichedText
+              const agentInput = agentConfig ? wrapInputForAgent(effectiveRouteText, agentConfig, ocrText) : enrichedForRouteTrig
               const agentMessages = useFreshPayload
                 ? [{ role: 'system', content: agentInput }, freshUserMessage!]
                 : [
@@ -1307,7 +1338,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
             : [{ role: 'system', content: butlerPrompt }, ...processedMessages]
           console.log('[sendWithTriggerAndImage] butler call | model:', modelId,
             '| freshPayload:', useFreshPayload,
-            '| contentLength:', enrichedText?.length,
+            '| contentLength:', enrichedForRouteTrig?.length,
             '| ocrText:', ocrText.length,
             '| has vision:', !!visionB64,
             '| msg count:', butlerMessages.length,
@@ -1377,12 +1408,19 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
         const secret = await ensureLaunchSecret(secretRef)
         const isDashboard = wrChatEmbedContext === 'dashboard'
         const enrichedText = enrichRouteTextWithOcr(text, '')
+        const focusPrefixDiff = getChatFocusLlmPrefix(useChatFocusStore.getState())
+        const enrichedForRouteDiff = focusPrefixDiff ? `${focusPrefixDiff}\n\n${enrichedText}` : enrichedText
         const hasImage = false
 
-        const [processedMessages, processFlow] = await Promise.all([
+        const [processedMessagesRaw, processFlow] = await Promise.all([
           mapChatToLlmMessages(newMessages, secret, { isDashboard }),
           import('../../services/processFlow'),
         ])
+
+        let processedMessages = processedMessagesRaw
+        if (focusPrefixDiff) {
+          processedMessages = prependHiddenContextToLastUserContent(processedMessages, focusPrefixDiff)
+        }
 
         let answered = false
         try {
@@ -1396,7 +1434,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
           }
 
           const routingDecision = await routeInput(
-            enrichedText,
+            enrichedForRouteDiff,
             hasImage,
             { isConnected },
             sessionName,
@@ -1416,7 +1454,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
             }
             for (const match of routingDecision.matchedAgents) {
               const agentConfig = allAgents.find((a: any) => a.id === match.agentId)
-              const agentInput = agentConfig ? wrapInputForAgent(text, agentConfig, '') : enrichedText
+              const agentInput = agentConfig ? wrapInputForAgent(text, agentConfig, '') : enrichedForRouteDiff
               const agentMessages = [
                 { role: 'system', content: agentInput },
                 ...processedMessages.filter((m) => m.role === 'user'),
@@ -2241,6 +2279,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
           paddingTop: hasAnyPinnedEdgeItems ? 42 : 12,
         }}
       >
+        <ChatFocusBanner theme={theme} />
         {hasAnyPinnedEdgeItems && (
           <div
             role="toolbar"

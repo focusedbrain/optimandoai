@@ -62,6 +62,12 @@ import '../../../styles/dashboard-tokens.css'
 import '../../../styles/dashboard-base.css'
 import './ProjectOptimizationPanel.css'
 
+/** Preset icons for project allocation (emoji strings). */
+const PROJECT_ICON_CHOICES = [
+  '🎯', '📊', '🚀', '⚡', '🔧', '💡', '📈', '🏗️', '🧪', '🔍',
+  '📋', '🛠️', '🎨', '📦', '🌐', '💻', '🔒', '📝', '⭐', '🏆',
+] as const
+
 // ── Global draft-insertion callback ───────────────────────────────────────────
 // Set fresh every time the user selects a field or a specific milestone.
 // HybridSearch calls this directly instead of dispatching a DOM event, so
@@ -154,6 +160,7 @@ export function ProjectOptimizationPanel({
     orchestratorSessions,
     setActiveProject,
     setAutoOptimization,
+    setProjectIcon,
     removeAttachment,
   } = useProjectStore(
     useShallow((s) => ({
@@ -162,6 +169,7 @@ export function ProjectOptimizationPanel({
       orchestratorSessions: s.orchestratorSessions,
       setActiveProject:     s.setActiveProject,
       setAutoOptimization:  s.setAutoOptimization,
+      setProjectIcon:       s.setProjectIcon,
       removeAttachment:     s.removeAttachment,
     })),
   )
@@ -290,6 +298,8 @@ export function ProjectOptimizationPanel({
   const [formAttachments, setFormAttachments]           = useState<ProjectAttachment[]>([])
   const [formLinkedSessionId, setFormLinkedSessionId]   = useState<string | null>(null)
   const [formIntervalMs, setFormIntervalMs]             = useState(300_000)
+  /** Emoji or empty — persisted with project; edits can sync via setProjectIcon immediately. */
+  const [formIcon, setFormIcon]                         = useState('')
   const [newMilestoneInput, setNewMilestoneInput]       = useState('')
 
   // Document reader modal (reuses BeapDocumentReaderModal)
@@ -556,6 +566,7 @@ export function ProjectOptimizationPanel({
     setFormAttachments([])
     setFormLinkedSessionId(null)
     setFormIntervalMs(300_000)
+    setFormIcon('')
     setNewMilestoneInput('')
     selectedFieldRef.current = null
     setSelectedField(null)
@@ -575,6 +586,7 @@ export function ProjectOptimizationPanel({
     setFormAttachments(p.attachments.map((a) => ({ ...a })))
     setFormLinkedSessionId(p.linkedSessionId)
     setFormIntervalMs(p.autoOptimizationIntervalMs)
+    setFormIcon(p.icon ?? '')
     setNewMilestoneInput('')
     selectedFieldRef.current = null
     setSelectedField(null)
@@ -603,6 +615,7 @@ export function ProjectOptimizationPanel({
       linkedSessionId: formLinkedSessionId,
       autoOptimizationEnabled: currentEnabled,
       autoOptimizationIntervalMs: formIntervalMs,
+      ...(formIcon.trim() ? { icon: formIcon.trim() } : { icon: undefined }),
     }
     if (setupMode === 'editing' && activeProjectId) {
       store.updateProject(activeProjectId, data)
@@ -614,9 +627,26 @@ export function ProjectOptimizationPanel({
     setSetupMode('collapsed')
   }, [
     formTitle, formDescription, formGoals, formMilestones, formAttachments,
-    formLinkedSessionId, formIntervalMs, setupMode, activeProjectId,
+    formLinkedSessionId, formIntervalMs, formIcon, setupMode, activeProjectId,
     clearFormChatContext,
   ])
+
+  const handleFormIconPick = useCallback(
+    (emoji: string) => {
+      setFormIcon(emoji)
+      if (setupMode === 'editing' && activeProjectId) {
+        setProjectIcon(activeProjectId, emoji)
+      }
+    },
+    [setupMode, activeProjectId, setProjectIcon],
+  )
+
+  const handleFormIconClear = useCallback(() => {
+    setFormIcon('')
+    if (setupMode === 'editing' && activeProjectId) {
+      setProjectIcon(activeProjectId, '')
+    }
+  }, [setupMode, activeProjectId, setProjectIcon])
 
   // ── Form milestone handlers ────────────────────────────────────────────────
   const handleAddFormMilestone = useCallback(() => {
@@ -1173,6 +1203,77 @@ export function ProjectOptimizationPanel({
                   ))}
                 </ul>
               )}
+            </div>
+
+            {/* Project icon (Watchdog / trigger surfaces) */}
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 11, fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                  Project icon
+                </span>
+                <button
+                  type="button"
+                  onClick={handleFormIconClear}
+                  style={{
+                    fontSize: 11,
+                    color: formIcon ? '#64748b' : '#cbd5e1',
+                    background: 'none',
+                    border: 'none',
+                    cursor: formIcon ? 'pointer' : 'default',
+                    textDecoration: formIcon ? 'underline' : 'none',
+                    padding: 0,
+                  }}
+                  disabled={!formIcon}
+                  title="Clear icon"
+                >
+                  Clear
+                </button>
+              </div>
+              <div
+                style={{
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  gap: 6,
+                  alignItems: 'center',
+                  maxWidth: '100%',
+                }}
+              >
+                {PROJECT_ICON_CHOICES.map((emoji) => {
+                  const selected = formIcon === emoji
+                  return (
+                    <button
+                      key={emoji}
+                      type="button"
+                      onClick={() => handleFormIconPick(emoji)}
+                      title={emoji}
+                      aria-label={`Select icon ${emoji}`}
+                      aria-pressed={selected}
+                      style={{
+                        width: 32,
+                        height: 32,
+                        padding: 0,
+                        fontSize: 18,
+                        lineHeight: 1,
+                        borderRadius: 8,
+                        border: selected ? '2px solid #7c3aed' : '1px solid #e2e8f0',
+                        background: selected ? 'rgba(124,58,237,0.12)' : '#ffffff',
+                        cursor: 'pointer',
+                        boxSizing: 'border-box',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}
+                    >
+                      {emoji}
+                    </button>
+                  )
+                })}
+              </div>
+              {!formIcon.trim() ? (
+                <p style={{ margin: '8px 0 0', fontSize: 11, color: '#94a3b8', lineHeight: 1.4 }}>
+                  Assign icon to enable in Watchdog trigger
+                </p>
+              ) : null}
             </div>
 
             {/* Optimization interval */}

@@ -8,9 +8,10 @@ import SettingsView from './components/SettingsView'
 import EmailInboxView from './components/EmailInboxView'
 import EmailInboxBulkView from './components/EmailInboxBulkView'
 import WrChatDashboardPanel from './components/WrChatDashboardPanel'
-import { WrChatWatchdogButton } from '@ext/ui/components'
+import { WrMultiTriggerBar } from '@ext/ui/components'
 import { useEmailInboxStore, type InboxFilter } from './stores/useEmailInboxStore'
 import { subscribeInboxNewMessagesBackgroundRefresh } from './utils/inboxNewMessagesBackgroundRefresh'
+import { registerWrDeskOptimizerHttpBridge } from './lib/wrDeskOptimizerHttpBridge'
 import { type AnalysisOpenPayload, sanitizeAnalysisOpenPayload } from './components/analysis'
 import './components/handshakeViewTypes'
 // === TEMPORARY DEBUG LOG VIEWER (remove before production) ===
@@ -68,6 +69,11 @@ function App() {
     root.setAttribute('data-ui-theme', cssTheme)
     console.log('[APP] Theme applied:', extensionTheme, '-> CSS:', cssTheme)
   }, [extensionTheme])
+
+  /** HTTP bridge for extension → POST /api/projects/:id/optimize/* (main process → renderer). */
+  useEffect(() => {
+    registerWrDeskOptimizerHttpBridge()
+  }, [])
 
   /** Electron dashboard: PQ KEM HTTP to localhost requires X-Launch-Secret (extension gets it via WebSocket). */
   useEffect(() => {
@@ -264,9 +270,9 @@ function App() {
           <div
             className="app-header__wr-watchdog"
             style={{ display: 'flex', alignItems: 'center', flexShrink: 0, marginLeft: 6 }}
-            title="Watchdog security scan"
+            title="WR Chat: Scam Watchdog & optimizer triggers"
           >
-            <WrChatWatchdogButton
+            <WrMultiTriggerBar
               theme={extensionTheme}
               onWatchdogAlert={(threats) => {
                 try {

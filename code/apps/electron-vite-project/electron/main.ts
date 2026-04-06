@@ -795,6 +795,13 @@ import {
   type WatchdogConfig,
   type WatchdogScanRequest,
 } from './watchdog/watchdogService'
+import { registerMainWindowAccessor } from './main/mainWindowAccessor'
+import { readTriggerProjectEntriesFromRenderer } from './main/projects/triggerProjectList'
+import {
+  invokeOptimizerGetStatus,
+  invokeOptimizerSetContinuous,
+  invokeOptimizerSnapshot,
+} from './main/projects/optimizerHttpInvoke'
 import { registerDbHandlers, testConnection, syncChromeDataToPostgres, getConfig, getPostgresAdapter } from './ipc/db'
 import { handleVaultRPC } from './main/vault/rpc'
 import { handleHandshakeRPC, registerHandshakeRoutes, setSSOSessionProvider, setOidcTokenProvider, getCurrentSession } from './main/handshake/ipc'
@@ -1131,6 +1138,8 @@ async function createWindow() {
     height: 800,
     alwaysOnTop: true,
   })
+
+  registerMainWindowAccessor(() => win)
 
   // Remove the default application menu (File, Edit, View, Window, Help)
   Menu.setApplicationMenu(null)
@@ -6441,6 +6450,79 @@ app.whenReady().then(async () => {
       } catch (error: any) {
         console.error('[HTTP] POST /api/wrchat/watchdog/config:', error)
         res.status(500).json({ error: error?.message || 'watchdog config failed' })
+      }
+    })
+
+    // ── Projects (trigger bar — icon-allocated projects) ────────────────────
+    httpApp.get('/api/projects/trigger-list', async (_req, res) => {
+      try {
+        const entries = await readTriggerProjectEntriesFromRenderer()
+        res.json(entries)
+      } catch (error: any) {
+        console.error('[HTTP] GET /api/projects/trigger-list:', error)
+        res.status(500).json({ error: error?.message || 'trigger list failed' })
+      }
+    })
+
+    // ── Projects — auto-optimizer (renderer bridge via __wrdeskOptimizerHttp) ─
+    httpApp.post('/api/projects/:projectId/optimize/snapshot', async (req, res) => {
+      try {
+        const projectId = String(req.params.projectId ?? '')
+        const result = await invokeOptimizerSnapshot(projectId)
+        if (result.ok) {
+          res.json({ status: 'triggered' })
+          return
+        }
+        const msg = result.error || 'snapshot failed'
+        const code = msg === 'bridge not ready' ? 503 : 400
+        res.status(code).json({ status: 'error', message: msg })
+      } catch (error: any) {
+        console.error('[HTTP] POST /api/projects/:projectId/optimize/snapshot:', error)
+        res.status(500).json({ status: 'error', message: error?.message || 'snapshot failed' })
+      }
+    })
+
+    httpApp.post('/api/projects/:projectId/optimize/continuous', async (req, res) => {
+      try {
+        const projectId = String(req.params.projectId ?? '')
+        const body = req.body && typeof req.body === 'object' ? (req.body as { enabled?: unknown }) : {}
+        if (typeof body.enabled !== 'boolean') {
+          res.status(400).json({ error: 'enabled (boolean) is required' })
+          return
+        }
+        const result = await invokeOptimizerSetContinuous(projectId, body.enabled)
+        if (result.ok && typeof result.enabled === 'boolean' && typeof result.intervalMs === 'number') {
+          res.json({ enabled: result.enabled, intervalMs: result.intervalMs })
+          return
+        }
+        const msg = result.error || 'continuous failed'
+        const code = msg === 'bridge not ready' ? 503 : 400
+        res.status(code).json({ error: msg })
+      } catch (error: any) {
+        console.error('[HTTP] POST /api/projects/:projectId/optimize/continuous:', error)
+        res.status(500).json({ error: error?.message || 'continuous failed' })
+      }
+    })
+
+    httpApp.get('/api/projects/:projectId/optimize/status', async (req, res) => {
+      try {
+        const projectId = String(req.params.projectId ?? '')
+        const result = await invokeOptimizerGetStatus(projectId)
+        if (result.ok && typeof result.enabled === 'boolean' && typeof result.intervalMs === 'number') {
+          const payload: { enabled: boolean; intervalMs: number; lastRunAt?: number | null } = {
+            enabled: result.enabled,
+            intervalMs: result.intervalMs,
+          }
+          if (result.lastRunAt !== undefined) payload.lastRunAt = result.lastRunAt
+          res.json(payload)
+          return
+        }
+        const msg = result.error || 'status failed'
+        const code = msg === 'bridge not ready' ? 503 : 400
+        res.status(code).json({ error: msg })
+      } catch (error: any) {
+        console.error('[HTTP] GET /api/projects/:projectId/optimize/status:', error)
+        res.status(500).json({ error: error?.message || 'status failed' })
       }
     })
 
