@@ -1,6 +1,8 @@
 import React, { useCallback } from 'react'
 
 export interface TriggerButtonShellProps {
+  /** Function selector (e.g. dropdown) — rendered inside the bar before the main icon. */
+  leadingSlot?: React.ReactNode
   icon: React.ReactNode
   scanning: boolean
   intervalOn: boolean
@@ -26,6 +28,7 @@ const stopCheckboxBubble = (e: React.MouseEvent) => {
 }
 
 export function TriggerButtonShell({
+  leadingSlot,
   icon,
   scanning,
   intervalOn,
@@ -81,6 +84,7 @@ export function TriggerButtonShell({
         boxSizing: 'border-box',
       }}
     >
+      {leadingSlot}
       <button
         type="button"
         title={scanButtonTitle}
@@ -134,7 +138,6 @@ export function TriggerButtonShell({
           onClick={stopCheckboxBubble}
           style={{ accentColor: '#22c55e', cursor: disabled ? 'not-allowed' : 'pointer' }}
         />
-        <span style={{ opacity: 0.85, fontSize: 9 }}>⟳</span>
       </label>
       {cleanFlash ? (
         <span className="sr-only" style={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden' }}>

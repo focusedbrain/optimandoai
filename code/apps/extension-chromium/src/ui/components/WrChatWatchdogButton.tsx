@@ -10,6 +10,8 @@ export type { WatchdogThreat }
 export interface WrChatWatchdogButtonProps {
   theme?: string
   onWatchdogAlert: (threats: WatchdogThreat[]) => void
+  /** Function selector inside the bar (e.g. dropdown in WrMultiTriggerBar). */
+  leadingSlot?: React.ReactNode
   /** Inserted between icon and checkbox (e.g. speech bubble in WrMultiTriggerBar). */
   middleSlot?: React.ReactNode
 }
@@ -63,6 +65,7 @@ function buildHeaders(secret: string | null): Record<string, string> {
 export default function WrChatWatchdogButton({
   theme = 'pro',
   onWatchdogAlert,
+  leadingSlot,
   middleSlot,
 }: WrChatWatchdogButtonProps) {
   const [continuousEnabled, setContinuousEnabled] = useState(false)
@@ -274,6 +277,7 @@ export default function WrChatWatchdogButton({
   return (
     <TriggerButtonShell
       theme={theme}
+      leadingSlot={leadingSlot}
       icon={<WatchdogIcon size={16} />}
       scanning={scanning}
       intervalOn={continuousEnabled}

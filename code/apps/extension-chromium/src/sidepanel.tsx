@@ -1710,6 +1710,25 @@ function SidepanelOrchestrator() {
     })
   }
 
+  /** Pin docked WR Chat + switch to cmd WR Chat, then run focus (intro) after mount. */
+  const ensureWrChatOpenThen = useCallback(
+    (applyFocus: () => void) => {
+      setDockedWorkspace('wr-chat')
+      setDockedSubmode('command')
+      if (!isCommandChatPinned) {
+        setIsCommandChatPinned(true)
+        chrome.storage.local.set({ commandChatPinned: true })
+        chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+          if (tabs[0]?.id) {
+            chrome.tabs.sendMessage(tabs[0].id, { type: 'CREATE_DOCKED_CHAT' })
+          }
+        })
+      }
+      window.setTimeout(applyFocus, 0)
+    },
+    [isCommandChatPinned],
+  )
+
   // Original useEffect for connection status
   useEffect(() => {
     chrome.runtime.sendMessage({ type: 'GET_STATUS' })
@@ -8369,6 +8388,7 @@ function SidepanelOrchestrator() {
                 onChatFocusRequest={(mode) => {
                   useChatFocusStore.getState().setChatFocusMode(mode)
                 }}
+                onEnsureWrChatOpen={ensureWrChatOpenThen}
               />
             </div>
           )}

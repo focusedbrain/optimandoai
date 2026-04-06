@@ -8,7 +8,7 @@ import {
 } from '../../../services/fetchOptimizerTrigger'
 import type { ChatFocusMode, TriggerFunctionId, TriggerProjectEntry } from '../../../types/triggerTypes'
 import { useChatFocusStore } from '../../../stores/chatFocusStore'
-import { WATCHDOG_EMOJI } from '../WatchdogIcon'
+import WatchdogIcon from '../WatchdogIcon'
 import WrChatWatchdogButton from '../WrChatWatchdogButton'
 import { TriggerButtonShell } from './TriggerButtonShell'
 
@@ -20,6 +20,11 @@ export type WrMultiTriggerBarProps = {
   onWatchdogAlert: (threats: WatchdogThreat[]) => void
   /** Optional — if omitted, only the window event is fired. */
   onChatFocusRequest?: (mode: ChatFocusMode) => void
+  /**
+   * When enabling WR Chat focus (speech / same-row toggle), host can show WR Chat first,
+   * then call `applyFocus()` so intro messages reach a mounted chat surface.
+   */
+  onEnsureWrChatOpen?: (applyFocus: () => void) => void
 }
 
 function SpeechBubbleButton({
@@ -66,7 +71,7 @@ function buildDropdownRows(projects: TriggerProjectEntry[]) {
     {
       id: 'watchdog',
       label: 'Scam Watchdog',
-      icon: WATCHDOG_EMOJI,
+      icon: '',
       functionId: { type: 'watchdog' },
     },
   ]
@@ -89,6 +94,7 @@ export default function WrMultiTriggerBar({
   theme = 'pro',
   onWatchdogAlert,
   onChatFocusRequest,
+  onEnsureWrChatOpen,
 }: WrMultiTriggerBarProps) {
   const [activeFunctionId, setActiveFunctionId] = useState<TriggerFunctionId>({ type: 'watchdog' })
   const [projectList, setProjectList] = useState<TriggerProjectEntry[]>([])
@@ -137,9 +143,38 @@ export default function WrMultiTriggerBar({
   }, [dropdownRows, activeFunctionId])
 
   const emitChatFocus = useCallback(() => {
-    let mode: ChatFocusMode
+    const store = useChatFocusStore.getState()
+    const current = store.chatFocusMode
+
+    const clearAndNotify = () => {
+      const mode: ChatFocusMode = { mode: 'default' }
+      store.clearChatFocusMode()
+      try {
+        onChatFocusRequest?.(mode)
+      } catch {
+        /* noop */
+      }
+      try {
+        window.dispatchEvent(new CustomEvent(WRCHAT_CHAT_FOCUS_REQUEST_EVENT, { detail: mode }))
+      } catch {
+        /* noop */
+      }
+    }
+
+    const runAfterOpen = (applyFocus: () => void) => {
+      if (onEnsureWrChatOpen) {
+        onEnsureWrChatOpen(applyFocus)
+      } else {
+        applyFocus()
+      }
+    }
+
     if (activeFunctionId.type === 'watchdog') {
-      mode = { mode: 'scam-watchdog' }
+      if (current.mode === 'scam-watchdog') {
+        clearAndNotify()
+        return
+      }
+      const mode: ChatFocusMode = { mode: 'scam-watchdog' }
       const intro = `🐕 **ScamWatchdog Mode Active**
 
 I'm now focused on scam and fraud detection. You can:
@@ -148,24 +183,43 @@ I'm now focused on scam and fraud detection. You can:
 - Describe a situation you'd like me to evaluate for fraud potential
 
 Send me anything you'd like analyzed.`
-      useChatFocusStore.getState().setChatFocusWithIntro(mode, null, intro)
-    } else {
-      const pid = activeFunctionId.projectId
-      const p = activeProject
-      const icon = p?.icon?.trim() || '📊'
-      const title = p?.title?.trim() || 'Project'
-      const mile = p?.activeMilestoneTitle?.trim() || 'No active milestone'
-      mode = {
-        mode: 'auto-optimizer',
-        projectId: pid,
-        activeMilestoneId: undefined,
-      }
-      const meta = {
-        projectTitle: title,
-        activeMilestoneTitle: mile,
-        projectIcon: icon,
-      }
-      const intro = `${icon} **Optimization Mode: ${title}**
+      runAfterOpen(() => {
+        useChatFocusStore.getState().setChatFocusWithIntro(mode, null, intro)
+        try {
+          onChatFocusRequest?.(mode)
+        } catch {
+          /* noop */
+        }
+        try {
+          window.dispatchEvent(new CustomEvent(WRCHAT_CHAT_FOCUS_REQUEST_EVENT, { detail: mode }))
+        } catch {
+          /* noop */
+        }
+      })
+      return
+    }
+
+    const pid = activeFunctionId.projectId
+    if (current.mode === 'auto-optimizer' && current.projectId === pid) {
+      clearAndNotify()
+      return
+    }
+
+    const p = activeProject
+    const icon = p?.icon?.trim() || '📊'
+    const title = p?.title?.trim() || 'Project'
+    const mile = p?.activeMilestoneTitle?.trim() || 'No active milestone'
+    const mode: ChatFocusMode = {
+      mode: 'auto-optimizer',
+      projectId: pid,
+      activeMilestoneId: undefined,
+    }
+    const meta = {
+      projectTitle: title,
+      activeMilestoneTitle: mile,
+      projectIcon: icon,
+    }
+    const intro = `${icon} **Optimization Mode: ${title}**
 Active milestone: ${mile}
 
 I'm now focused on optimizing this project. You can:
@@ -174,24 +228,25 @@ I'm now focused on optimizing this project. You can:
 - Add reference materials or data relevant to the optimization
 
 What information would you like to add?`
+    runAfterOpen(() => {
       useChatFocusStore.getState().setChatFocusWithIntro(mode, meta, intro)
-    }
-    try {
-      onChatFocusRequest?.(mode)
-    } catch {
-      /* noop */
-    }
-    try {
-      window.dispatchEvent(new CustomEvent(WRCHAT_CHAT_FOCUS_REQUEST_EVENT, { detail: mode }))
-    } catch {
-      /* noop */
-    }
-  }, [activeFunctionId, activeProject, onChatFocusRequest])
+      try {
+        onChatFocusRequest?.(mode)
+      } catch {
+        /* noop */
+      }
+      try {
+        window.dispatchEvent(new CustomEvent(WRCHAT_CHAT_FOCUS_REQUEST_EVENT, { detail: mode }))
+      } catch {
+        /* noop */
+      }
+    })
+  }, [activeFunctionId, activeProject, onChatFocusRequest, onEnsureWrChatOpen])
 
-  const speechTooltipWatchdog = 'Focus chat on Scam Watchdog'
+  const speechTooltipWatchdog = 'Toggle Scam Watchdog chat focus (on / off)'
   const speechTooltipOptimizer = activeProject
-    ? `Focus chat on ${activeProject.title}`
-    : 'Focus chat on project'
+    ? `Toggle optimization chat focus for ${activeProject.title} (on / off)`
+    : 'Toggle optimization chat focus (on / off)'
 
   const optimizerPid =
     activeFunctionId.type === 'auto-optimizer' ? activeFunctionId.projectId : ''
@@ -234,6 +289,21 @@ What information would you like to add?`
     [activeFunctionId],
   )
 
+  const handleDropdownRowClick = useCallback(
+    (row: { functionId: TriggerFunctionId }) => {
+      const key = functionIdKey(row.functionId)
+      const activeKey = functionIdKey(activeFunctionId)
+      if (key === activeKey) {
+        emitChatFocus()
+        setDropdownOpen(false)
+        return
+      }
+      setActiveFunctionId(row.functionId)
+      setDropdownOpen(false)
+    },
+    [activeFunctionId, emitChatFocus],
+  )
+
   const isLight = theme === 'standard'
   const isDark = theme === 'dark'
   const dropdownSurface = isLight
@@ -242,122 +312,135 @@ What information would you like to add?`
       ? { bg: 'rgba(15,23,42,0.95)', border: 'rgba(148,163,184,0.35)', text: '#f1f5f9', hover: 'rgba(99,102,241,0.25)' }
       : { bg: 'rgba(49,32,68,0.98)', border: 'rgba(167,139,250,0.45)', text: '#f5f3ff', hover: 'rgba(118,75,162,0.45)' }
 
+  const dropdownLeadingSlot = (
+    <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
+      <button
+        type="button"
+        onClick={() => setDropdownOpen((o) => !o)}
+        title={selectedRowLabel}
+        aria-expanded={dropdownOpen}
+        aria-haspopup="listbox"
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: 2,
+          minWidth: 28,
+          height: 28,
+          padding: '0 4px',
+          borderRadius: 6,
+          border: 'none',
+          background: isLight ? 'rgba(15,23,42,0.06)' : 'rgba(255,255,255,0.08)',
+          color: dropdownSurface.text,
+          cursor: 'pointer',
+          flexShrink: 0,
+        }}
+      >
+        {activeFunctionId.type === 'watchdog' ? (
+          <WatchdogIcon size={14} />
+        ) : (
+          <span style={{ fontSize: 13, lineHeight: 1 }} aria-hidden>
+            {activeProject?.icon ?? '📊'}
+          </span>
+        )}
+        <span style={{ fontSize: 8, lineHeight: 1, opacity: 0.75 }} aria-hidden>
+          ▼
+        </span>
+      </button>
+      {dropdownOpen ? (
+        <ul
+          role="listbox"
+          style={{
+            position: 'absolute',
+            top: '100%',
+            left: 0,
+            marginTop: 4,
+            minWidth: 200,
+            maxWidth: 280,
+            maxHeight: 240,
+            overflowY: 'auto',
+            zIndex: 50,
+            listStyle: 'none',
+            margin: 0,
+            padding: '6px 0',
+            borderRadius: 8,
+            border: `1px solid ${dropdownSurface.border}`,
+            background: dropdownSurface.bg,
+            boxShadow: '0 8px 24px rgba(0,0,0,0.35)',
+          }}
+        >
+          {dropdownRows.map((row) => {
+            const selected = functionIdKey(row.functionId) === functionIdKey(activeFunctionId)
+            return (
+              <li key={row.id}>
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected={selected}
+                  onClick={() => handleDropdownRowClick(row)}
+                  style={{
+                    width: '100%',
+                    textAlign: 'left',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    padding: '8px 12px',
+                    border: 'none',
+                    background: selected ? dropdownSurface.hover : 'transparent',
+                    color: dropdownSurface.text,
+                    cursor: 'pointer',
+                    fontSize: 12,
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!selected) e.currentTarget.style.background = dropdownSurface.hover
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!selected) e.currentTarget.style.background = 'transparent'
+                  }}
+                >
+                  {row.id === 'watchdog' ? (
+                    <span style={{ display: 'inline-flex', alignItems: 'center', flexShrink: 0 }}>
+                      <WatchdogIcon size={14} />
+                    </span>
+                  ) : (
+                    <span style={{ fontSize: 14, lineHeight: 1 }}>{row.icon}</span>
+                  )}
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {row.label}
+                  </span>
+                </button>
+              </li>
+            )
+          })}
+        </ul>
+      ) : null}
+    </div>
+  )
+
   return (
     <div
       ref={rootRef}
       style={{
         display: 'inline-flex',
         alignItems: 'center',
-        gap: 6,
         flexShrink: 0,
         position: 'relative',
       }}
     >
-      <div style={{ position: 'relative' }}>
-        <button
-          type="button"
-          onClick={() => setDropdownOpen((o) => !o)}
-          title={selectedRowLabel}
-          aria-expanded={dropdownOpen}
-          aria-haspopup="listbox"
-          style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            width: 22,
-            height: 22,
-            padding: 0,
-            borderRadius: 6,
-            border: `1px solid ${dropdownSurface.border}`,
-            background: isLight ? '#ffffff' : 'rgba(255,255,255,0.08)',
-            color: dropdownSurface.text,
-            cursor: 'pointer',
-            fontSize: 10,
-            lineHeight: 1,
-            flexShrink: 0,
-          }}
-        >
-          ▼
-        </button>
-        {dropdownOpen ? (
-          <ul
-            role="listbox"
-            style={{
-              position: 'absolute',
-              top: '100%',
-              left: 0,
-              marginTop: 4,
-              minWidth: 200,
-              maxWidth: 280,
-              maxHeight: 240,
-              overflowY: 'auto',
-              zIndex: 50,
-              listStyle: 'none',
-              margin: 0,
-              padding: '6px 0',
-              borderRadius: 8,
-              border: `1px solid ${dropdownSurface.border}`,
-              background: dropdownSurface.bg,
-              boxShadow: '0 8px 24px rgba(0,0,0,0.35)',
-            }}
-          >
-            {dropdownRows.map((row) => {
-              const selected = functionIdKey(row.functionId) === functionIdKey(activeFunctionId)
-              return (
-                <li key={row.id}>
-                  <button
-                    type="button"
-                    role="option"
-                    aria-selected={selected}
-                    onClick={() => {
-                      setActiveFunctionId(row.functionId)
-                      setDropdownOpen(false)
-                    }}
-                    style={{
-                      width: '100%',
-                      textAlign: 'left',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 8,
-                      padding: '8px 12px',
-                      border: 'none',
-                      background: selected ? dropdownSurface.hover : 'transparent',
-                      color: dropdownSurface.text,
-                      cursor: 'pointer',
-                      fontSize: 12,
-                    }}
-                    onMouseEnter={(e) => {
-                      if (!selected) e.currentTarget.style.background = dropdownSurface.hover
-                    }}
-                    onMouseLeave={(e) => {
-                      if (!selected) e.currentTarget.style.background = 'transparent'
-                    }}
-                  >
-                    <span style={{ fontSize: 14, lineHeight: 1 }}>{row.icon}</span>
-                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {row.label}
-                    </span>
-                  </button>
-                </li>
-              )
-            })}
-          </ul>
-        ) : null}
-      </div>
-
       <div style={{ display: 'inline-flex', alignItems: 'center' }}>
-        <div style={{ display: activeFunctionId.type === 'watchdog' ? 'inline-flex' : 'none' }}>
+        {activeFunctionId.type === 'watchdog' ? (
           <WrChatWatchdogButton
             theme={theme}
             onWatchdogAlert={onWatchdogAlert}
+            leadingSlot={dropdownLeadingSlot}
             middleSlot={
               <SpeechBubbleButton tooltip={speechTooltipWatchdog} onPress={emitChatFocus} />
             }
           />
-        </div>
-        <div style={{ display: activeFunctionId.type === 'auto-optimizer' ? 'inline-flex' : 'none' }}>
+        ) : (
           <TriggerButtonShell
             theme={theme}
+            leadingSlot={dropdownLeadingSlot}
             icon={
               <span style={{ fontSize: 14, lineHeight: 1 }} aria-hidden>
                 {activeProject?.icon ?? '📊'}
@@ -381,7 +464,7 @@ What information would you like to add?`
             scanButtonAriaLabel="Run optimization snapshot for this project"
             cleanFlashAnnouncement="Nothing suspicious found on the screens"
           />
-        </div>
+        )}
       </div>
     </div>
   )

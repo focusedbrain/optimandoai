@@ -217,6 +217,12 @@ function App() {
     setInboxBulkMode(false)
   }, [])
 
+  /** WR Chat tab + deferred focus so intro runs after the chat view mounts. */
+  const ensureWrChatOpenThen = useCallback((applyFocus: () => void) => {
+    setActiveView('wr-chat')
+    window.setTimeout(applyFocus, 0)
+  }, [])
+
   return (
     <div className="app-root">
       <header className="app-header">
@@ -281,6 +287,7 @@ function App() {
                   /* noop */
                 }
               }}
+              onEnsureWrChatOpen={ensureWrChatOpenThen}
             />
           </div>
         </nav>
