@@ -562,6 +562,16 @@ contextBridge.exposeInMainWorld('handshakeView', {
   checkHandshakeSendReady: (handshakeId: unknown) => {
     return ipcRenderer.invoke('handshake:checkSendReady', { handshakeId: assertString(handshakeId, 'handshakeId') })
   },
+  /** Dashboard chrome shim: forwards extension-style `VAULT_RPC` to the same dispatch as the WebSocket bridge (vault.* / handshake.* / ingestion.*). */
+  vaultRpc: (args: unknown) => {
+    if (!args || typeof args !== 'object') throw new Error('vaultRpc: expected object')
+    const o = args as Record<string, unknown>
+    const method = typeof o.method === 'string' ? o.method : ''
+    if (!method.trim()) throw new Error('vaultRpc: method required')
+    const params = o.params && typeof o.params === 'object' ? (o.params as Record<string, unknown>) : {}
+    const id = typeof o.id === 'string' ? o.id : undefined
+    return ipcRenderer.invoke('dashboard:vaultRpc', { method, params, id })
+  },
   requestUnlockVault: () => {
     return ipcRenderer.invoke('vault:unlockForHandshake')
   },

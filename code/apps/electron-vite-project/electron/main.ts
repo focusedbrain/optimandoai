@@ -327,6 +327,7 @@ function lockVaultIfLoaded(reason?: string): void {
     wsVsbtBindings.clear()
     console.log('[AUTH] Cleared all WS vault session bindings')
   }
+  dashboardRendererVsbt = null
 }
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
@@ -890,6 +891,11 @@ var wsClients: any[] = (globalThis as any).__og_ws_clients__ || [];
 // Cleared on lock / logout / session-expire via lockVaultIfLoaded().
 var wsVsbtBindings: Map<any, string> = (globalThis as any).__og_ws_vsbt__ || new Map();
 (globalThis as any).__og_ws_vsbt__ = wsVsbtBindings;
+
+/** VSBT for dashboard renderer VAULT_RPC (IPC) — mirrors per-socket binding on WebSocket extension bridge. */
+var dashboardRendererVsbt: string | null =
+  (globalThis as any).__og_dashboard_vsbt__ ?? null
+;(globalThis as any).__og_dashboard_vsbt__ = dashboardRendererVsbt
 
 export function broadcastToExtensions(message: Record<string, unknown>): void {
   const json = JSON.stringify(message)
@@ -2737,6 +2743,158 @@ app.whenReady().then(async () => {
       }
       return db ?? null
     }
+
+    /**
+     * Single dispatch for dashboard chrome shim VAULT_RPC — same logic as WebSocket `msg.method` path
+     * (vault.* / handshake.* / ingestion.*). Uses `dashboardRendererVsbt` instead of per-socket VSBT.
+     */
+    async function dispatchDashboardMethodRpc(
+      method: string,
+      params: Record<string, unknown> | undefined,
+    ): Promise<Record<string, unknown>> {
+      const p = params ?? {}
+
+      if (method.startsWith('vault.')) {
+        const rpcSession = await ensureSession()
+        if (!rpcSession.accessToken) {
+          return { success: false, error: 'Authentication required — no valid session' }
+        }
+        const staleBefore =
+          lastEntitlementRefreshAt == null ||
+          Date.now() - lastEntitlementRefreshAt > ENTITLEMENT_REFRESH_INTERVAL_MS
+        const rpcTier = await getEffectiveTier({ refreshIfStale: true, caller: 'vault-rpc-dashboard' })
+        console.log(
+          '[ENTITLEMENT_ACCESS] vault-rpc-dashboard caller, tier=',
+          rpcTier,
+          'triggeredRefresh=',
+          staleBefore,
+        )
+
+        if (method === 'vault.bind') {
+          const { vaultService: vsForBind } = await import('./main/vault/rpc')
+          const clientVsbt = (p as { vsbt?: unknown }).vsbt
+          if (typeof clientVsbt === 'string' && vsForBind.validateToken(clientVsbt)) {
+            dashboardRendererVsbt = clientVsbt
+            ;(globalThis as any).__og_dashboard_vsbt__ = dashboardRendererVsbt
+            return { success: true }
+          }
+          return { success: false, error: 'Invalid vault session token' }
+        }
+
+        const VSBT_EXEMPT_RPC = new Set(['vault.create', 'vault.unlock', 'vault.getStatus'])
+        if (!VSBT_EXEMPT_RPC.has(method)) {
+          const boundVsbt = dashboardRendererVsbt
+          const { vaultService: vsForToken } = await import('./main/vault/rpc')
+          if (!boundVsbt || !vsForToken.validateToken(boundVsbt)) {
+            return {
+              success: false,
+              error: 'Vault session not bound — call vault.bind or vault.unlock first',
+            }
+          }
+        }
+
+        const response = await handleVaultRPC(method, p, rpcTier)
+
+        if (response.success && response.sessionToken) {
+          dashboardRendererVsbt = response.sessionToken as string
+          ;(globalThis as any).__og_dashboard_vsbt__ = dashboardRendererVsbt
+        }
+
+        if ((method === 'vault.unlock' || method === 'vault.create') && response.success) {
+          setImmediate(async () => {
+            try {
+              const { vaultService: vs } = await import('./main/vault/rpc')
+              const db = getLedgerDb() ?? (vs as { getDb?: () => unknown }).getDb?.() ?? null
+              completePendingContextSyncs(db, getCurrentSession())
+              if (db) {
+                processOutboundQueue(db, async () => {
+                  try {
+                    const session = await ensureSession()
+                    return session.accessToken ?? getAccessToken()
+                  } catch {
+                    return null
+                  }
+                }).catch(() => {})
+              }
+              try {
+                win?.webContents.send('handshake-list-refresh')
+              } catch {
+                /* no window */
+              }
+              try {
+                win?.webContents.send('vault-status-changed')
+              } catch {
+                /* no window */
+              }
+            } catch {
+              /* non-fatal */
+            }
+          })
+        }
+
+        if (method === 'vault.lock' && response.success) {
+          dashboardRendererVsbt = null
+          ;(globalThis as any).__og_dashboard_vsbt__ = null
+          wsVsbtBindings.clear()
+        }
+
+        return { ...response }
+      }
+
+      if (method.startsWith('handshake.')) {
+        const vsForHandshake = (globalThis as any).__og_vault_service_ref
+        const vaultDb = vsForHandshake?.getDb?.() ?? vsForHandshake?.db ?? null
+        const ledgerDb = getLedgerDb()
+        const db = ledgerDb ?? vaultDb
+        const skipVaultContext = p?.skipVaultContext === true
+        const vaultRequiredMethods = [
+          'handshake.list',
+          'handshake.accept',
+          'handshake.refresh',
+          'handshake.queryStatus',
+          'handshake.requestContextBlocks',
+          'handshake.authorizeAction',
+          'handshake.initiateRevocation',
+          'handshake.delete',
+          'handshake.isActive',
+        ]
+        if (!db && !skipVaultContext) {
+          return { success: false, error: 'No active session. Please log in first.' }
+        }
+        if (!db && skipVaultContext && vaultRequiredMethods.includes(method)) {
+          return { success: false, error: 'No active session. Please log in first.' }
+        }
+        return (await handleHandshakeRPC(method, p, db)) as Record<string, unknown>
+      }
+
+      if (method.startsWith('ingestion.')) {
+        const ssoSession = getCurrentSession()
+        const ledgerDb = getLedgerDb()
+        const vsForIngestion = (globalThis as any).__og_vault_service_ref
+        const vaultDb = vsForIngestion?.getDb?.() ?? vsForIngestion?.db ?? null
+        const db = ledgerDb ?? vaultDb
+        return (await handleIngestionRPC(method, p, db, ssoSession)) as Record<string, unknown>
+      }
+
+      return { success: false, error: `Unknown RPC method: ${method}` }
+    }
+
+    ipcMain.handle(
+      'dashboard:vaultRpc',
+      async (_e, payload: { method?: string; params?: Record<string, unknown>; id?: string }) => {
+        const method = typeof payload?.method === 'string' ? payload.method : ''
+        if (!method.trim()) {
+          return { success: false, error: 'dashboard:vaultRpc: method required' }
+        }
+        try {
+          return await dispatchDashboardMethodRpc(method, payload.params)
+        } catch (err: any) {
+          console.error('[MAIN] dashboard:vaultRpc error:', method, err)
+          return { success: false, error: err?.message ?? String(err) }
+        }
+      },
+    )
+    console.log('[MAIN] IPC handler registered: dashboard:vaultRpc')
 
     ipcMain.handle('handshake:list', async (_e, filter: any) => {
       try {
@@ -5026,6 +5184,8 @@ app.whenReady().then(async () => {
                 // Clear ALL WS bindings on vault.lock (VSBT invalidated globally)
                 if (msg.method === 'vault.lock' && response.success) {
                   wsVsbtBindings.clear()
+                  dashboardRendererVsbt = null
+                  ;(globalThis as any).__og_dashboard_vsbt__ = null
                 }
 
                 const reply = {
