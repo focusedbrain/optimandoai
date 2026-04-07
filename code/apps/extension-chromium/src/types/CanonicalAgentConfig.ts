@@ -54,6 +54,7 @@ export type ListeningSource = typeof ListeningSourceValues[number];
 /** Valid trigger types */
 export const TriggerTypeValues = [
   'wrchat',
+  'mode_trigger',
   'direct_tag',
   'tag_and_condition',
   'workflow_condition',

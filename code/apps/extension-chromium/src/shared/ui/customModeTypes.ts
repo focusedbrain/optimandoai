@@ -42,6 +42,21 @@ export interface CustomModeDefinition {
   metadata?: Record<string, unknown>
 }
 
+/** Detection wizard scan presets (Add Mode → Focus step). */
+export type DetectionScanModePreset = 'quick_scan' | 'structured_page_scan' | 'verified_research'
+
+export function getDetectionScanMode(metadata: Record<string, unknown> | undefined): DetectionScanModePreset {
+  const v = metadata?.detectionScanMode
+  if (v === 'quick_scan' || v === 'structured_page_scan' || v === 'verified_research') return v
+  return 'quick_scan'
+}
+
+/** True only when preset is verified research and the user opted in (read-only external verification). */
+export function getExternalWebVerificationEnabled(metadata: Record<string, unknown> | undefined): boolean {
+  if (getDetectionScanMode(metadata) !== 'verified_research') return false
+  return metadata?.externalWebVerification === true
+}
+
 /** Persisted optional scope: websites (http(s) URLs or host patterns) and folder diff watch paths. */
 export type CustomModeScopeMetadata = {
   /** Pages or sites this mode should prioritize (full URLs or host patterns). */
@@ -140,7 +155,10 @@ export function defaultCustomModeDraft(): CustomModeDraft {
     searchFocus: '',
     ignoreInstructions: '',
     intervalSeconds: null,
-    metadata: undefined,
+    metadata: {
+      detectionScanMode: 'quick_scan',
+      externalWebVerification: false,
+    },
   }
 }
 
@@ -226,6 +244,32 @@ function sanitizeCustomModeMetadataForPersist(
   const m = { ...metadata } as Record<string, unknown>
   delete m._ollamaTags
   delete m._sessionLabel
+  delete m._wrExpertUploadError
+
+  const scanMode = getDetectionScanMode(m)
+  m.detectionScanMode = scanMode
+  if (scanMode !== 'verified_research') {
+    m.externalWebVerification = false
+  } else if (m.externalWebVerification !== true) {
+    m.externalWebVerification = false
+  }
+
+  const wr = m.wrExpertProfile
+  if (wr && typeof wr === 'object' && !Array.isArray(wr)) {
+    const emphasis = (wr as { emphasis?: { terms?: unknown; entityHints?: unknown } }).emphasis
+    const deemphasis = (wr as { deemphasis?: { terms?: unknown } }).deemphasis
+    const eTerms = Array.isArray(emphasis?.terms) ? emphasis.terms.filter((x): x is string => typeof x === 'string') : []
+    const eEnt = Array.isArray(emphasis?.entityHints)
+      ? emphasis.entityHints.filter((x): x is string => typeof x === 'string')
+      : []
+    const dTerms = Array.isArray(deemphasis?.terms)
+      ? deemphasis.terms.filter((x): x is string => typeof x === 'string')
+      : []
+    if (eTerms.length === 0 && eEnt.length === 0 && dTerms.length === 0) {
+      delete m.wrExpertProfile
+      delete m.wrExpertFileName
+    }
+  }
 
   const draftDiff = m[CUSTOM_MODE_DIFF_FOLDERS_DRAFT_KEY]
   if (typeof draftDiff === 'string') {

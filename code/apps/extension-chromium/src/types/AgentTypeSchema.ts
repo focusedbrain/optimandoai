@@ -389,6 +389,7 @@ export const TriggerElementsSchema: Record<string, SchemaNode> = {
     default: 'direct_tag',
     parentId: 'agent.listening.trigger',
     enumOptions: [
+      { value: 'mode_trigger', label: 'Mode Trigger', description: 'When the agent run starts from execution mode (manual run or interval)' },
       { value: 'direct_tag', label: 'Event Tag', description: 'Activate on #hashtag detection' },
       { value: 'tag_and_condition', label: 'Tag + Conditions', description: 'Tag with additional conditions' },
       { value: 'workflow_condition', label: 'Workflow Condition', description: 'Activate based on workflow output' },

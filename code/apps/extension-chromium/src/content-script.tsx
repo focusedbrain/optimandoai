@@ -12390,6 +12390,9 @@ function initializeExtension() {
                     }
                   }
                 }
+                if (type === 'mode_trigger') {
+                  trigger.channel = 'chat'
+                }
                 if (type === 'direct_tag' || type === 'tag_and_condition') {
                   // New structured format for Event Tag triggers
                   const tagValue = row.querySelector('.trigger-tag')?.value?.trim() || ''
@@ -13842,6 +13845,9 @@ function initializeExtension() {
                     trigger.expectedContext = keywords
                   }
                 }
+              }
+              if (type === 'mode_trigger') {
+                trigger.channel = 'chat'
               }
               if (type === 'direct_tag' || type === 'tag_and_condition') {
                 // New structured format for Event Tag triggers
@@ -16063,6 +16069,7 @@ function initializeExtension() {
           typeSel.style.cssText = 'background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:6px 10px;border-radius:6px;font-size:12px;flex:1'
           typeSel.innerHTML = `
             <option value="wrchat">WR Chat</option>
+            <option value="mode_trigger">Mode Trigger</option>
             <option value="direct_tag">Event Trigger (Tag)</option>
             <option value="workflow_condition">Condition Trigger (Workflow)</option>
             <option value="tag_and_condition">Gated Trigger (Tag + Condition)</option>
@@ -16131,6 +16138,24 @@ function initializeExtension() {
                 </div>
               `
               fieldsContainer.appendChild(wrchatSection)
+            }
+
+            if (type === 'mode_trigger') {
+              const modeSection = document.createElement('div')
+              modeSection.className = 'trigger-section'
+              modeSection.style.cssText =
+                'margin-bottom:12px;padding:12px;background:#f5f3ff;border:1px solid #c4b5fd;border-radius:8px'
+              modeSection.innerHTML = `
+                <div style="font-weight:600;font-size:13px;color:#5b21b6;margin-bottom:8px;display:flex;align-items:center;gap:6px">
+                  <span style="font-size:14px">⚡</span> <span style="color:#0f172a">Mode Trigger</span>
+                </div>
+                <div style="font-size:12px;color:#334155;line-height:1.5;margin-bottom:8px;padding:8px;background:#ede9fe;border-radius:6px">
+                  <strong>Not a WR Chat tag trigger.</strong> Use this so agents in <strong>this orchestrator session</strong> run when the <strong>custom mode</strong> linked in the Add Mode wizard uses the <strong>same session</strong> you selected there, and the mode is started <strong>manually</strong> or on its <strong>interval</strong> from the wizard.
+                  All agents in that session that set Mode Trigger here are eligible for that run. Save the trigger to apply.
+                </div>
+                <div style="font-size:11px;color:#64748b">No extra fields — session matching uses the mode wizard session and the active session.</div>
+              `
+              fieldsContainer.appendChild(modeSection)
             }
             
             if (type === 'direct_tag' || type === 'tag_and_condition') {
@@ -17822,6 +17847,8 @@ function initializeExtension() {
             let label = ''
             if (type === 'wrchat') {
               label = tag ? `💬 #${tag.replace('#', '')}` : `💬 WR Chat`
+            } else if (type === 'mode_trigger') {
+              label = '⚡ Mode Trigger'
             } else if (type === 'direct_tag' || type === 'tag_and_condition') {
               const tagName = tag.replace('#', '')
               label = tagName ? `#${tagName}` : `${type} (${id.substring(0, 8)}...)`
@@ -18624,6 +18651,8 @@ function initializeExtension() {
             let label = ''
             if (type === 'wrchat') {
               label = tag ? `💬 #${tag.replace('#', '')}` : `💬 WR Chat`
+            } else if (type === 'mode_trigger') {
+              label = '⚡ Mode Trigger'
             } else if (type === 'direct_tag' || type === 'tag_and_condition') {
               const tagName = tag.replace('#', '')
               label = tagName ? `#${tagName}` : `${type} (${id.substring(0, 8)}...)`
@@ -23414,13 +23443,16 @@ function initializeExtension() {
               trigger.tag = tagValue.startsWith('#') ? tagValue : `#${tagValue}`
               trigger.tagName = tagValue.replace('#', '')
               trigger.channel = 'chat'
+            } else if (type === 'mode_trigger') {
+              trigger.channel = 'chat'
             } else if (type === 'direct_tag' || type === 'tag_and_condition') {
               trigger.tag = tagValue.startsWith('#') ? tagValue : `#${tagValue}`
               trigger.tagName = tagValue.replace('#', '')
             }
             
             // Collect type-specific fields
-            if (type !== 'wrchat') trigger.channel = row.querySelector('.trigger-channel')?.value || 'chat'
+            if (type !== 'wrchat' && type !== 'mode_trigger')
+              trigger.channel = row.querySelector('.trigger-channel')?.value || 'chat'
             else trigger.channel = 'chat'
             trigger.emails = row.querySelector('.trigger-emails')?.value || ''
             trigger.keywords = row.querySelector('.trigger-keywords')?.value || ''

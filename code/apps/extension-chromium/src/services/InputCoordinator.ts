@@ -21,6 +21,16 @@ function isWRChatTriggerType(type: unknown): boolean {
   return n === 'wrchat'
 }
 
+/** Mode Trigger — separate from WR Chat; session-scoped (see evaluateAgentListener opts). */
+function isModeTriggerType(type: unknown): boolean {
+  if (typeof type !== 'string' || !type.trim()) return false
+  return type.replace(/-/g, '_').toLowerCase() === 'mode_trigger'
+}
+
+function normalizeSessionKey(s: string | null | undefined): string {
+  return (s ?? '').trim()
+}
+
 /** Dev / non-production routing diagnostics (Vite `import.meta.env.DEV` or `process.env.NODE_ENV`). */
 function routingDebugEnabled(): boolean {
   try {
@@ -259,6 +269,19 @@ export class InputCoordinator {
     return false
   }
 
+  /** True if any unified/listener trigger is Mode Trigger (execution mode manual / interval). */
+  hasModeTrigger(agent: AgentConfig): boolean {
+    const listening = agent.listening
+    if (!listening) return false
+    for (const tr of listening.unifiedTriggers ?? []) {
+      if (isModeTriggerType((tr as { type?: unknown }).type)) return true
+    }
+    for (const tr of listening.triggers ?? []) {
+      if (isModeTriggerType((tr as { type?: unknown }).type)) return true
+    }
+    return false
+  }
+
   /**
    * Evaluate an agent's listener configuration against the input
    * 
@@ -275,6 +298,9 @@ export class InputCoordinator {
    *
    * WR Chat triggers (`type` wrchat / WRChat / wr-chat) grant the listener gate without
    * `capabilities` containing `listening`, matching the AI Instructions UI.
+   * Mode Trigger (`mode_trigger`) is separate from WR Chat: it grants the listener gate on its own
+   * and only matches when execution is from the custom mode and the mode’s wizard session matches
+   * the active orchestrator session (see `opts.modeLinkedSessionId` / `currentOrchestratorSessionId`).
    */
   evaluateAgentListener(
     agent: AgentConfig,
@@ -282,14 +308,23 @@ export class InputCoordinator {
     inputType: 'text' | 'image' | 'mixed',
     hasImage: boolean,
     inputTriggers: string[],
-    currentUrl?: string
+    currentUrl?: string,
+    opts?: {
+      /** True when the user started this run from the mode (manual control) or interval tick. */
+      modeExecution?: boolean
+      /** `sessionId` from the Add Mode wizard for the active custom mode. */
+      modeLinkedSessionId?: string | null
+      /** Orchestrator session id/key for the agent list currently in scope (must match the mode’s session). */
+      currentOrchestratorSessionId?: string | null
+    },
   ): ListenerEvaluation {
     const listening = agent.listening
     
-    // Explicit capability OR at least one WR Chat trigger (implicit listener for WR Chat routing)
+    // Explicit capability OR WR Chat trigger (unchanged) OR Mode Trigger (separate implicit gate).
     const hasListenerCapability = agent.capabilities?.includes('listening') ?? false
     const hasWRChatTrigger = this.hasWRChatTrigger(agent)
-    const passesListenerCapabilityGate = hasListenerCapability || hasWRChatTrigger
+    const hasModeTrigger = this.hasModeTrigger(agent)
+    const passesListenerCapabilityGate = hasListenerCapability || hasWRChatTrigger || hasModeTrigger
     
     // Check if any listener mode is enabled (legacy format)
     const passiveEnabled = listening?.passiveEnabled ?? false
@@ -302,7 +337,9 @@ export class InputCoordinator {
     // Listener is active if any trigger system has triggers
     const isListenerActive = passiveEnabled || activeEnabled || hasUnifiedTriggers || hasLegacyTriggers
     
-    this.log(`Agent "${agent.name}" - hasListenerCapability: ${hasListenerCapability}, hasWRChatTrigger: ${hasWRChatTrigger}, isListenerActive: ${isListenerActive}, hasUnifiedTriggers: ${hasUnifiedTriggers}`)
+    this.log(
+      `Agent "${agent.name}" - hasListenerCapability: ${hasListenerCapability}, hasWRChatTrigger: ${hasWRChatTrigger}, hasModeTrigger: ${hasModeTrigger}, isListenerActive: ${isListenerActive}, hasUnifiedTriggers: ${hasUnifiedTriggers}`,
+    )
 
     // STRICT CHAIN: No listener path (explicit or WR Chat) or no configured triggers -> reject.
     if (!passesListenerCapabilityGate || !isListenerActive) {
@@ -317,7 +354,7 @@ export class InputCoordinator {
         matchType: 'none',
         matchDetails: !isListenerActive
           ? 'No active listener — agent has no triggers configured'
-          : 'No active listener — external input requires listening capability or a WR Chat trigger (Listener → Reasoning → Execution)'
+          : 'No active listener — external input requires listening capability, a WR Chat trigger, or a Mode Trigger (Listener → Reasoning → Execution)'
       }
     }
 
@@ -334,6 +371,33 @@ export class InputCoordinator {
         matchType: 'none',
         matchDetails: `Website filter "${listening.website}" not matched`
       }
+    }
+
+    // Mode Trigger: only when this run is from the mode AND the wizard-linked session matches the orchestrator session.
+    if (opts?.modeExecution && this.hasModeTrigger(agent)) {
+      const modeSid = normalizeSessionKey(opts.modeLinkedSessionId ?? null)
+      const orchSid = normalizeSessionKey(opts.currentOrchestratorSessionId ?? null)
+      if (modeSid && orchSid && modeSid === orchSid) {
+        this.log(
+          `Agent "${agent.name}" matched Mode Trigger (mode session matches orchestrator session)`,
+        )
+        return {
+          hasListener: true,
+          isListenerActive: true,
+          matchesPassiveTrigger: false,
+          matchesActiveTrigger: true,
+          matchesExpectedContext: false,
+          matchesApplyFor: true,
+          matchedTriggerName: 'mode',
+          matchedTriggerNames: ['mode'],
+          matchType: 'active_trigger',
+          matchDetails:
+            'Mode Trigger — session from the mode wizard matches this orchestrator session; run from manual control or interval',
+        }
+      }
+      this.log(
+        `Agent "${agent.name}" has Mode Trigger but session mismatch (mode ${modeSid || '(none)'} vs orchestrator ${orchSid || '(none)'})`,
+      )
     }
 
     // Collect ALL matching triggers (not just the first one)
@@ -762,6 +826,68 @@ export class InputCoordinator {
     this.log(`--- Input Coordination Result: ${uniqueMatches.length} agent(s) matched ---`)
     
     return uniqueMatches
+  }
+
+  /**
+   * Custom mode manual run or interval: run every agent in the **current orchestrator session** that has a
+   * `mode_trigger` listener, only if the mode’s wizard-linked `sessionId` matches the active session.
+   * This path does not use WR Chat tag routing.
+   */
+  routeToAgentsForModeRun(
+    agents: AgentConfig[],
+    agentBoxes: AgentBox[],
+    modeLinkedSessionId: string,
+    currentOrchestratorSessionId: string,
+  ): AgentMatch[] {
+    const matches: AgentMatch[] = []
+    const opts = {
+      modeExecution: true as const,
+      modeLinkedSessionId,
+      currentOrchestratorSessionId,
+    }
+    this.log('--- Mode run routing (Mode Trigger + session match) ---')
+
+    for (const agent of agents) {
+      if (!agent.enabled) continue
+
+      const evaluation = this.evaluateAgentListener(agent, '', 'text', false, [], undefined, opts)
+      if (evaluation.matchType === 'none') continue
+
+      const connectedBoxes = this.findAgentBoxesForAgent(agent, agentBoxes, evaluation.matchedTriggerName)
+      const firstBox = connectedBoxes[0]
+      let matchReason: AgentMatch['matchReason'] = 'trigger'
+      if (evaluation.matchType === 'expected_context') {
+        matchReason = 'expected_context'
+      }
+      const boxLabels = connectedBoxes.map(
+        (b) => `Agent Box ${String(b.boxNumber).padStart(2, '0')}${b.title ? ` (${b.title})` : ''}`,
+      )
+      matches.push({
+        agentId: agent.id,
+        agentName: agent.name || agent.key || 'Unnamed Agent',
+        agentIcon: agent.icon || '🤖',
+        agentNumber: agent.number,
+        matchReason,
+        matchDetails: evaluation.matchDetails,
+        triggerName: evaluation.matchedTriggerName,
+        triggerType:
+          evaluation.matchType === 'passive_trigger'
+            ? 'passive'
+            : evaluation.matchType === 'active_trigger'
+              ? 'active'
+              : undefined,
+        outputLocation:
+          boxLabels.length > 0 ? boxLabels.join(' & ') : agent.listening?.reportTo?.[0] || 'Agent Box',
+        agentBoxId: firstBox?.id,
+        agentBoxNumber: firstBox?.boxNumber,
+        agentBoxProvider: firstBox?.provider,
+        agentBoxModel: firstBox?.model,
+        targetBoxIds: connectedBoxes.map((b) => b.id),
+        targetBoxLabels: boxLabels,
+      })
+    }
+
+    return matches.filter((match, index, self) => index === self.findIndex((m) => m.agentId === match.agentId))
   }
 
   /**

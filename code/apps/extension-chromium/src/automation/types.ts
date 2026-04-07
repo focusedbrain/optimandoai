@@ -112,6 +112,7 @@ export type EventChannel =
  */
 export type TriggerType = 
   | 'wrchat'              // WR Chat Triggers (routes WR Chat input to this agent)
+  | 'mode_trigger'       // Fires when the agent run starts from execution mode (manual run or interval)
   | 'direct_tag'          // Event Triggers (direct user-driven)
   | 'workflow_condition'  // Condition Triggers (workflow-driven)
   | 'tag_and_condition'   // Gated Triggers (event + condition)

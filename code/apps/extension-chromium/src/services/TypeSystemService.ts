@@ -410,7 +410,7 @@ function createMasterSchema(): any {
     "_schemaInfo": {
       "enums": {
         "agent.capabilities": ["listening", "reasoning", "execution"],
-        "trigger.type": ["direct_tag", "tag_and_condition", "workflow_condition", "dom_event", "dom_parser", "augmented_overlay", "agent", "miniapp", "manual"],
+        "trigger.type": ["wrchat", "mode_trigger", "direct_tag", "tag_and_condition", "workflow_condition", "dom_event", "dom_parser", "augmented_overlay", "agent", "miniapp", "manual"],
         "destination.kind": ["agentBox", "chat", "email", "webhook", "storage", "notification"],
         "agentBox.provider": ["", "OpenAI", "Claude", "Gemini", "Grok", "Local AI", "Image AI"],
         "executionMode": ["agent_only", "agent_workflow", "direct_response", "workflow_only", "hybrid"]

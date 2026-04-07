@@ -4,11 +4,30 @@
 
 import React from 'react'
 import type { CustomModeDraft } from '../../../../shared/ui/customModeTypes'
-import { getDiffWatchFoldersDraftText, getScopeUrlsDraftText } from '../../../../shared/ui/customModeTypes'
+import {
+  getDetectionScanMode,
+  getDiffWatchFoldersDraftText,
+  getExternalWebVerificationEnabled,
+  getScopeUrlsDraftText,
+} from '../../../../shared/ui/customModeTypes'
+import type { DetectionScanModePreset } from '../../../../shared/ui/customModeTypes'
 import { formatCustomModeIntervalPresetLabel } from '../../../../shared/ui/customModeIntervalPresets'
 import { safeDraftString } from '../../../../shared/ui/customModeDisplay'
 import { getThemeTokens } from '../../../../shared/ui/lightboxTheme'
 import { wizardReviewRowStyle } from '../wizardStyles'
+
+function scanModeReviewLabel(mode: DetectionScanModePreset): string {
+  switch (mode) {
+    case 'quick_scan':
+      return 'Quick scan (active tab; no external search)'
+    case 'structured_page_scan':
+      return 'Structured page scan (DOM + screenshot; no external search)'
+    case 'verified_research':
+      return 'Verified research (optional external verification below)'
+    default:
+      return mode
+  }
+}
 
 export function StepReview({
   data,
@@ -36,6 +55,13 @@ export function StepReview({
   const modelSafe = safeDraftString(data.modelName).trim()
   const focusSafe = safeDraftString(data.searchFocus).trim()
   const md = data.metadata && typeof data.metadata === 'object' ? (data.metadata as Record<string, unknown>) : undefined
+  const scanMode = getDetectionScanMode(md)
+  const externalReview = getExternalWebVerificationEnabled(md)
+  const wrName =
+    md && typeof md.wrExpertFileName === 'string' && md.wrExpertFileName.trim()
+      ? md.wrExpertFileName.trim()
+      : ''
+  const wrLoaded = Boolean(md?.wrExpertProfile && typeof md.wrExpertProfile === 'object')
   const scopeUrlsReview = getScopeUrlsDraftText(md).trim()
   const diffFolderReview =
     getDiffWatchFoldersDraftText(md)
@@ -55,10 +81,24 @@ export function StepReview({
       ? [{ k: 'Endpoint', v: safeDraftString(data.endpoint).trim() || '—' }]
       : []),
     { k: 'Session', v: sessionLabel },
-    { k: 'Focus', v: focusSafe || '—' },
+    { k: 'Detection focus', v: focusSafe || '—' },
+    { k: 'Scan mode', v: scanModeReviewLabel(scanMode) },
+    {
+      k: 'External web verification',
+      v:
+        scanMode === 'verified_research'
+          ? externalReview
+            ? 'Enabled (read-only search may be used)'
+            : 'Off'
+          : '— (only for Verified research)',
+    },
+    {
+      k: 'WR Expert profile',
+      v: wrLoaded ? (wrName ? `Loaded: ${wrName}` : 'Loaded (parsed rules)') : '—',
+    },
     { k: 'Scope URLs', v: scopeUrlsReview || '—' },
     { k: 'Diff watch folders', v: diffFolderReview },
-    { k: 'Ignore', v: safeDraftString(data.ignoreInstructions).trim() || '—' },
+    { k: 'Ignore patterns', v: safeDraftString(data.ignoreInstructions).trim() || '—' },
     { k: 'Periodic scan', v: intervalLine },
   ]
 

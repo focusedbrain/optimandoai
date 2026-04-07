@@ -176,7 +176,8 @@ export interface AgentMatch {
  * Agent config from session / AI Instructions. `capabilities` may omit `listening`
  * when the user only configures WR Chat triggers in the UI; `InputCoordinator` then
  * treats `listening.unifiedTriggers` / `listening.triggers` entries with `type` wrchat
- * as an implicit listener gate (see `hasWRChatTrigger`).
+ * as an implicit listener gate (see `hasWRChatTrigger`). Mode Trigger (`mode_trigger`) is separate:
+ * it uses `routeToAgentsForModeRun` / `evaluateAgentListener` with session ids from the mode wizard vs orchestrator.
  */
 export interface AgentConfig {
   id: string
@@ -802,6 +803,24 @@ export function matchInputToAgents(
     }
   }
   return inputCoordinator.routeToAgents(input, inputType, hasImage, agents, agentBoxes, currentUrl)
+}
+
+/**
+ * When a custom mode starts (manual or interval): agents in the current orchestrator session with `mode_trigger`
+ * run only if `modeLinkedSessionId` equals `currentOrchestratorSessionId` (the session chosen in the Add Mode wizard).
+ */
+export function matchAgentsForModeRun(
+  agents: AgentConfig[],
+  agentBoxes: AgentBox[],
+  modeLinkedSessionId: string,
+  currentOrchestratorSessionId: string,
+): AgentMatch[] {
+  return inputCoordinator.routeToAgentsForModeRun(
+    agents,
+    agentBoxes,
+    modeLinkedSessionId,
+    currentOrchestratorSessionId,
+  )
 }
 
 /**

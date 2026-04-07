@@ -32,6 +32,32 @@ export function getCustomModeLlmPrefix(runtime: CustomModeRuntimeConfig | null):
     parts.push(`[Diff watch folders: ${diffFolders.join('; ')}]`)
   }
 
+  const scan = runtime.detectionScanMode ?? 'quick_scan'
+  const scanLabels: Record<string, string> = {
+    quick_scan: 'Quick scan (active tab / viewport)',
+    structured_page_scan: 'Structured page scan (DOM + screenshot)',
+    verified_research: 'Verified research (page scan; external verification optional)',
+  }
+  parts.push(`[Scan mode: ${scanLabels[scan] ?? scan}]`)
+
+  if (scan === 'verified_research') {
+    parts.push(
+      runtime.externalWebVerification
+        ? '[External web verification: enabled — read-only search may verify or enrich findings]'
+        : '[External web verification: disabled]',
+    )
+  }
+
+  const wx = runtime.wrExpertProfile
+  if (wx) {
+    const et = wx.emphasis?.terms?.filter(Boolean) ?? []
+    const eh = wx.emphasis?.entityHints?.filter(Boolean) ?? []
+    const dt = wx.deemphasis?.terms?.filter(Boolean) ?? []
+    if (et.length) parts.push(`[WR Expert emphasis: ${et.join('; ')}]`)
+    if (eh.length) parts.push(`[WR Expert entity hints: ${eh.join('; ')}]`)
+    if (dt.length) parts.push(`[WR Expert deprioritize: ${dt.join('; ')}]`)
+  }
+
   if (parts.length === 0) return null
   return parts.join('\n')
 }
