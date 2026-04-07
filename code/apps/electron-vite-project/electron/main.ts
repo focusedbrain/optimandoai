@@ -3173,7 +3173,7 @@ app.whenReady().then(async () => {
       }
     })
 
-    ipcMain.handle('handshake:accept', async (_e, id: string, sharingMode: string, fromAccountId: string, contextOpts?: { context_blocks?: any[]; profile_ids?: string[]; profile_items?: any[]; policy_selections?: { cloud_ai?: boolean; internal_ai?: boolean }; senderX25519PublicKeyB64?: string; senderMlkem768PublicKeyB64?: string }) => {
+    ipcMain.handle('handshake:accept', async (_e, id: string, sharingMode: string, fromAccountId: string, contextOpts?: { context_blocks?: any[]; profile_ids?: string[]; profile_items?: any[]; policy_selections?: { cloud_ai?: boolean; internal_ai?: boolean }; senderX25519PublicKeyB64?: string; senderMlkem768PublicKeyB64?: string; senderMlkem768SecretKeyB64?: string }) => {
       try {
         const db = await getHandshakeDb()
         if (!db) return { success: false, error: 'No active session. Please log in first.' }
@@ -3197,6 +3197,7 @@ app.whenReady().then(async () => {
         if (contextOpts?.policy_selections) params.policy_selections = contextOpts.policy_selections
         if (contextOpts?.senderX25519PublicKeyB64) params.senderX25519PublicKeyB64 = contextOpts.senderX25519PublicKeyB64
         if (contextOpts?.senderMlkem768PublicKeyB64) params.senderMlkem768PublicKeyB64 = contextOpts.senderMlkem768PublicKeyB64
+        if (contextOpts?.senderMlkem768SecretKeyB64) params.senderMlkem768SecretKeyB64 = contextOpts.senderMlkem768SecretKeyB64
         const result = await handleHandshakeRPC('handshake.accept', params, db)
         if (!result?.success) {
           console.error('[HANDSHAKE:ACCEPT] failed:', JSON.stringify(result))

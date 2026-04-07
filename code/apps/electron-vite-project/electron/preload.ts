@@ -500,6 +500,7 @@ contextBridge.exposeInMainWorld('handshakeView', {
       ...(opts.policy_selections && typeof opts.policy_selections === 'object' ? { policy_selections: opts.policy_selections } : {}),
       ...(typeof opts.senderX25519PublicKeyB64 === 'string' ? { senderX25519PublicKeyB64: opts.senderX25519PublicKeyB64 } : {}),
       ...(typeof opts.senderMlkem768PublicKeyB64 === 'string' ? { senderMlkem768PublicKeyB64: opts.senderMlkem768PublicKeyB64 } : {}),
+      ...(typeof opts.senderMlkem768SecretKeyB64 === 'string' ? { senderMlkem768SecretKeyB64: opts.senderMlkem768SecretKeyB64 } : {}),
     } : undefined
     return ipcRenderer.invoke('handshake:accept', assertString(id, 'id'), assertString(sharingMode, 'sharingMode'), typeof fromAccountId === 'string' ? fromAccountId : '', safeOpts)
   },

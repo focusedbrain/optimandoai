@@ -181,6 +181,7 @@ export async function acceptHandshake(
     ...contextOpts,
     senderX25519PublicKeyB64,
     senderMlkem768PublicKeyB64,
+    senderMlkem768SecretKeyB64: mlkem768SecretKeyB64,
   }
 
   const res = await window.handshakeView.acceptHandshake(handshakeId, sharingMode, fromAccountId, optsWithKeys)

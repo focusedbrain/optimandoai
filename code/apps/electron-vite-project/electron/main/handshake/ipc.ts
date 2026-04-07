@@ -926,10 +926,18 @@ export async function handleHandshakeRPC(
       const p2pEndpoint = p2pEndpointParam ?? getEffectiveRelayEndpoint(p2pConfig, localEndpoint) ?? (typeof process !== 'undefined' ? (process as any).env?.BEAP_P2P_ENDPOINT : null) ?? null
       const p2pAuthToken = p2pEndpoint ? randomBytes(32).toString('hex') : null
 
-      const keyAgreement = await ensureKeyAgreementKeys({
+      const keyAgreementRaw = await ensureKeyAgreementKeys({
         sender_x25519_public_key_b64: (params as any).senderX25519PublicKeyB64 ?? (params as any).key_agreement?.x25519_public_key_b64,
         sender_mlkem768_public_key_b64: (params as any).senderMlkem768PublicKeyB64 ?? (params as any).key_agreement?.mlkem768_public_key_b64,
       })
+      // If the extension provided the ML-KEM secret, store it in the DB record.
+      // ensureKeyAgreementKeys sets sender_mlkem768_secret_key_b64=null when a caller-provided public key
+      // is used (it assumes the extension holds the secret). We override that here so the Electron-side
+      // native decryption path (decryptQBeapPackage) can read the secret from the DB.
+      const callerMlkemSecret = (params as any).senderMlkem768SecretKeyB64?.trim() || null
+      const keyAgreement = callerMlkemSecret
+        ? { ...keyAgreementRaw, sender_mlkem768_secret_key_b64: callerMlkemSecret }
+        : keyAgreementRaw
 
       const { capsule, localBlocks, keypair } = buildInitiateCapsuleWithContent(session, {
         receiverUserId,
@@ -1055,10 +1063,15 @@ export async function handleHandshakeRPC(
       const dlP2PEndpoint = dlP2PEndpointParam ?? getEffectiveRelayEndpoint(dlP2PConfig, dlLocalEndpoint) ?? (typeof process !== 'undefined' ? (process as any).env?.BEAP_P2P_ENDPOINT : null) ?? null
       const dlP2PAuthToken = dlP2PEndpoint ? randomBytes(32).toString('hex') : null
 
-      const dlKeyAgreement = await ensureKeyAgreementKeys({
+      const dlKeyAgreementRaw = await ensureKeyAgreementKeys({
         sender_x25519_public_key_b64: (params as any).senderX25519PublicKeyB64 ?? (params as any).key_agreement?.x25519_public_key_b64,
         sender_mlkem768_public_key_b64: (params as any).senderMlkem768PublicKeyB64 ?? (params as any).key_agreement?.mlkem768_public_key_b64,
       })
+      // Override ML-KEM secret with caller-provided value so it gets persisted in the DB record.
+      const dlCallerMlkemSecret = (params as any).senderMlkem768SecretKeyB64?.trim() || null
+      const dlKeyAgreement = dlCallerMlkemSecret
+        ? { ...dlKeyAgreementRaw, sender_mlkem768_secret_key_b64: dlCallerMlkemSecret }
+        : dlKeyAgreementRaw
 
       const { capsule, localBlocks, keypair } = buildInitiateCapsuleWithContent(session, {
         receiverUserId: dlReceiverUserId,
@@ -1255,10 +1268,15 @@ export async function handleHandshakeRPC(
       const p2pEndpoint = p2pEndpointParam ?? getEffectiveRelayEndpoint(acceptP2PConfig, acceptLocalEndpoint) ?? (typeof process !== 'undefined' ? (process as any).env?.BEAP_P2P_ENDPOINT : null) ?? null
       const p2pAuthToken = p2pEndpoint ? randomBytes(32).toString('hex') : null
 
-      const acceptKeyAgreement = await ensureKeyAgreementKeys({
+      const acceptKeyAgreementRaw = await ensureKeyAgreementKeys({
         sender_x25519_public_key_b64: (params as any).senderX25519PublicKeyB64 ?? (params as any).key_agreement?.x25519_public_key_b64,
         sender_mlkem768_public_key_b64: (params as any).senderMlkem768PublicKeyB64 ?? (params as any).key_agreement?.mlkem768_public_key_b64,
       })
+      // Override ML-KEM secret with caller-provided value so it gets persisted in the DB record.
+      const acceptCallerMlkemSecret = (params as any).senderMlkem768SecretKeyB64?.trim() || null
+      const acceptKeyAgreement = acceptCallerMlkemSecret
+        ? { ...acceptKeyAgreementRaw, sender_mlkem768_secret_key_b64: acceptCallerMlkemSecret }
+        : acceptKeyAgreementRaw
 
       console.log('[HANDSHAKE-ACCEPT] Key agreement for accept capsule:', {
         handshake_id,
