@@ -86,6 +86,10 @@ const WEBMCP_WINDOW_MS = 60_000
 /** Ring buffer of accepted request timestamps for the sliding window. */
 let _webMcpGlobalTimestamps: number[] = []
 
+/** Debounce for post-handshake API key sync retries (WebSocket flapping). */
+let lastApiKeySyncRetryAt = 0
+const API_KEY_SYNC_COOLDOWN_MS = 5000
+
 // ---------------------------------------------------------------------------
 // WebMCP circuit breaker — trips after repeated rejection-class errors
 // ---------------------------------------------------------------------------
@@ -987,6 +991,90 @@ async function fetchWithElectronAutoStart(
   return electronRequest(endpoint, options, { timeoutMs });
 }
 
+async function setApiKeySyncPending(pending: boolean): Promise<void> {
+  try {
+    await chrome.storage.local.set({ apiKeySyncPending: pending })
+  } catch {
+    /* ignore */
+  }
+}
+
+/**
+ * Push extension-saved API keys to Electron ocrRouter + orchestrator (POST /api/ocr/config).
+ * Pass `keys` from the save handler; omit or pass null to load the latest from
+ * `chrome.storage.local` (`optimando-cloud-api-keys`) — used for post-handshake retries.
+ */
+async function syncApiKeysToElectron(keysArg?: Record<string, string> | null): Promise<{ ok: boolean; error?: string }> {
+  let keys: Record<string, string> = {}
+  if (keysArg && typeof keysArg === 'object') {
+    keys = keysArg
+  } else {
+    try {
+      const stored = await chrome.storage.local.get('optimando-cloud-api-keys')
+      const raw = stored['optimando-cloud-api-keys'] as Record<string, string> | undefined
+      if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+        keys = { ...raw }
+      }
+    } catch {
+      keys = {}
+    }
+  }
+
+  const ready = await ensureLaunchSecret(8000)
+  if (!ready) {
+    console.warn('[BG] syncApiKeysToElectron: launch secret not ready — skipping')
+    await setApiKeySyncPending(true)
+    return { ok: false, error: 'Launch secret not ready — open WR Desk desktop app' }
+  }
+  const apiKeys: Partial<Record<'OpenAI' | 'Claude' | 'Gemini' | 'Grok', string>> = {}
+  for (const k of ['OpenAI', 'Claude', 'Gemini', 'Grok'] as const) {
+    const v = keys[k]
+    if (typeof v === 'string' && v.trim()) apiKeys[k] = v.trim()
+  }
+  const hasAny = Object.keys(apiKeys).length > 0
+  const body = {
+    apiKeys,
+    preference: hasAny ? ('auto' as const) : ('local' as const),
+    useCloudForImages: hasAny,
+    optimandoFlatKeys: keys,
+  }
+  const res = await electronRequest('/api/ocr/config', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) {
+    console.warn('[BG] syncApiKeysToElectron failed:', res.error)
+    await setApiKeySyncPending(true)
+    return { ok: false, error: res.error }
+  }
+  await setApiKeySyncPending(false)
+  console.log('[BG] syncApiKeysToElectron: OK')
+  return { ok: true }
+}
+
+/**
+ * After WebSocket handshake delivers the launch secret, retry sync if a previous save failed.
+ * Cooldown avoids spam when the socket flaps.
+ */
+async function retrySyncIfPending(): Promise<void> {
+  const now = Date.now()
+  if (now - lastApiKeySyncRetryAt < API_KEY_SYNC_COOLDOWN_MS) {
+    console.log('[BG] Sync retry skipped — cooldown')
+    return
+  }
+  lastApiKeySyncRetryAt = now
+  try {
+    const { apiKeySyncPending } = await chrome.storage.local.get('apiKeySyncPending')
+    if (apiKeySyncPending) {
+      console.log('[BG] Pending API key sync detected, retrying...')
+      await syncApiKeysToElectron()
+    }
+  } catch (e) {
+    console.error('[BG] Retry API key sync failed:', e)
+  }
+}
+
 // Robust WebSocket connection with exponential backoff
 function connectToWebSocketServer(forceReconnect = false): Promise<boolean> {
   return new Promise((resolve) => {
@@ -1112,6 +1200,7 @@ function connectToWebSocketServer(forceReconnect = false): Promise<boolean> {
               // HTTP request.  Without it, the server returns 401.
               if (data.launchSecret && typeof data.launchSecret === 'string') {
                 _launchSecret = data.launchSecret
+                void retrySyncIfPending()
               }
               if (data.message) {
               }
@@ -2662,6 +2751,24 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   // NOTE: The per-type SENDER_GATED_TYPES check was removed because the
   // universal sender gate at the top of this handler now rejects ALL
   // messages from foreign extensions before any dispatch occurs.
+
+  if (msg && msg.type === 'SYNC_API_KEYS_TO_ELECTRON') {
+    ;(async () => {
+      try {
+        const keys = msg.keys as Record<string, string> | undefined
+        if (!keys || typeof keys !== 'object') {
+          sendResponse({ ok: false, error: 'invalid keys' })
+          return
+        }
+        const out = await syncApiKeysToElectron(keys)
+        sendResponse(out)
+      } catch (e: any) {
+        console.error('[BG] SYNC_API_KEYS_TO_ELECTRON error:', e)
+        sendResponse({ ok: false, error: e?.message ?? String(e) })
+      }
+    })()
+    return true
+  }
 
   // Check if this is a vault RPC message (has type: 'VAULT_RPC')
   if (msg && msg.type === 'VAULT_RPC') {

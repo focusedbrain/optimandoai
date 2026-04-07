@@ -31511,8 +31511,19 @@ ${pageText}
 
       try { localStorage.setItem('optimando-api-keys', JSON.stringify(data)) } catch {}
 
-      // Sync to chrome.storage.local so sidepanel/background can read keys at LLM call time
-      try { chrome.storage?.local?.set({ 'optimando-cloud-api-keys': data }) } catch {}
+      // Persist keys + pending flag, then notify background (flag first so SW crash still retries on reconnect)
+      try {
+        chrome.storage?.local?.set(
+          { 'optimando-cloud-api-keys': data, apiKeySyncPending: true },
+          () => {
+            try {
+              chrome.runtime?.sendMessage?.({ type: 'SYNC_API_KEYS_TO_ELECTRON', keys: data }, () => {
+                void chrome.runtime?.lastError
+              })
+            } catch {}
+          },
+        )
+      } catch {}
 
     }
 

@@ -2562,6 +2562,13 @@ app.whenReady().then(async () => {
     // Setup console logging to file for debugging
     await setupFileLogging()
 
+    try {
+      const { bootstrapOcrRouterFromOrchestratorKeys } = await import('./main/ocr/cloudConfigFromOptimandoKeys')
+      await bootstrapOcrRouterFromOrchestratorKeys()
+    } catch (e) {
+      console.error('[MAIN] Failed to bootstrap ocrRouter from orchestrator:', e)
+    }
+
     // ========== BUILD INTEGRITY CHECK (startup) ==========
     // Run offline verification and log the result. If verification fails,
     // the /api/integrity endpoint will report it, and the extension can
@@ -3190,8 +3197,8 @@ app.whenReady().then(async () => {
                 }
               }
             }
-          } catch {
-            // Orchestrator not available or key not found
+          } catch (e) {
+            console.error('[MAIN] Failed to read optimando-api-keys from orchestrator:', e)
           }
         }
 
@@ -5830,7 +5837,9 @@ app.whenReady().then(async () => {
                 try { socket.send(JSON.stringify({ type: 'AUTH_LOGOUT_ERROR', id: msg.id, error: err?.message || String(err) })) } catch {}
               }
             }
-          } catch {}
+          } catch (e) {
+            console.error('[MAIN] WebSocket message handler error:', e)
+          }
         })
       })
     }
@@ -8669,7 +8678,34 @@ app.whenReady().then(async () => {
     httpApp.post('/api/ocr/config', async (req, res) => {
       try {
         const { ocrRouter } = await import('./main/ocr/router')
-        ocrRouter.setCloudConfig(req.body)
+        type CloudAIConfig = import('./main/ocr/types').CloudAIConfig
+        const body = (req.body || {}) as Record<string, unknown>
+        const { optimandoFlatKeys, ...cloudOnly } = body
+        ocrRouter.setCloudConfig(cloudOnly as unknown as CloudAIConfig)
+        try {
+          const { getOrchestratorService } = await import('./main/orchestrator-db/service')
+          const service = getOrchestratorService()
+          let flat: Record<string, string> | null = null
+          if (optimandoFlatKeys && typeof optimandoFlatKeys === 'object' && !Array.isArray(optimandoFlatKeys)) {
+            flat = {}
+            for (const [k, v] of Object.entries(optimandoFlatKeys as Record<string, unknown>)) {
+              if (typeof v === 'string' && v.trim()) flat[k] = v.trim()
+            }
+          } else {
+            const apiKeys = (cloudOnly as unknown as CloudAIConfig).apiKeys
+            if (apiKeys && typeof apiKeys === 'object') {
+              flat = {}
+              for (const [k, v] of Object.entries(apiKeys)) {
+                if (typeof v === 'string' && v.trim()) flat[k] = v.trim()
+              }
+            }
+          }
+          if (flat && Object.keys(flat).length > 0) {
+            await service.set('optimando-api-keys', flat)
+          }
+        } catch (syncErr) {
+          console.error('[MAIN] Failed to sync optimando-api-keys to orchestrator:', syncErr)
+        }
         res.json({ ok: true })
       } catch (error: any) {
         console.error('[HTTP-OCR] Error setting config:', error)

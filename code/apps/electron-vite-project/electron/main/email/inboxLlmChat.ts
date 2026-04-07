@@ -22,6 +22,9 @@ export const INBOX_LLM_TIMEOUT_MS = 45_000
  */
 const DEBUG_AI_DIAGNOSTICS = false
 
+/** Set env `DEBUG_INBOX_LLM=1` to log provider resolution for inbox LLM (main process). */
+const DEBUG_INBOX_LLM_SETTINGS = process.env.DEBUG_INBOX_LLM === '1'
+
 const LLM_TIMEOUT_PREFIX = 'LLM_TIMEOUT'
 
 function isAbortError(e: unknown): boolean {
@@ -58,20 +61,30 @@ export function resolveInboxLlmSettings(): UserRagSettings {
   const cfg = ocrRouter.getCloudConfig()
   const pref = cfg?.preference ?? 'local'
 
+  let settings: UserRagSettings
   if (!cfg || pref === 'local') {
-    return { provider: 'ollama' }
-  }
-
-  if (pref === 'cloud') {
+    settings = { provider: 'ollama' }
+  } else if (pref === 'cloud') {
     const cloud = firstCloudRagSettings()
-    if (cloud) return cloud
-    return { provider: 'ollama' }
+    settings = cloud ? cloud : { provider: 'ollama' }
+  } else {
+    const cloud = firstCloudRagSettings()
+    settings = cloud ? cloud : { provider: 'ollama' }
   }
 
-  // auto: prefer cloud when any key is configured
-  const cloud = firstCloudRagSettings()
-  if (cloud) return cloud
-  return { provider: 'ollama' }
+  if (DEBUG_INBOX_LLM_SETTINGS) {
+    const cloud = firstCloudRagSettings()
+    console.log('[INBOX-LLM] resolveInboxLlmSettings:', {
+      hasCloudConfig: !!cfg,
+      preference: pref,
+      cloudProvidersAvailable: ocrRouter.getAvailableProviders().length,
+      chosenProvider: settings.provider,
+      path: settings.provider === 'ollama' ? 'ollama' : 'cloud',
+      firstCloud: cloud ? cloud.provider : null,
+    })
+  }
+
+  return settings
 }
 
 function visionForRagSettings(settings: UserRagSettings): VisionProvider | null {
