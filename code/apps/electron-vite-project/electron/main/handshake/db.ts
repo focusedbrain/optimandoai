@@ -1241,64 +1241,100 @@ export function backfillLocalX25519PublicKey(
   derivePublicKey: (privateKeyB64: string) => string,
 ): { backfilled: number; alreadySet: number; noPrivateKey: number; errors: number } {
   const result = { backfilled: 0, alreadySet: 0, noPrivateKey: 0, errors: 0 }
-  type Row = { handshake_id: string; local_x25519_private_key_b64: string | null }
-  let rows: Row[]
-  try {
-    rows = db.prepare(
-      `SELECT handshake_id, local_x25519_private_key_b64
-         FROM handshakes
-        WHERE (local_x25519_public_key_b64 IS NULL OR local_x25519_public_key_b64 = '')
-          AND state NOT IN ('REVOKED', 'REJECTED')`,
-    ).all() as Row[]
-  } catch (e: any) {
-    console.error('[HANDSHAKE DB] backfillLocalX25519PublicKey: query failed:', e?.message)
-    return result
-  }
 
-  for (const row of rows) {
-    const priv = row.local_x25519_private_key_b64?.trim()
-    if (!priv) {
-      // No private key — cannot derive public key; this handshake needs re-establishment.
-      result.noPrivateKey++
-      console.warn(
-        '[HANDSHAKE DB] backfillLocalX25519PublicKey: handshake has no local X25519 private key.',
-        'Cannot derive public key. Handshake must be re-established.',
-        { handshake_id: row.handshake_id },
-      )
-      continue
-    }
+  // Outer guard: any unexpected throw (e.g. DB unavailable, future require regression)
+  // must never propagate out and must never leave the DB in a partially modified state.
+  try {
+    type Row = { handshake_id: string; local_x25519_private_key_b64: string | null }
+    let rows: Row[]
     try {
-      const pub = derivePublicKey(priv)
-      db.prepare(
-        `UPDATE handshakes SET local_x25519_public_key_b64 = ? WHERE handshake_id = ?`,
-      ).run(pub, row.handshake_id)
-      result.backfilled++
-      console.log(
-        '[HANDSHAKE DB] backfillLocalX25519PublicKey: backfilled public key for handshake.',
-        { handshake_id: row.handshake_id, pubPrefix: pub.substring(0, 16) },
-      )
+      rows = db.prepare(
+        `SELECT handshake_id, local_x25519_private_key_b64
+           FROM handshakes
+          WHERE (local_x25519_public_key_b64 IS NULL OR local_x25519_public_key_b64 = '')
+            AND state NOT IN ('REVOKED', 'REJECTED')`,
+      ).all() as Row[]
     } catch (e: any) {
-      result.errors++
-      console.error(
-        '[HANDSHAKE DB] backfillLocalX25519PublicKey: failed to derive/store public key.',
-        { handshake_id: row.handshake_id, error: e?.message },
-      )
+      console.error('[HANDSHAKE DB] backfillLocalX25519PublicKey: query failed:', e?.message)
+      return result
     }
+
+    for (const row of rows) {
+      // Row-level re-check: re-read the field immediately before writing to guard against
+      // any TOCTOU window between the batch SELECT and this UPDATE.  If it was populated
+      // by another code path in the meantime, skip — never overwrite an existing value.
+      try {
+        const live = db.prepare(
+          `SELECT local_x25519_public_key_b64 FROM handshakes WHERE handshake_id = ?`,
+        ).get(row.handshake_id) as { local_x25519_public_key_b64: string | null } | undefined
+        if (live?.local_x25519_public_key_b64?.trim()) {
+          result.alreadySet++
+          continue
+        }
+      } catch (e: any) {
+        // Re-check failed — skip this row rather than risk overwriting.
+        result.errors++
+        console.error(
+          '[HANDSHAKE DB] backfillLocalX25519PublicKey: re-check read failed, skipping row.',
+          { handshake_id: row.handshake_id, error: e?.message },
+        )
+        continue
+      }
+
+      const priv = row.local_x25519_private_key_b64?.trim()
+      if (!priv) {
+        // No private key — cannot derive public key; handshake needs re-establishment.
+        result.noPrivateKey++
+        console.warn(
+          '[HANDSHAKE DB] backfillLocalX25519PublicKey: handshake has no local X25519 private key.',
+          'Cannot derive public key. Handshake must be re-established.',
+          { handshake_id: row.handshake_id },
+        )
+        continue
+      }
+
+      try {
+        const pub = derivePublicKey(priv)
+        db.prepare(
+          `UPDATE handshakes SET local_x25519_public_key_b64 = ? WHERE handshake_id = ?`,
+        ).run(pub, row.handshake_id)
+        result.backfilled++
+        console.log(
+          '[HANDSHAKE DB] backfillLocalX25519PublicKey: backfilled public key for handshake.',
+          { handshake_id: row.handshake_id, pubPrefix: pub.substring(0, 16) },
+        )
+      } catch (e: any) {
+        result.errors++
+        console.error(
+          '[HANDSHAKE DB] backfillLocalX25519PublicKey: failed to derive/store public key.',
+          { handshake_id: row.handshake_id, error: e?.message },
+        )
+      }
+    }
+
+    // Count rows that were already set (for the summary log).
+    try {
+      const setCount = (
+        db.prepare(
+          `SELECT count(*) AS n FROM handshakes
+            WHERE local_x25519_public_key_b64 IS NOT NULL
+              AND local_x25519_public_key_b64 != ''`,
+        ).get() as { n: number } | undefined
+      )?.n ?? 0
+      result.alreadySet = Math.max(result.alreadySet, setCount)
+    } catch { /* non-fatal */ }
+
+    console.log('[HANDSHAKE DB] backfillLocalX25519PublicKey complete:', result)
+  } catch (e: any) {
+    // Outer catch — something unexpected (e.g. derivePublicKey throws synchronously before
+    // any row is touched, or a future require() regression).  Log and return — do NOT
+    // modify or clear any handshake data.
+    console.error(
+      '[HANDSHAKE DB] backfillLocalX25519PublicKey: unexpected error, no data modified:',
+      e?.message ?? e,
+    )
   }
 
-  // Count rows that were already set (for the summary log).
-  try {
-    const setCount = (
-      db.prepare(
-        `SELECT count(*) AS n FROM handshakes
-          WHERE local_x25519_public_key_b64 IS NOT NULL
-            AND local_x25519_public_key_b64 != ''`,
-      ).get() as { n: number } | undefined
-    )?.n ?? 0
-    result.alreadySet = setCount
-  } catch { /* non-fatal */ }
-
-  console.log('[HANDSHAKE DB] backfillLocalX25519PublicKey complete:', result)
   return result
 }
 
