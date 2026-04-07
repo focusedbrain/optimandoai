@@ -11,6 +11,7 @@ import { vaultService } from './service'
 import type { VaultTier } from './types'
 import { getOrCreateEmbeddingService, processEmbeddingQueue } from '../handshake/embeddings'
 import { migrateHandshakeTables, backfillLocalX25519PublicKey } from '../handshake/db'
+import { x25519 } from '@noble/curves/ed25519'
 
 // Export vaultService for HTTP API handlers
 export { vaultService }
@@ -104,7 +105,6 @@ export function setupEmbeddingServiceRef(vs: typeof vaultService, handshakeDb?: 
       // This runs once per vault open and is idempotent (skips rows already set).
       setImmediate(() => {
         try {
-          const { x25519 } = require('@noble/curves/ed25519') as typeof import('@noble/curves/ed25519')
           backfillLocalX25519PublicKey(db, (privB64: string) =>
             Buffer.from(x25519.getPublicKey(Buffer.from(privB64, 'base64'))).toString('base64'),
           )
