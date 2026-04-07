@@ -2103,7 +2103,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   //
   // This gate runs BEFORE any handler dispatch.
   // ════════════════════════════════════════════════════════════════════════
-  if (!msg || !msg.type) return true
+  if (!msg || !msg.type) {
+    try {
+      sendResponse({ success: false, error: 'Invalid message: missing type' })
+    } catch {
+      /* channel closed */
+    }
+    return false
+  }
 
   // BEAP PQ auth headers — used by beapCrypto for qBEAP ML-KEM calls to Electron
   if (msg.type === 'BEAP_GET_PQ_HEADERS') {
@@ -2806,6 +2813,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         // unlock via VAULT_HTTP_API does not auto-bind the WS connection.
         if (needsBinding && _cachedVsbt) {
           const bindId = `vault-bind-${Date.now()}-${Math.random().toString(36).slice(2)}`
+          const VAULT_BIND_TIMEOUT_MS = 20_000
           const bindPromise = new Promise<void>((resolve, reject) => {
             if (!globalThis.vaultRpcCallbacks) globalThis.vaultRpcCallbacks = new Map()
             globalThis.vaultRpcCallbacks.set(bindId, (r: any) => {
@@ -2818,7 +2826,15 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             method: 'vault.bind',
             params: { vsbt: _cachedVsbt }
           }))
-          await bindPromise
+          await Promise.race([
+            bindPromise,
+            new Promise<void>((_, reject) =>
+              setTimeout(
+                () => reject(new Error(`vault.bind timed out after ${VAULT_BIND_TIMEOUT_MS}ms`)),
+                VAULT_BIND_TIMEOUT_MS,
+              ),
+            ),
+          ])
         }
 
         const rpcMessage = {
@@ -2826,10 +2842,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           method: msg.method,
           params: msg.params || {}
         }
-        ws.send(JSON.stringify(rpcMessage))
-
+        // Register before ws.send so a fast Electron reply cannot fire before the callback is stored.
         if (!globalThis.vaultRpcCallbacks) globalThis.vaultRpcCallbacks = new Map()
         globalThis.vaultRpcCallbacks.set(msg.id, sendResponse)
+        ws.send(JSON.stringify(rpcMessage))
       } catch (error: any) {
         console.error('[BG] Error in vault RPC flow:', error)
         sendResponse({ success: false, error: error.message })
@@ -2838,8 +2854,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true
   }
   
-  if (!msg || !msg.type) return true;
-
+  if (!msg || !msg.type) {
+    try {
+      sendResponse({ success: false, error: 'Invalid message: missing type' })
+    } catch {
+      /* channel closed */
+    }
+    return false
+  }
 
   switch (msg.type) {
     case 'VAULT_HTTP_API': {
@@ -4792,7 +4814,18 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       
       return true
     }
+
+    default: {
+      console.warn('[BG] Unhandled message type:', msg.type)
+      try {
+        sendResponse({ success: false, error: `Unhandled message type: ${String(msg.type)}` })
+      } catch {
+        /* channel closed */
+      }
+      return false
+    }
   }
-  
-  return true;
+
+  // Cases that used `break` (sync sendResponse) do not return above; keep channel semantics.
+  return true
 });
