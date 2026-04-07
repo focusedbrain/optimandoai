@@ -303,6 +303,13 @@ export interface BeapPackageConfig {
   selectedRecipient: SelectedRecipient | null
   senderFingerprint: string
   senderFingerprintShort: string
+  /**
+   * Set to true by executeDeliveryAction when checkHandshakeSendReady confirms the handshake
+   * has local_x25519_private_key_b64 stored (old-flow / pre-migration handshake).
+   * When true, BeapPackageBuilder skips the device-key-vs-handshake-key invariant check and
+   * uses the stored ephemeral public key as the header sender key so the receiver can decrypt.
+   */
+  handshakeHasStoredPrivateKey?: boolean
   emailTo?: string
   subject?: string
   messageBody: string
@@ -1157,7 +1164,11 @@ async function buildQBeapPackage(config: BeapPackageConfig): Promise<PackageBuil
   // When the handshake-bound key is available (P2P send path), enforce the three-way invariant.
   // When it is absent (non-P2P email reply path), skip the device-vs-handshake check — ECDH is
   // not used for email delivery; the Electron BOUND KEY CHECK remains the backstop.
-  if (handshakeLocalX25519) {
+  // Exception: old-flow handshakes (handshakeHasStoredPrivateKey=true) have an ephemeral key
+  // that intentionally differs from the device key. ECDH uses the stored ephemeral private key
+  // (via beap.deriveSharedSecret) and the header carries the stored ephemeral public key —
+  // so the mismatch check is not applicable and must be skipped.
+  if (handshakeLocalX25519 && !config.handshakeHasStoredPrivateKey) {
     const keysAlign = currentDeviceX25519.trim() === handshakeLocalX25519
     console.log('[P2P-SEND] BOUND KEY CHECK:', JSON.stringify({
       handshakeId: config.selectedRecipient?.handshake_id ?? 'unknown',
@@ -1191,9 +1202,14 @@ async function buildQBeapPackage(config: BeapPackageConfig): Promise<PackageBuil
   }
 
   // Keys are aligned (or this is a non-P2P path where alignment is not checkable).
-  // Use the current device public key as the header sender key.
-  // This is guaranteed to be the pair of the private key that deriveSharedSecretX25519 uses.
-  const senderX25519PublicKeyB64 = currentDeviceX25519.trim()
+  // For new-flow handshakes (local_x25519_private_key_b64 = NULL), deriveSharedSecretX25519
+  // uses the orchestrator device private key, so the header must carry the device public key.
+  // For old-flow handshakes (local_x25519_private_key_b64 is stored), deriveSharedSecretX25519
+  // uses the stored private key (see beap.deriveSharedSecret IPC handler), so the header must
+  // carry the matching stored public key (handshakeLocalX25519) for the receiver to do correct ECDH.
+  const senderX25519PublicKeyB64 = (handshakeLocalX25519 && handshakeLocalX25519 !== currentDeviceX25519.trim())
+    ? handshakeLocalX25519
+    : currentDeviceX25519.trim()
 
   if (!senderX25519PublicKeyB64) {
     return {
@@ -2495,6 +2511,9 @@ export async function executeDeliveryAction(
           ...config.selectedRecipient,
           localX25519PublicKey: readyCheck.localX25519PublicKey,
         },
+        // Signal to buildPackage that this is an old-flow handshake with a stored ephemeral
+        // private key. The mismatch check must be skipped and the stored key used as the header.
+        ...(readyCheck.hasStoredPrivateKey ? { handshakeHasStoredPrivateKey: true } : {}),
       }
     }
   }
