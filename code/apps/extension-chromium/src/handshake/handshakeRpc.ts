@@ -508,6 +508,7 @@ function normalizeRecord(raw: any): HandshakeRecord {
     peerX25519PublicKey: raw.peer_x25519_public_key_b64 ?? undefined,
     peerPQPublicKey: raw.peer_mlkem768_public_key_b64 ?? undefined,
     p2pEndpoint: raw.p2p_endpoint ?? undefined,
+    localX25519PublicKey: raw.local_x25519_public_key_b64 ?? undefined,
   }
 }
 

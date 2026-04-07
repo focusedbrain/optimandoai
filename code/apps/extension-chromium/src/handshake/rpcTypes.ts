@@ -38,6 +38,14 @@ export interface HandshakeRecord {
   readonly peerPQPublicKey?: string
   /** Counterparty's P2P endpoint (for P2P delivery) */
   readonly p2pEndpoint?: string | null
+  /**
+   * Our own (local/sender) X25519 public key bound to this handshake (base64).
+   * This is the key that was exchanged during handshake setup and stored as
+   * local_x25519_public_key_b64 in the Electron DB.  The qBEAP builder MUST
+   * use this as header.senderX25519PublicKeyB64 — NOT the current device key —
+   * so that the receiver's ECDH uses the same key the handshake was established with.
+   */
+  readonly localX25519PublicKey?: string
 }
 
 // ── Context block proof (hash-only, no content in handshake capsules) ──
@@ -65,6 +73,13 @@ export interface SelectedHandshakeRecipient {
   readonly peerPQPublicKey?: string
   /** Counterparty's P2P endpoint (for P2P delivery) */
   readonly p2pEndpoint?: string | null
+  /**
+   * Our own (local/sender) X25519 public key bound to this handshake (base64).
+   * Set from HandshakeRecord.localX25519PublicKey (= DB local_x25519_public_key_b64).
+   * The qBEAP builder MUST use this as header.senderX25519PublicKeyB64 — NOT the current
+   * device key — so that the receiver's ECDH derives the same shared secret.
+   */
+  readonly localX25519PublicKey?: string
 }
 
 /**

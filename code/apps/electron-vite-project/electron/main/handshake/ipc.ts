@@ -723,7 +723,7 @@ export async function handleHandshakeRPC(
             // This is a deterministic protocol mismatch that cannot self-heal — the
             // handshake must be re-established with matching keys.
             queued: false,
-            error: 'ERR_HANDSHAKE_LOCAL_KEY_MISMATCH: The sender key in the package header does not match this handshake\'s bound local key. Re-establish the handshake to resync keys.',
+            error: 'ERR_HANDSHAKE_LOCAL_KEY_MISMATCH: The key in the package header does not match this handshake\'s bound local key. This indicates the sender built the package with a stale or incorrect device key. Delete and re-establish the handshake, or ensure the extension device key has not been regenerated since the handshake was created.',
             code: 'ERR_HANDSHAKE_LOCAL_KEY_MISMATCH',
           }
         }

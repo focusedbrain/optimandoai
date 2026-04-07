@@ -9,6 +9,7 @@
  */
 
 import type { RecipientMode, SelectedRecipient } from '../components/RecipientModeSwitch'
+import type { SelectedHandshakeRecipient } from '../../handshake/rpcTypes'
 import type { DeliveryMethod } from '../components/DeliveryMethodPanel'
 import type { BeapBuildResult } from '../../beap-builder/types'
 import type { CapsuleAttachment } from '../../beap-builder/canonical-types'
@@ -621,6 +622,8 @@ export interface PackageBuildResult {
   package?: BeapPackage
   packageJson?: string
   error?: string
+  /** Protocol error code when the build was aborted due to a deterministic invariant violation. */
+  code?: string
 }
 
 export interface DeliveryResult {
@@ -1102,27 +1105,83 @@ async function buildQBeapPackage(config: BeapPackageConfig): Promise<PackageBuil
   const envelopeSalt = generateEnvelopeSalt()
   const envelopeSaltBase64 = toBase64(envelopeSalt)
   
-  // Get sender's X25519 public key for inclusion in header
-  // Per canon A.3.054.10: receiver needs this for ECDH key agreement
-  const senderX25519PublicKeyB64 = await getDeviceX25519PublicKey()
+  // ── Sender-side three-way key invariant enforcement ─────────────────────────
+  //
+  // The invariant is:
+  //   currentDeviceX25519Pub === handshake.local_x25519_public_key_b64 === header.senderX25519
+  //
+  // Explanation of why "just use boundLocalKey as the header" is WRONG and UNSAFE:
+  //   - If we force header = boundLocalKey but the device private key has regenerated,
+  //     ECDH (deriveSharedSecretX25519 below) uses the NEW private key whose public part
+  //     is NOT boundLocalKey. The header looks correct but the derived shared secret is
+  //     still wrong → AES-GCM auth tag still fails on the receiver.
+  //
+  // Correct approach:
+  //   1. Load the CURRENT device public key from chrome.storage.
+  //   2. Compare it against recipient.localX25519PublicKey (= DB local_x25519_public_key_b64).
+  //   3. Only if they match: use that key for the header and proceed with encryption.
+  //   4. If they differ: abort before encryption — the handshake is stale and must be recreated.
+  //
+  // This is the only safe path because deriveSharedSecretX25519() always uses the current
+  // device private key (chrome.storage). For the receiver's ECDH to produce the same shared
+  // secret, the sender's public key in the header MUST be the pair of that same private key.
 
-  // ── Sender-side bound key identity assertion ──────────────────────────────
-  // senderX25519PublicKeyB64 is always the persistent device public key.
-  // It MUST equal the local_x25519_public_key_b64 stored in the Electron handshake DB
-  // (ensureKeyAgreementKeys stored the device public key there at handshake init/accept time).
-  // If they diverge the receiver's ECDH will fail. Guard: require key to be non-empty here.
-  // The Electron-side sendBeapViaP2P (ERR_HANDSHAKE_LOCAL_KEY_MISMATCH) enforces the DB check.
-  if (!senderX25519PublicKeyB64?.trim()) {
+  const handshakeLocalX25519 = (recipient as SelectedHandshakeRecipient).localX25519PublicKey?.trim()
+  const currentDeviceX25519 = await getDeviceX25519PublicKey()
+
+  // When the handshake-bound key is available (P2P send path), enforce the three-way invariant.
+  // When it is absent (non-P2P email reply path), skip the device-vs-handshake check — ECDH is
+  // not used for email delivery; the Electron BOUND KEY CHECK remains the backstop.
+  if (handshakeLocalX25519) {
+    const keysAlign = currentDeviceX25519.trim() === handshakeLocalX25519
+    console.log('[P2P-SEND] BOUND KEY CHECK:', JSON.stringify({
+      handshakeId: config.selectedRecipient?.handshake_id ?? 'unknown',
+      currentDeviceX25519: currentDeviceX25519.trim().substring(0, 24),
+      handshakeLocalX25519: handshakeLocalX25519.substring(0, 24),
+      headerSenderX25519: keysAlign ? currentDeviceX25519.trim().substring(0, 24) : 'BLOCKED',
+      match: keysAlign,
+    }))
+    if (!keysAlign) {
+      console.error(
+        '[P2P-SEND] ERR_HANDSHAKE_LOCAL_KEY_MISMATCH: current device X25519 public key does not match the local key bound into this handshake.',
+        'The device key was likely regenerated after this handshake was created.',
+        'Do not paper-over by copying the DB key — ECDH would still use the wrong private key.',
+        {
+          handshakeId: config.selectedRecipient?.handshake_id,
+          currentDevicePrefix: currentDeviceX25519.trim().substring(0, 24),
+          handshakeLocalPrefix: handshakeLocalX25519.substring(0, 24),
+        },
+      )
+      return {
+        success: false,
+        error: [
+          'ERR_HANDSHAKE_LOCAL_KEY_MISMATCH: The current device key no longer matches the local key',
+          'bound into this handshake. This handshake was most likely created before the extension',
+          'device key changed (e.g. due to a storage read failure that silently regenerated the key).',
+          'Delete and re-establish the handshake to resync keys.',
+        ].join(' '),
+        code: 'ERR_HANDSHAKE_LOCAL_KEY_MISMATCH',
+      }
+    }
+  }
+
+  // Keys are aligned (or this is a non-P2P path where alignment is not checkable).
+  // Use the current device public key as the header sender key.
+  // This is guaranteed to be the pair of the private key that deriveSharedSecretX25519 uses.
+  const senderX25519PublicKeyB64 = currentDeviceX25519.trim()
+
+  if (!senderX25519PublicKeyB64) {
     return {
       success: false,
-      error: 'ERR_HANDSHAKE_BOUND_KEY_MISSING: Device X25519 public key unavailable. Cannot build qBEAP header without sender identity key.',
+      error: 'ERR_HANDSHAKE_BOUND_KEY_MISSING: Current device X25519 public key is empty. Cannot build qBEAP header.',
     }
   }
 
   console.log('[BEAP-BUILD] KEYS:', JSON.stringify({
     recipPeerX25519: recipient.peerX25519PublicKey?.substring(0, 24),
     recipPeerMlkem: recipient.peerPQPublicKey?.substring(0, 24),
-    devicePub: senderX25519PublicKeyB64?.substring(0, 24),
+    senderX25519: senderX25519PublicKeyB64.substring(0, 24),
+    source: handshakeLocalX25519 ? 'current-device-validated-against-handshake' : 'current-device-no-handshake-check',
     handshakeId: config.selectedRecipient?.handshake_id ?? 'unknown',
   }))
   
@@ -2401,12 +2460,21 @@ export async function executeDeliveryAction(
   
   if (!buildResult.success || !buildResult.package) {
     const msg = buildResult.error || 'Failed to build package'
-    console.error('[BEAP-SEND] Package build failed:', msg)
+    const isProtocolMismatch =
+      buildResult.code === 'ERR_HANDSHAKE_LOCAL_KEY_MISMATCH' ||
+      buildResult.code === 'ERR_HANDSHAKE_BOUND_KEY_MISSING' ||
+      buildResult.code === 'ERR_HEADER_SENDER_KEY_MISMATCH' ||
+      buildResult.code === 'ERR_MLKEM_SECRET_MISSING_BOUND_FLOW'
+    console.error('[BEAP-SEND] Package build failed:', msg, buildResult.code ? `(code: ${buildResult.code})` : '')
     return {
       success: false,
-      action: config.deliveryMethod === 'email' ? 'sent' : 
+      action: config.deliveryMethod === 'email' ? 'sent' :
               config.deliveryMethod === 'p2p' ? 'sent' : 'downloaded',
       message: msg,
+      // Propagate protocol error code so callers can treat it as non-retryable.
+      ...(buildResult.code && { code: buildResult.code }),
+      // Deterministic protocol mismatches are never retryable.
+      ...(isProtocolMismatch && { queued: false }),
       clientSendFailureDebug: {
         kind: 'client_send_failure',
         phase: 'package_build',

@@ -79,6 +79,7 @@ export const RecipientHandshakeSelect: React.FC<RecipientHandshakeSelectProps> =
       peerX25519PublicKey: hs.peerX25519PublicKey,
       peerPQPublicKey: hs.peerPQPublicKey,
       p2pEndpoint: hs.p2pEndpoint,
+      localX25519PublicKey: hs.localX25519PublicKey,
     }
     onSelect(recipient)
   }
