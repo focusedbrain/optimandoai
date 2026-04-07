@@ -59,9 +59,20 @@ function mapLedgerRecordToSelectedRecipient(raw: Record<string, unknown>): Selec
     receiver_fingerprint_full: fpFull,
     receiver_fingerprint_short: fpShort,
     receiver_display_name: (counterparty?.email ?? 'peer').split('@')[0] ?? 'Peer',
-    peerX25519PublicKey: typeof raw.peer_x25519_public_key_b64 === 'string' ? raw.peer_x25519_public_key_b64 : undefined,
-    peerPQPublicKey: typeof raw.peer_mlkem768_public_key_b64 === 'string' ? raw.peer_mlkem768_public_key_b64 : undefined,
-    p2pEndpoint: (raw.p2p_endpoint as string | null | undefined) ?? null,
+    peerX25519PublicKey:
+      typeof raw.peer_x25519_public_key_b64 === 'string'
+        ? raw.peer_x25519_public_key_b64
+        : typeof raw.peerX25519PublicKey === 'string'
+          ? raw.peerX25519PublicKey
+          : undefined,
+    peerPQPublicKey:
+      typeof raw.peer_mlkem768_public_key_b64 === 'string'
+        ? raw.peer_mlkem768_public_key_b64
+        : typeof raw.peerPQPublicKey === 'string'
+          ? raw.peerPQPublicKey
+          : undefined,
+    p2pEndpoint:
+      ((raw.p2p_endpoint ?? raw.p2pEndpoint) as string | null | undefined) ?? null,
   }
 }
 
