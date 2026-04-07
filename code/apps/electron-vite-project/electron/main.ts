@@ -2781,11 +2781,23 @@ app.whenReady().then(async () => {
           return { success: false, error: 'Invalid vault session token' }
         }
 
+        // Same exemption list as WebSocket vault RPC (main.ts ~5147).
         const VSBT_EXEMPT_RPC = new Set(['vault.create', 'vault.unlock', 'vault.getStatus'])
+        // WebSocket clients run vault.bind after unlock; the dashboard has no per-connection bind on open.
+        // If the vault is already unlocked in main, reuse the in-process session token as VSBT (same token
+        // vault.unlock returns as sessionToken).
         if (!VSBT_EXEMPT_RPC.has(method)) {
+          const { vaultService: vs } = await import('./main/vault/rpc')
+          if (!dashboardRendererVsbt || !vs.validateToken(dashboardRendererVsbt)) {
+            const tok = vs.getSessionToken()
+            if (tok && vs.validateToken(tok)) {
+              dashboardRendererVsbt = tok
+              ;(globalThis as any).__og_dashboard_vsbt__ = dashboardRendererVsbt
+              console.log('[MAIN] [dashboard:vaultRpc] Auto-bound VSBT from unlocked in-process vault session')
+            }
+          }
           const boundVsbt = dashboardRendererVsbt
-          const { vaultService: vsForToken } = await import('./main/vault/rpc')
-          if (!boundVsbt || !vsForToken.validateToken(boundVsbt)) {
+          if (!boundVsbt || !vs.validateToken(boundVsbt)) {
             return {
               success: false,
               error: 'Vault session not bound — call vault.bind or vault.unlock first',
