@@ -1859,6 +1859,27 @@ export async function handleHandshakeRPC(
       }
     }
 
+    case 'beap.getMlkemSecret': {
+      // Returns the ML-KEM-768 secret key for a handshake from the Electron DB.
+      // Used by importPipeline.ts (extension sandbox decrypt path) to perform hybrid
+      // decapsulation. The secret never enters chrome.storage — it lives only in the
+      // encrypted orchestrator DB (local_mlkem768_secret_key_b64).
+      const hsId = typeof params.handshakeId === 'string' ? params.handshakeId.trim() : ''
+      if (!hsId) return { success: false, error: 'handshakeId is required' }
+      if (!db) return { success: false, error: 'Database unavailable' }
+      try {
+        const rec = getHandshakeRecord(db, hsId)
+        const secret = rec?.local_mlkem768_secret_key_b64?.trim() ?? null
+        if (!secret) {
+          return { success: false, error: `No ML-KEM secret found for handshake: ${hsId}` }
+        }
+        return { success: true, mlkemSecretB64: secret }
+      } catch (e) {
+        console.error('[IPC] beap.getMlkemSecret failed:', e)
+        return { success: false, error: String(e) }
+      }
+    }
+
     case 'beap.deriveSharedSecret': {
       const peerPublicKeyB64 = typeof params.peerPublicKeyB64 === 'string' ? params.peerPublicKeyB64.trim() : ''
       const handshakeId = typeof params.handshakeId === 'string' ? params.handshakeId.trim() : '(unknown)'

@@ -10,7 +10,7 @@ export * from './rpcTypes'
 // New RPC client
 export * from './handshakeRpc'
 
-// Local ML-KEM secret persistence (qBEAP receive)
+// ML-KEM secret storage helpers (get + remove; secrets are written exclusively by Electron DB now)
 export * from './mlkemHandshakeStorage'
 
 // New hook (reads from backend RPC)

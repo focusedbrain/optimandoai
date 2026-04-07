@@ -33,8 +33,7 @@ import {
   type SandboxDecryptOptions,
 } from '../beap-messages/sandbox'
 import type { SanitisedDecryptedPackage, RejectionReasonUI } from '../beap-messages/sandbox'
-import { getHandshake } from '../handshake/handshakeRpc'
-import { getLocalMlkemSecret } from '../handshake/mlkemHandshakeStorage'
+import { getHandshake, getHandshakeMlkemSecret } from '../handshake/handshakeRpc'
 import { parseBeapFile } from '../beap-messages/services/beapDecrypt'
 import { deriveSharedSecretX25519 } from '../beap-messages/services/x25519KeyAgreement'
 import { pqDecapsulate } from '../beap-messages/services/beapCrypto'
@@ -708,7 +707,7 @@ async function augmentVerifyOptionsForQBeap(
     handshakeId !== '__file_import__' &&
     handshakeId !== '__email_import__'
   ) {
-    const fromStore = await getLocalMlkemSecret(handshakeId)
+    const fromStore = await getHandshakeMlkemSecret(handshakeId)
     if (fromStore) mlkemSecretKeyB64 = fromStore
   }
 

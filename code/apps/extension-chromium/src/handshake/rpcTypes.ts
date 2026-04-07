@@ -154,7 +154,7 @@ export interface HandshakeListResponse {
 export interface HandshakeInitiateResponse {
   handshake_id: string
   status: string
-  /** Same semantics as HandshakeAcceptResponse.electronGeneratedMlkemSecret — see that field for docs. */
+  /** Kept for diagnostic logging. Secret is persisted in the Electron DB; use beap.getMlkemSecret IPC to read it. */
   electronGeneratedMlkemSecret?: string | null
 }
 
@@ -164,11 +164,10 @@ export interface HandshakeAcceptResponse {
   /**
    * Present (non-null) only when Electron generated the ML-KEM keypair as a fallback because
    * the extension did not provide senderMlkem768PublicKeyB64 (e.g. PQ service was unavailable).
-   * The extension MUST call storeLocalMlkemSecret(handshake_id, electronGeneratedMlkemSecret)
-   * immediately after receiving this response. Without it, inbound hybrid qBEAP cannot decrypt.
+   * The secret is already persisted in the Electron DB (local_mlkem768_secret_key_b64) and
+   * accessible via beap.getMlkemSecret IPC. This field is kept for diagnostic logging only.
    *
-   * Null when the extension provided its own ML-KEM public key (normal path) — the extension
-   * already has the matching secret in chrome.storage.local from getKeyAgreementForHandshake().
+   * Null when the extension provided its own ML-KEM public key (normal path).
    */
   electronGeneratedMlkemSecret?: string | null
 }
@@ -185,10 +184,8 @@ export interface HandshakeBuildForDownloadResponse {
   capsule_json: string
   error?: string
   /**
-   * Present (non-null) only when Electron generated the ML-KEM keypair as a fallback because
-   * the extension did not provide senderMlkem768PublicKeyB64 (PQ service was unavailable at build time).
-   * The extension MUST call storeLocalMlkemSecret(handshake_id, electronGeneratedMlkemSecret) immediately.
-   * Null on the normal path — extension already has the matching secret from getKeyAgreementForHandshake().
+   * Kept for diagnostic logging. Secret is persisted in the Electron DB (local_mlkem768_secret_key_b64)
+   * and accessible via beap.getMlkemSecret IPC. Null on the normal path (extension provided the key).
    */
   electronGeneratedMlkemSecret?: string | null
 }

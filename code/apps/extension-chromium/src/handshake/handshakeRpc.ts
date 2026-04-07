@@ -7,7 +7,7 @@
 
 import { getDeviceX25519PublicKey } from '../beap-messages/services/x25519KeyAgreement'
 import { pqKemGenerateKeyPair, pqKemSupportedAsync } from '../beap-messages/services/beapCrypto'
-import { storeLocalMlkemSecret, removeLocalMlkemSecret } from './mlkemHandshakeStorage'
+import { removeLocalMlkemSecret } from './mlkemHandshakeStorage'
 import type {
   HandshakeRecord,
   HandshakeListResponse,
@@ -125,6 +125,24 @@ export async function getHandshake(handshakeId: string): Promise<HandshakeRecord
   return normalizeRecord(res.record ?? (res as any))
 }
 
+/**
+ * Fetch the ML-KEM-768 secret key for a handshake from the Electron DB.
+ * Returns undefined if not found (handshake pre-dates secret storage, or DB unavailable).
+ * Used by importPipeline.ts for host-side hybrid decapsulation in the sandbox decrypt path.
+ */
+export async function getHandshakeMlkemSecret(handshakeId: string): Promise<string | undefined> {
+  if (!handshakeId?.trim()) return undefined
+  try {
+    const res = await sendHandshakeRpc<{ success: boolean; mlkemSecretB64?: string; error?: string }>(
+      'beap.getMlkemSecret',
+      { handshakeId },
+    )
+    return res.success && res.mlkemSecretB64?.trim() ? res.mlkemSecretB64.trim() : undefined
+  } catch {
+    return undefined
+  }
+}
+
 export async function initiateHandshake(
   receiverUserId: string,
   receiverEmail: string,
@@ -153,16 +171,12 @@ export async function initiateHandshake(
     ...(options?.profile_items?.length ? { profile_items: options.profile_items } : {}),
     ...(options?.policy_selections ? { policy_selections: options.policy_selections } : {}),
   })
-  if (keyAgreement.mlkem768SecretKeyB64 && res.handshake_id) {
-    await storeLocalMlkemSecret(res.handshake_id, keyAgreement.mlkem768SecretKeyB64)
-    console.log('[KEY-AGREEMENT] initiateHandshake: stored extension-generated ML-KEM secret for', res.handshake_id)
-  } else if (res.electronGeneratedMlkemSecret && res.handshake_id) {
-    await storeLocalMlkemSecret(res.handshake_id, res.electronGeneratedMlkemSecret)
-    console.warn('[KEY-AGREEMENT] initiateHandshake: stored Electron-generated ML-KEM secret for', res.handshake_id,
-      '— PQ was unavailable at initiate time. Inbound hybrid qBEAP will now decrypt correctly.')
-  } else if (!keyAgreement.mlkem768SecretKeyB64 && !res.electronGeneratedMlkemSecret) {
+  // ML-KEM secret is persisted exclusively in the Electron DB (local_mlkem768_secret_key_b64).
+  // The senderMlkem768SecretKeyB64 field above ensures it was written by the ipc.ts handler.
+  // importPipeline.ts reads it back via beap.getMlkemSecret IPC — no chrome.storage copy needed.
+  if (!keyAgreement.mlkem768SecretKeyB64 && !res.electronGeneratedMlkemSecret) {
     console.error('[KEY-AGREEMENT] initiateHandshake: NO ML-KEM secret available for', res.handshake_id,
-      '— inbound hybrid qBEAP WILL FAIL. PQ service must be running at initiate time.')
+      '— PQ was unavailable at initiate time and Electron did not generate a fallback. Inbound hybrid qBEAP WILL FAIL.')
   }
   return res
 }
@@ -193,16 +207,10 @@ export async function buildHandshakeForDownload(
     ...(options?.profile_items?.length ? { profile_items: options.profile_items } : {}),
     ...(options?.policy_selections ? { policy_selections: options.policy_selections } : {}),
   })
-  if (keyAgreement.mlkem768SecretKeyB64 && res.success && res.handshake_id) {
-    await storeLocalMlkemSecret(res.handshake_id, keyAgreement.mlkem768SecretKeyB64)
-    console.log('[KEY-AGREEMENT] buildHandshakeForDownload: stored extension-generated ML-KEM secret for', res.handshake_id)
-  } else if (res.electronGeneratedMlkemSecret && res.handshake_id) {
-    await storeLocalMlkemSecret(res.handshake_id, res.electronGeneratedMlkemSecret)
-    console.warn('[KEY-AGREEMENT] buildHandshakeForDownload: stored Electron-generated ML-KEM secret for', res.handshake_id,
-      '— PQ was unavailable at buildForDownload time. Inbound hybrid qBEAP will now decrypt correctly.')
-  } else if (!keyAgreement.mlkem768SecretKeyB64 && !res.electronGeneratedMlkemSecret && res.handshake_id) {
+  // ML-KEM secret stored in Electron DB — no chrome.storage copy.
+  if (!keyAgreement.mlkem768SecretKeyB64 && !res.electronGeneratedMlkemSecret && res.handshake_id) {
     console.error('[KEY-AGREEMENT] buildHandshakeForDownload: NO ML-KEM secret available for', res.handshake_id,
-      '— inbound hybrid qBEAP WILL FAIL. PQ service must be running at buildForDownload time.')
+      '— PQ was unavailable at buildForDownload time and Electron did not generate a fallback. Inbound hybrid qBEAP WILL FAIL.')
   }
   return res
 }
@@ -232,20 +240,10 @@ export async function acceptHandshake(
     ...(contextOpts?.policy_selections ? { policy_selections: contextOpts.policy_selections } : {}),
   })
 
-  // Normal path: extension provided its own ML-KEM public key, secret already in chrome.storage.
-  if (keyAgreement.mlkem768SecretKeyB64 && handshakeId) {
-    await storeLocalMlkemSecret(handshakeId, keyAgreement.mlkem768SecretKeyB64)
-    console.log('[KEY-AGREEMENT] acceptHandshake: stored extension-generated ML-KEM secret for', handshakeId)
-  } else if (res.electronGeneratedMlkemSecret && handshakeId) {
-    // Fallback path: PQ was unavailable when accept was called, Electron generated the ML-KEM keypair.
-    // Electron returns the secret; store it now so inbound qBEAP can decapsulate.
-    await storeLocalMlkemSecret(handshakeId, res.electronGeneratedMlkemSecret)
-    console.warn('[KEY-AGREEMENT] acceptHandshake: stored Electron-generated ML-KEM secret for', handshakeId,
-      '— PQ was unavailable at accept time. Inbound hybrid qBEAP will now decrypt correctly.')
-  } else if (!keyAgreement.mlkem768SecretKeyB64 && !res.electronGeneratedMlkemSecret) {
-    // Neither side has a ML-KEM secret — any inbound hybrid qBEAP will fail Gate 4.
+  // ML-KEM secret stored in Electron DB — no chrome.storage copy.
+  if (!keyAgreement.mlkem768SecretKeyB64 && !res.electronGeneratedMlkemSecret) {
     console.error('[KEY-AGREEMENT] acceptHandshake: NO ML-KEM secret available for', handshakeId,
-      '— inbound hybrid qBEAP WILL FAIL. PQ service must be running at accept time.')
+      '— PQ was unavailable at accept time and Electron did not generate a fallback. Inbound hybrid qBEAP WILL FAIL.')
   }
 
   return res
