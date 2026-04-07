@@ -73,19 +73,54 @@ import { USER_PACKAGE_BUILDER_SEND_SOURCE } from '../email/mergeExtensionDepacka
 
 // ── Key Agreement: always generate paired keys in main process (qBEAP decrypt requires local secrets) ──
 
-async function ensureKeyAgreementKeys(_params: {
+async function ensureKeyAgreementKeys(params: {
   sender_x25519_public_key_b64?: string | null
   sender_mlkem768_public_key_b64?: string | null
 }): Promise<BeapKeyAgreementMaterial> {
-  const pq = await import('@noble/post-quantum/ml-kem')
-  const mlkemKeypair = pq.ml_kem768.keygen()
-  const mlkemPub = Buffer.from(mlkemKeypair.publicKey).toString('base64')
-  const mlkemSecret = Buffer.from(mlkemKeypair.secretKey).toString('base64')
+  // X25519: use the key provided by the caller (extension device key) when valid.
+  // The extension sends its persistent chrome.storage device key so that the key
+  // exchanged in the handshake capsule matches the key used at encrypt time.
+  // Generating a fresh random key here (as the old code did) caused a split-brain:
+  // the acceptor stored key A, but the sender encrypted with key B → AES-GCM auth failure.
+  const providedX25519 = params.sender_x25519_public_key_b64?.trim()
+  let x25519Pub: string
+  let x25519Priv: string | null
 
-  const x25519PrivKey = x25519.utils.randomPrivateKey()
-  const x25519PubKey = x25519.getPublicKey(x25519PrivKey)
-  const x25519Priv = Buffer.from(x25519PrivKey).toString('base64')
-  const x25519Pub = Buffer.from(x25519PubKey).toString('base64')
+  if (providedX25519 && providedX25519.length > 0) {
+    // Caller supplied the extension's device public key. No private key is available here —
+    // ECDH at send time is performed by the extension using its own chrome.storage private key.
+    x25519Pub = providedX25519
+    x25519Priv = null
+    console.log('[KEY-AGREEMENT] Using caller-provided X25519 public key (extension device key)')
+  } else {
+    // Fallback: generate a fresh keypair (e.g. for server-side or test flows).
+    const x25519PrivKey = x25519.utils.randomPrivateKey()
+    const x25519PubKey = x25519.getPublicKey(x25519PrivKey)
+    x25519Pub = Buffer.from(x25519PubKey).toString('base64')
+    x25519Priv = Buffer.from(x25519PrivKey).toString('base64')
+    console.warn('[KEY-AGREEMENT] No X25519 key provided — generating fresh keypair (fallback path)')
+  }
+
+  // ML-KEM: same logic. Use the caller-provided public key when valid.
+  // The ML-KEM secret key is NOT sent over IPC (it stays in chrome.storage on the extension).
+  // Electron stores the Electron-generated ML-KEM secret for the initiator's own receive path.
+  // When the extension sends its ML-KEM public key, that becomes the key the acceptor uses
+  // for encapsulation when sending back — and the extension holds the matching secret.
+  const providedMlkem = params.sender_mlkem768_public_key_b64?.trim()
+  let mlkemPub: string
+  let mlkemSecret: string | null
+
+  if (providedMlkem && providedMlkem.length > 0) {
+    mlkemPub = providedMlkem
+    mlkemSecret = null
+    console.log('[KEY-AGREEMENT] Using caller-provided ML-KEM-768 public key (extension session key)')
+  } else {
+    const pq = await import('@noble/post-quantum/ml-kem')
+    const mlkemKeypair = pq.ml_kem768.keygen()
+    mlkemPub = Buffer.from(mlkemKeypair.publicKey).toString('base64')
+    mlkemSecret = Buffer.from(mlkemKeypair.secretKey).toString('base64')
+    console.warn('[KEY-AGREEMENT] No ML-KEM key provided — generating fresh keypair (fallback path)')
+  }
 
   return {
     sender_x25519_public_key_b64: x25519Pub,
