@@ -82,7 +82,7 @@ declare global {
         handshakeId: string,
         packageJson: string,
       ) => Promise<{ success: boolean; error?: string; delivered?: boolean; queued?: boolean; code?: string }>
-      checkHandshakeSendReady?: (handshakeId: string) => Promise<{ ready: boolean; error?: string }>
+      checkHandshakeSendReady?: (handshakeId: string) => Promise<{ ready: boolean; error?: string; localX25519PublicKey?: string }>
       /** Same RPC dispatch as extension WebSocket VAULT_RPC (vault.* / handshake.* / ingestion.*). */
       vaultRpc?: (args: { method: string; params?: Record<string, unknown>; id?: string }) => Promise<Record<string, unknown>>
       /** Electron: X-Launch-Secret for localhost PQ KEM HTTP (beapCrypto pqEncapsulate). */

@@ -817,11 +817,40 @@ export async function handleHandshakeRPC(
       const activeCheck = diagnoseHandshakeInactive(db, handshakeId, new Date())
       if (!activeCheck.active) return { ready: false, error: activeCheck.reason }
       if (!record.p2p_endpoint?.trim()) return { ready: false, error: 'Recipient has no P2P endpoint' }
+
+      // Auto-repair: if the handshake's bound local X25519 public key doesn't match the current
+      // device key BUT the private key is NOT stored in the handshake record (it lives in the
+      // orchestrator device_keys table), the bound public key can safely be updated.
+      //
+      // Why: local_x25519_private_key_b64 = NULL means deriveSharedSecretX25519() always uses
+      // the current orchestrator device private key regardless of what local_x25519_public_key_b64
+      // says. The mismatch only occurred because the device key migration ran after accept and
+      // generated a new key. Since the private key is canonical in the orchestrator DB, updating
+      // the public key in the handshake record makes them consistent again.
+      let localX25519PublicKey = record.local_x25519_public_key_b64 ?? undefined
+      if (record.local_x25519_public_key_b64 && !record.local_x25519_private_key_b64) {
+        try {
+          const { getDeviceX25519PublicKey: getDevPub } = await import('../device-keys/deviceKeyStore')
+          const currentDeviceKey = await getDevPub()
+          if (currentDeviceKey && currentDeviceKey.trim() !== record.local_x25519_public_key_b64.trim()) {
+            console.log(
+              '[HANDSHAKE] checkSendReady: auto-repairing local_x25519_public_key_b64 — device key changed since accept.',
+              { handshakeId, old: record.local_x25519_public_key_b64.substring(0, 24), new: currentDeviceKey.substring(0, 24) },
+            )
+            updateHandshakeRecord(db, { ...record, local_x25519_public_key_b64: currentDeviceKey })
+            localX25519PublicKey = currentDeviceKey
+          }
+        } catch (e) {
+          // Non-fatal — if device key read fails, return the stored value and let the builder handle it.
+          console.warn('[HANDSHAKE] checkSendReady: device key read failed during auto-repair check:', e)
+        }
+      }
+
       // Return the live local_x25519_public_key_b64 so the builder can use the DB value
       // instead of the potentially stale value from the extension's cached handshake list.
       return {
         ready: true,
-        localX25519PublicKey: record.local_x25519_public_key_b64 ?? undefined,
+        localX25519PublicKey,
       }
     }
 

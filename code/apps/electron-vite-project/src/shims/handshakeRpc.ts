@@ -235,7 +235,7 @@ export async function sendBeapViaP2P(
 /** Preflight for P2P send — aligns with main `handshake.checkSendReady`. */
 export async function checkHandshakeSendReady(
   handshakeId: string,
-): Promise<{ ready: boolean; error?: string }> {
+): Promise<{ ready: boolean; error?: string; localX25519PublicKey?: string }> {
   const fn = (window.handshakeView as any)?.checkHandshakeSendReady
   if (typeof fn === 'function') return fn(handshakeId)
   throw new Error('checkHandshakeSendReady not available (handshakeView bridge missing)')
