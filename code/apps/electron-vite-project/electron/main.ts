@@ -2888,6 +2888,14 @@ app.whenReady().then(async () => {
         return (await handleIngestionRPC(method, p, db, ssoSession)) as Record<string, unknown>
       }
 
+      // beap.* methods (device key operations) — no vault or VSBT required.
+      // Reads from the orchestrator device_keys table via deviceKeyStore; the ledger DB
+      // argument is accepted by handleHandshakeRPC but unused by the beap.* cases.
+      if (method.startsWith('beap.')) {
+        const db = await getLedgerDbOrOpen()
+        return (await handleHandshakeRPC(method, p, db)) as Record<string, unknown>
+      }
+
       return { success: false, error: `Unknown RPC method: ${method}` }
     }
 
