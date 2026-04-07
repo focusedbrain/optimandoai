@@ -654,6 +654,31 @@ export async function handleHandshakeRPC(
       if (!targetEndpoint) {
         return { success: false, error: 'Recipient has no P2P endpoint' }
       }
+
+      // ── Hard guard: handshake MUST have a bound local X25519 key for P2P send ──
+      // Handshakes created before schema v50 have NULL local_x25519_public_key_b64.
+      // Without this key we cannot validate the three-way invariant and the package
+      // will be built with an unverified device key that the receiver cannot trust.
+      // This is ERR_HANDSHAKE_LOCAL_KEY_MISSING — distinct from MISMATCH (key present
+      // but differs). Re-establishment is the only safe path.
+      if (!record.local_x25519_public_key_b64?.trim()) {
+        console.error(
+          '[P2P-SEND] ERR_HANDSHAKE_LOCAL_KEY_MISSING: handshake has no bound local X25519 key stored.',
+          'Handshake was created before schema v50 (key-binding persistence).',
+          'Delete and re-establish the handshake.',
+          { handshakeId, state: record.state },
+        )
+        return {
+          success: false,
+          queued: false,
+          error: [
+            'ERR_HANDSHAKE_LOCAL_KEY_MISSING: This handshake has no bound local X25519 public key stored.',
+            'It was created before key-binding persistence was added.',
+            'Delete and re-establish the handshake — the receiver cannot validate sender identity without it.',
+          ].join(' '),
+          code: 'ERR_HANDSHAKE_LOCAL_KEY_MISSING',
+        }
+      }
       let pkg: object
       try {
         pkg = JSON.parse(packageJson) as object

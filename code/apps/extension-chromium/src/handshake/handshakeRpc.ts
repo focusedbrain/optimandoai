@@ -422,6 +422,7 @@ export type SendBeapViaP2PResult = {
     | 'PAYLOAD_TOO_LARGE'
     // Protocol-level deterministic mismatches — not retryable, handshake must be re-established.
     | 'ERR_HANDSHAKE_LOCAL_KEY_MISMATCH'
+    | 'ERR_HANDSHAKE_LOCAL_KEY_MISSING'
     | 'ERR_HANDSHAKE_BOUND_KEY_MISSING'
     | 'ERR_HEADER_SENDER_KEY_MISMATCH'
     | 'ERR_MLKEM_SECRET_MISSING_BOUND_FLOW'

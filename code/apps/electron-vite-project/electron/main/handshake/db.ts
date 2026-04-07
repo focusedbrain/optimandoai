@@ -1222,7 +1222,87 @@ export function migrateHandshakeTables(db: any): void {
   ensureEmailPipelineSchemaRepairs(db)
 }
 
-// ── CRUD Operations ──
+// ── Post-migration backfill: local_x25519_public_key_b64 ──────────────────────────────────────
+/**
+ * Backfills `local_x25519_public_key_b64` for any handshake that has a stored
+ * `local_x25519_private_key_b64` but no corresponding public key.
+ *
+ * This covers handshakes created at schema v50 time where only the private key
+ * was written (the public key column was added but not always populated atomically).
+ *
+ * The caller must supply a `derivePublicKey` function so that crypto code is not
+ * imported into this persistence module.  Pass `(privB64) => Buffer.from(x25519.getPublicKey(Buffer.from(privB64, 'base64'))).toString('base64')`
+ * from a caller that already imports `@noble/curves/ed25519`.
+ *
+ * Returns a summary: how many rows were backfilled, skipped, or need re-establishment.
+ */
+export function backfillLocalX25519PublicKey(
+  db: any,
+  derivePublicKey: (privateKeyB64: string) => string,
+): { backfilled: number; alreadySet: number; noPrivateKey: number; errors: number } {
+  const result = { backfilled: 0, alreadySet: 0, noPrivateKey: 0, errors: 0 }
+  type Row = { handshake_id: string; local_x25519_private_key_b64: string | null }
+  let rows: Row[]
+  try {
+    rows = db.prepare(
+      `SELECT handshake_id, local_x25519_private_key_b64
+         FROM handshakes
+        WHERE (local_x25519_public_key_b64 IS NULL OR local_x25519_public_key_b64 = '')
+          AND state NOT IN ('REVOKED', 'REJECTED')`,
+    ).all() as Row[]
+  } catch (e: any) {
+    console.error('[HANDSHAKE DB] backfillLocalX25519PublicKey: query failed:', e?.message)
+    return result
+  }
+
+  for (const row of rows) {
+    const priv = row.local_x25519_private_key_b64?.trim()
+    if (!priv) {
+      // No private key — cannot derive public key; this handshake needs re-establishment.
+      result.noPrivateKey++
+      console.warn(
+        '[HANDSHAKE DB] backfillLocalX25519PublicKey: handshake has no local X25519 private key.',
+        'Cannot derive public key. Handshake must be re-established.',
+        { handshake_id: row.handshake_id },
+      )
+      continue
+    }
+    try {
+      const pub = derivePublicKey(priv)
+      db.prepare(
+        `UPDATE handshakes SET local_x25519_public_key_b64 = ? WHERE handshake_id = ?`,
+      ).run(pub, row.handshake_id)
+      result.backfilled++
+      console.log(
+        '[HANDSHAKE DB] backfillLocalX25519PublicKey: backfilled public key for handshake.',
+        { handshake_id: row.handshake_id, pubPrefix: pub.substring(0, 16) },
+      )
+    } catch (e: any) {
+      result.errors++
+      console.error(
+        '[HANDSHAKE DB] backfillLocalX25519PublicKey: failed to derive/store public key.',
+        { handshake_id: row.handshake_id, error: e?.message },
+      )
+    }
+  }
+
+  // Count rows that were already set (for the summary log).
+  try {
+    const setCount = (
+      db.prepare(
+        `SELECT count(*) AS n FROM handshakes
+          WHERE local_x25519_public_key_b64 IS NOT NULL
+            AND local_x25519_public_key_b64 != ''`,
+      ).get() as { n: number } | undefined
+    )?.n ?? 0
+    result.alreadySet = setCount
+  } catch { /* non-fatal */ }
+
+  console.log('[HANDSHAKE DB] backfillLocalX25519PublicKey complete:', result)
+  return result
+}
+
+
 
 export function serializeHandshakeRecord(record: HandshakeRecord): any {
   return {

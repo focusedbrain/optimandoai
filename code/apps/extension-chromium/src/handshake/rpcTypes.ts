@@ -44,6 +44,14 @@ export interface HandshakeRecord {
    * local_x25519_public_key_b64 in the Electron DB.  The qBEAP builder MUST
    * use this as header.senderX25519PublicKeyB64 — NOT the current device key —
    * so that the receiver's ECDH uses the same key the handshake was established with.
+   *
+   * MISSING KEY SEMANTICS:
+   * - If this field is undefined/null the handshake was created before schema v50
+   *   (local key binding persistence). P2P send MUST be rejected with
+   *   ERR_HANDSHAKE_LOCAL_KEY_MISSING. The user must delete and re-establish.
+   * - If this field is present but differs from the current device key, send MUST
+   *   be rejected with ERR_HANDSHAKE_LOCAL_KEY_MISMATCH (device key regenerated).
+   * - Only when this field equals the current device key should send proceed.
    */
   readonly localX25519PublicKey?: string
 }
@@ -76,8 +84,14 @@ export interface SelectedHandshakeRecipient {
   /**
    * Our own (local/sender) X25519 public key bound to this handshake (base64).
    * Set from HandshakeRecord.localX25519PublicKey (= DB local_x25519_public_key_b64).
-   * The qBEAP builder MUST use this as header.senderX25519PublicKeyB64 — NOT the current
-   * device key — so that the receiver's ECDH derives the same shared secret.
+   *
+   * MISSING KEY SEMANTICS (see HandshakeRecord.localX25519PublicKey for full docs):
+   * - Undefined/null  → ERR_HANDSHAKE_LOCAL_KEY_MISSING (pre-v50 handshake; re-establish)
+   * - Present but ≠ current device key → ERR_HANDSHAKE_LOCAL_KEY_MISMATCH
+   * - Present and = current device key → proceed with send
+   *
+   * The qBEAP builder MUST fail hard (not bypass) when this field is missing
+   * in a P2P send context.
    */
   readonly localX25519PublicKey?: string
 }

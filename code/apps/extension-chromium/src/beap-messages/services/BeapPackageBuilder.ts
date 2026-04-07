@@ -1127,6 +1127,31 @@ async function buildQBeapPackage(config: BeapPackageConfig): Promise<PackageBuil
   // secret, the sender's public key in the header MUST be the pair of that same private key.
 
   const handshakeLocalX25519 = (recipient as SelectedHandshakeRecipient).localX25519PublicKey?.trim()
+
+  // ── Case C: bound key MISSING (pre-schema-v50 handshake) ─────────────────
+  // For P2P sends the handshake MUST have local_x25519_public_key_b64 populated.
+  // If it is absent the handshake was created before key-binding persistence (schema v50)
+  // and we have no way to verify that the current device key matches what the acceptor stored.
+  // Silently falling through to the current device key is UNSAFE — fail hard instead.
+  if (!handshakeLocalX25519 && config.deliveryMethod === 'p2p') {
+    const hsId = config.selectedRecipient?.handshake_id ?? 'unknown'
+    console.error(
+      '[P2P-SEND] ERR_HANDSHAKE_LOCAL_KEY_MISSING: handshake has no bound local X25519 key.',
+      'This handshake was created before schema v50 (key-binding persistence).',
+      'Delete and re-establish the handshake to generate a properly bound key.',
+      { handshakeId: hsId },
+    )
+    return {
+      success: false,
+      error: [
+        'ERR_HANDSHAKE_LOCAL_KEY_MISSING: This handshake has no bound local X25519 public key stored.',
+        'It was likely created before key-binding persistence was added (schema v50).',
+        'Delete and re-establish the handshake — it cannot be used for P2P send until recreated.',
+      ].join(' '),
+      code: 'ERR_HANDSHAKE_LOCAL_KEY_MISSING',
+    }
+  }
+
   const currentDeviceX25519 = await getDeviceX25519PublicKey()
 
   // When the handshake-bound key is available (P2P send path), enforce the three-way invariant.
@@ -2306,6 +2331,7 @@ export async function executeP2PAction(
       result?.code === 'RELAY_TYPE_NOT_ALLOWED' ||
       result?.code === 'OUT_OF_BAND_REQUIRED' ||
       result?.code === 'ERR_HANDSHAKE_LOCAL_KEY_MISMATCH' ||
+      result?.code === 'ERR_HANDSHAKE_LOCAL_KEY_MISSING' ||
       result?.code === 'ERR_HANDSHAKE_BOUND_KEY_MISSING' ||
       result?.code === 'ERR_HEADER_SENDER_KEY_MISMATCH' ||
       result?.code === 'ERR_MLKEM_SECRET_MISSING_BOUND_FLOW'
@@ -2325,15 +2351,17 @@ export async function executeP2PAction(
             ? 'RELAY_TYPE_NOT_ALLOWED'
             : result.code === 'OUT_OF_BAND_REQUIRED'
               ? 'OUT_OF_BAND_REQUIRED'
-              : result.code === 'ERR_HANDSHAKE_LOCAL_KEY_MISMATCH'
-                ? 'ERR_HANDSHAKE_LOCAL_KEY_MISMATCH'
-                : result.code === 'ERR_HANDSHAKE_BOUND_KEY_MISSING'
-                  ? 'ERR_HANDSHAKE_BOUND_KEY_MISSING'
-                  : result.code === 'ERR_HEADER_SENDER_KEY_MISMATCH'
-                    ? 'ERR_HEADER_SENDER_KEY_MISMATCH'
-                    : result.code === 'ERR_MLKEM_SECRET_MISSING_BOUND_FLOW'
-                      ? 'ERR_MLKEM_SECRET_MISSING_BOUND_FLOW'
-                      : 'REQUEST_INVALID'
+                : result.code === 'ERR_HANDSHAKE_LOCAL_KEY_MISMATCH'
+                  ? 'ERR_HANDSHAKE_LOCAL_KEY_MISMATCH'
+                  : result.code === 'ERR_HANDSHAKE_LOCAL_KEY_MISSING'
+                    ? 'ERR_HANDSHAKE_LOCAL_KEY_MISSING'
+                    : result.code === 'ERR_HANDSHAKE_BOUND_KEY_MISSING'
+                      ? 'ERR_HANDSHAKE_BOUND_KEY_MISSING'
+                      : result.code === 'ERR_HEADER_SENDER_KEY_MISMATCH'
+                        ? 'ERR_HEADER_SENDER_KEY_MISMATCH'
+                        : result.code === 'ERR_MLKEM_SECRET_MISSING_BOUND_FLOW'
+                          ? 'ERR_MLKEM_SECRET_MISSING_BOUND_FLOW'
+                          : 'REQUEST_INVALID'
       const msgJoined = lines.join('\n')
       return {
         success: false,
@@ -2462,6 +2490,7 @@ export async function executeDeliveryAction(
     const msg = buildResult.error || 'Failed to build package'
     const isProtocolMismatch =
       buildResult.code === 'ERR_HANDSHAKE_LOCAL_KEY_MISMATCH' ||
+      buildResult.code === 'ERR_HANDSHAKE_LOCAL_KEY_MISSING' ||
       buildResult.code === 'ERR_HANDSHAKE_BOUND_KEY_MISSING' ||
       buildResult.code === 'ERR_HEADER_SENDER_KEY_MISMATCH' ||
       buildResult.code === 'ERR_MLKEM_SECRET_MISSING_BOUND_FLOW'
