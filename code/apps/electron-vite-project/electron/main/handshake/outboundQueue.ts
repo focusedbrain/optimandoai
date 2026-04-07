@@ -442,6 +442,7 @@ async function processOutboundQueueInner(
       }
     } else {
       const record = getHandshakeRecord(db, row.handshake_id)
+      // P2P Bearer auth is transport-only; renew tokens via handshake-refresh / delivery retry without changing handshake trust state.
       const bearerToken = record?.counterparty_p2p_token ?? null
       let endpoint = row.target_endpoint
       result = await sendCapsuleViaHttp(capsule, endpoint, row.handshake_id, bearerToken)

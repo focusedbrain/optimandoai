@@ -29,14 +29,6 @@ export async function gateVaultAccess(
     return { allowed: false, reason: ReasonCode.INVALID_STATE_TRANSITION }
   }
 
-  // Check expiry
-  if (record.expires_at) {
-    const expiresAt = Date.parse(record.expires_at)
-    if (!isNaN(expiresAt) && Date.now() > expiresAt) {
-      return { allowed: false, reason: ReasonCode.HANDSHAKE_EXPIRED }
-    }
-  }
-
   // Gate 2: Effective tier sufficient
   const currentTier = classifyHandshakeTier({
     plan: ssoSession.plan,

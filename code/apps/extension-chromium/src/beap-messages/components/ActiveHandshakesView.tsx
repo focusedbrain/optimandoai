@@ -3,7 +3,7 @@
  *
  * Lists all ACTIVE handshakes for the current user in the BEAP Messages section.
  * Shows partner name/email, status, date established, and a link to the context/thread.
- * Revoked or expired handshakes are automatically excluded.
+ * Revoked handshakes are automatically excluded.
  *
  * Fulfills the BEAP Messages acceptance criteria:
  *  - Active handshakes appear after establishment for both parties.

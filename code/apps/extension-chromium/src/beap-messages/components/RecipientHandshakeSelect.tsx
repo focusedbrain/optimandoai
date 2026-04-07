@@ -17,11 +17,11 @@ export type { SelectedHandshakeRecipient }
 /** @deprecated Use SelectedHandshakeRecipient instead */
 export type SelectedRecipient = SelectedHandshakeRecipient
 
-/** Relative expiry hint; hidden when more than 24h away or no expiry. */
+/** Relative hint for optional capsule lease metadata (not used to invalidate trust). */
 function formatExpiry(expiresAt: string | null | undefined): string | null {
   if (!expiresAt) return null
   const ms = Date.parse(expiresAt) - Date.now()
-  if (Number.isNaN(ms) || ms < 0) return 'Expired'
+  if (Number.isNaN(ms) || ms < 0) return null
   if (ms > 86400000) return null
   const hours = Math.floor(ms / 3600000)
   const minutes = Math.floor((ms % 3600000) / 60000)

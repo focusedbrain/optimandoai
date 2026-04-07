@@ -205,12 +205,32 @@ export function resolveBuiltinGoogleOAuthClientSecret(
   let raw: string | null = null
   try {
     switch (res.sourceKind) {
-      case 'runtime_env_WR_DESK_GOOGLE_OAUTH_CLIENT_ID':
+      case 'runtime_env_WR_DESK_GOOGLE_OAUTH_CLIENT_ID': {
         raw = process.env.WR_DESK_GOOGLE_OAUTH_CLIENT_SECRET ?? null
+        if (!String(raw ?? '').trim()) {
+          const cross = process.env.GOOGLE_OAUTH_CLIENT_SECRET ?? null
+          if (String(cross ?? '').trim()) {
+            console.warn(
+              '[Gmail OAuth] client_secret: using GOOGLE_OAUTH_CLIENT_SECRET because WR_DESK_GOOGLE_OAUTH_CLIENT_ID is set but WR_DESK_GOOGLE_OAUTH_CLIENT_SECRET is empty — set WR_DESK_GOOGLE_OAUTH_CLIENT_SECRET to match your client id source.',
+            )
+            raw = cross
+          }
+        }
         break
-      case 'runtime_env_GOOGLE_OAUTH_CLIENT_ID':
+      }
+      case 'runtime_env_GOOGLE_OAUTH_CLIENT_ID': {
         raw = process.env.GOOGLE_OAUTH_CLIENT_SECRET ?? null
+        if (!String(raw ?? '').trim()) {
+          const cross = process.env.WR_DESK_GOOGLE_OAUTH_CLIENT_SECRET ?? null
+          if (String(cross ?? '').trim()) {
+            console.warn(
+              '[Gmail OAuth] client_secret: using WR_DESK_GOOGLE_OAUTH_CLIENT_SECRET because GOOGLE_OAUTH_CLIENT_ID is set but GOOGLE_OAUTH_CLIENT_SECRET is empty — set GOOGLE_OAUTH_CLIENT_SECRET to match your client id source.',
+            )
+            raw = cross
+          }
+        }
         break
+      }
       case 'build_time_vite_inline':
         raw =
           typeof __BUILD_TIME_GOOGLE_OAUTH_CLIENT_SECRET__ !== 'undefined'

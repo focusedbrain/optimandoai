@@ -165,6 +165,10 @@ export async function resolveGmailOAuthForConnect(
       hasClientSecret: false,
       usesUserStoredOAuthClient: true,
     })
+    console.warn(
+      '[Gmail OAuth] Advanced OAuth is using a saved client id only (PKCE, no client_secret). ' +
+        'Google "Desktop" OAuth clients require a client_secret on token exchange; sign-in will fail at that step unless you use a client type that does not require it, or add the matching client secret in Advanced settings.',
+    )
     return resolved
   }
   if (builtinMeta) {

@@ -873,7 +873,7 @@ export default function HandshakeWorkspace({
                   Revoke
                 </button>
               )}
-              {(record.state === 'REVOKED' || record.state === 'EXPIRED') && onDelete && (
+              {record.state === 'REVOKED' && onDelete && (
                 <button
                   onClick={onDelete}
                   style={{
@@ -944,12 +944,6 @@ export default function HandshakeWorkspace({
           <div style={{ marginTop: '12px', padding: '14px 16px', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: '8px' }}>
             <div style={{ fontSize: '12px', fontWeight: 600, color: '#ef4444', marginBottom: '4px' }}>Handshake revoked</div>
             <div style={{ fontSize: '11px', color: 'var(--color-text-muted, #94a3b8)' }}>This relationship has been terminated.</div>
-          </div>
-        )}
-        {record.state === 'EXPIRED' && (
-          <div style={{ marginTop: '12px', padding: '14px 16px', background: 'rgba(107,114,128,0.08)', border: '1px solid rgba(107,114,128,0.2)', borderRadius: '8px' }}>
-            <div style={{ fontSize: '12px', fontWeight: 600, color: '#6b7280', marginBottom: '4px' }}>Handshake expired</div>
-            <div style={{ fontSize: '11px', color: 'var(--color-text-muted, #94a3b8)' }}>This relationship has expired.</div>
           </div>
         )}
       </div>

@@ -35,6 +35,7 @@ import {
 import { oauthServerManager } from '../oauth-server'
 import { getCredentialsForOAuth } from '../credentials'
 import {
+  BUILTIN_GMAIL_OAUTH_SECRET_MISSING_WARN,
   logOAuthDiagnostic,
   oauthClientIdFingerprint,
   getPackagedResourceGoogleOAuthClientId,
@@ -711,6 +712,12 @@ export class GmailProvider extends BaseEmailProvider {
       )
       if (oauthConfig.credentialSourceUsed === 'builtin_public') {
         this.standardConnectAuthorizeClientIdFingerprint = oauthClientIdFingerprint(oauthConfig.clientId)
+      }
+      if (oauthConfig.authMode === 'pkce' && !oauthConfig.clientSecret?.trim()) {
+        throw new Error(
+          'Gmail OAuth cannot proceed: client_secret is missing. Ensure the secret is provided via the resource file (google-oauth-client-secret.txt), paired environment variable, or build-time inline. See BUILTIN_GMAIL_OAUTH_SECRET_MISSING_WARN for details.\n' +
+            BUILTIN_GMAIL_OAUTH_SECRET_MISSING_WARN,
+        )
       }
       console.log('[Gmail] Opening OAuth in system browser:', authUrl.substring(0, 100) + '...')
 

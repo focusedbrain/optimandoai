@@ -953,6 +953,14 @@ const HANDSHAKE_MIGRATIONS: Array<{
       `CREATE INDEX IF NOT EXISTS idx_sent_beap_outbox_created ON sent_beap_outbox(created_at DESC)`,
     ],
   },
+  {
+    version: 52,
+    description:
+      'Restore handshakes incorrectly marked EXPIRED by TTL; trust no longer time-bound in DB state',
+    sql: [
+      `UPDATE handshakes SET state = CASE WHEN activated_at IS NOT NULL THEN 'ACTIVE' ELSE 'PENDING_ACCEPT' END WHERE state = 'EXPIRED' AND revoked_at IS NULL`,
+    ],
+  },
 ]
 
 /**
@@ -1433,11 +1441,6 @@ export function listHandshakeRecords(
   if (filter?.state) {
     sql += ' AND state = ?'
     params.push(filter.state)
-    // Align with isHandshakeActive(): ACTIVE rows past expires_at are not listable as active.
-    if (filter.state === 'ACTIVE') {
-      sql += ' AND (expires_at IS NULL OR expires_at > ?)'
-      params.push(new Date().toISOString())
-    }
   }
   if (filter?.relationship_id) {
     sql += ' AND relationship_id = ?'
@@ -1690,40 +1693,16 @@ export function markPlainEmailProcessed(db: any, id: number): void {
 // ── Expiry Helpers ──
 
 /**
- * Expires handshakes past their expires_at deadline.
- *
- * Only **PENDING_ACCEPT** and **ACTIVE** are bulk-expired by this job:
- * - PENDING_ACCEPT: initiator waiting for acceptor response
- * - ACTIVE: fully established handshake past its validity window
- *
- * States NOT expired by this job (by design):
- * - ACCEPTED: context-sync roundtrip not yet complete; should not be
- *   silently expired during active negotiation
- * - PENDING_REVIEW: acceptor reviewing imported capsule
- * - DRAFT: local-only, not yet transmitted
- * - EXPIRED / REVOKED: terminal states
- *
- * Note: Prompt 1's opportunistic expiry in handshake.list also covers
- * ACTIVE→EXPIRED on list fetch, reducing the window between retention runs.
+ * Legacy no-ops: handshakes are no longer transitioned to EXPIRED based on `expires_at`.
+ * Trust remains until explicit revocation (or future compromise detection).
  */
-export function expirePendingHandshakes(db: any, now: Date): number {
-  const result = db.prepare(
-    `UPDATE handshakes SET state = 'EXPIRED'
-     WHERE state = 'PENDING_ACCEPT' AND expires_at IS NOT NULL AND expires_at < ?`
-  ).run(now.toISOString())
-  return result.changes
+export function expirePendingHandshakes(_db: any, _now: Date): number {
+  return 0
 }
 
-/**
- * Companion to {@link expirePendingHandshakes}: ACTIVE → EXPIRED when past expires_at.
- * Same “states NOT bulk-expired” rules apply (see JSDoc on {@link expirePendingHandshakes}).
- */
-export function expireActiveHandshakes(db: any, now: Date): number {
-  const result = db.prepare(
-    `UPDATE handshakes SET state = 'EXPIRED'
-     WHERE state = 'ACTIVE' AND expires_at IS NOT NULL AND expires_at < ?`
-  ).run(now.toISOString())
-  return result.changes
+/** @see {@link expirePendingHandshakes} */
+export function expireActiveHandshakes(_db: any, _now: Date): number {
+  return 0
 }
 
 export function softDeleteExpiredBlocks(db: any, now: Date): number {

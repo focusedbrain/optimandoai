@@ -15,7 +15,6 @@ const STATE_ORDER: AnalysisDashboardHandshakeState[] = [
   'ACCEPTED',
   'ACTIVE',
   'REVOKED',
-  'EXPIRED',
 ]
 
 const STATE_LABELS: Record<AnalysisDashboardHandshakeState, string> = {

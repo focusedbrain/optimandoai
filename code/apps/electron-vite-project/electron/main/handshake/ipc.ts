@@ -543,14 +543,6 @@ export async function handleHandshakeRPC(
     }
 
     case 'handshake.list': {
-      // Self-heal before read: flip ACTIVE→EXPIRED when expires_at is past (aligns with ACTIVE list filter).
-      if (db) {
-        const now = new Date().toISOString()
-        db.prepare(
-          `UPDATE handshakes SET state = 'EXPIRED'
-           WHERE state = 'ACTIVE' AND expires_at IS NOT NULL AND expires_at < ?`,
-        ).run(now)
-      }
       const filter = params?.filter as { state?: HandshakeState; relationship_id?: string } | undefined
       let records = listHandshakeRecords(db, filter)
 

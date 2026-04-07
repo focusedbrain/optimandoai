@@ -1,7 +1,7 @@
 /**
  * HandshakeView — Three-panel layout for the Analysis Dashboard
  *
- * Left:   Relationships list (ACTIVE / REVOKED / EXPIRED) with selection + "New Handshake"
+ * Left:   Relationships list (ACTIVE / REVOKED / …) with selection + "New Handshake"
  * Center: Detail + Chat sidebar scoped to the selected relationship
  * Right:  Pending panel (PENDING_ACCEPT) with accept/decline + .beap upload zone
  */
@@ -175,7 +175,6 @@ export default function HandshakeView({
   const active = handshakes.filter(h => h.state === 'ACTIVE')
   const accepted = handshakes.filter(h => h.state === 'ACCEPTED')
   const revoked = handshakes.filter(h => h.state === 'REVOKED')
-  const expired = handshakes.filter(h => h.state === 'EXPIRED')
   const pending = handshakes.filter(h => h.state === 'PENDING_ACCEPT' || h.state === 'PENDING_REVIEW')
   const pendingIncoming = pending.filter(h => h.local_role === 'acceptor')
   const pendingOutgoing = pending.filter(h => h.local_role === 'initiator')
@@ -375,7 +374,6 @@ export default function HandshakeView({
               {renderGroup('Active', active)}
               {renderGroup('Accepted', accepted)}
               {renderGroup('Revoked', revoked)}
-              {renderGroup('Expired', expired)}
               {handshakes.length === 0 && (
                 <div style={{
                   padding: '28px 16px', textAlign: 'center',
@@ -411,7 +409,7 @@ export default function HandshakeView({
                 vaultWarningEscalated={vaultWarningEscalated}
                 pendingCount={pending.length}
                 onRevoke={(selectedRecord.state === 'ACTIVE' || selectedRecord.state === 'ACCEPTED') ? () => handleRevoke(selectedRecord.handshake_id) : undefined}
-                onDelete={(selectedRecord.state === 'REVOKED' || selectedRecord.state === 'EXPIRED') ? () => handleDelete(selectedRecord.handshake_id) : undefined}
+                onDelete={selectedRecord.state === 'REVOKED' ? () => handleDelete(selectedRecord.handshake_id) : undefined}
                 onPendingClick={() => setPendingOpen(true)}
                 onCapsuleSubmitted={handleCapsuleSubmitted}
                 selectedDocumentId={selectedDocumentId}

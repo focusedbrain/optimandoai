@@ -543,10 +543,6 @@ export function isHandshakeActive(db: any, handshakeId: string, now: Date): bool
   const record = getHandshakeRecord(db, handshakeId)
   if (!record) return false
   if (record.state !== HS.ACTIVE) return false
-  if (record.expires_at) {
-    const expiresAt = Date.parse(record.expires_at)
-    if (!isNaN(expiresAt) && now.getTime() > expiresAt) return false
-  }
   return true
 }
 
@@ -563,12 +559,6 @@ export function diagnoseHandshakeInactive(
   if (!record) return { active: false, reason: 'Handshake not found' }
   if (record.state !== HS.ACTIVE) {
     return { active: false, reason: `Handshake is in state '${record.state}', expected 'ACTIVE'` }
-  }
-  if (record.expires_at) {
-    const expiresAt = Date.parse(record.expires_at)
-    if (!isNaN(expiresAt) && now.getTime() > expiresAt) {
-      return { active: false, reason: `Handshake expired at ${record.expires_at}` }
-    }
   }
   return { active: true }
 }
@@ -599,13 +589,6 @@ export function authorizeAction(
   const record = getHandshakeRecord(db, handshakeId)
   if (!record) return { allowed: false, reason: ReasonCode.HANDSHAKE_NOT_FOUND }
   if (record.state !== HS.ACTIVE) return { allowed: false, reason: ReasonCode.INVALID_STATE_TRANSITION }
-
-  if (record.expires_at) {
-    const expiresAt = Date.parse(record.expires_at)
-    if (!isNaN(expiresAt) && now.getTime() > expiresAt) {
-      return { allowed: false, reason: ReasonCode.HANDSHAKE_EXPIRED }
-    }
-  }
 
   // Sharing mode enforcement for write-context
   if (actionType === 'write-context') {
@@ -807,6 +790,7 @@ function buildContextSyncRecord(
     state: nextState,
     last_seq_received: input.seq,
     last_capsule_hash_received: input.capsule_hash,
+    ...(nextState === HS.ACTIVE ? { expires_at: null } : {}),
   }
 }
 

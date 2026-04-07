@@ -6,7 +6,7 @@
  * Actions per state:
  *   - PENDING_ACCEPT (acceptor): Accept / Decline
  *   - ACTIVE: Send Message / Revoke
- *   - REVOKED/EXPIRED: View only + Delete
+ *   - REVOKED: View only + Delete
  *
  * @version 2.0.0 — added Messages tab (BEAP messages for this handshake)
  */
@@ -521,7 +521,7 @@ export const HandshakeDetailsPanel: React.FC<HandshakeDetailsPanelProps> = ({
                 Revoke
               </button>
             )}
-            {(handshake.state === 'REVOKED' || handshake.state === 'EXPIRED') && onDelete && (
+            {handshake.state === 'REVOKED' && onDelete && (
               <button
                 onClick={() => onDelete(handshake.handshake_id)}
                 style={{ ...buttonStyle, background: 'transparent', border: '1px solid rgba(107,114,128,0.3)', color: '#94a3b8' }}

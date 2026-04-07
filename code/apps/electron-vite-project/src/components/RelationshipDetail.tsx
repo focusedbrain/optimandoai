@@ -2,7 +2,7 @@
  * RelationshipDetail — Detail view for a selected handshake relationship
  *
  * Displays:
- *   - Status badge (ACTIVE / PENDING / REVOKED / EXPIRED)
+ *   - Status badge (ACTIVE / PENDING / REVOKED / …)
  *   - Chain metadata (relationship_id, seq counts, last capsule hash)
  *   - P2P delivery status (per-handshake)
  *   - Capsule count and last activity timestamp
@@ -315,7 +315,7 @@ export default function RelationshipDetail({ record, contextBlockCount, vaultSta
               Revoke
             </button>
           )}
-          {(record.state === 'REVOKED' || record.state === 'EXPIRED') && onDelete && (
+          {record.state === 'REVOKED' && onDelete && (
             <button
               onClick={onDelete}
               style={{
@@ -367,34 +367,6 @@ export default function RelationshipDetail({ record, contextBlockCount, vaultSta
           </div>
           <div style={{ fontSize: '11px', color: 'var(--color-text-muted, #94a3b8)', marginBottom: onDelete ? '12px' : 0 }}>
             This relationship has been terminated. No further capsules can be exchanged.
-          </div>
-          {onDelete && (
-            <button
-              onClick={onDelete}
-              style={{
-                padding: '7px 14px', fontSize: '11px', fontWeight: 600,
-                background: 'rgba(107,114,128,0.2)', color: '#e2e8f0',
-                border: '1px solid rgba(107,114,128,0.4)', borderRadius: '6px',
-                cursor: 'pointer',
-              }}
-            >
-              Delete handshake
-            </button>
-          )}
-        </div>
-      )}
-
-      {record.state === 'EXPIRED' && (
-        <div style={{
-          padding: '14px 16px', marginBottom: '16px',
-          background: 'rgba(107,114,128,0.08)', border: '1px solid rgba(107,114,128,0.2)',
-          borderRadius: '8px',
-        }}>
-          <div style={{ fontSize: '12px', fontWeight: 600, color: '#6b7280', marginBottom: '4px' }}>
-            Handshake expired
-          </div>
-          <div style={{ fontSize: '11px', color: 'var(--color-text-muted, #94a3b8)', marginBottom: onDelete ? '12px' : 0 }}>
-            This relationship has expired. Start a new handshake to re-establish trust.
           </div>
           {onDelete && (
             <button

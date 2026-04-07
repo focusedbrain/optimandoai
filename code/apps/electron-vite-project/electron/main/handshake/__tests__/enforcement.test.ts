@@ -279,14 +279,12 @@ describe('Expiry', () => {
     expect(r.passed).toBe(false)
     if (!r.passed) expect(r.reason).toBe(ReasonCode.EXPIRY_MUTATION_FORBIDDEN)
   })
-  test('expired handshake → HANDSHAKE_EXPIRED', () => {
+  test('past expires_at on record does not block refresh (trust is not calendar-bound)', () => {
     const ctx = buildCtx({
       input: buildVerifiedCapsuleInput({ capsuleType: 'handshake-refresh' }),
       handshakeRecord: buildActiveHandshakeRecord({ expires_at: new Date(Date.now() - 1000).toISOString() }),
     })
-    const r = checkExpiry.execute(ctx)
-    expect(r.passed).toBe(false)
-    if (!r.passed) expect(r.reason).toBe(ReasonCode.HANDSHAKE_EXPIRED)
+    expect(checkExpiry.execute(ctx).passed).toBe(true)
   })
   test('accept on PENDING_ACCEPT with past expires_at → allowed (user accepting resets clock)', () => {
     const ctx = buildCtx({
