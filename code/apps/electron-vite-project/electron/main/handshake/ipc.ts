@@ -70,6 +70,11 @@ import { semanticSearch } from './embeddings'
 import { validateReceiverEmail } from '../../../../../packages/shared/src/handshake/receiverEmailValidation'
 import { vaultService } from '../vault/rpc'
 import { USER_PACKAGE_BUILDER_SEND_SOURCE } from '../email/mergeExtensionDepackaged'
+import {
+  getDeviceX25519PublicKey,
+  getDeviceX25519KeyPair,
+  DeviceKeyNotFoundError,
+} from '../device-keys/deviceKeyStore'
 
 // ── Key Agreement: always generate paired keys in main process (qBEAP decrypt requires local secrets) ──
 
@@ -1782,14 +1787,54 @@ export async function handleHandshakeRPC(
       }
     }
 
+    case 'beap.getDevicePublicKey': {
+      try {
+        const publicKey = await getDeviceX25519PublicKey()
+        return { success: true, publicKey }
+      } catch (e) {
+        if (e instanceof DeviceKeyNotFoundError) {
+          return { success: false, error: e.message, code: e.code }
+        }
+        console.error('[IPC] beap.getDevicePublicKey failed:', e)
+        return { success: false, error: String(e) }
+      }
+    }
+
+    case 'beap.deriveSharedSecret': {
+      const peerPublicKeyB64 = typeof params.peerPublicKeyB64 === 'string' ? params.peerPublicKeyB64.trim() : ''
+      const handshakeId = typeof params.handshakeId === 'string' ? params.handshakeId.trim() : '(unknown)'
+      if (!peerPublicKeyB64) {
+        return { success: false, error: 'peerPublicKeyB64 is required' }
+      }
+      try {
+        const { privateKey } = await getDeviceX25519KeyPair()
+        const privateKeyBytes = Buffer.from(privateKey, 'base64')
+        const peerPublicKeyBytes = Buffer.from(peerPublicKeyB64, 'base64')
+        if (privateKeyBytes.length !== 32) {
+          return { success: false, error: `Invalid device private key length: ${privateKeyBytes.length}` }
+        }
+        if (peerPublicKeyBytes.length !== 32) {
+          return { success: false, error: `Invalid peer public key length: ${peerPublicKeyBytes.length}` }
+        }
+        const sharedSecret = x25519.getSharedSecret(privateKeyBytes, peerPublicKeyBytes)
+        console.log(`[IPC] beap.deriveSharedSecret: ECDH completed for handshake ${handshakeId}`)
+        return {
+          success: true,
+          sharedSecretB64: Buffer.from(sharedSecret).toString('base64'),
+        }
+      } catch (e) {
+        if (e instanceof DeviceKeyNotFoundError) {
+          return { success: false, error: e.message, code: e.code }
+        }
+        console.error('[IPC] beap.deriveSharedSecret failed:', e)
+        return { success: false, error: String(e) }
+      }
+    }
+
     default:
       return { error: 'unknown_method', reason: ReasonCode.INTERNAL_ERROR }
   }
 }
-
-/**
- * Register handshake HTTP routes on an Express app.
- */
 export function registerHandshakeRoutes(app: any, getDb: () => any): void {
   app.get('/api/handshake/status/:id', (req: any, res: any) => {
     try {

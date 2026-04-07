@@ -59,7 +59,6 @@
 
 const STORAGE_KEY_VAULT = 'beap_ed25519_signing_vault'
 const STORAGE_KEY_ARCHIVE = 'beap_ed25519_signing_vault_archive'
-const X25519_STORAGE_KEY = 'beap_x25519_device_keypair'
 
 /** AES-256-GCM nonce length (12 bytes). */
 const GCM_NONCE_BYTES = 12
@@ -106,10 +105,12 @@ interface VaultRecord {
   createdAt: number
   /**
    * Encryption method tag.
-   * 'device_x25519_hkdf' means the DEK is derived from the X25519 private key
-   * (device-anchor — no user password required).
+   * 'fallback_ikm_hkdf' means the DEK is derived from the stable fallback IKM
+   * stored in chrome.storage.local (no user password required).
+   * Legacy value 'device_x25519_hkdf' is accepted for backwards compatibility
+   * (those records will fail to decrypt and trigger key regeneration).
    */
-  encMethod: 'device_x25519_hkdf'
+  encMethod: 'fallback_ikm_hkdf' | 'device_x25519_hkdf'
 }
 
 /**
@@ -192,38 +193,14 @@ async function sha256Vault(data: Uint8Array): Promise<string> {
 /**
  * Derive the Data Encryption Key for the signing vault.
  *
- * The DEK is deterministically derived from the device's X25519 private key
- * (already stored in chrome.storage.local) via HKDF-SHA256. This gives
- * encryption at rest without requiring an interactive user password.
+ * IKM is a stable 32-byte random value stored in chrome.storage.local as
+ * `beap_signing_vault_ikm_fallback`. On first run it is generated and persisted.
  *
- * If the X25519 keypair is not found (first-run race condition), falls back to
- * a device-bound random salt stored alongside the vault record. The DEK is
- * NEVER stored directly — only derived on demand.
+ * The X25519 private key is no longer used as IKM — it was migrated to the
+ * Electron orchestrator DB and is no longer accessible from the extension.
  */
 async function deriveEncryptionKey(): Promise<CryptoKey> {
-  // Load the X25519 device private key as the HKDF input key material.
-  let ikmBytes: Uint8Array
-
-  try {
-    let x25519Raw: { privateKey: string } | null = null
-
-    if (typeof chrome !== 'undefined' && chrome.storage?.local) {
-      const result = await chrome.storage.local.get(X25519_STORAGE_KEY)
-      x25519Raw = result[X25519_STORAGE_KEY] ?? null
-    } else {
-      const stored = localStorage.getItem(X25519_STORAGE_KEY)
-      x25519Raw = stored ? JSON.parse(stored) : null
-    }
-
-    if (x25519Raw?.privateKey) {
-      ikmBytes = fromBase64Vault(x25519Raw.privateKey)
-    } else {
-      // Fallback: use a device-level random material stored in extension storage.
-      ikmBytes = await getOrCreateFallbackIKM()
-    }
-  } catch {
-    ikmBytes = await getOrCreateFallbackIKM()
-  }
+  const ikmBytes = await getOrCreateFallbackIKM()
 
   // Import the raw bytes as HKDF key material.
   const ikm = await crypto.subtle.importKey(
@@ -429,7 +406,7 @@ export async function storeSigningKeyPair(
     ciphertext,
     keyId: keypair.keyId,
     createdAt: keypair.createdAt,
-    encMethod: 'device_x25519_hkdf',
+    encMethod: 'fallback_ikm_hkdf',
   }
 
   await writeVaultRecord(record)
@@ -523,7 +500,7 @@ export async function rotateSigningKeyPair(): Promise<KeyRotationResult> {
     ciphertext,
     keyId: oldKeypair.keyId,
     createdAt: oldKeypair.createdAt,
-    encMethod: 'device_x25519_hkdf',
+    encMethod: 'fallback_ikm_hkdf',
     rotatedOutAt: Date.now(),
   }
 

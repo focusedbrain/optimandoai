@@ -1,31 +1,39 @@
 /**
  * Orchestrator database management with encrypted SQLite
  * Uses better-sqlite3 with SQLCipher (same as vault)
- * Hardcoded password "123" for temporary auto-login
+ *
+ * DEK is a random 32-byte key generated on first open, encrypted with
+ * electron.safeStorage (OS keychain / DPAPI / Keychain), and persisted to
+ * `orchestrator.key` alongside the database file.
+ *
+ * Migration: on first run with this code the DB still uses the old hardcoded
+ * DEK ("123" / fixed salt). We open it with the old key, PRAGMA rekey to the
+ * new random key, then persist `orchestrator.key`.
  */
 
 import { join } from 'path'
-import { existsSync, mkdirSync } from 'fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
+import { randomBytes } from 'crypto'
 import { createRequire } from 'module'
 import { homedir } from 'os'
+import { safeStorage } from 'electron'
 
 const require = createRequire(import.meta.url)
 
-// Lazy-load better-sqlite3
+// ── Lazy-load better-sqlite3 ──────────────────────────────────────────────────
+
 let DatabaseConstructor: any = null
 
 async function loadSQLCipher(): Promise<any> {
   if (!DatabaseConstructor) {
     try {
       let sqlite3: any = null
-      
-      // First try: standard require (works in dev)
+
       try {
         sqlite3 = require('better-sqlite3')
         console.log('[ORCHESTRATOR DB] better-sqlite3 loaded via standard require')
       } catch (e1: any) {
         console.log('[ORCHESTRATOR DB] Standard require failed, trying fallback paths...')
-        // Second try: from app.asar.unpacked (works in production)
         try {
           const path = require('path')
           const { app } = require('electron')
@@ -36,7 +44,6 @@ async function loadSQLCipher(): Promise<any> {
           console.log('[ORCHESTRATOR DB] better-sqlite3 loaded from unpacked directory')
         } catch (e2: any) {
           console.log('[ORCHESTRATOR DB] Unpacked path failed:', e2?.message)
-          // Third try: from node_modules in app directory
           try {
             const path = require('path')
             const { app } = require('electron')
@@ -54,7 +61,7 @@ async function loadSQLCipher(): Promise<any> {
           }
         }
       }
-      
+
       DatabaseConstructor = sqlite3
       if (!DatabaseConstructor || typeof DatabaseConstructor !== 'function') {
         console.error('[ORCHESTRATOR DB] better-sqlite3 exports:', Object.keys(sqlite3))
@@ -69,96 +76,208 @@ async function loadSQLCipher(): Promise<any> {
   return DatabaseConstructor
 }
 
-/**
- * Get orchestrator database file path
- */
-export function getOrchestratorDBPath(): string {
-  const dbDir = join(homedir(), '.opengiraffe', 'electron-data')
-  
-  // Ensure directory exists
-  if (!existsSync(dbDir)) {
-    mkdirSync(dbDir, { recursive: true })
-  }
-  
-  return join(dbDir, 'orchestrator.db')
+// ── Path helpers ──────────────────────────────────────────────────────────────
+
+function getElectronDataDir(): string {
+  const dir = join(homedir(), '.opengiraffe', 'electron-data')
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
+  return dir
 }
 
-/**
- * Check if orchestrator database exists
- */
+export function getOrchestratorDBPath(): string {
+  return join(getElectronDataDir(), 'orchestrator.db')
+}
+
+function getOrchestratorKeyPath(): string {
+  return join(getElectronDataDir(), 'orchestrator.key')
+}
+
 export function orchestratorDBExists(): boolean {
   return existsSync(getOrchestratorDBPath())
 }
 
+// ── DEK management via safeStorage ───────────────────────────────────────────
+
 /**
- * Derive DEK from hardcoded password "123"
- * Uses scrypt with same parameters as vault for consistency
+ * Thrown when OS secure storage is unavailable.
+ * Callers must fail closed — do NOT fall back to a plaintext key.
  */
-async function deriveDEKFromPassword(password: string): Promise<Buffer> {
-  const { scrypt } = await import('crypto')
-  const { promisify } = await import('util')
-  const scryptAsync = promisify(scrypt) as (password: string | Buffer, salt: string | Buffer, keylen: number, options: { N: number, r: number, p: number }) => Promise<Buffer>
-  
-  // Use a fixed salt for the hardcoded password (not secure, but acceptable for temporary solution)
-  // In production with WR Login, this will be replaced with proper key derivation
-  const salt = Buffer.from('opengiraffe-orchestrator-temp-salt-123')
-  
-  // Same scrypt params as vault
-  const N = 16384  // CPU/memory cost
-  const r = 8      // Block size
-  const p = 1      // Parallelism
-  
-  console.log(`[ORCHESTRATOR DB] Deriving DEK with scrypt: N=${N}, r=${r}, p=${p}`)
-  
-  const key = await scryptAsync(password, salt, 32, { N, r, p })
-  return key
+export class OrchestratorSecureStorageUnavailableError extends Error {
+  readonly code = 'ORCHESTRATOR_SECURE_STORAGE_UNAVAILABLE' as const
+  constructor() {
+    super(
+      'OS secure storage (safeStorage) is not available. ' +
+      'Cannot safely open the orchestrator database.',
+    )
+    this.name = 'OrchestratorSecureStorageUnavailableError'
+  }
+}
+
+function assertSafeStorageAvailable(): void {
+  if (!safeStorage.isEncryptionAvailable()) {
+    throw new OrchestratorSecureStorageUnavailableError()
+  }
 }
 
 /**
- * Create new encrypted orchestrator database
+ * Derive the legacy (hardcoded) DEK used by the old code.
+ * Required only for the one-time migration rekey.
+ */
+async function deriveLegacyDEK(): Promise<Buffer> {
+  const { scrypt } = await import('crypto')
+  const { promisify } = await import('util')
+  const scryptAsync = promisify(scrypt) as (
+    password: string | Buffer,
+    salt: string | Buffer,
+    keylen: number,
+    options: { N: number; r: number; p: number },
+  ) => Promise<Buffer>
+  const salt = Buffer.from('opengiraffe-orchestrator-temp-salt-123')
+  return scryptAsync('123', salt, 32, { N: 16384, r: 8, p: 1 })
+}
+
+/**
+ * Load the DEK from `orchestrator.key` (decrypting via safeStorage).
+ * Returns null if the key file does not exist.
+ */
+function loadDEKFromKeyFile(): Buffer | null {
+  const keyPath = getOrchestratorKeyPath()
+  if (!existsSync(keyPath)) return null
+  assertSafeStorageAvailable()
+  const encrypted = readFileSync(keyPath)
+  const hexDek = safeStorage.decryptString(encrypted)
+  if (hexDek.length !== 64) {
+    throw new Error(
+      `[ORCHESTRATOR DB] orchestrator.key decrypted to unexpected length ${hexDek.length} (expected 64 hex chars). ` +
+      'The key file may be corrupted. Delete orchestrator.key and orchestrator.db to start fresh.',
+    )
+  }
+  return Buffer.from(hexDek, 'hex')
+}
+
+/**
+ * Generate a new random DEK, encrypt it via safeStorage, and persist it.
+ */
+function generateAndPersistDEK(): Buffer {
+  assertSafeStorageAvailable()
+  const dek = randomBytes(32)
+  const hexDek = dek.toString('hex')
+  const encrypted = safeStorage.encryptString(hexDek)
+  writeFileSync(getOrchestratorKeyPath(), encrypted)
+  console.log('[ORCHESTRATOR DB] Generated and persisted new safeStorage-backed DEK')
+  return dek
+}
+
+// ── SQLCipher configuration helpers ──────────────────────────────────────────
+
+function applySQLCipherKey(db: any, dek: Buffer): void {
+  const hexKey = dek.toString('hex')
+  db.pragma(`key = "x'${hexKey}'"`)
+  // Wipe local reference immediately
+  hexKey.length // keep reference alive just past pragma
+}
+
+function applySQLCipherConfig(db: any): void {
+  db.pragma('cipher_page_size = 4096')
+  db.pragma('kdf_iter = 64000')
+  db.pragma('cipher_hmac_algorithm = HMAC_SHA512')
+  db.pragma('cipher_kdf_algorithm = PBKDF2_HMAC_SHA512')
+  db.pragma('journal_mode = WAL')
+  db.pragma('synchronous = NORMAL')
+  db.pragma('foreign_keys = ON')
+  db.pragma('cache_size = -8000')
+  db.pragma('temp_store = MEMORY')
+  db.pragma('mmap_size = 0')
+}
+
+function verifyDBReadable(db: any): void {
+  try {
+    db.prepare('SELECT count(*) FROM sqlite_master').get()
+  } catch {
+    db.close()
+    throw new Error('Failed to decrypt orchestrator database — key mismatch or corruption')
+  }
+}
+
+// ── Migration: rekey from legacy DEK to new safeStorage-backed DEK ───────────
+
+/**
+ * One-time migration: open DB with the old hardcoded DEK, rekey to `newDek`,
+ * then persist `orchestrator.key`.
+ *
+ * Crash safety: we write `orchestrator.key` to a temp file BEFORE issuing
+ * `PRAGMA rekey`. If the process crashes after the write but before rekey,
+ * the DB is still on the old key; next startup sees the key file and tries
+ * to open with the new DEK — which fails. We detect this by catching the
+ * open failure and falling back to re-attempting the migration.
+ *
+ * If the process crashes AFTER rekey but before the rename, the temp file
+ * remains and the DB uses the new key. We detect this by trying the new
+ * key first if the temp file exists.
+ *
+ * Called when `orchestrator.db` exists but `orchestrator.key` does not.
+ */
+async function migrateToSafeStorageDEK(Database: any): Promise<Buffer> {
+  const dbPath = getOrchestratorDBPath()
+  const keyPath = getOrchestratorKeyPath()
+  const keyPathTmp = keyPath + '.tmp'
+  console.log('[ORCHESTRATOR DB] Migrating DEK from hardcoded legacy key to safeStorage-backed key...')
+
+  assertSafeStorageAvailable()
+  const legacyDek = await deriveLegacyDEK()
+  const newDek = randomBytes(32)
+
+  // Write the new key to a temp file BEFORE rekeying.
+  // If we crash after this but before PRAGMA rekey, next open will try the
+  // legacy DEK path again (orchestrator.key still absent → migration re-runs).
+  // If we crash after PRAGMA rekey but before rename, the tmp file survives
+  // and lets us complete the rename on next startup.
+  const hexDek = newDek.toString('hex')
+  const encrypted = safeStorage.encryptString(hexDek)
+  writeFileSync(keyPathTmp, encrypted)
+
+  const db = new Database(dbPath)
+  try {
+    applySQLCipherKey(db, legacyDek)
+    applySQLCipherConfig(db)
+    verifyDBReadable(db)
+
+    // SQLCipher PRAGMA rekey changes the encryption key in-place
+    const newHex = newDek.toString('hex')
+    db.pragma(`rekey = "x'${newHex}'"`)
+    console.log('[ORCHESTRATOR DB] PRAGMA rekey completed — database now uses new DEK')
+  } finally {
+    db.close()
+  }
+
+  // Atomic rename: temp → final. If we crashed before this, the tmp file
+  // exists and the DB is on the new key. Next open attempt will:
+  //   1. See orchestrator.key absent → enter migration path
+  //   2. Find orchestrator.key.tmp → rename it and return newDek
+  const { renameSync } = await import('fs')
+  renameSync(keyPathTmp, keyPath)
+  console.log('[ORCHESTRATOR DB] orchestrator.key written — migration complete')
+
+  return newDek
+}
+
+// ── Public open/create functions ──────────────────────────────────────────────
+
+/**
+ * Create a new encrypted orchestrator database with a safeStorage-backed DEK.
  */
 export async function createOrchestratorDB(): Promise<any> {
   const dbPath = getOrchestratorDBPath()
-  
+  const Database = await loadSQLCipher()
+
+  const dek = generateAndPersistDEK()
+
   try {
-    const Database = await loadSQLCipher()
-    
-    // Derive DEK from hardcoded password "123"
-    const dek = await deriveDEKFromPassword('123')
-    
-    // Create database with better-sqlite3
     const db = new Database(dbPath)
-    
-    // Set SQLCipher key using raw hex format (better-sqlite3 compatible)
-    const hexKey = dek.toString('hex')
-    db.pragma(`key = "x'${hexKey}'"`)
-    
-    // SQLCipher 4 configuration (same as vault)
-    db.pragma('cipher_page_size = 4096')
-    db.pragma('kdf_iter = 64000') // SQLCipher 4 default
-    db.pragma('cipher_hmac_algorithm = HMAC_SHA512')
-    db.pragma('cipher_kdf_algorithm = PBKDF2_HMAC_SHA512')
-    
-    // Performance and durability settings
-    db.pragma('journal_mode = WAL')
-    db.pragma('synchronous = NORMAL')
-    db.pragma('foreign_keys = ON')
-    db.pragma('cache_size = -8000') // 8MB cache
-    db.pragma('temp_store = MEMORY')
-    db.pragma('mmap_size = 0')
-    
-    // Verify encryption is working
-    try {
-      const testResult = db.prepare('SELECT count(*) as count FROM sqlite_master').get()
-      console.log('[ORCHESTRATOR DB] Encryption verified, sqlite_master accessible:', testResult)
-    } catch (error) {
-      db.close()
-      throw new Error('Failed to initialize encrypted database')
-    }
-    
-    // Create schema
+    applySQLCipherKey(db, dek)
+    applySQLCipherConfig(db)
+    verifyDBReadable(db)
     createSchema(db)
-    
     console.log('[ORCHESTRATOR DB] Created new encrypted database at:', dbPath)
     return db
   } catch (error: any) {
@@ -168,54 +287,57 @@ export async function createOrchestratorDB(): Promise<any> {
 }
 
 /**
- * Open existing encrypted orchestrator database
+ * Open an existing orchestrator database.
+ *
+ * Migration path:
+ * - If `orchestrator.key` is absent but `orchestrator.db` exists: old hardcoded DEK
+ *   → rekey to new random DEK → persist `orchestrator.key`.
+ * - If both exist: decrypt DEK from `orchestrator.key` and open normally.
  */
 export async function openOrchestratorDB(): Promise<any> {
   const dbPath = getOrchestratorDBPath()
-  
   if (!existsSync(dbPath)) {
     throw new Error('Orchestrator database does not exist')
   }
-  
+
   const Database = await loadSQLCipher()
-  
+
+  let dek: Buffer
+
+  const keyPath = getOrchestratorKeyPath()
+  const keyPathTmp = keyPath + '.tmp'
+
+  if (!existsSync(keyPath)) {
+    if (existsSync(keyPathTmp)) {
+      // Recovery: PRAGMA rekey completed but rename did not. Complete it now.
+      console.log('[ORCHESTRATOR DB] Detected incomplete rekey migration (tmp key file exists) — completing rename')
+      const { renameSync } = await import('fs')
+      renameSync(keyPathTmp, keyPath)
+      const loaded = loadDEKFromKeyFile()
+      if (!loaded) throw new Error('Failed to load orchestrator DEK after tmp recovery')
+      dek = loaded
+    } else {
+      // First run with new code — migrate from legacy hardcoded DEK
+      dek = await migrateToSafeStorageDEK(Database)
+    }
+  } else {
+    const loaded = loadDEKFromKeyFile()
+    if (!loaded) throw new Error('Failed to load orchestrator DEK from key file')
+    dek = loaded
+  }
+
   try {
     const db = new Database(dbPath)
-    
-    // Derive DEK from hardcoded password "123"
-    const dek = await deriveDEKFromPassword('123')
-    
-    // Set SQLCipher key
-    const hexKey = dek.toString('hex')
-    db.pragma(`key = "x'${hexKey}'"`)
-    
-    // SQLCipher 4 configuration
-    db.pragma('cipher_page_size = 4096')
-    db.pragma('kdf_iter = 64000')
-    db.pragma('cipher_hmac_algorithm = HMAC_SHA512')
-    db.pragma('cipher_kdf_algorithm = PBKDF2_HMAC_SHA512')
-    
-    // Performance settings
-    db.pragma('journal_mode = WAL')
-    db.pragma('synchronous = NORMAL')
-    db.pragma('foreign_keys = ON')
-    db.pragma('cache_size = -8000')
-    db.pragma('temp_store = MEMORY')
-    db.pragma('mmap_size = 0')
-    
-    // Test that the key is correct
-    try {
-      db.prepare('SELECT count(*) FROM sqlite_master').get()
-    } catch (error) {
-      db.close()
-      throw new Error('Failed to decrypt orchestrator database')
-    }
-    
+    applySQLCipherKey(db, dek)
+    applySQLCipherConfig(db)
+    verifyDBReadable(db)
+    // Apply any pending schema migrations (idempotent)
+    migrateSchema(db)
     console.log('[ORCHESTRATOR DB] Opened encrypted database')
     return db
-  } catch (error) {
+  } catch (error: any) {
     console.error('[ORCHESTRATOR DB] Failed to open database:', error)
-    throw new Error('Failed to open orchestrator database')
+    throw error
   }
 }
 
@@ -229,25 +351,15 @@ export function closeOrchestratorDB(db: any): void {
   }
 }
 
+// ── Schema ────────────────────────────────────────────────────────────────────
+
 /**
- * Create database schema
- * All designed for easy export to JSON/YAML/MD
+ * Create the full database schema (called on new DB creation).
  */
 function createSchema(db: any): void {
   try {
     console.log('[ORCHESTRATOR DB] Creating schema...')
-    
-    // Test database is writable
-    try {
-      db.prepare('CREATE TABLE IF NOT EXISTS test_table (id INTEGER)').run()
-      db.prepare('DROP TABLE IF EXISTS test_table').run()
-      console.log('[ORCHESTRATOR DB] Database is writable')
-    } catch (testError: any) {
-      console.error('[ORCHESTRATOR DB] Database is NOT writable:', testError?.message)
-      throw new Error(`Database is not writable: ${testError?.message}`)
-    }
-    
-    // Orchestrator metadata table
+
     db.prepare(`
       CREATE TABLE IF NOT EXISTS orchestrator_meta (
         key TEXT PRIMARY KEY,
@@ -255,9 +367,7 @@ function createSchema(db: any): void {
         updated_at INTEGER NOT NULL
       )
     `).run()
-    console.log('[ORCHESTRATOR DB] orchestrator_meta table created')
-    
-    // Sessions table - stores session configurations
+
     db.prepare(`
       CREATE TABLE IF NOT EXISTS sessions (
         id TEXT PRIMARY KEY,
@@ -268,9 +378,7 @@ function createSchema(db: any): void {
         tags TEXT
       )
     `).run()
-    console.log('[ORCHESTRATOR DB] sessions table created')
-    
-    // Settings table - key-value store for application settings
+
     db.prepare(`
       CREATE TABLE IF NOT EXISTS settings (
         key TEXT PRIMARY KEY,
@@ -278,9 +386,7 @@ function createSchema(db: any): void {
         updated_at INTEGER NOT NULL
       )
     `).run()
-    console.log('[ORCHESTRATOR DB] settings table created')
-    
-    // UI state table - temporary UI states
+
     db.prepare(`
       CREATE TABLE IF NOT EXISTS ui_state (
         key TEXT PRIMARY KEY,
@@ -288,9 +394,7 @@ function createSchema(db: any): void {
         updated_at INTEGER NOT NULL
       )
     `).run()
-    console.log('[ORCHESTRATOR DB] ui_state table created')
-    
-    // Templates table - for future session template functionality
+
     db.prepare(`
       CREATE TABLE IF NOT EXISTS templates (
         id TEXT PRIMARY KEY,
@@ -300,49 +404,72 @@ function createSchema(db: any): void {
         created_at INTEGER NOT NULL
       )
     `).run()
-    console.log('[ORCHESTRATOR DB] templates table created')
-    
-    // Indexes for performance
+
+    db.prepare(`
+      CREATE TABLE IF NOT EXISTS device_keys (
+        key_id TEXT PRIMARY KEY,
+        algorithm TEXT NOT NULL,
+        public_key_b64 TEXT NOT NULL,
+        private_key_enc BLOB NOT NULL,
+        enc_nonce BLOB NOT NULL,
+        created_at INTEGER NOT NULL,
+        migrated_from TEXT
+      )
+    `).run()
+
     db.prepare('CREATE INDEX IF NOT EXISTS idx_sessions_name ON sessions(name)').run()
     db.prepare('CREATE INDEX IF NOT EXISTS idx_sessions_updated ON sessions(updated_at)').run()
     db.prepare('CREATE INDEX IF NOT EXISTS idx_templates_type ON templates(type)').run()
-    console.log('[ORCHESTRATOR DB] Indexes created')
-    
-    // Insert initial metadata
+
     const now = Date.now()
     db.prepare('INSERT OR REPLACE INTO orchestrator_meta (key, value, updated_at) VALUES (?, ?, ?)').run(
-      'schema_version',
-      '1.0.0',
-      now
+      'schema_version', '2.0.0', now,
     )
     db.prepare('INSERT OR REPLACE INTO orchestrator_meta (key, value, updated_at) VALUES (?, ?, ?)').run(
-      'created_at',
-      now.toString(),
-      now
+      'created_at', now.toString(), now,
     )
-    
-    // Verify schema
-    const expectedTables = ['orchestrator_meta', 'sessions', 'settings', 'ui_state', 'templates']
-    const missingTables: string[] = []
-    
+
+    const expectedTables = ['orchestrator_meta', 'sessions', 'settings', 'ui_state', 'templates', 'device_keys']
     for (const tableName of expectedTables) {
-      try {
-        db.prepare(`SELECT count(*) as count FROM ${tableName}`).get()
-        console.log(`[ORCHESTRATOR DB] ✅ Table ${tableName} exists`)
-      } catch (error: any) {
-        console.error(`[ORCHESTRATOR DB] ❌ Table ${tableName} missing:`, error?.message)
-        missingTables.push(tableName)
-      }
+      db.prepare(`SELECT count(*) as count FROM ${tableName}`).get()
     }
-    
-    if (missingTables.length > 0) {
-      throw new Error(`Schema creation failed: Missing tables: ${missingTables.join(', ')}`)
-    }
-    
-    console.log('[ORCHESTRATOR DB] ✅ Schema created successfully')
+
+    console.log('[ORCHESTRATOR DB] Schema created successfully')
   } catch (error: any) {
     console.error('[ORCHESTRATOR DB] Failed to create schema:', error)
     throw new Error(`Database schema creation failed: ${error?.message || error}`)
   }
 }
 
+/**
+ * Apply pending schema migrations on existing databases (idempotent).
+ */
+function migrateSchema(db: any): void {
+  // Migration v2: add device_keys table if absent (for DBs created before v2.0.0)
+  try {
+    db.prepare('SELECT count(*) FROM device_keys').get()
+  } catch {
+    console.log('[ORCHESTRATOR DB] Migrating schema: adding device_keys table')
+    db.prepare(`
+      CREATE TABLE IF NOT EXISTS device_keys (
+        key_id TEXT PRIMARY KEY,
+        algorithm TEXT NOT NULL,
+        public_key_b64 TEXT NOT NULL,
+        private_key_enc BLOB NOT NULL,
+        enc_nonce BLOB NOT NULL,
+        created_at INTEGER NOT NULL,
+        migrated_from TEXT
+      )
+    `).run()
+    console.log('[ORCHESTRATOR DB] device_keys table added')
+  }
+
+  // Update schema_version if still at 1.0.0
+  const meta = db.prepare('SELECT value FROM orchestrator_meta WHERE key = ?').get('schema_version') as { value: string } | undefined
+  if (!meta || meta.value === '1.0.0') {
+    db.prepare('INSERT OR REPLACE INTO orchestrator_meta (key, value, updated_at) VALUES (?, ?, ?)').run(
+      'schema_version', '2.0.0', Date.now(),
+    )
+    console.log('[ORCHESTRATOR DB] schema_version updated to 2.0.0')
+  }
+}

@@ -13,8 +13,7 @@
  */
 
 import {
-  getOrCreateDeviceKeypair,
-  type X25519KeyPair
+  getDeviceX25519PublicKey,
 } from '../beap-messages/services/x25519KeyAgreement'
 import {
   sha256Hex,
@@ -92,17 +91,24 @@ export async function getOurIdentity(): Promise<OurIdentity> {
     return _cachedIdentity
   }
   
-  // Get or create the device keypair
-  const keypair: X25519KeyPair = await getOrCreateDeviceKeypair()
+  // Get device public key from Electron orchestrator DB (throws if absent — never regenerates)
+  const publicKey = await getDeviceX25519PublicKey()
   
   // Derive fingerprint from public key
-  const fingerprint = await deriveFingerprintFromX25519(keypair.publicKey)
+  const fingerprint = await deriveFingerprintFromX25519(publicKey)
+
+  // Compute a stable keyId (first 16 hex chars of SHA-256 of public key bytes)
+  const { fromBase64: fb64 } = await import('../beap-messages/services/beapCrypto')
+  const pubKeyBytes = fb64(publicKey)
+  const { sha256Hex } = await import('../beap-messages/services/beapCrypto')
+  const hash = await sha256Hex(pubKeyBytes)
+  const keyId = hash.substring(0, 16)
   
   // Build identity
   _cachedIdentity = {
     fingerprint,
-    x25519PublicKeyB64: keypair.publicKey,
-    localX25519KeyId: keypair.keyId
+    x25519PublicKeyB64: publicKey,
+    localX25519KeyId: keyId,
   }
   
   console.log('[HandshakeService] Identity loaded:', {

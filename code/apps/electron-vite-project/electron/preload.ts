@@ -760,6 +760,26 @@ contextBridge.exposeInMainWorld('beap', {
       error?: string
     }>
   },
+  /** Get the X25519 device public key from the orchestrator DB (no private key exposed to renderer). */
+  getDevicePublicKey: (): Promise<{ success: boolean; publicKey?: string; error?: string; code?: string }> =>
+    ipcRenderer.invoke('beap:getDevicePublicKey'),
+  /**
+   * Perform X25519 ECDH in the main process.
+   * The private key never leaves main — only the shared secret is returned.
+   */
+  deriveSharedSecret: (args: { peerPublicKeyB64: string; handshakeId: string }): Promise<{
+    success: boolean
+    sharedSecretB64?: string
+    error?: string
+    code?: string
+  }> => {
+    if (!args || typeof args !== 'object') throw new Error('deriveSharedSecret: expected object')
+    const peer = typeof args.peerPublicKeyB64 === 'string' ? args.peerPublicKeyB64.trim() : ''
+    const hs = typeof args.handshakeId === 'string' ? args.handshakeId.trim() : ''
+    if (!peer || peer.length > 100) throw new Error('peerPublicKeyB64: expected base64 string (max 100 chars)')
+    if (!hs || hs.length > 200) throw new Error('handshakeId: expected string (max 200 chars)')
+    return ipcRenderer.invoke('beap:deriveSharedSecret', { peerPublicKeyB64: peer, handshakeId: hs })
+  },
 })
 
 // ── Sent BEAP outbox (ledger DB; previews only) ────────────────────────────

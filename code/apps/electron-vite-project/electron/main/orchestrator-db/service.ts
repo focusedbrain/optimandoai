@@ -93,6 +93,15 @@ export class OrchestratorService {
     }
   }
 
+  /**
+   * Expose the raw better-sqlite3 DB handle for modules that need direct SQL
+   * access (e.g. deviceKeyStore). Callers must call ensureConnected first.
+   */
+  async getRawDb(): Promise<any> {
+    await this.ensureConnected()
+    return this.db
+  }
+
   // ==========================================================================
   // Generic Key-Value Operations (Chrome Storage Compatible)
   // ==========================================================================

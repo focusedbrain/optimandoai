@@ -218,9 +218,7 @@ export {
   type X25519KeyPair,
   type X25519KeyAgreementResult,
   
-  // Key Generation & Storage
-  generateX25519KeyPair,
-  getOrCreateDeviceKeypair,
+  // Key operations (IPC-backed — private key lives in Electron main)
   getDeviceX25519PublicKey,
   
   // Key Agreement

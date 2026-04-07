@@ -1211,7 +1211,10 @@ async function buildQBeapPackage(config: BeapPackageConfig): Promise<PackageBuil
   }))
   
   // Step 1: X25519 ECDH (classical component)
-  const ecdhResult = await deriveSharedSecretX25519(recipient.peerX25519PublicKey!)
+  const ecdhResult = await deriveSharedSecretX25519(
+    recipient.peerX25519PublicKey!,
+    config.selectedRecipient?.handshake_id ?? 'unknown',
+  )
   
   // Step 2: ML-KEM-768 encapsulation (post-quantum component)
   // This call enforces PQ requirement - will throw PQNotAvailableError if not installed
