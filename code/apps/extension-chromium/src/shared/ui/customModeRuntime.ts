@@ -4,12 +4,8 @@
  */
 
 import type { WrExpertParsedProfile } from '../../utils/parseWrExpertMarkdown'
-import type { CustomModeDefinition, DetectionScanModePreset, SessionMode } from './customModeTypes'
-import {
-  getCustomModeScopeFromMetadata,
-  getDetectionScanMode,
-  getExternalWebVerificationEnabled,
-} from './customModeTypes'
+import type { CustomModeDefinition, SessionMode } from './customModeTypes'
+import { getCustomModeScopeFromMetadata } from './customModeTypes'
 
 export interface CustomModeRuntimeConfig {
   modeId: string
@@ -26,10 +22,6 @@ export interface CustomModeRuntimeConfig {
   scopeUrls: string[]
   /** Optional folder paths for desktop file-change diff triggers. */
   diffWatchFolders: string[]
-  /** Detection wizard: scan preset (quick / structured page / verified research). */
-  detectionScanMode: DetectionScanModePreset
-  /** Read-only external verification — only when preset is verified research and user enabled. */
-  externalWebVerification: boolean
   /** Parsed WR Expert profile (never raw markdown). */
   wrExpertProfile: WrExpertParsedProfile | null
 }
@@ -72,8 +64,6 @@ export function customModeDefinitionToRuntime(def: CustomModeDefinition): Custom
     intervalSeconds: def.intervalSeconds,
     scopeUrls: scope.scopeUrls,
     diffWatchFolders: scope.diffWatchFolders,
-    detectionScanMode: getDetectionScanMode(md),
-    externalWebVerification: getExternalWebVerificationEnabled(md),
     wrExpertProfile: wrExpertFromMetadata(md),
   }
 }

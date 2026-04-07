@@ -1,5 +1,5 @@
 /**
- * Wizard step: detection focus, ignore patterns, scan preset, optional WR Expert .md, external verification, scope, diff folders.
+ * Wizard step: detection focus, ignore patterns, optional WR Expert .md, scope URLs, diff watch folders.
  */
 
 import React, { useMemo, useRef } from 'react'
@@ -9,10 +9,7 @@ import {
   CUSTOM_MODE_SCOPE_URLS_DRAFT_KEY,
   getDiffWatchFoldersDraftText,
   getScopeUrlsDraftText,
-  getDetectionScanMode,
-  getExternalWebVerificationEnabled,
 } from '../../../../shared/ui/customModeTypes'
-import type { DetectionScanModePreset } from '../../../../shared/ui/customModeTypes'
 import { safeDraftString } from '../../../../shared/ui/customModeDisplay'
 import { getThemeTokens, labelStyle } from '../../../../shared/ui/lightboxTheme'
 import type { InlineFieldErrors } from '../addModeWizardValidation'
@@ -22,24 +19,6 @@ import { getElectronPickDirectory } from '../../../../utils/electronPickDirector
 import { parseWrExpertMarkdown, sha256HexUtf8 } from '../../../../utils/parseWrExpertMarkdown'
 
 const WR_EXPERT_MAX_BYTES = 256 * 1024
-
-const SCAN_OPTIONS: { value: DetectionScanModePreset; label: string; hint: string }[] = [
-  {
-    value: 'quick_scan',
-    label: 'Quick scan',
-    hint: 'Visible active tab only. No external search.',
-  },
-  {
-    value: 'structured_page_scan',
-    label: 'Structured page scan',
-    hint: 'Active tab DOM + screenshot. No external search.',
-  },
-  {
-    value: 'verified_research',
-    label: 'Verified research',
-    hint: 'Page scan; optional read-only external verification (see below).',
-  },
-]
 
 export function StepFocus({
   data,
@@ -61,8 +40,6 @@ export function StepFocus({
   const scopeUrlsText = getScopeUrlsDraftText(md)
   const diffFoldersText = getDiffWatchFoldersDraftText(md)
   const canBrowse = typeof getElectronPickDirectory() === 'function'
-  const scanMode = getDetectionScanMode(md)
-  const externalOn = getExternalWebVerificationEnabled(md)
   const wrExpertName = typeof md.wrExpertFileName === 'string' ? md.wrExpertFileName : ''
   const wrExpertErr = typeof md._wrExpertUploadError === 'string' ? md._wrExpertUploadError : ''
   const hasWrExpert =
@@ -76,13 +53,6 @@ export function StepFocus({
         ...md,
         ...patch,
       },
-    })
-  }
-
-  const setScanMode = (value: DetectionScanModePreset) => {
-    patchMetadata({
-      detectionScanMode: value,
-      ...(value !== 'verified_research' ? { externalWebVerification: false } : {}),
     })
   }
 
@@ -142,17 +112,6 @@ export function StepFocus({
     lineHeight: 1.45,
   }
 
-  const toggleRowStyle: React.CSSProperties = {
-    display: 'flex',
-    alignItems: 'flex-start',
-    gap: 10,
-    marginTop: 12,
-    padding: '12px 14px',
-    borderRadius: 10,
-    border: `1px solid ${t.border}`,
-    background: t.isLight ? 'rgba(99,102,241,0.06)' : 'rgba(255,255,255,0.04)',
-  }
-
   return (
     <div style={wizardFieldColumnStyle()}>
       <div>
@@ -184,59 +143,6 @@ export function StepFocus({
           placeholder="Short phrases or section types to deprioritize…"
           style={wizardTextareaStyle(t)}
         />
-      </div>
-
-      <div>
-        <label htmlFor="cmw-scan-mode" style={labelStyle(t)}>
-          Scan mode
-        </label>
-        <p style={{ ...helperStyle, marginBottom: 8 }}>
-          Preset for how the page is analyzed. External search is never used unless you choose Verified research and
-          enable it below.
-        </p>
-        <select
-          id="cmw-scan-mode"
-          value={scanMode}
-          onChange={(e) => setScanMode(e.target.value as DetectionScanModePreset)}
-          style={selectStyle}
-        >
-          {SCAN_OPTIONS.map((o) => (
-            <option key={o.value} value={o.value}>
-              {o.label}
-            </option>
-          ))}
-        </select>
-        <p style={helperStyle}>
-          {SCAN_OPTIONS.find((o) => o.value === scanMode)?.hint ?? ''}
-        </p>
-      </div>
-
-      <div style={toggleRowStyle}>
-        <input
-          id="cmw-external-verify"
-          type="checkbox"
-          checked={externalOn}
-          disabled={scanMode !== 'verified_research'}
-          onChange={(e) => patchMetadata({ externalWebVerification: e.target.checked })}
-          style={{ marginTop: 2, width: 18, height: 18, cursor: scanMode === 'verified_research' ? 'pointer' : 'not-allowed' }}
-        />
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <label
-            htmlFor="cmw-external-verify"
-            style={{ ...labelStyle(t), marginBottom: 4, cursor: scanMode === 'verified_research' ? 'pointer' : 'default' }}
-          >
-            External web verification
-          </label>
-          <p style={{ margin: 0, fontSize: 11, color: t.textMuted, lineHeight: 1.45 }}>
-            When enabled, read-only web search may verify or enrich findings. This is never implied—you must turn it on
-            here. Only available for <strong>Verified research</strong>.
-          </p>
-          {scanMode !== 'verified_research' ? (
-            <p style={{ margin: '8px 0 0', fontSize: 11, color: t.textMuted }}>
-              Switch scan mode to Verified research to use this option.
-            </p>
-          ) : null}
-        </div>
       </div>
 
       <div

@@ -16149,11 +16149,14 @@ function initializeExtension() {
                 <div style="font-weight:600;font-size:13px;color:#5b21b6;margin-bottom:8px;display:flex;align-items:center;gap:6px">
                   <span style="font-size:14px">⚡</span> <span style="color:#0f172a">Mode Trigger</span>
                 </div>
-                <div style="font-size:12px;color:#334155;line-height:1.5;margin-bottom:8px;padding:8px;background:#ede9fe;border-radius:6px">
-                  <strong>Not a WR Chat tag trigger.</strong> Use this so agents in <strong>this orchestrator session</strong> run when the <strong>custom mode</strong> linked in the Add Mode wizard uses the <strong>same session</strong> you selected there, and the mode is started <strong>manually</strong> or on its <strong>interval</strong> from the wizard.
-                  All agents in that session that set Mode Trigger here are eligible for that run. Save the trigger to apply.
+                <div style="font-size:12px;color:#334155;line-height:1.5;padding:8px;background:#ede9fe;border-radius:6px">
+                  <div style="margin-bottom:8px">
+                    Use this when a user-defined mode should run agents in its linked orchestrator session. It fires when the mode, once set up in the Add Mode wizard, is triggered manually or by interval.
+                  </div>
+                  <div style="font-size:11px;color:#64748b">
+                    No extra fields are required. Session mapping is automatic.
+                  </div>
                 </div>
-                <div style="font-size:11px;color:#64748b">No extra fields — session matching uses the mode wizard session and the active session.</div>
               `
               fieldsContainer.appendChild(modeSection)
             }

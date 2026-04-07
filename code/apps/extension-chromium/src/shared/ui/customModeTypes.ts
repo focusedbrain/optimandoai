@@ -4,6 +4,9 @@
  *
  * Optional `metadata` is reserved for future expert / fine-tuned / provider-specific extensions
  * without breaking the core shape.
+ *
+ * Add Mode wizard: orchestration and mode setup only (focus, ignore, WR Expert, scope, diff watch, interval).
+ * Scan depth, external lookup, autonomy, and tool permissions belong at the agent level—not in mode metadata.
  */
 
 import {
@@ -40,21 +43,6 @@ export interface CustomModeDefinition {
   updatedAt: string
   /** Future: expert presets, LoRA ids, provider tokens, etc. */
   metadata?: Record<string, unknown>
-}
-
-/** Detection wizard scan presets (Add Mode → Focus step). */
-export type DetectionScanModePreset = 'quick_scan' | 'structured_page_scan' | 'verified_research'
-
-export function getDetectionScanMode(metadata: Record<string, unknown> | undefined): DetectionScanModePreset {
-  const v = metadata?.detectionScanMode
-  if (v === 'quick_scan' || v === 'structured_page_scan' || v === 'verified_research') return v
-  return 'quick_scan'
-}
-
-/** True only when preset is verified research and the user opted in (read-only external verification). */
-export function getExternalWebVerificationEnabled(metadata: Record<string, unknown> | undefined): boolean {
-  if (getDetectionScanMode(metadata) !== 'verified_research') return false
-  return metadata?.externalWebVerification === true
 }
 
 /** Persisted optional scope: websites (http(s) URLs or host patterns) and folder diff watch paths. */
@@ -155,10 +143,7 @@ export function defaultCustomModeDraft(): CustomModeDraft {
     searchFocus: '',
     ignoreInstructions: '',
     intervalSeconds: null,
-    metadata: {
-      detectionScanMode: 'quick_scan',
-      externalWebVerification: false,
-    },
+    metadata: undefined,
   }
 }
 
@@ -245,14 +230,8 @@ function sanitizeCustomModeMetadataForPersist(
   delete m._ollamaTags
   delete m._sessionLabel
   delete m._wrExpertUploadError
-
-  const scanMode = getDetectionScanMode(m)
-  m.detectionScanMode = scanMode
-  if (scanMode !== 'verified_research') {
-    m.externalWebVerification = false
-  } else if (m.externalWebVerification !== true) {
-    m.externalWebVerification = false
-  }
+  delete m.detectionScanMode
+  delete m.externalWebVerification
 
   const wr = m.wrExpertProfile
   if (wr && typeof wr === 'object' && !Array.isArray(wr)) {
