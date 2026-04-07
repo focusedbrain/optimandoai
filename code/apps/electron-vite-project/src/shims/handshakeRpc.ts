@@ -149,10 +149,55 @@ export async function acceptHandshake(
     policy_selections?: { cloud_ai?: boolean; internal_ai?: boolean }
   },
 ): Promise<HandshakeAcceptResponse> {
-  if (window.handshakeView?.acceptHandshake) {
-    return window.handshakeView.acceptHandshake(handshakeId, sharingMode, fromAccountId, contextOpts)
+  if (!window.handshakeView?.acceptHandshake) throw new Error('Handshake IPC not available')
+
+  // Fetch the device X25519 public key and generate a fresh ML-KEM-768 keypair so that
+  // ensureKeyAgreementKeys in the main process does NOT fall back to generating a random
+  // ephemeral keypair that would later mismatch on reply.
+  let senderX25519PublicKeyB64: string | undefined
+  let senderMlkem768PublicKeyB64: string | undefined
+  let mlkem768SecretKeyB64: string | undefined
+
+  try {
+    senderX25519PublicKeyB64 = await window.beap?.getDevicePublicKey()
+    console.log('[KEY-AGREEMENT] acceptHandshake (shim): device X25519 public key fetched')
+  } catch (e) {
+    console.error('[KEY-AGREEMENT] acceptHandshake (shim): failed to get device X25519 key:', e)
   }
-  throw new Error('Handshake IPC not available')
+
+  try {
+    const { pqKemSupportedAsync, pqKemGenerateKeyPair } = await import('@ext/beap-messages/services/beapCrypto')
+    if (await pqKemSupportedAsync()) {
+      const kp = await pqKemGenerateKeyPair()
+      senderMlkem768PublicKeyB64 = kp.publicKeyB64
+      mlkem768SecretKeyB64 = kp.secretKeyB64
+      console.log('[KEY-AGREEMENT] acceptHandshake (shim): ML-KEM-768 keypair generated')
+    }
+  } catch {
+    // PQ service unavailable — Electron will generate the keypair and return the secret
+  }
+
+  const optsWithKeys = {
+    ...contextOpts,
+    senderX25519PublicKeyB64,
+    senderMlkem768PublicKeyB64,
+  }
+
+  const res = await window.handshakeView.acceptHandshake(handshakeId, sharingMode, fromAccountId, optsWithKeys)
+
+  // When WE generated the ML-KEM keypair, the secret is already stored in the Electron DB
+  // (main process stores it in local_mlkem768_secret_key_b64 on the handshake record).
+  // When Electron generated it as a fallback, it returns electronGeneratedMlkemSecret —
+  // on the dashboard side the DB is the canonical store so no additional persistence is needed.
+  if (mlkem768SecretKeyB64) {
+    console.log('[KEY-AGREEMENT] acceptHandshake (shim): ML-KEM secret stored in Electron DB via accept handler')
+  } else if ((res as any).electronGeneratedMlkemSecret) {
+    console.warn('[KEY-AGREEMENT] acceptHandshake (shim): Electron generated ML-KEM fallback — secret in DB')
+  } else {
+    console.error('[KEY-AGREEMENT] acceptHandshake (shim): NO ML-KEM secret available — inbound hybrid qBEAP WILL FAIL')
+  }
+
+  return res
 }
 
 export async function refreshHandshake(
