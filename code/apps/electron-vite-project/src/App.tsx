@@ -82,10 +82,18 @@ function App() {
     registerWrDeskOptimizerHttpBridge()
   }, [])
 
-  /** Electron dashboard: PQ KEM HTTP to localhost requires X-Launch-Secret (extension gets it via WebSocket). */
+  /**
+   * PQ KEM HTTP (`POST /api/crypto/pq/mlkem768/*`) requires `X-Launch-Secret`. The real extension
+   * sets headers via `initBeapPqAuth` → `BEAP_GET_PQ_HEADERS`. The dashboard installs a chrome shim
+   * with `sendMessage` but no MV3 `runtime.id`; the old guard `if (sendMessage) return` skipped this
+   * registration, so `_getPqHeaders()` was always {} and encapsulate returned 401.
+   * Only skip when `chrome.runtime.id` is set (actual extension context).
+   */
   useEffect(() => {
-    const chromeRuntime = typeof globalThis !== 'undefined' ? (globalThis as unknown as { chrome?: { runtime?: { sendMessage?: unknown } } }).chrome?.runtime : undefined
-    if (chromeRuntime?.sendMessage) return
+    const rt = typeof globalThis !== 'undefined'
+      ? (globalThis as unknown as { chrome?: { runtime?: { id?: string } } }).chrome?.runtime
+      : undefined
+    if (rt?.id) return
     void import('@ext/beap-messages/services/beapCrypto').then(({ setPqAuthHeadersProvider }) => {
       setPqAuthHeadersProvider(async () => {
         const fn = window.handshakeView?.pqHeaders
