@@ -25,6 +25,11 @@
  * 4. Sidecar file beside the executable
  *
  * Placeholder values in the bundled file (e.g. REPLACE_WITH_…) are rejected so CI must inject a real id.
+ *
+ * **Secret file vs build-time define:** `google-oauth-client-secret.txt` is gitignored; many clones have only
+ * the id file. If the id is read from a resource path but the sibling secret file is missing or still a
+ * placeholder, {@link resolveBuiltinGoogleOAuthClientSecret} falls back to `__BUILD_TIME_GOOGLE_OAUTH_CLIENT_SECRET__`
+ * when it matches the same client id as `__BUILD_TIME_GOOGLE_OAUTH_CLIENT_ID__` (CI must set both env vars at `vite build`).
  */
 
 import { app } from 'electron'
@@ -112,10 +117,10 @@ function readFirstNonCommentLine(p: string): string | null {
     if (!fs.existsSync(p)) return null
     const text = fs.readFileSync(p, 'utf8')
     const lines = text.split(/\r?\n/)
-    for (const line of lines) {
-      const t = line.trim()
-      if (!t || t.startsWith('#')) continue
-      return t
+    for (let line of lines) {
+      line = line.trim().replace(/^\uFEFF/, '')
+      if (!line || line.startsWith('#')) continue
+      return line
     }
     return null
   } catch {
@@ -244,6 +249,19 @@ export function resolveBuiltinGoogleOAuthClientSecret(
         if (!res.sourcePath) break
         const secretPath = path.join(path.dirname(res.sourcePath), PACKAGED_SECRET_BASENAME)
         raw = readFirstNonCommentLine(secretPath)
+        console.log(
+          '[gmail_oauth_secret_supply]',
+          JSON.stringify({
+            secretPath,
+            secretFileExists: fs.existsSync(secretPath),
+            rawLineLength: raw?.length ?? null,
+            reason: !raw
+              ? 'missing_file'
+              : !normalizeGoogleOAuthClientSecret(raw)
+                ? 'rejected_by_normalize'
+                : 'ok',
+          }),
+        )
         break
       }
       default:
@@ -252,7 +270,22 @@ export function resolveBuiltinGoogleOAuthClientSecret(
   } catch {
     return undefined
   }
-  const normalized = normalizeGoogleOAuthClientSecret(raw)
+  let normalized = normalizeGoogleOAuthClientSecret(raw)
+  if (
+    normalized == null &&
+    (res.sourceKind === 'packaged_resource_file' ||
+      res.sourceKind === 'dev_resource_app_path' ||
+      res.sourceKind === 'dev_resource_cwd' ||
+      res.sourceKind === 'sidecar_exe_directory')
+  ) {
+    if (getBuildTimeGoogleOAuthClientId() === res.clientId) {
+      const bt = getBuildTimeGoogleOAuthClientSecret()
+      if (bt != null) {
+        normalized = bt
+        console.log('[gmail_oauth_secret_supply]', 'fallback: build_time_vite_inline')
+      }
+    }
+  }
   return normalized ?? undefined
 }
 
