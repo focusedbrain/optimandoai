@@ -1,12 +1,11 @@
 /**
- * Before `vite build`, optionally writes resources/google-oauth-client-id.txt and
- * resources/google-oauth-client-secret.txt from env.
- * Release pipelines should set GOOGLE_OAUTH_CLIENT_ID (or WR_DESK_GOOGLE_OAUTH_CLIENT_ID) and
- * GOOGLE_OAUTH_CLIENT_SECRET (or WR_DESK_GOOGLE_OAUTH_CLIENT_SECRET).
+ * Runs before `vite build` / electron-builder (see package.json `build`, `rebuild`, etc.).
+ * Ensures gitignored `resources/google-oauth-client-*.txt` exist with real values for packaging via extraResources.
  *
- * If WR_DESK_REQUIRE_GOOGLE_OAUTH_CLIENT_ID=1 or CI=true, fails when env is missing and
- * the on-disk client id file still contains a placeholder (REPLACE_WITH / YOUR_ / etc.).
- * When strict, a non-placeholder client id also requires a non-placeholder client secret.
+ * Client id: env overwrites file when set; in strict CI, placeholder on-disk id fails.
+ * Client secret: if `resources/google-oauth-client-secret.txt` already has a non-placeholder value, leave it;
+ *   otherwise write from GOOGLE_OAUTH_CLIENT_SECRET or WR_DESK_GOOGLE_OAUTH_CLIENT_SECRET;
+ *   if still missing, exit with a clear error (so GitHub never needs secrets in source).
  */
 
 const fs = require('fs')
@@ -18,7 +17,7 @@ const targetSecret = path.join(root, 'resources', 'google-oauth-client-secret.tx
 
 function firstDataLine(text) {
   for (const line of text.split(/\r?\n/)) {
-    const t = line.trim()
+    let t = line.trim().replace(/^\uFEFF/, '')
     if (!t || t.startsWith('#')) continue
     return t
   }
@@ -85,24 +84,30 @@ if (envId) {
     oauthClientIdFingerprint(line),
   )
 } else {
-  console.log('[prepare-google-oauth] Skipped client id (no env); placeholder file is OK for local dev')
+  console.log('[prepare-google-oauth] Skipped client id (no env); on-disk file used if present')
 }
 
-if (envSecret) {
+let secretReady = false
+if (fs.existsSync(targetSecret)) {
+  const secLine = firstDataLine(fs.readFileSync(targetSecret, 'utf8'))
+  if (!isPlaceholderSecretLine(secLine)) {
+    secretReady = true
+    console.log('[prepare-google-oauth] Using existing resources/google-oauth-client-secret.txt (non-placeholder)')
+  }
+}
+
+if (!secretReady && envSecret) {
   fs.mkdirSync(path.dirname(targetSecret), { recursive: true })
   fs.writeFileSync(targetSecret, `${envSecret}\n`, 'utf8')
+  secretReady = true
   console.log('[prepare-google-oauth] Wrote resources/google-oauth-client-secret.txt from environment')
-} else if (strict && fs.existsSync(targetSecret)) {
-  const secLine = firstDataLine(fs.readFileSync(targetSecret, 'utf8'))
-  if (isPlaceholderSecretLine(secLine)) {
-    console.error(
-      '[prepare-google-oauth] FATAL: GOOGLE_OAUTH_CLIENT_SECRET is not set and resources/google-oauth-client-secret.txt still contains a placeholder. Desktop Gmail OAuth requires the client secret alongside PKCE.',
-    )
-    process.exit(1)
-  }
-  console.log('[prepare-google-oauth] Using existing resources/google-oauth-client-secret.txt (non-placeholder)')
-} else {
-  console.log('[prepare-google-oauth] Skipped client secret (no env); placeholder secret file is OK for local dev')
+}
+
+if (!secretReady) {
+  console.error(
+    'Build failed: Google OAuth client secret not found. Place it in resources/google-oauth-client-secret.txt or set GOOGLE_OAUTH_CLIENT_SECRET env var.',
+  )
+  process.exit(1)
 }
 
 if (strict && fs.existsSync(targetId) && fs.existsSync(targetSecret)) {

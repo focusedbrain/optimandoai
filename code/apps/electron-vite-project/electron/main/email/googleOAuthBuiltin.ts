@@ -26,10 +26,10 @@
  *
  * Placeholder values in the bundled file (e.g. REPLACE_WITH_…) are rejected so CI must inject a real id.
  *
- * **Secret file vs build-time define:** `google-oauth-client-secret.txt` is gitignored; many clones have only
- * the id file. If the id is read from a resource path but the sibling secret file is missing or still a
- * placeholder, {@link resolveBuiltinGoogleOAuthClientSecret} falls back to `__BUILD_TIME_GOOGLE_OAUTH_CLIENT_SECRET__`
- * when it matches the same client id as `__BUILD_TIME_GOOGLE_OAUTH_CLIENT_ID__` (CI must set both env vars at `vite build`).
+ * **Secret file vs build-time define:** `google-oauth-client-secret.txt` is gitignored; CI/local builds run
+ * `prepare-google-oauth-resource.cjs` so the file exists before packaging. If the id is read from a resource path
+ * but the sibling secret file is missing or still a placeholder, {@link resolveBuiltinGoogleOAuthClientSecret} falls back to `__BUILD_TIME_GOOGLE_OAUTH_CLIENT_SECRET__`
+ * when it matches the same client id as `__BUILD_TIME_GOOGLE_OAUTH_CLIENT_ID__` (CI can set both env vars at `vite build`).
  */
 
 import { app } from 'electron'
@@ -454,12 +454,20 @@ export function resolveBuiltinGoogleOAuthClientWithMeta(
   return trySidecar()
 }
 
+/**
+ * Built-in Desktop OAuth client id for the active Standard Connect / dev context.
+ */
+export function resolveBuiltinGoogleOAuthClientId(): string | null {
+  const useStandardPackaged = isPackagedProductionGmailStandardConnect()
+  return (
+    resolveBuiltinGoogleOAuthClientWithMeta(
+      useStandardPackaged ? { forStandardGmailConnect: true } : undefined,
+    )?.clientId ?? null
+  )
+}
+
 export function getBuiltinGmailOAuthClientId(): string | null {
-  const useStandardPackaged =
-    isPackagedProductionGmailStandardConnect()
-  return resolveBuiltinGoogleOAuthClientWithMeta(
-    useStandardPackaged ? { forStandardGmailConnect: true } : undefined,
-  )?.clientId ?? null
+  return resolveBuiltinGoogleOAuthClientId()
 }
 
 /** True when a non-placeholder built-in client id is available for end-user PKCE connect. */

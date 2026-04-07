@@ -7,10 +7,10 @@ const appDir = __dirname
 
 /**
  * Parsed by scripts/kill-wr-desk.cjs — must contain a line matching:
- *   return 'C:\\build-output\\build887'
+ *   return 'C:\\build-output\\build87'
  */
 function windowsOutputDirMarker() {
-  return 'C:\\build-output\\build887'
+  return 'C:\\build-output\\build87'
 }
 
 const workspaceRoot = path.resolve(appDir, '../..')
@@ -34,6 +34,7 @@ function tesseractCoreWasmPath() {
 // tesseract.js resolves its own Node-compatible worker from the asarUnpacked package.
 // Only the WASM core needs to be extracted as an extraResource.
 
+/** Includes gitignored `google-oauth-client-id.txt` / `google-oauth-client-secret.txt` (filled by prepare-google-oauth-resource.cjs) outside asar. */
 const extraResources = [
   { from: 'resources', to: '.', filter: ['**/*'] },
 ]
