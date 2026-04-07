@@ -234,8 +234,23 @@ export async function decryptQBeapPackage(
     return null
   }
 
-  const localX25519PrivB64 = hs.local_x25519_private_key_b64?.trim()
+  const localX25519PrivB64Raw = hs.local_x25519_private_key_b64?.trim()
   const localMlkemSecretB64 = hs.local_mlkem768_secret_key_b64?.trim()
+
+  // If the handshake record has no local private key, the private key lives in the
+  // orchestrator device_keys table (new flow after device-key migration, Step 4).
+  // Resolve it now so we can proceed with ECDH inline below.
+  let localX25519PrivB64: string | undefined = localX25519PrivB64Raw
+  if (!localX25519PrivB64) {
+    try {
+      const { getDeviceX25519KeyPair } = await import('../device-keys/deviceKeyStore')
+      const deviceKp = await getDeviceX25519KeyPair()
+      localX25519PrivB64 = deviceKp.privateKey
+      console.log('[qBEAP-decrypt] Using orchestrator-DB device private key for handshake:', handshakeId)
+    } catch (e) {
+      console.warn('[qBEAP-decrypt] Failed to load device private key from orchestrator DB for handshake:', handshakeId, e)
+    }
+  }
 
   const cryptoHdr = header.crypto as Record<string, unknown> | undefined
   if (!cryptoHdr) {

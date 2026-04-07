@@ -819,25 +819,41 @@ export async function handleHandshakeRPC(
       if (!record.p2p_endpoint?.trim()) return { ready: false, error: 'Recipient has no P2P endpoint' }
 
       // Auto-repair: if the handshake's bound local X25519 public key doesn't match the current
-      // device key BUT the private key is NOT stored in the handshake record (it lives in the
-      // orchestrator device_keys table), the bound public key can safely be updated.
+      // device key, update it. Two cases:
       //
-      // Why: local_x25519_private_key_b64 = NULL means deriveSharedSecretX25519() always uses
-      // the current orchestrator device private key regardless of what local_x25519_public_key_b64
-      // says. The mismatch only occurred because the device key migration ran after accept and
-      // generated a new key. Since the private key is canonical in the orchestrator DB, updating
-      // the public key in the handshake record makes them consistent again.
+      // Case A (new flow, post-migration): local_x25519_private_key_b64 = NULL.
+      //   The private key lives in the orchestrator device_keys table. The mismatch occurred
+      //   because key migration ran after accept and generated a new key. Safe to update the
+      //   public key since ECDH always uses the canonical orchestrator DB private key.
+      //
+      // Case B (old flow, pre-migration): local_x25519_private_key_b64 is stored in the handshake.
+      //   After the device key migration (Step 4), deriveSharedSecretX25519() now routes through
+      //   beap.deriveSharedSecret → orchestrator DB private key, regardless of the stored key.
+      //   The stored local_x25519_private_key_b64 is no longer used for ECDH. So the three-way
+      //   invariant must still be enforced against the CURRENT device key, not the old stored one.
+      //   Update both the public key and NULL out the private key so future checks work correctly.
       let localX25519PublicKey = record.local_x25519_public_key_b64 ?? undefined
-      if (record.local_x25519_public_key_b64 && !record.local_x25519_private_key_b64) {
+      if (record.local_x25519_public_key_b64) {
         try {
           const { getDeviceX25519PublicKey: getDevPub } = await import('../device-keys/deviceKeyStore')
           const currentDeviceKey = await getDevPub()
           if (currentDeviceKey && currentDeviceKey.trim() !== record.local_x25519_public_key_b64.trim()) {
             console.log(
               '[HANDSHAKE] checkSendReady: auto-repairing local_x25519_public_key_b64 — device key changed since accept.',
-              { handshakeId, old: record.local_x25519_public_key_b64.substring(0, 24), new: currentDeviceKey.substring(0, 24) },
+              {
+                handshakeId,
+                old: record.local_x25519_public_key_b64.substring(0, 24),
+                new: currentDeviceKey.substring(0, 24),
+                hadStoredPrivateKey: !!record.local_x25519_private_key_b64,
+              },
             )
-            updateHandshakeRecord(db, { ...record, local_x25519_public_key_b64: currentDeviceKey })
+            updateHandshakeRecord(db, {
+              ...record,
+              local_x25519_public_key_b64: currentDeviceKey,
+              // NULL out the stored private key so the decrypt path knows to use the
+              // orchestrator DB key and future auto-repair checks work correctly.
+              local_x25519_private_key_b64: null,
+            })
             localX25519PublicKey = currentDeviceKey
           }
         } catch (e) {
