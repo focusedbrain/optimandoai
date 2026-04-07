@@ -7,6 +7,8 @@ import { wrChatDashboardWarn } from '../lib/wrChatDashboardLog'
  *
  * Bridges:
  * - GET_LAUNCH_SECRET / HTTP headers → `window.handshakeView.pqHeaders()` (same X-Launch-Secret as localhost middleware)
+ * - BEAP_ENSURE_LAUNCH_SECRET / BEAP_GET_PQ_HEADERS → warm `pqHeaders`; BEAP flows expect `{ ok }` / `{ headers }` like extension background
+ * - VAULT_RPC (handshake.sendBeapViaP2P, handshake.checkSendReady) → `window.handshakeView` IPC (same as preload, not extension WS)
  * - GET_ALL_SESSIONS_FROM_SQLITE / GET_SESSION_FROM_SQLITE / UPDATE_BOX_OUTPUT_SQLITE → same HTTP as extension background
  * - GET_STATUS → dashboard is always backed by a running app
  * - chrome.storage.local → localStorage for keys WR Chat reads/writes
@@ -420,6 +422,82 @@ export function ensureWrdeskChromeShim(): void {
 
       if (t === 'ELECTRON_EXECUTE_TRIGGER') {
         finish({ ok: true })
+        return
+      }
+
+      // BEAP / qBEAP: extension background ensures WS + X-Launch-Secret before PQ HTTP to Electron.
+      // Dashboard talks to main via preload; warm auth headers and report success so crypto can proceed.
+      if (t === 'BEAP_ENSURE_LAUNCH_SECRET') {
+        void (async () => {
+          try {
+            await getAuthHeaders()
+          } catch {
+            /* non-fatal */
+          }
+          finish({ ok: true })
+        })()
+        return
+      }
+
+      // Same contract as extension `background.ts` BEAP_GET_PQ_HEADERS (used by initBeapPqAuth).
+      if (t === 'BEAP_GET_PQ_HEADERS') {
+        void (async () => {
+          try {
+            const h = await getAuthHeaders()
+            const headers: Record<string, string> = {}
+            const secret = h['X-Launch-Secret']
+            if (typeof secret === 'string' && secret.trim()) headers['X-Launch-Secret'] = secret
+            finish({ headers })
+          } catch {
+            finish({ headers: {} })
+          }
+        })()
+        return
+      }
+
+      // PopupChat / BEAP composer use extension `handshakeRpc.sendHandshakeRpc` → VAULT_RPC → background → WS.
+      // In the dashboard, route handshake methods to `window.handshakeView` (IPC to main) instead.
+      if (t === 'VAULT_RPC') {
+        const m = msg as { method?: string; params?: Record<string, unknown> }
+        const method = typeof m.method === 'string' ? m.method : ''
+        const params = m.params && typeof m.params === 'object' ? m.params : {}
+        void (async () => {
+          try {
+            const hv = window.handshakeView as Record<string, (...args: unknown[]) => unknown> | undefined
+            if (method === 'handshake.sendBeapViaP2P') {
+              const fn = hv?.sendBeapViaP2P
+              if (typeof fn !== 'function') {
+                finish({ success: false, error: 'handshakeView.sendBeapViaP2P unavailable' })
+                return
+              }
+              const res = await fn(params.handshakeId, params.packageJson)
+              finish(res)
+              return
+            }
+            if (method === 'handshake.checkSendReady') {
+              const fn = hv?.checkHandshakeSendReady
+              if (typeof fn !== 'function') {
+                finish({ ready: false, error: 'handshakeView.checkHandshakeSendReady unavailable' })
+                return
+              }
+              const res = await fn(params.handshakeId)
+              finish(res)
+              return
+            }
+            wrChatDashboardWarn('chrome shim: VAULT_RPC method not mapped in dashboard', method)
+            finish({
+              success: false,
+              error: `Dashboard chrome shim: unhandled VAULT_RPC method "${method}"`,
+            })
+          } catch (e) {
+            const msgErr = e instanceof Error ? e.message : String(e)
+            if (method === 'handshake.checkSendReady') {
+              finish({ ready: false, error: msgErr }, msgErr)
+            } else {
+              finish({ success: false, error: msgErr }, msgErr)
+            }
+          }
+        })()
         return
       }
 
