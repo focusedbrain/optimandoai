@@ -18,6 +18,7 @@ import {
 } from './p2pTransport'
 import { getHandshakeRecord } from './db'
 import { getP2PConfig } from '../p2p/p2pConfig'
+import { registerHandshakeWithRelay } from '../p2p/relaySync'
 import {
   setP2PHealthOutboundSuccess,
   setP2PHealthOutboundFailure,
@@ -627,6 +628,82 @@ async function processOutboundQueueInner(
         ...(result.outboundDebug && { outbound_debug: result.outboundDebug }),
         ...(derivedType !== undefined && { derived_outgoing_relay_capsule_type: derivedType }),
       }
+    }
+
+    // HTTP 403 — relay rejected sender as unauthorized for this handshake.
+    // This usually means the handshake was never registered (or registered with the wrong user ID).
+    // Attempt re-registration once, then retry the send. If re-registration also fails, mark terminal.
+    if (result.statusCode === 403 && config.use_coordination && getOidcToken) {
+      console.warn('[P2P-QUEUE]', JSON.stringify({
+        event: 'relay_403_reregister_attempt',
+        queue_row_id: row.id,
+        handshake_id: row.handshake_id,
+      }))
+      const record = getHandshakeRecord(db, row.handshake_id)
+      const freshToken = await getOidcToken()
+      let reRegOk = false
+      if (record && freshToken?.trim()) {
+        const initiatorId = record.initiator?.sub ?? record.initiator?.wrdesk_user_id ?? ''
+        const acceptorId = record.acceptor?.sub ?? record.acceptor?.wrdesk_user_id ?? ''
+        const initiatorEmail = record.initiator?.email ?? ''
+        const acceptorEmail = record.acceptor?.email ?? ''
+        try {
+          const reReg = await registerHandshakeWithRelay(db, row.handshake_id, '', '', getOidcToken, {
+            initiator_user_id: initiatorId,
+            acceptor_user_id: acceptorId,
+            initiator_email: initiatorEmail,
+            acceptor_email: acceptorEmail,
+          })
+          if (reReg.success) {
+            console.log('[P2P-QUEUE]', JSON.stringify({ event: 'relay_403_reregister_success', queue_row_id: row.id, handshake_id: row.handshake_id }))
+            // Retry the send immediately with a fresh token
+            const retryResult = await sendCapsuleViaCoordination(JSON.parse(row.capsule_json) as object, config.coordination_url!.trim(), freshToken, row.handshake_id)
+            if (retryResult.success) {
+              setP2PHealthOutboundSuccess()
+              db.prepare(`UPDATE outbound_capsule_queue SET status = 'sent', last_attempt_at = ?, retry_after_ms = NULL, failure_class = NULL WHERE id = ?`).run(now, row.id)
+              const countsOk = getQueueCountsInternal(db)
+              setP2PHealthQueueCounts(countsOk.pending, countsOk.failed)
+              console.info('[P2P-QUEUE]', JSON.stringify({ event: 'relay_403_retry_succeeded', queue_row_id: row.id, handshake_id: row.handshake_id }))
+              return {
+                delivered: true,
+                code: 'DELIVERED',
+                healing_status: 'idle',
+                ...(retryResult.coordinationRelayDelivery && { coordinationRelayDelivery: retryResult.coordinationRelayDelivery }),
+              }
+            }
+            reRegOk = true // registration worked but retry send failed — fall through to normal retry
+          } else {
+            console.error('[P2P-QUEUE]', JSON.stringify({ event: 'relay_403_reregister_failed', queue_row_id: row.id, handshake_id: row.handshake_id, error: reReg.error }))
+          }
+        } catch (reRegErr: any) {
+          console.error('[P2P-QUEUE]', JSON.stringify({ event: 'relay_403_reregister_threw', queue_row_id: row.id, handshake_id: row.handshake_id, error: String(reRegErr?.message ?? reRegErr) }))
+        }
+      } else {
+        console.warn('[P2P-QUEUE]', JSON.stringify({ event: 'relay_403_reregister_skipped', queue_row_id: row.id, handshake_id: row.handshake_id, has_record: !!record, has_token: !!freshToken?.trim() }))
+      }
+      if (!reRegOk) {
+        // Re-registration failed — mark terminal so we don't loop indefinitely
+        const persistedError = 'HTTP 403 — relay rejected sender: handshake not registered. Re-registration failed.'
+        setP2PHealthOutboundFailure(persistedError)
+        const newRetry403 = row.retry_count + 1
+        db.prepare(`UPDATE outbound_capsule_queue SET status = 'failed', retry_count = ?, last_attempt_at = ?, error = ?, failure_class = ?, retry_after_ms = NULL WHERE id = ?`)
+          .run(newRetry403, now, persistedError, 'PAYLOAD_PERMANENT', row.id)
+        const counts403 = getQueueCountsInternal(db)
+        setP2PHealthQueueCounts(counts403.pending, counts403.failed)
+        return {
+          delivered: false,
+          error: persistedError,
+          queued: false,
+          code: 'TRANSPORT_FAILED',
+          last_queue_error: persistedError,
+          retry_count: newRetry403,
+          max_retries: row.max_retries,
+          failure_class: 'PAYLOAD_PERMANENT',
+          healing_status: 'terminal_non_recoverable',
+          http_status: 403,
+        }
+      }
+      // Re-registration succeeded but the immediate retry failed — fall through to normal backoff retry
     }
 
     const is401 = result.statusCode === 401

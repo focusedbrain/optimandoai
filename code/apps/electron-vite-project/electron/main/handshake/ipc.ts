@@ -805,19 +805,24 @@ export async function handleHandshakeRPC(
           keyAgreement,
         )
         if (localResult.success && (p2pAuthToken || getP2PConfig(db).use_coordination) && receiverEmail) {
-          setImmediate(async () => {
-            const p2pConfig = getP2PConfig(db)
-            const result = p2pConfig.use_coordination
-              ? await registerHandshakeWithRelay(db, capsule.handshake_id, p2pAuthToken ?? '', receiverEmail, _getOidcToken, {
-                  initiator_user_id: session.wrdesk_user_id,
-                  acceptor_user_id: receiverUserId,
-                  initiator_email: session.email,
-                  acceptor_email: receiverEmail,
-                })
-              : await registerHandshakeWithRelay(db, capsule.handshake_id, p2pAuthToken ?? '', receiverEmail)
-            if (!result.success) console.warn('[Relay] Register handshake failed:', result.error)
-            // Initiate capsule is NOT sent via relay — only file/email/USB. Relay used after accept.
-          })
+          // Registration is blocking: if the relay doesn't know this handshake exists, the
+          // accept capsule will 403. Use session.sub (JWT sub claim) — NOT wrdesk_user_id —
+          // because the relay extracts sub from the Bearer token for authorization checks.
+          const p2pConfig = getP2PConfig(db)
+          const regResult = p2pConfig.use_coordination
+            ? await registerHandshakeWithRelay(db, capsule.handshake_id, p2pAuthToken ?? '', receiverEmail, _getOidcToken, {
+                initiator_user_id: session.sub,
+                acceptor_user_id: receiverUserId,
+                initiator_email: session.email,
+                acceptor_email: receiverEmail,
+              })
+            : await registerHandshakeWithRelay(db, capsule.handshake_id, p2pAuthToken ?? '', receiverEmail)
+          if (!regResult.success) {
+            console.error('[HANDSHAKE] Relay registration failed on initiate:', regResult.error, '— handshake_id:', capsule.handshake_id)
+          } else {
+            console.log('[HANDSHAKE] Relay registration succeeded on initiate:', capsule.handshake_id)
+          }
+          // Initiate capsule is NOT sent via relay — only file/email/USB. Relay used after accept.
         }
       } else if (!skipVaultContext) {
         return { success: false, error: 'Vault must be unlocked for contextual handshakes' }
@@ -951,9 +956,10 @@ export async function handleHandshakeRPC(
       // user can retry via email or direct delivery.
       if (dlP2PAuthToken || getP2PConfig(db).use_coordination) {
         const p2pConfig = getP2PConfig(db)
+        // Use session.sub (JWT sub) — relay always authorizes by sub, not wrdesk_user_id.
         const registerPromise = p2pConfig.use_coordination
           ? registerHandshakeWithRelay(db, capsule.handshake_id, dlP2PAuthToken ?? '', dlReceiverEmail, _getOidcToken, {
-              initiator_user_id: session.wrdesk_user_id,
+              initiator_user_id: session.sub,
               acceptor_user_id: dlReceiverUserId,
               initiator_email: session.email,
               acceptor_email: dlReceiverEmail,
@@ -961,10 +967,14 @@ export async function handleHandshakeRPC(
           : registerHandshakeWithRelay(db, capsule.handshake_id, dlP2PAuthToken ?? '', dlReceiverEmail)
 
         await registerPromise.then((result) => {
-          if (!result.success) console.warn('[Relay] Register handshake failed:', result.error)
+          if (!result.success) {
+            console.error('[HANDSHAKE] Relay registration failed on buildForDownload:', result.error, '— handshake_id:', capsule.handshake_id)
+          } else {
+            console.log('[HANDSHAKE] Relay registration succeeded on buildForDownload:', capsule.handshake_id)
+          }
           // Initiate capsule is NOT sent via relay — only file/email/USB. Relay used after accept.
         }).catch((err: any) => {
-          console.warn('[Relay] Register handshake error (non-fatal):', err?.message)
+          console.error('[HANDSHAKE] Relay registration threw on buildForDownload:', err?.message)
         })
       }
 
@@ -1228,15 +1238,16 @@ export async function handleHandshakeRPC(
           const result = p2pConfig.use_coordination
             ? await registerHandshakeWithRelay(db, handshake_id, p2pAuthToken ?? '', initiatorEmail, _getOidcToken, {
                 initiator_user_id: initiatorUserId,
-                acceptor_user_id: session.wrdesk_user_id,
+                acceptor_user_id: session.sub,
                 initiator_email: initiatorEmail,
                 acceptor_email: session.email,
               })
             : await registerHandshakeWithRelay(db, handshake_id, p2pAuthToken ?? '', initiatorEmail)
           if (!result.success) {
-            console.warn('[Relay] Register handshake failed:', result.error)
+            console.error('[HANDSHAKE] Relay registration failed on accept:', result.error, '— handshake_id:', handshake_id)
             return
           }
+          console.log('[HANDSHAKE] Relay registration succeeded on accept:', handshake_id)
           // Enqueue accept capsule for relay delivery to initiator
           const targetEndpoint = record.p2p_endpoint?.trim()
           if (targetEndpoint) {

@@ -20,6 +20,18 @@ function decodeJwtAud(token: string): string | string[] | null {
   }
 }
 
+/** Decode JWT sub claim for diagnostics — never logs the full token */
+function decodeJwtSub(token: string): string {
+  try {
+    const parts = token.split('.')
+    if (parts.length !== 3) return 'MALFORMED'
+    const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8')) as Record<string, unknown>
+    return typeof payload.sub === 'string' ? payload.sub : 'NO_SUB'
+  } catch {
+    return 'DECODE_FAILED'
+  }
+}
+
 export async function registerHandshakeWithRelay(
   db: any,
   handshakeId: string,
@@ -47,7 +59,17 @@ export async function registerHandshakeWithRelay(
       return { success: false, error: !token ? 'No OIDC token' : 'Coordination URL not configured' }
     }
     const aud = decodeJwtAud(token)
-    console.log('[P2P-DEBUG] Register handshake — token aud:', aud ?? '(absent) — relay expects COORD_OIDC_AUDIENCE to match')
+    const tokenSub = decodeJwtSub(token)
+    console.log('[RELAY-REG] Registering:', {
+      handshakeId,
+      initiator_user_id: handshakeDetails.initiator_user_id,
+      acceptor_user_id: handshakeDetails.acceptor_user_id,
+      token_sub: tokenSub,
+      sub_matches_initiator: tokenSub === handshakeDetails.initiator_user_id,
+      sub_matches_acceptor: tokenSub === handshakeDetails.acceptor_user_id,
+      aud: aud ?? '(absent)',
+      endpoint: `${coordUrl.replace(/\/$/, '')}/beap/register-handshake`,
+    })
     const base = coordUrl.replace(/\/$/, '')
     const registerUrl = `${base}/beap/register-handshake`
     try {
@@ -67,15 +89,14 @@ export async function registerHandshakeWithRelay(
       })
       if (!res.ok) {
         const text = await res.text()
-        console.error('[Coordination] Register handshake failed:', res.status, text)
-        console.log('[P2P-DEBUG] Register failed — handshake_id:', handshakeId, 'status:', res.status, 'body:', text)
+        console.error('[RELAY-REG] Failed:', { handshakeId, status: res.status, body: text })
         return { success: false, error: res.status === 401 ? 'Auth failed' : `HTTP ${res.status}` }
       }
-      console.log('[P2P-DEBUG] Register handshake OK:', handshakeId)
+      console.log('[RELAY-REG] Success:', { handshakeId, status: res.status })
       return { success: true }
     } catch (err: any) {
       const msg = err?.message ?? String(err)
-      console.error('[Coordination] Register handshake error:', msg)
+      console.error('[RELAY-REG] Threw:', { handshakeId, error: msg })
       return { success: false, error: msg }
     }
   }
