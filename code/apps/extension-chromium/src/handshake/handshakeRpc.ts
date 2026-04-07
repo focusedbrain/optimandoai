@@ -477,8 +477,8 @@ export async function sendBeapViaP2P(
  */
 export async function checkHandshakeSendReady(
   handshakeId: string,
-): Promise<{ ready: boolean; error?: string }> {
-  return sendHandshakeRpc<{ ready: boolean; error?: string }>(
+): Promise<{ ready: boolean; error?: string; localX25519PublicKey?: string }> {
+  return sendHandshakeRpc<{ ready: boolean; error?: string; localX25519PublicKey?: string }>(
     'handshake.checkSendReady',
     { handshakeId },
   )

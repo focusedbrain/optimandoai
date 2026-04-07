@@ -812,7 +812,12 @@ export async function handleHandshakeRPC(
       const activeCheck = diagnoseHandshakeInactive(db, handshakeId, new Date())
       if (!activeCheck.active) return { ready: false, error: activeCheck.reason }
       if (!record.p2p_endpoint?.trim()) return { ready: false, error: 'Recipient has no P2P endpoint' }
-      return { ready: true }
+      // Return the live local_x25519_public_key_b64 so the builder can use the DB value
+      // instead of the potentially stale value from the extension's cached handshake list.
+      return {
+        ready: true,
+        localX25519PublicKey: record.local_x25519_public_key_b64 ?? undefined,
+      }
     }
 
     case 'handshake.isActive': {

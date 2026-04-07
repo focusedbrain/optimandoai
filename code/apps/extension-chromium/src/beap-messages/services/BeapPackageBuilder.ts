@@ -2481,6 +2481,19 @@ export async function executeDeliveryAction(
         },
       }
     }
+    // Use the LIVE local_x25519_public_key_b64 from the DB rather than the potentially
+    // stale value in the extension's cached handshake list. This ensures that a handshake
+    // accepted in the same session (before the list was refreshed) is not rejected with
+    // ERR_HANDSHAKE_LOCAL_KEY_MISSING due to a stale undefined localX25519PublicKey.
+    if (readyCheck.localX25519PublicKey && config.selectedRecipient) {
+      config = {
+        ...config,
+        selectedRecipient: {
+          ...config.selectedRecipient,
+          localX25519PublicKey: readyCheck.localX25519PublicKey,
+        },
+      }
+    }
   }
 
   // Build the package first (async for qBEAP encryption)
