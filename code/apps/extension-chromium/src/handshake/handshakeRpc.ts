@@ -420,6 +420,11 @@ export type SendBeapViaP2PResult = {
     | 'RELAY_TYPE_NOT_ALLOWED'
     | 'OUT_OF_BAND_REQUIRED'
     | 'PAYLOAD_TOO_LARGE'
+    // Protocol-level deterministic mismatches — not retryable, handshake must be re-established.
+    | 'ERR_HANDSHAKE_LOCAL_KEY_MISMATCH'
+    | 'ERR_HANDSHAKE_BOUND_KEY_MISSING'
+    | 'ERR_HEADER_SENDER_KEY_MISMATCH'
+    | 'ERR_MLKEM_SECRET_MISSING_BOUND_FLOW'
   last_queue_error?: string | null
   retry_count?: number
   max_retries?: number
@@ -434,6 +439,7 @@ export type SendBeapViaP2PResult = {
     | 'PAYLOAD_PERMANENT'
     | 'SCHEMA_PERMANENT'
     | 'SIZE_RECOVERABLE'
+    | 'PROTOCOL_PERMANENT'
   healing_status?:
     | 'idle'
     | 'scheduled'
@@ -442,6 +448,7 @@ export type SendBeapViaP2PResult = {
     | 'terminal_non_recoverable'
     | 'STOPPED_REQUIRES_FIX'
     | 'RETRY_WITH_CHUNKING'
+    | 'STOPPED_PROTOCOL_MISMATCH'
   http_status?: number
   response_body_snippet?: string
   outbound_debug?: OutboundRequestDebugSnapshot

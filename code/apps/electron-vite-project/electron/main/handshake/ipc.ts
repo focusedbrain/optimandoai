@@ -719,6 +719,10 @@ export async function handleHandshakeRPC(
           )
           return {
             success: false,
+            // queued: false is required so callers do not append "— queued for retry".
+            // This is a deterministic protocol mismatch that cannot self-heal — the
+            // handshake must be re-established with matching keys.
+            queued: false,
             error: 'ERR_HANDSHAKE_LOCAL_KEY_MISMATCH: The sender key in the package header does not match this handshake\'s bound local key. Re-establish the handshake to resync keys.',
             code: 'ERR_HANDSHAKE_LOCAL_KEY_MISMATCH',
           }

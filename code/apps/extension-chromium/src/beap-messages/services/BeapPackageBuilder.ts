@@ -2245,7 +2245,11 @@ export async function executeP2PAction(
       result?.code === 'REQUEST_INVALID' ||
       result?.code === 'PAYLOAD_TOO_LARGE' ||
       result?.code === 'RELAY_TYPE_NOT_ALLOWED' ||
-      result?.code === 'OUT_OF_BAND_REQUIRED'
+      result?.code === 'OUT_OF_BAND_REQUIRED' ||
+      result?.code === 'ERR_HANDSHAKE_LOCAL_KEY_MISMATCH' ||
+      result?.code === 'ERR_HANDSHAKE_BOUND_KEY_MISSING' ||
+      result?.code === 'ERR_HEADER_SENDER_KEY_MISMATCH' ||
+      result?.code === 'ERR_MLKEM_SECRET_MISSING_BOUND_FLOW'
     ) {
       const lines: string[] = [errMsg]
       if (typeof result.http_status === 'number') {
@@ -2262,7 +2266,15 @@ export async function executeP2PAction(
             ? 'RELAY_TYPE_NOT_ALLOWED'
             : result.code === 'OUT_OF_BAND_REQUIRED'
               ? 'OUT_OF_BAND_REQUIRED'
-              : 'REQUEST_INVALID'
+              : result.code === 'ERR_HANDSHAKE_LOCAL_KEY_MISMATCH'
+                ? 'ERR_HANDSHAKE_LOCAL_KEY_MISMATCH'
+                : result.code === 'ERR_HANDSHAKE_BOUND_KEY_MISSING'
+                  ? 'ERR_HANDSHAKE_BOUND_KEY_MISSING'
+                  : result.code === 'ERR_HEADER_SENDER_KEY_MISMATCH'
+                    ? 'ERR_HEADER_SENDER_KEY_MISMATCH'
+                    : result.code === 'ERR_MLKEM_SECRET_MISSING_BOUND_FLOW'
+                      ? 'ERR_MLKEM_SECRET_MISSING_BOUND_FLOW'
+                      : 'REQUEST_INVALID'
       const msgJoined = lines.join('\n')
       return {
         success: false,

@@ -63,6 +63,9 @@ export type FailureClass =
   | 'SCHEMA_PERMANENT'
   /** Size / limit at relay or validator — may be mitigated by smaller wire package or canon limits */
   | 'SIZE_RECOVERABLE'
+  /** Deterministic handshake-bound protocol mismatch (ERR_HANDSHAKE_LOCAL_KEY_MISMATCH etc).
+   *  Cannot self-heal — handshake must be re-established. Never retry automatically. */
+  | 'PROTOCOL_PERMANENT'
 
 export type HealingStatus =
   | 'idle'
@@ -74,6 +77,8 @@ export type HealingStatus =
   | 'STOPPED_REQUIRES_FIX'
   /** Payload over limit — reduce attachments or send smaller package; no blind backoff retry */
   | 'RETRY_WITH_CHUNKING'
+  /** Handshake-bound protocol mismatch — re-establish handshake, no retry possible */
+  | 'STOPPED_PROTOCOL_MISMATCH'
 
 /** Result of attempting to process one pending outbound capsule (oldest first). */
 export interface ProcessOutboundQueueResult {
@@ -132,7 +137,8 @@ function shouldAutodrainOnBackoff(lastError: string | null, fc?: FailureClass): 
     fc === 'CONFIG_PERMANENT' ||
     fc === 'PAYLOAD_PERMANENT' ||
     fc === 'SCHEMA_PERMANENT' ||
-    fc === 'SIZE_RECOVERABLE'
+    fc === 'SIZE_RECOVERABLE' ||
+    fc === 'PROTOCOL_PERMANENT'
   )
     return false
   if (!lastError) return true

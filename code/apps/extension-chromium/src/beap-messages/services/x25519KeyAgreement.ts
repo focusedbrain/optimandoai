@@ -133,15 +133,50 @@ export async function storeDeviceKeypair(keypair: X25519KeyPair): Promise<void> 
 export async function loadDeviceKeypair(): Promise<X25519KeyPair | null> {
   try {
     if (typeof chrome !== 'undefined' && chrome.storage?.local) {
+      // chrome.storage.local.get() returns a Promise<Record<string,unknown>>.
+      // On some MV3 service-worker timing windows (context not yet fully ready) the
+      // resolved value can be `undefined` instead of `{}`. Guard every access.
       const result = await chrome.storage.local.get(STORAGE_KEY)
-      return result[STORAGE_KEY] || null
+      if (result == null) {
+        // Storage returned undefined/null — treat as "no key present" (first run).
+        console.log('[X25519] loadDeviceKeypair: storage returned nullish result — no device keypair present (first run or context not ready)')
+        return null
+      }
+      const stored = result[STORAGE_KEY]
+      if (stored == null) {
+        // Key not present in storage — normal first-run path.
+        return null
+      }
+      // Validate the stored object has the minimum required shape before trusting it.
+      if (
+        typeof stored !== 'object' ||
+        typeof (stored as X25519KeyPair).privateKey !== 'string' ||
+        typeof (stored as X25519KeyPair).publicKey !== 'string' ||
+        (stored as X25519KeyPair).privateKey.length === 0 ||
+        (stored as X25519KeyPair).publicKey.length === 0
+      ) {
+        console.error('[X25519] loadDeviceKeypair: stored keypair is malformed — discarding and regenerating.', { stored })
+        return null
+      }
+      return stored as X25519KeyPair
     } else {
       // Fallback for dev/testing
-      const stored = localStorage.getItem(STORAGE_KEY)
-      return stored ? JSON.parse(stored) : null
+      const raw = localStorage.getItem(STORAGE_KEY)
+      if (!raw) return null
+      try {
+        const parsed = JSON.parse(raw) as X25519KeyPair
+        if (typeof parsed?.privateKey !== 'string' || typeof parsed?.publicKey !== 'string') {
+          console.error('[X25519] loadDeviceKeypair: localStorage keypair malformed — discarding.', { parsed })
+          return null
+        }
+        return parsed
+      } catch {
+        console.error('[X25519] loadDeviceKeypair: localStorage JSON parse failed — discarding.')
+        return null
+      }
     }
   } catch (error) {
-    console.error('[X25519] Failed to load device keypair:', error)
+    console.error('[X25519] loadDeviceKeypair: storage API threw — cannot load device keypair:', error)
     return null
   }
 }
@@ -156,10 +191,12 @@ export async function getOrCreateDeviceKeypair(): Promise<X25519KeyPair> {
   let keypair = await loadDeviceKeypair()
   
   if (!keypair) {
-    console.log('[X25519] No device keypair found, generating new one...')
+    console.log('[X25519] No device keypair present — generating new one for this device.')
     keypair = await generateX25519KeyPair()
     await storeDeviceKeypair(keypair)
     console.log('[X25519] New device keypair created with ID:', keypair.keyId)
+  } else {
+    console.log('[X25519] Loaded existing device keypair (ID:', keypair.keyId, ') — no regeneration.')
   }
   
   return keypair
