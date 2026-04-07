@@ -319,6 +319,33 @@ export async function decryptQBeapPackage(
         : null,
   })
 
+  // ── Receiver-side identity check ────────────────────────────────────────────
+  // The sender's key in the header MUST match what we recorded as our peer's key
+  // when the handshake was established. Any mismatch means ECDH will produce a
+  // wrong shared secret → AES-GCM auth tag will never verify. Hard-reject now
+  // so the error is deterministic and the log is actionable.
+  {
+    const hsPeerX25519 = hs.peer_x25519_public_key_b64?.trim() ?? ''
+    const match = hsPeerX25519 && senderX25519PubB64
+      ? hsPeerX25519 === senderX25519PubB64
+      : null
+    console.log('[qBEAP-decrypt] RECEIVER KEY CHECK:', JSON.stringify({
+      handshakeId,
+      hsPeerX25519: hsPeerX25519.substring(0, 24) || 'NULL',
+      headerSenderX25519: senderX25519PubB64.substring(0, 24) || 'NULL',
+      match,
+    }))
+    if (hsPeerX25519 && senderX25519PubB64 && !match) {
+      console.error(
+        '[qBEAP-decrypt] ERR_HEADER_SENDER_KEY_MISMATCH:',
+        'header.senderX25519 ≠ hs.peer_x25519. ECDH would produce wrong shared secret.',
+        'Re-establish handshake to resync peer keys.',
+        { handshakeId, hsPeerX25519Prefix: hsPeerX25519.substring(0, 24), headerPrefix: senderX25519PubB64.substring(0, 24) },
+      )
+      return null
+    }
+  }
+
   if (!senderX25519PubB64 || !saltB64) {
     console.warn('[qBEAP-decrypt] Missing sender X25519 public or salt')
     return null

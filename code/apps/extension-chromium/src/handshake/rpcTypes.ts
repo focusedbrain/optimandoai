@@ -125,11 +125,23 @@ export interface HandshakeListResponse {
 export interface HandshakeInitiateResponse {
   handshake_id: string
   status: string
+  /** Same semantics as HandshakeAcceptResponse.electronGeneratedMlkemSecret — see that field for docs. */
+  electronGeneratedMlkemSecret?: string | null
 }
 
 export interface HandshakeAcceptResponse {
   handshake_id: string
   status: string
+  /**
+   * Present (non-null) only when Electron generated the ML-KEM keypair as a fallback because
+   * the extension did not provide senderMlkem768PublicKeyB64 (e.g. PQ service was unavailable).
+   * The extension MUST call storeLocalMlkemSecret(handshake_id, electronGeneratedMlkemSecret)
+   * immediately after receiving this response. Without it, inbound hybrid qBEAP cannot decrypt.
+   *
+   * Null when the extension provided its own ML-KEM public key (normal path) — the extension
+   * already has the matching secret in chrome.storage.local from getKeyAgreementForHandshake().
+   */
+  electronGeneratedMlkemSecret?: string | null
 }
 
 export interface HandshakeRefreshResponse {
@@ -143,4 +155,11 @@ export interface HandshakeBuildForDownloadResponse {
   handshake_id: string
   capsule_json: string
   error?: string
+  /**
+   * Present (non-null) only when Electron generated the ML-KEM keypair as a fallback because
+   * the extension did not provide senderMlkem768PublicKeyB64 (PQ service was unavailable at build time).
+   * The extension MUST call storeLocalMlkemSecret(handshake_id, electronGeneratedMlkemSecret) immediately.
+   * Null on the normal path — extension already has the matching secret from getKeyAgreementForHandshake().
+   */
+  electronGeneratedMlkemSecret?: string | null
 }

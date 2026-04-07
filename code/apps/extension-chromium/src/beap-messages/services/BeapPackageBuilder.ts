@@ -1106,6 +1106,19 @@ async function buildQBeapPackage(config: BeapPackageConfig): Promise<PackageBuil
   // Per canon A.3.054.10: receiver needs this for ECDH key agreement
   const senderX25519PublicKeyB64 = await getDeviceX25519PublicKey()
 
+  // ── Sender-side bound key identity assertion ──────────────────────────────
+  // senderX25519PublicKeyB64 is always the persistent device public key.
+  // It MUST equal the local_x25519_public_key_b64 stored in the Electron handshake DB
+  // (ensureKeyAgreementKeys stored the device public key there at handshake init/accept time).
+  // If they diverge the receiver's ECDH will fail. Guard: require key to be non-empty here.
+  // The Electron-side sendBeapViaP2P (ERR_HANDSHAKE_LOCAL_KEY_MISMATCH) enforces the DB check.
+  if (!senderX25519PublicKeyB64?.trim()) {
+    return {
+      success: false,
+      error: 'ERR_HANDSHAKE_BOUND_KEY_MISSING: Device X25519 public key unavailable. Cannot build qBEAP header without sender identity key.',
+    }
+  }
+
   console.log('[BEAP-BUILD] KEYS:', JSON.stringify({
     recipPeerX25519: recipient.peerX25519PublicKey?.substring(0, 24),
     recipPeerMlkem: recipient.peerPQPublicKey?.substring(0, 24),

@@ -808,6 +808,39 @@ export async function gate4Decryption(
       return { passed: false, gate: GATE, error: 'GATE4: senderX25519PublicKey required for qBEAP (not in options or package header).', nonDisclosingError: nonDisclosingError(GATE) }
     }
 
+    // ── Receiver-side identity enforcement ──────────────────────────────────
+    // When the handshake record provides a bound peer X25519 key (senderX25519PublicKey),
+    // it MUST match the key the sender placed in the header. Any drift means ECDH would
+    // derive the wrong shared secret. Reject before any crypto to make the error deterministic.
+    const headerSenderKey =
+      typeof pkg.header.crypto?.senderX25519PublicKeyB64 === 'string'
+        ? pkg.header.crypto.senderX25519PublicKeyB64.trim()
+        : ''
+    const hsBoundKey = senderX25519PublicKey?.trim() ?? ''
+    const keyMatch = hsBoundKey && headerSenderKey ? hsBoundKey === headerSenderKey : null
+    console.log('[qBEAP-decrypt] RECEIVER KEY CHECK:', JSON.stringify({
+      handshakeId: (pkg.header as Record<string, unknown>)?.receiver_binding
+        ? ((pkg.header as Record<string, unknown>).receiver_binding as Record<string, unknown>)?.handshake_id ?? 'unknown'
+        : 'unknown',
+      hsPeerX25519: hsBoundKey.substring(0, 24) || 'NULL',
+      headerSenderX25519: headerSenderKey.substring(0, 24) || 'NULL',
+      match: keyMatch,
+    }))
+    if (hsBoundKey && headerSenderKey && keyMatch === false) {
+      console.error(
+        '[qBEAP-decrypt] ERR_HEADER_SENDER_KEY_MISMATCH (gate4):',
+        'options.senderX25519PublicKey (handshake-bound) ≠ header.senderX25519PublicKeyB64.',
+        'ECDH would derive wrong shared secret → AES-GCM auth will fail.',
+        'Re-establish handshake to resync peer keys.',
+      )
+      return {
+        passed: false,
+        gate: GATE,
+        error: 'ERR_HEADER_SENDER_KEY_MISMATCH: Handshake-bound sender key does not match message header. Re-establish the handshake.',
+        nonDisclosingError: nonDisclosingError(GATE),
+      }
+    }
+
     const salt = pkg.header.crypto?.salt
     if (!salt) {
       return { passed: false, gate: GATE, error: 'GATE4: Missing envelope salt for key derivation.', nonDisclosingError: nonDisclosingError(GATE) }

@@ -93,12 +93,18 @@ async function ensureKeyAgreementKeys(params: {
     x25519Priv = null
     console.log('[KEY-AGREEMENT] Using caller-provided X25519 public key (extension device key)')
   } else {
-    // Fallback: generate a fresh keypair (e.g. for server-side or test flows).
+    // ERR_HANDSHAKE_BOUND_KEY_MISSING: generating a fresh X25519 keypair in a bound flow means
+    // the acceptor will store a key the sender never uses for encryption — AES-GCM auth WILL fail.
+    // Callers that genuinely need ephemeral keys (non-bound test flows) must pass the key explicitly.
     const x25519PrivKey = x25519.utils.randomPrivateKey()
     const x25519PubKey = x25519.getPublicKey(x25519PrivKey)
     x25519Pub = Buffer.from(x25519PubKey).toString('base64')
     x25519Priv = Buffer.from(x25519PrivKey).toString('base64')
-    console.warn('[KEY-AGREEMENT] No X25519 key provided — generating fresh keypair (fallback path)')
+    console.error(
+      '[KEY-AGREEMENT] ERR_HANDSHAKE_BOUND_KEY_MISSING: No X25519 key provided — generating fresh keypair.',
+      'This is a fatal drift risk in bound handshake flows.',
+      'Ensure the extension sends senderX25519PublicKeyB64 before calling initiate/accept/buildForDownload.',
+    )
   }
 
   // ML-KEM: same logic. Use the caller-provided public key when valid.
@@ -119,7 +125,11 @@ async function ensureKeyAgreementKeys(params: {
     const mlkemKeypair = pq.ml_kem768.keygen()
     mlkemPub = Buffer.from(mlkemKeypair.publicKey).toString('base64')
     mlkemSecret = Buffer.from(mlkemKeypair.secretKey).toString('base64')
-    console.warn('[KEY-AGREEMENT] No ML-KEM key provided — generating fresh keypair (fallback path)')
+    console.error(
+      '[KEY-AGREEMENT] ERR_HANDSHAKE_BOUND_KEY_MISSING: No ML-KEM key provided — generating fresh keypair.',
+      'Electron-generated secret MUST be returned to the extension via electronGeneratedMlkemSecret.',
+      'If caller discards that field, inbound hybrid qBEAP WILL fail AES-GCM decryption.',
+    )
   }
 
   return {
@@ -677,6 +687,46 @@ export async function handleHandshakeRPC(
       } catch (e) {
         console.log('[P2P-SEND] Key check parse error:', e)
       }
+
+      // ── Sender-side bound key check ──────────────────────────────────────────
+      // The key placed in the header by BeapPackageBuilder (senderX25519PublicKeyB64)
+      // MUST match the key stored for this handshake in our local DB
+      // (local_x25519_public_key_b64). If they differ the receiver's ECDH will
+      // produce a different shared secret and AES-GCM auth will fail on every message.
+      try {
+        const pkgAny2 = pkg as Record<string, unknown>
+        const hdr2 =
+          ((pkgAny2?.header as Record<string, unknown> | undefined)?.crypto ??
+            pkgAny2?.crypto) as Record<string, unknown> | undefined
+        const headerSenderKey =
+          typeof hdr2?.senderX25519PublicKeyB64 === 'string'
+            ? hdr2.senderX25519PublicKeyB64.trim()
+            : ''
+        const handshakeLocalKey = record.local_x25519_public_key_b64?.trim() ?? ''
+        const keyMatch = headerSenderKey && handshakeLocalKey && headerSenderKey === handshakeLocalKey
+        console.log('[P2P-SEND] BOUND KEY CHECK:', JSON.stringify({
+          handshakeId,
+          localX25519: handshakeLocalKey.substring(0, 24) || 'NULL',
+          handshakeLocalX25519: handshakeLocalKey.substring(0, 24) || 'NULL',
+          headerSenderX25519: headerSenderKey.substring(0, 24) || 'NULL',
+          match: keyMatch,
+        }))
+        if (headerSenderKey && handshakeLocalKey && !keyMatch) {
+          console.error(
+            '[P2P-SEND] ERR_HANDSHAKE_LOCAL_KEY_MISMATCH: header senderX25519 ≠ handshake local_x25519.',
+            'Receiver will derive a wrong ECDH secret. Blocking send.',
+            { handshakeId, localKeyPrefix: handshakeLocalKey.substring(0, 24), headerKeyPrefix: headerSenderKey.substring(0, 24) },
+          )
+          return {
+            success: false,
+            error: 'ERR_HANDSHAKE_LOCAL_KEY_MISMATCH: The sender key in the package header does not match this handshake\'s bound local key. Re-establish the handshake to resync keys.',
+            code: 'ERR_HANDSHAKE_LOCAL_KEY_MISMATCH',
+          }
+        }
+      } catch (e) {
+        console.warn('[P2P-SEND] Bound key check error (non-fatal):', e)
+      }
+
       // `pkg` is parsed JSON: BEAP message package (header/metadata/envelope|payload) from the extension,
       // or a capsule envelope — coordination `/beap/capsule` accepts both (see coordination-service).
       console.log(`[P2P-SEND] Enqueuing capsule for handshake ${handshakeId} → ${targetEndpoint}`)
@@ -870,6 +920,8 @@ export async function handleHandshakeRPC(
         email_sent: emailResult?.success ?? false,
         email_error: emailResult?.error,
         local_result: localResult,
+        // Non-null when Electron generated the ML-KEM keypair (PQ unavailable in extension at initiate time).
+        electronGeneratedMlkemSecret: keyAgreement.sender_mlkem768_secret_key_b64 ?? null,
       }
     }
 
@@ -1019,6 +1071,9 @@ export async function handleHandshakeRPC(
         handshake_id: capsule.handshake_id,
         capsule_json: JSON.stringify(capsule),
         suggested_filename: `handshake_${localpart}_${shortHash}.beap`,
+        // Non-null when Electron generated the ML-KEM keypair (PQ unavailable in extension at buildForDownload time).
+        // Extension MUST call storeLocalMlkemSecret(handshake_id, electronGeneratedMlkemSecret) on receipt.
+        electronGeneratedMlkemSecret: dlKeyAgreement.sender_mlkem768_secret_key_b64 ?? null,
       }
     }
 
@@ -1332,6 +1387,14 @@ export async function handleHandshakeRPC(
         }
       }
 
+      // When ensureKeyAgreementKeys generated the ML-KEM keypair as a fallback (extension did not
+      // provide senderMlkem768PublicKeyB64, e.g. PQ service was unavailable at accept time),
+      // the secret is stored in the Electron DB but was never given to the extension.
+      // Return it here so the extension can persist it via storeLocalMlkemSecret(handshakeId, secret).
+      // The extension MUST store this before any inbound qBEAP can be decrypted.
+      const electronGeneratedMlkemSecret =
+        acceptKeyAgreement.sender_mlkem768_secret_key_b64 ?? null
+
       return {
         type: 'handshake-accept-result',
         success: localResult.success,
@@ -1340,6 +1403,9 @@ export async function handleHandshakeRPC(
         email_error: emailResult?.error,
         local_result: localResult,
         context_sync_status: contextSyncStatus,
+        // Non-null only when Electron generated the ML-KEM keypair (fallback path).
+        // Null when extension provided its own ML-KEM public key (normal path — extension already has the secret).
+        electronGeneratedMlkemSecret,
         message: contextSyncStatus === 'vault_locked'
           ? 'Handshake accepted. Unlock your vault to complete the secure exchange.'
           : contextSyncStatus === 'sent'
