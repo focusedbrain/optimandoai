@@ -10,7 +10,7 @@ const appDir = __dirname
  *   return 'C:\\build-output\\build888'
  */
 function windowsOutputDirMarker() {
-  return 'C:\\build-output\\build74747'
+  return 'C:\\build-output\\build3114'
 }
 
 const workspaceRoot = path.resolve(appDir, '../..')
