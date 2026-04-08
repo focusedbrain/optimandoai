@@ -42,6 +42,14 @@ export function StepSession({
     void load()
   }, [load])
 
+  useEffect(() => {
+    const onMsg = (msg: { type?: string }) => {
+      if (msg?.type === 'SESSION_DISPLAY_NAME_UPDATED') void load()
+    }
+    chrome.runtime.onMessage.addListener(onMsg as Parameters<typeof chrome.runtime.onMessage.addListener>[0])
+    return () => chrome.runtime.onMessage.removeListener(onMsg as Parameters<typeof chrome.runtime.onMessage.addListener>[0])
+  }, [load])
+
   /** Custom modes always use shared session semantics; speech-bubble focus selects the mode like other triggers. */
   useEffect(() => {
     setData({ sessionMode: 'shared' })

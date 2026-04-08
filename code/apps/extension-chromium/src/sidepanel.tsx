@@ -184,6 +184,7 @@ function SidepanelOrchestrator() {
   // Additional state for new features
   const [sessionName, setSessionName] = useState('')
   const [sessionKey, setSessionKey] = useState<string>('')
+  const sessionKeyRef = useRef<string>('')
   const [isLocked, setIsLocked] = useState(false)
   const [agentBoxes, setAgentBoxes] = useState<Array<any>>([])
   const [agentBoxHeights, setAgentBoxHeights] = useState<Record<string, number>>({})
@@ -584,7 +585,7 @@ function SidepanelOrchestrator() {
 
   // Load available sessions for Draft Email session selector
   // Sessions are stored in chrome.storage.local (same as Sessions History modal)
-  const loadAvailableSessions = () => {
+  const loadAvailableSessions = useCallback(() => {
     chrome.storage.local.get(null, (allData) => {
       if (chrome.runtime.lastError) {
         console.warn('[BEAP Sessions] Error:', chrome.runtime.lastError.message)
@@ -616,19 +617,39 @@ function SidepanelOrchestrator() {
       
       setAvailableSessions(sessions)
     })
-  }
+  }, [])
   
   // Load sessions on mount
   useEffect(() => {
     loadAvailableSessions()
-  }, [])
+  }, [loadAvailableSessions])
+
+  useEffect(() => {
+    sessionKeyRef.current = sessionKey
+  }, [sessionKey])
+
+  /** When a session display name is renamed in another surface (e.g. Sessions History), refresh labels + dropdowns. */
+  useEffect(() => {
+    const onDisplayName = (msg: { type?: string; sessionKey?: string; displayName?: string }) => {
+      if (msg?.type !== 'SESSION_DISPLAY_NAME_UPDATED') return
+      const sk = msg.sessionKey
+      const dn = msg.displayName
+      if (typeof sk !== 'string' || typeof dn !== 'string') return
+      if (sessionKeyRef.current === sk) {
+        setSessionName(dn)
+      }
+      loadAvailableSessions()
+    }
+    chrome.runtime.onMessage.addListener(onDisplayName as Parameters<typeof chrome.runtime.onMessage.addListener>[0])
+    return () => chrome.runtime.onMessage.removeListener(onDisplayName as Parameters<typeof chrome.runtime.onMessage.addListener>[0])
+  }, [loadAvailableSessions])
   
   // Refresh sessions when window gets focus (to catch newly created sessions)
   useEffect(() => {
     const handleFocus = () => loadAvailableSessions()
     window.addEventListener('focus', handleFocus)
     return () => window.removeEventListener('focus', handleFocus)
-  }, [])
+  }, [loadAvailableSessions])
   
   // Clear encrypted message when switching from private to public mode
   useEffect(() => {

@@ -2176,6 +2176,9 @@ function getSessionDisplayLabel(blob: { sessionAlias?: string | null; tabName?: 
   return blob.tabName || 'Unnamed Session'
 }
 
+/** Prevents programmatic updates to #session-name-input from firing input/blur handlers (avoids sync cascades / freezes). */
+let suppressTopBarSessionNameProgrammatic = false
+
 function initializeExtension() {
   // OAuth callback pages: never inject — prevents extension from breaking
   // http://localhost:51249/callback, etc. (Electron OAuth server)
@@ -38507,11 +38510,6 @@ ${pageText}
           })
         }
 
-        nameInput.addEventListener('blur', () => {
-          nameInput.style.background = csTheme().inputBg
-          nameInput.style.borderColor = 'rgba(255,255,255,0.2)'
-        })
-
         nameInput.addEventListener('keydown', (e) => {
           if (e.key === 'Enter') {
             e.preventDefault()
@@ -40254,22 +40252,56 @@ ${pageText}
       next.timestamp = new Date().toISOString()
 
       const afterUi = () => {
-        const displayName = getSessionDisplayLabel(next)
-        if (isCurrentSession) {
-          currentTabData.sessionAlias = next.sessionAlias ?? null
-          saveTabDataToStorage()
-        }
-        updateSessionAliasInAllUIs(displayName, sessionKey)
-        if (isCurrentSession) {
-          chrome.runtime.sendMessage({
-            type: 'UPDATE_SESSION_DATA',
-            data: {
-              sessionName: displayName,
-              sessionKey,
-              isLocked: currentTabData.isLocked,
-              agentBoxes: currentTabData.agentBoxes || [],
-            },
-          })
+        try {
+          const displayName = getSessionDisplayLabel(next)
+          if (isCurrentSession) {
+            currentTabData.sessionAlias = next.sessionAlias ?? null
+            saveTabDataToStorage()
+          }
+          updateSessionAliasInAllUIs(displayName, sessionKey)
+
+          try {
+            window.dispatchEvent(
+              new CustomEvent('optimando-session-display-updated', {
+                detail: { sessionKey, displayName },
+              }),
+            )
+          } catch {
+            /* ignore */
+          }
+          try {
+            chrome.runtime.sendMessage(
+              {
+                type: 'SESSION_DISPLAY_NAME_UPDATED',
+                sessionKey,
+                displayName,
+              },
+              () => void chrome.runtime.lastError,
+            )
+          } catch {
+            /* ignore */
+          }
+
+          if (isCurrentSession) {
+            try {
+              chrome.runtime.sendMessage(
+                {
+                  type: 'UPDATE_SESSION_DATA',
+                  data: {
+                    sessionName: displayName,
+                    sessionKey,
+                    isLocked: currentTabData.isLocked,
+                    agentBoxes: currentTabData.agentBoxes || [],
+                  },
+                },
+                () => void chrome.runtime.lastError,
+              )
+            } catch {
+              /* ignore */
+            }
+          }
+        } catch (e) {
+          console.warn('[syncSessionAlias] afterUi error:', e)
         }
       }
 
@@ -40310,7 +40342,14 @@ ${pageText}
     if (isCurrentSession) {
       const topBarInput = document.getElementById('session-name-input') as HTMLInputElement
       if (topBarInput && topBarInput.value !== displayName) {
-        topBarInput.value = displayName
+        suppressTopBarSessionNameProgrammatic = true
+        try {
+          topBarInput.value = displayName
+        } finally {
+          queueMicrotask(() => {
+            suppressTopBarSessionNameProgrammatic = false
+          })
+        }
       }
       updateSessionIdDisplay()
     }
@@ -40350,8 +40389,9 @@ ${pageText}
     if (sessionKey) {
       const idDisplay = document.createElement('div')
       idDisplay.className = 'session-id-display'
-      idDisplay.style.cssText = 'padding: 2px 10px; font-size: 9px; font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; color: ${csTheme().muted}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; letter-spacing: 0.3px;'
-      idDisplay.innerHTML = `<span style="color: ${csTheme().muted}; margin-right: 4px;">ID:</span><span style="color: rgba(255,215,0,0.7); font-weight: 400;">${sessionKey}</span>`
+      const muted = csTheme().muted
+      idDisplay.style.cssText = `padding: 2px 10px; font-size: 9px; font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; color: ${muted}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; letter-spacing: 0.3px;`
+      idDisplay.innerHTML = `<span style="color: ${muted}; margin-right: 4px;">ID:</span><span style="color: rgba(255,215,0,0.7); font-weight: 400;">${sessionKey}</span>`
       parentDiv.appendChild(idDisplay)
     }
   }
@@ -44430,6 +44470,7 @@ ${pageText}
       // Handle input changes with auto-save using centralized sync function
       let saveTimeout: NodeJS.Timeout | null = null
       sessionNameInput.addEventListener('input', () => {
+        if (suppressTopBarSessionNameProgrammatic) return
         if (currentTabData.isLocked) return
         
         // Clear existing timeout
@@ -44447,6 +44488,7 @@ ${pageText}
         target.style.background = 'rgba(255,255,255,0.08)'
         target.style.borderColor = 'rgba(255,255,255,0.15)'
         
+        if (suppressTopBarSessionNameProgrammatic) return
         if (saveTimeout) {
           clearTimeout(saveTimeout)
           saveTimeout = null
@@ -44458,6 +44500,7 @@ ${pageText}
       
       sessionNameInput.addEventListener('keypress', (e) => {
         if (e.key === 'Enter') {
+          if (suppressTopBarSessionNameProgrammatic) return
           if (saveTimeout) {
             clearTimeout(saveTimeout)
             saveTimeout = null

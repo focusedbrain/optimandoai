@@ -46,14 +46,19 @@ async function fetchOrchestratorSessionsForWizardViaHttp(): Promise<Orchestrator
 
 function displayNameForSessionKey(key: string, data: unknown): string {
   const d = data && typeof data === 'object' ? (data as Record<string, unknown>) : {}
-  const base =
-    typeof d.sessionName === 'string' && d.sessionName.trim()
-      ? d.sessionName.trim()
-      : typeof d.name === 'string' && d.name.trim()
-        ? d.name.trim()
-        : typeof d.tabName === 'string' && d.tabName.trim()
-          ? d.tabName.trim()
+  const alias =
+    typeof d.sessionAlias === 'string' && d.sessionAlias.trim() !== ''
+      ? d.sessionAlias.trim()
+      : null
+  const internal =
+    typeof d.tabName === 'string' && d.tabName.trim()
+      ? d.tabName.trim()
+      : typeof d.sessionName === 'string' && d.sessionName.trim()
+        ? d.sessionName.trim()
+        : typeof d.name === 'string' && d.name.trim()
+          ? d.name.trim()
           : key
+  const base = alias ?? internal
   return key.startsWith('archive_session_') ? `Archived: ${base}` : base
 }
 
