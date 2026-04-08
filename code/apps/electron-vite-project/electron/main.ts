@@ -91,6 +91,23 @@ function broadcastMainProcessLog(level: string, args: unknown[]) {
   }
 }
 
+/** When extension/background saves a session KV row (e.g. rename), notify dashboard renderers to refetch session lists. */
+function broadcastOrchestratorSessionDisplayUpdated(sessionKey: string) {
+  try {
+    const payload = { sessionKey }
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (win.isDestroyed()) continue
+      try {
+        win.webContents.send('orchestrator:session-display-updated', payload)
+      } catch {
+        /* noop */
+      }
+    }
+  } catch {
+    /* noop */
+  }
+}
+
 console.log = (...args: unknown[]) => {
   _originalLog(...args)
   broadcastMainProcessLog('log', args)
@@ -8547,6 +8564,12 @@ async function runDeviceKeyMigration(
         const { getOrchestratorService } = await import('./main/orchestrator-db/service')
         const service = getOrchestratorService()
         await service.set(key, value)
+        if (
+          typeof key === 'string' &&
+          (key.startsWith('session_') || key.startsWith('archive_session_'))
+        ) {
+          broadcastOrchestratorSessionDisplayUpdated(key)
+        }
         res.json({ success: true })
       } catch (error: any) {
         console.error('[HTTP-ORCHESTRATOR] Error in set:', error)

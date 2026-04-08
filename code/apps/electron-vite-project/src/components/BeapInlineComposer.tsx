@@ -293,36 +293,39 @@ export function BeapInlineComposer({
 
   useEffect(() => () => disconnect(), [disconnect]);
 
-  useEffect(() => {
-    const loadSessions = async () => {
-      try {
-        if (typeof window.orchestrator?.connect === 'function') {
-          await window.orchestrator.connect();
-        }
-      } catch {
-        /* best-effort */
+  const loadSessions = useCallback(async () => {
+    try {
+      if (typeof window.orchestrator?.connect === 'function') {
+        await window.orchestrator.connect();
       }
+    } catch {
+      /* best-effort */
+    }
 
-      try {
-        const json = (await window.orchestrator?.listSessions?.()) as
-          | {
-              success?: boolean;
-              data?: Array<{ id: string; name: string }>;
-            }
-          | undefined;
+    try {
+      const json = (await window.orchestrator?.listSessions?.()) as
+        | {
+            success?: boolean;
+            data?: Array<{ id: string; name: string }>;
+          }
+        | undefined;
 
-        if (json?.success && Array.isArray(json.data)) {
-          setSessions(json.data.map((s) => ({ id: s.id, name: s.name })));
-        } else {
-          setSessions([]);
-        }
-      } catch {
+      if (json?.success && Array.isArray(json.data)) {
+        setSessions(json.data.map((s) => ({ id: s.id, name: s.name })));
+      } else {
         setSessions([]);
       }
-    };
-
-    void loadSessions();
+    } catch {
+      setSessions([]);
+    }
   }, []);
+
+  useEffect(() => {
+    void loadSessions();
+    const onOrchestratorSession = () => void loadSessions();
+    window.addEventListener('orchestrator-session-display-updated', onOrchestratorSession);
+    return () => window.removeEventListener('orchestrator-session-display-updated', onOrchestratorSession);
+  }, [loadSessions]);
 
   useEffect(() => {
     const loadAccounts = async () => {

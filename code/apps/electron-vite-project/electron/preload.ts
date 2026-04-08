@@ -472,6 +472,10 @@ ipcRenderer.on('handshake-list-refresh', () => {
 ipcRenderer.on('vault-status-changed', () => {
   window.dispatchEvent(new CustomEvent('vault-status-changed'))
 })
+/** Main → renderer: session_* KV was written (e.g. extension rename). Dashboard refetches `orchestrator.listSessions`. */
+ipcRenderer.on('orchestrator:session-display-updated', (_e, payload: unknown) => {
+  window.dispatchEvent(new CustomEvent('orchestrator-session-display-updated', { detail: payload }))
+})
 
 // ── Handshake View (Relationships + Capsule Import) ────────────────────────
 contextBridge.exposeInMainWorld('handshakeView', {

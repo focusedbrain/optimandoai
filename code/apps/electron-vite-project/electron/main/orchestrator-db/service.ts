@@ -372,14 +372,19 @@ export class OrchestratorService {
         key.startsWith('session_') || key.startsWith('archive_session_')
       if (!isKvSession || value == null || typeof value !== 'object') continue
       const v = value as Record<string, unknown>
+      // Mirrors `sessionDisplayLabel` in apps/extension-chromium/src/utils/sessionDisplayLabel.ts — keep in sync.
+      const ne = (x: unknown): string | null => {
+        if (x == null || typeof x !== 'string') return null
+        const t = x.trim()
+        return t.length > 0 ? t : null
+      }
       const baseName =
-        typeof v.sessionName === 'string' && v.sessionName.trim()
-          ? v.sessionName.trim()
-          : typeof v.name === 'string' && v.name.trim()
-            ? v.name.trim()
-            : typeof v.tabName === 'string' && v.tabName.trim()
-              ? v.tabName.trim()
-              : key
+        ne(v.sessionAlias) ??
+        ne(v.tabName) ??
+        ne(v.name) ??
+        ne(v.sessionName) ??
+        ne(key) ??
+        'Unnamed session'
       const name = key.startsWith('archive_session_') ? `Archived: ${baseName}` : baseName
       const ts =
         typeof v.timestamp === 'string' && v.timestamp

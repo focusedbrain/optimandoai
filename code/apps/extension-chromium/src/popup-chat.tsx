@@ -52,6 +52,7 @@ import {
 } from './beap-messages/attachmentPickerLimits'
 import { ConnectEmailLaunchSource, useConnectEmailFlow } from './shared/email/connectEmailFlow'
 import { pickDefaultEmailAccountRowId } from './shared/email/pickDefaultAccountRow'
+import { sessionDisplayLabel } from './utils/sessionDisplayLabel'
 
 // =============================================================================
 // Theme Type - Matches docked version
@@ -99,14 +100,12 @@ function beapUiValidationFailure(message: string): {
   }
 }
 
-/** Matches sidepanel / Sessions History: user alias, else internal tabName. */
+/** Delegates to shared sessionDisplayLabel (Chrome storage session blobs). */
 function sessionListLabel(
   s: { sessionAlias?: string | null; tabName?: string; name?: string; sessionName?: string } | null | undefined,
   fallback: string,
 ): string {
-  if (!s) return fallback
-  if (s.sessionAlias != null && String(s.sessionAlias).trim() !== '') return String(s.sessionAlias).trim()
-  return s.tabName || s.name || s.sessionName || fallback
+  return sessionDisplayLabel(s ?? undefined, fallback)
 }
 
 // Workspace types - MIRRORS docked sidepanel exactly

@@ -37,6 +37,7 @@ import { inputCoordinator } from './services/InputCoordinator'
 import { formatErrorForNotification, isConnectionError } from './utils/errorMessages'
 import { normaliseTriggerTag } from './utils/normaliseTriggerTag'
 import { mergeTaggedTriggersFromHost } from './utils/mergeTaggedTriggersFromHost'
+import { sessionDisplayLabel } from './utils/sessionDisplayLabel'
 import { ConnectEmailLaunchSource, useConnectEmailFlow } from './shared/email/connectEmailFlow'
 import { pickDefaultEmailAccountRowId } from './shared/email/pickDefaultAccountRow'
 import { ThirdPartyLicensesView } from './bundled-tools'
@@ -158,14 +159,12 @@ function beapUiValidationFailure(message: string): {
   }
 }
 
-/** Matches content-script session display: user alias, else internal tabName. */
+/** Delegates to shared sessionDisplayLabel (Chrome storage session blobs). */
 function sessionListLabel(
   s: { sessionAlias?: string | null; tabName?: string; name?: string; sessionName?: string } | null | undefined,
   fallback: string,
 ): string {
-  if (!s) return fallback
-  if (s.sessionAlias != null && String(s.sessionAlias).trim() !== '') return String(s.sessionAlias).trim()
-  return s.tabName || s.name || s.sessionName || fallback
+  return sessionDisplayLabel(s ?? undefined, fallback)
 }
 
 function SidepanelOrchestrator() {

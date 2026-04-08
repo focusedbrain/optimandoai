@@ -331,6 +331,13 @@ export function ProjectOptimizationPanel({
     void refreshOrchestratorSessionsFromBridge()
   }, [])
 
+  /** Main broadcasts `orchestrator-session-display-updated` when POST /api/orchestrator/set writes a session_* key (e.g. extension rename). */
+  useEffect(() => {
+    const onOrchestratorSession = () => void refreshOrchestratorSessionsFromBridge()
+    window.addEventListener('orchestrator-session-display-updated', onOrchestratorSession)
+    return () => window.removeEventListener('orchestrator-session-display-updated', onOrchestratorSession)
+  }, [])
+
   useEffect(() => {
     if (setupMode === 'collapsed') return
     void refreshOrchestratorSessionsFromBridge()

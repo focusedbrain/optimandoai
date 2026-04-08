@@ -4,6 +4,8 @@
  * In Electron (dashboard), falls back to HTTP when `chrome.runtime.sendMessage` is not available yet.
  */
 
+import { sessionDisplayLabel } from '../utils/sessionDisplayLabel'
+
 export type OrchestratorSessionListEntry = {
   id: string
   name: string
@@ -44,21 +46,18 @@ async function fetchOrchestratorSessionsForWizardViaHttp(): Promise<Orchestrator
   }
 }
 
+/** Wizard row label; archive_session_* keys get an `Archived:` prefix. */
 function displayNameForSessionKey(key: string, data: unknown): string {
   const d = data && typeof data === 'object' ? (data as Record<string, unknown>) : {}
-  const alias =
-    typeof d.sessionAlias === 'string' && d.sessionAlias.trim() !== ''
-      ? d.sessionAlias.trim()
-      : null
-  const internal =
-    typeof d.tabName === 'string' && d.tabName.trim()
-      ? d.tabName.trim()
-      : typeof d.sessionName === 'string' && d.sessionName.trim()
-        ? d.sessionName.trim()
-        : typeof d.name === 'string' && d.name.trim()
-          ? d.name.trim()
-          : key
-  const base = alias ?? internal
+  const base = sessionDisplayLabel(
+    {
+      sessionAlias: typeof d.sessionAlias === 'string' ? d.sessionAlias : undefined,
+      tabName: typeof d.tabName === 'string' ? d.tabName : undefined,
+      name: typeof d.name === 'string' ? d.name : undefined,
+      sessionName: typeof d.sessionName === 'string' ? d.sessionName : undefined,
+    },
+    key,
+  )
   return key.startsWith('archive_session_') ? `Archived: ${base}` : base
 }
 
