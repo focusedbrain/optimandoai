@@ -1,5 +1,6 @@
 import { useCallback, useLayoutEffect, useState } from 'react'
 import { PopupChatView } from '@ext/ui/components'
+import { useProjectStore } from '../stores/useProjectStore'
 import { ensureOrchestratorSessionForDashboard } from '../lib/wrChatDashboardBootstrap'
 import { wrChatDashboardWarn } from '../lib/wrChatDashboardLog'
 import { setWrChatRuntimeSurface } from '../lib/wrChatRuntimeMode'
@@ -22,6 +23,23 @@ interface WRChatDashboardViewProps {
  * **`useChatFocusStore`**, dispatches `wrchat-append-assistant` (intro), and `wrchat-chat-focus-request` on speech-bubble focus — same module as the docked extension sidepanel.
  */
 export default function WRChatDashboardView({ theme }: WRChatDashboardViewProps) {
+  const acceptOptimizationSuggestion = useProjectStore((s) => s.acceptOptimizationSuggestion)
+  const onPersistAcceptedOptimizationSuggestion = useCallback(
+    (payload: {
+      projectId: string
+      runId: string
+      agentBoxId: string
+      text: string
+    }) => {
+      acceptOptimizationSuggestion(payload.projectId, {
+        runId: payload.runId,
+        agentBoxId: payload.agentBoxId,
+        text: payload.text,
+      })
+    },
+    [acceptOptimizationSuggestion],
+  )
+
   const [ready, setReady] = useState(false)
   const [availableModels, setAvailableModels] = useState<Array<{ name: string; size?: string }>>([])
   const [activeLlmModel, setActiveLlmModel] = useState<string | undefined>(undefined)
@@ -196,8 +214,12 @@ export default function WRChatDashboardView({ theme }: WRChatDashboardViewProps)
           onRefreshModels={refreshModels}
           sessionName="Dashboard"
           wrChatEmbedContext="dashboard"
+          onPersistAcceptedOptimizationSuggestion={onPersistAcceptedOptimizationSuggestion}
         />
       </div>
     </div>
   )
 }
+
+/** Re-export shared optimization UI from the extension barrel (dashboard uses the same components as WR Chat). */
+export { AgentOptimizationResult, OptimizationRunHeader, OptimizationInfobox } from '@ext/ui/components'

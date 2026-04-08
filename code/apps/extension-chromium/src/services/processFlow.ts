@@ -252,6 +252,16 @@ export interface AgentBox {
   imageModel?: string // Image model/preset for the selected provider
 }
 
+/** Orchestrator session `displayGrids[]` entry — layout + slot map (see grid-display-v2 / content-script). */
+export interface DisplayGrid {
+  sessionId?: string
+  layout?: string
+  config?: {
+    slots?: Record<string, { boxNumber?: number; [key: string]: unknown }>
+  }
+  [key: string]: unknown
+}
+
 export interface RoutingDecision {
   shouldForwardToAgent: boolean
   matchedAgents: AgentMatch[]

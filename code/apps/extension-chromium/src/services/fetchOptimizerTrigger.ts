@@ -2,6 +2,17 @@ import { ensureLaunchSecretForElectronHttp, fetchWithElectronHttpReady } from '.
 
 const BASE_URL = 'http://127.0.0.1:51248'
 
+/** Must match `WRDESK_OPTIMIZATION_GUARD_TOAST` in Electron `wrdeskUiEvents.ts`. */
+const OPTIMIZATION_GUARD_TOAST = 'wrdesk:optimization-guard-toast'
+
+function dispatchOptimizationToast(message: string, variant: 'info' | 'warning' = 'info'): void {
+  try {
+    window.dispatchEvent(new CustomEvent(OPTIMIZATION_GUARD_TOAST, { detail: { message, variant } }))
+  } catch {
+    /* noop */
+  }
+}
+
 function getLaunchSecret(): Promise<string | null> {
   return new Promise((resolve) => {
     try {
@@ -65,7 +76,7 @@ export async function getOptimizerStatus(projectId: string): Promise<{ enabled: 
 export async function setOptimizerContinuous(
   projectId: string,
   enabled: boolean,
-): Promise<{ enabled: boolean; intervalMs: number }> {
+): Promise<{ enabled: boolean; intervalMs: number; ok?: boolean; message?: string; code?: string }> {
   try {
     await ensureLaunchSecretForElectronHttp()
     const secret = await getLaunchSecret()
@@ -77,29 +88,66 @@ export async function setOptimizerContinuous(
         signal: AbortSignal.timeout(30_000),
       }),
     )
-    if (!res.ok) return { enabled: false, intervalMs: 300_000 }
+    if (!res.ok) {
+      const j = (await res.json().catch(() => null)) as { status?: string; message?: string; code?: string } | null
+      const message =
+        typeof j?.message === 'string' && j.message.trim()
+          ? j.message
+          : `Continuous optimization failed (${res.status})`
+      dispatchOptimizationToast(message, 'warning')
+      return {
+        enabled: false,
+        intervalMs: 300_000,
+        ok: false,
+        message,
+        code: typeof j?.code === 'string' ? j.code : undefined,
+      }
+    }
     const j = (await res.json().catch(() => null)) as { enabled?: boolean; intervalMs?: number } | null
     return {
       enabled: typeof j?.enabled === 'boolean' ? j.enabled : enabled,
       intervalMs: typeof j?.intervalMs === 'number' ? j.intervalMs : 300_000,
+      ok: true,
     }
   } catch {
-    return { enabled: false, intervalMs: 300_000 }
+    const message = 'Could not reach WR Desk for continuous optimization.'
+    dispatchOptimizationToast(message, 'warning')
+    return { enabled: false, intervalMs: 300_000, ok: false, message }
   }
 }
 
-export async function triggerOptimizerSnapshot(projectId: string): Promise<void> {
+export async function triggerOptimizerSnapshot(projectId: string): Promise<{
+  ok: boolean
+  message?: string
+  code?: string
+}> {
   try {
     await ensureLaunchSecretForElectronHttp()
     const secret = await getLaunchSecret()
-    await fetchWithElectronHttpReady(() =>
+    const res = await fetchWithElectronHttpReady(() =>
       fetch(`${BASE_URL}/api/projects/${encodeURIComponent(projectId)}/optimize/snapshot`, {
         method: 'POST',
         headers: buildHeaders(secret),
         signal: AbortSignal.timeout(600_000),
       }),
     )
+    if (!res.ok) {
+      const j = (await res.json().catch(() => null)) as { status?: string; message?: string; code?: string } | null
+      const message =
+        typeof j?.message === 'string' && j.message.trim()
+          ? j.message
+          : `Snapshot optimization failed (${res.status})`
+      dispatchOptimizationToast(message, 'warning')
+      return {
+        ok: false,
+        message,
+        code: typeof j?.code === 'string' ? j.code : undefined,
+      }
+    }
+    return { ok: true }
   } catch {
-    /* noop */
+    const message = 'Could not reach WR Desk for snapshot optimization.'
+    dispatchOptimizationToast(message, 'warning')
+    return { ok: false, message }
   }
 }

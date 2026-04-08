@@ -48,6 +48,10 @@ import { AUTO_OPTIMIZATION_INTERVALS } from '../../../types/projectTypes'
 import type { ProjectAttachment, ProjectMilestone } from '../../../types/projectTypes'
 import type { AnalysisDashboardAutosortSessionMeta } from '../../../types/analysisDashboardSnapshot'
 import {
+  applyOptimizationGuardFallback,
+  canRunOptimization,
+} from '../../../lib/autoOptimizationGuards'
+import {
   startAutoOptimization,
   stopAutoOptimization,
   triggerSnapshotOptimization,
@@ -240,8 +244,13 @@ export function ProjectOptimizationPanel({
     if (runBusy || !onRefreshOperations) return
     setRunBusy(true)
     try {
+      const guard = canRunOptimization('dashboard_snapshot')
+      if (!guard.ok) {
+        applyOptimizationGuardFallback(guard.fallback, guard.message)
+        return
+      }
       const project = useProjectStore.getState().getActiveProject()
-      if (project) triggerSnapshotOptimization(project)
+      if (project) triggerSnapshotOptimization(project, 'dashboard_snapshot')
       await onRefreshOperations()
       onOpenBulkInboxForAnalysis?.()
     } finally {
@@ -842,7 +851,17 @@ export function ProjectOptimizationPanel({
           <label className="pop__toggle-wrap">
             <StatusToggle
               enabled={autoOptOn}
-              onToggle={(v) => activeProject && setAutoOptimization(activeProject.id, v)}
+              onToggle={(v) => {
+                if (!activeProject) return
+                if (v) {
+                  const guard = canRunOptimization('dashboard_toggle')
+                  if (!guard.ok) {
+                    applyOptimizationGuardFallback(guard.fallback, guard.message)
+                    return
+                  }
+                }
+                setAutoOptimization(activeProject.id, v)
+              }}
               disabled={!activeProject}
               label="Auto-Optimization"
             />

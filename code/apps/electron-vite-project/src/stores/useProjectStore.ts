@@ -78,6 +78,10 @@ interface ProjectActions {
   // ── Auto-optimization ─────────────────────────────────────────────────────
   setAutoOptimization: (projectId: string, enabled: boolean) => void
   setAutoOptimizationInterval: (projectId: string, intervalMs: number) => void
+  acceptOptimizationSuggestion: (
+    projectId: string,
+    entry: { runId: string; agentBoxId: string; text: string },
+  ) => void
 
   // ── Computed helpers (access store state internally via get()) ────────────
   getActiveProject: () => Project | null
@@ -266,6 +270,18 @@ export const useProjectStore = create<ProjectState & ProjectActions>()(
           projects: patchProject(s.projects, projectId, (p) => ({
             ...p,
             autoOptimizationIntervalMs: intervalMs,
+            updatedAt: now(),
+          })),
+        })),
+
+      acceptOptimizationSuggestion: (projectId, entry) =>
+        set((s) => ({
+          projects: patchProject(s.projects, projectId, (p) => ({
+            ...p,
+            acceptedSuggestions: [
+              ...(p.acceptedSuggestions ?? []),
+              { ...entry, acceptedAt: now() },
+            ],
             updatedAt: now(),
           })),
         })),

@@ -483,6 +483,14 @@ export function ensureWrdeskChromeShim(): void {
         return
       }
 
+      if (t === 'ACTIVATE_SESSION_FOR_OPTIMIZATION') {
+        finish({
+          success: true,
+          result: { ok: false, code: 'NO_EXTENSION_CONTEXT', retryable: false },
+        })
+        return
+      }
+
       if (responseCallback) {
         wrChatDashboardWarn('chrome shim: unhandled runtime.sendMessage type', t)
         finish(undefined)

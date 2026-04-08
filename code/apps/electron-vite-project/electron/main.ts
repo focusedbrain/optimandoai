@@ -6781,9 +6781,11 @@ async function runDeviceKeyMigration(
           res.json({ status: 'triggered' })
           return
         }
-        const msg = result.error || 'snapshot failed'
+        const msg = result.error || result.message || 'snapshot failed'
         const code = msg === 'bridge not ready' ? 503 : 400
-        res.status(code).json({ status: 'error', message: msg })
+        const payload: { status: string; message: string; code?: string } = { status: 'error', message: msg }
+        if (typeof result.code === 'string' && result.code.length > 0) payload.code = result.code
+        res.status(code).json(payload)
       } catch (error: any) {
         console.error('[HTTP] POST /api/projects/:projectId/optimize/snapshot:', error)
         res.status(500).json({ status: 'error', message: error?.message || 'snapshot failed' })
@@ -6803,9 +6805,11 @@ async function runDeviceKeyMigration(
           res.json({ enabled: result.enabled, intervalMs: result.intervalMs })
           return
         }
-        const msg = result.error || 'continuous failed'
+        const msg = result.error || result.message || 'continuous failed'
         const code = msg === 'bridge not ready' ? 503 : 400
-        res.status(code).json({ error: msg })
+        const payload: { status: string; message: string; code?: string } = { status: 'error', message: msg }
+        if (typeof result.code === 'string' && result.code.length > 0) payload.code = result.code
+        res.status(code).json(payload)
       } catch (error: any) {
         console.error('[HTTP] POST /api/projects/:projectId/optimize/continuous:', error)
         res.status(500).json({ error: error?.message || 'continuous failed' })

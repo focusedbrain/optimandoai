@@ -3,6 +3,7 @@ import { WEBMCP_RESULT_VERSION } from './vault/autofill/webMcpConstants'
 import type { BgWebMcpErrorCode } from './vault/autofill/webMcpAdapter'
 import { extractAllTabsDom } from './utils/watchdogDomExtract'
 import { maybePresentOrchestratorDisplayGridSession } from './services/presentOrchestratorDisplayGridSession'
+import { activateSessionForOptimization } from './services/sessionActivationForOptimization'
 
 try {
   const m = chrome.runtime.getManifest()
@@ -2169,6 +2170,42 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === 'GET_LAUNCH_SECRET') {
     sendResponse({ secret: _launchSecret ?? null })
     return false // synchronous response
+  }
+
+  if (msg.type === 'ACTIVATE_SESSION_FOR_OPTIMIZATION') {
+    const raw = msg as { project?: { id?: string; linkedSessionIds?: unknown } }
+    const p = raw.project
+    const id = typeof p?.id === 'string' ? p.id : ''
+    const linked = Array.isArray(p?.linkedSessionIds)
+      ? (p!.linkedSessionIds as unknown[]).filter((x): x is string => typeof x === 'string')
+      : []
+    if (!id.trim() || linked.length === 0) {
+      try {
+        sendResponse({ success: false, error: 'Invalid project payload' })
+      } catch {
+        /* noop */
+      }
+      return false
+    }
+    void activateSessionForOptimization({ id, linkedSessionIds: linked })
+      .then((result) => {
+        try {
+          sendResponse({ success: true, result })
+        } catch {
+          /* channel closed */
+        }
+      })
+      .catch((e: unknown) => {
+        try {
+          sendResponse({
+            success: false,
+            error: e instanceof Error ? e.message : String(e),
+          })
+        } catch {
+          /* noop */
+        }
+      })
+    return true
   }
 
   if (msg.type === 'BEAP_ENSURE_LAUNCH_SECRET') {

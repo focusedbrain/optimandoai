@@ -16,6 +16,11 @@ import { WRCHAT_APPEND_ASSISTANT_EVENT, useChatFocusStore } from '../../stores/c
 import { getChatFocusLlmPrefix } from '../../utils/chatFocusLlmPrefix'
 import { prependHiddenContextToLastUserContent } from '../../utils/prependChatFocusToLastUser'
 import ChatFocusBanner from './ChatFocusBanner'
+import OptimizationInfobox from './OptimizationInfobox'
+import AgentOptimizationResult from './optimization/AgentOptimizationResult'
+import OptimizationRunHeader from './optimization/OptimizationRunHeader'
+import { WRDESK_OPTIMIZATION_RUN_RESULTS } from '../../lib/wrdeskOptimizationEvents'
+import type { AgentRunResult } from '../../types/optimizationTypes'
 import { mergeTaggedTriggersFromHost } from '../../utils/mergeTaggedTriggersFromHost'
 import {
   toBase64ForOllama,
@@ -69,6 +74,13 @@ export interface PopupChatViewProps {
   persistTranscriptStorageKey?: string
   /** Mark Electron dashboard embed — optional defensive branches (no popup window). */
   wrChatEmbedContext?: 'dashboard'
+  /** Dashboard: persist accepted optimization suggestions to project store. */
+  onPersistAcceptedOptimizationSuggestion?: (payload: {
+    projectId: string
+    runId: string
+    agentBoxId: string
+    text: string
+  }) => void
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -291,6 +303,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
   sessionName = 'Active Session',
   persistTranscriptStorageKey,
   wrChatEmbedContext,
+  onPersistAcceptedOptimizationSuggestion,
 }) => {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [input, setInput] = useState('')
@@ -306,6 +319,17 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
   const [pinnedDiffIds, setPinnedDiffIds] = useState<string[]>([])
   const [diffWatchers, setDiffWatchers] = useState<any[]>([])
   const [showTagsMenu, setShowTagsMenu] = useState(false)
+  const chatFocusMode = useChatFocusStore((s) => s.chatFocusMode)
+  type OptimizationRunUi = {
+    id: string
+    runId: string
+    projectId: string
+    projectTitle: string
+    completedAt: string
+    results: AgentRunResult[]
+    expanded: boolean
+  }
+  const [optimizationRuns, setOptimizationRuns] = useState<OptimizationRunUi[]>([])
   /** When false, skip persisting until localStorage transcript has been read (dashboard embed). */
   const [transcriptHydrated, setTranscriptHydrated] = useState(() => !persistTranscriptStorageKey)
   /** Capture tag/command prompt — same surface as sidepanel, filtered by promptContext (popup vs dashboard). */
@@ -381,6 +405,45 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
     window.addEventListener(WRCHAT_APPEND_ASSISTANT_EVENT, onAppend as EventListener)
     return () => window.removeEventListener(WRCHAT_APPEND_ASSISTANT_EVENT, onAppend as EventListener)
   }, [])
+
+  useEffect(() => {
+    const onOpt = (ev: Event) => {
+      const d = (ev as CustomEvent<{
+        runId?: string
+        projectId?: string
+        projectTitle?: string
+        completedAt?: string
+        results?: AgentRunResult[]
+      }>).detail
+      if (!d?.runId || !d.projectId || !d.results) return
+      const id = `${d.runId}-${d.completedAt ?? Date.now()}`
+      setOptimizationRuns((prev) => [
+        ...prev,
+        {
+          id,
+          runId: d.runId,
+          projectId: d.projectId,
+          projectTitle: d.projectTitle ?? 'Project',
+          completedAt: d.completedAt ?? new Date().toISOString(),
+          results: d.results,
+          expanded: true,
+        },
+      ])
+      setTimeout(() => {
+        if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight
+      }, 0)
+    }
+    window.addEventListener(WRDESK_OPTIMIZATION_RUN_RESULTS, onOpt as EventListener)
+    return () => window.removeEventListener(WRDESK_OPTIMIZATION_RUN_RESULTS, onOpt as EventListener)
+  }, [])
+
+  useEffect(() => {
+    if (optimizationRuns.length === 0) return
+    const t = setTimeout(() => {
+      if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight
+    }, 100)
+    return () => clearTimeout(t)
+  }, [optimizationRuns])
 
   // Check connection status
   useEffect(() => {
@@ -2279,7 +2342,11 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
           paddingTop: hasAnyPinnedEdgeItems ? 42 : 12,
         }}
       >
-        <ChatFocusBanner theme={theme} />
+        {chatFocusMode.mode === 'auto-optimizer' ? (
+          <OptimizationInfobox theme={theme} />
+        ) : (
+          <ChatFocusBanner theme={theme} />
+        )}
         {hasAnyPinnedEdgeItems && (
           <div
             role="toolbar"
@@ -2449,6 +2516,35 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
           </div>
           )
         })}
+        {optimizationRuns.map((run) => (
+          <div key={run.id} style={{ display: 'flex', flexDirection: 'column', gap: 8, maxWidth: '100%' }}>
+            <OptimizationRunHeader
+              theme={theme}
+              projectTitle={run.projectTitle}
+              completedAt={run.completedAt}
+              agentCount={run.results.length}
+              expanded={run.expanded}
+              onToggle={() => {
+                setOptimizationRuns((prev) =>
+                  prev.map((r) => (r.id === run.id ? { ...r, expanded: !r.expanded } : r)),
+                )
+              }}
+            />
+            {run.expanded &&
+              run.results.map((res) => (
+                <AgentOptimizationResult
+                  key={`${run.id}-${res.agentBoxId}`}
+                  theme={theme}
+                  runId={run.runId}
+                  projectId={run.projectId}
+                  agentIcon={null}
+                  result={res}
+                  boxNumber={res.boxNumber ?? 0}
+                  onAccept={onPersistAcceptedOptimizationSuggestion}
+                />
+              ))}
+          </div>
+        ))}
         {isLoading && (
           <div style={{
             maxWidth: '85%', padding: '10px 12px', borderRadius: '10px',

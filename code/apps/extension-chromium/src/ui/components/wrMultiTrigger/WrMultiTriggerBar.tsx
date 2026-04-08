@@ -215,6 +215,10 @@ Send me anything you'd like analyzed.`
     const mode: ChatFocusMode = {
       mode: 'auto-optimizer',
       projectId: pid,
+      projectTitle: title,
+      startedAt: new Date().toISOString(),
+      projectIcon: icon,
+      milestoneTitle: mile !== 'No active milestone' ? mile : undefined,
       activeMilestoneId: undefined,
     }
     const meta = {

@@ -15,7 +15,16 @@ export type TriggerFunctionId =
 export type ChatFocusMode =
   | { mode: 'default' }
   | { mode: 'scam-watchdog' }
-  | { mode: 'auto-optimizer'; projectId: string; activeMilestoneId?: string }
+  | {
+      mode: 'auto-optimizer'
+      projectId: string
+      projectTitle: string
+      startedAt: string
+      projectIcon?: string
+      milestoneTitle?: string
+      runId?: string
+      activeMilestoneId?: string
+    }
 
 /**
  * Minimal project info needed by the extension sidepanel trigger bar.

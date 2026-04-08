@@ -13,7 +13,10 @@ import { useEmailInboxStore, type InboxFilter } from './stores/useEmailInboxStor
 import { subscribeInboxNewMessagesBackgroundRefresh } from './utils/inboxNewMessagesBackgroundRefresh'
 import { registerWrDeskOptimizerHttpBridge } from './lib/wrDeskOptimizerHttpBridge'
 import { ensureWrdeskChromeShim } from './shims/wrChatDashboardChrome'
-import { WRDESK_AUTO_OPTIM_ACTIVATE_SESSIONS } from './lib/wrdeskUiEvents'
+import {
+  WRDESK_AUTO_OPTIM_ACTIVATE_SESSIONS,
+  WRDESK_OPTIMIZATION_GUARD_TOAST,
+} from './lib/wrdeskUiEvents'
 import { type AnalysisOpenPayload, sanitizeAnalysisOpenPayload } from './components/analysis'
 import './components/handshakeViewTypes'
 // === TEMPORARY DEBUG LOG VIEWER (remove before production) ===
@@ -52,6 +55,10 @@ function normalizeTheme(theme: string): ExtensionTheme {
 
 function App() {
   const [extensionTheme, setExtensionTheme] = useState<ExtensionTheme>('standard')
+  const [optimizationGuardToast, setOptimizationGuardToast] = useState<{
+    message: string
+    variant: 'info' | 'warning'
+  } | null>(null)
   const [deepLinkPayload, setDeepLinkPayload] = useState<AnalysisOpenPayload | null>(null)
   const [activeView, setActiveView] = useState<DashboardView>('analysis')
   const [showInitiateModal, setShowInitiateModal] = useState(false)
@@ -137,10 +144,25 @@ function App() {
     return () => { cleanup?.() }
   }, [handleOpenAnalysisDashboard])
 
+  useEffect(() => {
+    const onToast = (ev: Event) => {
+      const d = (ev as CustomEvent<{ message?: string; variant?: 'info' | 'warning' }>).detail
+      const msg = typeof d?.message === 'string' ? d.message : ''
+      if (!msg.trim()) return
+      setOptimizationGuardToast({
+        message: msg,
+        variant: d?.variant === 'warning' ? 'warning' : 'info',
+      })
+      window.setTimeout(() => setOptimizationGuardToast(null), 4500)
+    }
+    window.addEventListener(WRDESK_OPTIMIZATION_GUARD_TOAST, onToast)
+    return () => window.removeEventListener(WRDESK_OPTIMIZATION_GUARD_TOAST, onToast)
+  }, [])
+
   /** Auto-optimization: switch to WR Chat, bring window forward, activate each linked session key. */
   useEffect(() => {
     const handler = (ev: Event) => {
-      const ce = ev as CustomEvent<{ sessionIds?: string[] }>
+      const ce = ev as CustomEvent<{ sessionIds?: string[]; runId?: string }>
       const ids = (ce.detail?.sessionIds ?? []).filter(
         (id): id is string => typeof id === 'string' && id.length > 0,
       )
@@ -271,6 +293,27 @@ function App() {
 
   return (
     <div className="app-root">
+      {optimizationGuardToast && (
+        <div
+          role="status"
+          style={{
+            position: 'fixed',
+            top: 12,
+            right: 16,
+            zIndex: 99999,
+            maxWidth: 360,
+            padding: '10px 14px',
+            borderRadius: 8,
+            fontSize: 13,
+            fontWeight: 600,
+            boxShadow: '0 4px 16px rgba(0,0,0,0.12)',
+            background: optimizationGuardToast.variant === 'warning' ? 'rgba(254, 243, 199, 0.98)' : 'rgba(224, 231, 255, 0.98)',
+            color: optimizationGuardToast.variant === 'warning' ? '#92400e' : '#1e3a8a',
+          }}
+        >
+          {optimizationGuardToast.message}
+        </div>
+      )}
       <header className="app-header">
         <div className="app-header__brand">
           <WRCodeLogo size={110} />

@@ -50,6 +50,15 @@ export default defineManifest({
       js: ['src/mailguard-content-script.ts'],
       css: [],
       run_at: 'document_end'
+    },
+    {
+      matches: [
+        'chrome-extension://*/grid-display-v2.html*',
+        'chrome-extension://*/grid-display.html*'
+      ],
+      js: ['src/services/domSnapshotCapture.ts'],
+      css: [],
+      run_at: 'document_idle'
     }
   ],
   background: {

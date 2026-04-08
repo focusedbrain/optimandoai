@@ -54,6 +54,13 @@ export interface Project {
   autoOptimizationEnabled: boolean
   /** Interval in ms; default 300 000 (5 min). */
   autoOptimizationIntervalMs: number
+  /** User-accepted optimization suggestions (from WR Chat optimization run UI). */
+  acceptedSuggestions?: Array<{
+    runId: string
+    agentBoxId: string
+    text: string
+    acceptedAt: IsoDateString
+  }>
   createdAt: IsoDateString
   updatedAt: IsoDateString
 }

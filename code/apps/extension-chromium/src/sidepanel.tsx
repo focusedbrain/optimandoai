@@ -1600,7 +1600,14 @@ Active milestone: ${mile}
 
 I'm now focused on optimizing this project. Share context, blockers, or reference materials.`
         useChatFocusStore.getState().setChatFocusWithIntro(
-          { mode: 'auto-optimizer', projectId: proj.projectId },
+          {
+            mode: 'auto-optimizer',
+            projectId: proj.projectId,
+            projectTitle: title,
+            startedAt: new Date().toISOString(),
+            projectIcon: icon,
+            milestoneTitle: mile !== 'No active milestone' ? mile : undefined,
+          },
           { projectTitle: title, activeMilestoneTitle: mile, projectIcon: icon },
           intro,
         )
