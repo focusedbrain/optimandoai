@@ -158,6 +158,16 @@ function beapUiValidationFailure(message: string): {
   }
 }
 
+/** Matches content-script session display: user alias, else internal tabName. */
+function sessionListLabel(
+  s: { sessionAlias?: string | null; tabName?: string; name?: string; sessionName?: string } | null | undefined,
+  fallback: string,
+): string {
+  if (!s) return fallback
+  if (s.sessionAlias != null && String(s.sessionAlias).trim() !== '') return String(s.sessionAlias).trim()
+  return s.tabName || s.name || s.sessionName || fallback
+}
+
 function SidepanelOrchestrator() {
   // Original state
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>({ isConnected: false })
@@ -592,7 +602,7 @@ function SidepanelOrchestrator() {
       
       const sessions: SessionOption[] = sessionEntries
         .map(([key, data]: [string, any]) => {
-          const name = data?.tabName || data?.name || data?.sessionName || key
+          const name = sessionListLabel(data, key)
           const timestamp = data?.timestamp || data?.lastOpenedAt || data?.createdAt || ''
           return { key, name, timestamp }
         })
@@ -1563,10 +1573,11 @@ function SidepanelOrchestrator() {
       if (chrome.runtime.lastError || !response?.success || !response?.session) return
       const session = response.session as {
         tabName?: string
+        sessionAlias?: string | null
         isLocked?: boolean
         agentBoxes?: unknown[]
       }
-      setSessionName(session.tabName || 'Session')
+      setSessionName(sessionListLabel(session, 'Session'))
       setSessionKey(sk)
       setIsLocked(session.isLocked || false)
       setAgentBoxes(session.agentBoxes || [])
@@ -1703,7 +1714,7 @@ I'm now focused on optimizing this project. Share context, blockers, or referenc
               // Find the session with the new key
               const session = response.sessions[newSessionKey]
               if (session) {
-                setSessionName(session.tabName || 'Unnamed Session')
+                setSessionName(sessionListLabel(session, 'Unnamed Session'))
                 setSessionKey(newSessionKey)
                 setIsLocked(session.isLocked || false)
                 setAgentBoxes(session.agentBoxes || [])
@@ -1980,7 +1991,7 @@ I'm now focused on optimizing this project. Share context, blockers, or referenc
             }
             
             const session = response.session
-            setSessionName(session.tabName || 'Session')
+            setSessionName(sessionListLabel(session, 'Session'))
             setSessionKey(targetSessionKey)
             setIsLocked(session.isLocked || false)
             setAgentBoxes(session.agentBoxes || [])
@@ -1999,7 +2010,7 @@ I'm now focused on optimizing this project. Share context, blockers, or referenc
             
             if (sessionsArray.length > 0) {
               const mostRecent = sessionsArray[0]
-              setSessionName(mostRecent.tabName || 'Session')
+              setSessionName(sessionListLabel(mostRecent, 'Session'))
               setSessionKey(mostRecent.key)
               setIsLocked(mostRecent.isLocked || false)
               setAgentBoxes(mostRecent.agentBoxes || [])
@@ -2059,7 +2070,7 @@ I'm now focused on optimizing this project. Share context, blockers, or referenc
         
         // If we found a session, use it
         if (mostRecentSession && mostRecentKey) {
-          setSessionName(mostRecentSession.tabName || 'Unnamed Session')
+          setSessionName(sessionListLabel(mostRecentSession, 'Unnamed Session'))
           setSessionKey(mostRecentKey)
           setIsLocked(mostRecentSession.isLocked || false)
           setAgentBoxes(mostRecentSession.agentBoxes || [])

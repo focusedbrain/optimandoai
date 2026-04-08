@@ -261,6 +261,12 @@ const globalLightboxFunctions: {
 
   openPolicyLightbox?: () => void
 
+  syncSessionAlias?: (
+    newAlias: string,
+    source: 'sidebar' | 'topbar' | 'history',
+    targetSessionKey?: string,
+  ) => void
+
 } = {}
 
 
@@ -865,7 +871,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
       const responseData = {
 
-        sessionName: currentTabData.tabName,
+        sessionName: getSessionDisplayLabel(currentTabData),
 
         sessionKey: sessionKey,
 
@@ -897,39 +903,25 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     try {
 
-      if (message.data.sessionName !== undefined) {
-        // Use centralized sync function to ensure all locations are updated
-        syncSessionName(message.data.sessionName, 'sidebar')
-      }
-
       if (message.data.isLocked !== undefined) {
         currentTabData.isLocked = message.data.isLocked
         saveTabDataToStorage()
       }
 
-      
-
-      // Notify sidepanel of the update
-
-      chrome.runtime.sendMessage({
-
-        type: 'UPDATE_SESSION_DATA',
-
-        data: {
-
-          sessionName: currentTabData.tabName,
-
-          sessionKey: getCurrentSessionKey(),
-
-          isLocked: currentTabData.isLocked,
-
-          agentBoxes: currentTabData.agentBoxes || []
-
-        }
-
-      })
-
-      
+      if (message.data.sessionName !== undefined) {
+        // User alias only — never write tabName from sidepanel; syncSessionAlias broadcasts when done
+        globalLightboxFunctions.syncSessionAlias?.(message.data.sessionName, 'sidebar')
+      } else {
+        chrome.runtime.sendMessage({
+          type: 'UPDATE_SESSION_DATA',
+          data: {
+            sessionName: getSessionDisplayLabel(currentTabData),
+            sessionKey: getCurrentSessionKey(),
+            isLocked: currentTabData.isLocked,
+            agentBoxes: currentTabData.agentBoxes || [],
+          },
+        })
+      }
 
       sendResponse({ success: true })
 
@@ -1034,7 +1026,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
             data: {
 
-              sessionName: currentTabData.tabName,
+              sessionName: getSessionDisplayLabel(currentTabData),
 
               sessionKey: sessionKey,
 
@@ -2176,6 +2168,14 @@ async function storageRemove(keys: string | string[], callback?: () => void) {
   wrapper.storageRemove(keys, callback);
 }
 
+/** Module scope: outer onMessage runs before initializeExtension closes over inner state. */
+function getSessionDisplayLabel(blob: { sessionAlias?: string | null; tabName?: string } | null | undefined): string {
+  if (!blob) return 'Unnamed Session'
+  const a = blob.sessionAlias
+  if (a != null && String(a).trim() !== '') return String(a).trim()
+  return blob.tabName || 'Unnamed Session'
+}
+
 function initializeExtension() {
   // OAuth callback pages: never inject — prevents extension from breaking
   // http://localhost:51249/callback, etc. (Electron OAuth server)
@@ -2250,6 +2250,10 @@ function initializeExtension() {
 
             tabName: currentTabData.tabName,
 
+            sessionAlias: currentTabData.sessionAlias ?? null,
+
+            displayName: getSessionDisplayLabel(currentTabData),
+
             isLocked: currentTabData.isLocked,
 
             agentBoxes: currentTabData.agentBoxes || [],
@@ -2286,7 +2290,11 @@ function initializeExtension() {
 
             tabId: currentTabData.tabId,
 
-            tabName: currentTabData.tabName
+            tabName: currentTabData.tabName,
+
+            sessionAlias: currentTabData.sessionAlias ?? null,
+
+            displayName: getSessionDisplayLabel(currentTabData)
 
           }
 
@@ -2453,7 +2461,7 @@ function initializeExtension() {
   
 
   let currentTabData: Record<string, any> & {
-    tabId: string; tabName: string; isLocked: boolean
+    tabId: string; tabName: string; sessionAlias: string | null; isLocked: boolean
     goals: { shortTerm: string; midTerm: string; longTerm: string }
     agentBoxes: any[]; agentBoxHeights: Record<string, any>
   } = {
@@ -2461,6 +2469,9 @@ function initializeExtension() {
     tabId: tabId,
 
     tabName: initialTabName,
+
+    /** User-owned display name; never auto-generated. See syncSessionAlias. */
+    sessionAlias: null,
 
     isLocked: false,
 
@@ -2623,10 +2634,11 @@ function initializeExtension() {
             })
           }
           currentTabData.tabName = s.tabName
+          currentTabData.sessionAlias = s.sessionAlias ?? null
           setTimeout(() => {
             const sessionNameInput = document.getElementById('session-name-input') as HTMLInputElement
             if (sessionNameInput) {
-              syncSessionName(s.tabName || 'New Session', 'topbar')
+              updateSessionAliasInAllUIs(getSessionDisplayLabel(currentTabData), sessionKeyFromUrl)
             }
           }, 100)
           cb(sessionKeyFromUrl, s)
@@ -2757,6 +2769,8 @@ function initializeExtension() {
     const newSession:any = {
 
       tabName: currentTabData.tabName || document.title || 'Unnamed Session',
+
+      sessionAlias: null,
 
       url: (window.location && window.location.href) || '',
 
@@ -4466,7 +4480,7 @@ function initializeExtension() {
           setTimeout(() => {
 
             // Use centralized sync to ensure name and ID are displayed correctly
-            syncSessionName(currentTabData.tabName || 'New Session', 'topbar')
+            updateSessionAliasInAllUIs(getSessionDisplayLabel(currentTabData), getCurrentSessionKey()!)
 
             // Re-render agent boxes after loading session data
 
@@ -4559,7 +4573,7 @@ function initializeExtension() {
 
           setTimeout(() => {
             // Use centralized sync to ensure name and ID are displayed correctly
-            syncSessionName(currentTabData.tabName || 'New Session', 'topbar')
+            updateSessionAliasInAllUIs(getSessionDisplayLabel(currentTabData), getCurrentSessionKey()!)
 
             // Re-render agent boxes after loading session data
 
@@ -4655,7 +4669,7 @@ function initializeExtension() {
 
           setTimeout(() => {
             // Use centralized sync to ensure name and ID are displayed correctly
-            syncSessionName(currentTabData.tabName || 'New Session', 'topbar')
+            updateSessionAliasInAllUIs(getSessionDisplayLabel(currentTabData), getCurrentSessionKey()!)
 
             // Re-render agent boxes after loading session data
 
@@ -5357,6 +5371,7 @@ function initializeExtension() {
         // Update in-memory state with fresh SQLite data
         currentTabData.agentBoxes = sessionData.agentBoxes || []
         currentTabData.tabName = sessionData.tabName || currentTabData.tabName
+        currentTabData.sessionAlias = sessionData.sessionAlias ?? currentTabData.sessionAlias ?? null
         
         // Re-render UI
         renderAgentBoxes()
@@ -37401,7 +37416,7 @@ ${pageText}
 
                   <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap; position: relative;">
 
-                    <input type="text" class="session-name-edit" data-session-id="${session.id}" value="${session.tabName || 'Unnamed Session'}" 
+                    <input type="text" class="session-name-edit" data-session-id="${session.id}" value="${(session.sessionAlias ?? session.tabName) || 'Unnamed Session'}" 
 
                            style="background: ${csTheme().cardBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; 
 
@@ -37911,7 +37926,7 @@ ${pageText}
                 chrome.runtime.sendMessage({
                   type: 'UPDATE_SESSION_DATA',
                   data: {
-                    sessionName: currentTabData.tabName,
+                    sessionName: getSessionDisplayLabel(currentTabData),
                     sessionKey: sessionId,
                     isLocked: currentTabData.isLocked,
                     agentBoxes: currentTabData.agentBoxes || []
@@ -38171,7 +38186,7 @@ ${pageText}
                 chrome.runtime.sendMessage({
                   type: 'UPDATE_SESSION_DATA',
                   data: {
-                    sessionName: currentTabData.tabName,
+                    sessionName: getSessionDisplayLabel(currentTabData),
                     sessionKey: sessionId,
                     isLocked: currentTabData.isLocked,
                     agentBoxes: currentTabData.agentBoxes || []
@@ -38482,7 +38497,7 @@ ${pageText}
           // Auto-save after 1000ms of no typing using centralized sync
           // Pass the sessionId so it syncs the correct session
           saveTimeout = setTimeout(() => {
-            syncSessionName(nameInput.value, 'history', sessionId)
+            syncSessionAlias(nameInput.value, 'history', sessionId)
             if (saveIndicator) {
               saveIndicator.textContent = '✏“'
               saveIndicator.style.color = '#4CAF50'
@@ -38501,7 +38516,7 @@ ${pageText}
               clearTimeout(saveTimeout)
               saveTimeout = null
             }
-            syncSessionName(nameInput.value, 'history', sessionId)
+            syncSessionAlias(nameInput.value, 'history', sessionId)
             saveIndicator.textContent = '✏“'
             saveIndicator.style.color = '#4CAF50'
             setTimeout(() => {
@@ -38516,7 +38531,7 @@ ${pageText}
             clearTimeout(saveTimeout)
             saveTimeout = null
           }
-          syncSessionName(nameInput.value, 'history', sessionId)
+          syncSessionAlias(nameInput.value, 'history', sessionId)
           nameInput.style.background = csTheme().inputBg
           nameInput.style.borderColor = 'rgba(255,255,255,0.2)'
           if (saveIndicator) {
@@ -38535,7 +38550,7 @@ ${pageText}
               clearTimeout(saveTimeout)
               saveTimeout = null
             }
-            syncSessionName(nameInput.value, 'history', sessionId)
+            syncSessionAlias(nameInput.value, 'history', sessionId)
             if (saveIndicator) {
               saveIndicator.textContent = '✏“'
               saveIndicator.style.color = '#4CAF50'
@@ -38559,7 +38574,7 @@ ${pageText}
               clearTimeout(saveTimeout)
               saveTimeout = null
             }
-            syncSessionName(nameInput.value, 'history', sessionId)
+            syncSessionAlias(nameInput.value, 'history', sessionId)
             if (saveIndicator) {
               saveIndicator.textContent = '✓'
               saveIndicator.style.display = 'inline-block'
@@ -39744,7 +39759,7 @@ ${pageText}
 
         <div style="padding: 20px; border-bottom: 1px solid ${csTheme().border}; display: flex; justify-content: space-between; align-items: center;">
 
-          <h2 style="margin: 0; font-size: 20px;">✏️ Edit Web Sources - ${sessionData.tabName}</h2>
+          <h2 style="margin: 0; font-size: 20px;">✏️ Edit Web Sources - ${getSessionDisplayLabel(sessionData)}</h2>
 
           <button id="close-edit-helper-tabs" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">&times;</button>
 
@@ -39967,6 +39982,8 @@ ${pageText}
 
           ...currentTabData,
 
+          sessionAlias: currentTabData.sessionAlias ?? result[sessionKey].sessionAlias ?? null,
+
           timestamp: new Date().toISOString(),
 
           url: window.location.href
@@ -39990,91 +40007,84 @@ ${pageText}
   // CENTRALIZED SESSION NAME SYNC FUNCTIONS
   // ============================================
   
-  // CENTRALIZED SESSION NAME SYNC FUNCTION - Single source of truth
-  // This function ensures session name is synchronized across all locations
-  function syncSessionName(newName: string, source: 'sidebar' | 'topbar' | 'history' = 'topbar', targetSessionKey?: string) {
-    // For history edits, use the provided session key; otherwise use current session
+  /** User-facing rename: writes only sessionAlias; never mutates tabName. */
+  function syncSessionAlias(
+    newAlias: string,
+    source: 'sidebar' | 'topbar' | 'history' = 'topbar',
+    targetSessionKey?: string,
+  ) {
     const sessionKey = targetSessionKey || getCurrentSessionKey()
     if (!sessionKey) {
-      console.warn('⚠️ Cannot sync session name: No session key found')
+      console.warn('⚠️ Cannot sync session alias: No session key found')
       return
     }
-    
-    const trimmedName = newName.trim() || 'Unnamed Session'
+
+    const trimmedAlias = newAlias.trim()
     const isCurrentSession = !targetSessionKey || sessionKey === getCurrentSessionKey()
 
-    console.debug('[syncSessionName] Attempting rename:', { sessionKey, newName: trimmedName, source })
-    
-    // 1. Update chrome.storage.local[sessionKey].tabName (SOURCE OF TRUTH)
+    console.debug('[syncSessionAlias] Attempting rename:', { sessionKey, newAlias: trimmedAlias, source })
+
     storageGet([sessionKey], (result) => {
-      if (result[sessionKey]) {
-        const sessionData = result[sessionKey]
-        const oldName = sessionData.tabName
-        sessionData.tabName = trimmedName
-        sessionData.timestamp = new Date().toISOString() // Update timestamp
-        
-        storageSet({ [sessionKey]: sessionData }, () => {
-        })
-      } else {
-        console.warn('[syncSessionName] Session not found in storage — rename skipped:', sessionKey)
+      if (!result[sessionKey]) {
+        console.warn('[syncSessionAlias] Session not found in storage — rename skipped:', sessionKey)
         return
       }
+      const sessionData = result[sessionKey]
+      const internalTab = sessionData.tabName
+      if (trimmedAlias === '' || trimmedAlias === internalTab) {
+        sessionData.sessionAlias = null
+      } else {
+        sessionData.sessionAlias = trimmedAlias
+      }
+      sessionData.timestamp = new Date().toISOString()
+      storageSet({ [sessionKey]: sessionData }, () => {})
+
+      const displayName = getSessionDisplayLabel(sessionData)
+
+      if (isCurrentSession) {
+        currentTabData.sessionAlias = sessionData.sessionAlias ?? null
+        saveTabDataToStorage()
+      }
+
+      updateSessionAliasInAllUIs(displayName, sessionKey)
+
+      if (isCurrentSession) {
+        chrome.runtime.sendMessage({
+          type: 'UPDATE_SESSION_DATA',
+          data: {
+            sessionName: displayName,
+            sessionKey,
+            isLocked: currentTabData.isLocked,
+            agentBoxes: currentTabData.agentBoxes || [],
+          },
+        })
+      }
     })
-    
-    // 2. Update currentTabData (in-memory) only if it's the current session
-    if (isCurrentSession && currentTabData.tabName !== trimmedName) {
-      currentTabData.tabName = trimmedName
-      saveTabDataToStorage()
-    }
-    
-    // 3. Update all UI locations
-    updateSessionNameInAllUIs(trimmedName, sessionKey)
-    
-    // 4. Broadcast to sidepanel only if it's the current session
-    if (isCurrentSession) {
-      chrome.runtime.sendMessage({
-        type: 'UPDATE_SESSION_DATA',
-        data: {
-          sessionName: trimmedName,
-          sessionKey: sessionKey,
-          isLocked: currentTabData.isLocked,
-          agentBoxes: currentTabData.agentBoxes || []
-        }
-      })
-    }
   }
-  
-  // Update session name in all UI locations
-  function updateSessionNameInAllUIs(name: string, sessionKey: string) {
+
+  function updateSessionAliasInAllUIs(displayName: string, sessionKey: string) {
     const currentSessionKey = getCurrentSessionKey()
     const isCurrentSession = sessionKey === currentSessionKey
-    
-    // Update top bar input only if it's the current session
+
     if (isCurrentSession) {
       const topBarInput = document.getElementById('session-name-input') as HTMLInputElement
-      if (topBarInput && topBarInput.value !== name) {
-        topBarInput.value = name
+      if (topBarInput && topBarInput.value !== displayName) {
+        topBarInput.value = displayName
       }
-      
-      // Update session ID display below top bar
       updateSessionIdDisplay()
     }
-    
-    // Always update Sessions History if open (for any session, not just current)
-    // This ensures sidebar changes are reflected in Sessions History
+
     const sessionsOverlay = document.getElementById('sessions-history-overlay')
     if (sessionsOverlay) {
       const historyInputs = sessionsOverlay.querySelectorAll('.session-name-edit') as NodeListOf<HTMLInputElement>
-      historyInputs.forEach(input => {
-        if (input.dataset.sessionId === sessionKey && input.value !== name) {
-          // Only update if the input is not currently focused (to avoid interrupting user typing)
+      historyInputs.forEach((input) => {
+        if (input.dataset.sessionId === sessionKey && input.value !== displayName) {
           if (document.activeElement !== input) {
-            input.value = name
-            // Also update the save indicator to show it's synced
-            const saveIndicator = sessionsOverlay.querySelector(`.session-save-indicator[data-session-id="${sessionKey}"]`) as HTMLElement
-            if (saveIndicator) {
-              saveIndicator.style.display = 'none'
-            }
+            input.value = displayName
+            const saveIndicator = sessionsOverlay.querySelector(
+              `.session-save-indicator[data-session-id="${sessionKey}"]`,
+            ) as HTMLElement
+            if (saveIndicator) saveIndicator.style.display = 'none'
           }
         }
       })
@@ -40115,15 +40125,14 @@ ${pageText}
     storageGet([sessionKey], (result) => {
       if (result[sessionKey]) {
         const sessionData = result[sessionKey]
-        const sessionName = sessionData.tabName || 'Unnamed Session'
-        
-        // Update currentTabData
-        if (currentTabData.tabName !== sessionName) {
-          currentTabData.tabName = sessionName
+        const tn = sessionData.tabName || 'Unnamed Session'
+        if (currentTabData.tabName !== tn) {
+          currentTabData.tabName = tn
         }
-        
-        // Update UI
-        updateSessionNameInAllUIs(sessionName, sessionKey)
+        currentTabData.sessionAlias = sessionData.sessionAlias ?? null
+
+        const displayName = getSessionDisplayLabel(sessionData)
+        updateSessionAliasInAllUIs(displayName, sessionKey)
         
       } else {
         console.warn('⚠️ Session not found in storage:', sessionKey)
@@ -40316,15 +40325,19 @@ ${pageText}
     const showSavedToast = () => {
       const notification = document.createElement('div')
       notification.style.cssText = 'position:fixed;top:60px;right:20px;background:rgba(76,175,80,0.9);color:white;padding:10px 15px;border-radius:5px;font-size:12px;z-index:2147483648;'
-      notification.textContent = `💾 Session "${currentTabData.tabName}" saved!`
+      notification.textContent = `💾 Session "${getSessionDisplayLabel(currentTabData)}" saved!`
       document.body.appendChild(notification)
       setTimeout(() => notification.remove(), 3000)
     }
 
-    const doSave = (canonicalAgents: any[]) => {
+    const doSave = (canonicalAgents: any[], stored?: any) => {
       const sessionData = {
 
+        ...(stored || {}),
+
         ...currentTabData,
+
+        sessionAlias: currentTabData.sessionAlias ?? stored?.sessionAlias ?? null,
 
         timestamp: new Date().toISOString(),
 
@@ -40361,7 +40374,7 @@ ${pageText}
         const canonicalAgents = (stored?.agents && Array.isArray(stored.agents) && stored.agents.length > 0)
           ? stored.agents
           : (currentTabData as any).agents || []
-        doSave(canonicalAgents)
+        doSave(canonicalAgents, stored)
       })
     } else {
       doSave((currentTabData as any).agents || [])
@@ -40619,7 +40632,9 @@ ${pageText}
           version: '1.0.0',
           exportDate: new Date().toISOString(),
           sessionKey: sessionKey,
-          sessionName: sessionData.tabName || 'Unnamed Session',
+          sessionName: getSessionDisplayLabel(sessionData),
+          sessionAlias: sessionData.sessionAlias ?? null,
+          tabName: sessionData.tabName,
           timestamp: sessionData.timestamp,
           url: sessionData.url || window.location.href,
           isLocked: sessionData.isLocked || false,
@@ -40755,16 +40770,16 @@ ${pageText}
         // Convert to selected format
         if (format === 'json') {
           fileContent = JSON.stringify(exportData, null, 2)
-          fileName = `${sanitizeFilename(sessionData.tabName || sessionKey)}${suffix}.json`
+          fileName = `${sanitizeFilename(getSessionDisplayLabel(sessionData) || sessionKey)}${suffix}.json`
           mimeType = 'application/json'
         } else if (format === 'yaml') {
           fileContent = convertToYAML(exportData)
-          fileName = `${sanitizeFilename(sessionData.tabName || sessionKey)}${suffix}.yaml`
+          fileName = `${sanitizeFilename(getSessionDisplayLabel(sessionData) || sessionKey)}${suffix}.yaml`
           mimeType = 'application/x-yaml'
         } else {
           // Markdown format
           fileContent = convertToMarkdown(exportData)
-          fileName = `${sanitizeFilename(sessionData.tabName || sessionKey)}${suffix}.md`
+          fileName = `${sanitizeFilename(getSessionDisplayLabel(sessionData) || sessionKey)}${suffix}.md`
           mimeType = 'text/markdown'
         }
         
@@ -41043,13 +41058,12 @@ ${pageText}
 
 
 
-  // Helper function to get display name for session (sessionKey if no custom name, otherwise custom name)
-  function getSessionDisplayName(sessionKey: string | null, tabName: string | null): string {
+  /** @deprecated Prefer getSessionDisplayLabel on a session blob; kept for older call sites. */
+  function getSessionDisplayName(sessionKey: string | null, tabName: string | null, sessionAlias?: string | null): string {
+    if (sessionAlias != null && String(sessionAlias).trim() !== '') return String(sessionAlias).trim()
     if (!sessionKey) return tabName || 'No Session'
-    // Check if tabName is custom (not auto-generated)
-    const hasCustomName = tabName && 
-                          tabName !== 'New Session' && 
-                          !tabName.startsWith('WR Session')
+    const hasCustomName =
+      tabName && tabName !== 'New Session' && !tabName.startsWith('WR Session')
     return hasCustomName ? tabName : sessionKey
   }
 
@@ -41064,16 +41078,12 @@ ${pageText}
         if (result[oldSessionKey]) {
           const oldSessionData = result[oldSessionKey]
           
-          // CRITICAL: The name in storage is the source of truth (may have been updated via syncSessionName in Sessions History)
-          // Always use the name from storage to preserve any changes made in Sessions History
-          const nameToPreserve = oldSessionData.tabName || currentTabData.tabName || 'Unnamed Session'
-          
-          // Update old session with latest data, but ALWAYS preserve the name from storage
-          // This ensures that if the name was changed in Sessions History, it stays changed
+          // Preserve internal tabName and user sessionAlias from storage + in-memory (never conflate with display)
           const updatedOldSession = {
             ...oldSessionData,
             ...currentTabData,
-            tabName: nameToPreserve, // CRITICAL: Use the name from storage (source of truth), placed AFTER spread to override
+            tabName: oldSessionData.tabName ?? currentTabData.tabName,
+            sessionAlias: currentTabData.sessionAlias ?? oldSessionData.sessionAlias ?? null,
             timestamp: new Date().toISOString(),
             url: window.location.href
           }
@@ -41137,6 +41147,8 @@ ${pageText}
 
       tabName: newSessionName,
 
+      sessionAlias: null,
+
       isLocked: false,
 
       goals: {
@@ -41188,6 +41200,8 @@ ${pageText}
 
         ...currentTabData,
 
+        sessionAlias: null,
+
         timestamp: new Date().toISOString(),
 
         url: window.location.href,
@@ -41214,7 +41228,7 @@ ${pageText}
         
 
         // Update the session name input in the UI
-        // Don't use syncSessionName here as it would try to update the old session
+        // Don't use syncSessionAlias here as it would try to update the old session
         // Instead, just update the UI directly for the new session
         const topBarInput = document.getElementById('session-name-input') as HTMLInputElement
         if (topBarInput) {
@@ -41285,7 +41299,7 @@ ${pageText}
 
 
       // Update the session name input in the UI
-      // Don't use syncSessionName here as it would try to update the old session
+      // Don't use syncSessionAlias here as it would try to update the old session
       const topBarInput = document.getElementById('session-name-input') as HTMLInputElement
       if (topBarInput) {
         topBarInput.value = newSessionName
@@ -41554,7 +41568,8 @@ ${pageText}
       // Extract session data from export format
       sessionData = {
         tabId: importData.tabId,
-        tabName: importData.sessionName || importData.tabName || 'Imported Session',
+        tabName: importData.tabName || importData.sessionName || 'Imported Session',
+        sessionAlias: importData.sessionAlias ?? null,
         timestamp: importData.timestamp || new Date().toISOString(),
         url: importData.url || window.location.href,
         isLocked: true, // Lock imported sessions
@@ -41617,7 +41632,7 @@ ${pageText}
         <div style="background: ${csTheme().panelBg}; border-radius: 16px; width: 90vw; max-width: 500px; color: ${csTheme().text}; padding: 30px; box-shadow: 0 20px 40px rgba(0,0,0,0.3); text-align: center;">
           <div style="font-size: 48px; margin-bottom: 15px;">✅</div>
           <h2 style="margin: 0 0 10px 0; font-size: 22px; font-weight: 600;">Session Imported!</h2>
-          <p style="margin: 0 0 10px 0; font-size: 14px; opacity: 0.9;">"${sessionData.tabName}"</p>
+          <p style="margin: 0 0 10px 0; font-size: 14px; opacity: 0.9;">"${getSessionDisplayLabel(sessionData)}"</p>
           <p style="margin: 0 0 15px 0; font-size: 13px; opacity: 0.8;">
             ${sessionData.agentBoxes?.length || 0} agent boxes • 
             ${sessionData.agents?.length || 0} agents • 
@@ -41742,7 +41757,7 @@ ${pageText}
       chrome.runtime.sendMessage({
         type: 'UPDATE_SESSION_DATA',
         data: {
-          sessionName: currentTabData.tabName,
+          sessionName: getSessionDisplayLabel(currentTabData),
           sessionKey: sessionKey,
           isLocked: currentTabData.isLocked,
           agentBoxes: currentTabData.agentBoxes || []
@@ -44181,7 +44196,7 @@ ${pageText}
         
         // Auto-save after 500ms of no typing
         saveTimeout = setTimeout(() => {
-          syncSessionName(sessionNameInput.value, 'topbar')
+          syncSessionAlias(sessionNameInput.value, 'topbar')
           saveTimeout = null
         }, 500)
       })
@@ -44196,7 +44211,7 @@ ${pageText}
           saveTimeout = null
         }
         if (!currentTabData.isLocked) {
-          syncSessionName(sessionNameInput.value, 'topbar')
+          syncSessionAlias(sessionNameInput.value, 'topbar')
         }
       })
       
@@ -44207,7 +44222,7 @@ ${pageText}
             saveTimeout = null
           }
           if (!currentTabData.isLocked) {
-            syncSessionName(sessionNameInput.value, 'topbar')
+            syncSessionAlias(sessionNameInput.value, 'topbar')
           }
           sessionNameInput.blur()
         }
@@ -44332,7 +44347,7 @@ ${pageText}
 
           `
 
-          notification.innerHTML = `🔒 Session "${currentTabData.tabName}" saved!`
+          notification.innerHTML = `🔒 Session "${getSessionDisplayLabel(currentTabData)}" saved!`
 
           document.body.appendChild(notification)
 
@@ -44463,6 +44478,8 @@ ${pageText}
   globalLightboxFunctions.openHelperGridLightbox = openHelperGridLightbox
 
   globalLightboxFunctions.openSessionsLightbox = openSessionsLightbox
+
+  globalLightboxFunctions.syncSessionAlias = syncSessionAlias
 
   globalLightboxFunctions.syncSession = syncSession
 
