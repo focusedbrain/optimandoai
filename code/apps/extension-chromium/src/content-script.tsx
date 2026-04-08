@@ -37733,6 +37733,17 @@ ${pageText}
 
           const target = e.target as HTMLElement
 
+          // Session name row lives outside .session-item; if markup ever nests these, ignore so Save/rename
+          // cannot bubble into "load session" (overlay.remove + restore).
+          if (
+            target.closest('.session-name-edit') ||
+            target.closest('.save-session-name-btn') ||
+            target.closest('.edit-session-name-btn') ||
+            target.closest('.session-save-indicator')
+          ) {
+            return
+          }
+
           // Don't trigger if clicking on action buttons
 
           if (target.classList.contains('rename-session-btn') || 
@@ -38521,7 +38532,7 @@ ${pageText}
                 if (saveIndicator) saveIndicator.style.display = 'none'
               }, 2000)
             }
-            nameInput.blur()
+            // Keep focus in the field so blur handlers / focus traps cannot destabilize the overlay.
           }
         })
 

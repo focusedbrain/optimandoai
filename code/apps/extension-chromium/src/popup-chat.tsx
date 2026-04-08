@@ -14,7 +14,7 @@
  * - beapSubmode: BEAP Messages views
  */
 
-import React, { useState, useEffect, useMemo, useRef } from 'react'
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { createRoot } from 'react-dom/client'
 import { useUIStore } from './stores/useUIStore'
 import { isCustomModeId } from './shared/ui/customModeTypes'
@@ -97,6 +97,16 @@ function beapUiValidationFailure(message: string): {
       message,
     },
   }
+}
+
+/** Matches sidepanel / Sessions History: user alias, else internal tabName. */
+function sessionListLabel(
+  s: { sessionAlias?: string | null; tabName?: string; name?: string; sessionName?: string } | null | undefined,
+  fallback: string,
+): string {
+  if (!s) return fallback
+  if (s.sessionAlias != null && String(s.sessionAlias).trim() !== '') return String(s.sessionAlias).trim()
+  return s.tabName || s.name || s.sessionName || fallback
 }
 
 // Workspace types - MIRRORS docked sidepanel exactly
@@ -497,27 +507,24 @@ function PopupChatApp() {
 
   // Load available sessions for Draft Email session selector
   // Sessions are stored in chrome.storage.local (same as Sessions History modal)
-  const loadAvailableSessions = () => {
-    console.log('[BEAP Sessions] Loading sessions from chrome.storage.local...')
+  const loadAvailableSessions = useCallback(() => {
     chrome.storage.local.get(null, (allData) => {
       if (chrome.runtime.lastError) {
         console.warn('[BEAP Sessions] Error:', chrome.runtime.lastError.message)
         setAvailableSessions([])
         return
       }
-      
-      // Filter for session keys (format: session_*)
+
       const sessionEntries = Object.entries(allData).filter(([key]) => key.startsWith('session_'))
-      console.log('[BEAP Sessions] Found sessions:', sessionEntries.length)
-      
+
       if (sessionEntries.length === 0) {
         setAvailableSessions([])
         return
       }
-      
+
       const sessions: SessionOption[] = sessionEntries
         .map(([key, data]: [string, any]) => {
-          const name = data?.tabName || data?.name || data?.sessionName || key
+          const name = sessionListLabel(data, key)
           const timestamp = data?.timestamp || data?.lastOpenedAt || data?.createdAt || ''
           return { key, name, timestamp }
         })
@@ -527,23 +534,32 @@ function PopupChatApp() {
           const timeB = b.timestamp ? new Date(b.timestamp).getTime() : 0
           return timeB - timeA
         })
-      
-      console.log('[BEAP Sessions] Parsed sessions:', sessions)
+
       setAvailableSessions(sessions)
     })
-  }
-  
+  }, [])
+
   // Load sessions on mount
   useEffect(() => {
     loadAvailableSessions()
-  }, [])
-  
+  }, [loadAvailableSessions])
+
+  /** Keep BEAP session dropdown labels in sync when a session is renamed (e.g. Sessions History). */
+  useEffect(() => {
+    const onDisplayName = (msg: { type?: string }) => {
+      if (msg?.type !== 'SESSION_DISPLAY_NAME_UPDATED') return
+      loadAvailableSessions()
+    }
+    chrome.runtime.onMessage.addListener(onDisplayName as Parameters<typeof chrome.runtime.onMessage.addListener>[0])
+    return () => chrome.runtime.onMessage.removeListener(onDisplayName as Parameters<typeof chrome.runtime.onMessage.addListener>[0])
+  }, [loadAvailableSessions])
+
   // Refresh sessions when window gets focus
   useEffect(() => {
     const handleFocus = () => loadAvailableSessions()
     window.addEventListener('focus', handleFocus)
     return () => window.removeEventListener('focus', handleFocus)
-  }, [])
+  }, [loadAvailableSessions])
   
   // Clear encrypted message when switching from private to public mode
   useEffect(() => {
