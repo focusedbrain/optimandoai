@@ -2886,7 +2886,11 @@ function initializeExtension() {
     // Read current session from SQLite via background to get authoritative agentBoxes —
     // storageGet() routes through storageWrapper which may fall back to Chrome Storage
     // (empty for session_ keys), causing agentBoxes to be silently zeroed on every agent save.
-    const doSaveSession = (storedBoxes: any[], storedGrids: any[]) => {
+    const doSaveSession = (storedBoxes: any[], storedGrids: any[], storedSession?: any) => {
+      // Auto-save must not drop user display alias: merge from SQLite when in-memory omitted it
+      completeSessionData.sessionAlias =
+        sessionData.sessionAlias ?? storedSession?.sessionAlias ?? null
+
       if (storedBoxes.length > completeSessionData.agentBoxes.length) {
         completeSessionData.agentBoxes = storedBoxes
       }
@@ -2953,15 +2957,16 @@ function initializeExtension() {
       chrome.runtime.sendMessage({ type: 'GET_SESSION_FROM_SQLITE', sessionKey }, (response) => {
         if (chrome.runtime.lastError) {
           console.warn('[TRACE] ensureSessionInHistory: could not read SQLite, proceeding without merge:', chrome.runtime.lastError.message)
-          doSaveSession([], [])
+          doSaveSession([], [], undefined)
           return
         }
-        const storedBoxes: any[] = response?.session?.agentBoxes || []
-        const storedGrids: any[] = response?.session?.displayGrids || []
-        doSaveSession(storedBoxes, storedGrids)
+        const storedSession = response?.session
+        const storedBoxes: any[] = storedSession?.agentBoxes || []
+        const storedGrids: any[] = storedSession?.displayGrids || []
+        doSaveSession(storedBoxes, storedGrids, storedSession)
       })
     } else {
-      doSaveSession([], [])
+      doSaveSession([], [], undefined)
     }
 
   }
@@ -38477,82 +38482,42 @@ ${pageText}
           nameInput.style.borderColor = 'rgba(255,255,255,0.2)'
         })
 
-        // Handle input changes with save hook
-        let saveTimeout: NodeJS.Timeout | null = null
+        // Name changes are NOT auto-saved (avoids races with ensureSessionInHistory). User must Save / Enter / 💾.
         const saveIndicator = overlay.querySelector(`.session-save-indicator[data-session-id="${sessionId}"]`) as HTMLElement
         
         nameInput.addEventListener('input', () => {
-          // Show save indicator
           if (saveIndicator) {
             saveIndicator.style.display = 'inline-block'
             saveIndicator.textContent = '💾'
             saveIndicator.style.color = '#FFB366'
             saveIndicator.style.cursor = 'pointer'
-            saveIndicator.title = 'Click to save'
+            saveIndicator.title = 'Click to save name'
           }
-          
-          // Clear existing timeout
-          if (saveTimeout) clearTimeout(saveTimeout)
-          
-          // Auto-save after 1000ms of no typing using centralized sync
-          // Pass the sessionId so it syncs the correct session
-          saveTimeout = setTimeout(() => {
-            syncSessionAlias(nameInput.value, 'history', sessionId)
-            if (saveIndicator) {
-              saveIndicator.textContent = '✏“'
-              saveIndicator.style.color = '#4CAF50'
-              setTimeout(() => {
-                if (saveIndicator) saveIndicator.style.display = 'none'
-              }, 2000)
-            }
-            saveTimeout = null
-          }, 1000)
         })
         
-        // Make save indicator clickable
         if (saveIndicator) {
-          saveIndicator.addEventListener('click', () => {
-            if (saveTimeout) {
-              clearTimeout(saveTimeout)
-              saveTimeout = null
-            }
+          saveIndicator.addEventListener('click', (ev) => {
+            ev.stopPropagation()
             syncSessionAlias(nameInput.value, 'history', sessionId)
-            saveIndicator.textContent = '✏“'
+            saveIndicator.textContent = '✓'
             saveIndicator.style.color = '#4CAF50'
             setTimeout(() => {
-              if (saveIndicator) saveIndicator.style.display = 'none'
+              saveIndicator.style.display = 'none'
             }, 2000)
           })
         }
 
-        // Handle blur - save immediately
         nameInput.addEventListener('blur', () => {
-          if (saveTimeout) {
-            clearTimeout(saveTimeout)
-            saveTimeout = null
-          }
-          syncSessionAlias(nameInput.value, 'history', sessionId)
           nameInput.style.background = csTheme().inputBg
           nameInput.style.borderColor = 'rgba(255,255,255,0.2)'
-          if (saveIndicator) {
-            saveIndicator.textContent = '✏“'
-            saveIndicator.style.color = '#4CAF50'
-            setTimeout(() => {
-              if (saveIndicator) saveIndicator.style.display = 'none'
-            }, 2000)
-          }
         })
 
-        // Handle Enter key - save and blur
-        nameInput.addEventListener('keypress', (e) => {
+        nameInput.addEventListener('keydown', (e) => {
           if (e.key === 'Enter') {
-            if (saveTimeout) {
-              clearTimeout(saveTimeout)
-              saveTimeout = null
-            }
+            e.preventDefault()
             syncSessionAlias(nameInput.value, 'history', sessionId)
             if (saveIndicator) {
-              saveIndicator.textContent = '✏“'
+              saveIndicator.textContent = '✓'
               saveIndicator.style.color = '#4CAF50'
               setTimeout(() => {
                 if (saveIndicator) saveIndicator.style.display = 'none'
@@ -38570,10 +38535,6 @@ ${pageText}
           saveSessionNameBtn.addEventListener('click', (e) => {
             e.stopPropagation()
             e.preventDefault()
-            if (saveTimeout) {
-              clearTimeout(saveTimeout)
-              saveTimeout = null
-            }
             syncSessionAlias(nameInput.value, 'history', sessionId)
             if (saveIndicator) {
               saveIndicator.textContent = '✓'
@@ -38610,6 +38571,26 @@ ${pageText}
           if (sessionData && sessionData.helperTabs && sessionData.helperTabs.urls) {
 
             openEditHelperTabsDialog(sessionData, sessionId, overlay)
+
+          }
+
+        })
+
+      })
+
+      overlay.querySelectorAll<HTMLElement>('.edit-display-grids-btn').forEach(btn => {
+
+        btn.addEventListener('click', (e) => {
+
+          e.stopPropagation()
+
+          const sid = btn.dataset.sessionId
+
+          const sessionData = sessions.find(s => s.id === sid)
+
+          if (sessionData && sid) {
+
+            openEditDisplayGridsForSession(sessionData, sid, overlay)
 
           }
 
@@ -39891,14 +39872,11 @@ ${pageText}
 
       sessionData.timestamp = new Date().toISOString()
 
-      
+      const afterSave = () => {
 
-      storageSet({ [sessionId]: sessionData }, () => {
+        if (editOverlay.parentNode) editOverlay.remove()
 
-
-        
-
-        // Show notification
+        if (parentOverlay.parentNode) parentOverlay.remove()
 
         const notification = document.createElement('div')
 
@@ -39928,25 +39906,262 @@ ${pageText}
 
         document.body.appendChild(notification)
 
-        
-
         setTimeout(() => {
 
           notification.remove()
 
         }, 3000)
 
-        
-
-        editOverlay.remove()
-
-        parentOverlay.remove()
-
         openSessionsLightbox()
+
+      }
+
+      const persistMerge = (stored: any) => {
+
+        const merged = {
+
+          ...(stored || {}),
+
+          ...sessionData,
+
+          helperTabs: { ...sessionData.helperTabs, urls: updatedUrls },
+
+          sessionAlias: sessionData.sessionAlias ?? stored?.sessionAlias ?? null,
+
+          tabName: stored?.tabName ?? sessionData.tabName,
+
+          timestamp: new Date().toISOString(),
+
+        }
+
+        if (chrome?.runtime) {
+
+          chrome.runtime.sendMessage(
+
+            { type: 'SAVE_SESSION_TO_SQLITE', sessionKey: sessionId, session: merged },
+
+            (response) => {
+
+              if (chrome.runtime.lastError || !response?.success) {
+
+                console.warn('[save-edit-helper-tabs] SQLite save failed, using storageSet:', chrome.runtime.lastError?.message)
+
+                storageSet({ [sessionId]: merged }, afterSave)
+
+              } else {
+
+                afterSave()
+
+              }
+
+            },
+
+          )
+
+        } else {
+
+          storageSet({ [sessionId]: merged }, afterSave)
+
+        }
+
+      }
+
+      if (chrome?.runtime) {
+
+        chrome.runtime.sendMessage({ type: 'GET_SESSION_FROM_SQLITE', sessionKey: sessionId }, (response) => {
+
+          persistMerge(response?.session)
+
+        })
+
+      } else {
+
+        storageGet([sessionId], (r) => persistMerge(r[sessionId]))
+
+      }
+
+    }
+
+  }
+
+  /** Sessions History: edit display grid list for a session (persists via SAVE_SESSION_TO_SQLITE). */
+  function openEditDisplayGridsForSession(sessionData: any, sessionId: string, parentOverlay: HTMLElement) {
+
+    const grids: any[] = Array.isArray(sessionData.displayGrids) ? [...sessionData.displayGrids] : []
+
+    const editOverlay = document.createElement('div')
+
+    editOverlay.style.cssText = `
+
+      position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+
+      background: rgba(0,0,0,0.9); z-index: 2147483650;
+
+      display: flex; align-items: center; justify-content: center;
+
+      backdrop-filter: blur(8px);
+
+    `
+
+    const render = () => {
+
+      const rows = grids.length
+        ? grids
+            .map((g: any, i: number) => {
+
+              const lab = `${g?.layout ?? 'grid'} — ${g?.sessionId ?? ''}`
+
+              return `
+
+        <div class="dg-row" data-i="${i}" style="display:flex;align-items:center;gap:10px;margin-bottom:8px;padding:10px;background:${csTheme().cardBg};border:1px solid ${csTheme().border};border-radius:8px;">
+
+          <span style="flex:1;font-size:12px;color:${csTheme().text};word-break:break-all;">${lab.replace(/</g, '&lt;')}</span>
+
+          <button type="button" class="dg-remove-btn" data-i="${i}" style="background:rgba(220,38,38,0.12);border:1px solid rgba(220,38,38,0.25);color:${csTheme().isLight ? '#991b1b' : '#f87171'};padding:6px 10px;border-radius:4px;cursor:pointer;font-size:11px;">Remove</button>
+
+        </div>`
+
+            })
+            .join('')
+        : `<p style="margin:0;font-size:13px;color:${csTheme().muted};">No display grids in this session.</p>`
+
+      editOverlay.innerHTML = `
+
+      <div style="background: ${csTheme().panelBg}; border-radius: 16px; width: 85vw; max-width: 720px; max-height: 85vh; color: ${csTheme().text}; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.3); display: flex; flex-direction: column;">
+
+        <div style="padding: 20px; border-bottom: 1px solid ${csTheme().border}; display: flex; justify-content: space-between; align-items: center;">
+
+          <h2 style="margin: 0; font-size: 18px;">🗂️ Edit Display Grids</h2>
+
+          <button type="button" id="close-edit-dg" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">&times;</button>
+
+        </div>
+
+        <div style="flex: 1; padding: 20px; overflow-y: auto;">
+
+          <p style="margin: 0 0 12px 0; font-size: 12px; color: ${csTheme().muted};">Remove grids you no longer need, then save. Session ID is unchanged.</p>
+
+          <div id="dg-rows">${rows}</div>
+
+        </div>
+
+        <div style="padding: 16px 20px; border-top: 1px solid ${csTheme().border}; display: flex; justify-content: flex-end; gap: 10px; background: ${csTheme().cardBg};">
+
+          <button type="button" id="cancel-edit-dg" style="padding: 10px 20px; background: #6c757d; border: none; color: white; border-radius: 6px; cursor: pointer; font-size: 12px;">Cancel</button>
+
+          <button type="button" id="save-edit-dg" style="padding: 10px 20px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: bold;">💾 Save</button>
+
+        </div>
+
+      </div>`
+
+      editOverlay.querySelector('#close-edit-dg')?.addEventListener('click', () => editOverlay.remove())
+
+      editOverlay.querySelector('#cancel-edit-dg')?.addEventListener('click', () => editOverlay.remove())
+
+      editOverlay.querySelectorAll('.dg-remove-btn').forEach((b) => {
+
+        b.addEventListener('click', (ev) => {
+
+          const i = parseInt((ev.target as HTMLElement).getAttribute('data-i') || '-1', 10)
+
+          if (i >= 0 && i < grids.length) {
+
+            grids.splice(i, 1)
+
+            render()
+
+          }
+
+        })
+
+      })
+
+      editOverlay.querySelector('#save-edit-dg')?.addEventListener('click', () => {
+
+        sessionData.displayGrids = grids
+
+        sessionData.timestamp = new Date().toISOString()
+
+        const afterSave = () => {
+
+          editOverlay.remove()
+
+          if (parentOverlay.parentNode) parentOverlay.remove()
+
+          openSessionsLightbox()
+
+        }
+
+        const persistMerge = (stored: any) => {
+
+          const merged = {
+
+            ...(stored || {}),
+
+            ...sessionData,
+
+            displayGrids: grids,
+
+            sessionAlias: sessionData.sessionAlias ?? stored?.sessionAlias ?? null,
+
+            tabName: stored?.tabName ?? sessionData.tabName,
+
+            timestamp: new Date().toISOString(),
+
+          }
+
+          if (chrome?.runtime) {
+
+            chrome.runtime.sendMessage(
+
+              { type: 'SAVE_SESSION_TO_SQLITE', sessionKey: sessionId, session: merged },
+
+              (response) => {
+
+                if (chrome.runtime.lastError || !response?.success) {
+
+                  storageSet({ [sessionId]: merged }, afterSave)
+
+                } else {
+
+                  afterSave()
+
+                }
+
+              },
+
+            )
+
+          } else {
+
+            storageSet({ [sessionId]: merged }, afterSave)
+
+          }
+
+        }
+
+        if (chrome?.runtime) {
+
+          chrome.runtime.sendMessage({ type: 'GET_SESSION_FROM_SQLITE', sessionKey: sessionId }, (response) => {
+
+            persistMerge(response?.session)
+
+          })
+
+        } else {
+
+          storageGet([sessionId], (r) => persistMerge(r[sessionId]))
+
+        }
 
       })
 
     }
+
+    document.body.appendChild(editOverlay)
+
+    render()
 
   }
 
@@ -40007,7 +40222,7 @@ ${pageText}
   // CENTRALIZED SESSION NAME SYNC FUNCTIONS
   // ============================================
   
-  /** User-facing rename: writes only sessionAlias; never mutates tabName. */
+  /** User-facing rename: writes only sessionAlias; never mutates tabName. Uses SQLite path when available. */
   function syncSessionAlias(
     newAlias: string,
     source: 'sidebar' | 'topbar' | 'history' = 'topbar',
@@ -40024,42 +40239,68 @@ ${pageText}
 
     console.debug('[syncSessionAlias] Attempting rename:', { sessionKey, newAlias: trimmedAlias, source })
 
-    storageGet([sessionKey], (result) => {
-      if (!result[sessionKey]) {
-        console.warn('[syncSessionAlias] Session not found in storage — rename skipped:', sessionKey)
+    const finalize = (blob: any) => {
+      if (!blob) {
+        console.warn('[syncSessionAlias] Session not found — rename skipped:', sessionKey)
         return
       }
-      const sessionData = result[sessionKey]
-      const internalTab = sessionData.tabName
+      const next = { ...blob }
+      const internalTab = next.tabName
       if (trimmedAlias === '' || trimmedAlias === internalTab) {
-        sessionData.sessionAlias = null
+        next.sessionAlias = null
       } else {
-        sessionData.sessionAlias = trimmedAlias
+        next.sessionAlias = trimmedAlias
       }
-      sessionData.timestamp = new Date().toISOString()
-      storageSet({ [sessionKey]: sessionData }, () => {})
+      next.timestamp = new Date().toISOString()
 
-      const displayName = getSessionDisplayLabel(sessionData)
-
-      if (isCurrentSession) {
-        currentTabData.sessionAlias = sessionData.sessionAlias ?? null
-        saveTabDataToStorage()
+      const afterUi = () => {
+        const displayName = getSessionDisplayLabel(next)
+        if (isCurrentSession) {
+          currentTabData.sessionAlias = next.sessionAlias ?? null
+          saveTabDataToStorage()
+        }
+        updateSessionAliasInAllUIs(displayName, sessionKey)
+        if (isCurrentSession) {
+          chrome.runtime.sendMessage({
+            type: 'UPDATE_SESSION_DATA',
+            data: {
+              sessionName: displayName,
+              sessionKey,
+              isLocked: currentTabData.isLocked,
+              agentBoxes: currentTabData.agentBoxes || [],
+            },
+          })
+        }
       }
 
-      updateSessionAliasInAllUIs(displayName, sessionKey)
-
-      if (isCurrentSession) {
-        chrome.runtime.sendMessage({
-          type: 'UPDATE_SESSION_DATA',
-          data: {
-            sessionName: displayName,
-            sessionKey,
-            isLocked: currentTabData.isLocked,
-            agentBoxes: currentTabData.agentBoxes || [],
+      if (chrome?.runtime) {
+        chrome.runtime.sendMessage(
+          { type: 'SAVE_SESSION_TO_SQLITE', sessionKey, session: next },
+          (response) => {
+            if (chrome.runtime.lastError || !response?.success) {
+              console.warn('[syncSessionAlias] SQLite save failed, using storageSet:', chrome.runtime.lastError?.message)
+              storageSet({ [sessionKey]: next }, afterUi)
+            } else {
+              afterUi()
+            }
           },
-        })
+        )
+      } else {
+        storageSet({ [sessionKey]: next }, afterUi)
       }
-    })
+    }
+
+    if (chrome?.runtime) {
+      chrome.runtime.sendMessage({ type: 'GET_SESSION_FROM_SQLITE', sessionKey }, (response) => {
+        if (chrome.runtime.lastError || !response?.session) {
+          storageGet([sessionKey], (result) => finalize(result[sessionKey]))
+        } else {
+          finalize(response.session)
+        }
+      })
+    } else {
+      storageGet([sessionKey], (result) => finalize(result[sessionKey]))
+    }
   }
 
   function updateSessionAliasInAllUIs(displayName: string, sessionKey: string) {
