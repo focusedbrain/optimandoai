@@ -1,38 +1,29 @@
 /**
- * Background / service-worker helper: request a DOM snapshot from a grid tab's content script.
+ * Background / service-worker helper: inject DOM snapshot capture into the grid tab via scripting API.
  */
 
 import type { DomSnapshot } from '../types/optimizationTypes'
-import { CAPTURE_DOM_SNAPSHOT_MESSAGE_TYPE } from './domSnapshotMessageTypes'
+import { domSnapshotCaptureInjected } from './domSnapshotCapture'
 
 const CAPTURE_TIMEOUT_MS = 5000
 
-export function requestDomSnapshot(tabId: number): Promise<DomSnapshot | null> {
-  return new Promise((resolve) => {
-    const timer = setTimeout(() => {
-      resolve(null)
-    }, CAPTURE_TIMEOUT_MS)
-
-    try {
-      chrome.tabs.sendMessage(
-        tabId,
-        { type: CAPTURE_DOM_SNAPSHOT_MESSAGE_TYPE },
-        (response: { ok?: boolean; snapshot?: DomSnapshot; error?: string } | undefined) => {
-          clearTimeout(timer)
-          if (chrome.runtime.lastError) {
-            resolve(null)
-            return
-          }
-          if (response?.ok && response.snapshot) {
-            resolve(response.snapshot)
-            return
-          }
-          resolve(null)
-        },
-      )
-    } catch {
-      clearTimeout(timer)
-      resolve(null)
-    }
-  })
+export async function requestDomSnapshot(tabId: number): Promise<DomSnapshot | null> {
+  try {
+    const exec = chrome.scripting.executeScript({
+      target: { tabId },
+      func: domSnapshotCaptureInjected,
+      args: ['#grid-root'],
+    })
+    const result = await Promise.race([
+      exec,
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), CAPTURE_TIMEOUT_MS)),
+    ])
+    if (!result || !Array.isArray(result)) return null
+    const first = result[0]
+    if (!first || first.result == null) return null
+    return first.result as DomSnapshot
+  } catch (e) {
+    console.warn('[DOM Capture] Failed for tab', tabId, e)
+    return null
+  }
 }

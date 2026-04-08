@@ -37288,6 +37288,7 @@ ${pageText}
     // Create sessions lightbox
 
     const overlay = document.createElement('div')
+    overlay.id = 'sessions-history-overlay'
 
     overlay.style.cssText = `
 
@@ -37343,9 +37344,11 @@ ${pageText}
         .map(([key, rawData]: [string, any]) => {
           // Defensive normalization — ensure arrays are never null/undefined
           const data: any = rawData || {}
+          // Spread data first, then force id/_storageKey to the real session_* key so data.id cannot overwrite.
           return {
-            id: key,
             ...data,
+            id: key,
+            _storageKey: key,
             agents:      Array.isArray(data.agents)      ? data.agents      : [],
             agentBoxes:  Array.isArray(data.agentBoxes)  ? data.agentBoxes  : [],
             displayGrids: Array.isArray(data.displayGrids) ? data.displayGrids : [],
@@ -39967,6 +39970,8 @@ ${pageText}
     
     const trimmedName = newName.trim() || 'Unnamed Session'
     const isCurrentSession = !targetSessionKey || sessionKey === getCurrentSessionKey()
+
+    console.debug('[syncSessionName] Attempting rename:', { sessionKey, newName: trimmedName, source })
     
     // 1. Update chrome.storage.local[sessionKey].tabName (SOURCE OF TRUTH)
     storageGet([sessionKey], (result) => {
@@ -39979,7 +39984,7 @@ ${pageText}
         storageSet({ [sessionKey]: sessionData }, () => {
         })
       } else {
-        console.warn('⚠️ Session not found in storage:', sessionKey)
+        console.warn('[syncSessionName] Session not found in storage — rename skipped:', sessionKey)
         return
       }
     })
