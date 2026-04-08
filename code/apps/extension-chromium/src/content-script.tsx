@@ -37431,7 +37431,9 @@ ${pageText}
 
                 <div style="display: flex; gap: 6px; align-items: flex-start; flex-shrink: 0;">
 
-                  <button class="edit-session-name-btn" data-session-id="${session.id}" style="background: linear-gradient(135deg, ${csTheme().accent}, #1976D2); border: none; color: white; padding: 6px 8px; border-radius: 4px; cursor: pointer; font-size: 10px; transition: all 0.2s ease;" title="Edit session name" onmouseover="this.style.transform='scale(1.05)'" onmouseout="this.style.transform='scale(1)'">✏️</button>
+                  <button type="button" class="edit-session-name-btn" data-session-id="${session.id}" style="background: linear-gradient(135deg, ${csTheme().accent}, #1976D2); border: none; color: white; padding: 6px 8px; border-radius: 4px; cursor: pointer; font-size: 10px; transition: all 0.2s ease;" title="Focus session name field" onmouseover="this.style.transform='scale(1.05)'" onmouseout="this.style.transform='scale(1)'">✏️</button>
+
+                  <button type="button" class="save-session-name-btn" data-session-id="${session.id}" style="background: linear-gradient(135deg, #2e7d32, #1b5e20); border: none; color: white; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 11px; font-weight: 600; transition: all 0.2s ease;" title="Save session name">Save</button>
 
                 <button class="agentbox-overview-btn" data-session-id="${session.id}" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; padding: 5px 8px; border-radius: 4px; cursor: pointer; font-size: 11px;" title="Agent Box Overview">📦 Boxes</button>
 
@@ -38544,6 +38546,36 @@ ${pageText}
             nameInput.blur()
           }
         })
+
+        const saveSessionNameBtn = overlay.querySelector(
+          `.save-session-name-btn[data-session-id="${sessionId}"]`,
+        ) as HTMLButtonElement | null
+        if (saveSessionNameBtn) {
+          const defaultLabel = saveSessionNameBtn.textContent || 'Save'
+          saveSessionNameBtn.addEventListener('click', (e) => {
+            e.stopPropagation()
+            e.preventDefault()
+            if (saveTimeout) {
+              clearTimeout(saveTimeout)
+              saveTimeout = null
+            }
+            syncSessionName(nameInput.value, 'history', sessionId)
+            if (saveIndicator) {
+              saveIndicator.textContent = '✓'
+              saveIndicator.style.display = 'inline-block'
+              saveIndicator.style.color = '#4CAF50'
+              setTimeout(() => {
+                if (saveIndicator) saveIndicator.style.display = 'none'
+              }, 2000)
+            }
+            saveSessionNameBtn.textContent = 'Saved'
+            saveSessionNameBtn.disabled = true
+            setTimeout(() => {
+              saveSessionNameBtn.textContent = defaultLabel
+              saveSessionNameBtn.disabled = false
+            }, 2000)
+          })
+        }
       })
 
       
