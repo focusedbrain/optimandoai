@@ -916,12 +916,17 @@ var dashboardRendererVsbt: string | null =
 
 export function broadcastToExtensions(message: Record<string, unknown>): void {
   const json = JSON.stringify(message)
+  let sent = 0
   for (const socket of wsClients) {
     try {
       if (socket.readyState === WebSocket.OPEN) {
         socket.send(json)
+        sent++
       }
     } catch { /* ignore */ }
+  }
+  if (sent === 0 && wsClients.length > 0) {
+    console.warn('[MAIN] broadcastToExtensions: all', wsClients.length, 'clients had non-OPEN state')
   }
 }
 
@@ -1353,18 +1358,47 @@ async function createWindow() {
       if (!sk) return
       const session = p.session && typeof p.session === 'object' ? (p.session as Record<string, unknown>) : undefined
       const source = typeof p.source === 'string' ? p.source.trim() : undefined
-      if (wsClients.length === 0) {
-        console.warn(
-          '[MAIN] PRESENT_ORCHESTRATOR_DISPLAY_GRID: no WebSocket clients — Chromium extension not connected; grid message not delivered',
-        )
-      }
-      broadcastToExtensions({
-        type: 'PRESENT_ORCHESTRATOR_DISPLAY_GRID',
+
+      const message = {
+        type: 'PRESENT_ORCHESTRATOR_DISPLAY_GRID' as const,
         sessionKey: sk,
         ...(session ? { session } : {}),
         ...(source ? { source } : {}),
-      })
-      console.log('[MAIN] PRESENT_ORCHESTRATOR_DISPLAY_GRID → extension WS', sk, session ? '(with session blob)' : '')
+      }
+
+      const MAX_RETRIES = 6
+      const RETRY_DELAY_MS = 1500
+      let attempt = 0
+
+      const tryBroadcast = () => {
+        const openClients = wsClients.filter((s: { readyState: number }) => s.readyState === WebSocket.OPEN)
+        if (openClients.length > 0) {
+          broadcastToExtensions(message)
+          console.log(
+            '[MAIN] PRESENT_ORCHESTRATOR_DISPLAY_GRID → extension WS',
+            sk,
+            session ? '(with session blob)' : '',
+            `(attempt ${attempt + 1})`,
+          )
+          return
+        }
+        attempt++
+        if (attempt < MAX_RETRIES) {
+          console.log(
+            `[MAIN] PRESENT_ORCHESTRATOR_DISPLAY_GRID: no clients, retrying in ${RETRY_DELAY_MS}ms (${attempt}/${MAX_RETRIES})`,
+          )
+          setTimeout(tryBroadcast, RETRY_DELAY_MS)
+        } else {
+          console.warn(
+            '[MAIN] PRESENT_ORCHESTRATOR_DISPLAY_GRID: no WebSocket clients after',
+            MAX_RETRIES,
+            'retries — grid message not delivered for',
+            sk,
+          )
+        }
+      }
+
+      tryBroadcast()
     })
     ipcMain.on('OPEN_WR_CHAT', () => {
       console.log('[MAIN] ðŸ“¨ WR Chat popup requested from dashboard')

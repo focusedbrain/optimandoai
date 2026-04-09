@@ -6,7 +6,7 @@ export type SessionSurface =
   | { kind: 'grid_tab'; tabId: number; gridSessionParam: string }
   | { kind: 'sidepanel_only' }
 
-function urlMatchesSessionKey(url: string | undefined, sessionKey: string): boolean {
+export function urlMatchesSessionKey(url: string | undefined, sessionKey: string): boolean {
   if (!url || !sessionKey.trim()) return false
   try {
     const u = new URL(url)
@@ -20,7 +20,7 @@ function urlMatchesSessionKey(url: string | undefined, sessionKey: string): bool
   }
 }
 
-function isGridDisplayUrl(url: string | undefined): boolean {
+export function isGridDisplayUrl(url: string | undefined): boolean {
   if (!url) return false
   return (
     url.includes('grid-display-v2.html') ||

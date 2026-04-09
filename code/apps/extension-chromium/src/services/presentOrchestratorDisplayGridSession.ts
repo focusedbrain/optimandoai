@@ -4,6 +4,8 @@
  * (custom mode or auto-optimizer project when linked to this session).
  */
 
+import { isGridDisplayUrl, urlMatchesSessionKey } from './sessionSurfaceResolver'
+
 const GRID_PRESENT_SIG_PREFIX = 'orchestrator_grid_present_sig:'
 
 function gridFingerprint(grids: unknown[]): string {
@@ -85,9 +87,25 @@ export async function maybePresentOrchestratorDisplayGridSession(
 
   const sig = gridFingerprint(grids)
   const sigKey = GRID_PRESENT_SIG_PREFIX + sessionKey
+  const sk = sessionKey.trim()
   try {
     const prev = await chrome.storage.local.get(sigKey)
-    if (prev[sigKey] === sig) return
+    if (prev[sigKey] === sig) {
+      const tabs = await chrome.tabs.query({})
+      const hasMatchingGridTab = tabs.some(
+        (tab) =>
+          !tab.discarded &&
+          tab.url &&
+          isGridDisplayUrl(tab.url) &&
+          urlMatchesSessionKey(tab.url, sk),
+      )
+      if (hasMatchingGridTab) {
+        console.log('[GridPresent] Grids already open for', sk, '— skipping')
+        return
+      }
+      console.log('[GridPresent] Stale fingerprint for', sk, '— tabs gone, re-opening')
+      await chrome.storage.local.remove(sigKey)
+    }
     await chrome.storage.local.set({ [sigKey]: sig })
   } catch {
     /* continue — best-effort */
