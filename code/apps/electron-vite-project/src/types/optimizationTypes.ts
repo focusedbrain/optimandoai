@@ -130,6 +130,7 @@ export type OptimizationRunResult =
       results: AgentRunResult[]
       suggestionCount: number
     }
+  | { ok: true; runId: string; skipped: true; reason: 'no_changes' }
   | { ok: false; runId: string; guardFail: Extract<GuardResult, { ok: false }> }
   | { ok: false; runId: string; sessionFail: SessionActivationFail }
   | { ok: false; runId: string; error: string }

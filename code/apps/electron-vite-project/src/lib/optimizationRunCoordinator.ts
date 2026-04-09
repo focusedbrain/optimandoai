@@ -29,7 +29,7 @@ import {
   WRDESK_OPTIMIZATION_RUN_RESULTS,
 } from './wrdeskUiEvents'
 import { openSessionDisplayGridsFromDashboard } from './openSessionDisplayGridsFromDashboard'
-import type { OrchestratorSessionJson } from './orchestratorSessionClient'
+import { fetchOrchestratorSession, type OrchestratorSessionJson } from './orchestratorSessionClient'
 
 function logStep(runId: string, step: string, phase: 'start' | 'end', extra?: string): void {
   const x = extra ? ` ${extra}` : ''
@@ -202,38 +202,58 @@ export async function executeOptimizationRun(
     return { ok: false, runId, error: 'No session key' }
   }
 
-  logStep(runId, 'open_session_grids', 'start')
-  let gridOpen: Awaited<ReturnType<typeof openSessionDisplayGridsFromDashboard>>
-  try {
-    gridOpen = await openSessionDisplayGridsFromDashboard(sessionKey, 'auto-optimization')
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e)
-    console.warn(`[OptimizationRun ${runId}] openSessionDisplayGridsFromDashboard threw:`, msg)
-    try {
-      window.dispatchEvent(
-        new CustomEvent(WRDESK_OPTIMIZATION_GUARD_TOAST, {
-          detail: { message: `Could not open display grids: ${msg}`, variant: 'warning' },
-        }),
-      )
-    } catch {
-      /* noop */
+  let sessionJson: OrchestratorSessionJson
+
+  if (trigger === 'dashboard_interval') {
+    logStep(runId, 'session_display_grids', 'end', 'interval_grids_already_open')
+    const fetched = await fetchOrchestratorSession(sessionKey)
+    if (!fetched.ok) {
+      try {
+        window.dispatchEvent(
+          new CustomEvent(WRDESK_OPTIMIZATION_GUARD_TOAST, {
+            detail: { message: `Could not load session: ${fetched.message}`, variant: 'warning' },
+          }),
+        )
+      } catch {
+        /* noop */
+      }
+      return { ok: false, runId, error: fetched.message }
     }
-    return { ok: false, runId, error: msg }
-  }
-  logStep(runId, 'open_session_grids', 'end', gridOpen.ok ? 'ok' : 'fail')
-  if (!gridOpen.ok) {
+    sessionJson = fetched.data
+  } else {
+    logStep(runId, 'session_display_grids', 'start')
+    let gridOpen: Awaited<ReturnType<typeof openSessionDisplayGridsFromDashboard>>
     try {
-      window.dispatchEvent(
-        new CustomEvent(WRDESK_OPTIMIZATION_GUARD_TOAST, {
-          detail: { message: `Could not load session: ${gridOpen.message}`, variant: 'warning' },
-        }),
-      )
-    } catch {
-      /* noop */
+      gridOpen = await openSessionDisplayGridsFromDashboard(sessionKey, 'auto-optimization')
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      console.warn(`[OptimizationRun ${runId}] openSessionDisplayGridsFromDashboard threw:`, msg)
+      try {
+        window.dispatchEvent(
+          new CustomEvent(WRDESK_OPTIMIZATION_GUARD_TOAST, {
+            detail: { message: `Could not open display grids: ${msg}`, variant: 'warning' },
+          }),
+        )
+      } catch {
+        /* noop */
+      }
+      return { ok: false, runId, error: msg }
     }
-    return { ok: false, runId, error: gridOpen.message }
+    logStep(runId, 'session_display_grids', 'end', gridOpen.ok ? 'ok' : 'fail')
+    if (!gridOpen.ok) {
+      try {
+        window.dispatchEvent(
+          new CustomEvent(WRDESK_OPTIMIZATION_GUARD_TOAST, {
+            detail: { message: `Could not load session: ${gridOpen.message}`, variant: 'warning' },
+          }),
+        )
+      } catch {
+        /* noop */
+      }
+      return { ok: false, runId, error: gridOpen.message }
+    }
+    sessionJson = gridOpen.sessionJson
   }
-  const sessionJson = gridOpen.sessionJson
 
   /** Let the extension service worker finish mirroring session JSON to `chrome.storage.local` before `activateSessionForOptimization` reads it (WS vs sendMessage ordering). */
   await new Promise((r) => setTimeout(r, 400))
@@ -298,8 +318,30 @@ export async function executeOptimizationRun(
 
   try {
     logStep(runId, 'dom_snapshot', 'start')
-    const dom = await tryDomSnapshot(activation.tabId)
+    const activationTabId = activation.ok ? activation.tabId : null
+    const dom = await tryDomSnapshot(activationTabId)
     logStep(runId, 'dom_snapshot', 'end', dom ? 'captured' : 'skipped')
+
+    // --- Change detection: full fingerprint (after session + DOM; before LLM) ---
+    if (trigger === 'dashboard_interval') {
+      const { mergeOptimizationFingerprint, getLastFingerprint, fingerprintsMatch } =
+        await import('./autoOptimizationFingerprint')
+      const currentFp = mergeOptimizationFingerprint(project.id, sessionJson, dom)
+      const lastFp = getLastFingerprint()
+      if (lastFp && fingerprintsMatch(currentFp, lastFp)) {
+        console.log('[AutoOpt] No changes detected since last run — skipping LLM')
+        logStep(runId, 'skip_unchanged', 'end', 'no_changes')
+        if (focusEntered) {
+          try {
+            const { useChatFocusStore } = await import('@ext/stores/chatFocusStore')
+            useChatFocusStore.getState().exitOptimizationFocus()
+          } catch {
+            /* noop */
+          }
+        }
+        return { ok: true, runId, skipped: true, reason: 'no_changes' }
+      }
+    }
 
     let agents = buildAgentEntries(sessionJson)
     if (agents.length === 0) {
@@ -381,6 +423,12 @@ export async function executeOptimizationRun(
       }
     }
     logStep(runId, 'route_agentbox_output', 'end', `${results.length} agentboxes`)
+
+    if (trigger === 'dashboard_interval') {
+      const { mergeOptimizationFingerprint, setLastFingerprint } = await import('./autoOptimizationFingerprint')
+      const fp = mergeOptimizationFingerprint(project.id, sessionJson, dom)
+      setLastFingerprint(fp, project.id)
+    }
 
     logStep(runId, 'render_results', 'start')
     try {

@@ -13,6 +13,7 @@ import { fetchOrchestratorSession, type OrchestratorSessionJson } from './orches
 /** Passed to preload → extension; background uses for logging when skipping duplicate grids. */
 export type SessionGridPresentSource =
   | 'auto-optimization'
+  | 'auto-optimization-start'
   | 'dashboard-session-icon'
   | 'dashboard-snapshot-prep'
 

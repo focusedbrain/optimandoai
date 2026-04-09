@@ -6,6 +6,7 @@
 
 import type { Project } from '../types/projectTypes'
 import type { TriggerSource } from '../types/optimizationTypes'
+import { clearLastFingerprint, computeProjectFingerprint, getLastFingerprint } from './autoOptimizationFingerprint'
 
 let intervalHandle: ReturnType<typeof setInterval> | null = null
 /** Prevents overlapping interval ticks when a run is still executing. */
@@ -45,6 +46,17 @@ export function startAutoOptimization(project: Project): void {
     ids,
   )
 
+  // Open display grids once at start (interval ticks fetch session without re-presenting grids).
+  const sessionKey =
+    (project.linkedSessionIds ?? []).find((k) => typeof k === 'string' && k.trim())?.trim() ?? ''
+  if (sessionKey) {
+    void import('./openSessionDisplayGridsFromDashboard').then((m) => {
+      m.openSessionDisplayGridsFromDashboard(sessionKey, 'auto-optimization-start').catch((e) => {
+        console.warn('[AutoOpt] Initial grid open failed:', e)
+      })
+    })
+  }
+
   void runTrigger(project, 'dashboard_interval')
 
   intervalHandle = setInterval(() => {
@@ -57,8 +69,9 @@ export function stopAutoOptimization(): void {
   if (intervalHandle !== null) {
     clearInterval(intervalHandle)
     intervalHandle = null
-    console.log('[AutoOpt] Stopped')
   }
+  clearLastFingerprint()
+  console.log('[AutoOpt] Stopped')
   optimizationRunInProgress = false
 }
 
@@ -71,18 +84,39 @@ export function triggerSnapshotOptimization(
   trigger: TriggerSource = 'dashboard_snapshot',
 ): void {
   console.log('[AutoOpt] Snapshot optimization triggered')
-  void runTrigger(project, trigger)
+  void (async () => {
+    await runTrigger(project, trigger)
+    if (trigger === 'dashboard_snapshot' || trigger === 'extension_snapshot') {
+      clearLastFingerprint()
+    }
+  })()
 }
 
 async function runTrigger(project: Project, trigger: TriggerSource): Promise<void> {
   if (optimizationRunInProgress) {
-    console.log('[AutoOpt] Skipping run — already in progress', { trigger })
+    console.log('[AutoOpt] Run already in progress, skipping')
     return
   }
   const ids = project.linkedSessionIds ?? []
   if (ids.length === 0) {
     console.warn('[AutoOpt] No linked sessions; skip run')
     return
+  }
+
+  // --- Change detection: fast project pre-check (full fingerprint includes sidebar + DOM in coordinator) ---
+  if (trigger === 'dashboard_interval') {
+    const projectFp = computeProjectFingerprint(project.id)
+    const lastFp = getLastFingerprint()
+    if (
+      lastFp &&
+      projectFp.projectUpdatedAt === lastFp.projectUpdatedAt &&
+      projectFp.milestoneHash === lastFp.milestoneHash &&
+      projectFp.attachmentHash === lastFp.attachmentHash
+    ) {
+      console.log(
+        '[AutoOpt] Project unchanged (updatedAt + milestones + attachments), checking full context...',
+      )
+    }
   }
 
   const runId = newRunId()
