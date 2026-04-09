@@ -22,7 +22,17 @@ export async function fetchOrchestratorSession(sessionKey: string): Promise<Fetc
         message: `Orchestrator GET failed (${r.status} ${r.statusText}) for session key "${sessionKey}"`,
       }
     }
-    const body = (await r.json()) as { data?: OrchestratorSessionJson }
+    const body = (await r.json()) as {
+      success?: boolean
+      data?: OrchestratorSessionJson
+      error?: string
+    }
+    if (body.success === false) {
+      return {
+        ok: false,
+        message: `Orchestrator GET rejected for "${sessionKey}": ${body.error ?? 'unknown error'}`,
+      }
+    }
     const data = body?.data ?? null
     if (!data) {
       return {

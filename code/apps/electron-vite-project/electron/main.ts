@@ -1353,6 +1353,11 @@ async function createWindow() {
       if (!sk) return
       const session = p.session && typeof p.session === 'object' ? (p.session as Record<string, unknown>) : undefined
       const source = typeof p.source === 'string' ? p.source.trim() : undefined
+      if (wsClients.length === 0) {
+        console.warn(
+          '[MAIN] PRESENT_ORCHESTRATOR_DISPLAY_GRID: no WebSocket clients — Chromium extension not connected; grid message not delivered',
+        )
+      }
       broadcastToExtensions({
         type: 'PRESENT_ORCHESTRATOR_DISPLAY_GRID',
         sessionKey: sk,

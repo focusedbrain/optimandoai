@@ -30,7 +30,7 @@
  *   - useEmailInboxStore: autoSyncEnabled, toggleAutoSyncForActiveAccounts, refreshInboxSyncBackendState
  *   - useProjectSetupChatContextStore: all draft fields + snippets
  *   - focusHeaderAiChat() dispatch (WRDESK_FOCUS_AI_CHAT_EVENT)
- *   - handleRunAnalysisNow, onAutoToggle callbacks
+ *   - handleRunAnalysisNow (snapshot optimization only — stays on Analysis), onAutoToggle callbacks
  *   - autoOptimizationEngine: startAutoOptimization, stopAutoOptimization, triggerSnapshotOptimization
  */
 
@@ -154,8 +154,8 @@ function getMimeLabel(mimeType: string, filename: string): string {
 export function ProjectOptimizationPanel({
   latestAutosortSession = null,
   emailAccounts = [],
-  onRefreshOperations,
-  onOpenBulkInboxForAnalysis,
+  onRefreshOperations: _onRefreshOperations,
+  onOpenBulkInboxForAnalysis: _onOpenBulkInboxForAnalysis,
   onSetupModeChange,
 }: ProjectOptimizationPanelProps) {
   // ── Project store ──────────────────────────────────────────────────────────
@@ -257,7 +257,7 @@ export function ProjectOptimizationPanel({
   }, [])
 
   const handleRunAnalysisNow = useCallback(async () => {
-    if (runBusy || !onRefreshOperations) return
+    if (runBusy) return
     setRunBusy(true)
     try {
       const guard = canRunOptimization('dashboard_snapshot')
@@ -266,13 +266,12 @@ export function ProjectOptimizationPanel({
         return
       }
       const project = useProjectStore.getState().getActiveProject()
-      if (project) triggerSnapshotOptimization(project, 'dashboard_snapshot')
-      await onRefreshOperations()
-      onOpenBulkInboxForAnalysis?.()
+      if (!project) return
+      triggerSnapshotOptimization(project, 'dashboard_snapshot')
     } finally {
       setRunBusy(false)
     }
-  }, [onRefreshOperations, onOpenBulkInboxForAnalysis, runBusy])
+  }, [runBusy])
 
   // ── Chat context store (preserved exactly) ────────────────────────────────
   const {
@@ -800,8 +799,7 @@ export function ProjectOptimizationPanel({
 
   // ── Derived display values ─────────────────────────────────────────────────
   const autoDisabled       = accountIds.length === 0
-  const hasRefreshHandler  = typeof onRefreshOperations === 'function'
-  const runCommandDisabled = runBusy || !hasRefreshHandler
+  const runCommandDisabled = runBusy
   const isFormOpen         = setupMode !== 'collapsed'
 
   const lastAnalysisLine =
@@ -915,11 +913,11 @@ export function ProjectOptimizationPanel({
               className="pop__action-btn"
               disabled={runCommandDisabled}
               onClick={() => void handleRunAnalysisNow()}
-              title="Refresh snapshot · open Bulk Inbox for AI Auto-Sort"
+              title="Run snapshot optimization for the linked WR Chat session (stays on Analysis)"
             >
               {runBusy ? 'Running…' : 'Snapshot-Optimization'}
             </button>
-            <span className="pop__action-hint">Refresh snapshot · open Bulk Inbox</span>
+            <span className="pop__action-hint">One-shot optimization run</span>
           </div>
         </div>
       </div>

@@ -463,6 +463,9 @@ contextBridge.exposeInMainWorld('analysisDashboard', {
    * (`maybePresentOrchestratorDisplayGridSession`). When `sessionData` is provided (orchestrator JSON from
    * SQLite), the background mirrors it to `chrome.storage.local` before presenting so grids open even
    * when the extension never had a local copy.
+   *
+   * Uses `ipcRenderer.send` (not `invoke`): main process forwards via `broadcastToExtensions` to extension WS;
+   * no reply channel is required.
    */
   presentOrchestratorDisplayGrid: (
     sessionKey: string,

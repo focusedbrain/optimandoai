@@ -252,16 +252,11 @@ export async function executeOptimizationRun(
   logStep(runId, 'session_activation', 'end', activation.ok ? 'ok' : activation.code)
 
   if (!activation.ok) {
-    try {
-      window.dispatchEvent(
-        new CustomEvent(WRDESK_OPTIMIZATION_GUARD_TOAST, {
-          detail: { message: `Session activation failed: ${activation.code}`, variant: 'warning' },
-        }),
-      )
-    } catch {
-      /* noop */
-    }
-    return { ok: false, runId, sessionFail: activation }
+    console.warn(
+      '[AutoOpt] Activation warning:',
+      activation.code,
+      '— continuing pipeline (LLM + agentbox routing)',
+    )
   }
 
   const sessionIdsForEvent = (project.linkedSessionIds ?? []).filter(

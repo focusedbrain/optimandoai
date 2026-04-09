@@ -56,7 +56,31 @@ export async function maybePresentOrchestratorDisplayGridSession(
   sessionKey: string,
   session: Record<string, unknown>,
 ): Promise<void> {
-  const grids = session.displayGrids
+  let grids = session.displayGrids
+  /** SQLite/orchestrator payloads often omit `displayGrids` until first save; agentBoxes-only sessions still need a grid shell. */
+  if (!Array.isArray(grids) || grids.length === 0) {
+    const boxes = session.agentBoxes
+    if (Array.isArray(boxes) && boxes.length > 0) {
+      const orbitId =
+        typeof session.id === 'string' && session.id.trim()
+          ? String(session.id).trim()
+          : sessionKey
+      grids = [
+        {
+          layout: '4-slot',
+          sessionId: `grid-${orbitId}`,
+          timestamp: new Date().toISOString(),
+        },
+      ]
+      const merged = { ...session, displayGrids: grids }
+      try {
+        await chrome.storage.local.set({ [sessionKey]: merged })
+      } catch (e) {
+        console.warn('[presentOrchestratorDisplayGridSession] persist fallback displayGrids failed:', e)
+      }
+      session = merged
+    }
+  }
   if (!Array.isArray(grids) || grids.length === 0) return
 
   const sig = gridFingerprint(grids)
