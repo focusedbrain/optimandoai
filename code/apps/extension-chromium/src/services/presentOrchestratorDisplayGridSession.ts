@@ -131,7 +131,7 @@ export async function maybePresentOrchestratorDisplayGridSession(
       sessionKey,
       nextBoxNumber: String(nextBoxNumber + i),
     })
-    const url = chrome.runtime.getURL(`grid-display-v2.html?${params.toString()}`)
+    const url = chrome.runtime.getURL(`grid-display.html?${params.toString()}`)
     try {
       const tab = await chrome.tabs.create({ url, active: i === 0 })
       if (i === 0 && typeof tab?.id === 'number') firstTabId = tab.id
