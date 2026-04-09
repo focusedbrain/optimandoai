@@ -202,6 +202,24 @@ export function ProjectOptimizationPanel({
   const [roadmapEditDescription, setRoadmapEditDescription] = useState('')
   const [roadmapSavedFlash, setRoadmapSavedFlash] = useState(false)
   const roadmapBaselineRef = useRef<{ title: string; description: string }>({ title: '', description: '' })
+  const roadmapTitleRef = useRef<HTMLTextAreaElement>(null)
+  const roadmapDescRef = useRef<HTMLTextAreaElement>(null)
+
+  useEffect(() => {
+    const el = roadmapTitleRef.current
+    if (el) {
+      el.style.height = 'auto'
+      el.style.height = `${el.scrollHeight}px`
+    }
+  }, [roadmapEditTitle])
+
+  useEffect(() => {
+    const el = roadmapDescRef.current
+    if (el) {
+      el.style.height = 'auto'
+      el.style.height = `${el.scrollHeight}px`
+    }
+  }, [roadmapEditDescription])
 
   useEffect(() => {
     if (!activeMilestone) {
@@ -1542,9 +1560,10 @@ export function ProjectOptimizationPanel({
                 ) : null}
               </div>
               <div className="pop__roadmap-content pop__roadmap-content--editable">
-                <input
-                  type="text"
+                <textarea
+                  ref={roadmapTitleRef}
                   className="pop__roadmap-title-input"
+                  rows={1}
                   value={roadmapEditTitle}
                   placeholder="Milestone title..."
                   onChange={(e) => setRoadmapEditTitle(e.target.value)}
@@ -1556,20 +1575,22 @@ export function ProjectOptimizationPanel({
                       description: activeMilestone.description ?? '',
                     }
                   }}
+                  onInput={(e) => {
+                    const ta = e.target as HTMLTextAreaElement
+                    ta.style.height = 'auto'
+                    ta.style.height = `${ta.scrollHeight}px`
+                  }}
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault()
-                      ;(e.target as HTMLInputElement).blur()
-                    }
                     if (e.key === 'Escape') {
                       e.preventDefault()
                       setRoadmapEditTitle(roadmapBaselineRef.current.title)
                       setRoadmapEditDescription(roadmapBaselineRef.current.description)
-                      ;(e.target as HTMLInputElement).blur()
+                      ;(e.target as HTMLTextAreaElement).blur()
                     }
                   }}
                 />
                 <textarea
+                  ref={roadmapDescRef}
                   className="pop__roadmap-desc-input"
                   rows={2}
                   value={roadmapEditDescription}

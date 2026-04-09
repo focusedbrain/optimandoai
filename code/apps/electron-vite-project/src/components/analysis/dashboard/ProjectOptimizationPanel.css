@@ -437,6 +437,8 @@
   padding: 6px 0;
   flex: 1;               /* grows to fill remaining card height */
   min-height: 120px;     /* minimum even when empty */
+  min-width: 0;          /* allow flex children to shrink width without clipping text */
+  overflow: visible;     /* full milestone text must not be clipped */
 }
 
 /* Header row: ● Active milestone label + progress count */
@@ -478,12 +480,16 @@
   white-space: pre-wrap;
   word-break: break-word;
   font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
+  overflow: visible;
+  max-height: none;
 }
 
 .pop__roadmap-content--editable {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  min-width: 0;
+  overflow: visible;
 }
 
 .pop__roadmap-saved {
@@ -509,6 +515,7 @@
 
 .pop__roadmap-title-input {
   width: 100%;
+  box-sizing: border-box;
   font-weight: 600;
   font-size: 0.95rem;
   background: transparent;
@@ -517,6 +524,13 @@
   padding: 4px 6px;
   color: inherit;
   outline: none;
+  resize: none;
+  overflow: hidden;
+  line-height: 1.4;
+  font-family: inherit;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  overflow-wrap: anywhere;
   transition: border-color 0.2s;
 }
 
@@ -526,6 +540,7 @@
 
 .pop__roadmap-desc-input {
   width: 100%;
+  box-sizing: border-box;
   font-size: 0.85rem;
   background: transparent;
   border: 1px solid transparent;
@@ -534,7 +549,13 @@
   color: inherit;
   opacity: 0.85;
   outline: none;
-  resize: vertical;
+  resize: none;
+  overflow: hidden;
+  line-height: 1.4;
+  font-family: inherit;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  overflow-wrap: anywhere;
   min-height: 40px;
   transition: border-color 0.2s;
 }
