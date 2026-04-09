@@ -240,6 +240,22 @@ export function ProjectOptimizationPanel({
 
   const [runBusy, setRunBusy] = useState(false)
 
+  const handleOpenLinkedSessionDisplayGrids = useCallback(async () => {
+    const p = useProjectStore.getState().getActiveProject()
+    const sessionKey = p?.linkedSessionIds?.[0]?.trim()
+    if (!sessionKey) {
+      console.log('[AutoOpt] No linked session, cannot open display grids')
+      return
+    }
+    try {
+      const { openSessionDisplayGridsFromDashboard } = await import('../../../lib/openSessionDisplayGridsFromDashboard')
+      const r = await openSessionDisplayGridsFromDashboard(sessionKey, 'dashboard-session-icon')
+      if (!r.ok) console.warn('[SessionGrids]', r.message)
+    } catch (e) {
+      console.warn('[SessionGrids] open failed:', e instanceof Error ? e.message : e)
+    }
+  }, [])
+
   const handleRunAnalysisNow = useCallback(async () => {
     if (runBusy || !onRefreshOperations) return
     setRunBusy(true)
@@ -644,7 +660,8 @@ export function ProjectOptimizationPanel({
       milestones: formMilestones,
       attachments: formAttachments,
       linkedSessionIds: formLinkedSessionIds[0] ? [formLinkedSessionIds[0]] : [],
-      autoOptimizationEnabled: currentEnabled,
+      /** New projects must start with auto-optimization OFF; user enables manually. */
+      autoOptimizationEnabled: setupMode === 'creating' ? false : currentEnabled,
       autoOptimizationIntervalMs: formIntervalMs,
       ...(formIcon.trim() ? { icon: formIcon.trim() } : { icon: undefined }),
     }
@@ -843,14 +860,26 @@ export function ProjectOptimizationPanel({
             ))}
           </select>
           {activeProjectId && !isFormOpen && (
-            <button
-              type="button"
-              className="pop__edit-btn"
-              onClick={openEditMode}
-              title="Edit this project"
-            >
-              Edit
-            </button>
+            <>
+              <button
+                type="button"
+                className="pop__edit-btn"
+                onClick={openEditMode}
+                title="Edit this project"
+              >
+                Edit
+              </button>
+              {activeProject?.linkedSessionIds?.[0]?.trim() ? (
+                <button
+                  type="button"
+                  className="pop__edit-btn"
+                  onClick={() => void handleOpenLinkedSessionDisplayGrids()}
+                  title="Open linked WR Chat session in display grids (Chrome extension)"
+                >
+                  Open session
+                </button>
+              ) : null}
+            </>
           )}
         </div>
 

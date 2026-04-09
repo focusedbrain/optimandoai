@@ -116,7 +116,15 @@ export const useProjectStore = create<ProjectState & ProjectActions>()(
       createProject: (data) => {
         const id = crypto.randomUUID()
         const ts = now()
-        const project: Project = { ...data, id, createdAt: ts, updatedAt: ts }
+        const project: Project = {
+          ...data,
+          id,
+          createdAt: ts,
+          updatedAt: ts,
+          autoOptimizationEnabled: data.autoOptimizationEnabled ?? false,
+          autoOptimizationIntervalMs: data.autoOptimizationIntervalMs ?? 300_000,
+          linkedSessionIds: data.linkedSessionIds ?? [],
+        }
         set((s) => ({ projects: [...s.projects, project] }))
         return id
       },
@@ -310,18 +318,27 @@ export const useProjectStore = create<ProjectState & ProjectActions>()(
       /**
        * Bump `version` when the stored schema changes in a breaking way.
        * V2: `linkedSessionId` → `linkedSessionIds[]`
+       * V3: ensure `autoOptimizationEnabled` defaults to false when missing (legacy stores).
        */
-      version: 2,
+      version: 3,
       migrate: (persistedState: unknown, version: number) => {
-        if (version >= 2) return persistedState as object
         const ps = persistedState as { state?: { projects?: Array<Record<string, unknown>> } }
         if (ps?.state?.projects && Array.isArray(ps.state.projects)) {
-          ps.state.projects = ps.state.projects.map((p) => {
-            if (Array.isArray(p.linkedSessionIds)) return p as Record<string, unknown>
-            const ids = p.linkedSessionId ? [String(p.linkedSessionId)] : []
-            const { linkedSessionId: _ls, ...rest } = p
-            return { ...rest, linkedSessionIds: ids }
-          })
+          if (version < 2) {
+            ps.state.projects = ps.state.projects.map((p) => {
+              if (Array.isArray(p.linkedSessionIds)) return p as Record<string, unknown>
+              const ids = p.linkedSessionId ? [String(p.linkedSessionId)] : []
+              const { linkedSessionId: _ls, ...rest } = p
+              return { ...rest, linkedSessionIds: ids }
+            })
+          }
+          if (version < 3) {
+            ps.state.projects = ps.state.projects.map((p) => ({
+              ...p,
+              autoOptimizationEnabled:
+                typeof p.autoOptimizationEnabled === 'boolean' ? p.autoOptimizationEnabled : false,
+            }))
+          }
         }
         return persistedState as object
       },

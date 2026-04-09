@@ -28,8 +28,8 @@ import {
   WRDESK_OPTIMIZATION_GUARD_TOAST,
   WRDESK_OPTIMIZATION_RUN_RESULTS,
 } from './wrdeskUiEvents'
-
-type OrchestratorSessionJson = Record<string, unknown>
+import { openSessionDisplayGridsFromDashboard } from './openSessionDisplayGridsFromDashboard'
+import type { OrchestratorSessionJson } from './orchestratorSessionClient'
 
 function logStep(runId: string, step: string, phase: 'start' | 'end', extra?: string): void {
   const x = extra ? ` ${extra}` : ''
@@ -40,42 +40,6 @@ function triggerToOptimizationSource(trigger: TriggerSource): OptimizationSource
   if (trigger === 'dashboard_interval' || trigger === 'extension_continuous') return 'auto-optimization'
   if (trigger === 'dashboard_snapshot' || trigger === 'extension_snapshot') return 'snapshot'
   return 'manual'
-}
-
-type FetchOrchestratorSessionResult =
-  | { ok: true; data: OrchestratorSessionJson }
-  | { ok: false; message: string }
-
-async function fetchOrchestratorSession(sessionKey: string): Promise<FetchOrchestratorSessionResult> {
-  const { defaultDashboardLlmHeaders } = await import('./optimizationLlmAdapter')
-  const headers = await defaultDashboardLlmHeaders()
-  try {
-    const r = await fetch(
-      `http://127.0.0.1:51248/api/orchestrator/get?key=${encodeURIComponent(sessionKey)}`,
-      { headers },
-    )
-    if (!r.ok) {
-      return {
-        ok: false,
-        message: `Orchestrator GET failed (${r.status} ${r.statusText}) for session key "${sessionKey}"`,
-      }
-    }
-    const body = (await r.json()) as { data?: OrchestratorSessionJson }
-    const data = body?.data ?? null
-    if (!data) {
-      return {
-        ok: false,
-        message: `Orchestrator returned no session data for key "${sessionKey}"`,
-      }
-    }
-    return { ok: true, data }
-  } catch (e) {
-    const hint = e instanceof Error ? e.message : String(e)
-    return {
-      ok: false,
-      message: `Orchestrator GET network error for key "${sessionKey}": ${hint}`,
-    }
-  }
 }
 
 type LooseAgent = {
@@ -238,34 +202,38 @@ export async function executeOptimizationRun(
     return { ok: false, runId, error: 'No session key' }
   }
 
-  logStep(runId, 'fetch_session_early', 'start')
-  const sessionFetchEarly = await fetchOrchestratorSession(sessionKey)
-  logStep(runId, 'fetch_session_early', 'end', sessionFetchEarly.ok ? 'ok' : 'fail')
-  if (!sessionFetchEarly.ok) {
+  logStep(runId, 'open_session_grids', 'start')
+  let gridOpen: Awaited<ReturnType<typeof openSessionDisplayGridsFromDashboard>>
+  try {
+    gridOpen = await openSessionDisplayGridsFromDashboard(sessionKey, 'auto-optimization')
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    console.warn(`[OptimizationRun ${runId}] openSessionDisplayGridsFromDashboard threw:`, msg)
     try {
       window.dispatchEvent(
         new CustomEvent(WRDESK_OPTIMIZATION_GUARD_TOAST, {
-          detail: { message: `Could not load session: ${sessionFetchEarly.message}`, variant: 'warning' },
+          detail: { message: `Could not open display grids: ${msg}`, variant: 'warning' },
         }),
       )
     } catch {
       /* noop */
     }
-    return { ok: false, runId, error: sessionFetchEarly.message }
+    return { ok: false, runId, error: msg }
   }
-  const sessionJson = sessionFetchEarly.data
-
-  /** Same path as session history: mirror session blob to extension + `maybePresentOrchestratorDisplayGridSession` (via background WebSocket). */
-  try {
-    window.analysisDashboard?.presentOrchestratorDisplayGrid?.(
-      sessionKey,
-      sessionJson as Record<string, unknown>,
-      'auto-optimization',
-    )
-    console.log('[AutoOpt] Requested display grid presentation with orchestrator session payload')
-  } catch {
-    /* noop */
+  logStep(runId, 'open_session_grids', 'end', gridOpen.ok ? 'ok' : 'fail')
+  if (!gridOpen.ok) {
+    try {
+      window.dispatchEvent(
+        new CustomEvent(WRDESK_OPTIMIZATION_GUARD_TOAST, {
+          detail: { message: `Could not load session: ${gridOpen.message}`, variant: 'warning' },
+        }),
+      )
+    } catch {
+      /* noop */
+    }
+    return { ok: false, runId, error: gridOpen.message }
   }
+  const sessionJson = gridOpen.sessionJson
 
   /** Let the extension service worker finish mirroring session JSON to `chrome.storage.local` before `activateSessionForOptimization` reads it (WS vs sendMessage ordering). */
   await new Promise((r) => setTimeout(r, 400))
