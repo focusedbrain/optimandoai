@@ -1348,15 +1348,18 @@ async function createWindow() {
     })
     // Handle WR Chat button from dashboard - open popup in WR Chat mode (default)
     ipcMain.on('PRESENT_ORCHESTRATOR_DISPLAY_GRID', (_e, payload: unknown) => {
-      const sk =
-        payload &&
-        typeof payload === 'object' &&
-        typeof (payload as { sessionKey?: unknown }).sessionKey === 'string'
-          ? String((payload as { sessionKey: string }).sessionKey).trim()
-          : ''
+      const p = payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : {}
+      const sk = typeof p.sessionKey === 'string' ? p.sessionKey.trim() : ''
       if (!sk) return
-      broadcastToExtensions({ type: 'PRESENT_ORCHESTRATOR_DISPLAY_GRID', sessionKey: sk })
-      console.log('[MAIN] PRESENT_ORCHESTRATOR_DISPLAY_GRID → extension WS', sk)
+      const session = p.session && typeof p.session === 'object' ? (p.session as Record<string, unknown>) : undefined
+      const source = typeof p.source === 'string' ? p.source.trim() : undefined
+      broadcastToExtensions({
+        type: 'PRESENT_ORCHESTRATOR_DISPLAY_GRID',
+        sessionKey: sk,
+        ...(session ? { session } : {}),
+        ...(source ? { source } : {}),
+      })
+      console.log('[MAIN] PRESENT_ORCHESTRATOR_DISPLAY_GRID → extension WS', sk, session ? '(with session blob)' : '')
     })
     ipcMain.on('OPEN_WR_CHAT', () => {
       console.log('[MAIN] ðŸ“¨ WR Chat popup requested from dashboard')

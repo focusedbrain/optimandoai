@@ -1528,20 +1528,37 @@ function connectToWebSocketServer(forceReconnect = false): Promise<boolean> {
               /** Electron Analysis dashboard → open display grid tabs + sidebar present (same as session activation / history restore). */
               const sessionKey = typeof data.sessionKey === 'string' ? data.sessionKey.trim() : ''
               if (!sessionKey) return
+              const fromAutoOpt = data.source === 'auto-optimization'
               void (async () => {
                 try {
                   const surface = await findOpenSessionSurface(sessionKey)
                   if (surface?.kind === 'grid_tab') {
-                    console.log('[BG] PRESENT_ORCHESTRATOR_DISPLAY_GRID: grid already open', sessionKey)
+                    const msg = fromAutoOpt
+                      ? `[AutoOpt] Session ${sessionKey} display grids already open, skipping`
+                      : `[BG] PRESENT_ORCHESTRATOR_DISPLAY_GRID: grid already open ${sessionKey}`
+                    console.log(msg)
                     return
                   }
-                  const raw = await chrome.storage.local.get(sessionKey)
-                  const sessionBlob = raw[sessionKey]
-                  if (!sessionBlob || typeof sessionBlob !== 'object') {
+                  let sessionBlob: Record<string, unknown> | null = null
+                  if (data.session && typeof data.session === 'object') {
+                    sessionBlob = data.session as Record<string, unknown>
+                    try {
+                      await chrome.storage.local.set({ [sessionKey]: sessionBlob })
+                    } catch (e) {
+                      console.warn('[BG] PRESENT_ORCHESTRATOR_DISPLAY_GRID: mirror to storage failed', e)
+                    }
+                  } else {
+                    const raw = await chrome.storage.local.get(sessionKey)
+                    const fromStorage = raw[sessionKey]
+                    if (fromStorage && typeof fromStorage === 'object') {
+                      sessionBlob = fromStorage as Record<string, unknown>
+                    }
+                  }
+                  if (!sessionBlob) {
                     console.warn('[BG] PRESENT_ORCHESTRATOR_DISPLAY_GRID: no session blob for', sessionKey)
                     return
                   }
-                  await maybePresentOrchestratorDisplayGridSession(sessionKey, sessionBlob as Record<string, unknown>)
+                  await maybePresentOrchestratorDisplayGridSession(sessionKey, sessionBlob)
                 } catch (e) {
                   console.warn('[BG] PRESENT_ORCHESTRATOR_DISPLAY_GRID failed:', e)
                 }

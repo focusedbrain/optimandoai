@@ -238,29 +238,49 @@ export async function executeOptimizationRun(
     return { ok: false, runId, error: 'No session key' }
   }
 
-  logStep(runId, 'session_activation', 'start')
-  let currentActiveKey: string | null = null
+  logStep(runId, 'fetch_session_early', 'start')
+  const sessionFetchEarly = await fetchOrchestratorSession(sessionKey)
+  logStep(runId, 'fetch_session_early', 'end', sessionFetchEarly.ok ? 'ok' : 'fail')
+  if (!sessionFetchEarly.ok) {
+    try {
+      window.dispatchEvent(
+        new CustomEvent(WRDESK_OPTIMIZATION_GUARD_TOAST, {
+          detail: { message: `Could not load session: ${sessionFetchEarly.message}`, variant: 'warning' },
+        }),
+      )
+    } catch {
+      /* noop */
+    }
+    return { ok: false, runId, error: sessionFetchEarly.message }
+  }
+  const sessionJson = sessionFetchEarly.data
+
+  /** Same path as session history: mirror session blob to extension + `maybePresentOrchestratorDisplayGridSession` (via background WebSocket). */
   try {
-    currentActiveKey = localStorage.getItem('optimando-active-session-key')
+    window.analysisDashboard?.presentOrchestratorDisplayGrid?.(
+      sessionKey,
+      sessionJson as Record<string, unknown>,
+      'auto-optimization',
+    )
+    console.log('[AutoOpt] Requested display grid presentation with orchestrator session payload')
   } catch {
     /* noop */
   }
-  const isAlreadyActive = sessionKey === currentActiveKey
+
+  /** Let the extension service worker finish mirroring session JSON to `chrome.storage.local` before `activateSessionForOptimization` reads it (WS vs sendMessage ordering). */
+  await new Promise((r) => setTimeout(r, 400))
+
+  logStep(runId, 'session_activation', 'start')
   const linkedIds = project.linkedSessionIds ?? []
 
-  const activation = isAlreadyActive
-    ? (() => {
-        console.log(`[AutoOpt] Session already active (${currentActiveKey}), skipping activation`)
-        return { ok: true as const, tabId: null, gridId: null }
-      })()
-    : await (async () => {
-        console.log(`[AutoOpt] Activating session ${linkedIds[0]}`)
-        const m = await import('@ext/services/sessionActivationForOptimization')
-        return m.activateSessionForOptimization({
-          id: project.id,
-          linkedSessionIds: project.linkedSessionIds ?? [],
-        })
-      })()
+  const activation = await (async () => {
+    console.log(`[AutoOpt] Activating session ${linkedIds[0]}`)
+    const m = await import('@ext/services/sessionActivationForOptimization')
+    return m.activateSessionForOptimization({
+      id: project.id,
+      linkedSessionIds: project.linkedSessionIds ?? [],
+    })
+  })()
   logStep(runId, 'session_activation', 'end', activation.ok ? 'ok' : activation.code)
 
   if (!activation.ok) {
@@ -291,12 +311,6 @@ export async function executeOptimizationRun(
   }
   console.log('[AutoOpt] Dispatched ACTIVATE_SESSIONS (session key sync only; no main view change)')
 
-  try {
-    window.analysisDashboard?.presentOrchestratorDisplayGrid?.(sessionKey)
-  } catch {
-    /* noop */
-  }
-
   const activeMilestone = project.milestones.find((m) => !m.completed)
 
   logStep(runId, 'enter_focus', 'start')
@@ -323,17 +337,6 @@ export async function executeOptimizationRun(
     logStep(runId, 'dom_snapshot', 'start')
     const dom = await tryDomSnapshot(activation.tabId)
     logStep(runId, 'dom_snapshot', 'end', dom ? 'captured' : 'skipped')
-
-    logStep(runId, 'fetch_session', 'start')
-    console.log(`[AutoOpt] Fetching orchestrator session: ${sessionKey}`)
-    const fetchSession = await fetchOrchestratorSession(sessionKey)
-    console.log(`[AutoOpt] Session fetched: ${fetchSession.ok ? 'ok' : 'null'}`)
-    logStep(runId, 'fetch_session', 'end', fetchSession.ok ? 'ok' : 'fail')
-
-    if (!fetchSession.ok) {
-      throw new Error(fetchSession.message)
-    }
-    const sessionJson = fetchSession.data
 
     let agents = buildAgentEntries(sessionJson)
     if (agents.length === 0) {

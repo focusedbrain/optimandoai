@@ -40,8 +40,15 @@ interface AnalysisDashboardBridge {
   openEmailCompose: () => void
   openHandshakeRequest: () => void
   openWrChat: () => void
-  /** Open Chrome extension display grid tabs for the orchestrator session (Electron → extension WebSocket). */
-  presentOrchestratorDisplayGrid: (sessionKey: string) => void
+  /**
+   * Open Chrome extension display grid tabs (Electron → extension WebSocket).
+   * Optional orchestrator `session` JSON mirrors session-history restore (storage + `maybePresentOrchestratorDisplayGridSession`).
+   */
+  presentOrchestratorDisplayGrid: (
+    sessionKey: string,
+    session?: Record<string, unknown>,
+    source?: string,
+  ) => void
   /** Relay live Agent Box refresh to extension after dashboard WR Chat persists output (matches MV3 background broadcast). */
   relayAgentBoxOutputLive: (data: {
     agentBoxId: string

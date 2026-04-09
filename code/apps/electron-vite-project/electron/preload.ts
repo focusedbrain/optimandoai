@@ -458,10 +458,23 @@ contextBridge.exposeInMainWorld('analysisDashboard', {
   openWrChat: () => {
     ipcRenderer.send('OPEN_WR_CHAT')
   },
-  /** Ask the Chrome extension (via main WS) to open display grid tabs for this session — same path as `maybePresentOrchestratorDisplayGridSession`. */
-  presentOrchestratorDisplayGrid: (sessionKey: string) => {
+  /**
+   * Ask the Chrome extension (via main WS) to open display grid tabs — same path as session history
+   * (`maybePresentOrchestratorDisplayGridSession`). When `sessionData` is provided (orchestrator JSON from
+   * SQLite), the background mirrors it to `chrome.storage.local` before presenting so grids open even
+   * when the extension never had a local copy.
+   */
+  presentOrchestratorDisplayGrid: (
+    sessionKey: string,
+    sessionData?: Record<string, unknown>,
+    source?: string,
+  ) => {
     if (typeof sessionKey !== 'string' || !sessionKey.trim()) return
-    ipcRenderer.send('PRESENT_ORCHESTRATOR_DISPLAY_GRID', { sessionKey: sessionKey.trim() })
+    ipcRenderer.send('PRESENT_ORCHESTRATOR_DISPLAY_GRID', {
+      sessionKey: sessionKey.trim(),
+      ...(sessionData && typeof sessionData === 'object' ? { session: sessionData } : {}),
+      ...(typeof source === 'string' && source.trim() ? { source: source.trim() } : {}),
+    })
   },
   /** After dashboard WR Chat persists agent box output via HTTP shim, relay live UI update to the extension (WS → background → runtime). */
   relayAgentBoxOutputLive: (payload: unknown) => {
