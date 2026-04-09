@@ -3744,6 +3744,23 @@ I'm now focused on optimizing this project. Share context, blockers, or referenc
       const baseUrl = 'http://127.0.0.1:51248'
       const sessionKeyForRoute = getActiveCustomModeRuntime()?.sessionId?.trim() || sessionKey
 
+      const appendOptSidebarIfOpt = (role: 'user' | 'assistant', line: string) => {
+        const cf = useChatFocusStore.getState()
+        if (cf.chatFocusMode.mode !== 'auto-optimizer') return
+        const sk = sessionKeyForRoute.trim()
+        const t = (line ?? '').trim()
+        if (!t || !sk) return
+        void import('./services/optimizationSidebarChatSync').then(({ appendOptimizationSidebarChatLog }) =>
+          appendOptimizationSidebarChatLog({
+            sessionKey: sk,
+            role,
+            text: t,
+            headers: electronFetchHeaders(),
+          }),
+        )
+      }
+      appendOptSidebarIfOpt('user', userDisplayText)
+
       // =================================================================
       // STEP 1: GET CURRENT CONTEXT
       // =================================================================
@@ -3870,6 +3887,7 @@ I'm now focused on optimizing this project. Share context, blockers, or referenc
         
         // A1. Show Butler confirmation (immediate response)
         setChatMessages([...newMessages, { role: 'assistant' as const, text: routingDecision.butlerResponse }])
+        appendOptSidebarIfOpt('assistant', routingDecision.butlerResponse)
         routeAssistantToInboxIfPending(routingDecision.butlerResponse)
         scrollToBottom()
         
@@ -3907,11 +3925,13 @@ I'm now focused on optimizing this project. Share context, blockers, or referenc
               
               const agentConfirm = `[Agent: ${match.agentName}] responded. See agent box.`
               setChatMessages(prev => [...prev, { role: 'assistant' as const, text: agentConfirm }])
+              appendOptSidebarIfOpt('assistant', agentConfirm)
               routeAssistantToInboxIfPending(agentConfirm)
             } else {
               // No AgentBox - show full output in chat
               const agentOutput = `${match.agentIcon} **${match.agentName}**:\n\n${result.output}`
               setChatMessages(prev => [...prev, { role: 'assistant' as const, text: agentOutput }])
+              appendOptSidebarIfOpt('assistant', agentOutput)
               routeAssistantToInboxIfPending(agentOutput)
             }
             scrollToBottom()
@@ -3919,6 +3939,7 @@ I'm now focused on optimizing this project. Share context, blockers, or referenc
             // Show error for this agent
             const agentErr = `⚠️ ${match.agentIcon} **${match.agentName}** error: ${result.error}`
             setChatMessages(prev => [...prev, { role: 'assistant' as const, text: agentErr }])
+            appendOptSidebarIfOpt('assistant', agentErr)
             routeAssistantToInboxIfPending(agentErr)
             scrollToBottom()
           }
@@ -3930,6 +3951,7 @@ I'm now focused on optimizing this project. Share context, blockers, or referenc
         // Butler handled this directly (e.g., "status", "what agents")
         // =================================================================
         setChatMessages([...newMessages, { role: 'assistant' as const, text: routingDecision.butlerResponse }])
+        appendOptSidebarIfOpt('assistant', routingDecision.butlerResponse)
         routeAssistantToInboxIfPending(routingDecision.butlerResponse)
         scrollToBottom()
         
@@ -3948,6 +3970,7 @@ I'm now focused on optimizing this project. Share context, blockers, or referenc
         
         if (butlerResult.success && butlerResult.response) {
           setChatMessages([...newMessages, { role: 'assistant' as const, text: butlerResult.response }])
+          appendOptSidebarIfOpt('assistant', butlerResult.response)
           routeAssistantToInboxIfPending(butlerResult.response)
           scrollToBottom()
         } else {
@@ -3968,6 +3991,23 @@ I'm now focused on optimizing this project. Share context, blockers, or referenc
       }
       
       setChatMessages(prev => [...prev, { role: 'assistant' as const, text: errorMsg }])
+      try {
+        const cf = useChatFocusStore.getState()
+        if (cf.chatFocusMode.mode === 'auto-optimizer') {
+          const sk = (getActiveCustomModeRuntime()?.sessionId?.trim() || sessionKey).trim()
+          const t = (errorMsg ?? '').trim()
+          if (sk && t) {
+            void import('./services/optimizationSidebarChatSync').then(({ appendOptimizationSidebarChatLog }) =>
+              appendOptimizationSidebarChatLog({
+                sessionKey: sk,
+                role: 'assistant',
+                text: t,
+                headers: electronFetchHeaders(),
+              }),
+            )
+          }
+        }
+      } catch { /* noop */ }
       routeAssistantToInboxIfPending(errorMsg)
       
       // Scroll to bottom after error message

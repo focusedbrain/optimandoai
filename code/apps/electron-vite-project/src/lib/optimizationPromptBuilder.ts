@@ -83,6 +83,10 @@ export function buildMessagesForAgent(
     : 'Provide general optimization.'
   const toolsPart =
     agent.toolsSummary?.trim() ? `Tools available (summary): ${agent.toolsSummary}` : ''
+  const existingTrim = agent.existingBoxOutput?.trim()
+  const existingBoxPart = existingTrim
+    ? `Current agent box output (from session):\n${existingTrim}`
+    : ''
 
   let systemParts = [
     sharedInstructions,
@@ -92,6 +96,7 @@ export function buildMessagesForAgent(
     `Agent profile\nBox: ${agent.boxId} (#${agent.boxNumber}) — ${agent.title}\nProvider: ${agent.provider ?? 'default'} | Model: ${agent.model ?? 'default'}`,
     roleText,
     toolsPart,
+    existingBoxPart,
   ].filter((p) => p.length > 0)
 
   if (mode === 'sequential' && ctx.priorAgentOutputs.length > 0) {

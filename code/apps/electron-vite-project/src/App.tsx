@@ -159,7 +159,7 @@ function App() {
     return () => window.removeEventListener(WRDESK_OPTIMIZATION_GUARD_TOAST, onToast)
   }, [])
 
-  /** Auto-optimization: switch to WR Chat, bring window forward, activate each linked session key. */
+  /** Auto-optimization: sync orchestrator session keys only. Does not switch views — Analysis stays primary; WR Chat opens only via the speech-bubble control. */
   useEffect(() => {
     const handler = (ev: Event) => {
       const ce = ev as CustomEvent<{ sessionIds?: string[]; runId?: string }>
@@ -167,37 +167,20 @@ function App() {
         (id): id is string => typeof id === 'string' && id.length > 0,
       )
       if (ids.length === 0) return
-      let storedKey: string | null = null
-      try {
-        storedKey = localStorage.getItem('optimando-active-session-key')
-      } catch {
-        /* noop */
-      }
-      if (ids[0] === storedKey && activeView === 'wr-chat') {
-        return
-      }
-      setActiveView('wr-chat')
-      window.setTimeout(() => {
-        try {
-          window.analysisDashboard?.openWrChat?.()
-        } catch {
-          /* noop */
-        }
-        ids.forEach((id, i) => {
-          window.setTimeout(() => {
-            try {
-              localStorage.setItem('optimando-active-session-key', id)
-              localStorage.setItem('optimando-global-active-session', id)
-            } catch {
-              /* noop */
-            }
-          }, i * 200)
-        })
-      }, 0)
+      ids.forEach((id, i) => {
+        window.setTimeout(() => {
+          try {
+            localStorage.setItem('optimando-active-session-key', id)
+            localStorage.setItem('optimando-global-active-session', id)
+          } catch {
+            /* noop */
+          }
+        }, i * 200)
+      })
     }
     window.addEventListener(WRDESK_AUTO_OPTIM_ACTIVATE_SESSIONS, handler)
     return () => window.removeEventListener(WRDESK_AUTO_OPTIM_ACTIVATE_SESSIONS, handler)
-  }, [activeView])
+  }, [])
 
   const handleDeepLinkConsumed = useCallback(() => setDeepLinkPayload(null), [])
 
@@ -334,15 +317,7 @@ function App() {
           >
             Analysis
           </button>
-          {/* WR Chat: primary entry = in-dashboard view (WrChatDashboardPanel). Rollback: replace onClick with
-              `() => window.analysisDashboard?.openWrChat()` and remove activeView wr-chat branch in main if desired. */}
-          <button
-            className={`nav-tab${activeView === 'wr-chat' ? ' nav-tab--active' : ''}`}
-            onClick={() => setActiveView('wr-chat')}
-            title="WR Chat (in dashboard)"
-          >
-            WR Chat
-          </button>
+          {/* WR Chat: only the speech-bubble control (WrMultiTriggerBar) switches main view to wr-chat — no nav tab. */}
           <button
             className={`nav-tab${activeView === 'handshakes' ? ' nav-tab--active' : ''}`}
             onClick={() => setActiveView('handshakes')}
@@ -374,7 +349,7 @@ function App() {
           <div
             className="app-header__wr-watchdog"
             style={{ display: 'flex', alignItems: 'center', flexShrink: 0, marginLeft: 6 }}
-            title="WR Chat: Scam Watchdog & optimizer triggers"
+            title="WR Chat (only header control): Scam Watchdog, optimizer — opens WR Chat main view"
           >
             <WrMultiTriggerBar
               theme={extensionTheme}

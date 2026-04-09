@@ -59,6 +59,8 @@ export interface AgentEntry {
   model: string | null
   systemPromptOrRole: string | null
   toolsSummary: string | null
+  /** Current text already stored on the agent box in the orchestrator session (if any). */
+  existingBoxOutput: string | null
 }
 
 export interface SessionSection {

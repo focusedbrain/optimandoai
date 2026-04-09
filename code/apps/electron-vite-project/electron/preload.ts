@@ -458,6 +458,11 @@ contextBridge.exposeInMainWorld('analysisDashboard', {
   openWrChat: () => {
     ipcRenderer.send('OPEN_WR_CHAT')
   },
+  /** Ask the Chrome extension (via main WS) to open display grid tabs for this session — same path as `maybePresentOrchestratorDisplayGridSession`. */
+  presentOrchestratorDisplayGrid: (sessionKey: string) => {
+    if (typeof sessionKey !== 'string' || !sessionKey.trim()) return
+    ipcRenderer.send('PRESENT_ORCHESTRATOR_DISPLAY_GRID', { sessionKey: sessionKey.trim() })
+  },
   /** After dashboard WR Chat persists agent box output via HTTP shim, relay live UI update to the extension (WS → background → runtime). */
   relayAgentBoxOutputLive: (payload: unknown) => {
     const validated = assertRelayAgentBoxOutputData(payload)

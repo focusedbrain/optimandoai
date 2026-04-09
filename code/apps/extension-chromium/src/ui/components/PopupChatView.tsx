@@ -17,10 +17,7 @@ import { getChatFocusLlmPrefix } from '../../utils/chatFocusLlmPrefix'
 import { prependHiddenContextToLastUserContent } from '../../utils/prependChatFocusToLastUser'
 import ChatFocusBanner from './ChatFocusBanner'
 import OptimizationInfobox from './OptimizationInfobox'
-import AgentOptimizationResult from './optimization/AgentOptimizationResult'
-import OptimizationRunHeader from './optimization/OptimizationRunHeader'
 import { WRDESK_OPTIMIZATION_RUN_RESULTS } from '../../lib/wrdeskOptimizationEvents'
-import type { AgentRunResult } from '../../types/optimizationTypes'
 import { mergeTaggedTriggersFromHost } from '../../utils/mergeTaggedTriggersFromHost'
 import {
   toBase64ForOllama,
@@ -29,6 +26,19 @@ import {
 } from '../../utils/image-resolve'
 
 const BASE_URL = 'http://127.0.0.1:51248'
+
+/** Active orchestrator storage key (Electron dashboard WR Chat does not pass the real key via sessionName). */
+function getOrchestratorSessionKeyForSync(): string {
+  try {
+    return (
+      localStorage.getItem('optimando-global-active-session')?.trim() ||
+      sessionStorage.getItem('optimando-current-session-key')?.trim() ||
+      ''
+    )
+  } catch {
+    return ''
+  }
+}
 
 /** One emoji per pinned slot (heart, football, …) — not pill buttons. */
 const PINNED_TRIGGER_EMOJIS = [
@@ -320,16 +330,6 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
   const [diffWatchers, setDiffWatchers] = useState<any[]>([])
   const [showTagsMenu, setShowTagsMenu] = useState(false)
   const chatFocusMode = useChatFocusStore((s) => s.chatFocusMode)
-  type OptimizationRunUi = {
-    id: string
-    runId: string
-    projectId: string
-    projectTitle: string
-    completedAt: string
-    results: AgentRunResult[]
-    expanded: boolean
-  }
-  const [optimizationRuns, setOptimizationRuns] = useState<OptimizationRunUi[]>([])
   /** When false, skip persisting until localStorage transcript has been read (dashboard embed). */
   const [transcriptHydrated, setTranscriptHydrated] = useState(() => !persistTranscriptStorageKey)
   /** Capture tag/command prompt — same surface as sidepanel, filtered by promptContext (popup vs dashboard). */
@@ -413,22 +413,14 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
         projectId?: string
         projectTitle?: string
         completedAt?: string
-        results?: AgentRunResult[]
+        suggestionCount?: number
+        resultsRoutedToAgentBoxes?: boolean
       }>).detail
-      if (!d?.runId || !d.projectId || !d.results) return
-      const id = `${d.runId}-${d.completedAt ?? Date.now()}`
-      setOptimizationRuns((prev) => [
-        ...prev,
-        {
-          id,
-          runId: d.runId,
-          projectId: d.projectId,
-          projectTitle: d.projectTitle ?? 'Project',
-          completedAt: d.completedAt ?? new Date().toISOString(),
-          results: d.results,
-          expanded: true,
-        },
-      ])
+      if (!d?.runId || !d.projectId) return
+      const n = typeof d.suggestionCount === 'number' ? d.suggestionCount : 0
+      const title = typeof d.projectTitle === 'string' ? d.projectTitle.trim() || 'Project' : 'Project'
+      const summary = `[AutoOpt] Optimization complete — ${n} suggestion(s) in agentboxes · ${title}`
+      setMessages((prev) => [...prev, { role: 'assistant', text: summary }])
       setTimeout(() => {
         if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight
       }, 0)
@@ -436,14 +428,6 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
     window.addEventListener(WRDESK_OPTIMIZATION_RUN_RESULTS, onOpt as EventListener)
     return () => window.removeEventListener(WRDESK_OPTIMIZATION_RUN_RESULTS, onOpt as EventListener)
   }, [])
-
-  useEffect(() => {
-    if (optimizationRuns.length === 0) return
-    const t = setTimeout(() => {
-      if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight
-    }, 100)
-    return () => clearTimeout(t)
-  }, [optimizationRuns])
 
   // Check connection status
   useEffect(() => {
@@ -1007,6 +991,19 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
     try {
       const secret = await ensureLaunchSecret(secretRef)
       const isDashboard = wrChatEmbedContext === 'dashboard'
+      if (isDashboard && chatFocusMode.mode === 'auto-optimizer' && userDisplayText.trim()) {
+        const sk = getOrchestratorSessionKeyForSync()
+        if (sk) {
+          void import('../../services/optimizationSidebarChatSync').then(({ appendOptimizationSidebarChatLog }) =>
+            appendOptimizationSidebarChatLog({
+              sessionKey: sk,
+              role: 'user',
+              text: userDisplayText,
+              headers: buildHeaders(secret),
+            }),
+          )
+        }
+      }
       // OCR for image if present
       let resolvedImg: string | null = null
       let ocrText = ''
@@ -1202,7 +1199,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
       setIsLoading(false)
       scrollToBottom()
     }
-  }, [input, messages, pendingDoc, pendingCaptureUrl, activeLlmModel, availableModels, isLoading, isConnected, sessionName, wrChatEmbedContext])
+  }, [input, messages, pendingDoc, pendingCaptureUrl, activeLlmModel, availableModels, isLoading, isConnected, sessionName, wrChatEmbedContext, chatFocusMode.mode])
 
   /** After capture Save with tag/command — displayText is what appears in chat; routeText drives routing/LLM. */
   const sendWithTriggerAndImage = useCallback(
@@ -2516,35 +2513,6 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
           </div>
           )
         })}
-        {optimizationRuns.map((run) => (
-          <div key={run.id} style={{ display: 'flex', flexDirection: 'column', gap: 8, maxWidth: '100%' }}>
-            <OptimizationRunHeader
-              theme={theme}
-              projectTitle={run.projectTitle}
-              completedAt={run.completedAt}
-              agentCount={run.results.length}
-              expanded={run.expanded}
-              onToggle={() => {
-                setOptimizationRuns((prev) =>
-                  prev.map((r) => (r.id === run.id ? { ...r, expanded: !r.expanded } : r)),
-                )
-              }}
-            />
-            {run.expanded &&
-              run.results.map((res) => (
-                <AgentOptimizationResult
-                  key={`${run.id}-${res.agentBoxId}`}
-                  theme={theme}
-                  runId={run.runId}
-                  projectId={run.projectId}
-                  agentIcon={null}
-                  result={res}
-                  boxNumber={res.boxNumber ?? 0}
-                  onAccept={onPersistAcceptedOptimizationSuggestion}
-                />
-              ))}
-          </div>
-        ))}
         {isLoading && (
           <div style={{
             maxWidth: '85%', padding: '10px 12px', borderRadius: '10px',

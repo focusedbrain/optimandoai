@@ -89,11 +89,13 @@ function truncateStr(s: string, maxLen: number): string {
 
 /**
  * Trims context to fit token budget. Priority (trim first → trim last):
- * 1) dom.slots[].textDigest
- * 2) priorAgentOutputs[].summary
- * 3) attachments.items[].excerpt (oldest items first), then drop oldest
- * 4) project.milestones — remove completed entries
- * 5) session.agents[].systemPromptOrRole
+ * 1) dom.slots[].textDigest — supplementary DOM capture
+ * 2) userMessage — WR Chat sidebar transcript for this session
+ * 3) priorAgentOutputs[].summary
+ * 4) attachments.items[].excerpt (oldest items first), then drop oldest
+ * 5) project.milestones — remove completed entries
+ * 6) session.agents[].existingBoxOutput — shorten longest first
+ * 7) session.agents[].systemPromptOrRole — trimmed last (agent prompts)
  *
  * Never removes project.title or project.description or project.goals. Default maxTokens 24000 with 3000 reserved for completion.
  */
@@ -110,15 +112,29 @@ export function trimToTokenBudget(
     guard++
 
     if (trimDomSlots(out)) continue
+    if (trimUserMessage(out)) continue
     if (trimPriorOutputs(out)) continue
     if (trimAttachments(out)) continue
     if (trimMilestonesCompleted(out)) continue
+    if (trimAgentExistingBoxOutputs(out)) continue
     if (trimAgentSystemPrompts(out)) continue
 
     break
   }
 
   return out
+}
+
+function trimUserMessage(ctx: OptimizationContext): boolean {
+  const u = ctx.userMessage?.trim()
+  if (!u) return false
+  if (u.length < 24) {
+    ctx.userMessage = null
+    return true
+  }
+  const nextLen = Math.max(8, Math.floor(u.length / 2))
+  ctx.userMessage = truncateStr(u, nextLen)
+  return true
 }
 
 function trimDomSlots(ctx: OptimizationContext): boolean {
@@ -194,6 +210,28 @@ function trimMilestonesCompleted(ctx: OptimizationContext): boolean {
   const idx = ms.findIndex((m) => m.completed)
   if (idx < 0) return false
   ctx.project.milestones = ms.filter((_, i) => i !== idx)
+  return true
+}
+
+function trimAgentExistingBoxOutputs(ctx: OptimizationContext): boolean {
+  const agents = ctx.session.agents
+  let bestIdx = -1
+  let bestLen = -1
+  agents.forEach((a, i) => {
+    const ex = a.existingBoxOutput || ''
+    if (ex.length > bestLen) {
+      bestLen = ex.length
+      bestIdx = i
+    }
+  })
+  if (bestIdx < 0 || bestLen < 16) return false
+  const a = agents[bestIdx]
+  const raw = a.existingBoxOutput || ''
+  const nextLen = Math.max(16, Math.floor(raw.length / 2))
+  agents[bestIdx] = {
+    ...a,
+    existingBoxOutput: truncateStr(raw, nextLen),
+  }
   return true
 }
 

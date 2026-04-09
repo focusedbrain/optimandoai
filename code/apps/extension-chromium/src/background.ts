@@ -3,6 +3,7 @@ import { WEBMCP_RESULT_VERSION } from './vault/autofill/webMcpConstants'
 import type { BgWebMcpErrorCode } from './vault/autofill/webMcpAdapter'
 import { extractAllTabsDom } from './utils/watchdogDomExtract'
 import { maybePresentOrchestratorDisplayGridSession } from './services/presentOrchestratorDisplayGridSession'
+import { findOpenSessionSurface } from './services/sessionSurfaceResolver'
 import { activateSessionForOptimization } from './services/sessionActivationForOptimization'
 
 try {
@@ -1523,6 +1524,28 @@ function connectToWebSocketServer(forceReconnect = false): Promise<boolean> {
               } catch (err) {
                 console.error('[BG] Error closing popup:', err)
               }
+            } else if (data.type === 'PRESENT_ORCHESTRATOR_DISPLAY_GRID') {
+              /** Electron Analysis dashboard → open display grid tabs + sidebar present (same as session activation / history restore). */
+              const sessionKey = typeof data.sessionKey === 'string' ? data.sessionKey.trim() : ''
+              if (!sessionKey) return
+              void (async () => {
+                try {
+                  const surface = await findOpenSessionSurface(sessionKey)
+                  if (surface?.kind === 'grid_tab') {
+                    console.log('[BG] PRESENT_ORCHESTRATOR_DISPLAY_GRID: grid already open', sessionKey)
+                    return
+                  }
+                  const raw = await chrome.storage.local.get(sessionKey)
+                  const sessionBlob = raw[sessionKey]
+                  if (!sessionBlob || typeof sessionBlob !== 'object') {
+                    console.warn('[BG] PRESENT_ORCHESTRATOR_DISPLAY_GRID: no session blob for', sessionKey)
+                    return
+                  }
+                  await maybePresentOrchestratorDisplayGridSession(sessionKey, sessionBlob as Record<string, unknown>)
+                } catch (e) {
+                  console.warn('[BG] PRESENT_ORCHESTRATOR_DISPLAY_GRID failed:', e)
+                }
+              })()
             } else if (data.type === 'MAILGUARD_EXTRACT_EMAIL') {
               // Query both Gmail and Outlook tabs
               chrome.tabs.query({ active: true }, (tabs) => {

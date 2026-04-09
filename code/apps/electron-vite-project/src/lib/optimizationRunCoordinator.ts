@@ -22,6 +22,7 @@ import {
 import { runAgentsParallel } from './optimizationAgentRunner'
 import { runAgentsSequential } from './optimizationChainRunner'
 import { createOptimizationLlmSend } from './optimizationLlmAdapter'
+import { updateAgentBoxOutput } from '@ext/services/processFlow'
 import {
   WRDESK_AUTO_OPTIM_ACTIVATE_SESSIONS,
   WRDESK_OPTIMIZATION_GUARD_TOAST,
@@ -81,10 +82,26 @@ type LooseAgent = {
   id?: string
   name?: string
   number?: number
-  reasoning?: { role?: string; goals?: string }
+  reasoning?: { role?: string; goals?: string; outputFormattingInstructions?: string }
   execution?: { workflows?: string[] }
   capabilities?: string[]
   config?: { instructions?: string | object }
+}
+
+function formatSidebarChatFromSession(session: OrchestratorSessionJson): string | null {
+  const meta = session.metadata as Record<string, unknown> | undefined
+  const log = meta?.optimizationSidebarChatLog
+  if (!Array.isArray(log) || log.length === 0) return null
+  const lines: string[] = []
+  for (const entry of log) {
+    if (!entry || typeof entry !== 'object') continue
+    const e = entry as { role?: string; text?: string }
+    const t = typeof e.text === 'string' ? e.text.trim() : ''
+    if (!t) continue
+    const label = e.role === 'assistant' ? 'Assistant' : 'User'
+    lines.push(`${label}: ${t}`)
+  }
+  return lines.length ? lines.join('\n') : null
 }
 
 function buildAgentEntries(session: OrchestratorSessionJson): AgentEntry[] {
@@ -106,11 +123,19 @@ function buildAgentEntries(session: OrchestratorSessionJson): AgentEntry[] {
       agents.find((a) => a.id && (a.id === box.agentId || a.id === box.id)) ||
       null
 
-    let systemPromptOrRole: string | null =
-      agentCfg?.reasoning?.role || agentCfg?.reasoning?.goals || null
+    const roleParts: string[] = []
+    if (agentCfg?.reasoning?.role?.trim()) roleParts.push(agentCfg.reasoning.role.trim())
+    if (agentCfg?.reasoning?.goals?.trim()) roleParts.push(agentCfg.reasoning.goals.trim())
+    let systemPromptOrRole: string | null = roleParts.length ? roleParts.join('\n\n') : null
     if (!systemPromptOrRole && agentCfg?.config?.instructions) {
       const ins = agentCfg.config.instructions
-      systemPromptOrRole = typeof ins === 'string' ? ins : null
+      systemPromptOrRole = typeof ins === 'string' ? ins : JSON.stringify(ins)
+    }
+    if (agentCfg?.reasoning?.outputFormattingInstructions?.trim()) {
+      const ofi = agentCfg.reasoning.outputFormattingInstructions.trim()
+      systemPromptOrRole = systemPromptOrRole
+        ? `${systemPromptOrRole}\n\nOutput formatting: ${ofi}`
+        : `Output formatting: ${ofi}`
     }
 
     const wf = agentCfg?.execution?.workflows
@@ -121,6 +146,10 @@ function buildAgentEntries(session: OrchestratorSessionJson): AgentEntry[] {
           ? agentCfg.capabilities.join(', ')
           : null
 
+    const rawOut = box.output
+    const existingBoxOutput =
+      typeof rawOut === 'string' && rawOut.trim() ? rawOut.trim().slice(0, 12_000) : null
+
     entries.push({
       boxId,
       boxNumber: typeof box.boxNumber === 'number' ? box.boxNumber : Number(box.boxNumber) || 1,
@@ -129,6 +158,7 @@ function buildAgentEntries(session: OrchestratorSessionJson): AgentEntry[] {
       model: typeof box.model === 'string' ? box.model : null,
       systemPromptOrRole,
       toolsSummary,
+      existingBoxOutput,
     })
   }
   return entries
@@ -259,7 +289,13 @@ export async function executeOptimizationRun(
   } catch {
     /* noop */
   }
-  console.log('[AutoOpt] Dispatched ACTIVATE_SESSIONS, entering optimization focus')
+  console.log('[AutoOpt] Dispatched ACTIVATE_SESSIONS (session key sync only; no main view change)')
+
+  try {
+    window.analysisDashboard?.presentOrchestratorDisplayGrid?.(sessionKey)
+  } catch {
+    /* noop */
+  }
 
   const activeMilestone = project.milestones.find((m) => !m.completed)
 
@@ -323,6 +359,7 @@ export async function executeOptimizationRun(
     }
 
     logStep(runId, 'assemble_context', 'start')
+    const sidebarTranscript = formatSidebarChatFromSession(sessionJson)
     let ctx: OptimizationContext = assembleOptimizationContext({
       project,
       dom,
@@ -330,7 +367,7 @@ export async function executeOptimizationRun(
       attachments: attachmentsFromProject(project),
       runId,
       source: optSource,
-      userMessage: null,
+      userMessage: sidebarTranscript,
     })
     ctx = trimToTokenBudget(ctx, 24_000)
     logStep(runId, 'assemble_context', 'end', 'ok')
@@ -350,6 +387,18 @@ export async function executeOptimizationRun(
 
     const suggestionCount = results.filter((r) => !r.error && r.output.trim()).length
 
+    logStep(runId, 'route_agentbox_output', 'start')
+    for (const r of results) {
+      const payload = r.error ? `Error: ${r.error}` : r.output
+      if (!r.error && !payload.trim()) continue
+      try {
+        await updateAgentBoxOutput(r.agentBoxId, payload, undefined, sessionKey, 'dashboard')
+      } catch (e) {
+        console.warn(`[OptimizationRun ${runId}] updateAgentBoxOutput failed for ${r.agentBoxId}:`, e)
+      }
+    }
+    logStep(runId, 'route_agentbox_output', 'end', `${results.length} agentboxes`)
+
     logStep(runId, 'render_results', 'start')
     try {
       window.dispatchEvent(
@@ -359,7 +408,9 @@ export async function executeOptimizationRun(
             projectId: project.id,
             projectTitle: project.title,
             completedAt: new Date().toISOString(),
-            results,
+            suggestionCount,
+            /** Full text lives in orchestrator session agentboxes — not in chat. */
+            resultsRoutedToAgentBoxes: true,
           },
         }),
       )

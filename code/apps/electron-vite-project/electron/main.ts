@@ -1347,6 +1347,17 @@ async function createWindow() {
       openBeapPopup('dashboard-beap')
     })
     // Handle WR Chat button from dashboard - open popup in WR Chat mode (default)
+    ipcMain.on('PRESENT_ORCHESTRATOR_DISPLAY_GRID', (_e, payload: unknown) => {
+      const sk =
+        payload &&
+        typeof payload === 'object' &&
+        typeof (payload as { sessionKey?: unknown }).sessionKey === 'string'
+          ? String((payload as { sessionKey: string }).sessionKey).trim()
+          : ''
+      if (!sk) return
+      broadcastToExtensions({ type: 'PRESENT_ORCHESTRATOR_DISPLAY_GRID', sessionKey: sk })
+      console.log('[MAIN] PRESENT_ORCHESTRATOR_DISPLAY_GRID → extension WS', sk)
+    })
     ipcMain.on('OPEN_WR_CHAT', () => {
       console.log('[MAIN] ðŸ“¨ WR Chat popup requested from dashboard')
       let bounds = { x: 100, y: 100, width: 520, height: 720 }
