@@ -311,6 +311,23 @@ export async function executeOptimizationRun(
       agents = orderAgentsSequential(agents, sessionJson)
     }
 
+    logStep(runId, 'agentbox_loading_clear', 'start')
+    for (const agent of agents) {
+      try {
+        await updateAgentBoxOutput(
+          agent.boxId,
+          '⏳ Auto-optimization running... Analyzing project context.',
+          undefined,
+          sessionKey,
+          'dashboard',
+        )
+      } catch (e) {
+        console.warn(`[OptimizationRun ${runId}] Failed to set loading on agentbox`, agent.boxId, e)
+      }
+    }
+    agents = agents.map((a) => ({ ...a, existingBoxOutput: null }))
+    logStep(runId, 'agentbox_loading_clear', 'end', `${agents.length} boxes`)
+
     const linkedOrchestratorId =
       typeof sessionJson.id === 'string'
         ? sessionJson.id
