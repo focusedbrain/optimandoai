@@ -13,7 +13,7 @@ export type OptimizationProject = {
 }
 
 export type ActivationResult =
-  | { ok: true; tabId: number; gridId: string }
+  | { ok: true; tabId: number | null; gridId: string | null }
   | { ok: false; code: string; retryable: boolean }
 
 const T1_MS = 10_000
@@ -140,21 +140,47 @@ async function runActivation(project: OptimizationProject): Promise<ActivationRe
   return { ok: true, tabId: activeTabId, gridId }
 }
 
+function mapMessageResponseToActivation(
+  response: unknown,
+): ActivationResult | null {
+  const r = response as { success?: boolean; result?: unknown; error?: string }
+  if (r?.success !== true || r.result == null) return null
+  const res = r.result as Record<string, unknown>
+  if (res.ok === true) {
+    const tabId =
+      res.tabId === null || typeof res.tabId === 'number' ? (res.tabId as number | null) : null
+    const gridId =
+      res.gridId === null || typeof res.gridId === 'string' ? (res.gridId as string | null) : null
+    return { ok: true, tabId, gridId }
+  }
+  if (res.ok === false && typeof res.code === 'string') {
+    return {
+      ok: false,
+      code: res.code,
+      retryable: res.retryable === true,
+    }
+  }
+  return null
+}
+
 function activateViaRuntimeMessage(project: OptimizationProject): Promise<ActivationResult> {
   return new Promise((resolve) => {
     try {
+      console.log('[AutoOpt] activateViaRuntimeMessage: sending to shim')
       chrome.runtime.sendMessage(
         { type: 'ACTIVATE_SESSION_FOR_OPTIMIZATION', project },
         (response: unknown) => {
+          console.log('[AutoOpt] activateViaRuntimeMessage: response', response)
           if (chrome.runtime.lastError) {
             resolve({ ok: false, code: 'SESSION_NOT_READY', retryable: true })
             return
           }
-          const r = response as { success?: boolean; result?: ActivationResult; error?: string }
-          if (r?.success === true && r?.result) {
-            resolve(r.result)
+          const mapped = mapMessageResponseToActivation(response)
+          if (mapped) {
+            resolve(mapped)
             return
           }
+          const r = response as { success?: boolean; error?: string }
           if (r?.success === false) {
             resolve({ ok: false, code: 'ACTIVATE_FAILED', retryable: false })
             return

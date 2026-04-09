@@ -41,7 +41,11 @@ function triggerToOptimizationSource(trigger: TriggerSource): OptimizationSource
   return 'manual'
 }
 
-async function fetchOrchestratorSession(sessionKey: string): Promise<OrchestratorSessionJson | null> {
+type FetchOrchestratorSessionResult =
+  | { ok: true; data: OrchestratorSessionJson }
+  | { ok: false; message: string }
+
+async function fetchOrchestratorSession(sessionKey: string): Promise<FetchOrchestratorSessionResult> {
   const { defaultDashboardLlmHeaders } = await import('./optimizationLlmAdapter')
   const headers = await defaultDashboardLlmHeaders()
   try {
@@ -49,11 +53,27 @@ async function fetchOrchestratorSession(sessionKey: string): Promise<Orchestrato
       `http://127.0.0.1:51248/api/orchestrator/get?key=${encodeURIComponent(sessionKey)}`,
       { headers },
     )
-    if (!r.ok) return null
+    if (!r.ok) {
+      return {
+        ok: false,
+        message: `Orchestrator GET failed (${r.status} ${r.statusText}) for session key "${sessionKey}"`,
+      }
+    }
     const body = (await r.json()) as { data?: OrchestratorSessionJson }
-    return body?.data ?? null
-  } catch {
-    return null
+    const data = body?.data ?? null
+    if (!data) {
+      return {
+        ok: false,
+        message: `Orchestrator returned no session data for key "${sessionKey}"`,
+      }
+    }
+    return { ok: true, data }
+  } catch (e) {
+    const hint = e instanceof Error ? e.message : String(e)
+    return {
+      ok: false,
+      message: `Orchestrator GET network error for key "${sessionKey}": ${hint}`,
+    }
   }
 }
 
@@ -149,7 +169,8 @@ function orderAgentsSequential(entries: AgentEntry[], session: OrchestratorSessi
   return withIdx.map((x) => x.e)
 }
 
-async function tryDomSnapshot(tabId: number | undefined): Promise<DomSnapshot | null> {
+/** DOM snapshot is optional; `tabId` null/undefined skips capture (e.g. Electron dashboard activation). */
+async function tryDomSnapshot(tabId: number | null | undefined): Promise<DomSnapshot | null> {
   if (tabId == null) return null
   try {
     if (typeof chrome === 'undefined' || typeof chrome.tabs?.sendMessage !== 'function') {
@@ -181,13 +202,35 @@ export async function executeOptimizationRun(
     return { ok: false, runId, guardFail: guard }
   }
 
+  /** Primary orchestrator key (first non-empty linked id). Required before activation so a successful run always reaches WRDESK_AUTO_OPTIM_ACTIVATE_SESSIONS. */
+  const sessionKey = (project.linkedSessionIds ?? []).find((k) => typeof k === 'string' && k.trim())?.trim() ?? ''
+  if (!sessionKey) {
+    return { ok: false, runId, error: 'No session key' }
+  }
+
   logStep(runId, 'session_activation', 'start')
-  const activation = await import('@ext/services/sessionActivationForOptimization').then((m) =>
-    m.activateSessionForOptimization({
-      id: project.id,
-      linkedSessionIds: project.linkedSessionIds ?? [],
-    }),
-  )
+  let currentActiveKey: string | null = null
+  try {
+    currentActiveKey = localStorage.getItem('optimando-active-session-key')
+  } catch {
+    /* noop */
+  }
+  const isAlreadyActive = sessionKey === currentActiveKey
+  const linkedIds = project.linkedSessionIds ?? []
+
+  const activation = isAlreadyActive
+    ? (() => {
+        console.log(`[AutoOpt] Session already active (${currentActiveKey}), skipping activation`)
+        return { ok: true as const, tabId: null, gridId: null }
+      })()
+    : await (async () => {
+        console.log(`[AutoOpt] Activating session ${linkedIds[0]}`)
+        const m = await import('@ext/services/sessionActivationForOptimization')
+        return m.activateSessionForOptimization({
+          id: project.id,
+          linkedSessionIds: project.linkedSessionIds ?? [],
+        })
+      })()
   logStep(runId, 'session_activation', 'end', activation.ok ? 'ok' : activation.code)
 
   if (!activation.ok) {
@@ -203,26 +246,27 @@ export async function executeOptimizationRun(
     return { ok: false, runId, sessionFail: activation }
   }
 
-  const sessionKey = (project.linkedSessionIds ?? []).find((k) => typeof k === 'string' && k.trim())?.trim() ?? ''
-  if (!sessionKey) {
-    return { ok: false, runId, error: 'No session key' }
-  }
+  const sessionIdsForEvent = (project.linkedSessionIds ?? []).filter(
+    (id): id is string => typeof id === 'string' && id.trim().length > 0,
+  )
 
   try {
     window.dispatchEvent(
       new CustomEvent(WRDESK_AUTO_OPTIM_ACTIVATE_SESSIONS, {
-        detail: { sessionIds: [...(project.linkedSessionIds ?? [])], runId },
+        detail: { sessionIds: sessionIdsForEvent, runId },
       }),
     )
   } catch {
     /* noop */
   }
+  console.log('[AutoOpt] Dispatched ACTIVATE_SESSIONS, entering optimization focus')
 
   const activeMilestone = project.milestones.find((m) => !m.completed)
 
   logStep(runId, 'enter_focus', 'start')
   try {
     const { useChatFocusStore } = await import('@ext/stores/chatFocusStore')
+    /** Tab/grid ids are not part of focus meta; Electron may have tabId/gridId null on activation. */
     useChatFocusStore.getState().enterOptimizationFocus({
       projectId: project.id,
       projectTitle: project.title,
@@ -245,12 +289,15 @@ export async function executeOptimizationRun(
     logStep(runId, 'dom_snapshot', 'end', dom ? 'captured' : 'skipped')
 
     logStep(runId, 'fetch_session', 'start')
-    const sessionJson = await fetchOrchestratorSession(sessionKey)
-    logStep(runId, 'fetch_session', 'end', sessionJson ? 'ok' : 'null')
+    console.log(`[AutoOpt] Fetching orchestrator session: ${sessionKey}`)
+    const fetchSession = await fetchOrchestratorSession(sessionKey)
+    console.log(`[AutoOpt] Session fetched: ${fetchSession.ok ? 'ok' : 'null'}`)
+    logStep(runId, 'fetch_session', 'end', fetchSession.ok ? 'ok' : 'fail')
 
-    if (!sessionJson) {
-      throw new Error('Could not load orchestrator session')
+    if (!fetchSession.ok) {
+      throw new Error(fetchSession.message)
     }
+    const sessionJson = fetchSession.data
 
     let agents = buildAgentEntries(sessionJson)
     if (agents.length === 0) {

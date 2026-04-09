@@ -7,7 +7,8 @@ import { domSnapshotCaptureInjected } from './domSnapshotCapture'
 
 const CAPTURE_TIMEOUT_MS = 5000
 
-export async function requestDomSnapshot(tabId: number): Promise<DomSnapshot | null> {
+export async function requestDomSnapshot(tabId: number | null | undefined): Promise<DomSnapshot | null> {
+  if (tabId == null) return null
   try {
     const exec = chrome.scripting.executeScript({
       target: { tabId },

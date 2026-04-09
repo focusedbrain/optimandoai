@@ -484,9 +484,34 @@ export function ensureWrdeskChromeShim(): void {
       }
 
       if (t === 'ACTIVATE_SESSION_FOR_OPTIMIZATION') {
+        const raw = msg as { project?: { id?: string; linkedSessionIds?: unknown } }
+        const p = raw.project
+        const id = typeof p?.id === 'string' ? p.id : ''
+        const linked = Array.isArray(p?.linkedSessionIds)
+          ? (p!.linkedSessionIds as unknown[]).filter((x): x is string => typeof x === 'string')
+          : []
+        if (!id.trim() || linked.length === 0) {
+          finish({ success: false, error: 'Invalid project payload' })
+          return
+        }
+        console.log(`[AutoOpt] Shim: activating session for project=${id}, linkedSessions=${JSON.stringify(linked)}`)
+        try {
+          for (const sessionKey of linked) {
+            const k = sessionKey.trim()
+            if (!k) continue
+            localStorage.setItem('optimando-active-session-key', k)
+            localStorage.setItem('optimando-global-active-session', k)
+          }
+        } catch (e) {
+          const msgErr = e instanceof Error ? e.message : String(e)
+          finish({ success: false, error: msgErr }, msgErr)
+          return
+        }
+        const activationResult = { ok: true, tabId: null, gridId: null }
+        console.log('[AutoOpt] Shim: activation result', activationResult)
         finish({
           success: true,
-          result: { ok: false, code: 'NO_EXTENSION_CONTEXT', retryable: false },
+          result: activationResult,
         })
         return
       }

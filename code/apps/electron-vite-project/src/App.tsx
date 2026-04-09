@@ -167,6 +167,15 @@ function App() {
         (id): id is string => typeof id === 'string' && id.length > 0,
       )
       if (ids.length === 0) return
+      let storedKey: string | null = null
+      try {
+        storedKey = localStorage.getItem('optimando-active-session-key')
+      } catch {
+        /* noop */
+      }
+      if (ids[0] === storedKey && activeView === 'wr-chat') {
+        return
+      }
       setActiveView('wr-chat')
       window.setTimeout(() => {
         try {
@@ -188,7 +197,7 @@ function App() {
     }
     window.addEventListener(WRDESK_AUTO_OPTIM_ACTIVATE_SESSIONS, handler)
     return () => window.removeEventListener(WRDESK_AUTO_OPTIM_ACTIVATE_SESSIONS, handler)
-  }, [])
+  }, [activeView])
 
   const handleDeepLinkConsumed = useCallback(() => setDeepLinkPayload(null), [])
 
