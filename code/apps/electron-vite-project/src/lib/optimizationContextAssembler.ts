@@ -29,13 +29,16 @@ export function mapProjectToSection(project: Project): ProjectSection {
   }
 }
 
+/** Brief excerpt only — full attachment text must not dominate auto-optimization LLM prompts. */
+const ATTACHMENT_EXCERPT_MAX_LEN = 200
+
 export function attachmentsFromProject(project: Project): AttachmentsSection {
   return {
     items: project.attachments.map((a) => ({
       id: a.id,
       filename: a.filename,
       mimeType: a.mimeType,
-      excerpt: a.content?.trim() ? a.content.slice(0, 8000) : null,
+      excerpt: a.content?.trim() ? a.content.slice(0, ATTACHMENT_EXCERPT_MAX_LEN) : null,
       parseStatus: a.parseStatus ?? null,
     })),
   }

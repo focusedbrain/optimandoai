@@ -4,14 +4,18 @@
 
 import type { AgentEntry, OptimizationContext } from '../types/optimizationTypes'
 
-function formatMilestones(ctx: OptimizationContext): string {
+const ATTACHMENT_SUMMARY_MAX = 200
+
+function formatMilestonesForAdvisor(ctx: OptimizationContext): string {
   const ms = ctx.project.milestones
   if (!ms.length) return '(none)'
   return ms
     .map((m) => {
       const desc = m.description?.trim()
-      const descPart = desc ? ` | desc: ${desc}` : ''
-      return `- ${m.title}${descPart} (id: ${m.id}, completed: ${m.completed}, active: ${m.isActive})`
+      const descPart = desc
+        ? `\n    Notes: ${desc.length <= 160 ? desc : `${desc.slice(0, 160)}…`}`
+        : ''
+      return `- ${m.title} (id: ${m.id}, completed: ${m.completed}, active: ${m.isActive})${descPart}`
     })
     .join('\n')
 }
@@ -32,17 +36,20 @@ function formatDomBlock(ctx: OptimizationContext): string {
   return lines.join('\n')
 }
 
-function formatAttachmentsBlock(ctx: OptimizationContext): string {
+/** Title + brief excerpt only (excerpt already capped in attachmentsFromProject; enforce here too). */
+function formatReferenceDocuments(ctx: OptimizationContext): string {
   const items = ctx.attachments.items
-  if (!items.length) return '(none)'
+  if (!items.length) return ''
   return items
     .map((it) => {
-      const ex = it.excerpt?.trim()
-        ? it.excerpt.length > 2000
-          ? `${it.excerpt.slice(0, 2000)}…`
-          : it.excerpt
-        : '(no excerpt)'
-      return `- ${it.filename} (${it.mimeType}) parse=${it.parseStatus ?? 'unknown'}\n  ${ex}`
+      const raw = it.excerpt?.trim() ?? ''
+      const brief =
+        raw.length === 0
+          ? '(no excerpt)'
+          : raw.length <= ATTACHMENT_SUMMARY_MAX
+            ? raw
+            : `${raw.slice(0, ATTACHMENT_SUMMARY_MAX)}…`
+      return `- ${it.filename} (${it.mimeType}) parse=${it.parseStatus ?? 'unknown'}\n  ${brief}`
     })
     .join('\n')
 }
@@ -57,18 +64,12 @@ function formatPriorSummaries(ctx: OptimizationContext): string {
 function activeMilestoneTitle(ctx: OptimizationContext): string {
   const ms = ctx.project.milestones
   const a = ms.find((m) => m.isActive) ?? ms.find((m) => !m.completed) ?? ms[0]
-  return a?.title?.trim() || '(none)'
-}
-
-function descriptionSnippet(ctx: OptimizationContext, maxLen: number): string {
-  const d = ctx.project.description?.trim() ?? ''
-  if (!d) return '(none)'
-  return d.length <= maxLen ? d : `${d.slice(0, maxLen)}…`
+  return a?.title?.trim() || ''
 }
 
 /**
  * Builds OpenAI-style messages for one agent. Parallel mode omits prior-agent block; sequential includes it when non-empty.
- * System message order: primary project context first, then role-as-lens, DOM/attachments/profile, optional prior box output, run metadata last.
+ * Framing: project optimization advisors for the owner — not developers implementing milestones or attachments.
  */
 export function buildMessagesForAgent(
   agent: AgentEntry,
@@ -76,80 +77,69 @@ export function buildMessagesForAgent(
   mode: 'parallel' | 'sequential',
 ): Array<{ role: string; content: string }> {
   const runId = ctx.runId
+  const milestonesBlock = formatMilestonesForAdvisor(ctx)
+  const refDocs = formatReferenceDocuments(ctx)
+  const domBlock = ctx.dom ? formatDomBlock(ctx) : ''
 
-  const primaryObjectiveBlock =
-    `=== PRIMARY OBJECTIVE ===\n` +
-    `You are analyzing and optimizing the following project. ALL your output must directly address this project's description, goals, and milestones. ` +
-    `Do not reference prior conversations or documents not mentioned below.\n\n` +
-    `Project: ${ctx.project.title}\n` +
+  const roleInstructions = agent.systemPromptOrRole?.trim()
+    ? agent.systemPromptOrRole.trim()
+    : 'Offer concise, practical guidance that fits your assigned role title.'
+
+  let systemContent =
+    'You are a project optimization advisor. You analyze project state and provide strategic advice to help the project owner improve progress, clarity, and execution.\n\n' +
+    'RULES:\n' +
+    '- You advise on the project. You do NOT implement it.\n' +
+    '- Do not write code, propose CSS, design APIs, or create technical implementations.\n' +
+    '- Do not treat milestones as feature tickets to build. Analyze them for clarity, feasibility, and progress.\n' +
+    '- Do not reference documents, schemas, panels, or systems not explicitly present in the project data below.\n' +
+    '- Do not continue conversations from previous sessions. Each run is independent.\n' +
+    '- Base every claim on the actual project description, goals, and milestones provided below.\n\n' +
+    '=== PROJECT DATA ===\n' +
+    `Title: ${ctx.project.title}\n\n` +
     `Description:\n${ctx.project.description}\n\n` +
     `Goals:\n${ctx.project.goals}\n\n` +
-    `Milestones:\n${formatMilestones(ctx)}\n\n` +
-    `Session key: ${ctx.session.sessionKey}\n` +
-    `Linked orchestrator session: ${ctx.session.linkedOrchestratorSessionId ?? 'none'}`
+    `Milestones (these are the project owner's planned work items — analyze their clarity, feasibility, and progress, do NOT implement them):\n` +
+    `${milestonesBlock}\n`
 
-  const roleLensBody = agent.systemPromptOrRole?.trim()
-    ? agent.systemPromptOrRole.trim()
-    : 'Provide clear, actionable optimization suggestions aligned with the milestones above.'
-
-  const roleBlock =
-    `=== YOUR ROLE ===\n` +
-    `Approach this project analysis as a "${agent.title}" specialist. ${roleLensBody}\n` +
-    `Apply this role specifically to the project above. Do not reference any prior sessions, documents, or conversations.`
-
-  const domPart = ctx.dom ? `DOM / grid state\n${formatDomBlock(ctx)}` : ''
-  const attachmentsPart = `Attachments\n${formatAttachmentsBlock(ctx)}`
-
-  const agentProfileBlock =
-    `Agent profile\n` +
-    `Box: ${agent.boxId} (#${agent.boxNumber}) — ${agent.title}\n` +
-    `Provider: ${agent.provider ?? 'default'} | Model: ${agent.model ?? 'default'}`
-
-  const toolsPart =
-    agent.toolsSummary?.trim() ? `Tools available (summary): ${agent.toolsSummary}` : ''
-
-  const existingTrim = agent.existingBoxOutput?.trim()
-  const existingBoxPart = existingTrim
-    ? `=== PREVIOUS OUTPUT (for reference only — generate fresh analysis based on current project state) ===\n${existingTrim}`
-    : ''
-
-  const sharedInstructionsEnd =
-    `=== RUN METADATA ===\n` +
-    `You are an AI optimization agent participating in a WR Desk optimization run. Run ID: ${runId}. ` +
-    `Analyze the project state and provide actionable optimization suggestions grounded in the PRIMARY OBJECTIVE above.`
-
-  let systemParts = [
-    primaryObjectiveBlock,
-    roleBlock,
-    domPart,
-    attachmentsPart,
-    agentProfileBlock,
-    toolsPart,
-    existingBoxPart,
-  ].filter((p) => p.length > 0)
-
-  if (mode === 'sequential' && ctx.priorAgentOutputs.length > 0) {
-    systemParts.push(
-      `Previous agents have provided the following analysis:\n${formatPriorSummaries(ctx)}`,
-    )
+  if (refDocs.length > 0) {
+    systemContent +=
+      '\n=== REFERENCE DOCUMENTS (background context only — do not build solutions around these) ===\n' +
+      `${refDocs}\n`
   }
 
-  systemParts.push(sharedInstructionsEnd)
+  if (domBlock.length > 0) {
+    systemContent +=
+      '\n=== CURRENT UI STATE (for situational awareness only) ===\n' + `${domBlock}\n`
+  }
 
-  const systemContent = systemParts.join('\n\n')
+  systemContent +=
+    '\n=== YOUR SPECIALIST PERSPECTIVE ===\n' +
+    `Your assigned role: "${agent.title}"\n` +
+    `${roleInstructions}\n\n` +
+    'Apply this specialist perspective to advise on the project above. Your output should help the project owner understand gaps, risks, and concrete next steps.\n'
 
-  const descSnip = descriptionSnippet(ctx, 200)
-  const activeMs = activeMilestoneTitle(ctx)
+  systemContent +=
+    `\n=== RUN METADATA ===\n` +
+    `Run ID: ${runId} | Session key: ${ctx.session.sessionKey} | Linked orchestrator session: ${ctx.session.linkedOrchestratorSessionId ?? 'none'}\n` +
+    `Agent box: ${agent.boxId} (#${agent.boxNumber}) | Provider: ${agent.provider ?? 'default'} | Model: ${agent.model ?? 'default'}`
+  if (agent.toolsSummary?.trim()) {
+    systemContent += `\nTools (summary): ${agent.toolsSummary.trim()}`
+  }
+
+  if (mode === 'sequential' && ctx.priorAgentOutputs.length > 0) {
+    systemContent +=
+      `\nEarlier in this optimization run, other advisors noted:\n${formatPriorSummaries(ctx)}\n`
+  }
+
+  const focusTitle = activeMilestoneTitle(ctx) || 'no specific milestone selected'
 
   let userContent =
-    `Based on the project description, goals, and milestones provided above, provide your analysis as a ${agent.title} specialist.\n\n` +
-    `Focus specifically on:\n` +
-    `- The project description: "${descSnip}"\n` +
-    `- Active milestone: "${activeMs}"\n\n` +
-    `Do not reference any documents, schemas, or conversations not explicitly mentioned in the project context above.`
+    `Analyze the project described above and provide your specialist advice as a "${agent.title}" advisor.\n\n` +
+    `The project owner is currently focused on: ${focusTitle}\n\n` +
+    'Provide actionable, specific advice grounded in the actual project description, goals, and milestones. Do not invent features or reference systems not mentioned above.'
 
   if (ctx.userMessage?.trim()) {
-    userContent += `\n\nAdditional user context:\n${ctx.userMessage.trim()}`
+    userContent += `\n\nAdditional context from the project owner:\n${ctx.userMessage.trim()}`
   }
 
   const messages: Array<{ role: string; content: string }> = [
@@ -162,9 +152,9 @@ export function buildMessagesForAgent(
     userLength: messages[1].content.length,
     projectDesc: ctx.project.description?.substring(0, 80),
     milestoneCount: ctx.project.milestones?.length,
-    activeMilestone: activeMilestoneTitle(ctx).substring(0, 60),
-    hasExistingOutput: !!agent.existingBoxOutput,
-    existingOutputLength: agent.existingBoxOutput?.length ?? 0,
+    activeMilestone: focusTitle.substring(0, 60),
+    attachmentSummariesOnly: true,
+    existingBoxOutputInPrompt: false,
   })
 
   return messages
