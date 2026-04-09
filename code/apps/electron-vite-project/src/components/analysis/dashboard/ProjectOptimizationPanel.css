@@ -445,6 +445,8 @@
   align-items: center;
   gap: 4px;
   margin-bottom: 4px;
+  width: 100%;
+  flex-wrap: wrap;
 }
 
 .pop__roadmap-active-dot {
@@ -476,6 +478,92 @@
   white-space: pre-wrap;
   word-break: break-word;
   font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
+}
+
+.pop__roadmap-content--editable {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.pop__roadmap-saved {
+  font-size: 9px;
+  color: #059669;
+  font-weight: 600;
+  margin-left: auto;
+  flex-shrink: 0;
+  animation: pop-roadmap-saved-fade 1.5s ease forwards;
+}
+
+@keyframes pop-roadmap-saved-fade {
+  0% {
+    opacity: 1;
+  }
+  70% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+.pop__roadmap-title-input {
+  width: 100%;
+  font-weight: 600;
+  font-size: 0.95rem;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 4px 6px;
+  color: inherit;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.pop__roadmap-title-input:focus {
+  border-color: rgba(255, 255, 255, 0.25);
+}
+
+.pop__roadmap-desc-input {
+  width: 100%;
+  font-size: 0.85rem;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 4px 6px;
+  color: inherit;
+  opacity: 0.85;
+  outline: none;
+  resize: vertical;
+  min-height: 40px;
+  transition: border-color 0.2s;
+}
+
+.pop__roadmap-desc-input:focus {
+  border-color: rgba(255, 255, 255, 0.25);
+  opacity: 1;
+}
+
+.pop__roadmap-add-btn {
+  margin-top: 8px;
+  padding: 4px 10px;
+  font-size: 0.8rem;
+  background: transparent;
+  border: 1px dashed rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+  color: inherit;
+  opacity: 0.6;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.pop__roadmap-add-btn:hover:not(:disabled) {
+  opacity: 1;
+}
+
+.pop__roadmap-add-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.35;
 }
 
 /* "Quick edit with AI →" link button in roadmap */

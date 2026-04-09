@@ -14,6 +14,8 @@ export type IsoDateString = string
 export interface ProjectMilestone {
   id: string
   title: string
+  /** Detailed milestone body; keep `title` short for headers when both are used. */
+  description: string
   /** Only one milestone can be isActive === true per project at a time.
    *  This is the milestone currently shown in the dashboard roadmap area.
    *  Falls back to first incomplete milestone if none is explicitly set. */

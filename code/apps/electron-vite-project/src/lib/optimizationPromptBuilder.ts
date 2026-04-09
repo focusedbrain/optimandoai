@@ -8,10 +8,11 @@ function formatMilestones(ctx: OptimizationContext): string {
   const ms = ctx.project.milestones
   if (!ms.length) return '(none)'
   return ms
-    .map(
-      (m) =>
-        `- ${m.title} (id: ${m.id}, completed: ${m.completed}, active: ${m.isActive})`,
-    )
+    .map((m) => {
+      const desc = m.description?.trim()
+      const descPart = desc ? ` | desc: ${desc}` : ''
+      return `- ${m.title}${descPart} (id: ${m.id}, completed: ${m.completed}, active: ${m.isActive})`
+    })
     .join('\n')
 }
 

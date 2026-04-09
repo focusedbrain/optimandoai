@@ -10,7 +10,20 @@ import { extractTextForPackagePreview } from '../lib/beapPackageAttachmentPrevie
 import { buildProjectSetupChatPrefix } from '../lib/buildProjectSetupChatPrefix'
 import { WRDESK_FOCUS_AI_CHAT_EVENT } from '../lib/wrdeskUiEvents'
 import { projectSetupChatHasBridgeableContent, useProjectSetupChatContextStore } from '../stores/useProjectSetupChatContextStore'
+import { useProjectStore } from '../stores/useProjectStore'
 import { UI_BADGE } from '../styles/uiContrastTokens'
+
+/** Parses [MILESTONE_TITLE]: / [MILESTONE_DESC]: blocks from AI responses (Analysis dashboard). */
+function parseMilestoneMarkersFromResponse(text: string): { title: string; description: string } | null {
+  if (!text) return null
+  if (!/\[MILESTONE_TITLE\]:/i.test(text) && !/\[MILESTONE_DESC\]:/i.test(text)) return null
+  const titleM = text.match(/\[MILESTONE_TITLE\]:\s*([\s\S]*?)(?=\n\s*\[MILESTONE_DESC\]:|$)/i)
+  const descM = text.match(/\[MILESTONE_DESC\]:\s*([\s\S]*)$/i)
+  const title = (titleM?.[1] ?? '').trim()
+  const description = (descM?.[1] ?? '').trim()
+  if (!title && !description) return null
+  return { title, description }
+}
 
 /** Derived focus context for inbox — distinguishes message vs draft vs attachment above chat. */
 export type UiFocusContext =
@@ -489,6 +502,8 @@ export default function HybridSearch({
   const projectSetupSetupTextDraft = useProjectSetupChatContextStore((s) => s.setupTextDraft)
   const projectSetupSetIncludeInChat = useProjectSetupChatContextStore((s) => s.setIncludeInChat)
   const projectSetupSetSetupTextDraft = useProjectSetupChatContextStore((s) => s.setSetupTextDraft)
+  const activeMilestoneChatCtx = useProjectSetupChatContextStore((s) => s.activeMilestoneContext)
+  const activeProjectIdForMilestone = useProjectStore((s) => s.activeProjectId)
 
   /** Derive which project field is currently selected for AI drafting */
   const projectDraftFieldName = (() => {
@@ -523,6 +538,11 @@ export default function HybridSearch({
         : [],
     [activeView, projectSetupIncludeInChat, response, projectDraftFieldName],
   )
+
+  const milestoneMarkerSuggestion = useMemo(() => {
+    if (activeView !== 'analysis' || !response?.trim()) return null
+    return parseMilestoneMarkersFromResponse(response)
+  }, [activeView, response])
 
   /** Track which individual blocks have already been inserted */
   const [usedBlockIds, setUsedBlockIds] = useState<Set<string>>(new Set())
@@ -886,6 +906,15 @@ export default function HybridSearch({
           if (parts.length > 0) chatQuery = parts.join('\n\n') + '\n\n' + chatQuery
         }
 
+        const amCtx =
+          !isDraftRefine && activeView === 'analysis'
+            ? useProjectSetupChatContextStore.getState().activeMilestoneContext
+            : null
+        const milestoneContextBlock =
+          amCtx
+            ? `\n\nThe user is currently working on this milestone:\nTitle: ${amCtx.title}\nDescription: ${amCtx.description}\n\nIf the user asks to refine, improve, or edit the milestone, produce an improved version. Format your response as:\n[MILESTONE_TITLE]: <improved title>\n[MILESTONE_DESC]: <improved description>\n\nIf the user is not asking about the milestone, respond normally.`
+            : ''
+
         /** Detect field-drafting mode: when a project field is selected for AI editing,
          *  bypass chatWithContextRag entirely and call chatDirect instead. This avoids
          *  the RAG system prompt ("answer ONLY from context blocks") which conflicts
@@ -905,7 +934,9 @@ export default function HybridSearch({
               ? draft.slice(fieldTagMatch[0].length).trim()
               : draft.trim()
 
-            const systemPrompt = 'You are a helpful writing assistant. When the user provides text and asks you to modify, rewrite, or improve it, output ONLY the modified text. No explanations, no preamble, no markdown formatting unless the original text uses markdown. Match the language of the user\'s request.'
+            let systemPrompt =
+              'You are a helpful writing assistant. When the user provides text and asks you to modify, rewrite, or improve it, output ONLY the modified text. No explanations, no preamble, no markdown formatting unless the original text uses markdown. Match the language of the user\'s request.'
+            if (milestoneContextBlock) systemPrompt += milestoneContextBlock
             let userPrompt: string
             if (content) {
               userPrompt = `Here is the current ${fieldName}:\n\n${content}\n\nInstruction: ${chatQuery}`
@@ -922,7 +953,7 @@ export default function HybridSearch({
             })
           } else {
             result = await window.handshakeView?.chatWithContextRag?.({
-              query: chatQuery,
+              query: milestoneContextBlock ? chatQuery + milestoneContextBlock : chatQuery,
               scope: effectiveScope,
               model: selectedModel || 'llama3',
               provider: modelInfo?.provider || 'ollama',
@@ -1924,6 +1955,41 @@ export default function HybridSearch({
                 <span className="hs-chip">{SCOPE_LABELS[scope]}</span>
                 <span className="hs-chip">{getModelLabel(selectedModel, availableModels)}</span>
               </div>
+              {milestoneMarkerSuggestion &&
+                activeMilestoneChatCtx &&
+                activeProjectIdForMilestone &&
+                lastMode === 'chat' &&
+                !isDraftRefineSession && (
+                  <div style={{ marginTop: '10px' }}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const patch: { title?: string; description?: string } = {}
+                        if (milestoneMarkerSuggestion.title) patch.title = milestoneMarkerSuggestion.title
+                        if (milestoneMarkerSuggestion.description !== undefined)
+                          patch.description = milestoneMarkerSuggestion.description
+                        useProjectStore
+                          .getState()
+                          .updateMilestone(
+                            activeProjectIdForMilestone,
+                            activeMilestoneChatCtx.id,
+                            patch,
+                          )
+                      }}
+                      style={{
+                        padding: '6px 12px',
+                        fontSize: '12px',
+                        borderRadius: '6px',
+                        border: '1px solid rgba(147,51,234,0.35)',
+                        background: 'rgba(147,51,234,0.08)',
+                        cursor: 'pointer',
+                        color: 'var(--text-primary)',
+                      }}
+                    >
+                      Apply to milestone?
+                    </button>
+                  </div>
+                )}
               {chatGovernanceNote && (
                 <div style={{ marginTop: '12px', padding: '10px 12px', background: 'rgba(251,191,36,0.12)', border: '1px solid rgba(251,191,36,0.3)', borderRadius: '6px', fontSize: '12px', color: 'var(--text-secondary)' }}>
                   {chatGovernanceNote}

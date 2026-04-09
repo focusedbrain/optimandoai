@@ -53,7 +53,12 @@ interface ProjectActions {
   setActiveProject: (id: string | null) => void
 
   // ── Milestones ────────────────────────────────────────────────────────────
-  addMilestone: (projectId: string, title: string) => void
+  addMilestone: (projectId: string, title: string, description?: string) => void
+  updateMilestone: (
+    projectId: string,
+    milestoneId: string,
+    updates: Partial<Pick<ProjectMilestone, 'title' | 'description'>>,
+  ) => void
   toggleMilestoneComplete: (projectId: string, milestoneId: string) => void
   /** Sets isActive = true for this milestone, false for all others in the project. */
   setActiveMilestone: (projectId: string, milestoneId: string) => void
@@ -148,10 +153,11 @@ export const useProjectStore = create<ProjectState & ProjectActions>()(
       setActiveProject: (id) => set({ activeProjectId: id }),
 
       // ── Milestones ────────────────────────────────────────────────────────
-      addMilestone: (projectId, title) => {
+      addMilestone: (projectId, title, description) => {
         const milestone: ProjectMilestone = {
           id: crypto.randomUUID(),
           title: title.trim(),
+          description: description ?? '',
           isActive: false,
           completed: false,
           completedAt: null,
@@ -165,6 +171,17 @@ export const useProjectStore = create<ProjectState & ProjectActions>()(
           })),
         }))
       },
+
+      updateMilestone: (projectId, milestoneId, updates) =>
+        set((s) => ({
+          projects: patchProject(s.projects, projectId, (p) => ({
+            ...p,
+            milestones: p.milestones.map((m) =>
+              m.id === milestoneId ? { ...m, ...updates, id: m.id } : m,
+            ),
+            updatedAt: now(),
+          })),
+        })),
 
       toggleMilestoneComplete: (projectId, milestoneId) =>
         set((s) => ({
@@ -320,7 +337,7 @@ export const useProjectStore = create<ProjectState & ProjectActions>()(
        * V2: `linkedSessionId` → `linkedSessionIds[]`
        * V3: ensure `autoOptimizationEnabled` defaults to false when missing (legacy stores).
        */
-      version: 3,
+      version: 4,
       migrate: (persistedState: unknown, version: number) => {
         const ps = persistedState as { state?: { projects?: Array<Record<string, unknown>> } }
         if (ps?.state?.projects && Array.isArray(ps.state.projects)) {
@@ -338,6 +355,22 @@ export const useProjectStore = create<ProjectState & ProjectActions>()(
               autoOptimizationEnabled:
                 typeof p.autoOptimizationEnabled === 'boolean' ? p.autoOptimizationEnabled : false,
             }))
+          }
+          if (version < 4) {
+            ps.state.projects = ps.state.projects.map((p) => {
+              const rawMs = p.milestones
+              if (!Array.isArray(rawMs)) return p
+              return {
+                ...p,
+                milestones: rawMs.map((m) => {
+                  const row = m as Record<string, unknown>
+                  return {
+                    ...row,
+                    description: typeof row.description === 'string' ? row.description : '',
+                  }
+                }),
+              }
+            })
           }
         }
         return persistedState as object

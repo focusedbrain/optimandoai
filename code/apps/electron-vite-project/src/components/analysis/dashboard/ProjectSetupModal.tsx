@@ -25,7 +25,7 @@ import { useProjectStore } from '../../../stores/useProjectStore'
 import {
   AUTO_OPTIMIZATION_INTERVALS,
 } from '../../../types/projectTypes'
-import type { ProjectAttachment } from '../../../types/projectTypes'
+import type { ProjectAttachment, ProjectMilestone } from '../../../types/projectTypes'
 import './ProjectSetupModal.css'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -41,6 +41,7 @@ export interface ProjectSetupModalProps {
 type ModalMilestone = {
   id: string
   title: string
+  description: string
   completed: boolean
   createdAt: string
   completedAt: string | null
@@ -97,6 +98,7 @@ export function ProjectSetupModal({ open, onClose, activeProjectId }: ProjectSet
         editingProject.milestones.map((m) => ({
           id: m.id,
           title: m.title,
+          description: m.description ?? '',
           completed: m.completed,
           createdAt: m.createdAt,
           completedAt: m.completedAt,
@@ -164,6 +166,7 @@ export function ProjectSetupModal({ open, onClose, activeProjectId }: ProjectSet
       {
         id: crypto.randomUUID(),
         title: t,
+        description: '',
         completed: false,
         createdAt: new Date().toISOString(),
         completedAt: null,
@@ -231,11 +234,21 @@ export function ProjectSetupModal({ open, onClose, activeProjectId }: ProjectSet
     const trimmedTitle = title.trim()
     if (!trimmedTitle) return
 
+    const milestonesOut: ProjectMilestone[] = milestones.map((m) => ({
+      id: m.id,
+      title: m.title,
+      description: m.description ?? '',
+      isActive: editingProject?.milestones.find((em) => em.id === m.id)?.isActive ?? false,
+      completed: m.completed,
+      completedAt: m.completedAt,
+      createdAt: m.createdAt,
+    }))
+
     const projectData = {
       title: trimmedTitle,
       description: description.trim(),
       goals: goals.trim(),
-      milestones,
+      milestones: milestonesOut,
       attachments: localAttachments,
       linkedSessionIds: linkedSessionIds[0] ? [linkedSessionIds[0]] : [],
       autoOptimizationEnabled: editingProject?.autoOptimizationEnabled ?? false,

@@ -167,6 +167,9 @@ export function ProjectOptimizationPanel({
     setAutoOptimization,
     setProjectIcon,
     removeAttachment,
+    addMilestone,
+    setActiveMilestone,
+    updateMilestone,
   } = useProjectStore(
     useShallow((s) => ({
       projects:             s.projects,
@@ -176,6 +179,9 @@ export function ProjectOptimizationPanel({
       setAutoOptimization:  s.setAutoOptimization,
       setProjectIcon:       s.setProjectIcon,
       removeAttachment:     s.removeAttachment,
+      addMilestone:         s.addMilestone,
+      setActiveMilestone:   s.setActiveMilestone,
+      updateMilestone:      s.updateMilestone,
     })),
   )
 
@@ -190,6 +196,67 @@ export function ProjectOptimizationPanel({
     activeProject?.milestones.find((m) => !m.completed) ??
     null
   const allDone = totalCount > 0 && completedCount === totalCount
+
+  // ── Active milestone inline edit (roadmap) ──────────────────────────────
+  const [roadmapEditTitle, setRoadmapEditTitle] = useState('')
+  const [roadmapEditDescription, setRoadmapEditDescription] = useState('')
+  const [roadmapSavedFlash, setRoadmapSavedFlash] = useState(false)
+  const roadmapBaselineRef = useRef<{ title: string; description: string }>({ title: '', description: '' })
+
+  useEffect(() => {
+    if (!activeMilestone) {
+      setRoadmapEditTitle('')
+      setRoadmapEditDescription('')
+      return
+    }
+    setRoadmapEditTitle(activeMilestone.title)
+    setRoadmapEditDescription(activeMilestone.description ?? '')
+  }, [activeMilestone?.id, activeMilestone?.title, activeMilestone?.description])
+
+  useEffect(() => {
+    const milestone = activeMilestone
+    if (!milestone) {
+      useProjectSetupChatContextStore.getState().clearActiveMilestoneContext()
+      return
+    }
+    useProjectSetupChatContextStore.getState().setActiveMilestoneContext({
+      id: milestone.id,
+      title: milestone.title,
+      description: milestone.description ?? '',
+    })
+    return () => {
+      useProjectSetupChatContextStore.getState().clearActiveMilestoneContext()
+    }
+  }, [activeMilestone?.id, activeMilestone?.title, activeMilestone?.description])
+
+  const flashRoadmapSaved = useCallback(() => {
+    setRoadmapSavedFlash(true)
+    window.setTimeout(() => setRoadmapSavedFlash(false), 1500)
+  }, [])
+
+  const handleRoadmapTitleBlur = useCallback(() => {
+    if (!activeProjectId || !activeMilestone) return
+    const t = roadmapEditTitle.trim()
+    if (t === activeMilestone.title) return
+    updateMilestone(activeProjectId, activeMilestone.id, { title: t })
+    flashRoadmapSaved()
+  }, [activeProjectId, activeMilestone, roadmapEditTitle, updateMilestone, flashRoadmapSaved])
+
+  const handleRoadmapDescBlur = useCallback(() => {
+    if (!activeProjectId || !activeMilestone) return
+    const d = roadmapEditDescription
+    if (d === (activeMilestone.description ?? '')) return
+    updateMilestone(activeProjectId, activeMilestone.id, { description: d })
+    flashRoadmapSaved()
+  }, [activeProjectId, activeMilestone, roadmapEditDescription, updateMilestone, flashRoadmapSaved])
+
+  const handleRoadmapAddMilestone = useCallback(() => {
+    if (!activeProjectId) return
+    addMilestone(activeProjectId, 'New milestone')
+    const p = useProjectStore.getState().getActiveProject()
+    const last = p?.milestones[p.milestones.length - 1]
+    if (last) setActiveMilestone(activeProjectId, last.id)
+  }, [activeProjectId, addMilestone, setActiveMilestone])
 
   // ── Email inbox store (preserved exactly) ─────────────────────────────────
   const accountIds       = useMemo(() => activeEmailAccountIdsForSync(emailAccounts), [emailAccounts])
@@ -518,6 +585,7 @@ export function ProjectOptimizationPanel({
             .map((title) => ({
               id: crypto.randomUUID(),
               title,
+              description: '',
               isActive: false,
               completed: false,
               createdAt: new Date().toISOString(),
@@ -564,12 +632,7 @@ export function ProjectOptimizationPanel({
 
       const newContent = trimmed
 
-      // Persist to store
-      projectStore.updateProject(projectId, {
-        milestones: project.milestones.map((m) =>
-          m.id === milestoneId ? { ...m, title: newContent } : m
-        ),
-      })
+      projectStore.updateMilestone(projectId, milestoneId, { title: newContent })
       // Mirror in local form state
       setFormMilestones((prev) =>
         prev.map((m) => (m.id === milestoneId ? { ...m, title: newContent } : m))
@@ -581,7 +644,13 @@ export function ProjectOptimizationPanel({
     // Minimal content-only format — NO verbose instruction headers that the AI
     // might treat as text to rewrite. Just the content + user request is enough.
     const milestone = useProjectStore.getState().getActiveProject()?.milestones.find((m) => m.id === milestoneId)
-    store.setSetupTextDraft(`[field:milestone]\n${milestone?.title ?? ''}`)
+    const titlePart = milestone?.title ?? ''
+    const descPart = milestone?.description ?? ''
+    store.setSetupTextDraft(
+      descPart.trim()
+        ? `[field:milestone]\n${titlePart}\n\n${descPart}`
+        : `[field:milestone]\n${titlePart}`,
+    )
     store.setIncludeInChat(true)
 
     focusHeaderAiChat()
@@ -704,6 +773,7 @@ export function ProjectOptimizationPanel({
       {
         id: crypto.randomUUID(),
         title: t,
+        description: '',
         isActive: false,
         completed: false,
         createdAt: new Date().toISOString(),
@@ -1465,9 +1535,69 @@ export function ProjectOptimizationPanel({
                 <span className="pop__roadmap-active-dot">●</span>
                 <span className="pop__roadmap-active-label">Active milestone</span>
                 <span className="pop__roadmap-progress-count">{completedCount}/{totalCount} complete</span>
+                {roadmapSavedFlash ? (
+                  <span className="pop__roadmap-saved" aria-live="polite">
+                    Saved
+                  </span>
+                ) : null}
               </div>
-              <div className="pop__roadmap-content">
-                {activeMilestone.title}
+              <div className="pop__roadmap-content pop__roadmap-content--editable">
+                <input
+                  type="text"
+                  className="pop__roadmap-title-input"
+                  value={roadmapEditTitle}
+                  placeholder="Milestone title..."
+                  onChange={(e) => setRoadmapEditTitle(e.target.value)}
+                  onBlur={handleRoadmapTitleBlur}
+                  onFocus={() => {
+                    if (!activeMilestone) return
+                    roadmapBaselineRef.current = {
+                      title: activeMilestone.title,
+                      description: activeMilestone.description ?? '',
+                    }
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault()
+                      ;(e.target as HTMLInputElement).blur()
+                    }
+                    if (e.key === 'Escape') {
+                      e.preventDefault()
+                      setRoadmapEditTitle(roadmapBaselineRef.current.title)
+                      setRoadmapEditDescription(roadmapBaselineRef.current.description)
+                      ;(e.target as HTMLInputElement).blur()
+                    }
+                  }}
+                />
+                <textarea
+                  className="pop__roadmap-desc-input"
+                  rows={2}
+                  value={roadmapEditDescription}
+                  placeholder="Describe this milestone in detail..."
+                  onChange={(e) => {
+                    setRoadmapEditDescription(e.target.value)
+                  }}
+                  onInput={(e) => autoGrow(e.target as HTMLTextAreaElement)}
+                  onBlur={handleRoadmapDescBlur}
+                  onFocus={() => {
+                    if (!activeMilestone) return
+                    roadmapBaselineRef.current = {
+                      title: activeMilestone.title,
+                      description: activeMilestone.description ?? '',
+                    }
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Escape') {
+                      e.preventDefault()
+                      setRoadmapEditTitle(roadmapBaselineRef.current.title)
+                      setRoadmapEditDescription(roadmapBaselineRef.current.description)
+                      ;(e.target as HTMLTextAreaElement).blur()
+                    } else if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault()
+                      ;(e.target as HTMLTextAreaElement).blur()
+                    }
+                  }}
+                />
               </div>
               <button
                 type="button"
@@ -1485,6 +1615,14 @@ export function ProjectOptimizationPanel({
                 title="Open editor and select milestone field for AI editing"
               >
                 Quick edit with AI →
+              </button>
+              <button
+                type="button"
+                className="pop__roadmap-add-btn"
+                disabled={!activeProjectId}
+                onClick={handleRoadmapAddMilestone}
+              >
+                + Add milestone
               </button>
             </>
           ) : null}

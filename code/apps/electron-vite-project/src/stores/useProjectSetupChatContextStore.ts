@@ -11,6 +11,12 @@ export type ProjectSetupChatSnippet = {
   text: string
 }
 
+export type ActiveMilestoneChatContext = {
+  id: string
+  title: string
+  description: string
+}
+
 export type ProjectSetupChatContextState = {
   /** When true and fields have content, HybridSearch prepends structured setup context (Analysis + non–draft-refine only). */
   includeInChat: boolean
@@ -20,6 +26,8 @@ export type ProjectSetupChatContextState = {
   /** Freeform setup / constraints / context the user wants the model to see */
   setupTextDraft: string
   snippets: ProjectSetupChatSnippet[]
+  /** Active milestone on Analysis dashboard — always-on context for header chat (no click required). */
+  activeMilestoneContext: ActiveMilestoneChatContext | null
 }
 
 type Actions = {
@@ -32,6 +40,8 @@ type Actions = {
   removeSnippet: (id: string) => void
   updateSnippet: (id: string, patch: Partial<Pick<ProjectSetupChatSnippet, 'label' | 'text'>>) => void
   clearSnippets: () => void
+  setActiveMilestoneContext: (ctx: ActiveMilestoneChatContext) => void
+  clearActiveMilestoneContext: () => void
 }
 
 function newId(): string {
@@ -45,6 +55,7 @@ const initial: ProjectSetupChatContextState = {
   milestonesDraft: '',
   setupTextDraft: '',
   snippets: [],
+  activeMilestoneContext: null,
 }
 
 export const useProjectSetupChatContextStore = create<ProjectSetupChatContextState & Actions>((set) => ({
@@ -64,6 +75,8 @@ export const useProjectSetupChatContextStore = create<ProjectSetupChatContextSta
       snippets: s.snippets.map((x) => (x.id === id ? { ...x, ...patch } : x)),
     })),
   clearSnippets: () => set({ snippets: [] }),
+  setActiveMilestoneContext: (activeMilestoneContext) => set({ activeMilestoneContext }),
+  clearActiveMilestoneContext: () => set({ activeMilestoneContext: null }),
 }))
 
 /** True if any draft or snippet has non-whitespace content */

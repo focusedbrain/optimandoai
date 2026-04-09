@@ -22,6 +22,7 @@ export function mapProjectToSection(project: Project): ProjectSection {
     milestones: project.milestones.map((m) => ({
       id: m.id,
       title: m.title,
+      description: m.description ?? '',
       completed: m.completed,
       isActive: m.isActive,
     })),

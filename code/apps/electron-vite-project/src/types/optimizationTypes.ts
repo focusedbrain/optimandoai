@@ -48,7 +48,13 @@ export interface ProjectSection {
   title: string
   description: string
   goals: string
-  milestones: Array<{ id: string; title: string; completed: boolean; isActive: boolean }>
+  milestones: Array<{
+    id: string
+    title: string
+    description: string
+    completed: boolean
+    isActive: boolean
+  }>
 }
 
 export interface AgentEntry {
