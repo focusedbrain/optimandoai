@@ -8,7 +8,11 @@ import SettingsView from './components/SettingsView'
 import EmailInboxView from './components/EmailInboxView'
 import EmailInboxBulkView from './components/EmailInboxBulkView'
 import WrChatDashboardPanel from './components/WrChatDashboardPanel'
-import { WrMultiTriggerBar, AddModeWizardHost } from '@ext/ui/components'
+import {
+  WrMultiTriggerBar,
+  AddModeWizardHost,
+  WRDESK_OPEN_PROJECT_ASSISTANT_CREATION,
+} from '@ext/ui/components'
 import { useEmailInboxStore, type InboxFilter } from './stores/useEmailInboxStore'
 import { subscribeInboxNewMessagesBackgroundRefresh } from './utils/inboxNewMessagesBackgroundRefresh'
 import { registerWrDeskOptimizerHttpBridge } from './lib/wrDeskOptimizerHttpBridge'
@@ -61,6 +65,8 @@ function App() {
   } | null>(null)
   const [deepLinkPayload, setDeepLinkPayload] = useState<AnalysisOpenPayload | null>(null)
   const [activeView, setActiveView] = useState<DashboardView>('analysis')
+  /** Bumps when Add Automation → Project Assistant should open the Analysis inline create form. */
+  const [projectAssistantCreateToken, setProjectAssistantCreateToken] = useState(0)
   const [showInitiateModal, setShowInitiateModal] = useState(false)
   const [selectedHandshakeId, setSelectedHandshakeId] = useState<string | null>(null)
   const [selectedHandshakeEmail, setSelectedHandshakeEmail] = useState<string | null>(null)
@@ -72,9 +78,18 @@ function App() {
     Array<{ id: string; email: string; status?: string; processingPaused?: boolean }>
   >([])
   const [emailAccountsLoadError, setEmailAccountsLoadError] = useState<string | null>(null)
-  /** Install before any embedded @ext UI (e.g. Add Mode wizard) calls `chrome.runtime.sendMessage`. */
+  /** Install before any embedded @ext UI (e.g. Add Automation wizard) calls `chrome.runtime.sendMessage`. */
   useEffect(() => {
     ensureWrdeskChromeShim()
+  }, [])
+
+  useEffect(() => {
+    const onProjectAssistantCreate = () => {
+      setActiveView('analysis')
+      setProjectAssistantCreateToken((n) => n + 1)
+    }
+    window.addEventListener(WRDESK_OPEN_PROJECT_ASSISTANT_CREATION, onProjectAssistantCreate)
+    return () => window.removeEventListener(WRDESK_OPEN_PROJECT_ASSISTANT_CREATION, onProjectAssistantCreate)
   }, [])
 
   useEffect(() => {
@@ -436,6 +451,7 @@ function App() {
             onOpenInboxMessage={handleOpenInboxMessageFromDashboard}
             onOpenInbox={handleOpenInboxFromAnalysis}
             emailAccounts={emailAccounts}
+            projectAssistantCreateToken={projectAssistantCreateToken}
             onOpenBulkInboxForAnalysis={() => {
               setActiveView('beap-inbox')
               setInboxBulkMode(true)

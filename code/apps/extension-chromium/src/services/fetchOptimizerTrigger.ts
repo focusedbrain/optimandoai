@@ -1,3 +1,9 @@
+/**
+ * HTTP client for **project** optimizer routes (`/api/projects/:id/optimize/*`) — snapshot, continuous, status.
+ * Invokes the Electron renderer bridge `window.__wrdeskOptimizerHttp` via main-process HTTP.
+ *
+ * **Not** Scam Watchdog (`/api/wrchat/watchdog/*`). Do not route Watchdog traffic through these helpers.
+ */
 import { ensureLaunchSecretForElectronHttp, fetchWithElectronHttpReady } from './ensureLaunchSecretForElectronHttp'
 
 const BASE_URL = 'http://127.0.0.1:51248'

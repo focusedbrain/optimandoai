@@ -1,3 +1,8 @@
+/**
+ * Invokes **`window.__wrdeskOptimizerHttp`** in the **renderer** via `executeJavaScript`.
+ * Contract is implemented in `src/lib/wrDeskOptimizerHttpBridge.ts` (`snapshot`, `setContinuous`, `getStatus`).
+ * HTTP routes: `electron/main.ts` → `/api/projects/:projectId/optimize/*`.
+ */
 import { getMainBrowserWindow } from '../mainWindowAccessor'
 
 type BridgeResult =

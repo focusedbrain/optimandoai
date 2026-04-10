@@ -91,7 +91,7 @@ export function canRunOptimization(
       return {
         ok: false,
         code: 'AUTO_OPT_OFF',
-        message: 'Auto-optimization is off.',
+        message: 'Repeat on linked session is off.',
         fallback: 'stop_interval',
       }
     }

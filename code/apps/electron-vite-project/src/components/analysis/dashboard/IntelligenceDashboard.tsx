@@ -14,7 +14,7 @@ export interface IntelligenceDashboardProps {
   activeProjectId?: string | null
   onSelectProject?: (projectId: string | null) => void
 
-  // Status card — Auto-Optimization toggle
+  // Status card — scheduled assistant runs toggle (same store flags as Project Assistant)
   autoOptimizationEnabled?: boolean
   onToggleAutoOptimization?: (enabled: boolean) => void
 
@@ -370,7 +370,7 @@ function StatusCard({
 
       <div className="ic-st__status-rows">
 
-        {/* Row 1: Auto-Optimization — interactive toggle */}
+        {/* Row 1: Repeat assistant on linked WR Chat — same store as Project Assistant panel */}
         <div className="ic-st__status-row">
           <div className="ic-st__status-left">
             <div
@@ -384,7 +384,7 @@ function StatusCard({
               className="ic-st__status-label"
               style={{ opacity: autoOptDisabled ? 0.45 : 1 }}
             >
-              Auto-Optimization
+              Repeat linked session
             </span>
           </div>
           <StatusToggle
@@ -393,8 +393,8 @@ function StatusCard({
             disabled={autoOptDisabled}
             label={
               autoOptDisabled
-                ? 'Auto-Optimization (select a project first)'
-                : 'Auto-Optimization'
+                ? 'Repeat linked session (select a project first)'
+                : 'Repeat linked WR Chat session'
             }
           />
         </div>

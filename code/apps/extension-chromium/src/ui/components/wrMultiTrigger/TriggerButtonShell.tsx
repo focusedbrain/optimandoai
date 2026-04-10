@@ -10,8 +10,13 @@ export interface TriggerButtonShellProps {
   onIconClick: () => void
   onCheckboxToggle: (enabled: boolean) => void
   checkboxChecked: boolean
+  /**
+   * When false, the continuous-monitoring checkbox is hidden (e.g. project optimizer — interval belongs on the Analysis dashboard, not this monitor-style control).
+   * Watchdog / Scam Watchdog should keep the default true.
+   */
+  showContinuousCheckbox?: boolean
   disabled?: boolean
-  /** Speech bubble — last in the bar, after the continuous monitoring checkbox. */
+  /** Speech bubble — last in the bar, after the continuous monitoring checkbox when shown. */
   middleSlot?: React.ReactNode
   /** Visual theme — matches WrChatWatchdogButton (standard | dark | pro). */
   theme?: string
@@ -36,6 +41,7 @@ export function TriggerButtonShell({
   onIconClick,
   onCheckboxToggle,
   checkboxChecked,
+  showContinuousCheckbox = true,
   disabled = false,
   middleSlot,
   theme = 'pro',
@@ -53,7 +59,7 @@ export function TriggerButtonShell({
   const shellBg = isLight ? '#ffffff' : isDark ? 'rgba(15,23,42,0.5)' : 'rgba(49,32,68,0.55)'
   const fg = isLight ? '#0f172a' : '#f5f3ff'
 
-  const pulse = intervalOn && !cleanFlash
+  const pulse = showContinuousCheckbox && intervalOn && !cleanFlash
   const iconGlow = cleanFlash
     ? '0 0 10px rgba(34,197,94,0.85)'
     : pulse
@@ -116,28 +122,30 @@ export function TriggerButtonShell({
         {icon}
       </button>
       {selectorSlot}
-      <label
-        onClick={stopCheckboxBubble}
-        onMouseDown={stopCheckboxBubble}
-        style={{
-          display: 'inline-flex',
-          alignItems: 'center',
-          gap: 2,
-          cursor: disabled ? 'not-allowed' : 'pointer',
-          fontSize: 10,
-          userSelect: 'none',
-        }}
-        title="Continuous monitoring"
-      >
-        <input
-          type="checkbox"
-          checked={checkboxChecked}
-          disabled={disabled}
-          onChange={handleCheckbox}
+      {showContinuousCheckbox ? (
+        <label
           onClick={stopCheckboxBubble}
-          style={{ accentColor: '#22c55e', cursor: disabled ? 'not-allowed' : 'pointer' }}
-        />
-      </label>
+          onMouseDown={stopCheckboxBubble}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 2,
+            cursor: disabled ? 'not-allowed' : 'pointer',
+            fontSize: 10,
+            userSelect: 'none',
+          }}
+          title="Continuous monitoring"
+        >
+          <input
+            type="checkbox"
+            checked={checkboxChecked}
+            disabled={disabled}
+            onChange={handleCheckbox}
+            onClick={stopCheckboxBubble}
+            style={{ accentColor: '#22c55e', cursor: disabled ? 'not-allowed' : 'pointer' }}
+          />
+        </label>
+      ) : null}
       {middleSlot}
       {cleanFlash ? (
         <span className="sr-only" style={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden' }}>

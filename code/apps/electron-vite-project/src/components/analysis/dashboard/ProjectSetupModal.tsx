@@ -7,7 +7,7 @@
  *   3. Goals           (with "Include in AI Chat" toggle)
  *   4. Milestones      (with "Include in AI Chat" toggle)
  *   5. Context attachments (file upload)
- *   6. Auto-Optimization interval
+ *   6. Repeat cadence (linked WR Chat — persisted ms unchanged)
  *
  * Store connections:
  *   - useProjectStore        → project CRUD, session linking, persisted
@@ -322,7 +322,7 @@ export function ProjectSetupModal({ open, onClose, activeProjectId }: ProjectSet
             </div>
             <div className="psm__field-col psm__field-col--fixed">
               <div className="psm__label-row">
-                <label className="psm__label" id="psm-session-label">Linked session (auto-optimization)</label>
+                <label className="psm__label" id="psm-session-label">Linked WR Chat session (assistant)</label>
               </div>
               <div
                 className="psm__select"
@@ -372,7 +372,7 @@ export function ProjectSetupModal({ open, onClose, activeProjectId }: ProjectSet
                   </>
                 )}
               </div>
-              <p className="psm__session-hint">Pick one WR Chat session for auto-optimization (same list as session history).</p>
+              <p className="psm__session-hint">Pick one WR Chat session for scheduled assistant runs (same list as session history).</p>
             </div>
           </div>
 
@@ -532,13 +532,13 @@ export function ProjectSetupModal({ open, onClose, activeProjectId }: ProjectSet
             </button>
           </div>
 
-          {/* ── Field 6: Auto-Optimization interval ── */}
+          {/* ── Field 6: Repeat cadence (persisted ms unchanged) ── */}
           <div>
             <div className="psm__label-row">
-              <label className="psm__label" htmlFor="psm-interval">Auto-Optimization interval</label>
+              <label className="psm__label" htmlFor="psm-interval">Repeat cadence (linked session)</label>
             </div>
             <p className="psm__sub-label">
-              How often to trigger the orchestration session when auto-optimization is on
+              How often to re-run the linked WR Chat assistant when repeat is on — not inbox mail monitoring
             </p>
             <select
               id="psm-interval"

@@ -1,6 +1,15 @@
 /**
- * Exposes `window.__wrdeskOptimizerHttp` for the Electron main HTTP server
- * (`/api/projects/:id/optimize/*`) via `executeJavaScript`.
+ * Exposes **`window.__wrdeskOptimizerHttp`** for the Electron main HTTP server
+ * (`/api/projects/:id/optimize/*`) via `webContents.executeJavaScript` — see
+ * `electron/main/projects/optimizerHttpInvoke.ts`.
+ *
+ * **Stable contract (do not rename methods or change signatures without updating main):**
+ * - `snapshot(projectId)` — one-shot optimization trigger (extension header bar).
+ * - `setContinuous(projectId, enabled)` — toggles **project auto-optimization** (Zustand +
+ *   `startAutoOptimization` / `stopAutoOptimization`). **Not** Scam Watchdog continuous.
+ * - `getStatus(projectId)` — `{ ok, enabled, intervalMs, lastRunAt? }` for the project row checkbox.
+ *
+ * This bridge is **project optimizer only**. Watchdog uses `/api/wrchat/watchdog/*` and must stay separate.
  */
 import { useProjectStore } from '../stores/useProjectStore'
 import type { GuardFailCode } from '../types/optimizationTypes'
@@ -153,5 +162,15 @@ export function registerWrDeskOptimizerHttpBridge(): void {
       }
     },
   }
+
+  if (import.meta.env.DEV) {
+    const keys: (keyof BridgeApi)[] = ['snapshot', 'setContinuous', 'getStatus']
+    for (const k of keys) {
+      if (typeof api[k] !== 'function') {
+        console.warn(`[wrDeskOptimizerHttpBridge] DEV: expected __wrdeskOptimizerHttp.${String(k)} to be a function`)
+      }
+    }
+  }
+
   ;(window as unknown as { __wrdeskOptimizerHttp?: BridgeApi }).__wrdeskOptimizerHttp = api
 }

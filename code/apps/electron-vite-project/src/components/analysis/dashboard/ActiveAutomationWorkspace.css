@@ -1,0 +1,144 @@
+/* Active automation workspace — hero chrome above ProjectOptimizationPanel (panel body unchanged). */
+
+.active-automation-workspace {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
+}
+
+.active-automation-workspace__hero {
+  flex-shrink: 0;
+  padding: 14px 16px 12px;
+  margin-bottom: 8px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.06) 0%, rgba(248, 250, 252, 1) 48%, rgba(255, 255, 255, 0.95) 100%);
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.active-automation-workspace__eyebrow {
+  margin: 0 0 6px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #64748b;
+}
+
+.active-automation-workspace__title {
+  margin: 0 0 8px;
+  font-size: 1.25rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: #0f172a;
+  line-height: 1.25;
+}
+
+.active-automation-workspace__lede {
+  margin: 0 0 12px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: #64748b;
+  max-width: 52ch;
+}
+
+.active-automation-workspace__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.active-automation-workspace__btn {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+
+.active-automation-workspace__btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.active-automation-workspace__btn--secondary {
+  background: #ffffff;
+  border-color: #cbd5e1;
+  color: #334155;
+}
+
+.active-automation-workspace__btn--primary {
+  background: #4f46e5;
+  border-color: #4f46e5;
+  color: #ffffff;
+}
+
+.active-automation-workspace__body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.active-automation-workspace__body .pop {
+  flex: 1;
+  min-height: 0;
+}
+
+/* Secondary toolbar — same handlers as ProjectOptimizationPanel (no new backends). */
+.active-automation-workspace__subactions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(148, 163, 184, 0.35);
+}
+
+.active-automation-workspace__chip {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  color: #334155;
+}
+
+.active-automation-workspace__chip:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.active-automation-workspace__meta {
+  font-size: 11px;
+  font-weight: 600;
+  color: #64748b;
+  white-space: nowrap;
+}
+
+.active-automation-workspace__subactions-fallback {
+  margin: 8px 0 0;
+  font-size: 11px;
+  line-height: 1.35;
+  color: #94a3b8;
+  max-width: 52ch;
+}
+
+.active-automation-workspace__monitor-placeholder {
+  margin: 0;
+  font-size: 11px;
+  color: #64748b;
+  max-width: 48ch;
+}
+
+.active-automation-workspace__monitor-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}

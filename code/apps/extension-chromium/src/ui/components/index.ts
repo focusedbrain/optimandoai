@@ -25,9 +25,14 @@ export type { WatchdogThreat } from '../../utils/formatWatchdogAlert'
 export { formatWatchdogAlert } from '../../utils/formatWatchdogAlert'
 
 export {
+  ADD_AUTOMATION_ROW_UI_KIND,
+  automationUiKindFromTriggerFunctionId,
+  type AutomationUiKind,
   WrMultiTriggerBar,
   WRCHAT_CHAT_FOCUS_REQUEST_EVENT,
   WRCHAT_OPEN_CUSTOM_MODE_WIZARD_EVENT,
+  WRCHAT_CUSTOM_MODE_WIZARD_SAVED,
+  WRDESK_OPEN_PROJECT_ASSISTANT_CREATION,
   type WrMultiTriggerBarProps,
   TriggerButtonShell,
   type TriggerButtonShellProps,

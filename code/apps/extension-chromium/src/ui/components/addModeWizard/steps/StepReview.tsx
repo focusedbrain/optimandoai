@@ -74,7 +74,7 @@ export function StepReview({
   return (
     <div>
       <p style={{ margin: '0 0 12px', fontSize: 13, color: t.textMuted }}>
-        Review your mode before saving. Use Back to edit a step.
+        Review your automation before saving. Use Back to edit a step.
       </p>
       <div style={{ borderTop: `1px solid ${t.border}` }}>
         {rows.map((r) => (

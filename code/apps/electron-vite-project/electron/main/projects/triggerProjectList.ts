@@ -10,8 +10,11 @@ export type TriggerProjectEntry = {
 }
 
 /**
- * Reads persisted `useProjectStore` data from the renderer (localStorage `wr-desk-projects`)
+ * Reads persisted **`useProjectStore`** data from the renderer (**localStorage key `wr-desk-projects`**)
  * and returns projects that have an icon (for the extension multi-trigger bar).
+ *
+ * Must stay aligned with Zustand persist output from `useProjectStore` (`name: 'wr-desk-projects'`).
+ * If the key or `{ state: { projects } }` shape changes, update this parser and any extension-side readers.
  */
 export async function readTriggerProjectEntriesFromRenderer(): Promise<TriggerProjectEntry[]> {
   const wc = getMainBrowserWindow()?.webContents

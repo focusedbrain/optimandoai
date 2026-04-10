@@ -1,22 +1,46 @@
+/**
+ * Header **multi-trigger bar**: Scam Watchdog vs per-project **auto-optimizer** (icon-allocated projects).
+ *
+ * **Watchdog vs optimizer:** `TriggerButtonShell` shows the continuous checkbox **only** for Scam Watchdog; project rows use the same shell **without** that checkbox (snapshot + speech bubble only).
+ * - **Watchdog row (`WrChatWatchdogButton`):** `/api/wrchat/watchdog/continuous` — main-process Scam Watchdog scanner. **Not** project optimization.
+ * - **Optimizer project row:** snapshot via `triggerOptimizerSnapshot` only; **no** continuous checkbox here (project auto-optimization interval is on the Analysis dashboard). Watchdog keeps its checkbox + `/api/wrchat/watchdog/*`.
+ *
+ * **Stable event names:** `WRCHAT_CHAT_FOCUS_REQUEST_EVENT`, `WRCHAT_OPEN_CUSTOM_MODE_WIZARD_EVENT` — listeners in WR Chat shell / `AddModeWizardHost`.
+ */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { WatchdogThreat } from '../../../utils/formatWatchdogAlert'
 import { fetchTriggerProjects } from '../../../services/fetchTriggerProjects'
-import {
-  getOptimizerStatus,
-  setOptimizerContinuous,
-  triggerOptimizerSnapshot,
-} from '../../../services/fetchOptimizerTrigger'
+import { triggerOptimizerSnapshot } from '../../../services/fetchOptimizerTrigger'
 import type { ChatFocusMode, TriggerFunctionId, TriggerProjectEntry } from '../../../types/triggerTypes'
 import { useChatFocusStore } from '../../../stores/chatFocusStore'
 import WatchdogIcon from '../WatchdogIcon'
 import WrChatWatchdogButton from '../WrChatWatchdogButton'
+import { ADD_AUTOMATION_ROW_UI_KIND, automationUiKindFromTriggerFunctionId } from './automationUiKind'
 import { TriggerButtonShell } from './TriggerButtonShell'
 
-/** Dispatched on speech bubble click (also calls `onChatFocusRequest` if provided). */
+/**
+ * Dispatched on speech bubble click (also calls `onChatFocusRequest` if provided).
+ * **Do not rename** the string without updating all `addEventListener` / `dispatchEvent` sites.
+ */
 export const WRCHAT_CHAT_FOCUS_REQUEST_EVENT = 'wrchat-chat-focus-request'
 
-/** Open Add Mode wizard (PopupChatView listens; use after switching to WR Chat). */
+/**
+ * Opens the Add Automation flow (`AddModeWizardHost` in Electron `App.tsx` and extension surfaces).
+ * **Do not rename** the string without updating `AddModeWizardHost` and any other listeners.
+ */
 export const WRCHAT_OPEN_CUSTOM_MODE_WIZARD_EVENT = 'wrchat-open-custom-mode-wizard'
+
+/**
+ * After Add Automation → Custom mode wizard saves successfully. Used for ModeSelect success toast.
+ * **Do not rename** without updating `AddModeWizardHost` and `ModeSelect` listeners.
+ */
+export const WRCHAT_CUSTOM_MODE_WIZARD_SAVED = 'wrchat-custom-mode-wizard-saved'
+
+/**
+ * Request Project Assistant creation on the WR Desk Analysis dashboard (desktop shell).
+ * **Do not rename** without updating `App.tsx` and `AddModeWizardHost`.
+ */
+export const WRDESK_OPEN_PROJECT_ASSISTANT_CREATION = 'wrdesk-open-project-assistant-creation'
 
 export type WrMultiTriggerBarProps = {
   theme?: string
@@ -69,21 +93,33 @@ function SpeechBubbleButton({
   )
 }
 
-function buildDropdownRows(projects: TriggerProjectEntry[]) {
-  const rows: { id: string; label: string; icon: string; functionId: TriggerFunctionId }[] = [
+type TriggerBarDropdownRow = {
+  id: string
+  label: string
+  icon: string
+  functionId: TriggerFunctionId
+  /** Derived in UI only; exposed on DOM for tests / future styling — does not affect selection or APIs. */
+  automationUiKind: ReturnType<typeof automationUiKindFromTriggerFunctionId>
+}
+
+function buildDropdownRows(projects: TriggerProjectEntry[]): TriggerBarDropdownRow[] {
+  const rows: TriggerBarDropdownRow[] = [
     {
       id: 'watchdog',
       label: 'Scam Watchdog',
       icon: '',
       functionId: { type: 'watchdog' },
+      automationUiKind: automationUiKindFromTriggerFunctionId({ type: 'watchdog' }),
     },
   ]
   for (const p of projects) {
+    const functionId: TriggerFunctionId = { type: 'auto-optimizer', projectId: p.projectId }
     rows.push({
       id: p.projectId,
       label: p.title,
       icon: p.icon,
-      functionId: { type: 'auto-optimizer', projectId: p.projectId },
+      functionId,
+      automationUiKind: automationUiKindFromTriggerFunctionId(functionId),
     })
   }
   return rows
@@ -102,8 +138,6 @@ export default function WrMultiTriggerBar({
   const [activeFunctionId, setActiveFunctionId] = useState<TriggerFunctionId>({ type: 'watchdog' })
   const [projectList, setProjectList] = useState<TriggerProjectEntry[]>([])
   const [dropdownOpen, setDropdownOpen] = useState(false)
-  /** Continuous optimization enabled per project (synced from GET …/optimize/status + checkbox). */
-  const [optimizerIntervalByProject, setOptimizerIntervalByProject] = useState<Record<string, boolean>>({})
   /** Snapshot request in flight per project (scanning pulse on icon). */
   const [optimizerScanningByProject, setOptimizerScanningByProject] = useState<Record<string, boolean>>({})
 
@@ -178,7 +212,7 @@ export default function WrMultiTriggerBar({
         return
       }
       const mode: ChatFocusMode = { mode: 'scam-watchdog' }
-      const intro = `🐕 **ScamWatchdog Mode Active**
+      const intro = `🐕 **Scam Watchdog automation active**
 
 I'm now focused on scam and fraud detection. You can:
 - Share screenshots of suspicious messages, emails, or websites
@@ -226,7 +260,7 @@ Send me anything you'd like analyzed.`
       activeMilestoneTitle: mile,
       projectIcon: icon,
     }
-    const intro = `${icon} **Optimization Mode: ${title}**
+    const intro = `${icon} **Optimization automation: ${title}**
 Active milestone: ${mile}
 
 I'm now focused on optimizing this project. You can:
@@ -257,23 +291,7 @@ What information would you like to add?`
 
   const optimizerPid =
     activeFunctionId.type === 'auto-optimizer' ? activeFunctionId.projectId : ''
-  const optimizerIntervalOn = optimizerPid ? (optimizerIntervalByProject[optimizerPid] ?? false) : false
   const optimizerScanning = optimizerPid ? (optimizerScanningByProject[optimizerPid] ?? false) : false
-
-  /** Refresh interval toggle from Electron when selecting an optimizer project. */
-  useEffect(() => {
-    if (activeFunctionId.type !== 'auto-optimizer') return
-    const pid = activeFunctionId.projectId
-    let cancelled = false
-    void (async () => {
-      const s = await getOptimizerStatus(pid)
-      if (cancelled) return
-      setOptimizerIntervalByProject((prev) => ({ ...prev, [pid]: s.enabled }))
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [activeFunctionId])
 
   const handleOptimizerIconClick = useCallback(async () => {
     if (activeFunctionId.type !== 'auto-optimizer') return
@@ -286,18 +304,8 @@ What information would you like to add?`
     }
   }, [activeFunctionId])
 
-  const handleOptimizerCheckbox = useCallback(
-    async (enabled: boolean) => {
-      if (activeFunctionId.type !== 'auto-optimizer') return
-      const pid = activeFunctionId.projectId
-      const result = await setOptimizerContinuous(pid, enabled)
-      setOptimizerIntervalByProject((prev) => ({ ...prev, [pid]: result.enabled }))
-    },
-    [activeFunctionId],
-  )
-
   const handleDropdownRowClick = useCallback(
-    (row: { functionId: TriggerFunctionId }) => {
+    (row: TriggerBarDropdownRow) => {
       const key = functionIdKey(row.functionId)
       const activeKey = functionIdKey(activeFunctionId)
       if (key === activeKey) {
@@ -385,6 +393,7 @@ What information would you like to add?`
                   type="button"
                   role="option"
                   aria-selected={selected}
+                  data-automation-ui-kind={row.automationUiKind}
                   onClick={() => handleDropdownRowClick(row)}
                   style={{
                     width: '100%',
@@ -431,6 +440,7 @@ What information would you like to add?`
             <button
               type="button"
               role="option"
+              data-automation-ui-kind={ADD_AUTOMATION_ROW_UI_KIND}
               onClick={handleAddModeRowClick}
               style={{
                 width: '100%',
@@ -456,7 +466,7 @@ What information would you like to add?`
               <span style={{ fontSize: 14, lineHeight: 1 }} aria-hidden>
                 ✨
               </span>
-              <span>+ Add Mode</span>
+              <span>+ Add Automation</span>
             </button>
           </li>
         </ul>
@@ -494,11 +504,12 @@ What information would you like to add?`
               </span>
             }
             scanning={optimizerScanning}
-            intervalOn={optimizerIntervalOn}
+            intervalOn={false}
             cleanFlash={false}
             onIconClick={() => void handleOptimizerIconClick()}
-            onCheckboxToggle={(enabled) => void handleOptimizerCheckbox(enabled)}
-            checkboxChecked={optimizerIntervalOn}
+            onCheckboxToggle={() => {}}
+            checkboxChecked={false}
+            showContinuousCheckbox={false}
             disabled={false}
             middleSlot={
               <SpeechBubbleButton tooltip={speechTooltipOptimizer} onPress={emitChatFocus} />

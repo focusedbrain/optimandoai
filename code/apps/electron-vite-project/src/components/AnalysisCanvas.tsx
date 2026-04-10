@@ -9,8 +9,8 @@
  *   ┌──────────────────────────────────────────┐
  *   │  IntelligenceDashboard  (full width)      │
  *   ├──────────────────────┬───────────────────┤
- *   │  ProjectOptimization  │  ActivityFeed     │
- *   │  Panel  (~60%)        │  Column  (~40%)   │
+ *   │  ActiveAutomation     │  ActivityFeed     │
+ *   │  Workspace (wraps POP)│  Column  (~40%)   │
  *   └──────────────────────┴───────────────────┘
  *
  * Untouched by this refactor:
@@ -22,7 +22,7 @@
  *   - All IPC handlers in electron/main/email/ipc.ts
  */
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import '../styles/dashboard-tokens.css'
 import '../styles/dashboard-base.css'
 import './AnalysisCanvas.css'
@@ -33,11 +33,12 @@ import { StatusBadge } from './analysis/StatusBadge'
 
 // ── Dashboard components (all via barrel export) ──────────────────────────────
 import {
+  ActiveAutomationWorkspace,
   IntelligenceDashboard,
-  ProjectOptimizationPanel,
   ActivityFeedColumn,
   type DashboardEmailAccountRow,
   type OpenInboxMessagePayload,
+  type ProjectOptimizationPanelHandle,
 } from './analysis/dashboard'
 
 // ── Data layer ────────────────────────────────────────────────────────────────
@@ -66,6 +67,11 @@ interface AnalysisCanvasProps {
   emailAccounts?: DashboardEmailAccountRow[]
   /** After refresh, open Bulk Inbox for AI Auto-Sort. */
   onOpenBulkInboxForAnalysis?: () => void
+  /**
+   * Increment when Add Automation → Project Assistant should open the inline create form
+   * (desktop shell dispatches `WRDESK_OPEN_PROJECT_ASSISTANT_CREATION`).
+   */
+  projectAssistantCreateToken?: number
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -77,6 +83,7 @@ export default function AnalysisCanvas({
   onOpenInbox,
   emailAccounts,
   onOpenBulkInboxForAnalysis,
+  projectAssistantCreateToken = 0,
 }: AnalysisCanvasProps) {
   // ── Data layer — unchanged from original ──────────────────────────────────
   const {
@@ -92,6 +99,13 @@ export default function AnalysisCanvas({
   const activeProjectId = useProjectStore((s) => s.activeProjectId)
   const setActiveProject = useProjectStore((s) => s.setActiveProject)
   const autoSyncEnabled = useEmailInboxStore((s) => s.autoSyncEnabled)
+
+  const automationWorkspaceRef = useRef<ProjectOptimizationPanelHandle>(null)
+
+  useEffect(() => {
+    if (projectAssistantCreateToken < 1) return
+    automationWorkspaceRef.current?.openCreateMode({ omitIntervalFields: true })
+  }, [projectAssistantCreateToken])
 
   /**
    * Combined refresh: snapshot + inbox message list.
@@ -109,7 +123,7 @@ export default function AnalysisCanvas({
     setActiveProject(projectId)
   }, [setActiveProject])
 
-  /** Toggle Auto-Optimization from the Status card — calls the same store action. */
+  /** Toggle repeat on linked WR Chat from the Status card — same `setAutoOptimization` as Project Assistant. */
   const handleToggleAutoOptimization = useCallback((enabled: boolean) => {
     if (!activeProjectId) return
     useProjectStore.getState().setAutoOptimization(activeProjectId, enabled)
@@ -186,12 +200,14 @@ export default function AnalysisCanvas({
             />
           </div>
 
-          {/* Row 2 left: Project AI Optimization (~60%) */}
+          {/* Row 2 left: Active automation workspace (ProjectOptimizationPanel inside) (~60%) */}
           <div
             className="analysis-dashboard__project-area"
-            aria-label="Project AI optimization controls"
+            aria-label="Active automation workspace and Project Assistant"
           >
-            <ProjectOptimizationPanel
+            <ActiveAutomationWorkspace
+              ref={automationWorkspaceRef}
+              isWorkspaceFormEditing={isFormEditing}
               latestAutosortSession={dashboardSnapshot?.autosort?.latestSession ?? null}
               emailAccounts={emailAccounts ?? []}
               onRefreshOperations={refreshOperations}

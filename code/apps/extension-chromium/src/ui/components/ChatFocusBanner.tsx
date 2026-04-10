@@ -24,18 +24,17 @@ export default function ChatFocusBanner({ theme = 'pro' }: { theme?: string }) {
     const title = focusMeta?.projectTitle?.trim() || 'Project'
     label = (
       <>
-        <span aria-hidden>{icon}</span> Optimizing: {title}
+        <span aria-hidden>{icon}</span> Project Assistant · {title}
       </>
     )
     hint = (
       <>
         <p style={{ margin: 0 }}>
-          Auto-Optimization mode turns wrchat into a focused optimization workspace.
+          Project Assistant focuses wrchat on this project&apos;s context.
         </p>
         <p style={{ margin: '6px 0 0' }}>
-          In this mode, wrchat uses the project description and milestones as the foundation for improving the
-          project automatically. Users can also add extra information such as goals, constraints, milestones, or
-          relevant files to give the optimizer more context and help it make better optimization decisions.
+          Description and milestones anchor the session; you can add goals, constraints, more milestones, or files
+          to give the assistant richer context.
         </p>
       </>
     )

@@ -209,7 +209,7 @@ export function StepModel({
             </select>
             {orphanSelection ? (
               <p style={{ margin: '8px 0 0', fontSize: 11, color: t.warningText }}>
-                This mode points at a model that is not in the list above. Choose an installed model or fix the
+                This automation points at a model that is not in the list above. Choose an installed model or fix the
                 endpoint.
               </p>
             ) : null}

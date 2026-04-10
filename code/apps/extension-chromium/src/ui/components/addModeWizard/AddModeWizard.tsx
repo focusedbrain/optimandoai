@@ -171,7 +171,7 @@ export const AddModeWizard: React.FC<AddModeWizardProps> = ({
       requestClose()
     } catch (e) {
       const message =
-        e instanceof Error ? e.message : 'Could not save this mode. Please try again.'
+        e instanceof Error ? e.message : 'Could not save this automation. Please try again.'
       setError(message)
     } finally {
       setIsSaving(false)
@@ -277,7 +277,7 @@ export const AddModeWizard: React.FC<AddModeWizardProps> = ({
                 fontFamily: 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif',
               }}
             >
-              Add mode
+              Add automation
             </h2>
             <p id={descId} style={{ margin: '8px 0 0', fontSize: 12, color: t.textMuted, lineHeight: 1.45 }}>
               Step {step + 1} of {ADD_MODE_WIZARD_STEPS.length} — {ADD_MODE_WIZARD_STEPS[step]}

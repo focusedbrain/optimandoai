@@ -34,7 +34,16 @@
  *   - autoOptimizationEngine: startAutoOptimization, stopAutoOptimization, triggerSnapshotOptimization
  */
 
-import { type ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  type ChangeEvent,
+  forwardRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { pickDefaultEmailAccountRowId } from '@ext/shared/email/pickDefaultAccountRow'
 import { WRDESK_FOCUS_AI_CHAT_EVENT } from '../../../lib/wrdeskUiEvents'
@@ -57,6 +66,11 @@ import {
   triggerSnapshotOptimization,
 } from '../../../lib/autoOptimizationEngine'
 import { refreshOrchestratorSessionsFromBridge } from '../../../lib/refreshOrchestratorSessions'
+import {
+  devAssertProjectAssistantAiDomHook,
+  projectAssistantDataFieldSelector,
+  projectAssistantMilestoneSelector,
+} from '../../../lib/projectAssistantAiFieldContracts'
 import { BeapDocumentReaderModal } from '@ext/beap-builder/components/BeapDocumentReaderModal'
 import { AttachmentStatusBadge } from '@ext/beap-builder/components/AttachmentStatusBadge'
 import type { AttachmentParseStatus } from '@ext/beap-builder/components/AttachmentStatusBadge'
@@ -74,19 +88,27 @@ const PROJECT_ICON_CHOICES = [
 ] as const
 
 // ── Global draft-insertion callback ───────────────────────────────────────────
-// Set fresh every time the user selects a field or a specific milestone.
-// HybridSearch calls this directly instead of dispatching a DOM event, so
-// there is no stale-closure / ref-timing issue.
+/**
+ * **`window.__wrdeskInsertDraft`** — stable integration contract between this panel and
+ * **HybridSearch**. When the user selects a field (or milestone quick-edit), the panel assigns
+ * this function; HybridSearch "Use" / "Use All" calls it with AI output.
+ *
+ * - **Do not rename** the global without updating `HybridSearch` (and any other callers).
+ * - **DOM hooks:** editable controls must keep **`data-field="<id>"`** and milestone textareas
+ *   **`data-milestone-id="<milestoneUuid>"`** — selectors are centralized in
+ *   `projectAssistantAiFieldContracts.ts` (see `flashFieldEl` / `flashMilestoneEl`) so
+ *   post-insert flash / resize behavior keeps working.
+ */
 declare global {
   interface Window {
     __wrdeskInsertDraft?: (text: string, mode: 'append' | 'replace') => void
   }
 }
 
-/** Flash the element that has `data-field="<dataField>"` after insertion */
+/** Resolves `[data-field="…"]` — uses {@link projectAssistantDataFieldSelector}. */
 function flashFieldEl(dataField: string) {
   requestAnimationFrame(() => {
-    const el = document.querySelector(`[data-field="${dataField}"]`) as HTMLElement | null
+    const el = document.querySelector(projectAssistantDataFieldSelector(dataField)) as HTMLElement | null
     if (!el) return
     el.style.height = 'auto'
     if (el instanceof HTMLTextAreaElement) el.style.height = el.scrollHeight + 'px'
@@ -95,10 +117,10 @@ function flashFieldEl(dataField: string) {
   })
 }
 
-/** Flash the milestone textarea that has `data-milestone-id="<id>"` */
+/** Resolves `[data-milestone-id="…"]` — uses {@link projectAssistantMilestoneSelector}. */
 function flashMilestoneEl(milestoneId: string) {
   requestAnimationFrame(() => {
-    const el = document.querySelector(`[data-milestone-id="${milestoneId}"]`) as HTMLElement | null
+    const el = document.querySelector(projectAssistantMilestoneSelector(milestoneId)) as HTMLElement | null
     if (!el) return
     el.style.height = 'auto'
     if (el instanceof HTMLTextAreaElement) el.style.height = el.scrollHeight + 'px'
@@ -123,6 +145,35 @@ export interface ProjectOptimizationPanelProps {
   onOpenBulkInboxForAnalysis?: () => void
   /** Called whenever the form opens or closes (editing ↔ collapsed). */
   onSetupModeChange?: (editing: boolean) => void
+  /**
+   * When true, the cap row (“PROJECT ASSISTANT” + head New project) is omitted — use when
+   * {@link ActiveAutomationWorkspace} provides the hero chrome. Panel body (selector, controls, form) unchanged.
+   */
+  workspaceSuppressedCap?: boolean
+  /**
+   * Element `id` for `aria-labelledby` when `workspaceSuppressedCap` is true (must match the workspace title `id`).
+   */
+  workspaceSectionLabelId?: string
+  /** Notifies workspace chrome when the one-shot snapshot run is busy (hero sub-actions mirror disabled state). */
+  onSnapshotRunBusyChange?: (busy: boolean) => void
+}
+
+/** Imperative API for workspace chrome — open create/edit without duplicating form logic. */
+/** Options for imperative `openCreateMode` (Add Automation → Project Assistant path). */
+export type ProjectOptimizationPanelOpenCreateOpts = {
+  /** Hide run-interval controls for this create session only (default interval still persisted on save). */
+  omitIntervalFields?: boolean
+}
+
+export type ProjectOptimizationPanelHandle = {
+  openCreateMode: (opts?: ProjectOptimizationPanelOpenCreateOpts) => void
+  openEditMode: () => void
+  /** Same as the panel “Snapshot run” control (`triggerSnapshotOptimization`). */
+  runAssistantSnapshotNow: () => Promise<void>
+  /** Open linked WR Chat session in display grids (existing bridge). */
+  openLinkedWrChatSession: () => Promise<void>
+  /** Open linked session UI, then the same snapshot run — two existing operations, sequential. */
+  openLinkedSessionThenSnapshot: () => Promise<void>
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -138,9 +189,11 @@ function formatStatusDate(iso: string | null | undefined): string {
   return d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
 }
 
-function formatIntervalLabel(ms: number): string {
+/** Cadence label for linked WR Chat repeat — avoids “scheduled monitoring” phrasing. */
+function formatLinkedSessionRepeatCadence(ms: number): string {
   const opt = AUTO_OPTIMIZATION_INTERVALS.find((i) => i.value === ms)
-  return opt ? `every ${opt.label}` : `every ${Math.round(ms / 60000)} min`
+  const span = opt ? opt.label : `${Math.round(ms / 60000)} min`
+  return `Every ${span} · linked WR Chat`
 }
 
 function getMimeLabel(mimeType: string, filename: string): string {
@@ -151,13 +204,23 @@ function getMimeLabel(mimeType: string, filename: string): string {
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export function ProjectOptimizationPanel({
-  latestAutosortSession = null,
-  emailAccounts = [],
-  onRefreshOperations: _onRefreshOperations,
-  onOpenBulkInboxForAnalysis: _onOpenBulkInboxForAnalysis,
-  onSetupModeChange,
-}: ProjectOptimizationPanelProps) {
+export const ProjectOptimizationPanel = forwardRef<ProjectOptimizationPanelHandle, ProjectOptimizationPanelProps>(
+  function ProjectOptimizationPanel(
+    {
+      latestAutosortSession = null,
+      emailAccounts = [],
+      onRefreshOperations: _onRefreshOperations,
+      onOpenBulkInboxForAnalysis: _onOpenBulkInboxForAnalysis,
+      onSetupModeChange,
+      workspaceSuppressedCap = false,
+      workspaceSectionLabelId = 'active-automation-workspace-title',
+      onSnapshotRunBusyChange,
+    },
+    ref,
+  ) {
+  /** Add Automation → Project Assistant: hide interval row while creating (same form wiring otherwise). */
+  const [omitIntervalForCreate, setOmitIntervalForCreate] = useState(false)
+
   // ── Project store ──────────────────────────────────────────────────────────
   const {
     projects,
@@ -357,6 +420,15 @@ export function ProjectOptimizationPanel({
       setRunBusy(false)
     }
   }, [runBusy])
+
+  useEffect(() => {
+    onSnapshotRunBusyChange?.(runBusy)
+  }, [runBusy, onSnapshotRunBusyChange])
+
+  const openLinkedSessionThenSnapshot = useCallback(async () => {
+    await handleOpenLinkedSessionDisplayGrids()
+    await handleRunAnalysisNow()
+  }, [handleOpenLinkedSessionDisplayGrids, handleRunAnalysisNow])
 
   // ── Chat context store (preserved exactly) ────────────────────────────────
   const {
@@ -613,6 +685,10 @@ export function ProjectOptimizationPanel({
         }
       }
 
+      if (field === 'title' || field === 'description' || field === 'goals') {
+        devAssertProjectAssistantAiDomHook('data-field', field)
+      }
+
       // Context pre-frame is built by the context-sync useEffect on next tick
       focusHeaderAiChat()
     },
@@ -671,6 +747,8 @@ export function ProjectOptimizationPanel({
     )
     store.setIncludeInChat(true)
 
+    devAssertProjectAssistantAiDomHook('data-milestone-id', milestoneId)
+
     focusHeaderAiChat()
   }, [])
 
@@ -691,7 +769,7 @@ export function ProjectOptimizationPanel({
     window.dispatchEvent(new CustomEvent('wrdesk:clear-chat-conversation'))
   }, [])
 
-  const openCreateMode = useCallback(() => {
+  const openCreateMode = useCallback((opts?: ProjectOptimizationPanelOpenCreateOpts) => {
     setFormTitle('')
     setFormDescription('')
     setFormGoals('')
@@ -706,6 +784,7 @@ export function ProjectOptimizationPanel({
     quickEditMilestoneIdRef.current = null
     setQuickEditMilestoneId(null)
     window.__wrdeskInsertDraft = undefined
+    setOmitIntervalForCreate(opts?.omitIntervalFields === true)
     setSetupMode('creating')
   }, [])
 
@@ -726,11 +805,31 @@ export function ProjectOptimizationPanel({
     quickEditMilestoneIdRef.current = null
     setQuickEditMilestoneId(null)
     window.__wrdeskInsertDraft = undefined
+    setOmitIntervalForCreate(false)
     setSetupMode('editing')
   }, [])
 
+  useImperativeHandle(
+    ref,
+    () => ({
+      openCreateMode,
+      openEditMode,
+      runAssistantSnapshotNow: () => handleRunAnalysisNow(),
+      openLinkedWrChatSession: () => handleOpenLinkedSessionDisplayGrids(),
+      openLinkedSessionThenSnapshot: () => openLinkedSessionThenSnapshot(),
+    }),
+    [
+      openCreateMode,
+      openEditMode,
+      handleRunAnalysisNow,
+      handleOpenLinkedSessionDisplayGrids,
+      openLinkedSessionThenSnapshot,
+    ],
+  )
+
   const handleCancelForm = useCallback(() => {
     clearFormChatContext()
+    setOmitIntervalForCreate(false)
     setSetupMode('collapsed')
   }, [clearFormChatContext])
 
@@ -758,6 +857,7 @@ export function ProjectOptimizationPanel({
       store.setActiveProject(newId)
     }
     clearFormChatContext()
+    setOmitIntervalForCreate(false)
     setSetupMode('collapsed')
   }, [
     formTitle, formDescription, formGoals, formMilestones, formAttachments,
@@ -899,32 +999,36 @@ export function ProjectOptimizationPanel({
 
   const autoOptOn     = autoOptEnabled
   const autoModeLabel = autoOptOn && activeProject
-    ? `On · ${formatIntervalLabel(activeProject.autoOptimizationIntervalMs)}`
+    ? `On · ${formatLinkedSessionRepeatCadence(activeProject.autoOptimizationIntervalMs)}`
     : 'Off'
 
   // Keep focusHeaderAiChat reachable in scope (avoids lint warning)
   void focusHeaderAiChat
 
   // ── Render ────────────────────────────────────────────────────────────────
-  return (
-    <section className="pop" aria-labelledby="pop-heading">
+  const sectionAriaLabelledBy = workspaceSuppressedCap ? workspaceSectionLabelId : 'pop-heading'
 
-      {/* ── Header ─────────────────────────────────────────────────────────── */}
-      <div className="pop__head">
-        <span id="pop-heading" className="pop__cap-label">PROJECT AI OPTIMIZATION</span>
-        {!isFormOpen && (
-          <div className="pop__head-btns">
-            <button
-              type="button"
-              className="pop__btn-sm"
-              onClick={openCreateMode}
-              title="Create a new project"
-            >
-              + New Project
-            </button>
-          </div>
-        )}
-      </div>
+  return (
+    <section className="pop" aria-labelledby={sectionAriaLabelledBy}>
+
+      {/* ── Header (omitted when ActiveAutomationWorkspace supplies hero chrome) ─ */}
+      {!workspaceSuppressedCap ? (
+        <div className="pop__head">
+          <span id="pop-heading" className="pop__cap-label">PROJECT ASSISTANT</span>
+          {!isFormOpen && (
+            <div className="pop__head-btns">
+              <button
+                type="button"
+                className="pop__btn-sm"
+                onClick={openCreateMode}
+                title="Create a new project"
+              >
+                + New Project
+              </button>
+            </div>
+          )}
+        </div>
+      ) : null}
 
       {/* ── Selector + Controls (always visible) ─────────────────────────────*/}
       <div className="pop__selector-group">
@@ -985,14 +1089,9 @@ export function ProjectOptimizationPanel({
                 setAutoOptimization(activeProject.id, v)
               }}
               disabled={!activeProject}
-              label="Auto-Optimization"
+              label="Repeat linked WR Chat session"
             />
-            <span className="pop__toggle-text">Auto-Optimization</span>
-            {autoOptOn && activeProject && (
-              <span className="pop__interval-hint">
-                {formatIntervalLabel(activeProject.autoOptimizationIntervalMs)}
-              </span>
-            )}
+            <span className="pop__toggle-text">Repeat linked session</span>
           </label>
 
           <div className="pop__action-group">
@@ -1001,11 +1100,11 @@ export function ProjectOptimizationPanel({
               className="pop__action-btn"
               disabled={runCommandDisabled}
               onClick={() => void handleRunAnalysisNow()}
-              title="Run snapshot optimization for the linked WR Chat session (stays on Analysis)"
+              title="Run a one-shot assistant snapshot on the linked WR Chat session (stays on Analysis)"
             >
-              {runBusy ? 'Running…' : 'Snapshot-Optimization'}
+              {runBusy ? 'Running…' : 'Snapshot run'}
             </button>
-            <span className="pop__action-hint">One-shot optimization run</span>
+            <span className="pop__action-hint">One-shot run on the linked session</span>
           </div>
         </div>
       </div>
@@ -1080,7 +1179,7 @@ export function ProjectOptimizationPanel({
               </div>
             </div>
 
-            {/* Linked session for auto-optimization (single select) */}
+            {/* Linked WR Chat session for scheduled assistant runs (single select) */}
             <div>
               <span
                 style={{
@@ -1093,7 +1192,7 @@ export function ProjectOptimizationPanel({
                   marginBottom: 6,
                 }}
               >
-                Linked session (auto-optimization, optional)
+                Linked WR Chat session (for scheduled assistant runs, optional)
               </span>
               <div
                 id="pop-form-sessions"
@@ -1484,30 +1583,32 @@ export function ProjectOptimizationPanel({
               ) : null}
             </div>
 
-            {/* Optimization interval */}
-            <div>
-              <label
-                htmlFor="pop-form-interval"
-                style={{ fontSize: 11, fontWeight: 600, color: '#64748b', textTransform: 'uppercase', display: 'block', marginBottom: 6, letterSpacing: '0.5px' }}
-              >
-                Optimization interval
-              </label>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <select
-                  id="pop-form-interval"
-                  value={formIntervalMs}
-                  onChange={(e) => setFormIntervalMs(Number(e.target.value))}
-                  style={{ width: 110, boxSizing: 'border-box', padding: '10px 12px', borderRadius: 8, background: '#ffffff', color: '#0f172a', border: '1px solid #cbd5e1', fontSize: 13, outline: 'none' }}
-                  onFocus={(e) => { e.currentTarget.style.boxShadow = '0 0 0 2px rgba(99,102,241,0.4)' }}
-                  onBlur={(e) => { e.currentTarget.style.boxShadow = 'none' }}
+            {/* Assistant run interval — hidden for Add Automation → Project Assistant create path only */}
+            {!(setupMode === 'creating' && omitIntervalForCreate) ? (
+              <div>
+                <label
+                  htmlFor="pop-form-interval"
+                  style={{ fontSize: 11, fontWeight: 600, color: '#64748b', textTransform: 'uppercase', display: 'block', marginBottom: 6, letterSpacing: '0.5px' }}
                 >
-                  {AUTO_OPTIMIZATION_INTERVALS.map((i) => (
-                    <option key={i.value} value={i.value}>{i.label}</option>
-                  ))}
-                </select>
-                <span style={{ fontSize: 12, color: '#64748b' }}>when auto-optimization is enabled</span>
+                  Repeat cadence
+                </label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <select
+                    id="pop-form-interval"
+                    value={formIntervalMs}
+                    onChange={(e) => setFormIntervalMs(Number(e.target.value))}
+                    style={{ width: 110, boxSizing: 'border-box', padding: '10px 12px', borderRadius: 8, background: '#ffffff', color: '#0f172a', border: '1px solid #cbd5e1', fontSize: 13, outline: 'none' }}
+                    onFocus={(e) => { e.currentTarget.style.boxShadow = '0 0 0 2px rgba(99,102,241,0.4)' }}
+                    onBlur={(e) => { e.currentTarget.style.boxShadow = 'none' }}
+                  >
+                    {AUTO_OPTIMIZATION_INTERVALS.map((i) => (
+                      <option key={i.value} value={i.value}>{i.label}</option>
+                    ))}
+                  </select>
+                  <span style={{ fontSize: 12, color: '#64748b' }}>when repeat on linked session is on</span>
+                </div>
               </div>
-            </div>
+            ) : null}
 
             {/* Save / Cancel footer — mirrors BEAP composer button row */}
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', paddingTop: 4 }}>
@@ -1666,7 +1767,7 @@ export function ProjectOptimizationPanel({
           </span>
         </div>
         <div className="pop__sfr">
-          <span className="pop__sfr-key">Auto mode</span>
+          <span className="pop__sfr-key">Linked session repeat</span>
           <span className="pop__sfr-val">{autoModeLabel}</span>
         </div>
         <div className="pop__sfr">
@@ -1772,4 +1873,7 @@ export function ProjectOptimizationPanel({
 
     </section>
   )
-}
+  },
+)
+
+ProjectOptimizationPanel.displayName = 'ProjectOptimizationPanel'

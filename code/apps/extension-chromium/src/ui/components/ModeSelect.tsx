@@ -1,5 +1,5 @@
 /**
- * ModeSelect — compact grouped selector: built-in WR Chat modes, custom modes, then + Add Mode, then workspaces.
+ * ModeSelect — compact grouped selector: built-in WR Chat modes, custom modes, then + Add Automation, then workspaces.
  */
 
 import React, { useEffect, useRef, useState } from 'react'
@@ -14,7 +14,10 @@ import {
 } from '../../shared/ui/uiState'
 import { isCustomModeId } from '../../shared/ui/customModeTypes'
 import { safeCustomModeRowLabel } from '../../shared/ui/customModeDisplay'
-import { CustomModeWizard } from './CustomModeWizard'
+import {
+  WRCHAT_OPEN_CUSTOM_MODE_WIZARD_EVENT,
+  WRCHAT_CUSTOM_MODE_WIZARD_SAVED,
+} from './wrMultiTrigger/WrMultiTriggerBar'
 
 const ADD_MODE_VALUE = '__add_mode__'
 const NO_CUSTOM_PLACEHOLDER = '__no_custom_modes__'
@@ -35,8 +38,6 @@ export const ModeSelect: React.FC<ModeSelectProps> = ({
 }) => {
   const { workspace, mode, role, setMode, setWorkspace } = useUIStore()
   const customModes = useCustomModesStore((s) => s.modes)
-  const addMode = useCustomModesStore((s) => s.addMode)
-  const [wizardOpen, setWizardOpen] = useState(false)
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
   const successTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -56,12 +57,25 @@ export const ModeSelect: React.FC<ModeSelectProps> = ({
     }
   }, [])
 
+  useEffect(() => {
+    const onSaved = () => {
+      if (successTimerRef.current) clearTimeout(successTimerRef.current)
+      setSuccessMessage('Custom mode created and selected.')
+      successTimerRef.current = setTimeout(() => {
+        setSuccessMessage(null)
+        successTimerRef.current = null
+      }, 4500)
+    }
+    window.addEventListener(WRCHAT_CUSTOM_MODE_WIZARD_SAVED, onSaved)
+    return () => window.removeEventListener(WRCHAT_CUSTOM_MODE_WIZARD_SAVED, onSaved)
+  }, [])
+
   const currentValue = workspace === 'wr-chat' ? `mode:${mode}` : `workspace:${workspace}`
 
   const handleChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const value = e.target.value
     if (value === ADD_MODE_VALUE) {
-      setWizardOpen(true)
+      window.dispatchEvent(new Event(WRCHAT_OPEN_CUSTOM_MODE_WIZARD_EVENT))
       return
     }
     if (value === NO_CUSTOM_PLACEHOLDER) {
@@ -186,7 +200,7 @@ export const ModeSelect: React.FC<ModeSelectProps> = ({
 
           <optgroup label="Add" style={optionStyle}>
             <option value={ADD_MODE_VALUE} style={optionStyle}>
-              + Add Mode
+              + Add Automation
             </option>
           </optgroup>
 
@@ -217,24 +231,6 @@ export const ModeSelect: React.FC<ModeSelectProps> = ({
         ) : null}
       </div>
 
-      <CustomModeWizard
-        open={wizardOpen}
-        onClose={() => setWizardOpen(false)}
-        theme={theme}
-        onSave={(draft) => {
-          const id = addMode(draft)
-          setWorkspace('wr-chat')
-          setMode(id)
-        }}
-        onSaved={() => {
-          if (successTimerRef.current) clearTimeout(successTimerRef.current)
-          setSuccessMessage('Custom mode created and selected.')
-          successTimerRef.current = setTimeout(() => {
-            setSuccessMessage(null)
-            successTimerRef.current = null
-          }, 4500)
-        }}
-      />
     </>
   )
 }

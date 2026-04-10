@@ -330,6 +330,12 @@ export const useProjectStore = create<ProjectState & ProjectActions>()(
       },
     }),
     {
+      /**
+       * **localStorage key — stable contract.** Main process reads this key via
+       * `readTriggerProjectEntriesFromRenderer` (trigger bar). Extension code may read the same key
+       * (e.g. `chatFocusLlmPrefix`). Persisted shape is Zustand persist `{ state, version }`.
+       * Do not rename casually; coordinate migrations and any non-renderer consumers.
+       */
       name: 'wr-desk-projects',
       storage: createJSONStorage(() => localStorage),
       /**

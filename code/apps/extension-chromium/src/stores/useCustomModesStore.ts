@@ -35,7 +35,7 @@ export const useCustomModesStore = create<CustomModesState>()(
       addMode: (draft) => {
         const nameKey = normalizeCustomModeNameKey(draft.name)
         if (get().modes.some((m) => normalizeCustomModeNameKey(m.name) === nameKey)) {
-          throw new Error('A mode with this name already exists. Choose a different name.')
+          throw new Error('An automation with this name already exists. Choose a different name.')
         }
 
         let def: CustomModeDefinition
@@ -43,14 +43,14 @@ export const useCustomModesStore = create<CustomModesState>()(
           def = buildCustomModeFromDraft(draft)
         } catch (e) {
           console.error('[CustomModes] buildCustomModeFromDraft failed', e)
-          throw new Error('Could not create this mode. Check your inputs and try again.')
+          throw new Error('Could not create this automation. Check your inputs and try again.')
         }
 
         try {
           set((s) => ({ modes: [...s.modes, def] }))
         } catch (e) {
           console.error('[CustomModes] persist failed', e)
-          throw new Error('Could not save the mode to storage. Try again or free some space.')
+          throw new Error('Could not save the automation to storage. Try again or free some space.')
         }
 
         return def.id

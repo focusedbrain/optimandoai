@@ -1,3 +1,9 @@
+/**
+ * **Scam Watchdog** scan + **continuous** checkbox — HTTP `/api/wrchat/watchdog/*` only.
+ *
+ * **Not** the same as project **auto-optimization** (`/api/projects/.../optimize/...` / `__wrdeskOptimizerHttp`).
+ * Shared UI is `TriggerButtonShell`; behavior and endpoints must stay separate. See `WrMultiTriggerBar` file doc.
+ */
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import type { WatchdogThreat } from '../../utils/formatWatchdogAlert'
 import WatchdogIcon from './WatchdogIcon'

@@ -89,7 +89,7 @@
 /* =============================================================================
    MAIN DASHBOARD GRID
    Row 1 (intel): IntelligenceDashboard — spans both columns.
-   Row 2: ProjectOptimizationPanel (~60%) | ActivityFeedColumn (~40%)
+   Row 2: ActiveAutomationWorkspace (wraps ProjectOptimizationPanel, ~60%) | ActivityFeedColumn (~40%)
    ============================================================================= */
 
 .analysis-dashboard__main-grid {
@@ -120,7 +120,7 @@
   flex-direction: column;
 }
 
-/* Direct child of project area (ProjectOptimizationPanel) fills the grid cell */
+/* Direct child of project area (ActiveAutomationWorkspace / POP) fills the grid cell */
 .analysis-dashboard__project-area > * {
   flex: 1;
   min-height: 0;

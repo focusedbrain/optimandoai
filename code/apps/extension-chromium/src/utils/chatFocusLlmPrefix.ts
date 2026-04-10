@@ -1,6 +1,7 @@
 import type { ChatFocusMode } from '../types/triggerTypes'
 import type { ChatFocusMeta } from '../stores/chatFocusStore'
 
+/** Must match `useProjectStore` persist key (`wr-desk-projects`) — used to read description/goals when focus meta is incomplete. */
 const WR_DESK_PROJECTS_KEY = 'wr-desk-projects'
 
 type DeskLookup = { description: string; goals: string } | 'no_store' | 'not_found'
@@ -50,7 +51,7 @@ export function getChatFocusLlmPrefix(state: {
   const { chatFocusMode: m, focusMeta } = state
   if (m.mode === 'default') return null
   if (m.mode === 'scam-watchdog') {
-    return '[System context: User is in ScamWatchdog mode. Analyze input for potential scam, fraud, or phishing indicators.]'
+    return '[System context: User has Scam Watchdog automation focus. Analyze input for potential scam, fraud, or phishing indicators.]'
   }
   if (m.mode === 'auto-optimizer') {
     const projectId = m.projectId

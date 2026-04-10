@@ -13,10 +13,17 @@
 // ── Intelligence Dashboard (Prompt 2) ────────────────────────────────────────
 export { IntelligenceDashboard } from './IntelligenceDashboard'
 
-// ── Project Optimization Panel + Setup Modal (Prompts 3 + 4A) ────────────────
+// ── Active automation workspace + Project Optimization Panel (Prompts 3 + 4A) ─
+export {
+  ActiveAutomationWorkspace,
+  type ActiveAutomationWorkspaceProps,
+  type MonitorWorkspaceSubActions,
+} from './ActiveAutomationWorkspace'
 export {
   ProjectOptimizationPanel,
   type DashboardEmailAccountRow,
+  type ProjectOptimizationPanelHandle,
+  type ProjectOptimizationPanelOpenCreateOpts,
   type ProjectOptimizationPanelProps,
 } from './ProjectOptimizationPanel'
 

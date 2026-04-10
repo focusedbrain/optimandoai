@@ -86,8 +86,8 @@ export function StepSession({
         </button>
       </div>
       <p style={{ margin: '0 0 10px', fontSize: 12, color: t.textMuted, lineHeight: 1.45 }}>
-        Optional: tie this mode to a session from your history so WR Chat uses that thread when you select the mode
-        (same flow as other modes — pick the icon, then use the speech bubble to focus WR Chat).
+        Optional: tie this automation to a session from your history so WR Chat uses that thread when you select it
+        (same flow as other automations — pick the icon, then use the speech bubble to focus WR Chat).
       </p>
       {hint ? <p style={{ margin: '0 0 8px', fontSize: 11, color: t.textMuted }}>{hint}</p> : null}
       <select

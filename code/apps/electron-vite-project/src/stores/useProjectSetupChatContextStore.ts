@@ -1,8 +1,17 @@
 import { create } from 'zustand'
 
 /**
- * Renderer-only drafts bridged into the header AI (HybridSearch) on the Analysis view.
+ * Renderer-only drafts bridged into the header AI (**HybridSearch**) on the Analysis view.
  * Not project persistence — no IPC, no automatic write-back.
+ *
+ * **Fragile contract:** `ProjectOptimizationPanel` pushes selected-field / milestone context into
+ * this store; **HybridSearch** reads it (e.g. `includeInChat`, `buildProjectSetupChatPrefix`).
+ * Replacing this store with a different abstraction requires coordinated changes across those
+ * components and any logic that tests `projectSetupChatHasBridgeableContent`.
+ *
+ * **Related:** `window.__wrdeskInsertDraft` applies AI output *into* the focused field; the store
+ * holds what the model should *see* as setup context — complementary, not interchangeable.
+ * DOM hooks for insert/flash: `projectAssistantAiFieldContracts.ts` (`data-field` / `data-milestone-id`).
  */
 
 export type ProjectSetupChatSnippet = {

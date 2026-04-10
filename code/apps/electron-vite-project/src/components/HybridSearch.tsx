@@ -1868,6 +1868,7 @@ export default function HybridSearch({
                   No relevant context found in indexed BEAP data.
                 </div>
               )}
+              {/* `window.__wrdeskInsertDraft` — set by ProjectOptimizationPanel when a field is selected for AI insert; do not rename global. */}
               {(response != null || contextBlocks.length > 0) && !(structuredResult && structuredResult.items.length > 0) && (
                 <>
                   <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-muted)', marginBottom: '6px' }}>Answer:</div>
@@ -1911,6 +1912,7 @@ export default function HybridSearch({
                   )}
                 </>
               )}
+              {/* Same `__wrdeskInsertDraft` contract as block above. */}
               {structuredResult && structuredResult.items.length === 0 && response && (
                 <>
                   <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-muted)', marginBottom: '6px' }}>Answer:</div>

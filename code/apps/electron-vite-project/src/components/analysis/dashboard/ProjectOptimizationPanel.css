@@ -114,7 +114,7 @@
   flex-wrap: wrap;
 }
 
-/* Auto-Optimization toggle */
+/* Repeat linked session toggle (Project Assistant — same store fields) */
 .pop__toggle-wrap {
   display: flex;
   align-items: center;
@@ -421,15 +421,6 @@
 .pop__edit-btn:hover {
   background: #E8E8E6;
   border-color: #D4D4D1;
-}
-
-/* ── Interval hint (shown next to auto-optimization toggle when on) ── */
-.pop__interval-hint {
-  font-size: 9px;
-  color: #9B9B96;
-  color: var(--dash-text-tertiary, #9B9B96);
-  font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
-  white-space: nowrap;
 }
 
 /* ── Roadmap display (updated in PROMPT 4C — full text, no truncation) ── */
