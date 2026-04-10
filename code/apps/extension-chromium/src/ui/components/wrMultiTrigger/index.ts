@@ -18,4 +18,8 @@ export {
   WRDESK_OPEN_PROJECT_ASSISTANT_CREATION,
   WRDESK_TRIGGER_SYNC_AUTO_OPTIMIZER_PROJECT,
 } from './WrMultiTriggerBar'
-export type { WrMultiTriggerBarProps } from './WrMultiTriggerBar'
+export type { WrMultiTriggerBarProps, StarterWorkflowQuickAction } from './WrMultiTriggerBar'
+export {
+  STARTER_WORKFLOW_BAR_DEFINITIONS,
+  type StarterWorkflowBarDef,
+} from './starterWorkflowBarConfig'

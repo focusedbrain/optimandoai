@@ -19,7 +19,7 @@
 .dash-auto-home__starters-header {
   display: flex;
   flex-wrap: wrap;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 10px 14px;
   padding-bottom: 8px;
@@ -28,8 +28,7 @@
 
 .dash-auto-home__starters-header-main {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
+  align-items: center;
   min-width: 0;
 }
 
@@ -80,15 +79,6 @@
   letter-spacing: 0.14em;
   text-transform: uppercase;
   color: #6366f1;
-}
-
-.dash-auto-home__starters-title {
-  margin: 0;
-  font-size: 15px;
-  font-weight: 700;
-  letter-spacing: -0.03em;
-  color: #0f172a;
-  line-height: 1.2;
 }
 
 .dash-auto-home__starters-grid {
@@ -199,6 +189,20 @@
   background: #1e293b;
 }
 
+/* Standard theme: enterprise grey primary for automation hero Run / Open (not global app buttons) */
+[data-ui-theme='standard'] .dash-auto-home .dash-auto-home__btn--primary {
+  background: linear-gradient(180deg, #f8fafc 0%, #e2e8f0 100%);
+  color: #1e293b;
+  border-color: #94a3b8;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.9) inset;
+}
+
+[data-ui-theme='standard'] .dash-auto-home .dash-auto-home__btn--primary:hover {
+  background: linear-gradient(180deg, #f1f5f9 0%, #cbd5e1 100%);
+  border-color: #64748b;
+  color: #0f172a;
+}
+
 .dash-auto-home__btn--ghost {
   background: #fff;
   color: #334155;
@@ -247,7 +251,7 @@
   font-size: 9px;
   line-height: 1.35;
   color: #94a3b8;
-  max-width: 42rem;
+  max-width: none;
 }
 
 .dash-auto-home__empty {
@@ -257,98 +261,111 @@
   line-height: 1.4;
 }
 
-.dash-auto-home__wiki-strip {
-  display: flex;
-  flex-wrap: nowrap;
-  gap: 8px;
-  overflow-x: auto;
-  padding: 2px 0 4px;
-  margin: 0 -2px;
-  scrollbar-width: thin;
-}
-
-.dash-auto-home__wiki-chip {
-  flex: 0 0 auto;
-  width: min(200px, 78vw);
+.dash-auto-home__wiki-empty {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding: 7px 8px;
-  border-radius: 8px;
-  border: 1px solid rgba(148, 163, 184, 0.28);
-  background: rgba(255, 255, 255, 0.75);
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.9) inset;
-}
-
-.dash-auto-home__wiki-chip--selected {
-  border-color: rgba(79, 70, 229, 0.42);
-  box-shadow:
-    0 0 0 1px rgba(79, 70, 229, 0.12),
-    0 1px 0 rgba(255, 255, 255, 0.9) inset;
-  background: rgba(255, 255, 255, 0.95);
-}
-
-.dash-auto-home__wiki-chip-select {
-  display: flex;
   align-items: flex-start;
-  gap: 6px;
+  gap: 10px;
   width: 100%;
-  padding: 0;
-  margin: 0;
-  border: none;
-  background: transparent;
-  cursor: pointer;
-  text-align: left;
-  font: inherit;
-  color: inherit;
-  border-radius: 4px;
 }
 
-.dash-auto-home__wiki-chip-select:hover {
-  background: rgba(241, 245, 249, 0.6);
-}
-
-.dash-auto-home__wiki-chip-select:focus-visible {
-  outline: 2px solid rgba(79, 70, 229, 0.45);
-  outline-offset: 1px;
-}
-
-.dash-auto-home__wiki-chip-icon {
-  font-size: 13px;
-  line-height: 1;
+/* Same event path as hero / trigger bar; compact for WIKI toolbar row */
+.dash-auto-home__create-btn--wiki-inline {
+  font-size: 10px;
+  padding: 5px 10px;
   flex-shrink: 0;
 }
 
-.dash-auto-home__wiki-chip-text {
+.dash-auto-home__wiki-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+}
+
+.dash-auto-home__wiki-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  width: 100%;
+  min-width: 0;
+}
+
+.dash-auto-home__wiki-row--controls {
+  align-items: stretch;
+}
+
+.dash-auto-home__wiki-row--detail {
+  justify-content: space-between;
+  padding-top: 4px;
+  border-top: 1px solid rgba(226, 232, 240, 0.95);
+}
+
+.dash-auto-home__wiki-select-label {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #64748b;
+  flex: 0 0 auto;
+  align-self: center;
+  min-width: 5.5rem;
+}
+
+.dash-auto-home__wiki-select {
+  flex: 1 1 200px;
+  min-width: 0;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  color: #0f172a;
+  background: #fff;
+  border: 1px solid rgba(148, 163, 184, 0.45);
+  border-radius: 8px;
+  padding: 7px 10px;
+  cursor: pointer;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.85) inset;
+}
+
+.dash-auto-home__wiki-select:focus {
+  outline: 2px solid rgba(79, 70, 229, 0.35);
+  outline-offset: 1px;
+}
+
+.dash-auto-home__wiki-meta {
   display: flex;
   flex-direction: column;
   gap: 2px;
   min-width: 0;
+  flex: 1 1 140px;
 }
 
-.dash-auto-home__wiki-chip-title {
-  font-size: 11px;
-  font-weight: 650;
-  color: #334155;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.dash-auto-home__wiki-chip-mile {
-  font-size: 9px;
+.dash-auto-home__wiki-meta-label {
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
   color: #94a3b8;
+}
+
+.dash-auto-home__wiki-meta-value {
+  font-size: 11px;
+  font-weight: 600;
+  color: #334155;
+  line-height: 1.25;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.dash-auto-home__wiki-chip-actions {
-  display: flex;
+.dash-auto-home__wiki-actions {
+  display: inline-flex;
   flex-wrap: wrap;
   gap: 4px;
-  padding-top: 2px;
-  border-top: 1px solid rgba(226, 232, 240, 0.9);
+  flex-shrink: 0;
+  justify-content: flex-end;
 }
 
 .dash-auto-home__btn--xs {

@@ -116,7 +116,7 @@
             actionBtnText = '#e5e7eb';
         } else if (theme === 'professional') {
             bodyBg = 'linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%)';
-            bodyText = '#333333';
+            bodyText = '#0f172a';
             actionBtnBg = 'linear-gradient(135deg, #94a3b8 0%, #64748b 100%)';
             actionBtnText = '#ffffff';
         } else {
@@ -188,6 +188,8 @@
         function buildGrid(savedSlots) {
             console.log('🔨 Building grid with', Object.keys(savedSlots).length, 'saved slots');
             
+            const slotBorder = theme === 'professional' ? '1px solid #cbd5e1' : '1px solid rgba(255,255,255,0.14)';
+
             // Create slots
             for (let i = 1; i <= config.slots; i++) {
                 const slotNum = i + 5; // Start from #6
@@ -240,7 +242,7 @@
                 slot.setAttribute('data-slot-config', JSON.stringify(savedConfig));
                 slot.style.cssText = `
                     background: ${slotBg} !important;
-                    border: 1px solid rgba(255,255,255,0.14);
+                    border: ${slotBorder};
                     border-radius: 8px;
                     display: flex;
                     flex-direction: column;

@@ -50,6 +50,14 @@ export const WRDESK_OPEN_PROJECT_ASSISTANT_CREATION = 'wrdesk-open-project-assis
  */
 export const WRDESK_TRIGGER_SYNC_AUTO_OPTIMIZER_PROJECT = 'wrdesk-trigger-sync-auto-optimizer-project'
 
+/** Desktop: optional starter workflow icon buttons (only entries with icons are passed). */
+export type StarterWorkflowQuickAction = {
+  id: string
+  icon: string
+  title: string
+  onRun: () => void
+}
+
 export type WrMultiTriggerBarProps = {
   theme?: string
   /** Fires whenever the selected trigger row (watchdog vs project) changes — for dashboard gating. */
@@ -62,6 +70,11 @@ export type WrMultiTriggerBarProps = {
    * then call `applyFocus()` so intro messages reach a mounted chat surface.
    */
   onEnsureWrChatOpen?: (applyFocus: () => void) => void
+  /**
+   * Default workflow quick-launch chips (left of Scam Watchdog / project row).
+   * Host should only pass items whose definitions include a non-empty `topBarIcon`.
+   */
+  starterWorkflowQuickActions?: StarterWorkflowQuickAction[]
 }
 
 function SpeechBubbleButton({
@@ -145,6 +158,7 @@ export default function WrMultiTriggerBar({
   onWatchdogAlert,
   onChatFocusRequest,
   onEnsureWrChatOpen,
+  starterWorkflowQuickActions,
 }: WrMultiTriggerBarProps) {
   const [activeFunctionId, setActiveFunctionId] = useState<TriggerFunctionId>({ type: 'watchdog' })
   const [projectList, setProjectList] = useState<TriggerProjectEntry[]>([])
@@ -541,6 +555,53 @@ What would you like to add?`
     </div>
   )
 
+  const starterBar =
+    starterWorkflowQuickActions && starterWorkflowQuickActions.length > 0 ? (
+      <div
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: 3,
+          marginRight: 6,
+          flexShrink: 0,
+        }}
+        role="toolbar"
+        aria-label="Starter workflows"
+      >
+        {starterWorkflowQuickActions.map((a) => (
+          <button
+            key={a.id}
+            type="button"
+            title={a.title}
+            aria-label={a.title}
+            onClick={(e) => {
+              e.preventDefault()
+              e.stopPropagation()
+              a.onRun()
+            }}
+            style={{
+              border: `1px solid ${isLight ? 'rgba(148,163,184,0.55)' : isDark ? 'rgba(148,163,184,0.35)' : 'rgba(167,139,250,0.45)'}`,
+              background: isLight ? '#fff' : isDark ? 'rgba(30,41,59,0.6)' : 'rgba(49,32,68,0.55)',
+              borderRadius: 6,
+              cursor: 'pointer',
+              padding: '2px 5px',
+              fontSize: 13,
+              lineHeight: 1,
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              minWidth: 26,
+              height: 26,
+              color: 'inherit',
+              boxSizing: 'border-box',
+            }}
+          >
+            <span aria-hidden>{a.icon}</span>
+          </button>
+        ))}
+      </div>
+    ) : null
+
   return (
     <div
       ref={rootRef}
@@ -551,6 +612,7 @@ What would you like to add?`
         position: 'relative',
       }}
     >
+      {starterBar}
       <div style={{ display: 'inline-flex', alignItems: 'center' }}>
         {activeFunctionId.type === 'watchdog' ? (
           <WrChatWatchdogButton

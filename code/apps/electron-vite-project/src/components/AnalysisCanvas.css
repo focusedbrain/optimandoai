@@ -179,24 +179,29 @@
   align-self: start;
 }
 
-/* Priority Inbox list fills its card in stretch mode; PoAE list keeps max-height */
+/* Priority Inbox + PoAE lists share column height */
 .analysis-dashboard__activity-area .upm__list {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   scrollbar-width: thin;
   scrollbar-color: rgba(0, 0, 0, 0.1) transparent;
 }
 
 .analysis-dashboard__activity-area .pap__list {
-  max-height: min(28vh, 280px);
+  flex: 1;
+  min-height: 0;
+  max-height: none;
   overflow-y: auto;
   scrollbar-width: thin;
   scrollbar-color: rgba(0, 0, 0, 0.1) transparent;
 }
 
-/* Priority Inbox card fills available column height */
-.analysis-dashboard__activity-area .upm {
+/* Both panels stretch evenly inside ActivityFeedColumn */
+.analysis-dashboard__activity-area .upm,
+.analysis-dashboard__activity-area .pap {
   flex: 1;
+  min-height: 0;
 }
 
 @media (max-width: 900px) {
@@ -217,8 +222,9 @@
     flex-direction: column;
   }
 
-  .analysis-dashboard__activity-area .upm__list {
-    max-height: min(30vh, 320px);
+  .analysis-dashboard__activity-area .upm__list,
+  .analysis-dashboard__activity-area .pap__list {
+    max-height: min(28vh, 280px);
     flex: none;
   }
 
