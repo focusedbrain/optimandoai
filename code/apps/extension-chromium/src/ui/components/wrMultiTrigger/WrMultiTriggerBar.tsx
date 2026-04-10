@@ -1,11 +1,9 @@
 /**
- * Header **multi-trigger bar**: Scam Watchdog vs per-project **auto-optimizer** (icon-allocated projects).
+ * Header **pinned automation launcher**: **Scam Watchdog** (security monitor) vs **Project WIKI** rows (per-project snapshot + chat focus).
  *
- * **Watchdog vs optimizer:** `TriggerButtonShell` shows the continuous checkbox **only** for Scam Watchdog; project rows use the same shell **without** that checkbox (snapshot + speech bubble only).
- * - **Watchdog row (`WrChatWatchdogButton`):** `/api/wrchat/watchdog/continuous` — main-process Scam Watchdog scanner. **Not** project optimization.
- * - **Optimizer project row:** snapshot via `triggerOptimizerSnapshot` only; **no** continuous checkbox here (project auto-optimization interval is on the Analysis dashboard). Watchdog keeps its checkbox + `/api/wrchat/watchdog/*`.
+ * **Semantics:** Only **Scam Watchdog** uses `TriggerButtonShell` **continuous-monitor** — scan + **continuous** checkbox → `/api/wrchat/watchdog/*`. **Project** rows use **`mode="snapshot"`** — one-shot `triggerOptimizerSnapshot` + 💬; **no** continuous checkbox (repeat cadence lives on the Analysis dashboard).
  *
- * **Stable event names:** `WRCHAT_CHAT_FOCUS_REQUEST_EVENT`, `WRCHAT_OPEN_CUSTOM_MODE_WIZARD_EVENT` — listeners in WR Chat shell / `AddModeWizardHost`.
+ * **Stable event names (do not rename):** `WRCHAT_CHAT_FOCUS_REQUEST_EVENT`, `WRCHAT_OPEN_CUSTOM_MODE_WIZARD_EVENT`, etc.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { WatchdogThreat } from '../../../utils/formatWatchdogAlert'
@@ -15,7 +13,11 @@ import type { ChatFocusMode, TriggerFunctionId, TriggerProjectEntry } from '../.
 import { useChatFocusStore } from '../../../stores/chatFocusStore'
 import WatchdogIcon from '../WatchdogIcon'
 import WrChatWatchdogButton from '../WrChatWatchdogButton'
-import { ADD_AUTOMATION_ROW_UI_KIND, automationUiKindFromTriggerFunctionId } from './automationUiKind'
+import {
+  ADD_AUTOMATION_ROW_UI_KIND,
+  ADD_PROJECT_ASSISTANT_ROW_UI_KIND,
+  automationUiKindFromTriggerFunctionId,
+} from './automationUiKind'
 import { TriggerButtonShell } from './TriggerButtonShell'
 
 /**
@@ -37,13 +39,21 @@ export const WRCHAT_OPEN_CUSTOM_MODE_WIZARD_EVENT = 'wrchat-open-custom-mode-wiz
 export const WRCHAT_CUSTOM_MODE_WIZARD_SAVED = 'wrchat-custom-mode-wizard-saved'
 
 /**
- * Request Project Assistant creation on the WR Desk Analysis dashboard (desktop shell).
- * **Do not rename** without updating `App.tsx` and `AddModeWizardHost`.
+ * Request Project WIKI creation on the WR Desk Analysis dashboard (desktop shell).
+ * **Do not rename** the event string without updating `App.tsx` and listeners.
  */
 export const WRDESK_OPEN_PROJECT_ASSISTANT_CREATION = 'wrdesk-open-project-assistant-creation'
 
+/**
+ * Desktop Analysis dashboard: select the given project row in the trigger bar (auto-optimizer).
+ * Keeps header selection aligned when opening Project WIKI from the dashboard home list.
+ */
+export const WRDESK_TRIGGER_SYNC_AUTO_OPTIMIZER_PROJECT = 'wrdesk-trigger-sync-auto-optimizer-project'
+
 export type WrMultiTriggerBarProps = {
   theme?: string
+  /** Fires whenever the selected trigger row (watchdog vs project) changes — for dashboard gating. */
+  onActiveFunctionChange?: (functionId: TriggerFunctionId) => void
   onWatchdogAlert: (threats: WatchdogThreat[]) => void
   /** Optional — if omitted, only the window event is fired. */
   onChatFocusRequest?: (mode: ChatFocusMode) => void
@@ -131,6 +141,7 @@ function functionIdKey(fid: TriggerFunctionId): string {
 
 export default function WrMultiTriggerBar({
   theme = 'pro',
+  onActiveFunctionChange,
   onWatchdogAlert,
   onChatFocusRequest,
   onEnsureWrChatOpen,
@@ -151,6 +162,20 @@ export default function WrMultiTriggerBar({
   useEffect(() => {
     void refreshProjects()
   }, [refreshProjects])
+
+  useEffect(() => {
+    onActiveFunctionChange?.(activeFunctionId)
+  }, [activeFunctionId, onActiveFunctionChange])
+
+  useEffect(() => {
+    const onSync = (ev: Event) => {
+      const pid = (ev as CustomEvent<{ projectId?: string }>).detail?.projectId
+      if (typeof pid !== 'string' || !pid.trim()) return
+      setActiveFunctionId({ type: 'auto-optimizer', projectId: pid.trim() })
+    }
+    window.addEventListener(WRDESK_TRIGGER_SYNC_AUTO_OPTIMIZER_PROJECT, onSync)
+    return () => window.removeEventListener(WRDESK_TRIGGER_SYNC_AUTO_OPTIMIZER_PROJECT, onSync)
+  }, [])
 
   useEffect(() => {
     if (dropdownOpen) void refreshProjects()
@@ -260,15 +285,15 @@ Send me anything you'd like analyzed.`
       activeMilestoneTitle: mile,
       projectIcon: icon,
     }
-    const intro = `${icon} **Optimization automation: ${title}**
+    const intro = `${icon} **Project WIKI: ${title}**
 Active milestone: ${mile}
 
-I'm now focused on optimizing this project. You can:
-- Share additional context about the current milestone
-- Describe blockers or constraints the optimizer should consider
-- Add reference materials or data relevant to the optimization
+I'm focused on this project’s workspace. You can:
+- Share context for the current milestone
+- Describe blockers or constraints
+- Add reference materials for the next snapshot run
 
-What information would you like to add?`
+What would you like to add?`
     runAfterOpen(() => {
       useChatFocusStore.getState().setChatFocusWithIntro(mode, meta, intro)
       try {
@@ -286,8 +311,8 @@ What information would you like to add?`
 
   const speechTooltipWatchdog = 'Toggle Scam Watchdog chat focus (on / off)'
   const speechTooltipOptimizer = activeProject
-    ? `Toggle optimization chat focus for ${activeProject.title} (on / off)`
-    : 'Toggle optimization chat focus (on / off)'
+    ? `Toggle Project WIKI chat focus for ${activeProject.title} (on / off)`
+    : 'Toggle Project WIKI chat focus (on / off)'
 
   const optimizerPid =
     activeFunctionId.type === 'auto-optimizer' ? activeFunctionId.projectId : ''
@@ -323,6 +348,15 @@ What information would you like to add?`
     setDropdownOpen(false)
     try {
       window.dispatchEvent(new CustomEvent(WRCHAT_OPEN_CUSTOM_MODE_WIZARD_EVENT))
+    } catch {
+      /* noop */
+    }
+  }, [])
+
+  const handleAddProjectAssistantRowClick = useCallback(() => {
+    setDropdownOpen(false)
+    try {
+      window.dispatchEvent(new CustomEvent(WRDESK_OPEN_PROJECT_ASSISTANT_CREATION))
     } catch {
       /* noop */
     }
@@ -469,6 +503,39 @@ What information would you like to add?`
               <span>+ Add Automation</span>
             </button>
           </li>
+          <li role="presentation">
+            <button
+              type="button"
+              role="option"
+              data-automation-ui-kind={ADD_PROJECT_ASSISTANT_ROW_UI_KIND}
+              onClick={handleAddProjectAssistantRowClick}
+              style={{
+                width: '100%',
+                textAlign: 'left',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                padding: '8px 12px',
+                border: 'none',
+                background: 'transparent',
+                color: dropdownSurface.text,
+                cursor: 'pointer',
+                fontSize: 12,
+                fontWeight: 600,
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = dropdownSurface.hover
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = 'transparent'
+              }}
+            >
+              <span style={{ fontSize: 14, lineHeight: 1 }} aria-hidden>
+                📋
+              </span>
+              <span>+ Add Project WIKI</span>
+            </button>
+          </li>
         </ul>
       ) : null}
     </div>
@@ -496,6 +563,7 @@ What information would you like to add?`
           />
         ) : (
           <TriggerButtonShell
+            mode="snapshot"
             theme={theme}
             selectorSlot={dropdownLeadingSlot}
             icon={
@@ -504,23 +572,16 @@ What information would you like to add?`
               </span>
             }
             scanning={optimizerScanning}
-            intervalOn={false}
             cleanFlash={false}
             onIconClick={() => void handleOptimizerIconClick()}
-            onCheckboxToggle={() => {}}
-            checkboxChecked={false}
-            showContinuousCheckbox={false}
             disabled={false}
             middleSlot={
               <SpeechBubbleButton tooltip={speechTooltipOptimizer} onPress={emitChatFocus} />
             }
             scanButtonTitle={
-              optimizerScanning
-                ? 'Running optimization snapshot…'
-                : 'Run optimization snapshot'
+              optimizerScanning ? 'Running snapshot…' : 'Run one-shot snapshot for this project'
             }
-            scanButtonAriaLabel="Run optimization snapshot for this project"
-            cleanFlashAnnouncement="Nothing suspicious found on the screens"
+            scanButtonAriaLabel="Run one-shot snapshot for this project (Project WIKI)"
           />
         )}
       </div>

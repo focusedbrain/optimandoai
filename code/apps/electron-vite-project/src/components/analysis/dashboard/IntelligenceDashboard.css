@@ -1,12 +1,12 @@
 @import '../../../styles/dashboard-tokens.css';
 @import '../../../styles/dashboard-base.css';
 
-/* ── Container ── */
+/* ── Container (compact strip — more room for automation hero below) ── */
 .intelligence-dashboard {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 10px;
-  margin-bottom: 8px;
+  gap: 6px;
+  margin-bottom: 4px;
 }
 
 @media (max-width: 1100px) {
@@ -24,12 +24,12 @@
 /* ── Card shell ── */
 .intelligence-card {
   background: var(--dash-bg-card, #FFFFFF);
-  border: 1px solid var(--dash-border-default, #E8E8E6);
-  border-radius: 6px;
-  padding: 12px 14px;
+  border: 1px solid rgba(232, 232, 230, 0.92);
+  border-radius: 5px;
+  padding: 8px 10px;
   box-sizing: border-box;
   opacity: 0;
-  animation: dash-card-enter 300ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: dash-card-enter 280ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
 .intelligence-card:nth-child(1) { animation-delay: 0ms; }
@@ -44,12 +44,12 @@
 
 /* ── Section label ── */
 .intelligence-card__label {
-  font-size: 9px;
+  font-size: 8px;
   font-weight: 600;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.07em;
   text-transform: uppercase;
   color: var(--dash-text-tertiary, #9B9B96);
-  margin: 0 0 8px 0;
+  margin: 0 0 5px 0;
   line-height: 1;
   font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
 }
@@ -59,11 +59,11 @@
    ───────────────────────────────────────────── */
 
 .ic-sec__sub-label {
-  font-size: 9px;
+  font-size: 8px;
   font-weight: 600;
   letter-spacing: 0.04em;
   font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
-  margin-bottom: 6px;
+  margin-bottom: 4px;
 }
 
 .ic-sec__sub-label--threats { color: #DC2626; }
@@ -79,12 +79,12 @@
 .ic-sec__threat-row {
   display: flex;
   align-items: center;
-  height: 18px;
-  gap: 6px;
+  height: 16px;
+  gap: 5px;
 }
 
 .ic-sec__threat-label {
-  width: 66px;
+  width: 60px;
   flex-shrink: 0;
   font-size: 10px;
   font-weight: 400;
@@ -126,7 +126,7 @@
   height: 1px;
   background: var(--dash-border-subtle, #F0F0EE);
   border: none;
-  margin: 6px 0;
+  margin: 4px 0;
 }
 
 /* Protection rows */
@@ -139,7 +139,7 @@
 .ic-sec__protect-row {
   display: flex;
   align-items: center;
-  height: 16px;
+  height: 15px;
 }
 
 .ic-sec__protect-dot {
@@ -172,7 +172,7 @@
   height: 1px;
   background: var(--dash-border-subtle, #F0F0EE);
   border: none;
-  margin: 4px 0 4px 0;
+  margin: 3px 0 3px 0;
 }
 
 .ic-sec__footer-text {
@@ -189,12 +189,12 @@
 .ic-auto__kpi-row {
   display: flex;
   align-items: baseline;
-  gap: 4px;
-  margin-bottom: 8px;
+  gap: 3px;
+  margin-bottom: 5px;
 }
 
 .ic-auto__kpi-num {
-  font-size: 22px;
+  font-size: 18px;
   font-weight: 600;
   color: var(--dash-text-primary, #1C1C1A);
   line-height: 1;
@@ -212,12 +212,12 @@
 
 .ic-auto__bar-wrap {
   width: 100%;
-  height: 10px;
-  border-radius: 4px;
+  height: 8px;
+  border-radius: 3px;
   background: var(--dash-bg-inset, #F3F3F2);
   overflow: hidden;
   display: flex;
-  margin-bottom: 6px;
+  margin-bottom: 4px;
 }
 
 .ic-auto__bar-seg {
@@ -228,9 +228,9 @@
 .ic-auto__legend {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  row-gap: 3px;
-  column-gap: 10px;
-  margin-bottom: 6px;
+  row-gap: 2px;
+  column-gap: 8px;
+  margin-bottom: 4px;
 }
 
 .ic-auto__legend-item {
@@ -260,7 +260,7 @@
   height: 1px;
   background: var(--dash-border-subtle, #F0F0EE);
   border: none;
-  margin: 6px 0;
+  margin: 4px 0;
 }
 
 .ic-auto__session-ref {
@@ -297,7 +297,7 @@
 .ic-tp__top {
   display: flex;
   align-items: flex-start;
-  margin-bottom: 6px;
+  margin-bottom: 4px;
 }
 
 .ic-tp__ring-wrap {
@@ -308,19 +308,19 @@
 }
 
 .ic-tp__ring-sub {
-  font-size: 10px;
+  font-size: 9px;
   color: var(--dash-text-tertiary, #9B9B96);
-  margin-top: 2px;
+  margin-top: 1px;
   font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
 }
 
 .ic-tp__counts {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  margin-left: 14px;
+  gap: 4px;
+  margin-left: 10px;
   justify-content: center;
-  padding-top: 4px;
+  padding-top: 2px;
 }
 
 .ic-tp__count-block {
@@ -330,7 +330,7 @@
 }
 
 .ic-tp__count-num {
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 600;
   color: var(--dash-text-primary, #1C1C1A);
   line-height: 1;
@@ -348,16 +348,16 @@
   height: 1px;
   background: var(--dash-border-subtle, #F0F0EE);
   border: none;
-  margin: 6px 0;
+  margin: 4px 0;
 }
 
 .ic-tp__queue-label {
-  font-size: 9px;
+  font-size: 8px;
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--dash-text-tertiary, #9B9B96);
-  margin-bottom: 4px;
+  margin-bottom: 3px;
   font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
 }
 
@@ -408,8 +408,8 @@
 .ic-st__status-rows {
   display: flex;
   flex-direction: column;
-  gap: 1px;
-  margin-bottom: 6px;
+  gap: 0;
+  margin-bottom: 4px;
 }
 
 .ic-st__status-row {
@@ -448,7 +448,7 @@
   height: 1px;
   background: var(--dash-border-subtle, #F0F0EE);
   border: none;
-  margin: 6px 0;
+  margin: 4px 0;
 }
 
 /* Unopened BEAP row */
@@ -505,7 +505,7 @@
   height: 1px;
   background: var(--dash-border-subtle, #F0F0EE);
   border: none;
-  margin: 4px 0 3px 0;
+  margin: 3px 0 2px 0;
 }
 
 /* ── Project selector dropdown (replaces static project-ref text) ── */
@@ -535,6 +535,14 @@
   border-color: #2563EB;
 }
 
+.ic-st__project-hint {
+  margin: 0;
+  font-size: 9px;
+  line-height: 1.35;
+  color: var(--dash-text-secondary, #6B6B66);
+  font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
+}
+
 /* .status-toggle rules live in StatusToggle.css (imported via StatusToggle.tsx) */
 
 /* ─────────────────────────────────────────────
@@ -554,8 +562,8 @@
   align-items: center;
   justify-content: center;
   flex-direction: column;
-  gap: 10px;
-  padding: 32px 24px;
+  gap: 8px;
+  padding: 20px 18px;
 }
 
 .ic-error-text {

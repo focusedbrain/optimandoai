@@ -13,7 +13,11 @@
 // ── Intelligence Dashboard (Prompt 2) ────────────────────────────────────────
 export { IntelligenceDashboard } from './IntelligenceDashboard'
 
-// ── Active automation workspace + Project Optimization Panel (Prompts 3 + 4A) ─
+// ── Automation-first default hero (Analysis main column) ───────────────────────
+export { DashboardAutomationHome } from './DashboardAutomationHome'
+export type { DashboardAutomationHomeProps } from './DashboardAutomationHome'
+
+// ── Active automation workspace (optional wrapper — legacy / tests) ─────────
 export {
   ActiveAutomationWorkspace,
   type ActiveAutomationWorkspaceProps,
@@ -26,6 +30,8 @@ export {
   type ProjectOptimizationPanelOpenCreateOpts,
   type ProjectOptimizationPanelProps,
 } from './ProjectOptimizationPanel'
+
+export { ProjectAssistantConfigModal } from './ProjectAssistantConfigModal'
 
 export {
   ProjectSetupModal,

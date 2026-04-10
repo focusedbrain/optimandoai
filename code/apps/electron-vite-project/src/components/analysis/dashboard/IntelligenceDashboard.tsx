@@ -9,12 +9,14 @@ export interface IntelligenceDashboardProps {
   error: string | null
   onRetry: () => void
 
-  // Status card — project selector
-  projects?: Array<{ id: string; title: string }>
+  // Status card — scheduled assistant runs toggle (same store flags as Project WIKI)
+  /** From `useProjectStore` — enables repeat toggle when a project is active. */
   activeProjectId?: string | null
-  onSelectProject?: (projectId: string | null) => void
-
-  // Status card — scheduled assistant runs toggle (same store flags as Project Assistant)
+  /**
+   * When Project WIKI is open below, hide the Status card’s repeat row + hint
+   * so “Repeat linked session” copy appears only in ProjectOptimizationPanel.
+   */
+  suppressProjectAssistantDuplicateSurface?: boolean
   autoOptimizationEnabled?: boolean
   onToggleAutoOptimization?: (enabled: boolean) => void
 
@@ -27,7 +29,7 @@ export interface IntelligenceDashboardProps {
   accountCount?: number
   unopenedBeapCount?: number
 
-  /** @deprecated Pass activeProjectId + projects instead; kept for backward compat. */
+  /** @deprecated Kept for backward compat. */
   activeProjectName?: string | null
 }
 
@@ -338,9 +340,8 @@ function StatusCard({
   syncActive               = false,
   accountCount             = 0,
   unopenedBeapCount        = 0,
-  projects                 = [],
   activeProjectId          = null,
-  onSelectProject,
+  suppressProjectAssistantDuplicateSurface = false,
 }: {
   autoOptimizationEnabled?: boolean
   onToggleAutoOptimization?: (enabled: boolean) => void
@@ -349,9 +350,9 @@ function StatusCard({
   syncActive?: boolean
   accountCount?: number
   unopenedBeapCount?: number
-  projects?: Array<{ id: string; title: string }>
+  /** When set (from global project store), enables “Repeat linked session” controls. */
   activeProjectId?: string | null
-  onSelectProject?: (projectId: string | null) => void
+  suppressProjectAssistantDuplicateSurface?: boolean
 }) {
   const autoOptDisabled  = !activeProjectId
   const autoSyncDisabled = accountCount === 0
@@ -370,39 +371,43 @@ function StatusCard({
 
       <div className="ic-st__status-rows">
 
-        {/* Row 1: Repeat assistant on linked WR Chat — same store as Project Assistant panel */}
-        <div className="ic-st__status-row">
-          <div className="ic-st__status-left">
-            <div
-              className="ic-st__status-dot"
-              style={{
-                background: autoOptimizationEnabled ? '#059669' : 'rgba(220,38,38,0.5)',
-                opacity: autoOptDisabled ? 0.45 : 1,
-              }}
-            />
-            <span
-              className="ic-st__status-label"
-              style={{ opacity: autoOptDisabled ? 0.45 : 1 }}
-            >
-              Repeat linked session
-            </span>
-          </div>
-          <StatusToggle
-            enabled={autoOptimizationEnabled}
-            onToggle={(v) => onToggleAutoOptimization?.(v)}
-            disabled={autoOptDisabled}
-            label={
-              autoOptDisabled
-                ? 'Repeat linked session (select a project first)'
-                : 'Repeat linked WR Chat session'
-            }
-          />
-        </div>
-        {autoOptDisabled && (
-          <div style={{ textAlign: 'right', fontSize: 8, color: '#D97706', marginTop: -2, marginBottom: 2 }}>
-            Select a project first
-          </div>
-        )}
+        {/* Row 1: Repeat assistant — hidden while Project WIKI is open (same controls live in POP). */}
+        {!suppressProjectAssistantDuplicateSurface ? (
+          <>
+            <div className="ic-st__status-row">
+              <div className="ic-st__status-left">
+                <div
+                  className="ic-st__status-dot"
+                  style={{
+                    background: autoOptimizationEnabled ? '#059669' : 'rgba(220,38,38,0.5)',
+                    opacity: autoOptDisabled ? 0.45 : 1,
+                  }}
+                />
+                <span
+                  className="ic-st__status-label"
+                  style={{ opacity: autoOptDisabled ? 0.45 : 1 }}
+                >
+                  Repeat linked session
+                </span>
+              </div>
+              <StatusToggle
+                enabled={autoOptimizationEnabled}
+                onToggle={(v) => onToggleAutoOptimization?.(v)}
+                disabled={autoOptDisabled}
+                label={
+                  autoOptDisabled
+                    ? 'Repeat linked session (select a project first)'
+                    : 'Repeat linked WR Chat session'
+                }
+              />
+            </div>
+            {autoOptDisabled && (
+              <div style={{ textAlign: 'right', fontSize: 8, color: '#D97706', marginTop: -2, marginBottom: 2 }}>
+                Select a project first
+              </div>
+            )}
+          </>
+        ) : null}
 
         {/* Row 2: Auto-Sync — interactive toggle */}
         <div className="ic-st__status-row">
@@ -484,18 +489,11 @@ function StatusCard({
 
       <hr className="ic-st__divider-sm" />
 
-      {/* Project selector — replaces the static project name text */}
-      <select
-        value={activeProjectId ?? ''}
-        onChange={(e) => onSelectProject?.(e.target.value || null)}
-        className="ic-st__project-select"
-        aria-label="Active project"
-      >
-        <option value="">— No project —</option>
-        {projects.map((p) => (
-          <option key={p.id} value={p.id}>{p.title}</option>
-        ))}
-      </select>
+      {!suppressProjectAssistantDuplicateSurface ? (
+        <p className="ic-st__project-hint">
+          {activeProjectId ? 'Repeat applies to the project selected in Project WIKI.' : 'Select a project in Project WIKI to enable repeat runs.'}
+        </p>
+      ) : null}
     </div>
   )
 }
@@ -620,9 +618,8 @@ export function IntelligenceDashboard({
   loading,
   error,
   onRetry,
-  projects                 = [],
   activeProjectId          = null,
-  onSelectProject,
+  suppressProjectAssistantDuplicateSurface = false,
   autoOptimizationEnabled  = false,
   onToggleAutoOptimization,
   autoSyncEnabled          = false,
@@ -658,9 +655,8 @@ export function IntelligenceDashboard({
         onToggleAutoSync={onToggleAutoSync}
         syncActive={syncActive}
         accountCount={accountCount}
-        projects={projects}
         activeProjectId={activeProjectId}
-        onSelectProject={onSelectProject}
+        suppressProjectAssistantDuplicateSurface={suppressProjectAssistantDuplicateSurface}
         unopenedBeapCount={unopenedBeapCount}
       />
     </div>

@@ -12,7 +12,9 @@ import {
   WrMultiTriggerBar,
   AddModeWizardHost,
   WRDESK_OPEN_PROJECT_ASSISTANT_CREATION,
+  WRDESK_TRIGGER_SYNC_AUTO_OPTIMIZER_PROJECT,
 } from '@ext/ui/components'
+import type { TriggerFunctionId } from '@ext/types/triggerTypes'
 import { useEmailInboxStore, type InboxFilter } from './stores/useEmailInboxStore'
 import { subscribeInboxNewMessagesBackgroundRefresh } from './utils/inboxNewMessagesBackgroundRefresh'
 import { registerWrDeskOptimizerHttpBridge } from './lib/wrDeskOptimizerHttpBridge'
@@ -65,8 +67,10 @@ function App() {
   } | null>(null)
   const [deepLinkPayload, setDeepLinkPayload] = useState<AnalysisOpenPayload | null>(null)
   const [activeView, setActiveView] = useState<DashboardView>('analysis')
-  /** Bumps when Add Automation → Project Assistant should open the Analysis inline create form. */
+  /** Bumps when + Add Project WIKI should open Analysis create (modal in ProjectOptimizationPanel). */
   const [projectAssistantCreateToken, setProjectAssistantCreateToken] = useState(0)
+  /** Mirrors WrMultiTriggerBar selection — Analysis closes Project WIKI hero when Watchdog is selected. */
+  const [activeTriggerFunctionId, setActiveTriggerFunctionId] = useState<TriggerFunctionId>({ type: 'watchdog' })
   const [showInitiateModal, setShowInitiateModal] = useState(false)
   const [selectedHandshakeId, setSelectedHandshakeId] = useState<string | null>(null)
   const [selectedHandshakeEmail, setSelectedHandshakeEmail] = useState<string | null>(null)
@@ -90,6 +94,17 @@ function App() {
     }
     window.addEventListener(WRDESK_OPEN_PROJECT_ASSISTANT_CREATION, onProjectAssistantCreate)
     return () => window.removeEventListener(WRDESK_OPEN_PROJECT_ASSISTANT_CREATION, onProjectAssistantCreate)
+  }, [])
+
+  /** Keep App trigger state in sync when Analysis opens a project from the home list (same tick as dashboard). */
+  useEffect(() => {
+    const onSync = (ev: Event) => {
+      const pid = (ev as CustomEvent<{ projectId?: string }>).detail?.projectId
+      if (typeof pid !== 'string' || !pid.trim()) return
+      setActiveTriggerFunctionId({ type: 'auto-optimizer', projectId: pid.trim() })
+    }
+    window.addEventListener(WRDESK_TRIGGER_SYNC_AUTO_OPTIMIZER_PROJECT, onSync)
+    return () => window.removeEventListener(WRDESK_TRIGGER_SYNC_AUTO_OPTIMIZER_PROJECT, onSync)
   }, [])
 
   useEffect(() => {
@@ -364,10 +379,11 @@ function App() {
           <div
             className="app-header__wr-watchdog"
             style={{ display: 'flex', alignItems: 'center', flexShrink: 0, marginLeft: 6 }}
-            title="WR Chat (only header control): Scam Watchdog, optimizer — opens WR Chat main view"
+            title="Automation launcher: Scam Watchdog or a Project WIKI row — 💬 opens WR Chat focus for the selected row"
           >
             <WrMultiTriggerBar
               theme={extensionTheme}
+              onActiveFunctionChange={setActiveTriggerFunctionId}
               onWatchdogAlert={(threats) => {
                 try {
                   window.dispatchEvent(new CustomEvent('wrchat-watchdog-alert', { detail: threats }))
@@ -451,7 +467,9 @@ function App() {
             onOpenInboxMessage={handleOpenInboxMessageFromDashboard}
             onOpenInbox={handleOpenInboxFromAnalysis}
             emailAccounts={emailAccounts}
+            activeTriggerFunctionId={activeTriggerFunctionId}
             projectAssistantCreateToken={projectAssistantCreateToken}
+            onNavigateToWrChat={() => setActiveView('wr-chat')}
             onOpenBulkInboxForAnalysis={() => {
               setActiveView('beap-inbox')
               setInboxBulkMode(true)

@@ -128,7 +128,7 @@ function ProjectSetupModal({ open, initialTab, subtitle, onClose, drafts }: Setu
         <div className="project-setup-modal__header">
           <div className="project-setup-modal__header-text">
             <h2 id="project-setup-modal-title" className="project-setup-modal__title">
-              Project Assistant
+              Project WIKI
             </h2>
             <p className="project-setup-modal__subtitle">{subtitle}</p>
           </div>
@@ -417,7 +417,7 @@ export function ProjectSetupSection({
       <header className="project-setup-section__hero project-setup-section__hero--command">
         <div className="project-setup-section__hero-top">
           <h2 id="project-setup-display-title" className="project-setup-section__display-title">
-            Project Assistant
+            Project WIKI
           </h2>
         </div>
         <p className="project-setup-section__tagline">{copy.headline}</p>

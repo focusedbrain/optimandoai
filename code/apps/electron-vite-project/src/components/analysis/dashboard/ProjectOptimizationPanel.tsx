@@ -1,7 +1,8 @@
 /**
- * ProjectOptimizationPanel — compact card with INLINE project setup (PROMPT 4C).
+ * ProjectOptimizationPanel — Project Assistant runtime + setup (PROMPT 4C).
  *
- * CRITICAL DESIGN: No modal. The setup form renders inline within the card.
+ * **Setup / create / edit:** The full field form (AI insert hooks, milestones, linked sessions) renders inside
+ * {@link ProjectAssistantConfigModal} (portal) so the dashboard column is not permanently occupied by the form.
  * The header AI chat (HybridSearch) stays accessible at all times.
  *
  * AI DRAFT PATTERN (updated in 4C):
@@ -23,8 +24,8 @@
  *
  * setupMode:
  *   'collapsed' — normal view (selector, controls, roadmap, footer)
- *   'creating'  — card expands with blank new-project form
- *   'editing'   — card expands pre-filled with active project data
+ *   'creating'  — modal open with blank new-project form
+ *   'editing'     — modal open pre-filled with active project data
  *
  * PRESERVED:
  *   - useEmailInboxStore: autoSyncEnabled, toggleAutoSyncForActiveAccounts, refreshInboxSyncBackendState
@@ -80,6 +81,7 @@ import { StatusToggle } from './StatusToggle'
 import '../../../styles/dashboard-tokens.css'
 import '../../../styles/dashboard-base.css'
 import './ProjectOptimizationPanel.css'
+import { ProjectAssistantConfigModal } from './ProjectAssistantConfigModal'
 
 /** Preset icons for project allocation (emoji strings). */
 const PROJECT_ICON_CHOICES = [
@@ -98,12 +100,8 @@ const PROJECT_ICON_CHOICES = [
  *   **`data-milestone-id="<milestoneUuid>"`** — selectors are centralized in
  *   `projectAssistantAiFieldContracts.ts` (see `flashFieldEl` / `flashMilestoneEl`) so
  *   post-insert flash / resize behavior keeps working.
+ * Global typing: `vite-env.d.ts` (`Window.__wrdeskInsertDraft`).
  */
-declare global {
-  interface Window {
-    __wrdeskInsertDraft?: (text: string, mode: 'append' | 'replace') => void
-  }
-}
 
 /** Resolves `[data-field="…"]` — uses {@link projectAssistantDataFieldSelector}. */
 function flashFieldEl(dataField: string) {
@@ -161,7 +159,7 @@ export interface ProjectOptimizationPanelProps {
 /** Imperative API for workspace chrome — open create/edit without duplicating form logic. */
 /** Options for imperative `openCreateMode` (Add Automation → Project Assistant path). */
 export type ProjectOptimizationPanelOpenCreateOpts = {
-  /** Hide run-interval controls for this create session only (default interval still persisted on save). */
+  /** @deprecated Interval cadence is not shown in the dedicated config modal; option is ignored. */
   omitIntervalFields?: boolean
 }
 
@@ -218,9 +216,6 @@ export const ProjectOptimizationPanel = forwardRef<ProjectOptimizationPanelHandl
     },
     ref,
   ) {
-  /** Add Automation → Project Assistant: hide interval row while creating (same form wiring otherwise). */
-  const [omitIntervalForCreate, setOmitIntervalForCreate] = useState(false)
-
   // ── Project store ──────────────────────────────────────────────────────────
   const {
     projects,
@@ -769,7 +764,7 @@ export const ProjectOptimizationPanel = forwardRef<ProjectOptimizationPanelHandl
     window.dispatchEvent(new CustomEvent('wrdesk:clear-chat-conversation'))
   }, [])
 
-  const openCreateMode = useCallback((opts?: ProjectOptimizationPanelOpenCreateOpts) => {
+  const openCreateMode = useCallback((_opts?: ProjectOptimizationPanelOpenCreateOpts) => {
     setFormTitle('')
     setFormDescription('')
     setFormGoals('')
@@ -784,7 +779,6 @@ export const ProjectOptimizationPanel = forwardRef<ProjectOptimizationPanelHandl
     quickEditMilestoneIdRef.current = null
     setQuickEditMilestoneId(null)
     window.__wrdeskInsertDraft = undefined
-    setOmitIntervalForCreate(opts?.omitIntervalFields === true)
     setSetupMode('creating')
   }, [])
 
@@ -805,7 +799,6 @@ export const ProjectOptimizationPanel = forwardRef<ProjectOptimizationPanelHandl
     quickEditMilestoneIdRef.current = null
     setQuickEditMilestoneId(null)
     window.__wrdeskInsertDraft = undefined
-    setOmitIntervalForCreate(false)
     setSetupMode('editing')
   }, [])
 
@@ -829,7 +822,6 @@ export const ProjectOptimizationPanel = forwardRef<ProjectOptimizationPanelHandl
 
   const handleCancelForm = useCallback(() => {
     clearFormChatContext()
-    setOmitIntervalForCreate(false)
     setSetupMode('collapsed')
   }, [clearFormChatContext])
 
@@ -857,7 +849,6 @@ export const ProjectOptimizationPanel = forwardRef<ProjectOptimizationPanelHandl
       store.setActiveProject(newId)
     }
     clearFormChatContext()
-    setOmitIntervalForCreate(false)
     setSetupMode('collapsed')
   }, [
     formTitle, formDescription, formGoals, formMilestones, formAttachments,
@@ -1020,7 +1011,7 @@ export const ProjectOptimizationPanel = forwardRef<ProjectOptimizationPanelHandl
               <button
                 type="button"
                 className="pop__btn-sm"
-                onClick={openCreateMode}
+                onClick={() => openCreateMode()}
                 title="Create a new project"
               >
                 + New Project
@@ -1109,27 +1100,17 @@ export const ProjectOptimizationPanel = forwardRef<ProjectOptimizationPanelHandl
         </div>
       </div>
 
-      {/* ── Inline Setup Form ───────────────────────────────────────────────── */}
+      {/* ── Project Assistant setup (modal — same form tree as former inline block) ── */}
       {isFormOpen && (
-        <>
-          <div className="pop__divider" aria-hidden="true" />
-
+        <ProjectAssistantConfigModal onClose={handleCancelForm}>
           {/* BEAP-composer style form — mirrors BeapInlineComposer light theme */}
           <div style={{ padding: '18px 20px', display: 'flex', flexDirection: 'column', gap: 20, background: '#f8fafc' }}>
 
-            {/* Form header */}
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+            {/* Form header — modal chrome provides close; footer has Cancel */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start', gap: 8 }}>
               <span style={{ fontSize: 14, fontWeight: 600, color: '#0f172a' }}>
                 {setupMode === 'creating' ? 'New project' : `Edit: ${formTitle}`}
               </span>
-              <button
-                type="button"
-                onClick={handleCancelForm}
-                tabIndex={-1}
-                style={{ fontSize: 12, color: '#64748b', background: 'none', border: 'none', cursor: 'pointer', padding: '2px 4px' }}
-              >
-                Cancel
-              </button>
             </div>
 
             {/* Title */}
@@ -1583,33 +1564,6 @@ export const ProjectOptimizationPanel = forwardRef<ProjectOptimizationPanelHandl
               ) : null}
             </div>
 
-            {/* Assistant run interval — hidden for Add Automation → Project Assistant create path only */}
-            {!(setupMode === 'creating' && omitIntervalForCreate) ? (
-              <div>
-                <label
-                  htmlFor="pop-form-interval"
-                  style={{ fontSize: 11, fontWeight: 600, color: '#64748b', textTransform: 'uppercase', display: 'block', marginBottom: 6, letterSpacing: '0.5px' }}
-                >
-                  Repeat cadence
-                </label>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <select
-                    id="pop-form-interval"
-                    value={formIntervalMs}
-                    onChange={(e) => setFormIntervalMs(Number(e.target.value))}
-                    style={{ width: 110, boxSizing: 'border-box', padding: '10px 12px', borderRadius: 8, background: '#ffffff', color: '#0f172a', border: '1px solid #cbd5e1', fontSize: 13, outline: 'none' }}
-                    onFocus={(e) => { e.currentTarget.style.boxShadow = '0 0 0 2px rgba(99,102,241,0.4)' }}
-                    onBlur={(e) => { e.currentTarget.style.boxShadow = 'none' }}
-                  >
-                    {AUTO_OPTIMIZATION_INTERVALS.map((i) => (
-                      <option key={i.value} value={i.value}>{i.label}</option>
-                    ))}
-                  </select>
-                  <span style={{ fontSize: 12, color: '#64748b' }}>when repeat on linked session is on</span>
-                </div>
-              </div>
-            ) : null}
-
             {/* Save / Cancel footer — mirrors BEAP composer button row */}
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', paddingTop: 4 }}>
               <button
@@ -1635,7 +1589,7 @@ export const ProjectOptimizationPanel = forwardRef<ProjectOptimizationPanelHandl
             </div>
 
           </div>
-        </>
+        </ProjectAssistantConfigModal>
       )}
 
       {/* ── Divider ─────────────────────────────────────────────────────────── */}

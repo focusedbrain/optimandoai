@@ -1,0 +1,364 @@
+.dash-auto-home {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px 14px 14px;
+  min-height: 0;
+  background:
+    radial-gradient(100% 70% at 100% 0%, rgba(79, 70, 229, 0.07) 0%, transparent 50%),
+    linear-gradient(180deg, #fafbfc 0%, #f4f6f8 100%);
+  border: 1px solid rgba(15, 23, 42, 0.09);
+  border-radius: 12px;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.9) inset,
+    0 8px 24px rgba(15, 23, 42, 0.05);
+}
+
+/* ── Starter automations (dense hero) ─────────────────────────────────────── */
+
+.dash-auto-home__starters-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px 14px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.28);
+}
+
+.dash-auto-home__starters-header-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.dash-auto-home__creation-toolbar {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.dash-auto-home__create-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.2;
+  color: #0f172a;
+  background: #fff;
+  border: 1px solid rgba(148, 163, 184, 0.55);
+  border-radius: 8px;
+  padding: 6px 10px;
+  cursor: pointer;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.9) inset;
+  transition: background 0.14s ease, border-color 0.14s ease, box-shadow 0.14s ease;
+}
+
+.dash-auto-home__create-btn:hover {
+  background: #f8fafc;
+  border-color: rgba(100, 116, 139, 0.5);
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.06);
+}
+
+.dash-auto-home__create-btn:active {
+  background: #f1f5f9;
+}
+
+.dash-auto-home__create-btn-icon {
+  font-size: 13px;
+  line-height: 1;
+}
+
+.dash-auto-home__kicker {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #6366f1;
+}
+
+.dash-auto-home__starters-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  color: #0f172a;
+  line-height: 1.2;
+}
+
+.dash-auto-home__starters-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+@media (max-width: 520px) {
+  .dash-auto-home__starters-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.dash-auto-home__starter {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 10px 9px;
+  min-height: 0;
+  background: #fff;
+  border: 1px solid rgba(148, 163, 184, 0.32);
+  border-radius: 9px;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.85) inset;
+  transition: border-color 0.14s ease, box-shadow 0.14s ease;
+}
+
+.dash-auto-home__starter:hover {
+  border-color: rgba(100, 116, 139, 0.42);
+  box-shadow: 0 3px 12px rgba(15, 23, 42, 0.05);
+}
+
+.dash-auto-home__starter--accent-mail {
+  border-left: 3px solid #2563eb;
+}
+
+.dash-auto-home__starter--accent-compose {
+  border-left: 3px solid #7c3aed;
+}
+
+.dash-auto-home__starter--accent-document {
+  border-left: 3px solid #0d9488;
+}
+
+.dash-auto-home__starter--accent-beap {
+  border-left: 3px solid #c026d3;
+}
+
+.dash-auto-home__starter-top {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+}
+
+.dash-auto-home__starter-icon {
+  font-size: 16px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.dash-auto-home__starter-title {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 650;
+  color: #0f172a;
+  letter-spacing: -0.02em;
+  line-height: 1.25;
+}
+
+.dash-auto-home__starter-value {
+  margin: 0;
+  font-size: 10px;
+  line-height: 1.35;
+  color: #64748b;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.dash-auto-home__starter-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: auto;
+  padding-top: 2px;
+}
+
+.dash-auto-home__btn {
+  font-family: inherit;
+  font-size: 10px;
+  font-weight: 650;
+  border-radius: 6px;
+  padding: 5px 10px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: background 0.14s ease, border-color 0.14s ease, color 0.14s ease;
+}
+
+.dash-auto-home__btn--primary {
+  background: #0f172a;
+  color: #f8fafc;
+  border-color: #0f172a;
+}
+
+.dash-auto-home__btn--primary:hover {
+  background: #1e293b;
+}
+
+.dash-auto-home__btn--ghost {
+  background: #fff;
+  color: #334155;
+  border-color: rgba(148, 163, 184, 0.55);
+}
+
+.dash-auto-home__btn--ghost:hover {
+  background: #f8fafc;
+}
+
+.dash-auto-home__btn--sm {
+  padding: 5px 9px;
+  font-size: 10px;
+}
+
+/* ── Project WIKI (secondary strip — below starters) ──────────────────────── */
+
+.dash-auto-home__wiki {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 8px 8px;
+  margin-top: 4px;
+  border-radius: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  background: rgba(248, 250, 252, 0.65);
+}
+
+.dash-auto-home__wiki-head {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.dash-auto-home__wiki-heading {
+  margin: 0;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #64748b;
+}
+
+.dash-auto-home__wiki-line {
+  margin: 0;
+  font-size: 9px;
+  line-height: 1.35;
+  color: #94a3b8;
+  max-width: 42rem;
+}
+
+.dash-auto-home__empty {
+  margin: 0;
+  font-size: 10px;
+  color: #64748b;
+  line-height: 1.4;
+}
+
+.dash-auto-home__wiki-strip {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 2px 0 4px;
+  margin: 0 -2px;
+  scrollbar-width: thin;
+}
+
+.dash-auto-home__wiki-chip {
+  flex: 0 0 auto;
+  width: min(200px, 78vw);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 7px 8px;
+  border-radius: 8px;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  background: rgba(255, 255, 255, 0.75);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.9) inset;
+}
+
+.dash-auto-home__wiki-chip--selected {
+  border-color: rgba(79, 70, 229, 0.42);
+  box-shadow:
+    0 0 0 1px rgba(79, 70, 229, 0.12),
+    0 1px 0 rgba(255, 255, 255, 0.9) inset;
+  background: rgba(255, 255, 255, 0.95);
+}
+
+.dash-auto-home__wiki-chip-select {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  width: 100%;
+  padding: 0;
+  margin: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  border-radius: 4px;
+}
+
+.dash-auto-home__wiki-chip-select:hover {
+  background: rgba(241, 245, 249, 0.6);
+}
+
+.dash-auto-home__wiki-chip-select:focus-visible {
+  outline: 2px solid rgba(79, 70, 229, 0.45);
+  outline-offset: 1px;
+}
+
+.dash-auto-home__wiki-chip-icon {
+  font-size: 13px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.dash-auto-home__wiki-chip-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.dash-auto-home__wiki-chip-title {
+  font-size: 11px;
+  font-weight: 650;
+  color: #334155;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dash-auto-home__wiki-chip-mile {
+  font-size: 9px;
+  color: #94a3b8;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dash-auto-home__wiki-chip-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding-top: 2px;
+  border-top: 1px solid rgba(226, 232, 240, 0.9);
+}
+
+.dash-auto-home__btn--xs {
+  padding: 3px 7px;
+  font-size: 9px;
+  font-weight: 650;
+  border-radius: 5px;
+}
+
+.dash-auto-home__btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}

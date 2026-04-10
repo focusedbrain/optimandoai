@@ -1,7 +1,13 @@
 import React, { useCallback } from 'react'
 
-export interface TriggerButtonShellProps {
-  /** Function selector (e.g. dropdown) — directly after the main scan icon. */
+/**
+ * **Monitor** (`continuous-monitor`): Scam Watchdog — scan + **continuous** checkbox only (security monitor).
+ * **Snapshot** (`snapshot`): Project WIKI row — **one-shot snapshot** + chat focus; **never** the Watchdog continuous checkbox.
+ */
+
+/** Scam Watchdog / monitor: scan + optional continuous interval checkbox (`/api/wrchat/watchdog/*`). */
+export type TriggerButtonShellMonitorProps = {
+  mode?: 'continuous-monitor'
   selectorSlot?: React.ReactNode
   icon: React.ReactNode
   scanning: boolean
@@ -11,8 +17,8 @@ export interface TriggerButtonShellProps {
   onCheckboxToggle: (enabled: boolean) => void
   checkboxChecked: boolean
   /**
-   * When false, the continuous-monitoring checkbox is hidden (e.g. project optimizer — interval belongs on the Analysis dashboard, not this monitor-style control).
-   * Watchdog / Scam Watchdog should keep the default true.
+   * When false, the continuous-monitoring checkbox is hidden.
+   * Prefer `mode="snapshot"` for Project Assistant rows instead of toggling this alone.
    */
   showContinuousCheckbox?: boolean
   disabled?: boolean
@@ -28,27 +34,54 @@ export interface TriggerButtonShellProps {
   cleanFlashAnnouncement?: string
 }
 
+/** Project WIKI row: snapshot + chat focus — **not** Scam Watchdog; no continuous/interval checkbox. */
+export type TriggerButtonShellSnapshotProps = {
+  mode: 'snapshot'
+  selectorSlot?: React.ReactNode
+  icon: React.ReactNode
+  scanning: boolean
+  cleanFlash: boolean
+  onIconClick: () => void
+  disabled?: boolean
+  /** Speech bubble — after scan icon and selector (no interval checkbox in this mode). */
+  middleSlot?: React.ReactNode
+  theme?: string
+  scanButtonTitle: string
+  scanButtonAriaLabel: string
+  cleanFlashAnnouncement?: string
+}
+
+export type TriggerButtonShellProps = TriggerButtonShellMonitorProps | TriggerButtonShellSnapshotProps
+
 const stopCheckboxBubble = (e: React.MouseEvent) => {
   e.stopPropagation()
 }
 
-export function TriggerButtonShell({
-  selectorSlot,
-  icon,
-  scanning,
-  intervalOn,
-  cleanFlash,
-  onIconClick,
-  onCheckboxToggle,
-  checkboxChecked,
-  showContinuousCheckbox = true,
-  disabled = false,
-  middleSlot,
-  theme = 'pro',
-  scanButtonTitle,
-  scanButtonAriaLabel,
-  cleanFlashAnnouncement = 'Nothing suspicious found on the screens',
-}: TriggerButtonShellProps) {
+export function TriggerButtonShell(props: TriggerButtonShellProps) {
+  const isSnapshot = props.mode === 'snapshot'
+  const {
+    selectorSlot,
+    icon,
+    scanning,
+    cleanFlash,
+    onIconClick,
+    disabled = false,
+    middleSlot,
+    theme = 'pro',
+    scanButtonTitle,
+    scanButtonAriaLabel,
+  } = props
+
+  const cleanFlashAnnouncement =
+    props.cleanFlashAnnouncement ??
+    (isSnapshot ? 'Snapshot finished' : 'Nothing suspicious found on the screens')
+
+  const mon = !isSnapshot ? (props as TriggerButtonShellMonitorProps) : null
+  const showContinuousCheckbox = Boolean(mon && (mon.showContinuousCheckbox ?? true))
+  const intervalOn = mon?.intervalOn ?? false
+  const checkboxChecked = mon?.checkboxChecked ?? false
+  const onCheckboxToggle = mon?.onCheckboxToggle
+
   const isLight = theme === 'standard'
   const isDark = theme === 'dark'
   const shellBorder = isLight
@@ -70,14 +103,21 @@ export function TriggerButtonShell({
 
   const handleCheckbox = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
-      onCheckboxToggle(e.target.checked)
+      onCheckboxToggle?.(e.target.checked)
     },
     [onCheckboxToggle],
   )
 
+  const groupAria = isSnapshot
+    ? 'Project WIKI — run snapshot and chat focus'
+    : 'Scam Watchdog — scan and continuous monitoring'
+
   return (
     <div
+      role="group"
+      aria-label={groupAria}
       style={{
+        position: 'relative',
         display: 'inline-flex',
         alignItems: 'center',
         gap: 4,
@@ -134,7 +174,7 @@ export function TriggerButtonShell({
             fontSize: 10,
             userSelect: 'none',
           }}
-          title="Continuous monitoring"
+          title="Continuous monitoring (Scam Watchdog only)"
         >
           <input
             type="checkbox"

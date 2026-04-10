@@ -1,12 +1,12 @@
 /**
- * **Project Assistant / ProjectOptimizationPanel — AI insert DOM contract**
+ * **Project WIKI / ProjectOptimizationPanel — AI insert DOM contract**
  *
  * `HybridSearch` calls `window.__wrdeskInsertDraft`; this panel inserts into fields located via:
- * - `[data-field="title" | "description" | "goals"]` — inline form inputs (see `flashFieldEl`)
- * - `[data-milestone-id="<uuid>"]` — milestone body textareas (see `flashMilestoneEl`)
+ * - `[data-field="title" | "description" | "goals"]` — inline form inputs (see `flashFieldEl` in POP)
+ * - `[data-milestone-id="<uuid>"]` — milestone title textareas (see `flashMilestoneEl` in POP)
  *
- * Keep selectors centralized here so refactors (ActiveAutomationWorkspace, etc.) do not drift
- * from `querySelector` usage in flash helpers or from HybridSearch expectations.
+ * **Preservation:** attributes must remain on the same DOM nodes whether the form is inline or
+ * portaled (`ProjectAssistantConfigModal`). See `projectAssistantAiFieldContracts.test.ts`.
  */
 
 /** `data-field` values on the inline project form that participate in AI insert + flash. */

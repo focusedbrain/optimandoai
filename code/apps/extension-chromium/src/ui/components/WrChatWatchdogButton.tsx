@@ -22,7 +22,7 @@ export interface WrChatWatchdogButtonProps {
   middleSlot?: React.ReactNode
 }
 
-const TOOLTIP_MAIN = 'Watchdog: Click to scan, check for continuous monitoring'
+const TOOLTIP_MAIN = 'Scam Watchdog — click to run a scan; use the checkbox for continuous checks'
 const TOOLTIP_CLEAN = 'Nothing suspicious found on the screens'
 const CLEAN_FLASH_MS = 3200
 
@@ -270,18 +270,19 @@ export default function WrChatWatchdogButton({
   const scanButtonTitle = cleanFlash
     ? TOOLTIP_CLEAN
     : continuousPulse
-      ? `${TOOLTIP_MAIN} — Interval monitoring is on`
+      ? `${TOOLTIP_MAIN} — Continuous monitoring is on`
       : showBusyTitle
 
   const scanButtonAriaLabel =
     cleanFlash
       ? TOOLTIP_CLEAN
       : continuousPulse
-        ? 'Watchdog scan — interval monitoring on'
-        : 'Watchdog scan'
+        ? 'Scam Watchdog scan — continuous monitoring on'
+        : 'Scam Watchdog — run scan'
 
   return (
     <TriggerButtonShell
+      mode="continuous-monitor"
       theme={theme}
       selectorSlot={selectorSlot}
       icon={<WatchdogIcon size={16} />}

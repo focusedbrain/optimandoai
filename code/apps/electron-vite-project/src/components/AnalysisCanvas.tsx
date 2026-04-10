@@ -9,8 +9,9 @@
  *   ┌──────────────────────────────────────────┐
  *   │  IntelligenceDashboard  (full width)      │
  *   ├──────────────────────┬───────────────────┤
- *   │  ActiveAutomation     │  ActivityFeed     │
- *   │  Workspace (wraps POP)│  Column  (~40%)   │
+ *   │  Automation home OR  │  ActivityFeed     │
+ *   │  Project WIKI (POP)    │  Column  (~40%)   │
+ *   │  (exclusive)         │                   │
  *   └──────────────────────┴───────────────────┘
  *
  * Untouched by this refactor:
@@ -33,9 +34,10 @@ import { StatusBadge } from './analysis/StatusBadge'
 
 // ── Dashboard components (all via barrel export) ──────────────────────────────
 import {
-  ActiveAutomationWorkspace,
+  DashboardAutomationHome,
   IntelligenceDashboard,
   ActivityFeedColumn,
+  ProjectOptimizationPanel,
   type DashboardEmailAccountRow,
   type OpenInboxMessagePayload,
   type ProjectOptimizationPanelHandle,
@@ -46,6 +48,8 @@ import { useAnalysisDashboardSnapshot } from '../lib/useAnalysisDashboardSnapsho
 import { activeEmailAccountIdsForSync, useEmailInboxStore } from '../stores/useEmailInboxStore'
 import { useProjectStore, selectActiveProject } from '../stores/useProjectStore'
 import { pickDefaultEmailAccountRowId } from '@ext/shared/email/pickDefaultAccountRow'
+import type { TriggerFunctionId } from '@ext/types/triggerTypes'
+import { WRDESK_TRIGGER_SYNC_AUTO_OPTIMIZER_PROJECT } from '@ext/ui/components'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -67,9 +71,13 @@ interface AnalysisCanvasProps {
   emailAccounts?: DashboardEmailAccountRow[]
   /** After refresh, open Bulk Inbox for AI Auto-Sort. */
   onOpenBulkInboxForAnalysis?: () => void
+  /** Navigate to WR Chat (starter cards, automation home). */
+  onNavigateToWrChat?: () => void
+  /** Header multi-trigger selection — closes Project WIKI hero when switching to Watchdog (see workspace rules below). */
+  activeTriggerFunctionId: TriggerFunctionId
   /**
-   * Increment when Add Automation → Project Assistant should open the inline create form
-   * (desktop shell dispatches `WRDESK_OPEN_PROJECT_ASSISTANT_CREATION`).
+   * Increment when + Add Project WIKI should open create in {@link ProjectOptimizationPanel}
+   * (modal form — desktop dispatches `WRDESK_OPEN_PROJECT_ASSISTANT_CREATION`).
    */
   projectAssistantCreateToken?: number
 }
@@ -83,6 +91,8 @@ export default function AnalysisCanvas({
   onOpenInbox,
   emailAccounts,
   onOpenBulkInboxForAnalysis,
+  onNavigateToWrChat,
+  activeTriggerFunctionId,
   projectAssistantCreateToken = 0,
 }: AnalysisCanvasProps) {
   // ── Data layer — unchanged from original ──────────────────────────────────
@@ -95,16 +105,57 @@ export default function AnalysisCanvas({
 
   // ── Project store (drives StatusCard wiring) ───────────────────────────────
   const activeProject   = useProjectStore(selectActiveProject)
-  const projects        = useProjectStore((s) => s.projects)
   const activeProjectId = useProjectStore((s) => s.activeProjectId)
   const setActiveProject = useProjectStore((s) => s.setActiveProject)
   const autoSyncEnabled = useEmailInboxStore((s) => s.autoSyncEnabled)
 
   const automationWorkspaceRef = useRef<ProjectOptimizationPanelHandle>(null)
+  /** When true, Project WIKI ({@link ProjectOptimizationPanel}) is shown (exclusive with {@link DashboardAutomationHome} in the hero slot). */
+  const [projectAssistantWorkspaceOpen, setProjectAssistantWorkspaceOpen] = useState(false)
+  /** True while “+ Add Project WIKI” create-from-bar is active (trigger may still be Watchdog). */
+  const [pendingProjectAssistantCreateSession, setPendingProjectAssistantCreateSession] = useState(false)
+  const lastHandledAssistCreateTokenRef = useRef(0)
 
+  const showProjectAssistantWorkspace =
+    projectAssistantWorkspaceOpen &&
+    (activeTriggerFunctionId.type === 'auto-optimizer' || pendingProjectAssistantCreateSession)
+
+  /**
+   * Hero stays automation-first by default. Project WIKI opens only from explicit actions (home list, Add WIKI).
+   * - Watchdog → close Project WIKI unless Add-WIKI create is pending.
+   * - Auto-optimizer row alone → do not auto-open (no project-centric default hero).
+   */
+  useEffect(() => {
+    if (pendingProjectAssistantCreateSession) {
+      setProjectAssistantWorkspaceOpen(true)
+      return
+    }
+    if (activeTriggerFunctionId.type === 'watchdog') {
+      setProjectAssistantWorkspaceOpen(false)
+    }
+  }, [activeTriggerFunctionId, pendingProjectAssistantCreateSession])
+
+  /** Once a project row is selected in the trigger bar, drop the “pending create” flag. */
+  useEffect(() => {
+    if (activeTriggerFunctionId.type === 'auto-optimizer' && pendingProjectAssistantCreateSession) {
+      setPendingProjectAssistantCreateSession(false)
+    }
+  }, [activeTriggerFunctionId, pendingProjectAssistantCreateSession])
+
+  /**
+   * + Add Project WIKI (header) bumps `projectAssistantCreateToken`; open create once per token
+   * after the panel mounts (same imperative path as the automation-home list).
+   */
   useEffect(() => {
     if (projectAssistantCreateToken < 1) return
-    automationWorkspaceRef.current?.openCreateMode({ omitIntervalFields: true })
+    if (projectAssistantCreateToken === lastHandledAssistCreateTokenRef.current) return
+    lastHandledAssistCreateTokenRef.current = projectAssistantCreateToken
+    setPendingProjectAssistantCreateSession(true)
+    setProjectAssistantWorkspaceOpen(true)
+    const t = window.setTimeout(() => {
+      automationWorkspaceRef.current?.openCreateMode({ omitIntervalFields: true })
+    }, 0)
+    return () => clearTimeout(t)
   }, [projectAssistantCreateToken])
 
   /**
@@ -118,16 +169,37 @@ export default function AnalysisCanvas({
 
   // ── Status card callbacks (bidirectional sync via Zustand) ─────────────────
 
-  /** Select a project in the Status card — syncs with ProjectOptimizationPanel. */
-  const handleSelectProject = useCallback((projectId: string | null) => {
-    setActiveProject(projectId)
-  }, [setActiveProject])
-
-  /** Toggle repeat on linked WR Chat from the Status card — same `setAutoOptimization` as Project Assistant. */
+  /** Toggle repeat on linked WR Chat from the Status card — same `setAutoOptimization` as Project WIKI. */
   const handleToggleAutoOptimization = useCallback((enabled: boolean) => {
     if (!activeProjectId) return
     useProjectStore.getState().setAutoOptimization(activeProjectId, enabled)
   }, [activeProjectId])
+
+  /** Open Project WIKI for a project (automation-home list). */
+  const handleOpenProjectAssistantWorkspace = useCallback(
+    (opts: { projectId: string; mode?: 'edit' | 'view' }) => {
+      try {
+        window.dispatchEvent(
+          new CustomEvent(WRDESK_TRIGGER_SYNC_AUTO_OPTIMIZER_PROJECT, { detail: { projectId: opts.projectId } }),
+        )
+      } catch {
+        /* noop */
+      }
+      setActiveProject(opts.projectId)
+      setProjectAssistantWorkspaceOpen(true)
+      if (opts.mode === 'edit') {
+        window.setTimeout(() => {
+          automationWorkspaceRef.current?.openEditMode()
+        }, 0)
+      }
+    },
+    [setActiveProject],
+  )
+
+  const handleCloseProjectAssistantWorkspace = useCallback(() => {
+    setPendingProjectAssistantCreateSession(false)
+    setProjectAssistantWorkspaceOpen(false)
+  }, [])
 
   /** Toggle Auto-Sync from the Status card — calls the same mechanism as ProjectOptimizationPanel. */
   const handleToggleAutoSync = useCallback(async (enabled: boolean) => {
@@ -187,9 +259,8 @@ export default function AnalysisCanvas({
               loading={dashboardLoading}
               error={dashboardError}
               onRetry={refreshDashboard}
-              projects={projects.map((p) => ({ id: p.id, title: p.title }))}
               activeProjectId={activeProjectId}
-              onSelectProject={handleSelectProject}
+              suppressProjectAssistantDuplicateSurface={showProjectAssistantWorkspace}
               autoOptimizationEnabled={activeProject?.autoOptimizationEnabled ?? false}
               onToggleAutoOptimization={handleToggleAutoOptimization}
               autoSyncEnabled={autoSyncEnabled}
@@ -200,20 +271,40 @@ export default function AnalysisCanvas({
             />
           </div>
 
-          {/* Row 2 left: Active automation workspace (ProjectOptimizationPanel inside) (~60%) */}
+          {/* Row 2 left: Automation-first hero OR Project WIKI (exclusive, ~60%) */}
           <div
             className="analysis-dashboard__project-area"
-            aria-label="Active automation workspace and Project Assistant"
+            aria-label={showProjectAssistantWorkspace ? 'Project WIKI workspace' : 'Automation home'}
           >
-            <ActiveAutomationWorkspace
-              ref={automationWorkspaceRef}
-              isWorkspaceFormEditing={isFormEditing}
-              latestAutosortSession={dashboardSnapshot?.autosort?.latestSession ?? null}
-              emailAccounts={emailAccounts ?? []}
-              onRefreshOperations={refreshOperations}
-              onOpenBulkInboxForAnalysis={onOpenBulkInboxForAnalysis}
-              onSetupModeChange={setIsFormEditing}
-            />
+            {showProjectAssistantWorkspace ? (
+              <div className="analysis-pa-workspace">
+                <div className="analysis-pa-workspace__bar">
+                  <button
+                    type="button"
+                    className="analysis-pa-workspace__back"
+                    onClick={handleCloseProjectAssistantWorkspace}
+                  >
+                    ← Automation workspace
+                  </button>
+                </div>
+                <ProjectOptimizationPanel
+                  ref={automationWorkspaceRef}
+                  latestAutosortSession={dashboardSnapshot?.autosort?.latestSession ?? null}
+                  emailAccounts={emailAccounts ?? []}
+                  onRefreshOperations={refreshOperations}
+                  onOpenBulkInboxForAnalysis={onOpenBulkInboxForAnalysis}
+                  onSetupModeChange={setIsFormEditing}
+                  workspaceSuppressedCap={false}
+                />
+              </div>
+            ) : (
+              <DashboardAutomationHome
+                onOpenProjectAssistantWorkspace={handleOpenProjectAssistantWorkspace}
+                onNavigateInbox={() => onOpenInbox?.()}
+                onNavigateWrChat={() => onNavigateToWrChat?.()}
+                onNavigateBulkInbox={() => onOpenBulkInboxForAnalysis?.()}
+              />
+            )}
           </div>
 
           {/* Row 2 right: Activity Feed — Priority Inbox + PoAE Registry (~40%) */}

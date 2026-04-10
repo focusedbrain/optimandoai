@@ -183,6 +183,11 @@ interface BeapBridge {
 }
 
 interface Window {
+  /**
+   * Project WIKI AI insert bridge: assigned by `ProjectOptimizationPanel` when a field or
+   * milestone quick-edit is active; called from `HybridSearch` “Use” / “Use All”. Do not rename.
+   */
+  __wrdeskInsertDraft?: (text: string, mode: 'append' | 'replace') => void
   LETmeGIRAFFETHATFORYOU?: LmgtfyBridge
   analysisDashboard?: AnalysisDashboardBridge
   lifecycle?: LifecycleBridge

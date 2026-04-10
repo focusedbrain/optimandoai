@@ -50,7 +50,7 @@
   background: var(--dash-bg-page, #F8F8F7);
   color: #1C1C1A;
   color: var(--dash-text-primary, #1C1C1A);
-  padding: 8px;
+  padding: 6px;
   overflow: hidden;
 }
 
@@ -89,7 +89,7 @@
 /* =============================================================================
    MAIN DASHBOARD GRID
    Row 1 (intel): IntelligenceDashboard — spans both columns.
-   Row 2: ActiveAutomationWorkspace (wraps ProjectOptimizationPanel, ~60%) | ActivityFeedColumn (~40%)
+   Row 2: Automation home or ProjectOptimizationPanel (~60%) | ActivityFeedColumn (~40%)
    ============================================================================= */
 
 .analysis-dashboard__main-grid {
@@ -100,7 +100,7 @@
     "intel   intel"
     "project activity";
   gap: 0 10px;           /* row-gap=0; col-gap=10px */
-  padding: 0 0 16px;
+  padding: 0 0 10px;
   box-sizing: border-box;
   align-items: stretch;  /* both columns fill the row height when form is collapsed */
   align-content: start;  /* prevent leftover height from being distributed between rows */
@@ -111,6 +111,8 @@
 .analysis-dashboard__intel-area {
   grid-area: intel;
   min-width: 0;
+  /* Tuck strip under nav; hero reads as primary */
+  padding-bottom: 6px;
 }
 
 .analysis-dashboard__project-area {
@@ -120,8 +122,41 @@
   flex-direction: column;
 }
 
-/* Direct child of project area (ActiveAutomationWorkspace / POP) fills the grid cell */
+/* Direct child of project area (automation home / POP) fills the grid cell */
 .analysis-dashboard__project-area > * {
+  flex: 1;
+  min-height: 0;
+}
+
+.analysis-pa-workspace {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  gap: 0;
+}
+
+.analysis-pa-workspace__bar {
+  flex-shrink: 0;
+  padding: 0 0 8px;
+}
+
+.analysis-pa-workspace__back {
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  color: #475569;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 4px 0;
+}
+
+.analysis-pa-workspace__back:hover {
+  color: #0f172a;
+  text-decoration: underline;
+}
+
+.analysis-pa-workspace .pop {
   flex: 1;
   min-height: 0;
 }

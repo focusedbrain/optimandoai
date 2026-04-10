@@ -21,3 +21,6 @@ export function automationUiKindFromTriggerFunctionId(fid: TriggerFunctionId): A
 
 /** UI kind for the “+ Add Automation” list row (not a `TriggerFunctionId`). */
 export const ADD_AUTOMATION_ROW_UI_KIND: AutomationUiKind = 'neutral'
+
+/** UI kind for the “+ Add Project WIKI” list row (desktop Analysis workspace). */
+export const ADD_PROJECT_ASSISTANT_ROW_UI_KIND: AutomationUiKind = 'neutral'
