@@ -1,8 +1,8 @@
 /**
  * Default Analysis dashboard hero — compact starter automations (existing app shell routes only).
  * Run / Edit invoke the same callbacks as App.tsx → AnalysisCanvas; no new pipelines.
- * Hero “+ Add Automation” dispatches the same wizard event as WrMultiTriggerBar. Project WIKI creation stays in the header dropdown only.
- * Project WIKI: full-width row with project select + Open/Edit/Snapshot for the selected project;
+ * Hero “+ Add Automation” dispatches the same wizard event as WrMultiTriggerBar.
+ * Project WIKI: full-width row; Active Project select includes + Add Project WIKI (last option) → WRDESK_OPEN_PROJECT_ASSISTANT_CREATION.
  * same guards and triggerSnapshotOptimization as ProjectOptimizationPanel.
  */
 
@@ -10,9 +10,14 @@ import { useMemo, useCallback, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import {
   ADD_AUTOMATION_ROW_UI_KIND,
+  ADD_PROJECT_ASSISTANT_ROW_UI_KIND,
   WRCHAT_OPEN_CUSTOM_MODE_WIZARD_EVENT,
+  WRDESK_OPEN_PROJECT_ASSISTANT_CREATION,
   WRDESK_TRIGGER_SYNC_AUTO_OPTIMIZER_PROJECT,
 } from '@ext/ui/components'
+
+/** Select sentinel — not a project id; triggers App.tsx projectAssistantCreateToken → POP create. */
+const ADD_PROJECT_WIKI_SELECT_VALUE = '__wrdesk_add_project_wiki__'
 import { applyOptimizationGuardFallback, canRunOptimization } from '../../../lib/autoOptimizationGuards'
 import { triggerSnapshotOptimization } from '../../../lib/autoOptimizationEngine'
 import type { Project } from '../../../types/projectTypes'
@@ -178,6 +183,26 @@ export function DashboardAutomationHome({
     }
   }, [])
 
+  /** Same path as WrMultiTriggerBar “+ Add Project WIKI” row — does not change active project id. */
+  const launchAddProjectWikiFromSelector = useCallback(() => {
+    try {
+      window.dispatchEvent(new CustomEvent(WRDESK_OPEN_PROJECT_ASSISTANT_CREATION))
+    } catch {
+      /* noop */
+    }
+  }, [])
+
+  const onWikiProjectSelectChange = useCallback(
+    (value: string) => {
+      if (value === ADD_PROJECT_WIKI_SELECT_VALUE) {
+        launchAddProjectWikiFromSelector()
+        return
+      }
+      selectProject(value)
+    },
+    [launchAddProjectWikiFromSelector, selectProject],
+  )
+
   return (
     <div className="dash-auto-home" aria-label="Automation workspace">
       <header className="dash-auto-home__starters-header">
@@ -238,33 +263,35 @@ export function DashboardAutomationHome({
           </p>
         </div>
 
-        {projects.length === 0 ? (
-          <div className="dash-auto-home__wiki-empty">
-            <p className="dash-auto-home__empty">
-              No projects yet. Use <strong>+ Add Project WIKI</strong> in the header menu to create one and sync with the
-              trigger bar.
-            </p>
-          </div>
-        ) : wikiProject ? (
-          <div className="dash-auto-home__wiki-body">
-            <div className="dash-auto-home__wiki-row dash-auto-home__wiki-row--controls">
-              <label className="dash-auto-home__wiki-select-label" htmlFor="dash-auto-home-wiki-project">
-                Active project
-              </label>
-              <select
-                id="dash-auto-home-wiki-project"
-                className="dash-auto-home__wiki-select"
-                value={wikiProjectId ?? ''}
-                aria-label="Select project for Project WIKI actions"
-                onChange={(e) => selectProject(e.target.value)}
-              >
-                {projects.map((p) => (
+        <div className="dash-auto-home__wiki-body">
+          <div className="dash-auto-home__wiki-row dash-auto-home__wiki-row--controls">
+            <label className="dash-auto-home__wiki-select-label" htmlFor="dash-auto-home-wiki-project">
+              Active project
+            </label>
+            <select
+              id="dash-auto-home-wiki-project"
+              className="dash-auto-home__wiki-select"
+              value={wikiProjectId ?? ''}
+              aria-label="Select project for Project WIKI actions"
+              onChange={(e) => onWikiProjectSelectChange(e.target.value)}
+            >
+              {projects.length === 0 ? (
+                <option value="" disabled>
+                  —
+                </option>
+              ) : (
+                projects.map((p) => (
                   <option key={p.id} value={p.id}>
                     {(p.icon?.trim() ? `${p.icon.trim()} ` : '') + p.title}
                   </option>
-                ))}
-              </select>
-            </div>
+                ))
+              )}
+              <option value={ADD_PROJECT_WIKI_SELECT_VALUE} data-automation-ui-kind={ADD_PROJECT_ASSISTANT_ROW_UI_KIND}>
+                + Add Project WIKI
+              </option>
+            </select>
+          </div>
+          {wikiProject ? (
             <div className="dash-auto-home__wiki-row dash-auto-home__wiki-row--detail">
               <div className="dash-auto-home__wiki-meta">
                 <span className="dash-auto-home__wiki-meta-label">Milestone</span>
@@ -303,8 +330,8 @@ export function DashboardAutomationHome({
                 </button>
               </div>
             </div>
-          </div>
-        ) : null}
+          ) : null}
+        </div>
       </section>
     </div>
   )
