@@ -19,6 +19,16 @@ export default function ChatFocusBanner({ theme = 'pro' }: { theme?: string }) {
     label = <>🐕 ScamWatchdog</>
     hint =
       'Share anything that looks suspicious: photos, pasted text, links, or attachments. We help assess scam, fraud, or phishing risk.'
+  } else if (chatFocusMode.mode === 'custom-automation') {
+    const ic = chatFocusMode.triggerBarIcon?.trim() || '\u2728'
+    const nm = chatFocusMode.modeName?.trim() || 'Automation'
+    label = (
+      <>
+        <span aria-hidden>{ic}</span> {nm}
+      </>
+    )
+    hint =
+      'Pinned automation focus is on. Chat uses this automation’s context; switch mode in the workspace selector if needed.'
   } else {
     const icon = focusMeta?.projectIcon?.trim() || '📊'
     const title = focusMeta?.projectTitle?.trim() || 'Project'

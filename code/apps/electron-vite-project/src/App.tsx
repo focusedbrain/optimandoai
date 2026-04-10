@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import './App.css'
 import AnalysisCanvas from './components/AnalysisCanvas'
 import HandshakeView from './components/HandshakeView'
@@ -13,7 +13,6 @@ import {
   AddModeWizardHost,
   WRDESK_OPEN_PROJECT_ASSISTANT_CREATION,
   WRDESK_TRIGGER_SYNC_AUTO_OPTIMIZER_PROJECT,
-  STARTER_WORKFLOW_BAR_DEFINITIONS,
 } from '@ext/ui/components'
 import type { TriggerFunctionId } from '@ext/types/triggerTypes'
 import { useEmailInboxStore, type InboxFilter } from './stores/useEmailInboxStore'
@@ -314,27 +313,6 @@ function App() {
     window.setTimeout(applyFocus, 0)
   }, [])
 
-  const starterWorkflowQuickActions = useMemo(
-    () =>
-      STARTER_WORKFLOW_BAR_DEFINITIONS.filter((d) => d.topBarIcon?.trim()).map((d) => ({
-        id: d.id,
-        icon: d.topBarIcon!.trim(),
-        title: d.title,
-        onRun: () => {
-          if (d.id === 'reply-letter') {
-            setActiveView('beap-inbox')
-            setInboxBulkMode(false)
-          } else if (d.id === 'email-composer') {
-            setActiveView('wr-chat')
-          } else if (d.id === 'document-actions' || d.id === 'beap-composer') {
-            setActiveView('beap-inbox')
-            setInboxBulkMode(true)
-          }
-        },
-      })),
-    [],
-  )
-
   return (
     <div className="app-root">
       {optimizationGuardToast && (
@@ -414,7 +392,6 @@ function App() {
                 }
               }}
               onEnsureWrChatOpen={ensureWrChatOpenThen}
-              starterWorkflowQuickActions={starterWorkflowQuickActions}
             />
           </div>
         </nav>

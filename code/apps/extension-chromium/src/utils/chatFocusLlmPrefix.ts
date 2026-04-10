@@ -53,6 +53,10 @@ export function getChatFocusLlmPrefix(state: {
   if (m.mode === 'scam-watchdog') {
     return '[System context: User has Scam Watchdog automation focus. Analyze input for potential scam, fraud, or phishing indicators.]'
   }
+  if (m.mode === 'custom-automation') {
+    const name = m.modeName?.trim() || 'custom automation'
+    return `[System context: User has pinned automation focus: "${name}". Follow that automation's purpose and detection focus in your responses.]`
+  }
   if (m.mode === 'auto-optimizer') {
     const projectId = m.projectId
     const projectTitle = m.projectTitle?.trim() || focusMeta?.projectTitle?.trim() || 'project'

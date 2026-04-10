@@ -6,11 +6,14 @@
  * **Stable event names (do not rename):** `WRCHAT_CHAT_FOCUS_REQUEST_EVENT`, `WRCHAT_OPEN_CUSTOM_MODE_WIZARD_EVENT`, etc.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useShallow } from 'zustand/react/shallow'
 import type { WatchdogThreat } from '../../../utils/formatWatchdogAlert'
 import { fetchTriggerProjects } from '../../../services/fetchTriggerProjects'
 import { triggerOptimizerSnapshot } from '../../../services/fetchOptimizerTrigger'
 import type { ChatFocusMode, TriggerFunctionId, TriggerProjectEntry } from '../../../types/triggerTypes'
 import { useChatFocusStore } from '../../../stores/chatFocusStore'
+import { useCustomModesStore } from '../../../stores/useCustomModesStore'
+import { getCustomModeTriggerBarIcon } from '../../../shared/ui/customModeTypes'
 import WatchdogIcon from '../WatchdogIcon'
 import WrChatWatchdogButton from '../WrChatWatchdogButton'
 import {
@@ -50,14 +53,6 @@ export const WRDESK_OPEN_PROJECT_ASSISTANT_CREATION = 'wrdesk-open-project-assis
  */
 export const WRDESK_TRIGGER_SYNC_AUTO_OPTIMIZER_PROJECT = 'wrdesk-trigger-sync-auto-optimizer-project'
 
-/** Desktop: optional starter workflow icon buttons (only entries with icons are passed). */
-export type StarterWorkflowQuickAction = {
-  id: string
-  icon: string
-  title: string
-  onRun: () => void
-}
-
 export type WrMultiTriggerBarProps = {
   theme?: string
   /** Fires whenever the selected trigger row (watchdog vs project) changes — for dashboard gating. */
@@ -70,11 +65,6 @@ export type WrMultiTriggerBarProps = {
    * then call `applyFocus()` so intro messages reach a mounted chat surface.
    */
   onEnsureWrChatOpen?: (applyFocus: () => void) => void
-  /**
-   * Default workflow quick-launch chips (left of Scam Watchdog / project row).
-   * Host should only pass items whose definitions include a non-empty `topBarIcon`.
-   */
-  starterWorkflowQuickActions?: StarterWorkflowQuickAction[]
 }
 
 function SpeechBubbleButton({
@@ -125,16 +115,8 @@ type TriggerBarDropdownRow = {
   automationUiKind: ReturnType<typeof automationUiKindFromTriggerFunctionId>
 }
 
-function buildDropdownRows(projects: TriggerProjectEntry[]): TriggerBarDropdownRow[] {
-  const rows: TriggerBarDropdownRow[] = [
-    {
-      id: 'watchdog',
-      label: 'Scam Watchdog',
-      icon: '',
-      functionId: { type: 'watchdog' },
-      automationUiKind: automationUiKindFromTriggerFunctionId({ type: 'watchdog' }),
-    },
-  ]
+function buildProjectDropdownRows(projects: TriggerProjectEntry[]): TriggerBarDropdownRow[] {
+  const rows: TriggerBarDropdownRow[] = []
   for (const p of projects) {
     const functionId: TriggerFunctionId = { type: 'auto-optimizer', projectId: p.projectId }
     rows.push({
@@ -149,7 +131,9 @@ function buildDropdownRows(projects: TriggerProjectEntry[]): TriggerBarDropdownR
 }
 
 function functionIdKey(fid: TriggerFunctionId): string {
-  return fid.type === 'watchdog' ? 'watchdog' : fid.projectId
+  if (fid.type === 'watchdog') return 'watchdog'
+  if (fid.type === 'auto-optimizer') return fid.projectId
+  return fid.modeId
 }
 
 export default function WrMultiTriggerBar({
@@ -158,10 +142,10 @@ export default function WrMultiTriggerBar({
   onWatchdogAlert,
   onChatFocusRequest,
   onEnsureWrChatOpen,
-  starterWorkflowQuickActions,
 }: WrMultiTriggerBarProps) {
   const [activeFunctionId, setActiveFunctionId] = useState<TriggerFunctionId>({ type: 'watchdog' })
   const [projectList, setProjectList] = useState<TriggerProjectEntry[]>([])
+  const customModes = useCustomModesStore(useShallow((s) => s.modes))
   const [dropdownOpen, setDropdownOpen] = useState(false)
   /** Snapshot request in flight per project (scanning pulse on icon). */
   const [optimizerScanningByProject, setOptimizerScanningByProject] = useState<Record<string, boolean>>({})
@@ -180,6 +164,16 @@ export default function WrMultiTriggerBar({
   useEffect(() => {
     onActiveFunctionChange?.(activeFunctionId)
   }, [activeFunctionId, onActiveFunctionChange])
+
+  useEffect(() => {
+    setActiveFunctionId((current) => {
+      if (current.type !== 'custom-automation') return current
+      const def = customModes.find((m) => m.id === current.modeId)
+      const pin = def ? getCustomModeTriggerBarIcon(def.metadata as Record<string, unknown> | undefined) : ''
+      if (!def || !pin) return { type: 'watchdog' }
+      return current
+    })
+  }, [customModes])
 
   useEffect(() => {
     const onSync = (ev: Event) => {
@@ -206,12 +200,44 @@ export default function WrMultiTriggerBar({
     return () => document.removeEventListener('mousedown', onDoc)
   }, [dropdownOpen])
 
-  const dropdownRows = useMemo(() => buildDropdownRows(projectList), [projectList])
+  const pinnedCustomRows = useMemo(() => {
+    const rows: TriggerBarDropdownRow[] = []
+    for (const m of customModes) {
+      const icon = getCustomModeTriggerBarIcon(m.metadata as Record<string, unknown> | undefined)
+      if (!icon) continue
+      const functionId: TriggerFunctionId = { type: 'custom-automation', modeId: m.id }
+      rows.push({
+        id: m.id,
+        label: m.name.trim() || 'Automation',
+        icon,
+        functionId,
+        automationUiKind: automationUiKindFromTriggerFunctionId(functionId),
+      })
+    }
+    rows.sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }))
+    return rows
+  }, [customModes])
+
+  const dropdownRows = useMemo((): TriggerBarDropdownRow[] => {
+    const watchdogRow: TriggerBarDropdownRow = {
+      id: 'watchdog',
+      label: 'Scam Watchdog',
+      icon: '',
+      functionId: { type: 'watchdog' },
+      automationUiKind: automationUiKindFromTriggerFunctionId({ type: 'watchdog' }),
+    }
+    return [watchdogRow, ...pinnedCustomRows, ...buildProjectDropdownRows(projectList)]
+  }, [projectList, pinnedCustomRows])
 
   const activeProject = useMemo(() => {
     if (activeFunctionId.type !== 'auto-optimizer') return null
     return projectList.find((p) => p.projectId === activeFunctionId.projectId) ?? null
   }, [activeFunctionId, projectList])
+
+  const activeCustomMode = useMemo(() => {
+    if (activeFunctionId.type !== 'custom-automation') return null
+    return customModes.find((m) => m.id === activeFunctionId.modeId) ?? null
+  }, [activeFunctionId, customModes])
 
   const selectedRowLabel = useMemo(() => {
     const row = dropdownRows.find((r) => functionIdKey(r.functionId) === functionIdKey(activeFunctionId))
@@ -243,6 +269,45 @@ export default function WrMultiTriggerBar({
       } else {
         applyFocus()
       }
+    }
+
+    if (activeFunctionId.type === 'custom-automation') {
+      const def = activeCustomMode
+      if (!def) return
+      const icon =
+        getCustomModeTriggerBarIcon(def.metadata as Record<string, unknown> | undefined) ||
+        def.icon?.trim() ||
+        '\u26A1'
+      const name = def.name.trim() || 'Automation'
+      if (current.mode === 'custom-automation' && current.modeId === def.id) {
+        clearAndNotify()
+        return
+      }
+      const mode: ChatFocusMode = {
+        mode: 'custom-automation',
+        modeId: def.id,
+        modeName: name,
+        triggerBarIcon: icon,
+        startedAt: new Date().toISOString(),
+      }
+      const desc = def.description?.trim()
+      const intro = `${icon} **${name}**${desc ? `\n\n${desc}` : ''}
+
+I'm focused on this automation. Continue in WR Chat with the same model and settings you chose for this mode.`
+      runAfterOpen(() => {
+        useChatFocusStore.getState().setChatFocusWithIntro(mode, null, intro)
+        try {
+          onChatFocusRequest?.(mode)
+        } catch {
+          /* noop */
+        }
+        try {
+          window.dispatchEvent(new CustomEvent(WRCHAT_CHAT_FOCUS_REQUEST_EVENT, { detail: mode }))
+        } catch {
+          /* noop */
+        }
+      })
+      return
     }
 
     if (activeFunctionId.type === 'watchdog') {
@@ -321,12 +386,15 @@ What would you like to add?`
         /* noop */
       }
     })
-  }, [activeFunctionId, activeProject, onChatFocusRequest, onEnsureWrChatOpen])
+  }, [activeFunctionId, activeProject, activeCustomMode, onChatFocusRequest, onEnsureWrChatOpen])
 
   const speechTooltipWatchdog = 'Toggle Scam Watchdog chat focus (on / off)'
   const speechTooltipOptimizer = activeProject
     ? `Toggle Project WIKI chat focus for ${activeProject.title} (on / off)`
     : 'Toggle Project WIKI chat focus (on / off)'
+  const speechTooltipCustom = activeCustomMode
+    ? `Toggle chat focus for ${activeCustomMode.name.trim() || 'automation'} (on / off)`
+    : 'Toggle automation chat focus (on / off)'
 
   const optimizerPid =
     activeFunctionId.type === 'auto-optimizer' ? activeFunctionId.projectId : ''
@@ -555,52 +623,11 @@ What would you like to add?`
     </div>
   )
 
-  const starterBar =
-    starterWorkflowQuickActions && starterWorkflowQuickActions.length > 0 ? (
-      <div
-        style={{
-          display: 'inline-flex',
-          alignItems: 'center',
-          gap: 3,
-          marginRight: 6,
-          flexShrink: 0,
-        }}
-        role="toolbar"
-        aria-label="Starter workflows"
-      >
-        {starterWorkflowQuickActions.map((a) => (
-          <button
-            key={a.id}
-            type="button"
-            title={a.title}
-            aria-label={a.title}
-            onClick={(e) => {
-              e.preventDefault()
-              e.stopPropagation()
-              a.onRun()
-            }}
-            style={{
-              border: `1px solid ${isLight ? 'rgba(148,163,184,0.55)' : isDark ? 'rgba(148,163,184,0.35)' : 'rgba(167,139,250,0.45)'}`,
-              background: isLight ? '#fff' : isDark ? 'rgba(30,41,59,0.6)' : 'rgba(49,32,68,0.55)',
-              borderRadius: 6,
-              cursor: 'pointer',
-              padding: '2px 5px',
-              fontSize: 13,
-              lineHeight: 1,
-              display: 'inline-flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              minWidth: 26,
-              height: 26,
-              color: 'inherit',
-              boxSizing: 'border-box',
-            }}
-          >
-            <span aria-hidden>{a.icon}</span>
-          </button>
-        ))}
-      </div>
-    ) : null
+  const customBarIcon =
+    (activeCustomMode &&
+      (getCustomModeTriggerBarIcon(activeCustomMode.metadata as Record<string, unknown> | undefined) ||
+        activeCustomMode.icon?.trim())) ||
+    '\u26A1'
 
   return (
     <div
@@ -612,7 +639,6 @@ What would you like to add?`
         position: 'relative',
       }}
     >
-      {starterBar}
       <div style={{ display: 'inline-flex', alignItems: 'center' }}>
         {activeFunctionId.type === 'watchdog' ? (
           <WrChatWatchdogButton
@@ -623,6 +649,26 @@ What would you like to add?`
               <SpeechBubbleButton tooltip={speechTooltipWatchdog} onPress={emitChatFocus} />
             }
           />
+        ) : activeFunctionId.type === 'custom-automation' ? (
+          <TriggerButtonShell
+            mode="snapshot"
+            theme={theme}
+            selectorSlot={dropdownLeadingSlot}
+            icon={
+              <span style={{ fontSize: 14, lineHeight: 1 }} aria-hidden>
+                {customBarIcon}
+              </span>
+            }
+            scanning={false}
+            cleanFlash={false}
+            onIconClick={() => {
+              /* Pinned automation: no project snapshot — icon is display-only. */
+            }}
+            disabled={false}
+            middleSlot={<SpeechBubbleButton tooltip={speechTooltipCustom} onPress={emitChatFocus} />}
+            scanButtonTitle="Pinned automation (no snapshot)"
+            scanButtonAriaLabel="Pinned automation shortcut"
+          />
         ) : (
           <TriggerButtonShell
             mode="snapshot"
@@ -630,7 +676,7 @@ What would you like to add?`
             selectorSlot={dropdownLeadingSlot}
             icon={
               <span style={{ fontSize: 14, lineHeight: 1 }} aria-hidden>
-                {activeProject?.icon ?? '📊'}
+                {activeProject?.icon ?? '\uD83D\uDCCA'}
               </span>
             }
             scanning={optimizerScanning}

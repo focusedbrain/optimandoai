@@ -130,7 +130,7 @@ export default function AnalysisCanvas({
       setProjectAssistantWorkspaceOpen(true)
       return
     }
-    if (activeTriggerFunctionId.type === 'watchdog') {
+    if (activeTriggerFunctionId.type === 'watchdog' || activeTriggerFunctionId.type === 'custom-automation') {
       setProjectAssistantWorkspaceOpen(false)
     }
   }, [activeTriggerFunctionId, pendingProjectAssistantCreateSession])

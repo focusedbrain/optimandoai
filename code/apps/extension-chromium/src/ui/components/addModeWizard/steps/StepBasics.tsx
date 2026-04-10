@@ -4,6 +4,10 @@
 
 import React from 'react'
 import type { CustomModeDraft } from '../../../../shared/ui/customModeTypes'
+import {
+  CUSTOM_MODE_TRIGGER_BAR_ICON_KEY,
+  getCustomModeTriggerBarIcon,
+} from '../../../../shared/ui/customModeTypes'
 import { getThemeTokens, inputStyle, labelStyle } from '../../../../shared/ui/lightboxTheme'
 import { safeDraftString } from '../../../../shared/ui/customModeDisplay'
 import type { InlineFieldErrors } from '../addModeWizardValidation'
@@ -89,6 +93,29 @@ export function StepBasics({
             )
           })}
         </div>
+      </div>
+      <div>
+        <label htmlFor="cmw-trigger-bar-icon" style={labelStyle(t)}>
+          Header menu icon{' '}
+          <span style={{ fontWeight: 400, textTransform: 'none', opacity: 0.85 }}>(optional)</span>
+        </label>
+        <input
+          id="cmw-trigger-bar-icon"
+          type="text"
+          value={getCustomModeTriggerBarIcon(data.metadata as Record<string, unknown> | undefined)}
+          onChange={(e) =>
+            setData({
+              metadata: {
+                ...(typeof data.metadata === 'object' && data.metadata ? data.metadata : {}),
+                [CUSTOM_MODE_TRIGGER_BAR_ICON_KEY]: e.target.value,
+              },
+            })
+          }
+          placeholder="Emoji or symbol — leave empty to hide from header menu"
+          maxLength={8}
+          style={inputStyle(t)}
+          autoComplete="off"
+        />
       </div>
     </div>
   )

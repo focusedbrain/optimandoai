@@ -4,7 +4,11 @@
 
 import React from 'react'
 import type { CustomModeDraft } from '../../../../shared/ui/customModeTypes'
-import { getDiffWatchFoldersDraftText, getScopeUrlsDraftText } from '../../../../shared/ui/customModeTypes'
+import {
+  getDiffWatchFoldersDraftText,
+  getScopeUrlsDraftText,
+  getCustomModeTriggerBarIcon,
+} from '../../../../shared/ui/customModeTypes'
 import { formatCustomModeIntervalPresetLabel } from '../../../../shared/ui/customModeIntervalPresets'
 import { safeDraftString } from '../../../../shared/ui/customModeDisplay'
 import { getThemeTokens } from '../../../../shared/ui/lightboxTheme'
@@ -50,10 +54,13 @@ export function StepReview({
       .filter(Boolean)
       .join('; ') || '—'
 
+  const triggerBarReview = getCustomModeTriggerBarIcon(md) || '—'
+
   const rows: { k: string; v: string }[] = [
     { k: 'Name', v: nameSafe || '—' },
     { k: 'Description', v: safeDraftString(data.description).trim() || '—' },
     { k: 'Icon', v: (typeof data.icon === 'string' && data.icon.trim()) || '—' },
+    { k: 'Header menu icon', v: triggerBarReview },
     { k: 'Provider', v: safeDraftString(data.modelProvider) || '—' },
     { k: 'Model', v: modelSafe || '—' },
     ...(String(data.modelProvider ?? '').toLowerCase() === 'ollama'

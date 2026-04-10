@@ -41,7 +41,10 @@ export interface CustomModeDefinition {
   intervalSeconds: number | null
   createdAt: string
   updatedAt: string
-  /** Future: expert presets, LoRA ids, provider tokens, etc. */
+  /**
+   * Future: expert presets, LoRA ids, provider tokens, etc.
+   * **`triggerBarIcon`** (string): optional; when set, this automation appears in the WR Chat header dropdown.
+   */
   metadata?: Record<string, unknown>
 }
 
@@ -60,6 +63,15 @@ export const CUSTOM_MODE_SCOPE_URLS_DRAFT_KEY = '_scopeUrlsDraft' as const
 
 /** Wizard-only draft for multi-line diff folder paths (stripped before persist). */
 export const CUSTOM_MODE_DIFF_FOLDERS_DRAFT_KEY = '_diffWatchFoldersDraft' as const
+
+/** When non-empty after trim, the automation is listed in the WR Chat header dropdown (desktop). */
+export const CUSTOM_MODE_TRIGGER_BAR_ICON_KEY = 'triggerBarIcon' as const
+
+export function getCustomModeTriggerBarIcon(metadata: Record<string, unknown> | undefined): string {
+  if (!metadata || typeof metadata !== 'object') return ''
+  const v = metadata[CUSTOM_MODE_TRIGGER_BAR_ICON_KEY]
+  return typeof v === 'string' && v.trim() ? v.trim() : ''
+}
 
 export function getCustomModeScopeFromMetadata(
   metadata: Record<string, unknown> | undefined,
@@ -294,6 +306,12 @@ function sanitizeCustomModeMetadataForPersist(
     else delete m.scopeUrls
   }
   delete m[CUSTOM_MODE_SCOPE_URLS_DRAFT_KEY]
+
+  if (typeof m[CUSTOM_MODE_TRIGGER_BAR_ICON_KEY] === 'string') {
+    const pin = m[CUSTOM_MODE_TRIGGER_BAR_ICON_KEY].trim()
+    if (pin) m[CUSTOM_MODE_TRIGGER_BAR_ICON_KEY] = pin
+    else delete m[CUSTOM_MODE_TRIGGER_BAR_ICON_KEY]
+  }
 
   return Object.keys(m).length ? (m as Record<string, unknown>) : undefined
 }

@@ -6,6 +6,8 @@
 export type TriggerFunctionId =
   | { type: 'watchdog' }
   | { type: 'auto-optimizer'; projectId: string }
+  /** Pinned custom automation row — only modes with `metadata.triggerBarIcon` set appear in the bar. */
+  | { type: 'custom-automation'; modeId: string }
 
 /**
  * Chat focus mode — determines how WRChat behaves when the speech bubble is clicked.
@@ -24,6 +26,13 @@ export type ChatFocusMode =
       milestoneTitle?: string
       runId?: string
       activeMilestoneId?: string
+    }
+  | {
+      mode: 'custom-automation'
+      modeId: string
+      modeName: string
+      triggerBarIcon: string
+      startedAt: string
     }
 
 /**

@@ -1,7 +1,7 @@
 /**
  * Default Analysis dashboard hero — compact starter automations (existing app shell routes only).
  * Run / Edit invoke the same callbacks as App.tsx → AnalysisCanvas; no new pipelines.
- * Creation toolbar dispatches the same window events as WrMultiTriggerBar (no duplicate systems).
+ * Hero “+ Add Automation” dispatches the same wizard event as WrMultiTriggerBar. Project WIKI creation stays in the header dropdown only.
  * Project WIKI: full-width row with project select + Open/Edit/Snapshot for the selected project;
  * same guards and triggerSnapshotOptimization as ProjectOptimizationPanel.
  */
@@ -10,9 +10,7 @@ import { useMemo, useCallback, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import {
   ADD_AUTOMATION_ROW_UI_KIND,
-  ADD_PROJECT_ASSISTANT_ROW_UI_KIND,
   WRCHAT_OPEN_CUSTOM_MODE_WIZARD_EVENT,
-  WRDESK_OPEN_PROJECT_ASSISTANT_CREATION,
   WRDESK_TRIGGER_SYNC_AUTO_OPTIMIZER_PROJECT,
 } from '@ext/ui/components'
 import { applyOptimizationGuardFallback, canRunOptimization } from '../../../lib/autoOptimizationGuards'
@@ -180,22 +178,13 @@ export function DashboardAutomationHome({
     }
   }, [])
 
-  /** Same as WrMultiTriggerBar `handleAddProjectAssistantRowClick` → App projectAssistantCreateToken → POP openCreateMode. */
-  const launchAddProjectWikiCreation = useCallback(() => {
-    try {
-      window.dispatchEvent(new CustomEvent(WRDESK_OPEN_PROJECT_ASSISTANT_CREATION))
-    } catch {
-      /* noop */
-    }
-  }, [])
-
   return (
     <div className="dash-auto-home" aria-label="Automation workspace">
       <header className="dash-auto-home__starters-header">
         <div className="dash-auto-home__starters-header-main">
           <span className="dash-auto-home__kicker">Automation workspace</span>
         </div>
-        <div className="dash-auto-home__creation-toolbar" role="toolbar" aria-label="Add automations and projects">
+        <div className="dash-auto-home__creation-toolbar" role="toolbar" aria-label="Add automations">
           <button
             type="button"
             className="dash-auto-home__create-btn"
@@ -206,17 +195,6 @@ export function DashboardAutomationHome({
               {'\u2728'}
             </span>
             <span>+ Add Automation</span>
-          </button>
-          <button
-            type="button"
-            className="dash-auto-home__create-btn"
-            data-automation-ui-kind={ADD_PROJECT_ASSISTANT_ROW_UI_KIND}
-            onClick={launchAddProjectWikiCreation}
-          >
-            <span className="dash-auto-home__create-btn-icon" aria-hidden>
-              {'\u{1F4CB}'}
-            </span>
-            <span>+ Add Project WIKI</span>
           </button>
         </div>
       </header>
@@ -263,19 +241,9 @@ export function DashboardAutomationHome({
         {projects.length === 0 ? (
           <div className="dash-auto-home__wiki-empty">
             <p className="dash-auto-home__empty">
-              No projects yet. Create a Project WIKI to sync milestones and snapshots with the header trigger.
+              No projects yet. Use <strong>+ Add Project WIKI</strong> in the header menu to create one and sync with the
+              trigger bar.
             </p>
-            <button
-              type="button"
-              className="dash-auto-home__create-btn dash-auto-home__create-btn--wiki-inline"
-              data-automation-ui-kind={ADD_PROJECT_ASSISTANT_ROW_UI_KIND}
-              onClick={launchAddProjectWikiCreation}
-            >
-              <span className="dash-auto-home__create-btn-icon" aria-hidden>
-                {'\u{1F4CB}'}
-              </span>
-              <span>+ Add Project WIKI</span>
-            </button>
           </div>
         ) : wikiProject ? (
           <div className="dash-auto-home__wiki-body">
@@ -332,17 +300,6 @@ export function DashboardAutomationHome({
                   onClick={() => runSnapshotForProject(wikiProject.id)}
                 >
                   {snapshotBusyId === wikiProject.id ? '…' : 'Snapshot'}
-                </button>
-                <button
-                  type="button"
-                  className="dash-auto-home__create-btn dash-auto-home__create-btn--wiki-inline"
-                  data-automation-ui-kind={ADD_PROJECT_ASSISTANT_ROW_UI_KIND}
-                  onClick={launchAddProjectWikiCreation}
-                >
-                  <span className="dash-auto-home__create-btn-icon" aria-hidden>
-                    {'\u{1F4CB}'}
-                  </span>
-                  <span>+ Add Project WIKI</span>
                 </button>
               </div>
             </div>
