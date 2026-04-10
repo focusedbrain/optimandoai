@@ -8,7 +8,7 @@
 .afc {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
   min-height: 0;
   flex: 1;               /* fills the activity-area grid cell in stretch mode */
 }
@@ -32,11 +32,26 @@
 .afc__panel:nth-child(1) { animation-delay: 80ms;  }
 .afc__panel:nth-child(2) { animation-delay: 160ms; }
 
-/* Equal vertical share: Priority Inbox and PoAE Registry */
-.afc__panel:nth-child(1),
+/* Priority Inbox: grow only when list or skeleton needs vertical room (avoids empty-state dead space). */
+.afc__panel:nth-child(1) {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.afc__panel:nth-child(1):is(:has(ul.upm__list), :has(.upm__skeleton-list)) {
+  flex: 1 1 0;
+  min-height: 140px;
+}
+
+.afc__panel:nth-child(1):not(:has(ul.upm__list)):not(:has(.upm__skeleton-list)) {
+  flex: 0 0 auto;
+}
+
+/* PoAE Registry: always participates as the primary lower band so it stays visually weighted. */
 .afc__panel:nth-child(2) {
   flex: 1 1 0;
-  min-height: 160px;
+  min-height: 168px;
   display: flex;
   flex-direction: column;
 }
@@ -47,7 +62,10 @@
   min-height: 0;
 }
 
-/* Child sections carry their own card styling — no wrapper card here */
+.afc__panel:nth-child(1):not(:has(ul.upm__list)):not(:has(.upm__skeleton-list)) > * {
+  flex: 0 0 auto;
+}
+
 .afc__panel > section {
   /* inherits card style from .upm and .pap */
 }

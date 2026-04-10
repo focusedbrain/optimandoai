@@ -1,21 +1,24 @@
 /*
  * WR Desk™ — Urgent Messages Panel (compact card)
  * Prefix: .upm-
- * Unified card treatment: #FFFFFF bg, 1px #E8E8E6 border, 6px radius, 12px 14px padding.
+ * Card shell aligned with .dash-auto-home (Automation workspace / WIKI hero).
  */
 
-/* ── Card shell ── */
+/* ── Card shell (aligned with dash-auto-home / Automation workspace) ── */
 .upm {
-  background: #FFFFFF;
-  background: var(--dash-bg-card, #FFFFFF);
-  border: 1px solid #E8E8E6;
-  border: 1px solid var(--dash-border-default, #E8E8E6);
-  border-radius: 6px;
-  padding: 12px 14px;
+  background:
+    radial-gradient(100% 70% at 100% 0%, rgba(79, 70, 229, 0.07) 0%, transparent 50%),
+    linear-gradient(180deg, #fafbfc 0%, #f4f6f8 100%);
+  border: 1px solid rgba(15, 23, 42, 0.09);
+  border-radius: 12px;
+  padding: 12px 14px 14px;
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
   min-height: 0;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.9) inset,
+    0 8px 24px rgba(15, 23, 42, 0.05);
 }
 
 /* ── Header ── */
@@ -24,7 +27,9 @@
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  margin-bottom: 6px;
+  margin-bottom: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.28);
 }
 
 .upm__head-left {
@@ -37,11 +42,10 @@
 .upm__title {
   margin: 0;
   font-size: 9px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
+  font-weight: 700;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: #9B9B96;
-  color: var(--dash-text-tertiary, #9B9B96);
+  color: #6366f1;
   white-space: nowrap;
   font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
 }
@@ -84,31 +88,33 @@
 }
 
 .upm__refresh-btn {
-  width: 20px;
-  height: 20px;
+  width: 28px;
+  height: 28px;
   padding: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: none;
-  border: 1px solid #E8E8E6;
-  border: 1px solid var(--dash-border-default, #E8E8E6);
-  border-radius: 4px;
-  color: #9B9B96;
-  color: var(--dash-text-tertiary, #9B9B96);
+  background: #fff;
+  border: 1px solid rgba(148, 163, 184, 0.55);
+  border-radius: 8px;
+  color: #64748b;
   cursor: pointer;
-  font-size: 12px;
+  font-size: 13px;
+  line-height: 1;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.9) inset;
   transition:
     color 120ms ease,
     border-color 120ms ease,
+    background 120ms ease,
+    box-shadow 120ms ease,
     transform 120ms ease;
 }
 
 .upm__refresh-btn:hover:not(:disabled) {
-  color: #6B6B66;
-  color: var(--dash-text-secondary, #6B6B66);
-  border-color: #D4D4D1;
-  border-color: var(--dash-border-strong, #D4D4D1);
+  color: #475569;
+  background: #f8fafc;
+  border-color: rgba(100, 116, 139, 0.5);
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.06);
 }
 
 .upm__refresh-btn:active:not(:disabled) {
@@ -134,7 +140,7 @@
   display: flex;
   align-items: baseline;
   gap: 6px;
-  margin-bottom: 6px;
+  margin-bottom: 8px;
 }
 
 .upm__session-id {
@@ -344,9 +350,14 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 4px;
-  padding: 16px 0;
+  gap: 8px;
+  padding: 10px 12px;
+  margin-top: 2px;
   text-align: center;
+  background: #fff;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: 9px;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.85) inset;
 }
 
 .upm__empty-icon {
@@ -355,9 +366,10 @@
 
 .upm__empty-text {
   margin: 0;
-  font-size: 10px;
-  color: #9B9B96;
-  color: var(--dash-text-tertiary, #9B9B96);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.4;
+  color: #64748b;
   font-family: var(--dash-font-family, 'Inter', system-ui, sans-serif);
 }
 
