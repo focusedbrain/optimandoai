@@ -2,6 +2,7 @@ import { execFile, exec } from 'node:child_process'
 import { promisify } from 'node:util'
 import * as path from 'node:path'
 import * as fs from 'node:fs'
+import * as os from 'node:os'
 import { app } from 'electron'
 
 const execFileAsync = promisify(execFile)
@@ -242,6 +243,44 @@ export async function convertToPdf(inputPath: string, outputDir: string): Promis
   }
 
   return pdfPath
+}
+
+/**
+ * Convert a document to DOCX via headless LibreOffice. Output lives in a new temp directory.
+ * Caller should delete the file or entire directory when done.
+ */
+export async function convertToDocx(inputPath: string): Promise<string> {
+  const sofficePath = await detectLibreOffice()
+  if (!sofficePath) {
+    throw new Error('LIBREOFFICE_NOT_FOUND')
+  }
+
+  const resolvedIn = path.resolve(inputPath)
+  if (!fs.existsSync(resolvedIn)) {
+    throw new Error('Input file not found')
+  }
+
+  const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wrdesk-docx-'))
+
+  await execFileAsync(
+    sofficePath,
+    ['--headless', '--convert-to', 'docx', '--outdir', outputDir, resolvedIn],
+    { timeout: 120_000, windowsHide: true },
+  )
+
+  const baseName = path.basename(resolvedIn, path.extname(resolvedIn))
+  const docxPath = path.join(outputDir, `${baseName}.docx`)
+
+  if (!fs.existsSync(docxPath)) {
+    try {
+      fs.rmSync(outputDir, { recursive: true, force: true })
+    } catch {
+      /* ignore */
+    }
+    throw new Error('DOCX conversion produced no output')
+  }
+
+  return docxPath
 }
 
 /**

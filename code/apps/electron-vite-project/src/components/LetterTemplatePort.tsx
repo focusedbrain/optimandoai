@@ -3,18 +3,35 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   createLetterComposeSession,
   useLetterComposerStore,
+  type FieldMode,
   type FieldType,
   type LetterTemplate,
   type TemplateField,
 } from '../stores/useLetterComposerStore'
 import { ComposeFieldsForm } from './ComposeFieldsForm'
-import { FieldMappingOverlay } from './FieldMappingOverlay'
 import { PortSelectButton } from './LetterComposerPortSelectButton'
 
 const TEMPLATE_FILE_RE = /\.(docx|odt|doc|rtf|txt)$/i
 
-function coerceFieldType(t: string): FieldType {
-  return t === 'date' || t === 'multiline' || t === 'address' || t === 'richtext' ? t : 'text'
+function inferFieldType(name: string): FieldType {
+  const n = name.toLowerCase()
+  if (n.includes('date')) return 'date'
+  if (n.includes('address')) return 'address'
+  if (n.includes('body')) return 'richtext'
+  if (n.includes('closing') || n.includes('salutation')) return 'multiline'
+  return 'text'
+}
+
+function inferFieldMode(name: string): FieldMode {
+  const n = name.toLowerCase()
+  if (n.includes('body') || n.includes('subject') || n.includes('salutation') || n.includes('closing')) {
+    return 'flow'
+  }
+  return 'fixed'
+}
+
+function placeholderFieldLabel(name: string): string {
+  return name.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
 }
 
 export function LetterTemplatePort() {
@@ -23,9 +40,6 @@ export function LetterTemplatePort() {
   const setActiveTemplate = useLetterComposerStore((s) => s.setActiveTemplate)
   const addTemplate = useLetterComposerStore((s) => s.addTemplate)
   const removeTemplate = useLetterComposerStore((s) => s.removeTemplate)
-  const addTemplateField = useLetterComposerStore((s) => s.addTemplateField)
-  const removeTemplateField = useLetterComposerStore((s) => s.removeTemplateField)
-  const patchTemplateField = useLetterComposerStore((s) => s.patchTemplateField)
   const setTemplateMappingComplete = useLetterComposerStore((s) => s.setTemplateMappingComplete)
   const letters = useLetterComposerStore((s) => s.letters)
   const activeLetterId = useLetterComposerStore((s) => s.activeLetterId)
@@ -53,42 +67,108 @@ export function LetterTemplatePort() {
   const [rehydrating, setRehydrating] = useState(false)
   const [isDragOver, setIsDragOver] = useState(false)
   const [libreOfficeNeeded, setLibreOfficeNeeded] = useState(false)
-  const [currentPage, setCurrentPage] = useState(0)
-  const [suggestionFields, setSuggestionFields] = useState<TemplateField[]>([])
-  const [detecting, setDetecting] = useState(false)
-  const [pdfTextLayers, setPdfTextLayers] = useState<
-    Array<{ page: number; items: Array<{ text: string; x: number; y: number; w: number; h: number }> }>
-  >([])
+  const [scanning, setScanning] = useState(false)
+
+  const activeTemplateRef = useRef(activeTemplate)
+  activeTemplateRef.current = activeTemplate
+
+  const mergeScanFromDisk = useCallback(async (templateId: string, sourcePath: string) => {
+    const api = window.letterComposer
+    if (!api?.scanPlaceholders) return
+    setScanning(true)
+    try {
+      const result = await api.scanPlaceholders(sourcePath)
+      if (!result.ok) {
+        setError(result.error ?? 'Could not scan placeholders')
+        return
+      }
+      setError(null)
+      const st = useLetterComposerStore.getState()
+      const prev = st.templates.find((x) => x.id === templateId)?.fields ?? []
+      const prevByName = new Map(prev.map((f) => [f.name, f]))
+      const fields: TemplateField[] = result.fields.map((f) => {
+        const old = prevByName.get(f.name)
+        return {
+          id: old?.id ?? crypto.randomUUID(),
+          name: f.name,
+          label: placeholderFieldLabel(f.name),
+          type: inferFieldType(f.name),
+          mode: inferFieldMode(f.name),
+          page: 0,
+          x: 0,
+          y: 0,
+          w: 0,
+          h: 0,
+          value: old?.value ?? '',
+          defaultValue: old?.defaultValue ?? '',
+          anchorText: f.placeholder,
+          placeholder: f.placeholder,
+        }
+      })
+      st.updateTemplate(templateId, { fields })
+    } finally {
+      setScanning(false)
+    }
+  }, [])
+
+  const reconvertPreview = useCallback(async (t: LetterTemplate) => {
+    const api = window.letterComposer
+    const lo = window.libreoffice
+    if (!api?.getConvertedPdfOutputDir || !api?.renderPdfPages || !lo?.convertToPdf) {
+      throw new Error('LibreOffice or Letter Composer bridge unavailable')
+    }
+    await lo.resetDetection?.()
+    const det = await lo.detect()
+    if (!det.available) {
+      throw new Error('LibreOffice not available')
+    }
+    const outputDir = await api.getConvertedPdfOutputDir()
+    const conv = await lo.convertToPdf(t.sourceFilePath, outputDir)
+    if (!conv.ok) {
+      throw new Error(conv.error || 'Could not convert document to PDF')
+    }
+    const { pages, pageCount } = await api.renderPdfPages(conv.pdfPath)
+    useLetterComposerStore.getState().updateTemplate(t.id, {
+      pdfPreviewPath: conv.pdfPath,
+      pdfPageImages: pages,
+      pageCount,
+    })
+  }, [])
 
   useEffect(() => {
-    const pdfPath = activeTemplate?.pdfPreviewPath
-    const api = typeof window !== 'undefined' ? window.letterComposer : undefined
-    if (!pdfPath || !api?.extractPdfTextPositions) {
-      setPdfTextLayers([])
-      return
-    }
-    let cancelled = false
-    void api
-      .extractPdfTextPositions(pdfPath)
-      .then((pages) => {
-        if (!cancelled) setPdfTextLayers(pages)
-      })
-      .catch((e) => {
-        console.warn('[LetterTemplatePort] extractPdfTextPositions failed', e)
-        if (!cancelled) setPdfTextLayers([])
-      })
+    const id = activeTemplateId
     return () => {
-      cancelled = true
+      if (id) void window.letterComposer?.unwatchTemplateFile?.(id)
     }
-  }, [activeTemplate?.pdfPreviewPath])
+  }, [activeTemplateId])
 
   useEffect(() => {
-    setCurrentPage(0)
-  }, [activeTemplate?.id])
+    const t = activeTemplate
+    const api = window.letterComposer
+    if (!t || t.mappingComplete || !api?.onTemplateFileChanged) return
 
-  useEffect(() => {
-    setSuggestionFields([])
-  }, [activeTemplateId, activeTemplate?.pdfPreviewPath])
+    const unsub = api.onTemplateFileChanged((data) => {
+      if (data.templateId !== t.id) return
+      void (async () => {
+        const cur = activeTemplateRef.current
+        if (!cur || cur.id !== t.id || cur.mappingComplete) return
+        setBusy(true)
+        setError(null)
+        try {
+          await reconvertPreview(cur)
+          await mergeScanFromDisk(cur.id, cur.sourceFilePath)
+        } catch (e) {
+          setError(e instanceof Error ? e.message : 'Template refresh failed')
+        } finally {
+          setBusy(false)
+        }
+      })()
+    })
+
+    return () => {
+      unsub()
+    }
+  }, [activeTemplate?.id, activeTemplate?.mappingComplete, reconvertPreview, mergeScanFromDisk])
 
   useEffect(() => {
     if (!activeTemplate?.mappingComplete) return
@@ -212,6 +292,7 @@ export function LetterTemplatePort() {
         addTemplate(template)
         setActiveTemplate(template.id)
         pendingTemplateFileRef.current = null
+        await mergeScanFromDisk(template.id, savedPath)
       } catch (err) {
         console.error('[LetterTemplatePort] upload failed', err)
         setError(err instanceof Error ? err.message : 'Template processing failed')
@@ -219,7 +300,7 @@ export function LetterTemplatePort() {
         setBusy(false)
       }
     },
-    [addTemplate, setActiveTemplate],
+    [addTemplate, setActiveTemplate, mergeScanFromDisk],
   )
 
   const handleCheckAgain = useCallback(async () => {
@@ -335,23 +416,55 @@ export function LetterTemplatePort() {
         fields: [],
         mappingComplete: false,
       })
-      setCurrentPage(0)
+      await mergeScanFromDisk(activeTemplateId, activeTemplate.sourceFilePath)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not reset template')
     } finally {
       setBusy(false)
     }
-  }, [activeTemplateId, activeTemplate])
+  }, [activeTemplateId, activeTemplate, mergeScanFromDisk])
 
   const buildExportFieldsPayload = useCallback(() => {
     const t = useLetterComposerStore.getState().templates.find((x) => x.id === activeTemplate?.id)
-    return (t?.fields ?? []).map((f) => ({
-      id: f.id,
-      placeholder: f.defaultValue || `{{${f.id}}}`,
-      anchorText: f.anchorText ?? '',
-      value: f.value ?? '',
-    }))
+    return (t?.fields ?? []).map((f) => {
+      const token =
+        (f.anchorText && f.anchorText.trim()) ||
+        (f.placeholder && f.placeholder.trim()) ||
+        `{{${f.name}}}`
+      return {
+        id: f.id,
+        placeholder: token,
+        anchorText: token,
+        value: f.value ?? '',
+      }
+    })
   }, [activeTemplate?.id])
+
+  const handleEditInLibreOffice = useCallback(async () => {
+    if (!activeTemplate) return
+    const api = window.letterComposer
+    if (!api?.openInLibreOffice || !api.watchTemplateFile) {
+      setError('Edit in LibreOffice requires an up-to-date WR Desk build.')
+      return
+    }
+    setError(null)
+    const r = await api.openInLibreOffice(activeTemplate.sourceFilePath)
+    if (!r.ok) {
+      setError(r.error === 'LIBREOFFICE_NOT_FOUND' ? 'LibreOffice not found.' : r.error)
+      return
+    }
+    await api.watchTemplateFile(activeTemplate.sourceFilePath, activeTemplate.id)
+  }, [activeTemplate])
+
+  const handleRescanPlaceholders = useCallback(async () => {
+    if (!activeTemplate) return
+    setError(null)
+    try {
+      await mergeScanFromDisk(activeTemplate.id, activeTemplate.sourceFilePath)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Scan failed')
+    }
+  }, [activeTemplate, mergeScanFromDisk])
 
   const handleExportDocx = useCallback(async () => {
     const api = window.letterComposer
@@ -451,109 +564,10 @@ export function LetterTemplatePort() {
     })
   }, [activeTemplate, buildExportFieldsPayload])
 
-  const onMappingFieldAdded = useCallback(
-    (partial: Omit<TemplateField, 'id' | 'value'>) => {
-      if (!activeTemplateId) return
-      const field: TemplateField = {
-        ...partial,
-        id: crypto.randomUUID(),
-        value: '',
-        defaultValue: partial.defaultValue ?? '',
-      }
-      addTemplateField(activeTemplateId, field)
-    },
-    [activeTemplateId, addTemplateField],
-  )
-
-  const onMappingFieldRemoved = useCallback(
-    (fieldId: string) => {
-      if (!activeTemplateId) return
-      removeTemplateField(activeTemplateId, fieldId)
-    },
-    [activeTemplateId, removeTemplateField],
-  )
-
-  const onMappingFieldUpdated = useCallback(
-    (fieldId: string, patch: Partial<TemplateField>) => {
-      if (!activeTemplateId) return
-      patchTemplateField(activeTemplateId, fieldId, patch)
-    },
-    [activeTemplateId, patchTemplateField],
-  )
-
-  const handleAutoDetect = useCallback(async () => {
-    if (!activeTemplate?.pdfPreviewPath) return
-    const api = window.letterComposer
-    if (!api?.detectTemplateFields) {
-      setError('Field auto-detection requires WR Desk (Electron) with an up-to-date Letter Composer bridge.')
-      return
-    }
-    setError(null)
-    setDetecting(true)
-    try {
-      const r = await api.detectTemplateFields(activeTemplate.pdfPreviewPath)
-      if (!r.ok) {
-        setSuggestionFields([])
-        if (r.error) setError(r.error)
-        return
-      }
-      const rows = r.fields ?? []
-      if (rows.length === 0 && r.error) {
-        setSuggestionFields([])
-        setError(r.error)
-        return
-      }
-      const mapped: TemplateField[] = rows.map((row) => ({
-        id: crypto.randomUUID(),
-        name: row.name?.trim() || 'field',
-        label: row.label?.trim() || row.name?.trim() || 'Field',
-        type: coerceFieldType(row.type),
-        mode: row.mode === 'flow' ? 'flow' : 'fixed',
-        page: Math.max(0, Math.floor(row.page)),
-        x: row.x,
-        y: row.y,
-        w: row.w,
-        h: row.h,
-        value: '',
-        defaultValue: '',
-        anchorText: '',
-      }))
-      setSuggestionFields(mapped)
-    } catch (e) {
-      console.warn('[LetterTemplatePort] auto-detect fields failed', e)
-      setSuggestionFields([])
-      setError(e instanceof Error ? e.message : 'Could not auto-detect fields')
-    } finally {
-      setDetecting(false)
-    }
-  }, [activeTemplate])
-
-  const onSuggestionConfirm = useCallback(
-    (fieldId: string) => {
-      if (!activeTemplateId) return
-      setSuggestionFields((prev) => {
-        const s = prev.find((f) => f.id === fieldId)
-        if (!s) return prev
-        const field: TemplateField = { ...s, id: crypto.randomUUID() }
-        addTemplateField(activeTemplateId, field)
-        return prev.filter((f) => f.id !== fieldId)
-      })
-    },
-    [activeTemplateId, addTemplateField],
-  )
-
-  const onSuggestionRemoved = useCallback((fieldId: string) => {
-    setSuggestionFields((prev) => prev.filter((f) => f.id !== fieldId))
-  }, [])
-
-  const onSuggestionUpdated = useCallback((fieldId: string, patch: Partial<TemplateField>) => {
-    setSuggestionFields((prev) => prev.map((f) => (f.id === fieldId ? { ...f, ...patch } : f)))
-  }, [])
-
-  const handleFinishMapping = useCallback(() => {
+  const handleFinishSetup = useCallback(() => {
     if (!activeTemplateId || !activeTemplate) return
     if (activeTemplate.fields.length === 0) return
-    setSuggestionFields([])
+    void window.letterComposer?.unwatchTemplateFile?.(activeTemplateId)
     setTemplateMappingComplete(activeTemplateId, true)
   }, [activeTemplateId, activeTemplate, setTemplateMappingComplete])
 
@@ -561,9 +575,6 @@ export function LetterTemplatePort() {
     '.docx,.odt,.doc,.rtf,.txt,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.oasis.opendocument.text,text/plain,application/msword,application/rtf'
 
   const previewImages = activeTemplate?.pdfPageImages ?? []
-  const safePage = Math.min(currentPage, Math.max(0, previewImages.length - 1))
-  const pageCount = activeTemplate?.pageCount ?? previewImages.length
-  const pageTextItemsForOverlay = pdfTextLayers.find((p) => p.page === safePage)?.items ?? []
 
   return (
     <div
@@ -722,75 +733,125 @@ export function LetterTemplatePort() {
           </div>
 
           {activeTemplate && !activeTemplate.mappingComplete && previewImages.length > 0 ? (
-            <div className="template-mapping-view">
+
+            <div className="template-mapping-view template-setup">
               <div className="template-mapping-header">
                 <div className="template-mapping-header__row">
-                  <h4>Map your template fields</h4>
+                  <h4>Prepare your template</h4>
+                  <button
+                    type="button"
+                    className="template-toolbar__btn template-toolbar__btn--ghost"
+                    onClick={() => void handleEditInLibreOffice()}
+                    disabled={busy || rehydrating}
+                  >
+                    {'\u270F\uFE0F Edit in LibreOffice'}
+                  </button>
                   <button
                     type="button"
                     className="template-mapping-auto-detect"
-                    onClick={() => void handleAutoDetect()}
-                    disabled={
-                      detecting ||
-                      busy ||
-                      rehydrating ||
-                      !activeTemplate.pdfPreviewPath ||
-                      !window.letterComposer?.detectTemplateFields
-                    }
+                    onClick={() => void handleRescanPlaceholders()}
+                    disabled={busy || rehydrating || scanning}
                   >
-                    {detecting ? 'Detecting…' : '🔍 Auto-detect fields'}
+                    {scanning ? 'Scanning…' : '\u{1F50D} Scan for placeholders'}
                   </button>
                 </div>
-                <p>Click and drag on the preview to mark editable zones, then name each field.</p>
+                <p>
+                  Add <code>{'{{field_name}}'}</code> tokens in LibreOffice, save, then scan — or rely on auto-refresh
+                  after you save.
+                </p>
               </div>
-              {pageCount > 1 ? (
-                <div className="template-page-nav">
+              <div className="template-preview" style={{ flex: 1, overflowY: 'auto', maxHeight: '50vh' }}>
+                {previewImages.map((img, i) => (
+                  <img
+                    key={i}
+                    src={img}
+                    alt={`Page ${i + 1}`}
+                    style={{ width: '100%', marginBottom: 8, display: 'block' }}
+                  />
+                ))}
+              </div>
+              <div className="template-instructions" style={{ marginTop: 12, fontSize: 13 }}>
+                <h4 style={{ margin: '8px 0' }}>How to prepare your template</h4>
+                <ol style={{ margin: '0 0 8px 1.1em', padding: 0 }}>
+                  <li>
+                    Click <strong>Edit in LibreOffice</strong> to open your file.
+                  </li>
+                  <li>
+                    Replace dynamic text with placeholders, e.g. <code>{'{{recipient_name}}'}</code>,{' '}
+                    <code>{'{{date}}'}</code>, <code>{'{{subject}}'}</code>, <code>{'{{body}}'}</code>.
+                  </li>
+                  <li>Save in LibreOffice — the preview and field list refresh automatically.</li>
+                  <li>
+                    Use <strong>Scan for placeholders</strong> if you need to refresh manually.
+                  </li>
+                </ol>
+                <details style={{ marginBottom: 8 }}>
+                  <summary style={{ cursor: 'pointer', fontWeight: 600 }}>Common placeholders</summary>
+                  <pre
+                    style={{
+                      margin: '8px 0 0',
+                      padding: 8,
+                      background: 'var(--letter-instructions-bg, #f4f4f2)',
+                      borderRadius: 6,
+                      fontSize: 11,
+                      whiteSpace: 'pre-wrap',
+                    }}
+                  >
+                    {`{{sender_name}}           Your name / company
+{{sender_address}}        Your address
+{{recipient_name}}        Recipient name
+{{recipient_address}}     Recipient address
+{{date}}                  Letter date
+{{subject}}               Subject line
+{{reference}}             Reference number
+{{salutation}}            Opening line
+{{body}}                  Main text
+{{closing}}               Closing line
+{{signer_name}}           Signer name
+
+Custom: {{your_field}} also works.`}
+                  </pre>
+                </details>
+              </div>
+              {activeTemplate.fields.length > 0 ? (
+                <div className="template-detected-fields" style={{ marginTop: 12 }}>
+                  <h4 style={{ margin: '8px 0' }}>Detected fields ({activeTemplate.fields.length})</h4>
+                  <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+                    {activeTemplate.fields.map((f) => (
+                      <li
+                        key={f.id}
+                        className="detected-field-row"
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 8,
+                          padding: '4px 0',
+                          borderBottom: '1px solid var(--letter-border, #e8e8e6)',
+                        }}
+                      >
+                        <code style={{ flex: '0 0 auto' }}>{f.placeholder ?? f.anchorText}</code>
+                        <span style={{ flex: 1 }}>{f.label}</span>
+                        <span aria-hidden>{'\u2705'}</span>
+                      </li>
+                    ))}
+                  </ul>
                   <button
                     type="button"
-                    className="template-toolbar__btn template-toolbar__btn--ghost"
-                    disabled={safePage <= 0}
-                    onClick={() => setCurrentPage((p) => Math.max(0, p - 1))}
+                    className="finish-mapping-btn"
+                    onClick={handleFinishSetup}
+                    disabled={activeTemplate.fields.length === 0}
+                    style={{ marginTop: 12 }}
                   >
-                    Previous page
-                  </button>
-                  <span className="template-page-nav__label">
-                    Page {safePage + 1} / {pageCount}
-                  </span>
-                  <button
-                    type="button"
-                    className="template-toolbar__btn template-toolbar__btn--ghost"
-                    disabled={safePage >= previewImages.length - 1}
-                    onClick={() => setCurrentPage((p) => Math.min(previewImages.length - 1, p + 1))}
-                  >
-                    Next page
+                    Finish Setup ({activeTemplate.fields.length} fields ready)
                   </button>
                 </div>
-              ) : null}
-              <div className="template-page-preview template-page-preview--overlay">
-                <FieldMappingOverlay
-                  pageImage={previewImages[safePage]}
-                  pageIndex={safePage}
-                  fields={activeTemplate.fields}
-                  pageTextItems={pageTextItemsForOverlay}
-                  suggestionFields={suggestionFields}
-                  readOnly={false}
-                  onFieldAdded={onMappingFieldAdded}
-                  onFieldRemoved={onMappingFieldRemoved}
-                  onFieldUpdated={onMappingFieldUpdated}
-                  onSuggestionConfirm={onSuggestionConfirm}
-                  onSuggestionRemoved={onSuggestionRemoved}
-                  onSuggestionUpdated={onSuggestionUpdated}
-                />
-              </div>
-              <button
-                type="button"
-                className="finish-mapping-btn"
-                onClick={handleFinishMapping}
-                disabled={activeTemplate.fields.length === 0}
-              >
-                Finish Mapping ({activeTemplate.fields.length} fields defined)
-              </button>
+              ) : (
+                <p className="no-fields-hint" style={{ marginTop: 12, fontSize: 13 }}>
+                  No <code>{'{{...}}'}</code> placeholders found yet. Edit the template in LibreOffice, save, then scan.
+                </p>
+              )}
             </div>
+
           ) : activeTemplate.mappingComplete && previewImages.length > 0 ? (
             <div className="template-compose-layout">
               <ComposeFieldsForm
@@ -828,40 +889,15 @@ export function LetterTemplatePort() {
               <details className="template-compose-preview-details">
                 <summary className="template-compose-preview-summary">Template preview (read-only)</summary>
                 <div className="template-mapping-view template-mapping-view--done template-mapping-view--embedded">
-                  {pageCount > 1 ? (
-                    <div className="template-page-nav">
-                      <button
-                        type="button"
-                        className="template-toolbar__btn template-toolbar__btn--ghost"
-                        disabled={safePage <= 0}
-                        onClick={() => setCurrentPage((p) => Math.max(0, p - 1))}
-                      >
-                        Previous page
-                      </button>
-                      <span className="template-page-nav__label">
-                        Page {safePage + 1} / {pageCount}
-                      </span>
-                      <button
-                        type="button"
-                        className="template-toolbar__btn template-toolbar__btn--ghost"
-                        disabled={safePage >= previewImages.length - 1}
-                        onClick={() => setCurrentPage((p) => Math.min(previewImages.length - 1, p + 1))}
-                      >
-                        Next page
-                      </button>
-                    </div>
-                  ) : null}
-                  <div className="template-page-preview template-page-preview--overlay">
-                    <FieldMappingOverlay
-                      pageImage={previewImages[safePage]}
-                      pageIndex={safePage}
-                      fields={activeTemplate.fields}
-                      pageTextItems={pageTextItemsForOverlay}
-                      readOnly
-                      onFieldAdded={() => {}}
-                      onFieldRemoved={() => {}}
-                      onFieldUpdated={() => {}}
-                    />
+                  <div className="template-preview template-preview-readonly" style={{ overflowY: 'auto', maxHeight: 360 }}>
+                    {previewImages.map((src, i) => (
+                      <img
+                        key={i}
+                        src={src}
+                        alt={`Page ${i + 1}`}
+                        style={{ width: '100%', marginBottom: 8, display: 'block' }}
+                      />
+                    ))}
                   </div>
                 </div>
               </details>

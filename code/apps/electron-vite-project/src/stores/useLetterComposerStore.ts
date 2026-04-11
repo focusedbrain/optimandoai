@@ -26,6 +26,8 @@ export interface TemplateField {
   value: string // current fill value
   defaultValue: string // placeholder or default text from original document
   anchorText: string // text from the original document at this position (for DOCX injection)
+  /** Exact `{{name}}` token when using placeholder-based templates (optional duplicate of anchorText). */
+  placeholder?: string
 }
 
 export interface LetterTemplate {
@@ -100,6 +102,8 @@ function migrateTemplateFieldV1(f: Record<string, unknown>): TemplateField {
     typeRaw === 'date' || typeRaw === 'multiline' || typeRaw === 'address' || typeRaw === 'richtext'
       ? typeRaw
       : 'text'
+  const legacyPlaceholderKey = typeof f.placeholder === 'string' ? f.placeholder : ''
+  const isToken = legacyPlaceholderKey.startsWith('{{')
   return {
     id,
     name: slugifySemanticName(nameRaw),
@@ -112,8 +116,14 @@ function migrateTemplateFieldV1(f: Record<string, unknown>): TemplateField {
     w: 1,
     h: 1,
     value: typeof f.value === 'string' ? f.value : String(f.value ?? ''),
-    defaultValue: typeof f.placeholder === 'string' ? f.placeholder : '',
-    anchorText: '',
+    defaultValue:
+      typeof f.defaultValue === 'string'
+        ? f.defaultValue
+        : isToken
+          ? ''
+          : legacyPlaceholderKey,
+    anchorText: typeof f.anchorText === 'string' ? f.anchorText : '',
+    placeholder: isToken ? legacyPlaceholderKey : undefined,
   }
 }
 

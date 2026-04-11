@@ -1247,13 +1247,37 @@ contextBridge.exposeInMainWorld('letterComposer', {
       pages: string[]
       pageCount: number
     }>,
-  extractPdfTextPositions: (filePath: string) =>
-    ipcRenderer.invoke('letter:extractPdfTextPositions', assertFsPath(filePath, 'filePath')) as Promise<
-      Array<{
-        page: number
-        items: Array<{ text: string; x: number; y: number; w: number; h: number }>
-      }>
+  openInLibreOffice: (filePath: string) =>
+    ipcRenderer.invoke('letter:openInLibreOffice', assertFsPath(filePath, 'filePath')) as Promise<
+      { ok: true } | { ok: false; error: string }
     >,
+  scanPlaceholders: (filePath: string) =>
+    ipcRenderer.invoke('letter:scanPlaceholders', assertFsPath(filePath, 'filePath')) as Promise<{
+      ok: boolean
+      fields: Array<{ name: string; placeholder: string }>
+      error?: string
+    }>,
+  watchTemplateFile: (filePath: string, templateId: string) => {
+    if (typeof templateId !== 'string' || templateId.length > 200) {
+      throw new Error('watchTemplateFile: invalid templateId')
+    }
+    return ipcRenderer.invoke(
+      'letter:watchTemplateFile',
+      assertFsPath(filePath, 'filePath'),
+      templateId,
+    ) as Promise<{ ok: boolean; error?: string }>
+  },
+  unwatchTemplateFile: (templateId: string) =>
+    ipcRenderer.invoke('letter:unwatchTemplateFile', templateId) as Promise<{ ok: boolean }>,
+  onTemplateFileChanged: (callback: (data: { templateId: string; filePath: string }) => void) => {
+    const handler = (_e: unknown, data: { templateId: string; filePath: string }) => {
+      callback(data)
+    }
+    ipcRenderer.on('letter:templateFileChanged', handler)
+    return () => {
+      ipcRenderer.removeListener('letter:templateFileChanged', handler)
+    }
+  },
   detectTemplateFields: (filePath: string) =>
     ipcRenderer.invoke('letter:detectFields', assertFsPath(filePath, 'filePath')) as Promise<{
       ok: boolean
