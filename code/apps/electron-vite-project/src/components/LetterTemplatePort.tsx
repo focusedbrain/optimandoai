@@ -1,47 +1,36 @@
-import type { DragEvent } from 'react'
-import { useCallback, useEffect, useState } from 'react'
-import {
-  useLetterComposerStore,
-  type LetterTemplate,
-  type TemplateField,
-} from '../stores/useLetterComposerStore'
-import { letterTemplateFilledHtml } from '../lib/letterTemplateMultiVersion'
+import type { DragEvent, MouseEvent } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { useLetterComposerStore, type LetterTemplate } from '../stores/useLetterComposerStore'
+import { useDraftRefineStore } from '../stores/useDraftRefineStore'
 import { PortSelectButton } from './LetterComposerPortSelectButton'
 
-function isTemplateFieldShape(x: unknown): x is {
-  id: string
-  name?: string
-  placeholder?: string
-  type?: string
-} {
-  if (!x || typeof x !== 'object') return false
-  const o = x as Record<string, unknown>
-  return typeof o.id === 'string' && o.id.length > 0
-}
-
-function coerceFieldType(raw: unknown): TemplateField['type'] {
-  const t = typeof raw === 'string' ? raw.toLowerCase().trim() : 'text'
-  if (t === 'date' || t === 'multiline' || t === 'address' || t === 'text') return t
-  return 'text'
-}
+const TEMPLATE_FILE_RE = /\.(docx|odt|doc|rtf|txt)$/i
 
 export function LetterTemplatePort() {
   const templates = useLetterComposerStore((s) => s.templates)
   const activeTemplateId = useLetterComposerStore((s) => s.activeTemplateId)
   const setActiveTemplate = useLetterComposerStore((s) => s.setActiveTemplate)
   const addTemplate = useLetterComposerStore((s) => s.addTemplate)
-  const updateTemplateField = useLetterComposerStore((s) => s.updateTemplateField)
-  const setFocusedTemplateField = useLetterComposerStore((s) => s.setFocusedTemplateField)
-  const setActiveTemplateVersionIndex = useLetterComposerStore((s) => s.setActiveTemplateVersionIndex)
+  const removeTemplate = useLetterComposerStore((s) => s.removeTemplate)
   const activeTemplate = templates.find((t) => t.id === activeTemplateId)
 
-  const versions = activeTemplate?.versions ?? []
-  const versionIndex = activeTemplate?.activeVersionIndex ?? -1
+  const documentRef = useRef<HTMLDivElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const lastTemplateIdRef = useRef<string | null>(null)
+  const selectedBlockRef = useRef<HTMLElement | null>(null)
 
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [rehydrating, setRehydrating] = useState(false)
   const [isDragOver, setIsDragOver] = useState(false)
+
+  const syncTemplateHtmlFromDom = useCallback(() => {
+    const el = documentRef.current
+    if (!el || !activeTemplateId) return
+    useLetterComposerStore.getState().updateTemplate(activeTemplateId, {
+      renderedHtml: el.innerHTML,
+    })
+  }, [activeTemplateId])
 
   useEffect(() => {
     const t = activeTemplate
@@ -76,11 +65,33 @@ export function LetterTemplatePort() {
     }
   }, [activeTemplate?.id, activeTemplate?.sourceFilePath, activeTemplate?.renderedHtml])
 
+  useEffect(() => {
+    const el = documentRef.current
+    if (!el || !activeTemplate) return
+
+    const idChanged = lastTemplateIdRef.current !== activeTemplate.id
+    lastTemplateIdRef.current = activeTemplate.id
+
+    if (idChanged) {
+      el.innerHTML = activeTemplate.renderedHtml || ''
+      el.querySelectorAll('.template-block-selected').forEach((n) => n.classList.remove('template-block-selected'))
+      selectedBlockRef.current = null
+      return
+    }
+
+    if (el.contains(document.activeElement)) return
+
+    const next = activeTemplate.renderedHtml || ''
+    if (el.innerHTML !== next) {
+      el.innerHTML = next
+    }
+  }, [activeTemplate?.id, activeTemplate?.renderedHtml])
+
   const processTemplateFile = useCallback(
     async (file: File) => {
       const lower = file.name.toLowerCase()
-      if (!lower.endsWith('.docx') && !lower.endsWith('.odt')) {
-        setError('Please upload a .docx or .odt template.')
+      if (!TEMPLATE_FILE_RE.test(lower)) {
+        setError('Please upload a supported template (.docx, .odt, .doc, .rtf, or .txt).')
         return
       }
 
@@ -106,29 +117,13 @@ export function LetterTemplatePort() {
 
         const { html } = await api.convertDocxToHtml(savedPath)
 
-        let extracted: unknown[] = []
-        if (api.extractFields) {
-          extracted = await api.extractFields(html)
-        }
-
-        const fields: TemplateField[] = (extracted || [])
-          .filter(isTemplateFieldShape)
-          .map((f) => ({
-            id: f.id,
-            name: typeof f.name === 'string' && f.name.trim() ? f.name.trim() : f.id,
-            placeholder: typeof f.placeholder === 'string' ? f.placeholder : '',
-            type: coerceFieldType(f.type),
-            value: '',
-            aiGenerated: false,
-          }))
-
         const template: LetterTemplate = {
           id: crypto.randomUUID(),
           name: file.name.replace(/\.[^.]+$/, ''),
           sourceFileName: file.name,
           sourceFilePath: savedPath,
           renderedHtml: html,
-          fields,
+          fields: [],
           versions: [],
           activeVersionIndex: -1,
           createdAt: new Date().toISOString(),
@@ -151,8 +146,8 @@ export function LetterTemplatePort() {
     (files: File[]) => {
       const file = files[0]
       if (!file) return
-      if (!file.name.match(/\.(docx|odt)$/i)) {
-        console.warn('[LetterTemplate] Only .docx and .odt files are supported')
+      if (!file.name.match(TEMPLATE_FILE_RE)) {
+        console.warn('[LetterTemplate] Unsupported format. Use .docx, .odt, .doc, .rtf, or .txt')
         return
       }
       void processTemplateFile(file)
@@ -188,14 +183,89 @@ export function LetterTemplatePort() {
     [handleFilesReceived],
   )
 
+  const handleDocumentInput = useCallback(() => {
+    syncTemplateHtmlFromDom()
+  }, [syncTemplateHtmlFromDom])
+
+  const handleDocumentClick = useCallback(
+    (e: MouseEvent) => {
+      const el = documentRef.current
+      if (!el || !activeTemplateId) return
+
+      const block = (e.target as HTMLElement).closest(
+        'p, h1, h2, h3, h4, h5, h6, li, td, th, blockquote',
+      )
+      if (!block || !el.contains(block) || block === el) return
+
+      const blockEl = block as HTMLElement
+
+      el.querySelectorAll('.template-block-selected').forEach((n) => {
+        n.classList.remove('template-block-selected')
+      })
+      blockEl.classList.add('template-block-selected')
+      selectedBlockRef.current = blockEl
+
+      const text = blockEl.textContent?.trim() ?? ''
+      useDraftRefineStore.getState().connect(
+        null,
+        'Letter template',
+        text,
+        (refinedText) => {
+          const target = selectedBlockRef.current
+          if (target) {
+            target.textContent = refinedText
+            syncTemplateHtmlFromDom()
+          }
+        },
+        'letter-template',
+      )
+    },
+    [activeTemplateId, syncTemplateHtmlFromDom],
+  )
+
+  const handleClearTemplate = useCallback(() => {
+    if (!activeTemplateId) return
+    if (!window.confirm('Remove this template?')) return
+    useDraftRefineStore.getState().disconnect()
+    removeTemplate(activeTemplateId)
+    setActiveTemplate(null)
+    selectedBlockRef.current = null
+    lastTemplateIdRef.current = null
+  }, [activeTemplateId, removeTemplate, setActiveTemplate])
+
+  const handleResetToOriginal = useCallback(async () => {
+    if (!activeTemplateId || !activeTemplate) return
+    const api = window.letterComposer
+    if (!api?.convertDocxToHtml) return
+    setError(null)
+    try {
+      const { html } = await api.convertDocxToHtml(activeTemplate.sourceFilePath)
+      useLetterComposerStore.getState().updateTemplate(activeTemplateId, { renderedHtml: html })
+      const el = documentRef.current
+      if (el) {
+        el.innerHTML = html
+        el.querySelectorAll('.template-block-selected').forEach((n) => n.classList.remove('template-block-selected'))
+      }
+      selectedBlockRef.current = null
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not reset template')
+    }
+  }, [activeTemplateId, activeTemplate])
+
   const handleExportDocx = useCallback(async () => {
     const api = window.letterComposer
     if (!api?.exportFilledDocx || !activeTemplate) return
+    if (!activeTemplate.sourceFilePath.toLowerCase().endsWith('.docx')) {
+      setError('Export as DOCX is only available for Word (.docx) templates. Use Print for other formats.')
+      return
+    }
+    syncTemplateHtmlFromDom()
     setError(null)
     try {
+      const t = useLetterComposerStore.getState().templates.find((x) => x.id === activeTemplate.id)
       const r = await api.exportFilledDocx({
         sourcePath: activeTemplate.sourceFilePath,
-        fields: activeTemplate.fields.map((f) => ({
+        fields: (t?.fields ?? []).map((f) => ({
           id: f.id,
           placeholder: f.placeholder,
           value: f.value,
@@ -206,25 +276,25 @@ export function LetterTemplatePort() {
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Export failed')
     }
-  }, [activeTemplate])
+  }, [activeTemplate, syncTemplateHtmlFromDom])
 
   const handlePrint = useCallback(() => {
-    if (!activeTemplate?.renderedHtml) return
-    const html = letterTemplateFilledHtml(
-      activeTemplate.renderedHtml,
-      activeTemplate.fields.map((f) => ({
-        id: f.id,
-        placeholder: f.placeholder,
-        value: f.value,
-      })),
-    )
+    if (!activeTemplate) return
+    syncTemplateHtmlFromDom()
+    const html =
+      documentRef.current?.innerHTML ||
+      useLetterComposerStore.getState().templates.find((t) => t.id === activeTemplate.id)?.renderedHtml ||
+      ''
+    if (!html.trim()) return
     const w = window.open('', '_blank')
     if (!w) {
       setError('Allow pop-ups to open the print window.')
       return
     }
     w.document.open()
-    w.document.write(html)
+    w.document.write(
+      `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Print</title></head><body>${html}</body></html>`,
+    )
     w.document.close()
     w.focus()
     requestAnimationFrame(() => {
@@ -234,21 +304,10 @@ export function LetterTemplatePort() {
         /* noop */
       }
     })
-  }, [activeTemplate])
+  }, [activeTemplate, syncTemplateHtmlFromDom])
 
-  const goVersionPrev = useCallback(() => {
-    if (!activeTemplate || versions.length === 0) return
-    const cur = versionIndex < 0 ? 0 : versionIndex
-    const next = cur <= 0 ? versions.length - 1 : cur - 1
-    setActiveTemplateVersionIndex(activeTemplate.id, next)
-  }, [activeTemplate, versions.length, versionIndex, setActiveTemplateVersionIndex])
-
-  const goVersionNext = useCallback(() => {
-    if (!activeTemplate || versions.length === 0) return
-    const cur = versionIndex < 0 ? 0 : versionIndex
-    const next = cur >= versions.length - 1 ? 0 : cur + 1
-    setActiveTemplateVersionIndex(activeTemplate.id, next)
-  }, [activeTemplate, versions.length, versionIndex, setActiveTemplateVersionIndex])
+  const templateFileAccept =
+    '.docx,.odt,.doc,.rtf,.txt,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.oasis.opendocument.text,text/plain,application/msword,application/rtf'
 
   return (
     <div
@@ -283,39 +342,78 @@ export function LetterTemplatePort() {
         </div>
       )}
 
+      <input
+        ref={fileInputRef}
+        type="file"
+        className="template-toolbar__file-hidden"
+        accept={templateFileAccept}
+        disabled={busy}
+        onChange={(e) => {
+          handleFilesReceived(Array.from(e.target.files || []))
+          e.target.value = ''
+        }}
+        aria-hidden
+        tabIndex={-1}
+      />
+
       {!activeTemplate ? (
         <div className="letter-port__empty-drop-zone">
           <div className="letter-port__drop-icon" aria-hidden>
             {'\u{1F4C4}'}
           </div>
-          <p className="letter-port__drop-text">Drag & drop a .docx or .odt template here</p>
+          <p className="letter-port__drop-text">Drag & drop a template here</p>
+          <p className="letter-port__drop-subtext">.docx, .odt, .doc, .rtf, or .txt</p>
           <p className="letter-port__drop-subtext">or</p>
-          <label className="letter-port__browse-btn">
+          <button
+            type="button"
+            className="letter-port__browse-btn"
+            onClick={() => fileInputRef.current?.click()}
+          >
             Browse files
-            <input
-              type="file"
-              accept=".docx,.odt,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.oasis.opendocument.text"
-              disabled={busy}
-              onChange={(e) => {
-                handleFilesReceived(Array.from(e.target.files || []))
-                e.target.value = ''
-              }}
-              style={{ display: 'none' }}
-            />
-          </label>
+          </button>
         </div>
       ) : (
-        <div className="port-upload-zone port-upload-zone--add-more">
-          <p>Add another template (.docx or .odt)</p>
-          <input
-            id="letter-template-file"
-            type="file"
-            accept=".docx,.odt,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.oasis.opendocument.text"
-            disabled={busy}
-            onChange={(e) => {
-              handleFilesReceived(Array.from(e.target.files || []))
-              e.target.value = ''
-            }}
+        <div className="template-display">
+          <div className="template-toolbar">
+            <button
+              type="button"
+              className="template-toolbar__linkish"
+              onClick={() => fileInputRef.current?.click()}
+            >
+              Add another template
+            </button>
+            <button type="button" className="template-toolbar__btn template-toolbar__btn--ghost" onClick={handleClearTemplate}>
+              Clear
+            </button>
+            <button
+              type="button"
+              className="template-toolbar__btn template-toolbar__btn--ghost"
+              onClick={() => void handleResetToOriginal()}
+            >
+              Reset to original
+            </button>
+            <button
+              type="button"
+              className="template-toolbar__btn template-toolbar__btn--ghost"
+              onClick={() => void handleExportDocx()}
+            >
+              Export as DOCX
+            </button>
+            <button type="button" className="template-toolbar__btn template-toolbar__btn--primary" onClick={handlePrint}>
+              Print
+            </button>
+          </div>
+
+          <div
+            ref={documentRef}
+            className="template-document template-content__html"
+            contentEditable
+            suppressContentEditableWarning
+            role="textbox"
+            aria-multiline
+            aria-label="Letter template document"
+            onInput={handleDocumentInput}
+            onClick={handleDocumentClick}
           />
         </div>
       )}
@@ -324,87 +422,6 @@ export function LetterTemplatePort() {
       {busy && <p className="template-port__status">Processing template…</p>}
       {rehydrating && !busy && (
         <p className="template-port__status">Loading preview from saved file…</p>
-      )}
-
-      {activeTemplate && (
-        <>
-          {versions.length > 0 && (
-            <div className="template-version-bar" role="group" aria-label="Template versions">
-              <button type="button" className="template-version-bar__nav" onClick={goVersionPrev}>
-                Prev
-              </button>
-              <div className="template-version-bar__dots">
-                {versions.map((_, i) => {
-                  const activeI = versionIndex >= 0 ? versionIndex : 0
-                  return (
-                    <button
-                      key={i}
-                      type="button"
-                      className={`template-version-dot${i === activeI ? ' template-version-dot--active' : ''}`}
-                      aria-label={`Version ${i + 1}`}
-                      aria-current={i === activeI ? 'step' : undefined}
-                      onClick={() => setActiveTemplateVersionIndex(activeTemplate.id, i)}
-                    />
-                  )
-                })}
-              </div>
-              <button type="button" className="template-version-bar__nav" onClick={goVersionNext}>
-                Next
-              </button>
-              <span className="template-version-bar__hint">
-                {(versionIndex >= 0 ? versionIndex : 0) + 1} / {versions.length}
-              </span>
-            </div>
-          )}
-
-          <div className="template-export-actions">
-            <button type="button" className="template-export-actions__btn" onClick={() => void handleExportDocx()}>
-              Export as DOCX
-            </button>
-            <button type="button" className="template-export-actions__btn" onClick={handlePrint}>
-              Print
-            </button>
-          </div>
-
-          <div
-            className="template-html-preview template-content__html"
-            dangerouslySetInnerHTML={{ __html: activeTemplate.renderedHtml }}
-          />
-
-          <div className="template-fields">
-            <h5>Template Fields</h5>
-            {activeTemplate.fields.length === 0 ? (
-              <p className="template-fields__empty">No fields extracted (try a model with Ollama running).</p>
-            ) : (
-              activeTemplate.fields.map((field) => (
-                <div key={field.id} className="template-field-row">
-                  <label htmlFor={`field-${field.id}`}>{field.name}</label>
-                  {field.type === 'multiline' ? (
-                    <textarea
-                      id={`field-${field.id}`}
-                      value={field.value}
-                      onFocus={() => setFocusedTemplateField(field.id)}
-                      onChange={(ev) =>
-                        updateTemplateField(activeTemplate.id, field.id, ev.target.value)
-                      }
-                      rows={4}
-                    />
-                  ) : (
-                    <input
-                      id={`field-${field.id}`}
-                      type={field.type === 'date' ? 'date' : 'text'}
-                      value={field.value}
-                      onFocus={() => setFocusedTemplateField(field.id)}
-                      onChange={(ev) =>
-                        updateTemplateField(activeTemplate.id, field.id, ev.target.value)
-                      }
-                    />
-                  )}
-                </div>
-              ))
-            )}
-          </div>
-        </>
       )}
     </div>
   )

@@ -61,10 +61,18 @@ export function getChatFocusLlmPrefix(state: {
     const port = focusMeta?.letterComposerPort
     if (!port) return null
     if (port === 'template') {
+      const excerpt = (focusMeta?.letterComposerTemplateHtmlExcerpt ?? '').trim()
       const rows = (focusMeta?.letterComposerFields ?? [])
         .map((f) => `${f.name}: ${f.value ?? ''}`)
         .join('\n')
-      return `[Letter Composer — template]\nThe user is editing a letter template. Current field names and values:\n${rows || '(no fields)'}\n\nHelp the user fill these fields.\n---\n\n`
+      const bodyHint = excerpt
+        ? `Current template HTML (excerpt):\n${excerpt.length > 8000 ? `${excerpt.slice(0, 8000)}\n…` : excerpt}\n\n`
+        : ''
+      const fieldHint =
+        rows && rows !== ''
+          ? `Legacy field snapshot:\n${rows}\n\n`
+          : 'The user edits the template directly in the document (inline). Help refine wording or structure as requested.\n\n'
+      return `[Letter Composer — template]\nThe user is editing a letter template.\n\n${bodyHint}${fieldHint}---\n\n`
     }
     const raw = (focusMeta?.letterComposerLetterPageText ?? '').trim()
     const excerpt = raw.length > 12000 ? `${raw.slice(0, 12000)}\n…` : raw

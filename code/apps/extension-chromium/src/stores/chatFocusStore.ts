@@ -16,6 +16,8 @@ export type ChatFocusMeta = {
   /** Last-focused template field (for “Use” write-back). */
   letterComposerApplyFieldId?: string | null
   letterComposerLetterPageText?: string
+  /** Template body excerpt for LLM prefix when editing inline (no structured fields). */
+  letterComposerTemplateHtmlExcerpt?: string
 }
 
 export type EnterOptimizationFocusMeta = {

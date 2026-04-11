@@ -690,7 +690,9 @@ export default function HybridSearch({
             ? ' · Subject'
             : draftRefineTarget === 'email'
               ? ' · Body'
-              : ''
+              : draftRefineTarget === 'letter-template'
+                ? ' · Letter template'
+                : ''
       : ''
 
   const draftRefineChipTitle =
@@ -703,7 +705,9 @@ export default function HybridSearch({
             ? 'Chat scoped to email subject — refine with AI'
             : draftRefineTarget === 'email'
               ? 'Chat scoped to email body — refine with AI'
-              : 'Chat scoped to draft — refine with AI'
+              : draftRefineTarget === 'letter-template'
+                ? 'Chat scoped to letter template paragraph — refine with AI'
+                : 'Chat scoped to draft — refine with AI'
       : 'Chat scoped to draft — refine with AI'
 
   useEffect(() => {
@@ -901,64 +905,60 @@ export default function HybridSearch({
             unsubStart?.()
             unsubToken?.()
           }
-          if (!tpl?.fields.length) {
-            setResponse('Choose a template with extracted fields, then try again.')
-            cleanupSubs()
-            setIsLoading(false)
+          if (tpl?.fields.length) {
+            const focusPrefix = getChatFocusLlmPrefix(useChatFocusStore.getState()) ?? ''
+            const fieldLines = tpl.fields
+              .map(
+                (f) =>
+                  `- Field id "${f.id}" (${f.name}, ${f.type}). Placeholder in document: ${f.placeholder?.trim() || `{{${f.id}}}`}.`,
+              )
+              .join('\n')
+            const idsList = tpl.fields.map((f) => `"${f.id}"`).join(', ')
+            const systemPrompt = `You fill business letter templates. Output ONLY a single JSON object whose keys are EXACTLY these field ids: ${idsList}. Each value is the filled string for that field. No markdown code fences, no commentary, no text before or after the JSON.\n\nFields:\n${fieldLines}`
+            const userPrompt = `${focusPrefix}Instruction:\n${trimmed}`
+            const temps = [0.35, 0.72, 1.0] as const
+            const snapshots: Array<Record<string, string>> = []
+            try {
+              for (let i = 0; i < 3; i++) {
+                const r = await window.handshakeView.chatDirect({
+                  model: selectedModel || 'llama3',
+                  provider: modelInfo?.provider || 'ollama',
+                  systemPrompt,
+                  userPrompt,
+                  stream: false,
+                  temperature: temps[i],
+                })
+                if (!r?.success || typeof r.answer !== 'string') {
+                  throw new Error(
+                    (r as { message?: string })?.message ||
+                      (r as { error?: string })?.error ||
+                      'LLM call failed',
+                  )
+                }
+                const parsed = parseLetterFillJson(r.answer, tpl.fields.map((f) => f.id))
+                if (!parsed) throw new Error('Model did not return valid JSON for the template fields.')
+                snapshots.push(parsed)
+              }
+              useLetterComposerStore.getState().setTemplateVersions(tpl.id, snapshots, 0)
+              setResponse(
+                'Generated 3 versions of your template. Use the version controls in the Template port to compare them.',
+              )
+              setContextBlocks([])
+              setChatSources([])
+              setStructuredResult(null)
+              setResultType(null)
+              setChatGovernanceNote(null)
+            } catch (e) {
+              setResponse((e as Error)?.message ?? 'Could not generate template versions.')
+              setChatSources([])
+              setChatGovernanceNote(null)
+            } finally {
+              cleanupSubs()
+              setIsLoading(false)
+              setChatAttachments([])
+            }
             return
           }
-          const focusPrefix = getChatFocusLlmPrefix(useChatFocusStore.getState()) ?? ''
-          const fieldLines = tpl.fields
-            .map(
-              (f) =>
-                `- Field id "${f.id}" (${f.name}, ${f.type}). Placeholder in document: ${f.placeholder?.trim() || `{{${f.id}}}`}.`,
-            )
-            .join('\n')
-          const idsList = tpl.fields.map((f) => `"${f.id}"`).join(', ')
-          const systemPrompt = `You fill business letter templates. Output ONLY a single JSON object whose keys are EXACTLY these field ids: ${idsList}. Each value is the filled string for that field. No markdown code fences, no commentary, no text before or after the JSON.\n\nFields:\n${fieldLines}`
-          const userPrompt = `${focusPrefix}Instruction:\n${trimmed}`
-          const temps = [0.35, 0.72, 1.0] as const
-          const snapshots: Array<Record<string, string>> = []
-          try {
-            for (let i = 0; i < 3; i++) {
-              const r = await window.handshakeView.chatDirect({
-                model: selectedModel || 'llama3',
-                provider: modelInfo?.provider || 'ollama',
-                systemPrompt,
-                userPrompt,
-                stream: false,
-                temperature: temps[i],
-              })
-              if (!r?.success || typeof r.answer !== 'string') {
-                throw new Error(
-                  (r as { message?: string })?.message ||
-                    (r as { error?: string })?.error ||
-                    'LLM call failed',
-                )
-              }
-              const parsed = parseLetterFillJson(r.answer, tpl.fields.map((f) => f.id))
-              if (!parsed) throw new Error('Model did not return valid JSON for the template fields.')
-              snapshots.push(parsed)
-            }
-            useLetterComposerStore.getState().setTemplateVersions(tpl.id, snapshots, 0)
-            setResponse(
-              'Generated 3 versions of your template. Use the version controls in the Template port to compare them.',
-            )
-            setContextBlocks([])
-            setChatSources([])
-            setStructuredResult(null)
-            setResultType(null)
-            setChatGovernanceNote(null)
-          } catch (e) {
-            setResponse((e as Error)?.message ?? 'Could not generate template versions.')
-            setChatSources([])
-            setChatGovernanceNote(null)
-          } finally {
-            cleanupSubs()
-            setIsLoading(false)
-            setChatAttachments([])
-          }
-          return
         }
 
         if (isDraftRefine) {
@@ -977,6 +977,8 @@ export default function HybridSearch({
             fieldLabel = 'email subject line'
           } else if (target === 'email') {
             fieldLabel = 'email body'
+          } else if (target === 'letter-template') {
+            fieldLabel = 'letter template paragraph'
           }
           if (currentDraft.trim()) {
             chatQuery = [
@@ -1576,7 +1578,9 @@ export default function HybridSearch({
                         ? 'Chat scoped to email subject'
                         : draftRefineTarget === 'email'
                           ? 'Chat scoped to email body'
-                          : 'Chat scoped to draft'
+                          : draftRefineTarget === 'letter-template'
+                            ? 'Chat scoped to letter template'
+                            : 'Chat scoped to draft'
                   : 'Chat scoped to draft'
                 : uiFocusContext.kind === 'attachment'
                   ? 'Chat scoped to attachment'

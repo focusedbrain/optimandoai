@@ -11,6 +11,7 @@ export type DraftRefineTarget =
   | 'email-subject'
   | 'capsule-public'
   | 'capsule-encrypted'
+  | 'letter-template'
 
 interface DraftRefineState {
   connected: boolean

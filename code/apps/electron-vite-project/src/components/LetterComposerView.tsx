@@ -21,6 +21,7 @@ function syncLetterComposerChatFocus() {
 
   if (lc.focusedPort === 'template') {
     const t = lc.templates.find((x) => x.id === lc.activeTemplateId)
+    const excerpt = (t?.renderedHtml ?? '').slice(0, 12_000)
     st.setChatFocusMode(
       { mode: 'letter-composer', startedAt },
       {
@@ -32,6 +33,7 @@ function syncLetterComposerChatFocus() {
           value: f.value,
         })),
         letterComposerApplyFieldId: lc.focusedTemplateFieldId,
+        letterComposerTemplateHtmlExcerpt: excerpt,
       },
     )
   } else {

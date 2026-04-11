@@ -28,19 +28,21 @@ function ensureLetterComposerDirs(): void {
   fs.mkdirSync(lettersDir(), { recursive: true })
 }
 
+const TEMPLATE_EXT = /\.(docx|odt|doc|rtf|txt)$/i
+
 function sanitizeTemplateBaseName(name: string): string {
   const base = path.basename(name).replace(/[^a-zA-Z0-9._ -]/g, '_').trim()
   if (!base || base.length > 200) {
     throw new Error('Invalid template file name')
   }
   const lower = base.toLowerCase()
-  if (!lower.endsWith('.docx') && !lower.endsWith('.odt')) {
-    throw new Error('Template must be a .docx or .odt file')
+  if (!TEMPLATE_EXT.test(lower)) {
+    throw new Error('Template must be .docx, .odt, .doc, .rtf, or .txt')
   }
   return base
 }
 
-/** Paths under templates dir; .docx or .odt (for mammoth / ODT ZIP conversion). */
+/** Paths under templates dir — supported template formats for conversion. */
 function assertAllowedTemplatePath(filePath: string): string {
   ensureLetterComposerDirs()
   const resolved = path.resolve(filePath)
@@ -53,8 +55,8 @@ function assertAllowedTemplatePath(filePath: string): string {
     throw new Error('Template file not found')
   }
   const low = resolved.toLowerCase()
-  if (!low.endsWith('.docx') && !low.endsWith('.odt')) {
-    throw new Error('Only .docx and .odt files are supported for conversion')
+  if (!TEMPLATE_EXT.test(low)) {
+    throw new Error('Only .docx, .odt, .doc, .rtf, and .txt are supported for conversion')
   }
   return resolved
 }
@@ -236,9 +238,40 @@ export function registerLetterComposerIpcHandlers(): void {
         messages: result.messages,
       }
     }
-    const buf = fs.readFileSync(safe)
-    const { convertOdtBufferToHtml } = await import('./odtToHtml')
-    return convertOdtBufferToHtml(buf)
+    if (low.endsWith('.odt')) {
+      const buf = fs.readFileSync(safe)
+      const { convertOdtBufferToHtml } = await import('./odtToHtml')
+      return convertOdtBufferToHtml(buf)
+    }
+    if (low.endsWith('.doc')) {
+      const buffer = fs.readFileSync(safe)
+      const { extractTextFromDoc, plainTextLinesToParagraphHtml } = await import('./legacyDocumentToHtml')
+      const text = extractTextFromDoc(buffer)
+      const html = plainTextLinesToParagraphHtml(text, false)
+      return {
+        html,
+        messages: ['Converted from legacy .doc — layout may differ from original'],
+      }
+    }
+    if (low.endsWith('.rtf')) {
+      const raw = fs.readFileSync(safe, 'utf-8')
+      const { stripRtfFormatting, plainTextLinesToParagraphHtml } = await import('./legacyDocumentToHtml')
+      const text = stripRtfFormatting(raw)
+      const html = plainTextLinesToParagraphHtml(text, true)
+      return {
+        html,
+        messages: ['Converted from RTF — layout may differ from original'],
+      }
+    }
+    if (low.endsWith('.txt')) {
+      const text = fs.readFileSync(safe, 'utf-8')
+      const { plainTextLinesToParagraphHtml } = await import('./legacyDocumentToHtml')
+      return {
+        html: plainTextLinesToParagraphHtml(text, true),
+        messages: [],
+      }
+    }
+    throw new Error('Unsupported template format')
   })
 
   ipcMain.handle('letter:extractFields', async (_e, html: string) => {

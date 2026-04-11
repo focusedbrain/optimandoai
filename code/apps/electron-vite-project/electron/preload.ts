@@ -1187,15 +1187,15 @@ contextBridge.exposeInMainWorld('letterComposer', {
   saveTemplateFromPath: (sourcePath: string, originalFileName: string) => {
     const p = assertFsPath(sourcePath, 'sourcePath')
     const n = assertTemplateFileName(originalFileName, 'originalFileName')
-    if (!/\.(docx|odt)$/i.test(n.trim())) {
-      throw new Error('originalFileName: expected .docx or .odt')
+    if (!/\.(docx|odt|doc|rtf|txt)$/i.test(n.trim())) {
+      throw new Error('originalFileName: expected .docx, .odt, .doc, .rtf, or .txt')
     }
     return ipcRenderer.invoke('letter:saveTemplateFromPath', p, n.trim()) as Promise<string>
   },
   saveTemplateBuffer: (fileName: string, data: ArrayBuffer) => {
     const n = assertTemplateFileName(fileName, 'fileName')
-    if (!/\.(docx|odt)$/i.test(n.trim())) {
-      throw new Error('fileName: expected .docx or .odt')
+    if (!/\.(docx|odt|doc|rtf|txt)$/i.test(n.trim())) {
+      throw new Error('fileName: expected .docx, .odt, .doc, .rtf, or .txt')
     }
     if (!data || !(data instanceof ArrayBuffer) || data.byteLength < 1) {
       throw new Error('data: expected non-empty ArrayBuffer')
