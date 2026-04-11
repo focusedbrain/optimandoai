@@ -280,6 +280,50 @@ body {
   margin: -20px 0;
 }
 
+/* Logo — same destination as Dashboard tab; keep hit target comfortable, chrome minimal */
+.app-header__logo-home {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 8px;
+  margin: 0;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+  line-height: 0;
+  transition: background 0.15s ease, box-shadow 0.15s ease;
+}
+
+.app-header__logo-home:hover {
+  background: rgba(15, 23, 42, 0.06);
+}
+
+.app-header__logo-home:focus-visible {
+  outline: 2px solid var(--purple-accent, #9333ea);
+  outline-offset: 2px;
+}
+
+.app-header__logo-home--active {
+  box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.08);
+}
+
+[data-ui-theme="pro"] .app-header__logo-home:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+[data-ui-theme="pro"] .app-header__logo-home--active {
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.22);
+}
+
+[data-ui-theme="dark"] .app-header__logo-home:hover {
+  background: var(--bg-elevated-dark);
+}
+
+[data-ui-theme="dark"] .app-header__logo-home--active {
+  box-shadow: inset 0 0 0 1px var(--border-dark);
+}
+
 .app-header__title {
   font-size: 18px;
   font-weight: 700;

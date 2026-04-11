@@ -36,17 +36,18 @@ function mapThemeToCss(theme: ExtensionTheme): string {
   return theme
 }
 
-function WRCodeLogo({ size = 220 }: { size?: number }) {
+function WRCodeLogo({ size = 220, decorative = false }: { size?: number; decorative?: boolean }) {
   // Respect Vite base ('./') so packaged Electron (file://) resolves like dev server
   const logoSrc = `${import.meta.env.BASE_URL}wrdesk-logo.png`
   return (
-    <img 
+    <img
       src={logoSrc}
-      alt="WR Desk Logo"
+      alt={decorative ? '' : 'WR Desk'}
+      aria-hidden={decorative ? true : undefined}
       style={{
         width: size,
         height: 'auto',
-        objectFit: 'contain'
+        objectFit: 'contain',
       }}
     />
   )
@@ -319,6 +320,11 @@ function App() {
     window.setTimeout(applyFocus, 0)
   }, [])
 
+  /** Same navigation as the Dashboard tab — logo home control must stay in sync. */
+  const goToDashboard = useCallback(() => {
+    setActiveView('analysis')
+  }, [])
+
   return (
     <div className="app-root">
       {optimizationGuardToast && (
@@ -344,14 +350,22 @@ function App() {
       )}
       <header className="app-header">
         <div className="app-header__brand">
-          <WRCodeLogo size={110} />
+          <button
+            type="button"
+            className={`app-header__logo-home${activeView === 'analysis' ? ' app-header__logo-home--active' : ''}`}
+            onClick={goToDashboard}
+            aria-label="Dashboard"
+            title="Dashboard"
+          >
+            <WRCodeLogo size={110} decorative />
+          </button>
         </div>
         <nav className="app-header__nav">
           <button
             className={`nav-tab${activeView === 'analysis' ? ' nav-tab--active' : ''}`}
-            onClick={() => setActiveView('analysis')}
+            onClick={goToDashboard}
           >
-            Analysis
+            Dashboard
           </button>
           {/* WR Chat: only the speech-bubble control (WrMultiTriggerBar) switches main view to wr-chat — no nav tab. */}
           <button
@@ -391,7 +405,7 @@ function App() {
               theme={extensionTheme}
               onActiveFunctionChange={setActiveTriggerFunctionId}
               onComposerOpen={(composerId) => {
-                setActiveView('analysis')
+                goToDashboard()
                 setDashboardComposeMode(composerId === 'emailComposer' ? 'email' : 'beap')
               }}
               onWatchdogAlert={(threats) => {
