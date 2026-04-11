@@ -175,6 +175,8 @@ export interface ScannedLetter {
   extractedFields: Record<string, string>
   /** Per-field confidence 0–1 (empty until extraction runs). */
   confidence: Record<string, number>
+  /** Ollama model id used when AI normalization ran (snapshot for viewer hint). */
+  extractedWithModel?: string
   createdAt: string
 }
 

@@ -1027,6 +1027,41 @@
   cursor: not-allowed;
 }
 
+.extraction-model-hint {
+  margin-top: 10px;
+  padding: 6px 10px;
+  background: #f8f8f7;
+  border: 1px solid #e8e8e6;
+  border-radius: 4px;
+  font-size: 11px;
+  color: #888;
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  line-height: 1.35;
+}
+
+.extraction-model-hint__icon {
+  flex-shrink: 0;
+  line-height: 1.35;
+}
+
+.extraction-model-hint__text {
+  min-width: 0;
+}
+
+.extraction-model-hint__text strong {
+  color: #666;
+  font-weight: 600;
+}
+
+.extraction-low-confidence-hint {
+  margin-top: 4px;
+  font-size: 11px;
+  color: #d97706;
+  line-height: 1.35;
+}
+
 .extracted-field-row {
   display: grid;
   grid-template-columns: minmax(100px, 140px) 1fr auto;

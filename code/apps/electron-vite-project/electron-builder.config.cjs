@@ -7,10 +7,10 @@ const appDir = __dirname
 
 /**
  * Parsed by scripts/kill-wr-desk.cjs — must contain a line matching:
- *   return 'C:\\build-output\\build0074'
+ *   return 'C:\\build-output\\build0075'
  */
 function windowsOutputDirMarker() {
-  return 'C:\\build-output\\build0074'
+  return 'C:\\build-output\\build0075'
 }
 
 const workspaceRoot = path.resolve(appDir, '../..')
@@ -86,7 +86,10 @@ module.exports = {
   ],
   extraResources,
   win: {
-    target: ['nsis'],
+    /** NSIS can fail with spawn UNKNOWN on some Windows setups when generating the uninstaller stub; portable is reliable. */
+    target: ['portable'],
+    /** ASCII-only installer/portable exe name (avoids Unicode path issues with child_process). */
+    artifactName: 'WR-Desk-Setup-${version}.${ext}',
     executableName: 'WR DeskT',
     signAndEditExecutable: false,
     signDlls: false,

@@ -1,5 +1,5 @@
 import type { DragEvent } from 'react'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   useLetterComposerStore,
   type LetterPage,
@@ -56,6 +56,29 @@ function findDateField(fields: TemplateField[]): TemplateField | undefined {
 
 function hasExtractedContent(ef: Record<string, string>): boolean {
   return Object.values(ef).some((v) => (v ?? '').trim().length > 0)
+}
+
+/** Low confidence only matters when the field has extracted text (empty fields often score 0). */
+function letterHasLowConfidenceFields(letter: ScannedLetter): boolean {
+  const { confidence, extractedFields } = letter
+  if (!confidence || Object.keys(confidence).length === 0) return false
+  return Object.entries(confidence).some(([key, c]) => {
+    if (typeof c !== 'number' || c >= 0.7) return false
+    const v = extractedFields[key]
+    return typeof v === 'string' && v.trim().length > 0
+  })
+}
+
+async function readActiveLlmModelId(): Promise<string | null> {
+  try {
+    const st = await window.llm?.getStatus?.()
+    if (st && 'ok' in st && st.ok && st.data?.activeModel) {
+      return st.data.activeModel
+    }
+  } catch {
+    /* noop */
+  }
+  return null
 }
 
 function ExtractedRow({
@@ -141,6 +164,7 @@ export function LetterViewerPort() {
   const [extractNote, setExtractNote] = useState<string | null>(null)
   const [autofillNote, setAutofillNote] = useState<string | null>(null)
   const [isDragOver, setIsDragOver] = useState(false)
+  const [liveLlmModelId, setLiveLlmModelId] = useState<string | null>(null)
 
   const activeTemplate = templates.find((t) => t.id === activeTemplateId) ?? null
   const canAutofill =
@@ -163,6 +187,14 @@ export function LetterViewerPort() {
       setActiveLetterPage(max)
     }
   }, [activeLetter?.id, activeLetter?.pages.length, activeLetterPage, setActiveLetterPage])
+
+  useEffect(() => {
+    void readActiveLlmModelId().then(setLiveLlmModelId)
+    const off = window.llm?.onActiveModelChanged?.((d) => setLiveLlmModelId(d.modelId))
+    return () => {
+      off?.()
+    }
+  }, [])
 
   const processLetterFiles = useCallback(
     async (files: File[]) => {
@@ -240,6 +272,7 @@ export function LetterViewerPort() {
 
         let extractedFields: Record<string, string> = {}
         let confidence: Record<string, number> = {}
+        let extractedWithModel: string | undefined
         if (api.extractFromScan && api.normalizeExtracted) {
           try {
             const { raw } = await api.extractFromScan(fullText)
@@ -249,6 +282,8 @@ export function LetterViewerPort() {
             if (norm.error) {
               setExtractNote(norm.error)
             }
+            const mid = await readActiveLlmModelId()
+            if (mid) extractedWithModel = mid
           } catch (ex) {
             console.warn('[LetterViewerPort] extraction pipeline failed', ex)
             setExtractNote(
@@ -266,6 +301,7 @@ export function LetterViewerPort() {
           fullText,
           extractedFields,
           confidence,
+          ...(extractedWithModel ? { extractedWithModel } : {}),
           createdAt: new Date().toISOString(),
         }
         addLetter(letter)
@@ -394,6 +430,20 @@ export function LetterViewerPort() {
 
   const ef = activeLetter?.extractedFields ?? {}
   const conf = activeLetter?.confidence ?? {}
+
+  const extractionModelLabel = useMemo(() => {
+    if (!activeLetter) return 'local model'
+    return (
+      activeLetter.extractedWithModel?.trim() ||
+      liveLlmModelId?.trim() ||
+      'local model'
+    )
+  }, [activeLetter, activeLetter?.extractedWithModel, liveLlmModelId])
+
+  const hasLowConfidenceFields = useMemo(
+    () => (activeLetter ? letterHasLowConfidenceFields(activeLetter) : false),
+    [activeLetter, activeLetter?.confidence, activeLetter?.extractedFields],
+  )
 
   return (
     <div
@@ -662,6 +712,22 @@ export function LetterViewerPort() {
           >
             {'\u{1F4EC}'} Use as reply → fill recipient fields
           </button>
+
+          <div className="extraction-model-hint">
+            <span className="extraction-model-hint__icon" aria-hidden>
+              {'\u{1F916}'}
+            </span>
+            <span className="extraction-model-hint__text">
+              Extracted with <strong>{extractionModelLabel}</strong>. Larger models (30B+) or cloud
+              models produce more accurate results. Switch in the top bar ↑
+            </span>
+          </div>
+
+          {hasLowConfidenceFields ? (
+            <div className="extraction-low-confidence-hint" role="status">
+              {'\u26A0'} Some fields have low confidence — review before using.
+            </div>
+          ) : null}
         </div>
       )}
 
