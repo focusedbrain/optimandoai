@@ -13,6 +13,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import type { ErrorInfo, ReactNode } from 'react'
 import type { LightboxTheme } from '../../shared/ui/lightboxTheme'
+import type { CustomModeDefinition } from '../../shared/ui/customModeTypes'
 import { useCustomModesStore } from '../../stores/useCustomModesStore'
 import { useUIStore } from '../../stores/useUIStore'
 import { getCustomModeScopeFromMetadata } from '../../shared/ui/customModeTypes'
@@ -127,18 +128,37 @@ class AddModeWizardErrorBoundary extends React.Component<
 
 export function AddModeWizardHost({ theme }: AddModeWizardHostProps) {
   const [phase, setPhase] = useState<AutomationPhase>('closed')
+  const [editTarget, setEditTarget] = useState<CustomModeDefinition | null>(null)
   const setWorkspace = useUIStore((s) => s.setWorkspace)
   const setMode = useUIStore((s) => s.setMode)
   const addMode = useCustomModesStore((s) => s.addMode)
+  const updateMode = useCustomModesStore((s) => s.updateMode)
   const lightboxTheme = useMemo(() => mapThemeToLightbox(theme), [theme])
 
   useEffect(() => {
-    const onOpen = () => setPhase('custom')
+    const onOpen = (e: Event) => {
+      const detail = (e as CustomEvent<{ editModeId?: string }>).detail
+      if (detail?.editModeId) {
+        const existing = useCustomModesStore.getState().getById(detail.editModeId)
+        if (existing) {
+          setEditTarget(existing)
+          setPhase('custom')
+        } else {
+          console.warn('[AddModeWizardHost] Mode not found for edit:', detail.editModeId)
+        }
+      } else {
+        setEditTarget(null)
+        setPhase('custom')
+      }
+    }
     window.addEventListener(WRCHAT_OPEN_CUSTOM_MODE_WIZARD_EVENT, onOpen)
     return () => window.removeEventListener(WRCHAT_OPEN_CUSTOM_MODE_WIZARD_EVENT, onOpen)
   }, [])
 
-  const handleCloseAll = useCallback(() => setPhase('closed'), [])
+  const handleCloseAll = useCallback(() => {
+    setPhase('closed')
+    setEditTarget(null)
+  }, [])
 
   const handleCustomSaved = useCallback(() => {
     try {
@@ -148,21 +168,33 @@ export function AddModeWizardHost({ theme }: AddModeWizardHostProps) {
     }
   }, [])
 
+  const wizardBoundaryKey = phase === 'custom' ? `custom-${editTarget?.id ?? 'new'}` : 'closed'
+
   return (
-    <AddModeWizardErrorBoundary key={phase} onReset={handleCloseAll}>
+    <AddModeWizardErrorBoundary key={wizardBoundaryKey} onReset={handleCloseAll}>
       <CustomModeWizard
         open={phase === 'custom'}
+        editTarget={editTarget}
         onClose={handleCloseAll}
         theme={lightboxTheme}
         onSave={(draft) => {
-          const id = addMode(draft)
-          const def = useCustomModesStore.getState().getById(id)
-          if (def) {
-            const scope = getCustomModeScopeFromMetadata(def.metadata as Record<string, unknown> | undefined)
-            void syncCustomModeDiffWatcher(id, def.name, scope.diffWatchFolders)
+          if (editTarget) {
+            updateMode(editTarget.id, draft)
+            const def = useCustomModesStore.getState().getById(editTarget.id)
+            if (def) {
+              const scope = getCustomModeScopeFromMetadata(def.metadata as Record<string, unknown> | undefined)
+              void syncCustomModeDiffWatcher(editTarget.id, def.name, scope.diffWatchFolders)
+            }
+          } else {
+            const id = addMode(draft)
+            const def = useCustomModesStore.getState().getById(id)
+            if (def) {
+              const scope = getCustomModeScopeFromMetadata(def.metadata as Record<string, unknown> | undefined)
+              void syncCustomModeDiffWatcher(id, def.name, scope.diffWatchFolders)
+            }
+            setWorkspace('wr-chat')
+            setMode(id)
           }
-          setWorkspace('wr-chat')
-          setMode(id)
         }}
         onSaved={handleCustomSaved}
       />

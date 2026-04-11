@@ -1,8 +1,8 @@
 /**
  * Add Mode wizard — step metadata and shared types (decoupled from ModeSelect).
  *
+ * - `AddModeWizardIntent`: create vs edit — edit is implemented via `editTarget` on {@link AddModeWizard}.
  * Future-facing hooks (not implemented yet):
- * - `AddModeWizardIntent`: reuse the same flow for create vs edit; pass initial draft + `intent: 'edit'`.
  * - Import/export: serialize `CustomModeDraft` / persisted `CustomMode` to JSON alongside version.
  * - Advanced provider settings: extend `CustomModeDraft` or `metadata` with provider-specific fields.
  * - Expert / fine-tuned models: store identifiers and display labels in `metadata` (see `CustomModeDraft.metadata`).

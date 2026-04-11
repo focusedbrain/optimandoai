@@ -495,6 +495,19 @@ Automation activated from the dashboard. Continue in WR Chat.`
     }
   }, [])
 
+  const handleAutomationEdit = useCallback((modeId: string) => {
+    if (!modeId) return
+    try {
+      window.dispatchEvent(
+        new CustomEvent(WRCHAT_OPEN_CUSTOM_MODE_WIZARD_EVENT, {
+          detail: { editModeId: modeId },
+        }),
+      )
+    } catch {
+      /* noop */
+    }
+  }, [])
+
   /** Same path as WrMultiTriggerBar “+ Add Project WIKI” row — does not change active project id. */
   const launchAddProjectWikiFromSelector = useCallback(() => {
     try {
@@ -616,14 +629,24 @@ Automation activated from the dashboard. Continue in WR Chat.`
             >
               Run
             </button>
-            <button
-              type="button"
-              className="dash-auto-home__btn dash-auto-home__btn--ghost dash-auto-home__btn--add-link"
-              data-automation-ui-kind={ADD_AUTOMATION_ROW_UI_KIND}
-              onClick={launchAddAutomationWizard}
-            >
-              + Add
-            </button>
+            {selectedAutomationId ? (
+              <button
+                type="button"
+                className="dash-auto-home__btn dash-auto-home__btn--ghost"
+                onClick={() => handleAutomationEdit(selectedAutomationId)}
+              >
+                Edit
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="dash-auto-home__btn dash-auto-home__btn--ghost dash-auto-home__btn--add-link"
+                data-automation-ui-kind={ADD_AUTOMATION_ROW_UI_KIND}
+                onClick={launchAddAutomationWizard}
+              >
+                + Add
+              </button>
+            )}
           </div>
         </article>
       </div>

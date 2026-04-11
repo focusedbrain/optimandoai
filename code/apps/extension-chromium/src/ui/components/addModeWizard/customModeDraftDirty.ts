@@ -5,7 +5,10 @@
 import type { CustomModeDraft } from '../../../shared/ui/customModeTypes'
 import { defaultCustomModeDraft } from '../../../shared/ui/customModeTypes'
 
-export function isCustomModeDraftDirty(draft: CustomModeDraft): boolean {
+export function isCustomModeDraftDirty(draft: CustomModeDraft, baseline?: CustomModeDraft): boolean {
+  if (baseline !== undefined) {
+    return JSON.stringify(draft) !== JSON.stringify(baseline)
+  }
   const base = defaultCustomModeDraft()
   const keys = Object.keys(base) as (keyof CustomModeDraft)[]
   for (const k of keys) {

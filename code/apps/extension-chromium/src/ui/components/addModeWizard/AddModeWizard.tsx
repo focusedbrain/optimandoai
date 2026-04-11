@@ -14,7 +14,7 @@ import {
   closeButtonStyle,
 } from '../../../shared/ui/lightboxTheme'
 import type { LightboxTheme } from '../../../shared/ui/lightboxTheme'
-import type { CustomModeDraft } from '../../../shared/ui/customModeTypes'
+import type { CustomModeDefinition, CustomModeDraft } from '../../../shared/ui/customModeTypes'
 import { defaultCustomModeDraft } from '../../../shared/ui/customModeTypes'
 import { ADD_MODE_WIZARD_STEPS, type AddModeWizardStepIndex, type ValidateStepFn } from './addModeWizardTypes'
 import {
@@ -28,6 +28,10 @@ import { AddModeWizardStepBody } from './AddModeWizardStepBody'
 export interface AddModeWizardProps {
   open: boolean
   onClose: () => void
+  /**
+   * When set, the wizard pre-fills from this definition and save updates the existing mode.
+   */
+  editTarget?: CustomModeDefinition | null
   /**
    * Persist the draft. Throw on failure (e.g. duplicate name); wizard shows the message and stays open.
    * On success, return void (or a resolved promise).
@@ -47,6 +51,7 @@ const LAST_STEP = (ADD_MODE_WIZARD_STEPS.length - 1) as AddModeWizardStepIndex
 export const AddModeWizard: React.FC<AddModeWizardProps> = ({
   open,
   onClose,
+  editTarget = null,
   onSave,
   onSaved,
   theme = 'default',
@@ -60,6 +65,8 @@ export const AddModeWizard: React.FC<AddModeWizardProps> = ({
   const [isSaving, setIsSaving] = useState(false)
   const [inlineErrorStep, setInlineErrorStep] = useState<number | null>(null)
   const panelRef = useRef<HTMLDivElement>(null)
+  /** Snapshot for cancel confirmation (create = compare to empty default in handler). */
+  const dirtyBaselineRef = useRef<CustomModeDraft | null>(null)
   const titleId = 'add-mode-wizard-title'
   const descId = 'add-mode-wizard-desc'
 
@@ -67,12 +74,24 @@ export const AddModeWizard: React.FC<AddModeWizardProps> = ({
     if (!open) return
     if (resetOnOpen) {
       setStep(0)
-      setData(defaultCustomModeDraft())
       setError(null)
       setIsSaving(false)
       setInlineErrorStep(null)
+      if (editTarget) {
+        const { id: _id, type: _type, createdAt: _c, updatedAt: _u, ...draftFields } = editTarget
+        void _id
+        void _type
+        void _c
+        void _u
+        const d = draftFields as CustomModeDraft
+        dirtyBaselineRef.current = JSON.parse(JSON.stringify(d)) as CustomModeDraft
+        setData(d)
+      } else {
+        dirtyBaselineRef.current = null
+        setData(defaultCustomModeDraft())
+      }
     }
-  }, [open, resetOnOpen])
+  }, [open, resetOnOpen, editTarget])
 
   /** Clear inline field highlights when the user edits the draft. */
   useEffect(() => {
@@ -157,7 +176,10 @@ export const AddModeWizard: React.FC<AddModeWizardProps> = ({
 
   const handleCancel = () => {
     if (isSaving) return
-    if (isCustomModeDraftDirty(data) && !window.confirm('Discard changes and close?')) return
+    const baseline = dirtyBaselineRef.current
+    const dirty =
+      baseline !== null ? isCustomModeDraftDirty(data, baseline) : isCustomModeDraftDirty(data)
+    if (dirty && !window.confirm('Discard changes and close?')) return
     requestClose()
   }
 
@@ -285,7 +307,7 @@ export const AddModeWizard: React.FC<AddModeWizardProps> = ({
                 fontFamily: 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif',
               }}
             >
-              Add automation
+              {editTarget ? 'Edit automation' : 'Add automation'}
             </h2>
             <p id={descId} style={{ margin: '8px 0 0', fontSize: 12, color: t.textMuted, lineHeight: 1.45 }}>
               Step {step + 1} of {ADD_MODE_WIZARD_STEPS.length} — {ADD_MODE_WIZARD_STEPS[step]}
@@ -409,7 +431,7 @@ export const AddModeWizard: React.FC<AddModeWizardProps> = ({
                       : 'Save (Ctrl+Enter)'
                 }
               >
-                {isSaving ? 'Saving…' : 'Save'}
+                {isSaving ? 'Saving…' : editTarget ? 'Save changes' : 'Create automation'}
               </button>
             )}
           </div>
