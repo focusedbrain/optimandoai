@@ -51,6 +51,23 @@ function assertString(v: unknown, name: string): string {
   return v
 }
 
+/** http(s) URL for shell.openExternal (bounded length). */
+function assertExternalUrl(v: unknown, name: string): string {
+  if (typeof v !== 'string' || v.length === 0 || v.length > 2048) {
+    throw new Error(`${name}: invalid url`)
+  }
+  let u: URL
+  try {
+    u = new URL(v)
+  } catch {
+    throw new Error(`${name}: invalid URL`)
+  }
+  if (u.protocol !== 'https:' && u.protocol !== 'http:') {
+    throw new Error(`${name}: only http(s) URLs allowed`)
+  }
+  return u.toString()
+}
+
 /** Absolute filesystem path (Letter Composer template I/O). */
 function assertFsPath(v: unknown, name: string, maxLen = 4096): string {
   if (typeof v !== 'string' || v.length === 0 || v.length > maxLen) {
@@ -1182,6 +1199,16 @@ contextBridge.exposeInMainWorld('wrChat', {
   pickDirectory: (): Promise<string | null> => ipcRenderer.invoke('PICK_DIRECTORY'),
 })
 
+// ── Open URLs in the system default browser (avoid <a target="_blank"> opening an Electron popup)
+contextBridge.exposeInMainWorld('appShell', {
+  openExternal: (url: string) => {
+    const u = assertExternalUrl(url, 'url')
+    return ipcRenderer.invoke('app:openExternal', u) as Promise<
+      { ok: true } | { ok: false; error: string }
+    >
+  },
+})
+
 // ── Letter Composer (dashboard) — .docx / .odt templates in userData/letter-composer
 contextBridge.exposeInMainWorld('letterComposer', {
   saveTemplateFromPath: (sourcePath: string, originalFileName: string) => {
@@ -1406,6 +1433,14 @@ contextBridge.exposeInMainWorld('libreoffice', {
       assertFsPath(outputDir, 'outputDir'),
     ) as Promise<{ ok: true; pdfPath: string } | { ok: false; error: string }>,
   resetDetection: () => ipcRenderer.invoke('libreoffice:resetDetection') as Promise<{ ok: true }>,
+  setManualPath: (manualPath: string) =>
+    ipcRenderer.invoke('libreoffice:setManualPath', manualPath) as Promise<
+      { ok: true; path: string } | { ok: false; error: string }
+    >,
+  browseForSoffice: () =>
+    ipcRenderer.invoke('libreoffice:browseForSoffice') as Promise<
+      { ok: true; path: string } | { ok: false; error?: string }
+    >,
 })
 
 // === TEMPORARY DEBUG LOG BRIDGE (remove before production) ===

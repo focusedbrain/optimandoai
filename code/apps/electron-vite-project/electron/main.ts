@@ -19,6 +19,7 @@ import {
   detectLibreOffice,
   convertToPdf,
   resetLibreOfficeDetection,
+  setManualSofficePath,
 } from './main/libreoffice/libreofficeService'
 
 function stripDataUriPrefixForLlm(s: string): string {
@@ -2798,6 +2799,56 @@ app.whenReady().then(async () => {
     ipcMain.handle('libreoffice:resetDetection', async () => {
       resetLibreOfficeDetection()
       return { ok: true as const }
+    })
+    ipcMain.handle('libreoffice:setManualPath', async (_e, manualPath: unknown) => {
+      if (typeof manualPath !== 'string' || !manualPath.trim()) {
+        return { ok: false as const, error: 'Invalid path' }
+      }
+      return setManualSofficePath(manualPath.trim())
+    })
+    ipcMain.handle('app:openExternal', async (_e, url: unknown) => {
+      if (typeof url !== 'string' || url.length === 0 || url.length > 2048) {
+        return { ok: false as const, error: 'Invalid url' }
+      }
+      try {
+        const u = new URL(url)
+        if (u.protocol !== 'https:' && u.protocol !== 'http:') {
+          return { ok: false as const, error: 'Invalid protocol' }
+        }
+        await shell.openExternal(url)
+        return { ok: true as const }
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err)
+        return { ok: false as const, error: message }
+      }
+    })
+    console.log('[MAIN] IPC handler registered: app:openExternal')
+
+    ipcMain.handle('libreoffice:browseForSoffice', async (event) => {
+      const win = BrowserWindow.fromWebContents(event.sender)
+      const opts = {
+        title: process.platform === 'win32' ? 'Locate soffice.exe' : 'Locate soffice',
+        filters:
+          process.platform === 'win32'
+            ? [
+                { name: 'soffice', extensions: ['exe'] },
+                { name: 'All Files', extensions: ['*'] },
+              ]
+            : [{ name: 'All Files', extensions: ['*'] }],
+        properties: ['openFile'] as Array<'openFile'>,
+      }
+      const dlgResult = win
+        ? await dialog.showOpenDialog(win, opts)
+        : await dialog.showOpenDialog(opts)
+      if (dlgResult.canceled || !dlgResult.filePaths[0]) {
+        return { ok: false as const }
+      }
+      const selectedPath = dlgResult.filePaths[0]
+      const set = setManualSofficePath(selectedPath)
+      if (!set.ok) {
+        return { ok: false as const, error: set.error }
+      }
+      return { ok: true as const, path: set.path }
     })
     console.log('[MAIN] IPC handlers registered: libreoffice:*')
 

@@ -45,6 +45,8 @@ export function LetterTemplatePort() {
   }, [composeSessions, activeComposeSessionId, activeTemplate?.id])
 
   const fileInputRef = useRef<HTMLInputElement>(null)
+  /** When LibreOffice is missing, hold the template file so Browse / Check again can retry upload. */
+  const pendingTemplateFileRef = useRef<File | null>(null)
 
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -111,19 +113,6 @@ export function LetterTemplatePort() {
     }
   }, [activeTemplate?.id, activeTemplate?.pdfPreviewPath, activeTemplate?.pdfPageImages?.length])
 
-  const handleCheckAgain = useCallback(async () => {
-    setError(null)
-    try {
-      await window.libreoffice?.resetDetection?.()
-      const det = await window.libreoffice?.detect()
-      if (det?.available) {
-        setLibreOfficeNeeded(false)
-      }
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not detect LibreOffice')
-    }
-  }, [])
-
   const processTemplateFile = useCallback(
     async (file: File) => {
       const lower = file.name.toLowerCase()
@@ -149,10 +138,12 @@ export function LetterTemplatePort() {
         await lo.resetDetection?.()
         const det = await lo.detect()
         if (!det.available) {
+          pendingTemplateFileRef.current = file
           setLibreOfficeNeeded(true)
           return
         }
         setLibreOfficeNeeded(false)
+        pendingTemplateFileRef.current = null
 
         const pathProp = (file as File & { path?: string }).path
         let savedPath: string
@@ -195,6 +186,7 @@ export function LetterTemplatePort() {
 
         addTemplate(template)
         setActiveTemplate(template.id)
+        pendingTemplateFileRef.current = null
       } catch (err) {
         console.error('[LetterTemplatePort] upload failed', err)
         setError(err instanceof Error ? err.message : 'Template processing failed')
@@ -204,6 +196,43 @@ export function LetterTemplatePort() {
     },
     [addTemplate, setActiveTemplate],
   )
+
+  const handleCheckAgain = useCallback(async () => {
+    setError(null)
+    try {
+      await window.libreoffice?.resetDetection?.()
+      const det = await window.libreoffice?.detect()
+      if (det?.available) {
+        setLibreOfficeNeeded(false)
+        const pf = pendingTemplateFileRef.current
+        if (pf) {
+          pendingTemplateFileRef.current = null
+          void processTemplateFile(pf)
+        }
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not detect LibreOffice')
+    }
+  }, [processTemplateFile])
+
+  const handleBrowseForSoffice = useCallback(async () => {
+    setError(null)
+    try {
+      const result = await window.libreoffice?.browseForSoffice?.()
+      if (result?.ok) {
+        setLibreOfficeNeeded(false)
+        const pf = pendingTemplateFileRef.current
+        if (pf) {
+          pendingTemplateFileRef.current = null
+          void processTemplateFile(pf)
+        }
+      } else if (result && 'error' in result && result.error) {
+        setError(result.error)
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not set LibreOffice path')
+    }
+  }, [processTemplateFile])
 
   const handleFilesReceived = useCallback(
     (files: File[]) => {
@@ -563,18 +592,52 @@ export function LetterTemplatePort() {
           <p>
             Letter Composer uses LibreOffice to render your corporate templates with perfect layout fidelity.
           </p>
+          <p>
+            If LibreOffice is already installed but was not detected, point WR Desk at <code>soffice.exe</code> or
+            check again after fixing your install.
+          </p>
           <p>It&apos;s free, open source, and trusted by millions of businesses.</p>
-          <a href="https://www.libreoffice.org/download/" target="_blank" rel="noopener noreferrer">
+          <button
+            type="button"
+            className="template-libreoffice-prompt__download-link"
+            style={{
+              display: 'inline',
+              margin: 0,
+              padding: 0,
+              border: 'none',
+              background: 'none',
+              cursor: 'pointer',
+              font: 'inherit',
+              fontSize: 13,
+              color: '#4f46e5',
+              fontWeight: 500,
+              textDecoration: 'underline',
+              textAlign: 'left',
+            }}
+            onClick={() => {
+              void window.appShell?.openExternal('https://www.libreoffice.org/download/')
+            }}
+          >
             Download LibreOffice →
-          </a>
+          </button>
           <div style={{ marginTop: 12, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              className="template-toolbar__btn template-toolbar__btn--ghost"
+              onClick={() => void handleBrowseForSoffice()}
+            >
+              Browse for soffice.exe
+            </button>
             <button type="button" className="template-toolbar__btn template-toolbar__btn--ghost" onClick={() => void handleCheckAgain()}>
               Check again
             </button>
             <button
               type="button"
               className="template-toolbar__btn template-toolbar__btn--ghost"
-              onClick={() => setLibreOfficeNeeded(false)}
+              onClick={() => {
+                pendingTemplateFileRef.current = null
+                setLibreOfficeNeeded(false)
+              }}
             >
               Cancel
             </button>

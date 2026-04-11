@@ -68,6 +68,11 @@ interface WrChatBridge {
   pickDirectory: () => Promise<string | null>
 }
 
+/** Open http(s) links in the OS default browser (`app:openExternal` IPC). */
+interface AppShellBridge {
+  openExternal: (url: string) => Promise<{ ok: true } | { ok: false; error: string }>
+}
+
 /** System LibreOffice `soffice` — detection and headless PDF conversion. */
 interface LibreOfficeBridge {
   detect: () => Promise<{ available: boolean; path: string | null }>
@@ -76,6 +81,8 @@ interface LibreOfficeBridge {
     outputDir: string,
   ) => Promise<{ ok: true; pdfPath: string } | { ok: false; error: string }>
   resetDetection: () => Promise<{ ok: true }>
+  setManualPath: (manualPath: string) => Promise<{ ok: true; path: string } | { ok: false; error: string }>
+  browseForSoffice: () => Promise<{ ok: true; path: string } | { ok: false; error?: string }>
 }
 
 /** Letter Composer — preload `letter:*` IPC (.docx / .odt templates). */
@@ -279,6 +286,8 @@ interface Window {
   lifecycle?: LifecycleBridge
   /** Native folder picker for WR Chat Diff — `await window.wrChat?.pickDirectory()`. */
   wrChat?: WrChatBridge
+  /** System browser for external links (not an in-app BrowserWindow). */
+  appShell?: AppShellBridge
   integrity?: IntegrityBridge
   debugLogs?: DebugLogsBridge
   orchestrator?: OrchestratorBridge
