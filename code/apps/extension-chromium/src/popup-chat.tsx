@@ -53,6 +53,7 @@ import {
 import { ConnectEmailLaunchSource, useConnectEmailFlow } from './shared/email/connectEmailFlow'
 import { pickDefaultEmailAccountRowId } from './shared/email/pickDefaultAccountRow'
 import { sessionDisplayLabel } from './utils/sessionDisplayLabel'
+import { EmailProvidersSection, type EmailAccount } from './wrguard/components/EmailProvidersSection'
 
 // =============================================================================
 // Theme Type - Matches docked version
@@ -570,17 +571,8 @@ function PopupChatApp() {
   // =========================================================================
   // Email Account State (mirrors sidepanel exactly)
   // =========================================================================
-  interface EmailAccountPopup {
-    id: string
-    displayName: string
-    email: string
-    provider: 'gmail' | 'microsoft365' | 'imap'
-    status: 'active' | 'error' | 'disabled'
-    processingPaused?: boolean
-    lastError?: string
-  }
-  
-  const [emailAccounts, setEmailAccounts] = useState<EmailAccountPopup[]>([])
+  const [emailAccounts, setEmailAccounts] = useState<EmailAccount[]>([])
+  const [listAccountsError, setListAccountsError] = useState<string | null>(null)
   const defaultEmailAccountRowId = useMemo(
     () => pickDefaultEmailAccountRowId(emailAccounts),
     [emailAccounts],
@@ -601,18 +593,29 @@ function PopupChatApp() {
   // Load email accounts from Electron via background script
   const loadEmailAccounts = async () => {
     setIsLoadingEmailAccounts(true)
+    setListAccountsError(null)
     try {
       const response = await chrome.runtime.sendMessage({ type: 'EMAIL_LIST_ACCOUNTS' })
-      if (response?.ok && response?.data) {
-        setEmailAccounts(response.data)
-        if (response.data.length > 0 && !selectedEmailAccountId) {
-          setSelectedEmailAccountId(
-            pickDefaultEmailAccountRowId(response.data) ?? response.data[0].id,
-          )
-        }
+      if (response?.ok && Array.isArray(response?.data)) {
+        const rows = response.data as EmailAccount[]
+        setEmailAccounts(rows)
+        setSelectedEmailAccountId((prev) => {
+          if (rows.length === 0) return null
+          if (prev && rows.some((r) => r.id === prev)) return prev
+          return pickDefaultEmailAccountRowId(rows) ?? rows[0].id
+        })
+      } else {
+        setEmailAccounts([])
+        setListAccountsError(
+          typeof response?.error === 'string' && response.error.trim()
+            ? response.error
+            : 'Could not load email accounts',
+        )
       }
     } catch (error) {
       console.error('[PopupChat] Failed to load email accounts:', error)
+      setEmailAccounts([])
+      setListAccountsError(error instanceof Error ? error.message : 'Could not load email accounts')
     } finally {
       setIsLoadingEmailAccounts(false)
     }
@@ -1645,6 +1648,9 @@ function PopupChatApp() {
     
     // Pro/paid users: no signature. Free/basic: show signature + upgrade CTA
     const isProAccount = userTier !== 'free' && userTier !== 'basic'
+
+    const emailProvidersTheme =
+      theme === 'standard' ? 'professional' : theme === 'pro' ? 'pro' : 'dark'
     
     const formatFileSize = (bytes: number) => {
       if (bytes < 1024) return `${bytes} B`
@@ -1737,30 +1743,32 @@ function PopupChatApp() {
     
     return (
       <div style={{ display: 'flex', flexDirection: 'column', flex: 1, background: bgColor, overflowY: 'auto' }}>
-        {/* Connected Email Accounts */}
-        <div style={{ padding: '16px 18px', borderBottom: `1px solid ${borderColor}`, background: isStandard ? 'white' : 'rgba(255,255,255,0.05)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span style={{ fontSize: '16px' }}>🔗</span>
-              <span style={{ fontSize: '13px', fontWeight: '600', color: textColor }}>Connected Email Accounts</span>
-            </div>
-            <button type="button" onClick={handleConnectEmail} style={{ background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)', border: 'none', color: 'white', borderRadius: '6px', padding: '6px 12px', fontSize: '11px', fontWeight: '600', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>
-              <span>+</span> Connect Email
-            </button>
+        <EmailProvidersSection
+          theme={emailProvidersTheme}
+          emailAccounts={emailAccounts}
+          isLoadingEmailAccounts={isLoadingEmailAccounts}
+          selectedEmailAccountId={selectedEmailAccountId}
+          onConnectEmail={handleConnectEmail}
+          onDisconnectEmail={disconnectEmailAccount}
+          onSelectEmailAccount={(id) => setSelectedEmailAccountId(id)}
+          onSetProcessingPaused={setAccountProcessingPaused}
+          onUpdateImapCredentials={(_accountId: string) => handleConnectEmail()}
+          listAccountsError={listAccountsError}
+        />
+        {!isLoadingEmailAccounts && emailAccounts.length === 0 ? (
+          <div
+            style={{
+              padding: '0 18px 14px',
+              fontSize: 12,
+              color: mutedColor,
+              lineHeight: 1.45,
+              borderBottom: `1px solid ${borderColor}`,
+            }}
+          >
+            No email account connected. Set up an account in the WR Desk Inbox settings (desktop app), or use{' '}
+            <strong>Connect Email</strong> above.
           </div>
-          {isLoadingEmailAccounts ? (
-            <div style={{ padding: '12px', textAlign: 'center', opacity: 0.6, fontSize: '12px' }}>Loading accounts...</div>
-          ) : emailAccounts.length === 0 ? (
-            <div style={{ padding: '20px', background: isStandard ? 'white' : 'rgba(255,255,255,0.05)', borderRadius: '8px', border: isStandard ? '1px dashed rgba(15,23,42,0.2)' : '1px dashed rgba(255,255,255,0.2)', textAlign: 'center' }}>
-              <div style={{ fontSize: '24px', marginBottom: '8px' }}>📧</div>
-              <div style={{ fontSize: '13px', color: mutedColor }}>No email accounts connected. Connect your account to send emails.</div>
-            </div>
-          ) : (
-            <select value={selectedEmailAccountId || defaultEmailAccountRowId || ''} onChange={(e) => setSelectedEmailAccountId(e.target.value)} style={{ width: '100%', padding: '8px 12px', fontSize: '13px', background: inputBg, border: `1px solid ${borderColor}`, borderRadius: '6px', color: textColor, outline: 'none', cursor: 'pointer' }}>
-              {emailAccounts.map((a) => <option key={a.id} value={a.id}>{a.email || a.displayName} ({a.provider})</option>)}
-            </select>
-          )}
-        </div>
+        ) : null}
         {/* Compose fields */}
         <div style={{ flex: 1, padding: '14px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '12px' }}>
           <div>

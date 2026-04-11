@@ -814,7 +814,7 @@ import {
   type WatchdogScanRequest,
 } from './watchdog/watchdogService'
 import { registerMainWindowAccessor } from './main/mainWindowAccessor'
-import { readTriggerProjectEntriesFromRenderer } from './main/projects/triggerProjectList'
+import { readTriggerListFromRenderer } from './main/projects/triggerProjectList'
 import {
   invokeOptimizerGetStatus,
   invokeOptimizerSetContinuous,
@@ -6834,8 +6834,8 @@ async function runDeviceKeyMigration(
     // â”€â”€ Projects (trigger bar â€” icon-allocated projects) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     httpApp.get('/api/projects/trigger-list', async (_req, res) => {
       try {
-        const entries = await readTriggerProjectEntriesFromRenderer()
-        res.json(entries)
+        const payload = await readTriggerListFromRenderer()
+        res.json(payload)
       } catch (error: any) {
         console.error('[HTTP] GET /api/projects/trigger-list:', error)
         res.status(500).json({ error: error?.message || 'trigger list failed' })

@@ -10,7 +10,12 @@ import { useShallow } from 'zustand/react/shallow'
 import type { WatchdogThreat } from '../../../utils/formatWatchdogAlert'
 import { fetchTriggerProjects } from '../../../services/fetchTriggerProjects'
 import { triggerOptimizerSnapshot } from '../../../services/fetchOptimizerTrigger'
-import type { ChatFocusMode, TriggerFunctionId, TriggerProjectEntry } from '../../../types/triggerTypes'
+import type {
+  ChatFocusMode,
+  TriggerComposerEntry,
+  TriggerFunctionId,
+  TriggerProjectEntry,
+} from '../../../types/triggerTypes'
 import { useChatFocusStore } from '../../../stores/chatFocusStore'
 import { useCustomModesStore } from '../../../stores/useCustomModesStore'
 import { getCustomModeTriggerBarIcon } from '../../../shared/ui/customModeTypes'
@@ -130,9 +135,25 @@ function buildProjectDropdownRows(projects: TriggerProjectEntry[]): TriggerBarDr
   return rows
 }
 
+function buildComposerDropdownRows(entries: TriggerComposerEntry[]): TriggerBarDropdownRow[] {
+  const rows: TriggerBarDropdownRow[] = []
+  for (const c of entries) {
+    const functionId: TriggerFunctionId = { type: 'composer-shortcut', composerId: c.composerId }
+    rows.push({
+      id: `composer:${c.composerId}`,
+      label: c.title,
+      icon: c.icon,
+      functionId,
+      automationUiKind: automationUiKindFromTriggerFunctionId(functionId),
+    })
+  }
+  return rows
+}
+
 function functionIdKey(fid: TriggerFunctionId): string {
   if (fid.type === 'watchdog') return 'watchdog'
   if (fid.type === 'auto-optimizer') return fid.projectId
+  if (fid.type === 'composer-shortcut') return `composer:${fid.composerId}`
   return fid.modeId
 }
 
@@ -145,6 +166,7 @@ export default function WrMultiTriggerBar({
 }: WrMultiTriggerBarProps) {
   const [activeFunctionId, setActiveFunctionId] = useState<TriggerFunctionId>({ type: 'watchdog' })
   const [projectList, setProjectList] = useState<TriggerProjectEntry[]>([])
+  const [composerShortcutList, setComposerShortcutList] = useState<TriggerComposerEntry[]>([])
   const customModes = useCustomModesStore(useShallow((s) => s.modes))
   const [dropdownOpen, setDropdownOpen] = useState(false)
   /** Snapshot request in flight per project (scanning pulse on icon). */
@@ -153,8 +175,9 @@ export default function WrMultiTriggerBar({
   const rootRef = useRef<HTMLDivElement>(null)
 
   const refreshProjects = useCallback(async () => {
-    const list = await fetchTriggerProjects()
-    setProjectList(list)
+    const { projects, composerShortcuts } = await fetchTriggerProjects()
+    setProjectList(projects)
+    setComposerShortcutList(composerShortcuts)
   }, [])
 
   useEffect(() => {
@@ -174,6 +197,14 @@ export default function WrMultiTriggerBar({
       return current
     })
   }, [customModes])
+
+  useEffect(() => {
+    setActiveFunctionId((current) => {
+      if (current.type !== 'composer-shortcut') return current
+      const still = composerShortcutList.some((c) => c.composerId === current.composerId)
+      return still ? current : { type: 'watchdog' }
+    })
+  }, [composerShortcutList])
 
   useEffect(() => {
     const onSync = (ev: Event) => {
@@ -226,8 +257,13 @@ export default function WrMultiTriggerBar({
       functionId: { type: 'watchdog' },
       automationUiKind: automationUiKindFromTriggerFunctionId({ type: 'watchdog' }),
     }
-    return [watchdogRow, ...pinnedCustomRows, ...buildProjectDropdownRows(projectList)]
-  }, [projectList, pinnedCustomRows])
+    return [
+      watchdogRow,
+      ...pinnedCustomRows,
+      ...buildProjectDropdownRows(projectList),
+      ...buildComposerDropdownRows(composerShortcutList),
+    ]
+  }, [projectList, pinnedCustomRows, composerShortcutList])
 
   const activeProject = useMemo(() => {
     if (activeFunctionId.type !== 'auto-optimizer') return null
@@ -238,6 +274,41 @@ export default function WrMultiTriggerBar({
     if (activeFunctionId.type !== 'custom-automation') return null
     return customModes.find((m) => m.id === activeFunctionId.modeId) ?? null
   }, [activeFunctionId, customModes])
+
+  const activeComposer = useMemo(() => {
+    if (activeFunctionId.type !== 'composer-shortcut') return null
+    return composerShortcutList.find((c) => c.composerId === activeFunctionId.composerId) ?? null
+  }, [activeFunctionId, composerShortcutList])
+
+  const openComposerCommandCenter = useCallback((launchMode: string | undefined) => {
+    const lm = typeof launchMode === 'string' ? launchMode.trim() : ''
+    if (!lm) {
+      console.warn('[WrMultiTriggerBar] Composer shortcut missing launchMode')
+      return
+    }
+    try {
+      const dash =
+        typeof window !== 'undefined'
+          ? (window as unknown as {
+              analysisDashboard?: { openEmailCompose?: () => void; openBeapDraft?: () => void }
+            }).analysisDashboard
+          : undefined
+      if (lm === 'dashboard-email-compose' && typeof dash?.openEmailCompose === 'function') {
+        dash.openEmailCompose()
+        return
+      }
+      if (lm === 'dashboard-beap-draft' && typeof dash?.openBeapDraft === 'function') {
+        dash.openBeapDraft()
+        return
+      }
+      chrome.runtime.sendMessage({ type: 'OPEN_COMMAND_CENTER_POPUP', launchMode: lm }, () => {
+        const err = chrome.runtime.lastError
+        if (err) console.warn('[WrMultiTriggerBar] OPEN_COMMAND_CENTER_POPUP:', err.message)
+      })
+    } catch (e) {
+      console.warn('[WrMultiTriggerBar] OPEN_COMMAND_CENTER_POPUP failed', e)
+    }
+  }, [])
 
   const selectedRowLabel = useMemo(() => {
     const row = dropdownRows.find((r) => functionIdKey(r.functionId) === functionIdKey(activeFunctionId))
@@ -294,6 +365,29 @@ export default function WrMultiTriggerBar({
       const intro = `${icon} **${name}**${desc ? `\n\n${desc}` : ''}
 
 I'm focused on this automation. Continue in WR Chat with the same model and settings you chose for this mode.`
+      runAfterOpen(() => {
+        useChatFocusStore.getState().setChatFocusWithIntro(mode, null, intro)
+        try {
+          onChatFocusRequest?.(mode)
+        } catch {
+          /* noop */
+        }
+        try {
+          window.dispatchEvent(new CustomEvent(WRCHAT_CHAT_FOCUS_REQUEST_EVENT, { detail: mode }))
+        } catch {
+          /* noop */
+        }
+      })
+      return
+    }
+
+    if (activeFunctionId.type === 'composer-shortcut') {
+      const c = activeComposer
+      if (!c) return
+      const mode: ChatFocusMode = { mode: 'default' }
+      const intro = `${c.icon} **${c.title}**
+
+Use the trigger icon to open the composer popup, or add draft context here in chat.`
       runAfterOpen(() => {
         useChatFocusStore.getState().setChatFocusWithIntro(mode, null, intro)
         try {
@@ -386,7 +480,7 @@ What would you like to add?`
         /* noop */
       }
     })
-  }, [activeFunctionId, activeProject, activeCustomMode, onChatFocusRequest, onEnsureWrChatOpen])
+  }, [activeFunctionId, activeProject, activeCustomMode, activeComposer, onChatFocusRequest, onEnsureWrChatOpen])
 
   const speechTooltipWatchdog = 'Toggle Scam Watchdog chat focus (on / off)'
   const speechTooltipOptimizer = activeProject
@@ -395,6 +489,9 @@ What would you like to add?`
   const speechTooltipCustom = activeCustomMode
     ? `Toggle chat focus for ${activeCustomMode.name.trim() || 'automation'} (on / off)`
     : 'Toggle automation chat focus (on / off)'
+  const speechTooltipComposer = activeComposer
+    ? `WR Chat note for ${activeComposer.title}`
+    : 'WR Chat note for composer'
 
   const optimizerPid =
     activeFunctionId.type === 'auto-optimizer' ? activeFunctionId.projectId : ''
@@ -668,6 +765,24 @@ What would you like to add?`
             middleSlot={<SpeechBubbleButton tooltip={speechTooltipCustom} onPress={emitChatFocus} />}
             scanButtonTitle="Pinned automation (no snapshot)"
             scanButtonAriaLabel="Pinned automation shortcut"
+          />
+        ) : activeFunctionId.type === 'composer-shortcut' ? (
+          <TriggerButtonShell
+            mode="snapshot"
+            theme={theme}
+            selectorSlot={dropdownLeadingSlot}
+            icon={
+              <span style={{ fontSize: 14, lineHeight: 1 }} aria-hidden>
+                {activeComposer?.icon ?? '\u2709\uFE0F'}
+              </span>
+            }
+            scanning={false}
+            cleanFlash={false}
+            onIconClick={() => openComposerCommandCenter(activeComposer?.launchMode)}
+            disabled={false}
+            middleSlot={<SpeechBubbleButton tooltip={speechTooltipComposer} onPress={emitChatFocus} />}
+            scanButtonTitle={activeComposer ? `Open ${activeComposer.title}` : 'Open composer'}
+            scanButtonAriaLabel={activeComposer ? `Open ${activeComposer.title} popup` : 'Open composer popup'}
           />
         ) : (
           <TriggerButtonShell

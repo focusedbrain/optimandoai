@@ -38,6 +38,19 @@ let electronLaunchInProgress = false;
 let dashboardPopupWindowId: number | null = null;
 // Guard against duplicate OPEN_COMMAND_CENTER_POPUP (e.g. double-click) creating multiple popups
 let creatingDashboardPopup = false;
+
+/** True if the tab should navigate so `launchMode` / theme query apply (popup-chat reads params on load). */
+function commandCenterPopupUrlsDiffer(tabUrl: string | undefined, targetUrl: string): boolean {
+  if (!tabUrl) return true
+  try {
+    const a = new URL(tabUrl)
+    const b = new URL(targetUrl)
+    if (a.pathname !== b.pathname) return true
+    return a.search !== b.search
+  } catch {
+    return tabUrl !== targetUrl
+  }
+}
 // Track if MailGuard should be active (persists across reconnections)
 let mailGuardShouldBeActive = false;
 let lastMailGuardWindowInfo: any = null;
@@ -1422,27 +1435,19 @@ function connectToWebSocketServer(forceReconnect = false): Promise<boolean> {
               })
             } else if (data.type === 'OPEN_COMMAND_CENTER_POPUP') {
               // Open popup from Electron dashboard request
-              // Guard: prevent multiple popups from rapid/double clicks
-              if (creatingDashboardPopup) {
-                return
-              }
-              creatingDashboardPopup = true
               const themeHint = typeof data.theme === 'string' ? data.theme : null
               const launchModeHint = typeof data.launchMode === 'string' ? data.launchMode : null
               const dashboardBounds = data.bounds && typeof data.bounds === 'object' ? data.bounds : null
               const dashboardWindowState = typeof data.windowState === 'string' ? data.windowState : 'normal'
-              
+
               let url = chrome.runtime.getURL('src/popup-chat.html')
               const params: string[] = []
               if (themeHint) params.push('t=' + encodeURIComponent(themeHint))
               if (launchModeHint) params.push('launchMode=' + encodeURIComponent(launchModeHint))
               if (params.length) url += '?' + params.join('&')
-              
-              // Check if dashboard is maximized or fullscreen - we'll maximize after creation
+
               const shouldMaximize = (dashboardWindowState === 'maximized' || dashboardWindowState === 'fullscreen')
-              
-              // Use dashboard bounds if provided, otherwise use defaults
-              // Note: Chrome popup windows don't support state in create options, so always use 'normal'
+
               const opts: chrome.windows.CreateData = {
                 url,
                 type: 'popup',
@@ -1456,8 +1461,40 @@ function connectToWebSocketServer(forceReconnect = false): Promise<boolean> {
               const trackPopupId = (winId: number) => {
                 dashboardPopupWindowId = winId
               }
-              
-              // Prevent duplicates: if our tracked popup already exists, update its bounds and focus
+
+              const focusExistingCommandCenter = (windowId: number) => {
+                const applyBoundsAndFocus = () => {
+                  if (shouldMaximize) {
+                    chrome.windows.update(windowId, { focused: true, state: 'maximized' })
+                  } else {
+                    chrome.windows.update(windowId, {
+                      focused: true,
+                      state: 'normal',
+                      left: opts.left,
+                      top: opts.top,
+                      width: opts.width,
+                      height: opts.height
+                    })
+                  }
+                }
+                chrome.windows.get(windowId, { populate: true }, (win) => {
+                  const tab = win?.tabs?.[0]
+                  if (tab?.id && commandCenterPopupUrlsDiffer(tab.url, url)) {
+                    chrome.tabs.update(tab.id, { url }, () => applyBoundsAndFocus())
+                  } else {
+                    applyBoundsAndFocus()
+                  }
+                })
+              }
+
+              if (creatingDashboardPopup) {
+                if (dashboardPopupWindowId !== null) {
+                  focusExistingCommandCenter(dashboardPopupWindowId)
+                }
+                return
+              }
+              creatingDashboardPopup = true
+
               try {
                 chrome.windows.getAll({ populate: false, windowTypes: ['popup'] }, (wins) => {
                   const existing = dashboardPopupWindowId !== null
@@ -1465,21 +1502,8 @@ function connectToWebSocketServer(forceReconnect = false): Promise<boolean> {
                   if (existing && existing.id) {
                     trackPopupId(existing.id)
                     creatingDashboardPopup = false
-                    // Update existing popup: set state to match dashboard, set bounds, and focus
-                    if (shouldMaximize) {
-                      chrome.windows.update(existing.id, { focused: true, state: 'maximized' })
-                    } else {
-                      chrome.windows.update(existing.id, { 
-                        focused: true,
-                        state: 'normal',
-                        left: opts.left,
-                        top: opts.top,
-                        width: opts.width,
-                        height: opts.height
-                      })
-                    }
+                    focusExistingCommandCenter(existing.id)
                   } else {
-                    // Create new popup, then force focus after it has rendered
                     chrome.windows.create(opts, (newWindow) => {
                       creatingDashboardPopup = false
                       if (newWindow?.id) {
@@ -1492,7 +1516,6 @@ function connectToWebSocketServer(forceReconnect = false): Promise<boolean> {
                             } catch {}
                           }, 100)
                         } else {
-                          // Give the window time to render before forcing focus
                           setTimeout(() => {
                             try { chrome.windows.update(winId, { focused: true, state: 'normal' }) } catch {}
                           }, 100)
@@ -1507,7 +1530,9 @@ function connectToWebSocketServer(forceReconnect = false): Promise<boolean> {
               } catch (err) {
                 creatingDashboardPopup = false
                 console.error('[BG] Error creating popup:', err)
-                chrome.windows.create(opts)
+                chrome.windows.create(opts, (newWindow) => {
+                  if (newWindow?.id) trackPopupId(newWindow.id)
+                })
               }
             } else if (data.type === 'CLOSE_COMMAND_CENTER_POPUP') {
               // Close popup on logout from Electron dashboard
@@ -4342,7 +4367,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       const themeHint = typeof msg.theme === 'string' ? msg.theme : null
       const launchModeHint = typeof msg.launchMode === 'string' ? msg.launchMode : null
       const createPopup = (bounds: chrome.system.display.Bounds | null) => {
-        // Use React-based popup-chat.html for full WRGuard and BEAP Messages functionality
         const params: string[] = []
         if (themeHint) params.push('t=' + encodeURIComponent(themeHint))
         if (launchModeHint) params.push('launchMode=' + encodeURIComponent(launchModeHint))
@@ -4358,19 +4382,50 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           opts.left = Math.max(0, bounds.left + 40)
           opts.top = Math.max(0, bounds.top + 40)
         }
-        // Prevent duplicates: if a popup already exists, focus instead of opening any new one
+        const focusOrNavigateExisting = (windowId: number) => {
+          chrome.windows.get(windowId, { populate: true }, (win) => {
+            const tab = win?.tabs?.[0]
+            const done = () => {
+              try {
+                chrome.windows.update(windowId, { focused: true })
+              } catch {}
+              try { sendResponse({ success: true }) } catch {}
+            }
+            if (tab?.id && commandCenterPopupUrlsDiffer(tab.url, url)) {
+              chrome.tabs.update(tab.id, { url }, done)
+            } else {
+              done()
+            }
+          })
+        }
         try {
           chrome.windows.getAll({ populate: false, windowTypes: ['popup', 'normal'] }, (wins) => {
-            const existing = wins && wins.find(w => (w.type === 'popup' && typeof w.id === 'number'))
-            if (existing && existing.id) {
-              chrome.windows.update(existing.id, { focused: true })
-              sendResponse({ success: true })
+            let existingId: number | null = null
+            if (dashboardPopupWindowId !== null) {
+              const tracked = wins.find(w => w.id === dashboardPopupWindowId)
+              if (tracked && tracked.type === 'popup' && typeof tracked.id === 'number') {
+                existingId = tracked.id
+              }
+            }
+            if (existingId === null) {
+              const first = wins.find(w => w.type === 'popup' && typeof w.id === 'number')
+              if (first?.id != null) existingId = first.id
+            }
+            if (existingId !== null) {
+              dashboardPopupWindowId = existingId
+              focusOrNavigateExisting(existingId)
             } else {
-              chrome.windows.create(opts, () => sendResponse({ success: true }))
+              chrome.windows.create(opts, (newWin) => {
+                if (newWin?.id) dashboardPopupWindowId = newWin.id
+                try { sendResponse({ success: true }) } catch {}
+              })
             }
           })
         } catch {
-          chrome.windows.create(opts, () => sendResponse({ success: true }))
+          chrome.windows.create(opts, (newWin) => {
+            if (newWin?.id) dashboardPopupWindowId = newWin.id
+            try { sendResponse({ success: true }) } catch {}
+          })
         }
       }
 
@@ -4383,7 +4438,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       } else {
         createPopup(null)
       }
-      break
+      return true
     }
 
     case 'COMMAND_POPUP_APPEND': {

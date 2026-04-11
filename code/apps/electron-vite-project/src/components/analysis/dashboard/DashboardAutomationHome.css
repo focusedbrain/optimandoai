@@ -140,6 +140,23 @@
   flex-shrink: 0;
 }
 
+.dash-auto-home__starter-icon-wrap {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+}
+
+.dash-auto-home__starter-icon-allocated {
+  position: absolute;
+  right: -6px;
+  bottom: -4px;
+  font-size: 14px;
+  line-height: 1;
+  filter: drop-shadow(0 0 1px rgba(255, 255, 255, 0.95));
+}
+
 .dash-auto-home__starter-title {
   margin: 0;
   font-size: 12px;
@@ -378,4 +395,92 @@
 .dash-auto-home__btn:disabled {
   opacity: 0.45;
   cursor: not-allowed;
+}
+
+/* Composer shortcut icon picker (Email / BEAP cards) */
+.dash-auto-home__icon-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 12000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(15, 23, 42, 0.45);
+  backdrop-filter: blur(2px);
+}
+
+.dash-auto-home__icon-dialog {
+  width: 100%;
+  max-width: 360px;
+  max-height: min(90vh, 520px);
+  overflow: auto;
+  background: #fff;
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  box-shadow:
+    0 20px 50px rgba(15, 23, 42, 0.18),
+    0 1px 0 rgba(255, 255, 255, 0.9) inset;
+  padding: 18px 18px 14px;
+}
+
+.dash-auto-home__icon-dialog-title {
+  margin: 0 0 6px;
+  font-size: 15px;
+  font-weight: 700;
+  color: #0f172a;
+  letter-spacing: -0.02em;
+}
+
+.dash-auto-home__icon-dialog-sub {
+  margin: 0 0 14px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: #64748b;
+}
+
+.dash-auto-home__icon-dialog-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.dash-auto-home__icon-dialog-cell {
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  font-size: 20px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  border: 1px solid rgba(148, 163, 184, 0.45);
+  background: #f8fafc;
+  cursor: pointer;
+  transition:
+    border-color 0.12s ease,
+    box-shadow 0.12s ease,
+    background 0.12s ease;
+}
+
+.dash-auto-home__icon-dialog-cell:hover {
+  background: #fff;
+  border-color: #94a3b8;
+}
+
+.dash-auto-home__icon-dialog-cell--selected {
+  border-color: #6366f1;
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.35);
+  background: #eef2ff;
+}
+
+.dash-auto-home__icon-dialog-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 4px;
+  border-top: 1px solid rgba(226, 232, 240, 0.9);
 }

@@ -33,6 +33,14 @@ export type {
 
 // ── Store types ───────────────────────────────────────────────────────────────
 
+/** Dashboard automation cards — shortcut icons for top trigger bar (not project entities). */
+export type ComposerIconSlot = 'emailComposer' | 'beapComposer'
+
+export interface ComposerIconsState {
+  emailComposer?: string
+  beapComposer?: string
+}
+
 interface ProjectState {
   projects: Project[]
   activeProjectId: string | null
@@ -42,6 +50,8 @@ interface ProjectState {
    * // TODO: load from window.emailInbox.getOrchestratorSessions() or equivalent IPC
    */
   orchestratorSessions: OrchestratorSession[]
+  /** Optional emoji per composer card — persisted with projects under `wr-desk-projects`. */
+  composerIcons: ComposerIconsState
 }
 
 interface ProjectActions {
@@ -80,6 +90,10 @@ interface ProjectActions {
   /** Sets or clears project icon (emoji string). Empty string clears `icon`. */
   setProjectIcon: (projectId: string, icon: string) => void
 
+  /** Emoji shortcut for Email / BEAP composer cards (dashboard trigger bar — Prompt 3). */
+  setComposerIcon: (composerId: ComposerIconSlot, icon: string) => void
+  clearComposerIcon: (composerId: ComposerIconSlot) => void
+
   // ── Auto-optimization ─────────────────────────────────────────────────────
   setAutoOptimization: (projectId: string, enabled: boolean) => void
   setAutoOptimizationInterval: (projectId: string, intervalMs: number) => void
@@ -116,6 +130,7 @@ export const useProjectStore = create<ProjectState & ProjectActions>()(
       projects: [],
       activeProjectId: null,
       orchestratorSessions: [],
+      composerIcons: {},
 
       // ── Project CRUD ──────────────────────────────────────────────────────
       createProject: (data) => {
@@ -280,6 +295,24 @@ export const useProjectStore = create<ProjectState & ProjectActions>()(
         }))
       },
 
+      setComposerIcon: (composerId, icon) => {
+        const trimmed = icon.trim()
+        if (!trimmed) {
+          get().clearComposerIcon(composerId)
+          return
+        }
+        set((s) => ({
+          composerIcons: { ...(s.composerIcons ?? {}), [composerId]: trimmed },
+        }))
+      },
+
+      clearComposerIcon: (composerId) =>
+        set((s) => {
+          const prev = s.composerIcons ?? {}
+          const { [composerId]: _removed, ...rest } = prev
+          return { composerIcons: rest }
+        }),
+
       // ── Auto-optimization ─────────────────────────────────────────────────
       setAutoOptimization: (projectId, enabled) =>
         set((s) => ({
@@ -342,10 +375,21 @@ export const useProjectStore = create<ProjectState & ProjectActions>()(
        * Bump `version` when the stored schema changes in a breaking way.
        * V2: `linkedSessionId` → `linkedSessionIds[]`
        * V3: ensure `autoOptimizationEnabled` defaults to false when missing (legacy stores).
+       * V5: `composerIcons` for dashboard Email/BEAP shortcut icons.
        */
-      version: 4,
+      version: 5,
       migrate: (persistedState: unknown, version: number) => {
-        const ps = persistedState as { state?: { projects?: Array<Record<string, unknown>> } }
+        const ps = persistedState as {
+          state?: {
+            projects?: Array<Record<string, unknown>>
+            composerIcons?: ComposerIconsState
+          }
+        }
+        if (ps?.state && typeof ps.state === 'object' && version < 5) {
+          if (!ps.state.composerIcons || typeof ps.state.composerIcons !== 'object') {
+            ps.state.composerIcons = {}
+          }
+        }
         if (ps?.state?.projects && Array.isArray(ps.state.projects)) {
           if (version < 2) {
             ps.state.projects = ps.state.projects.map((p) => {

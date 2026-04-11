@@ -6,7 +6,7 @@
  * same guards and triggerSnapshotOptimization as ProjectOptimizationPanel.
  */
 
-import { useMemo, useCallback, useState } from 'react'
+import { useMemo, useCallback, useState, useEffect } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import {
   ADD_AUTOMATION_ROW_UI_KIND,
@@ -21,8 +21,121 @@ const ADD_PROJECT_WIKI_SELECT_VALUE = '__wrdesk_add_project_wiki__'
 import { applyOptimizationGuardFallback, canRunOptimization } from '../../../lib/autoOptimizationGuards'
 import { triggerSnapshotOptimization } from '../../../lib/autoOptimizationEngine'
 import type { Project } from '../../../types/projectTypes'
-import { useProjectStore } from '../../../stores/useProjectStore'
+import { useProjectStore, type ComposerIconSlot } from '../../../stores/useProjectStore'
 import './DashboardAutomationHome.css'
+
+/** Matches {@link ProjectOptimizationPanel} PROJECT_ICON_CHOICES — duplicated per prompt (panel not imported). */
+const COMPOSER_ICON_CHOICES = [
+  '\u{1F3AF}',
+  '\u{1F4CA}',
+  '\u{1F680}',
+  '\u{26A1}',
+  '\u{1F527}',
+  '\u{1F4A1}',
+  '\u{1F4C8}',
+  '\u{1F3D7}\u{FE0F}',
+  '\u{1F9EA}',
+  '\u{1F50D}',
+  '\u{1F4CB}',
+  '\u{1F6E0}\u{FE0F}',
+  '\u{1F3A8}',
+  '\u{1F4E6}',
+  '\u{1F310}',
+  '\u{1F4BB}',
+  '\u{1F512}',
+  '\u{1F4DD}',
+  '\u{2B50}',
+  '\u{1F3C6}',
+] as const
+
+function ComposerIconPickerDialog({
+  composerId,
+  currentIcon,
+  onClose,
+}: {
+  composerId: ComposerIconSlot
+  currentIcon?: string
+  onClose: () => void
+}) {
+  const label =
+    composerId === 'emailComposer' ? 'Email Composer' : 'BEAP Composer'
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  const pick = (emoji: string) => {
+    useProjectStore.getState().setComposerIcon(composerId, emoji)
+    onClose()
+  }
+
+  const clear = () => {
+    useProjectStore.getState().clearComposerIcon(composerId)
+  }
+
+  const active = currentIcon?.trim() ?? ''
+
+  return (
+    <div
+      className="dash-auto-home__icon-dialog-backdrop"
+      role="presentation"
+      onClick={onClose}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') onClose()
+      }}
+    >
+      <div
+        className="dash-auto-home__icon-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="dash-composer-icon-dialog-title"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h2 id="dash-composer-icon-dialog-title" className="dash-auto-home__icon-dialog-title">
+          Set Shortcut Icon
+        </h2>
+        <p className="dash-auto-home__icon-dialog-sub">
+          Choose an icon to add this composer as a shortcut in the top bar. ({label})
+        </p>
+        <div className="dash-auto-home__icon-dialog-grid">
+          {COMPOSER_ICON_CHOICES.map((emoji) => {
+            const selected = active === emoji
+            return (
+              <button
+                key={emoji}
+                type="button"
+                className={[
+                  'dash-auto-home__icon-dialog-cell',
+                  selected ? 'dash-auto-home__icon-dialog-cell--selected' : '',
+                ]
+                  .filter(Boolean)
+                  .join(' ')}
+                title={emoji}
+                aria-label={`Select ${emoji}`}
+                aria-pressed={selected}
+                onClick={() => pick(emoji)}
+              >
+                {emoji}
+              </button>
+            )
+          })}
+        </div>
+        <div className="dash-auto-home__icon-dialog-actions">
+          <button type="button" className="dash-auto-home__btn dash-auto-home__btn--ghost" onClick={clear}>
+            Clear
+          </button>
+          <button type="button" className="dash-auto-home__btn dash-auto-home__btn--primary" onClick={onClose}>
+            Done
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
 
 export type DashboardAutomationHomeProps = {
   onOpenProjectAssistantWorkspace: (opts: { projectId: string; mode?: 'edit' | 'view' }) => void
@@ -45,6 +158,8 @@ type AutomationCardDef = {
   valueLine: string
   onRun: () => void
   onEdit: () => void
+  /** When set, Edit opens icon picker and allocated icon can show on the card. */
+  composerId?: ComposerIconSlot
 }
 
 /** Same derivation as useProjectStore.getActiveMilestone / selectActiveMilestone, per project. */
@@ -63,15 +178,17 @@ export function DashboardAutomationHome({
   onNavigateWrChat,
   onNavigateBulkInbox,
 }: DashboardAutomationHomeProps) {
-  const { projects, activeProjectId, setActiveProject } = useProjectStore(
+  const { projects, activeProjectId, setActiveProject, composerIcons } = useProjectStore(
     useShallow((s) => ({
       projects: s.projects,
       activeProjectId: s.activeProjectId,
       setActiveProject: s.setActiveProject,
+      composerIcons: s.composerIcons ?? {},
     })),
   )
 
   const [snapshotBusyId, setSnapshotBusyId] = useState<string | null>(null)
+  const [iconPickerTarget, setIconPickerTarget] = useState<ComposerIconSlot | null>(null)
 
   const wikiProjectId = useMemo(() => {
     if (projects.length === 0) return null
@@ -101,8 +218,15 @@ export function DashboardAutomationHome({
         icon: '\u{270D}\u{FE0F}',
         title: 'Email Composer',
         valueLine: 'Draft outbound mail with assistance.',
-        onRun: onNavigateWrChat,
-        onEdit: onNavigateInbox,
+        composerId: 'emailComposer',
+        onRun: () => {
+          if (typeof window !== 'undefined' && window.analysisDashboard?.openEmailCompose) {
+            window.analysisDashboard.openEmailCompose()
+          } else {
+            console.warn('[DashboardAutomation] openEmailCompose not available on preload')
+          }
+        },
+        onEdit: () => setIconPickerTarget('emailComposer'),
       },
       {
         id: 'document-actions',
@@ -119,11 +243,18 @@ export function DashboardAutomationHome({
         icon: '\u{1F4E6}',
         title: 'BEAP Composer',
         valueLine: 'BEAP packages, handshakes, and encrypted flows.',
-        onRun: onNavigateBulkInbox,
-        onEdit: onNavigateWrChat,
+        composerId: 'beapComposer',
+        onRun: () => {
+          if (typeof window !== 'undefined' && window.analysisDashboard?.openBeapDraft) {
+            window.analysisDashboard.openBeapDraft()
+          } else {
+            console.warn('[DashboardAutomation] openBeapDraft not available on preload')
+          }
+        },
+        onEdit: () => setIconPickerTarget('beapComposer'),
       },
     ],
-    [onNavigateBulkInbox, onNavigateInbox, onNavigateWrChat],
+    [onNavigateBulkInbox, onNavigateInbox, onNavigateWrChat, setIconPickerTarget],
   )
 
   const openProject = useCallback(
@@ -205,6 +336,13 @@ export function DashboardAutomationHome({
 
   return (
     <div className="dash-auto-home" aria-label="Automation workspace">
+      {iconPickerTarget ? (
+        <ComposerIconPickerDialog
+          composerId={iconPickerTarget}
+          currentIcon={composerIcons[iconPickerTarget]}
+          onClose={() => setIconPickerTarget(null)}
+        />
+      ) : null}
       <header className="dash-auto-home__starters-header">
         <div className="dash-auto-home__starters-header-main">
           <span className="dash-auto-home__kicker">Automation workspace</span>
@@ -225,15 +363,25 @@ export function DashboardAutomationHome({
       </header>
 
       <div className="dash-auto-home__starters-grid" role="list">
-        {starterCards.map((card) => (
+        {starterCards.map((card) => {
+          const allocated =
+            card.composerId && composerIcons[card.composerId]?.trim()
+              ? composerIcons[card.composerId]!.trim()
+              : null
+          return (
           <article
             key={card.id}
             role="listitem"
             className={['dash-auto-home__starter', `dash-auto-home__starter--accent-${card.accent}`].join(' ')}
           >
             <div className="dash-auto-home__starter-top">
-              <span className="dash-auto-home__starter-icon" aria-hidden>
-                {card.icon}
+              <span className="dash-auto-home__starter-icon-wrap" aria-hidden>
+                <span className="dash-auto-home__starter-icon">{card.icon}</span>
+                {allocated ? (
+                  <span className="dash-auto-home__starter-icon-allocated" title="Shortcut icon">
+                    {allocated}
+                  </span>
+                ) : null}
               </span>
               <h3 className="dash-auto-home__starter-title">{card.title}</h3>
             </div>
@@ -247,7 +395,8 @@ export function DashboardAutomationHome({
               </button>
             </div>
           </article>
-        ))}
+          )
+        })}
       </div>
 
       <section

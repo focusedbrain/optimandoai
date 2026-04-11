@@ -130,7 +130,11 @@ export default function AnalysisCanvas({
       setProjectAssistantWorkspaceOpen(true)
       return
     }
-    if (activeTriggerFunctionId.type === 'watchdog' || activeTriggerFunctionId.type === 'custom-automation') {
+    if (
+      activeTriggerFunctionId.type === 'watchdog' ||
+      activeTriggerFunctionId.type === 'custom-automation' ||
+      activeTriggerFunctionId.type === 'composer-shortcut'
+    ) {
       setProjectAssistantWorkspaceOpen(false)
     }
   }, [activeTriggerFunctionId, pendingProjectAssistantCreateSession])

@@ -8,6 +8,8 @@ export type TriggerFunctionId =
   | { type: 'auto-optimizer'; projectId: string }
   /** Pinned custom automation row — only modes with `metadata.triggerBarIcon` set appear in the bar. */
   | { type: 'custom-automation'; modeId: string }
+  /** Dashboard Email / BEAP composer shortcuts — icon from `composerIcons` in `wr-desk-projects`. */
+  | { type: 'composer-shortcut'; composerId: 'emailComposer' | 'beapComposer' }
 
 /**
  * Chat focus mode — determines how WRChat behaves when the speech bubble is clicked.
@@ -47,6 +49,14 @@ export interface TriggerProjectEntry {
   activeMilestoneTitle?: string
   /** When set, extension can map orchestrator session → auto-optimizer project */
   linkedSessionIds?: string[]
+}
+
+/** Composer shortcut row from GET /api/projects/trigger-list (`composerShortcuts`). */
+export interface TriggerComposerEntry {
+  composerId: 'emailComposer' | 'beapComposer'
+  title: string
+  icon: string
+  launchMode: string
 }
 
 /**

@@ -67,6 +67,7 @@ export type {
   TriggerFunctionId,
   ChatFocusMode,
   TriggerProjectEntry,
+  TriggerComposerEntry,
   TriggerDropdownItem,
 } from '../../types/triggerTypes'
 

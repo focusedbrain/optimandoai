@@ -1619,7 +1619,7 @@ function SidepanelOrchestrator() {
     }
 
     try {
-      const projects = await fetchTriggerProjects()
+      const { projects } = await fetchTriggerProjects()
       const proj = projects.find((p) => (p.linkedSessionIds ?? []).some((id) => id === sk))
       if (proj) {
         useUIStore.getState().setMode('commands')
