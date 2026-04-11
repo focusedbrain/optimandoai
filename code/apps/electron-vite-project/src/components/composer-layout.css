@@ -36,23 +36,36 @@
 .composer-form-column {
   display: flex;
   flex-direction: column;
+  flex: 1;
   min-height: 0;
   overflow-y: auto;
-  gap: 8px;
+  gap: 12px;
+  padding: 16px;
   box-sizing: border-box;
 }
 
+/* Grid child must allow shrink so form-column overflow-y can scroll (dashboard email). */
+.dashboard-email-composer .composer-grid > .composer-form-column {
+  min-height: 0;
+}
+
+/* Dashboard BEAP embeds BeapInlineComposer (compose-grid); ensure column can shrink for scroll. */
+.dashboard-beap-composer .composer-form-column {
+  min-height: 0;
+}
+
 .composer-body-container {
-  flex: 1;
+  flex: 0 0 auto;
   display: flex;
   flex-direction: column;
   min-height: 0;
   gap: 6px;
 }
 
+/* Fixed-height body: form column scrolls when content exceeds viewport (email composers). */
 .composer-body-container textarea {
-  flex: 1;
-  min-height: 180px;
+  height: 200px;
+  min-height: 120px;
   max-height: none;
   resize: vertical;
   width: 100%;
@@ -104,8 +117,10 @@
   font-size: 14px;
 }
 
-/* BEAP: message fields match builder */
+/* BEAP: message fields match builder — height grows via .beap-message-field textarea rules, not fixed email height */
 .beap-inline-composer .composer-body-container textarea {
+  height: auto;
+  min-height: 120px;
   background: #ffffff;
   color: #0f172a;
   border: 1px solid #cbd5e1;

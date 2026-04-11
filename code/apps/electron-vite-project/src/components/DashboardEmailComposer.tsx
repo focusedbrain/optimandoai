@@ -255,11 +255,15 @@ export function DashboardEmailComposer({ onClose }: DashboardEmailComposerProps)
               rows={8}
               className={`email-body-textarea${connected && refineTarget === 'email' ? ' field-selected-for-ai' : ''}`}
               style={{
-                minHeight: 180,
-                flexShrink: 0,
+                minHeight: 120,
+                height: 200,
                 resize: 'vertical',
                 width: '100%',
                 boxSizing: 'border-box',
+                padding: '10px',
+                fontSize: '13px',
+                lineHeight: '1.5',
+                outline: 'none',
               }}
             />
           </div>

@@ -330,7 +330,6 @@ export function EmailInlineComposer({ onClose, onSent, replyTo }: EmailInlineCom
               className="composer-body-container email-body-field"
               style={{
                 width: '100%',
-                alignSelf: 'stretch',
               }}
             >
               <label
@@ -348,9 +347,8 @@ export function EmailInlineComposer({ onClose, onSent, replyTo }: EmailInlineCom
                 rows={8}
                 className={`email-body-textarea${connected && refineTarget === 'email' ? ' field-selected-for-ai' : ''}`}
                 style={{
-                  minHeight: '180px',
-                  height: '180px',
-                  flexShrink: 0,
+                  minHeight: '120px',
+                  height: '200px',
                   resize: 'vertical',
                   width: '100%',
                   boxSizing: 'border-box',
