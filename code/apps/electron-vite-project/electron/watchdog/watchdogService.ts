@@ -175,6 +175,18 @@ If threats are found:
 If everything looks safe:
 { "threats": [] }`
 
+/** Smart Summary — executive workspace overview (same capture as Watchdog; plain-text reply). */
+const SMART_SUMMARY_SYSTEM_PROMPT = `You are a workspace activity summarizer for WR Desk, a secure business communication platform. Analyze the user's current workspace and provide a concise executive summary.
+
+Include:
+- What tabs/applications are currently open and what the user appears to be working on
+- Any notable inbox activity (unread counts, urgent items, pending reviews)
+- Current project or task context if visible
+- Key numbers or metrics visible on dashboards
+- Any items that may need attention
+
+Format: Write 3-5 short paragraphs. Be specific about what you see. Use a professional but friendly tone. Do not speculate beyond what is visible.`
+
 const SEVERITIES = new Set(['low', 'medium', 'high', 'critical'])
 
 function watchdogTempRoot(): string {
@@ -202,6 +214,8 @@ export class WatchdogService {
   private config: WatchdogConfig = { ...DEFAULT_WATCHDOG_CONFIG }
   private intervalHandle: NodeJS.Timeout | null = null
   private scanInFlight = false
+  /** Mutually exclusive with {@link scanInFlight} — same DOM/screenshot pipeline. */
+  private smartSummaryInFlight = false
   private readonly tempDir = watchdogTempRoot()
 
   /**
@@ -428,6 +442,32 @@ export class WatchdogService {
     return { messages, ...(modelId ? { modelId } : {}) }
   }
 
+  /** Same tab truncation rules as {@link buildWatchdogPrompt}; user message is plain text + optional vision images. */
+  private buildSummaryPrompt(scan: WatchdogScanRequest): ChatMessage[] {
+    const maxTabs = Math.max(1, this.config.maxTabs)
+    const maxChars = Math.max(0, this.config.maxDomCharsPerTab)
+    const domSlice = scan.domSnapshots.slice(0, maxTabs)
+
+    const textBlocks: string[] = []
+    for (const tab of domSlice) {
+      const text = (tab.textContent ?? '').slice(0, maxChars)
+      textBlocks.push(`[Tab: ${tab.title} | ${tab.url}]\n${text}\n---`)
+    }
+    const joined = textBlocks.join('\n\n')
+    const userText =
+      joined.length > MAX_DOM_TEXT_TOTAL_CHARS ? joined.slice(0, MAX_DOM_TEXT_TOTAL_CHARS) : joined
+
+    const imageB64s = scan.screenshots.map((s) => s.base64)
+
+    const userMsg: ChatMessage = {
+      role: 'user',
+      content: userText.length > 0 ? userText : '(No tab content captured)',
+      ...(imageB64s.length > 0 ? { images: imageB64s } : {}),
+    }
+
+    return [{ role: 'system', content: SMART_SUMMARY_SYSTEM_PROMPT }, userMsg]
+  }
+
   parseWatchdogResponse(responseText: string): WatchdogThreat[] {
     const raw = stripMarkdownFences(responseText.trim())
     let parsed: unknown
@@ -473,6 +513,11 @@ export class WatchdogService {
   }
 
   async runScan(): Promise<WatchdogResult> {
+    if (this.smartSummaryInFlight) {
+      console.warn('[Watchdog] scan skipped — smart summary in progress')
+      return { scanId: '', timestamp: Date.now(), threats: [], clean: true }
+    }
+
     if (this.scanInFlight) {
       this.consecutiveOverlapSkips++
       console.warn('[Watchdog] scan skipped — previous scan still in progress')
@@ -601,6 +646,69 @@ export class WatchdogService {
   }
 
   /**
+   * One-shot workspace summary: same multi-display + DOM capture as {@link runScan}, different system prompt; returns plain text.
+   * Excludes from running concurrently with {@link runScan} (shared extension DOM handshake).
+   */
+  async runSmartSummary(): Promise<string> {
+    if (this.scanInFlight || this.smartSummaryInFlight) {
+      throw new Error('Capture pipeline busy')
+    }
+
+    this.enforceTempDirSizeLimitBeforeScan()
+
+    const scanStartedAt = Date.now()
+    const scanId = randomUUID()
+    const timestamp = Date.now()
+    let scan: WatchdogScanRequest | null = null
+
+    this.smartSummaryInFlight = true
+    try {
+      const [screenshots, domSnapshots] = await Promise.all([
+        this.captureAllScreens(),
+        this.requestDomSnapshots(),
+      ])
+      const capturePaths = [...this.capturePathsBuffer]
+
+      console.log('[SmartSummary] start', { scanId, screens: screenshots.length, domTabs: domSnapshots.length })
+
+      scan = {
+        scanId,
+        timestamp,
+        screenshots,
+        domSnapshots,
+      }
+
+      const messages = this.buildSummaryPrompt(scan)
+
+      const { ollamaManager } = await import('../main/llm/ollama-manager')
+      this.logWatchdogRemotePrivacyNote(ollamaManager)
+
+      const configured = this.config.modelId?.trim()
+      const effective =
+        configured || (await ollamaManager.getEffectiveChatModelName()) || DEFAULT_WATCHDOG_MODEL_ID
+      const chatRes = await ollamaManager.chat(effective, messages)
+      const responseText = typeof chatRes?.content === 'string' ? chatRes.content.trim() : ''
+
+      this.deletePaths(capturePaths)
+
+      if (!responseText) {
+        return 'No summary available.'
+      }
+      return responseText
+    } catch (e) {
+      console.warn('[SmartSummary] failed:', e instanceof Error ? e.message : e)
+      const paths = [...this.capturePathsBuffer]
+      if (paths.length > 0) this.scheduleDeletion(paths)
+      throw e instanceof Error ? e : new Error(String(e))
+    } finally {
+      console.log('[SmartSummary] end', { scanId, durationMs: Date.now() - scanStartedAt })
+      this.clearScanSensitivePayload(scan)
+      this.smartSummaryInFlight = false
+      maybeGlobalGc()
+    }
+  }
+
+  /**
    * Extension `buildLlmRequestBody` routes cloud when `!isLocal` and adds `provider` + `apiKey`.
    * Watchdog uses `ollamaManager.chat()` only (no provider/apiKey on the request body). Warn if the
    * configured Ollama base URL is not localhost (e.g. remote Ollama tunnel).
@@ -704,6 +812,10 @@ export class WatchdogService {
 
   isScanning(): boolean {
     return this.scanInFlight
+  }
+
+  isSmartSummaryRunning(): boolean {
+    return this.smartSummaryInFlight
   }
 
   cleanup(): void {

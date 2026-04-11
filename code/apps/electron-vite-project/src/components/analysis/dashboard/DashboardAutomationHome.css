@@ -83,8 +83,14 @@
 
 .dash-auto-home__starters-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
+}
+
+@media (max-width: 900px) {
+  .dash-auto-home__starters-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 520px) {
@@ -125,6 +131,47 @@
 
 .dash-auto-home__starter--accent-beap {
   border-left: 3px solid #c026d3;
+}
+
+.dash-auto-home__starter--accent-summary {
+  border-left: 3px solid #6366f1;
+}
+
+.dash-auto-home__starter--accent-automation {
+  border-left: 3px solid #f59e0b;
+}
+
+.dash-auto-home__starter-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+}
+
+.dash-auto-home__automation-selector {
+  min-height: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.dash-auto-home__automation-select {
+  width: 100%;
+  padding: 6px 10px;
+  font-size: 12px;
+  border: 1px solid #e8e8e6;
+  border-radius: 4px;
+  background: #f8f8f7;
+  cursor: pointer;
+  margin-top: 4px;
+  font-family: inherit;
+  box-sizing: border-box;
+}
+
+.dash-auto-home__btn--add-link {
+  font-size: 10px;
+  font-weight: 650;
+  padding: 5px 8px;
 }
 
 .dash-auto-home__starter-top {

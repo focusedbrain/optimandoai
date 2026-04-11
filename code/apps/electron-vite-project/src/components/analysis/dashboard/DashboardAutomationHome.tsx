@@ -11,6 +11,7 @@ import { useShallow } from 'zustand/react/shallow'
 import {
   ADD_AUTOMATION_ROW_UI_KIND,
   ADD_PROJECT_ASSISTANT_ROW_UI_KIND,
+  WRCHAT_CHAT_FOCUS_REQUEST_EVENT,
   WRCHAT_OPEN_CUSTOM_MODE_WIZARD_EVENT,
   WRDESK_OPEN_PROJECT_ASSISTANT_CREATION,
   WRDESK_TRIGGER_SYNC_AUTO_OPTIMIZER_PROJECT,
@@ -26,8 +27,40 @@ import {
   type ComposerIconSlot,
   type ComposerIconsState,
 } from '../../../stores/useProjectStore'
+import { useCustomModesStore } from '@ext/stores/useCustomModesStore'
+import { useChatFocusStore, WRCHAT_APPEND_ASSISTANT_EVENT } from '@ext/stores/chatFocusStore'
+import { useUIStore } from '@ext/stores/useUIStore'
+import { getCustomModeTriggerBarIcon } from '@ext/shared/ui/customModeTypes'
 import { PROJECT_ICON_CHOICES } from './projectIconChoices'
 import './DashboardAutomationHome.css'
+
+const SMART_SUMMARY_HTTP_BASE = 'http://127.0.0.1:51248'
+
+async function getDashboardLaunchSecret(): Promise<string | null> {
+  try {
+    const fn = (
+      window as unknown as {
+        handshakeView?: { pqHeaders?: () => Promise<Record<string, string>> }
+      }
+    ).handshakeView?.pqHeaders
+    if (typeof fn === 'function') {
+      const h = await fn()
+      const s = h?.['X-Launch-Secret']
+      return typeof s === 'string' && s.trim() ? s.trim() : null
+    }
+  } catch {
+    /* noop */
+  }
+  return null
+}
+
+function appendWrChatAssistant(text: string) {
+  try {
+    window.dispatchEvent(new CustomEvent(WRCHAT_APPEND_ASSISTANT_EVENT, { detail: { text } }))
+  } catch {
+    /* noop */
+  }
+}
 
 function ComposerIconPickerDialog({
   composerId,
@@ -133,7 +166,7 @@ export type DashboardAutomationHomeProps = {
   onOpenBeapComposer?: () => void
 }
 
-type Accent = 'mail' | 'compose' | 'document' | 'beap'
+type Accent = 'mail' | 'compose' | 'document' | 'beap' | 'summary'
 
 type AutomationCardDef = {
   id: string
@@ -229,6 +262,108 @@ export function DashboardAutomationHome({
 
   const [snapshotBusyId, setSnapshotBusyId] = useState<string | null>(null)
   const [iconPickerTarget, setIconPickerTarget] = useState<ComposerIconSlot | null>(null)
+  const customModes = useCustomModesStore((s) => s.modes)
+  const [selectedAutomationId, setSelectedAutomationId] = useState('')
+
+  const customModesSorted = useMemo(
+    () =>
+      [...customModes].sort((a, b) =>
+        (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' }),
+      ),
+    [customModes],
+  )
+
+  const handleSmartSummaryRun = useCallback(async () => {
+    onNavigateWrChat?.()
+    await new Promise((r) => setTimeout(r, 200))
+
+    appendWrChatAssistant(
+      '\u{1F4CA} **Smart Summary** — Capturing workspace and generating summary\u2026',
+    )
+
+    try {
+      const secret = await getDashboardLaunchSecret()
+      const res = await fetch(`${SMART_SUMMARY_HTTP_BASE}/api/wrchat/smart-summary`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(secret ? { 'X-Launch-Secret': secret } : {}),
+        },
+        signal: AbortSignal.timeout(600_000),
+      })
+      const data = (await res.json().catch(() => null)) as
+        | { ok?: boolean; summary?: string; error?: string }
+        | null
+
+      if (res.ok && data?.ok === true && typeof data.summary === 'string' && data.summary.trim()) {
+        appendWrChatAssistant(`\u{1F4CA} **Smart Summary**\n\n${data.summary.trimEnd()}`)
+        return
+      }
+
+      const errMsg =
+        (data && typeof data.error === 'string' && data.error.trim()) ||
+        (res.status === 429
+          ? 'Capture or summary already in progress. Try again in a few seconds.'
+          : `HTTP ${res.status}`)
+      appendWrChatAssistant(`\u{1F4CA} **Smart Summary** — Could not generate summary: ${errMsg}`)
+    } catch {
+      appendWrChatAssistant('\u{1F4CA} **Smart Summary** — Failed to reach the scan service.')
+    }
+  }, [onNavigateWrChat])
+
+  const handleAutomationRun = useCallback(
+    (modeId: string) => {
+      if (!modeId) return
+
+      const def = useCustomModesStore.getState().getById(modeId)
+      if (!def) {
+        console.warn('[MyAutomations] Mode not found:', modeId)
+        return
+      }
+
+      const icon =
+        getCustomModeTriggerBarIcon(def.metadata as Record<string, unknown> | undefined) ||
+        def.icon?.trim() ||
+        '\u26A1'
+      const name = def.name.trim() || 'Automation'
+      const desc = def.description?.trim()
+
+      const mode = {
+        mode: 'custom-automation' as const,
+        modeId: def.id,
+        modeName: name,
+        triggerBarIcon: icon,
+        startedAt: new Date().toISOString(),
+      }
+
+      const intro = `${icon} **${name}**${desc ? `\n\n${desc}` : ''}
+
+Automation activated from the dashboard. Continue in WR Chat.`
+
+      onNavigateWrChat?.()
+
+      window.setTimeout(() => {
+        useUIStore.getState().setWorkspace('wr-chat')
+        if (def.modelName?.trim()) {
+          useUIStore.getState().setMode(def.id)
+        }
+
+        useChatFocusStore.getState().setChatFocusWithIntro(mode, null, intro)
+
+        try {
+          window.dispatchEvent(new CustomEvent(WRCHAT_CHAT_FOCUS_REQUEST_EVENT, { detail: mode }))
+        } catch {
+          /* noop */
+        }
+      }, 100)
+    },
+    [onNavigateWrChat],
+  )
+
+  useEffect(() => {
+    if (!selectedAutomationId) return
+    if (!customModes.some((m) => m.id === selectedAutomationId)) setSelectedAutomationId('')
+  }, [customModes, selectedAutomationId])
 
   const wikiProjectId = useMemo(() => {
     if (projects.length === 0) return null
@@ -281,8 +416,18 @@ export function DashboardAutomationHome({
         onRun: () => onOpenBeapComposer?.(),
         onEdit: () => setIconPickerTarget('beapComposer'),
       },
+      {
+        id: 'smart-summary',
+        accent: 'summary',
+        icon: '\u{1F4CA}',
+        title: 'Smart Summary',
+        valueLine: 'One-click overview of your workspace activity.',
+        onRun: handleSmartSummaryRun,
+        onEdit: onNavigateWrChat,
+      },
     ],
     [
+      handleSmartSummaryRun,
       onNavigateBulkInbox,
       onNavigateInbox,
       onNavigateWrChat,
@@ -424,6 +569,61 @@ export function DashboardAutomationHome({
             </article>
           )
         })}
+
+        <article
+          role="listitem"
+          className="dash-auto-home__starter dash-auto-home__starter--accent-automation"
+          aria-labelledby="dash-auto-home-my-automations-title"
+        >
+          <div className="dash-auto-home__starter-header">
+            <span className="dash-auto-home__starter-icon" aria-hidden>
+              {'\u26A1'}
+            </span>
+            <h3 id="dash-auto-home-my-automations-title" className="dash-auto-home__starter-title">
+              My Automations
+            </h3>
+          </div>
+
+          {customModes.length === 0 ? (
+            <p className="dash-auto-home__starter-value">No automations yet. Create one to get started.</p>
+          ) : (
+            <div className="dash-auto-home__automation-selector">
+              <select
+                id="dash-auto-home-automation-select"
+                value={selectedAutomationId}
+                onChange={(e) => setSelectedAutomationId(e.target.value)}
+                className="dash-auto-home__automation-select"
+                aria-label="Select a custom automation to run"
+              >
+                <option value="">Select an automation…</option>
+                {customModesSorted.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {(m.icon?.trim() ? `${m.icon.trim()} ` : '') + m.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          <div className="dash-auto-home__starter-actions">
+            <button
+              type="button"
+              className="dash-auto-home__btn dash-auto-home__btn--primary"
+              onClick={() => handleAutomationRun(selectedAutomationId)}
+              disabled={customModes.length === 0 || !selectedAutomationId}
+            >
+              Run
+            </button>
+            <button
+              type="button"
+              className="dash-auto-home__btn dash-auto-home__btn--ghost dash-auto-home__btn--add-link"
+              data-automation-ui-kind={ADD_AUTOMATION_ROW_UI_KIND}
+              onClick={launchAddAutomationWizard}
+            >
+              + Add
+            </button>
+          </div>
+        </article>
       </div>
 
       <section

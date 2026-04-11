@@ -6788,6 +6788,19 @@ async function runDeviceKeyMigration(
         res.status(500).json({ error: error?.message || 'watchdog scan failed' })
       }
     })
+    httpApp.post('/api/wrchat/smart-summary', async (_req, res) => {
+      try {
+        const summary = await watchdogService.runSmartSummary()
+        res.json({ ok: true, summary })
+      } catch (error: any) {
+        if (error?.message === 'Capture pipeline busy') {
+          res.status(429).json({ ok: false, error: error.message })
+          return
+        }
+        console.error('[HTTP] POST /api/wrchat/smart-summary:', error)
+        res.status(500).json({ ok: false, error: error?.message || 'smart summary failed' })
+      }
+    })
     httpApp.post('/api/wrchat/watchdog/continuous', async (req, res) => {
       try {
         const body = req.body && typeof req.body === 'object' ? (req.body as { enabled?: unknown }) : {}
