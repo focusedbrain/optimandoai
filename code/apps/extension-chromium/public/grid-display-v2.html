@@ -91,6 +91,20 @@
         };
         console.log('✅ Set GRID_CONFIG for grid-script.js:', window.GRID_CONFIG);
         
+        // Integration default automation icon (read-only badge; V1+V2 — grid-integration-default-badge.js)
+        (function loadIntegrationDefaultBadge() {
+            if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.getURL) return;
+            var s = document.createElement('script');
+            s.src = chrome.runtime.getURL('grid-integration-default-badge.js');
+            s.onload = function () {
+                if (window.gridV2IntegrationDefaultBadge && typeof window.gridV2IntegrationDefaultBadge.tryRender === 'function') {
+                    window.gridV2IntegrationDefaultBadge.tryRender(sessionKey);
+                }
+            };
+            s.onerror = function () { /* silent */ };
+            document.head.appendChild(s);
+        })();
+
         // Layout configurations
         const layouts = {
             '2-slot': { slots: 2, columns: '2fr 1fr', rows: 'auto' },

@@ -1,8 +1,20 @@
 import './agent-manager-v2'
+import {
+  normalizeImportedSessionPayload,
+  persistImportedSessionRecord,
+  activateImportedSession,
+  createNewImportSessionKey,
+  runCanonicalSessionImport,
+  type SessionImportActivationHost,
+} from './services/sessionImportCore'
 import { fetchInstalledLocalModelNames, escapeHtmlAttr } from './services/localOllamaModels'
 import { toProviderId, toProviderLabel } from './constants/providers'
 import { initAutofill, teardownAutofill } from './vault/autofill'
 import { handleWebMcpFillPreviewRequest } from './vault/autofill/webMcpAdapter'
+import { interpretBeapAutomationModeRun } from './services/beapRunAutomationResult'
+import { assertBeapTabImportPayload } from './beap-messages/beapSessionBridgeGuards'
+import { BEAP_EDIT_SESSION_IMPORT_TYPE } from './beap-messages/beapSessionEditBridge'
+import { BEAP_RUN_AUTOMATION_TYPE } from './beap-messages/beapSessionRunBridge'
 
 // ── WRVault Autofill: initialize the field icon + popover pipeline ──
 // Content scripts run at document_end, so DOM is ready.
@@ -252,6 +264,17 @@ const globalLightboxFunctions: {
   syncSession?: () => void
 
   importSession?: () => void
+
+  /** BEAP inbox: canonical import + minimal activation + unlock for editing (no agent run). */
+  runBeapEditSessionImport?: (
+    importData: unknown,
+  ) => Promise<{ sessionKey: string; warnings: string[] }>
+
+  /** BEAP inbox: full import/activate + executeModeRunAgents (mode_trigger only; not routeInput). */
+  runBeapAutomation?: (payload: {
+    importData: unknown
+    fallbackModel: string
+  }) => Promise<ReturnType<typeof interpretBeapAutomationModeRun>>
 
   openWRVaultLightbox?: () => void
 
@@ -1219,6 +1242,80 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     }
 
+  }
+
+  // BEAP Inbox — import session as editable working copy (implementation on globalLightboxFunctions after init)
+  else if (message.type === BEAP_EDIT_SESSION_IMPORT_TYPE) {
+    void (async () => {
+      try {
+        const fn = globalLightboxFunctions.runBeapEditSessionImport
+        if (!fn) {
+          sendResponse({
+            success: false,
+            error:
+              'Extension is not ready on this tab. Activate WR on the page or refresh, then try Edit again.',
+          })
+          return
+        }
+        assertBeapTabImportPayload(message.data?.importData)
+        const importData = message.data.importData
+        // Edit path: canonical import + minimal activation only — no executeModeRunAgents (Run uses BEAP_RUN_AUTOMATION only).
+        const out = await fn(importData)
+        sendResponse({ success: true, sessionKey: out.sessionKey, warnings: out.warnings })
+      } catch (e) {
+        console.error('BEAP_EDIT_SESSION_IMPORT failed:', e)
+        sendResponse({ success: false, error: e instanceof Error ? e.message : String(e) })
+      }
+    })()
+  }
+
+  // BEAP Inbox — Run Automation: import + full activate + executeModeRunAgents (mode_trigger path only)
+  else if (message.type === BEAP_RUN_AUTOMATION_TYPE) {
+    void (async () => {
+      try {
+        const fn = globalLightboxFunctions.runBeapAutomation
+        if (!fn) {
+          sendResponse({
+            success: false,
+            error:
+              'Extension is not ready on this tab. Activate WR on the page or refresh, then try Run Automation.',
+            phase: 'init',
+          })
+          return
+        }
+        assertBeapTabImportPayload(message.data?.importData)
+        const importData = message.data.importData
+        const fallbackModel =
+          typeof message.data?.fallbackModel === 'string' && message.data.fallbackModel.trim()
+            ? message.data.fallbackModel.trim()
+            : 'tinyllama'
+        // Run path: full activation + executeModeRunAgents — not routeInput / WR Chat (Edit uses BEAP_EDIT_SESSION_IMPORT only).
+        const out = await fn({ importData, fallbackModel })
+        if (out.ok) {
+          sendResponse({
+            success: true,
+            sessionKey: out.sessionKey,
+            matchCount: out.matchCount,
+            executed: out.executed,
+            failures: out.failures,
+          })
+        } else {
+          sendResponse({
+            success: false,
+            error: out.error,
+            phase: out.phase,
+            sessionKey: out.sessionKey,
+          })
+        }
+      } catch (e) {
+        console.error('BEAP_RUN_AUTOMATION failed:', e)
+        sendResponse({
+          success: false,
+          error: e instanceof Error ? e.message : String(e),
+          phase: 'import',
+        })
+      }
+    })()
   }
 
   // Handle OPEN WRVAULT LIGHTBOX request from sidepanel
@@ -16156,6 +16253,15 @@ function initializeExtension() {
             fieldsContainer.innerHTML = ''
             row.classList.remove('unified-trigger-row--mode-aux')
             row.style.cssText = `background:rgba(255,255,255,0.05);border:1px solid ${csTheme().border};border-radius:8px;padding:12px`
+            // Restore full trigger chrome when switching away from mode_trigger (compact hides these)
+            {
+              const ch = row.children
+              if (ch[0]) (ch[0] as HTMLElement).style.display = ''
+              if (ch[1]) (ch[1] as HTMLElement).style.display = ''
+              const bottomWrap = row.querySelector('.trigger-bottom-save')?.parentElement as HTMLElement | null
+              if (bottomWrap) bottomWrap.style.display = ''
+              delete row.dataset.modeTriggerUiExpanded
+            }
             
             if (type === 'wrchat') {
               // ========== WR CHAT TRIGGER ==========
@@ -16192,55 +16298,126 @@ function initializeExtension() {
 
             if (type === 'mode_trigger') {
               row.classList.add('unified-trigger-row--mode-aux')
-              row.style.cssText = `background:rgba(148,163,184,0.07);border:1px solid rgba(148,163,184,0.35);border-radius:8px;padding:10px`
+              const applyModeTriggerLayout = (expanded: boolean) => {
+                row.dataset.modeTriggerUiExpanded = expanded ? '1' : '0'
+                const ch = row.children
+                const idRowEl = ch[0] as HTMLElement | undefined
+                const headerEl = ch[1] as HTMLElement | undefined
+                const bottomWrap = row.querySelector('.trigger-bottom-save')?.parentElement as HTMLElement | null
+                if (expanded) {
+                  row.style.cssText = `background:rgba(148,163,184,0.07);border:1px solid rgba(148,163,184,0.35);border-radius:8px;padding:10px`
+                  if (idRowEl) idRowEl.style.display = ''
+                  if (headerEl) headerEl.style.display = ''
+                  if (bottomWrap) bottomWrap.style.display = ''
+                } else {
+                  row.style.cssText = `background:rgba(148,163,184,0.05);border:1px solid rgba(148,163,184,0.22);border-radius:8px;padding:8px`
+                  if (idRowEl) idRowEl.style.display = 'none'
+                  if (headerEl) headerEl.style.display = 'none'
+                  if (bottomWrap) bottomWrap.style.display = 'none'
+                }
+                const compact = fieldsContainer.querySelector('.mode-trigger-compact') as HTMLElement | null
+                const detail = fieldsContainer.querySelector('.mode-trigger-detail') as HTMLElement | null
+                const expandBtn = fieldsContainer.querySelector('.mode-trigger-expand-btn') as HTMLButtonElement | null
+                if (compact) compact.style.display = expanded ? 'none' : 'flex'
+                if (detail) detail.style.display = expanded ? 'block' : 'none'
+                if (expandBtn) {
+                  expandBtn.textContent = expanded ? 'Hide details' : 'Show details'
+                  expandBtn.setAttribute('aria-expanded', expanded ? 'true' : 'false')
+                }
+              }
               const wrap = document.createElement('div')
               wrap.style.cssText = 'display:flex;flex-direction:column;gap:8px'
-              const collapsedBar = document.createElement('div')
-              collapsedBar.style.cssText =
-                'display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:8px 10px;background:rgba(148,163,184,0.14);border:1px solid rgba(148,163,184,0.28);border-radius:8px'
-              const summary = document.createElement('div')
-              summary.style.cssText = 'font-size:11px;color:#64748b;line-height:1.45;flex:1;min-width:200px'
-              summary.textContent = 'Default mode/session trigger — not a chat tag trigger.'
+              const compactBar = document.createElement('div')
+              compactBar.className = 'mode-trigger-compact'
+              compactBar.style.cssText =
+                'display:flex;flex-direction:column;gap:6px;padding:8px 10px;background:rgba(148,163,184,0.1);border:1px solid rgba(148,163,184,0.22);border-radius:8px'
+              const compactTop = document.createElement('div')
+              compactTop.style.cssText = 'display:flex;align-items:flex-start;justify-content:space-between;gap:10px;flex-wrap:wrap'
+              const compactTitles = document.createElement('div')
+              compactTitles.style.cssText = 'flex:1;min-width:180px'
+              compactTitles.innerHTML = `
+                <div style="font-weight:600;font-size:12px;color:#94a3b8;letter-spacing:0.02em;text-transform:uppercase">MODE TRIGGER</div>
+                <div style="font-size:13px;font-weight:600;color:#e2e8f0;margin-top:2px">Default automation trigger</div>
+                <div style="font-size:11px;color:#64748b;margin-top:4px;line-height:1.45">
+                  Starts this agent in icon/mode-based runs. Disable if it should only react to tags or patterns.
+                </div>
+              `
+              const compactMeta = document.createElement('div')
+              compactMeta.style.cssText = 'display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex-shrink:0'
+              const statusBadge = document.createElement('span')
+              statusBadge.className = 'mode-trigger-status'
+              statusBadge.style.cssText =
+                'font-size:11px;font-weight:600;padding:3px 8px;border-radius:999px;background:#dcfce7;color:#166534;border:1px solid rgba(22,101,52,0.28)'
               const expandBtn = document.createElement('button')
               expandBtn.type = 'button'
               expandBtn.className = 'mode-trigger-expand-btn'
               expandBtn.textContent = 'Show details'
               expandBtn.setAttribute('aria-expanded', 'false')
-              expandBtn.style.cssText = `flex-shrink:0;background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:4px 10px;border-radius:6px;cursor:pointer;font-size:11px`
+              expandBtn.style.cssText = `background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:4px 10px;border-radius:6px;cursor:pointer;font-size:11px;font-weight:500`
+              compactMeta.appendChild(statusBadge)
+              compactMeta.appendChild(expandBtn)
+              compactTop.appendChild(compactTitles)
+              compactTop.appendChild(compactMeta)
+              compactBar.appendChild(compactTop)
               const details = document.createElement('div')
-              details.className = 'mode-trigger-details'
+              details.className = 'mode-trigger-detail'
               details.style.cssText = 'display:none;padding:12px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px'
               details.innerHTML = `
-                <div style="font-weight:600;font-size:13px;color:#0f172a;margin-bottom:8px;display:flex;align-items:center;gap:6px">
-                  <span aria-hidden="true">&#9889;</span> Mode Trigger
+                <div style="font-weight:600;font-size:13px;color:#0f172a;margin-bottom:8px">
+                  Mode Trigger
                 </div>
                 <p style="margin:0 0 10px;font-size:12px;color:#334155;line-height:1.55">
-                  Enabled by default so this agent can participate in matching mode/session runs. This does not make the agent respond to chat tags by itself.
+                  Enabled by default so this agent can be started by icon/mode-based automation runs.
                 </p>
-                <p style="margin:0 0 10px;font-size:11px;color:#64748b;line-height:1.5;padding:8px;background:#f1f5f9;border-radius:6px">
-                  This row is separate from the optional <strong>trigger bar icon</strong> on a custom automation in the Add Mode wizard—that icon only controls whether the automation appears in the WR Chat header row.
+                <p style="margin:0 0 10px;font-size:12px;color:#334155;line-height:1.55">
+                  If disabled, the agent will not be triggered by allocated icons and will not run automatically through automation. It will still respond to its normal triggers, such as tags, patterns, or other listener rules.
                 </p>
-                <p style="margin:0 0 12px;font-size:11px;color:#475569;line-height:1.5">
-                  Turn off <strong>Include in mode/session runs</strong> only if the agent should never be included in mode-driven runs and should respond only through its primary triggers (for example WR Chat or event tags).
+                <p style="margin:0 0 12px;font-size:12px;color:#334155;line-height:1.55">
+                  Use this when the agent should be available for automation runs. Disable it when the agent should only listen for explicit triggers.
                 </p>
               `
               const enLabel = document.createElement('label')
               enLabel.style.cssText =
                 'display:flex;align-items:flex-start;gap:8px;cursor:pointer;font-size:12px;color:#0f172a;line-height:1.4'
               const enChecked = init?.enabled !== false
-              enLabel.innerHTML = `<input type="checkbox" class="trigger-mode-enabled" ${enChecked ? 'checked' : ''} style="width:16px;height:16px;margin-top:2px;flex-shrink:0"><span>Include in mode/session runs</span>`
+              enLabel.innerHTML = `<input type="checkbox" class="trigger-mode-enabled" ${enChecked ? 'checked' : ''} style="width:16px;height:16px;margin-top:2px;flex-shrink:0"><span>Allow mode/icon-based runs</span>`
               details.appendChild(enLabel)
+              const hideDetailsBar = document.createElement('div')
+              hideDetailsBar.style.cssText = 'display:flex;justify-content:flex-end;margin-bottom:10px'
+              const hideDetailsBtn = document.createElement('button')
+              hideDetailsBtn.type = 'button'
+              hideDetailsBtn.className = 'mode-trigger-hide-details-btn'
+              hideDetailsBtn.textContent = 'Hide details'
+              hideDetailsBtn.style.cssText =
+                'background:#fff;border:1px solid #cbd5e1;color:#0f172a;padding:4px 10px;border-radius:6px;cursor:pointer;font-size:11px;font-weight:500'
+              hideDetailsBtn.addEventListener('click', () => applyModeTriggerLayout(false))
+              hideDetailsBar.appendChild(hideDetailsBtn)
+              details.insertBefore(hideDetailsBar, details.firstChild)
+              const syncStatusBadge = () => {
+                const cb = details.querySelector('.trigger-mode-enabled') as HTMLInputElement | null
+                if (!cb || !statusBadge) return
+                if (cb.checked) {
+                  statusBadge.textContent = 'Automation On'
+                  statusBadge.style.background = '#dcfce7'
+                  statusBadge.style.color = '#166534'
+                  statusBadge.style.border = '1px solid rgba(22,101,52,0.28)'
+                } else {
+                  statusBadge.textContent = 'Disabled'
+                  statusBadge.style.background = 'rgba(248,113,113,0.12)'
+                  statusBadge.style.color = '#fca5a5'
+                  statusBadge.style.border = '1px solid rgba(248,113,113,0.35)'
+                }
+              }
+              syncStatusBadge()
+              details.querySelector('.trigger-mode-enabled')?.addEventListener('change', syncStatusBadge)
               expandBtn.addEventListener('click', () => {
-                const open = details.style.display !== 'none'
-                details.style.display = open ? 'none' : 'block'
-                expandBtn.textContent = open ? 'Show details' : 'Hide details'
-                expandBtn.setAttribute('aria-expanded', open ? 'false' : 'true')
+                const nowExpanded = row.dataset.modeTriggerUiExpanded !== '1'
+                applyModeTriggerLayout(nowExpanded)
               })
-              collapsedBar.appendChild(summary)
-              collapsedBar.appendChild(expandBtn)
-              wrap.appendChild(collapsedBar)
+              wrap.appendChild(compactBar)
               wrap.appendChild(details)
               fieldsContainer.appendChild(wrap)
+              applyModeTriggerLayout(false)
             }
             
             if (type === 'direct_tag' || type === 'tag_and_condition') {
@@ -19851,7 +20028,10 @@ function initializeExtension() {
                       setTimeout(() => {
                         if (trigger.type === 'mode_trigger') {
                           const modeEn = row.querySelector('.trigger-mode-enabled') as HTMLInputElement
-                          if (modeEn) modeEn.checked = trigger.enabled !== false
+                          if (modeEn) {
+                            modeEn.checked = trigger.enabled !== false
+                            modeEn.dispatchEvent(new Event('change', { bubbles: true }))
+                          }
                         }
                         // Set tag value
                         const tagInput = row.querySelector('.trigger-tag') as HTMLInputElement
@@ -41904,78 +42084,135 @@ ${pageText}
     return JSON.parse(jsonMatch[1])
   }
 
+  function createSessionImportActivationHost(): SessionImportActivationHost {
+    return {
+      restoreAgentConfigs,
+      restoreMemoryData,
+      restoreContextData,
+      mergeImportedIntoCurrentTab(sessionData: Record<string, unknown>) {
+        currentTabData = {
+          ...currentTabData,
+          ...sessionData,
+          tabId: currentTabData.tabId,
+          isLocked: true,
+        }
+      },
+      setCurrentSessionKey,
+      saveTabDataToStorage,
+      renderAgentBoxes,
+      getAgentBoxesForNotify: () => currentTabData.agentBoxes || [],
+      getSessionNameForNotify: () => getSessionDisplayLabel(currentTabData),
+      getIsLockedForNotify: () => !!currentTabData.isLocked,
+      notifyUpdateAgentBoxes(boxes: unknown[]) {
+        chrome.runtime.sendMessage({
+          type: 'UPDATE_AGENT_BOXES',
+          data: boxes,
+        })
+      },
+      notifyUpdateSessionData(payload) {
+        chrome.runtime.sendMessage({
+          type: 'UPDATE_SESSION_DATA',
+          data: payload,
+        })
+      },
+      openImportHelperTabs(urls: string[], _sessionKey: string) {
+        const w: string[] = []
+        urls.forEach((url: string, index: number) => {
+          const agentId = index + 1
+          const sessionId = Date.now()
+          const urlWithParams =
+            url + (url.includes('?') ? '&' : '?') +
+            `optimando_extension=disabled&session_id=${sessionId}&agent_id=${agentId}`
+          const newTab = window.open(urlWithParams, `helper-tab-${index}`)
+          if (!newTab) {
+            console.error(`Failed to open helper tab ${index + 1} - popup blocked:`, url)
+            w.push(`Helper tab ${index + 1} blocked (popup)`)
+          }
+        })
+        return w
+      },
+      openImportHybridViews(hybridTabs: unknown[], sessionData: Record<string, unknown>, sessionKey: string) {
+        return new Promise<string[]>((resolve) => {
+          setTimeout(() => {
+            const w: string[] = []
+            hybridTabs.forEach((hybridItem: any, index: number) => {
+              const hybridId = String(index)
+              let hybridUrl = hybridItem.url || sessionData.url || window.location.href
+              try {
+                const url = new URL(hybridUrl as string)
+                url.searchParams.delete('optimando_extension')
+                url.searchParams.set('hybrid_master_id', hybridId)
+                url.searchParams.set('optimando_session_key', sessionKey)
+                const currentTheme = localStorage.getItem('optimando-ui-theme')
+                if (currentTheme && currentTheme !== 'default') {
+                  url.searchParams.set('optimando_theme', currentTheme)
+                }
+                const displayTabNumber = String(parseInt(hybridId, 10) + 2).padStart(2, '0')
+                const hybridTab = window.open(url.toString(), `hybrid-master-${hybridId}`)
+                if (!hybridTab) {
+                  console.error(`Failed to open Master Tab (${displayTabNumber}) - popup blocked`)
+                  w.push(`Master Tab (${displayTabNumber}) blocked (popup)`)
+                }
+              } catch (error) {
+                console.error(`Invalid URL for hybrid view ${hybridId}:`, hybridUrl, error)
+                w.push(`Invalid hybrid URL for tab ${hybridId}`)
+              }
+            })
+            resolve(w)
+          }, 300)
+        })
+      },
+      openImportDisplayGrids(grids: unknown[], _sessionKey: string) {
+        if (!currentTabData.displayGrids) currentTabData.displayGrids = []
+        grids.forEach((grid: any, index: number) => {
+          const existingEntry = currentTabData.displayGrids!.find((g: any) => g.layout === grid.layout)
+          if (!existingEntry) {
+            currentTabData.displayGrids!.push({
+              ...grid,
+              config: grid.config,
+            })
+          } else if (!existingEntry.config && grid.config) {
+            existingEntry.config = grid.config
+          }
+          setTimeout(() => {
+            try {
+              openGridFromSession(grid.layout, grid.sessionId)
+              if (index === grids.length - 1) {
+                setTimeout(() => {
+                  chrome.runtime.sendMessage({ type: 'DISPLAY_GRIDS_OPENED' }, () => {})
+                }, 500)
+              }
+            } catch (error) {
+              console.error(`Failed to open display grid ${index + 1}:`, error)
+            }
+          }, 400 + index * 100)
+        })
+        return Promise.resolve([])
+      },
+      showImportActivatedNotification() {
+        showNotification('\u2705 Session loaded successfully!', 'success', 3000)
+      },
+    }
+  }
+
   /**
    * Process and validate imported session data
    * Then save it to storage and optionally load it
    */
   async function processSessionImport(importData: any) {
-    
-    // Validate import data
-    if (!importData || typeof importData !== 'object') {
-      throw new Error('Invalid import data: not an object')
-    }
-    
-    // Check if this is our export format (has version field)
-    const isExportFormat = importData.version === '1.0.0'
-    
-    let sessionData: any
-    
-    if (isExportFormat) {
-      
-      // Extract session data from export format
-      sessionData = {
-        tabId: importData.tabId,
-        tabName: importData.tabName || importData.sessionName || 'Imported Session',
-        sessionAlias: importData.sessionAlias ?? null,
-        timestamp: importData.timestamp || new Date().toISOString(),
-        url: importData.url || window.location.href,
-        isLocked: true, // Lock imported sessions
-        
-        // Session configuration
-        goals: importData.goals || { shortTerm: '', midTerm: '', longTerm: '' },
-        userIntentDetection: importData.userIntentDetection || null,
-        uiConfig: importData.uiConfig || { leftSidebarWidth: 350, rightSidebarWidth: 450, bottomSidebarHeight: 45 },
-        helperTabs: importData.helperTabs || null,
-        displayGrids: importData.displayGrids || null,
-        
-        // Agent configuration
-        agentBoxes: importData.agentBoxes || [],
-        agents: importData.agents || [],
-        agentBoxHeights: importData.uiState?.agentBoxHeights || {},
-        
-        // UI State
-        customAgentLayout: importData.uiState?.customAgentLayout || null,
-        customAgentOrder: importData.uiState?.customAgentOrder || null,
-        displayGridActiveTab: importData.uiState?.displayGridActiveTab || null,
-        hybridViews: importData.uiState?.hybridViews || [],
-        
-        // Additional fields
-        customAgents: importData.customAgents || [],
-        hiddenBuiltins: importData.hiddenBuiltins || [],
-        numberMap: importData.numberMap || {},
-        nextNumber: importData.nextNumber || 1
-      }
-      
-      
-      // Store memory and context data separately for restoration
-      sessionData._importedMemory = importData.memory || null
-      sessionData._importedContext = importData.context || null
-      
-    } else {
-      // Raw session data (old format)
-      sessionData = {
-        ...importData,
-        isLocked: true, // Lock imported sessions
-        timestamp: importData.timestamp || new Date().toISOString()
-      }
-    }
-    
-    // Generate new session key
-    const sessionKey = `session_${Date.now()}`
-    
-    // Save to storage (SQLite)
-    storageSet({ [sessionKey]: sessionData }, () => {
-      
+    const sessionKey = createNewImportSessionKey()
+    const { sessionData } = normalizeImportedSessionPayload(importData, {
+      pageUrl: window.location.href,
+    })
+
+    await persistImportedSessionRecord(
+      storageSet as (items: Record<string, unknown>, callback?: () => void) => void | Promise<void>,
+      sessionKey,
+      sessionData as Record<string, unknown>,
+    )
+
+    // Legacy UI: prompt Load Now / Later (persist already completed)
+    {
       // Ask user if they want to load the imported session now
       const overlay = document.createElement('div')
       overlay.style.cssText = `
@@ -42043,7 +42280,7 @@ ${pageText}
         overlay.remove()
         
         // Load the imported session
-        loadImportedSession(sessionKey, sessionData)
+        void loadImportedSession(sessionKey, sessionData)
       })
       
       // Handle Load Later
@@ -42059,168 +42296,15 @@ ${pageText}
           showNotification('✅ Session saved. Open Sessions History to load it.', 'success')
         }
       })
-    })
+    }
   }
 
   /**
-   * Load imported session into current tab
+   * Load imported session into current tab (canonical activation — full profile).
    */
-  function loadImportedSession(sessionKey: string, sessionData: any) {
-    
-    // Restore agent configurations to localStorage
-    if (sessionData.agents && sessionData.agents.length > 0) {
-      restoreAgentConfigs(sessionData.agents)
-    }
-    
-    // Restore memory data if included
-    if (sessionData._importedMemory) {
-      restoreMemoryData(sessionData._importedMemory, sessionData)
-    }
-    
-    // Restore context data if included
-    if (sessionData._importedContext) {
-      restoreContextData(sessionData._importedContext, sessionData)
-    }
-    
-    // Clean up temporary import data fields
-    delete sessionData._importedMemory
-    delete sessionData._importedContext
-    
-    // Update current tab data
-    currentTabData = {
-      ...currentTabData,
-      ...sessionData,
-      tabId: currentTabData.tabId, // Keep current tab ID
-      isLocked: true
-    }
-    
-    // Set current session key
-    setCurrentSessionKey(sessionKey)
-    
-    // Save to storage
-    saveTabDataToStorage()
-    
-    // Re-render everything
-    if (sessionData.agentBoxes && sessionData.agentBoxes.length > 0) {
-      renderAgentBoxes()
-      
-      // Notify sidepanel of restored agent boxes
-      chrome.runtime.sendMessage({ 
-        type: 'UPDATE_AGENT_BOXES', 
-        data: currentTabData.agentBoxes || []
-      })
-      
-      // Also send full session data update
-      chrome.runtime.sendMessage({
-        type: 'UPDATE_SESSION_DATA',
-        data: {
-          sessionName: getSessionDisplayLabel(currentTabData),
-          sessionKey: sessionKey,
-          isLocked: currentTabData.isLocked,
-          agentBoxes: currentTabData.agentBoxes || []
-        }
-      })
-    }
-    
-    // Open helper tabs if they exist
-    if (sessionData.helperTabs && sessionData.helperTabs.urls && sessionData.helperTabs.urls.length > 0) {
-      
-      sessionData.helperTabs.urls.forEach((url: string, index: number) => {
-        const agentId = index + 1
-        const sessionId = Date.now()
-        const urlWithParams = url + (url.includes('?') ? '&' : '?') + 
-          `optimando_extension=disabled&session_id=${sessionId}&agent_id=${agentId}`
-        
-        const newTab = window.open(urlWithParams, `helper-tab-${index}`)
-        if (!newTab) {
-          console.error(`❌ Failed to open helper tab ${index + 1} - popup blocked:`, url)
-        } else {
-        }
-      })
-    }
-    
-    // Open master tabs (hybrid views) if they exist
-    // Support both new format (hybridViews) and old format (hybridAgentBoxes)
-    const hybridTabs = sessionData.hybridViews || sessionData.hybridAgentBoxes || []
-    
-    if (hybridTabs && hybridTabs.length > 0) {
-      
-      setTimeout(() => {
-        hybridTabs.forEach((hybridItem: any, index: number) => {
-          // Use array index as hybrid_master_id (0, 1, 2, etc.)
-          // This maps to Master Tab (02), Master Tab (03), etc. in the UI
-          const hybridId = String(index)
-          let hybridUrl = hybridItem.url || sessionData.url || window.location.href
-          
-          
-          try {
-            const url = new URL(hybridUrl)
-            url.searchParams.delete('optimando_extension')
-            url.searchParams.set('hybrid_master_id', hybridId)
-            url.searchParams.set('optimando_session_key', sessionKey)
-            
-            const currentTheme = localStorage.getItem('optimando-ui-theme')
-            if (currentTheme && currentTheme !== 'default') {
-              url.searchParams.set('optimando_theme', currentTheme)
-            }
-            
-            const displayTabNumber = String(parseInt(hybridId) + 2).padStart(2, '0') // 0 → 02, 1 → 03, etc.
-            const hybridTab = window.open(url.toString(), `hybrid-master-${hybridId}`)
-            
-            if (!hybridTab) {
-              console.error(`❌ Failed to open Master Tab (${displayTabNumber}) - popup blocked`)
-            } else {
-            }
-          } catch (error) {
-            console.error(`❌ Invalid URL for hybrid view ${hybridId}:`, hybridUrl, error)
-          }
-        })
-      }, 300) // Small delay after helper tabs
-    } else {
-    }
-    
-    // Open display grids if they exist
-    if (sessionData.displayGrids && sessionData.displayGrids.length > 0) {
-      
-      // Ensure currentTabData has the display grids
-      if (!currentTabData.displayGrids) currentTabData.displayGrids = []
-      
-      sessionData.displayGrids.forEach((grid: any, index: number) => {
-        
-        // Add grid to currentTabData if not already there
-        let existingEntry = currentTabData.displayGrids.find((g: any) => g.layout === grid.layout)
-        
-        if (!existingEntry) {
-          currentTabData.displayGrids.push({
-            ...grid,
-            config: grid.config
-          })
-        } else if (!existingEntry.config && grid.config) {
-          existingEntry.config = grid.config
-        }
-        
-        // Open the grid with delay
-        setTimeout(() => {
-          try {
-            openGridFromSession(grid.layout, grid.sessionId)
-            
-            // Notify background script on the last grid
-            if (index === sessionData.displayGrids.length - 1) {
-              setTimeout(() => {
-                chrome.runtime.sendMessage({ type: 'DISPLAY_GRIDS_OPENED' }, (response) => {
-                })
-              }, 500)
-            }
-          } catch (error) {
-            console.error(`❌ Failed to open display grid ${index + 1}:`, error)
-          }
-        }, 400 + (index * 100)) // Start after master tabs + stagger between grids
-      })
-    }
-    
-    // Show success notification (no page reload needed)
-    showNotification('✅ Session loaded successfully!', 'success', 3000)
-    
+  async function loadImportedSession(sessionKey: string, sessionData: any) {
+    const host = createSessionImportActivationHost()
+    await activateImportedSession(host, sessionKey, sessionData as Record<string, unknown>, 'full')
   }
 
   /**
@@ -44844,6 +44928,66 @@ ${pageText}
   globalLightboxFunctions.syncSession = syncSession
 
   globalLightboxFunctions.importSession = importSession
+
+  globalLightboxFunctions.runBeapEditSessionImport = async (importData: unknown) => {
+    assertBeapTabImportPayload(importData)
+    const result = await runCanonicalSessionImport({
+      importData,
+      activation: 'activate_minimal',
+      intent: 'prepare_edit',
+      storageSet: storageSet as (
+        items: Record<string, unknown>,
+        callback?: () => void,
+      ) => void | Promise<void>,
+      host: createSessionImportActivationHost(),
+      pageUrlFallback: window.location.href,
+    })
+    currentTabData.isLocked = false
+    saveTabDataToStorage()
+    chrome.runtime.sendMessage({
+      type: 'UPDATE_SESSION_DATA',
+      data: {
+        sessionName: getSessionDisplayLabel(currentTabData),
+        sessionKey: result.sessionKey,
+        isLocked: false,
+        agentBoxes: currentTabData.agentBoxes || [],
+      },
+    })
+    if (globalLightboxFunctions.openAgentsLightbox) {
+      globalLightboxFunctions.openAgentsLightbox()
+    }
+    return { sessionKey: result.sessionKey, warnings: result.warnings }
+  }
+
+  globalLightboxFunctions.runBeapAutomation = async (payload: {
+    importData: unknown
+    fallbackModel: string
+  }) => {
+    const { importData, fallbackModel } = payload
+    assertBeapTabImportPayload(importData)
+    const result = await runCanonicalSessionImport({
+      importData,
+      activation: 'activate_full',
+      intent: 'standard',
+      storageSet: storageSet as (
+        items: Record<string, unknown>,
+        callback?: () => void,
+      ) => void | Promise<void>,
+      host: createSessionImportActivationHost(),
+      pageUrlFallback: window.location.href,
+    })
+    const sessionKey = result.sessionKey
+    const { executeModeRunAgents } = await import('./services/modeRunExecution')
+    const runResult = await executeModeRunAgents({
+      modeLinkedSessionId: sessionKey,
+      currentOrchestratorSessionId: sessionKey,
+      sessionKey,
+      fallbackModel,
+      inputText: '',
+      processedMessages: [{ role: 'user', content: '' }],
+    })
+    return interpretBeapAutomationModeRun(sessionKey, runResult)
+  }
 
   globalLightboxFunctions.openWRVaultLightbox = openWRVaultLightbox
 

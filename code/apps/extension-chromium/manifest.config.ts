@@ -75,6 +75,7 @@ export default defineManifest({
         'grid-script.js',
         'grid-display-v2.html',
         'grid-script-v2.js',
+        'grid-integration-default-badge.js',
         'src/popup-chat.html',
         // Stage 5 sandbox page — loadable by extension renderer frames
         'src/beap-messages/sandbox/sandbox.html'

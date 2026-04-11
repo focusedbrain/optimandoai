@@ -40,6 +40,23 @@ import { AiEntryContent } from './AiEntryContent'
 import { BeapDocumentReaderModal } from '../../beap-builder/components/BeapDocumentReaderModal'
 import ProtectedAccessWarningDialog from './ProtectedAccessWarningDialog'
 import { useViewOriginalArtefact } from '../hooks/useViewOriginalArtefact'
+import {
+  resolveBeapSessionImportPayload,
+  beapSessionImportActionsEnabled,
+} from '../sessionImportPayloadResolver'
+import { requestBeapSessionEditInActiveTab } from '../beapSessionEditBridge'
+import {
+  requestBeapRunAutomationInActiveTab,
+  readBeapRunFallbackLlmModel,
+} from '../beapSessionRunBridge'
+import {
+  beapIntegrationIdentityFromMessage,
+  beapIntegrationStableKey,
+  validateBeapIntegrationIdentity,
+  getBeapIntegrationDefaultAutomationEntry,
+  upsertBeapIntegrationDefaultAutomationEntry,
+  type BeapIntegrationDefaultAutomationEntryV1,
+} from '../integrationDefaultAutomationMetadata'
 
 // =============================================================================
 // Public props
@@ -221,9 +238,195 @@ const MessageContentPanel: React.FC<MessageContentPanelProps> = ({
     semanticContent: string
   } | null>(null)
 
+  const [editSessionBusy, setEditSessionBusy] = useState(false)
+  const [editSessionFeedback, setEditSessionFeedback] = useState<{
+    kind: 'success' | 'error'
+    text: string
+  } | null>(null)
+  const [runAutomationBusy, setRunAutomationBusy] = useState(false)
+  const [runAutomationFeedback, setRunAutomationFeedback] = useState<{
+    kind: 'success' | 'error'
+    text: string
+  } | null>(null)
+
+  const [lastWorkingSessionKey, setLastWorkingSessionKey] = useState<string | null>(null)
+  const [integrationIconDraft, setIntegrationIconDraft] = useState('')
+  const [integrationLabelDraft, setIntegrationLabelDraft] = useState('')
+  const [integrationMetaBusy, setIntegrationMetaBusy] = useState(false)
+  const [integrationMetaFeedback, setIntegrationMetaFeedback] = useState<{
+    kind: 'success' | 'error'
+    text: string
+  } | null>(null)
+  const [loadedIntegrationEntry, setLoadedIntegrationEntry] =
+    useState<BeapIntegrationDefaultAutomationEntryV1 | null>(null)
+
   const hasHandshake = message.handshakeId !== null
   const trustConfig = TRUST_BADGE[message.trustLevel]
   const senderLabel = message.senderDisplayName || message.senderEmail
+
+  const sessionImportResolution = useMemo(() => resolveBeapSessionImportPayload(message), [message])
+  const canImportSessionForAutomation = beapSessionImportActionsEnabled(sessionImportResolution)
+
+  const integrationIdentity = useMemo(() => beapIntegrationIdentityFromMessage(message), [message])
+  const integrationIdentityOk = useMemo(
+    () => validateBeapIntegrationIdentity(integrationIdentity).ok,
+    [integrationIdentity],
+  )
+  const integrationFingerprintMessage = useMemo(() => {
+    const v = validateBeapIntegrationIdentity(integrationIdentity)
+    return v.ok ? null : v.reason
+  }, [integrationIdentity])
+  const integrationStableKey = useMemo(() => {
+    if (!integrationIdentityOk) return ''
+    return beapIntegrationStableKey(integrationIdentity)
+  }, [integrationIdentity, integrationIdentityOk])
+
+  useEffect(() => {
+    setLastWorkingSessionKey(null)
+    setIntegrationMetaFeedback(null)
+    let cancelled = false
+    if (!integrationStableKey) {
+      setLoadedIntegrationEntry(null)
+      setIntegrationIconDraft('')
+      setIntegrationLabelDraft('')
+      return () => {
+        cancelled = true
+      }
+    }
+    void getBeapIntegrationDefaultAutomationEntry(integrationStableKey).then((entry) => {
+      if (cancelled) return
+      setLoadedIntegrationEntry(entry)
+      if (entry) {
+        setIntegrationIconDraft(entry.defaultAutomationIcon ?? '')
+        setIntegrationLabelDraft(entry.defaultAutomationLabel ?? '')
+      } else {
+        setIntegrationIconDraft('')
+        setIntegrationLabelDraft('')
+      }
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [message.messageId, integrationStableKey])
+
+  const handleEditSessionWorkingCopy = useCallback(async () => {
+    if (sessionImportResolution.status !== 'valid') return
+    setEditSessionBusy(true)
+    setEditSessionFeedback(null)
+    try {
+      const res = await requestBeapSessionEditInActiveTab(sessionImportResolution.rawPayload)
+      if (res.success) {
+        setLastWorkingSessionKey(res.sessionKey)
+        const warn =
+          res.warnings && res.warnings.length > 0 ? ` (${res.warnings.join('; ')})` : ''
+        setEditSessionFeedback({
+          kind: 'success',
+          text: `Session opened for editing (working copy: ${res.sessionKey}).${warn}`,
+        })
+      } else {
+        setEditSessionFeedback({ kind: 'error', text: res.error })
+      }
+    } catch (e) {
+      setEditSessionFeedback({
+        kind: 'error',
+        text: e instanceof Error ? e.message : String(e),
+      })
+    } finally {
+      setEditSessionBusy(false)
+    }
+  }, [sessionImportResolution])
+
+  const handleRunAutomation = useCallback(async () => {
+    if (sessionImportResolution.status !== 'valid') return
+    setRunAutomationBusy(true)
+    setRunAutomationFeedback(null)
+    try {
+      const res = await requestBeapRunAutomationInActiveTab(sessionImportResolution.rawPayload, {
+        fallbackModel: readBeapRunFallbackLlmModel(),
+      })
+      if (res.success) {
+        const partial =
+          res.failures && res.failures.length > 0
+            ? ` Some runs failed: ${res.failures.map((f) => `${f.agentName} (${f.error || 'error'})`).join('; ')}.`
+            : ''
+        setRunAutomationFeedback({
+          kind: 'success',
+          text: `Mode automation completed for: ${res.executed.join(', ')} (working session ${res.sessionKey}).${partial}`,
+        })
+      } else {
+        setRunAutomationFeedback({
+          kind: 'error',
+          text:
+            res.phase === 'mode_run' && res.sessionKey
+              ? `${res.error} (session ${res.sessionKey})`
+              : res.error,
+        })
+      }
+    } catch (e) {
+      setRunAutomationFeedback({
+        kind: 'error',
+        text: e instanceof Error ? e.message : String(e),
+      })
+    } finally {
+      setRunAutomationBusy(false)
+    }
+  }, [sessionImportResolution])
+
+  const handleSaveIntegrationDefaultAutomation = useCallback(async () => {
+    if (!integrationIdentityOk) {
+      const idRes = validateBeapIntegrationIdentity(integrationIdentity)
+      setIntegrationMetaFeedback({
+        kind: 'error',
+        text: !idRes.ok ? idRes.reason : 'Cannot save integration default for this message.',
+      })
+      return
+    }
+    if (!lastWorkingSessionKey) {
+      setIntegrationMetaFeedback({
+        kind: 'error',
+        text: 'Use “Edit session” first to create a working copy, then save the default.',
+      })
+      return
+    }
+    setIntegrationMetaBusy(true)
+    setIntegrationMetaFeedback(null)
+    try {
+      await upsertBeapIntegrationDefaultAutomationEntry({
+        integrationKey: integrationStableKey,
+        identity: integrationIdentity,
+        defaultSessionKey: lastWorkingSessionKey,
+        defaultAutomationLabel: integrationLabelDraft.trim() || null,
+        defaultAutomationIcon: integrationIconDraft.trim() || null,
+      })
+      setLoadedIntegrationEntry({
+        schemaVersion: 1,
+        integrationKey: integrationStableKey,
+        identity: integrationIdentity,
+        defaultSessionKey: lastWorkingSessionKey,
+        defaultAutomationLabel: integrationLabelDraft.trim() || null,
+        defaultAutomationIcon: integrationIconDraft.trim() || null,
+        updatedAt: Date.now(),
+      })
+      setIntegrationMetaFeedback({
+        kind: 'success',
+        text: 'Saved integration default automation metadata (session + icon).',
+      })
+    } catch (e) {
+      setIntegrationMetaFeedback({
+        kind: 'error',
+        text: e instanceof Error ? e.message : String(e),
+      })
+    } finally {
+      setIntegrationMetaBusy(false)
+    }
+  }, [
+    lastWorkingSessionKey,
+    integrationStableKey,
+    integrationIdentity,
+    integrationIdentityOk,
+    integrationLabelDraft,
+    integrationIconDraft,
+  ])
 
   // Automation tag colors — cycle through a small palette
   const TAG_COLORS = [
@@ -401,6 +604,287 @@ const MessageContentPanel: React.FC<MessageContentPanelProps> = ({
             })}
           </div>
         )}
+
+        {/* Session export resolver + Edit working copy (Run automation: later). */}
+        <div
+          style={{
+            marginBottom: '14px',
+            padding: '10px 12px',
+            borderRadius: '8px',
+            fontSize: '12px',
+            lineHeight: 1.45,
+            border: `1px solid ${borderColor}`,
+            background:
+              sessionImportResolution.status === 'valid'
+                ? isProfessional
+                  ? 'rgba(34,197,94,0.1)'
+                  : 'rgba(34,197,94,0.15)'
+                : sessionImportResolution.status === 'invalid'
+                  ? isProfessional
+                    ? 'rgba(245,158,11,0.12)'
+                    : 'rgba(245,158,11,0.18)'
+                  : isProfessional
+                    ? 'rgba(0,0,0,0.03)'
+                    : 'rgba(255,255,255,0.06)',
+            color: textColor,
+          }}
+          role="status"
+          aria-label={
+            sessionImportResolution.status === 'valid'
+              ? 'Importable session payload present'
+              : 'No importable session payload'
+          }
+        >
+          <div
+            style={{
+              fontWeight: 600,
+              marginBottom: '4px',
+              fontSize: '11px',
+              textTransform: 'uppercase' as const,
+              letterSpacing: '0.4px',
+              color: mutedColor,
+            }}
+          >
+            Session automation payload
+          </div>
+          <div>
+            {sessionImportResolution.status === 'valid' && (
+              <>
+                Ready — {sessionImportResolution.source.filename}{' '}
+                {sessionImportResolution.rawPayload.version === '1.0.0' ? '(v1.0.0 export)' : '(legacy)'}
+              </>
+            )}
+            {sessionImportResolution.status === 'invalid' && (
+              <>Invalid — {sessionImportResolution.reason}</>
+            )}
+            {sessionImportResolution.status === 'none' && <>None — {sessionImportResolution.reason}</>}
+          </div>
+          {sessionImportResolution.status === 'valid' && (
+            <div style={{ marginTop: '10px' }}>
+              <div style={{ display: 'flex', flexWrap: 'wrap' as const, gap: '8px' }}>
+                <button
+                  type="button"
+                  disabled={editSessionBusy || runAutomationBusy}
+                  onClick={() => void handleEditSessionWorkingCopy()}
+                  style={{
+                    padding: '8px 14px',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    borderRadius: '8px',
+                    border: `1px solid ${isProfessional ? 'rgba(59,130,246,0.45)' : 'rgba(96,165,250,0.5)'}`,
+                    background: isProfessional ? 'rgba(59,130,246,0.12)' : 'rgba(59,130,246,0.25)',
+                    color: isProfessional ? '#1d4ed8' : '#e0e7ff',
+                    cursor: editSessionBusy || runAutomationBusy ? 'wait' : 'pointer',
+                    opacity: editSessionBusy || runAutomationBusy ? 0.75 : 1,
+                  }}
+                >
+                  {editSessionBusy ? 'Opening…' : 'Edit session (working copy)'}
+                </button>
+                <button
+                  type="button"
+                  disabled={runAutomationBusy || editSessionBusy}
+                  onClick={() => void handleRunAutomation()}
+                  title="Imports, activates (full), then runs agents with mode_trigger only — not WR Chat routing."
+                  style={{
+                    padding: '8px 14px',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    borderRadius: '8px',
+                    border: `1px solid ${isProfessional ? 'rgba(234,88,12,0.5)' : 'rgba(251,146,60,0.55)'}`,
+                    background: isProfessional ? 'rgba(234,88,12,0.1)' : 'rgba(251,146,60,0.2)',
+                    color: isProfessional ? '#c2410c' : '#ffedd5',
+                    cursor: runAutomationBusy || editSessionBusy ? 'wait' : 'pointer',
+                    opacity: runAutomationBusy || editSessionBusy ? 0.75 : 1,
+                  }}
+                >
+                  {runAutomationBusy ? 'Running…' : 'Run Automation'}
+                </button>
+              </div>
+              <div style={{ fontSize: '10px', color: dimColor, marginTop: '6px' }}>
+                Edit: import + minimal activation, unlock, Agents manager (no run). Run Automation: new working session,
+                full activation, then mode-trigger execution only (requires enabled mode_trigger agents).
+              </div>
+            </div>
+          )}
+          {!canImportSessionForAutomation && (
+            <div style={{ marginTop: '6px', fontSize: '11px', color: dimColor }}>
+              Edit and Run Automation require a valid session attachment.
+            </div>
+          )}
+          {runAutomationFeedback && (
+            <div
+              style={{
+                marginTop: '8px',
+                fontSize: '11px',
+                fontWeight: 500,
+                color: runAutomationFeedback.kind === 'success' ? '#16a34a' : '#ef4444',
+              }}
+              role="alert"
+            >
+              {runAutomationFeedback.kind === 'success' ? '\u2713 ' : '\u2717 '}
+              {runAutomationFeedback.text}
+            </div>
+          )}
+          {editSessionFeedback && (
+            <div
+              style={{
+                marginTop: '8px',
+                fontSize: '11px',
+                fontWeight: 500,
+                color: editSessionFeedback.kind === 'success' ? '#16a34a' : '#ef4444',
+              }}
+              role="alert"
+            >
+              {editSessionFeedback.kind === 'success' ? '\u2713 ' : '\u2717 '}
+              {editSessionFeedback.text}
+            </div>
+          )}
+
+          {sessionImportResolution.status === 'valid' && (
+            <div
+              style={{
+                marginTop: '12px',
+                paddingTop: '12px',
+                borderTop: `1px dashed ${borderColor}`,
+              }}
+            >
+              <div
+                style={{
+                  fontWeight: 600,
+                  marginBottom: '6px',
+                  fontSize: '11px',
+                  textTransform: 'uppercase' as const,
+                  letterSpacing: '0.4px',
+                  color: mutedColor,
+                }}
+              >
+                Integration default automation
+              </div>
+              <div style={{ fontSize: '10px', color: dimColor, marginBottom: '8px', lineHeight: 1.4 }}>
+                Persisted separately from mode triggers, custom mode trigger-bar icons, and agent icons.
+                Key:{' '}
+                <code style={{ fontSize: '10px' }}>
+                  {integrationStableKey || '(unavailable — no verified sender fingerprint)'}
+                </code>
+              </div>
+              {!integrationIdentityOk && integrationFingerprintMessage && (
+                <div
+                  style={{
+                    fontSize: '11px',
+                    color: '#ef4444',
+                    marginBottom: '8px',
+                    lineHeight: 1.4,
+                  }}
+                  role="alert"
+                >
+                  {integrationFingerprintMessage} Saving integration defaults is disabled until the message has a
+                  verified sender fingerprint.
+                </div>
+              )}
+              {loadedIntegrationEntry?.defaultSessionKey && (
+                <div style={{ fontSize: '11px', marginBottom: '8px', color: mutedColor }}>
+                  Stored default session:{' '}
+                  <strong style={{ color: textColor }}>{loadedIntegrationEntry.defaultSessionKey}</strong>
+                  {loadedIntegrationEntry.defaultAutomationIcon ? (
+                    <span style={{ marginLeft: '8px' }} title="Integration default icon">
+                      {loadedIntegrationEntry.defaultAutomationIcon}
+                    </span>
+                  ) : null}
+                </div>
+              )}
+              {lastWorkingSessionKey && (
+                <div style={{ fontSize: '11px', marginBottom: '8px', color: mutedColor }}>
+                  Last edited working copy:{' '}
+                  <strong style={{ color: textColor }}>{lastWorkingSessionKey}</strong>
+                </div>
+              )}
+              <label style={{ display: 'block', fontSize: '11px', color: mutedColor, marginBottom: '4px' }}>
+                Default automation icon (emoji / URL)
+              </label>
+              <input
+                type="text"
+                value={integrationIconDraft}
+                onChange={(e) => setIntegrationIconDraft(e.target.value)}
+                placeholder={'\u2699 or https://…'}
+                disabled={!integrationIdentityOk}
+                style={{
+                  width: '100%',
+                  boxSizing: 'border-box' as const,
+                  marginBottom: '8px',
+                  padding: '6px 8px',
+                  fontSize: '12px',
+                  borderRadius: '6px',
+                  border: `1px solid ${borderColor}`,
+                  background: isProfessional ? '#fff' : 'rgba(0,0,0,0.2)',
+                  color: textColor,
+                  opacity: integrationIdentityOk ? 1 : 0.55,
+                }}
+              />
+              <label style={{ display: 'block', fontSize: '11px', color: mutedColor, marginBottom: '4px' }}>
+                Label (optional)
+              </label>
+              <input
+                type="text"
+                value={integrationLabelDraft}
+                onChange={(e) => setIntegrationLabelDraft(e.target.value)}
+                placeholder="e.g. Inbox automation from this sender"
+                disabled={!integrationIdentityOk}
+                style={{
+                  width: '100%',
+                  boxSizing: 'border-box' as const,
+                  marginBottom: '8px',
+                  padding: '6px 8px',
+                  fontSize: '12px',
+                  borderRadius: '6px',
+                  border: `1px solid ${borderColor}`,
+                  background: isProfessional ? '#fff' : 'rgba(0,0,0,0.2)',
+                  color: textColor,
+                  opacity: integrationIdentityOk ? 1 : 0.55,
+                }}
+              />
+              <button
+                type="button"
+                disabled={integrationMetaBusy || !lastWorkingSessionKey || !integrationIdentityOk}
+                onClick={() => void handleSaveIntegrationDefaultAutomation()}
+                style={{
+                  padding: '6px 12px',
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  borderRadius: '6px',
+                  border: `1px solid ${isProfessional ? 'rgba(34,197,94,0.45)' : 'rgba(34,197,94,0.5)'}`,
+                  background: isProfessional ? 'rgba(34,197,94,0.12)' : 'rgba(34,197,94,0.2)',
+                  color: isProfessional ? '#15803d' : '#bbf7d0',
+                  cursor:
+                    integrationMetaBusy || !lastWorkingSessionKey || !integrationIdentityOk
+                      ? 'not-allowed'
+                      : 'pointer',
+                  opacity: !lastWorkingSessionKey || !integrationIdentityOk ? 0.55 : 1,
+                }}
+              >
+                {integrationMetaBusy ? 'Saving…' : 'Save integration default'}
+              </button>
+              {!lastWorkingSessionKey && (
+                <div style={{ fontSize: '10px', color: dimColor, marginTop: '6px' }}>
+                  Run &quot;Edit session&quot; above once so a working-copy session key is available to bind.
+                </div>
+              )}
+              {integrationMetaFeedback && (
+                <div
+                  style={{
+                    marginTop: '8px',
+                    fontSize: '11px',
+                    fontWeight: 500,
+                    color: integrationMetaFeedback.kind === 'success' ? '#16a34a' : '#ef4444',
+                  }}
+                  role="status"
+                >
+                  {integrationMetaFeedback.kind === 'success' ? '\u2713 ' : '\u2717 '}
+                  {integrationMetaFeedback.text}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
 
         {/* Attachments */}
         {message.attachments.length > 0 && (

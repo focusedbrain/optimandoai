@@ -48,6 +48,63 @@ export {
 // Mapper: SanitisedDecryptedPackage → BeapMessage
 export { sanitisedPackageToBeapMessage } from './sanitisedPackageToBeapMessage'
 
+// Session export payload resolution (BEAP inbox → canonical session import)
+export {
+  resolveBeapSessionImportPayload,
+  beapSessionImportActionsEnabled,
+  beapSessionImportUiHint,
+  isLikelySessionJsonAttachment,
+  sessionJsonHasImportableSubstance,
+} from './sessionImportPayloadResolver'
+export type {
+  BeapSessionImportResolution,
+  BeapSessionImportResolutionValid,
+  BeapSessionImportResolutionInvalid,
+  BeapSessionImportResolutionNone,
+} from './sessionImportPayloadResolver'
+
+export {
+  requestBeapSessionEditInActiveTab,
+  BEAP_EDIT_SESSION_IMPORT_TYPE,
+  type BeapSessionEditImportResponse,
+} from './beapSessionEditBridge'
+
+export {
+  requestBeapRunAutomationInActiveTab,
+  readBeapRunFallbackLlmModel,
+  BEAP_RUN_AUTOMATION_TYPE,
+  type BeapRunAutomationResponse,
+  type BeapRunAutomationSuccess,
+  type BeapRunAutomationFailure,
+} from './beapSessionRunBridge'
+
+export {
+  narrowBeapImportPayloadForBridge,
+  narrowBeapFallbackModel,
+  assertBeapTabImportPayload,
+} from './beapSessionBridgeGuards'
+export type { BeapImportPayloadGuardResult } from './beapSessionBridgeGuards'
+
+// Integration-scoped default automation metadata (not mode_trigger / not agent.icon)
+export {
+  BEAP_INTEGRATION_DEFAULT_AUTOMATION_STORAGE_KEY,
+  validateBeapIntegrationIdentity,
+  beapIntegrationIdentityFromMessage,
+  beapIntegrationStableKey,
+  emptyBeapIntegrationDefaultAutomationRoot,
+  parseBeapIntegrationDefaultAutomationRoot,
+  serializeBeapIntegrationDefaultAutomationRoot,
+  loadBeapIntegrationDefaultAutomationRoot,
+  saveBeapIntegrationDefaultAutomationRoot,
+  getBeapIntegrationDefaultAutomationEntry,
+  upsertBeapIntegrationDefaultAutomationEntry,
+} from './integrationDefaultAutomationMetadata'
+export type {
+  BeapIntegrationIdentityV1,
+  BeapIntegrationDefaultAutomationEntryV1,
+  BeapIntegrationDefaultAutomationRootV1,
+} from './integrationDefaultAutomationMetadata'
+
 // Components
 export { 
   BeapMessageListView, 
@@ -113,6 +170,7 @@ export {
   deriveReplySubject,
   EMAIL_SIGNATURE,
   useBulkSend,
+  useBeapSessionImportResolution,
 } from './hooks'
 export type {
   BeapDraftState,

@@ -20,7 +20,24 @@
         sessionKey: sessionKey,
         nextBoxNumber: nextBoxNumber
     };
-    
+
+    // Integration default automation icon (read-only page-level badge; same script + rules as V2)
+    (function loadIntegrationDefaultBadge() {
+        if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.getURL) return;
+        try {
+            const s = document.createElement('script');
+            s.src = chrome.runtime.getURL('grid-integration-default-badge.js');
+            s.onload = function () {
+                if (window.gridV2IntegrationDefaultBadge && typeof window.gridV2IntegrationDefaultBadge.tryRender === 'function') {
+                    window.gridV2IntegrationDefaultBadge.tryRender(sessionKey);
+                }
+            };
+            s.onerror = function () { /* non-breaking */ };
+            (document.head || document.documentElement).appendChild(s);
+        } catch (e) {
+            console.warn('[grid-display] integration default badge failed to load', e);
+        }
+    })();
 
 // Layout configurations
 const layouts = {

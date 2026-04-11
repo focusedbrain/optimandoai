@@ -60,3 +60,5 @@ export type {
   BeapMessageEventDetail,
 } from './useInboxKeyboardNav'
 
+export { useBeapSessionImportResolution } from './useBeapSessionImportResolution'
+
