@@ -1,4 +1,4 @@
-import type { ChangeEvent } from 'react'
+import type { DragEvent } from 'react'
 import { useCallback, useEffect, useState } from 'react'
 import {
   useLetterComposerStore,
@@ -41,6 +41,7 @@ export function LetterTemplatePort() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [rehydrating, setRehydrating] = useState(false)
+  const [isDragOver, setIsDragOver] = useState(false)
 
   useEffect(() => {
     const t = activeTemplate
@@ -75,77 +76,117 @@ export function LetterTemplatePort() {
     }
   }, [activeTemplate?.id, activeTemplate?.sourceFilePath, activeTemplate?.renderedHtml])
 
-  const handleTemplateUpload = useCallback(async (e: ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    e.target.value = ''
-    if (!file) return
-
-    const lower = file.name.toLowerCase()
-    if (!lower.endsWith('.docx')) {
-      setError('Please upload a .docx file (OpenDocument .odt is not supported).')
-      return
-    }
-
-    const api = window.letterComposer
-    if (!api?.saveTemplateFromPath && !api?.saveTemplateBuffer) {
-      setError('Template upload requires WR Desk (Electron).')
-      return
-    }
-
-    setError(null)
-    setBusy(true)
-    try {
-      const pathProp = (file as File & { path?: string }).path
-      let savedPath: string
-      if (pathProp && typeof pathProp === 'string' && api.saveTemplateFromPath) {
-        savedPath = await api.saveTemplateFromPath(pathProp, file.name)
-      } else if (api.saveTemplateBuffer) {
-        const buf = await file.arrayBuffer()
-        savedPath = await api.saveTemplateBuffer(file.name, buf)
-      } else {
-        throw new Error('No save method available')
+  const processTemplateFile = useCallback(
+    async (file: File) => {
+      const lower = file.name.toLowerCase()
+      if (!lower.endsWith('.docx')) {
+        setError('Please upload a .docx file (OpenDocument .odt is not supported).')
+        return
       }
 
-      const { html } = await api.convertDocxToHtml(savedPath)
-
-      let extracted: unknown[] = []
-      if (api.extractFields) {
-        extracted = await api.extractFields(html)
+      const api = window.letterComposer
+      if (!api?.saveTemplateFromPath && !api?.saveTemplateBuffer) {
+        setError('Template upload requires WR Desk (Electron).')
+        return
       }
 
-      const fields: TemplateField[] = (extracted || [])
-        .filter(isTemplateFieldShape)
-        .map((f) => ({
-          id: f.id,
-          name: typeof f.name === 'string' && f.name.trim() ? f.name.trim() : f.id,
-          placeholder: typeof f.placeholder === 'string' ? f.placeholder : '',
-          type: coerceFieldType(f.type),
-          value: '',
-          aiGenerated: false,
-        }))
+      setError(null)
+      setBusy(true)
+      try {
+        const pathProp = (file as File & { path?: string }).path
+        let savedPath: string
+        if (pathProp && typeof pathProp === 'string' && api.saveTemplateFromPath) {
+          savedPath = await api.saveTemplateFromPath(pathProp, file.name)
+        } else if (api.saveTemplateBuffer) {
+          const buf = await file.arrayBuffer()
+          savedPath = await api.saveTemplateBuffer(file.name, buf)
+        } else {
+          throw new Error('No save method available')
+        }
 
-      const template: LetterTemplate = {
-        id: crypto.randomUUID(),
-        name: file.name.replace(/\.[^.]+$/, ''),
-        sourceFileName: file.name,
-        sourceFilePath: savedPath,
-        renderedHtml: html,
-        fields,
-        versions: [],
-        activeVersionIndex: -1,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
+        const { html } = await api.convertDocxToHtml(savedPath)
+
+        let extracted: unknown[] = []
+        if (api.extractFields) {
+          extracted = await api.extractFields(html)
+        }
+
+        const fields: TemplateField[] = (extracted || [])
+          .filter(isTemplateFieldShape)
+          .map((f) => ({
+            id: f.id,
+            name: typeof f.name === 'string' && f.name.trim() ? f.name.trim() : f.id,
+            placeholder: typeof f.placeholder === 'string' ? f.placeholder : '',
+            type: coerceFieldType(f.type),
+            value: '',
+            aiGenerated: false,
+          }))
+
+        const template: LetterTemplate = {
+          id: crypto.randomUUID(),
+          name: file.name.replace(/\.[^.]+$/, ''),
+          sourceFileName: file.name,
+          sourceFilePath: savedPath,
+          renderedHtml: html,
+          fields,
+          versions: [],
+          activeVersionIndex: -1,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        }
+
+        addTemplate(template)
+        setActiveTemplate(template.id)
+      } catch (err) {
+        console.error('[LetterTemplatePort] upload failed', err)
+        setError(err instanceof Error ? err.message : 'Template processing failed')
+      } finally {
+        setBusy(false)
       }
+    },
+    [addTemplate, setActiveTemplate],
+  )
 
-      addTemplate(template)
-      setActiveTemplate(template.id)
-    } catch (err) {
-      console.error('[LetterTemplatePort] upload failed', err)
-      setError(err instanceof Error ? err.message : 'Template processing failed')
-    } finally {
-      setBusy(false)
-    }
-  }, [addTemplate, setActiveTemplate])
+  const handleFilesReceived = useCallback(
+    (files: File[]) => {
+      const file = files[0]
+      if (!file) return
+      if (!file.name.match(/\.(docx|odt)$/i)) {
+        console.warn('[LetterTemplate] Only .docx and .odt files are supported')
+        return
+      }
+      void processTemplateFile(file)
+    },
+    [processTemplateFile],
+  )
+
+  const handleDragOver = useCallback((e: DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragOver(true)
+  }, [])
+
+  const handleDragLeave = useCallback((e: DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    const next = e.relatedTarget as Node | null
+    if (next && e.currentTarget.contains(next)) return
+    setIsDragOver(false)
+  }, [])
+
+  const handleDrop = useCallback(
+    (e: DragEvent) => {
+      e.preventDefault()
+      e.stopPropagation()
+      setIsDragOver(false)
+
+      const files = Array.from(e.dataTransfer.files)
+      if (files.length === 0) return
+
+      handleFilesReceived(files)
+    },
+    [handleFilesReceived],
+  )
 
   const handleExportDocx = useCallback(async () => {
     const api = window.letterComposer
@@ -210,7 +251,12 @@ export function LetterTemplatePort() {
   }, [activeTemplate, versions.length, versionIndex, setActiveTemplateVersionIndex])
 
   return (
-    <div className="template-port">
+    <div
+      className={`template-port letter-port${isDragOver ? ' letter-port--drag-over' : ''}`}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
       <div className="port-header">
         <h4>Template</h4>
         <PortSelectButton port="template" />
@@ -237,16 +283,42 @@ export function LetterTemplatePort() {
         </div>
       )}
 
-      <div className="port-upload-zone">
-        <p>Add template (.docx)</p>
-        <input
-          id="letter-template-file"
-          type="file"
-          accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-          disabled={busy}
-          onChange={handleTemplateUpload}
-        />
-      </div>
+      {!activeTemplate ? (
+        <div className="letter-port__empty-drop-zone">
+          <div className="letter-port__drop-icon" aria-hidden>
+            {'\u{1F4C4}'}
+          </div>
+          <p className="letter-port__drop-text">Drag & drop a .docx template here</p>
+          <p className="letter-port__drop-subtext">or</p>
+          <label className="letter-port__browse-btn">
+            Browse files
+            <input
+              type="file"
+              accept=".docx,.odt,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+              disabled={busy}
+              onChange={(e) => {
+                handleFilesReceived(Array.from(e.target.files || []))
+                e.target.value = ''
+              }}
+              style={{ display: 'none' }}
+            />
+          </label>
+        </div>
+      ) : (
+        <div className="port-upload-zone port-upload-zone--add-more">
+          <p>Add another template (.docx)</p>
+          <input
+            id="letter-template-file"
+            type="file"
+            accept=".docx,.odt,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            disabled={busy}
+            onChange={(e) => {
+              handleFilesReceived(Array.from(e.target.files || []))
+              e.target.value = ''
+            }}
+          />
+        </div>
+      )}
 
       {error && <p className="template-port__error">{error}</p>}
       {busy && <p className="template-port__status">Processing template…</p>}

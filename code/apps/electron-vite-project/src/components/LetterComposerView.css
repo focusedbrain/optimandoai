@@ -307,3 +307,92 @@
   font-size: 13px;
   font-weight: 500;
 }
+
+/* Letter ports — drag & drop + empty state (LetterTemplatePort, LetterViewerPort) */
+.letter-port {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  box-sizing: border-box;
+  transition:
+    border-color 0.15s,
+    background-color 0.15s;
+}
+
+.letter-port--drag-over {
+  border-color: #6366f1 !important;
+  background-color: rgba(99, 102, 241, 0.04) !important;
+}
+
+.letter-port--drag-over::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border: 2px dashed #6366f1;
+  border-radius: 6px;
+  pointer-events: none;
+}
+
+.letter-port__empty-drop-zone {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 200px;
+  cursor: default;
+}
+
+.letter-port__drop-icon {
+  font-size: 36px;
+  opacity: 0.6;
+  line-height: 1;
+}
+
+.letter-port__drop-text {
+  font-size: 14px;
+  font-weight: 500;
+  color: #374151;
+  margin: 0;
+  text-align: center;
+}
+
+.letter-port__drop-subtext {
+  font-size: 12px;
+  color: #9ca3af;
+  margin: 0;
+  text-align: center;
+}
+
+.letter-port__browse-btn {
+  padding: 6px 16px;
+  font-size: 13px;
+  border: 1px solid #e8e8e6;
+  border-radius: 6px;
+  background: #f8f8f7;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.letter-port__browse-btn:hover {
+  background: #e8e8e6;
+}
+
+.letter-port--drag-over .letter-port__empty-drop-zone {
+  background: rgba(99, 102, 241, 0.06);
+  border-radius: 6px;
+}
+
+.letter-port--drag-over .letter-port__drop-text {
+  color: #6366f1;
+}
+
+.port-upload-zone--add-more {
+  min-height: 0;
+  flex-shrink: 0;
+}

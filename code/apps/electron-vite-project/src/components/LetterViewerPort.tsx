@@ -1,4 +1,4 @@
-import type { ChangeEvent } from 'react'
+import type { DragEvent } from 'react'
 import { useCallback, useEffect, useState } from 'react'
 import {
   useLetterComposerStore,
@@ -44,6 +44,7 @@ export function LetterViewerPort() {
 
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [isDragOver, setIsDragOver] = useState(false)
 
   useEffect(() => {
     if (letters.length === 0) return
@@ -61,10 +62,8 @@ export function LetterViewerPort() {
     }
   }, [activeLetter?.id, activeLetter?.pages.length, activeLetterPage, setActiveLetterPage])
 
-  const handleLetterUpload = useCallback(
-    async (e: ChangeEvent<HTMLInputElement>) => {
-      const files = Array.from(e.target.files ?? [])
-      e.target.value = ''
+  const processLetterFiles = useCallback(
+    async (files: File[]) => {
       if (files.length === 0) return
 
       const api = window.letterComposer
@@ -156,11 +155,59 @@ export function LetterViewerPort() {
     [addLetter],
   )
 
+  const handleFilesReceived = useCallback(
+    (files: File[]) => {
+      if (files.length === 0) return
+      const validFiles = files.filter((f) =>
+        f.name.match(/\.(pdf|png|jpg|jpeg|tiff|tif|webp)$/i),
+      )
+      if (validFiles.length === 0) {
+        console.warn('[LetterViewer] Only PDF and image files are supported')
+        return
+      }
+      void processLetterFiles(validFiles)
+    },
+    [processLetterFiles],
+  )
+
+  const handleDragOver = useCallback((e: DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragOver(true)
+  }, [])
+
+  const handleDragLeave = useCallback((e: DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    const next = e.relatedTarget as Node | null
+    if (next && e.currentTarget.contains(next)) return
+    setIsDragOver(false)
+  }, [])
+
+  const handleDrop = useCallback(
+    (e: DragEvent) => {
+      e.preventDefault()
+      e.stopPropagation()
+      setIsDragOver(false)
+
+      const files = Array.from(e.dataTransfer.files)
+      if (files.length === 0) return
+
+      handleFilesReceived(files)
+    },
+    [handleFilesReceived],
+  )
+
   const currentPage: LetterPage | undefined = activeLetter?.pages[activeLetterPage]
   const pageCount = activeLetter?.pages.length ?? 0
 
   return (
-    <div className="viewer-port">
+    <div
+      className={`viewer-port letter-port${isDragOver ? ' letter-port--drag-over' : ''}`}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
       <div className="port-header">
         <h4>Letter Viewer</h4>
         <PortSelectButton port="letter" />
@@ -186,17 +233,45 @@ export function LetterViewerPort() {
         </div>
       )}
 
-      <div className="port-upload-zone">
-        <p>Upload a scanned letter (one PDF, or one or more images)</p>
-        <input
-          id="letter-scan-file"
-          type="file"
-          accept=".pdf,.png,.jpg,.jpeg,.tiff,.tif,.webp,image/png,image/jpeg,application/pdf"
-          multiple
-          disabled={busy}
-          onChange={handleLetterUpload}
-        />
-      </div>
+      {!activeLetter ? (
+        <div className="letter-port__empty-drop-zone">
+          <div className="letter-port__drop-icon" aria-hidden>
+            {'\u{1F4EC}'}
+          </div>
+          <p className="letter-port__drop-text">Drag & drop a scanned letter here</p>
+          <p className="letter-port__drop-subtext">PDF or images (PNG, JPG, TIFF)</p>
+          <p className="letter-port__drop-subtext">or</p>
+          <label className="letter-port__browse-btn">
+            Browse files
+            <input
+              type="file"
+              accept=".pdf,.png,.jpg,.jpeg,.tiff,.tif,.webp,image/png,image/jpeg,application/pdf"
+              multiple
+              disabled={busy}
+              onChange={(e) => {
+                handleFilesReceived(Array.from(e.target.files || []))
+                e.target.value = ''
+              }}
+              style={{ display: 'none' }}
+            />
+          </label>
+        </div>
+      ) : (
+        <div className="port-upload-zone port-upload-zone--add-more">
+          <p>Add another scan (one PDF, or one or more images)</p>
+          <input
+            id="letter-scan-file"
+            type="file"
+            accept=".pdf,.png,.jpg,.jpeg,.tiff,.tif,.webp,image/png,image/jpeg,application/pdf"
+            multiple
+            disabled={busy}
+            onChange={(e) => {
+              handleFilesReceived(Array.from(e.target.files || []))
+              e.target.value = ''
+            }}
+          />
+        </div>
+      )}
 
       {error && <p className="template-port__error">{error}</p>}
       {busy && <p className="template-port__status">Processing…</p>}
