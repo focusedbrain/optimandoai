@@ -174,6 +174,50 @@ describe('InputCoordinator.evaluateAgentListener', () => {
     expect(r.matchType).not.toBe('none')
     expect(r.matchedTriggerName).toBe('a1')
   })
+
+  it('disabled mode_trigger with a tag does not match via unified hashtag path (no fallback)', () => {
+    const agent = baseAgent({
+      capabilities: ['listening'],
+      listening: {
+        unifiedTriggers: [{ id: 'm1', type: 'mode_trigger', enabled: false, tag: 'onlymode' }],
+      },
+    })
+    const inputTriggers = ic.extractTriggerPatterns('#onlymode hello')
+    const r = ic.evaluateAgentListener(agent, '#onlymode hello', 'text', false, inputTriggers)
+    expect(r.matchType).toBe('none')
+  })
+
+  it('disabled wrchat row with tag does not match hashtag path', () => {
+    const agent = baseAgent({
+      capabilities: ['listening'],
+      listening: {
+        unifiedTriggers: [{ type: 'wrchat', tag: 'a1', enabled: false }],
+      },
+    })
+    const inputTriggers = ic.extractTriggerPatterns('#a1 hello')
+    const r = ic.evaluateAgentListener(agent, '#a1 hello', 'text', false, inputTriggers)
+    expect(r.matchType).toBe('none')
+  })
+
+  it('routeEventTagTrigger ignores disabled direct_tag rows', () => {
+    const agent = baseAgent({
+      listening: {
+        unifiedTriggers: [{ type: 'direct_tag', tag: 'foo', enabled: false }],
+      },
+    })
+    const batch = ic.routeEventTagTrigger({
+      classifiedInput: {
+        rawText: '#foo',
+        normalizedText: '#foo',
+        triggers: ['foo'],
+        entities: [],
+        source: 'inline_chat',
+      },
+      agents: [agent as any],
+      agentBoxes: [],
+    })
+    expect(batch.results).toHaveLength(0)
+  })
 })
 
 describe('SHOW_TRIGGER_PROMPT surface gating (pure)', () => {

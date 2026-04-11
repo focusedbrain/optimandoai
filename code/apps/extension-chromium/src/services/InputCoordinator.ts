@@ -454,9 +454,11 @@ export class InputCoordinator {
     // Track matched keywords for display
     const matchedKeywords: string[] = []
     
-    // Check unified triggers (new format) — includes wrchat, direct_tag, etc.
+       // Check unified triggers (new format) — includes wrchat, direct_tag, etc.
+    // Skip disabled rows (`enabled: false`) so e.g. a tagged `mode_trigger` cannot match as a hashtag listener.
     if (listening?.unifiedTriggers && inputTriggers.length > 0) {
       for (const trigger of listening.unifiedTriggers) {
+        if (!isTriggerRowEnabled(trigger as { enabled?: unknown })) continue
         const triggerTag =
           (typeof trigger.tag === 'string' ? trigger.tag.replace(/^[@#]+/, '') : '') ||
           trigger.tagName ||
@@ -493,6 +495,7 @@ export class InputCoordinator {
     // Also check listening.triggers (alternative storage)
     if (listening?.triggers && Array.isArray(listening.triggers) && inputTriggers.length > 0) {
       for (const trigger of listening.triggers) {
+        if (!isTriggerRowEnabled(trigger as { enabled?: unknown })) continue
         const triggerTag =
           (typeof trigger.tag === 'string' ? trigger.tag.replace(/^[@#]+/, '') : '') ||
           trigger.tagName ||
@@ -740,6 +743,10 @@ export class InputCoordinator {
   }
 
   /**
+   * Normal WR Chat / hashtag routing: uses user text + `#tags` (and passive/active listeners).
+   * For custom-mode / interval runs that should match only `mode_trigger` + session equality,
+   * use {@link routeToAgentsForModeRun} instead — it sets `modeExecution` on the listener eval.
+   *
    * Route input to matching agents
    * 
    * Returns a list of AgentMatch objects for agents that should receive the input.
@@ -1260,7 +1267,7 @@ export class InputCoordinator {
     // Check unified triggers format (new) - stored as unifiedTriggers
     if (listening.unifiedTriggers && Array.isArray(listening.unifiedTriggers)) {
       const eventTagTriggers = listening.unifiedTriggers.filter((t: any) => 
-        t.type === 'direct_tag' || t.type === 'tag_and_condition'
+        (t.type === 'direct_tag' || t.type === 'tag_and_condition') && isTriggerRowEnabled(t)
       )
       triggers.push(...eventTagTriggers)
       this.log(`Found ${eventTagTriggers.length} unified triggers for agent`)
@@ -1269,7 +1276,7 @@ export class InputCoordinator {
     // Also check listening.triggers (alternative storage location)
     if (listening.triggers && Array.isArray(listening.triggers)) {
       const eventTagTriggers = listening.triggers.filter((t: any) => 
-        t.type === 'direct_tag' || t.type === 'tag_and_condition'
+        (t.type === 'direct_tag' || t.type === 'tag_and_condition') && isTriggerRowEnabled(t)
       )
       triggers.push(...eventTagTriggers)
       this.log(`Found ${eventTagTriggers.length} triggers for agent`)

@@ -816,6 +816,9 @@ export function matchInputToAgents(
 }
 
 /**
+ * Mode/session execution routing (not used by {@link routeInput} / WR Chat Send).
+ * Pair with `executeModeRunAgents` in `modeRunExecution.ts` (or an equivalent execution loop).
+ *
  * When a custom mode starts (manual or interval): agents in the current orchestrator session with `mode_trigger`
  * run only if `modeLinkedSessionId` equals `currentOrchestratorSessionId` (the session chosen in the Add Mode wizard).
  */
@@ -959,8 +962,8 @@ Be helpful, concise, and guide users to use the agent system effectively.`
 }
 
 /**
- * Main routing function - decides where to send user input
- * Uses full Input Coordinator rules, not just triggers
+ * Main routing function for normal WR Chat turns — hashtag / listener / context matching only.
+ * Does not set `modeExecution`; use {@link matchAgentsForModeRun} + `executeModeRunAgents` for mode-trigger runs.
  */
 export async function routeInput(
   input: string,
