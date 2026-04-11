@@ -1069,9 +1069,9 @@ export function BeapInlineComposer({
             }}
           />
 
-          <div className="composer-body-container">
+          <div className="composer-body-container beap-message-field">
             <div
-              className="compose-field-fixed"
+              className="compose-field-fixed beap-message-field__header"
               style={{
                 display: 'flex',
                 justifyContent: 'space-between',
@@ -1125,7 +1125,8 @@ export function BeapInlineComposer({
             onChange={(e) => setPublicMessage(e.target.value)}
             onClick={() => handleAiRefineToggle('public')}
             placeholder="Public capsule / transport-visible text"
-            className={connected && refineTarget === 'capsule-public' ? 'field-selected-for-ai' : undefined}
+            rows={5}
+            className={`beap-message-textarea${connected && refineTarget === 'capsule-public' ? ' field-selected-for-ai' : ''}`}
             style={{
               lineHeight: 1.5,
               outline: 'none',
@@ -1142,9 +1143,9 @@ export function BeapInlineComposer({
           </div>
 
           {recipientMode === 'private' && (
-            <div className="composer-body-container">
+            <div className="composer-body-container beap-message-field">
               <div
-                className="compose-field-fixed"
+                className="compose-field-fixed beap-message-field__header"
                 style={{
                   display: 'flex',
                   justifyContent: 'space-between',
@@ -1200,7 +1201,8 @@ export function BeapInlineComposer({
                 onChange={(e) => setEncryptedMessage(e.target.value)}
                 onClick={() => handleAiRefineToggle('encrypted')}
                 placeholder="Private qBEAP payload (optional; authoritative when set)"
-                className={connected && refineTarget === 'capsule-encrypted' ? 'field-selected-for-ai' : undefined}
+                rows={5}
+                className={`beap-encrypted-textarea${connected && refineTarget === 'capsule-encrypted' ? ' field-selected-for-ai' : ''}`}
                 style={{
                   lineHeight: 1.5,
                   outline: 'none',
