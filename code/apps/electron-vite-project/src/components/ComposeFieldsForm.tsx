@@ -1,3 +1,4 @@
+import type { ChangeEvent } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { WRCHAT_APPEND_ASSISTANT_EVENT } from '@ext/stores/chatFocusStore'
 import { WRDESK_FOCUS_AI_CHAT_EVENT } from '../lib/wrdeskUiEvents'
@@ -24,8 +25,68 @@ const GROUP_TITLES: Record<FieldGroup, string> = {
   other: 'Other fields',
 }
 
+const LANGUAGE_DEFAULTS: Record<string, { salutation: string; closing: string }> = {
+  en: { salutation: 'Dear Sir or Madam,', closing: 'Kind regards' },
+  de: { salutation: 'Sehr geehrte Damen und Herren,', closing: 'Mit freundlichen Grüßen' },
+  fr: {
+    salutation: 'Madame, Monsieur,',
+    closing: "Veuillez agréer, Madame, Monsieur, l'expression de mes salutations distinguées.",
+  },
+  es: { salutation: 'Estimado/a Sr./Sra.,', closing: 'Atentamente' },
+  it: { salutation: 'Egregio/a Signore/Signora,', closing: 'Distinti saluti' },
+  nl: { salutation: 'Geachte heer/mevrouw,', closing: 'Met vriendelijke groet' },
+  pt: { salutation: 'Prezado(a) Senhor(a),', closing: 'Atenciosamente' },
+  pl: { salutation: 'Szanowni Państwo,', closing: 'Z poważaniem' },
+  tr: { salutation: 'Sayın Yetkili,', closing: 'Saygılarımla' },
+  ja: { salutation: '\u62DD\u5553', closing: '\u656C\u5177' },
+  zh: { salutation: '尊敬的先生/女士：', closing: '此致敬礼' },
+  ar: { salutation: 'السيد/السيدة المحترم/ة،', closing: 'مع فائق الاحترام والتقدير' },
+  ko: { salutation: '\uc548\ub155\ud558\uc138\uc694,', closing: '\uac10\uc0ac\ud569\ub2c8\ub2e4' },
+  ru: { salutation: 'Уважаемые дамы и господа,', closing: 'С уважением' },
+}
+
+const LANGUAGE_NAMES: Record<string, string> = {
+  en: 'English',
+  de: 'German',
+  fr: 'French',
+  es: 'Spanish',
+  it: 'Italian',
+  nl: 'Dutch',
+  pt: 'Portuguese',
+  pl: 'Polish',
+  tr: 'Turkish',
+  ja: 'Japanese',
+  zh: 'Chinese',
+  ar: 'Arabic',
+  ko: 'Korean',
+  ru: 'Russian',
+}
+
+const SUPPORTED_LANG_CODES = new Set(Object.keys(LANGUAGE_DEFAULTS))
+
+function normalizeDetectedLang(raw: string | undefined): string {
+  if (!raw || typeof raw !== 'string') return 'en'
+  const t = raw.trim().toLowerCase()
+  const two = t.slice(0, 2)
+  if (SUPPORTED_LANG_CODES.has(two)) return two
+  if (t.startsWith('zh')) return 'zh'
+  if (t.startsWith('ja')) return 'ja'
+  if (t.startsWith('ko')) return 'ko'
+  return 'en'
+}
+
+function templateLogoDisplayUrl(logoPath: string | null | undefined): string {
+  if (!logoPath?.trim()) return ''
+  const t = logoPath.trim()
+  if (t.startsWith('data:')) return t
+  if (t.startsWith('file:')) return t
+  const norm = t.replace(/\\/g, '/')
+  return /^[A-Za-z]:\//.test(norm) ? `file:///${norm}` : `file://${norm}`
+}
+
 function fieldGroup(field: TemplateField): FieldGroup {
   const n = field.name.toLowerCase()
+  if (n === 'company_logo') return 'sender'
   if (n.includes('recipient')) return 'recipient'
   if (
     n.includes('salutation') ||
@@ -95,6 +156,7 @@ export interface ComposeFieldsFormProps {
 export function ComposeFieldsForm({ template, composeSession, replyToLetter }: ComposeFieldsFormProps) {
   const letters = useLetterComposerStore((s) => s.letters)
   const updateTemplateField = useLetterComposerStore((s) => s.updateTemplateField)
+  const updateTemplate = useLetterComposerStore((s) => s.updateTemplate)
   const updateComposeSession = useLetterComposerStore((s) => s.updateComposeSession)
   const setTemplateVersions = useLetterComposerStore((s) => s.setTemplateVersions)
   const setActiveTemplateVersionIndex = useLetterComposerStore((s) => s.setActiveTemplateVersionIndex)
@@ -111,10 +173,23 @@ export function ComposeFieldsForm({ template, composeSession, replyToLetter }: C
 
   const lastReplyAutofillId = useRef<string | null>(null)
   const senderProfileAppliedForTemplate = useRef<string | null>(null)
+  const prevLanguageRef = useRef<string | null>(null)
+  const lastDetectedLangLetterId = useRef<string | null>(null)
+
+  const language = composeSession?.language ?? 'en'
+
+  const setComposeLanguage = useCallback(
+    (code: string) => {
+      if (composeSession) updateComposeSession(composeSession.id, { language: code })
+    },
+    [composeSession, updateComposeSession],
+  )
 
   useEffect(() => {
     senderProfileAppliedForTemplate.current = null
     lastReplyAutofillId.current = null
+    lastDetectedLangLetterId.current = null
+    prevLanguageRef.current = null
   }, [template.id])
 
   const grouped = useMemo(() => {
@@ -126,10 +201,16 @@ export function ComposeFieldsForm({ template, composeSession, replyToLetter }: C
       other: [],
     }
     for (const f of template.fields) {
+      if (f.name === 'company_logo') continue
       m[fieldGroup(f)].push(f)
     }
     return m
   }, [template.fields])
+
+  const logoField = useMemo(
+    () => template.fields.find((f) => f.name === 'company_logo'),
+    [template.fields],
+  )
 
   const updateFieldValue = useCallback(
     (fieldId: string, value: string) => {
@@ -173,17 +254,23 @@ export function ComposeFieldsForm({ template, composeSession, replyToLetter }: C
       )
       setFocusedTemplateField(field.id)
 
+      const langLine = `Write in ${LANGUAGE_NAMES[language] ?? LANGUAGE_NAMES.en}.`
       if (letterContext) {
         const contextualDraft = currentValue
           ? `${currentValue}\n\n--- Context: Received Letter ---\n${letterContext}`
           : `--- Context: Received Letter ---\n${letterContext}`
-        updateDraftRefineText(contextualDraft)
+        updateDraftRefineText(`${langLine}\n\n${contextualDraft}`)
+      } else {
+        updateDraftRefineText(
+          currentValue.trim() ? `${langLine}\n\n${currentValue}` : `${langLine}\n`,
+        )
       }
 
       window.dispatchEvent(new CustomEvent(WRDESK_FOCUS_AI_CHAT_EVENT, { bubbles: true }))
     },
     [
       composeSession?.replyToLetterId,
+      language,
       letters,
       replyToLetter,
       template.id,
@@ -275,6 +362,51 @@ export function ComposeFieldsForm({ template, composeSession, replyToLetter }: C
   }, [replyToLetter, template.fields, template.id])
 
   useEffect(() => {
+    if (!composeSession || !replyToLetter?.extractedFields) return
+    const detected = replyToLetter.extractedFields.detected_language
+    if (!detected?.trim()) return
+    if (lastDetectedLangLetterId.current === replyToLetter.id) return
+    lastDetectedLangLetterId.current = replyToLetter.id
+    const code = normalizeDetectedLang(detected)
+    if (code !== composeSession.language) {
+      updateComposeSession(composeSession.id, { language: code })
+    }
+  }, [
+    composeSession,
+    replyToLetter?.id,
+    replyToLetter?.extractedFields?.detected_language,
+    updateComposeSession,
+  ])
+
+  useEffect(() => {
+    const prev = prevLanguageRef.current
+    prevLanguageRef.current = language
+    if (prev === null) return
+    if (prev === language) return
+
+    const defaults = LANGUAGE_DEFAULTS[language] || LANGUAGE_DEFAULTS.en
+    const oldDefaults = LANGUAGE_DEFAULTS[prev] || LANGUAGE_DEFAULTS.en
+    const salutationField = template.fields.find((f) => f.name.toLowerCase().includes('salutation'))
+    const closingField = template.fields.find((f) => {
+      const n = f.name.toLowerCase()
+      return n.includes('closing') && !n.includes('salutation')
+    })
+
+    if (salutationField) {
+      const cur = (salutationField.value ?? '').trim()
+      if (!cur || cur === oldDefaults.salutation) {
+        updateTemplateField(template.id, salutationField.id, defaults.salutation)
+      }
+    }
+    if (closingField) {
+      const cur = (closingField.value ?? '').trim()
+      if (!cur || cur === oldDefaults.closing) {
+        updateTemplateField(template.id, closingField.id, defaults.closing)
+      }
+    }
+  }, [language, template.fields, template.id, updateTemplateField])
+
+  useEffect(() => {
     if (senderProfileAppliedForTemplate.current === template.id) return
     if (template.fields.length === 0) return
     const { name, address } = loadSenderProfile()
@@ -310,6 +442,47 @@ export function ComposeFieldsForm({ template, composeSession, replyToLetter }: C
       saveSenderProfile(value, prof.address)
     }
   }, [])
+
+  const applyLogoFile = useCallback(
+    (file: File | undefined) => {
+      if (!file || !logoField) return
+      const okMime = /^image\/(png|jpeg|jpg|svg\+xml)$/i.test(file.type)
+      const okSvgName = file.name.toLowerCase().endsWith('.svg')
+      if (!okMime && !okSvgName) return
+      const reader = new FileReader()
+      reader.onload = () => {
+        const dataUrl = typeof reader.result === 'string' ? reader.result : ''
+        if (!dataUrl) return
+        updateTemplate(template.id, { logoPath: dataUrl })
+        updateTemplateField(template.id, logoField.id, '')
+      }
+      reader.readAsDataURL(file)
+    },
+    [logoField, template.id, updateTemplate, updateTemplateField],
+  )
+
+  const handleLogoUpload = useCallback(
+    (e: ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0]
+      e.target.value = ''
+      applyLogoFile(file)
+    },
+    [applyLogoFile],
+  )
+
+  const handleChangeLogo = useCallback(() => {
+    const input = document.createElement('input')
+    input.type = 'file'
+    input.accept = 'image/png,image/jpeg,image/svg+xml'
+    input.onchange = () => applyLogoFile(input.files?.[0])
+    input.click()
+  }, [applyLogoFile])
+
+  const handleRemoveLogo = useCallback(() => {
+    if (!logoField) return
+    updateTemplate(template.id, { logoPath: null })
+    updateTemplateField(template.id, logoField.id, '')
+  }, [logoField, template.id, updateTemplate, updateTemplateField])
 
   const handleAiDraftBody = useCallback(() => {
     const bodyField = template.fields.find((f) => {
@@ -347,6 +520,7 @@ export function ComposeFieldsForm({ template, composeSession, replyToLetter }: C
     const hint = [
       '\u{1F4DD} **Letter Composer** — Body field selected for AI drafting.',
       '',
+      `Language: ${LANGUAGE_NAMES[language] ?? LANGUAGE_NAMES.en}.`,
       currentRecipient ? `Recipient: ${currentRecipient}` : null,
       currentSubject ? `Subject: ${currentSubject}` : null,
       letterContext.trim() ? '\nIncoming letter context available.' : null,
@@ -358,7 +532,14 @@ export function ComposeFieldsForm({ template, composeSession, replyToLetter }: C
 
     window.dispatchEvent(new CustomEvent(WRDESK_FOCUS_AI_CHAT_EVENT, { bubbles: true }))
     window.dispatchEvent(new CustomEvent(WRCHAT_APPEND_ASSISTANT_EVENT, { detail: { text: hint } }))
-  }, [composeSession?.replyToLetterId, connectFieldToDraftRefine, letters, replyToLetter, template.fields])
+  }, [
+    composeSession?.replyToLetterId,
+    connectFieldToDraftRefine,
+    language,
+    letters,
+    replyToLetter,
+    template.fields,
+  ])
 
   const versionCount = composeSession?.versions.length ?? 0
   const versionIndex = composeSession?.activeVersionIndex ?? -1
@@ -435,6 +616,64 @@ export function ComposeFieldsForm({ template, composeSession, replyToLetter }: C
         </p>
       </div>
 
+      <div className="compose-language-row">
+        <label htmlFor="compose-letter-language">Letter language</label>
+        <select
+          id="compose-letter-language"
+          value={language}
+          onChange={(e) => setComposeLanguage(e.target.value)}
+          disabled={!composeSession}
+        >
+          <option value="en">English</option>
+          <option value="de">Deutsch</option>
+          <option value="fr">Français</option>
+          <option value="es">Español</option>
+          <option value="it">Italiano</option>
+          <option value="nl">Nederlands</option>
+          <option value="pt">Português</option>
+          <option value="pl">Polski</option>
+          <option value="tr">Türkçe</option>
+          <option value="ja">日本語</option>
+          <option value="zh">中文</option>
+          <option value="ar">العربية</option>
+          <option value="ko">한국어</option>
+          <option value="ru">Русский</option>
+        </select>
+      </div>
+
+      {logoField ? (
+        <div className="compose-logo-row">
+          <div className="compose-field-header compose-logo-row__header">
+            <label className="compose-field-row__label">{logoField.label}</label>
+          </div>
+          {template.logoPath ? (
+            <div className="compose-logo-row__preview">
+              <img
+                src={templateLogoDisplayUrl(template.logoPath)}
+                alt=""
+                className="compose-logo-row__img"
+              />
+              <button type="button" className="compose-logo-row__btn" onClick={handleChangeLogo}>
+                Change
+              </button>
+              <button type="button" className="compose-logo-row__btn" onClick={handleRemoveLogo}>
+                Remove
+              </button>
+            </div>
+          ) : (
+            <label className="compose-logo-row__upload">
+              <span className="compose-logo-row__upload-label">{'\u{1F4CE}'} Upload logo image</span>
+              <input
+                type="file"
+                accept="image/png,image/jpeg,image/svg+xml"
+                onChange={handleLogoUpload}
+              />
+              <span className="compose-logo-row__hint">PNG, JPG, or SVG</span>
+            </label>
+          )}
+        </div>
+      ) : null}
+
       {versionCount > 0 ? (
         <div className="compose-version-bar">
           <span className="compose-version-bar__label">
@@ -481,6 +720,7 @@ export function ComposeFieldsForm({ template, composeSession, replyToLetter }: C
                 draftConnected &&
                 draftRefineTarget === 'letter-template' &&
                 focusedTemplateFieldId === field.id
+              const showAiToggle = field.name !== 'company_logo'
               return (
                 <div
                   key={field.id}
@@ -501,27 +741,31 @@ export function ComposeFieldsForm({ template, composeSession, replyToLetter }: C
                     >
                       {field.label}
                     </label>
-                    <button
-                      type="button"
-                      className={`field-ai-toggle${isFieldSelected ? ' field-ai-toggle--active' : ''}`}
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        handleFieldSelect(field)
-                      }}
-                      style={{
-                        fontSize: 11,
-                        padding: '2px 8px',
-                        borderRadius: 4,
-                        border: isFieldSelected ? '1px solid #6366f1' : '1px solid #ddd',
-                        background: isFieldSelected ? '#6366f1' : 'transparent',
-                        color: isFieldSelected ? '#fff' : '#888',
-                        cursor: 'pointer',
-                        transition: 'all 0.15s',
-                        flexShrink: 0,
-                      }}
-                    >
-                      {isFieldSelected ? '\u261D Selected' : '\u261D AI'}
-                    </button>
+                    {showAiToggle ? (
+                      <button
+                        type="button"
+                        className={`field-ai-toggle${isFieldSelected ? ' field-ai-toggle--active' : ''}`}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          handleFieldSelect(field)
+                        }}
+                        style={{
+                          fontSize: 11,
+                          padding: '2px 8px',
+                          borderRadius: 4,
+                          border: isFieldSelected ? '1px solid #6366f1' : '1px solid #ddd',
+                          background: isFieldSelected ? '#6366f1' : 'transparent',
+                          color: isFieldSelected ? '#fff' : '#888',
+                          cursor: 'pointer',
+                          transition: 'all 0.15s',
+                          flexShrink: 0,
+                        }}
+                      >
+                        {isFieldSelected ? '\u261D Selected' : '\u261D AI'}
+                      </button>
+                    ) : (
+                      <span />
+                    )}
                   </div>
                   {renderFieldInput(field, isFieldSelected)}
                 </div>

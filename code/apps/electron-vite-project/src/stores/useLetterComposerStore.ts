@@ -108,7 +108,7 @@ function builtinLetterFields(): BuiltinTemplateField[] {
       type: 'text',
       mode: 'flow',
       staticField: false,
-      defaultValue: 'Sehr geehrte Damen und Herren,',
+      defaultValue: 'Dear Sir or Madam,',
     },
     { name: 'body', label: 'Body', type: 'richtext', mode: 'flow', staticField: false },
     {
@@ -117,7 +117,7 @@ function builtinLetterFields(): BuiltinTemplateField[] {
       type: 'text',
       mode: 'flow',
       staticField: false,
-      defaultValue: 'Mit freundlichen Grüßen',
+      defaultValue: 'Kind regards',
     },
     { name: 'signer_name', label: 'Signer', type: 'text', mode: 'fixed', staticField: true },
   ]
@@ -193,10 +193,12 @@ export interface ComposeSession {
   replyToLetterId: string | null // if responding to a scanned letter
   versions: Array<Record<string, string>> // AI-generated version snapshots
   activeVersionIndex: number
+  /** ISO 639-1 letter language for salutation/closing defaults and AI drafting. */
+  language: string
   createdAt: string
 }
 
-const PERSIST_VERSION = 3
+const PERSIST_VERSION = 4
 
 /** Public helper for mapping UI — derive semantic `name` from a display label. */
 export function slugifyTemplateFieldName(label: string): string {
@@ -282,6 +284,7 @@ export function createLetterComposeSession(templateId: string): ComposeSession {
     replyToLetterId: null,
     versions: [],
     activeVersionIndex: -1,
+    language: 'en',
     createdAt: new Date().toISOString(),
   }
 }
@@ -688,6 +691,18 @@ export const useLetterComposerStore = create<LetterComposerState>()(
           return {
             ...(p as object),
             companyProfile: { ...DEFAULT_COMPANY_PROFILE },
+          }
+        }
+        if (fromVersion < 4) {
+          const sessions = Array.isArray(p.composeSessions)
+            ? (p.composeSessions as Record<string, unknown>[])
+            : []
+          return {
+            ...(p as object),
+            composeSessions: sessions.map((c) => ({
+              ...c,
+              language: typeof c.language === 'string' && c.language.length > 0 ? c.language : 'en',
+            })),
           }
         }
         return persisted

@@ -448,6 +448,85 @@
   color: #b91c1c;
 }
 
+.compose-language-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+  font-size: 12px;
+}
+
+.compose-language-row label {
+  color: #666;
+  margin: 0;
+}
+
+.compose-language-row select {
+  font-size: 12px;
+  padding: 3px 6px;
+  border-radius: 4px;
+  border: 1px solid #ddd;
+  background: #fff;
+}
+
+.compose-logo-row {
+  margin-bottom: 8px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #eee;
+}
+
+.compose-logo-row__header {
+  margin-bottom: 6px;
+}
+
+.compose-logo-row__preview {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.compose-logo-row__img {
+  max-height: 50px;
+  max-width: 200px;
+  object-fit: contain;
+  border: 1px solid #eee;
+  border-radius: 4px;
+  padding: 4px;
+  background: #fff;
+}
+
+.compose-logo-row__btn {
+  font-size: 11px;
+  padding: 3px 8px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  background: #f8f8f7;
+  cursor: pointer;
+}
+
+.compose-logo-row__upload {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 6px 12px;
+  border: 1px dashed #ccc;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  color: #666;
+}
+
+.compose-logo-row__upload input[type='file'] {
+  display: none;
+}
+
+.compose-logo-row__hint {
+  font-size: 10px;
+  color: #999;
+}
+
 .compose-version-bar {
   display: flex;
   flex-wrap: wrap;

@@ -216,6 +216,10 @@ export function LetterTemplatePort() {
     } else if (st.activeComposeSessionId !== sess.id) {
       st.setActiveComposeSession(sess.id)
     }
+    const lang = sess.language
+    if (typeof lang !== 'string' || !lang.trim()) {
+      st.updateComposeSession(sess.id, { language: 'en' })
+    }
   }, [activeTemplate?.id, activeTemplate?.mappingComplete])
 
   useEffect(() => {
