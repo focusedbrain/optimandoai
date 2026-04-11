@@ -350,13 +350,16 @@ export function EmailInlineComposer({ onClose, onSent, replyTo }: EmailInlineCom
                 rows={8}
                 className={`email-body-textarea${connected && refineTarget === 'email' ? ' field-selected-for-ai' : ''}`}
                 style={{
-                  minHeight: 180,
+                  minHeight: '180px',
+                  height: '180px',
                   flexShrink: 0,
+                  resize: 'vertical',
                   width: '100%',
                   boxSizing: 'border-box',
-                  lineHeight: 1.5,
+                  padding: '10px',
+                  fontSize: '13px',
+                  lineHeight: '1.5',
                   outline: 'none',
-                  resize: 'vertical',
                 }}
                 onFocus={(e) => {
                   if (!(connected && refineTarget === 'email')) e.currentTarget.style.boxShadow = draftFocusRing
