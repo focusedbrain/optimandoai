@@ -10,6 +10,7 @@ import { useDraftRefineStore } from '../stores/useDraftRefineStore'
 import { AiDraftContextRail } from './AiDraftContextRail'
 import { ComposerAttachmentButton } from './ComposerAttachmentButton'
 import { DraftRefineLabel } from './DraftRefineLabel'
+import '../styles/dashboard-base.css'
 
 export interface EmailInlineComposerProps {
   onClose: () => void
@@ -51,18 +52,32 @@ export function EmailInlineComposer({ onClose, onSent, replyTo }: EmailInlineCom
   const refineTarget = useDraftRefineStore((s) => s.refineTarget)
   const updateDraftText = useDraftRefineStore((s) => s.updateDraftText)
 
-  const handleBodyFieldClick = useCallback(() => {
-    if (connected && refineTarget === 'email') {
-      disconnect()
-    } else {
-      connect(null, 'New Email', body, setBody, 'email')
-    }
-  }, [connected, refineTarget, disconnect, connect, body])
+  const handleFieldSelect = useCallback(
+    (field: 'subject' | 'body') => {
+      const target = field === 'subject' ? 'email-subject' : 'email'
+      if (connected && refineTarget === target) {
+        disconnect()
+        return
+      }
+      if (field === 'subject') {
+        connect(null, 'New Email', subject, setSubject, 'email-subject')
+      } else {
+        connect(null, 'New Email', body, setBody, 'email')
+      }
+    },
+    [connected, refineTarget, disconnect, connect, subject, body],
+  )
+
+  const handleComposerClose = useCallback(() => {
+    disconnect()
+    onClose()
+  }, [disconnect, onClose])
 
   useEffect(() => {
-    if (!connected || refineTarget !== 'email') return
-    updateDraftText(body)
-  }, [body, connected, refineTarget, updateDraftText])
+    if (!connected) return
+    if (refineTarget === 'email') updateDraftText(body)
+    else if (refineTarget === 'email-subject') updateDraftText(subject)
+  }, [body, subject, connected, refineTarget, updateDraftText])
 
   useEffect(() => () => disconnect(), [disconnect])
 
@@ -263,7 +278,7 @@ export function EmailInlineComposer({ onClose, onSent, replyTo }: EmailInlineCom
         >
           <span style={{ fontSize: 16, fontWeight: 700, letterSpacing: '-0.02em' }}>New Email</span>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <button type="button" onClick={onClose} style={{ fontSize: 18, lineHeight: 1, padding: '4px 10px', cursor: 'pointer', background: 'transparent', border, borderRadius: 6, color: fg }} aria-label="Close composer">
+            <button type="button" onClick={handleComposerClose} style={{ fontSize: 18, lineHeight: 1, padding: '4px 10px', cursor: 'pointer', background: 'transparent', border, borderRadius: 6, color: fg }} aria-label="Close composer">
               ✕
             </button>
           </div>
@@ -322,12 +337,16 @@ export function EmailInlineComposer({ onClose, onSent, replyTo }: EmailInlineCom
           </div>
 
           <div>
-            <label style={{ fontSize: 11, fontWeight: 600, color: muted, display: 'block', marginBottom: 6 }}>Subject</label>
+            <label style={{ fontSize: 11, fontWeight: 600, color: muted, display: 'block', marginBottom: 6 }}>
+              <DraftRefineLabel active={connected && refineTarget === 'email-subject'}>Subject</DraftRefineLabel>
+            </label>
             <input
               type="text"
               value={subject}
               onChange={(e) => setSubject(e.target.value)}
+              onClick={() => handleFieldSelect('subject')}
               placeholder="Subject"
+              className={connected && refineTarget === 'email-subject' ? 'field-selected-for-ai' : undefined}
               style={{
                 width: '100%',
                 padding: '10px 12px',
@@ -354,8 +373,9 @@ export function EmailInlineComposer({ onClose, onSent, replyTo }: EmailInlineCom
               data-compose-field="email-body"
               value={body}
               onChange={(e) => setBody(e.target.value)}
-              onClick={handleBodyFieldClick}
+              onClick={() => handleFieldSelect('body')}
               placeholder="Write your message…"
+              className={connected && refineTarget === 'email' ? 'field-selected-for-ai' : undefined}
               style={{
                 flex: 1,
                 minHeight: 280,
@@ -367,7 +387,7 @@ export function EmailInlineComposer({ onClose, onSent, replyTo }: EmailInlineCom
                 lineHeight: 1.5,
                 background: '#ffffff',
                 color: '#0f172a',
-                border: connected && refineTarget === 'email' ? '2px solid #7c3aed' : '1px solid #cbd5e1',
+                border: '1px solid #cbd5e1',
                 borderRadius: 8,
                 outline: 'none',
                 resize: 'vertical',
@@ -489,9 +509,9 @@ export function EmailInlineComposer({ onClose, onSent, replyTo }: EmailInlineCom
             >
               {isSending ? 'Sending…' : 'Send'}
             </button>
-            <button
+                       <button
               type="button"
-              onClick={onClose}
+              onClick={handleComposerClose}
               style={{
                 padding: '12px 16px',
                 fontSize: 14,
@@ -529,7 +549,7 @@ export function EmailInlineComposer({ onClose, onSent, replyTo }: EmailInlineCom
               </p>
               <p style={{ margin: '0 0 10px', color: hintOnRail }}>The signature block is appended automatically when you send.</p>
               <p style={{ margin: 0, color: hintOnRail }}>
-                Click the body field to connect the top chat bar for AI refinement; click again to disconnect.
+                Click Subject or Body to target the top chat bar for AI refinement; click the same field again to disconnect.
               </p>
             </>
           }

@@ -71,6 +71,8 @@ function App() {
   const [projectAssistantCreateToken, setProjectAssistantCreateToken] = useState(0)
   /** Mirrors WrMultiTriggerBar selection — Analysis closes Project WIKI hero when Watchdog is selected. */
   const [activeTriggerFunctionId, setActiveTriggerFunctionId] = useState<TriggerFunctionId>({ type: 'watchdog' })
+  /** Inline Email/BEAP composer on Analysis dashboard — set from hero cards or trigger bar shortcut. */
+  const [dashboardComposeMode, setDashboardComposeMode] = useState<'email' | 'beap' | null>(null)
   const [showInitiateModal, setShowInitiateModal] = useState(false)
   const [selectedHandshakeId, setSelectedHandshakeId] = useState<string | null>(null)
   const [selectedHandshakeEmail, setSelectedHandshakeEmail] = useState<string | null>(null)
@@ -113,6 +115,10 @@ function App() {
     root.setAttribute('data-ui-theme', cssTheme)
     console.log('[APP] Theme applied:', extensionTheme, '-> CSS:', cssTheme)
   }, [extensionTheme])
+
+  useEffect(() => {
+    if (activeView !== 'analysis') setDashboardComposeMode(null)
+  }, [activeView])
 
   /** HTTP bridge for extension → POST /api/projects/:id/optimize/* (main process → renderer). */
   useEffect(() => {
@@ -384,6 +390,10 @@ function App() {
             <WrMultiTriggerBar
               theme={extensionTheme}
               onActiveFunctionChange={setActiveTriggerFunctionId}
+              onComposerOpen={(composerId) => {
+                setActiveView('analysis')
+                setDashboardComposeMode(composerId === 'emailComposer' ? 'email' : 'beap')
+              }}
               onWatchdogAlert={(threats) => {
                 try {
                   window.dispatchEvent(new CustomEvent('wrchat-watchdog-alert', { detail: threats }))
@@ -395,6 +405,7 @@ function App() {
             />
           </div>
         </nav>
+        {/* HybridSearch stays in the header for every main view; inline composers render only inside AnalysisCanvas. */}
         <HybridSearch
           activeView={activeView}
           selectedHandshakeId={selectedHandshakeId}
@@ -469,6 +480,8 @@ function App() {
             emailAccounts={emailAccounts}
             activeTriggerFunctionId={activeTriggerFunctionId}
             projectAssistantCreateToken={projectAssistantCreateToken}
+            dashboardComposeMode={dashboardComposeMode}
+            onDashboardComposeModeChange={setDashboardComposeMode}
             onNavigateToWrChat={() => setActiveView('wr-chat')}
             onOpenBulkInboxForAnalysis={() => {
               setActiveView('beap-inbox')

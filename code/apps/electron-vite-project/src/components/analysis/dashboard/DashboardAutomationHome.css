@@ -14,6 +14,96 @@
     0 8px 24px rgba(15, 23, 42, 0.05);
 }
 
+/* Fills Analysis canvas project column when inline composer is open */
+.dash-auto-home--composer-open {
+  flex: 1;
+  min-height: 0;
+}
+
+/* ── Inline email composer (dashboard) ────────────────────────────────────── */
+
+.dashboard-composer-panel.dash-auto-home__composer-panel {
+  flex: 1;
+  min-height: min(520px, 62vh);
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.dashboard-composer-header.dash-auto-home__composer-header {
+  flex-shrink: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 14px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.35);
+  margin-bottom: 10px;
+}
+
+.back-button.dash-auto-home__composer-back {
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  color: #475569;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 4px 0;
+}
+
+.back-button.dash-auto-home__composer-back:hover {
+  color: #0f172a;
+  text-decoration: underline;
+}
+
+.dash-auto-home__composer-heading {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: #0f172a;
+  letter-spacing: -0.02em;
+}
+
+.dashboard-composer-content.dash-auto-home__composer-content {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.dash-auto-home__email-inline-composer-wrap {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  border-radius: 10px;
+  overflow: hidden;
+  background: #0f172a;
+}
+
+.email-provider-notice.dash-auto-home__email-provider-notice {
+  flex-shrink: 0;
+  padding: 12px 14px;
+  background: #fffbeb;
+  border: 1px solid #fcd34d;
+  border-radius: 8px;
+  color: #92400e;
+}
+
+.dash-auto-home__email-provider-notice-text {
+  margin: 0 0 10px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.dash-auto-home__email-provider-notice-text:last-child {
+  margin-bottom: 0;
+}
+
 /* ── Starter automations (dense hero) ─────────────────────────────────────── */
 
 .dash-auto-home__starters-header {
@@ -91,6 +181,33 @@
   .dash-auto-home__starters-grid {
     grid-template-columns: 1fr;
   }
+}
+
+/* Inline composer shell (Prompt 1) — real UI in Prompts 2–3 */
+.dashboard-composer-placeholder.dash-auto-home__composer-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 16px 14px;
+  background: #fff;
+  border: 1px dashed rgba(100, 116, 139, 0.45);
+  border-radius: 10px;
+  min-height: 120px;
+}
+
+.dash-auto-home__composer-placeholder-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.dash-auto-home__composer-placeholder-text {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: #475569;
 }
 
 .dash-auto-home__starter {

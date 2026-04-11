@@ -6,7 +6,11 @@
 
 import { create } from 'zustand'
 
-export type DraftRefineTarget = 'email' | 'capsule-public' | 'capsule-encrypted'
+export type DraftRefineTarget =
+  | 'email'
+  | 'email-subject'
+  | 'capsule-public'
+  | 'capsule-encrypted'
 
 interface DraftRefineState {
   connected: boolean

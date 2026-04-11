@@ -214,3 +214,9 @@
   font-size: var(--dash-text-xs);
   color: var(--dash-text-tertiary);
 }
+
+/* AI draft-refine: field selected for top-chat refinement (composers + inbox pattern) */
+.field-selected-for-ai {
+  border-color: var(--accent-color, #6366f1) !important;
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2);
+}

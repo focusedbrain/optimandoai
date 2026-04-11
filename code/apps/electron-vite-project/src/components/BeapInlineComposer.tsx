@@ -41,6 +41,8 @@ import { listHandshakes } from '../shims/handshakeRpc';
 
 import './handshakeViewTypes';
 
+import '../styles/dashboard-base.css';
+
 import { extractTextForPackagePreview } from '../lib/beapPackageAttachmentPreview';
 
 import { AiDraftContextRail } from './AiDraftContextRail';
@@ -259,7 +261,7 @@ export function BeapInlineComposer({
     }
   }, [replyToHandshakeId, handshakeRows]);
 
-  /** AI Refine button only — textareas stay directly editable without toggling refine on click. */
+  /** Click the field or AI refine button to connect the top chat; click again to disconnect. */
   const handleAiRefineToggle = useCallback(
     (field: 'public' | 'encrypted') => {
       const target = field === 'public' ? 'capsule-public' : 'capsule-encrypted';
@@ -350,6 +352,8 @@ export function BeapInlineComposer({
   }, []);
 
   const resetForm = useCallback(() => {
+    disconnect();
+
     setDeliveryMethod('p2p');
 
     setRecipientMode('private');
@@ -369,7 +373,13 @@ export function BeapInlineComposer({
     setSendError(null);
 
     setSelectedHandshakeId(replyToHandshakeId ?? null);
-  }, [replyToHandshakeId]);
+  }, [disconnect, replyToHandshakeId]);
+
+  const handleComposerClose = useCallback(() => {
+    disconnect();
+
+    onClose();
+  }, [disconnect, onClose]);
 
   const addAttachments = useCallback(async () => {
     if (
@@ -853,7 +863,7 @@ export function BeapInlineComposer({
 
             <button
               type="button"
-              onClick={onClose}
+              onClick={handleComposerClose}
               aria-label="Close composer"
               style={{
                 fontSize: 18,
@@ -1196,8 +1206,10 @@ export function BeapInlineComposer({
             data-compose-field="public-message"
             value={publicMessage}
             onChange={(e) => setPublicMessage(e.target.value)}
+            onClick={() => handleAiRefineToggle('public')}
             placeholder="Public capsule / transport-visible text"
             rows={14}
+            className={connected && refineTarget === 'capsule-public' ? 'field-selected-for-ai' : undefined}
             style={{
               width: '100%',
 
@@ -1211,10 +1223,7 @@ export function BeapInlineComposer({
 
               borderRadius: 8,
 
-              border:
-                connected && refineTarget === 'capsule-public'
-                  ? '2px solid #7c3aed'
-                  : '1px solid #cbd5e1',
+              border: '1px solid #cbd5e1',
 
               outline: 'none',
 
@@ -1293,8 +1302,10 @@ export function BeapInlineComposer({
                 data-compose-field="encrypted-message"
                 value={encryptedMessage}
                 onChange={(e) => setEncryptedMessage(e.target.value)}
+                onClick={() => handleAiRefineToggle('encrypted')}
                 placeholder="Private qBEAP payload (optional; authoritative when set)"
                 rows={12}
+                className={connected && refineTarget === 'capsule-encrypted' ? 'field-selected-for-ai' : undefined}
                 style={{
                   width: '100%',
 
@@ -1308,10 +1319,7 @@ export function BeapInlineComposer({
 
                   borderRadius: 8,
 
-                  border:
-                    connected && refineTarget === 'capsule-encrypted'
-                      ? '2px solid #7c3aed'
-                      : '1px solid #cbd5e1',
+                  border: '1px solid #cbd5e1',
 
                   outline: 'none',
 
@@ -1581,7 +1589,7 @@ export function BeapInlineComposer({
 
             <button
               type="button"
-              onClick={onClose}
+              onClick={handleComposerClose}
               style={{
                 padding: '12px 16px',
                 borderRadius: 8,
@@ -1638,8 +1646,7 @@ export function BeapInlineComposer({
               </p>
 
               <p style={{ margin: 0, color: '#0f172a' }}>
-                Use ✏️ AI refine beside each field to connect the top chat for AI draft refinement; click
-                again to disconnect. You can always type directly in the fields.
+                Click the public or encrypted message field (or AI refine) to target the top chat; click the same field again to disconnect. You can always type directly in the fields.
               </p>
             </>
           }

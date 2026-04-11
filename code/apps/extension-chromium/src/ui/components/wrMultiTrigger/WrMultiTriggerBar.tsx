@@ -62,6 +62,11 @@ export type WrMultiTriggerBarProps = {
   theme?: string
   /** Fires whenever the selected trigger row (watchdog vs project) changes — for dashboard gating. */
   onActiveFunctionChange?: (functionId: TriggerFunctionId) => void
+  /**
+   * Electron WR Desk: open Email/BEAP **inline** on Analysis (not popup). When set, composer icon click
+   * uses this instead of `OPEN_COMMAND_CENTER_POPUP` / `window.analysisDashboard`.
+   */
+  onComposerOpen?: (composerId: 'emailComposer' | 'beapComposer') => void
   onWatchdogAlert: (threats: WatchdogThreat[]) => void
   /** Optional — if omitted, only the window event is fired. */
   onChatFocusRequest?: (mode: ChatFocusMode) => void
@@ -160,6 +165,7 @@ function functionIdKey(fid: TriggerFunctionId): string {
 export default function WrMultiTriggerBar({
   theme = 'pro',
   onActiveFunctionChange,
+  onComposerOpen,
   onWatchdogAlert,
   onChatFocusRequest,
   onEnsureWrChatOpen,
@@ -384,6 +390,10 @@ I'm focused on this automation. Continue in WR Chat with the same model and sett
     if (activeFunctionId.type === 'composer-shortcut') {
       const c = activeComposer
       if (!c) return
+      if (onComposerOpen) {
+        /* Desktop: HybridSearch on Analysis handles drafting; no WR Chat intro for composer rows. */
+        return
+      }
       const mode: ChatFocusMode = { mode: 'default' }
       const intro = `${c.icon} **${c.title}**
 
@@ -480,7 +490,15 @@ What would you like to add?`
         /* noop */
       }
     })
-  }, [activeFunctionId, activeProject, activeCustomMode, activeComposer, onChatFocusRequest, onEnsureWrChatOpen])
+  }, [
+    activeFunctionId,
+    activeProject,
+    activeCustomMode,
+    activeComposer,
+    onChatFocusRequest,
+    onEnsureWrChatOpen,
+    onComposerOpen,
+  ])
 
   const speechTooltipWatchdog = 'Toggle Scam Watchdog chat focus (on / off)'
   const speechTooltipOptimizer = activeProject
@@ -778,11 +796,31 @@ What would you like to add?`
             }
             scanning={false}
             cleanFlash={false}
-            onIconClick={() => openComposerCommandCenter(activeComposer?.launchMode)}
+            onIconClick={() => {
+              const c = activeComposer
+              if (!c) return
+              if (onComposerOpen) {
+                onComposerOpen(c.composerId)
+                return
+              }
+              openComposerCommandCenter(c.launchMode)
+            }}
             disabled={false}
-            middleSlot={<SpeechBubbleButton tooltip={speechTooltipComposer} onPress={emitChatFocus} />}
+            middleSlot={
+              onComposerOpen ? undefined : (
+                <SpeechBubbleButton tooltip={speechTooltipComposer} onPress={emitChatFocus} />
+              )
+            }
             scanButtonTitle={activeComposer ? `Open ${activeComposer.title}` : 'Open composer'}
-            scanButtonAriaLabel={activeComposer ? `Open ${activeComposer.title} popup` : 'Open composer popup'}
+            scanButtonAriaLabel={
+              activeComposer
+                ? onComposerOpen
+                  ? `Open ${activeComposer.title} on Analysis dashboard`
+                  : `Open ${activeComposer.title} popup`
+                : onComposerOpen
+                  ? 'Open composer on Analysis dashboard'
+                  : 'Open composer popup'
+            }
           />
         ) : (
           <TriggerButtonShell

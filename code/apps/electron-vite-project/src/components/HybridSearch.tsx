@@ -588,12 +588,15 @@ export default function HybridSearch({
   /** Derived focus context — distinguishes outer message vs draft sub-focus vs attachment above chat. */
   const uiFocusContext: UiFocusContext = useMemo(() => {
     if (
-      activeView === 'beap-inbox' &&
+      (activeView === 'beap-inbox' || activeView === 'analysis') &&
       draftRefineConnected &&
       draftRefineMessageId === null &&
       selectedMessageId == null
     ) {
-      return { kind: 'draft', messageId: '__compose__' }
+      return {
+        kind: 'draft',
+        messageId: activeView === 'analysis' ? '__dashboard-compose__' : '__compose__',
+      }
     }
     if (!selectedMessageId) return { kind: 'none' }
     const msgId = selectedMessageId
@@ -619,9 +622,11 @@ export default function HybridSearch({
         ? ' · Public (pBEAP)'
         : draftRefineTarget === 'capsule-encrypted'
           ? ' · Encrypted (qBEAP)'
-          : draftRefineTarget === 'email'
-            ? ' · Email'
-            : ''
+          : draftRefineTarget === 'email-subject'
+            ? ' · Subject'
+            : draftRefineTarget === 'email'
+              ? ' · Body'
+              : ''
       : ''
 
   const draftRefineChipTitle =
@@ -630,9 +635,11 @@ export default function HybridSearch({
         ? 'Chat scoped to public capsule draft — refine with AI'
         : draftRefineTarget === 'capsule-encrypted'
           ? 'Chat scoped to encrypted capsule draft — refine with AI'
-          : draftRefineTarget === 'email'
-            ? 'Chat scoped to email draft — refine with AI'
-            : 'Chat scoped to draft — refine with AI'
+          : draftRefineTarget === 'email-subject'
+            ? 'Chat scoped to email subject — refine with AI'
+            : draftRefineTarget === 'email'
+              ? 'Chat scoped to email body — refine with AI'
+              : 'Chat scoped to draft — refine with AI'
       : 'Chat scoped to draft — refine with AI'
 
   useEffect(() => {
@@ -825,6 +832,10 @@ export default function HybridSearch({
             fieldLabel = 'preview summary of a reply'
           } else if (target === 'capsule-encrypted') {
             fieldLabel = 'full reply draft'
+          } else if (target === 'email-subject') {
+            fieldLabel = 'email subject line'
+          } else if (target === 'email') {
+            fieldLabel = 'email body'
           }
           if (currentDraft.trim()) {
             chatQuery = [
@@ -1415,9 +1426,11 @@ export default function HybridSearch({
                     ? 'Chat scoped to public capsule draft'
                     : draftRefineTarget === 'capsule-encrypted'
                       ? 'Chat scoped to encrypted capsule draft'
-                      : draftRefineTarget === 'email'
-                        ? 'Chat scoped to email draft'
-                        : 'Chat scoped to draft'
+                      : draftRefineTarget === 'email-subject'
+                        ? 'Chat scoped to email subject'
+                        : draftRefineTarget === 'email'
+                          ? 'Chat scoped to email body'
+                          : 'Chat scoped to draft'
                   : 'Chat scoped to draft'
                 : uiFocusContext.kind === 'attachment'
                   ? 'Chat scoped to attachment'

@@ -23,7 +23,7 @@ export default defineConfig({
   },
   build: {
     // Literal string required by apps/electron-vite-project/scripts/clear-build-caches.cjs (regex on vite.config.ts)
-    outDir: 'build0038',
+    outDir: 'build0039',
     emptyOutDir: true,
     rollupOptions: {
       // HTML entry so Vite resolves ./popup-chat.tsx inside the template and emits hashed JS (fixes blank popup).

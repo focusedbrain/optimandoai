@@ -80,6 +80,9 @@ interface AnalysisCanvasProps {
    * (modal form — desktop dispatches `WRDESK_OPEN_PROJECT_ASSISTANT_CREATION`).
    */
   projectAssistantCreateToken?: number
+  /** Lifted from App — inline composer vs automation cards; also set from header trigger bar shortcut. */
+  dashboardComposeMode?: 'email' | 'beap' | null
+  onDashboardComposeModeChange?: (mode: 'email' | 'beap' | null) => void
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -94,6 +97,8 @@ export default function AnalysisCanvas({
   onNavigateToWrChat,
   activeTriggerFunctionId,
   projectAssistantCreateToken = 0,
+  dashboardComposeMode = null,
+  onDashboardComposeModeChange,
 }: AnalysisCanvasProps) {
   // ── Data layer — unchanged from original ──────────────────────────────────
   const {
@@ -119,6 +124,10 @@ export default function AnalysisCanvas({
   const showProjectAssistantWorkspace =
     projectAssistantWorkspaceOpen &&
     (activeTriggerFunctionId.type === 'auto-optimizer' || pendingProjectAssistantCreateSession)
+
+  useEffect(() => {
+    if (showProjectAssistantWorkspace) onDashboardComposeModeChange?.(null)
+  }, [showProjectAssistantWorkspace, onDashboardComposeModeChange])
 
   /**
    * Hero stays automation-first by default. Project WIKI opens only from explicit actions (home list, Add WIKI).
@@ -307,6 +316,10 @@ export default function AnalysisCanvas({
                 onNavigateInbox={() => onOpenInbox?.()}
                 onNavigateWrChat={() => onNavigateToWrChat?.()}
                 onNavigateBulkInbox={() => onOpenBulkInboxForAnalysis?.()}
+                onOpenEmailComposer={() => onDashboardComposeModeChange?.('email')}
+                onOpenBeapComposer={() => onDashboardComposeModeChange?.('beap')}
+                onCloseComposer={() => onDashboardComposeModeChange?.(null)}
+                composeMode={dashboardComposeMode}
               />
             )}
           </div>
