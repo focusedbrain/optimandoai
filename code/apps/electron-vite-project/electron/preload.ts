@@ -1182,20 +1182,20 @@ contextBridge.exposeInMainWorld('wrChat', {
   pickDirectory: (): Promise<string | null> => ipcRenderer.invoke('PICK_DIRECTORY'),
 })
 
-// ── Letter Composer (dashboard) — DOCX templates in userData/letter-composer
+// ── Letter Composer (dashboard) — .docx / .odt templates in userData/letter-composer
 contextBridge.exposeInMainWorld('letterComposer', {
   saveTemplateFromPath: (sourcePath: string, originalFileName: string) => {
     const p = assertFsPath(sourcePath, 'sourcePath')
     const n = assertTemplateFileName(originalFileName, 'originalFileName')
-    if (!/\.docx$/i.test(n.trim())) {
-      throw new Error('originalFileName: expected .docx')
+    if (!/\.(docx|odt)$/i.test(n.trim())) {
+      throw new Error('originalFileName: expected .docx or .odt')
     }
     return ipcRenderer.invoke('letter:saveTemplateFromPath', p, n.trim()) as Promise<string>
   },
   saveTemplateBuffer: (fileName: string, data: ArrayBuffer) => {
     const n = assertTemplateFileName(fileName, 'fileName')
-    if (!/\.docx$/i.test(n.trim())) {
-      throw new Error('fileName: expected .docx')
+    if (!/\.(docx|odt)$/i.test(n.trim())) {
+      throw new Error('fileName: expected .docx or .odt')
     }
     if (!data || !(data instanceof ArrayBuffer) || data.byteLength < 1) {
       throw new Error('data: expected non-empty ArrayBuffer')

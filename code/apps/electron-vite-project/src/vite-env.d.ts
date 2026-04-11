@@ -68,10 +68,11 @@ interface WrChatBridge {
   pickDirectory: () => Promise<string | null>
 }
 
-/** Letter Composer — preload `letter:*` IPC (DOCX templates). */
+/** Letter Composer — preload `letter:*` IPC (.docx / .odt templates). */
 interface LetterComposerBridge {
   saveTemplateFromPath: (sourcePath: string, originalFileName: string) => Promise<string>
   saveTemplateBuffer: (fileName: string, data: ArrayBuffer) => Promise<string>
+  /** DOCX via mammoth; ODT via content.xml (ZIP). */
   convertDocxToHtml: (filePath: string) => Promise<{ html: string; messages: unknown[] }>
   extractFields: (html: string) => Promise<unknown[]>
   exportFilledDocx: (payload: {

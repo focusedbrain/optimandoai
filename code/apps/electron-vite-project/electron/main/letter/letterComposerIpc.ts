@@ -1,5 +1,5 @@
 /**
- * Letter Composer — DOCX → HTML (mammoth) + AI field extraction (Ollama).
+ * Letter Composer — DOCX → HTML (mammoth), ODT → HTML (content.xml via pizzip) + AI field extraction (Ollama).
  */
 
 import { ipcMain, app, dialog, BrowserWindow } from 'electron'
@@ -34,16 +34,32 @@ function sanitizeTemplateBaseName(name: string): string {
     throw new Error('Invalid template file name')
   }
   const lower = base.toLowerCase()
-  if (lower.endsWith('.odt')) {
-    throw new Error('OpenDocument (.odt) is not supported; use .docx for templates')
-  }
-  if (!lower.endsWith('.docx')) {
-    throw new Error('Template must be a .docx file')
+  if (!lower.endsWith('.docx') && !lower.endsWith('.odt')) {
+    throw new Error('Template must be a .docx or .odt file')
   }
   return base
 }
 
-/** Only paths under our templates folder may be converted (prevents arbitrary file read). */
+/** Paths under templates dir; .docx or .odt (for mammoth / ODT ZIP conversion). */
+function assertAllowedTemplatePath(filePath: string): string {
+  ensureLetterComposerDirs()
+  const resolved = path.resolve(filePath)
+  const root = path.resolve(templatesDir())
+  const rel = path.relative(root, resolved)
+  if (rel.startsWith('..') || path.isAbsolute(rel)) {
+    throw new Error('Template path is outside letter-composer storage')
+  }
+  if (!fs.existsSync(resolved)) {
+    throw new Error('Template file not found')
+  }
+  const low = resolved.toLowerCase()
+  if (!low.endsWith('.docx') && !low.endsWith('.odt')) {
+    throw new Error('Only .docx and .odt files are supported for conversion')
+  }
+  return resolved
+}
+
+/** Only .docx — used for filled DOCX export (mammoth/zip structure). */
 function assertAllowedDocxPath(filePath: string): string {
   ensureLetterComposerDirs()
   const resolved = path.resolve(filePath)
@@ -56,7 +72,7 @@ function assertAllowedDocxPath(filePath: string): string {
     throw new Error('Template file not found')
   }
   if (!resolved.toLowerCase().endsWith('.docx')) {
-    throw new Error('Only .docx files are supported for conversion')
+    throw new Error('Only .docx files are supported for export')
   }
   return resolved
 }
@@ -177,6 +193,13 @@ export function registerLetterComposerIpcHandlers(): void {
         return { success: false, error: 'Invalid payload' }
       }
       const fields = Array.isArray(payload.fields) ? payload.fields : []
+      if (!payload.sourcePath.toLowerCase().endsWith('.docx')) {
+        return {
+          success: false,
+          error:
+            'Export as DOCX is only available for Word (.docx) templates. OpenDocument (.odt) can use Print.',
+        }
+      }
       const safe = assertAllowedDocxPath(payload.sourcePath)
       const buf = fs.readFileSync(safe)
       const { fillDocxPlaceholders } = await import('./fillDocxPlaceholders')
@@ -203,13 +226,19 @@ export function registerLetterComposerIpcHandlers(): void {
     if (typeof filePath !== 'string' || filePath.length > 4096) {
       throw new Error('Invalid path')
     }
-    const safe = assertAllowedDocxPath(filePath)
-    const mammoth = await import('mammoth')
-    const result = await mammoth.convertToHtml({ path: safe })
-    return {
-      html: result.value,
-      messages: result.messages,
+    const safe = assertAllowedTemplatePath(filePath)
+    const low = safe.toLowerCase()
+    if (low.endsWith('.docx')) {
+      const mammoth = await import('mammoth')
+      const result = await mammoth.convertToHtml({ path: safe })
+      return {
+        html: result.value,
+        messages: result.messages,
+      }
     }
+    const buf = fs.readFileSync(safe)
+    const { convertOdtBufferToHtml } = await import('./odtToHtml')
+    return convertOdtBufferToHtml(buf)
   })
 
   ipcMain.handle('letter:extractFields', async (_e, html: string) => {

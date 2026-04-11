@@ -79,8 +79,8 @@ export function LetterTemplatePort() {
   const processTemplateFile = useCallback(
     async (file: File) => {
       const lower = file.name.toLowerCase()
-      if (!lower.endsWith('.docx')) {
-        setError('Please upload a .docx file (OpenDocument .odt is not supported).')
+      if (!lower.endsWith('.docx') && !lower.endsWith('.odt')) {
+        setError('Please upload a .docx or .odt template.')
         return
       }
 
@@ -288,13 +288,13 @@ export function LetterTemplatePort() {
           <div className="letter-port__drop-icon" aria-hidden>
             {'\u{1F4C4}'}
           </div>
-          <p className="letter-port__drop-text">Drag & drop a .docx template here</p>
+          <p className="letter-port__drop-text">Drag & drop a .docx or .odt template here</p>
           <p className="letter-port__drop-subtext">or</p>
           <label className="letter-port__browse-btn">
             Browse files
             <input
               type="file"
-              accept=".docx,.odt,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+              accept=".docx,.odt,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.oasis.opendocument.text"
               disabled={busy}
               onChange={(e) => {
                 handleFilesReceived(Array.from(e.target.files || []))
@@ -306,11 +306,11 @@ export function LetterTemplatePort() {
         </div>
       ) : (
         <div className="port-upload-zone port-upload-zone--add-more">
-          <p>Add another template (.docx)</p>
+          <p>Add another template (.docx or .odt)</p>
           <input
             id="letter-template-file"
             type="file"
-            accept=".docx,.odt,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            accept=".docx,.odt,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.oasis.opendocument.text"
             disabled={busy}
             onChange={(e) => {
               handleFilesReceived(Array.from(e.target.files || []))
