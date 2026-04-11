@@ -21,7 +21,11 @@ const ADD_PROJECT_WIKI_SELECT_VALUE = '__wrdesk_add_project_wiki__'
 import { applyOptimizationGuardFallback, canRunOptimization } from '../../../lib/autoOptimizationGuards'
 import { triggerSnapshotOptimization } from '../../../lib/autoOptimizationEngine'
 import type { Project } from '../../../types/projectTypes'
-import { useProjectStore, type ComposerIconSlot } from '../../../stores/useProjectStore'
+import {
+  useProjectStore,
+  type ComposerIconSlot,
+  type ComposerIconsState,
+} from '../../../stores/useProjectStore'
 import { PROJECT_ICON_CHOICES } from './projectIconChoices'
 import './DashboardAutomationHome.css'
 
@@ -142,6 +146,58 @@ type AutomationCardDef = {
   onEdit: () => void
   /** When set, Edit opens icon picker and allocated icon can show on the card. */
   composerId?: ComposerIconSlot
+}
+
+/**
+ * Single icon for Automation Workspace cards: allocated shortcut wins; else built-in default.
+ * Whitespace-only allocation does not suppress the default.
+ */
+function resolveAutomationCardIcon(
+  composerId: ComposerIconSlot | undefined,
+  composerIcons: ComposerIconsState,
+  defaultIcon: string,
+): string | null {
+  if (composerId != null) {
+    const a = composerIcons[composerId]?.trim() ?? ''
+    if (a.length > 0) return a
+  }
+  const d = (defaultIcon || '').trim()
+  return d.length > 0 ? d : null
+}
+
+/** Strip leading pictographic emoji (incl. ZWJ sequences) and spaces — display-only. */
+const EMOJI_DISPLAY_HEAD =
+  /^(?:\s|\p{Extended_Pictographic}(?:\uFE0F|\uFE0E)?(?:\u200D\p{Extended_Pictographic}(?:\uFE0F|\uFE0E)?)*)+/u
+
+function stripLeadingEmojiRuns(s: string, maxPasses: number): string {
+  let t = s
+  for (let i = 0; i < maxPasses; i++) {
+    const next = t.replace(EMOJI_DISPLAY_HEAD, '')
+    if (next === t) break
+    t = next
+  }
+  return t.trimStart()
+}
+
+/**
+ * Visible title when the icon is rendered separately: remove duplicated leading icon string(s)
+ * and any remaining leading emoji (covers embedded title emoji vs default/allocated icon).
+ */
+function stripLeadingDisplayEmoji(title: string, resolvedIcon: string | null): string {
+  const original = title
+  let t = title.trimStart()
+  const icon = resolvedIcon?.trim() ?? ''
+  if (icon.length > 0) {
+    for (let i = 0; i < 8; i++) {
+      if (!t.startsWith(icon)) break
+      const next = t.slice(icon.length).trimStart()
+      if (next === t) break
+      t = next
+    }
+  }
+  t = stripLeadingEmojiRuns(t, 8)
+  const out = t.trim()
+  return out.length > 0 ? out : original.trim()
 }
 
 /** Same derivation as useProjectStore.getActiveMilestone / selectActiveMilestone, per project. */
@@ -342,10 +398,8 @@ export function DashboardAutomationHome({
 
       <div className="dash-auto-home__starters-grid automation-cards-grid" role="list">
         {starterCards.map((card) => {
-          const allocated =
-            card.composerId && composerIcons[card.composerId]?.trim()
-              ? composerIcons[card.composerId]!.trim()
-              : null
+          const resolvedIcon = resolveAutomationCardIcon(card.composerId, composerIcons, card.icon)
+          const displayTitle = stripLeadingDisplayEmoji(card.title, resolvedIcon)
           return (
             <article
               key={card.id}
@@ -354,14 +408,9 @@ export function DashboardAutomationHome({
             >
               <div className="dash-auto-home__starter-top">
                 <span className="dash-auto-home__starter-icon-wrap" aria-hidden>
-                  <span className="dash-auto-home__starter-icon">{card.icon}</span>
-                  {allocated ? (
-                    <span className="dash-auto-home__starter-icon-allocated" title="Shortcut icon">
-                      {allocated}
-                    </span>
-                  ) : null}
+                  <span className="dash-auto-home__starter-icon">{resolvedIcon ?? ''}</span>
                 </span>
-                <h3 className="dash-auto-home__starter-title">{card.title}</h3>
+                <h3 className="dash-auto-home__starter-title">{displayTitle}</h3>
               </div>
               <p className="dash-auto-home__starter-value">{card.valueLine}</p>
               <div className="dash-auto-home__starter-actions">

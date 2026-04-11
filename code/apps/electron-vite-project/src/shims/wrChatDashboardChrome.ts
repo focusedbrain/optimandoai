@@ -260,6 +260,16 @@ export function ensureWrdeskChromeShim(): void {
     get lastError(): chrome.runtime.LastError | undefined {
       return lastError
     },
+    /** MV3 surface: no broadcast bridge in dashboard — no-op so callers don't crash on `.addListener`. */
+    onMessage: {
+      addListener: (_callback: unknown) => {
+        /* dashboard has no extension background; StepSession etc. guard or no-op */
+      },
+      removeListener: (_callback: unknown) => {
+        /* noop */
+      },
+      hasListener: (_callback: unknown) => false,
+    },
     sendMessage(message: unknown, responseCallback?: (response: unknown) => void): void {
       clearLastError()
       const msg = message && typeof message === 'object' ? (message as { type?: string }) : {}

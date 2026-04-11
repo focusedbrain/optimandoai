@@ -46,8 +46,14 @@ export function StepSession({
     const onMsg = (msg: { type?: string }) => {
       if (msg?.type === 'SESSION_DISPLAY_NAME_UPDATED') void load()
     }
-    chrome.runtime.onMessage.addListener(onMsg as Parameters<typeof chrome.runtime.onMessage.addListener>[0])
-    return () => chrome.runtime.onMessage.removeListener(onMsg as Parameters<typeof chrome.runtime.onMessage.addListener>[0])
+    const om = typeof chrome !== 'undefined' ? chrome.runtime?.onMessage : undefined
+    if (om?.addListener && om?.removeListener) {
+      om.addListener(onMsg as Parameters<typeof chrome.runtime.onMessage.addListener>[0])
+      return () => {
+        om.removeListener(onMsg as Parameters<typeof chrome.runtime.onMessage.addListener>[0])
+      }
+    }
+    return undefined
   }, [load])
 
   /** Custom modes always use shared session semantics; speech-bubble focus selects the mode like other triggers. */
