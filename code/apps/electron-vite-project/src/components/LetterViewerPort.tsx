@@ -19,6 +19,38 @@ function isImageFileName(name: string): boolean {
   )
 }
 
+const EXTRACTED_FIELD_ORDER = [
+  'sender_name',
+  'sender_address',
+  'recipient_name',
+  'recipient_address',
+  'date',
+  'subject',
+  'reference_number',
+  'salutation',
+  'body_summary',
+] as const
+
+const EXTRACTED_FIELD_LABELS: Record<(typeof EXTRACTED_FIELD_ORDER)[number], string> = {
+  sender_name: 'Sender name',
+  sender_address: 'Sender address',
+  recipient_name: 'Recipient name',
+  recipient_address: 'Recipient address',
+  date: 'Date',
+  subject: 'Subject',
+  reference_number: 'Reference no.',
+  salutation: 'Salutation',
+  body_summary: 'Summary',
+}
+
+const MULTILINE_FIELDS = new Set<string>(['sender_address', 'recipient_address', 'body_summary'])
+
+function getConfidenceLevel(c: number): 'high' | 'medium' | 'low' {
+  if (c >= 0.9) return 'high'
+  if (c >= 0.7) return 'medium'
+  return 'low'
+}
+
 async function saveLetterFileToStorage(
   file: File,
   api: NonNullable<typeof window.letterComposer>,
@@ -38,12 +70,14 @@ export function LetterViewerPort() {
   const activeLetterPage = useLetterComposerStore((s) => s.activeLetterPage)
   const setActiveLetterPage = useLetterComposerStore((s) => s.setActiveLetterPage)
   const addLetter = useLetterComposerStore((s) => s.addLetter)
+  const updateLetter = useLetterComposerStore((s) => s.updateLetter)
 
   const activeLetter =
     letters.find((l) => l.id === activeLetterId) ?? letters[letters.length - 1] ?? null
 
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [extractNote, setExtractNote] = useState<string | null>(null)
   const [isDragOver, setIsDragOver] = useState(false)
 
   useEffect(() => {
@@ -86,6 +120,7 @@ export function LetterViewerPort() {
       }
 
       setError(null)
+      setExtractNote(null)
       setBusy(true)
       try {
         let pages: LetterPage[] = []
@@ -135,6 +170,25 @@ export function LetterViewerPort() {
           }
         }
 
+        let extractedFields: Record<string, string> = {}
+        let confidence: Record<string, number> = {}
+        if (api.extractFromScan && api.normalizeExtracted) {
+          try {
+            const { raw } = await api.extractFromScan(fullText)
+            const norm = await api.normalizeExtracted(raw, fullText)
+            extractedFields = { ...norm.fields }
+            confidence = { ...norm.confidence }
+            if (norm.error) {
+              setExtractNote(norm.error)
+            }
+          } catch (ex) {
+            console.warn('[LetterViewerPort] extraction pipeline failed', ex)
+            setExtractNote(
+              ex instanceof Error ? ex.message : 'Field extraction failed; you can edit fields manually.',
+            )
+          }
+        }
+
         const letter: ScannedLetter = {
           id: crypto.randomUUID(),
           name: displayName,
@@ -142,6 +196,8 @@ export function LetterViewerPort() {
           sourceFilePath,
           pages,
           fullText,
+          extractedFields,
+          confidence,
           createdAt: new Date().toISOString(),
         }
         addLetter(letter)
@@ -200,6 +256,17 @@ export function LetterViewerPort() {
 
   const currentPage: LetterPage | undefined = activeLetter?.pages[activeLetterPage]
   const pageCount = activeLetter?.pages.length ?? 0
+
+  const onExtractedFieldChange = useCallback(
+    (key: string, value: string) => {
+      if (!activeLetter) return
+      updateLetter(activeLetter.id, {
+        extractedFields: { [key]: value },
+        confidence: { [key]: 1 },
+      })
+    },
+    [activeLetter, updateLetter],
+  )
 
   return (
     <div
@@ -274,7 +341,54 @@ export function LetterViewerPort() {
       )}
 
       {error && <p className="template-port__error">{error}</p>}
+      {extractNote && !error && (
+        <p className="letter-viewer__extract-note" role="status">
+          {extractNote}
+        </p>
+      )}
       {busy && <p className="template-port__status">Processing…</p>}
+
+      {activeLetter && Object.keys(activeLetter.extractedFields).length > 0 && (
+          <div className="extracted-fields">
+            <h5 className="extracted-fields__title">Extracted information</h5>
+            <p className="extracted-fields__hint">
+              Confidence is estimated; edit any field to mark it verified (100%).
+            </p>
+            {EXTRACTED_FIELD_ORDER.map((key) => {
+              const value = activeLetter.extractedFields[key] ?? ''
+              const conf = activeLetter.confidence[key] ?? 0
+              const level = getConfidenceLevel(conf)
+              const label = EXTRACTED_FIELD_LABELS[key]
+              const multiline = MULTILINE_FIELDS.has(key)
+              return (
+                <div key={key} className="extracted-field-row">
+                  <span className="extracted-field-row__label">{label}</span>
+                  {multiline ? (
+                    <textarea
+                      className="extracted-field-row__input extracted-field-row__input--multiline"
+                      value={value}
+                      rows={key === 'body_summary' ? 4 : 3}
+                      onChange={(e) => onExtractedFieldChange(key, e.target.value)}
+                    />
+                  ) : (
+                    <input
+                      type="text"
+                      className="extracted-field-row__input"
+                      value={value}
+                      onChange={(e) => onExtractedFieldChange(key, e.target.value)}
+                    />
+                  )}
+                  <span
+                    className={`confidence-badge confidence--${level}`}
+                    title="Model / rule confidence for this field"
+                  >
+                    {Math.round(conf * 100)}%
+                  </span>
+                </div>
+              )
+            })}
+          </div>
+        )}
 
       {activeLetter && pageCount > 0 && currentPage?.imageDataUrl && (
         <div className="letter-pages">

@@ -68,20 +68,81 @@ interface WrChatBridge {
   pickDirectory: () => Promise<string | null>
 }
 
+/** System LibreOffice `soffice` — detection and headless PDF conversion. */
+interface LibreOfficeBridge {
+  detect: () => Promise<{ available: boolean; path: string | null }>
+  convertToPdf: (
+    inputPath: string,
+    outputDir: string,
+  ) => Promise<{ ok: true; pdfPath: string } | { ok: false; error: string }>
+  resetDetection: () => Promise<{ ok: true }>
+}
+
 /** Letter Composer — preload `letter:*` IPC (.docx / .odt templates). */
 interface LetterComposerBridge {
   saveTemplateFromPath: (sourcePath: string, originalFileName: string) => Promise<string>
   saveTemplateBuffer: (fileName: string, data: ArrayBuffer) => Promise<string>
   /** DOCX via mammoth; ODT via content.xml (ZIP). */
   convertDocxToHtml: (filePath: string) => Promise<{ html: string; messages: unknown[] }>
+  /** Directory for LibreOffice PDF output (under app letter-composer storage). */
+  getConvertedPdfOutputDir: () => Promise<string>
+  /** Rasterize a PDF on disk to PNG data URLs (template mapping preview). */
+  renderPdfPages: (filePath: string) => Promise<{ pages: string[]; pageCount: number }>
+  detectTemplateFields: (filePath: string) => Promise<{
+    ok: boolean
+    fields: Array<{
+      name: string
+      label: string
+      type: string
+      mode: string
+      page: number
+      x: number
+      y: number
+      w: number
+      h: number
+    }>
+    error?: string
+  }>
   extractFields: (html: string) => Promise<unknown[]>
   exportFilledDocx: (payload: {
     sourcePath: string
-    fields: Array<{ id: string; placeholder: string; value: string }>
+    fields: Array<{ id: string; placeholder: string; value: string; anchorText?: string }>
     defaultName: string
   }) => Promise<{ success: boolean; canceled?: boolean; filePath?: string; error?: string }>
+  /** Filled DOCX → LibreOffice → save PDF (original .docx unchanged). */
+  exportFilledPdf: (payload: {
+    sourcePath: string
+    fields: Array<{ id: string; placeholder: string; value: string; anchorText?: string }>
+    defaultName: string
+  }) => Promise<{ success: boolean; canceled?: boolean; filePath?: string; error?: string }>
+  /** Filled DOCX → temp PDF → system print dialog (or default viewer fallback). */
+  printFilledLetter: (payload: {
+    sourcePath: string
+    fields: Array<{ id: string; placeholder: string; value: string; anchorText?: string }>
+  }) => Promise<{ success: boolean; error?: string }>
   saveLetterFromPath: (sourcePath: string, originalFileName: string) => Promise<string>
   saveLetterBuffer: (fileName: string, data: ArrayBuffer) => Promise<string>
+  /** Deterministic hints from letter OCR / PDF text (Layer 1). */
+  extractFromScan: (text: string) => Promise<{
+    raw: {
+      date: string | null
+      sender_lines: string[]
+      recipient_lines: string[]
+      subject_line: string | null
+      reference: string | null
+      salutation_line: string | null
+    }
+  }>
+  /** AI normalization + confidence (Layer 2); falls back to rules if model missing. */
+  normalizeExtracted: (
+    rawFields: unknown,
+    fullText: string,
+  ) => Promise<{
+    ok: boolean
+    fields: Record<string, string>
+    confidence: Record<string, number>
+    error?: string
+  }>
   processLetterPdf: (filePath: string) => Promise<{
     pages: Array<{ pageNumber: number; imageDataUrl: string; text: string }>
     fullText: string
@@ -226,4 +287,6 @@ interface Window {
   llm?: LlmBridge
   /** Dashboard Letter Composer — mammoth + Ollama field extraction in main process. */
   letterComposer?: LetterComposerBridge
+  /** User-installed LibreOffice — `soffice` detection and PDF conversion. */
+  libreoffice?: LibreOfficeBridge
 }

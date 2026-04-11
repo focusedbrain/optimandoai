@@ -21,7 +21,16 @@ function syncLetterComposerChatFocus() {
 
   if (lc.focusedPort === 'template') {
     const t = lc.templates.find((x) => x.id === lc.activeTemplateId)
-    const excerpt = (t?.renderedHtml ?? '').slice(0, 12_000)
+    const excerpt = t
+      ? [
+          `Letter template "${t.name}" (${t.pageCount} page(s), PDF preview).`,
+          t.fields.length
+            ? `Fields: ${t.fields.map((f) => `${f.label} (${f.name})`).join('; ')}`
+            : 'Field mapping not completed yet.',
+        ]
+          .join('\n')
+          .slice(0, 12_000)
+      : ''
     st.setChatFocusMode(
       { mode: 'letter-composer', startedAt },
       {
@@ -40,12 +49,21 @@ function syncLetterComposerChatFocus() {
     const letter = lc.letters.find((l) => l.id === lc.activeLetterId)
     const pageIdx = Math.max(0, lc.activeLetterPage)
     const page = letter?.pages[pageIdx]
-    const text = (page?.text ?? '').trim() || (letter?.fullText ?? '').slice(0, 12000)
+    const fullExcerpt = (letter?.fullText ?? '').trim().slice(0, 12_000)
+    const pageText = (page?.text ?? '').trim()
+    const text = fullExcerpt || pageText
+    const meta =
+      letter && Object.keys(letter.extractedFields).length > 0
+        ? `\n\nExtracted metadata (may need verification):\n${Object.entries(letter.extractedFields)
+            .filter(([, v]) => (v ?? '').trim().length > 0)
+            .map(([k, v]) => `- ${k}: ${v}`)
+            .join('\n')}`
+        : ''
     st.setChatFocusMode(
       { mode: 'letter-composer', startedAt },
       {
         letterComposerPort: 'letter',
-        letterComposerLetterPageText: text,
+        letterComposerLetterPageText: `${text}${meta}`,
       },
     )
   }

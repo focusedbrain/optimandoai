@@ -2,14 +2,16 @@
  * Letter Composer — DOCX → HTML (mammoth), ODT → HTML (content.xml via pizzip) + AI field extraction (Ollama).
  */
 
-import { ipcMain, app, dialog, BrowserWindow } from 'electron'
+import { ipcMain, app, dialog, BrowserWindow, shell } from 'electron'
 import path from 'path'
 import fs from 'fs'
 import crypto from 'crypto'
+import { pathToFileURL } from 'node:url'
 import type { ChatMessage } from '../llm/types'
 
 const TEMPLATES_SUBDIR = 'templates'
 const LETTERS_SUBDIR = 'letters'
+const CONVERTED_PDF_SUBDIR = 'converted-pdf'
 
 function letterComposerRoot(): string {
   return path.join(app.getPath('userData'), 'letter-composer')
@@ -23,9 +25,102 @@ function lettersDir(): string {
   return path.join(letterComposerRoot(), LETTERS_SUBDIR)
 }
 
+function convertedPdfDir(): string {
+  return path.join(letterComposerRoot(), CONVERTED_PDF_SUBDIR)
+}
+
 function ensureLetterComposerDirs(): void {
   fs.mkdirSync(templatesDir(), { recursive: true })
   fs.mkdirSync(lettersDir(), { recursive: true })
+  fs.mkdirSync(convertedPdfDir(), { recursive: true })
+}
+
+function exportStagingDir(): string {
+  ensureLetterComposerDirs()
+  const d = path.join(letterComposerRoot(), 'export-staging')
+  fs.mkdirSync(d, { recursive: true })
+  return d
+}
+
+type FillFieldPayload = {
+  id: string
+  placeholder: string
+  value: string
+  anchorText?: string
+}
+
+function normalizeFillFields(raw: unknown[]): FillFieldPayload[] {
+  return raw.map((item, i) => {
+    const o = item && typeof item === 'object' ? (item as Record<string, unknown>) : {}
+    return {
+      id: typeof o.id === 'string' ? o.id : `field_${i}`,
+      placeholder: typeof o.placeholder === 'string' ? o.placeholder : '',
+      value: typeof o.value === 'string' ? o.value : String(o.value ?? ''),
+      anchorText: typeof o.anchorText === 'string' ? o.anchorText : '',
+    }
+  })
+}
+
+/** Opens the OS print dialog for a PDF, or falls back to the default viewer. */
+function printPdfWithSystemDialog(pdfPath: string): Promise<void> {
+  return new Promise((resolve) => {
+    const win = new BrowserWindow({
+      show: false,
+      webPreferences: { sandbox: false },
+    })
+    const url = pathToFileURL(pdfPath).href
+    const fallback = () => {
+      try {
+        win.destroy()
+      } catch {
+        /* noop */
+      }
+      void shell.openPath(pdfPath).then(() => resolve())
+    }
+    const timer = setTimeout(fallback, 20_000)
+    win.webContents.once('did-fail-load', () => {
+      clearTimeout(timer)
+      fallback()
+    })
+    win.webContents.once('did-finish-load', () => {
+      try {
+        win.webContents.print({ silent: false, printBackground: true }, () => {
+          clearTimeout(timer)
+          try {
+            win.close()
+          } catch {
+            /* noop */
+          }
+          resolve()
+        })
+      } catch {
+        clearTimeout(timer)
+        fallback()
+      }
+    })
+    win.loadURL(url).catch(() => {
+      clearTimeout(timer)
+      fallback()
+    })
+  })
+}
+
+/** PDF produced by LibreOffice for template preview — must stay under letter-composer root. */
+function assertAllowedLetterComposerPdfPath(filePath: string): string {
+  ensureLetterComposerDirs()
+  const resolved = path.resolve(filePath)
+  const root = path.resolve(letterComposerRoot())
+  const rel = path.relative(root, resolved)
+  if (rel.startsWith('..') || path.isAbsolute(rel)) {
+    throw new Error('PDF path is outside letter-composer storage')
+  }
+  if (!fs.existsSync(resolved)) {
+    throw new Error('PDF file not found')
+  }
+  if (!resolved.toLowerCase().endsWith('.pdf')) {
+    throw new Error('Expected a PDF file')
+  }
+  return resolved
 }
 
 const TEMPLATE_EXT = /\.(docx|odt|doc|rtf|txt)$/i
@@ -187,14 +282,14 @@ export function registerLetterComposerIpcHandlers(): void {
       event,
       payload: {
         sourcePath: string
-        fields: Array<{ id: string; placeholder: string; value: string }>
+        fields: Array<{ id: string; placeholder: string; value: string; anchorText?: string }>
         defaultName: string
       },
     ) => {
       if (!payload || typeof payload !== 'object' || typeof payload.sourcePath !== 'string') {
         return { success: false, error: 'Invalid payload' }
       }
-      const fields = Array.isArray(payload.fields) ? payload.fields : []
+      const fields = normalizeFillFields(Array.isArray(payload.fields) ? payload.fields : [])
       if (!payload.sourcePath.toLowerCase().endsWith('.docx')) {
         return {
           success: false,
@@ -211,11 +306,14 @@ export function registerLetterComposerIpcHandlers(): void {
           ? payload.defaultName.trim().replace(/[^\w.\- ()[\]]+/g, '_')
           : 'filled-letter.docx'
       const name = baseName.toLowerCase().endsWith('.docx') ? baseName : `${baseName}.docx`
-      const win = BrowserWindow.fromWebContents(event.sender)
-      const { canceled, filePath } = await dialog.showSaveDialog(win ?? undefined, {
+      const bw = BrowserWindow.fromWebContents(event.sender)
+      const saveOpts = {
         defaultPath: path.join(app.getPath('downloads'), name),
         filters: [{ name: 'Word Document', extensions: ['docx'] }],
-      })
+      }
+      const { canceled, filePath } = bw
+        ? await dialog.showSaveDialog(bw, saveOpts)
+        : await dialog.showSaveDialog(saveOpts)
       if (canceled || !filePath) {
         return { success: false, canceled: true }
       }
@@ -272,6 +370,51 @@ export function registerLetterComposerIpcHandlers(): void {
       }
     }
     throw new Error('Unsupported template format')
+  })
+
+  ipcMain.handle('letter:getConvertedPdfOutputDir', async () => {
+    ensureLetterComposerDirs()
+    return convertedPdfDir()
+  })
+
+  ipcMain.handle('letter:renderPdfPages', async (_e, pdfPath: string) => {
+    if (typeof pdfPath !== 'string' || pdfPath.length > 4096) {
+      throw new Error('Invalid path')
+    }
+    const safe = assertAllowedLetterComposerPdfPath(pdfPath)
+    const { renderPdfFileToPngDataUrls } = await import('./templatePdfPreviewRender')
+    return renderPdfFileToPngDataUrls(safe)
+  })
+
+  ipcMain.handle('letter:detectFields', async (_e, pdfPath: string) => {
+    if (typeof pdfPath !== 'string' || pdfPath.length > 4096) {
+      return { ok: false, fields: [], error: 'Invalid path' }
+    }
+    try {
+      const safe = assertAllowedLetterComposerPdfPath(pdfPath)
+      const { detectTemplateFieldsFromPdfPath } = await import('./templateFieldDetect')
+      return await detectTemplateFieldsFromPdfPath(safe)
+    } catch (e) {
+      return {
+        ok: false,
+        fields: [],
+        error: e instanceof Error ? e.message : 'Field detection failed',
+      }
+    }
+  })
+
+  ipcMain.handle('letter:extractFromScan', async (_e, text: string) => {
+    if (typeof text !== 'string') {
+      return { raw: { date: null, sender_lines: [], recipient_lines: [], subject_line: null, reference: null, salutation_line: null } }
+    }
+    const { extractRawFromScanText } = await import('./letterScanExtract')
+    return extractRawFromScanText(text.slice(0, 500_000))
+  })
+
+  ipcMain.handle('letter:normalizeExtracted', async (_e, rawFields: unknown, fullText: string) => {
+    const ft = typeof fullText === 'string' ? fullText : ''
+    const { normalizeLetterScanExtraction } = await import('./letterScanNormalize')
+    return normalizeLetterScanExtraction(rawFields, ft.slice(0, 500_000))
   })
 
   ipcMain.handle('letter:extractFields', async (_e, html: string) => {
@@ -415,7 +558,142 @@ export function registerLetterComposerIpcHandlers(): void {
     return { pages, fullText }
   })
 
+  ipcMain.handle(
+    'letter:exportFilledPdf',
+    async (
+      event,
+      payload: {
+        sourcePath: string
+        fields: Array<{ id: string; placeholder: string; value: string; anchorText?: string }>
+        defaultName: string
+      },
+    ) => {
+      if (!payload || typeof payload !== 'object' || typeof payload.sourcePath !== 'string') {
+        return { success: false, error: 'Invalid payload' }
+      }
+      if (!payload.sourcePath.toLowerCase().endsWith('.docx')) {
+        return {
+          success: false,
+          error: 'PDF export is only available for Word (.docx) templates.',
+        }
+      }
+      const fields = normalizeFillFields(Array.isArray(payload.fields) ? payload.fields : [])
+      const safe = assertAllowedDocxPath(payload.sourcePath)
+      const buf = fs.readFileSync(safe)
+      const { fillDocxPlaceholders } = await import('./fillDocxPlaceholders')
+      const outBuf = fillDocxPlaceholders(buf, fields)
+      const staging = exportStagingDir()
+      const id = crypto.randomUUID()
+      const tempDocx = path.join(staging, `${id}-filled.docx`)
+      fs.writeFileSync(tempDocx, outBuf)
+      let pdfPath: string
+      try {
+        const { convertToPdf } = await import('../libreoffice/libreofficeService')
+        pdfPath = await convertToPdf(tempDocx, staging)
+      } catch (e) {
+        try {
+          fs.unlinkSync(tempDocx)
+        } catch {
+          /* noop */
+        }
+        const msg = e instanceof Error ? e.message : 'PDF conversion failed'
+        return { success: false, error: msg === 'LIBREOFFICE_NOT_FOUND' ? 'LibreOffice not found.' : msg }
+      }
+      try {
+        fs.unlinkSync(tempDocx)
+      } catch {
+        /* noop */
+      }
+      const baseName =
+        typeof payload.defaultName === 'string' && payload.defaultName.trim()
+          ? payload.defaultName.trim().replace(/[^\w.\- ()[\]]+/g, '_')
+          : 'filled-letter.pdf'
+      const name = baseName.toLowerCase().endsWith('.pdf') ? baseName : `${baseName}.pdf`
+      const bwPdf = BrowserWindow.fromWebContents(event.sender)
+      const pdfSaveOpts = {
+        defaultPath: path.join(app.getPath('downloads'), name),
+        filters: [{ name: 'PDF', extensions: ['pdf'] }],
+      }
+      const { canceled, filePath } = bwPdf
+        ? await dialog.showSaveDialog(bwPdf, pdfSaveOpts)
+        : await dialog.showSaveDialog(pdfSaveOpts)
+      if (canceled || !filePath) {
+        try {
+          fs.unlinkSync(pdfPath)
+        } catch {
+          /* noop */
+        }
+        return { success: false, canceled: true }
+      }
+      try {
+        fs.copyFileSync(pdfPath, filePath)
+      } finally {
+        try {
+          fs.unlinkSync(pdfPath)
+        } catch {
+          /* noop */
+        }
+      }
+      return { success: true, filePath }
+    },
+  )
+
+  ipcMain.handle(
+    'letter:printFilledLetter',
+    async (
+      _event,
+      payload: {
+        sourcePath: string
+        fields: Array<{ id: string; placeholder: string; value: string; anchorText?: string }>
+      },
+    ) => {
+      if (!payload || typeof payload !== 'object' || typeof payload.sourcePath !== 'string') {
+        return { success: false, error: 'Invalid payload' }
+      }
+      if (!payload.sourcePath.toLowerCase().endsWith('.docx')) {
+        return { success: false, error: 'Print from filled template requires a .docx source.' }
+      }
+      const fields = normalizeFillFields(Array.isArray(payload.fields) ? payload.fields : [])
+      const safe = assertAllowedDocxPath(payload.sourcePath)
+      const buf = fs.readFileSync(safe)
+      const { fillDocxPlaceholders } = await import('./fillDocxPlaceholders')
+      const outBuf = fillDocxPlaceholders(buf, fields)
+      const staging = exportStagingDir()
+      const id = crypto.randomUUID()
+      const tempDocx = path.join(staging, `${id}-filled.docx`)
+      fs.writeFileSync(tempDocx, outBuf)
+      let pdfPath: string
+      try {
+        const { convertToPdf } = await import('../libreoffice/libreofficeService')
+        pdfPath = await convertToPdf(tempDocx, staging)
+      } catch (e) {
+        try {
+          fs.unlinkSync(tempDocx)
+        } catch {
+          /* noop */
+        }
+        const msg = e instanceof Error ? e.message : 'PDF conversion failed'
+        return { success: false, error: msg === 'LIBREOFFICE_NOT_FOUND' ? 'LibreOffice not found.' : msg }
+      }
+      try {
+        fs.unlinkSync(tempDocx)
+      } catch {
+        /* noop */
+      }
+      try {
+        await printPdfWithSystemDialog(pdfPath)
+      } finally {
+        try {
+          fs.unlinkSync(pdfPath)
+        } catch {
+          /* noop */
+        }
+      }
+      return { success: true }
+    },
+  )
+
   console.log(
-    '[MAIN] Letter Composer IPC: templates + letters (saveLetter*, processPdf, processImage*)',
+    '[MAIN] Letter Composer IPC: templates + letters + template PDF preview (saveLetter*, processPdf, renderPdfPages, …)',
   )
 }

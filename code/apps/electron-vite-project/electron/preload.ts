@@ -1213,6 +1213,29 @@ contextBridge.exposeInMainWorld('letterComposer', {
       messages: unknown[]
     }>
   },
+  getConvertedPdfOutputDir: () =>
+    ipcRenderer.invoke('letter:getConvertedPdfOutputDir') as Promise<string>,
+  renderPdfPages: (filePath: string) =>
+    ipcRenderer.invoke('letter:renderPdfPages', assertFsPath(filePath, 'filePath')) as Promise<{
+      pages: string[]
+      pageCount: number
+    }>,
+  detectTemplateFields: (filePath: string) =>
+    ipcRenderer.invoke('letter:detectFields', assertFsPath(filePath, 'filePath')) as Promise<{
+      ok: boolean
+      fields: Array<{
+        name: string
+        label: string
+        type: string
+        mode: string
+        page: number
+        x: number
+        y: number
+        w: number
+        h: number
+      }>
+      error?: string
+    }>,
   extractFields: (html: string) => {
     if (typeof html !== 'string') {
       throw new Error('html: expected string')
@@ -1224,7 +1247,7 @@ contextBridge.exposeInMainWorld('letterComposer', {
   },
   exportFilledDocx: (payload: {
     sourcePath: string
-    fields: Array<{ id: string; placeholder: string; value: string }>
+    fields: Array<{ id: string; placeholder: string; value: string; anchorText?: string }>
     defaultName: string
   }) => {
     if (!payload || typeof payload !== 'object' || typeof payload.sourcePath !== 'string') {
@@ -1239,9 +1262,52 @@ contextBridge.exposeInMainWorld('letterComposer', {
         id: typeof f.id === 'string' ? f.id : String(f.id),
         placeholder: typeof f.placeholder === 'string' ? f.placeholder : '',
         value: typeof f.value === 'string' ? f.value : String(f.value ?? ''),
+        anchorText: typeof f.anchorText === 'string' ? f.anchorText : '',
       })),
       defaultName: typeof payload.defaultName === 'string' ? payload.defaultName : 'filled-letter.docx',
     }) as Promise<{ success: boolean; canceled?: boolean; filePath?: string; error?: string }>
+  },
+  exportFilledPdf: (payload: {
+    sourcePath: string
+    fields: Array<{ id: string; placeholder: string; value: string; anchorText?: string }>
+    defaultName: string
+  }) => {
+    if (!payload || typeof payload !== 'object' || typeof payload.sourcePath !== 'string') {
+      throw new Error('exportFilledPdf: expected sourcePath')
+    }
+    if (!Array.isArray(payload.fields)) {
+      throw new Error('exportFilledPdf: expected fields array')
+    }
+    return ipcRenderer.invoke('letter:exportFilledPdf', {
+      sourcePath: assertFsPath(payload.sourcePath, 'sourcePath'),
+      fields: payload.fields.map((f, i) => ({
+        id: typeof f.id === 'string' ? f.id : String(f.id),
+        placeholder: typeof f.placeholder === 'string' ? f.placeholder : '',
+        value: typeof f.value === 'string' ? f.value : String(f.value ?? ''),
+        anchorText: typeof f.anchorText === 'string' ? f.anchorText : '',
+      })),
+      defaultName: typeof payload.defaultName === 'string' ? payload.defaultName : 'filled-letter.pdf',
+    }) as Promise<{ success: boolean; canceled?: boolean; filePath?: string; error?: string }>
+  },
+  printFilledLetter: (payload: {
+    sourcePath: string
+    fields: Array<{ id: string; placeholder: string; value: string; anchorText?: string }>
+  }) => {
+    if (!payload || typeof payload !== 'object' || typeof payload.sourcePath !== 'string') {
+      throw new Error('printFilledLetter: expected sourcePath')
+    }
+    if (!Array.isArray(payload.fields)) {
+      throw new Error('printFilledLetter: expected fields array')
+    }
+    return ipcRenderer.invoke('letter:printFilledLetter', {
+      sourcePath: assertFsPath(payload.sourcePath, 'sourcePath'),
+      fields: payload.fields.map((f, i) => ({
+        id: typeof f.id === 'string' ? f.id : String(f.id),
+        placeholder: typeof f.placeholder === 'string' ? f.placeholder : '',
+        value: typeof f.value === 'string' ? f.value : String(f.value ?? ''),
+        anchorText: typeof f.anchorText === 'string' ? f.anchorText : '',
+      })),
+    }) as Promise<{ success: boolean; error?: string }>
   },
   saveLetterFromPath: (sourcePath: string, originalFileName: string) => {
     const p = assertFsPath(sourcePath, 'sourcePath')
@@ -1282,6 +1348,28 @@ contextBridge.exposeInMainWorld('letterComposer', {
       string
     >
   },
+  extractFromScan: (text: string) =>
+    ipcRenderer.invoke('letter:extractFromScan', typeof text === 'string' ? text : '') as Promise<{
+      raw: {
+        date: string | null
+        sender_lines: string[]
+        recipient_lines: string[]
+        subject_line: string | null
+        reference: string | null
+        salutation_line: string | null
+      }
+    }>,
+  normalizeExtracted: (rawFields: unknown, fullText: string) =>
+    ipcRenderer.invoke(
+      'letter:normalizeExtracted',
+      rawFields,
+      typeof fullText === 'string' ? fullText : '',
+    ) as Promise<{
+      ok: boolean
+      fields: Record<string, string>
+      confidence: Record<string, number>
+      error?: string
+    }>,
   processLetterPdf: (filePath: string) =>
     ipcRenderer.invoke('letter:processPdf', assertFsPath(filePath, 'filePath')) as Promise<{
       pages: Array<{ pageNumber: number; imageDataUrl: string; text: string }>
@@ -1305,6 +1393,19 @@ contextBridge.exposeInMainWorld('letterComposer', {
       fullText: string
     }>
   },
+})
+
+// ── LibreOffice — system `soffice` detection + headless PDF conversion (Letter Composer)
+contextBridge.exposeInMainWorld('libreoffice', {
+  detect: () =>
+    ipcRenderer.invoke('libreoffice:detect') as Promise<{ available: boolean; path: string | null }>,
+  convertToPdf: (inputPath: string, outputDir: string) =>
+    ipcRenderer.invoke(
+      'libreoffice:convertToPdf',
+      assertFsPath(inputPath, 'inputPath'),
+      assertFsPath(outputDir, 'outputDir'),
+    ) as Promise<{ ok: true; pdfPath: string } | { ok: false; error: string }>,
+  resetDetection: () => ipcRenderer.invoke('libreoffice:resetDetection') as Promise<{ ok: true }>,
 })
 
 // === TEMPORARY DEBUG LOG BRIDGE (remove before production) ===

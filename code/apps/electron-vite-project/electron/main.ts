@@ -15,6 +15,11 @@ import {
 } from './main/autosortDiagnostics'
 import { surfaceFromSource } from './wrChatSurface'
 import type { ChatMessage } from './main/llm/types'
+import {
+  detectLibreOffice,
+  convertToPdf,
+  resetLibreOfficeDetection,
+} from './main/libreoffice/libreofficeService'
 
 function stripDataUriPrefixForLlm(s: string): string {
   if (!s.startsWith('data:')) return s
@@ -2776,6 +2781,25 @@ app.whenReady().then(async () => {
         console.log('[MAIN] IPC handlers registered: letter:* (Letter Composer)')
       })
       .catch((e) => console.error('[MAIN] Letter Composer IPC registration failed:', e))
+
+    ipcMain.handle('libreoffice:detect', async () => {
+      const sofficePath = await detectLibreOffice()
+      return { available: !!sofficePath, path: sofficePath }
+    })
+    ipcMain.handle('libreoffice:convertToPdf', async (_e, inputPath: string, outputDir: string) => {
+      try {
+        const pdfPath = await convertToPdf(inputPath, outputDir)
+        return { ok: true as const, pdfPath }
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err)
+        return { ok: false as const, error: message }
+      }
+    })
+    ipcMain.handle('libreoffice:resetDetection', async () => {
+      resetLibreOfficeDetection()
+      return { ok: true as const }
+    })
+    console.log('[MAIN] IPC handlers registered: libreoffice:*')
 
     // ========== HANDSHAKE VIEW IPC HANDLERS (Dashboard) ==========
     /**
