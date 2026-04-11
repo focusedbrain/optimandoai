@@ -82,12 +82,8 @@ import '../../../styles/dashboard-tokens.css'
 import '../../../styles/dashboard-base.css'
 import './ProjectOptimizationPanel.css'
 import { ProjectAssistantConfigModal } from './ProjectAssistantConfigModal'
+import { PROJECT_ICON_CHOICES } from './projectIconChoices'
 
-/** Preset icons for project allocation (emoji strings). */
-const PROJECT_ICON_CHOICES = [
-  '🎯', '📊', '🚀', '⚡', '🔧', '💡', '📈', '🏗️', '🧪', '🔍',
-  '📋', '🛠️', '🎨', '📦', '🌐', '💻', '🔒', '📝', '⭐', '🏆',
-] as const
 
 // ── Global draft-insertion callback ───────────────────────────────────────────
 /**

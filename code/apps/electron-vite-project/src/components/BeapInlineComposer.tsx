@@ -59,6 +59,12 @@ export interface BeapInlineComposerProps {
   /** Pre-select handshake when opening from a reply flow */
 
   replyToHandshakeId?: string;
+
+  /**
+   * Full-width automation dashboard: hide inner title bar, match email composer rail width,
+   * expose Clear with primary actions (AnalysisCanvas supplies the back bar).
+   */
+  embedInDashboard?: boolean;
 }
 
 type LocalAttachment = {
@@ -129,6 +135,7 @@ export function BeapInlineComposer({
   onClose,
   onSent,
   replyToHandshakeId,
+  embedInDashboard = false,
 }: BeapInlineComposerProps) {
   const [deliveryMethod, setDeliveryMethod] = useState<DeliveryMethod>('p2p');
 
@@ -784,10 +791,11 @@ export function BeapInlineComposer({
 
   return (
     <div
+      className={embedInDashboard ? 'beap-inline-composer beap-inline-composer--dashboard' : 'beap-inline-composer'}
       style={{
         display: 'grid',
 
-        gridTemplateColumns: 'minmax(0, 1fr) 260px',
+        gridTemplateColumns: embedInDashboard ? 'minmax(0, 1fr) 380px' : 'minmax(0, 1fr) 260px',
 
         gap: 0,
 
@@ -821,6 +829,7 @@ export function BeapInlineComposer({
           overflow: 'hidden',
         }}
       >
+        {!embedInDashboard && (
         <div
           style={{
             display: 'flex',
@@ -880,6 +889,7 @@ export function BeapInlineComposer({
             </button>
           </div>
         </div>
+        )}
 
         <div
           style={{
@@ -1563,7 +1573,7 @@ export function BeapInlineComposer({
             </div>
           )}
 
-          <div style={{ display: 'flex', gap: 10, marginTop: 8 }}>
+          <div style={{ display: 'flex', gap: 10, marginTop: 8, flexWrap: 'wrap' }}>
             <button
               type="button"
               disabled={sending || sendSuccess}
@@ -1584,8 +1594,26 @@ export function BeapInlineComposer({
                 cursor: sending ? 'wait' : 'pointer',
               }}
             >
-              {sending ? 'Sending…' : 'Send BEAP™'}
+              {sending ? 'Sending…' : embedInDashboard ? '📤 Send BEAP Message' : 'Send BEAP™'}
             </button>
+
+            {embedInDashboard && (
+              <button
+                type="button"
+                onClick={resetForm}
+                style={{
+                  padding: '12px 16px',
+                  borderRadius: 8,
+                  border: '1px solid #d1d5db',
+                  background: '#ffffff',
+                  color: '#374151',
+                  cursor: 'pointer',
+                  fontWeight: 600,
+                }}
+              >
+                Clear
+              </button>
+            )}
 
             <button
               type="button"

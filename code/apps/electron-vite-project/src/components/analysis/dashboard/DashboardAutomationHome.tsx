@@ -1,6 +1,6 @@
 /**
  * Default Analysis dashboard hero — compact starter automations (existing app shell routes only).
- * Run / Edit invoke the same callbacks as App.tsx → AnalysisCanvas; no new pipelines.
+ * Run opens full-width compose on AnalysisCanvas (Email/BEAP); Edit and other cards unchanged.
  * Hero “+ Add Automation” dispatches the same wizard event as WrMultiTriggerBar.
  * Project WIKI: full-width row; Active Project select includes + Add Project WIKI (last option) → WRDESK_OPEN_PROJECT_ASSISTANT_CREATION.
  * same guards and triggerSnapshotOptimization as ProjectOptimizationPanel.
@@ -22,34 +22,8 @@ import { applyOptimizationGuardFallback, canRunOptimization } from '../../../lib
 import { triggerSnapshotOptimization } from '../../../lib/autoOptimizationEngine'
 import type { Project } from '../../../types/projectTypes'
 import { useProjectStore, type ComposerIconSlot } from '../../../stores/useProjectStore'
-import { useDraftRefineStore } from '../../../stores/useDraftRefineStore'
-import { EmailInlineComposer } from '../../EmailInlineComposer'
-import { BeapInlineComposer } from '../../BeapInlineComposer'
+import { PROJECT_ICON_CHOICES } from './projectIconChoices'
 import './DashboardAutomationHome.css'
-
-/** Matches {@link ProjectOptimizationPanel} PROJECT_ICON_CHOICES — duplicated per prompt (panel not imported). */
-const COMPOSER_ICON_CHOICES = [
-  '\u{1F3AF}',
-  '\u{1F4CA}',
-  '\u{1F680}',
-  '\u{26A1}',
-  '\u{1F527}',
-  '\u{1F4A1}',
-  '\u{1F4C8}',
-  '\u{1F3D7}\u{FE0F}',
-  '\u{1F9EA}',
-  '\u{1F50D}',
-  '\u{1F4CB}',
-  '\u{1F6E0}\u{FE0F}',
-  '\u{1F3A8}',
-  '\u{1F4E6}',
-  '\u{1F310}',
-  '\u{1F4BB}',
-  '\u{1F512}',
-  '\u{1F4DD}',
-  '\u{2B50}',
-  '\u{1F3C6}',
-] as const
 
 function ComposerIconPickerDialog({
   composerId,
@@ -106,7 +80,7 @@ function ComposerIconPickerDialog({
           Choose an icon to add this composer as a shortcut in the top bar. ({label})
         </p>
         <div className="dash-auto-home__icon-dialog-grid">
-          {COMPOSER_ICON_CHOICES.map((emoji) => {
+          {PROJECT_ICON_CHOICES.map((emoji) => {
             const selected = active === emoji
             return (
               <button
@@ -149,14 +123,10 @@ export type DashboardAutomationHomeProps = {
   onNavigateWrChat: () => void
   /** Batch mail + document triage surface. */
   onNavigateBulkInbox: () => void
-  /** Open inline Email Composer (dashboard hero) — no popup, no route change. */
+  /** Open full-width Email Composer (Analysis canvas) — no popup, no route change. */
   onOpenEmailComposer?: () => void
-  /** Open inline BEAP Composer (dashboard hero). */
+  /** Open full-width BEAP Composer (Analysis canvas). */
   onOpenBeapComposer?: () => void
-  /** Close inline composer and return to the four-card home. */
-  onCloseComposer?: () => void
-  /** When set, card grid is replaced by the corresponding inline composer shell. */
-  composeMode?: 'email' | 'beap' | null
 }
 
 type Accent = 'mail' | 'compose' | 'document' | 'beap'
@@ -172,52 +142,6 @@ type AutomationCardDef = {
   onEdit: () => void
   /** When set, Edit opens icon picker and allocated icon can show on the card. */
   composerId?: ComposerIconSlot
-}
-
-/**
- * Loads accounts via preload `listAccounts`; shows a notice when none are configured.
- * {@link EmailInlineComposer} still mounts (send stays disabled) so the layout matches the connected case.
- */
-function DashboardEmailAccountsNotice({ onGoToInbox }: { onGoToInbox?: () => void }) {
-  const [rowCount, setRowCount] = useState<number | null>(null)
-
-  useEffect(() => {
-    let cancelled = false
-    const run = async () => {
-      if (typeof window.emailAccounts?.listAccounts !== 'function') {
-        if (!cancelled) setRowCount(0)
-        return
-      }
-      try {
-        const res = await window.emailAccounts.listAccounts()
-        if (cancelled) return
-        const n = res.ok && Array.isArray(res.data) ? res.data.length : 0
-        setRowCount(n)
-      } catch {
-        if (!cancelled) setRowCount(0)
-      }
-    }
-    void run()
-    return () => {
-      cancelled = true
-    }
-  }, [])
-
-  if (rowCount === null) return null
-  if (rowCount > 0) return null
-
-  return (
-    <div className="email-provider-notice dash-auto-home__email-provider-notice" role="status">
-      <p className="dash-auto-home__email-provider-notice-text">
-        No email account connected. Set up an account in the Inbox first.
-      </p>
-      {onGoToInbox ? (
-        <button type="button" className="dash-auto-home__btn dash-auto-home__btn--primary" onClick={onGoToInbox}>
-          Open Inbox
-        </button>
-      ) : null}
-    </div>
-  )
 }
 
 /** Same derivation as useProjectStore.getActiveMilestone / selectActiveMilestone, per project. */
@@ -237,8 +161,6 @@ export function DashboardAutomationHome({
   onNavigateBulkInbox,
   onOpenEmailComposer,
   onOpenBeapComposer,
-  onCloseComposer,
-  composeMode = null,
 }: DashboardAutomationHomeProps) {
   const { projects, activeProjectId, setActiveProject, composerIcons } = useProjectStore(
     useShallow((s) => ({
@@ -391,10 +313,7 @@ export function DashboardAutomationHome({
   )
 
   return (
-    <div
-      className={['dash-auto-home', composeMode ? 'dash-auto-home--composer-open' : ''].filter(Boolean).join(' ')}
-      aria-label="Automation workspace"
-    >
+    <div className="dash-auto-home" aria-label="Automation workspace">
       {iconPickerTarget ? (
         <ComposerIconPickerDialog
           composerId={iconPickerTarget}
@@ -421,96 +340,43 @@ export function DashboardAutomationHome({
         </div>
       </header>
 
-      {composeMode === 'email' ? (
-        <div className="dashboard-composer-panel dash-auto-home__composer-panel" role="region" aria-label="Email composer">
-          <div className="dashboard-composer-header dash-auto-home__composer-header">
-            <button
-              type="button"
-              className="back-button dash-auto-home__composer-back"
-              onClick={() => {
-                useDraftRefineStore.getState().disconnect()
-                onCloseComposer?.()
-              }}
+      <div className="dash-auto-home__starters-grid automation-cards-grid" role="list">
+        {starterCards.map((card) => {
+          const allocated =
+            card.composerId && composerIcons[card.composerId]?.trim()
+              ? composerIcons[card.composerId]!.trim()
+              : null
+          return (
+            <article
+              key={card.id}
+              role="listitem"
+              className={['dash-auto-home__starter', `dash-auto-home__starter--accent-${card.accent}`].join(' ')}
             >
-              ← Back to Automation Workspace
-            </button>
-            <h3 className="dash-auto-home__composer-heading">Email Composer</h3>
-          </div>
-          <div className="dashboard-composer-content dash-auto-home__composer-content">
-            <DashboardEmailAccountsNotice onGoToInbox={onNavigateInbox} />
-            <div className="dash-auto-home__email-inline-composer-wrap">
-              <EmailInlineComposer
-                onClose={() => onCloseComposer?.()}
-                onSent={() => onCloseComposer?.()}
-              />
-            </div>
-          </div>
-        </div>
-      ) : composeMode === 'beap' ? (
-        <div className="dashboard-composer-panel dash-auto-home__composer-panel" role="region" aria-label="BEAP composer">
-          <div className="dashboard-composer-header dash-auto-home__composer-header">
-            <button
-              type="button"
-              className="back-button dash-auto-home__composer-back"
-              onClick={() => {
-                useDraftRefineStore.getState().disconnect()
-                onCloseComposer?.()
-              }}
-            >
-              ← Back to Automation Workspace
-            </button>
-            <h3 className="dash-auto-home__composer-heading">BEAP Composer</h3>
-          </div>
-          <div className="dashboard-composer-content dash-auto-home__composer-content">
-            <DashboardEmailAccountsNotice onGoToInbox={onNavigateInbox} />
-            <div className="dash-auto-home__email-inline-composer-wrap">
-              <BeapInlineComposer
-                onClose={() => onCloseComposer?.()}
-                onSent={() => onCloseComposer?.()}
-              />
-            </div>
-          </div>
-        </div>
-      ) : (
-        <div className="dash-auto-home__starters-grid automation-cards-grid" role="list">
-          {starterCards.map((card) => {
-            const allocated =
-              card.composerId && composerIcons[card.composerId]?.trim()
-                ? composerIcons[card.composerId]!.trim()
-                : null
-            return (
-              <article
-                key={card.id}
-                role="listitem"
-                className={['dash-auto-home__starter', `dash-auto-home__starter--accent-${card.accent}`].join(' ')}
-              >
-                <div className="dash-auto-home__starter-top">
-                  <span className="dash-auto-home__starter-icon-wrap" aria-hidden>
-                    <span className="dash-auto-home__starter-icon">{card.icon}</span>
-                    {allocated ? (
-                      <span className="dash-auto-home__starter-icon-allocated" title="Shortcut icon">
-                        {allocated}
-                      </span>
-                    ) : null}
-                  </span>
-                  <h3 className="dash-auto-home__starter-title">{card.title}</h3>
-                </div>
-                <p className="dash-auto-home__starter-value">{card.valueLine}</p>
-                <div className="dash-auto-home__starter-actions">
-                  <button type="button" className="dash-auto-home__btn dash-auto-home__btn--primary" onClick={card.onRun}>
-                    Run
-                  </button>
-                  <button type="button" className="dash-auto-home__btn dash-auto-home__btn--ghost" onClick={card.onEdit}>
-                    Edit
-                  </button>
-                </div>
-              </article>
-            )
-          })}
-        </div>
-      )}
+              <div className="dash-auto-home__starter-top">
+                <span className="dash-auto-home__starter-icon-wrap" aria-hidden>
+                  <span className="dash-auto-home__starter-icon">{card.icon}</span>
+                  {allocated ? (
+                    <span className="dash-auto-home__starter-icon-allocated" title="Shortcut icon">
+                      {allocated}
+                    </span>
+                  ) : null}
+                </span>
+                <h3 className="dash-auto-home__starter-title">{card.title}</h3>
+              </div>
+              <p className="dash-auto-home__starter-value">{card.valueLine}</p>
+              <div className="dash-auto-home__starter-actions">
+                <button type="button" className="dash-auto-home__btn dash-auto-home__btn--primary" onClick={card.onRun}>
+                  Run
+                </button>
+                <button type="button" className="dash-auto-home__btn dash-auto-home__btn--ghost" onClick={card.onEdit}>
+                  Edit
+                </button>
+              </div>
+            </article>
+          )
+        })}
+      </div>
 
-      {!composeMode ? (
       <section
         className="dash-auto-home__wiki"
         aria-labelledby="dash-auto-home-wiki-heading"
@@ -594,7 +460,6 @@ export function DashboardAutomationHome({
           ) : null}
         </div>
       </section>
-      ) : null}
     </div>
   )
 }

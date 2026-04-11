@@ -58,6 +58,9 @@ export const WRDESK_OPEN_PROJECT_ASSISTANT_CREATION = 'wrdesk-open-project-assis
  */
 export const WRDESK_TRIGGER_SYNC_AUTO_OPTIMIZER_PROJECT = 'wrdesk-trigger-sync-auto-optimizer-project'
 
+/** Renderer: Email/BEAP composer icon allocation changed — refresh trigger bar shortcut list. */
+export const WRDESK_COMPOSER_SHORTCUTS_UPDATED = 'wrdesk-composer-shortcuts-updated'
+
 export type WrMultiTriggerBarProps = {
   theme?: string
   /** Fires whenever the selected trigger row (watchdog vs project) changes — for dashboard gating. */
@@ -188,6 +191,12 @@ export default function WrMultiTriggerBar({
 
   useEffect(() => {
     void refreshProjects()
+  }, [refreshProjects])
+
+  useEffect(() => {
+    const onComposerIcons = () => void refreshProjects()
+    window.addEventListener(WRDESK_COMPOSER_SHORTCUTS_UPDATED, onComposerIcons)
+    return () => window.removeEventListener(WRDESK_COMPOSER_SHORTCUTS_UPDATED, onComposerIcons)
   }, [refreshProjects])
 
   useEffect(() => {

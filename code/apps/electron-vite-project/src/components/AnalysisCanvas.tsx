@@ -47,9 +47,12 @@ import {
 import { useAnalysisDashboardSnapshot } from '../lib/useAnalysisDashboardSnapshot'
 import { activeEmailAccountIdsForSync, useEmailInboxStore } from '../stores/useEmailInboxStore'
 import { useProjectStore, selectActiveProject } from '../stores/useProjectStore'
+import { useDraftRefineStore } from '../stores/useDraftRefineStore'
 import { pickDefaultEmailAccountRowId } from '@ext/shared/email/pickDefaultAccountRow'
 import type { TriggerFunctionId } from '@ext/types/triggerTypes'
 import { WRDESK_TRIGGER_SYNC_AUTO_OPTIMIZER_PROJECT } from '@ext/ui/components'
+import { DashboardEmailComposer } from './DashboardEmailComposer'
+import { DashboardBeapComposer } from './DashboardBeapComposer'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -254,7 +257,48 @@ export default function AnalysisCanvas({
     queueMicrotask(() => onDeepLinkConsumed?.())
   }, [deepLinkPayload, onDeepLinkConsumed])
 
+  const closeDashboardCompose = useCallback(() => {
+    useDraftRefineStore.getState().disconnect()
+    onDashboardComposeModeChange?.(null)
+  }, [onDashboardComposeModeChange])
+
   // ── Render ─────────────────────────────────────────────────────────────────
+  if (dashboardComposeMode === 'email') {
+    return (
+      <div className="analysis-canvas" style={{ backgroundColor: '#F8F8F7', color: '#1C1C1A' }}>
+        <div className="analysis-canvas__dashboard analysis-canvas__dashboard--compose-fullwidth">
+          <div className="dashboard-composer-fullwidth dashboard-composer-fullwidth--email">
+            <div className="dashboard-composer-topbar">
+              <button type="button" onClick={closeDashboardCompose}>
+                ← Back to Automation Workspace
+              </button>
+              <h3>Email Composer</h3>
+            </div>
+            <DashboardEmailComposer onClose={closeDashboardCompose} />
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  if (dashboardComposeMode === 'beap') {
+    return (
+      <div className="analysis-canvas" style={{ backgroundColor: '#F8F8F7', color: '#1C1C1A' }}>
+        <div className="analysis-canvas__dashboard analysis-canvas__dashboard--compose-fullwidth">
+          <div className="dashboard-composer-fullwidth dashboard-composer-fullwidth--email">
+            <div className="dashboard-composer-topbar">
+              <button type="button" onClick={closeDashboardCompose}>
+                ← Back to Automation Workspace
+              </button>
+              <h3>BEAP Composer</h3>
+            </div>
+            <DashboardBeapComposer onClose={closeDashboardCompose} />
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="analysis-canvas" style={{ backgroundColor: '#F8F8F7', color: '#1C1C1A' }}>
       {/* StatusBadge — hidden via CSS but preserved for canvas state flags */}
@@ -318,8 +362,6 @@ export default function AnalysisCanvas({
                 onNavigateBulkInbox={() => onOpenBulkInboxForAnalysis?.()}
                 onOpenEmailComposer={() => onDashboardComposeModeChange?.('email')}
                 onOpenBeapComposer={() => onDashboardComposeModeChange?.('beap')}
-                onCloseComposer={() => onDashboardComposeModeChange?.(null)}
-                composeMode={dashboardComposeMode}
               />
             )}
           </div>

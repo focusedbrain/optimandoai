@@ -20,6 +20,15 @@ import type {
   ProjectAttachment,
   ProjectMilestone,
 } from '../types/projectTypes'
+import { WRDESK_COMPOSER_SHORTCUTS_UPDATED } from '@ext/ui/components/wrMultiTrigger/WrMultiTriggerBar'
+
+function notifyComposerShortcutsUpdated(): void {
+  try {
+    window.dispatchEvent(new CustomEvent(WRDESK_COMPOSER_SHORTCUTS_UPDATED))
+  } catch {
+    /* noop */
+  }
+}
 
 // Re-export for convenience — do NOT rewrite the original store.
 export {
@@ -304,14 +313,17 @@ export const useProjectStore = create<ProjectState & ProjectActions>()(
         set((s) => ({
           composerIcons: { ...(s.composerIcons ?? {}), [composerId]: trimmed },
         }))
+        notifyComposerShortcutsUpdated()
       },
 
-      clearComposerIcon: (composerId) =>
+      clearComposerIcon: (composerId) => {
         set((s) => {
           const prev = s.composerIcons ?? {}
           const { [composerId]: _removed, ...rest } = prev
           return { composerIcons: rest }
-        }),
+        })
+        notifyComposerShortcutsUpdated()
+      },
 
       // ── Auto-optimization ─────────────────────────────────────────────────
       setAutoOptimization: (projectId, enabled) =>
