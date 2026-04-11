@@ -110,6 +110,70 @@ describe('InputCoordinator.evaluateAgentListener', () => {
     expect(r.matchType).toBe('expected_context')
     expect(r.matchesExpectedContext).toBe(true)
   })
+
+  const modeRunOpts = {
+    modeExecution: true as const,
+    modeLinkedSessionId: 'linked-session-1',
+    currentOrchestratorSessionId: 'linked-session-1',
+  }
+
+  it('enabled mode_trigger: mode execution with matching sessions matches', () => {
+    const agent = baseAgent({
+      listening: {
+        unifiedTriggers: [{ id: 't1', type: 'mode_trigger', enabled: true }],
+      },
+    })
+    const r = ic.evaluateAgentListener(agent, '', 'text', false, [], undefined, modeRunOpts)
+    expect(r.matchType).toBe('active_trigger')
+    expect(r.matchedTriggerName).toBe('mode')
+  })
+
+  it('mode_trigger without enabled field is treated as enabled', () => {
+    const agent = baseAgent({
+      listening: {
+        unifiedTriggers: [{ id: 't1', type: 'mode_trigger' }],
+      },
+    })
+    const r = ic.evaluateAgentListener(agent, '', 'text', false, [], undefined, modeRunOpts)
+    expect(r.matchType).toBe('active_trigger')
+  })
+
+  it('disabled mode_trigger: does not satisfy listener gate when it is the only trigger', () => {
+    const agent = baseAgent({
+      capabilities: [],
+      listening: {
+        unifiedTriggers: [{ id: 't1', type: 'mode_trigger', enabled: false }],
+      },
+    })
+    const r = ic.evaluateAgentListener(agent, '', 'text', false, [], undefined, modeRunOpts)
+    expect(r.matchType).toBe('none')
+  })
+
+  it('disabled mode_trigger: mode execution does not match when listening capability carries the gate', () => {
+    const agent = baseAgent({
+      capabilities: ['listening'],
+      listening: {
+        unifiedTriggers: [{ id: 't1', type: 'mode_trigger', enabled: false }],
+      },
+    })
+    const r = ic.evaluateAgentListener(agent, '', 'text', false, [], undefined, modeRunOpts)
+    expect(r.matchType).toBe('none')
+  })
+
+  it('WR Chat still matches when mode_trigger is disabled in the same config', () => {
+    const agent = baseAgent({
+      listening: {
+        unifiedTriggers: [
+          { id: 'm1', type: 'mode_trigger', enabled: false },
+          { id: 'w1', type: 'wrchat', tag: 'a1' },
+        ],
+      },
+    })
+    const inputTriggers = ic.extractTriggerPatterns('#a1 hello')
+    const r = ic.evaluateAgentListener(agent, '#a1 hello', 'text', false, inputTriggers)
+    expect(r.matchType).not.toBe('none')
+    expect(r.matchedTriggerName).toBe('a1')
+  })
 })
 
 describe('SHOW_TRIGGER_PROMPT surface gating (pure)', () => {

@@ -11981,6 +11981,19 @@ function initializeExtension() {
 
   }
 
+  /**
+   * Default unified trigger when opening AI Instructions for an agent with **no** saved config and **no** draft.
+   * Intentionally not applied when any persisted JSON exists (including `{}`) and not when a draft is loaded.
+   */
+  function createDefaultModeTriggerForNewAgentListener(): any {
+    return {
+      id: 'ID#mode-default',
+      type: 'mode_trigger',
+      enabled: true,
+      channel: 'chat',
+    }
+  }
+
   function openAgentConfigDialog(agentName: string, type: string, parentOverlay: HTMLElement, agentScope = 'session', agentNumber?: string | number) {
 
 
@@ -12149,9 +12162,17 @@ function initializeExtension() {
 
               console.warn('⚠️ No existing data found in session')
 
-              // CRITICAL: For new agents, mark first render as complete immediately
-
-              isFirstRender = false
+              // New AI Instructions only: seed default Mode Trigger. Keep isFirstRender true so first render()
+              // skips syncPersistedFromDom and does not overwrite the seed.
+              if (type === 'instructions') {
+                previouslySavedData = {
+                  listening: {
+                    unifiedTriggers: [createDefaultModeTriggerForNewAgentListener()],
+                  },
+                }
+              } else {
+                isFirstRender = false
+              }
 
 
             }
@@ -12415,6 +12436,8 @@ function initializeExtension() {
                 }
                 if (type === 'mode_trigger') {
                   trigger.channel = 'chat'
+                  const modeEn = row.querySelector('.trigger-mode-enabled') as HTMLInputElement | null
+                  if (modeEn) trigger.enabled = modeEn.checked
                 }
                 if (type === 'direct_tag' || type === 'tag_and_condition') {
                   // New structured format for Event Tag triggers
@@ -13871,6 +13894,8 @@ function initializeExtension() {
               }
               if (type === 'mode_trigger') {
                 trigger.channel = 'chat'
+                const modeEn = row.querySelector('.trigger-mode-enabled') as HTMLInputElement | null
+                if (modeEn) trigger.enabled = modeEn.checked
               }
               if (type === 'direct_tag' || type === 'tag_and_condition') {
                 // New structured format for Event Tag triggers
@@ -16129,6 +16154,8 @@ function initializeExtension() {
           // Function to render type-specific fields
           const renderFieldsForType = (type: string) => {
             fieldsContainer.innerHTML = ''
+            row.classList.remove('unified-trigger-row--mode-aux')
+            row.style.cssText = `background:rgba(255,255,255,0.05);border:1px solid ${csTheme().border};border-radius:8px;padding:12px`
             
             if (type === 'wrchat') {
               // ========== WR CHAT TRIGGER ==========
@@ -16164,24 +16191,56 @@ function initializeExtension() {
             }
 
             if (type === 'mode_trigger') {
-              const modeSection = document.createElement('div')
-              modeSection.className = 'trigger-section'
-              modeSection.style.cssText =
-                'margin-bottom:12px;padding:12px;background:#f5f3ff;border:1px solid #c4b5fd;border-radius:8px'
-              modeSection.innerHTML = `
-                <div style="font-weight:600;font-size:13px;color:#5b21b6;margin-bottom:8px;display:flex;align-items:center;gap:6px">
-                  <span style="font-size:14px">⚡</span> <span style="color:#0f172a">Mode Trigger</span>
+              row.classList.add('unified-trigger-row--mode-aux')
+              row.style.cssText = `background:rgba(148,163,184,0.07);border:1px solid rgba(148,163,184,0.35);border-radius:8px;padding:10px`
+              const wrap = document.createElement('div')
+              wrap.style.cssText = 'display:flex;flex-direction:column;gap:8px'
+              const collapsedBar = document.createElement('div')
+              collapsedBar.style.cssText =
+                'display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:8px 10px;background:rgba(148,163,184,0.14);border:1px solid rgba(148,163,184,0.28);border-radius:8px'
+              const summary = document.createElement('div')
+              summary.style.cssText = 'font-size:11px;color:#64748b;line-height:1.45;flex:1;min-width:200px'
+              summary.textContent = 'Default mode/session trigger — not a chat tag trigger.'
+              const expandBtn = document.createElement('button')
+              expandBtn.type = 'button'
+              expandBtn.className = 'mode-trigger-expand-btn'
+              expandBtn.textContent = 'Show details'
+              expandBtn.setAttribute('aria-expanded', 'false')
+              expandBtn.style.cssText = `flex-shrink:0;background:${csTheme().inputBg};border:1px solid ${csTheme().border};color:${csTheme().text};padding:4px 10px;border-radius:6px;cursor:pointer;font-size:11px`
+              const details = document.createElement('div')
+              details.className = 'mode-trigger-details'
+              details.style.cssText = 'display:none;padding:12px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px'
+              details.innerHTML = `
+                <div style="font-weight:600;font-size:13px;color:#0f172a;margin-bottom:8px;display:flex;align-items:center;gap:6px">
+                  <span aria-hidden="true">&#9889;</span> Mode Trigger
                 </div>
-                <div style="font-size:12px;color:#334155;line-height:1.5;padding:8px;background:#ede9fe;border-radius:6px">
-                  <div style="margin-bottom:8px">
-                    Use this when a user-defined mode should run agents in its linked orchestrator session. It fires when the mode, once set up in the Add Mode wizard, is triggered manually or by interval.
-                  </div>
-                  <div style="font-size:11px;color:#64748b">
-                    No extra fields are required. Session mapping is automatic.
-                  </div>
-                </div>
+                <p style="margin:0 0 10px;font-size:12px;color:#334155;line-height:1.55">
+                  Enabled by default so this agent can participate in matching mode/session runs. This does not make the agent respond to chat tags by itself.
+                </p>
+                <p style="margin:0 0 10px;font-size:11px;color:#64748b;line-height:1.5;padding:8px;background:#f1f5f9;border-radius:6px">
+                  This row is separate from the optional <strong>trigger bar icon</strong> on a custom automation in the Add Mode wizard—that icon only controls whether the automation appears in the WR Chat header row.
+                </p>
+                <p style="margin:0 0 12px;font-size:11px;color:#475569;line-height:1.5">
+                  Turn off <strong>Include in mode/session runs</strong> only if the agent should never be included in mode-driven runs and should respond only through its primary triggers (for example WR Chat or event tags).
+                </p>
               `
-              fieldsContainer.appendChild(modeSection)
+              const enLabel = document.createElement('label')
+              enLabel.style.cssText =
+                'display:flex;align-items:flex-start;gap:8px;cursor:pointer;font-size:12px;color:#0f172a;line-height:1.4'
+              const enChecked = init?.enabled !== false
+              enLabel.innerHTML = `<input type="checkbox" class="trigger-mode-enabled" ${enChecked ? 'checked' : ''} style="width:16px;height:16px;margin-top:2px;flex-shrink:0"><span>Include in mode/session runs</span>`
+              details.appendChild(enLabel)
+              expandBtn.addEventListener('click', () => {
+                const open = details.style.display !== 'none'
+                details.style.display = open ? 'none' : 'block'
+                expandBtn.textContent = open ? 'Show details' : 'Hide details'
+                expandBtn.setAttribute('aria-expanded', open ? 'false' : 'true')
+              })
+              collapsedBar.appendChild(summary)
+              collapsedBar.appendChild(expandBtn)
+              wrap.appendChild(collapsedBar)
+              wrap.appendChild(details)
+              fieldsContainer.appendChild(wrap)
             }
             
             if (type === 'direct_tag' || type === 'tag_and_condition') {
@@ -19790,6 +19849,10 @@ function initializeExtension() {
                       
                       // Wait for type change to render fields, then populate them
                       setTimeout(() => {
+                        if (trigger.type === 'mode_trigger') {
+                          const modeEn = row.querySelector('.trigger-mode-enabled') as HTMLInputElement
+                          if (modeEn) modeEn.checked = trigger.enabled !== false
+                        }
                         // Set tag value
                         const tagInput = row.querySelector('.trigger-tag') as HTMLInputElement
                         if (tagInput && (trigger.tag || trigger.tagName)) {
@@ -23471,6 +23534,8 @@ function initializeExtension() {
               trigger.channel = 'chat'
             } else if (type === 'mode_trigger') {
               trigger.channel = 'chat'
+              const modeEn = row.querySelector('.trigger-mode-enabled') as HTMLInputElement | null
+              if (modeEn) trigger.enabled = modeEn.checked
             } else if (type === 'direct_tag' || type === 'tag_and_condition') {
               trigger.tag = tagValue.startsWith('#') ? tagValue : `#${tagValue}`
               trigger.tagName = tagValue.replace('#', '')

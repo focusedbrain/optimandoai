@@ -27,6 +27,14 @@ function isModeTriggerType(type: unknown): boolean {
   return type.replace(/-/g, '_').toLowerCase() === 'mode_trigger'
 }
 
+/**
+ * Unified / legacy trigger rows: `enabled` omitted means on (canonical + AI Instructions export).
+ * Only explicit `false` turns a trigger off for gating and mode-run eligibility.
+ */
+function isTriggerRowEnabled(tr: { enabled?: unknown }): boolean {
+  return tr.enabled !== false
+}
+
 function normalizeSessionKey(s: string | null | undefined): string {
   return (s ?? '').trim()
 }
@@ -269,15 +277,20 @@ export class InputCoordinator {
     return false
   }
 
-  /** True if any unified/listener trigger is Mode Trigger (execution mode manual / interval). */
+  /**
+   * True if any **enabled** unified/listener trigger is Mode Trigger (mode/session execution hook).
+   * Disabled rows (`enabled: false`) are ignored so UI toggle matches routing.
+   */
   hasModeTrigger(agent: AgentConfig): boolean {
     const listening = agent.listening
     if (!listening) return false
     for (const tr of listening.unifiedTriggers ?? []) {
-      if (isModeTriggerType((tr as { type?: unknown }).type)) return true
+      const row = tr as { type?: unknown; enabled?: unknown }
+      if (isModeTriggerType(row.type) && isTriggerRowEnabled(row)) return true
     }
     for (const tr of listening.triggers ?? []) {
-      if (isModeTriggerType((tr as { type?: unknown }).type)) return true
+      const row = tr as { type?: unknown; enabled?: unknown }
+      if (isModeTriggerType(row.type) && isTriggerRowEnabled(row)) return true
     }
     return false
   }
@@ -298,9 +311,10 @@ export class InputCoordinator {
    *
    * WR Chat triggers (`type` wrchat / WRChat / wr-chat) grant the listener gate without
    * `capabilities` containing `listening`, matching the AI Instructions UI.
-   * Mode Trigger (`mode_trigger`) is separate from WR Chat: it grants the listener gate on its own
+   * Mode Trigger (`mode_trigger`) is separate from WR Chat: an enabled one grants the listener gate on its own
    * and only matches when execution is from the custom mode and the mode’s wizard session matches
    * the active orchestrator session (see `opts.modeLinkedSessionId` / `currentOrchestratorSessionId`).
+   * Rows with `enabled: false` are ignored for this gate and for the mode-run branch.
    */
   evaluateAgentListener(
     agent: AgentConfig,

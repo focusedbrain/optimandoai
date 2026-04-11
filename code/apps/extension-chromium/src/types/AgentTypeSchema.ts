@@ -389,7 +389,7 @@ export const TriggerElementsSchema: Record<string, SchemaNode> = {
     default: 'direct_tag',
     parentId: 'agent.listening.trigger',
     enumOptions: [
-      { value: 'mode_trigger', label: 'Mode Trigger', description: 'When the agent run starts from execution mode (manual run or interval)' },
+      { value: 'mode_trigger', label: 'Mode Trigger', description: 'Default helper: allows this agent to participate when mode/session execution routing matches. Does not activate on WR Chat #tags by itself. Not the same as the optional trigger-bar icon on a custom automation (Add Mode wizard).' },
       { value: 'direct_tag', label: 'Event Tag', description: 'Activate on #hashtag detection' },
       { value: 'tag_and_condition', label: 'Tag + Conditions', description: 'Tag with additional conditions' },
       { value: 'workflow_condition', label: 'Workflow Condition', description: 'Activate based on workflow output' },
