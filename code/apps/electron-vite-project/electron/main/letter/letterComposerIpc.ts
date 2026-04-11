@@ -3,7 +3,6 @@
  */
 
 import { ipcMain, app, dialog, BrowserWindow, shell } from 'electron'
-import type { FSWatcher } from 'fs'
 import path from 'path'
 import fs from 'fs'
 import crypto from 'crypto'
@@ -42,9 +41,6 @@ function exportStagingDir(): string {
   fs.mkdirSync(d, { recursive: true })
   return d
 }
-
-type TemplateWatchEntry = { watcher: FSWatcher; debounce?: NodeJS.Timeout }
-const templateFileWatchers = new Map<string, TemplateWatchEntry>()
 
 type FillFieldPayload = {
   id: string
@@ -390,126 +386,13 @@ export function registerLetterComposerIpcHandlers(): void {
     return renderPdfFileToPngDataUrls(safe)
   })
 
-  ipcMain.handle('letter:openInLibreOffice', async (_e, filePath: string) => {
-    if (typeof filePath !== 'string' || filePath.length > 4096) {
-      return { ok: false as const, error: 'Invalid path' }
+  ipcMain.handle('letter:extractPdfTextPositions', async (_e, pdfPath: string) => {
+    if (typeof pdfPath !== 'string' || pdfPath.length > 4096) {
+      throw new Error('Invalid path')
     }
-    try {
-      const safe = assertAllowedTemplatePath(filePath)
-      const { detectLibreOffice } = await import('../libreoffice/libreofficeService')
-      const sofficePath = await detectLibreOffice()
-      if (!sofficePath) {
-        return { ok: false as const, error: 'LIBREOFFICE_NOT_FOUND' }
-      }
-      const { spawn } = await import('child_process')
-      const child = spawn(sofficePath, [safe], {
-        detached: true,
-        stdio: 'ignore',
-        windowsHide: false,
-      })
-      child.unref()
-      return { ok: true as const }
-    } catch (e) {
-      return { ok: false as const, error: e instanceof Error ? e.message : 'Open failed' }
-    }
-  })
-
-  ipcMain.handle('letter:scanPlaceholders', async (_e, filePath: string) => {
-    if (typeof filePath !== 'string' || filePath.length > 4096) {
-      return {
-        ok: false as const,
-        fields: [] as Array<{ name: string; placeholder: string }>,
-        error: 'Invalid path',
-      }
-    }
-    let cleanupDir: string | null = null
-    try {
-      const safe = assertAllowedTemplatePath(filePath)
-      const ext = path.extname(safe).slice(1).toLowerCase()
-      let docxPath = safe
-      if (ext !== 'docx') {
-        const { convertToDocx } = await import('../libreoffice/libreofficeService')
-        docxPath = await convertToDocx(safe)
-        cleanupDir = path.dirname(docxPath)
-      }
-      const content = fs.readFileSync(docxPath)
-      const PizZip = (await import('pizzip')).default
-      const zip = new PizZip(content)
-      const docXml = zip.file('word/document.xml')
-      if (!docXml) {
-        return { ok: false as const, fields: [], error: 'No document.xml in DOCX' }
-      }
-      const xmlText = docXml.asText()
-      const textOnly = xmlText.replace(/<[^>]+>/g, '')
-      const placeholderRegex = /\{\{([a-zA-Z_][a-zA-Z0-9_]*)\}\}/g
-      const fields: Array<{ name: string; placeholder: string }> = []
-      const seen = new Set<string>()
-      let match: RegExpExecArray | null
-      while ((match = placeholderRegex.exec(textOnly)) !== null) {
-        const name = match[1]
-        if (seen.has(name)) continue
-        seen.add(name)
-        fields.push({ name, placeholder: match[0] })
-      }
-      return { ok: true as const, fields }
-    } catch (e) {
-      return {
-        ok: false as const,
-        fields: [] as Array<{ name: string; placeholder: string }>,
-        error: e instanceof Error ? e.message : 'Scan failed',
-      }
-    } finally {
-      if (cleanupDir && fs.existsSync(cleanupDir)) {
-        try {
-          fs.rmSync(cleanupDir, { recursive: true, force: true })
-        } catch {
-          /* ignore */
-        }
-      }
-    }
-  })
-
-  ipcMain.handle('letter:watchTemplateFile', async (_e, filePath: string, templateId: string) => {
-    if (typeof filePath !== 'string' || typeof templateId !== 'string' || templateId.length > 200) {
-      return { ok: false as const, error: 'Invalid arguments' }
-    }
-    const prev = templateFileWatchers.get(templateId)
-    if (prev) {
-      if (prev.debounce) clearTimeout(prev.debounce)
-      prev.watcher.close()
-      templateFileWatchers.delete(templateId)
-    }
-    const safe = assertAllowedTemplatePath(filePath)
-    const entry: TemplateWatchEntry = {
-      watcher: fs.watch(safe, { persistent: false }, (eventType) => {
-        if (eventType !== 'change' && eventType !== 'rename') return
-        const st = templateFileWatchers.get(templateId)
-        if (!st) return
-        if (st.debounce) clearTimeout(st.debounce)
-        st.debounce = setTimeout(() => {
-          st.debounce = undefined
-          for (const win of BrowserWindow.getAllWindows()) {
-            if (win.isDestroyed()) continue
-            win.webContents.send('letter:templateFileChanged', { templateId, filePath: safe })
-          }
-        }, 1500)
-      }),
-    }
-    templateFileWatchers.set(templateId, entry)
-    return { ok: true as const }
-  })
-
-  ipcMain.handle('letter:unwatchTemplateFile', async (_e, templateId: string) => {
-    if (typeof templateId !== 'string') {
-      return { ok: false as const }
-    }
-    const existing = templateFileWatchers.get(templateId)
-    if (existing) {
-      if (existing.debounce) clearTimeout(existing.debounce)
-      existing.watcher.close()
-      templateFileWatchers.delete(templateId)
-    }
-    return { ok: true as const }
+    const safe = assertAllowedLetterComposerPdfPath(pdfPath)
+    const { extractPdfTextPositionsFromPath } = await import('./templatePdfTextLayer')
+    return extractPdfTextPositionsFromPath(safe)
   })
 
   ipcMain.handle('letter:detectFields', async (_e, pdfPath: string) => {

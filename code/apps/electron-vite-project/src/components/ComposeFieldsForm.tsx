@@ -41,17 +41,6 @@ function fieldGroup(field: TemplateField): FieldGroup {
   return 'other'
 }
 
-function resolveBodyFieldId(fields: TemplateField[]): string | null {
-  const exact = fields.find((f) => f.name.toLowerCase() === 'body')
-  if (exact) return exact.id
-  const rt = fields.find((f) => f.type === 'richtext')
-  if (rt) return rt.id
-  const ml = fields.find((f) => f.type === 'multiline')
-  if (ml) return ml.id
-  const fuzzy = fields.find((f) => f.name.toLowerCase().includes('body'))
-  return fuzzy?.id ?? null
-}
-
 function findRecipientNameField(fields: TemplateField[]): TemplateField | undefined {
   return fields.find((f) => {
     const n = f.name.toLowerCase()
@@ -109,6 +98,7 @@ export function ComposeFieldsForm({ template, composeSession, replyToLetter }: C
   const updateComposeSession = useLetterComposerStore((s) => s.updateComposeSession)
   const setTemplateVersions = useLetterComposerStore((s) => s.setTemplateVersions)
   const setActiveTemplateVersionIndex = useLetterComposerStore((s) => s.setActiveTemplateVersionIndex)
+  const focusedTemplateFieldId = useLetterComposerStore((s) => s.focusedTemplateFieldId)
   const setFocusedTemplateField = useLetterComposerStore((s) => s.setFocusedTemplateField)
 
   const connectDraftRefine = useDraftRefineStore((s) => s.connect)
@@ -117,7 +107,6 @@ export function ComposeFieldsForm({ template, composeSession, replyToLetter }: C
   const draftConnected = useDraftRefineStore((s) => s.connected)
   const draftRefineTarget = useDraftRefineStore((s) => s.refineTarget)
 
-  const [selectedFieldId, setSelectedFieldId] = useState<string | null>(null)
   const [draftError, setDraftError] = useState<string | null>(null)
 
   const lastReplyAutofillId = useRef<string | null>(null)
@@ -145,7 +134,11 @@ export function ComposeFieldsForm({ template, composeSession, replyToLetter }: C
   const updateFieldValue = useCallback(
     (fieldId: string, value: string) => {
       updateTemplateField(template.id, fieldId, value)
-      if (draftConnected && draftRefineTarget === 'letter-template' && selectedFieldId === fieldId) {
+      if (
+        draftConnected &&
+        draftRefineTarget === 'letter-template' &&
+        focusedTemplateFieldId === fieldId
+      ) {
         updateDraftRefineText(value)
       }
     },
@@ -154,14 +147,13 @@ export function ComposeFieldsForm({ template, composeSession, replyToLetter }: C
       updateTemplateField,
       draftConnected,
       draftRefineTarget,
-      selectedFieldId,
+      focusedTemplateFieldId,
       updateDraftRefineText,
     ],
   )
 
   const handleFieldSelect = useCallback(
     (field: TemplateField) => {
-      setSelectedFieldId(field.id)
       setFocusedTemplateField(field.id)
       connectDraftRefine(
         null,
@@ -259,55 +251,53 @@ export function ComposeFieldsForm({ template, composeSession, replyToLetter }: C
   }, [])
 
   const handleAiDraftBody = useCallback(() => {
-    const bodyId = resolveBodyFieldId(template.fields)
-    if (!bodyId) {
+    const bodyField = template.fields.find((f) => {
+      const n = f.name.toLowerCase()
+      return (
+        n === 'body' ||
+        n.includes('body') ||
+        f.type === 'richtext' ||
+        f.type === 'multiline'
+      )
+    })
+    if (!bodyField) {
+      console.warn('[ComposeFieldsForm] No body field found')
       setDraftError('No body field found — add a field named “body” or a richtext/multiline content field.')
       return
     }
     setDraftError(null)
-    const bodyField = template.fields.find((f) => f.id === bodyId)
-    if (!bodyField) return
+
     handleFieldSelect(bodyField)
 
     const replyLetter =
       (composeSession?.replyToLetterId
         ? letters.find((l) => l.id === composeSession.replyToLetterId)
         : null) ?? replyToLetter
-    const letterContext = (replyLetter?.fullText ?? '').trim().slice(0, 3000)
+    const letterContext = (replyLetter?.fullText ?? '').substring(0, 3000)
 
-    const recipientField = template.fields.find((f) => {
-      const n = f.name.toLowerCase()
-      return n.includes('recipient') && !n.includes('address')
-    })
-    const currentRecipient = recipientField?.value ?? ''
-    const subjectField = template.fields.find((f) => f.name.toLowerCase().includes('subject'))
-    const currentSubject = subjectField?.value ?? ''
+    const currentSubject =
+      template.fields.find((f) => f.name.toLowerCase().includes('subject'))?.value ?? ''
+    const currentRecipient =
+      template.fields.find((f) => {
+        const n = f.name.toLowerCase()
+        return n.includes('recipient') && !n.includes('address')
+      })?.value ?? ''
 
-    const contextMessage = [
+    const hint = [
       '\u{1F4DD} **Letter Composer** — Body field selected for AI drafting.',
       '',
-      currentRecipient ? `Recipient: ${currentRecipient}` : '',
-      currentSubject ? `Subject: ${currentSubject}` : '',
-      letterContext
-        ? `\n--- Incoming letter (for reply context) ---\n${letterContext.slice(0, 500)}${letterContext.length > 500 ? '\u2026' : ''}`
-        : '',
+      currentRecipient ? `Recipient: ${currentRecipient}` : null,
+      currentSubject ? `Subject: ${currentSubject}` : null,
+      letterContext.trim() ? '\nIncoming letter context available.' : null,
       '',
-      'Type your instruction in the chat bar (e.g. “write a formal response declining the offer”). Then click **Use** to apply the reply to the body field.',
+      'Type your instruction in the chat bar above (e.g. “write a formal response declining the offer”).',
     ]
       .filter(Boolean)
       .join('\n')
 
     window.dispatchEvent(new CustomEvent(WRDESK_FOCUS_AI_CHAT_EVENT, { bubbles: true }))
-    window.dispatchEvent(
-      new CustomEvent(WRCHAT_APPEND_ASSISTANT_EVENT, { detail: { text: contextMessage } }),
-    )
-  }, [
-    composeSession?.replyToLetterId,
-    handleFieldSelect,
-    letters,
-    replyToLetter,
-    template.fields,
-  ])
+    window.dispatchEvent(new CustomEvent(WRCHAT_APPEND_ASSISTANT_EVENT, { detail: { text: hint } }))
+  }, [composeSession?.replyToLetterId, handleFieldSelect, letters, replyToLetter, template.fields])
 
   const versionCount = composeSession?.versions.length ?? 0
   const versionIndex = composeSession?.activeVersionIndex ?? -1
@@ -321,10 +311,10 @@ export function ComposeFieldsForm({ template, composeSession, replyToLetter }: C
     [template.id, versionCount, versionIndex, setActiveTemplateVersionIndex],
   )
 
-  const renderFieldInput = (field: TemplateField, isAiWireActive: boolean) => {
+  const renderFieldInput = (field: TemplateField, isFieldSelected: boolean) => {
     const v = field.value ?? ''
-    const commonClass = `compose-field-input${isAiWireActive ? ' field-selected-for-ai' : ''}`
-    const focusStyle = isAiWireActive
+    const commonClass = `compose-field-input${isFieldSelected ? ' field-selected-for-ai' : ''}`
+    const selectedStyle = isFieldSelected
       ? {
           borderColor: '#6366f1',
           boxShadow: '0 0 0 2px rgba(99, 102, 241, 0.15)',
@@ -335,7 +325,7 @@ export function ComposeFieldsForm({ template, composeSession, replyToLetter }: C
       return (
         <textarea
           className={commonClass}
-          style={focusStyle}
+          style={selectedStyle}
           rows={field.type === 'address' ? 4 : 6}
           value={v}
           onChange={(e) => {
@@ -351,7 +341,7 @@ export function ComposeFieldsForm({ template, composeSession, replyToLetter }: C
         <input
           type="date"
           className={commonClass}
-          style={focusStyle}
+          style={selectedStyle}
           value={v.length >= 10 ? v.slice(0, 10) : v}
           onChange={(e) => updateFieldValue(field.id, e.target.value)}
         />
@@ -362,7 +352,7 @@ export function ComposeFieldsForm({ template, composeSession, replyToLetter }: C
       <input
         type="text"
         className={commonClass}
-        style={focusStyle}
+        style={selectedStyle}
         value={v}
         onChange={(e) => {
           updateFieldValue(field.id, e.target.value)
@@ -424,8 +414,10 @@ export function ComposeFieldsForm({ template, composeSession, replyToLetter }: C
           <section key={g} className="compose-field-group">
             <h5 className="compose-field-group__title">{GROUP_TITLES[g]}</h5>
             {list.map((field) => {
-              const isFieldAiActive =
-                draftConnected && draftRefineTarget === 'letter-template' && selectedFieldId === field.id
+              const isFieldSelected =
+                draftConnected &&
+                draftRefineTarget === 'letter-template' &&
+                focusedTemplateFieldId === field.id
               return (
                 <div key={field.id} className="compose-field-row">
                   <div
@@ -434,19 +426,22 @@ export function ComposeFieldsForm({ template, composeSession, replyToLetter }: C
                       display: 'flex',
                       justifyContent: 'space-between',
                       alignItems: 'center',
-                      gap: 8,
-                      marginBottom: 6,
+                      marginBottom: 4,
                     }}
                   >
-                    <span className="compose-field-row__label">{field.label}</span>
+                    <label
+                      className="compose-field-row__label"
+                      style={{ fontSize: 12, fontWeight: 600, margin: 0 }}
+                    >
+                      {field.label}
+                    </label>
                     <button
                       type="button"
-                      className={`field-ai-toggle${isFieldAiActive ? ' field-ai-toggle--active' : ''}`}
+                      className={`field-ai-toggle${isFieldSelected ? ' field-ai-toggle--active' : ''}`}
                       onClick={(e) => {
                         e.stopPropagation()
-                        if (isFieldAiActive) {
+                        if (isFieldSelected) {
                           disconnectDraftRefine()
-                          setSelectedFieldId(null)
                           setFocusedTemplateField(null)
                         } else {
                           handleFieldSelect(field)
@@ -456,17 +451,18 @@ export function ComposeFieldsForm({ template, composeSession, replyToLetter }: C
                         fontSize: 11,
                         padding: '2px 8px',
                         borderRadius: 4,
-                        border: isFieldAiActive ? '1px solid #6366f1' : '1px solid #E8E8E6',
-                        background: isFieldAiActive ? '#6366f1' : 'transparent',
-                        color: isFieldAiActive ? '#fff' : '#888',
+                        border: isFieldSelected ? '1px solid #6366f1' : '1px solid #ddd',
+                        background: isFieldSelected ? '#6366f1' : 'transparent',
+                        color: isFieldSelected ? '#fff' : '#888',
                         cursor: 'pointer',
+                        transition: 'all 0.15s',
                         flexShrink: 0,
                       }}
                     >
-                      {isFieldAiActive ? '\u261D Selected' : '\u261D AI'}
+                      {isFieldSelected ? '\u261D Selected' : '\u261D AI'}
                     </button>
                   </div>
-                  {renderFieldInput(field, isFieldAiActive)}
+                  {renderFieldInput(field, isFieldSelected)}
                 </div>
               )
             })}

@@ -95,17 +95,10 @@ interface LetterComposerBridge {
   getConvertedPdfOutputDir: () => Promise<string>
   /** Rasterize a PDF on disk to PNG data URLs (template mapping preview). */
   renderPdfPages: (filePath: string) => Promise<{ pages: string[]; pageCount: number }>
-  openInLibreOffice: (filePath: string) => Promise<{ ok: true } | { ok: false; error: string }>
-  scanPlaceholders: (filePath: string) => Promise<{
-    ok: boolean
-    fields: Array<{ name: string; placeholder: string }>
-    error?: string
-  }>
-  watchTemplateFile: (filePath: string, templateId: string) => Promise<{ ok: boolean; error?: string }>
-  unwatchTemplateFile: (templateId: string) => Promise<{ ok: boolean }>
-  onTemplateFileChanged: (
-    callback: (data: { templateId: string; filePath: string }) => void,
-  ) => () => void
+  /** PDF text layer for mapping anchorText (normalized positions per page). */
+  extractPdfTextPositions: (
+    filePath: string,
+  ) => Promise<Array<{ page: number; items: Array<{ text: string; x: number; y: number; w: number; h: number }> }>>
   detectTemplateFields: (filePath: string) => Promise<{
     ok: boolean
     fields: Array<{
