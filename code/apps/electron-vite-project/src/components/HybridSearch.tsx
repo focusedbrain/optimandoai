@@ -69,6 +69,14 @@ type SearchMode = 'chat' | 'search' | 'actions'
 type SearchScope = 'context-graph' | 'capsules' | 'attachments' | 'inbox-messages' | 'all'
 type DashboardView = string
 
+type DraftRefineHistoryEntry = {
+  role: 'user' | 'assistant'
+  content: string
+  showUseButton?: boolean
+  onUse?: () => void
+  refineParagraphs?: string[]
+}
+
 interface SearchResult {
   id: string
   title: string
@@ -515,7 +523,7 @@ export default function HybridSearch({
   const [showPanel, setShowPanel] = useState(false)
   const [modelMenuOpen, setModelMenuOpen] = useState(false)
   const [infoPopupOpen, setInfoPopupOpen] = useState(false)
-  const [draftRefineHistory, setDraftRefineHistory] = useState<Array<{ role: 'user' | 'assistant'; content: string; showUseButton?: boolean; onUse?: () => void }>>([])
+  const [draftRefineHistory, setDraftRefineHistory] = useState<DraftRefineHistoryEntry[]>([])
 
   /** General chat conversation — user + assistant turns (non-draft-refine mode only) */
   const [chatMessages, setChatMessages] = useState<ChatTurn[]>([])
@@ -652,6 +660,9 @@ export default function HybridSearch({
 
   /** Derived focus context — distinguishes outer message vs draft sub-focus vs attachment above chat. */
   const uiFocusContext: UiFocusContext = useMemo(() => {
+    if (draftRefineConnected && draftRefineTarget === 'letter-template') {
+      return { kind: 'draft', messageId: '__letter-template__' }
+    }
     if (
       (activeView === 'beap-inbox' || activeView === 'analysis') &&
       draftRefineConnected &&
@@ -674,7 +685,15 @@ export default function HybridSearch({
         return { kind: 'attachment', messageId: msgId, attachmentId: selectedAttachmentId }
     }
     return { kind: 'message', messageId: msgId }
-  }, [activeView, selectedMessageId, selectedAttachmentId, inboxSubFocus, draftRefineConnected, draftRefineMessageId])
+  }, [
+    activeView,
+    selectedMessageId,
+    selectedAttachmentId,
+    inboxSubFocus,
+    draftRefineConnected,
+    draftRefineMessageId,
+    draftRefineTarget,
+  ])
   const draftRefineDraftText = useDraftRefineStore((s) => s.draftText)
   const draftRefineDeliverResponse = useDraftRefineStore((s) => s.deliverResponse)
   const draftRefineAcceptRefinement = useDraftRefineStore((s) => s.acceptRefinement)
@@ -707,7 +726,7 @@ export default function HybridSearch({
             : draftRefineTarget === 'email'
               ? 'Chat scoped to email body — refine with AI'
               : draftRefineTarget === 'letter-template'
-                ? 'Chat scoped to letter template paragraph — refine with AI'
+                ? 'Chat scoped to letter template field — refine with AI'
                 : 'Chat scoped to draft — refine with AI'
       : 'Chat scoped to draft — refine with AI'
 
@@ -720,8 +739,11 @@ export default function HybridSearch({
   }, [draftRefineConnected])
 
   const handleClearMessageSelection = useCallback(() => {
+    const wasLetterTemplate = useDraftRefineStore.getState().refineTarget === 'letter-template'
     draftRefineDisconnect()
-    onClearMessageSelection?.()
+    if (!wasLetterTemplate) {
+      onClearMessageSelection?.()
+    }
   }, [draftRefineDisconnect, onClearMessageSelection])
 
   // Load available models from backend
@@ -979,7 +1001,7 @@ export default function HybridSearch({
           } else if (target === 'email') {
             fieldLabel = 'email body'
           } else if (target === 'letter-template') {
-            fieldLabel = 'letter template paragraph'
+            fieldLabel = 'letter template field'
           }
           if (currentDraft.trim()) {
             chatQuery = [
@@ -1160,12 +1182,28 @@ export default function HybridSearch({
           if (isDraftRefine && answerText.trim()) {
             const refined = answerText.trim()
             draftRefineDeliverResponse(refined)
-            setDraftRefineHistory(prev => [...prev, {
-              role: 'assistant',
-              content: refined,
-              showUseButton: true,
-              onUse: () => draftRefineAcceptRefinement(),
-            }])
+            const refineTargetNow = useDraftRefineStore.getState().refineTarget
+            const paras = refined.split(/\n\n+/).map((s) => s.trim()).filter(Boolean)
+            if (refineTargetNow === 'letter-template' && paras.length > 1) {
+              setDraftRefineHistory((prev) => [
+                ...prev,
+                {
+                  role: 'assistant',
+                  content: refined,
+                  refineParagraphs: paras,
+                },
+              ])
+            } else {
+              setDraftRefineHistory((prev) => [
+                ...prev,
+                {
+                  role: 'assistant',
+                  content: refined,
+                  showUseButton: true,
+                  onUse: () => draftRefineAcceptRefinement(),
+                },
+              ])
+            }
             setResponse(null)
             setQuery('')
           }
@@ -1636,9 +1674,10 @@ export default function HybridSearch({
           type="text"
           placeholder={
             isDraftRefineSession
-              ? draftRefineMessageId === null && selectedMessageId == null
-                ? 'Draft your message — type an instruction for AI'
-                : "Modify draft — e.g. 'make it shorter', 'add cancellation request'…"
+              ? draftRefineTarget === 'letter-template'
+                ? 'Refine this letter field — e.g. formal reply declining the request…'
+                : draftRefineMessageId === null && selectedMessageId == null ? 'Draft your message — type an instruction for AI'
+                  : "Modify draft — e.g. 'make it shorter', 'add cancellation request'…"
               : mode === 'actions'
                 ? 'Describe an action to draft, analyze, or automate…'
                 : (selectedHandshakeId ? 'Ask a question about the context…' : selectedMessageId ? 'Ask a question about this BEAP message…' : 'AI Assistant across the BEAP Ecosystem')
@@ -1934,7 +1973,47 @@ export default function HybridSearch({
                   <div style={{ fontWeight: 600, fontSize: '10px', marginBottom: '4px', color: 'var(--text-muted)' }}>
                     {msg.role === 'user' ? 'You' : 'Revised draft'}
                   </div>
-                  <div className="hs-draft-refine-content">{msg.content}</div>
+                  <div className="hs-draft-refine-content">
+                    {msg.refineParagraphs && msg.refineParagraphs.length > 1 ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                        {msg.refineParagraphs.map((para, pi) => (
+                          <div
+                            key={pi}
+                            style={{
+                              padding: '8px 10px',
+                              borderRadius: 6,
+                              border: '1px solid rgba(147,51,234,0.25)',
+                              background: 'rgba(255,255,255,0.5)',
+                            }}
+                          >
+                            <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{para}</div>
+                            <button
+                              type="button"
+                              className="chat-use-btn"
+                              onClick={() => {
+                                const cb = useDraftRefineStore.getState().onResponse
+                                if (cb) cb(para)
+                              }}
+                              title="Insert this paragraph into the field"
+                            >
+                              Use
+                            </button>
+                          </div>
+                        ))}
+                        <button
+                          type="button"
+                          className="chat-use-btn"
+                          onClick={() => draftRefineAcceptRefinement()}
+                          title="Replace field with the full AI response"
+                          style={{ alignSelf: 'flex-start', fontWeight: 700 }}
+                        >
+                          Use All
+                        </button>
+                      </div>
+                    ) : (
+                      msg.content
+                    )}
+                  </div>
                   {msg.showUseButton && msg.onUse && (
                     <button
                       type="button"

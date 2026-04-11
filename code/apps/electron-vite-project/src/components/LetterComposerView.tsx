@@ -1,5 +1,6 @@
-import { useEffect } from 'react'
+import { useCallback, useEffect } from 'react'
 import { useChatFocusStore } from '@ext/stores/chatFocusStore'
+import { useDraftRefineStore } from '../stores/useDraftRefineStore'
 import { useLetterComposerStore } from '../stores/useLetterComposerStore'
 import { LetterTemplatePort } from './LetterTemplatePort'
 import { LetterViewerPort } from './LetterViewerPort'
@@ -70,6 +71,12 @@ function syncLetterComposerChatFocus() {
 }
 
 export function LetterComposerView({ onClose }: { onClose: () => void }) {
+  const handleClose = useCallback(() => {
+    useDraftRefineStore.getState().disconnect()
+    useLetterComposerStore.getState().setFocusedTemplateField(null)
+    onClose()
+  }, [onClose])
+
   useEffect(() => {
     const unsub = useLetterComposerStore.subscribe(syncLetterComposerChatFocus)
     syncLetterComposerChatFocus()
@@ -78,16 +85,18 @@ export function LetterComposerView({ onClose }: { onClose: () => void }) {
       if (useChatFocusStore.getState().chatFocusMode.mode === 'letter-composer') {
         useChatFocusStore.getState().clearChatFocusMode()
       }
+      useDraftRefineStore.getState().disconnect()
+      useLetterComposerStore.getState().setFocusedTemplateField(null)
     }
   }, [])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
+      if (e.key === 'Escape') handleClose()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
+  }, [handleClose])
 
   return (
     <div className="letter-composer-view">

@@ -4,6 +4,7 @@ import {
   useLetterComposerStore,
   type LetterPage,
   type ScannedLetter,
+  type TemplateField,
 } from '../stores/useLetterComposerStore'
 import { PortSelectButton } from './LetterComposerPortSelectButton'
 
@@ -19,36 +20,91 @@ function isImageFileName(name: string): boolean {
   )
 }
 
-const EXTRACTED_FIELD_ORDER = [
-  'sender_name',
-  'sender_address',
-  'recipient_name',
-  'recipient_address',
-  'date',
-  'subject',
-  'reference_number',
-  'salutation',
-  'body_summary',
-] as const
-
-const EXTRACTED_FIELD_LABELS: Record<(typeof EXTRACTED_FIELD_ORDER)[number], string> = {
-  sender_name: 'Sender name',
-  sender_address: 'Sender address',
-  recipient_name: 'Recipient name',
-  recipient_address: 'Recipient address',
-  date: 'Date',
-  subject: 'Subject',
-  reference_number: 'Reference no.',
-  salutation: 'Salutation',
-  body_summary: 'Summary',
-}
-
-const MULTILINE_FIELDS = new Set<string>(['sender_address', 'recipient_address', 'body_summary'])
+const MULTILINE_KEYS = new Set(['sender_address', 'recipient_address', 'body_summary'])
 
 function getConfidenceLevel(c: number): 'high' | 'medium' | 'low' {
   if (c >= 0.9) return 'high'
   if (c >= 0.7) return 'medium'
   return 'low'
+}
+
+function findRecipientNameField(fields: TemplateField[]): TemplateField | undefined {
+  return fields.find((f) => {
+    const n = f.name.toLowerCase()
+    return n.includes('recipient') && !n.includes('address')
+  })
+}
+
+function findRecipientAddressField(fields: TemplateField[]): TemplateField | undefined {
+  return fields.find((f) => f.name.toLowerCase().includes('recipient_address'))
+}
+
+function findSubjectField(fields: TemplateField[]): TemplateField | undefined {
+  return fields.find((f) => f.name.toLowerCase().includes('subject'))
+}
+
+function findReferenceField(fields: TemplateField[]): TemplateField | undefined {
+  return fields.find((f) => {
+    const n = f.name.toLowerCase()
+    return n.includes('reference')
+  })
+}
+
+function findDateField(fields: TemplateField[]): TemplateField | undefined {
+  return fields.find((f) => f.name.toLowerCase() === 'date' || f.type === 'date')
+}
+
+function hasExtractedContent(ef: Record<string, string>): boolean {
+  return Object.values(ef).some((v) => (v ?? '').trim().length > 0)
+}
+
+function ExtractedRow({
+  label,
+  fieldKey,
+  value,
+  confidence,
+  multiline,
+  onChange,
+  hideIfEmpty,
+}: {
+  label: string
+  fieldKey: string
+  value: string
+  confidence: number
+  multiline?: boolean
+  onChange: (key: string, v: string) => void
+  hideIfEmpty?: boolean
+}) {
+  if (hideIfEmpty && !(value ?? '').trim()) return null
+  const level = getConfidenceLevel(confidence)
+  return (
+    <div className="extracted-row">
+      <span className="extracted-row__label">{label}</span>
+      <div className="extracted-row__value">
+        {multiline ? (
+          <textarea
+            className="extracted-field-row__input extracted-field-row__input--multiline"
+            value={value}
+            rows={fieldKey === 'body_summary' ? 4 : 3}
+            onChange={(e) => onChange(fieldKey, e.target.value)}
+          />
+        ) : (
+          <input
+            type="text"
+            className="extracted-field-row__input"
+            value={value}
+            onChange={(e) => onChange(fieldKey, e.target.value)}
+          />
+        )}
+      </div>
+      <span
+        className={`confidence-badge confidence--${level}`}
+        title={`${Math.round((confidence || 0) * 100)}% confidence`}
+      >
+        {Math.round((confidence || 0) * 100)}%
+      </span>
+    </div>
+  )
 }
 
 async function saveLetterFileToStorage(
@@ -71,6 +127,11 @@ export function LetterViewerPort() {
   const setActiveLetterPage = useLetterComposerStore((s) => s.setActiveLetterPage)
   const addLetter = useLetterComposerStore((s) => s.addLetter)
   const updateLetter = useLetterComposerStore((s) => s.updateLetter)
+  const templates = useLetterComposerStore((s) => s.templates)
+  const activeTemplateId = useLetterComposerStore((s) => s.activeTemplateId)
+  const updateTemplateField = useLetterComposerStore((s) => s.updateTemplateField)
+  const composeSessions = useLetterComposerStore((s) => s.composeSessions)
+  const updateComposeSession = useLetterComposerStore((s) => s.updateComposeSession)
 
   const activeLetter =
     letters.find((l) => l.id === activeLetterId) ?? letters[letters.length - 1] ?? null
@@ -78,7 +139,14 @@ export function LetterViewerPort() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [extractNote, setExtractNote] = useState<string | null>(null)
+  const [autofillNote, setAutofillNote] = useState<string | null>(null)
   const [isDragOver, setIsDragOver] = useState(false)
+
+  const activeTemplate = templates.find((t) => t.id === activeTemplateId) ?? null
+  const canAutofill =
+    !!activeTemplate?.mappingComplete &&
+    !!activeLetter &&
+    hasExtractedContent(activeLetter.extractedFields)
 
   useEffect(() => {
     if (letters.length === 0) return
@@ -268,6 +336,65 @@ export function LetterViewerPort() {
     [activeLetter, updateLetter],
   )
 
+  const autoFillFromLetter = useCallback(
+    (letter: ScannedLetter) => {
+      setAutofillNote(null)
+      const ef = letter.extractedFields
+      if (!ef || !hasExtractedContent(ef)) return
+
+      const tid = activeTemplateId
+      if (!tid) {
+        setAutofillNote('Select a letter template first (Template port).')
+        return
+      }
+      const tpl = templates.find((t) => t.id === tid)
+      if (!tpl?.mappingComplete) {
+        setAutofillNote('Finish template field mapping before using reply autofill.')
+        return
+      }
+
+      const fields = tpl.fields
+      const rName = findRecipientNameField(fields)
+      const rAddr = findRecipientAddressField(fields)
+      const subj = findSubjectField(fields)
+      const refF = findReferenceField(fields)
+      const dateF = findDateField(fields)
+
+      const recipientAddress = (ef.sender_address ?? '').trim()
+      const recipientName = (ef.sender_name ?? '').trim()
+      const subjVal = (ef.subject ?? '').trim()
+      const refVal = (ef.reference_number ?? '').trim()
+      const today = new Date().toISOString().split('T')[0]
+
+      if (rName && recipientName) updateTemplateField(tid, rName.id, recipientName)
+      if (rAddr && recipientAddress) updateTemplateField(tid, rAddr.id, recipientAddress)
+      if (subj && subjVal) {
+        const s = subjVal
+        const next = s.toLowerCase().startsWith('re:') ? s : `Re: ${s}`
+        updateTemplateField(tid, subj.id, next)
+      }
+      if (refF && refVal) updateTemplateField(tid, refF.id, refVal)
+      if (dateF) updateTemplateField(tid, dateF.id, today)
+
+      const sess = composeSessions.find((c) => c.templateId === tid)
+      if (sess) {
+        updateComposeSession(sess.id, { replyToLetterId: letter.id })
+      }
+
+      setAutofillNote('Recipient fields updated from this letter (postal data only).')
+    },
+    [
+      activeTemplateId,
+      templates,
+      updateTemplateField,
+      composeSessions,
+      updateComposeSession,
+    ],
+  )
+
+  const ef = activeLetter?.extractedFields ?? {}
+  const conf = activeLetter?.confidence ?? {}
+
   return (
     <div
       className={`viewer-port letter-port${isDragOver ? ' letter-port--drag-over' : ''}`}
@@ -346,49 +473,197 @@ export function LetterViewerPort() {
           {extractNote}
         </p>
       )}
+      {autofillNote && !error && (
+        <p className="letter-viewer__extract-note" role="status">
+          {autofillNote}
+        </p>
+      )}
       {busy && <p className="template-port__status">Processing…</p>}
 
-      {activeLetter && Object.keys(activeLetter.extractedFields).length > 0 && (
-          <div className="extracted-fields">
-            <h5 className="extracted-fields__title">Extracted information</h5>
-            <p className="extracted-fields__hint">
-              Confidence is estimated; edit any field to mark it verified (100%).
-            </p>
-            {EXTRACTED_FIELD_ORDER.map((key) => {
-              const value = activeLetter.extractedFields[key] ?? ''
-              const conf = activeLetter.confidence[key] ?? 0
-              const level = getConfidenceLevel(conf)
-              const label = EXTRACTED_FIELD_LABELS[key]
-              const multiline = MULTILINE_FIELDS.has(key)
-              return (
-                <div key={key} className="extracted-field-row">
-                  <span className="extracted-field-row__label">{label}</span>
-                  {multiline ? (
-                    <textarea
-                      className="extracted-field-row__input extracted-field-row__input--multiline"
-                      value={value}
-                      rows={key === 'body_summary' ? 4 : 3}
-                      onChange={(e) => onExtractedFieldChange(key, e.target.value)}
-                    />
-                  ) : (
-                    <input
-                      type="text"
-                      className="extracted-field-row__input"
-                      value={value}
-                      onChange={(e) => onExtractedFieldChange(key, e.target.value)}
-                    />
-                  )}
-                  <span
-                    className={`confidence-badge confidence--${level}`}
-                    title="Model / rule confidence for this field"
-                  >
-                    {Math.round(conf * 100)}%
-                  </span>
-                </div>
-              )
-            })}
+      {activeLetter && hasExtractedContent(ef) && (
+        <div className="extracted-fields extracted-info">
+          <h5 className="extracted-fields__title">Extracted information</h5>
+          <p className="extracted-fields__hint">
+            Postal address fields exclude phone, email, IBAN, and legal IDs. Edit any field to mark it
+            verified (100%).
+          </p>
+
+          <div className="extracted-group">
+            <h5>Sender</h5>
+            <ExtractedRow
+              label="Name"
+              fieldKey="sender_name"
+              value={ef.sender_name ?? ''}
+              confidence={conf.sender_name ?? 0}
+              onChange={onExtractedFieldChange}
+            />
+            <ExtractedRow
+              label="Address"
+              fieldKey="sender_address"
+              value={ef.sender_address ?? ''}
+              confidence={conf.sender_address ?? 0}
+              multiline={MULTILINE_KEYS.has('sender_address')}
+              onChange={onExtractedFieldChange}
+            />
+            <ExtractedRow
+              label="Phone"
+              fieldKey="sender_phone"
+              value={ef.sender_phone ?? ''}
+              confidence={conf.sender_phone ?? 0}
+              onChange={onExtractedFieldChange}
+              hideIfEmpty
+            />
+            <ExtractedRow
+              label="Fax"
+              fieldKey="sender_fax"
+              value={ef.sender_fax ?? ''}
+              confidence={conf.sender_fax ?? 0}
+              onChange={onExtractedFieldChange}
+              hideIfEmpty
+            />
+            <ExtractedRow
+              label="Email"
+              fieldKey="sender_email"
+              value={ef.sender_email ?? ''}
+              confidence={conf.sender_email ?? 0}
+              onChange={onExtractedFieldChange}
+              hideIfEmpty
+            />
+            <ExtractedRow
+              label="Website"
+              fieldKey="sender_website"
+              value={ef.sender_website ?? ''}
+              confidence={conf.sender_website ?? 0}
+              onChange={onExtractedFieldChange}
+              hideIfEmpty
+            />
           </div>
-        )}
+
+          <div className="extracted-group">
+            <h5>Recipient</h5>
+            <ExtractedRow
+              label="Name"
+              fieldKey="recipient_name"
+              value={ef.recipient_name ?? ''}
+              confidence={conf.recipient_name ?? 0}
+              onChange={onExtractedFieldChange}
+            />
+            <ExtractedRow
+              label="Address"
+              fieldKey="recipient_address"
+              value={ef.recipient_address ?? ''}
+              confidence={conf.recipient_address ?? 0}
+              multiline={MULTILINE_KEYS.has('recipient_address')}
+              onChange={onExtractedFieldChange}
+            />
+          </div>
+
+          <div className="extracted-group">
+            <h5>Letter details</h5>
+            <ExtractedRow
+              label="Date"
+              fieldKey="date"
+              value={ef.date ?? ''}
+              confidence={conf.date ?? 0}
+              onChange={onExtractedFieldChange}
+            />
+            <ExtractedRow
+              label="Subject"
+              fieldKey="subject"
+              value={ef.subject ?? ''}
+              confidence={conf.subject ?? 0}
+              onChange={onExtractedFieldChange}
+            />
+            <ExtractedRow
+              label="Reference"
+              fieldKey="reference_number"
+              value={ef.reference_number ?? ''}
+              confidence={conf.reference_number ?? 0}
+              onChange={onExtractedFieldChange}
+              hideIfEmpty
+            />
+            <ExtractedRow
+              label="Salutation"
+              fieldKey="salutation"
+              value={ef.salutation ?? ''}
+              confidence={conf.salutation ?? 0}
+              onChange={onExtractedFieldChange}
+              hideIfEmpty
+            />
+            <ExtractedRow
+              label="Summary"
+              fieldKey="body_summary"
+              value={ef.body_summary ?? ''}
+              confidence={conf.body_summary ?? 0}
+              multiline={MULTILINE_KEYS.has('body_summary')}
+              onChange={onExtractedFieldChange}
+              hideIfEmpty
+            />
+          </div>
+
+          {(ef.sender_iban ?? '').trim() || (ef.sender_bic ?? '').trim() || (ef.sender_bank ?? '').trim() ? (
+            <div className="extracted-group">
+              <h5>Bank details</h5>
+              <ExtractedRow
+                label="IBAN"
+                fieldKey="sender_iban"
+                value={ef.sender_iban ?? ''}
+                confidence={conf.sender_iban ?? 0}
+                onChange={onExtractedFieldChange}
+                hideIfEmpty
+              />
+              <ExtractedRow
+                label="BIC"
+                fieldKey="sender_bic"
+                value={ef.sender_bic ?? ''}
+                confidence={conf.sender_bic ?? 0}
+                onChange={onExtractedFieldChange}
+                hideIfEmpty
+              />
+              <ExtractedRow
+                label="Bank"
+                fieldKey="sender_bank"
+                value={ef.sender_bank ?? ''}
+                confidence={conf.sender_bank ?? 0}
+                onChange={onExtractedFieldChange}
+                hideIfEmpty
+              />
+            </div>
+          ) : null}
+
+          {(ef.sender_tax_id || ef.sender_registration) &&
+          ((ef.sender_tax_id ?? '').trim() || (ef.sender_registration ?? '').trim()) ? (
+            <div className="extracted-group">
+              <h5>Legal information</h5>
+              <ExtractedRow
+                label="Tax ID"
+                fieldKey="sender_tax_id"
+                value={ef.sender_tax_id ?? ''}
+                confidence={conf.sender_tax_id ?? 0}
+                onChange={onExtractedFieldChange}
+                hideIfEmpty
+              />
+              <ExtractedRow
+                label="Registration"
+                fieldKey="sender_registration"
+                value={ef.sender_registration ?? ''}
+                confidence={conf.sender_registration ?? 0}
+                onChange={onExtractedFieldChange}
+                hideIfEmpty
+              />
+            </div>
+          ) : null}
+
+          <button
+            type="button"
+            className="letter-viewer__autofill-btn"
+            disabled={!canAutofill}
+            onClick={() => activeLetter && autoFillFromLetter(activeLetter)}
+          >
+            {'\u{1F4EC}'} Use as reply → fill recipient fields
+          </button>
+        </div>
+      )}
 
       {activeLetter && pageCount > 0 && currentPage?.imageDataUrl && (
         <div className="letter-pages">

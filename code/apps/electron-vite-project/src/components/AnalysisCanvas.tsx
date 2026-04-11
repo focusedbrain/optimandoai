@@ -48,6 +48,7 @@ import { useAnalysisDashboardSnapshot } from '../lib/useAnalysisDashboardSnapsho
 import { activeEmailAccountIdsForSync, useEmailInboxStore } from '../stores/useEmailInboxStore'
 import { useProjectStore, selectActiveProject } from '../stores/useProjectStore'
 import { useDraftRefineStore } from '../stores/useDraftRefineStore'
+import { useLetterComposerStore } from '../stores/useLetterComposerStore'
 import { pickDefaultEmailAccountRowId } from '@ext/shared/email/pickDefaultAccountRow'
 import type { TriggerFunctionId } from '@ext/types/triggerTypes'
 import { WRDESK_TRIGGER_SYNC_AUTO_OPTIMIZER_PROJECT } from '@ext/ui/components'
@@ -260,6 +261,7 @@ export default function AnalysisCanvas({
 
   const closeDashboardCompose = useCallback(() => {
     useDraftRefineStore.getState().disconnect()
+    useLetterComposerStore.getState().setFocusedTemplateField(null)
     onDashboardComposeModeChange?.(null)
   }, [onDashboardComposeModeChange])
 

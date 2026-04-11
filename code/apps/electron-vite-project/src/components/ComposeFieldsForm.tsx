@@ -152,18 +152,79 @@ export function ComposeFieldsForm({ template, composeSession, replyToLetter }: C
     ],
   )
 
-  const handleFieldSelect = useCallback(
+  const connectFieldToDraftRefine = useCallback(
     (field: TemplateField) => {
-      setFocusedTemplateField(field.id)
+      const subject = `Letter: ${field.label || field.name}`
+      const currentValue = field.value ?? ''
+
+      const replyLetter =
+        (composeSession?.replyToLetterId
+          ? letters.find((l) => l.id === composeSession.replyToLetterId)
+          : null) ?? replyToLetter
+      const scanFallback = letters.length > 0 ? letters[letters.length - 1] : null
+      const letterContext = (replyLetter?.fullText ?? scanFallback?.fullText ?? '').trim().substring(0, 3000)
+
       connectDraftRefine(
         null,
-        field.label || field.name,
-        field.value ?? '',
+        subject,
+        currentValue,
         (refined) => updateTemplateField(template.id, field.id, refined),
         'letter-template',
       )
+      setFocusedTemplateField(field.id)
+
+      if (letterContext) {
+        const contextualDraft = currentValue
+          ? `${currentValue}\n\n--- Context: Received Letter ---\n${letterContext}`
+          : `--- Context: Received Letter ---\n${letterContext}`
+        updateDraftRefineText(contextualDraft)
+      }
+
+      window.dispatchEvent(new CustomEvent(WRDESK_FOCUS_AI_CHAT_EVENT, { bubbles: true }))
     },
-    [connectDraftRefine, setFocusedTemplateField, template.id, updateTemplateField],
+    [
+      composeSession?.replyToLetterId,
+      letters,
+      replyToLetter,
+      template.id,
+      connectDraftRefine,
+      setFocusedTemplateField,
+      updateTemplateField,
+      updateDraftRefineText,
+    ],
+  )
+
+  const handleFieldSelect = useCallback(
+    (field: TemplateField) => {
+      if (
+        draftConnected &&
+        draftRefineTarget === 'letter-template' &&
+        focusedTemplateFieldId === field.id
+      ) {
+        disconnectDraftRefine()
+        setFocusedTemplateField(null)
+        return
+      }
+      connectFieldToDraftRefine(field)
+    },
+    [
+      draftConnected,
+      draftRefineTarget,
+      focusedTemplateFieldId,
+      disconnectDraftRefine,
+      setFocusedTemplateField,
+      connectFieldToDraftRefine,
+    ],
+  )
+
+  const handleFieldFocusForAi = useCallback(
+    (field: TemplateField) => {
+      if (draftConnected && draftRefineTarget === 'letter-template' && focusedTemplateFieldId === field.id) {
+        return
+      }
+      connectFieldToDraftRefine(field)
+    },
+    [draftConnected, draftRefineTarget, focusedTemplateFieldId, connectFieldToDraftRefine],
   )
 
   useEffect(() => {
@@ -267,7 +328,7 @@ export function ComposeFieldsForm({ template, composeSession, replyToLetter }: C
     }
     setDraftError(null)
 
-    handleFieldSelect(bodyField)
+    connectFieldToDraftRefine(bodyField)
 
     const replyLetter =
       (composeSession?.replyToLetterId
@@ -297,7 +358,7 @@ export function ComposeFieldsForm({ template, composeSession, replyToLetter }: C
 
     window.dispatchEvent(new CustomEvent(WRDESK_FOCUS_AI_CHAT_EVENT, { bubbles: true }))
     window.dispatchEvent(new CustomEvent(WRCHAT_APPEND_ASSISTANT_EVENT, { detail: { text: hint } }))
-  }, [composeSession?.replyToLetterId, handleFieldSelect, letters, replyToLetter, template.fields])
+  }, [composeSession?.replyToLetterId, connectFieldToDraftRefine, letters, replyToLetter, template.fields])
 
   const versionCount = composeSession?.versions.length ?? 0
   const versionIndex = composeSession?.activeVersionIndex ?? -1
@@ -328,6 +389,7 @@ export function ComposeFieldsForm({ template, composeSession, replyToLetter }: C
           style={selectedStyle}
           rows={field.type === 'address' ? 4 : 6}
           value={v}
+          onFocus={() => handleFieldFocusForAi(field)}
           onChange={(e) => {
             updateFieldValue(field.id, e.target.value)
             persistSenderIfNeeded(field, e.target.value)
@@ -354,6 +416,7 @@ export function ComposeFieldsForm({ template, composeSession, replyToLetter }: C
         className={commonClass}
         style={selectedStyle}
         value={v}
+        onFocus={() => handleFieldFocusForAi(field)}
         onChange={(e) => {
           updateFieldValue(field.id, e.target.value)
           persistSenderIfNeeded(field, e.target.value)
@@ -419,7 +482,10 @@ export function ComposeFieldsForm({ template, composeSession, replyToLetter }: C
                 draftRefineTarget === 'letter-template' &&
                 focusedTemplateFieldId === field.id
               return (
-                <div key={field.id} className="compose-field-row">
+                <div
+                  key={field.id}
+                  className={`compose-field-row${isFieldSelected ? ' compose-field-row--ai-active' : ''}`}
+                >
                   <div
                     className="compose-field-header"
                     style={{
@@ -440,12 +506,7 @@ export function ComposeFieldsForm({ template, composeSession, replyToLetter }: C
                       className={`field-ai-toggle${isFieldSelected ? ' field-ai-toggle--active' : ''}`}
                       onClick={(e) => {
                         e.stopPropagation()
-                        if (isFieldSelected) {
-                          disconnectDraftRefine()
-                          setFocusedTemplateField(null)
-                        } else {
-                          handleFieldSelect(field)
-                        }
+                        handleFieldSelect(field)
                       }}
                       style={{
                         fontSize: 11,
