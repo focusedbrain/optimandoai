@@ -320,7 +320,7 @@ function App() {
     window.setTimeout(applyFocus, 0)
   }, [])
 
-  /** Same navigation as the Dashboard tab — logo home control must stay in sync. */
+  /** Open the main dashboard view (logo home, deep links, composer shortcuts). */
   const goToDashboard = useCallback(() => {
     setActiveView('analysis')
   }, [])
@@ -361,13 +361,7 @@ function App() {
           </button>
         </div>
         <nav className="app-header__nav">
-          <button
-            className={`nav-tab${activeView === 'analysis' ? ' nav-tab--active' : ''}`}
-            onClick={goToDashboard}
-          >
-            Dashboard
-          </button>
-          {/* WR Chat: only the speech-bubble control (WrMultiTriggerBar) switches main view to wr-chat — no nav tab. */}
+          {/* Dashboard via logo only. WR Chat: WrMultiTriggerBar speech bubble switches to wr-chat — no nav tab. */}
           <button
             className={`nav-tab${activeView === 'handshakes' ? ' nav-tab--active' : ''}`}
             onClick={() => setActiveView('handshakes')}
