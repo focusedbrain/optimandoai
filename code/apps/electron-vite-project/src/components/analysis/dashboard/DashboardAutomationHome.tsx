@@ -378,6 +378,7 @@ Automation activated from the dashboard. Continue in WR Chat.`
 
   const starterCards: AutomationCardDef[] = useMemo(
     () => [
+      // --- Row 1: Composers ---
       {
         id: 'reply-letter',
         accent: 'mail',
@@ -398,15 +399,6 @@ Automation activated from the dashboard. Continue in WR Chat.`
         onEdit: () => setIconPickerTarget('emailComposer'),
       },
       {
-        id: 'document-actions',
-        accent: 'document',
-        icon: '\u{1F4C4}',
-        title: 'Document Actions',
-        valueLine: 'Sort, open attachments, and triage in batch.',
-        onRun: onNavigateBulkInbox,
-        onEdit: onNavigateInbox,
-      },
-      {
         id: 'beap-composer',
         accent: 'beap',
         icon: '\u{1F4E6}',
@@ -416,23 +408,33 @@ Automation activated from the dashboard. Continue in WR Chat.`
         onRun: () => onOpenBeapComposer?.(),
         onEdit: () => setIconPickerTarget('beapComposer'),
       },
+      // --- Row 2: Actions + Intelligence (Card 6 follows as custom JSX) ---
+      {
+        id: 'document-actions',
+        accent: 'document',
+        icon: '\u{1F4C4}',
+        title: 'Document Actions',
+        valueLine: 'Sort, open attachments, and triage in batch.',
+        onRun: onNavigateBulkInbox,
+        onEdit: onNavigateInbox,
+      },
       {
         id: 'smart-summary',
         accent: 'summary',
         icon: '\u{1F4CA}',
         title: 'Smart Summary',
         valueLine: 'One-click overview of your workspace activity.',
-        onRun: handleSmartSummaryRun,
+        onRun: () => handleSmartSummaryRun?.(),
         onEdit: onNavigateWrChat,
       },
     ],
     [
-      handleSmartSummaryRun,
       onNavigateBulkInbox,
       onNavigateInbox,
       onNavigateWrChat,
       onOpenEmailComposer,
       onOpenBeapComposer,
+      handleSmartSummaryRun,
     ],
   )
 
