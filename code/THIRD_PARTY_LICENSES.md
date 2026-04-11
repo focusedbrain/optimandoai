@@ -37,6 +37,7 @@ Diese Pakete sind **private** Workspace-Module (`workspace:*`) und **keine** sep
 | `better-sqlite3` | `^11.10.0` | Copyright (c) Joshua Wise | [github.com/WiseLibs/better-sqlite3](https://github.com/WiseLibs/better-sqlite3) | Electron-App |
 | `body-parser` | `^2.2.0` | Copyright (c) body-parser contributors (siehe npm: u. a. Douglas Christopher Wilson, Jonathan Ong) | [github.com/expressjs/body-parser](https://github.com/expressjs/body-parser) | Electron-App |
 | `canvas` | Root `^3.2.0`, Electron `3.2.0` | Copyright (c) TJ Holowaychuk; Mitwirkende siehe npm | [github.com/Automattic/node-canvas](https://github.com/Automattic/node-canvas) | Monorepo-Root + Electron-App |
+| `docx` | `^9.6.1` | Copyright (c) Dolan Miu | [github.com/dolanmiu/docx](https://github.com/dolanmiu/docx) | Electron-App |
 | `express` | `^5.1.0` | Copyright (c) express contributors (siehe npm) | [github.com/expressjs/express](https://github.com/expressjs/express) | Electron-App |
 | `imap` | `^0.8.19` | Copyright (c) Brian White (npm `author`; Legacy-Feld `licenses`: MIT) | [github.com/mscdex/node-imap](https://github.com/mscdex/node-imap) | Electron-App |
 | `is-electron` | `^2.2.2` | Copyright (c) Cheton Wu | [github.com/cheton/is-electron](https://github.com/cheton/is-electron) | Electron-App |

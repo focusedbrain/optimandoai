@@ -42,7 +42,119 @@ export interface LetterTemplate {
   mappingComplete: boolean // user has finished mapping fields
   createdAt: string
   updatedAt: string
+  /** Path A — layout key for generated letterhead (Prompt 3): din5008a, classic, … */
+  builtinLayout?: string | null
+  /** Optional logo file path or embedded data URL (built-in / profile). */
+  logoPath?: string | null
 }
+
+/** Saved sender profile for Quick Start wizard pre-fill (persisted). */
+export interface CompanyProfile {
+  sender_name: string
+  sender_address: string
+  sender_phone: string
+  sender_email: string
+  signer_name: string
+  /** Data URL or future filesystem path from main process. */
+  logoPath: string | null
+}
+
+export const DEFAULT_COMPANY_PROFILE: CompanyProfile = {
+  sender_name: '',
+  sender_address: '',
+  sender_phone: '',
+  sender_email: '',
+  signer_name: '',
+  logoPath: null,
+}
+
+// --- Built-in library (Path A — Quick Start) ---
+
+export type BuiltinLayout = 'din5008a' | 'din5008b' | 'classic' | 'modern' | 'minimal'
+
+export interface BuiltinTemplateField {
+  name: string
+  label: string
+  type: FieldType
+  mode: FieldMode
+  /** When true, filled once in setup and reused for every letter. */
+  staticField: boolean
+  defaultValue?: string
+}
+
+export interface BuiltinTemplate {
+  id: string
+  name: string
+  description: string
+  layout: BuiltinLayout
+  fields: BuiltinTemplateField[]
+}
+
+/** Shared field set for all built-in layouts (layout differs only in preview / future DOCX). */
+function builtinLetterFields(): BuiltinTemplateField[] {
+  return [
+    { name: 'company_logo', label: 'Company Logo', type: 'text', mode: 'fixed', staticField: true },
+    { name: 'sender_name', label: 'Sender Name', type: 'text', mode: 'fixed', staticField: true },
+    { name: 'sender_address', label: 'Sender Address', type: 'address', mode: 'fixed', staticField: true },
+    { name: 'sender_phone', label: 'Phone', type: 'text', mode: 'fixed', staticField: true },
+    { name: 'sender_email', label: 'Email', type: 'text', mode: 'fixed', staticField: true },
+    { name: 'recipient_name', label: 'Recipient Name', type: 'text', mode: 'fixed', staticField: false },
+    { name: 'recipient_address', label: 'Recipient Address', type: 'address', mode: 'fixed', staticField: false },
+    { name: 'date', label: 'Date', type: 'date', mode: 'fixed', staticField: false },
+    { name: 'subject', label: 'Subject', type: 'text', mode: 'flow', staticField: false },
+    {
+      name: 'salutation',
+      label: 'Salutation',
+      type: 'text',
+      mode: 'flow',
+      staticField: false,
+      defaultValue: 'Sehr geehrte Damen und Herren,',
+    },
+    { name: 'body', label: 'Body', type: 'richtext', mode: 'flow', staticField: false },
+    {
+      name: 'closing',
+      label: 'Closing',
+      type: 'text',
+      mode: 'flow',
+      staticField: false,
+      defaultValue: 'Mit freundlichen Grüßen',
+    },
+    { name: 'signer_name', label: 'Signer', type: 'text', mode: 'fixed', staticField: true },
+  ]
+}
+
+export const BUILTIN_TEMPLATES: BuiltinTemplate[] = [
+  {
+    id: 'din5008a',
+    name: 'DIN 5008 Form A',
+    description: 'German business standard — high address window',
+    layout: 'din5008a',
+    fields: builtinLetterFields(),
+  },
+  {
+    id: 'din5008b',
+    name: 'DIN 5008 Form B',
+    description: 'German business standard — low address window',
+    layout: 'din5008b',
+    fields: builtinLetterFields(),
+  },
+  {
+    id: 'classic',
+    name: 'Classic Business',
+    description: 'Traditional layout — centered header, formal style',
+    layout: 'classic',
+    fields: builtinLetterFields(),
+  },
+  {
+    id: 'modern',
+    name: 'Modern Clean',
+    description: 'Minimalist layout — sidebar contact info',
+    layout: 'modern',
+    fields: builtinLetterFields(),
+  },
+]
+
+export type TemplateSetupStep = 'chooser' | 'company-details'
 
 // --- Scanned letter types ---
 
@@ -82,7 +194,7 @@ export interface ComposeSession {
   createdAt: string
 }
 
-const PERSIST_VERSION = 2
+const PERSIST_VERSION = 3
 
 /** Public helper for mapping UI — derive semantic `name` from a display label. */
 export function slugifyTemplateFieldName(label: string): string {
@@ -225,6 +337,15 @@ interface LetterComposerState {
   setFocusedPort: (port: 'template' | 'letter' | null) => void
   focusedTemplateFieldId: string | null
   setFocusedTemplateField: (fieldId: string | null) => void
+
+  /** Path A — built-in template picked from library (not persisted). */
+  selectedBuiltinTemplate: BuiltinTemplate | null
+  setSelectedBuiltinTemplate: (tmpl: BuiltinTemplate | null) => void
+  templateSetupStep: TemplateSetupStep
+  setTemplateSetupStep: (step: TemplateSetupStep) => void
+
+  companyProfile: CompanyProfile
+  setCompanyProfile: (profile: Partial<CompanyProfile>) => void
 }
 
 export const useLetterComposerStore = create<LetterComposerState>()(
@@ -244,17 +365,26 @@ export const useLetterComposerStore = create<LetterComposerState>()(
           const removedSessionIds = new Set(
             s.composeSessions.filter((c) => c.templateId === id).map((c) => c.id),
           )
+          const clearedActive = s.activeTemplateId === id
           return {
             templates: s.templates.filter((t) => t.id !== id),
-            activeTemplateId: s.activeTemplateId === id ? null : s.activeTemplateId,
+            activeTemplateId: clearedActive ? null : s.activeTemplateId,
             composeSessions: s.composeSessions.filter((c) => c.templateId !== id),
             activeComposeSessionId:
               s.activeComposeSessionId && removedSessionIds.has(s.activeComposeSessionId)
                 ? null
                 : s.activeComposeSessionId,
+            ...(clearedActive
+              ? { selectedBuiltinTemplate: null, templateSetupStep: 'chooser' as TemplateSetupStep }
+              : {}),
           }
         }),
-      setActiveTemplate: (id) => set({ activeTemplateId: id }),
+      setActiveTemplate: (id) =>
+        set({
+          activeTemplateId: id,
+          selectedBuiltinTemplate: null,
+          templateSetupStep: 'chooser',
+        }),
 
       updateTemplateField: (templateId, fieldId, value) =>
         set((s) => {
@@ -523,6 +653,17 @@ export const useLetterComposerStore = create<LetterComposerState>()(
       setFocusedPort: (port) => set({ focusedPort: port }),
       focusedTemplateFieldId: null,
       setFocusedTemplateField: (fieldId) => set({ focusedTemplateFieldId: fieldId }),
+
+      selectedBuiltinTemplate: null,
+      setSelectedBuiltinTemplate: (tmpl) => set({ selectedBuiltinTemplate: tmpl }),
+      templateSetupStep: 'chooser',
+      setTemplateSetupStep: (step) => set({ templateSetupStep: step }),
+
+      companyProfile: { ...DEFAULT_COMPANY_PROFILE },
+      setCompanyProfile: (patch) =>
+        set((s) => ({
+          companyProfile: { ...s.companyProfile, ...patch },
+        })),
     }),
     {
       name: 'wr-desk-letter-composer',
@@ -541,6 +682,12 @@ export const useLetterComposerStore = create<LetterComposerState>()(
             activeComposeSessionId: null,
           }
         }
+        if (fromVersion < 3) {
+          return {
+            ...(p as object),
+            companyProfile: { ...DEFAULT_COMPANY_PROFILE },
+          }
+        }
         return persisted
       },
       partialize: (s) => ({
@@ -551,6 +698,7 @@ export const useLetterComposerStore = create<LetterComposerState>()(
         activeTemplateId: s.activeTemplateId,
         composeSessions: s.composeSessions,
         activeComposeSessionId: s.activeComposeSessionId,
+        companyProfile: s.companyProfile,
       }),
     },
   ),

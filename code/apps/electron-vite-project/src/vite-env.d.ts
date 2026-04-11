@@ -131,6 +131,24 @@ interface LetterComposerBridge {
     sourcePath: string
     fields: Array<{ id: string; placeholder: string; value: string; anchorText?: string }>
   }) => Promise<{ success: boolean; error?: string }>
+  /** Path A — built-in layout: generate DOCX from field values + optional logo. */
+  exportBuiltinDocx: (payload: {
+    layout: string
+    fields: Record<string, string>
+    logoPath?: string | null
+    defaultName?: string
+  }) => Promise<{ success: boolean; canceled?: boolean; filePath?: string; error?: string }>
+  exportBuiltinPdf: (payload: {
+    layout: string
+    fields: Record<string, string>
+    logoPath?: string | null
+    defaultName?: string
+  }) => Promise<{ success: boolean; canceled?: boolean; filePath?: string; error?: string }>
+  printBuiltinLetter: (payload: {
+    layout: string
+    fields: Record<string, string>
+    logoPath?: string | null
+  }) => Promise<{ success: boolean; error?: string }>
   saveLetterFromPath: (sourcePath: string, originalFileName: string) => Promise<string>
   saveLetterBuffer: (fileName: string, data: ArrayBuffer) => Promise<string>
   /** Deterministic hints from letter OCR / PDF text (Layer 1). */

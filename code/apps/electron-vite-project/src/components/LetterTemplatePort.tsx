@@ -1,8 +1,11 @@
-import type { DragEvent } from 'react'
+import type { ChangeEvent, DragEvent } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
+  BUILTIN_TEMPLATES,
   createLetterComposeSession,
   useLetterComposerStore,
+  type BuiltinLayout,
+  type BuiltinTemplate,
   type FieldType,
   type LetterTemplate,
   type TemplateField,
@@ -12,6 +15,111 @@ import { FieldMappingOverlay } from './FieldMappingOverlay'
 import { PortSelectButton } from './LetterComposerPortSelectButton'
 
 const TEMPLATE_FILE_RE = /\.(docx|odt|doc|rtf|txt)$/i
+const CUSTOM_TEMPLATE_ACCEPT =
+  '.docx,.odt,.doc,.rtf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.oasis.opendocument.text,application/msword,application/rtf'
+
+const BODY_LINE_WIDTHS = [55, 62, 58, 64, 60]
+
+function TemplatePreviewThumb({ layout }: { layout: BuiltinLayout | string }) {
+  const l = layout as BuiltinLayout
+  if (l === 'din5008b') {
+    return (
+      <svg viewBox="0 0 80 110" width="100%" height="100%" aria-hidden>
+        <rect x="0" y="0" width="80" height="110" fill="#fff" stroke="#eee" />
+        <rect x="5" y="4" width="25" height="8" rx="1" fill="#ddd" />
+        <rect x="45" y="4" width="30" height="3" rx="0.5" fill="#e8e8e8" />
+        <rect x="45" y="9" width="28" height="3" rx="0.5" fill="#e8e8e8" />
+        <rect x="5" y="38" width="35" height="3" rx="0.5" fill="#c7d2fe" />
+        <rect x="5" y="43" width="30" height="3" rx="0.5" fill="#c7d2fe" />
+        <rect x="5" y="48" width="32" height="3" rx="0.5" fill="#c7d2fe" />
+        <rect x="55" y="58" width="20" height="3" rx="0.5" fill="#e8e8e8" />
+        <rect x="5" y="65" width="50" height="3" rx="0.5" fill="#6366f1" opacity={0.3} />
+        {[60, 65, 70, 75, 80].map((y, i) => (
+          <rect key={y} x="5" y={y + 12} width={BODY_LINE_WIDTHS[i] ?? 55} height="2" rx="0.5" fill="#e8e8e8" />
+        ))}
+        <rect x="5" y="98" width="35" height="3" rx="0.5" fill="#e8e8e8" />
+        <rect x="5" y="104" width="25" height="3" rx="0.5" fill="#e8e8e8" />
+      </svg>
+    )
+  }
+  if (l === 'classic') {
+    return (
+      <svg viewBox="0 0 80 110" width="100%" height="100%" aria-hidden>
+        <rect x="0" y="0" width="80" height="110" fill="#fff" stroke="#eee" />
+        <rect x="22" y="6" width="36" height="6" rx="1" fill="#ddd" />
+        <rect x="18" y="16" width="44" height="2" rx="0.5" fill="#e8e8e8" />
+        <rect x="5" y="28" width="35" height="3" rx="0.5" fill="#c7d2fe" />
+        <rect x="5" y="33" width="30" height="3" rx="0.5" fill="#c7d2fe" />
+        <rect x="5" y="38" width="32" height="3" rx="0.5" fill="#c7d2fe" />
+        <rect x="55" y="48" width="20" height="3" rx="0.5" fill="#e8e8e8" />
+        <rect x="5" y="55" width="50" height="3" rx="0.5" fill="#6366f1" opacity={0.3} />
+        {[60, 65, 70, 75, 80].map((y, i) => (
+          <rect key={y} x="5" y={y + 2} width={BODY_LINE_WIDTHS[i] ?? 55} height="2" rx="0.5" fill="#e8e8e8" />
+        ))}
+        <rect x="5" y="92" width="35" height="3" rx="0.5" fill="#e8e8e8" />
+        <rect x="5" y="98" width="25" height="3" rx="0.5" fill="#e8e8e8" />
+      </svg>
+    )
+  }
+  if (l === 'modern') {
+    return (
+      <svg viewBox="0 0 80 110" width="100%" height="100%" aria-hidden>
+        <rect x="0" y="0" width="80" height="110" fill="#fff" stroke="#eee" />
+        <rect x="5" y="6" width="14" height="40" rx="1" fill="#e8e8e8" />
+        <rect x="5" y="10" width="12" height="2" rx="0.5" fill="#d1d5db" />
+        <rect x="5" y="14" width="11" height="2" rx="0.5" fill="#d1d5db" />
+        <rect x="5" y="18" width="10" height="2" rx="0.5" fill="#d1d5db" />
+        <rect x="24" y="6" width="20" height="8" rx="1" fill="#ddd" />
+        <rect x="24" y="22" width="35" height="3" rx="0.5" fill="#c7d2fe" />
+        <rect x="24" y="27" width="30" height="3" rx="0.5" fill="#c7d2fe" />
+        <rect x="24" y="32" width="32" height="3" rx="0.5" fill="#c7d2fe" />
+        <rect x="52" y="42" width="23" height="3" rx="0.5" fill="#e8e8e8" />
+        <rect x="24" y="49" width="48" height="3" rx="0.5" fill="#6366f1" opacity={0.3} />
+        {[58, 63, 68, 73, 78].map((y, i) => (
+          <rect key={y} x="24" y={y} width={BODY_LINE_WIDTHS[i] ?? 55} height="2" rx="0.5" fill="#e8e8e8" />
+        ))}
+        <rect x="24" y="92" width="35" height="3" rx="0.5" fill="#e8e8e8" />
+        <rect x="24" y="98" width="25" height="3" rx="0.5" fill="#e8e8e8" />
+      </svg>
+    )
+  }
+  if (l === 'minimal') {
+    return (
+      <svg viewBox="0 0 80 110" width="100%" height="100%" aria-hidden>
+        <rect x="0" y="0" width="80" height="110" fill="#fff" stroke="#eee" />
+        <rect x="5" y="8" width="18" height="4" rx="0.5" fill="#e5e7eb" />
+        <rect x="5" y="22" width="40" height="3" rx="0.5" fill="#c7d2fe" />
+        <rect x="5" y="27" width="34" height="3" rx="0.5" fill="#c7d2fe" />
+        <rect x="52" y="36" width="23" height="3" rx="0.5" fill="#e8e8e8" />
+        <rect x="5" y="44" width="55" height="3" rx="0.5" fill="#6366f1" opacity={0.25} />
+        {[52, 57, 62, 67, 72].map((y, i) => (
+          <rect key={y} x="5" y={y} width={BODY_LINE_WIDTHS[i] ?? 55} height="2" rx="0.5" fill="#e8e8e8" />
+        ))}
+        <rect x="5" y="88" width="30" height="3" rx="0.5" fill="#e8e8e8" />
+        <rect x="5" y="94" width="22" height="3" rx="0.5" fill="#e8e8e8" />
+      </svg>
+    )
+  }
+  /* din5008a — default */
+  return (
+    <svg viewBox="0 0 80 110" width="100%" height="100%" aria-hidden>
+      <rect x="0" y="0" width="80" height="110" fill="#fff" stroke="#eee" />
+      <rect x="5" y="4" width="25" height="8" rx="1" fill="#ddd" />
+      <rect x="45" y="4" width="30" height="3" rx="0.5" fill="#e8e8e8" />
+      <rect x="45" y="9" width="28" height="3" rx="0.5" fill="#e8e8e8" />
+      <rect x="5" y="25" width="35" height="3" rx="0.5" fill="#c7d2fe" />
+      <rect x="5" y="30" width="30" height="3" rx="0.5" fill="#c7d2fe" />
+      <rect x="5" y="35" width="32" height="3" rx="0.5" fill="#c7d2fe" />
+      <rect x="55" y="45" width="20" height="3" rx="0.5" fill="#e8e8e8" />
+      <rect x="5" y="52" width="50" height="3" rx="0.5" fill="#6366f1" opacity={0.3} />
+      {[60, 65, 70, 75, 80].map((y, i) => (
+        <rect key={y} x="5" y={y} width={BODY_LINE_WIDTHS[i] ?? 55} height="2" rx="0.5" fill="#e8e8e8" />
+      ))}
+      <rect x="5" y="92" width="35" height="3" rx="0.5" fill="#e8e8e8" />
+      <rect x="5" y="98" width="25" height="3" rx="0.5" fill="#e8e8e8" />
+    </svg>
+  )
+}
 
 function coerceFieldType(t: string): FieldType {
   return t === 'date' || t === 'multiline' || t === 'address' || t === 'richtext' ? t : 'text'
@@ -27,6 +135,10 @@ export function LetterTemplatePort() {
   const removeTemplateField = useLetterComposerStore((s) => s.removeTemplateField)
   const patchTemplateField = useLetterComposerStore((s) => s.patchTemplateField)
   const setTemplateMappingComplete = useLetterComposerStore((s) => s.setTemplateMappingComplete)
+  const selectedBuiltinTemplate = useLetterComposerStore((s) => s.selectedBuiltinTemplate)
+  const setSelectedBuiltinTemplate = useLetterComposerStore((s) => s.setSelectedBuiltinTemplate)
+  const templateSetupStep = useLetterComposerStore((s) => s.templateSetupStep)
+  const setTemplateSetupStep = useLetterComposerStore((s) => s.setTemplateSetupStep)
   const letters = useLetterComposerStore((s) => s.letters)
   const activeLetterId = useLetterComposerStore((s) => s.activeLetterId)
   const composeSessions = useLetterComposerStore((s) => s.composeSessions)
@@ -45,6 +157,7 @@ export function LetterTemplatePort() {
   }, [composeSessions, activeComposeSessionId, activeTemplate?.id])
 
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const customTemplateFileInputRef = useRef<HTMLInputElement>(null)
   const pendingTemplateFileRef = useRef<File | null>(null)
 
   const [busy, setBusy] = useState(false)
@@ -58,6 +171,10 @@ export function LetterTemplatePort() {
   const [pdfTextLayers, setPdfTextLayers] = useState<
     Array<{ page: number; items: Array<{ text: string; x: number; y: number; w: number; h: number }> }>
   >([])
+
+  const [companyDetails, setCompanyDetails] = useState<Record<string, string>>({})
+  const [logoPreview, setLogoPreview] = useState<string | null>(null)
+  const setupWizardInitRef = useRef<string | null>(null)
 
   useEffect(() => {
     const pdfPath = activeTemplate?.pdfPreviewPath
@@ -271,6 +388,131 @@ export function LetterTemplatePort() {
     [processTemplateFile],
   )
 
+  const handleSelectBuiltin = useCallback(
+    (tmpl: BuiltinTemplate) => {
+      setSelectedBuiltinTemplate(tmpl)
+      setTemplateSetupStep('company-details')
+    },
+    [setSelectedBuiltinTemplate, setTemplateSetupStep],
+  )
+
+  const handleBackToTemplateChooser = useCallback(() => {
+    setSelectedBuiltinTemplate(null)
+    setTemplateSetupStep('chooser')
+    setupWizardInitRef.current = null
+  }, [setSelectedBuiltinTemplate, setTemplateSetupStep])
+
+  useEffect(() => {
+    if (templateSetupStep !== 'company-details' || !selectedBuiltinTemplate) {
+      setupWizardInitRef.current = null
+      return
+    }
+    const key = selectedBuiltinTemplate.id
+    if (setupWizardInitRef.current === key) return
+    setupWizardInitRef.current = key
+    const p = useLetterComposerStore.getState().companyProfile
+    setCompanyDetails({
+      company_logo: p.logoPath ?? '',
+      sender_name: p.sender_name ?? '',
+      sender_address: p.sender_address ?? '',
+      sender_phone: p.sender_phone ?? '',
+      sender_email: p.sender_email ?? '',
+      signer_name: p.signer_name ?? '',
+    })
+    setLogoPreview(p.logoPath)
+  }, [templateSetupStep, selectedBuiltinTemplate])
+
+  const handleLogoUpload = useCallback((e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    const okMime = /^image\/(png|jpeg|jpg|svg\+xml)$/i.test(file.type)
+    const okSvgName = file.name.toLowerCase().endsWith('.svg')
+    if (!okMime && !okSvgName) return
+    const reader = new FileReader()
+    reader.onload = () => {
+      const dataUrl = typeof reader.result === 'string' ? reader.result : ''
+      if (!dataUrl) return
+      setLogoPreview(dataUrl)
+      setCompanyDetails((prev) => ({ ...prev, company_logo: dataUrl }))
+    }
+    reader.readAsDataURL(file)
+  }, [])
+
+  const handleRemoveLogo = useCallback(() => {
+    setLogoPreview(null)
+    setCompanyDetails((prev) => ({ ...prev, company_logo: '' }))
+  }, [])
+
+  const handleFinishBuiltinSetup = useCallback(() => {
+    const selected = selectedBuiltinTemplate
+    if (!selected) return
+    const senderName = (companyDetails.sender_name || '').trim()
+    if (!senderName) return
+
+    const logoData = logoPreview?.trim() || companyDetails.company_logo?.trim() || null
+
+    const fields: TemplateField[] = selected.fields.map((f) => {
+      const anchorText = `{{${f.name}}}`
+      let value: string
+      if (f.staticField) {
+        if (f.name === 'company_logo') {
+          value = logoData ?? ''
+        } else {
+          value = (companyDetails[f.name] ?? '').trim() || (f.defaultValue ?? '')
+        }
+      } else {
+        value = f.defaultValue ?? ''
+      }
+      return {
+        id: crypto.randomUUID(),
+        name: f.name,
+        label: f.label,
+        type: f.type,
+        mode: f.mode,
+        page: 0,
+        x: 0,
+        y: 0,
+        w: 0,
+        h: 0,
+        value,
+        defaultValue: f.defaultValue ?? '',
+        anchorText,
+      }
+    })
+
+    const template: LetterTemplate = {
+      id: `builtin-${selected.id}-${Date.now()}`,
+      name: `${selected.name} — ${senderName}`,
+      sourceFileName: '',
+      sourceFilePath: '',
+      pdfPreviewPath: '',
+      pdfPageImages: [],
+      pageCount: 1,
+      fields,
+      mappingComplete: true,
+      builtinLayout: selected.layout,
+      logoPath: logoData,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    }
+
+    const st = useLetterComposerStore.getState()
+    st.setCompanyProfile({
+      sender_name: companyDetails.sender_name ?? '',
+      sender_address: companyDetails.sender_address ?? '',
+      sender_phone: companyDetails.sender_phone ?? '',
+      sender_email: companyDetails.sender_email ?? '',
+      signer_name: companyDetails.signer_name ?? '',
+      logoPath: logoData,
+    })
+    st.addTemplate(template)
+    st.setActiveTemplate(template.id)
+    setupWizardInitRef.current = null
+    setCompanyDetails({})
+    setLogoPreview(null)
+  }, [selectedBuiltinTemplate, companyDetails, logoPreview])
+
   const handleDragOver = useCallback((e: DragEvent) => {
     e.preventDefault()
     e.stopPropagation()
@@ -308,6 +550,7 @@ export function LetterTemplatePort() {
 
   const handleResetToOriginal = useCallback(async () => {
     if (!activeTemplateId || !activeTemplate) return
+    if (activeTemplate.builtinLayout) return
     const api = window.letterComposer
     const lo = window.libreoffice
     if (!api?.getConvertedPdfOutputDir || !api?.renderPdfPages || !lo?.convertToPdf) return
@@ -361,15 +604,39 @@ export function LetterTemplatePort() {
     })
   }, [activeTemplate?.id])
 
+  const buildBuiltinFieldRecord = useCallback((): Record<string, string> => {
+    const t = useLetterComposerStore.getState().templates.find((x) => x.id === activeTemplate?.id)
+    const rec: Record<string, string> = {}
+    for (const f of t?.fields ?? []) {
+      rec[f.name] = typeof f.value === 'string' ? f.value : ''
+    }
+    return rec
+  }, [activeTemplate?.id])
+
   const handleExportDocx = useCallback(async () => {
     const api = window.letterComposer
-    if (!api?.exportFilledDocx || !activeTemplate) return
-    if (!activeTemplate.sourceFilePath.toLowerCase().endsWith('.docx')) {
-      setError('Export as DOCX is only available for Word (.docx) templates. Use Print for other formats.')
-      return
-    }
+    if (!activeTemplate) return
     setError(null)
     try {
+      if (activeTemplate.builtinLayout) {
+        if (!api?.exportBuiltinDocx) {
+          setError('Built-in DOCX export requires WR Desk (Electron) with an up-to-date Letter Composer bridge.')
+          return
+        }
+        const r = await api.exportBuiltinDocx({
+          layout: activeTemplate.builtinLayout,
+          fields: buildBuiltinFieldRecord(),
+          logoPath: activeTemplate.logoPath ?? null,
+          defaultName: `${activeTemplate.name}.docx`,
+        })
+        if (!r.success && !r.canceled) setError(r.error || 'Export failed')
+        return
+      }
+      if (!api?.exportFilledDocx) return
+      if (!activeTemplate.sourceFilePath.toLowerCase().endsWith('.docx')) {
+        setError('Export as DOCX is only available for Word (.docx) templates. Use Print for other formats.')
+        return
+      }
       const r = await api.exportFilledDocx({
         sourcePath: activeTemplate.sourceFilePath,
         fields: buildExportFieldsPayload(),
@@ -379,18 +646,33 @@ export function LetterTemplatePort() {
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Export failed')
     }
-  }, [activeTemplate, buildExportFieldsPayload])
+  }, [activeTemplate, buildExportFieldsPayload, buildBuiltinFieldRecord])
 
   const handleExportPdf = useCallback(async () => {
     const api = window.letterComposer
-    if (!api?.exportFilledPdf || !activeTemplate) return
-    if (!activeTemplate.sourceFilePath.toLowerCase().endsWith('.docx')) {
-      setError('Export as PDF needs a Word (.docx) template (filled via export pipeline).')
-      return
-    }
+    if (!activeTemplate) return
     setError(null)
     setBusy(true)
     try {
+      if (activeTemplate.builtinLayout) {
+        if (!api?.exportBuiltinPdf) {
+          setError('Built-in PDF export requires WR Desk (Electron) with an up-to-date Letter Composer bridge.')
+          return
+        }
+        const r = await api.exportBuiltinPdf({
+          layout: activeTemplate.builtinLayout,
+          fields: buildBuiltinFieldRecord(),
+          logoPath: activeTemplate.logoPath ?? null,
+          defaultName: `${activeTemplate.name}.pdf`,
+        })
+        if (!r.success && !r.canceled) setError(r.error || 'PDF export failed')
+        return
+      }
+      if (!api?.exportFilledPdf) return
+      if (!activeTemplate.sourceFilePath.toLowerCase().endsWith('.docx')) {
+        setError('Export as PDF needs a Word (.docx) template (filled via export pipeline).')
+        return
+      }
       const r = await api.exportFilledPdf({
         sourcePath: activeTemplate.sourceFilePath,
         fields: buildExportFieldsPayload(),
@@ -402,11 +684,28 @@ export function LetterTemplatePort() {
     } finally {
       setBusy(false)
     }
-  }, [activeTemplate, buildExportFieldsPayload])
+  }, [activeTemplate, buildExportFieldsPayload, buildBuiltinFieldRecord])
 
   const handlePrint = useCallback(async () => {
     if (!activeTemplate) return
     const api = window.letterComposer
+    if (activeTemplate.mappingComplete && activeTemplate.builtinLayout && api?.printBuiltinLetter) {
+      setError(null)
+      setBusy(true)
+      try {
+        const r = await api.printBuiltinLetter({
+          layout: activeTemplate.builtinLayout,
+          fields: buildBuiltinFieldRecord(),
+          logoPath: activeTemplate.logoPath ?? null,
+        })
+        if (!r.success) setError(r.error || 'Could not start print')
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'Could not start print')
+      } finally {
+        setBusy(false)
+      }
+      return
+    }
     const isDocx = activeTemplate.sourceFilePath.toLowerCase().endsWith('.docx')
     if (activeTemplate.mappingComplete && isDocx && api?.printFilledLetter) {
       setError(null)
@@ -457,7 +756,7 @@ export function LetterTemplatePort() {
         /* noop */
       }
     })
-  }, [activeTemplate, buildExportFieldsPayload])
+  }, [activeTemplate, buildExportFieldsPayload, buildBuiltinFieldRecord])
 
   const onMappingFieldAdded = useCallback(
     (partial: Omit<TemplateField, 'id' | 'value'>) => {
@@ -679,21 +978,156 @@ export function LetterTemplatePort() {
         </div>
       )}
 
-      {!activeTemplate && !libreOfficeNeeded ? (
-        <div className="letter-port__empty-drop-zone">
-          <div className="letter-port__drop-icon" aria-hidden>
-            {'\u{1F4C4}'}
+      {!activeTemplate && !libreOfficeNeeded && templateSetupStep === 'company-details' && selectedBuiltinTemplate ? (
+        <div className="template-setup-wizard">
+          <h3 style={{ fontSize: 16, fontWeight: 600, margin: '0 0 4px' }}>
+            Set up: {selectedBuiltinTemplate.name}
+          </h3>
+          <p style={{ fontSize: 12, color: '#666', margin: '0 0 12px', lineHeight: 1.45 }}>
+            Fill in your company details once. They&apos;ll be pre-filled on every letter.
+          </p>
+
+          <div className="setup-fields">
+            {selectedBuiltinTemplate.fields
+              .filter((f) => f.staticField)
+              .map((f) => (
+                <div key={f.name} className="setup-field">
+                  <label className="setup-field__label" htmlFor={`setup-${f.name}`}>
+                    {f.label}
+                  </label>
+                  {f.name === 'company_logo' ? (
+                    <div className="logo-upload">
+                      {logoPreview ? (
+                        <div className="logo-preview">
+                          <img src={logoPreview} alt="Logo" style={{ maxHeight: 60, maxWidth: 200 }} />
+                          <button type="button" className="logo-remove-btn" onClick={handleRemoveLogo}>
+                            × Remove
+                          </button>
+                        </div>
+                      ) : (
+                        <label className="logo-upload-btn">
+                          {'\u{1F4CE}'} Upload logo image
+                          <input
+                            type="file"
+                            accept="image/png,image/jpeg,image/svg+xml"
+                            onChange={handleLogoUpload}
+                            style={{ display: 'none' }}
+                          />
+                        </label>
+                      )}
+                      <p className="setup-field__hint">PNG, JPG, or SVG — optional</p>
+                    </div>
+                  ) : f.type === 'address' ? (
+                    <textarea
+                      id={`setup-${f.name}`}
+                      className="setup-field__input setup-field__textarea"
+                      value={companyDetails[f.name] || ''}
+                      onChange={(e) =>
+                        setCompanyDetails({ ...companyDetails, [f.name]: e.target.value })
+                      }
+                      rows={3}
+                      placeholder={f.label}
+                    />
+                  ) : (
+                    <input
+                      id={`setup-${f.name}`}
+                      type="text"
+                      className="setup-field__input"
+                      value={companyDetails[f.name] || ''}
+                      onChange={(e) =>
+                        setCompanyDetails({ ...companyDetails, [f.name]: e.target.value })
+                      }
+                      placeholder={f.label}
+                    />
+                  )}
+                </div>
+              ))}
           </div>
-          <p className="letter-port__drop-text">Drag & drop a template here</p>
-          <p className="letter-port__drop-subtext">.docx, .odt, .doc, .rtf, or .txt</p>
-          <p className="letter-port__drop-subtext">or</p>
-          <button
-            type="button"
-            className="letter-port__browse-btn"
-            onClick={() => fileInputRef.current?.click()}
-          >
-            Browse files
-          </button>
+
+          <p className="setup-reuse-note">
+            These details are saved and reused when you start another Quick Start template.
+          </p>
+
+          <div className="setup-actions">
+            <button type="button" className="template-toolbar__btn template-toolbar__btn--ghost" onClick={handleBackToTemplateChooser}>
+              ← Back
+            </button>
+            <button
+              type="button"
+              className="template-toolbar__btn template-toolbar__btn--primary setup-finish-btn"
+              onClick={handleFinishBuiltinSetup}
+              disabled={!(companyDetails.sender_name || '').trim()}
+            >
+              Finish Setup →
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {!activeTemplate && !libreOfficeNeeded && templateSetupStep === 'chooser' ? (
+        <div className="template-chooser">
+          <h3 style={{ fontSize: 16, fontWeight: 600, margin: '0 0 4px' }}>Choose a template</h3>
+          <p style={{ fontSize: 12, color: '#666', margin: '0 0 16px' }}>
+            Start with a pre-built template or upload your own corporate design.
+          </p>
+
+          <div className="template-library">
+            <h4 style={{ fontSize: 13, fontWeight: 600, margin: '0 0 8px' }}>Quick Start Templates</h4>
+            <div className="template-library-grid">
+              {BUILTIN_TEMPLATES.map((tmpl) => (
+                <button
+                  key={tmpl.id}
+                  type="button"
+                  className="template-library-card"
+                  onClick={() => handleSelectBuiltin(tmpl)}
+                >
+                  <div className="template-card-preview">
+                    <TemplatePreviewThumb layout={tmpl.layout} />
+                  </div>
+                  <span className="template-card-name">{tmpl.name}</span>
+                  <span className="template-card-desc">{tmpl.description}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '16px 0' }}>
+            <hr style={{ flex: 1, border: 'none', borderTop: '1px solid #E8E8E6' }} />
+            <span style={{ fontSize: 11, color: '#999' }}>or</span>
+            <hr style={{ flex: 1, border: 'none', borderTop: '1px solid #E8E8E6' }} />
+          </div>
+
+          <div className="template-custom-upload">
+            <h4 style={{ fontSize: 13, fontWeight: 600, margin: '0 0 8px' }}>Upload Your Own Template</h4>
+            <p style={{ fontSize: 11, color: '#888', margin: '0 0 8px' }}>
+              Use your corporate letterhead. You&apos;ll map the dynamic fields once — then reuse forever.
+            </p>
+            <div
+              className={`template-drop-zone ${isDragOver ? 'template-drop-zone--active' : ''}`}
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
+            >
+              <span>{'\u{1F4C4}'} Drag & drop your template here</span>
+              <span style={{ fontSize: 11, color: '#999' }}>.docx, .odt, .doc, .rtf</span>
+              <span style={{ fontSize: 11, color: '#999' }}>or</span>
+              <label className="template-chooser-browse-btn" htmlFor="letter-template-custom-file">
+                Browse files
+                <input
+                  id="letter-template-custom-file"
+                  ref={customTemplateFileInputRef}
+                  type="file"
+                  accept={CUSTOM_TEMPLATE_ACCEPT}
+                  disabled={busy}
+                  style={{ display: 'none' }}
+                  onChange={(e) => {
+                    handleFilesReceived(Array.from(e.target.files || []))
+                    e.target.value = ''
+                  }}
+                />
+              </label>
+            </div>
+          </div>
         </div>
       ) : null}
 
@@ -713,6 +1147,7 @@ export function LetterTemplatePort() {
             <button
               type="button"
               className="template-toolbar__btn template-toolbar__btn--ghost"
+              disabled={!activeTemplate.sourceFilePath || !!activeTemplate.builtinLayout}
               onClick={() => void handleResetToOriginal()}
             >
               Reset to original
@@ -799,25 +1234,29 @@ export function LetterTemplatePort() {
                 Finish Mapping ({activeTemplate.fields.length} fields defined)
               </button>
             </div>
-          ) : activeTemplate.mappingComplete && previewImages.length > 0 ? (
+          ) : activeTemplate.mappingComplete &&
+            (previewImages.length > 0 || !!activeTemplate.builtinLayout) ? (
             <div className="template-compose-layout">
-              <div style={{ marginBottom: 10 }}>
-                <button
-                  type="button"
-                  className="template-toolbar__linkish"
-                  onClick={() => {
-                    if (activeTemplateId) setTemplateMappingComplete(activeTemplateId, false)
-                  }}
-                >
-                  Edit field mapping
-                </button>
-              </div>
+              {!activeTemplate.builtinLayout ? (
+                <div style={{ marginBottom: 10 }}>
+                  <button
+                    type="button"
+                    className="template-toolbar__linkish"
+                    onClick={() => {
+                      if (activeTemplateId) setTemplateMappingComplete(activeTemplateId, false)
+                    }}
+                  >
+                    Edit field mapping
+                  </button>
+                </div>
+              ) : null}
               <ComposeFieldsForm
                 template={activeTemplate}
                 composeSession={activeComposeSession}
                 replyToLetter={replyToLetter}
               />
-              {activeTemplate.sourceFilePath.toLowerCase().endsWith('.docx') ? (
+              {activeTemplate.sourceFilePath.toLowerCase().endsWith('.docx') ||
+              !!activeTemplate.builtinLayout ? (
                 <div className="compose-export-actions">
                   <button
                     type="button"
@@ -844,46 +1283,52 @@ export function LetterTemplatePort() {
                   </button>
                 </div>
               ) : null}
-              <details className="template-compose-preview-details">
-                <summary className="template-compose-preview-summary">Template preview (read-only)</summary>
-                <div className="template-mapping-view template-mapping-view--done template-mapping-view--embedded">
-                  {pageCount > 1 ? (
-                    <div className="template-page-nav">
-                      <button
-                        type="button"
-                        className="template-toolbar__btn template-toolbar__btn--ghost"
-                        disabled={safePage <= 0}
-                        onClick={() => setCurrentPage((p) => Math.max(0, p - 1))}
-                      >
-                        Previous page
-                      </button>
-                      <span className="template-page-nav__label">
-                        Page {safePage + 1} / {pageCount}
-                      </span>
-                      <button
-                        type="button"
-                        className="template-toolbar__btn template-toolbar__btn--ghost"
-                        disabled={safePage >= previewImages.length - 1}
-                        onClick={() => setCurrentPage((p) => Math.min(previewImages.length - 1, p + 1))}
-                      >
-                        Next page
-                      </button>
+              {!activeTemplate.builtinLayout && previewImages.length > 0 ? (
+                <details className="template-compose-preview-details">
+                  <summary className="template-compose-preview-summary">Template preview (read-only)</summary>
+                  <div className="template-mapping-view template-mapping-view--done template-mapping-view--embedded">
+                    {pageCount > 1 ? (
+                      <div className="template-page-nav">
+                        <button
+                          type="button"
+                          className="template-toolbar__btn template-toolbar__btn--ghost"
+                          disabled={safePage <= 0}
+                          onClick={() => setCurrentPage((p) => Math.max(0, p - 1))}
+                        >
+                          Previous page
+                        </button>
+                        <span className="template-page-nav__label">
+                          Page {safePage + 1} / {pageCount}
+                        </span>
+                        <button
+                          type="button"
+                          className="template-toolbar__btn template-toolbar__btn--ghost"
+                          disabled={safePage >= previewImages.length - 1}
+                          onClick={() => setCurrentPage((p) => Math.min(previewImages.length - 1, p + 1))}
+                        >
+                          Next page
+                        </button>
+                      </div>
+                    ) : null}
+                    <div className="template-page-preview template-page-preview--overlay">
+                      <FieldMappingOverlay
+                        pageImage={previewImages[safePage]}
+                        pageIndex={safePage}
+                        fields={activeTemplate.fields}
+                        pageTextItems={pageTextItemsForOverlay}
+                        readOnly
+                        onFieldAdded={() => {}}
+                        onFieldRemoved={() => {}}
+                        onFieldUpdated={() => {}}
+                      />
                     </div>
-                  ) : null}
-                  <div className="template-page-preview template-page-preview--overlay">
-                    <FieldMappingOverlay
-                      pageImage={previewImages[safePage]}
-                      pageIndex={safePage}
-                      fields={activeTemplate.fields}
-                      pageTextItems={pageTextItemsForOverlay}
-                      readOnly
-                      onFieldAdded={() => {}}
-                      onFieldRemoved={() => {}}
-                      onFieldUpdated={() => {}}
-                    />
                   </div>
-                </div>
-              </details>
+                </details>
+              ) : activeTemplate.builtinLayout ? (
+                <p className="template-port__status template-port__status--muted">
+                  Built-in letterhead preview will appear after document generation is enabled.
+                </p>
+              ) : null}
             </div>
           ) : (
             <p className="template-port__status">Generating PDF preview…</p>

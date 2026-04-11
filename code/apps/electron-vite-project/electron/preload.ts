@@ -1209,6 +1209,36 @@ contextBridge.exposeInMainWorld('appShell', {
   },
 })
 
+function assertBuiltinLetterCore(v: unknown): {
+  layout: string
+  fields: Record<string, string>
+  logoPath: string | null
+} {
+  if (!v || typeof v !== 'object') throw new Error('builtin letter: expected object')
+  const o = v as Record<string, unknown>
+  if (typeof o.layout !== 'string' || o.layout.length < 1 || o.layout.length > 64) {
+    throw new Error('builtin letter: invalid layout')
+  }
+  if (!o.fields || typeof o.fields !== 'object') throw new Error('builtin letter: expected fields object')
+  const fields: Record<string, string> = {}
+  for (const [k, val] of Object.entries(o.fields as Record<string, unknown>)) {
+    if (typeof k !== 'string' || k.length > 120) continue
+    const s = typeof val === 'string' ? val : String(val ?? '')
+    fields[k] = s.length > 600_000 ? s.slice(0, 600_000) : s
+  }
+  let logoPath: string | null = null
+  if (o.logoPath !== undefined && o.logoPath !== null) {
+    if (typeof o.logoPath !== 'string') throw new Error('builtin letter: invalid logoPath')
+    const lp = o.logoPath.trim()
+    if (lp.length > 15_000_000) throw new Error('builtin letter: logoPath too large')
+    if (lp && !lp.startsWith('data:image/') && lp.length > 4096) {
+      throw new Error('builtin letter: logoPath must be a data URL or short file path')
+    }
+    logoPath = lp || null
+  }
+  return { layout: o.layout.trim(), fields, logoPath }
+}
+
 // ── Letter Composer (dashboard) — .docx / .odt templates in userData/letter-composer
 contextBridge.exposeInMainWorld('letterComposer', {
   saveTemplateFromPath: (sourcePath: string, originalFileName: string) => {
@@ -1341,6 +1371,54 @@ contextBridge.exposeInMainWorld('letterComposer', {
         value: typeof f.value === 'string' ? f.value : String(f.value ?? ''),
         anchorText: typeof f.anchorText === 'string' ? f.anchorText : '',
       })),
+    }) as Promise<{ success: boolean; error?: string }>
+  },
+  exportBuiltinDocx: (payload: {
+    layout: string
+    fields: Record<string, string>
+    logoPath?: string | null
+    defaultName?: string
+  }) => {
+    const { layout, fields, logoPath } = assertBuiltinLetterCore(payload)
+    const defaultName =
+      payload && typeof payload.defaultName === 'string' && payload.defaultName.trim()
+        ? payload.defaultName.trim().slice(0, 260)
+        : 'Letter.docx'
+    return ipcRenderer.invoke('letter:exportBuiltinDocx', {
+      layout,
+      fields,
+      logoPath,
+      defaultName,
+    }) as Promise<{ success: boolean; canceled?: boolean; filePath?: string; error?: string }>
+  },
+  exportBuiltinPdf: (payload: {
+    layout: string
+    fields: Record<string, string>
+    logoPath?: string | null
+    defaultName?: string
+  }) => {
+    const { layout, fields, logoPath } = assertBuiltinLetterCore(payload)
+    const defaultName =
+      payload && typeof payload.defaultName === 'string' && payload.defaultName.trim()
+        ? payload.defaultName.trim().slice(0, 260)
+        : 'Letter.pdf'
+    return ipcRenderer.invoke('letter:exportBuiltinPdf', {
+      layout,
+      fields,
+      logoPath,
+      defaultName,
+    }) as Promise<{ success: boolean; canceled?: boolean; filePath?: string; error?: string }>
+  },
+  printBuiltinLetter: (payload: {
+    layout: string
+    fields: Record<string, string>
+    logoPath?: string | null
+  }) => {
+    const { layout, fields, logoPath } = assertBuiltinLetterCore(payload)
+    return ipcRenderer.invoke('letter:printBuiltinLetter', {
+      layout,
+      fields,
+      logoPath,
     }) as Promise<{ success: boolean; error?: string }>
   },
   saveLetterFromPath: (sourcePath: string, originalFileName: string) => {

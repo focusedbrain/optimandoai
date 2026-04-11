@@ -5,6 +5,7 @@
 import { ipcMain, app, dialog, BrowserWindow, shell } from 'electron'
 import path from 'path'
 import fs from 'fs'
+import os from 'os'
 import crypto from 'crypto'
 import { pathToFileURL } from 'node:url'
 import type { ChatMessage } from '../llm/types'
@@ -47,6 +48,29 @@ type FillFieldPayload = {
   placeholder: string
   value: string
   anchorText?: string
+}
+
+function normalizeBuiltinFieldsRecord(raw: unknown): Record<string, string> {
+  if (!raw || typeof raw !== 'object') return {}
+  const o = raw as Record<string, unknown>
+  const out: Record<string, string> = {}
+  for (const [k, v] of Object.entries(o)) {
+    if (typeof k !== 'string' || k.length > 120) continue
+    const s = typeof v === 'string' ? v : String(v ?? '')
+    out[k] = s.length > 600_000 ? s.slice(0, 600_000) : s
+  }
+  return out
+}
+
+function normalizeLogoPathForBuiltin(logoPath: unknown): string | null {
+  if (logoPath === null || logoPath === undefined) return null
+  if (typeof logoPath !== 'string') return null
+  const t = logoPath.trim()
+  if (!t) return null
+  if (t.length > 15_000_000) return null
+  if (t.startsWith('data:image/')) return t
+  if (t.length <= 4096 && !t.includes('\0')) return t
+  return null
 }
 
 function normalizeFillFields(raw: unknown[]): FillFieldPayload[] {
@@ -644,6 +668,203 @@ export function registerLetterComposerIpcHandlers(): void {
         }
       }
       return { success: true, filePath }
+    },
+  )
+
+  ipcMain.handle(
+    'letter:exportBuiltinDocx',
+    async (
+      event,
+      payload: {
+        layout: string
+        fields: Record<string, string>
+        logoPath?: string | null
+        defaultName?: string
+      },
+    ) => {
+      if (!payload || typeof payload !== 'object' || typeof payload.layout !== 'string') {
+        return { success: false, error: 'Invalid payload' }
+      }
+      if (payload.layout.length > 64) {
+        return { success: false, error: 'Invalid layout' }
+      }
+      const fields = normalizeBuiltinFieldsRecord(payload.fields)
+      const logoPath = normalizeLogoPathForBuiltin(payload.logoPath)
+      try {
+        const { renderBuiltinTemplate } = await import('./builtinTemplateRenderer')
+        const outBuf = await renderBuiltinTemplate({
+          layout: payload.layout,
+          fields,
+          logoPath,
+        })
+        const baseName =
+          typeof payload.defaultName === 'string' && payload.defaultName.trim()
+            ? payload.defaultName.trim().replace(/[^\w.\- ()[\]]+/g, '_')
+            : `Letter_${new Date().toISOString().split('T')[0]}.docx`
+        const name = baseName.toLowerCase().endsWith('.docx') ? baseName : `${baseName}.docx`
+        const bw = BrowserWindow.fromWebContents(event.sender)
+        const saveOpts = {
+          defaultPath: path.join(app.getPath('downloads'), name),
+          filters: [{ name: 'Word Document', extensions: ['docx'] }],
+        }
+        const { canceled, filePath } = bw
+          ? await dialog.showSaveDialog(bw, saveOpts)
+          : await dialog.showSaveDialog(saveOpts)
+        if (canceled || !filePath) {
+          return { success: false, canceled: true }
+        }
+        fs.writeFileSync(filePath, outBuf)
+        return { success: true, filePath }
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e)
+        return { success: false, error: msg }
+      }
+    },
+  )
+
+  ipcMain.handle(
+    'letter:exportBuiltinPdf',
+    async (
+      event,
+      payload: {
+        layout: string
+        fields: Record<string, string>
+        logoPath?: string | null
+        defaultName?: string
+      },
+    ) => {
+      if (!payload || typeof payload !== 'object' || typeof payload.layout !== 'string') {
+        return { success: false, error: 'Invalid payload' }
+      }
+      if (payload.layout.length > 64) {
+        return { success: false, error: 'Invalid layout' }
+      }
+      const fields = normalizeBuiltinFieldsRecord(payload.fields)
+      const logoPath = normalizeLogoPathForBuiltin(payload.logoPath)
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wrdesk-builtin-'))
+      const tmpDocx = path.join(tmpDir, 'letter.docx')
+      try {
+        const { renderBuiltinTemplate } = await import('./builtinTemplateRenderer')
+        const outBuf = await renderBuiltinTemplate({
+          layout: payload.layout,
+          fields,
+          logoPath,
+        })
+        fs.writeFileSync(tmpDocx, outBuf)
+        const { convertToPdf } = await import('../libreoffice/libreofficeService')
+        let pdfPath: string
+        try {
+          pdfPath = await convertToPdf(tmpDocx, tmpDir)
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : 'PDF conversion failed'
+          return {
+            success: false,
+            error: msg === 'LIBREOFFICE_NOT_FOUND' ? 'LibreOffice not found.' : msg,
+          }
+        }
+        const baseName =
+          typeof payload.defaultName === 'string' && payload.defaultName.trim()
+            ? payload.defaultName.trim().replace(/[^\w.\- ()[\]]+/g, '_')
+            : `Letter_${new Date().toISOString().split('T')[0]}.pdf`
+        const name = baseName.toLowerCase().endsWith('.pdf') ? baseName : `${baseName}.pdf`
+        const bwPdf = BrowserWindow.fromWebContents(event.sender)
+        const pdfSaveOpts = {
+          defaultPath: path.join(app.getPath('downloads'), name),
+          filters: [{ name: 'PDF', extensions: ['pdf'] }],
+        }
+        const { canceled, filePath } = bwPdf
+          ? await dialog.showSaveDialog(bwPdf, pdfSaveOpts)
+          : await dialog.showSaveDialog(pdfSaveOpts)
+        if (canceled || !filePath) {
+          try {
+            fs.unlinkSync(pdfPath)
+          } catch {
+            /* noop */
+          }
+          return { success: false, canceled: true }
+        }
+        try {
+          fs.copyFileSync(pdfPath, filePath)
+        } finally {
+          try {
+            fs.unlinkSync(pdfPath)
+          } catch {
+            /* noop */
+          }
+        }
+        return { success: true, filePath }
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e)
+        return { success: false, error: msg }
+      } finally {
+        try {
+          fs.rmSync(tmpDir, { recursive: true, force: true })
+        } catch {
+          /* noop */
+        }
+      }
+    },
+  )
+
+  ipcMain.handle(
+    'letter:printBuiltinLetter',
+    async (
+      _event,
+      payload: {
+        layout: string
+        fields: Record<string, string>
+        logoPath?: string | null
+      },
+    ) => {
+      if (!payload || typeof payload !== 'object' || typeof payload.layout !== 'string') {
+        return { success: false, error: 'Invalid payload' }
+      }
+      if (payload.layout.length > 64) {
+        return { success: false, error: 'Invalid layout' }
+      }
+      const fields = normalizeBuiltinFieldsRecord(payload.fields)
+      const logoPath = normalizeLogoPathForBuiltin(payload.logoPath)
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wrdesk-builtin-print-'))
+      const tmpDocx = path.join(tmpDir, 'letter.docx')
+      try {
+        const { renderBuiltinTemplate } = await import('./builtinTemplateRenderer')
+        const outBuf = await renderBuiltinTemplate({
+          layout: payload.layout,
+          fields,
+          logoPath,
+        })
+        fs.writeFileSync(tmpDocx, outBuf)
+        const { convertToPdf } = await import('../libreoffice/libreofficeService')
+        let pdfPath: string
+        try {
+          pdfPath = await convertToPdf(tmpDocx, tmpDir)
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : 'PDF conversion failed'
+          return {
+            success: false,
+            error: msg === 'LIBREOFFICE_NOT_FOUND' ? 'LibreOffice not found.' : msg,
+          }
+        }
+        try {
+          await printPdfWithSystemDialog(pdfPath)
+        } finally {
+          try {
+            fs.unlinkSync(pdfPath)
+          } catch {
+            /* noop */
+          }
+        }
+        return { success: true }
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e)
+        return { success: false, error: msg }
+      } finally {
+        try {
+          fs.rmSync(tmpDir, { recursive: true, force: true })
+        } catch {
+          /* noop */
+        }
+      }
     },
   )
 
