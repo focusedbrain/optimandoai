@@ -7,10 +7,10 @@ const appDir = __dirname
 
 /**
  * Parsed by scripts/kill-wr-desk.cjs — must contain a line matching:
- *   return 'C:\\build-output\\build0069'
+ *   return 'C:\\build-output\\build0070'
  */
 function windowsOutputDirMarker() {
-  return 'C:\\build-output\\build0069'
+  return 'C:\\build-output\\build0070'
 }
 
 const workspaceRoot = path.resolve(appDir, '../..')

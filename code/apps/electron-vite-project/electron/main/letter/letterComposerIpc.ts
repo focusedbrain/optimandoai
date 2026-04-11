@@ -386,6 +386,15 @@ export function registerLetterComposerIpcHandlers(): void {
     return renderPdfFileToPngDataUrls(safe)
   })
 
+  ipcMain.handle('letter:extractPdfTextPositions', async (_e, pdfPath: string) => {
+    if (typeof pdfPath !== 'string' || pdfPath.length > 4096) {
+      throw new Error('Invalid path')
+    }
+    const safe = assertAllowedLetterComposerPdfPath(pdfPath)
+    const { extractPdfTextPositionsFromPath } = await import('./templatePdfTextLayer')
+    return extractPdfTextPositionsFromPath(safe)
+  })
+
   ipcMain.handle('letter:detectFields', async (_e, pdfPath: string) => {
     if (typeof pdfPath !== 'string' || pdfPath.length > 4096) {
       return { ok: false, fields: [], error: 'Invalid path' }

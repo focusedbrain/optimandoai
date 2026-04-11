@@ -56,6 +56,31 @@ export function LetterTemplatePort() {
   const [currentPage, setCurrentPage] = useState(0)
   const [suggestionFields, setSuggestionFields] = useState<TemplateField[]>([])
   const [detecting, setDetecting] = useState(false)
+  const [pdfTextLayers, setPdfTextLayers] = useState<
+    Array<{ page: number; items: Array<{ text: string; x: number; y: number; w: number; h: number }> }>
+  >([])
+
+  useEffect(() => {
+    const pdfPath = activeTemplate?.pdfPreviewPath
+    const api = typeof window !== 'undefined' ? window.letterComposer : undefined
+    if (!pdfPath || !api?.extractPdfTextPositions) {
+      setPdfTextLayers([])
+      return
+    }
+    let cancelled = false
+    void api
+      .extractPdfTextPositions(pdfPath)
+      .then((pages) => {
+        if (!cancelled) setPdfTextLayers(pages)
+      })
+      .catch((e) => {
+        console.warn('[LetterTemplatePort] extractPdfTextPositions failed', e)
+        if (!cancelled) setPdfTextLayers([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [activeTemplate?.pdfPreviewPath])
 
   useEffect(() => {
     setCurrentPage(0)
@@ -427,13 +452,13 @@ export function LetterTemplatePort() {
   }, [activeTemplate, buildExportFieldsPayload])
 
   const onMappingFieldAdded = useCallback(
-    (partial: Omit<TemplateField, 'id' | 'value' | 'defaultValue'>) => {
+    (partial: Omit<TemplateField, 'id' | 'value'>) => {
       if (!activeTemplateId) return
       const field: TemplateField = {
         ...partial,
         id: crypto.randomUUID(),
         value: '',
-        defaultValue: '',
+        defaultValue: partial.defaultValue ?? '',
       }
       addTemplateField(activeTemplateId, field)
     },
@@ -538,6 +563,7 @@ export function LetterTemplatePort() {
   const previewImages = activeTemplate?.pdfPageImages ?? []
   const safePage = Math.min(currentPage, Math.max(0, previewImages.length - 1))
   const pageCount = activeTemplate?.pageCount ?? previewImages.length
+  const pageTextItemsForOverlay = pdfTextLayers.find((p) => p.page === safePage)?.items ?? []
 
   return (
     <div
@@ -745,6 +771,7 @@ export function LetterTemplatePort() {
                   pageImage={previewImages[safePage]}
                   pageIndex={safePage}
                   fields={activeTemplate.fields}
+                  pageTextItems={pageTextItemsForOverlay}
                   suggestionFields={suggestionFields}
                   readOnly={false}
                   onFieldAdded={onMappingFieldAdded}
@@ -829,6 +856,7 @@ export function LetterTemplatePort() {
                       pageImage={previewImages[safePage]}
                       pageIndex={safePage}
                       fields={activeTemplate.fields}
+                      pageTextItems={pageTextItemsForOverlay}
                       readOnly
                       onFieldAdded={() => {}}
                       onFieldRemoved={() => {}}

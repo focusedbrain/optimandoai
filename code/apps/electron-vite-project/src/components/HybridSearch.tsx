@@ -647,7 +647,8 @@ export default function HybridSearch({
   const isDraftRefineSession =
     draftRefineConnected &&
     (draftRefineMessageId === selectedMessageId ||
-      (draftRefineMessageId === null && selectedMessageId == null))
+      (draftRefineMessageId === null && selectedMessageId == null) ||
+      draftRefineTarget === 'letter-template')
 
   /** Derived focus context — distinguishes outer message vs draft sub-focus vs attachment above chat. */
   const uiFocusContext: UiFocusContext = useMemo(() => {

@@ -48,6 +48,28 @@ function normalizeDrawRect(nx1: number, ny1: number, nx2: number, ny2: number) {
   return clampRect({ x, y, w, h })
 }
 
+export type PdfPageTextItem = { text: string; x: number; y: number; w: number; h: number }
+
+/** Text items overlapping a normalized rect (PDF preview / overlay coordinates). */
+export function getTextInRect(
+  textItems: PdfPageTextItem[],
+  rect: { x: number; y: number; w: number; h: number },
+): string {
+  const overlapping = textItems.filter((item) => {
+    const itemRight = item.x + item.w
+    const itemBottom = item.y + item.h
+    const rectRight = rect.x + rect.w
+    const rectBottom = rect.y + rect.h
+    return item.x < rectRight && itemRight > rect.x && item.y < rectBottom && itemBottom > rect.y
+  })
+  overlapping.sort((a, b) => {
+    const rowDiff = Math.round((a.y - b.y) * 100)
+    if (Math.abs(rowDiff) > 2) return rowDiff
+    return a.x - b.x
+  })
+  return overlapping.map((i) => i.text).join(' ').trim()
+}
+
 type ResizeCorner = 'nw' | 'ne' | 'sw' | 'se'
 
 function fixedPointForCorner(
@@ -73,10 +95,12 @@ export interface FieldMappingOverlayProps {
   pageImage: string
   pageIndex: number
   fields: TemplateField[]
+  /** PDF text layer for this page (normalized positions) — used to set anchorText when drawing zones. */
+  pageTextItems?: PdfPageTextItem[]
   /** AI-suggested zones (dashed) until the user confirms them into `fields`. */
   suggestionFields?: TemplateField[]
   readOnly?: boolean
-  onFieldAdded: (field: Omit<TemplateField, 'id' | 'value' | 'defaultValue'>) => void
+  onFieldAdded: (field: Omit<TemplateField, 'id' | 'value'>) => void
   onFieldRemoved: (fieldId: string) => void
   onFieldUpdated: (fieldId: string, patch: Partial<TemplateField>) => void
   onSuggestionConfirm?: (fieldId: string) => void
@@ -101,6 +125,7 @@ export function FieldMappingOverlay({
   pageImage,
   pageIndex,
   fields,
+  pageTextItems = [],
   suggestionFields = [],
   readOnly = false,
   onFieldAdded,
@@ -179,6 +204,9 @@ export function FieldMappingOverlay({
   const onSuggestionUpdatedRef = useRef(onSuggestionUpdated)
   onSuggestionUpdatedRef.current = onSuggestionUpdated
 
+  const pageTextItemsRef = useRef(pageTextItems)
+  pageTextItemsRef.current = pageTextItems
+
   const normFromEvent = useCallback((e: MouseEvent) => {
     const img = imageRef.current
     if (!img) return { nx: 0, ny: 0 }
@@ -198,9 +226,9 @@ export function FieldMappingOverlay({
         const { nx: mx, ny: my } = normFromEvent(e)
         const next = normalizeDrawRect(mx, my, fixNx, fixNy)
         if (suggestionIdsRef.current.has(fieldId)) {
-          onSuggestionUpdatedRef.current(fieldId, next)
+          onSuggestionUpdatedRef.current?.(fieldId, next)
         } else {
-          onFieldUpdatedRef.current(fieldId, next)
+          onFieldUpdatedRef.current?.(fieldId, next)
         }
         return
       }
@@ -228,6 +256,7 @@ export function FieldMappingOverlay({
         if (ok && d) {
           const preset = pendingPresetRef.current
           if (preset) {
+            const anchor = getTextInRect(pageTextItemsRef.current, d)
             onFieldAddedRef.current({
               name: preset.name,
               label: preset.label,
@@ -238,7 +267,8 @@ export function FieldMappingOverlay({
               y: d.y,
               w: d.w,
               h: d.h,
-              anchorText: '',
+              anchorText: anchor,
+              defaultValue: anchor,
             })
             setPendingPreset(null)
           } else {
@@ -285,6 +315,7 @@ export function FieldMappingOverlay({
   const saveNewField = useCallback(() => {
     if (!newFieldRect) return
     const label = newLabel.trim() || 'Field'
+    const anchor = getTextInRect(pageTextItems, newFieldRect)
     onFieldAdded({
       name: slugifyTemplateFieldName(label),
       label,
@@ -295,10 +326,11 @@ export function FieldMappingOverlay({
       y: newFieldRect.y,
       w: newFieldRect.w,
       h: newFieldRect.h,
-      anchorText: '',
+      anchorText: anchor,
+      defaultValue: anchor,
     })
     clearNewPopup()
-  }, [newFieldRect, newLabel, newType, newMode, pageIndex, onFieldAdded, clearNewPopup])
+  }, [newFieldRect, newLabel, newType, newMode, pageIndex, pageTextItems, onFieldAdded, clearNewPopup])
 
   const openEdit = useCallback(
     (f: TemplateField) => {

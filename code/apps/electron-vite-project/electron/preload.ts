@@ -1247,6 +1247,13 @@ contextBridge.exposeInMainWorld('letterComposer', {
       pages: string[]
       pageCount: number
     }>,
+  extractPdfTextPositions: (filePath: string) =>
+    ipcRenderer.invoke('letter:extractPdfTextPositions', assertFsPath(filePath, 'filePath')) as Promise<
+      Array<{
+        page: number
+        items: Array<{ text: string; x: number; y: number; w: number; h: number }>
+      }>
+    >,
   detectTemplateFields: (filePath: string) =>
     ipcRenderer.invoke('letter:detectFields', assertFsPath(filePath, 'filePath')) as Promise<{
       ok: boolean

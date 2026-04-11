@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { WRCHAT_APPEND_ASSISTANT_EVENT } from '@ext/stores/chatFocusStore'
+import { WRDESK_FOCUS_AI_CHAT_EVENT } from '../lib/wrdeskUiEvents'
 import { useDraftRefineStore } from '../stores/useDraftRefineStore'
 import {
   useLetterComposerStore,
@@ -76,24 +78,6 @@ function findDateField(fields: TemplateField[]): TemplateField | undefined {
   return fields.find((f) => f.name.toLowerCase() === 'date' || f.type === 'date')
 }
 
-function parseBodyDraftsJson(text: string): string[] | null {
-  const cleaned = text
-    .replace(/```json?\s*/gi, '')
-    .replace(/```/g, '')
-    .trim()
-  const start = cleaned.indexOf('{')
-  const end = cleaned.lastIndexOf('}')
-  const slice = start >= 0 && end > start ? cleaned.slice(start, end + 1) : cleaned
-  try {
-    const o = JSON.parse(slice) as { drafts?: unknown }
-    if (!Array.isArray(o.drafts)) return null
-    const out = o.drafts.filter((x): x is string => typeof x === 'string' && x.trim().length > 0)
-    return out.length > 0 ? out.slice(0, 3) : null
-  } catch {
-    return null
-  }
-}
-
 function loadSenderProfile(): { name: string; address: string } {
   try {
     const raw = localStorage.getItem(SENDER_PROFILE_KEY)
@@ -120,6 +104,7 @@ export interface ComposeFieldsFormProps {
 }
 
 export function ComposeFieldsForm({ template, composeSession, replyToLetter }: ComposeFieldsFormProps) {
+  const letters = useLetterComposerStore((s) => s.letters)
   const updateTemplateField = useLetterComposerStore((s) => s.updateTemplateField)
   const updateComposeSession = useLetterComposerStore((s) => s.updateComposeSession)
   const setTemplateVersions = useLetterComposerStore((s) => s.setTemplateVersions)
@@ -133,7 +118,6 @@ export function ComposeFieldsForm({ template, composeSession, replyToLetter }: C
   const draftRefineTarget = useDraftRefineStore((s) => s.refineTarget)
 
   const [selectedFieldId, setSelectedFieldId] = useState<string | null>(null)
-  const [draftBusy, setDraftBusy] = useState(false)
   const [draftError, setDraftError] = useState<string | null>(null)
 
   const lastReplyAutofillId = useRef<string | null>(null)
@@ -274,63 +258,56 @@ export function ComposeFieldsForm({ template, composeSession, replyToLetter }: C
     }
   }, [])
 
-  const handleAiDraftBody = useCallback(async () => {
+  const handleAiDraftBody = useCallback(() => {
     const bodyId = resolveBodyFieldId(template.fields)
     if (!bodyId) {
       setDraftError('No body field found — add a field named “body” or a richtext/multiline content field.')
       return
     }
-    const chatDirect = window.handshakeView?.chatDirect
-    if (!chatDirect) {
-      setDraftError('AI drafting requires the chat bridge (open Analysis / WR Chat).')
-      return
-    }
     setDraftError(null)
-    setDraftBusy(true)
-    try {
-      const incoming = (replyToLetter?.fullText ?? '').trim().slice(0, 12_000)
-      const fieldSummary = template.fields
-        .map((f) => `- ${f.name} (${f.label}): ${(f.value ?? '').slice(0, 200)}`)
-        .join('\n')
-      const system = `You help draft formal business letter bodies. Output ONLY valid JSON: {"drafts":["...","...","..."]} with exactly 3 strings. Each string is a full letter body (paragraphs separated by \\n\\n), professional tone, same language as the incoming letter when one is provided. No markdown fences, no keys other than "drafts".`
-      const user = [
-        incoming ? `Incoming letter (reply context):\n${incoming}\n` : 'No incoming letter — draft generic professional bodies.\n',
-        `Current template field snapshot:\n${fieldSummary}\n`,
-        'Write 3 alternative drafts for the main letter body only (no salutation/closing unless they are usually part of body in this template).',
-      ].join('\n')
+    const bodyField = template.fields.find((f) => f.id === bodyId)
+    if (!bodyField) return
+    handleFieldSelect(bodyField)
 
-      const r = await chatDirect({
-        model: 'llama3',
-        provider: 'ollama',
-        systemPrompt: system,
-        userPrompt: user,
-        stream: false,
-        temperature: 0.7,
-      })
-      if (!r?.success || typeof r.answer !== 'string') {
-        throw new Error(r?.message || r?.error || 'LLM call failed')
-      }
-      const drafts = parseBodyDraftsJson(r.answer)
-      if (!drafts || drafts.length === 0) {
-        throw new Error('Model did not return valid JSON with a "drafts" array.')
-      }
+    const replyLetter =
+      (composeSession?.replyToLetterId
+        ? letters.find((l) => l.id === composeSession.replyToLetterId)
+        : null) ?? replyToLetter
+    const letterContext = (replyLetter?.fullText ?? '').trim().slice(0, 3000)
 
-      const snapshots: Array<Record<string, string>> = drafts.map((body) => {
-        const snap: Record<string, string> = {}
-        for (const f of template.fields) {
-          snap[f.id] = f.value ?? ''
-        }
-        snap[bodyId] = body
-        return snap
-      })
+    const recipientField = template.fields.find((f) => {
+      const n = f.name.toLowerCase()
+      return n.includes('recipient') && !n.includes('address')
+    })
+    const currentRecipient = recipientField?.value ?? ''
+    const subjectField = template.fields.find((f) => f.name.toLowerCase().includes('subject'))
+    const currentSubject = subjectField?.value ?? ''
 
-      setTemplateVersions(template.id, snapshots, 0)
-    } catch (e) {
-      setDraftError(e instanceof Error ? e.message : 'Draft generation failed')
-    } finally {
-      setDraftBusy(false)
-    }
-  }, [replyToLetter?.fullText, setTemplateVersions, template.fields, template.id])
+    const contextMessage = [
+      '\u{1F4DD} **Letter Composer** — Body field selected for AI drafting.',
+      '',
+      currentRecipient ? `Recipient: ${currentRecipient}` : '',
+      currentSubject ? `Subject: ${currentSubject}` : '',
+      letterContext
+        ? `\n--- Incoming letter (for reply context) ---\n${letterContext.slice(0, 500)}${letterContext.length > 500 ? '\u2026' : ''}`
+        : '',
+      '',
+      'Type your instruction in the chat bar (e.g. “write a formal response declining the offer”). Then click **Use** to apply the reply to the body field.',
+    ]
+      .filter(Boolean)
+      .join('\n')
+
+    window.dispatchEvent(new CustomEvent(WRDESK_FOCUS_AI_CHAT_EVENT, { bubbles: true }))
+    window.dispatchEvent(
+      new CustomEvent(WRCHAT_APPEND_ASSISTANT_EVENT, { detail: { text: contextMessage } }),
+    )
+  }, [
+    composeSession?.replyToLetterId,
+    handleFieldSelect,
+    letters,
+    replyToLetter,
+    template.fields,
+  ])
 
   const versionCount = composeSession?.versions.length ?? 0
   const versionIndex = composeSession?.activeVersionIndex ?? -1
@@ -344,25 +321,27 @@ export function ComposeFieldsForm({ template, composeSession, replyToLetter }: C
     [template.id, versionCount, versionIndex, setActiveTemplateVersionIndex],
   )
 
-  const renderField = (field: TemplateField) => {
+  const renderFieldInput = (field: TemplateField, isAiWireActive: boolean) => {
     const v = field.value ?? ''
-    const isSelected = selectedFieldId === field.id
-    const commonClass = `compose-field-input${isSelected ? ' field-selected-for-ai' : ''}`
-    const onSelect = () => handleFieldSelect(field)
+    const commonClass = `compose-field-input${isAiWireActive ? ' field-selected-for-ai' : ''}`
+    const focusStyle = isAiWireActive
+      ? {
+          borderColor: '#6366f1',
+          boxShadow: '0 0 0 2px rgba(99, 102, 241, 0.15)',
+        }
+      : undefined
 
     if (field.type === 'richtext' || field.type === 'multiline' || field.type === 'address') {
       return (
         <textarea
-          key={field.id}
           className={commonClass}
+          style={focusStyle}
           rows={field.type === 'address' ? 4 : 6}
           value={v}
           onChange={(e) => {
             updateFieldValue(field.id, e.target.value)
             persistSenderIfNeeded(field, e.target.value)
           }}
-          onClick={onSelect}
-          onFocus={onSelect}
         />
       )
     }
@@ -370,29 +349,25 @@ export function ComposeFieldsForm({ template, composeSession, replyToLetter }: C
     if (field.type === 'date') {
       return (
         <input
-          key={field.id}
           type="date"
           className={commonClass}
+          style={focusStyle}
           value={v.length >= 10 ? v.slice(0, 10) : v}
           onChange={(e) => updateFieldValue(field.id, e.target.value)}
-          onClick={onSelect}
-          onFocus={onSelect}
         />
       )
     }
 
     return (
       <input
-        key={field.id}
         type="text"
         className={commonClass}
+        style={focusStyle}
         value={v}
         onChange={(e) => {
           updateFieldValue(field.id, e.target.value)
           persistSenderIfNeeded(field, e.target.value)
         }}
-        onClick={onSelect}
-        onFocus={onSelect}
       />
     )
   }
@@ -435,10 +410,9 @@ export function ComposeFieldsForm({ template, composeSession, replyToLetter }: C
         <button
           type="button"
           className="template-toolbar__btn template-toolbar__btn--primary"
-          disabled={draftBusy}
-          onClick={() => void handleAiDraftBody()}
+          onClick={() => handleAiDraftBody()}
         >
-          {draftBusy ? 'Drafting…' : '\u2728 Draft reply with AI'}
+          {'\u2728 Draft reply with AI'}
         </button>
         {draftError ? <p className="compose-fields-form__error">{draftError}</p> : null}
       </div>
@@ -449,12 +423,53 @@ export function ComposeFieldsForm({ template, composeSession, replyToLetter }: C
         return (
           <section key={g} className="compose-field-group">
             <h5 className="compose-field-group__title">{GROUP_TITLES[g]}</h5>
-            {list.map((field) => (
-              <label key={field.id} className="compose-field-row">
-                <span className="compose-field-row__label">{field.label}</span>
-                {renderField(field)}
-              </label>
-            ))}
+            {list.map((field) => {
+              const isFieldAiActive =
+                draftConnected && draftRefineTarget === 'letter-template' && selectedFieldId === field.id
+              return (
+                <div key={field.id} className="compose-field-row">
+                  <div
+                    className="compose-field-header"
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      gap: 8,
+                      marginBottom: 6,
+                    }}
+                  >
+                    <span className="compose-field-row__label">{field.label}</span>
+                    <button
+                      type="button"
+                      className={`field-ai-toggle${isFieldAiActive ? ' field-ai-toggle--active' : ''}`}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        if (isFieldAiActive) {
+                          disconnectDraftRefine()
+                          setSelectedFieldId(null)
+                          setFocusedTemplateField(null)
+                        } else {
+                          handleFieldSelect(field)
+                        }
+                      }}
+                      style={{
+                        fontSize: 11,
+                        padding: '2px 8px',
+                        borderRadius: 4,
+                        border: isFieldAiActive ? '1px solid #6366f1' : '1px solid #E8E8E6',
+                        background: isFieldAiActive ? '#6366f1' : 'transparent',
+                        color: isFieldAiActive ? '#fff' : '#888',
+                        cursor: 'pointer',
+                        flexShrink: 0,
+                      }}
+                    >
+                      {isFieldAiActive ? '\u261D Selected' : '\u261D AI'}
+                    </button>
+                  </div>
+                  {renderFieldInput(field, isFieldAiActive)}
+                </div>
+              )
+            })}
           </section>
         )
       })}
