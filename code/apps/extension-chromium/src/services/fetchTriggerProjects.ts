@@ -1,4 +1,8 @@
-import type { TriggerComposerEntry, TriggerProjectEntry } from '../types/triggerTypes'
+import type {
+  TriggerComposerEntry,
+  TriggerComposerShortcutId,
+  TriggerProjectEntry,
+} from '../types/triggerTypes'
 import { ensureLaunchSecretForElectronHttp, fetchWithElectronHttpReady } from './ensureLaunchSecretForElectronHttp'
 
 const BASE_URL = 'http://127.0.0.1:51248'
@@ -72,6 +76,33 @@ function parseProjectRows(data: unknown[]): TriggerProjectEntry[] {
   return out
 }
 
+const TRIGGER_COMPOSER_IDS: readonly TriggerComposerShortcutId[] = [
+  'emailComposer',
+  'beapComposer',
+  'letterComposer',
+  'documentActions',
+  'smartSummary',
+] as const
+
+function isTriggerComposerShortcutId(v: unknown): v is TriggerComposerShortcutId {
+  return typeof v === 'string' && (TRIGGER_COMPOSER_IDS as readonly string[]).includes(v)
+}
+
+function defaultComposerShortcutTitle(id: TriggerComposerShortcutId): string {
+  switch (id) {
+    case 'emailComposer':
+      return 'Email Composer'
+    case 'beapComposer':
+      return 'BEAP Composer'
+    case 'letterComposer':
+      return 'Letter Composer'
+    case 'documentActions':
+      return 'Document Actions'
+    case 'smartSummary':
+      return 'Smart Summary'
+  }
+}
+
 function parseComposerShortcuts(raw: unknown): TriggerComposerEntry[] {
   if (!Array.isArray(raw)) return []
   const out: TriggerComposerEntry[] = []
@@ -79,14 +110,14 @@ function parseComposerShortcuts(raw: unknown): TriggerComposerEntry[] {
     if (!row || typeof row !== 'object') continue
     const o = row as Record<string, unknown>
     const composerId = o.composerId
-    if (composerId !== 'emailComposer' && composerId !== 'beapComposer') continue
+    if (!isTriggerComposerShortcutId(composerId)) continue
     const title = typeof o.title === 'string' ? o.title.trim() : ''
     const icon = typeof o.icon === 'string' ? o.icon.trim() : ''
     const launchMode = typeof o.launchMode === 'string' ? o.launchMode.trim() : ''
     if (!icon || !launchMode) continue
     out.push({
       composerId,
-      title: title || (composerId === 'emailComposer' ? 'Email Composer' : 'BEAP Composer'),
+      title: title || defaultComposerShortcutTitle(composerId),
       icon,
       launchMode,
     })

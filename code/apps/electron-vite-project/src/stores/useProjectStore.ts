@@ -43,11 +43,19 @@ export type {
 // ── Store types ───────────────────────────────────────────────────────────────
 
 /** Dashboard automation cards — shortcut icons for top trigger bar (not project entities). */
-export type ComposerIconSlot = 'emailComposer' | 'beapComposer'
+export type ComposerId =
+  | 'emailComposer'
+  | 'beapComposer'
+  | 'letterComposer'
+  | 'documentActions'
+  | 'smartSummary'
 
 export interface ComposerIconsState {
   emailComposer?: string
   beapComposer?: string
+  letterComposer?: string
+  documentActions?: string
+  smartSummary?: string
 }
 
 interface ProjectState {
@@ -99,9 +107,9 @@ interface ProjectActions {
   /** Sets or clears project icon (emoji string). Empty string clears `icon`. */
   setProjectIcon: (projectId: string, icon: string) => void
 
-  /** Emoji shortcut for Email / BEAP composer cards (dashboard trigger bar — Prompt 3). */
-  setComposerIcon: (composerId: ComposerIconSlot, icon: string) => void
-  clearComposerIcon: (composerId: ComposerIconSlot) => void
+  /** Emoji shortcut for dashboard automation cards (trigger bar composer shortcuts). */
+  setComposerIcon: (composerId: ComposerId, icon: string) => void
+  clearComposerIcon: (composerId: ComposerId) => void
 
   // ── Auto-optimization ─────────────────────────────────────────────────────
   setAutoOptimization: (projectId: string, enabled: boolean) => void
@@ -388,8 +396,9 @@ export const useProjectStore = create<ProjectState & ProjectActions>()(
        * V2: `linkedSessionId` → `linkedSessionIds[]`
        * V3: ensure `autoOptimizationEnabled` defaults to false when missing (legacy stores).
        * V5: `composerIcons` for dashboard Email/BEAP shortcut icons.
+       * V6: `composerIcons` may include letter / document actions / smart summary slots (optional keys).
        */
-      version: 5,
+      version: 6,
       migrate: (persistedState: unknown, version: number) => {
         const ps = persistedState as {
           state?: {
@@ -398,6 +407,11 @@ export const useProjectStore = create<ProjectState & ProjectActions>()(
           }
         }
         if (ps?.state && typeof ps.state === 'object' && version < 5) {
+          if (!ps.state.composerIcons || typeof ps.state.composerIcons !== 'object') {
+            ps.state.composerIcons = {}
+          }
+        }
+        if (ps?.state && typeof ps.state === 'object' && version < 6) {
           if (!ps.state.composerIcons || typeof ps.state.composerIcons !== 'object') {
             ps.state.composerIcons = {}
           }

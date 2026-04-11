@@ -9,8 +9,15 @@ export type TriggerProjectEntry = {
   linkedSessionIds?: string[]
 }
 
+export type TriggerComposerShortcutId =
+  | 'emailComposer'
+  | 'beapComposer'
+  | 'letterComposer'
+  | 'documentActions'
+  | 'smartSummary'
+
 export type TriggerComposerEntry = {
-  composerId: 'emailComposer' | 'beapComposer'
+  composerId: TriggerComposerShortcutId
   title: string
   icon: string
   launchMode: string
@@ -24,7 +31,7 @@ export type TriggerListPayload = {
 /**
  * Reads persisted **`useProjectStore`** data from the renderer (**localStorage key `wr-desk-projects`**)
  * and returns projects that have an icon (for the extension multi-trigger bar), plus composer shortcuts
- * when **`state.composerIcons`** has a non-empty emoji for Email / BEAP composers.
+ * when **`state.composerIcons`** has a non-empty emoji for allocated dashboard shortcuts.
  *
  * Must stay aligned with Zustand persist output from `useProjectStore` (`name: 'wr-desk-projects'`).
  * If the key or `{ state: { projects } }` shape changes, update this parser and any extension-side readers.
@@ -108,6 +115,33 @@ export async function readTriggerListFromRenderer(): Promise<TriggerListPayload>
         title: 'BEAP Composer',
         icon: beapIcon.trim(),
         launchMode: 'dashboard-beap-draft',
+      })
+    }
+    const letterIcon = typeof icons.letterComposer === 'string' ? icons.letterComposer : ''
+    if (letterIcon.trim()) {
+      composerEntries.push({
+        composerId: 'letterComposer',
+        title: 'Letter Composer',
+        icon: letterIcon.trim(),
+        launchMode: 'dashboard-letter-compose',
+      })
+    }
+    const docIcon = typeof icons.documentActions === 'string' ? icons.documentActions : ''
+    if (docIcon.trim()) {
+      composerEntries.push({
+        composerId: 'documentActions',
+        title: 'Document Actions',
+        icon: docIcon.trim(),
+        launchMode: 'dashboard-bulk-inbox',
+      })
+    }
+    const summaryIcon = typeof icons.smartSummary === 'string' ? icons.smartSummary : ''
+    if (summaryIcon.trim()) {
+      composerEntries.push({
+        composerId: 'smartSummary',
+        title: 'Smart Summary',
+        icon: summaryIcon.trim(),
+        launchMode: 'dashboard-smart-summary',
       })
     }
 

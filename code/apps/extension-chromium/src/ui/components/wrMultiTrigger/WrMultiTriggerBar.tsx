@@ -13,6 +13,7 @@ import { triggerOptimizerSnapshot } from '../../../services/fetchOptimizerTrigge
 import type {
   ChatFocusMode,
   TriggerComposerEntry,
+  TriggerComposerShortcutId,
   TriggerFunctionId,
   TriggerProjectEntry,
 } from '../../../types/triggerTypes'
@@ -69,7 +70,7 @@ export type WrMultiTriggerBarProps = {
    * Electron WR Desk: open Email/BEAP **inline** on Analysis (not popup). When set, composer icon click
    * uses this instead of `OPEN_COMMAND_CENTER_POPUP` / `window.analysisDashboard`.
    */
-  onComposerOpen?: (composerId: 'emailComposer' | 'beapComposer') => void
+  onComposerOpen?: (composerId: TriggerComposerShortcutId) => void
   onWatchdogAlert: (threats: WatchdogThreat[]) => void
   /** Optional — if omitted, only the window event is fired. */
   onChatFocusRequest?: (mode: ChatFocusMode) => void

@@ -401,8 +401,19 @@ function App() {
               theme={extensionTheme}
               onActiveFunctionChange={setActiveTriggerFunctionId}
               onComposerOpen={(composerId) => {
+                if (composerId === 'documentActions') {
+                  setActiveView('beap-inbox')
+                  setInboxBulkMode(true)
+                  return
+                }
+                if (composerId === 'smartSummary') {
+                  setActiveView('wr-chat')
+                  return
+                }
                 goToDashboard()
-                setDashboardComposeMode(composerId === 'emailComposer' ? 'email' : 'beap')
+                if (composerId === 'emailComposer') setDashboardComposeMode('email')
+                else if (composerId === 'beapComposer') setDashboardComposeMode('beap')
+                else if (composerId === 'letterComposer') setDashboardComposeMode('letter')
               }}
               onWatchdogAlert={(threats) => {
                 try {

@@ -24,7 +24,7 @@ import { triggerSnapshotOptimization } from '../../../lib/autoOptimizationEngine
 import type { Project } from '../../../types/projectTypes'
 import {
   useProjectStore,
-  type ComposerIconSlot,
+  type ComposerId,
   type ComposerIconsState,
 } from '../../../stores/useProjectStore'
 import { useCustomModesStore } from '@ext/stores/useCustomModesStore'
@@ -62,17 +62,31 @@ function appendWrChatAssistant(text: string) {
   }
 }
 
+function composerIconPickerLabel(id: ComposerId): string {
+  switch (id) {
+    case 'emailComposer':
+      return 'Email Composer'
+    case 'beapComposer':
+      return 'BEAP Composer'
+    case 'letterComposer':
+      return 'Letter Composer'
+    case 'documentActions':
+      return 'Document Actions'
+    case 'smartSummary':
+      return 'Smart Summary'
+  }
+}
+
 function ComposerIconPickerDialog({
   composerId,
   currentIcon,
   onClose,
 }: {
-  composerId: ComposerIconSlot
+  composerId: ComposerId
   currentIcon?: string
   onClose: () => void
 }) {
-  const label =
-    composerId === 'emailComposer' ? 'Email Composer' : 'BEAP Composer'
+  const label = composerIconPickerLabel(composerId)
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -180,7 +194,7 @@ type AutomationCardDef = {
   onRun: () => void
   onEdit: () => void
   /** When set, Edit opens icon picker and allocated icon can show on the card. */
-  composerId?: ComposerIconSlot
+  composerId?: ComposerId
 }
 
 /**
@@ -188,7 +202,7 @@ type AutomationCardDef = {
  * Whitespace-only allocation does not suppress the default.
  */
 function resolveAutomationCardIcon(
-  composerId: ComposerIconSlot | undefined,
+  composerId: ComposerId | undefined,
   composerIcons: ComposerIconsState,
   defaultIcon: string,
 ): string | null {
@@ -264,7 +278,7 @@ export function DashboardAutomationHome({
   )
 
   const [snapshotBusyId, setSnapshotBusyId] = useState<string | null>(null)
-  const [iconPickerTarget, setIconPickerTarget] = useState<ComposerIconSlot | null>(null)
+  const [iconPickerTarget, setIconPickerTarget] = useState<ComposerId | null>(null)
   const customModes = useCustomModesStore((s) => s.modes)
   const [selectedAutomationId, setSelectedAutomationId] = useState('')
 
@@ -388,8 +402,9 @@ Automation activated from the dashboard. Continue in WR Chat.`
         icon: '\u{2709}\u{FE0F}',
         title: 'Letter Composer',
         valueLine: 'Create business letters with AI assistance.',
+        composerId: 'letterComposer',
         onRun: () => onOpenLetterComposer?.(),
-        onEdit: onNavigateWrChat,
+        onEdit: () => setIconPickerTarget('letterComposer'),
       },
       {
         id: 'email-composer',
@@ -418,8 +433,9 @@ Automation activated from the dashboard. Continue in WR Chat.`
         icon: '\u{1F4C4}',
         title: 'Document Actions',
         valueLine: 'Sort, open attachments, and triage in batch.',
+        composerId: 'documentActions',
         onRun: onNavigateBulkInbox,
-        onEdit: onNavigateInbox,
+        onEdit: () => setIconPickerTarget('documentActions'),
       },
       {
         id: 'smart-summary',
@@ -427,13 +443,13 @@ Automation activated from the dashboard. Continue in WR Chat.`
         icon: '\u{1F4CA}',
         title: 'Smart Summary',
         valueLine: 'One-click overview of your workspace activity.',
+        composerId: 'smartSummary',
         onRun: () => handleSmartSummaryRun?.(),
-        onEdit: onNavigateWrChat,
+        onEdit: () => setIconPickerTarget('smartSummary'),
       },
     ],
     [
       onNavigateBulkInbox,
-      onNavigateInbox,
       onNavigateWrChat,
       onOpenEmailComposer,
       onOpenBeapComposer,
