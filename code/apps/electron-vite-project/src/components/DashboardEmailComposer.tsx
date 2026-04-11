@@ -240,8 +240,6 @@ export function DashboardEmailComposer({ onClose }: DashboardEmailComposerProps)
           <div
             className="composer-body-container email-body-field dashboard-email-composer__field"
             style={{
-              flex: '0 1 auto',
-              minHeight: 0,
               width: '100%',
             }}
           >

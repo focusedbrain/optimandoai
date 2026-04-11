@@ -329,8 +329,6 @@ export function EmailInlineComposer({ onClose, onSent, replyTo }: EmailInlineCom
             <div
               className="composer-body-container email-body-field"
               style={{
-                flex: '0 1 auto',
-                minHeight: 0,
                 width: '100%',
                 alignSelf: 'stretch',
               }}
