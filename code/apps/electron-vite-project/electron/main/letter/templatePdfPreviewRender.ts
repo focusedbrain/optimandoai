@@ -1,50 +1,96 @@
 /**
- * Render each page of a PDF on disk to PNG data URLs (pdfjs-dist + canvas).
- * Used for Letter Composer template mapping preview (high-res for zone drawing).
+ * Rasterize PDF pages to PNG data URLs using a hidden BrowserWindow (Chromium Canvas).
+ * pdfjs-dist + node-canvas in the main process triggers "Image or Canvas expected" — this path does not.
  */
 
 import fs from 'fs'
 import path from 'path'
-import { createRequire } from 'module'
-import { pathToFileURL } from 'url'
+import os from 'os'
+import { createRequire } from 'node:module'
+import { BrowserWindow, type WebContents } from 'electron'
 
 const require = createRequire(import.meta.url)
 
-const MAX_CANVAS_DIMENSION = 4096
 const MAX_PAGES = 100
 const TARGET_SCALE = 2.0
+const MAX_CANVAS_DIMENSION = 4096
+const RENDER_READY_TIMEOUT_MS = 45_000
 
-function resolvePdfWorkerSrc(): string {
+const INDEX_HTML = `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title></title></head><body>
+<script type="module" src="./bootstrap.mjs"></script>
+</body></html>`
+
+function bootstrapSource(): string {
+  return `import * as pdfjsLib from './pdfjs/pdf.mjs';
+pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('./pdfjs/pdf.worker.mjs', import.meta.url).href;
+
+window.__renderPdfFromBase64 = async function (b64) {
+  const binary = atob(b64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+
+  let doc;
+  try {
+    doc = await pdfjsLib.getDocument({ data: bytes }).promise;
+  } catch (e) {
+    const name = e && e.name ? e.name : '';
+    const msg = e && e.message ? String(e.message) : String(e);
+    if (name === 'PasswordException' || msg.toLowerCase().includes('password')) {
+      throw new Error('This PDF is password-protected. Remove the password and re-upload.');
+    }
+    throw e;
+  }
+
+  const pages = [];
+  const numPages = Math.min(doc.numPages, ${MAX_PAGES});
+  for (let i = 1; i <= numPages; i++) {
+    const page = await doc.getPage(i);
+    const baseViewport = page.getViewport({ scale: 1.0 });
+    const maxDim = Math.max(baseViewport.width, baseViewport.height);
+    const scale = Math.min(${TARGET_SCALE}, ${MAX_CANVAS_DIMENSION} / maxDim);
+    const viewport = page.getViewport({ scale });
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.ceil(viewport.width);
+    canvas.height = Math.ceil(viewport.height);
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('Could not get 2D context');
+    await page.render({ canvasContext: ctx, viewport }).promise;
+    pages.push(canvas.toDataURL('image/png'));
+  }
+  return { pages, pageCount: doc.numPages };
+};
+window.__pdfPreviewReady = true;
+`
+}
+
+function copyDirSync(src: string, dest: string): void {
+  fs.mkdirSync(dest, { recursive: true })
+  for (const name of fs.readdirSync(src)) {
+    const from = path.join(src, name)
+    const to = path.join(dest, name)
+    const st = fs.statSync(from)
+    if (st.isDirectory()) {
+      copyDirSync(from, to)
+    } else {
+      fs.copyFileSync(from, to)
+    }
+  }
+}
+
+function pdfjsBuildDir(): string {
   const root = path.dirname(require.resolve('pdfjs-dist/package.json'))
-  return pathToFileURL(path.join(root, 'build', 'pdf.worker.mjs')).href
+  return path.join(root, 'build')
 }
 
-async function loadPdfjs(): Promise<any> {
-  const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs' as any).catch(() =>
-    import('pdfjs-dist' as any),
-  )
-  if (pdfjs.GlobalWorkerOptions) {
-    pdfjs.GlobalWorkerOptions.workerSrc = resolvePdfWorkerSrc()
+async function waitForPreviewReady(wc: WebContents, timeoutMs: number): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    const ok = await wc.executeJavaScript('window.__pdfPreviewReady === true')
+    if (ok === true) return
+    await new Promise((r) => setTimeout(r, 50))
   }
-  return pdfjs
-}
-
-function makeNodeCanvasFactory(createCanvas: (w: number, h: number) => any) {
-  return {
-    create(width: number, height: number) {
-      const canvas = createCanvas(Math.ceil(width), Math.ceil(height))
-      return { canvas, context: canvas.getContext('2d') }
-    },
-    reset(canvasAndContext: any, width: number, height: number) {
-      canvasAndContext.canvas.width = Math.ceil(width)
-      canvasAndContext.canvas.height = Math.ceil(height)
-    },
-    destroy(canvasAndContext: any) {
-      canvasAndContext.canvas.width = 0
-      canvasAndContext.canvas.height = 0
-      canvasAndContext.context = null
-    },
-  }
+  throw new Error('PDF preview renderer failed to initialize')
 }
 
 export async function renderPdfFileToPngDataUrls(absPath: string): Promise<{
@@ -56,47 +102,50 @@ export async function renderPdfFileToPngDataUrls(absPath: string): Promise<{
     throw new Error('Invalid PDF file')
   }
 
-  let createCanvas: (w: number, h: number) => any
-  try {
-    createCanvas = require('canvas').createCanvas
-  } catch {
-    throw new Error('canvas package is required for PDF page preview')
-  }
+  const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'wrdesk-pdf-raster-'))
+  let win: BrowserWindow | null = null
 
-  const pdfjs = await loadPdfjs()
-  const canvasFactory = makeNodeCanvasFactory(createCanvas)
-  let pdf: any
   try {
-    const loadingTask = pdfjs.getDocument({ data: new Uint8Array(buffer), canvasFactory })
-    pdf = await loadingTask.promise
-  } catch (err: any) {
-    if (err?.name === 'PasswordException' || err?.message?.toLowerCase?.().includes('password')) {
-      throw new Error('This PDF is password-protected. Remove the password and re-upload.')
+    copyDirSync(pdfjsBuildDir(), path.join(tmpRoot, 'pdfjs'))
+    fs.writeFileSync(path.join(tmpRoot, 'bootstrap.mjs'), bootstrapSource(), 'utf8')
+    fs.writeFileSync(path.join(tmpRoot, 'index.html'), INDEX_HTML, 'utf8')
+
+    win = new BrowserWindow({
+      show: false,
+      width: 1200,
+      height: 1600,
+      webPreferences: {
+        nodeIntegration: false,
+        contextIsolation: true,
+        sandbox: false,
+      },
+    })
+
+    await win.loadFile(path.join(tmpRoot, 'index.html'))
+    await waitForPreviewReady(win.webContents, RENDER_READY_TIMEOUT_MS)
+
+    const b64 = buffer.toString('base64')
+    const result = await win.webContents.executeJavaScript(
+      `(async () => { return await window.__renderPdfFromBase64(${JSON.stringify(b64)}); })()`,
+    ) as { pages: string[]; pageCount: number }
+
+    if (!result || !Array.isArray(result.pages)) {
+      throw new Error('PDF rasterize returned no pages')
     }
-    throw err
+
+    return result
+  } finally {
+    if (win && !win.isDestroyed()) {
+      try {
+        win.destroy()
+      } catch {
+        /* noop */
+      }
+    }
+    try {
+      fs.rmSync(tmpRoot, { recursive: true, force: true })
+    } catch {
+      /* noop */
+    }
   }
-
-  const numPages = Math.min(pdf.numPages, MAX_PAGES)
-  const pages: string[] = []
-
-  for (let i = 1; i <= numPages; i++) {
-    const page = await pdf.getPage(i)
-    const baseViewport = page.getViewport({ scale: 1.0 })
-    const maxDim = Math.max(baseViewport.width, baseViewport.height)
-    const scale = Math.min(TARGET_SCALE, MAX_CANVAS_DIMENSION / maxDim)
-    const viewport = page.getViewport({ scale })
-
-    const canvasAndContext = canvasFactory.create(viewport.width, viewport.height)
-    await page.render({
-      canvasContext: canvasAndContext.context,
-      viewport,
-      canvasFactory,
-    }).promise
-
-    const pngBuffer: Buffer = canvasAndContext.canvas.toBuffer('image/png')
-    canvasFactory.destroy(canvasAndContext)
-    pages.push(`data:image/png;base64,${pngBuffer.toString('base64')}`)
-  }
-
-  return { pages, pageCount: pdf.numPages }
 }
