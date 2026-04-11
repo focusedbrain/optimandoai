@@ -539,6 +539,7 @@ export function registerLetterComposerIpcHandlers(): void {
     return destPath
   })
 
+  /** Letter Viewer PDFs: text via pdfjs in main; page PNGs via hidden BrowserWindow (see renderPdfPagesInBrowser). */
   ipcMain.handle('letter:processPdf', async (_e, filePath: string) => {
     if (typeof filePath !== 'string' || filePath.length > 4096) {
       throw new Error('Invalid path')

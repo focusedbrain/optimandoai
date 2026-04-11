@@ -1,59 +1,22 @@
 /**
- * Letter Composer — scanned PDF / images: preview PNGs + text (pdfjs + optional Tesseract).
- * Patterns aligned with `email/pdf-extractor.ts` and `vault/hsContextOcrJob.ts`.
+ * Letter Composer — scanned PDF / images: preview PNGs + text (pdfjs text in main + browser raster + optional Tesseract).
+ * PDF page images use the same hidden BrowserWindow path as template preview (node-canvas + pdfjs render breaks in main).
  */
 
 import fs from 'fs'
 import path from 'path'
-import { createRequire } from 'module'
-import { pathToFileURL } from 'url'
 import { extractPdfText } from '../email/pdf-extractor'
 import { ocrService } from '../ocr/ocr-service'
-
-const require = createRequire(import.meta.url)
+import { renderPdfPagesToImages } from './renderPdfPagesInBrowser'
 
 /** Match hsContextOcrJob: sparse text layer → try OCR. */
 const MIN_TEXT_CHARS_PER_PAGE = 30
 const MAX_PDF_PAGES = 100
-const MAX_CANVAS_DIMENSION = 3508
 
 export type LetterScanPage = {
   pageNumber: number
   imageDataUrl: string
   text: string
-}
-
-function resolvePdfWorkerSrc(): string {
-  const root = path.dirname(require.resolve('pdfjs-dist/package.json'))
-  return pathToFileURL(path.join(root, 'build', 'pdf.worker.mjs')).href
-}
-
-async function loadPdfjs(): Promise<any> {
-  const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs' as any).catch(() =>
-    import('pdfjs-dist' as any),
-  )
-  if (pdfjs.GlobalWorkerOptions) {
-    pdfjs.GlobalWorkerOptions.workerSrc = resolvePdfWorkerSrc()
-  }
-  return pdfjs
-}
-
-function makeNodeCanvasFactory(createCanvas: (w: number, h: number) => any) {
-  return {
-    create(width: number, height: number) {
-      const canvas = createCanvas(Math.ceil(width), Math.ceil(height))
-      return { canvas, context: canvas.getContext('2d') }
-    },
-    reset(canvasAndContext: any, width: number, height: number) {
-      canvasAndContext.canvas.width = Math.ceil(width)
-      canvasAndContext.canvas.height = Math.ceil(height)
-    },
-    destroy(canvasAndContext: any) {
-      canvasAndContext.canvas.width = 0
-      canvasAndContext.canvas.height = 0
-      canvasAndContext.context = null
-    },
-  }
 }
 
 function mimeForImageExt(ext: string): string {
@@ -69,6 +32,16 @@ function mimeForImageExt(ext: string): string {
     case '.jpeg':
     default:
       return 'image/jpeg'
+  }
+}
+
+function pngDataUrlToBuffer(dataUrl: string): Buffer | null {
+  const prefix = 'data:image/png;base64,'
+  if (!dataUrl.startsWith(prefix)) return null
+  try {
+    return Buffer.from(dataUrl.slice(prefix.length), 'base64')
+  } catch {
+    return null
   }
 }
 
@@ -96,52 +69,30 @@ export async function processPdfForLetterViewer(absPath: string): Promise<{
     pageTexts.push(extracted.pages[i] ?? '')
   }
 
-  let createCanvas: (w: number, h: number) => any
+  const imageByPage = new Map<number, string>()
   try {
-    createCanvas = require('canvas').createCanvas
-  } catch {
-    throw new Error('canvas package is required for PDF page preview')
-  }
-
-  const pdfjs = await loadPdfjs()
-  const canvasFactory = makeNodeCanvasFactory(createCanvas)
-  let pdf: any
-  try {
-    const loadingTask = pdfjs.getDocument({ data: new Uint8Array(buffer), canvasFactory })
-    pdf = await loadingTask.promise
-  } catch (err: any) {
-    if (err?.name === 'PasswordException' || err?.message?.toLowerCase?.().includes('password')) {
-      throw new Error(
-        'This PDF is password-protected. Remove the password and re-upload.',
-      )
+    const { pages: rendered } = await renderPdfPagesToImages(absPath)
+    for (const p of rendered) {
+      if (p.pageNumber >= 1 && p.pageNumber <= pageCount) {
+        imageByPage.set(p.pageNumber, p.imageDataUrl)
+      }
     }
-    throw err
+  } catch (e) {
+    console.warn(
+      '[letterScan] PDF page rasterize failed; continuing with text only:',
+      e instanceof Error ? e.message : e,
+    )
   }
 
   const pages: LetterScanPage[] = []
-  const numPages = Math.min(pdf.numPages, pageCount)
+  const numPages = pageCount
 
   for (let i = 1; i <= numPages; i++) {
-    const page = await pdf.getPage(i)
-    const baseViewport = page.getViewport({ scale: 1.0 })
-    const maxDim = Math.max(baseViewport.width, baseViewport.height)
-    const scale = Math.min(2.0, MAX_CANVAS_DIMENSION / maxDim)
-    const viewport = page.getViewport({ scale })
-
-    const canvasAndContext = canvasFactory.create(viewport.width, viewport.height)
-    await page.render({
-      canvasContext: canvasAndContext.context,
-      viewport,
-      canvasFactory,
-    }).promise
-
-    const pngBuffer: Buffer = canvasAndContext.canvas.toBuffer('image/png')
-    canvasFactory.destroy(canvasAndContext)
-
-    const imageDataUrl = `data:image/png;base64,${pngBuffer.toString('base64')}`
+    const imageDataUrl = imageByPage.get(i) ?? ''
     let text = (pageTexts[i - 1] ?? '').trim()
+    const pngBuffer = imageDataUrl ? pngDataUrlToBuffer(imageDataUrl) : null
 
-    if (text.length < MIN_TEXT_CHARS_PER_PAGE) {
+    if (text.length < MIN_TEXT_CHARS_PER_PAGE && pngBuffer) {
       try {
         const ocrResult = await ocrService.processImage(
           { type: 'buffer', data: pngBuffer },
