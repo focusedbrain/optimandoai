@@ -24,11 +24,12 @@ export const LETTER_EXTRACT_OUTPUT_KEYS = [
   'sender_bank',
   'sender_tax_id',
   'sender_registration',
+  'detected_language',
 ] as const
 
 export type NormalizedLetterFields = Record<(typeof LETTER_EXTRACT_OUTPUT_KEYS)[number], string>
 
-/** Regex hints before the AI call — keeps IBAN/phone out of address fields. */
+/** Regex hints before the AI call — keeps IBAN/phone out of address fields (international). */
 export function preFilterFields(rawText: string): {
   ibanMatches: string[]
   bicMatches: string[]
@@ -38,22 +39,32 @@ export function preFilterFields(rawText: string): {
   taxIdMatches: string[]
 } {
   const t = rawText || ''
-  return {
-    ibanMatches: (t.match(/[A-Z]{2}\d{2}[\s]?(?:\d{4}[\s]?){2,7}\d{1,4}/gi) || []).map((m) =>
-      m.replace(/\s/g, ''),
-    ),
-    bicMatches: (t.match(/\b[A-Z]{4}[A-Z]{2}[A-Z0-9]{2}(?:[A-Z0-9]{3})?\b/g) || []).filter(
-      (x) => x.length >= 8 && x.length <= 11,
-    ),
-    phoneMatches:
-      t.match(/(?:Tel(?:efon)?|Fon|Phone|Mobil|Mobile)[\s.:]*[\d+][\d\s\-/().]{5,30}/gi) || [],
-    emailMatches: t.match(/[\w.+-]+@[\w.-]+\.\w{2,}/g) || [],
-    dateMatches:
-      t.match(/\d{1,2}\.\s?(?:Januar|Februar|März|April|Mai|Juni|Juli|August|September|Oktober|November|Dezember)\s?\d{4}/gi) ||
-      [],
-    taxIdMatches:
-      t.match(/(?:USt-?Id(?:Nr)?\.?|Steuernummer|St\.?\s*-?\s*Nr\.?)[\s.:]*[\w\d/\-]{5,25}/gi) || [],
-  }
+  const ibanMatches = (
+    t.match(
+      /[A-Z]{2}\d{2}[\s]?[\dA-Z]{4}[\s]?[\dA-Z]{4}[\s]?[\dA-Z]{4}[\s]?[\dA-Z]{0,4}[\s]?[\dA-Z]{0,4}[\s]?[\dA-Z]{0,4}/gi,
+    ) || []
+  ).map((m) => m.replace(/\s/g, '').toUpperCase())
+  const bicRaw = t.match(/\b[A-Z]{4}[A-Z]{2}[A-Z0-9]{2}(?:[A-Z0-9]{3})?\b/gi) || []
+  const bicMatches = bicRaw.map((x) => x.toUpperCase())
+  const phoneMatches =
+    t.match(
+      /(?:Tel(?:efon|éphone|ephone)?|Phone|Fon|Ph|Tél)[\s.:]*[\+\d\s\-\/\(\)]{6,20}/gi,
+    ) || []
+  const emailMatches = t.match(/[\w.+-]+@[\w.-]+\.\w{2,}/g) || []
+  const dateMatches = [
+    ...(t.match(/\d{1,2}[\.\/\-]\d{1,2}[\.\/\-]\d{2,4}/g) || []),
+    ...(t.match(/\d{4}-\d{2}-\d{2}/g) || []),
+    ...(t.match(
+      /\d{1,2}\s+(?:January|February|March|April|May|June|July|August|September|October|November|December|Januar|Februar|März|April|Mai|Juni|Juli|August|September|Oktober|November|Dezember|janvier|février|mars|avril|mai|juin|juillet|août|septembre|octobre|novembre|décembre|enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)\s+\d{4}/gi,
+    ) || []),
+  ]
+  const taxIdMatches = [
+    ...(t.match(/(?:USt-?Id(?:Nr)?|Steuernummer|St\.?-?Nr)[\s.:]*[\w\d\/\s]{5,20}/gi) || []),
+    ...(t.match(/(?:VAT\s*(?:No|Number|Reg))[\s.:]*[\w\d\s]{5,20}/gi) || []),
+    ...(t.match(/(?:TVA|N°\s*TVA)[\s.:]*[\w\d\s]{5,20}/gi) || []),
+    ...(t.match(/(?:EIN|TIN|ABN|GST)[\s.:]*[\d\-\s]{5,20}/gi) || []),
+  ]
+  return { ibanMatches, bicMatches, phoneMatches, emailMatches, dateMatches, taxIdMatches }
 }
 
 /** Remove bank/contact/legal lines from postal address blobs (Layer 1 safety net). */
@@ -68,8 +79,9 @@ export function sanitizePostalAddressField(text: string): string {
     if (/^(https?:\/\/|www\.)/i.test(line)) continue
     if (/^(tel|fax|fon|telefon|phone|e-?mail|mobil)\b/i.test(line)) continue
     if (/\b(BIC|IBAN|SWIFT)\b/i.test(line)) continue
-    if (/\b(USt-?Id|Steuernummer|St\.?\s*-?\s*Nr|UID)\b/i.test(line)) continue
-    if (/\b(HRB|HRA|Amtsgericht|Handelsregister|Geschäftszeichen)\b/i.test(line)) continue
+    if (/\b(USt-?Id|Steuernummer|St\.?\s*-?\s*Nr|UID|VAT|TVA|RCS|SIRET|EIN|TIN|ABN|GST)\b/i.test(line))
+      continue
+    if (/\b(HRB|HRA|Amtsgericht|Handelsregister|Geschäftszeichen|Company\s*No\.?)\b/i.test(line)) continue
     if (/^[+(\d][\d\s()./+-]{6,}$/.test(line) && /\d{5,}/.test(compact)) continue
     kept.push(line)
     if (kept.length >= 4) break
@@ -77,95 +89,106 @@ export function sanitizePostalAddressField(text: string): string {
   return kept.join('\n')
 }
 
-const NORMALIZE_SYSTEM = `You are extracting structured data from a German/European business letter. Follow these rules STRICTLY:
+const NORMALIZE_SYSTEM = `You are extracting structured data from a business letter. The letter can be in ANY language from ANY country. Detect the language automatically and extract accordingly.
 
-FIELD DEFINITIONS — only extract what matches each definition:
+FIELD DEFINITIONS — extract ONLY what matches each definition:
 
-- sender_name: The company name or person name of the letter's author. Usually at the top of the letter or in the letterhead. ONE line only.
+- sender_name: Company name or person name of the letter's author. Usually at the top or in the letterhead. ONE line.
 
-- sender_address: The POSTAL address of the sender. Contains ONLY: street name + number, postal code + city, optionally country. Does NOT contain: phone numbers, fax numbers, email addresses, websites, IBAN, BIC, bank names, tax IDs, registration numbers, or any other identifiers. Maximum 3-4 lines.
+- sender_address: POSTAL address of the sender. Contains ONLY: street + number, postal/ZIP code + city, optionally state/province + country. Does NOT contain: phone, fax, email, website, bank details, IBAN, BIC, tax IDs, registration numbers, or any other identifiers. Maximum 4 lines.
 
-- recipient_name: The name of the person or company the letter is addressed to. Usually in the address window area (left side, below the sender line).
+- recipient_name: Name of the person or company the letter is addressed to. Usually in the address window area.
 
-- recipient_address: The POSTAL address of the recipient. Same rules as sender_address — street, postal code, city only.
+- recipient_address: POSTAL address of the recipient. Same rules as sender_address — postal address only, nothing else.
 
-- date: The letter date. Format as YYYY-MM-DD. Look for patterns like "11. April 2026" or "11.04.2026".
+- date: The letter date. Return in ISO format YYYY-MM-DD. Recognize all common formats:
+  "April 11, 2026" / "11 April 2026" / "11.04.2026" / "04/11/2026" / "2026-04-11" / "11 avril 2026" / "11. April 2026" etc.
 
-- subject: The subject line of the letter. Usually bold or preceded by "Betreff:" or "Betrifft:". ONE line.
+- subject: The subject line. May be preceded by: "Subject:", "Re:", "Betreff:", "Objet:", "Asunto:", "Oggetto:", "Onderwerp:", or simply be a bold/standalone line after the salutation area. ONE line.
 
-- reference_number: Any reference, file number, or "Aktenzeichen". Look for patterns like "Unser Zeichen:", "Ihr Zeichen:", "Ref:", "Az:". If none found, return empty string.
+- reference_number: Any reference, file number, case number, or tracking ID. May be preceded by: "Ref:", "Reference:", "Our ref:", "Your ref:", "Unser Zeichen:", "Ihr Zeichen:", "Az:", "Dossier:", "N/Réf:", "Réf:". If none found, return empty string.
 
-- salutation: The greeting line. Usually "Sehr geehrte Damen und Herren," or "Sehr geehrter Herr [Name]," or similar.
+- salutation: The greeting line. Examples across languages:
+  "Dear Mr. Smith," / "Dear Sir or Madam," / "Sehr geehrte Damen und Herren," / "Madame, Monsieur," / "Estimado/a Sr/Sra," / "Egregio Signore," etc.
 
-- body_summary: A 2-3 sentence summary of what the letter is about. Do not quote the letter — summarize the main point and any action requested.
+- body_summary: 2-3 sentence summary of the letter's content in the SAME language as the letter. Summarize the main point and any action requested.
 
-- sender_phone: Phone number of the sender. Look for "Tel:", "Telefon:", "Tel.:", "Fon:". If not found, return empty string.
+- sender_phone: Phone number. Look for: "Tel:", "Phone:", "Telefon:", "Tél:", "Tel.:", "Ph:". Return with country code if visible. If not found, return empty string.
 
-- sender_fax: Fax number. Look for "Fax:". If not found, return empty string.
+- sender_fax: Fax number. If not found, return empty string.
 
 - sender_email: Email address of the sender. If not found, return empty string.
 
 - sender_website: Website URL. If not found, return empty string.
 
-- sender_iban: IBAN number. Format: DE followed by digits, often grouped. If not found, return empty string.
+- sender_iban: IBAN number (international format: 2 letter country code + 2 check digits + up to 30 alphanumeric). If not found, return empty string.
 
-- sender_bic: BIC/SWIFT code. Usually near the IBAN. If not found, return empty string.
+- sender_bic: BIC/SWIFT code. If not found, return empty string.
 
-- sender_bank: Name of the bank. Usually near IBAN/BIC. If not found, return empty string.
+- sender_bank: Name of the bank. If not found, return empty string.
 
-- sender_tax_id: Tax ID ("Steuernummer", "USt-IdNr.", "UID"). If not found, return empty string.
+- sender_tax_id: Tax identification number. Varies by country:
+  Germany: "USt-IdNr", "Steuernummer" / UK: "VAT Number" / France: "N° TVA" / US: "EIN", "TIN" / etc.
+  If not found, return empty string.
 
-- sender_registration: Commercial register entry ("HRB", "Amtsgericht", "Handelsregister"). If not found, return empty string.
+- sender_registration: Company registration number. Varies by country:
+  Germany: "HRB", "Amtsgericht" / UK: "Company No." / France: "RCS", "SIRET" / US: "Inc." state filing / etc.
+  If not found, return empty string.
 
-RULES:
-1. NEVER mix bank details (IBAN, BIC, bank name) into address fields.
+- detected_language: The language of the letter as ISO 639-1 code (e.g. "de", "en", "fr", "es", "it", "nl", "ja", "ar").
+
+STRICT RULES:
+1. NEVER mix bank details (IBAN, BIC, bank) into address fields.
 2. NEVER include phone/fax/email/website in address fields.
 3. NEVER include tax IDs or registration numbers in address fields.
-4. Address fields contain ONLY: street, postal code, city, optionally country.
-5. If you are unsure about a field, return empty string — do NOT guess.
-6. Return ONLY valid JSON. No markdown, no explanation, no backticks.
+4. Address fields contain ONLY postal address components.
+5. If unsure about a field, return empty string — do NOT guess.
+6. Detect the language automatically — do not assume any specific language.
+7. Return ONLY valid JSON. No markdown, no explanation.
 
-Return format (exactly this shape):
+Return format:
 {
   "fields": {
-    "sender_name": "",
-    "sender_address": "",
-    "recipient_name": "",
-    "recipient_address": "",
-    "date": "",
-    "subject": "",
-    "reference_number": "",
-    "salutation": "",
-    "body_summary": "",
-    "sender_phone": "",
-    "sender_fax": "",
-    "sender_email": "",
-    "sender_website": "",
-    "sender_iban": "",
-    "sender_bic": "",
-    "sender_bank": "",
-    "sender_tax_id": "",
-    "sender_registration": ""
+    "sender_name": "...",
+    "sender_address": "...",
+    "recipient_name": "...",
+    "recipient_address": "...",
+    "date": "YYYY-MM-DD",
+    "subject": "...",
+    "reference_number": "...",
+    "salutation": "...",
+    "body_summary": "...",
+    "sender_phone": "...",
+    "sender_fax": "...",
+    "sender_email": "...",
+    "sender_website": "...",
+    "sender_iban": "...",
+    "sender_bic": "...",
+    "sender_bank": "...",
+    "sender_tax_id": "...",
+    "sender_registration": "...",
+    "detected_language": "..."
   },
   "confidence": {
-    "sender_name": 0.0,
-    "sender_address": 0.0,
-    "recipient_name": 0.0,
-    "recipient_address": 0.0,
-    "date": 0.0,
-    "subject": 0.0,
-    "reference_number": 0.0,
-    "salutation": 0.0,
-    "body_summary": 0.0,
-    "sender_phone": 0.0,
-    "sender_fax": 0.0,
-    "sender_email": 0.0,
-    "sender_website": 0.0,
-    "sender_iban": 0.0,
-    "sender_bic": 0.0,
-    "sender_bank": 0.0,
-    "sender_tax_id": 0.0,
-    "sender_registration": 0.0
+    "sender_name": 0.95,
+    "sender_address": 0.95,
+    "recipient_name": 0.95,
+    "recipient_address": 0.95,
+    "date": 0.95,
+    "subject": 0.95,
+    "reference_number": 0.95,
+    "salutation": 0.95,
+    "body_summary": 0.95,
+    "sender_phone": 0.95,
+    "sender_fax": 0.95,
+    "sender_email": 0.95,
+    "sender_website": 0.95,
+    "sender_iban": 0.95,
+    "sender_bic": 0.95,
+    "sender_bank": 0.95,
+    "sender_tax_id": 0.95,
+    "sender_registration": 0.95,
+    "detected_language": 0.95
   }
 }`
 

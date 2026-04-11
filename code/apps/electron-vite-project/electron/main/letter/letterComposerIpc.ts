@@ -444,6 +444,7 @@ export function registerLetterComposerIpcHandlers(): void {
     return extractRawFromScanText(text.slice(0, 500_000))
   })
 
+  /** International letter field normalization (prompt + regex hints) lives in ./letterScanNormalize. */
   ipcMain.handle('letter:normalizeExtracted', async (_e, rawFields: unknown, fullText: string) => {
     const ft = typeof fullText === 'string' ? fullText : ''
     const { normalizeLetterScanExtraction } = await import('./letterScanNormalize')
