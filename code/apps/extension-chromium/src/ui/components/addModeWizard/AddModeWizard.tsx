@@ -82,7 +82,15 @@ export const AddModeWizard: React.FC<AddModeWizardProps> = ({
   const mergeData = useCallback((patch: Partial<CustomModeDraft>) => {
     setData((prev) => {
       const next = { ...prev, ...patch }
-      if (patch.metadata !== undefined && prev.metadata && typeof prev.metadata === 'object') {
+      if (
+        patch.metadata !== undefined &&
+        patch.metadata !== null &&
+        typeof patch.metadata === 'object' &&
+        !Array.isArray(patch.metadata) &&
+        prev.metadata &&
+        typeof prev.metadata === 'object' &&
+        !Array.isArray(prev.metadata)
+      ) {
         next.metadata = { ...prev.metadata, ...patch.metadata }
       }
       return next

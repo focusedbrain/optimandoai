@@ -36,15 +36,12 @@ export function getInlineFieldErrorsForStep(
         if (!ep) out.endpoint = 'Enter the Ollama endpoint URL.'
         else if (!isValidHttpUrl(ep)) out.endpoint = 'Enter a valid http(s) URL.'
         const mn = data.modelName?.trim() ?? ''
-        if (!mn) out.modelName = 'Select an installed model.'
-        else {
+        if (mn) {
           const tags = (data.metadata as { _ollamaTags?: string[] } | undefined)?._ollamaTags
           if (tags && tags.length > 0 && !tags.includes(mn)) {
             out.modelName = 'Pick an installed model from the list (or fix the endpoint).'
           }
         }
-      } else if (!data.modelName?.trim()) {
-        out.modelName = 'Enter a model name.'
       }
       return out
     }
@@ -87,14 +84,14 @@ export function validateAddModeWizardStep(
         if (!ep) return 'Enter the Ollama endpoint URL.'
         if (!isValidHttpUrl(ep)) return 'Enter a valid http(s) URL for the endpoint.'
         const mn = data.modelName?.trim() ?? ''
-        if (!mn) return 'Select an installed model.'
-        const tags = (data.metadata as { _ollamaTags?: string[] } | undefined)?._ollamaTags
-        if (tags && tags.length > 0 && !tags.includes(mn)) {
-          return 'Pick an installed model from the list (or fix the endpoint).'
+        if (mn) {
+          const tags = (data.metadata as { _ollamaTags?: string[] } | undefined)?._ollamaTags
+          if (tags && tags.length > 0 && !tags.includes(mn)) {
+            return 'Pick an installed model from the list (or fix the endpoint).'
+          }
         }
         return null
       }
-      if (!data.modelName?.trim()) return 'Enter a model name.'
       return null
     }
     case 2:

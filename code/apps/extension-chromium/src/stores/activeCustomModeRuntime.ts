@@ -32,12 +32,17 @@ export function useActiveCustomModeRuntime(): CustomModeRuntimeConfig | null {
   }, [mode, modes])
 }
 
-/** Prefer custom mode's model name when a custom mode is active; otherwise use picker state. */
+/**
+ * Resolves the LLM model id for the active custom automation.
+ * If the automation has a non-empty `modelName`, that overrides WR Chat’s picker.
+ * If `modelName` is empty, returns the current WR Chat selection (`fallbackRef` / `fallbackState`).
+ */
 export function getEffectiveLlmModelNameForActiveMode(
   fallbackRef: string,
   fallbackState: string,
 ): string {
   const rt = getActiveCustomModeRuntime()
-  if (rt?.modelName?.trim()) return rt.modelName.trim()
+  const override = rt?.modelName?.trim()
+  if (override) return override
   return (fallbackRef || fallbackState || '').trim()
 }

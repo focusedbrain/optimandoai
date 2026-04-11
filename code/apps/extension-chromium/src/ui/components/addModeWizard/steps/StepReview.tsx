@@ -62,7 +62,10 @@ export function StepReview({
     { k: 'Icon', v: (typeof data.icon === 'string' && data.icon.trim()) || '—' },
     { k: 'Header menu icon', v: triggerBarReview },
     { k: 'Provider', v: safeDraftString(data.modelProvider) || '—' },
-    { k: 'Model', v: modelSafe || '—' },
+    {
+      k: 'Model',
+      v: modelSafe || 'Active WR Chat model (no preset)',
+    },
     ...(String(data.modelProvider ?? '').toLowerCase() === 'ollama'
       ? [{ k: 'Endpoint', v: safeDraftString(data.endpoint).trim() || '—' }]
       : []),

@@ -68,6 +68,14 @@ export function StepModel({
       const sorted = [...new Set(names)].sort((a, b) => a.localeCompare(b))
       setInstalledNames(sorted)
       setData({ metadata: { _ollamaTags: sorted } })
+    } catch (err) {
+      console.error('[StepModel] loadOllamaModels failed:', err)
+      setInstalledNames([])
+      setModelsHint(
+        err instanceof Error
+          ? err.message
+          : 'Could not load models. Check the endpoint and try Refresh.',
+      )
     } finally {
       setLoadingModels(false)
     }
@@ -76,7 +84,7 @@ export function StepModel({
   useEffect(() => {
     if (!isOllama) return
     void loadOllamaModels()
-  }, [isOllama, loadOllamaModels])
+  }, [isOllama, debouncedEndpoint, loadOllamaModels])
 
   const modelName = safeDraftString(data.modelName)
   const selectedInList = useMemo(
@@ -145,7 +153,8 @@ export function StepModel({
       <div>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
           <label htmlFor={isOllama ? 'cmw-model-select' : 'cmw-model'} style={labelStyle(t)}>
-            Model <span aria-hidden="true">*</span>
+            Model{' '}
+            <span style={{ fontWeight: 400, textTransform: 'none', opacity: 0.85 }}>(optional)</span>
           </label>
           {isOllama ? (
             <button
@@ -187,14 +196,13 @@ export function StepModel({
               style={{ ...inputStyleWithError(inputStyle(t), t, mnErr), cursor: 'pointer' }}
               aria-invalid={mnErr ? true : undefined}
               aria-describedby={mnErr ? 'cmw-model-err' : undefined}
-              aria-required
             >
               <option value="">
                 {loadingModels && installedNames.length === 0
                   ? 'Loading installed models…'
                   : installedNames.length === 0
                     ? 'No models installed at this endpoint'
-                    : 'Select an installed model…'}
+                    : 'Use active model (or select one)…'}
               </option>
               {orphanSelection ? (
                 <option value={`__orphan__:${orphanSelection}`} disabled>
@@ -222,16 +230,19 @@ export function StepModel({
               type="text"
               value={modelName}
               onChange={(e) => setData({ modelName: e.target.value })}
-              placeholder="e.g. gpt-4o-mini"
+              placeholder="e.g. gpt-4o-mini (optional)"
               style={inputStyleWithError(inputStyle(t), t, mnErr)}
               autoComplete="off"
               aria-invalid={mnErr ? true : undefined}
               aria-describedby={mnErr ? 'cmw-model-err' : undefined}
-              aria-required
             />
             <WizardFieldError id="cmw-model-err" message={mnErr} t={t} />
           </>
         )}
+        <p style={{ fontSize: 12, color: t.textMuted, marginTop: 8, lineHeight: 1.45 }}>
+          Optional. If set, this model will be pre-selected when the automation activates. You can change the model
+          anytime during runtime in WR Chat.
+        </p>
       </div>
     </div>
   )

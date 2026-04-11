@@ -11,6 +11,7 @@ export interface CustomModeRuntimeConfig {
   modeId: string
   name: string
   modelProvider: string
+  /** Empty string means no preset — WR Chat uses whichever model is active in the picker. */
   modelName: string
   endpoint: string
   sessionId: string | null
@@ -51,11 +52,12 @@ function wrExpertFromMetadata(meta: Record<string, unknown> | undefined): WrExpe
 export function customModeDefinitionToRuntime(def: CustomModeDefinition): CustomModeRuntimeConfig {
   const md = def.metadata as Record<string, unknown> | undefined
   const scope = getCustomModeScopeFromMetadata(md)
+  const modelName = typeof def.modelName === 'string' ? def.modelName : ''
   return {
     modeId: def.id,
     name: def.name,
     modelProvider: def.modelProvider,
-    modelName: def.modelName,
+    modelName,
     endpoint: def.endpoint,
     sessionId: def.sessionId,
     sessionMode: def.sessionMode,
