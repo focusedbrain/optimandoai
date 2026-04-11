@@ -325,7 +325,16 @@ export function EmailInlineComposer({ onClose, onSent, replyTo }: EmailInlineCom
               />
             </div>
 
-            <div className="composer-body-container email-body-field">
+            {/* Body only: label + textarea. Closes before Attachments (siblings below). */}
+            <div
+              className="composer-body-container email-body-field"
+              style={{
+                flex: '0 1 auto',
+                minHeight: 0,
+                width: '100%',
+                alignSelf: 'stretch',
+              }}
+            >
               <label
                 className="compose-field-fixed"
                 style={{ fontSize: 11, fontWeight: 600, color: muted, display: 'block', marginBottom: 6 }}
@@ -338,9 +347,13 @@ export function EmailInlineComposer({ onClose, onSent, replyTo }: EmailInlineCom
                 onChange={(e) => setBody(e.target.value)}
                 onClick={() => handleFieldSelect('body')}
                 placeholder="Write your message…"
-                rows={5}
+                rows={8}
                 className={`email-body-textarea${connected && refineTarget === 'email' ? ' field-selected-for-ai' : ''}`}
                 style={{
+                  minHeight: 180,
+                  flexShrink: 0,
+                  width: '100%',
+                  boxSizing: 'border-box',
                   lineHeight: 1.5,
                   outline: 'none',
                   resize: 'vertical',

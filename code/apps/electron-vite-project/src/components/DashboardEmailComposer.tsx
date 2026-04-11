@@ -236,8 +236,16 @@ export function DashboardEmailComposer({ onClose }: DashboardEmailComposerProps)
             />
           </label>
 
-          <div className="composer-body-container dashboard-email-composer__field dashboard-email-composer__field--grow">
-            <span>
+          {/* Body only: closes before Attachments — do not use __field--grow here (avoids one flex block eating the whole column). */}
+          <div
+            className="composer-body-container email-body-field dashboard-email-composer__field"
+            style={{
+              flex: '0 1 auto',
+              minHeight: 0,
+              width: '100%',
+            }}
+          >
+            <span className="compose-field-fixed">
               <DraftRefineLabel active={connected && refineTarget === 'email'}>Body</DraftRefineLabel>
             </span>
             <textarea
@@ -246,7 +254,15 @@ export function DashboardEmailComposer({ onClose }: DashboardEmailComposerProps)
               onClick={() => handleFieldSelect('body')}
               placeholder="Write your message…"
               data-compose-field="email-body"
-              className={connected && refineTarget === 'email' ? 'field-selected-for-ai' : undefined}
+              rows={8}
+              className={`email-body-textarea${connected && refineTarget === 'email' ? ' field-selected-for-ai' : ''}`}
+              style={{
+                minHeight: 180,
+                flexShrink: 0,
+                resize: 'vertical',
+                width: '100%',
+                boxSizing: 'border-box',
+              }}
             />
           </div>
 
