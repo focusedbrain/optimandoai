@@ -325,8 +325,11 @@ export function EmailInlineComposer({ onClose, onSent, replyTo }: EmailInlineCom
               />
             </div>
 
-            <div className="composer-body-container">
-              <label style={{ fontSize: 11, fontWeight: 600, color: muted, display: 'block', marginBottom: 6 }}>
+            <div className="composer-body-container email-body-field">
+              <label
+                className="compose-field-fixed"
+                style={{ fontSize: 11, fontWeight: 600, color: muted, display: 'block', marginBottom: 6 }}
+              >
                 <DraftRefineLabel active={connected && refineTarget === 'email'}>Body</DraftRefineLabel>
               </label>
               <textarea
@@ -335,7 +338,8 @@ export function EmailInlineComposer({ onClose, onSent, replyTo }: EmailInlineCom
                 onChange={(e) => setBody(e.target.value)}
                 onClick={() => handleFieldSelect('body')}
                 placeholder="Write your message…"
-                className={connected && refineTarget === 'email' ? 'field-selected-for-ai' : undefined}
+                rows={5}
+                className={`email-body-textarea${connected && refineTarget === 'email' ? ' field-selected-for-ai' : ''}`}
                 style={{
                   lineHeight: 1.5,
                   outline: 'none',
