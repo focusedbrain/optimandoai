@@ -1,0 +1,115 @@
+/* Shared flex layout for email / BEAP composers (dashboard + inbox). */
+
+.dashboard-email-composer,
+.dashboard-beap-composer,
+.email-inline-composer,
+.beap-inline-composer {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+  box-sizing: border-box;
+}
+
+.dashboard-email-composer .composer-grid,
+.dashboard-beap-composer .composer-grid,
+.email-inline-composer .compose-grid,
+.beap-inline-composer .compose-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 380px;
+  gap: 16px;
+  flex: 1;
+  min-height: 0;
+  box-sizing: border-box;
+}
+
+/* Inbox email composer keeps a narrower rail */
+.email-inline-composer .compose-grid {
+  grid-template-columns: minmax(0, 1fr) 260px;
+}
+
+.beap-inline-composer:not(.beap-inline-composer--dashboard) .compose-grid {
+  grid-template-columns: minmax(0, 1fr) 260px;
+}
+
+.composer-form-column {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+  gap: 8px;
+  box-sizing: border-box;
+}
+
+.composer-body-container {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  gap: 6px;
+}
+
+.composer-body-container textarea {
+  flex: 1;
+  min-height: 180px;
+  max-height: none;
+  resize: vertical;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px;
+  font-size: 13px;
+  line-height: 1.5;
+  border: 1px solid #e8e8e6;
+  border-radius: 4px;
+  font-family: inherit;
+}
+
+.compose-field-fixed {
+  flex-shrink: 0;
+}
+
+/* Fixed chrome + scrollable form (inbox composers). */
+.composer-main-column {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.composer-main-column > .composer-form-column {
+  flex: 1;
+  min-height: 0;
+}
+
+.beap-inline-composer .composer-form-column {
+  gap: 20px;
+  padding: 18px 20px;
+}
+
+.email-inline-composer .composer-form-column {
+  gap: 20px;
+  padding: 18px 20px;
+}
+
+/* Inbox email: light body field on dark shell */
+.email-inline-composer .composer-body-container textarea {
+  background: #ffffff;
+  color: #0f172a;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 12px 14px;
+  font-size: 14px;
+}
+
+/* BEAP: message fields match builder */
+.beap-inline-composer .composer-body-container textarea {
+  background: #ffffff;
+  color: #0f172a;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 12px 14px;
+  font-size: 14px;
+}

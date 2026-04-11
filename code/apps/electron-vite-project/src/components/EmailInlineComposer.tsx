@@ -4,8 +4,10 @@
  */
 
 import { useState, useRef, useEffect, useCallback, type CSSProperties } from 'react'
-import { pickDefaultEmailAccountRowId } from '@ext/shared/email/pickDefaultAccountRow'
+import { ConnectEmailLaunchSource } from '@ext/shared/email/connectEmailFlow'
 import { EMAIL_SIGNATURE, type DraftAttachment } from './EmailComposeOverlay'
+import { EmailAccountSelector } from './shared/EmailAccountSelector'
+import './composer-layout.css'
 import { useDraftRefineStore } from '../stores/useDraftRefineStore'
 import { AiDraftContextRail } from './AiDraftContextRail'
 import { ComposerAttachmentButton } from './ComposerAttachmentButton'
@@ -38,8 +40,7 @@ export function EmailInlineComposer({ onClose, onSent, replyTo }: EmailInlineCom
   const [attachments, setAttachments] = useState<File[]>([])
   const [pathAttachments, setPathAttachments] = useState<DraftAttachment[]>(replyTo?.initialAttachments ?? [])
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null)
-  const [accounts, setAccounts] = useState<Array<{ id: string; displayName: string; email: string; provider: string; status?: string }>>([])
-  const [isLoadingAccounts, setIsLoadingAccounts] = useState(true)
+  const [accountsLoading, setAccountsLoading] = useState(true)
   const [isSending, setIsSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [sendSuccess, setSendSuccess] = useState(false)
@@ -99,30 +100,6 @@ export function EmailInlineComposer({ onClose, onSent, replyTo }: EmailInlineCom
     }
   }, [replyTo])
 
-  useEffect(() => {
-    const load = async () => {
-      if (typeof window.emailAccounts?.listAccounts !== 'function') {
-        setIsLoadingAccounts(false)
-        return
-      }
-      try {
-        const res = await window.emailAccounts.listAccounts()
-        if (res.ok && res.data && res.data.length > 0) {
-          setAccounts(res.data)
-          const pick = pickDefaultEmailAccountRowId(
-            res.data.map((a: { id: string; status?: string }) => ({ id: a.id, status: a.status })),
-          )
-          setSelectedAccountId(pick ?? res.data[0].id)
-        }
-      } catch {
-        /* ignore */
-      } finally {
-        setIsLoadingAccounts(false)
-      }
-    }
-    void load()
-  }, [])
-
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files
     if (!files) return
@@ -150,9 +127,8 @@ export function EmailInlineComposer({ onClose, onSent, replyTo }: EmailInlineCom
       setError('To is required')
       return
     }
-    const accountId =
-      selectedAccountId || pickDefaultEmailAccountRowId(accounts.map((a) => ({ id: a.id, status: a.status })))
-    if (!accountId || accounts.length === 0) {
+    const accountId = selectedAccountId
+    if (!accountId) {
       setError('No email account connected')
       return
     }
@@ -228,7 +204,7 @@ export function EmailInlineComposer({ onClose, onSent, replyTo }: EmailInlineCom
     } finally {
       setIsSending(false)
     }
-  }, [accounts, attachments, body, onSent, pathAttachments, selectedAccountId, subject, to])
+  }, [attachments, body, onSent, pathAttachments, selectedAccountId, subject, to])
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -243,54 +219,65 @@ export function EmailInlineComposer({ onClose, onSent, replyTo }: EmailInlineCom
 
   return (
     <div
+      className="email-inline-composer"
       style={{
-        display: 'grid',
-        gridTemplateColumns: 'minmax(0, 1fr) 260px',
-        gap: 0,
-        minHeight: 0,
-        height: '100%',
-        flex: 1,
-        overflow: 'hidden',
         background: 'var(--color-bg, #0f172a)',
         color: fg,
         fontFamily: 'inherit',
       }}
     >
-      <div
-        style={{
-          display: 'flex',
-          flexDirection: 'column',
-          minHeight: 0,
-          minWidth: 0,
-          borderRight: border,
-          overflow: 'hidden',
-        }}
-      >
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            padding: '12px 16px',
-            borderBottom: border,
-            flexShrink: 0,
-          }}
-        >
-          <span style={{ fontSize: 16, fontWeight: 700, letterSpacing: '-0.02em' }}>New Email</span>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <button type="button" onClick={handleComposerClose} style={{ fontSize: 18, lineHeight: 1, padding: '4px 10px', cursor: 'pointer', background: 'transparent', border, borderRadius: 6, color: fg }} aria-label="Close composer">
-              ✕
-            </button>
+      <div className="compose-grid" style={{ gap: 0 }}>
+        <div className="composer-main-column" style={{ borderRight: border }}>
+          <div
+            className="compose-field-fixed"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: '12px 16px',
+              borderBottom: border,
+            }}
+          >
+            <span style={{ fontSize: 16, fontWeight: 700, letterSpacing: '-0.02em' }}>New Email</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <button
+                type="button"
+                onClick={handleComposerClose}
+                style={{
+                  fontSize: 18,
+                  lineHeight: 1,
+                  padding: '4px 10px',
+                  cursor: 'pointer',
+                  background: 'transparent',
+                  border,
+                  borderRadius: 6,
+                  color: fg,
+                }}
+                aria-label="Close composer"
+              >
+                {'\u2715'}
+              </button>
+            </div>
           </div>
-        </div>
 
-        <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '18px 20px', display: 'flex', flexDirection: 'column', gap: 20 }}>
-          {accounts.length > 1 && (
-            <div>
-              <label style={{ fontSize: 11, fontWeight: 600, color: muted, display: 'block', marginBottom: 6 }}>From</label>
-              <select
-                value={selectedAccountId || ''}
-                onChange={(e) => setSelectedAccountId(e.target.value || null)}
+          <div className="composer-form-column">
+            <div className="compose-field-fixed">
+              <EmailAccountSelector
+                selectedAccountId={selectedAccountId}
+                onAccountChange={setSelectedAccountId}
+                connectTheme="dark"
+                connectLaunchSource={ConnectEmailLaunchSource.Inbox}
+                onLoadingChange={setAccountsLoading}
+              />
+            </div>
+
+            <div className="compose-field-fixed">
+              <label style={{ fontSize: 11, fontWeight: 600, color: muted, display: 'block', marginBottom: 6 }}>To</label>
+              <input
+                type="text"
+                value={to}
+                onChange={(e) => setTo(e.target.value)}
+                placeholder="recipient@example.com (comma-separated allowed)"
                 style={{
                   width: '100%',
                   padding: '10px 12px',
@@ -298,263 +285,231 @@ export function EmailInlineComposer({ onClose, onSent, replyTo }: EmailInlineCom
                   ...draftSurface,
                   borderRadius: 8,
                   outline: 'none',
+                  boxSizing: 'border-box',
+                }}
+                onFocus={(e) => {
+                  e.currentTarget.style.boxShadow = draftFocusRing
+                }}
+                onBlur={(e) => {
+                  e.currentTarget.style.boxShadow = 'none'
+                }}
+              />
+            </div>
+
+            <div className="compose-field-fixed">
+              <label style={{ fontSize: 11, fontWeight: 600, color: muted, display: 'block', marginBottom: 6 }}>
+                <DraftRefineLabel active={connected && refineTarget === 'email-subject'}>Subject</DraftRefineLabel>
+              </label>
+              <input
+                type="text"
+                value={subject}
+                onChange={(e) => setSubject(e.target.value)}
+                onClick={() => handleFieldSelect('subject')}
+                placeholder="Subject"
+                className={connected && refineTarget === 'email-subject' ? 'field-selected-for-ai' : undefined}
+                style={{
+                  width: '100%',
+                  padding: '10px 12px',
+                  fontSize: 13,
+                  ...draftSurface,
+                  borderRadius: 8,
+                  outline: 'none',
+                  boxSizing: 'border-box',
+                }}
+                onFocus={(e) => {
+                  e.currentTarget.style.boxShadow = draftFocusRing
+                }}
+                onBlur={(e) => {
+                  e.currentTarget.style.boxShadow = 'none'
+                }}
+              />
+            </div>
+
+            <div className="composer-body-container">
+              <label style={{ fontSize: 11, fontWeight: 600, color: muted, display: 'block', marginBottom: 6 }}>
+                <DraftRefineLabel active={connected && refineTarget === 'email'}>Body</DraftRefineLabel>
+              </label>
+              <textarea
+                data-compose-field="email-body"
+                value={body}
+                onChange={(e) => setBody(e.target.value)}
+                onClick={() => handleFieldSelect('body')}
+                placeholder="Write your message…"
+                className={connected && refineTarget === 'email' ? 'field-selected-for-ai' : undefined}
+                style={{
+                  lineHeight: 1.5,
+                  outline: 'none',
+                  resize: 'vertical',
+                }}
+                onFocus={(e) => {
+                  if (!(connected && refineTarget === 'email')) e.currentTarget.style.boxShadow = draftFocusRing
+                }}
+                onBlur={(e) => {
+                  e.currentTarget.style.boxShadow = 'none'
+                }}
+              />
+            </div>
+
+            <div className="compose-field-fixed">
+              <label style={{ fontSize: 11, fontWeight: 600, color: muted, display: 'block', marginBottom: 6 }}>Attachments</label>
+              <input ref={fileInputRef} type="file" multiple onChange={handleFileSelect} style={{ display: 'none' }} />
+              <ComposerAttachmentButton label="Add attachments" onClick={() => fileInputRef.current?.click()} />
+              {(attachments.length > 0 || pathAttachments.length > 0) && (
+                <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                  {attachments.map((f, i) => (
+                    <span
+                      key={`file-${i}-${f.name}`}
+                      style={{
+                        fontSize: 11,
+                        padding: '4px 8px',
+                        background: 'rgba(255,255,255,0.08)',
+                        borderRadius: 6,
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 6,
+                      }}
+                    >
+                      {f.name}
+                      <button type="button" onClick={() => removeAttachment(i)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: muted, fontSize: 14 }}>
+                        ×
+                      </button>
+                    </span>
+                  ))}
+                  {pathAttachments.map((pa, i) => (
+                    <span
+                      key={`path-${i}-${pa.path}`}
+                      style={{
+                        fontSize: 11,
+                        padding: '4px 8px',
+                        background: 'rgba(255,255,255,0.08)',
+                        borderRadius: 6,
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 6,
+                      }}
+                    >
+                      {pa.name}
+                      <span style={{ fontSize: 10, opacity: 0.8 }}>{Math.round(pa.size / 1024)} KB</span>
+                      <button type="button" onClick={() => removePathAttachment(i)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: muted, fontSize: 14 }}>
+                        ×
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="compose-field-fixed">
+              <div style={{ fontSize: 11, fontWeight: 600, color: muted, marginBottom: 6 }}>Signature (appended on send)</div>
+              <pre
+                style={{
+                  fontSize: 11,
+                  color: '#334155',
+                  background: '#f8fafc',
+                  padding: 10,
+                  borderRadius: 8,
+                  margin: 0,
+                  whiteSpace: 'pre-wrap',
+                  border: '1px solid #e2e8f0',
+                  fontFamily: 'inherit',
                 }}
               >
-                {accounts.map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.email || a.displayName} ({a.provider})
-                  </option>
-                ))}
-              </select>
+                {EMAIL_SIGNATURE.trim()}
+              </pre>
             </div>
-          )}
 
-          {isLoadingAccounts && <div style={{ fontSize: 12, color: muted }}>Loading accounts…</div>}
-
-          <div>
-            <label style={{ fontSize: 11, fontWeight: 600, color: muted, display: 'block', marginBottom: 6 }}>To</label>
-            <input
-              type="text"
-              value={to}
-              onChange={(e) => setTo(e.target.value)}
-              placeholder="recipient@example.com (comma-separated allowed)"
-              style={{
-                width: '100%',
-                padding: '10px 12px',
-                fontSize: 13,
-                ...draftSurface,
-                borderRadius: 8,
-                outline: 'none',
-                boxSizing: 'border-box',
-              }}
-              onFocus={(e) => {
-                e.currentTarget.style.boxShadow = draftFocusRing
-              }}
-              onBlur={(e) => {
-                e.currentTarget.style.boxShadow = 'none'
-              }}
-            />
-          </div>
-
-          <div>
-            <label style={{ fontSize: 11, fontWeight: 600, color: muted, display: 'block', marginBottom: 6 }}>
-              <DraftRefineLabel active={connected && refineTarget === 'email-subject'}>Subject</DraftRefineLabel>
-            </label>
-            <input
-              type="text"
-              value={subject}
-              onChange={(e) => setSubject(e.target.value)}
-              onClick={() => handleFieldSelect('subject')}
-              placeholder="Subject"
-              className={connected && refineTarget === 'email-subject' ? 'field-selected-for-ai' : undefined}
-              style={{
-                width: '100%',
-                padding: '10px 12px',
-                fontSize: 13,
-                ...draftSurface,
-                borderRadius: 8,
-                outline: 'none',
-                boxSizing: 'border-box',
-              }}
-              onFocus={(e) => {
-                e.currentTarget.style.boxShadow = draftFocusRing
-              }}
-              onBlur={(e) => {
-                e.currentTarget.style.boxShadow = 'none'
-              }}
-            />
-          </div>
-
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 200 }}>
-            <label style={{ fontSize: 11, fontWeight: 600, color: muted, display: 'block', marginBottom: 6 }}>
-              <DraftRefineLabel active={connected && refineTarget === 'email'}>Body</DraftRefineLabel>
-            </label>
-            <textarea
-              data-compose-field="email-body"
-              value={body}
-              onChange={(e) => setBody(e.target.value)}
-              onClick={() => handleFieldSelect('body')}
-              placeholder="Write your message…"
-              className={connected && refineTarget === 'email' ? 'field-selected-for-ai' : undefined}
-              style={{
-                flex: 1,
-                minHeight: 280,
-                width: '100%',
-                maxWidth: '100%',
-                boxSizing: 'border-box',
-                padding: '12px 14px',
-                fontSize: 14,
-                lineHeight: 1.5,
-                background: '#ffffff',
-                color: '#0f172a',
-                border: '1px solid #cbd5e1',
-                borderRadius: 8,
-                outline: 'none',
-                resize: 'vertical',
-              }}
-              onFocus={(e) => {
-                if (!(connected && refineTarget === 'email')) e.currentTarget.style.boxShadow = draftFocusRing
-              }}
-              onBlur={(e) => {
-                e.currentTarget.style.boxShadow = 'none'
-              }}
-            />
-          </div>
-
-          <div>
-            <label style={{ fontSize: 11, fontWeight: 600, color: muted, display: 'block', marginBottom: 6 }}>Attachments</label>
-            <input ref={fileInputRef} type="file" multiple onChange={handleFileSelect} style={{ display: 'none' }} />
-            <ComposerAttachmentButton label="Add attachments" onClick={() => fileInputRef.current?.click()} />
-            {(attachments.length > 0 || pathAttachments.length > 0) && (
-              <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                {attachments.map((f, i) => (
-                  <span
-                    key={`file-${i}-${f.name}`}
-                    style={{
-                      fontSize: 11,
-                      padding: '4px 8px',
-                      background: 'rgba(255,255,255,0.08)',
-                      borderRadius: 6,
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: 6,
-                    }}
-                  >
-                    {f.name}
-                    <button type="button" onClick={() => removeAttachment(i)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: muted, fontSize: 14 }}>
-                      ×
-                    </button>
-                  </span>
-                ))}
-                {pathAttachments.map((pa, i) => (
-                  <span
-                    key={`path-${i}-${pa.path}`}
-                    style={{
-                      fontSize: 11,
-                      padding: '4px 8px',
-                      background: 'rgba(255,255,255,0.08)',
-                      borderRadius: 6,
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: 6,
-                    }}
-                  >
-                    {pa.name}
-                    <span style={{ fontSize: 10, opacity: 0.8 }}>{Math.round(pa.size / 1024)} KB</span>
-                    <button type="button" onClick={() => removePathAttachment(i)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: muted, fontSize: 14 }}>
-                      ×
-                    </button>
-                  </span>
-                ))}
+            {sendSuccess && (
+              <div
+                className="compose-field-fixed"
+                style={{
+                  background: '#dcfce7',
+                  color: '#166534',
+                  border: '1px solid #86efac',
+                  borderRadius: 6,
+                  padding: '10px 16px',
+                  fontSize: 13,
+                  fontWeight: 600,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                }}
+              >
+                Email sent successfully
               </div>
             )}
-          </div>
 
-          <div>
-            <div style={{ fontSize: 11, fontWeight: 600, color: muted, marginBottom: 6 }}>Signature (appended on send)</div>
-            <pre
-              style={{
-                fontSize: 11,
-                color: '#334155',
-                background: '#f8fafc',
-                padding: 10,
-                borderRadius: 8,
-                margin: 0,
-                whiteSpace: 'pre-wrap',
-                border: '1px solid #e2e8f0',
-                fontFamily: 'inherit',
-              }}
-            >
-              {EMAIL_SIGNATURE.trim()}
-            </pre>
-          </div>
+            {error && (
+              <div className="compose-field-fixed" style={{ fontSize: 13, color: '#f87171' }}>
+                {error}
+              </div>
+            )}
 
-          {sendSuccess && (
-            <div
-              style={{
-                background: '#dcfce7',
-                color: '#166534',
-                border: '1px solid #86efac',
-                borderRadius: 6,
-                padding: '10px 16px',
-                fontSize: 13,
-                fontWeight: 600,
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8,
-              }}
-            >
-              ✅ Email sent successfully
+            <div className="compose-field-fixed" style={{ display: 'flex', gap: 10, marginTop: 4 }}>
+              <button
+                type="button"
+                onClick={() => void handleSend()}
+                disabled={isSending || sendSuccess || accountsLoading || !selectedAccountId}
+                style={{
+                  padding: '12px 20px',
+                  fontSize: 14,
+                  fontWeight: 700,
+                  background: '#2563eb',
+                  border: 'none',
+                  borderRadius: 8,
+                  color: '#fff',
+                  cursor: isSending || !selectedAccountId ? 'not-allowed' : 'pointer',
+                  opacity: isSending || !selectedAccountId ? 0.6 : 1,
+                }}
+              >
+                {isSending ? 'Sending…' : 'Send'}
+              </button>
+              <button
+                type="button"
+                onClick={handleComposerClose}
+                style={{
+                  padding: '12px 16px',
+                  fontSize: 14,
+                  borderRadius: 8,
+                  border,
+                  background: 'transparent',
+                  color: fg,
+                  cursor: 'pointer',
+                }}
+              >
+                Cancel
+              </button>
             </div>
-          )}
-
-          {error && <div style={{ fontSize: 13, color: '#f87171' }}>{error}</div>}
-
-          <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
-            <button
-              type="button"
-              onClick={() => void handleSend()}
-              disabled={isSending || sendSuccess || isLoadingAccounts || accounts.length === 0}
-              style={{
-                padding: '12px 20px',
-                fontSize: 14,
-                fontWeight: 700,
-                background: '#2563eb',
-                border: 'none',
-                borderRadius: 8,
-                color: '#fff',
-                cursor: isSending || accounts.length === 0 ? 'not-allowed' : 'pointer',
-                opacity: isSending || accounts.length === 0 ? 0.6 : 1,
-              }}
-            >
-              {isSending ? 'Sending…' : 'Send'}
-            </button>
-                       <button
-              type="button"
-              onClick={handleComposerClose}
-              style={{
-                padding: '12px 16px',
-                fontSize: 14,
-                borderRadius: 8,
-                border,
-                background: 'transparent',
-                color: fg,
-                cursor: 'pointer',
-              }}
-            >
-              Cancel
-            </button>
           </div>
         </div>
-      </div>
 
-      <aside
-        style={{
-          padding: '18px 16px',
-          fontSize: 12,
-          lineHeight: 1.55,
-          color: hintOnRail,
-          overflowY: 'auto',
-          minWidth: 0,
-          minHeight: 0,
-          borderLeft: border,
-          background: '#f8fafc',
-        }}
-      >
-        <AiDraftContextRail
-          footer={
-            <>
-              <p style={{ margin: '0 0 10px', fontSize: 12, color: hintOnRail }}>
-                Files added in the main column attach to the outgoing email, not the AI context list above.
-              </p>
-              <p style={{ margin: '0 0 10px', color: hintOnRail }}>The signature block is appended automatically when you send.</p>
-              <p style={{ margin: 0, color: hintOnRail }}>
-                Click Subject or Body to target the top chat bar for AI refinement; click the same field again to disconnect.
-              </p>
-            </>
-          }
-        />
-      </aside>
+        <aside
+          style={{
+            padding: '18px 16px',
+            fontSize: 12,
+            lineHeight: 1.55,
+            color: hintOnRail,
+            overflowY: 'auto',
+            minWidth: 0,
+            minHeight: 0,
+            borderLeft: border,
+            background: '#f8fafc',
+          }}
+        >
+          <AiDraftContextRail
+            footer={
+              <>
+                <p style={{ margin: '0 0 10px', fontSize: 12, color: hintOnRail }}>
+                  Files added in the main column attach to the outgoing email, not the AI context list above.
+                </p>
+                <p style={{ margin: '0 0 10px', color: hintOnRail }}>The signature block is appended automatically when you send.</p>
+                <p style={{ margin: 0, color: hintOnRail }}>
+                  Click Subject or Body to target the top chat bar for AI refinement; click the same field again to disconnect.
+                </p>
+              </>
+            }
+          />
+        </aside>
+      </div>
     </div>
   )
 }

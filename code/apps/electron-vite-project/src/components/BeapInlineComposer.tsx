@@ -43,6 +43,12 @@ import './handshakeViewTypes';
 
 import '../styles/dashboard-base.css';
 
+import './composer-layout.css';
+
+import { ConnectEmailLaunchSource } from '@ext/shared/email/connectEmailFlow';
+
+import { EmailAccountSelector } from './shared/EmailAccountSelector';
+
 import { extractTextForPackagePreview } from '../lib/beapPackageAttachmentPreview';
 
 import { AiDraftContextRail } from './AiDraftContextRail';
@@ -160,10 +166,6 @@ export function BeapInlineComposer({
   const [sessionId, setSessionId] = useState('');
 
   const [sessions, setSessions] = useState<OrchestratorSession[]>([]);
-
-  const [emailAccounts, setEmailAccounts] = useState<
-    Array<{ id: string; email: string; displayName?: string }>
-  >([]);
 
   const [selectedEmailAccountId, setSelectedEmailAccountId] = useState<string | null>(null);
 
@@ -335,28 +337,6 @@ export function BeapInlineComposer({
     window.addEventListener('orchestrator-session-display-updated', onOrchestratorSession);
     return () => window.removeEventListener('orchestrator-session-display-updated', onOrchestratorSession);
   }, [loadSessions]);
-
-  useEffect(() => {
-    const loadAccounts = async () => {
-      if (typeof window.emailAccounts?.listAccounts !== 'function') return;
-
-      try {
-        const res = await window.emailAccounts.listAccounts();
-
-        if (res?.ok && res.data?.length) {
-          setEmailAccounts(
-            res.data.map((a) => ({ id: a.id, email: a.email, displayName: a.displayName })),
-          );
-
-          setSelectedEmailAccountId((prev) => prev ?? res.data![0].id);
-        }
-      } catch {
-        /* ignore */
-      }
-    };
-
-    void loadAccounts();
-  }, []);
 
   const resetForm = useCallback(() => {
     disconnect();
@@ -793,20 +773,6 @@ export function BeapInlineComposer({
     <div
       className={embedInDashboard ? 'beap-inline-composer beap-inline-composer--dashboard' : 'beap-inline-composer'}
       style={{
-        display: 'grid',
-
-        gridTemplateColumns: embedInDashboard ? 'minmax(0, 1fr) 380px' : 'minmax(0, 1fr) 260px',
-
-        gap: 0,
-
-        minHeight: 0,
-
-        height: '100%',
-
-        flex: 1,
-
-        overflow: 'hidden',
-
         background: surfacePage,
 
         color: textPrimary,
@@ -814,23 +780,11 @@ export function BeapInlineComposer({
         fontFamily: 'inherit',
       }}
     >
-      <div
-        style={{
-          display: 'flex',
-
-          flexDirection: 'column',
-
-          minHeight: 0,
-
-          minWidth: 0,
-
-          borderRight: border,
-
-          overflow: 'hidden',
-        }}
-      >
+      <div className="compose-grid" style={{ gap: 0, background: surfacePage }}>
+        <div className="composer-main-column" style={{ borderRight: border, background: surfacePage }}>
         {!embedInDashboard && (
         <div
+          className="compose-field-fixed"
           style={{
             display: 'flex',
 
@@ -841,8 +795,6 @@ export function BeapInlineComposer({
             padding: '12px 16px',
 
             borderBottom: border,
-
-            flexShrink: 0,
 
             background: surfaceHeader,
           }}
@@ -891,22 +843,7 @@ export function BeapInlineComposer({
         </div>
         )}
 
-        <div
-          style={{
-            flex: 1,
-            minHeight: 0,
-            overflowY: 'auto',
-            background: surfacePage,
-          }}
-        >
-          <div
-            style={{
-              padding: '18px 20px',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 20,
-            }}
-          >
+        <div className="composer-form-column" style={{ background: surfacePage }}>
           {/* Fingerprint + distribution order matches legacy builder; colors = light (popup standard branch) */}
 
           <div
@@ -1025,45 +962,13 @@ export function BeapInlineComposer({
           </div>
 
           {deliveryMethod === 'email' && (
-            <div
-              style={{
-                padding: 12,
-
-                borderRadius: 8,
-
-                background: '#eff6ff',
-
-                border: '1px solid #93c5fd',
-              }}
-            >
-              <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8, color: '#0c4a6e' }}>
-                Connected email accounts
-              </div>
-
-              {emailAccounts.length === 0 ? (
-                <div style={{ fontSize: 12, color: '#0f172a' }}>
-                  No accounts — connect email in the inbox provider section.
-                </div>
-              ) : (
-                <select
-                  value={selectedEmailAccountId ?? ''}
-                  onChange={(e) => setSelectedEmailAccountId(e.target.value || null)}
-                  style={{
-                    width: '100%',
-                    padding: 8,
-                    borderRadius: 6,
-                    ...draftSurface,
-                    fontSize: 12,
-                    outline: 'none',
-                  }}
-                >
-                  {emailAccounts.map((a) => (
-                    <option key={a.id} value={a.id}>
-                      {a.displayName || a.email}
-                    </option>
-                  ))}
-                </select>
-              )}
+            <div className="compose-field-fixed">
+              <EmailAccountSelector
+                selectedAccountId={selectedEmailAccountId}
+                onAccountChange={setSelectedEmailAccountId}
+                connectTheme="professional"
+                connectLaunchSource={ConnectEmailLaunchSource.BeapInboxDashboard}
+              />
             </div>
           )}
 
@@ -1164,16 +1069,18 @@ export function BeapInlineComposer({
             }}
           />
 
-          <div
-            style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              gap: 8,
-              marginBottom: 6,
-              flexWrap: 'wrap',
-            }}
-          >
+          <div className="composer-body-container">
+            <div
+              className="compose-field-fixed"
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                gap: 8,
+                marginBottom: 6,
+                flexWrap: 'wrap',
+              }}
+            >
             <label
               style={{
                 fontSize: 11,
@@ -1218,33 +1125,10 @@ export function BeapInlineComposer({
             onChange={(e) => setPublicMessage(e.target.value)}
             onClick={() => handleAiRefineToggle('public')}
             placeholder="Public capsule / transport-visible text"
-            rows={14}
             className={connected && refineTarget === 'capsule-public' ? 'field-selected-for-ai' : undefined}
             style={{
-              width: '100%',
-
-              maxWidth: '100%',
-
-              minHeight: 260,
-
-              boxSizing: 'border-box',
-
-              padding: '12px 14px',
-
-              borderRadius: 8,
-
-              border: '1px solid #cbd5e1',
-
-              outline: 'none',
-
-              background: '#ffffff',
-
-              color: '#0f172a',
-
-              fontSize: 14,
-
               lineHeight: 1.5,
-
+              outline: 'none',
               resize: 'vertical',
             }}
             onFocus={(e) => {
@@ -1255,10 +1139,12 @@ export function BeapInlineComposer({
               e.currentTarget.style.boxShadow = 'none';
             }}
           />
+          </div>
 
           {recipientMode === 'private' && (
-            <>
+            <div className="composer-body-container">
               <div
+                className="compose-field-fixed"
                 style={{
                   display: 'flex',
                   justifyContent: 'space-between',
@@ -1314,33 +1200,10 @@ export function BeapInlineComposer({
                 onChange={(e) => setEncryptedMessage(e.target.value)}
                 onClick={() => handleAiRefineToggle('encrypted')}
                 placeholder="Private qBEAP payload (optional; authoritative when set)"
-                rows={12}
                 className={connected && refineTarget === 'capsule-encrypted' ? 'field-selected-for-ai' : undefined}
                 style={{
-                  width: '100%',
-
-                  maxWidth: '100%',
-
-                  minHeight: 220,
-
-                  boxSizing: 'border-box',
-
-                  padding: '12px 14px',
-
-                  borderRadius: 8,
-
-                  border: '1px solid #cbd5e1',
-
-                  outline: 'none',
-
-                  background: '#ffffff',
-
-                  color: '#0f172a',
-
-                  fontSize: 14,
-
                   lineHeight: 1.5,
-
+                  outline: 'none',
                   resize: 'vertical',
                 }}
                 onFocus={(e) => {
@@ -1351,7 +1214,7 @@ export function BeapInlineComposer({
                   e.currentTarget.style.boxShadow = 'none';
                 }}
               />
-            </>
+            </div>
           )}
 
           <div>
@@ -1630,7 +1493,6 @@ export function BeapInlineComposer({
               Cancel
             </button>
           </div>
-          </div>
         </div>
       </div>
 
@@ -1680,6 +1542,7 @@ export function BeapInlineComposer({
           }
         />
       </aside>
+      </div>
 
       <BeapDocumentReaderModal
         open={readerOpen}

@@ -5,245 +5,19 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ChangeEvent } from 'react'
-import { pickDefaultEmailAccountRowId } from '@ext/shared/email/pickDefaultAccountRow'
-import { ConnectEmailLaunchSource, useConnectEmailFlow } from '@ext/shared/email/connectEmailFlow'
+import { ConnectEmailLaunchSource } from '@ext/shared/email/connectEmailFlow'
 import { EMAIL_SIGNATURE, type DraftAttachment } from './EmailComposeOverlay'
 import { AiDraftContextRail } from './AiDraftContextRail'
 import { ComposerAttachmentButton } from './ComposerAttachmentButton'
 import { DraftRefineLabel } from './DraftRefineLabel'
 import { useDraftRefineStore } from '../stores/useDraftRefineStore'
+import { EmailAccountSelector } from './shared/EmailAccountSelector'
 import '../styles/dashboard-base.css'
+import './composer-layout.css'
 import './AnalysisCanvas.css'
 
 export interface DashboardEmailComposerProps {
   onClose: () => void
-}
-
-type AccountRow = {
-  id: string
-  displayName: string
-  email: string
-  provider: string
-  status?: string
-  processingPaused?: boolean
-  lastError?: string
-}
-
-function providerLabel(provider: string): string {
-  switch (provider) {
-    case 'gmail':
-      return 'Gmail'
-    case 'microsoft365':
-      return 'Outlook'
-    case 'zoho':
-      return 'Zoho'
-    case 'imap':
-      return 'Custom (IMAP)'
-    default:
-      return provider || 'Email'
-  }
-}
-
-function accountStatusLabel(a: AccountRow): string {
-  if (a.status === 'active' && a.processingPaused) return 'Connected · sync paused'
-  switch (a.status) {
-    case 'active':
-      return 'Connected'
-    case 'auth_error':
-      return a.lastError?.trim() ? `Sign-in issue: ${a.lastError}` : 'Sign-in required'
-    case 'error':
-      return a.lastError?.trim() ? a.lastError : 'Connection error'
-    case 'disabled':
-      return 'Disabled'
-    default:
-      return 'Unknown'
-  }
-}
-
-async function fetchAccountRows(): Promise<AccountRow[]> {
-  if (typeof window.emailAccounts?.listAccounts !== 'function') return []
-  try {
-    const res = await window.emailAccounts.listAccounts()
-    if (res.ok && res.data && res.data.length > 0) {
-      return res.data as AccountRow[]
-    }
-  } catch {
-    /* ignore */
-  }
-  return []
-}
-
-function AccountManagementSection({
-  selectedAccountId,
-  onAccountChange,
-}: {
-  selectedAccountId: string | null
-  onAccountChange: (id: string | null) => void
-}) {
-  const [accounts, setAccounts] = useState<AccountRow[]>([])
-  const [loading, setLoading] = useState(true)
-  const [showManage, setShowManage] = useState(false)
-
-  const loadAccounts = useCallback(async (): Promise<AccountRow[]> => {
-    setLoading(true)
-    try {
-      const list = await fetchAccountRows()
-      setAccounts(list)
-      return list
-    } finally {
-      setLoading(false)
-    }
-  }, [])
-
-  const { openConnectEmail, connectEmailFlowModal } = useConnectEmailFlow({
-    theme: 'professional',
-    onAfterConnected: async () => {
-      await loadAccounts()
-    },
-  })
-
-  useEffect(() => {
-    void loadAccounts()
-  }, [loadAccounts])
-
-  useEffect(() => {
-    const onChanged = () => {
-      void loadAccounts()
-    }
-    window.addEventListener('wrdesk:email-accounts-changed', onChanged)
-    return () => window.removeEventListener('wrdesk:email-accounts-changed', onChanged)
-  }, [loadAccounts])
-
-  useEffect(() => {
-    const unsub = window.emailAccounts?.onAccountConnected?.((data) => {
-      void (async () => {
-        await loadAccounts()
-        if (data.accountId) {
-          onAccountChange(data.accountId)
-          return
-        }
-        const em = data.email?.trim().toLowerCase()
-        if (em) {
-          const list = await fetchAccountRows()
-          const row = list.find((a) => a.email?.trim().toLowerCase() === em)
-          if (row) onAccountChange(row.id)
-        }
-      })()
-    })
-    return () => unsub?.()
-  }, [loadAccounts, onAccountChange])
-
-  useEffect(() => {
-    if (accounts.length === 0) {
-      if (selectedAccountId !== null) onAccountChange(null)
-      return
-    }
-    const stillThere = selectedAccountId && accounts.some((a) => a.id === selectedAccountId)
-    if (stillThere) return
-    const pick =
-      pickDefaultEmailAccountRowId(accounts.map((a) => ({ id: a.id, status: a.status }))) ?? accounts[0].id
-    onAccountChange(pick)
-  }, [accounts, onAccountChange, selectedAccountId])
-
-  if (loading && accounts.length === 0) {
-    return (
-      <div className="dashboard-email-composer__account-loading">
-        <p>Loading email accounts…</p>
-        {connectEmailFlowModal}
-      </div>
-    )
-  }
-
-  if (accounts.length === 0) {
-    return (
-      <div className="composer-no-account">
-        <p>No email account connected.</p>
-        <button type="button" className="dashboard-email-composer__btn-secondary" onClick={() => openConnectEmail(ConnectEmailLaunchSource.Inbox)}>
-          + Connect Email Account
-        </button>
-        {connectEmailFlowModal}
-      </div>
-    )
-  }
-
-  const active = accounts.find((a) => a.id === selectedAccountId) ?? accounts[0]
-
-  return (
-    <div className="composer-account-section">
-      <div className="composer-active-account">
-        <div className="composer-active-account__label">Active account</div>
-        <div className="composer-active-account__row">
-          <span className="composer-active-account__icon" aria-hidden>
-            📧
-          </span>
-          <select
-            className="composer-active-account__select"
-            value={selectedAccountId ?? active.id}
-            onChange={(e) => onAccountChange(e.target.value || null)}
-            aria-label="Active email account"
-          >
-            {accounts.map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.email || a.displayName} ({providerLabel(a.provider)})
-              </option>
-            ))}
-          </select>
-        </div>
-        <div className="composer-active-account__meta">
-          {providerLabel(active.provider)} · {accountStatusLabel(active)}
-        </div>
-        <div className="composer-active-account__actions">
-          <button type="button" className="dashboard-email-composer__btn-secondary" onClick={() => openConnectEmail(ConnectEmailLaunchSource.Inbox)}>
-            + Connect Account
-          </button>
-          <button
-            type="button"
-            className="dashboard-email-composer__btn-secondary"
-            onClick={() => setShowManage((v) => !v)}
-            aria-expanded={showManage}
-          >
-            ⚙ Manage
-          </button>
-        </div>
-      </div>
-
-      {showManage && (
-        <div className="composer-account-list">
-          {accounts.map((a) => (
-            <div key={a.id} className="composer-account-row">
-              <div className="composer-account-row__main">
-                <span className="composer-account-row__email">{a.email || a.displayName}</span>
-                <span className="provider-badge">{providerLabel(a.provider)}</span>
-              </div>
-              <div className="composer-account-row__actions">
-                <button type="button" className="dashboard-email-composer__btn-link" onClick={() => onAccountChange(a.id)}>
-                  Set Active
-                </button>
-                <button
-                  type="button"
-                  className="dashboard-email-composer__btn-danger"
-                  onClick={async () => {
-                    if (typeof window.emailAccounts?.deleteAccount !== 'function') return
-                    await window.emailAccounts.deleteAccount(a.id)
-                    await loadAccounts()
-                    try {
-                      window.dispatchEvent(new CustomEvent('wrdesk:email-accounts-changed'))
-                    } catch {
-                      /* noop */
-                    }
-                  }}
-                >
-                  Disconnect
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {connectEmailFlowModal}
-    </div>
-  )
 }
 
 export function DashboardEmailComposer({ onClose }: DashboardEmailComposerProps) {
@@ -423,109 +197,118 @@ export function DashboardEmailComposer({ onClose }: DashboardEmailComposerProps)
 
   return (
     <div className="dashboard-email-composer">
-      <div className="dashboard-email-composer__form">
-        <AccountManagementSection selectedAccountId={selectedAccountId} onAccountChange={setSelectedAccountId} />
+      <div className="composer-grid">
+        <div className="composer-form-column dashboard-email-composer__form">
+          <div className="compose-field-fixed">
+            <EmailAccountSelector
+              selectedAccountId={selectedAccountId}
+              onAccountChange={setSelectedAccountId}
+              connectTheme="professional"
+              connectLaunchSource={ConnectEmailLaunchSource.Inbox}
+            />
+          </div>
 
-        <hr className="dashboard-email-composer__divider" />
+          <hr className="dashboard-email-composer__divider" />
 
-        <label className="dashboard-email-composer__field">
-          <span>To</span>
-          <input
-            type="text"
-            value={to}
-            onChange={(e) => setTo(e.target.value)}
-            placeholder="recipient@example.com (comma-separated allowed)"
-            autoComplete="off"
-          />
-        </label>
+          <label className="dashboard-email-composer__field compose-field-fixed">
+            <span>To</span>
+            <input
+              type="text"
+              value={to}
+              onChange={(e) => setTo(e.target.value)}
+              placeholder="recipient@example.com (comma-separated allowed)"
+              autoComplete="off"
+            />
+          </label>
 
-        <label className="dashboard-email-composer__field">
-          <span>
-            <DraftRefineLabel active={connected && refineTarget === 'email-subject'}>Subject</DraftRefineLabel>
-          </span>
-          <input
-            type="text"
-            value={subject}
-            onChange={(e) => setSubject(e.target.value)}
-            onClick={() => handleFieldSelect('subject')}
-            placeholder="Subject"
-            autoComplete="off"
-            className={connected && refineTarget === 'email-subject' ? 'field-selected-for-ai' : undefined}
-          />
-        </label>
+          <label className="dashboard-email-composer__field compose-field-fixed">
+            <span>
+              <DraftRefineLabel active={connected && refineTarget === 'email-subject'}>Subject</DraftRefineLabel>
+            </span>
+            <input
+              type="text"
+              value={subject}
+              onChange={(e) => setSubject(e.target.value)}
+              onClick={() => handleFieldSelect('subject')}
+              placeholder="Subject"
+              autoComplete="off"
+              className={connected && refineTarget === 'email-subject' ? 'field-selected-for-ai' : undefined}
+            />
+          </label>
 
-        <label className="dashboard-email-composer__field dashboard-email-composer__field--grow">
-          <span>
-            <DraftRefineLabel active={connected && refineTarget === 'email'}>Body</DraftRefineLabel>
-          </span>
-          <textarea
-            value={body}
-            onChange={(e) => setBody(e.target.value)}
-            onClick={() => handleFieldSelect('body')}
-            placeholder="Write your message…"
-            data-compose-field="email-body"
-            className={connected && refineTarget === 'email' ? 'field-selected-for-ai' : undefined}
-          />
-        </label>
+          <div className="composer-body-container dashboard-email-composer__field dashboard-email-composer__field--grow">
+            <span>
+              <DraftRefineLabel active={connected && refineTarget === 'email'}>Body</DraftRefineLabel>
+            </span>
+            <textarea
+              value={body}
+              onChange={(e) => setBody(e.target.value)}
+              onClick={() => handleFieldSelect('body')}
+              placeholder="Write your message…"
+              data-compose-field="email-body"
+              className={connected && refineTarget === 'email' ? 'field-selected-for-ai' : undefined}
+            />
+          </div>
 
-        <div className="dashboard-email-composer__attachments">
-          <span className="dashboard-email-composer__attachments-label">Attachments</span>
-          <input ref={fileInputRef} type="file" multiple onChange={handleFileSelect} style={{ display: 'none' }} />
-          <ComposerAttachmentButton label="+ Add File" onClick={() => fileInputRef.current?.click()} />
-          {(attachments.length > 0 || pathAttachments.length > 0) && (
-            <div className="dashboard-email-composer__attachment-chips">
-              {attachments.map((f, i) => (
-                <span key={`file-${i}-${f.name}`} className="dashboard-email-composer__chip">
-                  {f.name}
-                  <button type="button" onClick={() => removeAttachment(i)} aria-label={`Remove ${f.name}`}>
-                    ×
-                  </button>
-                </span>
-              ))}
-              {pathAttachments.map((pa, i) => (
-                <span key={`path-${i}-${pa.path}`} className="dashboard-email-composer__chip">
-                  {pa.name}
-                  <span className="dashboard-email-composer__chip-size">{Math.round(pa.size / 1024)} KB</span>
-                  <button type="button" onClick={() => removePathAttachment(i)} aria-label={`Remove ${pa.name}`}>
-                    ×
-                  </button>
-                </span>
-              ))}
-            </div>
-          )}
+          <div className="dashboard-email-composer__attachments compose-field-fixed">
+            <span className="dashboard-email-composer__attachments-label">Attachments</span>
+            <input ref={fileInputRef} type="file" multiple onChange={handleFileSelect} style={{ display: 'none' }} />
+            <ComposerAttachmentButton label="+ Add File" onClick={() => fileInputRef.current?.click()} />
+            {(attachments.length > 0 || pathAttachments.length > 0) && (
+              <div className="dashboard-email-composer__attachment-chips">
+                {attachments.map((f, i) => (
+                  <span key={`file-${i}-${f.name}`} className="dashboard-email-composer__chip">
+                    {f.name}
+                    <button type="button" onClick={() => removeAttachment(i)} aria-label={`Remove ${f.name}`}>
+                      ×
+                    </button>
+                  </span>
+                ))}
+                {pathAttachments.map((pa, i) => (
+                  <span key={`path-${i}-${pa.path}`} className="dashboard-email-composer__chip">
+                    {pa.name}
+                    <span className="dashboard-email-composer__chip-size">{Math.round(pa.size / 1024)} KB</span>
+                    <button type="button" onClick={() => removePathAttachment(i)} aria-label={`Remove ${pa.name}`}>
+                      ×
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <p className="dashboard-email-composer__tagline compose-field-fixed">— Automate your inbox. wrdesk.com</p>
+
+          <div className="dashboard-email-composer__signature compose-field-fixed">
+            <div className="dashboard-email-composer__signature-label">Signature (appended on send)</div>
+            <pre className="dashboard-email-composer__signature-pre">{EMAIL_SIGNATURE.trim()}</pre>
+          </div>
+
+          {sendSuccess && <div className="dashboard-email-composer__success">Email sent successfully</div>}
+          {error && <div className="dashboard-email-composer__error">{error}</div>}
+
+          <div className="dashboard-email-composer__actions compose-field-fixed">
+            <button type="button" className="dashboard-email-composer__btn-send" onClick={() => void handleSend()} disabled={!canSend}>
+              {isSending ? 'Sending…' : 'Send Email'}
+            </button>
+            <button type="button" className="dashboard-email-composer__btn-secondary" onClick={handleClose}>
+              Cancel
+            </button>
+          </div>
         </div>
 
-        <p className="dashboard-email-composer__tagline">— Automate your inbox. wrdesk.com</p>
-
-        <div className="dashboard-email-composer__signature">
-          <div className="dashboard-email-composer__signature-label">Signature (appended on send)</div>
-          <pre className="dashboard-email-composer__signature-pre">{EMAIL_SIGNATURE.trim()}</pre>
+        <div className="dashboard-email-composer__context">
+          <AiDraftContextRail
+            footer={
+              <>
+                <p className="dashboard-email-composer__context-footer">
+                  Files added in the left column attach to the outgoing email, not the AI context list above.
+                </p>
+                <p className="dashboard-email-composer__context-footer">The signature block is appended automatically when you send.</p>
+              </>
+            }
+          />
         </div>
-
-        {sendSuccess && <div className="dashboard-email-composer__success">Email sent successfully</div>}
-        {error && <div className="dashboard-email-composer__error">{error}</div>}
-
-        <div className="dashboard-email-composer__actions">
-          <button type="button" className="dashboard-email-composer__btn-send" onClick={() => void handleSend()} disabled={!canSend}>
-            {isSending ? 'Sending…' : '📤 Send Email'}
-          </button>
-          <button type="button" className="dashboard-email-composer__btn-secondary" onClick={handleClose}>
-            Cancel
-          </button>
-        </div>
-      </div>
-
-      <div className="dashboard-email-composer__context">
-        <AiDraftContextRail
-          footer={
-            <>
-              <p className="dashboard-email-composer__context-footer">
-                Files added in the left column attach to the outgoing email, not the AI context list above.
-              </p>
-              <p className="dashboard-email-composer__context-footer">The signature block is appended automatically when you send.</p>
-            </>
-          }
-        />
       </div>
     </div>
   )
