@@ -29,6 +29,13 @@ export default function ChatFocusBanner({ theme = 'pro' }: { theme?: string }) {
     )
     hint =
       'Pinned automation focus is on. Chat uses this automation’s context; switch mode in the workspace selector if needed.'
+  } else if (chatFocusMode.mode === 'letter-composer') {
+    const port = focusMeta?.letterComposerPort
+    label = port === 'letter' ? '\u2709\uFE0F Letter viewer (WR Chat)' : '\u2709\uFE0F Letter template (WR Chat)'
+    hint =
+      port === 'letter'
+        ? 'WR Chat includes text from the open scanned letter page. Responses are read-only for the viewer.'
+        : 'WR Chat includes your template fields. Use applies the assistant’s text to the focused or matching field.'
   } else {
     const icon = focusMeta?.projectIcon?.trim() || '📊'
     const title = focusMeta?.projectTitle?.trim() || 'Project'

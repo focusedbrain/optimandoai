@@ -68,6 +68,30 @@ interface WrChatBridge {
   pickDirectory: () => Promise<string | null>
 }
 
+/** Letter Composer — preload `letter:*` IPC (DOCX templates). */
+interface LetterComposerBridge {
+  saveTemplateFromPath: (sourcePath: string, originalFileName: string) => Promise<string>
+  saveTemplateBuffer: (fileName: string, data: ArrayBuffer) => Promise<string>
+  convertDocxToHtml: (filePath: string) => Promise<{ html: string; messages: unknown[] }>
+  extractFields: (html: string) => Promise<unknown[]>
+  exportFilledDocx: (payload: {
+    sourcePath: string
+    fields: Array<{ id: string; placeholder: string; value: string }>
+    defaultName: string
+  }) => Promise<{ success: boolean; canceled?: boolean; filePath?: string; error?: string }>
+  saveLetterFromPath: (sourcePath: string, originalFileName: string) => Promise<string>
+  saveLetterBuffer: (fileName: string, data: ArrayBuffer) => Promise<string>
+  processLetterPdf: (filePath: string) => Promise<{
+    pages: Array<{ pageNumber: number; imageDataUrl: string; text: string }>
+    fullText: string
+  }>
+  processLetterImage: (filePath: string) => Promise<{ imageDataUrl: string; text: string }>
+  processLetterImagePaths: (filePaths: string[]) => Promise<{
+    pages: Array<{ pageNumber: number; imageDataUrl: string; text: string }>
+    fullText: string
+  }>
+}
+
 interface IntegrityCheck {
   name: string
   status: 'pass' | 'fail' | 'skip'
@@ -199,4 +223,6 @@ interface Window {
   beap?: BeapBridge
   /** Preload: local Ollama status and persisted active model (same store as Backend Configuration). */
   llm?: LlmBridge
+  /** Dashboard Letter Composer — mammoth + Ollama field extraction in main process. */
+  letterComposer?: LetterComposerBridge
 }

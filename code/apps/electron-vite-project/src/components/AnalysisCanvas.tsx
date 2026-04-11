@@ -53,6 +53,7 @@ import type { TriggerFunctionId } from '@ext/types/triggerTypes'
 import { WRDESK_TRIGGER_SYNC_AUTO_OPTIMIZER_PROJECT } from '@ext/ui/components'
 import { DashboardEmailComposer } from './DashboardEmailComposer'
 import { DashboardBeapComposer } from './DashboardBeapComposer'
+import { LetterComposerView } from './LetterComposerView'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -84,8 +85,8 @@ interface AnalysisCanvasProps {
    */
   projectAssistantCreateToken?: number
   /** Lifted from App — inline composer vs automation cards; also set from header trigger bar shortcut. */
-  dashboardComposeMode?: 'email' | 'beap' | null
-  onDashboardComposeModeChange?: (mode: 'email' | 'beap' | null) => void
+  dashboardComposeMode?: 'email' | 'beap' | 'letter' | null
+  onDashboardComposeModeChange?: (mode: 'email' | 'beap' | 'letter' | null) => void
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -299,6 +300,24 @@ export default function AnalysisCanvas({
     )
   }
 
+  if (dashboardComposeMode === 'letter') {
+    return (
+      <div className="analysis-canvas" style={{ backgroundColor: '#F8F8F7', color: '#1C1C1A' }}>
+        <div className="analysis-canvas__dashboard analysis-canvas__dashboard--compose-fullwidth">
+          <div className="dashboard-composer-fullwidth dashboard-composer-fullwidth--email">
+            <div className="dashboard-composer-topbar">
+              <button type="button" onClick={closeDashboardCompose}>
+                ← Back to Automation Workspace
+              </button>
+              <h3>Letter Composer</h3>
+            </div>
+            <LetterComposerView onClose={closeDashboardCompose} />
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="analysis-canvas" style={{ backgroundColor: '#F8F8F7', color: '#1C1C1A' }}>
       {/* StatusBadge — hidden via CSS but preserved for canvas state flags */}
@@ -362,6 +381,7 @@ export default function AnalysisCanvas({
                 onNavigateBulkInbox={() => onOpenBulkInboxForAnalysis?.()}
                 onOpenEmailComposer={() => onDashboardComposeModeChange?.('email')}
                 onOpenBeapComposer={() => onDashboardComposeModeChange?.('beap')}
+                onOpenLetterComposer={() => onDashboardComposeModeChange?.('letter')}
               />
             )}
           </div>

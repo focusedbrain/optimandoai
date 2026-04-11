@@ -164,6 +164,8 @@ export type DashboardAutomationHomeProps = {
   onOpenEmailComposer?: () => void
   /** Open full-width BEAP Composer (Analysis canvas). */
   onOpenBeapComposer?: () => void
+  /** Open full-width Letter Composer (Analysis canvas). */
+  onOpenLetterComposer?: () => void
 }
 
 type Accent = 'mail' | 'compose' | 'document' | 'beap' | 'summary'
@@ -250,6 +252,7 @@ export function DashboardAutomationHome({
   onNavigateBulkInbox,
   onOpenEmailComposer,
   onOpenBeapComposer,
+  onOpenLetterComposer,
 }: DashboardAutomationHomeProps) {
   const { projects, activeProjectId, setActiveProject, composerIcons } = useProjectStore(
     useShallow((s) => ({
@@ -384,8 +387,8 @@ Automation activated from the dashboard. Continue in WR Chat.`
         accent: 'mail',
         icon: '\u{2709}\u{FE0F}',
         title: 'Letter Composer',
-        valueLine: 'Reply to incoming mail or draft new letters.',
-        onRun: onNavigateInbox,
+        valueLine: 'Create business letters with AI assistance.',
+        onRun: () => onOpenLetterComposer?.(),
         onEdit: onNavigateWrChat,
       },
       {
@@ -434,6 +437,7 @@ Automation activated from the dashboard. Continue in WR Chat.`
       onNavigateWrChat,
       onOpenEmailComposer,
       onOpenBeapComposer,
+      onOpenLetterComposer,
       handleSmartSummaryRun,
     ],
   )

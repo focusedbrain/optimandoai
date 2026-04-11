@@ -37,6 +37,8 @@ export interface GenerateChatOptions {
   send?: StreamSender
   /** When aborted (e.g. inbox LLM outer timeout), non-stream fetches cancel immediately. */
   signal?: AbortSignal
+  /** Sampling temperature (Ollama `options.temperature`, OpenAI `temperature`, etc.). */
+  temperature?: number
   /** Inbox bulk classify correlation when `DEBUG_OLLAMA_RUNTIME_TRACE`. */
   runtimeTrace?: OllamaRuntimeRequestTrace
   /**
@@ -160,6 +162,9 @@ export class OllamaProvider implements AIProvider {
           stream: false,
           keep_alive: options?.ollamaKeepAlive ?? '2m',
           messages: messages.map(m => ({ role: m.role, content: m.content })),
+          ...(options?.temperature !== undefined
+            ? { options: { temperature: options.temperature } }
+            : {}),
         }),
       })
       if (!res.ok) {
@@ -345,7 +350,7 @@ export class CloudAIProvider implements AIProvider {
 
     const signal = options?.signal
     if (provider === 'openai') {
-      return this._chatOpenAI(messages, model, apiKey, stream, send, signal)
+      return this._chatOpenAI(messages, model, apiKey, stream, send, signal, options?.temperature)
     }
     if (provider === 'anthropic') {
       return this._chatAnthropic(messages, model, apiKey, stream, send, signal)
@@ -366,6 +371,7 @@ export class CloudAIProvider implements AIProvider {
     stream: boolean,
     send: StreamSender,
     signal?: AbortSignal,
+    temperature?: number,
   ): Promise<string> {
     if (stream && send) {
       const { streamOpenAIChat } = await import('./llmStream')
@@ -376,7 +382,11 @@ export class CloudAIProvider implements AIProvider {
     const res = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-      body: JSON.stringify({ model, messages: messages.map(m => ({ role: m.role, content: m.content })) }),
+      body: JSON.stringify({
+        model,
+        messages: messages.map(m => ({ role: m.role, content: m.content })),
+        ...(temperature !== undefined ? { temperature } : {}),
+      }),
       ...(signal ? { signal } : {}),
     })
     if (!res.ok) throw new Error(`OpenAI ${res.status}: ${await res.text()}`)

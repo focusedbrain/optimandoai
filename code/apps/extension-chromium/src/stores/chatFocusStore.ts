@@ -9,6 +9,13 @@ export type ChatFocusMeta = {
   /** Snapshot for LLM prefix when project store is unavailable */
   projectDescription?: string
   projectGoals?: string
+  /** Letter Composer — which port is focused for WR Chat (HybridSearch). */
+  letterComposerPort?: 'template' | 'letter'
+  letterComposerTemplateId?: string | null
+  letterComposerFields?: Array<{ id: string; name: string; value: string }>
+  /** Last-focused template field (for “Use” write-back). */
+  letterComposerApplyFieldId?: string | null
+  letterComposerLetterPageText?: string
 }
 
 export type EnterOptimizationFocusMeta = {

@@ -57,6 +57,19 @@ export function getChatFocusLlmPrefix(state: {
     const name = m.modeName?.trim() || 'custom automation'
     return `[System context: User has pinned automation focus: "${name}". Follow that automation's purpose and detection focus in your responses.]`
   }
+  if (m.mode === 'letter-composer') {
+    const port = focusMeta?.letterComposerPort
+    if (!port) return null
+    if (port === 'template') {
+      const rows = (focusMeta?.letterComposerFields ?? [])
+        .map((f) => `${f.name}: ${f.value ?? ''}`)
+        .join('\n')
+      return `[Letter Composer — template]\nThe user is editing a letter template. Current field names and values:\n${rows || '(no fields)'}\n\nHelp the user fill these fields.\n---\n\n`
+    }
+    const raw = (focusMeta?.letterComposerLetterPageText ?? '').trim()
+    const excerpt = raw.length > 12000 ? `${raw.slice(0, 12000)}\n…` : raw
+    return `[Letter Composer — scanned letter]\nThe user is viewing a scanned letter.\n\nCurrent page text:\n${excerpt || '(no text on this page)'}\n---\n\n`
+  }
   if (m.mode === 'auto-optimizer') {
     const projectId = m.projectId
     const projectTitle = m.projectTitle?.trim() || focusMeta?.projectTitle?.trim() || 'project'

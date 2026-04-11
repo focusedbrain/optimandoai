@@ -2770,6 +2770,13 @@ app.whenReady().then(async () => {
     })
     console.log('[MAIN] IPC handler registered: integrity:status')
 
+    void import('./main/letter/letterComposerIpc')
+      .then((m) => {
+        m.registerLetterComposerIpcHandlers()
+        console.log('[MAIN] IPC handlers registered: letter:* (Letter Composer)')
+      })
+      .catch((e) => console.error('[MAIN] Letter Composer IPC registration failed:', e))
+
     // ========== HANDSHAKE VIEW IPC HANDLERS (Dashboard) ==========
     /**
      * Returns the best available DB for handshake operations:
@@ -4365,7 +4372,7 @@ app.whenReady().then(async () => {
     /** Direct LLM chat â€” bypasses RAG retrieval entirely.
      *  Used for field-drafting where the renderer provides its own system + user prompt
      *  and does NOT want the context-grounded RAG system prompt. */
-    ipcMain.handle('handshake:chatDirect', async (event, params: { model: string; provider: string; systemPrompt: string; userPrompt: string; stream?: boolean }) => {
+    ipcMain.handle('handshake:chatDirect', async (event, params: { model: string; provider: string; systemPrompt: string; userPrompt: string; stream?: boolean; temperature?: number }) => {
       const toIPC = (o: unknown) => { try { return JSON.parse(JSON.stringify(o)) } catch { return o } }
       const send = (channel: string, data: unknown) => { try { event.sender.send(channel, toIPC(data)) } catch {} }
       const doStream = params.stream === true
@@ -4387,6 +4394,7 @@ app.whenReady().then(async () => {
           model: params.model,
           stream: doStream,
           send: doStream ? send : undefined,
+          ...(typeof params.temperature === 'number' ? { temperature: params.temperature } : {}),
         })
         return toIPC({ success: true, answer, contextBlocks: [], sources: [] })
       } catch (err: any) {

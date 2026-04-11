@@ -73,7 +73,9 @@ function App() {
   /** Mirrors WrMultiTriggerBar selection — Analysis closes Project WIKI hero when Watchdog is selected. */
   const [activeTriggerFunctionId, setActiveTriggerFunctionId] = useState<TriggerFunctionId>({ type: 'watchdog' })
   /** Inline Email/BEAP composer on Analysis dashboard — set from hero cards or trigger bar shortcut. */
-  const [dashboardComposeMode, setDashboardComposeMode] = useState<'email' | 'beap' | null>(null)
+  const [dashboardComposeMode, setDashboardComposeMode] = useState<'email' | 'beap' | 'letter' | null>(
+    null,
+  )
   const [showInitiateModal, setShowInitiateModal] = useState(false)
   const [selectedHandshakeId, setSelectedHandshakeId] = useState<string | null>(null)
   const [selectedHandshakeEmail, setSelectedHandshakeEmail] = useState<string | null>(null)

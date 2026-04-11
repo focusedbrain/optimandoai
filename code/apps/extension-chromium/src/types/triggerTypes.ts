@@ -36,6 +36,11 @@ export type ChatFocusMode =
       triggerBarIcon: string
       startedAt: string
     }
+  /** Letter Composer (WR Desk): template or scanned-letter port selected for HybridSearch context. */
+  | {
+      mode: 'letter-composer'
+      startedAt: string
+    }
 
 /**
  * Minimal project info needed by the extension sidepanel trigger bar.

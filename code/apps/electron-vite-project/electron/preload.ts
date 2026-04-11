@@ -51,6 +51,21 @@ function assertString(v: unknown, name: string): string {
   return v
 }
 
+/** Absolute filesystem path (Letter Composer template I/O). */
+function assertFsPath(v: unknown, name: string, maxLen = 4096): string {
+  if (typeof v !== 'string' || v.length === 0 || v.length > maxLen) {
+    throw new Error(`${name}: invalid path`)
+  }
+  return v
+}
+
+function assertTemplateFileName(v: unknown, name: string): string {
+  if (typeof v !== 'string' || v.length === 0 || v.length > 260) {
+    throw new Error(`${name}: invalid file name`)
+  }
+  return v
+}
+
 /** IMAP/SMTP passwords & app passwords (bounded for IPC). */
 function assertSecretString(v: unknown, name: string, maxLen = 512): string {
   if (typeof v !== 'string' || v.length === 0 || v.length > maxLen) {
@@ -707,7 +722,14 @@ contextBridge.exposeInMainWorld('handshakeView', {
       selectedAttachmentId: typeof params.selectedAttachmentId === 'string' && params.selectedAttachmentId.trim() ? params.selectedAttachmentId.trim() : undefined,
     })
   },
-  chatDirect: (params: { model: string; provider: string; systemPrompt: string; userPrompt: string; stream?: boolean }) => {
+  chatDirect: (params: {
+    model: string
+    provider: string
+    systemPrompt: string
+    userPrompt: string
+    stream?: boolean
+    temperature?: number
+  }) => {
     if (!params || typeof params !== 'object' || typeof params.userPrompt !== 'string') {
       throw new Error('chatDirect: expected { model, provider, systemPrompt, userPrompt }')
     }
@@ -717,6 +739,7 @@ contextBridge.exposeInMainWorld('handshakeView', {
       systemPrompt: typeof params.systemPrompt === 'string' ? params.systemPrompt : '',
       userPrompt: typeof params.userPrompt === 'string' ? params.userPrompt : '',
       stream: params.stream === true,
+      ...(typeof params.temperature === 'number' ? { temperature: params.temperature } : {}),
     })
   },
   onChatStreamStart: (callback: (data: { contextBlocks: string[]; sources: unknown[] }) => void) => {
@@ -1157,6 +1180,131 @@ contextBridge.exposeInMainWorld('lifecycle', {
 // ── WR Chat (dashboard / Diff) — not to be confused with inbox file picker (`emailInbox.showOpenDialogForAttachments`, files only)
 contextBridge.exposeInMainWorld('wrChat', {
   pickDirectory: (): Promise<string | null> => ipcRenderer.invoke('PICK_DIRECTORY'),
+})
+
+// ── Letter Composer (dashboard) — DOCX templates in userData/letter-composer
+contextBridge.exposeInMainWorld('letterComposer', {
+  saveTemplateFromPath: (sourcePath: string, originalFileName: string) => {
+    const p = assertFsPath(sourcePath, 'sourcePath')
+    const n = assertTemplateFileName(originalFileName, 'originalFileName')
+    if (!/\.docx$/i.test(n.trim())) {
+      throw new Error('originalFileName: expected .docx')
+    }
+    return ipcRenderer.invoke('letter:saveTemplateFromPath', p, n.trim()) as Promise<string>
+  },
+  saveTemplateBuffer: (fileName: string, data: ArrayBuffer) => {
+    const n = assertTemplateFileName(fileName, 'fileName')
+    if (!/\.docx$/i.test(n.trim())) {
+      throw new Error('fileName: expected .docx')
+    }
+    if (!data || !(data instanceof ArrayBuffer) || data.byteLength < 1) {
+      throw new Error('data: expected non-empty ArrayBuffer')
+    }
+    if (data.byteLength > 40 * 1024 * 1024) {
+      throw new Error('data: file too large')
+    }
+    return ipcRenderer.invoke('letter:saveTemplateBuffer', n.trim(), new Uint8Array(data)) as Promise<
+      string
+    >
+  },
+  convertDocxToHtml: (filePath: string) => {
+    return ipcRenderer.invoke('letter:convertDocx', assertFsPath(filePath, 'filePath')) as Promise<{
+      html: string
+      messages: unknown[]
+    }>
+  },
+  extractFields: (html: string) => {
+    if (typeof html !== 'string') {
+      throw new Error('html: expected string')
+    }
+    if (html.length > 2_000_000) {
+      throw new Error('html: too large')
+    }
+    return ipcRenderer.invoke('letter:extractFields', html) as Promise<unknown[]>
+  },
+  exportFilledDocx: (payload: {
+    sourcePath: string
+    fields: Array<{ id: string; placeholder: string; value: string }>
+    defaultName: string
+  }) => {
+    if (!payload || typeof payload !== 'object' || typeof payload.sourcePath !== 'string') {
+      throw new Error('exportFilledDocx: expected sourcePath')
+    }
+    if (!Array.isArray(payload.fields)) {
+      throw new Error('exportFilledDocx: expected fields array')
+    }
+    return ipcRenderer.invoke('letter:exportFilledDocx', {
+      sourcePath: assertFsPath(payload.sourcePath, 'sourcePath'),
+      fields: payload.fields.map((f, i) => ({
+        id: typeof f.id === 'string' ? f.id : String(f.id),
+        placeholder: typeof f.placeholder === 'string' ? f.placeholder : '',
+        value: typeof f.value === 'string' ? f.value : String(f.value ?? ''),
+      })),
+      defaultName: typeof payload.defaultName === 'string' ? payload.defaultName : 'filled-letter.docx',
+    }) as Promise<{ success: boolean; canceled?: boolean; filePath?: string; error?: string }>
+  },
+  saveLetterFromPath: (sourcePath: string, originalFileName: string) => {
+    const p = assertFsPath(sourcePath, 'sourcePath')
+    const n = assertTemplateFileName(originalFileName, 'originalFileName')
+    const low = n.trim().toLowerCase()
+    const okImg =
+      low.endsWith('.png') ||
+      low.endsWith('.jpg') ||
+      low.endsWith('.jpeg') ||
+      low.endsWith('.tif') ||
+      low.endsWith('.tiff') ||
+      low.endsWith('.webp')
+    if (!low.endsWith('.pdf') && !okImg) {
+      throw new Error('originalFileName: expected .pdf or image')
+    }
+    return ipcRenderer.invoke('letter:saveLetterFromPath', p, n.trim()) as Promise<string>
+  },
+  saveLetterBuffer: (fileName: string, data: ArrayBuffer) => {
+    const n = assertTemplateFileName(fileName, 'fileName')
+    const low = n.trim().toLowerCase()
+    const okImg =
+      low.endsWith('.png') ||
+      low.endsWith('.jpg') ||
+      low.endsWith('.jpeg') ||
+      low.endsWith('.tif') ||
+      low.endsWith('.tiff') ||
+      low.endsWith('.webp')
+    if (!low.endsWith('.pdf') && !okImg) {
+      throw new Error('fileName: expected .pdf or image')
+    }
+    if (!data || !(data instanceof ArrayBuffer) || data.byteLength < 1) {
+      throw new Error('data: expected non-empty ArrayBuffer')
+    }
+    if (data.byteLength > 80 * 1024 * 1024) {
+      throw new Error('data: file too large')
+    }
+    return ipcRenderer.invoke('letter:saveLetterBuffer', n.trim(), new Uint8Array(data)) as Promise<
+      string
+    >
+  },
+  processLetterPdf: (filePath: string) =>
+    ipcRenderer.invoke('letter:processPdf', assertFsPath(filePath, 'filePath')) as Promise<{
+      pages: Array<{ pageNumber: number; imageDataUrl: string; text: string }>
+      fullText: string
+    }>,
+  processLetterImage: (filePath: string) =>
+    ipcRenderer.invoke('letter:processImageFile', assertFsPath(filePath, 'filePath')) as Promise<{
+      imageDataUrl: string
+      text: string
+    }>,
+  processLetterImagePaths: (filePaths: string[]) => {
+    if (!Array.isArray(filePaths) || filePaths.length === 0) {
+      throw new Error('filePaths: expected non-empty array')
+    }
+    if (filePaths.length > 80) {
+      throw new Error('filePaths: too many files')
+    }
+    const resolved = filePaths.map((fp, i) => assertFsPath(fp, `filePaths[${i}]`))
+    return ipcRenderer.invoke('letter:processImagePaths', resolved) as Promise<{
+      pages: Array<{ pageNumber: number; imageDataUrl: string; text: string }>
+      fullText: string
+    }>
+  },
 })
 
 // === TEMPORARY DEBUG LOG BRIDGE (remove before production) ===

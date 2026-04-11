@@ -11,7 +11,35 @@ import { buildProjectSetupChatPrefix } from '../lib/buildProjectSetupChatPrefix'
 import { WRDESK_FOCUS_AI_CHAT_EVENT } from '../lib/wrdeskUiEvents'
 import { projectSetupChatHasBridgeableContent, useProjectSetupChatContextStore } from '../stores/useProjectSetupChatContextStore'
 import { useProjectStore } from '../stores/useProjectStore'
+import { useLetterComposerStore } from '../stores/useLetterComposerStore'
+import { useChatFocusStore } from '@ext/stores/chatFocusStore'
+import { getChatFocusLlmPrefix } from '@ext/utils/chatFocusLlmPrefix'
+import { parseLetterFillJson, wantsLetterTemplateMultiVersion } from '../lib/letterTemplateMultiVersion'
 import { UI_BADGE } from '../styles/uiContrastTokens'
+
+/** Resolves which template field the user meant (focused row, name in message, or single field). */
+function matchLetterComposerFieldFromMessage(
+  fields: Array<{ id: string; name: string }>,
+  msg: string,
+): string | null {
+  const lower = msg.toLowerCase()
+  for (const f of fields) {
+    const n = f.name.toLowerCase()
+    if (n.length >= 3 && lower.includes(n)) return f.id
+  }
+  for (const f of fields) {
+    const parts = f.name
+      .toLowerCase()
+      .split(/[\s/_,.-]+/)
+      .map((w) => w.replace(/[^a-z0-9]/g, ''))
+      .filter((w) => w.length > 2)
+    for (const w of parts) {
+      if (w && lower.includes(w)) return f.id
+    }
+  }
+  if (fields.length === 1) return fields[0].id
+  return null
+}
 
 /** Parses [MILESTONE_TITLE]: / [MILESTONE_DESC]: blocks from AI responses (Analysis dashboard). */
 function parseMilestoneMarkersFromResponse(text: string): { title: string; description: string } | null {
@@ -493,6 +521,42 @@ export default function HybridSearch({
   const [chatMessages, setChatMessages] = useState<ChatTurn[]>([])
   const chatContainerRef = useRef<HTMLDivElement>(null)
 
+  const letterComposerPortForUse = useChatFocusStore((s) =>
+    s.chatFocusMode.mode === 'letter-composer' ? s.focusMeta?.letterComposerPort : undefined,
+  )
+
+  const applyLetterComposerUseFromText = useCallback((text: string): boolean => {
+    const cf = useChatFocusStore.getState()
+    if (cf.chatFocusMode.mode !== 'letter-composer') return false
+    const meta = cf.focusMeta
+    if (!meta || meta.letterComposerPort !== 'template') return false
+    const templateId = meta.letterComposerTemplateId
+    const fields = meta.letterComposerFields
+    if (!templateId || !fields?.length) return false
+    const value = text.trim()
+    if (!value) return false
+    const lastUser = [...chatMessages].reverse().find((m) => m.role === 'user')?.content ?? ''
+    let fieldId = meta.letterComposerApplyFieldId ?? null
+    if (!fieldId || !fields.some((f) => f.id === fieldId)) {
+      fieldId = matchLetterComposerFieldFromMessage(fields, lastUser)
+    }
+    if (!fieldId) return false
+    useLetterComposerStore.getState().updateTemplateField(templateId, fieldId, value)
+    return true
+  }, [chatMessages])
+
+  const handleChatUseContent = useCallback(
+    (content: string, mode: 'append' | 'replace') => {
+      const port = useChatFocusStore.getState().chatFocusMode.mode === 'letter-composer'
+        ? useChatFocusStore.getState().focusMeta?.letterComposerPort
+        : undefined
+      if (port === 'letter') return
+      if (applyLetterComposerUseFromText(content)) return
+      if (window.__wrdeskInsertDraft) window.__wrdeskInsertDraft(content, mode)
+    },
+    [applyLetterComposerUseFromText],
+  )
+
   const contextDocuments = useAiDraftContextStore((s) => s.documents)
   const removeContextDocument = useAiDraftContextStore((s) => s.removeDocument)
   const clearContextDocuments = useAiDraftContextStore((s) => s.clear)
@@ -820,6 +884,83 @@ export default function HybridSearch({
         const currentDraft = isDraftRefine ? (useDraftRefineStore.getState().draftText || draftRefineDraftText || '') : ''
         const contextDocs = useAiDraftContextStore.getState().documents
 
+        const isLetterTemplateMultiVersion =
+          mode === 'chat' &&
+          !isDraftRefine &&
+          activeView === 'analysis' &&
+          wantsLetterTemplateMultiVersion(trimmed) &&
+          useChatFocusStore.getState().chatFocusMode.mode === 'letter-composer' &&
+          useChatFocusStore.getState().focusMeta?.letterComposerPort === 'template'
+
+        if (isLetterTemplateMultiVersion && window.handshakeView?.chatDirect) {
+          const lc = useLetterComposerStore.getState()
+          const fm = useChatFocusStore.getState().focusMeta
+          const tid = fm?.letterComposerTemplateId ?? lc.activeTemplateId
+          const tpl = tid ? lc.templates.find((t) => t.id === tid) : null
+          const cleanupSubs = () => {
+            unsubStart?.()
+            unsubToken?.()
+          }
+          if (!tpl?.fields.length) {
+            setResponse('Choose a template with extracted fields, then try again.')
+            cleanupSubs()
+            setIsLoading(false)
+            return
+          }
+          const focusPrefix = getChatFocusLlmPrefix(useChatFocusStore.getState()) ?? ''
+          const fieldLines = tpl.fields
+            .map(
+              (f) =>
+                `- Field id "${f.id}" (${f.name}, ${f.type}). Placeholder in document: ${f.placeholder?.trim() || `{{${f.id}}}`}.`,
+            )
+            .join('\n')
+          const idsList = tpl.fields.map((f) => `"${f.id}"`).join(', ')
+          const systemPrompt = `You fill business letter templates. Output ONLY a single JSON object whose keys are EXACTLY these field ids: ${idsList}. Each value is the filled string for that field. No markdown code fences, no commentary, no text before or after the JSON.\n\nFields:\n${fieldLines}`
+          const userPrompt = `${focusPrefix}Instruction:\n${trimmed}`
+          const temps = [0.35, 0.72, 1.0] as const
+          const snapshots: Array<Record<string, string>> = []
+          try {
+            for (let i = 0; i < 3; i++) {
+              const r = await window.handshakeView.chatDirect({
+                model: selectedModel || 'llama3',
+                provider: modelInfo?.provider || 'ollama',
+                systemPrompt,
+                userPrompt,
+                stream: false,
+                temperature: temps[i],
+              })
+              if (!r?.success || typeof r.answer !== 'string') {
+                throw new Error(
+                  (r as { message?: string })?.message ||
+                    (r as { error?: string })?.error ||
+                    'LLM call failed',
+                )
+              }
+              const parsed = parseLetterFillJson(r.answer, tpl.fields.map((f) => f.id))
+              if (!parsed) throw new Error('Model did not return valid JSON for the template fields.')
+              snapshots.push(parsed)
+            }
+            useLetterComposerStore.getState().setTemplateVersions(tpl.id, snapshots, 0)
+            setResponse(
+              'Generated 3 versions of your template. Use the version controls in the Template port to compare them.',
+            )
+            setContextBlocks([])
+            setChatSources([])
+            setStructuredResult(null)
+            setResultType(null)
+            setChatGovernanceNote(null)
+          } catch (e) {
+            setResponse((e as Error)?.message ?? 'Could not generate template versions.')
+            setChatSources([])
+            setChatGovernanceNote(null)
+          } finally {
+            cleanupSubs()
+            setIsLoading(false)
+            setChatAttachments([])
+          }
+          return
+        }
+
         if (isDraftRefine) {
           setDraftRefineHistory(prev => [...prev, { role: 'user', content: trimmed }])
         }
@@ -885,6 +1026,11 @@ export default function HybridSearch({
             }
           }
           chatQuery = inboxContext ? `${inboxContext}User question: ${trimmed}` : trimmed
+        }
+
+        if (!isDraftRefine) {
+          const focusPrefix = getChatFocusLlmPrefix(useChatFocusStore.getState())
+          if (focusPrefix) chatQuery = focusPrefix + chatQuery
         }
 
         if (contextDocs.length > 0 && isDraftRefine) {
@@ -1890,37 +2036,52 @@ export default function HybridSearch({
                       {aiResponseBlocks.map((block) => (
                         <div key={block.id} className={`chat-response-block${block.type === 'title-suggestion' ? ' chat-response-block--title-suggestion' : ''}`}>
                           <div className="chat-response-block__content">{block.content}</div>
-                          <button
-                            type="button"
-                            className={`chat-response-block__use-btn${usedBlockIds.has(block.id) ? ' chat-response-block__use-btn--inserted' : ''}`}
-                            onClick={() => {
-                              if (usedBlockIds.has(block.id)) return
-                              if (window.__wrdeskInsertDraft) window.__wrdeskInsertDraft(block.content, 'append')
-                              setUsedBlockIds((prev) => new Set([...prev, block.id]))
-                            }}
-                          >
-                            {usedBlockIds.has(block.id) ? '✓' : 'Use'}
-                          </button>
+                          {letterComposerPortForUse !== 'letter' && (
+                            <button
+                              type="button"
+                              className={`chat-response-block__use-btn${usedBlockIds.has(block.id) ? ' chat-response-block__use-btn--inserted' : ''}`}
+                              onClick={() => {
+                                if (usedBlockIds.has(block.id)) return
+                                handleChatUseContent(block.content, 'append')
+                                setUsedBlockIds((prev) => new Set([...prev, block.id]))
+                              }}
+                            >
+                              {usedBlockIds.has(block.id) ? '✓' : 'Use'}
+                            </button>
+                          )}
                         </div>
                       ))}
-                      <div className="chat-response-block__use-all">
-                        <button
-                          type="button"
-                          className="chat-response-block__use-all-btn"
-                          onClick={() => {
-                            const allContent = aiResponseBlocks.map((b) => b.content).join('\n\n')
-                            if (window.__wrdeskInsertDraft) window.__wrdeskInsertDraft(allContent, 'replace')
-                            setUsedBlockIds(new Set(aiResponseBlocks.map((b) => b.id)))
-                          }}
-                        >
-                          Use All
-                        </button>
-                      </div>
+                      {letterComposerPortForUse !== 'letter' && (
+                        <div className="chat-response-block__use-all">
+                          <button
+                            type="button"
+                            className="chat-response-block__use-all-btn"
+                            onClick={() => {
+                              const allContent = aiResponseBlocks.map((b) => b.content).join('\n\n')
+                              handleChatUseContent(allContent, 'replace')
+                              setUsedBlockIds(new Set(aiResponseBlocks.map((b) => b.id)))
+                            }}
+                          >
+                            Use All
+                          </button>
+                        </div>
+                      )}
                     </div>
                   ) : (
                     <div className="hs-response-text">
                       {response ?? ''}
                       {contextBlocks.length > 0 && response === '' && <span className="hs-stream-cursor" style={{ display: 'inline-block', width: '2px', height: '1em', background: 'var(--purple-accent)', marginLeft: '2px', animation: 'hs-blink 1s step-end infinite' }} />}
+                      {letterComposerPortForUse === 'template' && (response ?? '').trim() && !isLoading && (
+                        <div style={{ marginTop: '8px' }}>
+                          <button
+                            type="button"
+                            className="chat-use-btn"
+                            onClick={() => handleChatUseContent((response ?? '').trim(), 'replace')}
+                          >
+                            Use
+                          </button>
+                        </div>
+                      )}
                     </div>
                   )}
                 </>
@@ -1934,35 +2095,52 @@ export default function HybridSearch({
                       {aiResponseBlocks.map((block) => (
                         <div key={block.id} className={`chat-response-block${block.type === 'title-suggestion' ? ' chat-response-block--title-suggestion' : ''}`}>
                           <div className="chat-response-block__content">{block.content}</div>
-                          <button
-                            type="button"
-                            className={`chat-response-block__use-btn${usedBlockIds.has(block.id) ? ' chat-response-block__use-btn--inserted' : ''}`}
-                            onClick={() => {
-                              if (usedBlockIds.has(block.id)) return
-                              if (window.__wrdeskInsertDraft) window.__wrdeskInsertDraft(block.content, 'append')
-                              setUsedBlockIds((prev) => new Set([...prev, block.id]))
-                            }}
-                          >
-                            {usedBlockIds.has(block.id) ? '✓' : 'Use'}
-                          </button>
+                          {letterComposerPortForUse !== 'letter' && (
+                            <button
+                              type="button"
+                              className={`chat-response-block__use-btn${usedBlockIds.has(block.id) ? ' chat-response-block__use-btn--inserted' : ''}`}
+                              onClick={() => {
+                                if (usedBlockIds.has(block.id)) return
+                                handleChatUseContent(block.content, 'append')
+                                setUsedBlockIds((prev) => new Set([...prev, block.id]))
+                              }}
+                            >
+                              {usedBlockIds.has(block.id) ? '✓' : 'Use'}
+                            </button>
+                          )}
                         </div>
                       ))}
-                      <div className="chat-response-block__use-all">
-                        <button
-                          type="button"
-                          className="chat-response-block__use-all-btn"
-                          onClick={() => {
-                            const allContent = aiResponseBlocks.map((b) => b.content).join('\n\n')
-                            if (window.__wrdeskInsertDraft) window.__wrdeskInsertDraft(allContent, 'replace')
-                            setUsedBlockIds(new Set(aiResponseBlocks.map((b) => b.id)))
-                          }}
-                        >
-                          Use All
-                        </button>
-                      </div>
+                      {letterComposerPortForUse !== 'letter' && (
+                        <div className="chat-response-block__use-all">
+                          <button
+                            type="button"
+                            className="chat-response-block__use-all-btn"
+                            onClick={() => {
+                              const allContent = aiResponseBlocks.map((b) => b.content).join('\n\n')
+                              handleChatUseContent(allContent, 'replace')
+                              setUsedBlockIds(new Set(aiResponseBlocks.map((b) => b.id)))
+                            }}
+                          >
+                            Use All
+                          </button>
+                        </div>
+                      )}
                     </div>
                   ) : (
-                    <div className="hs-response-text">{response}</div>
+                    <div className="hs-response-text">
+                      {response}
+                      {letterComposerPortForUse === 'template' && (response ?? '').trim() && !isLoading && (
+                        <div style={{ marginTop: '8px' }}>
+                          <button
+                            type="button"
+                            className="chat-use-btn"
+                            onClick={() => handleChatUseContent((response ?? '').trim(), 'replace')}
+                          >
+                            Use
+                          </button>
+                        </div>
+                      )}
+                    </div>
                   )}
                 </>
               )}
