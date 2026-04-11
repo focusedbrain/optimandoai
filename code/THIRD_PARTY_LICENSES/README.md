@@ -13,7 +13,7 @@ located in the root LICENSE file and must not be modified by automated tools.
 | PDFium | BSD-3-Clause | pdfium-BSD-3-Clause.txt |
 | TensorFlow.js | Apache-2.0 | tensorflowjs-Apache-2.0.txt |
 | Tesseract OCR | Apache-2.0 | tesseract-ocr-Apache-2.0.txt |
-| Tesseract.js | MIT | tesseractjs-MIT.txt |
+| Tesseract.js | Apache-2.0 | tesseractjs-Apache-2.0.txt |
 | wink-nlp | MIT | wink-nlp-MIT.txt |
 
 ## License Compliance

@@ -4,7 +4,6 @@
   "appId": "com.wrcode.desktop",
   "asar": true,
   "asarUnpack": [
-    "**/node_modules/ffmpeg-static/**/*",
     "**/node_modules/better-sqlite3/**/*",
     "**/node_modules/better-sqlite3/**",
     "**/node_modules/canvas/**/*",
@@ -17,7 +16,6 @@
   "files": [
     "dist-electron",
     "dist",
-    "node_modules/ffmpeg-static",
     "node_modules/better-sqlite3",
     "node_modules/canvas",
     "node_modules/bindings",

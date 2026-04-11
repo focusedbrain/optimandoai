@@ -9,7 +9,7 @@ const root = __dirname
 const extSrc = path.resolve(root, '../extension-chromium/src')
 
 /** Parsed by scripts/kill-wr-desk.cjs and clear-build-caches (extension); keep in sync with extension outDir. */
-const ORCHESTRATOR_BUILD_STAMP = 'build0060'
+const ORCHESTRATOR_BUILD_STAMP = 'build0062'
 
 const oauthId =
   process.env.GOOGLE_OAUTH_CLIENT_ID?.trim() ||
@@ -68,8 +68,6 @@ export default defineConfig({
                 'webidl-conversions',
                 /** CJS packages that use __dirname — must not be bundled into ESM main (ReferenceError at runtime) */
                 'open',
-                'fluent-ffmpeg',
-                'ffmpeg-static',
               ],
             },
           },
