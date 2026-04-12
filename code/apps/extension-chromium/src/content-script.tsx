@@ -31207,7 +31207,7 @@ ${pageText}
 
         <div style="flex: 1; padding: 20px; overflow-y: auto;">
 
-          <div style="display: grid; grid-template-columns: 1.2fr 1fr; gap: 16px; align-items: stretch;">
+          <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; align-items: stretch;">
 
             <!-- Account & Billing (TOP) -->
 
@@ -31233,7 +31233,7 @@ ${pageText}
 
             <!-- API Keys Configuration (moved first) -->
 
-            <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 8px; border: 1px solid ${csTheme().border}; grid-column: 1 / 2; height: 100%; display: flex; flex-direction: column;">
+            <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 8px; border: 1px solid ${csTheme().border}; height: 100%; display: flex; flex-direction: column;">
 
               <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
 
@@ -31303,9 +31303,69 @@ ${pageText}
 
 
 
-            <!-- Appearance (moved up) -->
+            <!-- Orchestrator Mode (center column) -->
 
-            <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 6px; grid-column: 2 / 3; height: 100%; display: flex; flex-direction: column;">
+            <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 8px; border: 1px solid ${csTheme().border}; height: 100%; display: flex; flex-direction: column;">
+
+              <h4 style="margin: 0 0 8px 0; font-size: 12px; color: ${csTheme().muted};">🔗 Orchestrator Mode</h4>
+
+              <div style="display:flex; gap:10px; margin-bottom:10px;">
+
+                <button type="button" id="orch-mode-host-btn" style="flex:1; padding:10px 12px; border-radius:8px; cursor:pointer; font-size:11px; font-weight:700;">Host</button>
+
+                <button type="button" id="orch-mode-sandbox-btn" style="flex:1; padding:10px 12px; border-radius:8px; cursor:pointer; font-size:11px; font-weight:700;">Sandbox</button>
+
+              </div>
+
+              <div id="orch-mode-status-line" style="font-size:10px; margin-bottom:10px; color:${csTheme().muted};">Current mode: —</div>
+
+              <div id="orch-host-brief" style="display:none; font-size:10px; line-height:1.5; color:${csTheme().muted};">
+
+                <div>Serving inference to connected sandboxes.</div>
+
+                <div style="margin-top:6px;">Ensure inference API is reachable (HTTPS + firewall).</div>
+
+              </div>
+
+              <div id="orch-sandbox-panel" style="display:none;">
+
+                <div style="padding:8px 10px; border-radius:6px; margin-bottom:10px; font-size:10px; line-height:1.45; background:${csTheme().isLight ? 'rgba(59,130,246,0.12)' : 'rgba(96,165,250,0.14)'}; border:1px solid ${csTheme().isLight ? 'rgba(59,130,246,0.35)' : 'rgba(147,197,253,0.35)'}; color:${csTheme().text};">
+
+                  This device processes documents locally. LLM inference is handled by your host system's API.
+
+                </div>
+
+                <label style="display:block; font-size:10px; font-weight:700; margin-bottom:4px; color:${csTheme().text};">Host inference URL</label>
+
+                <input type="text" id="orch-host-url-input" placeholder="https://host-ip:51248" autocomplete="off" style="width:100%; box-sizing:border-box; background:${csTheme().inputBg}; border:1px solid ${csTheme().border}; color:${csTheme().inputText}; padding:8px; border-radius:6px; font-size:10px; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; margin-bottom:8px;" />
+
+                <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:8px;">
+
+                  <button type="button" id="orch-test-connection-btn" style="background:${csTheme().accentGrad}; border:none; color:#fff; padding:8px 12px; border-radius:6px; cursor:pointer; font-size:10px; font-weight:700;">Test connection</button>
+
+                  <button type="button" id="orch-save-mode-btn" style="background:${csTheme().inputBg}; border:1px solid ${csTheme().border}; color:${csTheme().text}; padding:8px 14px; border-radius:6px; cursor:pointer; font-size:10px; font-weight:700;">Save</button>
+
+                </div>
+
+                <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px; font-size:10px; font-weight:600;">
+
+                  <span id="orch-connection-dot" style="width:8px;height:8px;border-radius:50%;background:${csTheme().muted};flex-shrink:0;"></span>
+
+                  <span id="orch-connection-status" style="color:${csTheme().muted};">Idle</span>
+
+                </div>
+
+                <div id="orch-test-model-info" style="display:none; font-size:10px; margin-bottom:8px;"></div>
+
+                <span id="orch-save-confirm" style="font-size:10px; color:${csTheme().successText}; display:none;"></span>
+
+              </div>
+
+            </div>
+
+            <!-- Appearance -->
+
+            <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 6px; height: 100%; display: flex; flex-direction: column;">
 
               <h4 style="margin: 0 0 10px 0; font-size: 12px; color: ${csTheme().muted};">🎨 Appearance</h4>
 
@@ -31327,55 +31387,35 @@ ${pageText}
 
             </div>
 
-            <!-- Orchestrator Mode -->
+            <div id="sandbox-setup-guide" style="display: none; background: ${csTheme().cardBg}; padding: 12px; border-radius: 8px; border: 1px solid ${csTheme().border}; grid-column: 1 / -1;">
 
-            <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 8px; border: 1px solid ${csTheme().border}; grid-column: 1 / -1;">
+              <h4 style="margin: 0 0 8px 0; font-size: 12px; color: ${csTheme().muted};">Sandbox setup guide</h4>
 
-              <h4 style="margin: 0 0 8px 0; font-size: 12px; color: ${csTheme().muted};">🔗 Orchestrator Mode</h4>
+              <div style="display: grid; grid-template-columns: 24px 1fr; gap: 4px 10px; font-size: 11px; color: ${csTheme().muted}; line-height: 1.5;">
 
-              <p style="margin: 0 0 10px 0; font-size: 10px; line-height: 1.45; color: ${csTheme().muted};">Configure this instance as a Host (runs local LLMs, serves inference) or Sandbox (processes documents locally, uses a Host for inference).</p>
+                <div style="display: flex; align-items: center; justify-content: center;">
 
-              <div style="display:flex; gap:10px; margin-bottom:10px;">
-
-                <button type="button" id="orch-mode-host-btn" style="flex:1; padding:10px 12px; border-radius:8px; cursor:pointer; font-size:11px; font-weight:700;">Host</button>
-
-                <button type="button" id="orch-mode-sandbox-btn" style="flex:1; padding:10px 12px; border-radius:8px; cursor:pointer; font-size:11px; font-weight:700;">Sandbox</button>
-
-              </div>
-
-              <div id="orch-mode-status-line" style="font-size:10px; margin-bottom:10px; color:${csTheme().muted};">Current mode: —</div>
-
-              <div id="orch-host-brief" style="display:none; font-size:10px; line-height:1.5; color:${csTheme().muted};">
-
-                <div style="margin-bottom:6px;">This instance serves inference to connected sandboxes.</div>
-
-                <div style="opacity:0.95;">Ensure the desktop inference API is reachable on your network (HTTPS and firewall) so remote sandboxes can connect.</div>
-
-              </div>
-
-              <div id="orch-sandbox-panel" style="display:none;">
-
-                <label style="display:block; font-size:10px; font-weight:700; margin-bottom:4px; color:${csTheme().text};">Host URL</label>
-
-                <input type="text" id="orch-host-url-input" placeholder="https://host-ip:51248" autocomplete="off" style="width:100%; box-sizing:border-box; background:${csTheme().inputBg}; border:1px solid ${csTheme().border}; color:${csTheme().inputText}; padding:8px; border-radius:6px; font-size:10px; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; margin-bottom:8px;" />
-
-                <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:8px;">
-
-                  <button type="button" id="orch-test-connection-btn" style="background:${csTheme().inputBg}; border:1px solid ${csTheme().border}; color:${csTheme().text}; padding:8px 12px; border-radius:6px; cursor:pointer; font-size:10px; font-weight:700;">Test Connection</button>
-
-                  <span id="orch-connection-status" style="font-size:10px; font-weight:600; color:${csTheme().muted};">Idle</span>
+                  <div style="width: 18px; height: 18px; border-radius: 50%; background: rgba(83,74,183,0.12); color: #534AB7; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center;">1</div>
 
                 </div>
 
-                <div id="orch-test-model-info" style="display:none; font-size:10px; margin-bottom:8px;"></div>
+                <div>On your <strong>host PC</strong> (workstation with GPU), set orchestrator mode to <strong>Host</strong> and start a local LLM via Backend Configuration.</div>
 
-                <div style="display:flex; align-items:center; flex-wrap:wrap; gap:8px;">
+                <div style="display: flex; align-items: center; justify-content: center;">
 
-                  <button type="button" id="orch-save-mode-btn" style="background:${csTheme().accentGrad}; border:none; color:#fff; padding:8px 14px; border-radius:6px; cursor:pointer; font-size:10px; font-weight:700;">Save</button>
-
-                  <span id="orch-save-confirm" style="font-size:10px; color:${csTheme().successText}; display:none;"></span>
+                  <div style="width: 18px; height: 18px; border-radius: 50%; background: rgba(83,74,183,0.12); color: #534AB7; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center;">2</div>
 
                 </div>
+
+                <div>On this <strong>sandbox device</strong> (mini PC, thin client, laptop), enter the host's inference URL above. Both devices must share the same SSO login.</div>
+
+                <div style="display: flex; align-items: center; justify-content: center;">
+
+                  <div style="width: 18px; height: 18px; border-radius: 50%; background: rgba(83,74,183,0.12); color: #534AB7; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center;">3</div>
+
+                </div>
+
+                <div>Documents and OCR processing stay on this device. Only extracted <strong>text</strong> is sent to the host for LLM inference — files and images never leave the sandbox.</div>
 
               </div>
 
@@ -31907,6 +31947,8 @@ ${pageText}
       const modelInfo = document.getElementById('orch-test-model-info')
       const saveBtn = document.getElementById('orch-save-mode-btn')
       const saveConfirm = document.getElementById('orch-save-confirm')
+      const setupGuide = document.getElementById('sandbox-setup-guide')
+      const connDot = document.getElementById('orch-connection-dot')
 
       let selectedMode: 'host' | 'sandbox' = 'host'
       let lastTestOk = false
@@ -31928,6 +31970,13 @@ ${pageText}
         return { mode: 'host' }
       }
 
+      function paintConnDot(variant: 'muted' | 'warn' | 'ok' | 'err') {
+        if (!connDot) return
+        const th = csTheme()
+        const colors = { muted: th.muted, warn: th.warnText, ok: th.successText, err: th.errorText }
+        connDot.style.background = colors[variant]
+      }
+
       function applyToggleStyles(mode: 'host' | 'sandbox') {
         const th = csTheme()
         const active =
@@ -31938,6 +31987,7 @@ ${pageText}
         if (sandboxBtn) sandboxBtn.setAttribute('style', mode === 'sandbox' ? active : inactive)
         if (sandboxPanel) sandboxPanel.style.display = mode === 'sandbox' ? 'block' : 'none'
         if (hostBrief) hostBrief.style.display = mode === 'host' ? 'block' : 'none'
+        if (setupGuide) setupGuide.style.display = mode === 'sandbox' ? 'block' : 'none'
       }
 
       function paintStatusLine(
@@ -31977,6 +32027,9 @@ ${pageText}
           connStatus.textContent = lastTestOk ? 'Verified (saved)' : 'Idle'
           connStatus.style.color = th.muted
         }
+        paintConnDot(
+          selectedMode === 'sandbox' && lastTestOk ? 'ok' : 'muted',
+        )
         if (modelInfo) {
           modelInfo.textContent = ''
           modelInfo.style.display = 'none'
@@ -31993,6 +32046,7 @@ ${pageText}
           connStatus.textContent = 'Idle'
           connStatus.style.color = csTheme().muted
         }
+        paintConnDot('muted')
         if (modelInfo) modelInfo.style.display = 'none'
       })
 
@@ -32004,6 +32058,7 @@ ${pageText}
           connStatus.textContent = lastTestOk ? 'Verified (saved)' : 'Idle'
           connStatus.style.color = csTheme().muted
         }
+        paintConnDot(lastTestOk ? 'ok' : 'muted')
       })
 
       testBtn?.addEventListener('click', async () => {
@@ -32014,6 +32069,7 @@ ${pageText}
             connStatus.textContent = 'URL must start with https://'
             connStatus.style.color = th.errorText
           }
+          paintConnDot('err')
           paintStatusLine('sandbox', 'failed', 'URL must start with https://')
           return
         }
@@ -32022,6 +32078,7 @@ ${pageText}
           connStatus.textContent = 'Testing…'
           connStatus.style.color = th.warnText
         }
+        paintConnDot('warn')
         if (modelInfo) {
           modelInfo.textContent = ''
           modelInfo.style.display = 'none'
@@ -32046,6 +32103,7 @@ ${pageText}
             connStatus.textContent = 'Connected'
             connStatus.style.color = th.successText
           }
+          paintConnDot('ok')
           if (modelInfo) {
             modelInfo.textContent = label
             modelInfo.style.color = th.successText
@@ -32062,6 +32120,7 @@ ${pageText}
             connStatus.textContent = 'Failed'
             connStatus.style.color = th.errorText
           }
+          paintConnDot('err')
           paintStatusLine('sandbox', 'failed', errMsg)
         }
       })
