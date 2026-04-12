@@ -197,7 +197,7 @@ export interface ComposeSession {
   createdAt: string
 }
 
-const PERSIST_VERSION = 6
+const PERSIST_VERSION = 7
 
 /** Public helper for mapping UI — derive semantic `name` from a display label. */
 export function slugifyTemplateFieldName(label: string): string {
@@ -282,6 +282,7 @@ type RecipientFieldMergeMeta = {
 
 /**
  * Merges legacy `recipient_name` + `recipient_address` into a single `recipient` field for persisted templates.
+ * Idempotent: also removes legacy fields when both `recipient` and old names exist (partial upgrade state).
  */
 function migrateTemplatesRecipientFields(templates: LetterTemplate[]): {
   templates: LetterTemplate[]
@@ -291,16 +292,44 @@ function migrateTemplatesRecipientFields(templates: LetterTemplate[]): {
   const out = templates.map((template) => {
     const hasOldName = template.fields.some((f) => f.name === 'recipient_name')
     const hasOldAddr = template.fields.some((f) => f.name === 'recipient_address')
-    const hasNew = template.fields.some((f) => f.name === 'recipient')
-    if (hasNew || (!hasOldName && !hasOldAddr)) {
+    if (!hasOldName && !hasOldAddr) {
       return template
     }
 
     const oldName = template.fields.find((f) => f.name === 'recipient_name')
     const oldAddr = template.fields.find((f) => f.name === 'recipient_address')
+    const existingRecipient = template.fields.find((f) => f.name === 'recipient')
+
     const nameValue = oldName?.value?.trim() || ''
     const addressValue = oldAddr?.value?.trim() || ''
-    const combinedValue = combinedRecipientFieldText(nameValue, addressValue)
+    const combinedLegacy = combinedRecipientFieldText(nameValue, addressValue)
+
+    if (existingRecipient) {
+      const cur = (existingRecipient.value ?? '').trim()
+      const mergedValue =
+        cur && combinedLegacy
+          ? combinedRecipientFieldText(cur, combinedLegacy)
+          : cur || combinedLegacy
+
+      merges.push({
+        templateId: template.id,
+        oldNameId: oldName?.id,
+        oldAddrId: oldAddr?.id,
+        newRecipientId: existingRecipient.id,
+      })
+
+      const newFields = template.fields
+        .filter((f) => f.name !== 'recipient_name' && f.name !== 'recipient_address')
+        .map((f) =>
+          f.id === existingRecipient.id ? { ...f, value: mergedValue } : f,
+        )
+
+      return {
+        ...template,
+        fields: newFields,
+        updatedAt: new Date().toISOString(),
+      }
+    }
 
     const newRecipientId = oldName?.id || oldAddr?.id || crypto.randomUUID()
     merges.push({
@@ -324,7 +353,7 @@ function migrateTemplatesRecipientFields(templates: LetterTemplate[]): {
       y: base?.y ?? 0,
       w: base?.w ?? 0,
       h: base?.h ?? 0,
-      value: combinedValue,
+      value: combinedLegacy,
       defaultValue: def,
       anchorText: (oldAddr?.anchorText || oldName?.anchorText || '').trim(),
       placeholder: 'Recipient name and address',
@@ -983,7 +1012,7 @@ export const useLetterComposerStore = create<LetterComposerState>()(
             letterVaultSource,
           }
         }
-        if (fromVersion < 6) {
+        if (fromVersion < 7) {
           const templates = Array.isArray(p.templates) ? (p.templates as LetterTemplate[]) : []
           const composeSessions = Array.isArray(p.composeSessions)
             ? (p.composeSessions as ComposeSession[])
@@ -998,6 +1027,19 @@ export const useLetterComposerStore = create<LetterComposerState>()(
         }
 
         return p
+      },
+      /** Catches legacy fields if persist version was already 6+ before migration ran, or partial "recipient + old" state. */
+      onRehydrateStorage: () => (state) => {
+        if (!state?.templates?.length) return
+        const hasLegacy = state.templates.some((t) =>
+          t.fields.some((f) => f.name === 'recipient_name' || f.name === 'recipient_address'),
+        )
+        if (!hasLegacy) return
+        const { templates: nextTemplates, merges } = migrateTemplatesRecipientFields(state.templates)
+        const nextSessions = migrateComposeSessionsRecipientFieldIds(state.composeSessions ?? [], merges)
+        queueMicrotask(() => {
+          useLetterComposerStore.setState({ templates: nextTemplates, composeSessions: nextSessions })
+        })
       },
       partialize: (s) => ({
         templates: s.templates.map((t) => ({
