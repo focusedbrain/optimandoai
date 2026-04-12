@@ -43,12 +43,13 @@ if (!_isExtensionPage) {
 // Exact WRVault palette — single source of truth for all vanilla-JS lightboxes.
 // Contrast rule: light bg → dark text (#0f1419), dark bg → light text (#f3f0ff / #e7e9ea).
 function csTheme() {
-  let t: 'pro' | 'dark' | 'standard' = 'pro'
+  let t: 'pro' | 'dark' | 'standard' = 'standard'
   try {
     const raw = localStorage.getItem('optimando-ui-theme')
     if (raw === 'dark') t = 'dark'
     else if (raw === 'standard' || raw === 'professional') t = 'standard'
-    else t = 'pro'
+    else if (raw === 'pro') t = 'pro'
+    else t = 'standard'
   } catch { /* ignore */ }
 
   // ── Dark: deep slate — WRVault Dark (#0f172a → #1e293b) ──
@@ -8678,6 +8679,8 @@ function initializeExtension() {
   function applyTheme(theme: string) {
 
     injectThemeCSSOnce()
+
+    if (theme === 'professional') theme = 'standard'
 
     const gradients = {
 
@@ -31511,6 +31514,10 @@ ${pageText}
         if (savedTheme === 'dark' || savedTheme === 'standard' || savedTheme === 'pro') {
 
           themeSelect.value = savedTheme
+
+        } else if (savedTheme === 'professional') {
+
+          themeSelect.value = 'standard'
 
         } else {
 
