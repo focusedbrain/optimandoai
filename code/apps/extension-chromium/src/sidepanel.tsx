@@ -4683,9 +4683,9 @@ I'm now focused on optimizing this project. Share context, blockers, or referenc
         ? getThemeTokens('dark')
         : getThemeTokens('standard')
 
-  const runtimePrimaryButtonStyle: React.CSSProperties = {
+  const runtimeBtn = (bg: string): React.CSSProperties => ({
     padding: '12px',
-    background: lb.accentGradient,
+    background: bg,
     border: 'none',
     color: '#ffffff',
     borderRadius: '8px',
@@ -4698,7 +4698,7 @@ I'm now focused on optimizing this project. Share context, blockers, or referenc
     gap: '6px',
     transition: 'all 0.2s ease',
     boxShadow: '0 2px 6px rgba(0,0,0,0.2)',
-  }
+  })
 
   // Selectbox style based on theme
   const getSelectboxStyle = () => {
@@ -10316,9 +10316,17 @@ I'm now focused on optimizing this project. Share context, blockers, or referenc
         style={{
           width: '100%',
           padding: '16px 20px',
-          background: theme === 'pro' ? 'rgba(118,75,162,0.3)' : lb.inputBg,
-          border: `2px dashed ${lb.border}`,
-          color: theme === 'pro' ? '#ffffff' : lb.inputText,
+          background: theme === 'pro'
+            ? 'rgba(118,75,162,0.25)'
+            : theme === 'dark'
+              ? 'rgba(255,255,255,0.07)'
+              : 'rgba(99,102,241,0.06)',
+          border: theme === 'pro'
+            ? '2px dashed rgba(255,255,255,0.45)'
+            : theme === 'dark'
+              ? '2px dashed rgba(148,163,184,0.35)'
+              : '2px dashed rgba(99,102,241,0.35)',
+          color: lb.inputText,
           borderRadius: '10px',
           cursor: 'pointer',
           fontSize: '15px',
@@ -10334,21 +10342,27 @@ I'm now focused on optimizing this project. Share context, blockers, or referenc
         onMouseEnter={(e) => {
           e.currentTarget.style.transform = 'translateY(-2px)'
           if (theme === 'pro') {
-            e.currentTarget.style.background = 'rgba(118,75,162,0.55)'
-            e.currentTarget.style.borderColor = 'rgba(255,255,255,0.45)'
+            e.currentTarget.style.background = 'rgba(118,75,162,0.5)'
+            e.currentTarget.style.borderColor = 'rgba(255,255,255,0.6)'
+          } else if (theme === 'dark') {
+            e.currentTarget.style.background = 'rgba(255,255,255,0.12)'
+            e.currentTarget.style.borderColor = 'rgba(148,163,184,0.55)'
           } else {
-            e.currentTarget.style.background = lb.cardBg
-            e.currentTarget.style.borderColor = lb.inputBorder
+            e.currentTarget.style.background = 'rgba(99,102,241,0.1)'
+            e.currentTarget.style.borderColor = 'rgba(99,102,241,0.5)'
           }
         }}
         onMouseLeave={(e) => {
           e.currentTarget.style.transform = 'translateY(0)'
           if (theme === 'pro') {
-            e.currentTarget.style.background = 'rgba(118,75,162,0.3)'
-            e.currentTarget.style.borderColor = lb.border
+            e.currentTarget.style.background = 'rgba(118,75,162,0.25)'
+            e.currentTarget.style.borderColor = 'rgba(255,255,255,0.45)'
+          } else if (theme === 'dark') {
+            e.currentTarget.style.background = 'rgba(255,255,255,0.07)'
+            e.currentTarget.style.borderColor = 'rgba(148,163,184,0.35)'
           } else {
-            e.currentTarget.style.background = lb.inputBg
-            e.currentTarget.style.borderColor = lb.border
+            e.currentTarget.style.background = 'rgba(99,102,241,0.06)'
+            e.currentTarget.style.borderColor = 'rgba(99,102,241,0.35)'
           }
         }}
       >
@@ -10439,10 +10453,10 @@ I'm now focused on optimizing this project. Share context, blockers, or referenc
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
           <button
             onClick={syncSession}
-            style={runtimePrimaryButtonStyle}
+            style={runtimeBtn('#2196F3')}
             onMouseEnter={(e) => {
               e.currentTarget.style.transform = 'translateY(-2px)'
-              e.currentTarget.style.boxShadow = '0 4px 14px rgba(0,0,0,0.32)'
+              e.currentTarget.style.boxShadow = '0 4px 14px rgba(33,150,243,0.5)'
             }}
             onMouseLeave={(e) => {
               e.currentTarget.style.transform = 'translateY(0)'
@@ -10453,10 +10467,10 @@ I'm now focused on optimizing this project. Share context, blockers, or referenc
           </button>
           <button
             onClick={importSession}
-            style={runtimePrimaryButtonStyle}
+            style={runtimeBtn('#9C27B0')}
             onMouseEnter={(e) => {
               e.currentTarget.style.transform = 'translateY(-2px)'
-              e.currentTarget.style.boxShadow = '0 4px 14px rgba(0,0,0,0.32)'
+              e.currentTarget.style.boxShadow = '0 4px 14px rgba(156,39,176,0.5)'
             }}
             onMouseLeave={(e) => {
               e.currentTarget.style.transform = 'translateY(0)'
@@ -10467,10 +10481,10 @@ I'm now focused on optimizing this project. Share context, blockers, or referenc
           </button>
           <button
             onClick={() => sendToContentScript('OPEN_BACKEND_CONFIG_LIGHTBOX')}
-            style={runtimePrimaryButtonStyle}
+            style={runtimeBtn('#6366f1')}
             onMouseEnter={(e) => {
               e.currentTarget.style.transform = 'translateY(-2px)'
-              e.currentTarget.style.boxShadow = '0 4px 14px rgba(0,0,0,0.32)'
+              e.currentTarget.style.boxShadow = '0 4px 14px rgba(99,102,241,0.5)'
             }}
             onMouseLeave={(e) => {
               e.currentTarget.style.transform = 'translateY(0)'
@@ -10482,10 +10496,10 @@ I'm now focused on optimizing this project. Share context, blockers, or referenc
           <button
             onClick={() => sendToContentScript('OPEN_POLICY_LIGHTBOX')}
             title="Policy Configuration"
-            style={runtimePrimaryButtonStyle}
+            style={runtimeBtn('#10b981')}
             onMouseEnter={(e) => {
               e.currentTarget.style.transform = 'translateY(-2px)'
-              e.currentTarget.style.boxShadow = '0 4px 14px rgba(0,0,0,0.32)'
+              e.currentTarget.style.boxShadow = '0 4px 14px rgba(16,185,129,0.5)'
             }}
             onMouseLeave={(e) => {
               e.currentTarget.style.transform = 'translateY(0)'

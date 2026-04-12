@@ -31222,7 +31222,7 @@ ${pageText}
     overlay.innerHTML = `
 
 
- <div id="settings-modal-panel" style="background: ${csTheme().panelBg}; border-radius: 16px; border: 1px solid ${csTheme().border}; max-width: 860px; width: 92vw; color: ${csTheme().text}; box-shadow: ${csTheme().shadow}; display: flex; flex-direction: column; padding: 1.25rem; box-sizing: border-box; color-scheme: ${csTheme().isLight ? 'light' : 'dark'};">
+ <div id="settings-modal-panel" style="background: ${csTheme().isLight ? '#ffffff' : csTheme().panelBg}; border-radius: 16px; border: 1px solid ${csTheme().border}; max-width: 860px; width: 92vw; color: ${csTheme().text}; box-shadow: ${csTheme().shadow}; display: flex; flex-direction: column; padding: 1.25rem; box-sizing: border-box; color-scheme: ${csTheme().isLight ? 'light' : 'dark'};">
 
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
           <h3 style="margin:0; font-size:16px; font-weight:700; color:${csTheme().inputText};">⚙️ Extension Settings</h3>
@@ -31451,7 +31451,7 @@ ${pageText}
     `
       const modal = document.getElementById('settings-modal-panel')
       if (modal) {
-        modal.style.background = th.panelBg
+        modal.style.background = th.isLight ? '#ffffff' : th.panelBg
         modal.style.boxShadow = th.shadow
         modal.style.color = th.text
         modal.style.border = `1px solid ${th.border}`
