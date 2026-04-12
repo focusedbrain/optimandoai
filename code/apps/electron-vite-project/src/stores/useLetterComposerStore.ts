@@ -370,16 +370,29 @@ interface LetterComposerState {
   letterVaultLoading: boolean
   /** Error message from vault access attempt */
   letterVaultError: string | null
+  /** Available vault items for selected category (id + title only; not persisted) */
+  letterVaultItems: Array<{ id: string; title: string }>
+  /** Currently selected vault item ID (second dropdown; not persisted) */
+  letterVaultSelectedItemId: string | null
+  /** Fetched and mapped data for the selected item — preview before apply (not persisted) */
+  letterVaultPreview: LetterVaultData | null
+  /** Whether preview data has been applied to template fields (not persisted) */
+  letterVaultApplied: boolean
   setLetterVaultSource: (source: 'company' | 'personal' | 'none') => void
   setLetterVaultData: (data: LetterVaultData | null) => void
   setLetterVaultLoading: (loading: boolean) => void
   setLetterVaultError: (error: string | null) => void
   clearLetterVaultData: () => void
+  setLetterVaultItems: (items: Array<{ id: string; title: string }>) => void
+  setLetterVaultSelectedItemId: (id: string | null) => void
+  setLetterVaultPreview: (data: LetterVaultData | null) => void
+  setLetterVaultApplied: (applied: boolean) => void
+  applyVaultDataToTemplate: () => void
 }
 
 export const useLetterComposerStore = create<LetterComposerState>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       templates: [],
       activeTemplateId: null,
       addTemplate: (template) => set((s) => ({ templates: [...s.templates, template] })),
@@ -703,12 +716,60 @@ export const useLetterComposerStore = create<LetterComposerState>()(
       letterVaultData: null,
       letterVaultLoading: false,
       letterVaultError: null,
+      letterVaultItems: [],
+      letterVaultSelectedItemId: null,
+      letterVaultPreview: null,
+      letterVaultApplied: false,
       setLetterVaultSource: (source) =>
-        set({ letterVaultSource: source, letterVaultData: null, letterVaultError: null }),
+        set({
+          letterVaultSource: source,
+          letterVaultData: null,
+          letterVaultError: null,
+          letterVaultLoading: false,
+          letterVaultItems: [],
+          letterVaultSelectedItemId: null,
+          letterVaultPreview: null,
+          letterVaultApplied: false,
+        }),
       setLetterVaultData: (data) => set({ letterVaultData: data, letterVaultLoading: false }),
       setLetterVaultLoading: (loading) => set({ letterVaultLoading: loading }),
       setLetterVaultError: (error) => set({ letterVaultError: error, letterVaultLoading: false }),
       clearLetterVaultData: () => set({ letterVaultData: null, letterVaultError: null }),
+      setLetterVaultItems: (items) => set({ letterVaultItems: items }),
+      setLetterVaultSelectedItemId: (id) =>
+        set({
+          letterVaultSelectedItemId: id,
+          letterVaultPreview: null,
+          letterVaultApplied: false,
+        }),
+      setLetterVaultPreview: (data) => set({ letterVaultPreview: data }),
+      setLetterVaultApplied: (applied) => set({ letterVaultApplied: applied }),
+      applyVaultDataToTemplate: () => {
+        const state = get()
+        const preview = state.letterVaultPreview
+        if (!preview) return
+
+        const template = state.templates.find((t) => t.id === state.activeTemplateId)
+        if (!template) return
+
+        const mapping: Record<string, string | undefined> = {
+          sender_name: preview.name,
+          sender_address: preview.address,
+          sender_email: preview.email,
+          sender_phone: preview.phone,
+          signer_name: preview.signerName,
+        }
+
+        for (const [fieldName, value] of Object.entries(mapping)) {
+          if (!value) continue
+          const field = template.fields.find((f) => f.name === fieldName)
+          if (field) {
+            state.updateTemplateField(template.id, field.id, value)
+          }
+        }
+
+        set({ letterVaultApplied: true })
+      },
     }),
     {
       name: 'wr-desk-letter-composer',

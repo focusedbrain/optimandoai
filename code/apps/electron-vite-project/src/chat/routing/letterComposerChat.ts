@@ -57,7 +57,8 @@ export async function handleLetterComposerChat(params: {
       ? documents.map((d) => `--- ${d.name || 'Document'} ---\n${d.text}`).join('\n\n')
       : null
 
-  const vaultData = useLetterComposerStore.getState().letterVaultData
+  const { letterVaultPreview, letterVaultApplied } = useLetterComposerStore.getState()
+  const vaultData = letterVaultApplied ? letterVaultPreview : null
   let senderIdentity: string | null = null
   if (vaultData) {
     const parts: string[] = []

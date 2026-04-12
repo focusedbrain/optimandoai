@@ -17,6 +17,8 @@ import type { LetterVaultData } from '../../stores/useLetterComposerStore'
 /** Legacy listItems filter: maps letter UI category → vault_items.category */
 export type LetterVaultListCategory = 'company' | 'identity'
 
+type VaultFieldRow = { key?: string; value?: string; encrypted?: boolean }
+
 function parseVaultTier(raw: string | undefined | null): VaultTier {
   if (!raw || typeof raw !== 'string') return 'unknown'
   const t = raw.trim() as VaultTier
@@ -27,13 +29,15 @@ function recordTypeForLetterCategory(category: 'company' | 'personal'): VaultRec
   return category === 'company' ? 'company_data' : 'pii_record'
 }
 
-/** Build a lowercase key map from vault Field[] (handles keys like `identity.full_name`). */
-function vaultFieldsToKeyMap(
-  fields: Array<{ key?: string; value?: string }> | undefined,
-): Record<string, string> {
+/**
+ * Build a lowercase key → value map from vault Field[].
+ * Skips encrypted fields. Handles dotted keys (uses short segment too).
+ */
+function vaultFieldsToKeyMap(fields: VaultFieldRow[] | undefined): Record<string, string> {
   const out: Record<string, string> = {}
   if (!Array.isArray(fields)) return out
   for (const f of fields) {
+    if (f?.encrypted === true) continue
     const key = typeof f?.key === 'string' ? f.key.trim() : ''
     const value = typeof f?.value === 'string' ? f.value.trim() : ''
     if (!key || !value) continue
@@ -46,51 +50,69 @@ function vaultFieldsToKeyMap(
   return out
 }
 
-function firstNonEmpty(m: Record<string, string>, keys: string[]): string | undefined {
-  for (const k of keys) {
-    const v = m[k.toLowerCase()]
-    if (v) return v
-  }
-  return undefined
+function assembleStructuredAddress(m: Record<string, string>): string {
+  const street = m['street'] || ''
+  const streetNumber = m['street_number'] || ''
+  const postalCode = m['postal_code'] || ''
+  const city = m['city'] || ''
+  const state = m['state'] || ''
+  const country = m['country'] || ''
+
+  const streetLine = [street, streetNumber].filter(Boolean).join(' ')
+  const cityLine = [postalCode, city].filter(Boolean).join(' ')
+  const addressParts = [streetLine, cityLine, state, country].filter(Boolean)
+  return addressParts.join('\n')
 }
 
 /**
  * Map decrypted vault item fields → flat letter payload.
- * TODO: verify field keys against vault create forms / migrations for company vs identity.
+ * For company, pass `itemTitle` from the vault item (`VaultItem.title`).
  */
 function mapVaultFieldsToLetterData(
   category: 'company' | 'personal',
-  fields: Array<{ key?: string; value?: string }> | undefined,
+  fields: VaultFieldRow[] | undefined,
+  itemTitle?: string,
 ): LetterVaultData {
   const m = vaultFieldsToKeyMap(fields)
+  const get = (k: string) => m[k.toLowerCase()] || ''
 
   if (category === 'company') {
-    return {
-      // TODO: verify — company items may use company_name, legal_name, firma, etc.
-      companyName: firstNonEmpty(m, ['company_name', 'company', 'legal_name', 'firma', 'organization']),
-      name: firstNonEmpty(m, ['ceo_name', 'contact_name', 'representative', 'signer_name']),
-      address: firstNonEmpty(m, [
-        'address',
-        'street',
-        'address_line_1',
-        'business_address',
-        'company_address',
- ]),
-      email: firstNonEmpty(m, ['email', 'contact_email', 'company_email', 'e_mail']),
-      phone: firstNonEmpty(m, ['phone', 'telephone', 'company_phone', 'mobile']),
-      signerName: firstNonEmpty(m, ['signer_name', 'authorized_signer', 'ceo_name', 'representative']),
+    const ceoFirst = get('ceo_first_name')
+    const ceoSurname = get('ceo_surname')
+    const ceoName = [ceoFirst, ceoSurname].filter(Boolean).join(' ')
+    const fullAddress = assembleStructuredAddress(m)
+    const email = get('email')
+    const phone = get('phone')
+    const companyName = (itemTitle ?? '').trim()
+
+    const out: LetterVaultData = {}
+    if (companyName) {
+      out.name = companyName
+      out.companyName = companyName
     }
+    if (fullAddress) out.address = fullAddress
+    if (email) out.email = email
+    if (phone) out.phone = phone
+    if (ceoName) out.signerName = ceoName
+    return out
   }
 
-  return {
-    // TODO: verify — identity / Private Data may use full_name, first_name+last_name, etc.
-    name: firstNonEmpty(m, ['full_name', 'name', 'display_name', 'first_name']),
-    address: firstNonEmpty(m, ['address', 'street', 'address_line_1', 'home_address']),
-    email: firstNonEmpty(m, ['email', 'personal_email', 'e_mail']),
-    phone: firstNonEmpty(m, ['phone', 'mobile', 'telephone']),
-    signerName: firstNonEmpty(m, ['signer_name']),
-    companyName: firstNonEmpty(m, ['company_name', 'employer']),
+  const firstName = get('first_name')
+  const surname = get('surname')
+  const fullName = [firstName, surname].filter(Boolean).join(' ')
+  const fullAddress = assembleStructuredAddress(m)
+  const email = get('email')
+  const phone = get('phone')
+
+  const out: LetterVaultData = {}
+  if (fullName) {
+    out.name = fullName
+    out.signerName = fullName
   }
+  if (fullAddress) out.address = fullAddress
+  if (email) out.email = email
+  if (phone) out.phone = phone
+  return out
 }
 
 function isVaultRpcSuccess(r: Record<string, unknown> | undefined): r is { success: true } & Record<string, unknown> {
@@ -114,11 +136,10 @@ export async function canAccessLetterVaultCategory(
   return { allowed: true }
 }
 
-export async function fetchLetterVaultData(
-  category: 'company' | 'personal',
-): Promise<{
+/** Metadata only — does not call getItem. */
+export async function listLetterVaultItems(category: 'company' | 'personal'): Promise<{
   success: boolean
-  data?: LetterVaultData
+  items?: Array<{ id: string; title: string }>
   error?: string
 }> {
   try {
@@ -146,13 +167,51 @@ export async function fetchLetterVaultData(
       return { success: false, error: err }
     }
 
-    const items = listResult.items
-    if (!Array.isArray(items) || items.length === 0) {
+    const raw = listResult.items
+    if (!Array.isArray(raw) || raw.length === 0) {
       return { success: false, error: 'no_items' }
     }
 
-    const first = items[0] as { id?: string }
-    const id = typeof first?.id === 'string' ? first.id : ''
+    const items: Array<{ id: string; title: string }> = []
+    for (const row of raw) {
+      const o = row as { id?: unknown; title?: unknown }
+      const id = typeof o.id === 'string' ? o.id : ''
+      const title = typeof o.title === 'string' ? o.title : ''
+      if (!id) continue
+      items.push({ id, title })
+    }
+
+    if (items.length === 0) {
+      return { success: false, error: 'no_items' }
+    }
+
+    return { success: true, items }
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err)
+    return { success: false, error: msg || 'vault_error' }
+  }
+}
+
+export async function fetchAndMapVaultItem(
+  itemId: string,
+  category: 'company' | 'personal',
+): Promise<{
+  success: boolean
+  data?: LetterVaultData
+  error?: string
+}> {
+  try {
+    const access = await canAccessLetterVaultCategory(category)
+    if (!access.allowed) {
+      return { success: false, error: access.reason }
+    }
+
+    const rpc = window.handshakeView?.vaultRpc
+    if (typeof rpc !== 'function') {
+      return { success: false, error: 'vault_rpc_unavailable' }
+    }
+
+    const id = itemId.trim()
     if (!id) {
       return { success: false, error: 'no_item_id' }
     }
@@ -168,12 +227,29 @@ export async function fetchLetterVaultData(
       return { success: false, error: err }
     }
 
-    const item = getResult.item as { fields?: Array<{ key?: string; value?: string }> } | undefined
-    const data = mapVaultFieldsToLetterData(category, item?.fields)
+    const item = getResult.item as { fields?: VaultFieldRow[]; title?: string } | undefined
+    const title =
+      typeof item?.title === 'string' ? item.title : ''
+    const data = mapVaultFieldsToLetterData(category, item?.fields, title)
 
     return { success: true, data }
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err)
     return { success: false, error: msg || 'vault_error' }
   }
+}
+
+export async function fetchLetterVaultData(
+  category: 'company' | 'personal',
+): Promise<{
+  success: boolean
+  data?: LetterVaultData
+  error?: string
+}> {
+  const listed = await listLetterVaultItems(category)
+  if (!listed.success || !listed.items?.length) {
+    return { success: false, error: listed.error ?? 'no_items' }
+  }
+  const firstId = listed.items[0].id
+  return fetchAndMapVaultItem(firstId, category)
 }

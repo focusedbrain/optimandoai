@@ -172,7 +172,6 @@ export function ComposeFieldsForm({ template, composeSession, replyToLetter }: C
   const [draftError, setDraftError] = useState<string | null>(null)
 
   const lastReplyAutofillId = useRef<string | null>(null)
-  const senderProfileAppliedForTemplate = useRef<string | null>(null)
   const prevLanguageRef = useRef<string | null>(null)
   const lastDetectedLangLetterId = useRef<string | null>(null)
 
@@ -186,7 +185,6 @@ export function ComposeFieldsForm({ template, composeSession, replyToLetter }: C
   )
 
   useEffect(() => {
-    senderProfileAppliedForTemplate.current = null
     lastReplyAutofillId.current = null
     lastDetectedLangLetterId.current = null
     prevLanguageRef.current = null
@@ -405,30 +403,6 @@ export function ComposeFieldsForm({ template, composeSession, replyToLetter }: C
       }
     }
   }, [language, template.fields, template.id, updateTemplateField])
-
-  useEffect(() => {
-    if (senderProfileAppliedForTemplate.current === template.id) return
-    if (template.fields.length === 0) return
-    const { name, address } = loadSenderProfile()
-    if (!name && !address) {
-      senderProfileAppliedForTemplate.current = template.id
-      return
-    }
-
-    const fields = template.fields
-    const nameField = fields.find((f) => {
-      const n = f.name.toLowerCase()
-      return (
-        (n.includes('sender') && !n.includes('address') && !n.includes('recipient')) ||
-        n === 'sender_name'
-      )
-    })
-    const addrField = fields.find((f) => f.name.toLowerCase() === 'sender_address')
-    const patch = useLetterComposerStore.getState().updateTemplateField
-    if (nameField && name) patch(template.id, nameField.id, name)
-    if (addrField && address) patch(template.id, addrField.id, address)
-    senderProfileAppliedForTemplate.current = template.id
-  }, [template.fields, template.id])
 
   const persistSenderIfNeeded = useCallback((field: TemplateField, value: string) => {
     const n = field.name.toLowerCase()

@@ -414,16 +414,15 @@ export function LetterTemplatePort() {
     const key = selectedBuiltinTemplate.id
     if (setupWizardInitRef.current === key) return
     setupWizardInitRef.current = key
-    const p = useLetterComposerStore.getState().companyProfile
     setCompanyDetails({
-      company_logo: p.logoPath ?? '',
-      sender_name: p.sender_name ?? '',
-      sender_address: p.sender_address ?? '',
-      sender_phone: p.sender_phone ?? '',
-      sender_email: p.sender_email ?? '',
-      signer_name: p.signer_name ?? '',
+      company_logo: '',
+      sender_name: '',
+      sender_address: '',
+      sender_phone: '',
+      sender_email: '',
+      signer_name: '',
     })
-    setLogoPreview(p.logoPath)
+    setLogoPreview(null)
   }, [templateSetupStep, selectedBuiltinTemplate])
 
   const handleLogoUpload = useCallback((e: ChangeEvent<HTMLInputElement>) => {
