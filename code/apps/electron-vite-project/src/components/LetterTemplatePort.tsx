@@ -177,6 +177,18 @@ export function LetterTemplatePort() {
   const setupWizardInitRef = useRef<string | null>(null)
 
   useEffect(() => {
+    const unsub = useLetterComposerStore.subscribe((state) => {
+      const pending = state.pendingVaultApplyForSetup
+      if (pending == null) return
+      if (Object.keys(pending).length > 0) {
+        setCompanyDetails((prev) => ({ ...prev, ...pending }))
+      }
+      useLetterComposerStore.getState().setPendingVaultApplyForSetup(null)
+    })
+    return unsub
+  }, [])
+
+  useEffect(() => {
     const pdfPath = activeTemplate?.pdfPreviewPath
     const api = typeof window !== 'undefined' ? window.letterComposer : undefined
     if (!pdfPath || !api?.extractPdfTextPositions) {

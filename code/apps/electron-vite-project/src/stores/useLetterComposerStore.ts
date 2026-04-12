@@ -264,6 +264,38 @@ function migrateLetterTemplateV1(t: Record<string, unknown>): LetterTemplate {
   }
 }
 
+/** Semantic keys used by applyVaultDataToTemplate — matches builtin + common PDF mapping variants. */
+const VAULT_APPLY_FIELD_CANDIDATES: Record<string, string[]> = {
+  sender_name: ['sender_name', 'sender name', 'sendername', 'name', 'organization', 'company'],
+  sender_address: ['sender_address', 'sender address', 'senderaddress', 'address', 'street address'],
+  sender_email: ['sender_email', 'sender email', 'senderemail', 'email', 'e-mail', 'e_mail'],
+  sender_phone: ['sender_phone', 'sender phone', 'senderphone', 'phone', 'telephone', 'tel', 'mobile'],
+  signer_name: ['signer_name', 'signer', 'signer name', 'signername', 'authorized signer', 'ceo_name'],
+}
+
+function templateFieldMatchesVaultCandidate(field: TemplateField, candidate: string): boolean {
+  const c = candidate.trim().toLowerCase()
+  const n = field.name.trim().toLowerCase()
+  const label = field.label?.trim().toLowerCase() ?? ''
+  const slugFromCandidate = slugifyTemplateFieldName(candidate)
+  const slugFromName = slugifyTemplateFieldName(field.name)
+  const slugFromLabel = field.label ? slugifyTemplateFieldName(field.label) : ''
+  if (n === c || n === slugFromCandidate) return true
+  if (label === c || label === candidate.trim().toLowerCase()) return true
+  if (slugFromName === slugFromCandidate || slugFromLabel === slugFromCandidate) return true
+  return false
+}
+
+function findTemplateFieldForVaultApply(fields: TemplateField[], logicalKey: string): TemplateField | undefined {
+  const candidates = VAULT_APPLY_FIELD_CANDIDATES[logicalKey] ?? [logicalKey]
+  for (const f of fields) {
+    for (const cand of candidates) {
+      if (templateFieldMatchesVaultCandidate(f, cand)) return f
+    }
+  }
+  return undefined
+}
+
 function resolveComposeSessionIdForTemplate(
   sessions: ComposeSession[],
   activeComposeSessionId: string | null,
@@ -378,6 +410,8 @@ interface LetterComposerState {
   letterVaultPreview: LetterVaultData | null
   /** Whether preview data has been applied to template fields (not persisted) */
   letterVaultApplied: boolean
+  /** Vault data waiting to be applied to the setup wizard. Consumed once by LetterTemplatePort. Not persisted. */
+  pendingVaultApplyForSetup: Record<string, string> | null
   setLetterVaultSource: (source: 'company' | 'personal' | 'none') => void
   setLetterVaultData: (data: LetterVaultData | null) => void
   setLetterVaultLoading: (loading: boolean) => void
@@ -387,6 +421,7 @@ interface LetterComposerState {
   setLetterVaultSelectedItemId: (id: string | null) => void
   setLetterVaultPreview: (data: LetterVaultData | null) => void
   setLetterVaultApplied: (applied: boolean) => void
+  setPendingVaultApplyForSetup: (data: Record<string, string> | null) => void
   applyVaultDataToTemplate: () => void
 }
 
@@ -720,6 +755,7 @@ export const useLetterComposerStore = create<LetterComposerState>()(
       letterVaultSelectedItemId: null,
       letterVaultPreview: null,
       letterVaultApplied: false,
+      pendingVaultApplyForSetup: null,
       setLetterVaultSource: (source) =>
         set({
           letterVaultSource: source,
@@ -730,6 +766,7 @@ export const useLetterComposerStore = create<LetterComposerState>()(
           letterVaultSelectedItemId: null,
           letterVaultPreview: null,
           letterVaultApplied: false,
+          pendingVaultApplyForSetup: null,
         }),
       setLetterVaultData: (data) => set({ letterVaultData: data, letterVaultLoading: false }),
       setLetterVaultLoading: (loading) => set({ letterVaultLoading: loading }),
@@ -741,34 +778,43 @@ export const useLetterComposerStore = create<LetterComposerState>()(
           letterVaultSelectedItemId: id,
           letterVaultPreview: null,
           letterVaultApplied: false,
+          pendingVaultApplyForSetup: null,
         }),
       setLetterVaultPreview: (data) => set({ letterVaultPreview: data }),
       setLetterVaultApplied: (applied) => set({ letterVaultApplied: applied }),
+      setPendingVaultApplyForSetup: (data) => set({ pendingVaultApplyForSetup: data }),
       applyVaultDataToTemplate: () => {
         const state = get()
         const preview = state.letterVaultPreview
         if (!preview) return
 
-        const template = state.templates.find((t) => t.id === state.activeTemplateId)
-        if (!template) return
+        const mapping: Record<string, string> = {}
+        if (preview.name?.trim()) mapping.sender_name = preview.name.trim()
+        if (preview.address?.trim()) mapping.sender_address = preview.address.trim()
+        if (preview.email?.trim()) mapping.sender_email = preview.email.trim()
+        if (preview.phone?.trim()) mapping.sender_phone = preview.phone.trim()
+        if (preview.signerName?.trim()) mapping.signer_name = preview.signerName.trim()
 
-        const mapping: Record<string, string | undefined> = {
-          sender_name: preview.name,
-          sender_address: preview.address,
-          sender_email: preview.email,
-          sender_phone: preview.phone,
-          signer_name: preview.signerName,
-        }
+        const template =
+          (state.activeTemplateId
+            ? state.templates.find((t) => t.id === state.activeTemplateId)
+            : undefined) ??
+          (state.templates.length === 1 ? state.templates[0] : undefined)
 
-        for (const [fieldName, value] of Object.entries(mapping)) {
-          if (!value) continue
-          const field = template.fields.find((f) => f.name === fieldName)
-          if (field) {
-            state.updateTemplateField(template.id, field.id, value)
+        if (template) {
+          const { updateTemplateField } = get()
+          for (const [logicalKey, value] of Object.entries(mapping)) {
+            const field = findTemplateFieldForVaultApply(template.fields, logicalKey)
+            if (field) {
+              updateTemplateField(template.id, field.id, value)
+            }
           }
         }
 
-        set({ letterVaultApplied: true })
+        set({
+          letterVaultApplied: true,
+          pendingVaultApplyForSetup: mapping,
+        })
       },
     }),
     {
