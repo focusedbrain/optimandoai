@@ -56,6 +56,28 @@ function getConfidenceLevel(c: number): 'high' | 'medium' | 'low' {
   return 'low'
 }
 
+/** Display-only merge for sender/recipient name + address (dedupe when model duplicated both). */
+function buildCombinedNameAddressBlock(name?: string, address?: string): string {
+  const n = (name ?? '').trim()
+  const a = (address ?? '').trim()
+  if (!n && !a) return ''
+  if (!n) return a
+  if (!a) return n
+  const addressLower = a.toLowerCase()
+  const nameLower = n.toLowerCase()
+  if (addressLower.startsWith(nameLower) || addressLower.includes(nameLower)) {
+    return a
+  }
+  if (nameLower.includes(addressLower)) {
+    return n
+  }
+  return `${n}\n${a}`
+}
+
+function averageConfidence(a: number, b: number): number {
+  return (a + b) / 2
+}
+
 function findRecipientNameField(fields: TemplateField[]): TemplateField | undefined {
   return fields.find((f) => {
     const n = f.name.toLowerCase()
@@ -372,12 +394,12 @@ export function LetterViewerPort() {
       'order_number',
       'file_reference',
       'booking_account',
+      'salutation',
     ]
 
     const neverSelect: readonly string[] = [
       'recipient_name',
       'recipient_address',
-      'salutation',
       'body_summary',
       'contact_person',
       'detected_language',
@@ -566,6 +588,40 @@ export function LetterViewerPort() {
   const onExtractedFieldChange = useCallback(
     (key: string, value: string) => {
       if (!activeLetter) return
+      if (key === 'sender_combined') {
+        const lines = value.split('\n')
+        const name = lines[0]?.trim() ?? ''
+        const address = lines.slice(1).join('\n').trim()
+        updateLetter(activeLetter.id, {
+          extractedFields: { sender_name: name, sender_address: address },
+          confidence: { sender_name: 1, sender_address: 1 },
+        })
+        if (value.trim()) {
+          setSelectedFields((prev) => ({
+            ...prev,
+            sender_name: prev.sender_name ?? true,
+            sender_address: prev.sender_address ?? true,
+          }))
+        }
+        return
+      }
+      if (key === 'recipient_combined') {
+        const lines = value.split('\n')
+        const name = lines[0]?.trim() ?? ''
+        const address = lines.slice(1).join('\n').trim()
+        updateLetter(activeLetter.id, {
+          extractedFields: { recipient_name: name, recipient_address: address },
+          confidence: { recipient_name: 1, recipient_address: 1 },
+        })
+        if (value.trim()) {
+          setSelectedFields((prev) => ({
+            ...prev,
+            recipient_name: prev.recipient_name ?? true,
+            recipient_address: prev.recipient_address ?? true,
+          }))
+        }
+        return
+      }
       updateLetter(activeLetter.id, {
         extractedFields: { [key]: value },
         confidence: { [key]: 1 },
@@ -606,6 +662,98 @@ export function LetterViewerPort() {
     }
 
     store.updateTemplateField(template.id, field.id, value)
+    setAutofillNote(null)
+  }, [])
+
+  const handleUseCombinedSender = useCallback(() => {
+    const store = useLetterComposerStore.getState()
+    const letter = store.letters.find((l) => l.id === store.activeLetterId)
+    const fields = letter?.extractedFields
+    if (!fields) return
+
+    const template = store.templates.find((t) => t.id === store.activeTemplateId)
+    if (!template?.mappingComplete) {
+      setAutofillNote('Finish template field mapping before using extracted fields.')
+      return
+    }
+
+    const name = fields.sender_name?.trim()
+    const addr = fields.sender_address?.trim()
+    if (!name && !addr) return
+
+    let applied = false
+    if (name) {
+      const semantic = mapExtractedToTemplateField('sender_name', 'reply')
+      if (semantic) {
+        const field = resolveTemplateFieldForSemanticName(template.fields, semantic)
+        if (field) {
+          store.updateTemplateField(template.id, field.id, name)
+          applied = true
+        }
+      }
+    }
+    if (addr) {
+      const semantic = mapExtractedToTemplateField('sender_address', 'reply')
+      if (semantic) {
+        const field = resolveTemplateFieldForSemanticName(template.fields, semantic)
+        if (field) {
+          store.updateTemplateField(template.id, field.id, addr)
+          applied = true
+        }
+      }
+    }
+    if (!applied) {
+      setAutofillNote(
+        'No matching template fields for sender name/address. Add or name recipient fields in the template.',
+      )
+      return
+    }
+    setAutofillNote(null)
+  }, [])
+
+  const handleUseCombinedRecipient = useCallback(() => {
+    const store = useLetterComposerStore.getState()
+    const letter = store.letters.find((l) => l.id === store.activeLetterId)
+    const fields = letter?.extractedFields
+    if (!fields) return
+
+    const template = store.templates.find((t) => t.id === store.activeTemplateId)
+    if (!template?.mappingComplete) {
+      setAutofillNote('Finish template field mapping before using extracted fields.')
+      return
+    }
+
+    const name = fields.recipient_name?.trim()
+    const addr = fields.recipient_address?.trim()
+    if (!name && !addr) return
+
+    let applied = false
+    if (name) {
+      const semantic = mapExtractedToTemplateField('recipient_name', 'reply')
+      if (semantic) {
+        const field = resolveTemplateFieldForSemanticName(template.fields, semantic)
+        if (field) {
+          store.updateTemplateField(template.id, field.id, name)
+          applied = true
+        }
+      }
+    }
+    if (addr) {
+      const semantic = mapExtractedToTemplateField('recipient_address', 'reply')
+      if (semantic) {
+        const field = resolveTemplateFieldForSemanticName(template.fields, semantic)
+        if (field) {
+          store.updateTemplateField(template.id, field.id, addr)
+          applied = true
+        }
+      }
+    }
+    if (!applied) {
+      setAutofillNote(
+        'No matching template fields for recipient name/address. Add or name sender fields in the template.',
+      )
+      return
+    }
     setAutofillNote(null)
   }, [])
 
@@ -694,6 +842,80 @@ export function LetterViewerPort() {
   const conf = activeLetter?.confidence ?? {}
 
   const canApplyExtracted = !!activeTemplateId && !!activeTemplate?.mappingComplete
+
+  const senderCombinedDisplay = useMemo(
+    () => buildCombinedNameAddressBlock(ef.sender_name, ef.sender_address),
+    [ef.sender_name, ef.sender_address],
+  )
+  const senderCombinedConf = useMemo(() => {
+    const n = (ef.sender_name ?? '').trim()
+    const a = (ef.sender_address ?? '').trim()
+    if (n && a) return averageConfidence(conf.sender_name ?? 0, conf.sender_address ?? 0)
+    if (n) return conf.sender_name ?? 0
+    if (a) return conf.sender_address ?? 0
+    return 0
+  }, [ef.sender_name, ef.sender_address, conf.sender_name, conf.sender_address])
+
+  const recipientCombinedDisplay = useMemo(
+    () => buildCombinedNameAddressBlock(ef.recipient_name, ef.recipient_address),
+    [ef.recipient_name, ef.recipient_address],
+  )
+  const recipientCombinedConf = useMemo(() => {
+    const n = (ef.recipient_name ?? '').trim()
+    const a = (ef.recipient_address ?? '').trim()
+    if (n && a) return averageConfidence(conf.recipient_name ?? 0, conf.recipient_address ?? 0)
+    if (n) return conf.recipient_name ?? 0
+    if (a) return conf.recipient_address ?? 0
+    return 0
+  }, [ef.recipient_name, ef.recipient_address, conf.recipient_name, conf.recipient_address])
+
+  const combinedSenderUse = useMemo(() => {
+    const canName = !!(ef.sender_name ?? '').trim()
+    const canAddr = !!(ef.sender_address ?? '').trim()
+    if (!canApplyExtracted) {
+      return { useDisabled: true, useTitle: 'Select a template and finish field mapping first' }
+    }
+    if (!canName && !canAddr) {
+      return { useDisabled: true, useTitle: 'No value to insert' }
+    }
+    if (!activeTemplate) {
+      return { useDisabled: true, useTitle: 'Select a template and finish field mapping first' }
+    }
+    const semN = mapExtractedToTemplateField('sender_name', 'reply')
+    const semA = mapExtractedToTemplateField('sender_address', 'reply')
+    const fieldN = semN ? resolveTemplateFieldForSemanticName(activeTemplate.fields, semN) : undefined
+    const fieldA = semA ? resolveTemplateFieldForSemanticName(activeTemplate.fields, semA) : undefined
+    const canInsert = Boolean((canName && fieldN) || (canAddr && fieldA))
+    const useDisabled = !canInsert
+    const useTitle = useDisabled
+      ? 'No matching template field for sender name/address'
+      : 'Insert sender name and address into template (reply: recipient fields)'
+    return { useDisabled, useTitle }
+  }, [activeTemplate, canApplyExtracted, ef.sender_name, ef.sender_address])
+
+  const combinedRecipientUse = useMemo(() => {
+    const canName = !!(ef.recipient_name ?? '').trim()
+    const canAddr = !!(ef.recipient_address ?? '').trim()
+    if (!canApplyExtracted) {
+      return { useDisabled: true, useTitle: 'Select a template and finish field mapping first' }
+    }
+    if (!canName && !canAddr) {
+      return { useDisabled: true, useTitle: 'No value to insert' }
+    }
+    if (!activeTemplate) {
+      return { useDisabled: true, useTitle: 'Select a template and finish field mapping first' }
+    }
+    const semN = mapExtractedToTemplateField('recipient_name', 'reply')
+    const semA = mapExtractedToTemplateField('recipient_address', 'reply')
+    const fieldN = semN ? resolveTemplateFieldForSemanticName(activeTemplate.fields, semN) : undefined
+    const fieldA = semA ? resolveTemplateFieldForSemanticName(activeTemplate.fields, semA) : undefined
+    const canInsert = Boolean((canName && fieldN) || (canAddr && fieldA))
+    const useDisabled = !canInsert
+    const useTitle = useDisabled
+      ? 'No matching template field for recipient name/address'
+      : 'Insert recipient name and address into template (reply: sender fields)'
+    return { useDisabled, useTitle }
+  }, [activeTemplate, canApplyExtracted, ef.recipient_name, ef.recipient_address])
 
   const hasSelectedExtracted = useMemo(
     () => Object.values(selectedFields).some(Boolean),
@@ -856,21 +1078,24 @@ export function LetterViewerPort() {
           <div className="extracted-group">
             <h5>Sender</h5>
             <ExtractedRow
-              label="Name"
-              fieldKey="sender_name"
-              value={ef.sender_name ?? ''}
-              confidence={conf.sender_name ?? 0}
+              label="Sender"
+              fieldKey="sender_combined"
+              value={senderCombinedDisplay}
+              confidence={senderCombinedConf}
+              multiline
               onChange={onExtractedFieldChange}
-              {...getExtractedRowControls('sender_name')}
-            />
-            <ExtractedRow
-              label="Address"
-              fieldKey="sender_address"
-              value={ef.sender_address ?? ''}
-              confidence={conf.sender_address ?? 0}
-              multiline={MULTILINE_KEYS.has('sender_address')}
-              onChange={onExtractedFieldChange}
-              {...getExtractedRowControls('sender_address')}
+              hideIfEmpty
+              selected={(selectedFields.sender_name ?? false) && (selectedFields.sender_address ?? false)}
+              onSelectedChange={(checked) =>
+                setSelectedFields((prev) => ({
+                  ...prev,
+                  sender_name: checked,
+                  sender_address: checked,
+                }))
+              }
+              onUseField={handleUseCombinedSender}
+              useDisabled={combinedSenderUse.useDisabled}
+              useTitle={combinedSenderUse.useTitle}
             />
             <ExtractedRow
               label="Phone"
@@ -913,21 +1138,24 @@ export function LetterViewerPort() {
           <div className="extracted-group">
             <h5>Recipient</h5>
             <ExtractedRow
-              label="Name"
-              fieldKey="recipient_name"
-              value={ef.recipient_name ?? ''}
-              confidence={conf.recipient_name ?? 0}
+              label="Recipient"
+              fieldKey="recipient_combined"
+              value={recipientCombinedDisplay}
+              confidence={recipientCombinedConf}
+              multiline
               onChange={onExtractedFieldChange}
-              {...getExtractedRowControls('recipient_name')}
-            />
-            <ExtractedRow
-              label="Address"
-              fieldKey="recipient_address"
-              value={ef.recipient_address ?? ''}
-              confidence={conf.recipient_address ?? 0}
-              multiline={MULTILINE_KEYS.has('recipient_address')}
-              onChange={onExtractedFieldChange}
-              {...getExtractedRowControls('recipient_address')}
+              hideIfEmpty
+              selected={(selectedFields.recipient_name ?? false) && (selectedFields.recipient_address ?? false)}
+              onSelectedChange={(checked) =>
+                setSelectedFields((prev) => ({
+                  ...prev,
+                  recipient_name: checked,
+                  recipient_address: checked,
+                }))
+              }
+              onUseField={handleUseCombinedRecipient}
+              useDisabled={combinedRecipientUse.useDisabled}
+              useTitle={combinedRecipientUse.useTitle}
             />
           </div>
 
@@ -978,7 +1206,7 @@ export function LetterViewerPort() {
               {...getExtractedRowControls('salutation')}
             />
             <ExtractedRow
-              label="Summary"
+              label="Letter context (for AI draft)"
               fieldKey="body_summary"
               value={ef.body_summary ?? ''}
               confidence={conf.body_summary ?? 0}

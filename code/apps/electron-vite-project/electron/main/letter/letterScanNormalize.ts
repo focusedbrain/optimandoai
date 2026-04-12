@@ -133,13 +133,13 @@ const NORMALIZE_SYSTEM = `You are extracting structured data from a business let
 
 FIELD DEFINITIONS — extract ONLY what matches each definition:
 
-- sender_name: Company name or person name of the letter's author. Usually at the top or in the letterhead. ONE line.
+- sender_name: The legal or display name of the sending organization or person ONLY. This is the company name (e.g. "Telekom Deutschland GmbH") or person name (e.g. "Dr. Hans Müller"). Do NOT include any address components like street, postal code, or city. Do NOT put city or postal code in this field — those belong in sender_address.
 
-- sender_address: POSTAL address of the sender. Contains ONLY: street + number, postal/ZIP code + city, optionally state/province + country. Does NOT contain: phone, fax, email, website, bank details, IBAN, BIC, tax IDs, registration numbers, or any other identifiers. Maximum 4 lines.
+- sender_address: The postal mailing address of the sender, WITHOUT the sender's name. Include ONLY: street and house number, postal code, city, and optionally country. Example: "Landgrabenweg 151" on one line and "53227 Bonn" on the next — NOT "Telekom Deutschland GmbH, 53227 Bonn" and NOT the company name in this field. The company or person name belongs ONLY in sender_name. NEVER include bank details, legal info, phone, email, or the sender's name in this field. Maximum 4 lines.
 
-- recipient_name: Name of the person or company the letter is addressed to. Usually in the address window area.
+- recipient_name: The name of the person or organization the letter is addressed to. Do NOT include address components (street, postal code, city).
 
-- recipient_address: POSTAL address of the recipient. Same rules as sender_address — postal address only, nothing else.
+- recipient_address: The postal address of the recipient WITHOUT their name. Same rules as sender_address — street, postal code, city, country only; never the addressee's name in this field.
 
 ADDRESS PURITY (sender_address and recipient_address):
 These two fields must contain ONLY the postal mailing address (street, house number, postal code, city, country).
