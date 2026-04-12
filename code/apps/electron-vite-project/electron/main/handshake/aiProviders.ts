@@ -98,12 +98,6 @@ export class OllamaProvider implements AIProvider {
     const model = options?.model ?? this.chatModel
     const stream = options?.stream ?? false
     const send = options?.send ?? (() => {})
-    console.log('LINK5: calling Ollama', {
-      model,
-      messageCount: messages.length,
-      baseUrl: this.baseUrl,
-      stream,
-    })
 
     if (stream && send) {
       const { streamOllamaChat } = await import('./llmStream')

@@ -3912,15 +3912,8 @@ app.whenReady().then(async () => {
       const elapsed = () => Math.round((typeof performance !== 'undefined' ? performance.now() : Date.now()) - totalStart)
 
       try {
-        console.log('LINK4: main received chatWithContextRag', {
-          query: params.query?.substring(0, 200),
-          stream: params.stream,
-          model: params.model,
-          provider: params.provider,
-        })
         const db = await getHandshakeDb()
         if (!db) {
-          console.log('LINK4: chatWithContextRag early exit — vault_locked (no db)')
           return toIPC({ success: false, error: 'vault_locked' })
         }
 
@@ -4029,12 +4022,6 @@ app.whenReady().then(async () => {
         const { scoredBlocksToRetrieved, buildRagPrompt, buildPrompt } = await import('./main/handshake/blockRetrieval')
 
         const embeddingUnavailable = !embeddingService
-        console.log('LINK4b: starting retrieval', {
-          scope,
-          handshakeId: filter.handshake_id,
-          relationshipId: filter.relationship_id,
-          embeddingUnavailable,
-        })
         // When embedding unavailable: use keyword fallback (same as Search) so Chat can answer from lexical matches
         let hybridResult: Awaited<ReturnType<typeof hybridSearch>>
         if (embeddingUnavailable) {
@@ -4048,11 +4035,6 @@ app.whenReady().then(async () => {
         } else {
           hybridResult = await hybridSearch(db, params.query ?? '', filter, embeddingService)
         }
-        console.log('LINK4c: retrieval done', {
-          mode: hybridResult.mode,
-          blockCount: hybridResult.blocks?.length ?? 0,
-          structuredFound: !!(hybridResult as { structured?: { found?: boolean } }).structured?.found,
-        })
         const { getHandshakeRecord } = await import('./main/handshake/db')
         const {
           parseGovernanceJson,
@@ -4401,11 +4383,6 @@ app.whenReady().then(async () => {
           { role: 'system' as const, content: systemPrompt },
           { role: 'user' as const, content: userPrompt },
         ]
-        console.log('LINK4d: prompt built, calling LLM', {
-          systemLen: systemPrompt.length,
-          userLen: userPrompt.length,
-          doStream,
-        })
         try {
           answer = await provider.generateChat(messages, {
             model: params.model,
@@ -4504,21 +4481,10 @@ app.whenReady().then(async () => {
     ipcMain.handle('handshake:chatDirect', async (event, params: { model: string; provider: string; systemPrompt: string; userPrompt: string; stream?: boolean; temperature?: number }) => {
       const toIPC = (o: unknown) => { try { return JSON.parse(JSON.stringify(o)) } catch { return o } }
       const send = (channel: string, data: unknown) => {
-        if (channel === 'handshake:chatStreamToken') {
-          const tok = (data as { token?: string })?.token ?? ''
-          console.log('LINK6: emitting token', tok.substring(0, 50))
-        }
         try { event.sender.send(channel, toIPC(data)) } catch {}
       }
       const doStream = params.stream === true
       try {
-        console.log('LINK4: main received chatDirect', {
-          stream: doStream,
-          model: params.model,
-          provider: params.provider,
-          userPromptLen: params.userPrompt?.length ?? 0,
-          systemPromptLen: params.systemPrompt?.length ?? 0,
-        })
         const { getProvider } = await import('./main/handshake/aiProviders')
         const { ocrRouter } = await import('./main/ocr/router')
         const provider = getProvider(

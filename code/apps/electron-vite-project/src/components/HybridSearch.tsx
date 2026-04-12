@@ -530,8 +530,8 @@ export default function HybridSearch({
   /** General chat conversation — user + assistant turns (non-draft-refine mode only) */
   const [chatMessages, setChatMessages] = useState<ChatTurn[]>([])
   const chatContainerRef = useRef<HTMLDivElement>(null)
-  /** Bumped when the letter template field changes so in-flight stream tokens are ignored. */
-  const chatStreamGenerationRef = useRef(0)
+  /** Bumped on letter-composer field switch and on each chat submit so stale stream tokens are ignored. */
+  const chatGenerationRef = useRef(0)
 
   const letterComposerPortForUse = useChatFocusStore((s) =>
     s.chatFocusMode.mode === 'letter-composer' ? s.focusMeta?.letterComposerPort : undefined,
@@ -857,15 +857,16 @@ export default function HybridSearch({
     return () => window.removeEventListener('wrdesk:clear-chat-conversation', handler)
   }, [])
 
-  // Letter Composer: clear current response (keep chat history) when the focused template field changes
+  // Letter Composer only: clear current response (keep chat history) when the focused template field changes
   useEffect(() => {
     let prevFieldId = useLetterComposerStore.getState().focusedTemplateFieldId
     const unsub = useLetterComposerStore.subscribe((state) => {
-      const nextFieldId = state.focusedTemplateFieldId
-      if (nextFieldId === prevFieldId) return
-      prevFieldId = nextFieldId
+      const curr = state.focusedTemplateFieldId
+      if (curr === prevFieldId) return
+      prevFieldId = curr
       if (useChatFocusStore.getState().chatFocusMode.mode !== 'letter-composer') return
-      chatStreamGenerationRef.current += 1
+      if (curr == null) return
+      chatGenerationRef.current += 1
       setResponse(null)
       setContextBlocks([])
       setChatSources([])
@@ -902,9 +903,10 @@ export default function HybridSearch({
   }, [infoPopupOpen])
 
   const handleSubmit = useCallback(async () => {
-    console.log('LINK1: handleSubmit fired', { query, mode, isLoading })
     const trimmed = query.trim()
     if (!trimmed || isLoading) return
+
+    chatGenerationRef.current += 1
 
     const previousAnswer = response
     setLastMode(mode)
@@ -938,18 +940,17 @@ export default function HybridSearch({
       } else {
         const modelInfo = availableModels.find(m => m.id === selectedModel)
         const streamedRef = { current: '' }
-        const streamGenAtSubmit = chatStreamGenerationRef.current
+        const streamGenAtSubmit = chatGenerationRef.current
         // Register stream listeners before ANY branch that calls IPC with stream:true (multi-version, letter-compose, field-drafting, RAG).
         const unsubStart = window.handshakeView?.onChatStreamStart?.((data: { contextBlocks: string[]; sources: ChatSource[] }) => {
-          if (chatStreamGenerationRef.current !== streamGenAtSubmit) return
+          if (chatGenerationRef.current !== streamGenAtSubmit) return
           setContextBlocks(data.contextBlocks ?? [])
           setChatSources(data.sources ?? [])
           setIsLoading(false)
         })
         const unsubToken = window.handshakeView?.onChatStreamToken?.((data: { token: string }) => {
-          if (chatStreamGenerationRef.current !== streamGenAtSubmit) return
+          if (chatGenerationRef.current !== streamGenAtSubmit) return
           const tok = data.token ?? ''
-          console.log('RENDERER received token:', tok.substring(0, 20))
           streamedRef.current += tok
           setResponse(prev => (prev ?? '') + tok)
         })
@@ -967,7 +968,6 @@ export default function HybridSearch({
           useChatFocusStore.getState().focusMeta?.letterComposerPort === 'template'
 
         if (isLetterTemplateMultiVersion && window.handshakeView?.chatDirect) {
-          console.log('LINK2: multi-version branch')
           const lc = useLetterComposerStore.getState()
           const fm = useChatFocusStore.getState().focusMeta
           const tid = fm?.letterComposerTemplateId ?? lc.activeTemplateId
@@ -977,7 +977,6 @@ export default function HybridSearch({
             unsubToken?.()
           }
           if (tpl?.fields.length) {
-            const focusPrefix = getChatFocusLlmPrefix(useChatFocusStore.getState()) ?? ''
             const fieldLines = tpl.fields
               .map(
                 (f) =>
@@ -986,23 +985,12 @@ export default function HybridSearch({
               .join('\n')
             const idsList = tpl.fields.map((f) => `"${f.id}"`).join(', ')
             const systemPrompt = `You fill business letter templates. Output ONLY a single JSON object whose keys are EXACTLY these field ids: ${idsList}. Each value is the filled string for that field. No markdown code fences, no commentary, no text before or after the JSON.\n\nFields:\n${fieldLines}`
-            const userPrompt = `${focusPrefix}Instruction:\n${trimmed}`
+            // Raw instruction only — same as letter-compose: avoid getChatFocusLlmPrefix (German template snapshot leaks language).
+            const userPrompt = `Instruction:\n${trimmed}`
             const temps = [0.35, 0.72, 1.0] as const
             const snapshots: Array<Record<string, string>> = []
             try {
               for (let i = 0; i < 3; i++) {
-                console.log('LINK3: calling IPC', {
-                  ipcName: 'chatDirect',
-                  branch: 'letter-multi-version',
-                  query: userPrompt?.substring(0, 200),
-                  model: selectedModel || 'llama3',
-                  provider: modelInfo?.provider || 'ollama',
-                })
-                console.log('LINK3: IPC available?', {
-                  handshakeView: !!window.handshakeView,
-                  chatDirect: typeof window.handshakeView?.chatDirect,
-                  chatWithContextRag: typeof window.handshakeView?.chatWithContextRag,
-                })
                 const r = await window.handshakeView.chatDirect({
                   model: selectedModel || 'llama3',
                   provider: modelInfo?.provider || 'ollama',
@@ -1176,21 +1164,11 @@ export default function HybridSearch({
           wantsLetterTemplateMultiVersion: wantsLetterTemplateMultiVersion(trimmed),
           isFieldDrafting,
         })
-        console.log('LINK2 conditions:', {
-          mode,
-          isDraftRefineSession,
-          chatFocusMode: useChatFocusStore.getState().chatFocusMode,
-          focusMetaLetterPort: useChatFocusStore.getState().focusMeta?.letterComposerPort,
-          isFieldDrafting,
-          activeView,
-          letterRouteKind: letterRoute.kind,
-        })
         if (
           !isFieldDrafting &&
           useChatFocusStore.getState().chatFocusMode.mode === 'letter-composer' &&
           letterRoute.kind === 'letter-compose'
         ) {
-          console.log('LINK2: letter-compose branch')
           let chatAttachmentTextForLetter: string | null = null
           if (chatAttachments.length > 0) {
             const parts: string[] = []
@@ -1204,11 +1182,6 @@ export default function HybridSearch({
             if (parts.length > 0) chatAttachmentTextForLetter = parts.join('\n\n')
           }
           try {
-            console.log('LINK3: IPC available?', {
-              handshakeView: !!window.handshakeView,
-              chatDirect: typeof window.handshakeView?.chatDirect,
-              chatWithContextRag: typeof window.handshakeView?.chatWithContextRag,
-            })
             const letterResult = await handleLetterComposerChat({
               userQuery: trimmed,
               chatAttachmentText: chatAttachmentTextForLetter,
@@ -1217,20 +1190,12 @@ export default function HybridSearch({
               stream: true,
             })
             if (!letterResult.success) {
-              console.log('LINK7: setResponse called', { branch: 'letter-compose-error', answerLength: (letterResult.error ?? '').length })
               setResponse(letterResult.error || 'Letter composer error')
             } else {
               const ans = letterResult.answer ?? ''
-              const fromStream = streamedRef.current
-              console.log('LINK7: setResponse called', {
-                branch: 'letter-compose-success',
-                answerLength: ans.length,
-                streamedRefLength: fromStream.length,
-              })
               setResponse((prev) => prev || ans)
             }
           } catch (err: any) {
-            console.log('LINK7: setResponse called', { branch: 'letter-compose-catch', answerLength: (err?.message ?? '').length })
             setResponse(err?.message || 'Letter composer error')
           } finally {
             unsubStart?.()
@@ -1245,7 +1210,6 @@ export default function HybridSearch({
         let result: Awaited<ReturnType<NonNullable<typeof window.handshakeView>['chatWithContextRag']>> | undefined
         try {
           if (isFieldDrafting && window.handshakeView?.chatDirect) {
-            console.log('LINK2: field-drafting branch')
             const draft = fieldDraftState!.setupTextDraft.trim()
             const fieldTagMatch = draft.match(/^\[field:([^\]]+)\]\n?/)
             const fieldName = fieldTagMatch ? fieldTagMatch[1] : 'content'
@@ -1263,18 +1227,6 @@ export default function HybridSearch({
               userPrompt = `Write a ${fieldName} based on this instruction: ${chatQuery}`
             }
 
-            console.log('LINK3: calling IPC', {
-              ipcName: 'chatDirect',
-              branch: 'field-drafting',
-              query: userPrompt?.substring(0, 200),
-              model: selectedModel || 'llama3',
-              provider: modelInfo?.provider || 'ollama',
-            })
-            console.log('LINK3: IPC available?', {
-              handshakeView: !!window.handshakeView,
-              chatDirect: typeof window.handshakeView?.chatDirect,
-              chatWithContextRag: typeof window.handshakeView?.chatWithContextRag,
-            })
             result = await window.handshakeView.chatDirect({
               model: selectedModel || 'llama3',
               provider: modelInfo?.provider || 'ollama',
@@ -1283,20 +1235,7 @@ export default function HybridSearch({
               stream: true,
             })
           } else {
-            console.log('LINK2: RAG default branch')
             const ragQuery = milestoneContextBlock ? chatQuery + milestoneContextBlock : chatQuery
-            console.log('LINK3: calling IPC', {
-              ipcName: 'chatWithContextRag',
-              branch: 'rag-default',
-              query: ragQuery?.substring(0, 200),
-              model: selectedModel || 'llama3',
-              provider: modelInfo?.provider || 'ollama',
-            })
-            console.log('LINK3: IPC available?', {
-              handshakeView: !!window.handshakeView,
-              chatDirect: typeof window.handshakeView?.chatDirect,
-              chatWithContextRag: typeof window.handshakeView?.chatWithContextRag,
-            })
             result = await window.handshakeView?.chatWithContextRag?.({
               query: ragQuery,
               scope: effectiveScope,
@@ -1315,7 +1254,6 @@ export default function HybridSearch({
         }
 
         if (!result?.success) {
-          console.log('LINK7: setResponse called', { branch: 'chat-error', answerLength: 0, error: result?.error })
           if (result?.error === 'vault_locked') {
             setResponse('🔒 Unlock your vault to search handshake data.')
           } else if (result?.error === 'embedding_unavailable') {
@@ -1337,12 +1275,6 @@ export default function HybridSearch({
           setChatGovernanceNote(null)
         } else {
           const answerText = (result.answer ?? streamedRef.current) || ''
-          console.log('LINK7: setResponse called', {
-            branch: 'chat-success',
-            answerLength: answerText.length,
-            streamed: !!result.streamed,
-            streamedRefLength: streamedRef.current.length,
-          })
           if (!result.streamed) {
             setResponse(answerText)
             setChatSources(result.sources ?? [])

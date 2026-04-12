@@ -9,14 +9,6 @@ import { buildLetterComposerSystemPrompt, buildLetterComposerUserPrompt } from '
 
 const FALLBACK_FIELD = { label: 'Body', name: 'body' }
 
-function fieldSnapshotFromFocusMeta(
-  fields: Array<{ id: string; name: string; value: string }> | undefined,
-): string | null {
-  if (!fields?.length) return null
-  const lines = fields.map((f) => `${f.name}: ${f.value ?? ''}`)
-  return lines.join('\n')
-}
-
 export async function handleLetterComposerChat(params: {
   userQuery: string
   chatAttachmentText: string | null
@@ -48,18 +40,27 @@ export async function handleLetterComposerChat(params: {
     targetFieldName,
   })
 
-  const fieldSnapshot = focusMeta?.letterComposerFields
-    ? fieldSnapshotFromFocusMeta(focusMeta.letterComposerFields)
-    : null
+  let fieldSnapshot: string | null = null
+  if (focusMeta?.letterComposerFields?.length && (fieldId || targetFieldName)) {
+    const rows = focusMeta.letterComposerFields
+    const row =
+      (fieldId ? rows.find((r) => r.id === fieldId) : undefined) ??
+      rows.find((r) => r.name === targetFieldName)
+    const currentValue = row?.value?.trim()
+    if (currentValue) {
+      fieldSnapshot = `Current value of ${targetFieldLabel}: ${currentValue}`
+    }
+  }
 
   const contextDocumentsBlock =
     documents.length > 0
-      ? documents.map((d) => `--- ${d.name || 'Dokument'} ---\n${d.text}`).join('\n\n')
+      ? documents.map((d) => `--- ${d.name || 'Document'} ---\n${d.text}`).join('\n\n')
       : null
 
   const userPrompt = buildLetterComposerUserPrompt({
     userInstruction: params.userQuery,
-    templateExcerpt: focusMeta?.letterComposerTemplateHtmlExcerpt ?? null,
+    // templateExcerpt: focusMeta?.letterComposerTemplateHtmlExcerpt ?? null,
+    templateExcerpt: null, // Removed: HTML excerpt biases LLM language toward template language
     fieldSnapshot,
     scannedLetterText: focusMeta?.letterComposerLetterPageText ?? null,
     contextDocuments: contextDocumentsBlock,
@@ -72,14 +73,6 @@ export async function handleLetterComposerChat(params: {
   }
 
   try {
-    console.log('LINK3: letterComposerChat calling chatDirect', {
-      stream: params.stream,
-      model: params.model,
-      provider: params.provider,
-      userQuery: params.userQuery?.substring(0, 200),
-      userPromptLen: userPrompt.length,
-      systemPromptLen: systemPrompt.length,
-    })
     const result = await chatDirect({
       model: params.model,
       provider: params.provider,

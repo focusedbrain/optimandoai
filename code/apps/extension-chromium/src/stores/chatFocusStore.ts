@@ -1,8 +1,6 @@
 import { create } from 'zustand'
 import type { ChatFocusMode } from '../types/triggerTypes'
 
-/** Letter Composer LLM diagnostics: HybridSearch logs `useChatFocusStore.getState()` at LINK2 (chatFocusMode / focusMeta). */
-
 /** Display / LLM strings for optimizer mode (titles are not on ChatFocusMode alone). */
 export type ChatFocusMeta = {
   projectTitle?: string

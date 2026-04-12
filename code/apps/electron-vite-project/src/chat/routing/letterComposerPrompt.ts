@@ -16,11 +16,11 @@ TASK:
 - Produce ONLY the text for this field.
 - Do not explain your reasoning. Do not offer alternatives unless asked.
 
-LANGUAGE RULE:
-- Write in the SAME language the user uses in their instruction.
-- If the user writes in German, respond in German (formal Sie-Form).
-- If the user writes in English, respond in English.
-- If unclear, default to German (formal).
+LANGUAGE (strict):
+- Your output language MUST match the language of the INSTRUCTION section in the user message.
+- If the instruction is in English, write in English. If in German, write in German (formal Sie-Form).
+- Other parts of the user message (field values, template text, documents) may be in a different language. IGNORE their language for your output.
+- Never switch languages based on context — only based on the INSTRUCTION.
 
 FORMAT:
 - Output ONLY the finished text for the target field.
@@ -46,22 +46,22 @@ export function buildLetterComposerUserPrompt(params: {
   const parts: string[] = []
 
   const ex = nonEmpty(params.templateExcerpt)
-  if (ex) parts.push(`VORLAGE (bisheriger Stand):\n${ex}\n\n`)
+  if (ex) parts.push(`TEMPLATE (current state):\n${ex}\n\n`)
 
   const fs = nonEmpty(params.fieldSnapshot)
-  if (fs) parts.push(`AKTUELLE FELDWERTE:\n${fs}\n\n`)
+  if (fs) parts.push(`CURRENT FIELD VALUES:\n${fs}\n\n`)
 
   const sl = nonEmpty(params.scannedLetterText)
-  if (sl) parts.push(`EINGESCANNTES SCHREIBEN:\n${sl}\n\n`)
+  if (sl) parts.push(`SCANNED LETTER:\n${sl}\n\n`)
 
   const cd = nonEmpty(params.contextDocuments)
-  if (cd) parts.push(`ZUSÄTZLICHE DOKUMENTE:\n${cd}\n\n`)
+  if (cd) parts.push(`ADDITIONAL DOCUMENTS:\n${cd}\n\n`)
 
   const ca = nonEmpty(params.chatAttachmentText)
-  if (ca) parts.push(`ANHÄNGE AUS CHAT:\n${ca}\n\n`)
+  if (ca) parts.push(`CHAT ATTACHMENTS:\n${ca}\n\n`)
 
   const instruction = nonEmpty(params.userInstruction) ?? ''
-  parts.push(`ANWEISUNG:\n${instruction}`)
+  parts.push(`INSTRUCTION (write your output in this language):\n${instruction}`)
 
   return parts.join('')
 }

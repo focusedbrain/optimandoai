@@ -30,7 +30,6 @@ export async function streamOllamaChat(
   }
   try {
     const chatUrl = `${baseUrl.replace(/\/$/, '')}/api/chat`
-    console.log('LINK5: streaming', { model, url: chatUrl })
     const res = await fetch(chatUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -65,7 +64,6 @@ export async function streamOllamaChat(
           const delta = obj.message?.content ?? obj.response ?? ''
           if (delta) {
             full += delta
-            console.log('LINK6: stream chunk', delta.substring(0, 100))
             send('handshake:chatStreamToken', { token: delta })
           }
         } catch (parseErr) {
@@ -79,7 +77,6 @@ export async function streamOllamaChat(
         const delta = obj.message?.content ?? obj.response ?? ''
         if (delta) {
           full += delta
-          console.log('LINK6: stream chunk', delta.substring(0, 100))
           send('handshake:chatStreamToken', { token: delta })
         }
       } catch (parseErr) {
