@@ -4029,6 +4029,12 @@ app.whenReady().then(async () => {
         const { scoredBlocksToRetrieved, buildRagPrompt, buildPrompt } = await import('./main/handshake/blockRetrieval')
 
         const embeddingUnavailable = !embeddingService
+        console.log('LINK4b: starting retrieval', {
+          scope,
+          handshakeId: filter.handshake_id,
+          relationshipId: filter.relationship_id,
+          embeddingUnavailable,
+        })
         // When embedding unavailable: use keyword fallback (same as Search) so Chat can answer from lexical matches
         let hybridResult: Awaited<ReturnType<typeof hybridSearch>>
         if (embeddingUnavailable) {
@@ -4042,6 +4048,11 @@ app.whenReady().then(async () => {
         } else {
           hybridResult = await hybridSearch(db, params.query ?? '', filter, embeddingService)
         }
+        console.log('LINK4c: retrieval done', {
+          mode: hybridResult.mode,
+          blockCount: hybridResult.blocks?.length ?? 0,
+          structuredFound: !!(hybridResult as { structured?: { found?: boolean } }).structured?.found,
+        })
         const { getHandshakeRecord } = await import('./main/handshake/db')
         const {
           parseGovernanceJson,
@@ -4390,17 +4401,36 @@ app.whenReady().then(async () => {
           { role: 'system' as const, content: systemPrompt },
           { role: 'user' as const, content: userPrompt },
         ]
+        console.log('LINK4d: prompt built, calling LLM', {
+          systemLen: systemPrompt.length,
+          userLen: userPrompt.length,
+          doStream,
+        })
         try {
           answer = await provider.generateChat(messages, {
             model: params.model,
             stream: doStream,
             send: doStream ? send : undefined,
           })
-        } catch (err: any) {
-          const msg = err?.message ?? 'Unknown error'
+        } catch (err: unknown) {
+          console.error('[RAG] LLM execution error:', err)
+          console.error('[RAG] LLM error stack:', err instanceof Error ? err.stack : '(not an Error)')
+          let errSerialized = ''
+          try {
+            errSerialized = JSON.stringify(err, null, 2)
+          } catch {
+            errSerialized = String(err)
+          }
+          console.error('[RAG] LLM error detail:', errSerialized)
+          const msg =
+            err instanceof Error
+              ? err.message
+              : typeof err === 'object' && err !== null && 'message' in err
+                ? String((err as { message: unknown }).message)
+                : errSerialized || 'Unknown error'
           const isUnavailable = /ECONNREFUSED|fetch failed|Failed to fetch|no_api_key|API key/i.test(msg)
           const isNoKey = /no_api_key|API key required/i.test(msg)
-          console.error('[RAG] LLM execution error:', err)
+          console.error('[RAG] LLM error message:', msg || 'no message')
           if (isNoKey) {
             return toIPC({ success: false, error: 'no_api_key', provider: providerLower, message: msg })
           }
@@ -4443,12 +4473,27 @@ app.whenReady().then(async () => {
             }),
           }),
         })
-      } catch (err: any) {
+      } catch (err: unknown) {
         console.error('LLM execution error:', err)
+        console.error('LLM error stack:', err instanceof Error ? err.stack : '(not an Error)')
+        let errSerialized = ''
+        try {
+          errSerialized = JSON.stringify(err, null, 2)
+        } catch {
+          errSerialized = String(err)
+        }
+        console.error('LLM error detail:', errSerialized)
+        const msg =
+          err instanceof Error
+            ? err.message
+            : typeof err === 'object' && err !== null && 'message' in err
+              ? String((err as { message: unknown }).message)
+              : errSerialized || 'Unknown error'
+        console.error('LLM error message:', msg || 'no message')
         return toIPC({
           success: false,
           error: 'model_execution_failed',
-          message: err?.message ?? 'Unknown error',
+          message: msg || 'Unknown error',
         })
       }
     })

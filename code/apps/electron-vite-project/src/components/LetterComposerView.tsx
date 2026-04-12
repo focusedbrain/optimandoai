@@ -6,6 +6,7 @@ import { LetterTemplatePort } from './LetterTemplatePort'
 import { LetterViewerPort } from './LetterViewerPort'
 import './LetterComposerView.css'
 
+/** Pushes letter-composer into chat focus. `focusedPort` is set by port buttons or implicitly when a template field is focused (`setFocusedTemplateField`). */
 function syncLetterComposerChatFocus() {
   const lc = useLetterComposerStore.getState()
   const st = useChatFocusStore.getState()

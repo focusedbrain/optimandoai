@@ -657,7 +657,12 @@ export const useLetterComposerStore = create<LetterComposerState>()(
       focusedPort: null,
       setFocusedPort: (port) => set({ focusedPort: port }),
       focusedTemplateFieldId: null,
-      setFocusedTemplateField: (fieldId) => set({ focusedTemplateFieldId: fieldId }),
+      /** Selecting a template field implies the template port for WR Chat; port buttons can still set letter/null explicitly. */
+      setFocusedTemplateField: (fieldId) =>
+        set((s) => ({
+          focusedTemplateFieldId: fieldId,
+          ...(fieldId != null ? { focusedPort: 'template' as const } : {}),
+        })),
 
       selectedBuiltinTemplate: null,
       setSelectedBuiltinTemplate: (tmpl) => set({ selectedBuiltinTemplate: tmpl }),

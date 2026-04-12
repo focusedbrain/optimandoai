@@ -64,7 +64,8 @@ export function resolveChatRoute(params: {
     return { kind: 'project-field-drafting', ipc: 'chatDirect' }
   }
 
-  if (!params.isDraftRefineSession && chatFocusMode.mode === 'letter-composer') {
+  // Letter top chat: incidental draft-refine connection (per-field buttons) must not block this route.
+  if (chatFocusMode.mode === 'letter-composer') {
     return { kind: 'letter-compose', ipc: 'chatDirect' }
   }
 

@@ -1157,7 +1157,11 @@ export default function HybridSearch({
           activeView,
           letterRouteKind: letterRoute.kind,
         })
-        if (letterRoute.kind === 'letter-compose') {
+        if (
+          !isFieldDrafting &&
+          useChatFocusStore.getState().chatFocusMode.mode === 'letter-composer' &&
+          letterRoute.kind === 'letter-compose'
+        ) {
           console.log('LINK2: letter-compose branch')
           let chatAttachmentTextForLetter: string | null = null
           if (chatAttachments.length > 0) {
