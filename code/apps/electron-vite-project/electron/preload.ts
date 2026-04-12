@@ -725,6 +725,12 @@ contextBridge.exposeInMainWorld('handshakeView', {
     if (!params || typeof params !== 'object' || typeof params.query !== 'string') {
       throw new Error('chatWithContextRag: expected { query, scope?, model, provider }')
     }
+    console.log('LINK3: preload invoking chatWithContextRag', {
+      query: params.query?.substring(0, 200),
+      stream: params.stream === true,
+      model: params.model,
+      provider: params.provider,
+    })
     return ipcRenderer.invoke('handshake:chatWithContextRag', {
       query: params.query,
       scope: typeof params.scope === 'string' ? params.scope : undefined,
@@ -750,6 +756,12 @@ contextBridge.exposeInMainWorld('handshakeView', {
     if (!params || typeof params !== 'object' || typeof params.userPrompt !== 'string') {
       throw new Error('chatDirect: expected { model, provider, systemPrompt, userPrompt }')
     }
+    console.log('LINK3: preload invoking chatDirect', {
+      stream: params.stream === true,
+      model: params.model,
+      provider: params.provider,
+      userPromptLen: params.userPrompt?.length ?? 0,
+    })
     return ipcRenderer.invoke('handshake:chatDirect', {
       model: typeof params.model === 'string' ? params.model : 'llama3',
       provider: typeof params.provider === 'string' ? params.provider : 'ollama',

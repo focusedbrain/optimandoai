@@ -13,12 +13,15 @@ import {
 export type StreamSender = (channel: string, payload: unknown) => void
 export type OnToken = (token: string) => void
 
+const DEFAULT_OLLAMA_STREAM_BASE_URL = 'http://127.0.0.1:11434'
+
 /** Stream tokens from Ollama chat API (NDJSON). */
 export async function streamOllamaChat(
   model: string,
   systemPrompt: string,
   userPrompt: string,
   send: StreamSender,
+  baseUrl: string = DEFAULT_OLLAMA_STREAM_BASE_URL,
 ): Promise<string> {
   const t0 = Date.now()
   const inflightStart = ollamaRuntimeInFlightDelta(1)
@@ -26,7 +29,9 @@ export async function streamOllamaChat(
     ollamaRuntimeLog('streamOllamaChat:start', { model, inFlight: inflightStart })
   }
   try {
-    const res = await fetch('http://127.0.0.1:11434/api/chat', {
+    const chatUrl = `${baseUrl.replace(/\/$/, '')}/api/chat`
+    console.log('LINK5: streaming', { model, url: chatUrl })
+    const res = await fetch(chatUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -60,6 +65,7 @@ export async function streamOllamaChat(
           const delta = obj.message?.content ?? obj.response ?? ''
           if (delta) {
             full += delta
+            console.log('LINK6: stream chunk', delta.substring(0, 100))
             send('handshake:chatStreamToken', { token: delta })
           }
         } catch (parseErr) {
@@ -73,6 +79,7 @@ export async function streamOllamaChat(
         const delta = obj.message?.content ?? obj.response ?? ''
         if (delta) {
           full += delta
+          console.log('LINK6: stream chunk', delta.substring(0, 100))
           send('handshake:chatStreamToken', { token: delta })
         }
       } catch (parseErr) {
@@ -363,6 +370,8 @@ export interface StreamLLMParams {
   systemPrompt: string
   userPrompt: string
   apiKey?: string
+  /** Ollama `/api/chat` base URL (no trailing slash). Defaults to http://127.0.0.1:11434 */
+  ollamaBaseUrl?: string
 }
 
 /**
@@ -383,7 +392,13 @@ export async function streamLLMResponse(
 
   switch (provider) {
     case 'ollama':
-      return streamOllamaChat(params.model, params.systemPrompt, params.userPrompt, send)
+      return streamOllamaChat(
+        params.model,
+        params.systemPrompt,
+        params.userPrompt,
+        send,
+        params.ollamaBaseUrl,
+      )
     case 'openai':
       if (!params.apiKey) throw new Error('OpenAI requires apiKey')
       return streamOpenAIChat(params.model, params.systemPrompt, params.userPrompt, params.apiKey, send)

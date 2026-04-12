@@ -3912,8 +3912,17 @@ app.whenReady().then(async () => {
       const elapsed = () => Math.round((typeof performance !== 'undefined' ? performance.now() : Date.now()) - totalStart)
 
       try {
+        console.log('LINK4: main received chatWithContextRag', {
+          query: params.query?.substring(0, 200),
+          stream: params.stream,
+          model: params.model,
+          provider: params.provider,
+        })
         const db = await getHandshakeDb()
-        if (!db) return toIPC({ success: false, error: 'vault_locked' })
+        if (!db) {
+          console.log('LINK4: chatWithContextRag early exit — vault_locked (no db)')
+          return toIPC({ success: false, error: 'vault_locked' })
+        }
 
         const { getProvider, toEmbeddingService } = await import('./main/handshake/aiProviders')
         const { ocrRouter } = await import('./main/ocr/router')
@@ -4449,9 +4458,22 @@ app.whenReady().then(async () => {
      *  and does NOT want the context-grounded RAG system prompt. */
     ipcMain.handle('handshake:chatDirect', async (event, params: { model: string; provider: string; systemPrompt: string; userPrompt: string; stream?: boolean; temperature?: number }) => {
       const toIPC = (o: unknown) => { try { return JSON.parse(JSON.stringify(o)) } catch { return o } }
-      const send = (channel: string, data: unknown) => { try { event.sender.send(channel, toIPC(data)) } catch {} }
+      const send = (channel: string, data: unknown) => {
+        if (channel === 'handshake:chatStreamToken') {
+          const tok = (data as { token?: string })?.token ?? ''
+          console.log('LINK6: emitting token', tok.substring(0, 50))
+        }
+        try { event.sender.send(channel, toIPC(data)) } catch {}
+      }
       const doStream = params.stream === true
       try {
+        console.log('LINK4: main received chatDirect', {
+          stream: doStream,
+          model: params.model,
+          provider: params.provider,
+          userPromptLen: params.userPrompt?.length ?? 0,
+          systemPromptLen: params.systemPrompt?.length ?? 0,
+        })
         const { getProvider } = await import('./main/handshake/aiProviders')
         const { ocrRouter } = await import('./main/ocr/router')
         const provider = getProvider(
