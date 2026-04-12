@@ -31177,7 +31177,7 @@ ${pageText}
 
       position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
 
-      background: rgba(0,0,0,0.8); z-index: 2147483649;
+      background: ${csTheme().overlay}; z-index: 2147483649;
 
       display: flex; align-items: center; justify-content: center;
 
@@ -31189,111 +31189,103 @@ ${pageText}
 
     overlay.innerHTML = `
 
-      <div style="background: ${csTheme().panelBg}; border-radius: 16px; width: 90vw; height: 85vh; max-width: 1200px; color: ${csTheme().text}; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.3); display: flex; flex-direction: column;">
 
-        <div style="padding: 20px; border-bottom: 1px solid ${csTheme().border}; display: flex; justify-content: space-between; align-items: center;">
 
-          <h2 style="margin: 0; font-size: 20px;">⚙️ Extension Settings</h2>
+ <div style="background: ${csTheme().panelBg}; border-radius: 16px; min-height: 88vh; max-width: 860px; width: 92vw; color: ${csTheme().text}; box-shadow: ${csTheme().shadow}; display: flex; flex-direction: column; padding: 1.25rem; box-sizing: border-box;">
+
+        <div style="display: flex; justify-content: space-between; align-items: center; padding-bottom: 12px; border-bottom: 1px solid ${csTheme().border}; flex-shrink: 0;">
+
+          <h2 style="margin: 0; font-size: 16px; font-weight: 700; color: ${csTheme().text};">⚙️ Extension Settings</h2>
 
           <div style="display:flex; gap:10px; align-items:center;">
 
-            <button id="settings-whitelist-btn" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 6px 10px; border-radius: 999px; cursor: pointer; font-size: 11px; font-weight:700;">🛡 Whitelist</button>
+            <button id="settings-whitelist-btn" type="button" style="background: transparent; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 6px 10px; border-radius: 999px; cursor: pointer; font-size: 11px; font-weight: 700;">🛡️ Whitelist</button>
 
-          <button id="close-settings-lightbox" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px;">&times;</button>
+            <button id="close-settings-lightbox" type="button" style="background: transparent; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 16px; line-height: 1;">&times;</button>
 
           </div>
 
         </div>
 
-        <div style="flex: 1; padding: 20px; overflow-y: auto;">
+        <div style="flex: 1; display: flex; flex-direction: column; gap: 10px; min-height: 0; overflow-y: auto;">
 
-          <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; align-items: stretch;">
+          <div style="background: ${csTheme().inputBg}; border-radius: 8px; padding: 8px 14px; flex-shrink: 0;">
 
-            <!-- Account & Billing (TOP) -->
+            <div style="display:flex; justify-content: space-between; align-items: center; width: 100%;">
 
-            <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 8px; border: 1px solid ${csTheme().border}; grid-column: 1 / -1;">
+              <span style="font-size: 12px; color: ${csTheme().muted};">💳 Account & Billing</span>
 
-              <div style="display:flex; justify-content: space-between; align-items: center; width: 100%;">
+              <div style="display:flex; align-items: center; gap: 8px;">
 
-                <h4 style="margin: 0; font-size: 12px; color: ${csTheme().muted};">💳 Account & Billing</h4>
+                <span id="current-plan-badge" style="display:inline-block; background: ${csTheme().cardBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 3px 10px; border-radius: 6px; font-size: 10px; font-weight: 700;">...</span>
 
-                <div style="display:flex; align-items: center; gap: 8px;">
-
-                  <span id="current-plan-badge" style="display:inline-block; background: ${csTheme().cardBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; padding: 4px 10px; border-radius: 999px; font-size: 10px; font-weight: 700;">...</span>
-
-                  <button id="btn-change-plan" type="button" style="background: ${csTheme().accentGrad}; border: none; color: #fff; padding: 3px 12px; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 700;">Change plan</button>
-
-                </div>
+                <button id="btn-change-plan" type="button" style="background: #534AB7; border: none; color: #fff; padding: 3px 12px; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 700;">Change plan</button>
 
               </div>
 
             </div>
 
-            
+          </div>
 
-            <!-- API Keys Configuration (moved first) -->
+          <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; align-items: stretch;">
 
-            <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 8px; border: 1px solid ${csTheme().border}; height: 100%; display: flex; flex-direction: column;">
+            <div style="background: ${csTheme().cardBg}; border: 1px solid ${csTheme().border}; border-radius: 8px; padding: 10px 12px; display: flex; flex-direction: column;">
 
-              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-shrink: 0;">
 
-                <h4 style="margin: 0; font-size: 12px; color: ${csTheme().muted};">🔑 API Keys</h4>
+                <div style="margin: 0; font-size: 13px; font-weight: 500; color: ${csTheme().text};">🔑 API Keys</div>
 
-                <div style="display:flex; gap:6px;">
+                <div style="display:flex; gap:6px; align-items:center;">
 
-                  <button id="add-custom-api-key" style="background: ${csTheme().accentGrad}; border: none; color: #fff; padding: 4px 8px; border-radius: 6px; cursor: pointer; font-size: 10px; font-weight: 700;">+ Custom</button>
+                  <button id="add-custom-api-key" type="button" style="background: transparent; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 2px 8px; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 500;">Custom</button>
 
-                  <button id="save-api-keys" style="background: ${csTheme().accentGrad}; border: none; color: #fff; padding: 4px 10px; border-radius: 6px; cursor: pointer; font-size: 10px; font-weight: 700;">Save</button>
+                  <button id="save-api-keys" type="button" style="background: #534AB7; border: none; color: #fff; padding: 2px 8px; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 700;">Save</button>
 
                 </div>
 
               </div>
 
-              <div id="byok-requirement" style="display:none; font-size:10px; margin:6px 0; padding:6px; background: ${csTheme().cardBg}; border:1px solid ${csTheme().border}; border-radius:6px;">
-
-                BYOK is supported on all plans. Enter your API keys above and click Save.
-
-              </div>
+              <div id="byok-requirement" style="display:none; font-size:11px; margin:6px 0; padding:6px 8px; background: ${csTheme().inputBg}; border:1px solid ${csTheme().border}; border-radius:6px; color: ${csTheme().muted};">BYOK is supported on all plans. Enter your API keys above and click Save.</div>
 
               <div id="api-keys-container" style="display: grid; gap: 6px;">
 
-                <div class="api-key-row" data-provider="OpenAI" style="display: grid; grid-template-columns: 80px 1fr 24px; gap: 6px; align-items: center; background: ${csTheme().inputBg}; padding: 6px; border-radius: 6px; border: 1px solid ${csTheme().border};">
+                <div class="api-key-row" data-provider="OpenAI" style="display: grid; grid-template-columns: 80px 1fr 24px; gap: 6px; align-items: center; background: ${csTheme().inputBg}; padding: 5px 8px; border-radius: 4px;">
 
-                  <label style="font-size:10px; font-weight:700; opacity:0.95;">OpenAI</label>
+                  <label style="font-size:11px; font-weight:500; color: ${csTheme().muted};">OpenAI</label>
 
-                  <input type="password" id="key-OpenAI" placeholder="sk-..." style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 6px; border-radius: 4px; font-size: 10px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;">
+                  <input type="password" id="key-OpenAI" placeholder="sk-..." style="background: ${csTheme().cardBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 4px 8px; border-radius: 4px; font-size: 11px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;">
 
-                  <button class="toggle-visibility" data-target="key-OpenAI" title="Show/Hide" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px;">👁️</button>
-
-                </div>
-
-                <div class="api-key-row" data-provider="Claude" style="display: grid; grid-template-columns: 80px 1fr 24px; gap: 6px; align-items: center; background: ${csTheme().inputBg}; padding: 6px; border-radius: 6px; border: 1px solid ${csTheme().border};">
-
-                  <label style="font-size:10px; font-weight:700; opacity:0.95;">Claude</label>
-
-                  <input type="password" id="key-Claude" placeholder="sk-ant-..." style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 6px; border-radius: 4px; font-size: 10px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;">
-
-                  <button class="toggle-visibility" data-target="key-Claude" title="Show/Hide" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px;">👁️</button>
+                  <button type="button" class="toggle-visibility" data-target="key-OpenAI" title="Show/Hide" style="background: ${csTheme().cardBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px;">👁️</button>
 
                 </div>
 
-                <div class="api-key-row" data-provider="Gemini" style="display: grid; grid-template-columns: 80px 1fr 24px; gap: 6px; align-items: center; background: ${csTheme().inputBg}; padding: 6px; border-radius: 6px; border: 1px solid ${csTheme().border};">
+                <div class="api-key-row" data-provider="Claude" style="display: grid; grid-template-columns: 80px 1fr 24px; gap: 6px; align-items: center; background: ${csTheme().inputBg}; padding: 5px 8px; border-radius: 4px;">
 
-                  <label style="font-size:10px; font-weight:700; opacity:0.95;">Gemini</label>
+                  <label style="font-size:11px; font-weight:500; color: ${csTheme().muted};">Claude</label>
 
-                  <input type="password" id="key-Gemini" placeholder="AIza..." style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 6px; border-radius: 4px; font-size: 10px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;">
+                  <input type="password" id="key-Claude" placeholder="sk-ant-..." style="background: ${csTheme().cardBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 4px 8px; border-radius: 4px; font-size: 11px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;">
 
-                  <button class="toggle-visibility" data-target="key-Gemini" title="Show/Hide" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px;">👁️</button>
+                  <button type="button" class="toggle-visibility" data-target="key-Claude" title="Show/Hide" style="background: ${csTheme().cardBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px;">👁️</button>
 
                 </div>
 
-                <div class="api-key-row" data-provider="Grok" style="display: grid; grid-template-columns: 80px 1fr 24px; gap: 6px; align-items: center; background: ${csTheme().inputBg}; padding: 6px; border-radius: 6px; border: 1px solid ${csTheme().border};">
+                <div class="api-key-row" data-provider="Gemini" style="display: grid; grid-template-columns: 80px 1fr 24px; gap: 6px; align-items: center; background: ${csTheme().inputBg}; padding: 5px 8px; border-radius: 4px;">
 
-                  <label style="font-size:10px; font-weight:700; opacity:0.95;">Grok</label>
+                  <label style="font-size:11px; font-weight:500; color: ${csTheme().muted};">Gemini</label>
 
-                  <input type="password" id="key-Grok" placeholder="xai-..." style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 6px; border-radius: 4px; font-size: 10px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;">
+                  <input type="password" id="key-Gemini" placeholder="AIza..." style="background: ${csTheme().cardBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 4px 8px; border-radius: 4px; font-size: 11px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;">
 
-                  <button class="toggle-visibility" data-target="key-Grok" title="Show/Hide" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px;">👁️</button>
+                  <button type="button" class="toggle-visibility" data-target="key-Gemini" title="Show/Hide" style="background: ${csTheme().cardBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px;">👁️</button>
+
+                </div>
+
+                <div class="api-key-row" data-provider="Grok" style="display: grid; grid-template-columns: 80px 1fr 24px; gap: 6px; align-items: center; background: ${csTheme().inputBg}; padding: 5px 8px; border-radius: 4px;">
+
+                  <label style="font-size:11px; font-weight:500; color: ${csTheme().muted};">Grok</label>
+
+                  <input type="password" id="key-Grok" placeholder="xai-..." style="background: ${csTheme().cardBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 4px 8px; border-radius: 4px; font-size: 11px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;">
+
+                  <button type="button" class="toggle-visibility" data-target="key-Grok" title="Show/Hide" style="background: ${csTheme().cardBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px;">👁️</button>
 
                 </div>
 
@@ -31301,205 +31293,161 @@ ${pageText}
 
             </div>
 
+            <div id="orchestrator-mode-panel" style="background: ${csTheme().cardBg}; border: 1px solid ${csTheme().border}; border-radius: 8px; padding: 10px 12px; display: flex; flex-direction: column;">
 
+              <div style="margin: 0 0 8px 0; font-size: 13px; font-weight: 500; color: ${csTheme().text};">🔗 Orchestrator mode</div>
 
-            <!-- Orchestrator Mode (center column) -->
+              <div style="display:flex; border:1px solid ${csTheme().border}; border-radius:6px; overflow:hidden; margin-bottom:8px; flex-shrink:0;">
 
-            <div id="orchestrator-mode-panel" style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 8px; border: 1px solid ${csTheme().border}; height: 100%; display: flex; flex-direction: column;">
+                <button type="button" id="btn-mode-host" style="flex:1; text-align:center; padding:5px 0; border:none; cursor:pointer; font-size:12px; font-weight:500;">Host</button>
 
-              <div style="margin: 0 0 10px 0; font-size: 13px; font-weight: 500; color: ${csTheme().text};">Orchestrator mode</div>
-
-              <div style="display:flex; border:1px solid ${csTheme().border}; border-radius:6px; overflow:hidden; margin-bottom:10px;">
-
-                <button type="button" id="btn-mode-host" style="flex:1; padding:10px 12px; border:none; cursor:pointer; font-size:11px; font-weight:600;">Host</button>
-
-                <button type="button" id="btn-mode-sandbox" style="flex:1; padding:10px 12px; border:none; border-left:1px solid ${csTheme().border}; cursor:pointer; font-size:11px; font-weight:600;">Sandbox</button>
+                <button type="button" id="btn-mode-sandbox" style="flex:1; text-align:center; padding:5px 0; border:none; border-left:1px solid ${csTheme().border}; cursor:pointer; font-size:12px; font-weight:500;">Sandbox</button>
 
               </div>
 
-              <div id="orch-desktop-sync-hint" style="font-size:9px; color:${csTheme().muted}; margin-bottom:8px; min-height:12px;"></div>
+              <div id="orch-desktop-sync-hint" style="font-size:10px; color:${csTheme().muted}; margin-bottom:6px; min-height:12px; flex-shrink:0;"></div>
 
               <div id="host-mode-content" style="display:block;">
 
-                <div style="font-size:11px; line-height:1.45; color:${csTheme().muted};">Serving inference to connected sandboxes.</div>
+                <div style="display:flex; align-items:center; gap:8px; margin-bottom:6px;">
 
-                <div style="font-size:11px; line-height:1.45; color:${csTheme().muted}; margin-top:6px;">Ensure inference API is reachable (HTTPS + firewall).</div>
+                  <span style="width:6px;height:6px;border-radius:50%;background:#1D9E75;flex-shrink:0;"></span>
+
+                  <span id="host-inference-status-line" style="font-size:11px; color:#0F6E56; font-weight:500;">Serving inference — llama3.2 active</span>
+
+                </div>
+
+                <div style="font-size:11px; line-height:1.45; color:${csTheme().muted};">Ensure inference API is reachable (HTTPS + firewall).</div>
 
               </div>
 
               <div id="sandbox-mode-content" style="display:none;">
 
-                <div style="padding:8px 10px; border-radius:6px; margin-bottom:10px; font-size:11px; line-height:1.45; background:${csTheme().isLight ? 'rgba(59,130,246,0.12)' : 'rgba(96,165,250,0.14)'}; border:1px solid ${csTheme().isLight ? 'rgba(59,130,246,0.35)' : 'rgba(147,197,253,0.35)'}; color:${csTheme().text};">
+                <div style="background: rgba(83, 74, 183, 0.08); border-radius: 4px; padding: 6px 8px; margin-bottom:8px; font-size:11px; line-height:1.45; color:#534AB7;">Documents stay on this device. Only text is sent to the host for inference.</div>
 
-                  Documents stay on this device. Only text is sent to the host for LLM inference.
+                <label style="display:block; font-size:11px; color:${csTheme().muted}; margin-bottom:4px;">Host inference URL</label>
 
-                </div>
-
-                <label style="display:block; font-size:11px; font-weight:600; margin-bottom:4px; color:${csTheme().text};">Host inference URL</label>
-
-                <input type="text" id="sandbox-host-url" placeholder="https://my-workstation:51248" autocomplete="off" style="width:100%; box-sizing:border-box; background:${csTheme().inputBg}; border:1px solid ${csTheme().border}; color:${csTheme().inputText}; padding:8px; border-radius:6px; font-size:11px; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; margin-bottom:8px;" />
+                <input type="text" id="sandbox-host-url" placeholder="https://my-workstation:51248" autocomplete="off" style="width:100%; box-sizing:border-box; background:${csTheme().cardBg}; border:1px solid ${csTheme().border}; color:${csTheme().inputText}; padding:4px 8px; border-radius:4px; font-size:11px; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; margin-bottom:8px;" />
 
                 <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:8px;">
 
-                  <button type="button" id="btn-test-connection" style="background:${csTheme().accentGrad}; border:none; color:#fff; padding:8px 12px; border-radius:6px; cursor:pointer; font-size:11px; font-weight:600;">Test connection</button>
+                  <button type="button" id="btn-test-connection" style="background:#534AB7; border:none; color:#fff; padding:2px 8px; border-radius:6px; cursor:pointer; font-size:11px; font-weight:500;">Test connection</button>
 
-                  <button type="button" id="btn-save-sandbox" style="background:${csTheme().inputBg}; border:1px solid ${csTheme().border}; color:${csTheme().text}; padding:8px 14px; border-radius:6px; cursor:pointer; font-size:11px; font-weight:600;">Save</button>
+                  <button type="button" id="btn-save-sandbox" style="background:transparent; border:1px solid ${csTheme().border}; color:${csTheme().inputText}; padding:2px 8px; border-radius:6px; cursor:pointer; font-size:11px; font-weight:500;">Save</button>
 
                 </div>
 
                 <div id="sandbox-connection-status" style="display:flex; align-items:center; gap:8px; margin-bottom:6px; min-height:18px; font-size:11px;">
 
-                  <span id="sandbox-connection-dot" style="width:8px;height:8px;border-radius:50%;flex-shrink:0;opacity:0;background:${csTheme().muted};"></span>
+                  <span id="sandbox-connection-dot" style="width:6px;height:6px;border-radius:50%;flex-shrink:0;opacity:0;background:#1D9E75;"></span>
 
                   <span id="sandbox-connection-text" style="color:${csTheme().muted};"></span>
 
                 </div>
 
-                <span id="sandbox-save-confirm" style="font-size:10px; color:${csTheme().successText}; display:none;"></span>
+                <span id="sandbox-save-confirm" style="font-size:10px; color:#0F6E56; display:none;"></span>
 
               </div>
 
             </div>
 
-            <!-- Appearance -->
+            <div style="background: ${csTheme().cardBg}; border: 1px solid ${csTheme().border}; border-radius: 8px; padding: 10px 12px; display: flex; flex-direction: column;">
 
-            <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 6px; height: 100%; display: flex; flex-direction: column;">
+              <div style="margin: 0 0 8px 0; font-size: 13px; font-weight: 500; color: ${csTheme().text};">🎨 Appearance</div>
 
-              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: ${csTheme().muted};">🎨 Appearance</h4>
+              <label style="display:block; font-size:11px; color:${csTheme().muted}; margin-bottom:4px;">Theme</label>
 
-              <div style="font-size: 10px; display: grid; grid-template-columns: auto 1fr; gap: 8px; align-items: center;">
+              <select id="optimando-theme-select" style="width: 100%; background: ${csTheme().cardBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 5px 8px; border-radius: 4px; font-size: 11px; pointer-events: auto; cursor: pointer; appearance: auto;">
 
-                <label style="display: inline-block; margin: 0;">Theme:</label>
+                <option value="standard" selected>Standard</option>
 
-                <select id="optimando-theme-select" style="width: 100%; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 6px 8px; border-radius: 4px; font-size: 11px; pointer-events: auto; cursor: pointer; appearance: auto;">
+                <option value="pro">Pro</option>
 
-                  <option value="standard" selected>Standard</option>
-                  <option value="pro">Pro</option>
-                  <option value="dark">Dark</option>
+                <option value="dark">Dark</option>
 
-                </select>
+              </select>
 
-                <div style="grid-column: 1 / span 2; font-size: 9px; opacity: 0.85;">Only sidebars and the top header bar are themed. Main page stays unchanged.</div>
+              <div style="margin-top:8px; font-size: 11px; line-height: 1.3; color: ${csTheme().muted};">Only sidebars and the top header bar are themed. Main page stays unchanged.</div>
+
+            </div>
+
+          </div>
+
+          <div id="sandbox-setup-guide" style="display: none; flex: 1; flex-direction: column; min-height: 0; background: ${csTheme().cardBg}; border: 1px solid ${csTheme().border}; border-radius: 8px; padding: 12px 14px;">
+
+            <div style="font-size: 13px; font-weight: 500; color: ${csTheme().inputText}; margin-bottom: 10px; flex-shrink: 0;">Sandbox setup guide</div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; flex: 1; min-height: 0; align-content: start;">
+
+              <div style="background: ${csTheme().inputBg}; border-radius: 8px; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px;">
+
+                <div style="width: 22px; height: 22px; border-radius: 50%; background: #534AB7; color: #fff; font-size: 11px; font-weight: 500; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">1</div>
+
+                <div style="font-size: 12px; font-weight: 500; color: ${csTheme().inputText};">Set up the host</div>
+
+                <div style="font-size: 11px; color: ${csTheme().muted}; line-height: 1.5;">On your workstation (the PC with a GPU), open Settings and set orchestrator mode to <strong style="color:${csTheme().inputText};">Host</strong>. Then open Backend Configuration and start a local LLM like Llama, Mistral, or Gemma.</div>
+
+              </div>
+
+              <div style="background: ${csTheme().inputBg}; border-radius: 8px; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px;">
+
+                <div style="width: 22px; height: 22px; border-radius: 50%; background: #534AB7; color: #fff; font-size: 11px; font-weight: 500; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">2</div>
+
+                <div style="font-size: 12px; font-weight: 500; color: ${csTheme().inputText};">Find the host address</div>
+
+                <div style="font-size: 11px; color: ${csTheme().muted}; line-height: 1.5;">On the host, open a terminal and run <span style="font-family:monospace;font-size:10px;background:${csTheme().cardBg};padding:1px 5px;border-radius:3px;color:${csTheme().inputText};">hostname</span> or check your router's device list. Dynamic IPs on a LAN are fine — routers typically keep the same address for known devices.</div>
+
+              </div>
+
+              <div style="background: ${csTheme().inputBg}; border-radius: 8px; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px;">
+
+                <div style="width: 22px; height: 22px; border-radius: 50%; background: #534AB7; color: #fff; font-size: 11px; font-weight: 500; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">3</div>
+
+                <div style="font-size: 12px; font-weight: 500; color: ${csTheme().inputText};">Connect and verify</div>
+
+                <div style="font-size: 11px; color: ${csTheme().muted}; line-height: 1.5;">Enter the URL above (e.g. <span style="font-family:monospace;font-size:10px;background:${csTheme().cardBg};padding:1px 5px;border-radius:3px;color:${csTheme().inputText};">https://my-pc:51248</span>) and click <strong style="color:${csTheme().inputText};">Test connection</strong>. Both devices must use the same SSO account.</div>
 
               </div>
 
             </div>
 
-            <div id="sandbox-setup-guide" style="display: none; background: ${csTheme().cardBg}; padding: 12px; border-radius: 8px; border: 1px solid ${csTheme().border}; grid-column: 1 / -1;">
+            <div style="border-top: 1px solid ${csTheme().border}; padding-top: 8px; margin-top: 10px; flex-shrink: 0; display: flex; align-items: flex-start; gap: 8px;">
 
-              <h4 style="margin: 0 0 8px 0; font-size: 12px; color: ${csTheme().muted};">Sandbox setup guide</h4>
+              <span style="width: 5px; height: 5px; border-radius: 50%; background: #1D9E75; flex-shrink: 0; margin-top: 5px;"></span>
 
-              <div style="display: grid; grid-template-columns: 24px 1fr; gap: 6px 10px; font-size: 11px; color: ${csTheme().muted}; line-height: 1.5;">
-
-                <div style="display: flex; align-items: flex-start; justify-content: center; padding-top: 2px;">
-
-                  <div style="width: 18px; height: 18px; border-radius: 50%; background: rgba(83,74,183,0.12); color: #534AB7; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center;">1</div>
-
-                </div>
-
-                <div>On your <strong>host workstation</strong> (the PC with a GPU that runs Ollama), open Settings and set orchestrator mode to <strong>Host</strong>. Then open Backend Configuration and start a local LLM.</div>
-
-                <div style="display: flex; align-items: flex-start; justify-content: center; padding-top: 2px;">
-
-                  <div style="width: 18px; height: 18px; border-radius: 50%; background: rgba(83,74,183,0.12); color: #534AB7; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center;">2</div>
-
-                </div>
-
-                <div><strong>Find the host address:</strong> On the host PC, open a terminal and run <span style="font-family:monospace;font-size:10px;background:${csTheme().inputBg};padding:1px 5px;border-radius:3px;">hostname</span> (or check your router's device list). Use the hostname or local IP. Dynamic IPs on a LAN are fine — your router typically assigns the same address to known devices. Example: <span style="font-family:monospace;font-size:10px;background:${csTheme().inputBg};padding:1px 5px;border-radius:3px;">https://my-workstation:51248</span> or <span style="font-family:monospace;font-size:10px;background:${csTheme().inputBg};padding:1px 5px;border-radius:3px;">https://192.168.1.50:51248</span></div>
-
-                <div style="display: flex; align-items: flex-start; justify-content: center; padding-top: 2px;">
-
-                  <div style="width: 18px; height: 18px; border-radius: 50%; background: rgba(83,74,183,0.12); color: #534AB7; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center;">3</div>
-
-                </div>
-
-                <div>Enter the host URL above and click <strong>Test connection</strong>. Both devices must be logged in with the <strong>same SSO account</strong>.</div>
-
-                <div style="display: flex; align-items: flex-start; justify-content: center; padding-top: 2px;">
-
-                  <div style="width: 18px; height: 18px; border-radius: 50%; background: rgba(34,197,94,0.22); color: ${csTheme().successText}; font-size: 11px; font-weight: 800; display: flex; align-items: center; justify-content: center;">\u2713</div>
-
-                </div>
-
-                <div style="color:${csTheme().successText};"><strong>Security:</strong> Documents, images, and OCR processing never leave this sandbox device. Only the extracted text is sent to the host for LLM inference. Your files stay local.</div>
-
-              </div>
+              <div style="font-size: 11px; color: ${csTheme().muted}; line-height: 1.5;">Documents, images, and OCR never leave the sandbox. Only extracted text reaches the host for inference.</div>
 
             </div>
 
-            <div style="grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+          </div>
 
-              <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 8px; border: 1px solid ${csTheme().border};">
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; align-items: stretch;">
 
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+            <div style="background: ${csTheme().cardBg}; border: 1px solid ${csTheme().border}; border-radius: 8px; padding: 10px 12px; display: flex; flex-direction: column;">
 
-                  <span style="font-size:12px; font-weight:600; color:${csTheme().muted};">⚙️ System</span>
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; flex-shrink:0;">
 
-                  <button type="button" id="btn-save-system-settings" style="background:${csTheme().accentGrad}; border:none; color:#fff; padding:4px 10px; border-radius:6px; cursor:pointer; font-size:10px; font-weight:700;">Save</button>
+                <span style="font-size:13px; font-weight:500; color:${csTheme().text};">⚙️ System</span>
 
-                </div>
-
-                <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 10px;">
-
-                  <div>
-
-                    <label style="display:block; font-size:11px; color:${csTheme().muted}; margin-bottom:4px;">Max agents</label>
-
-                    <input type="number" id="settings-max-agents" value="10" min="5" max="20" style="width:100%; box-sizing:border-box; background:${csTheme().inputBg}; border:1px solid ${csTheme().border}; color:${csTheme().inputText}; padding:3px 8px; border-radius:4px; font-size:11px;">
-
-                  </div>
-
-                  <div>
-
-                    <label style="display:block; font-size:11px; color:${csTheme().muted}; margin-bottom:4px;">Memory (hours)</label>
-
-                    <input type="number" id="settings-memory-hours" value="24" min="1" max="168" style="width:100%; box-sizing:border-box; background:${csTheme().inputBg}; border:1px solid ${csTheme().border}; color:${csTheme().inputText}; padding:3px 8px; border-radius:4px; font-size:11px;">
-
-                  </div>
-
-                </div>
+                <button type="button" id="btn-save-system-settings" style="background:#534AB7; border:none; color:#fff; padding:2px 10px; border-radius:6px; cursor:pointer; font-size:11px; font-weight:700;">Save</button>
 
               </div>
 
-              <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 8px; border: 1px solid ${csTheme().border};">
+              <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 8px;">
 
-                <div style="font-size:12px; font-weight:600; color:${csTheme().muted}; margin-bottom:10px;">⚡ Performance</div>
+                <div>
 
-                <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                  <label style="display:block; font-size:11px; color:${csTheme().muted}; margin-bottom:4px;">Max agents</label>
 
-                  <div>
+                  <input type="number" id="settings-max-agents" value="10" min="5" max="20" style="width:100%; box-sizing:border-box; background:${csTheme().cardBg}; border:1px solid ${csTheme().border}; border-radius:4px; padding:4px 8px; font-size:11px; color:${csTheme().inputText};">
 
-                    <label style="display:block; font-size:11px; color:${csTheme().muted}; margin-bottom:4px;">Reasoning speed</label>
+                </div>
 
-                    <select id="settings-reasoning-speed" style="width:100%; box-sizing:border-box; background:${csTheme().inputBg}; border:1px solid ${csTheme().border}; color:${csTheme().inputText}; padding:3px 8px; border-radius:4px; font-size:11px;">
+                <div>
 
-                      <option>Conservative</option>
+                  <label style="display:block; font-size:11px; color:${csTheme().muted}; margin-bottom:4px;">Memory (hours)</label>
 
-                      <option selected>Balanced</option>
-
-                      <option>Aggressive</option>
-
-                    </select>
-
-                  </div>
-
-                  <div>
-
-                    <label style="display:block; font-size:11px; color:${csTheme().muted}; margin-bottom:4px;">Auto-save interval</label>
-
-                    <select id="settings-autosave-interval" style="width:100%; box-sizing:border-box; background:${csTheme().inputBg}; border:1px solid ${csTheme().border}; color:${csTheme().inputText}; padding:3px 8px; border-radius:4px; font-size:11px;">
-
-                      <option>30 seconds</option>
-
-                      <option selected>60 seconds</option>
-
-                      <option>2 minutes</option>
-
-                      <option>5 minutes</option>
-
-                    </select>
-
-                  </div>
+                  <input type="number" id="settings-memory-hours" value="24" min="1" max="168" style="width:100%; box-sizing:border-box; background:${csTheme().cardBg}; border:1px solid ${csTheme().border}; border-radius:4px; padding:4px 8px; font-size:11px; color:${csTheme().inputText};">
 
                 </div>
 
@@ -31507,73 +31455,113 @@ ${pageText}
 
             </div>
 
-            <div style="grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+            <div style="background: ${csTheme().cardBg}; border: 1px solid ${csTheme().border}; border-radius: 8px; padding: 10px 12px; display: flex; flex-direction: column;">
 
-              <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 8px; border: 1px solid ${csTheme().border};">
+              <div style="font-size:13px; font-weight:500; color:${csTheme().text}; margin-bottom:8px;">⚡ Performance</div>
 
-                <div style="font-size:12px; font-weight:600; color:${csTheme().muted}; margin-bottom:10px;">🔒 Privacy & Security</div>
+              <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 8px;">
 
-                <div style="display:flex; flex-direction:column; gap:4px; font-size:11px; color:${csTheme().text};">
+                <div>
 
-                  <label style="display:flex; align-items:center; gap:6px; cursor:pointer;">
+                  <label style="display:block; font-size:11px; color:${csTheme().muted}; margin-bottom:4px;">Reasoning speed</label>
 
-                    <input type="checkbox" id="settings-privacy-sessions" checked>
+                  <select id="settings-reasoning-speed" style="width:100%; box-sizing:border-box; background:${csTheme().cardBg}; border:1px solid ${csTheme().border}; border-radius:4px; padding:4px 8px; font-size:11px; color:${csTheme().inputText};">
 
-                    <span>Store sessions locally</span>
+                    <option>Conservative</option>
 
-                  </label>
+                    <option selected>Balanced</option>
 
-                  <label style="display:flex; align-items:center; gap:6px; cursor:pointer;">
+                    <option>Aggressive</option>
 
-                    <input type="checkbox" id="settings-privacy-usage">
-
-                    <span>Share anonymous usage data</span>
-
-                  </label>
-
-                  <label style="display:flex; align-items:center; gap:6px; cursor:pointer;">
-
-                    <input type="checkbox" id="settings-privacy-encryption" checked>
-
-                    <span>Enable encryption</span>
-
-                  </label>
+                  </select>
 
                 </div>
 
-              </div>
+                <div>
 
-              <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 8px; border: 1px solid ${csTheme().border};">
+                  <label style="display:block; font-size:11px; color:${csTheme().muted}; margin-bottom:4px;">Auto-save interval</label>
 
-                <div style="font-size:12px; font-weight:600; color:${csTheme().muted}; margin-bottom:10px;">📦 Backup</div>
+                  <select id="settings-autosave-interval" style="width:100%; box-sizing:border-box; background:${csTheme().cardBg}; border:1px solid ${csTheme().border}; border-radius:4px; padding:4px 8px; font-size:11px; color:${csTheme().inputText};">
 
-                <div style="display:flex; gap:6px;">
+                    <option>30 seconds</option>
 
-                  <button type="button" id="settings-backup-export" style="flex:1; padding:8px; background:${csTheme().accentGrad}; border:none; color:#fff; border-radius:6px; cursor:pointer; font-size:10px; font-weight:700;">Export</button>
+                    <option selected>60 seconds</option>
 
-                  <button type="button" id="settings-backup-import" style="flex:1; padding:8px; background:${csTheme().inputBg}; border:1px solid ${csTheme().border}; color:${csTheme().text}; border-radius:6px; cursor:pointer; font-size:10px; font-weight:600;">Import</button>
+                    <option>2 minutes</option>
 
-                  <button type="button" id="settings-backup-reset" style="flex:1; padding:8px; background:${csTheme().inputBg}; border:1px solid ${csTheme().isLight ? 'rgba(220,38,38,0.45)' : 'rgba(248,113,113,0.5)'}; color:${csTheme().isLight ? '#991b1b' : '#f87171'}; border-radius:6px; cursor:pointer; font-size:10px; font-weight:600;">Reset</button>
+                    <option>5 minutes</option>
+
+                  </select>
 
                 </div>
-
-                <input type="file" id="settings-backup-import-input" accept="application/json,.json" style="display:none;">
 
               </div>
 
             </div>
 
+          </div>
 
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; align-items: stretch;">
 
+            <div style="background: ${csTheme().cardBg}; border: 1px solid ${csTheme().border}; border-radius: 8px; padding: 10px 12px; display: flex; flex-direction: column;">
 
+              <div style="font-size:13px; font-weight:500; color:${csTheme().text}; margin-bottom:8px;">🔒 Privacy & Security</div>
+
+              <div style="display:flex; flex-direction:column; gap:5px;">
+
+                <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+
+                  <input type="checkbox" id="settings-privacy-sessions" checked style="width:14px;height:14px;border-radius:3px;accent-color:#534AB7;cursor:pointer;flex-shrink:0;margin:0;">
+
+                  <span style="font-size:11px; color:${csTheme().muted};">Store sessions locally</span>
+
+                </label>
+
+                <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+
+                  <input type="checkbox" id="settings-privacy-usage" style="width:14px;height:14px;border-radius:3px;accent-color:#534AB7;cursor:pointer;flex-shrink:0;margin:0;">
+
+                  <span style="font-size:11px; color:${csTheme().muted};">Share anonymous usage data</span>
+
+                </label>
+
+                <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+
+                  <input type="checkbox" id="settings-privacy-encryption" checked style="width:14px;height:14px;border-radius:3px;accent-color:#534AB7;cursor:pointer;flex-shrink:0;margin:0;">
+
+                  <span style="font-size:11px; color:${csTheme().muted};">Enable encryption</span>
+
+                </label>
+
+              </div>
+
+            </div>
+
+            <div style="background: ${csTheme().cardBg}; border: 1px solid ${csTheme().border}; border-radius: 8px; padding: 10px 12px; display: flex; flex-direction: column;">
+
+              <div style="font-size:13px; font-weight:500; color:${csTheme().text}; margin-bottom:8px;">📦 Backup</div>
+
+              <div style="display:flex; gap:6px;">
+
+                <button type="button" id="settings-backup-export" style="flex:1; background:#534AB7; color:#fff; border:none; border-radius:8px; padding:5px 8px; font-size:11px; text-align:center; cursor:pointer; font-weight:500;">Export</button>
+
+                <button type="button" id="settings-backup-import" style="flex:1; background:transparent; border:1px solid ${csTheme().border}; color:${csTheme().inputText}; border-radius:8px; padding:5px 8px; font-size:11px; text-align:center; cursor:pointer; font-weight:500;">Import</button>
+
+                <button type="button" id="settings-backup-reset" style="flex:1; background:transparent; border:1px solid rgba(226, 75, 74, 0.4); color:#A32D2D; border-radius:8px; padding:5px 8px; font-size:11px; text-align:center; cursor:pointer; font-weight:500;">Reset</button>
+
+              </div>
+
+              <input type="file" id="settings-backup-import-input" accept="application/json,.json" style="display:none;">
+
+            </div>
 
           </div>
 
         </div>
 
-        
-
       </div>
+
+
 
     `
 
@@ -31842,23 +31830,23 @@ ${pageText}
 
         row.style.alignItems = 'center'
 
-        row.style.background = 'rgba(0,0,0,0.12)'
+        row.style.background = csTheme().inputBg
 
-        row.style.padding = '6px'
+        row.style.padding = '5px 8px'
 
-        row.style.borderRadius = '6px'
+        row.style.borderRadius = '4px'
 
-        row.style.border = `1px solid ${csTheme().border}`
+        row.style.border = 'none'
 
         row.innerHTML = `
 
-          <input class="api-name" placeholder="Name" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 6px; border-radius: 4px; font-size: 10px;">
+          <input class="api-name" placeholder="Name" style="background: ${csTheme().cardBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 4px 8px; border-radius: 4px; font-size: 11px;">
 
-          <input class="api-value" type="password" id="key-custom-${idSuffix}" placeholder="key..." style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 6px; border-radius: 4px; font-size: 10px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;">
+          <input class="api-value" type="password" id="key-custom-${idSuffix}" placeholder="key..." style="background: ${csTheme().cardBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 4px 8px; border-radius: 4px; font-size: 11px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;">
 
-          <button class="toggle-visibility" data-target="key-custom-${idSuffix}" title="Show/Hide" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px;">👁️</button>
+          <button class="toggle-visibility" data-target="key-custom-${idSuffix}" title="Show/Hide" style="background: ${csTheme().cardBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px;">👁️</button>
 
-          <button class="remove-custom" title="Remove" style="background: rgba(244,67,54,0.5); border: none; color: white; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px;">✏•</button>
+          <button class="remove-custom" title="Remove" style="background: transparent; border: 1px solid rgba(226, 75, 74, 0.4); color: #A32D2D; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px; line-height: 1;">×</button>
 
         `
 
@@ -31948,7 +31936,7 @@ ${pageText}
       function paintConnDot(variant: 'muted' | 'warn' | 'ok' | 'err') {
         if (!connDot) return
         const th = csTheme()
-        const colors = { muted: th.muted, warn: th.warnText, ok: th.successText, err: th.errorText }
+        const colors = { muted: th.muted, warn: '#534AB7', ok: '#1D9E75', err: '#A32D2D' }
         connDot.style.background = colors[variant]
         connDot.style.opacity = variant === 'muted' ? '0' : '1'
       }
@@ -31963,18 +31951,18 @@ ${pageText}
       function applyToggleStyles(mode: 'host' | 'sandbox') {
         const th = csTheme()
         const active =
-          `flex:1;padding:10px 12px;border:none;cursor:pointer;font-size:11px;font-weight:600;background:${th.accentGrad};color:#fff;`
+          'flex:1;padding:10px 12px;border:none;cursor:pointer;font-size:11px;font-weight:600;background:#534AB7;color:#fff;'
         const hostInactive =
           `flex:1;padding:10px 12px;border:none;cursor:pointer;font-size:11px;font-weight:600;background:${th.inputBg};color:${th.muted};`
         const sandboxInactive =
           `flex:1;padding:10px 12px;border:none;border-left:1px solid ${th.border};cursor:pointer;font-size:11px;font-weight:600;background:${th.inputBg};color:${th.muted};`
         const sandboxActive =
-          `flex:1;padding:10px 12px;border:none;border-left:1px solid ${th.border};cursor:pointer;font-size:11px;font-weight:600;background:${th.accentGrad};color:#fff;`
+          `flex:1;padding:10px 12px;border:none;border-left:1px solid ${th.border};cursor:pointer;font-size:11px;font-weight:600;background:#534AB7;color:#fff;`
         if (hostBtn) hostBtn.setAttribute('style', mode === 'host' ? active : hostInactive)
         if (sandboxBtn) sandboxBtn.setAttribute('style', mode === 'sandbox' ? sandboxActive : sandboxInactive)
         if (hostContent) hostContent.style.display = mode === 'host' ? 'block' : 'none'
         if (sandboxContent) sandboxContent.style.display = mode === 'sandbox' ? 'block' : 'none'
-        if (setupGuide) setupGuide.style.display = mode === 'sandbox' ? 'block' : 'none'
+        if (setupGuide) setupGuide.style.display = mode === 'sandbox' ? 'flex' : 'none'
       }
 
       function loadFromStorage() {
@@ -31985,7 +31973,7 @@ ${pageText}
         lastTestOk = cfg.mode === 'sandbox' && cfg.sandbox?.connectionVerified === true
         const th = csTheme()
         if (selectedMode === 'sandbox') {
-          setConnMessage(lastTestOk ? 'Verified (saved)' : '', th.muted)
+          setConnMessage(lastTestOk ? 'Verified (saved)' : '', lastTestOk ? '#0F6E56' : th.muted)
           paintConnDot(selectedMode === 'sandbox' && lastTestOk ? 'ok' : 'muted')
         } else {
           setConnMessage('', th.muted)
@@ -32007,7 +31995,7 @@ ${pageText}
         selectedMode = 'sandbox'
         applyToggleStyles('sandbox')
         const th = csTheme()
-        setConnMessage(lastTestOk ? 'Verified (saved)' : '', th.muted)
+        setConnMessage(lastTestOk ? 'Verified (saved)' : '', lastTestOk ? '#0F6E56' : th.muted)
         paintConnDot(lastTestOk ? 'ok' : 'muted')
         if (saveConfirm) saveConfirm.style.display = 'none'
       })
@@ -32015,13 +32003,11 @@ ${pageText}
       testBtn?.addEventListener('click', async () => {
         const hostUrl = (urlInput?.value || '').trim()
         if (!hostUrl.startsWith('https://')) {
-          const th = csTheme()
-          setConnMessage('URL must use HTTPS', th.errorText)
+          setConnMessage('URL must use HTTPS', '#A32D2D')
           paintConnDot('err')
           return
         }
-        const th = csTheme()
-        setConnMessage('Testing...', th.warnText)
+        setConnMessage('Testing...', '#534AB7')
         paintConnDot('warn')
 
         const rpc = await electronRpc('orchestrator.testRemoteHost', { hostUrl }, 12_000)
@@ -32038,7 +32024,7 @@ ${pageText}
               : avail
                 ? 'host reachable'
                 : 'inference not available'
-          setConnMessage(`Connected — ${modelLabel}`, th.successText)
+          setConnMessage(`Connected — ${modelLabel}`, '#1D9E75')
           paintConnDot('ok')
         } else {
           lastTestOk = false
@@ -32046,7 +32032,7 @@ ${pageText}
             (payload && typeof payload.error === 'string' && payload.error) ||
             rpc.error ||
             'Connection test failed'
-          setConnMessage(errMsg, th.errorText)
+          setConnMessage(errMsg, '#A32D2D')
           paintConnDot('err')
         }
       })
@@ -32064,11 +32050,10 @@ ${pageText}
         } else {
           const hostUrl = (urlInput?.value || '').trim()
           if (!hostUrl.startsWith('https://')) {
-            const th = csTheme()
             if (saveConfirm) {
               saveConfirm.style.display = 'inline'
               saveConfirm.textContent = 'URL must use HTTPS'
-              saveConfirm.style.color = th.errorText
+              saveConfirm.style.color = '#A32D2D'
             }
             return
           }
@@ -32084,19 +32069,18 @@ ${pageText}
 
         const rpc = await electronRpc('orchestrator.setMode', config, 12_000)
         const body = rpc.data as { ok?: boolean; error?: string } | undefined
-        const th = csTheme()
         if (rpc.success && body?.ok === true) {
           if (saveConfirm) {
             saveConfirm.style.display = 'inline'
             saveConfirm.textContent = 'Saved to this browser and desktop app.'
-            saveConfirm.style.color = th.successText
+            saveConfirm.style.color = '#1D9E75'
           }
         } else {
           const err = (body && typeof body.error === 'string' && body.error) || rpc.error || 'Save failed'
           if (saveConfirm) {
             saveConfirm.style.display = 'inline'
             saveConfirm.textContent = err
-            saveConfirm.style.color = th.errorText
+            saveConfirm.style.color = '#A32D2D'
           }
         }
       })
