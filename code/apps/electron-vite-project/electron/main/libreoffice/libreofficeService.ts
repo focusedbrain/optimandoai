@@ -188,16 +188,28 @@ export function setManualSofficePath(manualPath: string): { ok: true; path: stri
  * Result is cached for the process; concurrent calls share one detection pass.
  */
 export async function detectLibreOffice(): Promise<string | null> {
+  const startTime = Date.now()
+  console.log('[PDF-PERF] detectLibreOffice started at', startTime)
+
   if (detectionDone) {
-    return cachedSofficePath
+    console.log('[PDF-PERF] Using cached soffice path:', cachedSofficePath)
+    const result = cachedSofficePath
+    console.log('[PDF-PERF] detectLibreOffice took', Date.now() - startTime, 'ms, result:', result)
+    return result
   }
+  console.log('[PDF-PERF] Cache miss — running full detection')
+
   if (detectLibreOfficeInFlight) {
-    return detectLibreOfficeInFlight
+    const result = await detectLibreOfficeInFlight
+    console.log('[PDF-PERF] detectLibreOffice took', Date.now() - startTime, 'ms, result:', result)
+    return result
   }
 
   detectLibreOfficeInFlight = runDetectLibreOffice()
   try {
-    return await detectLibreOfficeInFlight
+    const result = await detectLibreOfficeInFlight
+    console.log('[PDF-PERF] detectLibreOffice took', Date.now() - startTime, 'ms, result:', result)
+    return result
   } finally {
     detectLibreOfficeInFlight = null
   }
@@ -424,12 +436,18 @@ async function execLibreOfficeConvert(
     outDir,
     inputPath,
   ]
+  console.log('[PDF-PERF] Using LO profile:', tempProfile)
+  console.log('[PDF-PERF] Profile already existed:', fs.existsSync(tempProfile))
+  console.log('[PDF-PERF] execFileAsync starting at', Date.now())
+  console.log('[PDF-PERF] args:', JSON.stringify(args))
+  const startExec = Date.now()
   const result = await execFileAsync(sofficePath, args, {
     timeout: timeoutMs,
     windowsHide: true,
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],
   })
+  console.log('[PDF-PERF] execFileAsync completed in', Date.now() - startExec, 'ms')
   const stdout = typeof result.stdout === 'string' ? result.stdout : result.stdout.toString('utf8')
   const stderr = typeof result.stderr === 'string' ? result.stderr : result.stderr.toString('utf8')
   return { stdout, stderr }
@@ -456,7 +474,10 @@ function readPdfHeaderSnippet(filePath: string): string {
  */
 export async function convertToPdf(inputPath: string, outputDir: string): Promise<string> {
   console.log('[PDF] convertToPdf called:', { inputPath })
+  console.log('[PDF-PERF] convertToPdf: detecting LO at', Date.now())
+  const t0 = Date.now()
   const sofficePath = await detectLibreOffice()
+  console.log('[PDF-PERF] convertToPdf: detection took', Date.now() - t0, 'ms')
   if (!sofficePath) {
     console.error('[PDF] LibreOffice not detected:', LIBREOFFICE_MISSING_USER_MESSAGE)
     throw new Error(LIBREOFFICE_MISSING_USER_MESSAGE)
@@ -476,6 +497,8 @@ export async function convertToPdf(inputPath: string, outputDir: string): Promis
   let stdout = ''
   let stderr = ''
   try {
+    console.log('[PDF-PERF] convertToPdf: starting conversion at', Date.now())
+    const t1 = Date.now()
     const result = await execLibreOfficeConvert(
       sofficePath,
       'pdf',
@@ -483,6 +506,7 @@ export async function convertToPdf(inputPath: string, outputDir: string): Promis
       resolvedOut,
       LIBREOFFICE_CONVERT_TIMEOUT_MS,
     )
+    console.log('[PDF-PERF] convertToPdf: conversion took', Date.now() - t1, 'ms')
     stdout = result.stdout
     stderr = result.stderr
     const elapsed = Date.now() - startTime

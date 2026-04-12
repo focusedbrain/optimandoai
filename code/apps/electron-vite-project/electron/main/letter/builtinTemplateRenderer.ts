@@ -239,21 +239,16 @@ function buildDocument(layout: string, f: Record<string, string>, logo: LogoByte
     children.push(new Paragraph({ children: [], spacing: { after: 400 } }))
   }
 
-  // Date: default to today when empty; user override when set. Display DD.MM.YYYY for DE.
-  const rawDate = f.date?.trim() || new Date().toISOString().split('T')[0]
-  let dateStr = rawDate
-  try {
-    const d = new Date(rawDate)
-    if (!Number.isNaN(d.getTime())) {
-      dateStr = d.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' })
-    }
-  } catch {
-    /* keep rawDate */
-  }
-  if (dateStr) {
+  // --- DATE (always today's date for the letter being created) ---
+  {
+    const now = new Date()
+    const dd = String(now.getDate()).padStart(2, '0')
+    const mm = String(now.getMonth() + 1).padStart(2, '0')
+    const yyyy = now.getFullYear()
+    const todayFormatted = `${dd}.${mm}.${yyyy}`
     children.push(
       new Paragraph({
-        children: [new TextRun({ text: dateStr, size: 22, font: 'Liberation Sans' })],
+        children: [new TextRun({ text: todayFormatted, size: 22, font: 'Liberation Sans' })],
         alignment: AlignmentType.RIGHT,
         spacing: { after: 300 },
       }),
