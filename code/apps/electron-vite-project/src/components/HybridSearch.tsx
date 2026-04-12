@@ -939,6 +939,7 @@ export default function HybridSearch({
         const modelInfo = availableModels.find(m => m.id === selectedModel)
         const streamedRef = { current: '' }
         const streamGenAtSubmit = chatStreamGenerationRef.current
+        // Register stream listeners before ANY branch that calls IPC with stream:true (multi-version, letter-compose, field-drafting, RAG).
         const unsubStart = window.handshakeView?.onChatStreamStart?.((data: { contextBlocks: string[]; sources: ChatSource[] }) => {
           if (chatStreamGenerationRef.current !== streamGenAtSubmit) return
           setContextBlocks(data.contextBlocks ?? [])
