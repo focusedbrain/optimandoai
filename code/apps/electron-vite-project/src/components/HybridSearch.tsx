@@ -530,6 +530,8 @@ export default function HybridSearch({
   /** General chat conversation — user + assistant turns (non-draft-refine mode only) */
   const [chatMessages, setChatMessages] = useState<ChatTurn[]>([])
   const chatContainerRef = useRef<HTMLDivElement>(null)
+  /** Bumped when the letter template field changes so in-flight stream tokens are ignored. */
+  const chatStreamGenerationRef = useRef(0)
 
   const letterComposerPortForUse = useChatFocusStore((s) =>
     s.chatFocusMode.mode === 'letter-composer' ? s.focusMeta?.letterComposerPort : undefined,
@@ -540,6 +542,9 @@ export default function HybridSearch({
     (s) =>
       s.chatFocusMode.mode === 'letter-composer' && s.focusMeta?.letterComposerPort === 'template',
   )
+
+  /** Top WR Chat uses letter-compose / chatDirect; show normal chat panel even if draft-refine is connected for per-field buttons. */
+  const isLetterComposerFocus = useChatFocusStore((s) => s.chatFocusMode.mode === 'letter-composer')
 
   const applyLetterComposerUseFromText = useCallback((text: string): boolean => {
     const cf = useChatFocusStore.getState()
@@ -852,6 +857,25 @@ export default function HybridSearch({
     return () => window.removeEventListener('wrdesk:clear-chat-conversation', handler)
   }, [])
 
+  // Letter Composer: clear current response (keep chat history) when the focused template field changes
+  useEffect(() => {
+    let prevFieldId = useLetterComposerStore.getState().focusedTemplateFieldId
+    const unsub = useLetterComposerStore.subscribe((state) => {
+      const nextFieldId = state.focusedTemplateFieldId
+      if (nextFieldId === prevFieldId) return
+      prevFieldId = nextFieldId
+      if (useChatFocusStore.getState().chatFocusMode.mode !== 'letter-composer') return
+      chatStreamGenerationRef.current += 1
+      setResponse(null)
+      setContextBlocks([])
+      setChatSources([])
+      setStructuredResult(null)
+      setResultType(null)
+      setUsedBlockIds(new Set())
+    })
+    return unsub
+  }, [])
+
   // Auto-scroll to bottom when chatMessages updates
   useEffect(() => {
     const el = chatContainerRef.current
@@ -914,14 +938,17 @@ export default function HybridSearch({
       } else {
         const modelInfo = availableModels.find(m => m.id === selectedModel)
         const streamedRef = { current: '' }
+        const streamGenAtSubmit = chatStreamGenerationRef.current
         const unsubStart = window.handshakeView?.onChatStreamStart?.((data: { contextBlocks: string[]; sources: ChatSource[] }) => {
+          if (chatStreamGenerationRef.current !== streamGenAtSubmit) return
           setContextBlocks(data.contextBlocks ?? [])
           setChatSources(data.sources ?? [])
           setIsLoading(false)
         })
         const unsubToken = window.handshakeView?.onChatStreamToken?.((data: { token: string }) => {
+          if (chatStreamGenerationRef.current !== streamGenAtSubmit) return
           const tok = data.token ?? ''
-          console.log('LINK6: received token', tok?.substring(0, 50))
+          console.log('RENDERER received token:', tok.substring(0, 20))
           streamedRef.current += tok
           setResponse(prev => (prev ?? '') + tok)
         })
@@ -2059,7 +2086,8 @@ export default function HybridSearch({
             )}
           </div>
 
-          {isLoading && !(lastMode === 'chat' && contextBlocks.length > 0) && (
+          {isLoading &&
+            !(lastMode === 'chat' && (contextBlocks.length > 0 || !!(response && response.trim()))) && (
             <div className="hs-panel-loading">
               <span className="hs-spinner" />
               <span>{lastMode === 'chat' ? 'Asking…' : lastMode === 'actions' ? 'Running…' : 'Searching…'}</span>
@@ -2095,7 +2123,8 @@ export default function HybridSearch({
           )}
 
           {/* Draft refine history (when connected to draft) */}
-          {isDraftRefineSession && (draftRefineHistory.length > 0 || response) && (
+          {isDraftRefineSession &&
+            (draftRefineHistory.length > 0 || (response && !isLetterComposerFocus)) && (
             <div className="hs-draft-refine-history" style={{ marginBottom: '16px' }}>
               {draftRefineHistory.map((msg, idx) => (
                 <div
@@ -2168,7 +2197,7 @@ export default function HybridSearch({
                   )}
                 </div>
               ))}
-              {isLoading && response && (
+              {!isLetterComposerFocus && response && (
                 <div
                   className="hs-draft-refine-msg hs-draft-refine-msg--assistant"
                   style={{
@@ -2182,7 +2211,9 @@ export default function HybridSearch({
                     wordBreak: 'break-word',
                   }}
                 >
-                  <div style={{ fontWeight: 600, fontSize: '10px', marginBottom: '4px', color: 'var(--text-muted)' }}>Revising…</div>
+                  <div style={{ fontWeight: 600, fontSize: '10px', marginBottom: '4px', color: 'var(--text-muted)' }}>
+                    {isLoading ? 'Revising…' : 'AI'}
+                  </div>
                   <div>{response}</div>
                 </div>
               )}
@@ -2197,8 +2228,8 @@ export default function HybridSearch({
             </div>
           )}
 
-          {/* Chat response (skip when draft refine mode — we show draft history instead) */}
-          {lastMode === 'chat' && !isDraftRefineSession && (
+          {/* Chat response — hidden in draft-refine unless letter-composer (top chat uses chatDirect stream there). */}
+          {lastMode === 'chat' && (!isDraftRefineSession || isLetterComposerFocus) && (
             <>
               {/* Conversation history — all completed turns */}
               {chatMessages.length > 0 && (
