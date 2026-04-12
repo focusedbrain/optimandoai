@@ -96,39 +96,6 @@ function recipientSpacingBefore(layout: string): number {
   return 400
 }
 
-/** Pixel dimensions from image buffer (PNG IHDR / JPEG SOF) for aspect-preserving logo scaling. */
-function readImagePixelSize(logo: LogoBytes): { w: number; h: number } | null {
-  const b = logo.buffer
-  if (logo.type === 'png' && b.length >= 24 && b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) {
-    const w = b.readUInt32BE(16)
-    const h = b.readUInt32BE(20)
-    if (w > 0 && h > 0 && w < 65536 && h < 65536) return { w, h }
-  }
-  if (logo.type === 'jpg' && b.length > 9) {
-    for (let i = 0; i < b.length - 9; i++) {
-      if (b[i] !== 0xff) continue
-      const m = b[i + 1]
-      if (m === 0xc0 || m === 0xc1 || m === 0xc2 || m === 0xc3) {
-        const h = b.readUInt16BE(i + 5)
-        const w = b.readUInt16BE(i + 7)
-        if (w > 0 && h > 0) return { w, h }
-      }
-    }
-  }
-  return null
-}
-
-/** Max width matches prior docx ImageRun scale; height follows aspect ratio (fallback 200×60). */
-function logoTransformation(logo: LogoBytes): { width: number; height: number } {
-  const maxW = 200
-  const fallbackH = 60
-  const dim = readImagePixelSize(logo)
-  if (!dim) return { width: maxW, height: fallbackH }
-  if (dim.w <= maxW) return { width: dim.w, height: dim.h }
-  const scale = maxW / dim.w
-  return { width: Math.round(dim.w * scale), height: Math.round(dim.h * scale) }
-}
-
 function buildBodyParagraphs(f: Record<string, string>): Paragraph[] {
   const body = f.body?.trim()
   if (!body) return []
@@ -150,14 +117,13 @@ function buildDocument(layout: string, f: Record<string, string>, logo: LogoByte
   const rec = f as Record<string, string | undefined>
 
   if (logo) {
-    const { width: logoWidth, height: logoHeight } = logoTransformation(logo)
     children.push(
       new Paragraph({
         children: [
           new ImageRun({
             type: logo.type,
             data: logo.buffer,
-            transformation: { width: logoWidth, height: logoHeight },
+            transformation: { width: 250, height: 75 },
           }),
         ],
         alignment: logoAlignment(layout),
@@ -170,75 +136,6 @@ function buildDocument(layout: string, f: Record<string, string>, logo: LogoByte
     rec.sender?.trim() || [rec.sender_name, rec.sender_address].filter((x) => x?.trim()).join('\n')
   const senderPhone = rec.sender_phone?.trim() || ''
   const senderEmail = rec.sender_email?.trim() || ''
-
-  if (senderData) {
-    const senderLines = senderData.split('\n').filter((l) => l.trim())
-
-    if (senderLines.length > 0) {
-      children.push(
-        new Paragraph({
-          children: [
-            new TextRun({
-              text: senderLines[0],
-              size: 20,
-              font: 'Liberation Sans',
-              bold: true,
-            }),
-          ],
-          spacing: { after: 20 },
-        }),
-      )
-    }
-
-    for (let i = 1; i < senderLines.length; i++) {
-      children.push(
-        new Paragraph({
-          children: [
-            new TextRun({
-              text: senderLines[i],
-              size: 18,
-              font: 'Liberation Sans',
-              color: '555555',
-            }),
-          ],
-          spacing: { after: 0 },
-        }),
-      )
-    }
-
-    const contactParts: string[] = []
-    if (senderPhone) contactParts.push(`Tel: ${senderPhone}`)
-    if (senderEmail) contactParts.push(senderEmail)
-    if (contactParts.length > 0) {
-      children.push(
-        new Paragraph({
-          children: [
-            new TextRun({
-              text: contactParts.join(' · '),
-              size: 18,
-              font: 'Liberation Sans',
-              color: '555555',
-            }),
-          ],
-          spacing: { after: 100 },
-        }),
-      )
-    }
-
-    children.push(
-      new Paragraph({
-        children: [],
-        border: {
-          bottom: {
-            color: 'CCCCCC',
-            style: BorderStyle.SINGLE,
-            size: 4,
-          },
-        },
-        spacing: { after: 200 },
-      }),
-    )
-  }
 
   if (senderData) {
     const senderLines = senderData.split('\n').filter((l) => l.trim())
@@ -264,26 +161,34 @@ function buildDocument(layout: string, f: Record<string, string>, logo: LogoByte
     ? rec.recipient
     : [rec.recipient_name, rec.recipient_address].filter((x) => x?.trim()).join('\n')
   if (recipientBlock?.trim()) {
+    let recipientLines = recipientBlock.split('\n').map((l) => l.trim()).filter(Boolean)
+    if (recipientLines.length === 1 && recipientLines[0].length > 40) {
+      recipientLines = recipientLines[0]
+        .split(/,\s+(?=\d{4,5}\s)/)
+        .map((l) => l.trim())
+        .filter(Boolean)
+    }
     children.push(
       new Paragraph({
         children: [],
         spacing: { before: recipientSpacingBefore(layout), after: 0 },
       }),
     )
-    for (const line of recipientBlock.split('\n')) {
-      const t = line.trim()
-      if (t) {
-        children.push(
-          new Paragraph({
-            children: [new TextRun({ text: t, size: 22, font: 'Liberation Sans' })],
-            spacing: { after: 0 },
-          }),
-        )
-      }
+    for (const line of recipientLines) {
+      children.push(
+        new Paragraph({
+          children: [new TextRun({ text: line, size: 22, font: 'Liberation Sans' })],
+          spacing: { after: 0 },
+        }),
+      )
     }
     children.push(new Paragraph({ children: [], spacing: { after: 400 } }))
   }
 
+  // NOTE: The date field should contain the CREATION date of this letter,
+  // not the date of a received letter. The UI (ComposeFieldsForm or
+  // LetterViewerPort reply flow) should set date = today when composing
+  // a reply, not copy the received letter's date.
   if (f.date?.trim()) {
     children.push(
       new Paragraph({
@@ -344,16 +249,8 @@ function buildDocument(layout: string, f: Record<string, string>, logo: LogoByte
     )
   }
 
-  const footerParts: string[] = []
-  if (senderData) {
-    const senderFirstLine = senderData.split('\n')[0]?.trim()
-    if (senderFirstLine) footerParts.push(senderFirstLine)
-  }
-  if (senderPhone) footerParts.push(`Tel: ${senderPhone}`)
-  if (senderEmail) footerParts.push(senderEmail)
-
   const footerChildren: Paragraph[] = []
-  if (footerParts.length > 0) {
+  if (senderData || senderPhone || senderEmail) {
     footerChildren.push(
       new Paragraph({
         children: [],
@@ -364,22 +261,65 @@ function buildDocument(layout: string, f: Record<string, string>, logo: LogoByte
             size: 4,
           },
         },
-        spacing: { after: 60 },
+        spacing: { after: 40 },
       }),
     )
-    footerChildren.push(
-      new Paragraph({
-        children: [
-          new TextRun({
-            text: footerParts.join(' · '),
-            size: 14,
-            font: 'Liberation Sans',
-            color: '888888',
-          }),
-        ],
-        alignment: AlignmentType.CENTER,
-      }),
-    )
+
+    const senderLines = (senderData || '').split('\n').filter((l) => l.trim())
+    const senderName = senderLines[0] || ''
+    const senderAddr = senderLines.slice(1).join(', ')
+
+    if (senderName) {
+      footerChildren.push(
+        new Paragraph({
+          children: [
+            new TextRun({
+              text: senderName,
+              size: 14,
+              font: 'Liberation Sans',
+              color: '666666',
+              bold: true,
+            }),
+          ],
+          alignment: AlignmentType.CENTER,
+          spacing: { after: 20 },
+        }),
+      )
+    }
+
+    if (senderAddr) {
+      footerChildren.push(
+        new Paragraph({
+          children: [
+            new TextRun({
+              text: senderAddr,
+              size: 14,
+              font: 'Liberation Sans',
+              color: '888888',
+            }),
+          ],
+          alignment: AlignmentType.CENTER,
+          spacing: { after: 20 },
+        }),
+      )
+    }
+
+    const contactLine = [senderPhone ? `Tel: ${senderPhone}` : '', senderEmail].filter(Boolean).join(' · ')
+    if (contactLine) {
+      footerChildren.push(
+        new Paragraph({
+          children: [
+            new TextRun({
+              text: contactLine,
+              size: 14,
+              font: 'Liberation Sans',
+              color: '888888',
+            }),
+          ],
+          alignment: AlignmentType.CENTER,
+        }),
+      )
+    }
   }
 
   return new Document({
