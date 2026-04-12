@@ -31305,59 +31305,57 @@ ${pageText}
 
             <!-- Orchestrator Mode (center column) -->
 
-            <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 8px; border: 1px solid ${csTheme().border}; height: 100%; display: flex; flex-direction: column;">
+            <div id="orchestrator-mode-panel" style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 8px; border: 1px solid ${csTheme().border}; height: 100%; display: flex; flex-direction: column;">
 
-              <h4 style="margin: 0 0 8px 0; font-size: 12px; color: ${csTheme().muted};">🔗 Orchestrator Mode</h4>
+              <div style="margin: 0 0 10px 0; font-size: 13px; font-weight: 500; color: ${csTheme().text};">Orchestrator mode</div>
 
-              <div style="display:flex; gap:10px; margin-bottom:10px;">
+              <div style="display:flex; border:1px solid ${csTheme().border}; border-radius:6px; overflow:hidden; margin-bottom:10px;">
 
-                <button type="button" id="orch-mode-host-btn" style="flex:1; padding:10px 12px; border-radius:8px; cursor:pointer; font-size:11px; font-weight:700;">Host</button>
+                <button type="button" id="btn-mode-host" style="flex:1; padding:10px 12px; border:none; cursor:pointer; font-size:11px; font-weight:600;">Host</button>
 
-                <button type="button" id="orch-mode-sandbox-btn" style="flex:1; padding:10px 12px; border-radius:8px; cursor:pointer; font-size:11px; font-weight:700;">Sandbox</button>
-
-              </div>
-
-              <div id="orch-mode-status-line" style="font-size:10px; margin-bottom:10px; color:${csTheme().muted};">Current mode: —</div>
-
-              <div id="orch-host-brief" style="display:none; font-size:10px; line-height:1.5; color:${csTheme().muted};">
-
-                <div>Serving inference to connected sandboxes.</div>
-
-                <div style="margin-top:6px;">Ensure inference API is reachable (HTTPS + firewall).</div>
+                <button type="button" id="btn-mode-sandbox" style="flex:1; padding:10px 12px; border:none; border-left:1px solid ${csTheme().border}; cursor:pointer; font-size:11px; font-weight:600;">Sandbox</button>
 
               </div>
 
-              <div id="orch-sandbox-panel" style="display:none;">
+              <div id="orch-desktop-sync-hint" style="font-size:9px; color:${csTheme().muted}; margin-bottom:8px; min-height:12px;"></div>
 
-                <div style="padding:8px 10px; border-radius:6px; margin-bottom:10px; font-size:10px; line-height:1.45; background:${csTheme().isLight ? 'rgba(59,130,246,0.12)' : 'rgba(96,165,250,0.14)'}; border:1px solid ${csTheme().isLight ? 'rgba(59,130,246,0.35)' : 'rgba(147,197,253,0.35)'}; color:${csTheme().text};">
+              <div id="host-mode-content" style="display:block;">
 
-                  This device processes documents locally. LLM inference is handled by your host system's API.
+                <div style="font-size:11px; line-height:1.45; color:${csTheme().muted};">Serving inference to connected sandboxes.</div>
+
+                <div style="font-size:11px; line-height:1.45; color:${csTheme().muted}; margin-top:6px;">Ensure inference API is reachable (HTTPS + firewall).</div>
+
+              </div>
+
+              <div id="sandbox-mode-content" style="display:none;">
+
+                <div style="padding:8px 10px; border-radius:6px; margin-bottom:10px; font-size:11px; line-height:1.45; background:${csTheme().isLight ? 'rgba(59,130,246,0.12)' : 'rgba(96,165,250,0.14)'}; border:1px solid ${csTheme().isLight ? 'rgba(59,130,246,0.35)' : 'rgba(147,197,253,0.35)'}; color:${csTheme().text};">
+
+                  Documents stay on this device. Only text is sent to the host for LLM inference.
 
                 </div>
 
-                <label style="display:block; font-size:10px; font-weight:700; margin-bottom:4px; color:${csTheme().text};">Host inference URL</label>
+                <label style="display:block; font-size:11px; font-weight:600; margin-bottom:4px; color:${csTheme().text};">Host inference URL</label>
 
-                <input type="text" id="orch-host-url-input" placeholder="https://host-ip:51248" autocomplete="off" style="width:100%; box-sizing:border-box; background:${csTheme().inputBg}; border:1px solid ${csTheme().border}; color:${csTheme().inputText}; padding:8px; border-radius:6px; font-size:10px; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; margin-bottom:8px;" />
+                <input type="text" id="sandbox-host-url" placeholder="https://my-workstation:51248" autocomplete="off" style="width:100%; box-sizing:border-box; background:${csTheme().inputBg}; border:1px solid ${csTheme().border}; color:${csTheme().inputText}; padding:8px; border-radius:6px; font-size:11px; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; margin-bottom:8px;" />
 
                 <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:8px;">
 
-                  <button type="button" id="orch-test-connection-btn" style="background:${csTheme().accentGrad}; border:none; color:#fff; padding:8px 12px; border-radius:6px; cursor:pointer; font-size:10px; font-weight:700;">Test connection</button>
+                  <button type="button" id="btn-test-connection" style="background:${csTheme().accentGrad}; border:none; color:#fff; padding:8px 12px; border-radius:6px; cursor:pointer; font-size:11px; font-weight:600;">Test connection</button>
 
-                  <button type="button" id="orch-save-mode-btn" style="background:${csTheme().inputBg}; border:1px solid ${csTheme().border}; color:${csTheme().text}; padding:8px 14px; border-radius:6px; cursor:pointer; font-size:10px; font-weight:700;">Save</button>
-
-                </div>
-
-                <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px; font-size:10px; font-weight:600;">
-
-                  <span id="orch-connection-dot" style="width:8px;height:8px;border-radius:50%;background:${csTheme().muted};flex-shrink:0;"></span>
-
-                  <span id="orch-connection-status" style="color:${csTheme().muted};">Idle</span>
+                  <button type="button" id="btn-save-sandbox" style="background:${csTheme().inputBg}; border:1px solid ${csTheme().border}; color:${csTheme().text}; padding:8px 14px; border-radius:6px; cursor:pointer; font-size:11px; font-weight:600;">Save</button>
 
                 </div>
 
-                <div id="orch-test-model-info" style="display:none; font-size:10px; margin-bottom:8px;"></div>
+                <div id="sandbox-connection-status" style="display:flex; align-items:center; gap:8px; margin-bottom:6px; min-height:18px; font-size:11px;">
 
-                <span id="orch-save-confirm" style="font-size:10px; color:${csTheme().successText}; display:none;"></span>
+                  <span id="sandbox-connection-dot" style="width:8px;height:8px;border-radius:50%;flex-shrink:0;opacity:0;background:${csTheme().muted};"></span>
+
+                  <span id="sandbox-connection-text" style="color:${csTheme().muted};"></span>
+
+                </div>
+
+                <span id="sandbox-save-confirm" style="font-size:10px; color:${csTheme().successText}; display:none;"></span>
 
               </div>
 
@@ -31391,157 +31389,151 @@ ${pageText}
 
               <h4 style="margin: 0 0 8px 0; font-size: 12px; color: ${csTheme().muted};">Sandbox setup guide</h4>
 
-              <div style="display: grid; grid-template-columns: 24px 1fr; gap: 4px 10px; font-size: 11px; color: ${csTheme().muted}; line-height: 1.5;">
+              <div style="display: grid; grid-template-columns: 24px 1fr; gap: 6px 10px; font-size: 11px; color: ${csTheme().muted}; line-height: 1.5;">
 
-                <div style="display: flex; align-items: center; justify-content: center;">
+                <div style="display: flex; align-items: flex-start; justify-content: center; padding-top: 2px;">
 
                   <div style="width: 18px; height: 18px; border-radius: 50%; background: rgba(83,74,183,0.12); color: #534AB7; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center;">1</div>
 
                 </div>
 
-                <div>On your <strong>host PC</strong> (workstation with GPU), set orchestrator mode to <strong>Host</strong> and start a local LLM via Backend Configuration.</div>
+                <div>On your <strong>host workstation</strong> (the PC with a GPU that runs Ollama), open Settings and set orchestrator mode to <strong>Host</strong>. Then open Backend Configuration and start a local LLM.</div>
 
-                <div style="display: flex; align-items: center; justify-content: center;">
+                <div style="display: flex; align-items: flex-start; justify-content: center; padding-top: 2px;">
 
                   <div style="width: 18px; height: 18px; border-radius: 50%; background: rgba(83,74,183,0.12); color: #534AB7; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center;">2</div>
 
                 </div>
 
-                <div>On this <strong>sandbox device</strong> (mini PC, thin client, laptop), enter the host's inference URL above. Both devices must share the same SSO login.</div>
+                <div><strong>Find the host address:</strong> On the host PC, open a terminal and run <span style="font-family:monospace;font-size:10px;background:${csTheme().inputBg};padding:1px 5px;border-radius:3px;">hostname</span> (or check your router's device list). Use the hostname or local IP. Dynamic IPs on a LAN are fine — your router typically assigns the same address to known devices. Example: <span style="font-family:monospace;font-size:10px;background:${csTheme().inputBg};padding:1px 5px;border-radius:3px;">https://my-workstation:51248</span> or <span style="font-family:monospace;font-size:10px;background:${csTheme().inputBg};padding:1px 5px;border-radius:3px;">https://192.168.1.50:51248</span></div>
 
-                <div style="display: flex; align-items: center; justify-content: center;">
+                <div style="display: flex; align-items: flex-start; justify-content: center; padding-top: 2px;">
 
                   <div style="width: 18px; height: 18px; border-radius: 50%; background: rgba(83,74,183,0.12); color: #534AB7; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center;">3</div>
 
                 </div>
 
-                <div>Documents and OCR processing stay on this device. Only extracted <strong>text</strong> is sent to the host for LLM inference — files and images never leave the sandbox.</div>
+                <div>Enter the host URL above and click <strong>Test connection</strong>. Both devices must be logged in with the <strong>same SSO account</strong>.</div>
+
+                <div style="display: flex; align-items: flex-start; justify-content: center; padding-top: 2px;">
+
+                  <div style="width: 18px; height: 18px; border-radius: 50%; background: rgba(34,197,94,0.22); color: ${csTheme().successText}; font-size: 11px; font-weight: 800; display: flex; align-items: center; justify-content: center;">\u2713</div>
+
+                </div>
+
+                <div style="color:${csTheme().successText};"><strong>Security:</strong> Documents, images, and OCR processing never leave this sandbox device. Only the extracted text is sent to the host for LLM inference. Your files stay local.</div>
 
               </div>
 
             </div>
 
-            <!-- System Settings -->
+            <div style="grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
 
-            <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 6px; grid-column: 1 / -1;">
+              <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 8px; border: 1px solid ${csTheme().border};">
 
-              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: ${csTheme().muted};">⚙️ System</h4>
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
 
-              <div style="font-size: 10px;">
+                  <span style="font-size:12px; font-weight:600; color:${csTheme().muted};">⚙️ System</span>
 
-                <div style="margin-bottom: 8px;">
-
-                  <label style="display: block; margin-bottom: 3px;">Max Agents:</label>
-
-                  <input type="number" value="10" min="5" max="20" style="width: 100%; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 3px; border-radius: 2px; font-size: 9px;">
+                  <button type="button" id="btn-save-system-settings" style="background:${csTheme().accentGrad}; border:none; color:#fff; padding:4px 10px; border-radius:6px; cursor:pointer; font-size:10px; font-weight:700;">Save</button>
 
                 </div>
 
-                <div style="margin-bottom: 8px;">
+                <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 10px;">
 
-                  <label style="display: block; margin-bottom: 3px;">Memory (hours):</label>
+                  <div>
 
-                  <input type="number" value="24" min="1" max="168" style="width: 100%; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 3px; border-radius: 2px; font-size: 9px;">
+                    <label style="display:block; font-size:11px; color:${csTheme().muted}; margin-bottom:4px;">Max agents</label>
+
+                    <input type="number" id="settings-max-agents" value="10" min="5" max="20" style="width:100%; box-sizing:border-box; background:${csTheme().inputBg}; border:1px solid ${csTheme().border}; color:${csTheme().inputText}; padding:3px 8px; border-radius:4px; font-size:11px;">
+
+                  </div>
+
+                  <div>
+
+                    <label style="display:block; font-size:11px; color:${csTheme().muted}; margin-bottom:4px;">Memory (hours)</label>
+
+                    <input type="number" id="settings-memory-hours" value="24" min="1" max="168" style="width:100%; box-sizing:border-box; background:${csTheme().inputBg}; border:1px solid ${csTheme().border}; color:${csTheme().inputText}; padding:3px 8px; border-radius:4px; font-size:11px;">
+
+                  </div>
 
                 </div>
 
-                <button style="width: 100%; padding: 6px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 3px; cursor: pointer; font-size: 9px;">💾 Save Settings</button>
+              </div>
+
+              <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 8px; border: 1px solid ${csTheme().border};">
+
+                <div style="font-size:12px; font-weight:600; color:${csTheme().muted}; margin-bottom:10px;">⚡ Performance</div>
+
+                <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+
+                  <div>
+
+                    <label style="display:block; font-size:11px; color:${csTheme().muted}; margin-bottom:4px;">Reasoning speed</label>
+
+                    <select id="settings-reasoning-speed" style="width:100%; box-sizing:border-box; background:${csTheme().inputBg}; border:1px solid ${csTheme().border}; color:${csTheme().inputText}; padding:3px 8px; border-radius:4px; font-size:11px;">
+
+                      <option>Conservative</option>
+
+                      <option selected>Balanced</option>
+
+                      <option>Aggressive</option>
+
+                    </select>
+
+                  </div>
+
+                  <div>
+
+                    <label style="display:block; font-size:11px; color:${csTheme().muted}; margin-bottom:4px;">Auto-save interval</label>
+
+                    <select id="settings-autosave-interval" style="width:100%; box-sizing:border-box; background:${csTheme().inputBg}; border:1px solid ${csTheme().border}; color:${csTheme().inputText}; padding:3px 8px; border-radius:4px; font-size:11px;">
+
+                      <option>30 seconds</option>
+
+                      <option selected>60 seconds</option>
+
+                      <option>2 minutes</option>
+
+                      <option>5 minutes</option>
+
+                    </select>
+
+                  </div>
+
+                </div>
 
               </div>
 
             </div>
 
+            <div style="grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
 
+              <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 8px; border: 1px solid ${csTheme().border};">
 
-            
+                <div style="font-size:12px; font-weight:600; color:${csTheme().muted}; margin-bottom:10px;">🔒 Privacy & Security</div>
 
+                <div style="display:flex; flex-direction:column; gap:4px; font-size:11px; color:${csTheme().text};">
 
+                  <label style="display:flex; align-items:center; gap:6px; cursor:pointer;">
 
-            <!-- Performance Settings -->
-
-            <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 6px; grid-column: 1 / -1;">
-
-              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: ${csTheme().muted};">⚡ Performance</h4>
-
-              <div style="font-size: 10px;">
-
-                <div style="margin-bottom: 8px;">
-
-                  <label style="display: block; margin-bottom: 3px;">Reasoning Speed:</label>
-
-                  <select style="width: 100%; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 3px; border-radius: 2px; font-size: 9px;">
-
-                    <option>Conservative</option>
-
-                    <option selected>Balanced</option>
-
-                    <option>Aggressive</option>
-
-                  </select>
-
-          </div>
-
-                <div style="margin-bottom: 8px;">
-
-                  <label style="display: block; margin-bottom: 3px;">Auto-save Interval:</label>
-
-                  <select style="width: 100%; background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 3px; border-radius: 2px; font-size: 9px;">
-
-                    <option>30 seconds</option>
-
-                    <option selected>60 seconds</option>
-
-                    <option>2 minutes</option>
-
-                    <option>5 minutes</option>
-
-                  </select>
-
-        </div>
-
-      </div>
-
-            </div>
-
-            
-
-            <!-- Privacy & Security -->
-
-            <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 6px; grid-column: 1 / -1;">
-
-              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: ${csTheme().muted};">🔒 Privacy & Security</h4>
-
-              <div style="font-size: 10px;">
-
-                <div style="margin-bottom: 8px;">
-
-                  <label style="display: flex; align-items: center;">
-
-                    <input type="checkbox" checked style="margin-right: 6px;">
+                    <input type="checkbox" id="settings-privacy-sessions" checked>
 
                     <span>Store sessions locally</span>
 
                   </label>
 
-              </div>
+                  <label style="display:flex; align-items:center; gap:6px; cursor:pointer;">
 
-                <div style="margin-bottom: 8px;">
-
-                  <label style="display: flex; align-items: center;">
-
-                    <input type="checkbox" style="margin-right: 6px;">
+                    <input type="checkbox" id="settings-privacy-usage">
 
                     <span>Share anonymous usage data</span>
 
                   </label>
 
-                </div>
+                  <label style="display:flex; align-items:center; gap:6px; cursor:pointer;">
 
-                <div style="margin-bottom: 8px;">
-
-                  <label style="display: flex; align-items: center;">
-
-                    <input type="checkbox" checked style="margin-right: 6px;">
+                    <input type="checkbox" id="settings-privacy-encryption" checked>
 
                     <span>Enable encryption</span>
 
@@ -31551,31 +31543,21 @@ ${pageText}
 
               </div>
 
-            </div>
+              <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 8px; border: 1px solid ${csTheme().border};">
 
-            
+                <div style="font-size:12px; font-weight:600; color:${csTheme().muted}; margin-bottom:10px;">📦 Backup</div>
 
-            
+                <div style="display:flex; gap:6px;">
 
+                  <button type="button" id="settings-backup-export" style="flex:1; padding:8px; background:${csTheme().accentGrad}; border:none; color:#fff; border-radius:6px; cursor:pointer; font-size:10px; font-weight:700;">Export</button>
 
+                  <button type="button" id="settings-backup-import" style="flex:1; padding:8px; background:${csTheme().inputBg}; border:1px solid ${csTheme().border}; color:${csTheme().text}; border-radius:6px; cursor:pointer; font-size:10px; font-weight:600;">Import</button>
 
-            
+                  <button type="button" id="settings-backup-reset" style="flex:1; padding:8px; background:${csTheme().inputBg}; border:1px solid ${csTheme().isLight ? 'rgba(220,38,38,0.45)' : 'rgba(248,113,113,0.5)'}; color:${csTheme().isLight ? '#991b1b' : '#f87171'}; border-radius:6px; cursor:pointer; font-size:10px; font-weight:600;">Reset</button>
 
-            
+                </div>
 
-            <!-- Export/Import -->
-
-            <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 6px; grid-column: 1 / -1;">
-
-              <h4 style="margin: 0 0 10px 0; font-size: 12px; color: ${csTheme().muted};">📦 Backup</h4>
-
-              <div style="font-size: 10px;">
-
-                <button style="width: 100%; margin-bottom: 6px; padding: 6px; background: ${csTheme().accentGrad}; border: none; color: #fff; border-radius: 3px; cursor: pointer; font-size: 9px;">📤 Export Settings</button>
-
-                <button style="width: 100%; margin-bottom: 6px; padding: 6px; background: ${csTheme().cardBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().text}; border-radius: 3px; cursor: pointer; font-size: 9px;">📥 Import Settings</button>
-
-                <button style="width: 100%; padding: 6px; background: rgba(220,38,38,0.08); border: 1px solid rgba(220,38,38,0.25); color: ${csTheme().isLight ? "#991b1b" : "#f87171"}; border-radius: 3px; cursor: pointer; font-size: 9px;">🗝‘️ Reset All</button>
+                <input type="file" id="settings-backup-import-input" accept="application/json,.json" style="display:none;">
 
               </div>
 
@@ -31583,13 +31565,7 @@ ${pageText}
 
 
 
-            
 
-            
-
-          </div>
-
-          
 
           </div>
 
@@ -31936,19 +31912,18 @@ ${pageText}
 
     function wireOrchestratorModeUI() {
       const LS_KEY = 'optimando-orchestrator-mode'
-      const hostBtn = document.getElementById('orch-mode-host-btn')
-      const sandboxBtn = document.getElementById('orch-mode-sandbox-btn')
-      const sandboxPanel = document.getElementById('orch-sandbox-panel')
-      const hostBrief = document.getElementById('orch-host-brief')
-      const statusLine = document.getElementById('orch-mode-status-line')
-      const urlInput = document.getElementById('orch-host-url-input') as HTMLInputElement | null
-      const testBtn = document.getElementById('orch-test-connection-btn')
-      const connStatus = document.getElementById('orch-connection-status')
-      const modelInfo = document.getElementById('orch-test-model-info')
-      const saveBtn = document.getElementById('orch-save-mode-btn')
-      const saveConfirm = document.getElementById('orch-save-confirm')
+      const hostBtn = document.getElementById('btn-mode-host')
+      const sandboxBtn = document.getElementById('btn-mode-sandbox')
+      const hostContent = document.getElementById('host-mode-content')
+      const sandboxContent = document.getElementById('sandbox-mode-content')
+      const desktopHint = document.getElementById('orch-desktop-sync-hint')
+      const urlInput = document.getElementById('sandbox-host-url') as HTMLInputElement | null
+      const testBtn = document.getElementById('btn-test-connection')
+      const connText = document.getElementById('sandbox-connection-text')
+      const saveBtn = document.getElementById('btn-save-sandbox')
+      const saveConfirm = document.getElementById('sandbox-save-confirm')
       const setupGuide = document.getElementById('sandbox-setup-guide')
-      const connDot = document.getElementById('orch-connection-dot')
+      const connDot = document.getElementById('sandbox-connection-dot')
 
       let selectedMode: 'host' | 'sandbox' = 'host'
       let lastTestOk = false
@@ -31975,45 +31950,31 @@ ${pageText}
         const th = csTheme()
         const colors = { muted: th.muted, warn: th.warnText, ok: th.successText, err: th.errorText }
         connDot.style.background = colors[variant]
+        connDot.style.opacity = variant === 'muted' ? '0' : '1'
+      }
+
+      function setConnMessage(text: string, color: string) {
+        if (connText) {
+          connText.textContent = text
+          connText.style.color = color
+        }
       }
 
       function applyToggleStyles(mode: 'host' | 'sandbox') {
         const th = csTheme()
         const active =
-          `flex:1;padding:10px 12px;border-radius:8px;cursor:pointer;font-size:11px;font-weight:700;background:${th.accentGrad};border:none;color:#fff;`
-        const inactive =
-          `flex:1;padding:10px 12px;border-radius:8px;cursor:pointer;font-size:11px;font-weight:700;background:${th.inputBg};border:1px solid ${th.border};color:${th.text};`
-        if (hostBtn) hostBtn.setAttribute('style', mode === 'host' ? active : inactive)
-        if (sandboxBtn) sandboxBtn.setAttribute('style', mode === 'sandbox' ? active : inactive)
-        if (sandboxPanel) sandboxPanel.style.display = mode === 'sandbox' ? 'block' : 'none'
-        if (hostBrief) hostBrief.style.display = mode === 'host' ? 'block' : 'none'
+          `flex:1;padding:10px 12px;border:none;cursor:pointer;font-size:11px;font-weight:600;background:${th.accentGrad};color:#fff;`
+        const hostInactive =
+          `flex:1;padding:10px 12px;border:none;cursor:pointer;font-size:11px;font-weight:600;background:${th.inputBg};color:${th.muted};`
+        const sandboxInactive =
+          `flex:1;padding:10px 12px;border:none;border-left:1px solid ${th.border};cursor:pointer;font-size:11px;font-weight:600;background:${th.inputBg};color:${th.muted};`
+        const sandboxActive =
+          `flex:1;padding:10px 12px;border:none;border-left:1px solid ${th.border};cursor:pointer;font-size:11px;font-weight:600;background:${th.accentGrad};color:#fff;`
+        if (hostBtn) hostBtn.setAttribute('style', mode === 'host' ? active : hostInactive)
+        if (sandboxBtn) sandboxBtn.setAttribute('style', mode === 'sandbox' ? sandboxActive : sandboxInactive)
+        if (hostContent) hostContent.style.display = mode === 'host' ? 'block' : 'none'
+        if (sandboxContent) sandboxContent.style.display = mode === 'sandbox' ? 'block' : 'none'
         if (setupGuide) setupGuide.style.display = mode === 'sandbox' ? 'block' : 'none'
-      }
-
-      function paintStatusLine(
-        mode: 'host' | 'sandbox',
-        phase: 'idle' | 'testing' | 'connected' | 'failed',
-        detail?: string,
-      ) {
-        if (!statusLine) return
-        const th = csTheme()
-        const modeLabel = mode === 'host' ? 'Host' : 'Sandbox'
-        let suffix = ''
-        if (mode === 'host') {
-          suffix = ' — this instance serves inference to sandboxes'
-        } else if (phase === 'testing') {
-          suffix = ' · Testing host…'
-        } else if (phase === 'connected') {
-          suffix = detail ? ` · ${detail}` : ' · Connected'
-        } else if (phase === 'failed') {
-          suffix = detail ? ` · ${detail}` : ' · Connection failed'
-        } else {
-          suffix = ' · Enter host URL and test before saving'
-        }
-        statusLine.textContent = `Current mode: ${modeLabel}${suffix}`
-        statusLine.style.color = th.muted
-        if (phase === 'failed') statusLine.style.color = th.errorText
-        if (phase === 'connected' && mode === 'sandbox') statusLine.style.color = th.successText
       }
 
       function loadFromStorage() {
@@ -32023,67 +31984,45 @@ ${pageText}
         if (urlInput && cfg.mode === 'sandbox') urlInput.value = cfg.sandbox?.hostUrl || ''
         lastTestOk = cfg.mode === 'sandbox' && cfg.sandbox?.connectionVerified === true
         const th = csTheme()
-        if (connStatus) {
-          connStatus.textContent = lastTestOk ? 'Verified (saved)' : 'Idle'
-          connStatus.style.color = th.muted
-        }
-        paintConnDot(
-          selectedMode === 'sandbox' && lastTestOk ? 'ok' : 'muted',
-        )
-        if (modelInfo) {
-          modelInfo.textContent = ''
-          modelInfo.style.display = 'none'
+        if (selectedMode === 'sandbox') {
+          setConnMessage(lastTestOk ? 'Verified (saved)' : '', th.muted)
+          paintConnDot(selectedMode === 'sandbox' && lastTestOk ? 'ok' : 'muted')
+        } else {
+          setConnMessage('', th.muted)
+          paintConnDot('muted')
         }
         if (saveConfirm) saveConfirm.style.display = 'none'
-        paintStatusLine(selectedMode, 'idle')
+        if (desktopHint) desktopHint.textContent = ''
       }
 
       hostBtn?.addEventListener('click', () => {
         selectedMode = 'host'
         applyToggleStyles('host')
-        paintStatusLine('host', 'idle')
-        if (connStatus) {
-          connStatus.textContent = 'Idle'
-          connStatus.style.color = csTheme().muted
-        }
+        setConnMessage('', csTheme().muted)
         paintConnDot('muted')
-        if (modelInfo) modelInfo.style.display = 'none'
+        if (saveConfirm) saveConfirm.style.display = 'none'
       })
 
       sandboxBtn?.addEventListener('click', () => {
         selectedMode = 'sandbox'
         applyToggleStyles('sandbox')
-        paintStatusLine('sandbox', 'idle')
-        if (connStatus) {
-          connStatus.textContent = lastTestOk ? 'Verified (saved)' : 'Idle'
-          connStatus.style.color = csTheme().muted
-        }
+        const th = csTheme()
+        setConnMessage(lastTestOk ? 'Verified (saved)' : '', th.muted)
         paintConnDot(lastTestOk ? 'ok' : 'muted')
+        if (saveConfirm) saveConfirm.style.display = 'none'
       })
 
       testBtn?.addEventListener('click', async () => {
         const hostUrl = (urlInput?.value || '').trim()
         if (!hostUrl.startsWith('https://')) {
           const th = csTheme()
-          if (connStatus) {
-            connStatus.textContent = 'URL must start with https://'
-            connStatus.style.color = th.errorText
-          }
+          setConnMessage('URL must use HTTPS', th.errorText)
           paintConnDot('err')
-          paintStatusLine('sandbox', 'failed', 'URL must start with https://')
           return
         }
         const th = csTheme()
-        if (connStatus) {
-          connStatus.textContent = 'Testing…'
-          connStatus.style.color = th.warnText
-        }
+        setConnMessage('Testing...', th.warnText)
         paintConnDot('warn')
-        if (modelInfo) {
-          modelInfo.textContent = ''
-          modelInfo.style.display = 'none'
-        }
-        paintStatusLine('sandbox', 'testing')
 
         const rpc = await electronRpc('orchestrator.testRemoteHost', { hostUrl }, 12_000)
         const payload = rpc.data as { ok?: boolean; error?: string; host?: { inference?: { available?: boolean; model?: string | null } } } | undefined
@@ -32093,35 +32032,22 @@ ${pageText}
           const inf = payload.host.inference
           const model = inf && typeof inf.model === 'string' ? inf.model : null
           const avail = inf?.available === true
-          const label =
+          const modelLabel =
             model != null && model !== ''
-              ? `${model}${avail ? '' : ' (inference unavailable)'}`
+              ? model
               : avail
-                ? 'Host reachable — model not reported'
-                : 'Host reachable — inference not available'
-          if (connStatus) {
-            connStatus.textContent = 'Connected'
-            connStatus.style.color = th.successText
-          }
+                ? 'host reachable'
+                : 'inference not available'
+          setConnMessage(`Connected — ${modelLabel}`, th.successText)
           paintConnDot('ok')
-          if (modelInfo) {
-            modelInfo.textContent = label
-            modelInfo.style.color = th.successText
-            modelInfo.style.display = 'block'
-          }
-          paintStatusLine('sandbox', 'connected', label)
         } else {
           lastTestOk = false
           const errMsg =
             (payload && typeof payload.error === 'string' && payload.error) ||
             rpc.error ||
             'Connection test failed'
-          if (connStatus) {
-            connStatus.textContent = 'Failed'
-            connStatus.style.color = th.errorText
-          }
+          setConnMessage(errMsg, th.errorText)
           paintConnDot('err')
-          paintStatusLine('sandbox', 'failed', errMsg)
         }
       })
 
@@ -32141,7 +32067,7 @@ ${pageText}
             const th = csTheme()
             if (saveConfirm) {
               saveConfirm.style.display = 'inline'
-              saveConfirm.textContent = 'Host URL must start with https://'
+              saveConfirm.textContent = 'URL must use HTTPS'
               saveConfirm.style.color = th.errorText
             }
             return
@@ -32179,16 +32105,210 @@ ${pageText}
 
       void electronRpc('orchestrator.getMode', undefined, 8_000).then((rpc) => {
         const body = rpc.data as { ok?: boolean; config?: { mode?: string } } | undefined
-        if (!rpc.success || !body?.ok || !body.config) return
+        if (!rpc.success || !body?.ok || !body.config || !desktopHint) return
         const dm = body.config.mode
         if (dm !== 'host' && dm !== 'sandbox') return
-        if (!statusLine) return
-        const cur = statusLine.textContent || ''
-        statusLine.textContent = `${cur} · Desktop app: ${dm === 'host' ? 'Host' : 'Sandbox'}`
+        desktopHint.textContent = `Desktop app orchestrator: ${dm === 'host' ? 'Host' : 'Sandbox'}`
       })
     }
 
     wireOrchestratorModeUI()
+
+    function wireExtensionLightboxMisc() {
+      const MISC_LS = 'optimando-extension-lightbox-misc'
+      type Misc = {
+        maxAgents: number
+        memoryHours: number
+        reasoningSpeed: string
+        autosaveInterval: string
+        privacySessions: boolean
+        privacyUsage: boolean
+        privacyEncryption: boolean
+      }
+      const defaults: Misc = {
+        maxAgents: 10,
+        memoryHours: 24,
+        reasoningSpeed: 'Balanced',
+        autosaveInterval: '60 seconds',
+        privacySessions: true,
+        privacyUsage: false,
+        privacyEncryption: true,
+      }
+
+      function readMisc(): Misc {
+        try {
+          const raw = localStorage.getItem(MISC_LS)
+          if (!raw) return { ...defaults }
+          const o = JSON.parse(raw) as Partial<Misc>
+          return {
+            maxAgents: typeof o.maxAgents === 'number' ? o.maxAgents : defaults.maxAgents,
+            memoryHours: typeof o.memoryHours === 'number' ? o.memoryHours : defaults.memoryHours,
+            reasoningSpeed: typeof o.reasoningSpeed === 'string' ? o.reasoningSpeed : defaults.reasoningSpeed,
+            autosaveInterval: typeof o.autosaveInterval === 'string' ? o.autosaveInterval : defaults.autosaveInterval,
+            privacySessions: typeof o.privacySessions === 'boolean' ? o.privacySessions : defaults.privacySessions,
+            privacyUsage: typeof o.privacyUsage === 'boolean' ? o.privacyUsage : defaults.privacyUsage,
+            privacyEncryption: typeof o.privacyEncryption === 'boolean' ? o.privacyEncryption : defaults.privacyEncryption,
+          }
+        } catch {
+          return { ...defaults }
+        }
+      }
+
+      function writeMisc(m: Misc) {
+        try {
+          localStorage.setItem(MISC_LS, JSON.stringify(m))
+        } catch { /* ignore */ }
+      }
+
+      function collectMiscFromDom(): Misc {
+        const maxEl = document.getElementById('settings-max-agents') as HTMLInputElement | null
+        const memEl = document.getElementById('settings-memory-hours') as HTMLInputElement | null
+        const rsEl = document.getElementById('settings-reasoning-speed') as HTMLSelectElement | null
+        const asEl = document.getElementById('settings-autosave-interval') as HTMLSelectElement | null
+        const p1 = document.getElementById('settings-privacy-sessions') as HTMLInputElement | null
+        const p2 = document.getElementById('settings-privacy-usage') as HTMLInputElement | null
+        const p3 = document.getElementById('settings-privacy-encryption') as HTMLInputElement | null
+        return {
+          maxAgents: Math.min(20, Math.max(5, Number(maxEl?.value) || defaults.maxAgents)),
+          memoryHours: Math.min(168, Math.max(1, Number(memEl?.value) || defaults.memoryHours)),
+          reasoningSpeed: rsEl?.value || defaults.reasoningSpeed,
+          autosaveInterval: asEl?.value || defaults.autosaveInterval,
+          privacySessions: p1?.checked ?? defaults.privacySessions,
+          privacyUsage: p2?.checked ?? defaults.privacyUsage,
+          privacyEncryption: p3?.checked ?? defaults.privacyEncryption,
+        }
+      }
+
+      function applyMiscToDom(m: Misc) {
+        const maxEl = document.getElementById('settings-max-agents') as HTMLInputElement | null
+        const memEl = document.getElementById('settings-memory-hours') as HTMLInputElement | null
+        const rsEl = document.getElementById('settings-reasoning-speed') as HTMLSelectElement | null
+        const asEl = document.getElementById('settings-autosave-interval') as HTMLSelectElement | null
+        const p1 = document.getElementById('settings-privacy-sessions') as HTMLInputElement | null
+        const p2 = document.getElementById('settings-privacy-usage') as HTMLInputElement | null
+        const p3 = document.getElementById('settings-privacy-encryption') as HTMLInputElement | null
+        if (maxEl) maxEl.value = String(m.maxAgents)
+        if (memEl) memEl.value = String(m.memoryHours)
+        if (rsEl) rsEl.value = m.reasoningSpeed
+        if (asEl) asEl.value = m.autosaveInterval
+        if (p1) p1.checked = m.privacySessions
+        if (p2) p2.checked = m.privacyUsage
+        if (p3) p3.checked = m.privacyEncryption
+      }
+
+      const loaded = readMisc()
+      applyMiscToDom(loaded)
+
+      document.getElementById('btn-save-system-settings')?.addEventListener('click', () => {
+        const cur = readMisc()
+        const next = collectMiscFromDom()
+        writeMisc({ ...cur, maxAgents: next.maxAgents, memoryHours: next.memoryHours })
+        applyMiscToDom(readMisc())
+      })
+
+      const persistPerformancePrivacy = () => {
+        const cur = collectMiscFromDom()
+        writeMisc(cur)
+      }
+
+      document.getElementById('settings-reasoning-speed')?.addEventListener('change', persistPerformancePrivacy)
+      document.getElementById('settings-autosave-interval')?.addEventListener('change', persistPerformancePrivacy)
+      document.getElementById('settings-privacy-sessions')?.addEventListener('change', persistPerformancePrivacy)
+      document.getElementById('settings-privacy-usage')?.addEventListener('change', persistPerformancePrivacy)
+      document.getElementById('settings-privacy-encryption')?.addEventListener('change', persistPerformancePrivacy)
+
+      const importInput = document.getElementById('settings-backup-import-input') as HTMLInputElement | null
+      document.getElementById('settings-backup-import')?.addEventListener('click', () => importInput?.click())
+
+      document.getElementById('settings-backup-export')?.addEventListener('click', () => {
+        const bundle: Record<string, unknown> = {
+          version: 1,
+          exportedAt: new Date().toISOString(),
+        }
+        const keys = [
+          'optimando-ui-theme',
+          'optimando-orchestrator-mode',
+          MISC_LS,
+          'optimando-api-keys',
+        ] as const
+        for (const k of keys) {
+          const v = localStorage.getItem(k)
+          if (v == null) continue
+          try {
+            bundle[k] = JSON.parse(v)
+          } catch {
+            bundle[k] = v
+          }
+        }
+        const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' })
+        const a = document.createElement('a')
+        a.href = URL.createObjectURL(blob)
+        a.download = 'optimando-extension-settings.json'
+        a.click()
+        URL.revokeObjectURL(a.href)
+      })
+
+      importInput?.addEventListener('change', () => {
+        const f = importInput.files?.[0]
+        importInput.value = ''
+        if (!f) return
+        const reader = new FileReader()
+        reader.onload = () => {
+          try {
+            const data = JSON.parse(String(reader.result || '{}')) as Record<string, unknown>
+            const apply = (key: string, val: unknown) => {
+              if (val === undefined) return
+              try {
+                localStorage.setItem(key, typeof val === 'string' ? val : JSON.stringify(val))
+              } catch { /* ignore */ }
+            }
+            if (typeof data['optimando-ui-theme'] === 'string') apply('optimando-ui-theme', data['optimando-ui-theme'])
+            if (data['optimando-orchestrator-mode'] !== undefined) apply('optimando-orchestrator-mode', data['optimando-orchestrator-mode'])
+            if (data[MISC_LS] !== undefined) apply(MISC_LS, data[MISC_LS])
+            if (data['optimando-api-keys'] !== undefined) {
+              apply('optimando-api-keys', data['optimando-api-keys'])
+              try {
+                const keys = data['optimando-api-keys'] as Record<string, string>
+                chrome.storage?.local?.set({ 'optimando-cloud-api-keys': keys, apiKeySyncPending: true }, () => {
+                  try {
+                    chrome.runtime?.sendMessage?.({ type: 'SYNC_API_KEYS_TO_ELECTRON', keys }, () => void chrome.runtime?.lastError)
+                  } catch { /* ignore */ }
+                })
+              } catch { /* ignore */ }
+            }
+            try {
+              const rawOrch = localStorage.getItem('optimando-orchestrator-mode')
+              const orchCfg = rawOrch ? JSON.parse(rawOrch) : { mode: 'host' }
+              void electronRpc('orchestrator.setMode', orchCfg, 12_000)
+            } catch { /* ignore */ }
+            overlay.remove()
+            openSettingsLightbox()
+          } catch (e) {
+            console.error('Import settings failed', e)
+          }
+        }
+        reader.readAsText(f)
+      })
+
+      document.getElementById('settings-backup-reset')?.addEventListener('click', () => {
+        if (!window.confirm('Reset all extension settings stored in this browser (theme, API keys, orchestrator mode, and lightbox preferences)?')) return
+        try {
+          localStorage.removeItem('optimando-ui-theme')
+          localStorage.removeItem('optimando-orchestrator-mode')
+          localStorage.removeItem(MISC_LS)
+          localStorage.removeItem('optimando-api-keys')
+        } catch { /* ignore */ }
+        try {
+          chrome.storage?.local?.remove(['optimando-cloud-api-keys', 'apiKeySyncPending'])
+        } catch { /* ignore */ }
+        overlay.remove()
+        try {
+          openSettingsLightbox()
+        } catch { /* ignore */ }
+      })
+    }
+
+    wireExtensionLightboxMisc()
 
 
 
