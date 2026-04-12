@@ -197,7 +197,7 @@ export interface ComposeSession {
   createdAt: string
 }
 
-const PERSIST_VERSION = 5
+const PERSIST_VERSION = 6
 
 /** Public helper for mapping UI — derive semantic `name` from a display label. */
 export function slugifyTemplateFieldName(label: string): string {
@@ -261,6 +261,125 @@ function migrateLetterTemplateV1(t: Record<string, unknown>): LetterTemplate {
     createdAt: typeof t.createdAt === 'string' ? t.createdAt : new Date().toISOString(),
     updatedAt: typeof t.updatedAt === 'string' ? t.updatedAt : new Date().toISOString(),
   }
+}
+
+function combinedRecipientFieldText(nameValue: string, addressValue: string): string {
+  const nv = nameValue.trim()
+  const av = addressValue.trim()
+  if (nv && av) {
+    return av.toLowerCase().includes(nv.toLowerCase()) ? av : `${nv}\n${av}`
+  }
+  return nv || av
+}
+
+/** Per-template ID mapping after merging recipient_name + recipient_address → recipient (persist v6). */
+type RecipientFieldMergeMeta = {
+  templateId: string
+  oldNameId?: string
+  oldAddrId?: string
+  newRecipientId: string
+}
+
+/**
+ * Merges legacy `recipient_name` + `recipient_address` into a single `recipient` field for persisted templates.
+ */
+function migrateTemplatesRecipientFields(templates: LetterTemplate[]): {
+  templates: LetterTemplate[]
+  merges: RecipientFieldMergeMeta[]
+} {
+  const merges: RecipientFieldMergeMeta[] = []
+  const out = templates.map((template) => {
+    const hasOldName = template.fields.some((f) => f.name === 'recipient_name')
+    const hasOldAddr = template.fields.some((f) => f.name === 'recipient_address')
+    const hasNew = template.fields.some((f) => f.name === 'recipient')
+    if (hasNew || (!hasOldName && !hasOldAddr)) {
+      return template
+    }
+
+    const oldName = template.fields.find((f) => f.name === 'recipient_name')
+    const oldAddr = template.fields.find((f) => f.name === 'recipient_address')
+    const nameValue = oldName?.value?.trim() || ''
+    const addressValue = oldAddr?.value?.trim() || ''
+    const combinedValue = combinedRecipientFieldText(nameValue, addressValue)
+
+    const newRecipientId = oldName?.id || oldAddr?.id || crypto.randomUUID()
+    merges.push({
+      templateId: template.id,
+      oldNameId: oldName?.id,
+      oldAddrId: oldAddr?.id,
+      newRecipientId,
+    })
+
+    const base = oldAddr ?? oldName
+    const def =
+      (oldAddr?.defaultValue?.trim() || oldName?.defaultValue?.trim() || '').trim() || ''
+    const newRecipientField: TemplateField = {
+      id: newRecipientId,
+      name: 'recipient',
+      label: 'Recipient',
+      type: 'address',
+      mode: 'fixed',
+      page: base?.page ?? 0,
+      x: base?.x ?? 0,
+      y: base?.y ?? 0,
+      w: base?.w ?? 0,
+      h: base?.h ?? 0,
+      value: combinedValue,
+      defaultValue: def,
+      anchorText: (oldAddr?.anchorText || oldName?.anchorText || '').trim(),
+      placeholder: 'Recipient name and address',
+    }
+
+    const oldIndex = template.fields.findIndex(
+      (f) => f.name === 'recipient_name' || f.name === 'recipient_address',
+    )
+    const newFields = template.fields.filter(
+      (f) => f.name !== 'recipient_name' && f.name !== 'recipient_address',
+    )
+    const insertIndex = oldIndex >= 0 ? Math.min(oldIndex, newFields.length) : newFields.length
+    newFields.splice(insertIndex, 0, newRecipientField)
+    return {
+      ...template,
+      fields: newFields,
+      updatedAt: new Date().toISOString(),
+    }
+  })
+  return { templates: out, merges }
+}
+
+/** Rewrites compose session field id keys after recipient field merge (values are keyed by field id). */
+function migrateComposeSessionsRecipientFieldIds(
+  sessions: ComposeSession[],
+  merges: RecipientFieldMergeMeta[],
+): ComposeSession[] {
+  const byTemplate = new Map<string, RecipientFieldMergeMeta>()
+  for (const m of merges) {
+    byTemplate.set(m.templateId, m)
+  }
+  return sessions.map((session) => {
+    const meta = byTemplate.get(session.templateId)
+    if (!meta) return session
+    const { oldNameId, oldAddrId, newRecipientId } = meta
+    const remap = (fv: Record<string, string>): Record<string, string> => {
+      const nameVal = oldNameId ? fv[oldNameId] ?? '' : ''
+      const addrVal = oldAddrId ? fv[oldAddrId] ?? '' : ''
+      const existingNew = fv[newRecipientId] ?? ''
+      const next: Record<string, string> = { ...fv }
+      if (oldNameId) delete next[oldNameId]
+      if (oldAddrId && oldAddrId !== oldNameId) delete next[oldAddrId]
+      let combined = combinedRecipientFieldText(nameVal, addrVal)
+      if (!combined.trim() && existingNew.trim()) {
+        combined = existingNew
+      }
+      next[newRecipientId] = combined
+      return next
+    }
+    return {
+      ...session,
+      fieldValues: remap(session.fieldValues ?? {}),
+      versions: (session.versions ?? []).map(remap),
+    }
+  })
 }
 
 /** Semantic keys used by applyVaultDataToTemplate — matches builtin + common PDF mapping variants. */
@@ -824,12 +943,13 @@ export const useLetterComposerStore = create<LetterComposerState>()(
       version: PERSIST_VERSION,
       storage: createJSONStorage(() => localStorage),
       migrate: (persisted, fromVersion) => {
-        const p = persisted as Record<string, unknown>
+        let p: Record<string, unknown> = { ...(persisted as Record<string, unknown>) }
+
         if (fromVersion < 2) {
           const templates = Array.isArray(p.templates)
             ? (p.templates as Record<string, unknown>[]).map(migrateLetterTemplateV1)
             : []
-          return {
+          p = {
             ...p,
             templates,
             composeSessions: [],
@@ -837,8 +957,8 @@ export const useLetterComposerStore = create<LetterComposerState>()(
           }
         }
         if (fromVersion < 3) {
-          return {
-            ...(p as object),
+          p = {
+            ...p,
             companyProfile: { ...DEFAULT_COMPANY_PROFILE },
           }
         }
@@ -846,8 +966,8 @@ export const useLetterComposerStore = create<LetterComposerState>()(
           const sessions = Array.isArray(p.composeSessions)
             ? (p.composeSessions as Record<string, unknown>[])
             : []
-          return {
-            ...(p as object),
+          p = {
+            ...p,
             composeSessions: sessions.map((c) => ({
               ...c,
               language: typeof c.language === 'string' && c.language.length > 0 ? c.language : 'en',
@@ -858,12 +978,26 @@ export const useLetterComposerStore = create<LetterComposerState>()(
           const src = (p as { letterVaultSource?: unknown }).letterVaultSource
           const letterVaultSource =
             src === 'company' || src === 'personal' || src === 'none' ? src : 'none'
-          return {
-            ...(p as object),
+          p = {
+            ...p,
             letterVaultSource,
           }
         }
-        return persisted
+        if (fromVersion < 6) {
+          const templates = Array.isArray(p.templates) ? (p.templates as LetterTemplate[]) : []
+          const composeSessions = Array.isArray(p.composeSessions)
+            ? (p.composeSessions as ComposeSession[])
+            : []
+          const { templates: nextTemplates, merges } = migrateTemplatesRecipientFields(templates)
+          const nextSessions = migrateComposeSessionsRecipientFieldIds(composeSessions, merges)
+          p = {
+            ...p,
+            templates: nextTemplates,
+            composeSessions: nextSessions,
+          }
+        }
+
+        return p
       },
       partialize: (s) => ({
         templates: s.templates.map((t) => ({
