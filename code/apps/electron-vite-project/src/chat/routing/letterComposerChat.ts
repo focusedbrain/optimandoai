@@ -11,6 +11,7 @@ const FALLBACK_FIELD = { label: 'Body', name: 'body' }
 
 const LETTER_REFERENCE_PROMPT_KEYS = [
   'customer_number',
+  'booking_account',
   'invoice_number',
   'contract_number',
   'order_number',

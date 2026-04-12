@@ -30,6 +30,7 @@ const MULTILINE_KEYS = new Set([
 /** Keys shown under References & Contact (reference_number moved here from Letter details). */
 const REFERENCE_CONTACT_KEYS = [
   'customer_number',
+  'booking_account',
   'invoice_number',
   'contract_number',
   'order_number',
@@ -40,6 +41,7 @@ const REFERENCE_CONTACT_KEYS = [
 
 const REFERENCE_CONTACT_LABELS: Record<(typeof REFERENCE_CONTACT_KEYS)[number], string> = {
   customer_number: 'Customer No.',
+  booking_account: 'Booking account',
   invoice_number: 'Invoice No.',
   contract_number: 'Contract No.',
   order_number: 'Order No.',
@@ -135,6 +137,7 @@ function mapExtractedToTemplateField(extractedKey: string, mode: 'reply' | 'dire
     subject: 'subject',
     reference_number: 'reference',
     customer_number: 'customer_number',
+    booking_account: 'booking_account',
     invoice_number: 'invoice_number',
     contract_number: 'contract_number',
     order_number: 'order_number',
@@ -352,12 +355,46 @@ export function LetterViewerPort() {
       setSelectedFields({})
       return
     }
+    const ef = activeLetter.extractedFields
     const initial: Record<string, boolean> = {}
-    for (const key of Object.keys(activeLetter.extractedFields)) {
-      if ((activeLetter.extractedFields[key] ?? '').trim()) {
+
+    const alwaysSelect: readonly string[] = [
+      'sender_name',
+      'sender_address',
+      'sender_email',
+      'sender_phone',
+      'date',
+      'subject',
+      'reference_number',
+      'customer_number',
+      'invoice_number',
+      'contract_number',
+      'order_number',
+      'file_reference',
+      'booking_account',
+    ]
+
+    const neverSelect: readonly string[] = [
+      'recipient_name',
+      'recipient_address',
+      'salutation',
+      'body_summary',
+      'contact_person',
+      'detected_language',
+    ]
+
+    for (const key of Object.keys(ef)) {
+      if (!ef[key]?.trim()) continue
+
+      if (alwaysSelect.includes(key)) {
         initial[key] = true
+      } else if (neverSelect.includes(key)) {
+        initial[key] = false
+      } else {
+        initial[key] = false
       }
     }
+
     setSelectedFields(initial)
   }, [activeLetter?.id])
 
@@ -769,7 +806,6 @@ export function LetterViewerPort() {
         </div>
       ) : (
         <div className="port-upload-zone port-upload-zone--add-more">
-          <p>Add another scan (one PDF, or one or more images)</p>
           <input
             id="letter-scan-file"
             type="file"

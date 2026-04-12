@@ -15,6 +15,7 @@ export type LetterScanRawExtraction = {
   order_number: string | null
   file_reference: string | null
   contact_person: string | null
+  booking_account: string | null
 }
 
 const EMPTY_RAW: LetterScanRawExtraction = {
@@ -30,6 +31,7 @@ const EMPTY_RAW: LetterScanRawExtraction = {
   order_number: null,
   file_reference: null,
   contact_person: null,
+  booking_account: null,
 }
 
 const DATE_PATTERNS: RegExp[] = [
@@ -129,6 +131,7 @@ function extractIdentificationHints(text: string): Pick<
   | 'order_number'
   | 'file_reference'
   | 'contact_person'
+  | 'booking_account'
 > {
   const t = text || ''
   const out = {
@@ -138,27 +141,33 @@ function extractIdentificationHints(text: string): Pick<
     order_number: null as string | null,
     file_reference: null as string | null,
     contact_person: null as string | null,
+    booking_account: null as string | null,
   }
 
   const mCust = t.match(
-    /(?:Kundennummer|Kunden-?Nr\.?|Kd\.?\s*-?\s*Nr\.?|Kundenkonto|Customer\s*(?:No|Number|ID))[:\s]+([A-Za-z0-9\-/.]+)/i,
+    /(?:Kundennummer|Kunden-?Nr\.?|Kd\.?\s*-?\s*Nr\.?|Kundenkonto|Customer\s*(?:No|Number|ID))[:\s]+?([\d][\d\s\-/.]{2,}[\d])/i,
   )
   if (mCust?.[1]) out.customer_number = mCust[1].trim()
 
   const mInv = t.match(
-    /(?:Rechnungsnummer|Rechnung\s*Nr\.?|Rg\.?\s*-?\s*Nr\.?|Invoice\s*(?:No|Number|ID))[:\s]+([A-Za-z0-9\-/.]+)/i,
+    /(?:Rechnungsnummer|Rechnung\s*Nr\.?|Rg\.?-?Nr\.?|Invoice\s*(?:No|Number|ID))[:\s]+?([\d][\d\s\-/.]{2,}[\d])/i,
   )
   if (mInv?.[1]) out.invoice_number = mInv[1].trim()
 
   const mContract = t.match(
-    /(?:Vertragsnummer|Vertrag\s*Nr\.?|Policennummer|Contract\s*(?:No|Number|ID))[:\s]+([A-Za-z0-9\-/.]+)/i,
+    /(?:Vertragsnummer|Vertrag\s*Nr\.?|Policennummer|Contract\s*(?:No|Number|ID))[:\s]+?([\d][\d\s\-/.]{2,}[\d])/i,
   )
   if (mContract?.[1]) out.contract_number = mContract[1].trim()
 
   const mOrder = t.match(
-    /(?:Bestellnummer|Bestell-?Nr\.?|Auftrags-?Nr\.?|Auftragsnummer|Order\s*(?:No|Number|ID))[:\s]+([A-Za-z0-9\-/.]+)/i,
+    /(?:Bestellnummer|Bestell-?Nr\.?|Auftrags-?Nr\.?|Auftragsnummer|Order\s*(?:No|Number|ID))[:\s]+?([\d][\d\s\-/.]{2,}[\d])/i,
   )
   if (mOrder?.[1]) out.order_number = mOrder[1].trim()
+
+  const mBooking = t.match(
+    /(?:Buchungskonto|Buchungs-?Nr\.?|Booking\s*(?:Account|No|Number|ID))[:\s]+?([\d][\d\s\-/.]{2,}[\d])/i,
+  )
+  if (mBooking?.[1]) out.booking_account = mBooking[1].trim()
 
   const mFile = t.match(
     /(?:Aktenzeichen|Az\.?|Geschäftszeichen|Gz\.?|Unser\s*Zeichen|Ihr\s*Zeichen|File\s*Ref)[:\s]+([A-Za-z0-9\-/.\s]+?)(?:\n|$)/i,

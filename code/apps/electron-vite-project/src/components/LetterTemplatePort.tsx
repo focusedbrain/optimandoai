@@ -563,42 +563,17 @@ export function LetterTemplatePort() {
     setActiveTemplate(null)
   }, [activeTemplateId, removeTemplate, setActiveTemplate])
 
-  const handleResetToOriginal = useCallback(async () => {
-    if (!activeTemplateId || !activeTemplate) return
-    if (activeTemplate.builtinLayout) return
-    const api = window.letterComposer
-    const lo = window.libreoffice
-    if (!api?.getConvertedPdfOutputDir || !api?.renderPdfPages || !lo?.convertToPdf) return
-    setError(null)
-    setBusy(true)
-    try {
-      await lo.resetDetection?.()
-      const det = await lo.detect()
-      if (!det.available) {
-        setLibreOfficeNeeded(true)
-        return
-      }
-      setLibreOfficeNeeded(false)
-      const outputDir = await api.getConvertedPdfOutputDir()
-      const conv = await lo.convertToPdf(activeTemplate.sourceFilePath, outputDir)
-      if (!conv.ok) {
-        throw new Error(conv.error || 'Could not convert document to PDF')
-      }
-      const { pages, pageCount } = await api.renderPdfPages(conv.pdfPath)
-      useLetterComposerStore.getState().updateTemplate(activeTemplateId, {
-        pdfPreviewPath: conv.pdfPath,
-        pdfPageImages: pages,
-        pageCount,
-        fields: [],
-        mappingComplete: false,
-      })
-      setCurrentPage(0)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not reset template')
-    } finally {
-      setBusy(false)
+  /** Restore every field's current `value` to its `defaultValue` (clears vault, extraction, manual edits). */
+  const handleResetToOriginal = useCallback(() => {
+    const store = useLetterComposerStore.getState()
+    const template = store.templates.find((t) => t.id === store.activeTemplateId)
+    if (!template?.fields.length) return
+
+    for (const field of template.fields) {
+      store.updateTemplateField(template.id, field.id, field.defaultValue ?? '')
     }
-  }, [activeTemplateId, activeTemplate])
+    store.setLetterVaultApplied(false)
+  }, [])
 
   const buildExportFieldsPayload = useCallback(() => {
     const t = useLetterComposerStore.getState().templates.find((x) => x.id === activeTemplate?.id)
@@ -1162,8 +1137,8 @@ export function LetterTemplatePort() {
             <button
               type="button"
               className="template-toolbar__btn template-toolbar__btn--ghost"
-              disabled={!activeTemplate.sourceFilePath || !!activeTemplate.builtinLayout}
-              onClick={() => void handleResetToOriginal()}
+              disabled={!activeTemplate.fields.length}
+              onClick={handleResetToOriginal}
             >
               Reset to original
             </button>

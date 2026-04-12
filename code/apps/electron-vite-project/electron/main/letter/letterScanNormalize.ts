@@ -14,6 +14,7 @@ export const LETTER_EXTRACT_OUTPUT_KEYS = [
   'subject',
   'reference_number',
   'customer_number',
+  'booking_account',
   'invoice_number',
   'contract_number',
   'order_number',
@@ -152,17 +153,19 @@ Example: CORRECT = "Musterstraße 1" + "24118 Kiel". WRONG in address = "Sparkas
 
 - reference_number: Any reference, file number, case number, or tracking ID. May be preceded by: "Ref:", "Reference:", "Our ref:", "Your ref:", "Unser Zeichen:", "Ihr Zeichen:", "Az:", "Dossier:", "N/Réf:", "Réf:". If none found, return empty string.
 
-- customer_number: The sender's customer or client number as used by the recipient toward the sender (e.g. Kundennummer, Kd.-Nr., Kundenkonto, Customer No.). Return only the number or code, not the label text.
+- customer_number: The sender's customer or client number as used by the recipient toward the sender (e.g. Kundennummer, Kd.-Nr., Kundenkonto, Customer No.). Return only the number or code, not the label text. Include ALL space- or punctuation-separated digit groups (e.g. "27 3922 7313"), not just the first segment.
 
-- invoice_number: Invoice or bill number (e.g. Rechnungsnummer, Rg.-Nr., Rechnung Nr., Invoice No.). Return only the number or code.
+- booking_account: The booking or payment account number (Buchungskonto, Buchungs-Nr.). Return the full number including all digit groups, not the label.
 
-- contract_number: Contract or policy number (e.g. Vertragsnummer, Policennummer, Vertrag Nr., Contract No.). Return only the number or code.
+- invoice_number: Invoice or bill number (e.g. Rechnungsnummer, Rg.-Nr., Rechnung Nr., Invoice No.). Return only the number or code. Include ALL digit groups (e.g. "72 5498 8290").
 
-- order_number: Order or purchase number (e.g. Bestellnummer, Bestell-Nr., Auftragsnummer, Order No.). Return only the number or code.
+- contract_number: Contract or policy number (e.g. Vertragsnummer, Policennummer, Vertrag Nr., Contract No.). Return the full code including all digit groups.
+
+- order_number: Order or purchase number (e.g. Bestellnummer, Bestell-Nr., Auftragsnummer, Order No.). Return the full number including all digit groups.
 
 - file_reference: Official file or case reference (e.g. Aktenzeichen, Az., Geschäftszeichen, Gz., Unser Zeichen, Ihr Zeichen when it denotes a file/case code). Return the full reference string. If the same line is only a generic "Ref:" with no separate Aktenzeichen, still capture it here or in reference_number — do not duplicate the same value in both if identical.
 
-- contact_person: Named contact person or case handler (e.g. Ansprechpartner, Sachbearbeiter, Ihr Ansprechpartner, Bearbeiter). Return the person's name only when possible, not their full title block or department name.
+- contact_person: The contact person or case handler AT THE SENDER'S ORGANIZATION who is responsible for this matter. This is NOT the recipient of the letter. Look for labels like 'Ansprechpartner', 'Sachbearbeiter', 'Ihr Ansprechpartner', 'Bearbeiter', 'Zuständig'. If no explicit contact person at the sender is named, leave this field empty. Do NOT use the recipient's name as contact person.
 
 - salutation: The greeting line. Examples across languages:
   "Dear Mr. Smith," / "Dear Sir or Madam," / "Sehr geehrte Damen und Herren," / "Madame, Monsieur," / "Estimado/a Sr/Sra," / "Egregio Signore," etc.
@@ -193,6 +196,10 @@ Example: CORRECT = "Musterstraße 1" + "24118 Kiel". WRONG in address = "Sparkas
 
 - detected_language: The language of the letter as ISO 639-1 code (e.g. "de", "en", "fr", "es", "it", "nl", "ja", "ar").
 
+IMPORTANT — complete numeric identifiers:
+For all number fields (customer_number, booking_account, invoice_number, contract_number, order_number, reference_number, file_reference), extract the COMPLETE value including ALL digit groups separated by spaces, dashes, or dots. Do not stop after the first segment.
+Example: if the document shows "Kundennummer 27 3922 7313", the value must be "27 3922 7313", NOT "27". Same for "Rechnungsnummer 72 5498 8290" → full string, not "72".
+
 STRICT RULES:
 1. NEVER mix bank details (IBAN, BIC, bank name, account numbers) into sender_address or recipient_address — use sender_iban, sender_bic, sender_bank.
 2. NEVER include phone/fax/email/website in address fields.
@@ -213,6 +220,7 @@ Return format:
     "subject": "...",
     "reference_number": "...",
     "customer_number": "...",
+    "booking_account": "...",
     "invoice_number": "...",
     "contract_number": "...",
     "order_number": "...",
@@ -240,6 +248,7 @@ Return format:
     "subject": 0.95,
     "reference_number": 0.95,
     "customer_number": 0.95,
+    "booking_account": 0.95,
     "invoice_number": 0.95,
     "contract_number": 0.95,
     "order_number": 0.95,
@@ -277,6 +286,7 @@ function optStrField(input: Record<string, unknown>, key: string): string | null
 function coerceRaw(input: unknown): LetterScanRawExtraction {
   const emptyHints = {
     customer_number: null as string | null,
+    booking_account: null as string | null,
     invoice_number: null as string | null,
     contract_number: null as string | null,
     order_number: null as string | null,
@@ -308,6 +318,7 @@ function coerceRaw(input: unknown): LetterScanRawExtraction {
     reference: typeof refVal === 'string' ? refVal : null,
     salutation_line: typeof salVal === 'string' ? salVal : null,
     customer_number: optStrField(input, 'customer_number'),
+    booking_account: optStrField(input, 'booking_account'),
     invoice_number: optStrField(input, 'invoice_number'),
     contract_number: optStrField(input, 'contract_number'),
     order_number: optStrField(input, 'order_number'),
@@ -379,6 +390,7 @@ export function fallbackNormalizedFromRaw(
 
   const idKeys = [
     'customer_number',
+    'booking_account',
     'invoice_number',
     'contract_number',
     'order_number',

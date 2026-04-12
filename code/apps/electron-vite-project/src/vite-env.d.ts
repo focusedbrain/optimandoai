@@ -161,6 +161,7 @@ interface LetterComposerBridge {
       reference: string | null
       salutation_line: string | null
       customer_number: string | null
+      booking_account: string | null
       invoice_number: string | null
       contract_number: string | null
       order_number: string | null
