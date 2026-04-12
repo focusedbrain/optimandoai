@@ -177,6 +177,50 @@ const DashboardStatus = {
   route: '/api/dashboard/status',
 }
 
+// ── Orchestrator host / sandbox (Extension Settings) ──
+
+const OrchestratorGetMode = {
+  method: 'orchestrator.getMode' as const,
+  schema: z.void(),
+  http: 'GET' as const,
+  route: '/api/orchestrator/mode',
+}
+
+const OrchestratorSandboxPayload = z.object({
+  hostUrl: z.string().min(1),
+  hostFingerprint: z.string().optional(),
+  lastConnected: z.string().optional(),
+  connectionVerified: z.boolean().optional(),
+})
+
+const OrchestratorSetMode = {
+  method: 'orchestrator.setMode' as const,
+  schema: z.discriminatedUnion('mode', [
+    z.object({ mode: z.literal('host') }),
+    z.object({
+      mode: z.literal('sandbox'),
+      sandbox: OrchestratorSandboxPayload,
+    }),
+  ]),
+  http: 'POST' as const,
+  route: '/api/orchestrator/mode',
+}
+
+const OrchestratorTestRemoteHost = {
+  method: 'orchestrator.testRemoteHost' as const,
+  schema: z.object({ hostUrl: z.string().min(1) }),
+  http: 'POST' as const,
+  route: '/api/orchestrator/remote-test',
+}
+
+/** Same behavior as `orchestrator.testRemoteHost`; path alias for settings UI. */
+const OrchestratorTestConnection = {
+  method: 'orchestrator.testConnection' as const,
+  schema: z.object({ hostUrl: z.string().min(1) }),
+  http: 'POST' as const,
+  route: '/api/orchestrator/test-connection',
+}
+
 // ============================================================================
 // §2  Full Registry + Type Extraction
 // ============================================================================
@@ -197,6 +241,10 @@ const RPC_REGISTRY = [
   LlmInstallProgress,
   DashboardOpen,
   DashboardStatus,
+  OrchestratorGetMode,
+  OrchestratorSetMode,
+  OrchestratorTestRemoteHost,
+  OrchestratorTestConnection,
 ] as const
 
 type RpcDef = (typeof RPC_REGISTRY)[number]

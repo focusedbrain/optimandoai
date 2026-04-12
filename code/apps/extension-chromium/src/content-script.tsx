@@ -15,6 +15,7 @@ import { interpretBeapAutomationModeRun } from './services/beapRunAutomationResu
 import { assertBeapTabImportPayload } from './beap-messages/beapSessionBridgeGuards'
 import { BEAP_EDIT_SESSION_IMPORT_TYPE } from './beap-messages/beapSessionEditBridge'
 import { BEAP_RUN_AUTOMATION_TYPE } from './beap-messages/beapSessionRunBridge'
+import { electronRpc } from './rpc/electronRpc'
 
 // ── WRVault Autofill: initialize the field icon + popover pipeline ──
 // Content scripts run at document_end, so DOM is ready.
@@ -31206,7 +31207,7 @@ ${pageText}
 
         <div style="flex: 1; padding: 20px; overflow-y: auto;">
 
-          <div style="display: grid; grid-template-columns: 1.2fr 1fr 1fr; gap: 16px; align-items: stretch;">
+          <div style="display: grid; grid-template-columns: 1.2fr 1fr; gap: 16px; align-items: stretch;">
 
             <!-- Account & Billing (TOP) -->
 
@@ -31306,69 +31307,9 @@ ${pageText}
 
 
 
-            <!-- Local LLMs (next to API Keys) -->
-
-            <div id="local-llms-panel" style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 8px; border: 1px solid ${csTheme().border}; grid-column: 2 / 3; height: 100%; display: flex; flex-direction: column;">
-
-              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-
-                <h4 style="margin: 0; font-size: 12px; color: ${csTheme().muted};">💻 Local LLMs</h4>
-
-                <div style="display:flex; gap:6px;">
-
-                  <button id="add-local-llm-row" style="background: ${csTheme().accentGrad}; border: none; color: #fff; padding: 4px 8px; border-radius: 6px; cursor: pointer; font-size: 10px; font-weight: 700;">+ Add</button>
-
-                  <button id="save-local-llms" style="background: ${csTheme().accentGrad}; border: none; color: #fff; padding: 4px 10px; border-radius: 6px; cursor: pointer; font-size: 10px; font-weight: 700;">Save</button>
-
-                </div>
-
-              </div>
-
-              <div id="local-llms-container" style="display: grid; gap: 6px;"></div>
-
-              <div style="margin-top: 8px; font-size: 10px; color: ${csTheme().text}; opacity: 0.9;">Local models run offline via Ollama/llama.cpp. Installation prompts may appear.</div>
-
-
-
-              <div id="finetuned-llms" style="margin-top: 12px; padding-top: 10px; border-top: 1px dashed ${csTheme().border};">
-
-                <div style="display:flex; justify-content: space-between; align-items:center; margin-bottom: 6px;">
-
-                  <div style="display:flex; align-items:center; gap:6px;">
-
-                    <span style="font-size:12px; color:${csTheme().muted}; font-weight:700;">🎛️ Finetuned local LLMs</span>
-
-                    <span id="finetuned-pro-badge" style="display:none; font-size:10px; background: ${csTheme().cardBg}; border: 1px solid ${csTheme().border}; color:${csTheme().accent}; padding:2px 6px; border-radius:999px;">PRO</span>
-
-                  </div>
-
-                </div>
-
-              <div id="finetuned-locked" style="display:none; font-size:10px; margin:6px 0; padding:6px; background: ${csTheme().cardBg}; border:1px solid rgba(255,255,255,0.22); border-radius:6px;">
-
-                  🔒 Finetuned models are available for Pro subscribers.
-
-                  <button id="unlock-finetuned" style="margin-left: 8px; background: ${csTheme().accentGrad}; border: none; color: #fff; padding: 4px 8px; border-radius: 6px; cursor: pointer; font-size: 10px; font-weight: 700;">Upgrade</button>
-
-                </div>
-
-                <div id="finetuned-list" style="display:none; gap: 6px;">
-
-                  <div id="finetuned-items" style="display:grid; gap:6px;"></div>
-
-                  <button id="add-finetuned-row" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 4px 8px; border-radius: 6px; cursor: pointer; font-size: 10px;">+ Add Finetuned</button>
-
-                </div>
-
-              </div>
-
-            </div>
-
-
-
             <!-- Appearance (moved up) -->
 
-            <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 6px; grid-column: 3 / 4; height: 100%; display: flex; flex-direction: column;">
+            <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 6px; grid-column: 2 / 3; height: 100%; display: flex; flex-direction: column;">
 
               <h4 style="margin: 0 0 10px 0; font-size: 12px; color: ${csTheme().muted};">🎨 Appearance</h4>
 
@@ -31390,9 +31331,63 @@ ${pageText}
 
             </div>
 
+            <!-- Orchestrator Mode -->
+
+            <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 8px; border: 1px solid ${csTheme().border}; grid-column: 1 / -1;">
+
+              <h4 style="margin: 0 0 8px 0; font-size: 12px; color: ${csTheme().muted};">🔗 Orchestrator Mode</h4>
+
+              <p style="margin: 0 0 10px 0; font-size: 10px; line-height: 1.45; color: ${csTheme().muted};">Configure this instance as a Host (runs local LLMs, serves inference) or Sandbox (processes documents locally, uses a Host for inference).</p>
+
+              <div style="display:flex; gap:10px; margin-bottom:10px;">
+
+                <button type="button" id="orch-mode-host-btn" style="flex:1; padding:10px 12px; border-radius:8px; cursor:pointer; font-size:11px; font-weight:700;">Host</button>
+
+                <button type="button" id="orch-mode-sandbox-btn" style="flex:1; padding:10px 12px; border-radius:8px; cursor:pointer; font-size:11px; font-weight:700;">Sandbox</button>
+
+              </div>
+
+              <div id="orch-mode-status-line" style="font-size:10px; margin-bottom:10px; color:${csTheme().muted};">Current mode: —</div>
+
+              <div id="orch-host-brief" style="display:none; font-size:10px; line-height:1.5; color:${csTheme().muted};">
+
+                <div style="margin-bottom:6px;">This instance serves inference to connected sandboxes.</div>
+
+                <div style="opacity:0.95;">Ensure the desktop inference API is reachable on your network (HTTPS and firewall) so remote sandboxes can connect.</div>
+
+              </div>
+
+              <div id="orch-sandbox-panel" style="display:none;">
+
+                <label style="display:block; font-size:10px; font-weight:700; margin-bottom:4px; color:${csTheme().text};">Host URL</label>
+
+                <input type="text" id="orch-host-url-input" placeholder="https://host-ip:51248" autocomplete="off" style="width:100%; box-sizing:border-box; background:${csTheme().inputBg}; border:1px solid ${csTheme().border}; color:${csTheme().inputText}; padding:8px; border-radius:6px; font-size:10px; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; margin-bottom:8px;" />
+
+                <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:8px;">
+
+                  <button type="button" id="orch-test-connection-btn" style="background:${csTheme().inputBg}; border:1px solid ${csTheme().border}; color:${csTheme().text}; padding:8px 12px; border-radius:6px; cursor:pointer; font-size:10px; font-weight:700;">Test Connection</button>
+
+                  <span id="orch-connection-status" style="font-size:10px; font-weight:600; color:${csTheme().muted};">Idle</span>
+
+                </div>
+
+                <div id="orch-test-model-info" style="display:none; font-size:10px; margin-bottom:8px;"></div>
+
+                <div style="display:flex; align-items:center; flex-wrap:wrap; gap:8px;">
+
+                  <button type="button" id="orch-save-mode-btn" style="background:${csTheme().accentGrad}; border:none; color:#fff; padding:8px 14px; border-radius:6px; cursor:pointer; font-size:10px; font-weight:700;">Save</button>
+
+                  <span id="orch-save-confirm" style="font-size:10px; color:${csTheme().successText}; display:none;"></span>
+
+                </div>
+
+              </div>
+
+            </div>
+
             <!-- System Settings -->
 
-            <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 6px;">
+            <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 6px; grid-column: 1 / -1;">
 
               <h4 style="margin: 0 0 10px 0; font-size: 12px; color: ${csTheme().muted};">⚙️ System</h4>
 
@@ -31428,7 +31423,7 @@ ${pageText}
 
             <!-- Performance Settings -->
 
-            <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 6px;">
+            <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 6px; grid-column: 1 / -1;">
 
               <h4 style="margin: 0 0 10px 0; font-size: 12px; color: ${csTheme().muted};">⚡ Performance</h4>
 
@@ -31476,7 +31471,7 @@ ${pageText}
 
             <!-- Privacy & Security -->
 
-            <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 6px;">
+            <div style="background: ${csTheme().cardBg}; padding: 12px; border-radius: 6px; grid-column: 1 / -1;">
 
               <h4 style="margin: 0 0 10px 0; font-size: 12px; color: ${csTheme().muted};">🔒 Privacy & Security</h4>
 
@@ -31903,383 +31898,242 @@ ${pageText}
 
     wireApiKeyUI()
 
+    function wireOrchestratorModeUI() {
+      const LS_KEY = 'optimando-orchestrator-mode'
+      const hostBtn = document.getElementById('orch-mode-host-btn')
+      const sandboxBtn = document.getElementById('orch-mode-sandbox-btn')
+      const sandboxPanel = document.getElementById('orch-sandbox-panel')
+      const hostBrief = document.getElementById('orch-host-brief')
+      const statusLine = document.getElementById('orch-mode-status-line')
+      const urlInput = document.getElementById('orch-host-url-input') as HTMLInputElement | null
+      const testBtn = document.getElementById('orch-test-connection-btn')
+      const connStatus = document.getElementById('orch-connection-status')
+      const modelInfo = document.getElementById('orch-test-model-info')
+      const saveBtn = document.getElementById('orch-save-mode-btn')
+      const saveConfirm = document.getElementById('orch-save-confirm')
 
+      let selectedMode: 'host' | 'sandbox' = 'host'
+      let lastTestOk = false
 
-    // Local LLMs + Finetuned (Pro-gated)
-
-    function getLocalLLMOptionsHTML() {
-
-      return (
-
-        '<option value="" disabled selected>Select local model</option>'+
-
-        '<optgroup label="Ollama">'+
-
-          '<option value="ollama:llama3.1">llama3.1</option>'+
-
-          '<option value="ollama:llama3.2">llama3.2</option>'+
-
-          '<option value="ollama:phi3">phi3</option>'+
-
-          '<option value="ollama:mistral">mistral</option>'+
-
-          '<option value="ollama:neural-chat">neural-chat</option>'+
-
-          '<option value="ollama:nemotron-9b">nemotron-9b</option>'+
-
-          '<option value="ollama:qwen2.5:7b-instruct">qwen2.5-7b-instruct</option>'+
-
-          '<option value="ollama:gptneox-20b">gpt-neox-20b</option>'+
-
-        '</optgroup>'+
-
-        '<optgroup label="llama.cpp">'+
-
-          '<option value="llamacpp:llama3-8b-instruct">Llama 3 8B Instruct</option>'+
-
-          '<option value="llamacpp:mixtral-8x7b-instruct">Mixtral 8x7B Instruct</option>'+
-
-        '</optgroup>'
-
-      )
-
-    }
-
-    function loadLocalLLMs() {
-
-      try { return JSON.parse(localStorage.getItem('optimando-local-llms') || '[]') } catch { return [] }
-
-    }
-
-    function saveLocalLLMs(data: any[]) {
-
-      try { localStorage.setItem('optimando-local-llms', JSON.stringify(data)) } catch {}
-
-    }
-
-    function renderLocalLLMs() {
-
-      const container = document.getElementById('local-llms-container') as HTMLElement | null
-
-      if (!container) return
-
-      container.innerHTML = ''
-
-      const items: any[] = loadLocalLLMs()
-
-      items.forEach((it, idx) => {
-
-        const row = document.createElement('div')
-
-        row.className = 'local-llm-row'
-
-        row.style.display = 'grid'
-
-        row.style.gridTemplateColumns = '1fr 90px 24px'
-
-        row.style.gap = '6px'
-
-        row.style.alignItems = 'center'
-
-        row.style.background = 'rgba(0,0,0,0.12)'
-
-        row.style.padding = '6px'
-
-        row.style.borderRadius = '6px'
-
-        row.style.border = `1px solid ${csTheme().border}`
-
-        row.innerHTML = (
-
-          `<select class="local-llm-select" style="width:100%; background: ${csTheme().cardBg}; border: 1px solid rgba(255,255,255,0.28); color: #0f172a; padding: 6px; border-radius: 4px; font-size: 10px;">`+
-
-            getLocalLLMOptionsHTML()+
-
-          '</select>'+
-
-          '<button class="install-local-llm" style="background: #2563eb; border: none; color: white; padding: 6px 8px; border-radius: 6px; cursor: pointer; font-size: 10px;">'+(it.installed ? 'Installed ✓' : 'Install')+'</button>'+
-
-          '<button class="remove-local-llm" title="Remove" style="background: rgba(220,38,38,0.15); border: 1px solid rgba(220,38,38,0.4); color: #dc2626; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 14px; line-height: 1; display: flex; align-items: center; justify-content: center;">&#x2715;</button>'
-
-        )
-
-        container.appendChild(row)
-
-        const select = row.querySelector('.local-llm-select') as HTMLSelectElement
-
-        if (select && it.value) select.value = it.value
-
-        // Show white text for placeholder (no selection), dark text for chosen model
-
-        if (select) {
-
-          const applyPlaceholderColor = () => {
-
-            const isPlaceholder = !select.value || select.value === ''
-
-            select.style.color = isPlaceholder ? 'white' : '#0f172a'
-
+      function readLsConfig(): { mode: 'host' | 'sandbox'; sandbox?: { hostUrl: string; connectionVerified?: boolean } } {
+        try {
+          const raw = localStorage.getItem(LS_KEY)
+          const data = raw ? JSON.parse(raw) : { mode: 'host' }
+          if (data?.mode === 'sandbox' && data.sandbox && typeof data.sandbox.hostUrl === 'string') {
+            return {
+              mode: 'sandbox',
+              sandbox: {
+                hostUrl: data.sandbox.hostUrl,
+                connectionVerified: data.sandbox.connectionVerified === true,
+              },
+            }
           }
-
-          select.addEventListener('change', applyPlaceholderColor)
-
-          applyPlaceholderColor()
-
-        }
-
-        const installBtn = row.querySelector('.install-local-llm') as HTMLButtonElement
-
-        const removeBtn = row.querySelector('.remove-local-llm') as HTMLButtonElement
-
-        installBtn.disabled = !!it.installed
-
-        installBtn.addEventListener('click', () => {
-
-          const current = loadLocalLLMs()
-
-          const currentRow = current[idx] || {}
-
-          const val = (select?.value || '').trim()
-
-          if (!val) { alert('Please select a local model to install.'); return }
-
-          // Placeholder installation handler
-
-          installBtn.textContent = 'Installing…'
-
-          installBtn.disabled = true
-
-          setTimeout(() => {
-
-            currentRow.value = val
-
-            currentRow.installed = true
-
-            current[idx] = currentRow
-
-            saveLocalLLMs(current)
-
-            installBtn.textContent = 'Installed ✓'
-
-          }, 500)
-
-        })
-
-        removeBtn.addEventListener('click', () => {
-
-          const current = loadLocalLLMs()
-
-          current.splice(idx, 1)
-
-          saveLocalLLMs(current)
-
-          renderLocalLLMs()
-
-        })
-
-        if (!it.value) {
-
-          // ensure a default placeholder is selected statefully
-
-          select.selectedIndex = 0
-
-        }
-
-      })
-
-    }
-
-    function addLocalLLMRow() {
-
-      const items: any[] = loadLocalLLMs()
-
-      items.push({ value: '', installed: false })
-
-      saveLocalLLMs(items)
-
-      renderLocalLLMs()
-
-    }
-
-    function wireLocalLLMsUI() {
-
-      const addBtn = document.getElementById('add-local-llm-row')
-
-      const saveBtn = document.getElementById('save-local-llms')
-
-      addBtn?.addEventListener('click', addLocalLLMRow)
-
-      saveBtn?.addEventListener('click', () => {
-
-        // Persist current selections
-
-        const container = document.getElementById('local-llms-container')
-
-        if (!container) return
-
-        const rows = Array.from(container.querySelectorAll('.local-llm-row'))
-
-        const data = rows.map(row => {
-
-          const select = row.querySelector('.local-llm-select') as HTMLSelectElement | null
-
-          const btn = row.querySelector('.install-local-llm') as HTMLButtonElement | null
-
-          return { value: (select?.value || '').trim(), installed: !!(btn && btn.textContent && btn.textContent.includes('Installed')) }
-
-        }).filter(x => x.value)
-
-        saveLocalLLMs(data)
-
-      })
-
-      // Initial render
-
-      if (loadLocalLLMs().length === 0) addLocalLLMRow()
-
-      else renderLocalLLMs()
-
-
-
-      // Finetuned gating
-
-      const hasActive = (window as any).optimandoHasActiveSubscription === true
-
-      const badge = document.getElementById('finetuned-pro-badge') as HTMLElement | null
-
-      const locked = document.getElementById('finetuned-locked') as HTMLElement | null
-
-      const list = document.getElementById('finetuned-list') as HTMLElement | null
-
-      if (badge) badge.style.display = hasActive ? 'none' : 'inline-block'
-
-      if (locked) locked.style.display = hasActive ? 'none' : 'block'
-
-      if (list) list.style.display = hasActive ? 'grid' : 'none'
-
-      const unlockBtn = document.getElementById('unlock-finetuned')
-
-      unlockBtn?.addEventListener('click', () => {
-        window.open('https://wrdesk.com/?page_id=1080&v=5f02f0889301', '_blank', 'noopener,noreferrer')
-      })
-
-
-
-      function loadFinetuned() { try { return JSON.parse(localStorage.getItem('optimando-finetuned-llms') || '[]') } catch { return [] } }
-
-      function saveFinetuned(data: any[]) { try { localStorage.setItem('optimando-finetuned-llms', JSON.stringify(data)) } catch {} }
-
-      function renderFinetuned() {
-
-        const itemsRoot = document.getElementById('finetuned-items') as HTMLElement | null
-
-        if (!itemsRoot) return
-
-        itemsRoot.innerHTML = ''
-
-        const items: any[] = loadFinetuned()
-
-        items.forEach((it, idx) => {
-
-          const row = document.createElement('div')
-
-          row.style.display = 'grid'
-
-          row.style.gridTemplateColumns = '1fr 1fr 24px'
-
-          row.style.gap = '6px'
-
-          row.style.alignItems = 'center'
-
-          row.style.background = 'rgba(0,0,0,0.12)'
-
-          row.style.padding = '6px'
-
-          row.style.borderRadius = '6px'
-
-          row.style.border = `1px solid ${csTheme().border}`
-
-          row.innerHTML = (
-
-            `<input class="ft-name" placeholder="Name (e.g., support-bot-finetune)" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 6px; border-radius: 4px; font-size: 10px;">`+
-
-            `<input class="ft-base" placeholder="Base model (e.g., llama3.1)" style="background: ${csTheme().inputBg}; border: 1px solid ${csTheme().border}; color: ${csTheme().inputText}; padding: 6px; border-radius: 4px; font-size: 10px;">`+
-
-            '<button class="ft-remove" title="Remove" style="background: rgba(244,67,54,0.5); border: none; color: white; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 12px;">✏•</button>'
-
-          )
-
-          itemsRoot.appendChild(row)
-
-          const n = row.querySelector('.ft-name') as HTMLInputElement
-
-          const b = row.querySelector('.ft-base') as HTMLInputElement
-
-          const r = row.querySelector('.ft-remove') as HTMLButtonElement
-
-          if (n) n.value = it.name || ''
-
-          if (b) b.value = it.base || ''
-
-          r.addEventListener('click', () => {
-
-            const data = loadFinetuned()
-
-            data.splice(idx, 1)
-
-            saveFinetuned(data)
-
-            renderFinetuned()
-
-          })
-
-          function saveDebounced() {
-
-            const data = loadFinetuned()
-
-            data[idx] = { name: n?.value || '', base: b?.value || '' }
-
-            saveFinetuned(data)
-
-          }
-
-          n.addEventListener('input', saveDebounced)
-
-          b.addEventListener('input', saveDebounced)
-
-        })
-
+        } catch { /* ignore */ }
+        return { mode: 'host' }
       }
 
-      const addFt = document.getElementById('add-finetuned-row')
-
-      addFt?.addEventListener('click', () => {
-
-        const data = loadFinetuned()
-
-        data.push({ name: '', base: '' })
-
-        saveFinetuned(data)
-
-        renderFinetuned()
-
-      })
-
-      if (hasActive) {
-
-        if ((loadFinetuned() as any[]).length === 0) {
-
-          const data = [] as any[]; data.push({ name: '', base: '' }); saveFinetuned(data)
-
-        }
-
-        renderFinetuned()
-
+      function applyToggleStyles(mode: 'host' | 'sandbox') {
+        const th = csTheme()
+        const active =
+          `flex:1;padding:10px 12px;border-radius:8px;cursor:pointer;font-size:11px;font-weight:700;background:${th.accentGrad};border:none;color:#fff;`
+        const inactive =
+          `flex:1;padding:10px 12px;border-radius:8px;cursor:pointer;font-size:11px;font-weight:700;background:${th.inputBg};border:1px solid ${th.border};color:${th.text};`
+        if (hostBtn) hostBtn.setAttribute('style', mode === 'host' ? active : inactive)
+        if (sandboxBtn) sandboxBtn.setAttribute('style', mode === 'sandbox' ? active : inactive)
+        if (sandboxPanel) sandboxPanel.style.display = mode === 'sandbox' ? 'block' : 'none'
+        if (hostBrief) hostBrief.style.display = mode === 'host' ? 'block' : 'none'
       }
 
+      function paintStatusLine(
+        mode: 'host' | 'sandbox',
+        phase: 'idle' | 'testing' | 'connected' | 'failed',
+        detail?: string,
+      ) {
+        if (!statusLine) return
+        const th = csTheme()
+        const modeLabel = mode === 'host' ? 'Host' : 'Sandbox'
+        let suffix = ''
+        if (mode === 'host') {
+          suffix = ' — this instance serves inference to sandboxes'
+        } else if (phase === 'testing') {
+          suffix = ' · Testing host…'
+        } else if (phase === 'connected') {
+          suffix = detail ? ` · ${detail}` : ' · Connected'
+        } else if (phase === 'failed') {
+          suffix = detail ? ` · ${detail}` : ' · Connection failed'
+        } else {
+          suffix = ' · Enter host URL and test before saving'
+        }
+        statusLine.textContent = `Current mode: ${modeLabel}${suffix}`
+        statusLine.style.color = th.muted
+        if (phase === 'failed') statusLine.style.color = th.errorText
+        if (phase === 'connected' && mode === 'sandbox') statusLine.style.color = th.successText
+      }
+
+      function loadFromStorage() {
+        const cfg = readLsConfig()
+        selectedMode = cfg.mode
+        applyToggleStyles(selectedMode)
+        if (urlInput && cfg.mode === 'sandbox') urlInput.value = cfg.sandbox?.hostUrl || ''
+        lastTestOk = cfg.mode === 'sandbox' && cfg.sandbox?.connectionVerified === true
+        const th = csTheme()
+        if (connStatus) {
+          connStatus.textContent = lastTestOk ? 'Verified (saved)' : 'Idle'
+          connStatus.style.color = th.muted
+        }
+        if (modelInfo) {
+          modelInfo.textContent = ''
+          modelInfo.style.display = 'none'
+        }
+        if (saveConfirm) saveConfirm.style.display = 'none'
+        paintStatusLine(selectedMode, 'idle')
+      }
+
+      hostBtn?.addEventListener('click', () => {
+        selectedMode = 'host'
+        applyToggleStyles('host')
+        paintStatusLine('host', 'idle')
+        if (connStatus) {
+          connStatus.textContent = 'Idle'
+          connStatus.style.color = csTheme().muted
+        }
+        if (modelInfo) modelInfo.style.display = 'none'
+      })
+
+      sandboxBtn?.addEventListener('click', () => {
+        selectedMode = 'sandbox'
+        applyToggleStyles('sandbox')
+        paintStatusLine('sandbox', 'idle')
+        if (connStatus) {
+          connStatus.textContent = lastTestOk ? 'Verified (saved)' : 'Idle'
+          connStatus.style.color = csTheme().muted
+        }
+      })
+
+      testBtn?.addEventListener('click', async () => {
+        const hostUrl = (urlInput?.value || '').trim()
+        if (!hostUrl.startsWith('https://')) {
+          const th = csTheme()
+          if (connStatus) {
+            connStatus.textContent = 'URL must start with https://'
+            connStatus.style.color = th.errorText
+          }
+          paintStatusLine('sandbox', 'failed', 'URL must start with https://')
+          return
+        }
+        const th = csTheme()
+        if (connStatus) {
+          connStatus.textContent = 'Testing…'
+          connStatus.style.color = th.warnText
+        }
+        if (modelInfo) {
+          modelInfo.textContent = ''
+          modelInfo.style.display = 'none'
+        }
+        paintStatusLine('sandbox', 'testing')
+
+        const rpc = await electronRpc('orchestrator.testRemoteHost', { hostUrl }, 12_000)
+        const payload = rpc.data as { ok?: boolean; error?: string; host?: { inference?: { available?: boolean; model?: string | null } } } | undefined
+
+        if (rpc.success && payload && payload.ok === true && payload.host) {
+          lastTestOk = true
+          const inf = payload.host.inference
+          const model = inf && typeof inf.model === 'string' ? inf.model : null
+          const avail = inf?.available === true
+          const label =
+            model != null && model !== ''
+              ? `${model}${avail ? '' : ' (inference unavailable)'}`
+              : avail
+                ? 'Host reachable — model not reported'
+                : 'Host reachable — inference not available'
+          if (connStatus) {
+            connStatus.textContent = 'Connected'
+            connStatus.style.color = th.successText
+          }
+          if (modelInfo) {
+            modelInfo.textContent = label
+            modelInfo.style.color = th.successText
+            modelInfo.style.display = 'block'
+          }
+          paintStatusLine('sandbox', 'connected', label)
+        } else {
+          lastTestOk = false
+          const errMsg =
+            (payload && typeof payload.error === 'string' && payload.error) ||
+            rpc.error ||
+            'Connection test failed'
+          if (connStatus) {
+            connStatus.textContent = 'Failed'
+            connStatus.style.color = th.errorText
+          }
+          paintStatusLine('sandbox', 'failed', errMsg)
+        }
+      })
+
+      saveBtn?.addEventListener('click', async () => {
+        if (saveConfirm) {
+          saveConfirm.style.display = 'none'
+          saveConfirm.textContent = ''
+        }
+
+        let config: { mode: 'host' } | { mode: 'sandbox'; sandbox: { hostUrl: string; connectionVerified: boolean } }
+
+        if (selectedMode === 'host') {
+          config = { mode: 'host' }
+        } else {
+          const hostUrl = (urlInput?.value || '').trim()
+          if (!hostUrl.startsWith('https://')) {
+            const th = csTheme()
+            if (saveConfirm) {
+              saveConfirm.style.display = 'inline'
+              saveConfirm.textContent = 'Host URL must start with https://'
+              saveConfirm.style.color = th.errorText
+            }
+            return
+          }
+          config = {
+            mode: 'sandbox',
+            sandbox: { hostUrl, connectionVerified: lastTestOk },
+          }
+        }
+
+        try {
+          localStorage.setItem(LS_KEY, JSON.stringify(config))
+        } catch { /* ignore */ }
+
+        const rpc = await electronRpc('orchestrator.setMode', config, 12_000)
+        const body = rpc.data as { ok?: boolean; error?: string } | undefined
+        const th = csTheme()
+        if (rpc.success && body?.ok === true) {
+          if (saveConfirm) {
+            saveConfirm.style.display = 'inline'
+            saveConfirm.textContent = 'Saved to this browser and desktop app.'
+            saveConfirm.style.color = th.successText
+          }
+        } else {
+          const err = (body && typeof body.error === 'string' && body.error) || rpc.error || 'Save failed'
+          if (saveConfirm) {
+            saveConfirm.style.display = 'inline'
+            saveConfirm.textContent = err
+            saveConfirm.style.color = th.errorText
+          }
+        }
+      })
+
+      loadFromStorage()
+
+      void electronRpc('orchestrator.getMode', undefined, 8_000).then((rpc) => {
+        const body = rpc.data as { ok?: boolean; config?: { mode?: string } } | undefined
+        if (!rpc.success || !body?.ok || !body.config) return
+        const dm = body.config.mode
+        if (dm !== 'host' && dm !== 'sandbox') return
+        if (!statusLine) return
+        const cur = statusLine.textContent || ''
+        statusLine.textContent = `${cur} · Desktop app: ${dm === 'host' ? 'Host' : 'Sandbox'}`
+      })
     }
 
-    wireLocalLLMsUI()
+    wireOrchestratorModeUI()
 
 
 

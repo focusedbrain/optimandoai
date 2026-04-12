@@ -11,6 +11,8 @@ import { broadcastActiveOllamaModelChanged } from './broadcastActiveModel'
 import { MODEL_CATALOG, getModelConfig } from './config'
 import { ChatRequest } from './types'
 import { resolveInboxAutosortRuntime } from './inboxAutosortRuntime'
+import { isSandboxMode } from '../orchestrator/orchestratorModeStore'
+import { sandboxChat } from '../orchestrator/sandboxInferenceClient'
 
 /**
  * Register all LLM-related IPC handlers
@@ -52,6 +54,9 @@ export function registerLlmHandlers() {
   // Start Ollama server
   ipcMain.handle('llm:startOllama', async () => {
     try {
+      if (isSandboxMode()) {
+        return { ok: false, error: 'Ollama management is disabled in sandbox mode' }
+      }
       await ollamaManager.start()
       return { ok: true }
     } catch (error: any) {
@@ -63,6 +68,9 @@ export function registerLlmHandlers() {
   // Stop Ollama server
   ipcMain.handle('llm:stopOllama', async () => {
     try {
+      if (isSandboxMode()) {
+        return { ok: false, error: 'Ollama management is disabled in sandbox mode' }
+      }
       await ollamaManager.stop()
       return { ok: true }
     } catch (error: any) {
@@ -114,6 +122,12 @@ export function registerLlmHandlers() {
   // declaring success. Sends a terminal 'verified' or 'verification_failed' progress event.
   ipcMain.handle('llm:installModel', async (event: IpcMainInvokeEvent, modelId: string) => {
     try {
+      if (isSandboxMode()) {
+        return {
+          ok: false,
+          error: 'Model installation is disabled in sandbox mode — install models on the host machine',
+        }
+      }
       console.log('[LLM IPC] Install started:', modelId)
 
       // Run pull — progress events go to renderer in real-time.
@@ -173,6 +187,12 @@ export function registerLlmHandlers() {
   // Delete model
   ipcMain.handle('llm:deleteModel', async (_event, modelId: string) => {
     try {
+      if (isSandboxMode()) {
+        return {
+          ok: false,
+          error: 'Model deletion is disabled in sandbox mode — manage models on the host machine',
+        }
+      }
       await ollamaManager.deleteModel(modelId)
       return { ok: true }
     } catch (error: any) {
@@ -183,6 +203,13 @@ export function registerLlmHandlers() {
   
   ipcMain.handle('llm:setActiveModel', async (_event, modelId: string) => {
     try {
+      if (isSandboxMode()) {
+        return {
+          ok: false,
+          error:
+            'Activating a local Ollama model is disabled in sandbox mode — the active model is managed on the host',
+        }
+      }
       if (DEBUG_ACTIVE_OLLAMA_MODEL) console.warn('[LLM IPC] setActiveModel requested:', modelId)
       const result = await ollamaManager.setActiveModelPreference(modelId)
       if (result.ok) {
@@ -217,6 +244,14 @@ export function registerLlmHandlers() {
   // Chat with model
   ipcMain.handle('llm:chat', async (_event, request: ChatRequest) => {
     try {
+      if (isSandboxMode()) {
+        const messages = request.messages.map((m) => ({
+          role: m.role,
+          content: m.content,
+        }))
+        return await sandboxChat(messages, request.modelId)
+      }
+
       let modelId = request.modelId
       if (!modelId) {
         const resolved = await ollamaManager.getEffectiveChatModelName()

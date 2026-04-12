@@ -67,6 +67,15 @@ interface LlmSettingsProps {
   bridge: 'ipc' | 'http'  // IPC for Electron, HTTP for Extension
 }
 
+/** Matches Electron `orchestratorModeStore` payload (subset used by UI). */
+interface OrchestratorModeConfig {
+  mode: 'host' | 'sandbox'
+  sandbox?: {
+    hostUrl?: string
+    connectionVerified?: boolean
+  }
+}
+
 // ─── Typed RPC adapter ───────────────────────────────────────────────────
 // Maps electronRpc's { success, data, error } → { ok, data, error }
 // to keep the existing result handling unchanged.
@@ -153,6 +162,9 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
   const [performanceEstimates, setPerformanceEstimates] = useState<Map<string, PerformanceEstimate>>(new Map())
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [orchestratorConfig, setOrchestratorConfig] = useState<OrchestratorModeConfig | null>(null)
+  /** Sandbox only: result of host inference-status reachability test */
+  const [hostReachable, setHostReachable] = useState<boolean | null>(null)
   
   // Bridge-agnostic API
   const api = useMemo(() => {
@@ -166,7 +178,30 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
         installModel: (modelId: string) => (window as any).electron.ipcRenderer.invoke('llm:installModel', modelId),
         deleteModel: (modelId: string) => (window as any).electron.ipcRenderer.invoke('llm:deleteModel', modelId),
         setActiveModel: (modelId: string) => (window as any).electron.ipcRenderer.invoke('llm:setActiveModel', modelId),
-        getPerformanceEstimate: (modelId: string) => (window as any).electron.ipcRenderer.invoke('llm:getPerformanceEstimate', modelId)
+        getPerformanceEstimate: (modelId: string) => (window as any).electron.ipcRenderer.invoke('llm:getPerformanceEstimate', modelId),
+        getOrchestratorMode: async (): Promise<{ ok: boolean; config?: OrchestratorModeConfig }> => {
+          try {
+            const config = await (window as any).electron.ipcRenderer.invoke('orchestrator:getMode')
+            if (
+              config &&
+              typeof config === 'object' &&
+              (config.mode === 'host' || config.mode === 'sandbox')
+            ) {
+              return { ok: true, config: config as OrchestratorModeConfig }
+            }
+          } catch (e) {
+            console.warn('[LlmSettings] orchestrator:getMode failed:', e)
+          }
+          return { ok: false }
+        },
+        testHostInference: async (hostUrl: string): Promise<{ ok: boolean }> => {
+          try {
+            const r = await (window as any).electron.ipcRenderer.invoke('orchestrator:testConnection', { hostUrl })
+            return { ok: !!(r && typeof r === 'object' && (r as { ok?: boolean }).ok === true) }
+          } catch {
+            return { ok: false }
+          }
+        },
       }
     } else {
       // HTTP bridge for Extension — typed RPC, no dynamic endpoints
@@ -179,6 +214,21 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
         deleteModel: (modelId: string) => rpc('llm.deleteModel', { modelId }),
         setActiveModel: (modelId: string) => rpc('llm.activateModel', { modelId }),
         getPerformanceEstimate: (modelId: string) => rpc('llm.performance', { modelId }),
+        getOrchestratorMode: async (): Promise<{ ok: boolean; config?: OrchestratorModeConfig }> => {
+          const res = await rpc('orchestrator.getMode')
+          const data = res.data as { ok?: boolean; config?: unknown } | undefined
+          if (!res.ok || !data || data.ok !== true || data.config == null || typeof data.config !== 'object') {
+            return { ok: false }
+          }
+          const c = data.config as OrchestratorModeConfig
+          if (c.mode !== 'host' && c.mode !== 'sandbox') return { ok: false }
+          return { ok: true, config: c }
+        },
+        testHostInference: async (hostUrl: string): Promise<{ ok: boolean }> => {
+          const res = await rpc('orchestrator.testRemoteHost', { hostUrl })
+          if (!res.ok || res.data == null || typeof res.data !== 'object') return { ok: false }
+          return { ok: (res.data as { ok?: boolean }).ok === true }
+        },
       }
     }
   }, [bridge])
@@ -228,6 +278,26 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
     try {
       setLoading(true)
       setError(null)
+
+      let orchCfg: OrchestratorModeConfig | null = null
+      let hostReach: boolean | null = null
+      const orchPromise = (async () => {
+        try {
+          const om = await api.getOrchestratorMode()
+          if (om.ok && om.config) {
+            orchCfg = om.config
+            if (om.config.mode === 'sandbox') {
+              const url = om.config.sandbox?.hostUrl?.trim()
+              if (url) {
+                const th = await api.testHostInference(url)
+                hostReach = th.ok
+              }
+            }
+          }
+        } catch (e) {
+          console.warn('[LlmSettings] Orchestrator mode load failed:', e)
+        }
+      })()
       
       // Try to fetch data, but don't block on errors
       const [hwRes, statusRes, catalogRes] = await Promise.all([
@@ -242,8 +312,12 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
         api.getCatalog().catch((e: Error) => {
           console.warn('[LlmSettings] Catalog API failed:', e.message)
           return { ok: false, error: e.message }
-        })
+        }),
+        orchPromise,
       ])
+
+      setOrchestratorConfig(orchCfg)
+      setHostReachable(hostReach)
       
       const hwEntity = unwrapLlmEnvelope(hwRes, isHardwareEntity)
       if (hwEntity) setHardware(hwEntity)
@@ -441,6 +515,7 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
   // Load performance estimates for visible models
   useEffect(() => {
     if (!hardware || !modelCatalog || modelCatalog.length === 0) return
+    if (orchestratorConfig?.mode === 'sandbox') return
     
     const loadEstimates = async () => {
       const estimates = new Map<string, PerformanceEstimate>()
@@ -458,18 +533,75 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
     }
     
     loadEstimates()
-  }, [hardware, modelCatalog])
+  }, [hardware, modelCatalog, orchestratorConfig?.mode])
   
   // Theme colors from unified token system
   const tt = getThemeTokens(theme ?? 'default')
   const textColor = tt.text
   const bgPrimary = tt.cardBg
+
+  const isSandbox = orchestratorConfig?.mode === 'sandbox'
+  const sandboxOllamaDisabled = isSandbox
+  const sandboxHostUrl = (orchestratorConfig?.sandbox?.hostUrl || '').trim()
+
+  /** Extension Settings persists host/sandbox to localStorage only when the user clicks Save. */
+  const showHostServingLabel = useMemo(() => {
+    if (orchestratorConfig?.mode !== 'host') return false
+    try {
+      const raw = localStorage.getItem('optimando-orchestrator-mode')
+      if (!raw) return false
+      const j = JSON.parse(raw) as { mode?: string }
+      return j.mode === 'host'
+    } catch {
+      return false
+    }
+  }, [orchestratorConfig?.mode])
+
+  const sandboxHostStatusTitle = !sandboxHostUrl
+    ? 'Configure host URL in Extension Settings'
+    : hostReachable === true
+      ? 'Connected to host'
+      : hostReachable === false
+        ? 'Host unreachable'
+        : 'Checking host…'
+  const sandboxStatusOk = Boolean(sandboxHostUrl && hostReachable === true)
+  const sandboxStatusBad = Boolean(sandboxHostUrl && hostReachable === false)
   
   return (
     <div style={{ padding: '10px', color: textColor }}>
       <h4 style={{ margin: '0 0 12px 0', fontSize: '13px', fontWeight: '600' }}>
         Local LLM (Ollama)
       </h4>
+      {showHostServingLabel && (
+        <div
+          style={{
+            margin: '-6px 0 10px 0',
+            fontSize: '10px',
+            opacity: 0.75,
+            color: tt.textMuted,
+          }}
+        >
+          Host Mode — Serving inference to connected sandboxes
+        </div>
+      )}
+      {isSandbox && (
+        <div
+          style={{
+            marginBottom: '12px',
+            padding: '10px',
+            borderRadius: '6px',
+            fontSize: '11px',
+            lineHeight: 1.45,
+            background: tt.isLight ? 'rgba(79, 70, 229, 0.1)' : 'rgba(129, 140, 248, 0.14)',
+            border: `1px solid ${tt.info}`,
+            color: tt.infoText,
+          }}
+        >
+          {'🔗'} Sandbox Mode — Inference is routed to host at{' '}
+          <strong style={{ wordBreak: 'break-all' }}>{sandboxHostUrl || '(not configured)'}</strong>. Local Ollama
+          management is disabled.
+        </div>
+      )}
       
       {/* Loading State */}
       {loading && (
@@ -502,7 +634,9 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
           </div>
           <div style={{ display: 'flex', gap: '6px' }}>
             <button
+              disabled={sandboxOllamaDisabled}
               onClick={async () => {
+                if (sandboxOllamaDisabled) return
                 try {
                   await api.startOllama()
                   showNotification('Attempting to start Ollama...', 'success')
@@ -514,13 +648,14 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
               style={{
                 flex: 1,
                 padding: '6px 10px',
-                background: '#22c55e',
+                background: sandboxOllamaDisabled ? '#94a3b8' : '#22c55e',
                 border: 'none',
                 borderRadius: '4px',
                 color: '#fff',
                 fontSize: '10px',
                 fontWeight: '600',
-                cursor: 'pointer'
+                cursor: sandboxOllamaDisabled ? 'not-allowed' : 'pointer',
+                opacity: sandboxOllamaDisabled ? 0.55 : 1,
               }}
             >
               Start Ollama
@@ -660,8 +795,41 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
         </div>
       )}
       
-      {/* Ollama Status */}
-      {status && (
+      {/* Ollama Status (host mode) / remote host reachability (sandbox) */}
+      {isSandbox && !loading && (
+        <div
+          style={{
+            padding: '10px',
+            background: sandboxStatusOk
+              ? 'rgba(34,197,94,0.15)'
+              : sandboxStatusBad
+                ? 'rgba(239,68,68,0.15)'
+                : 'rgba(245,158,11,0.12)',
+            border: `1px solid ${
+              sandboxStatusOk
+                ? 'rgba(34,197,94,0.4)'
+                : sandboxStatusBad
+                  ? 'rgba(239,68,68,0.4)'
+                  : 'rgba(245,158,11,0.35)'
+            }`,
+            borderRadius: '6px',
+            marginBottom: '12px',
+            fontSize: '11px',
+          }}
+        >
+          <div style={{ fontWeight: '600', marginBottom: '6px', fontSize: '10px' }}>
+            {sandboxStatusOk ? '✅ ' : sandboxStatusBad ? '❌ ' : '⚠️ '}
+            {sandboxHostStatusTitle.toUpperCase()}
+          </div>
+          {sandboxHostUrl ? (
+            <div style={{ display: 'grid', gridTemplateColumns: '80px 1fr', gap: '4px', fontSize: '10px' }}>
+              <span style={{ opacity: 0.7 }}>Host URL:</span>
+              <span style={{ wordBreak: 'break-all' }}>{sandboxHostUrl}</span>
+            </div>
+          ) : null}
+        </div>
+      )}
+      {!isSandbox && status && (
         <div style={{
           padding: '10px',
           background: status.running ? 'rgba(34,197,94,0.15)' : 'rgba(239,68,68,0.15)',
@@ -736,7 +904,6 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
           )}
         </div>
       )}
-      
       {/* Installed Models */}
       {status?.modelsInstalled && status.modelsInstalled.length > 0 && (
         <div style={{ marginBottom: '12px' }}>
@@ -777,6 +944,8 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
               <div style={{ display: 'flex', gap: '4px' }}>
                 {!model.isActive && (
                   <button
+                    type="button"
+                    disabled={sandboxOllamaDisabled}
                     onClick={() => handleActivateModel(model.name)}
                     style={{
                       padding: '4px 8px',
@@ -785,15 +954,17 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
                       borderRadius: '3px',
                       color: '#60a5fa',
                       fontSize: '9px',
-                      cursor: 'pointer'
+                      cursor: sandboxOllamaDisabled ? 'not-allowed' : 'pointer',
+                      opacity: sandboxOllamaDisabled ? 0.45 : 1,
                     }}
                   >
                     ⚡ Use
                   </button>
                 )}
                 <button
+                  type="button"
                   onClick={() => handleDeleteModel(model.name)}
-                  disabled={deleting === model.name}
+                  disabled={deleting === model.name || sandboxOllamaDisabled}
                   style={{
                     padding: '4px 8px',
                     background: 'rgba(239,68,68,0.2)',
@@ -801,8 +972,8 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
                     borderRadius: '3px',
                     color: '#ef4444',
                     fontSize: '9px',
-                    cursor: deleting === model.name ? 'not-allowed' : 'pointer',
-                    opacity: deleting === model.name ? 0.5 : 1
+                    cursor: deleting === model.name || sandboxOllamaDisabled ? 'not-allowed' : 'pointer',
+                    opacity: deleting === model.name ? 0.5 : sandboxOllamaDisabled ? 0.45 : 1,
                   }}
                 >
                   {deleting === model.name ? '...' : '🗑'}
@@ -825,7 +996,7 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
             INSTALL NEW MODEL
           </div>
           
-          {status && !status.installed && (
+          {status && !status.installed && !isSandbox && (
             <div style={{
               padding: '10px',
               background: 'rgba(239, 68, 68, 0.1)',
@@ -860,7 +1031,7 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
             </div>
           )}
           
-          {status && status.installed && !status.running && (
+          {status && status.installed && !status.running && !isSandbox && (
             <div style={{
               padding: '8px',
               background: 'rgba(239, 68, 68, 0.1)',
@@ -871,6 +1042,7 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
             }}>
               ⚠️ Ollama is not running. Start Ollama to install models.
               <button
+                type="button"
                 onClick={handleStartOllama}
                 style={{
                   marginTop: '6px',
@@ -893,7 +1065,11 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
           <select
             value={selectedModel}
             onChange={(e) => setSelectedModel(e.target.value)}
-            disabled={!!installing || !!(status && (!status.installed || !status.running))}
+            disabled={
+              sandboxOllamaDisabled ||
+              !!installing ||
+              !!(status && (!status.installed || !status.running))
+            }
             style={{
               width: '100%',
               padding: '8px',
@@ -903,8 +1079,12 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
               color: textColor,
               fontSize: '10px',
               marginBottom: '8px',
-              cursor: (installing || (status && (!status.installed || !status.running))) ? 'not-allowed' : 'pointer',
-              opacity: (status && status.installed && status.running) ? 1 : 0.6
+              cursor:
+                sandboxOllamaDisabled || installing || (status && (!status.installed || !status.running))
+                  ? 'not-allowed'
+                  : 'pointer',
+              opacity:
+                sandboxOllamaDisabled || (status && (!status.installed || !status.running)) ? 0.45 : 1,
             }}
           >
             <option value="">-- Select a model --</option>
@@ -970,8 +1150,14 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
           )}
           
           <button
+            type="button"
             onClick={handleInstallModel}
-            disabled={!selectedModel || !!installing || !!(status && (!status.installed || !status.running))}
+            disabled={
+              sandboxOllamaDisabled ||
+              !selectedModel ||
+              !!installing ||
+              !!(status && (!status.installed || !status.running))
+            }
             style={{
               width: '100%',
               padding: '10px 12px',
@@ -981,8 +1167,20 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
               color: '#fff',
               fontSize: '12px',
               fontWeight: '600',
-              cursor: (!selectedModel || installing || (status && (!status.installed || !status.running))) ? 'not-allowed' : 'pointer',
-              opacity: (!selectedModel || installing || (status && (!status.installed || !status.running))) ? 0.5 : 1
+              cursor:
+                sandboxOllamaDisabled ||
+                !selectedModel ||
+                installing ||
+                (status && (!status.installed || !status.running))
+                  ? 'not-allowed'
+                  : 'pointer',
+              opacity:
+                sandboxOllamaDisabled ||
+                !selectedModel ||
+                installing ||
+                (status && (!status.installed || !status.running))
+                  ? 0.5
+                  : 1,
             }}
           >
             {installing ? 'Installing...' : '⚡ Install Selected Model'}

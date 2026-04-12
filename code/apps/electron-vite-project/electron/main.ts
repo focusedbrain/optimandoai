@@ -22,6 +22,15 @@ import {
   resetLibreOfficeDetection,
   setManualSofficePath,
 } from './main/libreoffice/libreofficeService'
+import { registerOrchestratorIPC, testRemoteOrchestratorInferenceStatus } from './main/orchestrator/ipc'
+import { createJwtMiddleware, requireScope } from './main/orchestrator/jwtAuth'
+import {
+  inferenceChatRateLimitMiddleware,
+  startInferenceChatRateLimiterCleanup,
+} from './main/orchestrator/rateLimiter'
+import { sandboxChat } from './main/orchestrator/sandboxInferenceClient'
+import { getOrchestratorMode, isSandboxMode, setOrchestratorMode } from './main/orchestrator/orchestratorModeStore'
+import { attachInferenceChatRouteAudit, inferenceStatusAuthAuditMiddleware } from './main/orchestrator/auditLog'
 
 function stripDataUriPrefixForLlm(s: string): string {
   if (!s.startsWith('data:')) return s
@@ -687,6 +696,11 @@ function corsPnaHeaders(origin: string | undefined, requestPrivateNetwork: boole
   return h
 }
 
+/** HTTP API bind address: all interfaces in host mode (sandboxes), loopback otherwise. */
+function getHttpApiListenHost(): '127.0.0.1' | '0.0.0.0' {
+  return getOrchestratorMode().mode === 'host' ? '0.0.0.0' : '127.0.0.1'
+}
+
 /**
  * Check if a port is available
  */
@@ -906,6 +920,8 @@ function sourceForExecuteSurface(surface: LmgtfyPromptSurface): string {
 // HTTP bridge server â€” started early so /api/health is reachable immediately.
 // Full Express routes mount on this server once initialization completes.
 let httpBridgeServer: http.Server | null = null
+/** Set when the HTTP API server listens (early bridge or fallback). Used for mount logs. */
+let httpApiListenHost: '127.0.0.1' | '0.0.0.0' = '127.0.0.1'
 // Track connected WS clients (extension bridge)
 var wsClients: any[] = (globalThis as any).__og_ws_clients__ || [];
 (globalThis as any).__og_ws_clients__ = wsClients;
@@ -5100,6 +5116,9 @@ app.whenReady().then(async () => {
     registerLlmHandlers()
     console.log('[MAIN] LLM IPC handlers registered')
 
+    registerOrchestratorIPC()
+    console.log('[MAIN] Orchestrator IPC handlers registered')
+
     // Wire BEAP handshake â†’ email transport bridge
     try {
       const { emailGateway } = await import('./main/email/gateway')
@@ -5164,12 +5183,16 @@ app.whenReady().then(async () => {
     console.log('[MAIN] Ollama installed:', installed)
     
     if (installed) {
-      try {
-        await ollamaManager.start()
-        console.log('[MAIN] Ollama started successfully')
-      } catch (error) {
-        console.warn('[MAIN] Failed to auto-start Ollama:', error)
-        // Not critical, user can start manually
+      if (!isSandboxMode()) {
+        try {
+          await ollamaManager.start()
+          console.log('[MAIN] Ollama started successfully')
+        } catch (error) {
+          console.warn('[MAIN] Failed to auto-start Ollama:', error)
+          // Not critical, user can start manually
+        }
+      } else {
+        console.log('[MAIN] Sandbox mode: skipping local Ollama startup')
       }
     } else {
       console.warn('[MAIN] Ollama not found - repair flow will be needed')
@@ -5243,8 +5266,21 @@ app.whenReady().then(async () => {
       res.writeHead(503, headers)
       res.end(JSON.stringify({ ok: false, error: 'Initializing...' }))
     })
-    httpBridgeServer.listen(HTTP_PORT, '127.0.0.1', () => {
-      console.log(`[BOOT] âœ… Early HTTP health bridge on http://127.0.0.1:${HTTP_PORT}`)
+    const httpBindHost = getHttpApiListenHost()
+    const httpOrchestratorMode = getOrchestratorMode().mode
+    if (httpOrchestratorMode === 'host') {
+      console.warn(
+        'WARNING: Host mode active without TLS. For high-assurance environments, configure a TLS reverse proxy in front of port 51248.',
+      )
+    }
+    // Network binding security model:
+    // - Host mode: binds 0.0.0.0 to allow sandbox connections
+    //   All routes remain auth-protected (X-Launch-Secret for local, JWT for remote)
+    // - Sandbox mode: binds 127.0.0.1 (loopback only)
+    //   No external access needed; sandbox calls host, not the other way around
+    httpBridgeServer.listen(HTTP_PORT, httpBindHost, () => {
+      httpApiListenHost = httpBindHost
+      console.log(`Inference API listening on ${httpBindHost}:${HTTP_PORT} (mode: ${httpOrchestratorMode})`)
     })
     httpBridgeServer.on('error', (err: any) => {
       console.error(`[BOOT] âŒ Early HTTP bridge error:`, err.message)
@@ -6437,6 +6473,154 @@ async function runDeviceKeyMigration(
   try {
     console.log('[MAIN] ===== STARTING HTTP API SERVER =====')
     const httpApp = express()
+    const jwtAuth = await createJwtMiddleware()
+    startInferenceChatRateLimiterCleanup()
+
+    // Sandbox inference API — JWT + stricter body limit (before global 100mb JSON parser)
+    const sandboxInferenceRouter = express.Router()
+    sandboxInferenceRouter.use((req, res, next) => {
+      if (req.method === 'POST' && req.path === '/chat') {
+        attachInferenceChatRouteAudit(req, res)
+      }
+      const origin = req.headers['origin'] as string | undefined
+      const requestPrivateNetwork = req.headers['access-control-request-private-network'] === 'true'
+      if (req.method === 'OPTIONS') {
+        if (!isCorsAllowedOrigin(origin)) {
+          res.status(403).end()
+          return
+        }
+        const headers = corsPnaHeaders(origin, requestPrivateNetwork)
+        for (const [k, v] of Object.entries(headers)) res.setHeader(k, v)
+        res.status(204).end()
+        return
+      }
+      if (origin && !isCorsAllowedOrigin(origin)) {
+        console.warn(
+          `[SECURITY] Blocked request with disallowed Origin: ${origin} → ${req.method} ${req.path} (sandbox inference)`,
+        )
+        res.status(403).json({ error: 'Forbidden: cross-origin request denied' })
+        return
+      }
+      res.setHeader('Access-Control-Expose-Headers', 'Content-Type')
+      if (origin && isCorsAllowedOrigin(origin)) {
+        const headers = corsPnaHeaders(origin, true)
+        for (const [k, v] of Object.entries(headers)) res.setHeader(k, v)
+      }
+      next()
+    })
+    sandboxInferenceRouter.use(express.json({ limit: '512kb' }))
+    sandboxInferenceRouter.post(
+      '/chat',
+      jwtAuth,
+      requireScope('inference:chat'),
+      inferenceChatRateLimitMiddleware,
+      async (req, res) => {
+        const body = req.body as Record<string, unknown>
+        const rawMessages = body.messages
+        const rawModelId = body.modelId
+        if (Array.isArray(rawMessages)) {
+          res.locals.inferenceAuditMeta = {
+            messageCount: rawMessages.length,
+            modelId: typeof rawModelId === 'string' && rawModelId.trim() ? rawModelId.trim() : undefined,
+          }
+        }
+
+        if (getOrchestratorMode().mode !== 'host') {
+          res.locals.inferenceAuditNotHost = true
+          res.status(403).json({
+            error: 'not_host',
+            message: 'This instance is not configured as a host',
+          })
+          return
+        }
+
+        if (!rawMessages || !Array.isArray(rawMessages)) {
+          res.status(400).json({ error: 'bad_request', message: 'messages array is required' })
+          return
+        }
+
+        const messages: ChatMessage[] = []
+        for (const item of rawMessages) {
+          if (item == null || typeof item !== 'object') {
+            res.status(400).json({
+              error: 'text_only',
+              message: 'Sandbox inference accepts text content only',
+            })
+            return
+          }
+          const m = item as Record<string, unknown>
+          if ('images' in m) {
+            res.status(400).json({
+              error: 'text_only',
+              message: 'Sandbox inference accepts text content only',
+            })
+            return
+          }
+          if (typeof m.content !== 'string') {
+            res.status(400).json({
+              error: 'text_only',
+              message: 'Sandbox inference accepts text content only',
+            })
+            return
+          }
+          const role = m.role
+          if (role !== 'user' && role !== 'assistant' && role !== 'system') {
+            res.status(400).json({ error: 'bad_request', message: 'Invalid message role' })
+            return
+          }
+          messages.push({ role, content: m.content })
+        }
+
+        const { ollamaManager } = await import('./main/llm/ollama-manager')
+
+        let resolvedModel: string | null = null
+        if (typeof rawModelId === 'string' && rawModelId.trim()) {
+          resolvedModel = rawModelId.trim()
+          const installed = await ollamaManager.listModels()
+          if (!installed.some((x) => x.name === resolvedModel)) {
+            res.status(400).json({
+              ok: false,
+              error: 'unknown_model',
+              message: `Model is not installed on this host: ${resolvedModel}`,
+            })
+            return
+          }
+        } else {
+          resolvedModel = await ollamaManager.getEffectiveChatModelName()
+          if (!resolvedModel) {
+            res.status(400).json({
+              ok: false,
+              error: 'no_model',
+              message: 'No chat model available on this host',
+            })
+            return
+          }
+        }
+
+        res.locals.inferenceAuditMeta = {
+          modelId: resolvedModel,
+          messageCount: messages.length,
+        }
+
+        try {
+          const response = await ollamaManager.chat(resolvedModel, messages)
+          res.json({
+            ok: true,
+            data: { content: response.content, model: response.model },
+          })
+        } catch (err: unknown) {
+          const detail = err instanceof Error ? err.message : String(err)
+          console.error('[HTTP-INFERENCE] Ollama chat failed:', detail)
+          res.status(502).json({
+            ok: false,
+            error: 'inference_failed',
+            detail,
+          })
+        }
+      },
+    )
+    httpApp.use('/api/inference', sandboxInferenceRouter)
+
     httpApp.use(express.json({ limit: '100mb' }))
     
     // ========================================================================
@@ -6512,6 +6696,8 @@ async function runDeviceKeyMigration(
     const AUTH_EXEMPT_PATHS = new Set([
       '/api/health',               // Lightweight liveness probe, returns no sensitive data
       '/api/orchestrator/status',  // Availability check for getActiveAdapter (before WebSocket handshake)
+      '/api/orchestrator/inference-status', // JWT auth on route (no launch secret; not anonymous)
+      '/api/inference/chat',       // Sandbox inference — JWT + scope (no launch secret)
       '/api/crypto/pq/status',     // ML-KEM availability probe (boolean only; no secrets). Extension may call before WS supplies X-Launch-Secret; POST /mlkem768/* still require auth
       // Localhost-only: merge still requires matching inbox row + exact package JSON (or handshake fallback).
       '/api/inbox/merge-depackaged',
@@ -8702,6 +8888,122 @@ async function runDeviceKeyMigration(
       }
     })
 
+    // GET /api/orchestrator/inference-status — host mode + Ollama availability (JWT; exempt from launch secret)
+    httpApp.get(
+      '/api/orchestrator/inference-status',
+      inferenceStatusAuthAuditMiddleware,
+      jwtAuth,
+      async (_req, res) => {
+        try {
+          const modeConfig = getOrchestratorMode()
+          const { ollamaManager } = await import('./main/llm/ollama-manager')
+          const ollamaRunning = await ollamaManager.isRunning()
+          const model = ollamaRunning ? await ollamaManager.getEffectiveChatModelName() : null
+          res.json({
+            orchestrator: true,
+            mode: modeConfig.mode,
+            inference: {
+              available: modeConfig.mode === 'host' && ollamaRunning,
+              model,
+            },
+          })
+        } catch (error: any) {
+          console.error('[HTTP-ORCHESTRATOR] Error in inference-status:', error)
+          res.status(500).json({ error: error.message || 'Failed to get inference status' })
+        }
+      },
+    )
+
+    // GET /api/orchestrator/mode — persisted host/sandbox role (extension RPC; X-Launch-Secret)
+    httpApp.get('/api/orchestrator/mode', (_req, res) => {
+      try {
+        res.json({ ok: true as const, config: getOrchestratorMode() })
+      } catch (error: any) {
+        console.error('[HTTP-ORCHESTRATOR] Error in mode GET:', error)
+        res.status(500).json({ ok: false as const, error: error.message || 'Failed to read mode config' })
+      }
+    })
+
+    // POST /api/orchestrator/mode — persist host/sandbox role (extension RPC; X-Launch-Secret)
+    httpApp.post('/api/orchestrator/mode', (req, res) => {
+      try {
+        setOrchestratorMode(req.body)
+        res.json({ ok: true as const })
+      } catch (error: any) {
+        console.error('[HTTP-ORCHESTRATOR] Error in mode POST:', error)
+        res.status(400).json({ ok: false as const, error: error.message || 'Invalid mode config' })
+      }
+    })
+
+    // GET /api/orchestrator/mode-config — legacy alias (same payload as /api/orchestrator/mode)
+    httpApp.get('/api/orchestrator/mode-config', (_req, res) => {
+      try {
+        res.json({ ok: true as const, config: getOrchestratorMode() })
+      } catch (error: any) {
+        console.error('[HTTP-ORCHESTRATOR] Error in mode-config GET:', error)
+        res.status(500).json({ ok: false as const, error: error.message || 'Failed to read mode config' })
+      }
+    })
+
+    // POST /api/orchestrator/mode-config — legacy alias
+    httpApp.post('/api/orchestrator/mode-config', (req, res) => {
+      try {
+        setOrchestratorMode(req.body)
+        res.json({ ok: true as const })
+      } catch (error: any) {
+        console.error('[HTTP-ORCHESTRATOR] Error in mode-config POST:', error)
+        res.status(400).json({ ok: false as const, error: error.message || 'Invalid mode config' })
+      }
+    })
+
+    // POST /api/orchestrator/test-connection — probe remote host (extension RPC; session token; X-Launch-Secret)
+    httpApp.post('/api/orchestrator/test-connection', async (req, res) => {
+      try {
+        const hostUrl = typeof req.body?.hostUrl === 'string' ? req.body.hostUrl : ''
+        const token = getAccessToken() || ''
+        if (!token) {
+          res.status(401).json({
+            ok: false as const,
+            error: 'Not signed in — no access token in desktop session',
+          })
+          return
+        }
+        const result = await testRemoteOrchestratorInferenceStatus(hostUrl, token)
+        if (result.ok) {
+          res.json(result)
+        } else {
+          res.status(400).json(result)
+        }
+      } catch (error: any) {
+        console.error('[HTTP-ORCHESTRATOR] Error in test-connection:', error)
+        res.status(500).json({ ok: false as const, error: error.message || 'test-connection failed' })
+      }
+    })
+
+    // POST /api/orchestrator/remote-test — probe a remote HTTPS host (extension RPC; uses desktop session token)
+    httpApp.post('/api/orchestrator/remote-test', async (req, res) => {
+      try {
+        const hostUrl = typeof req.body?.hostUrl === 'string' ? req.body.hostUrl : ''
+        const token = getAccessToken() || ''
+        if (!token) {
+          res.status(401).json({
+            ok: false as const,
+            error: 'Not signed in — no access token in desktop session',
+          })
+          return
+        }
+        const result = await testRemoteOrchestratorInferenceStatus(hostUrl, token)
+        if (result.ok) {
+          res.json(result)
+        } else {
+          res.status(400).json(result)
+        }
+      } catch (error: any) {
+        console.error('[HTTP-ORCHESTRATOR] Error in remote-test:', error)
+        res.status(500).json({ ok: false as const, error: error.message || 'remote-test failed' })
+      }
+    })
+
     // GET /api/orchestrator/sessions - List automation + WR Chat `session_*` KV sessions
     httpApp.get('/api/orchestrator/sessions', async (_req, res) => {
       try {
@@ -8879,6 +9181,10 @@ async function runDeviceKeyMigration(
     // POST /api/llm/start - Start Ollama server
     httpApp.post('/api/llm/start', async (_req, res) => {
       try {
+        if (isSandboxMode()) {
+          res.status(400).json({ ok: false, error: 'Ollama management is disabled in sandbox mode' })
+          return
+        }
         const { ollamaManager } = await import('./main/llm/ollama-manager')
         await ollamaManager.start()
         res.json({ ok: true })
@@ -8891,6 +9197,10 @@ async function runDeviceKeyMigration(
     // POST /api/llm/stop - Stop Ollama server
     httpApp.post('/api/llm/stop', async (_req, res) => {
       try {
+        if (isSandboxMode()) {
+          res.status(400).json({ ok: false, error: 'Ollama management is disabled in sandbox mode' })
+          return
+        }
         const { ollamaManager } = await import('./main/llm/ollama-manager')
         await ollamaManager.stop()
         res.json({ ok: true })
@@ -8931,6 +9241,14 @@ async function runDeviceKeyMigration(
 
         if (!modelId) {
           res.status(400).json({ ok: false, error: 'modelId is required' })
+          return
+        }
+
+        if (isSandboxMode()) {
+          res.status(400).json({
+            ok: false,
+            error: 'Model installation is disabled in sandbox mode — install models on the host machine',
+          })
           return
         }
 
@@ -9000,6 +9318,13 @@ async function runDeviceKeyMigration(
     // DELETE /api/llm/models/:modelId - Delete a model
     httpApp.delete('/api/llm/models/:modelId', async (req, res) => {
       try {
+        if (isSandboxMode()) {
+          res.status(400).json({
+            ok: false,
+            error: 'Model deletion is disabled in sandbox mode — manage models on the host machine',
+          })
+          return
+        }
         const { modelId } = req.params
         const { ollamaManager } = await import('./main/llm/ollama-manager')
         await ollamaManager.deleteModel(modelId)
@@ -9016,6 +9341,14 @@ async function runDeviceKeyMigration(
         const { modelId } = req.body
         if (!modelId || typeof modelId !== 'string') {
           res.status(400).json({ ok: false, error: 'modelId is required' })
+          return
+        }
+        if (isSandboxMode()) {
+          res.status(400).json({
+            ok: false,
+            error:
+              'Activating a local Ollama model is disabled in sandbox mode — the active model is managed on the host',
+          })
           return
         }
         const { ollamaManager } = await import('./main/llm/ollama-manager')
@@ -9065,6 +9398,23 @@ async function runDeviceKeyMigration(
         if (!messages || !Array.isArray(messages)) {
           res.status(400).json({ ok: false, error: 'messages array is required' })
           return
+        }
+
+        // If sandbox mode, route to host inference API
+        if (isSandboxMode()) {
+          try {
+            const textMessages = messages.map((m: { role?: unknown; content?: unknown }) => ({
+              role: typeof m.role === 'string' ? m.role : String(m.role ?? 'user'),
+              content: typeof m.content === 'string' ? m.content : String(m.content ?? ''),
+            }))
+            const result = await sandboxChat(textMessages, typeof modelId === 'string' ? modelId : undefined)
+            if (result.ok && result.data) {
+              return res.json({ ok: true, data: result.data })
+            }
+            return res.status(502).json({ ok: false, error: result.error ?? 'Sandbox inference failed' })
+          } catch {
+            return res.status(500).json({ ok: false, error: 'Sandbox inference routing failed' })
+          }
         }
 
         const enrichedMessages = enrichHttpChatMessages(req.body)
@@ -10440,15 +10790,28 @@ async function runDeviceKeyMigration(
     if (httpBridgeServer) {
       httpBridgeServer.removeAllListeners('request')
       httpBridgeServer.on('request', httpApp)
-      console.log(`[BOOT] âœ… Full Express app mounted on http://127.0.0.1:${HTTP_PORT}`)
+      console.log(`[BOOT] Full Express app mounted on http://${httpApiListenHost}:${HTTP_PORT}`)
       console.log(`[BOOT] Extension can now connect to Electron (all routes active)`)
     } else {
       // Fallback: early bridge failed to start, create a new server
       console.log(`[BOOT] Starting HTTP API server on FIXED port ${HTTP_PORT}...`)
       console.log(`[BOOT] Extension expects: http://127.0.0.1:${HTTP_PORT}`)
 
-      const server = httpApp.listen(HTTP_PORT, '127.0.0.1', () => {
-        console.log(`[BOOT] âœ… HTTP API listening on http://127.0.0.1:${HTTP_PORT}`)
+      const httpBindHostFallback = getHttpApiListenHost()
+      const httpModeFallback = getOrchestratorMode().mode
+      if (httpModeFallback === 'host') {
+        console.warn(
+          'WARNING: Host mode active without TLS. For high-assurance environments, configure a TLS reverse proxy in front of port 51248.',
+        )
+      }
+      // Network binding security model:
+      // - Host mode: binds 0.0.0.0 to allow sandbox connections
+      //   All routes remain auth-protected (X-Launch-Secret for local, JWT for remote)
+      // - Sandbox mode: binds 127.0.0.1 (loopback only)
+      //   No external access needed; sandbox calls host, not the other way around
+      const server = httpApp.listen(HTTP_PORT, httpBindHostFallback, () => {
+        httpApiListenHost = httpBindHostFallback
+        console.log(`Inference API listening on ${httpBindHostFallback}:${HTTP_PORT} (mode: ${httpModeFallback})`)
         console.log(`[BOOT] Extension can now connect to Electron`)
         server.timeout = 10 * 60 * 1000
         server.keepAliveTimeout = 10 * 60 * 1000

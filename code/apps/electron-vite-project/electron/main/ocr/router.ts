@@ -12,6 +12,7 @@ import {
   OCRProgressCallback
 } from './types'
 import { ocrService } from './ocr-service'
+import { isSandboxMode } from '../orchestrator/orchestratorModeStore'
 
 /**
  * Vision-capable providers and their capabilities
@@ -51,6 +52,21 @@ export class OCRRouter {
    * Check if cloud vision is available and should be used
    */
   shouldUseCloud(options?: OCROptions): { useCloud: boolean; provider?: VisionProvider; reason: string } {
+    // Sandbox security boundary:
+    // Documents and images are processed ONLY on the sandbox.
+    // OCR runs locally via Tesseract.js — no cloud vision APIs.
+    // Only the resulting text string is sent to the host inference API.
+    // This ensures sensitive document content never traverses the network
+    // in raw/image form, even if cloud OCR is configured.
+    //
+    // SECURITY: In sandbox mode, always use local OCR.
+    // Raw document images must never leave the sandbox.
+    // Only extracted text is sent to the host for inference.
+    if (isSandboxMode()) {
+      console.log('OCR: Sandbox mode — forcing local processing (cloud OCR disabled)')
+      return { useCloud: false, reason: 'Sandbox mode — local OCR only (security boundary)' }
+    }
+
     // Force local if explicitly requested
     if (options?.forceLocal) {
       return { useCloud: false, reason: 'Force local requested' }
