@@ -18,6 +18,7 @@ import type { ChatMessage } from './main/llm/types'
 import {
   detectLibreOffice,
   convertToPdf,
+  preWarmLibreOffice,
   resetLibreOfficeDetection,
   setManualSofficePath,
 } from './main/libreoffice/libreofficeService'
@@ -2851,6 +2852,7 @@ app.whenReady().then(async () => {
       return { ok: true as const, path: set.path }
     })
     console.log('[MAIN] IPC handlers registered: libreoffice:*')
+    void preWarmLibreOffice().catch((e) => console.warn('[PDF] LibreOffice pre-warm failed:', e))
 
     // ========== HANDSHAKE VIEW IPC HANDLERS (Dashboard) ==========
     /**

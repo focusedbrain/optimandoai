@@ -364,7 +364,8 @@ export async function preWarmLibreOffice(): Promise<void> {
   try {
     const p = await detectLibreOffice()
     if (p) {
-      console.log('[PDF] LibreOffice pre-warmed, path cached:', p)
+      getSessionProfileDir()
+      console.log('[PDF] LibreOffice pre-warmed:', p)
     } else {
       console.log('[PDF] LibreOffice not found during pre-warm')
     }
@@ -473,11 +474,12 @@ function readPdfHeaderSnippet(filePath: string): string {
  * Returns the path to the generated PDF.
  */
 export async function convertToPdf(inputPath: string, outputDir: string): Promise<string> {
-  console.log('[PDF] convertToPdf called:', { inputPath })
-  console.log('[PDF-PERF] convertToPdf: detecting LO at', Date.now())
   const t0 = Date.now()
+  console.log('[PDF-PERF] convertToPdf start')
+  console.log('[PDF] convertToPdf called:', { inputPath })
+
   const sofficePath = await detectLibreOffice()
-  console.log('[PDF-PERF] convertToPdf: detection took', Date.now() - t0, 'ms')
+  console.log('[PDF-PERF] detection took', Date.now() - t0, 'ms')
   if (!sofficePath) {
     console.error('[PDF] LibreOffice not detected:', LIBREOFFICE_MISSING_USER_MESSAGE)
     throw new Error(LIBREOFFICE_MISSING_USER_MESSAGE)
@@ -493,11 +495,9 @@ export async function convertToPdf(inputPath: string, outputDir: string): Promis
   fs.mkdirSync(resolvedOut, { recursive: true })
   console.log('[PDF] Output dir:', resolvedOut)
 
-  const startTime = Date.now()
   let stdout = ''
   let stderr = ''
   try {
-    console.log('[PDF-PERF] convertToPdf: starting conversion at', Date.now())
     const t1 = Date.now()
     const result = await execLibreOfficeConvert(
       sofficePath,
@@ -506,10 +506,10 @@ export async function convertToPdf(inputPath: string, outputDir: string): Promis
       resolvedOut,
       LIBREOFFICE_CONVERT_TIMEOUT_MS,
     )
-    console.log('[PDF-PERF] convertToPdf: conversion took', Date.now() - t1, 'ms')
+    console.log('[PDF-PERF] soffice execution took', Date.now() - t1, 'ms')
     stdout = result.stdout
     stderr = result.stderr
-    const elapsed = Date.now() - startTime
+    const elapsed = Date.now() - t1
     console.log(`[PDF] Conversion took ${elapsed}ms`)
     console.log('[PDF] soffice exit code: 0')
     console.log('[PDF] soffice stdout:', stdout)
@@ -553,6 +553,7 @@ export async function convertToPdf(inputPath: string, outputDir: string): Promis
   }
 
   console.log('[PDF] Conversion successful:', expectedPdfPath, `(${stats.size} bytes)`)
+  console.log('[PDF-PERF] total convertToPdf took', Date.now() - t0, 'ms')
   return expectedPdfPath
 }
 

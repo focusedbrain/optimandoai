@@ -905,15 +905,14 @@ export function registerLetterComposerIpcHandlers(): void {
           error: ipcPdfFailureMessage(e, 'PDF operation failed. Is LibreOffice installed?'),
         }
       } finally {
-        // Delay cleanup to let the system PDF viewer read the file
-        // 60 seconds is enough for any viewer to open and cache the file
+        // Delay cleanup so system PDF viewer can read the file
         setTimeout(() => {
           try {
             fs.rmSync(tmpDir, { recursive: true, force: true })
           } catch {
             /* noop */
           }
-        }, 60_000)
+        }, 120_000)
       }
     },
   )
@@ -974,15 +973,14 @@ export function registerLetterComposerIpcHandlers(): void {
       try {
         await printPdfWithSystemDialog(pdfPath)
       } finally {
-        // Delay cleanup to let the system PDF viewer read the file
-        // 60 seconds is enough for any viewer to open and cache the file
+        // Delay cleanup so system PDF viewer can read the file
         setTimeout(() => {
           try {
             fs.unlinkSync(pdfPath)
           } catch {
             /* noop */
           }
-        }, 60_000)
+        }, 120_000)
       }
       console.log(`[PRINT] letter:printFilledLetter completed in ${Date.now() - t0}ms`)
       return { success: true }

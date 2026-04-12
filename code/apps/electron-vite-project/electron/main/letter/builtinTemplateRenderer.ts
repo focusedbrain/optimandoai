@@ -239,16 +239,15 @@ function buildDocument(layout: string, f: Record<string, string>, logo: LogoByte
     children.push(new Paragraph({ children: [], spacing: { after: 400 } }))
   }
 
-  // --- DATE (always today's date for the letter being created) ---
+  // --- DATE: always today (this letter is being created/sent today) ---
   {
     const now = new Date()
     const dd = String(now.getDate()).padStart(2, '0')
     const mm = String(now.getMonth() + 1).padStart(2, '0')
     const yyyy = now.getFullYear()
-    const todayFormatted = `${dd}.${mm}.${yyyy}`
     children.push(
       new Paragraph({
-        children: [new TextRun({ text: todayFormatted, size: 22, font: 'Liberation Sans' })],
+        children: [new TextRun({ text: `${dd}.${mm}.${yyyy}`, size: 22, font: 'Liberation Sans' })],
         alignment: AlignmentType.RIGHT,
         spacing: { after: 300 },
       }),
