@@ -999,7 +999,8 @@ export function LetterTemplatePort() {
             Set up: {selectedBuiltinTemplate.name}
           </h3>
           <p style={{ fontSize: 12, color: '#666', margin: '0 0 12px', lineHeight: 1.45 }}>
-            Fill in your company details once. They&apos;ll be pre-filled on every letter.
+            Fill in your company details once. They&apos;ll be pre-filled on every letter. Recipient (addressee)
+            is entered per letter in Compose — it is not part of this setup step.
           </p>
 
           <div className="setup-fields">

@@ -197,7 +197,7 @@ export interface ComposeSession {
   createdAt: string
 }
 
-const PERSIST_VERSION = 7
+const PERSIST_VERSION = 8
 
 /** Public helper for mapping UI — derive semantic `name` from a display label. */
 export function slugifyTemplateFieldName(label: string): string {
@@ -280,6 +280,25 @@ type RecipientFieldMergeMeta = {
   newRecipientId: string
 }
 
+/** PDF-mapped fields may keep display labels but use arbitrary semantic `name` — match by label/slug too. */
+function isLegacyRecipientNameField(f: TemplateField): boolean {
+  if (f.name === 'recipient') return false
+  if (f.name === 'recipient_name') return true
+  const slug = slugifyTemplateFieldName(f.label)
+  return slug === 'recipient_name' || f.label.trim().toLowerCase() === 'recipient name'
+}
+
+function isLegacyRecipientAddressField(f: TemplateField): boolean {
+  if (f.name === 'recipient') return false
+  if (f.name === 'recipient_address') return true
+  const slug = slugifyTemplateFieldName(f.label)
+  return slug === 'recipient_address' || f.label.trim().toLowerCase() === 'recipient address'
+}
+
+function templateHasLegacyRecipientFields(template: LetterTemplate): boolean {
+  return template.fields.some((f) => isLegacyRecipientNameField(f) || isLegacyRecipientAddressField(f))
+}
+
 /**
  * Merges legacy `recipient_name` + `recipient_address` into a single `recipient` field for persisted templates.
  * Idempotent: also removes legacy fields when both `recipient` and old names exist (partial upgrade state).
@@ -290,14 +309,12 @@ function migrateTemplatesRecipientFields(templates: LetterTemplate[]): {
 } {
   const merges: RecipientFieldMergeMeta[] = []
   const out = templates.map((template) => {
-    const hasOldName = template.fields.some((f) => f.name === 'recipient_name')
-    const hasOldAddr = template.fields.some((f) => f.name === 'recipient_address')
-    if (!hasOldName && !hasOldAddr) {
+    if (!templateHasLegacyRecipientFields(template)) {
       return template
     }
 
-    const oldName = template.fields.find((f) => f.name === 'recipient_name')
-    const oldAddr = template.fields.find((f) => f.name === 'recipient_address')
+    const oldName = template.fields.find(isLegacyRecipientNameField)
+    const oldAddr = template.fields.find(isLegacyRecipientAddressField)
     const existingRecipient = template.fields.find((f) => f.name === 'recipient')
 
     const nameValue = oldName?.value?.trim() || ''
@@ -319,7 +336,7 @@ function migrateTemplatesRecipientFields(templates: LetterTemplate[]): {
       })
 
       const newFields = template.fields
-        .filter((f) => f.name !== 'recipient_name' && f.name !== 'recipient_address')
+        .filter((f) => !isLegacyRecipientNameField(f) && !isLegacyRecipientAddressField(f))
         .map((f) =>
           f.id === existingRecipient.id ? { ...f, value: mergedValue } : f,
         )
@@ -360,10 +377,10 @@ function migrateTemplatesRecipientFields(templates: LetterTemplate[]): {
     }
 
     const oldIndex = template.fields.findIndex(
-      (f) => f.name === 'recipient_name' || f.name === 'recipient_address',
+      (f) => isLegacyRecipientNameField(f) || isLegacyRecipientAddressField(f),
     )
     const newFields = template.fields.filter(
-      (f) => f.name !== 'recipient_name' && f.name !== 'recipient_address',
+      (f) => !isLegacyRecipientNameField(f) && !isLegacyRecipientAddressField(f),
     )
     const insertIndex = oldIndex >= 0 ? Math.min(oldIndex, newFields.length) : newFields.length
     newFields.splice(insertIndex, 0, newRecipientField)
@@ -1012,7 +1029,7 @@ export const useLetterComposerStore = create<LetterComposerState>()(
             letterVaultSource,
           }
         }
-        if (fromVersion < 7) {
+        if (fromVersion < 8) {
           const templates = Array.isArray(p.templates) ? (p.templates as LetterTemplate[]) : []
           const composeSessions = Array.isArray(p.composeSessions)
             ? (p.composeSessions as ComposeSession[])
@@ -1028,12 +1045,10 @@ export const useLetterComposerStore = create<LetterComposerState>()(
 
         return p
       },
-      /** Catches legacy fields if persist version was already 6+ before migration ran, or partial "recipient + old" state. */
+      /** Catches legacy fields after rehydration (label-based + semantic names). */
       onRehydrateStorage: () => (state) => {
         if (!state?.templates?.length) return
-        const hasLegacy = state.templates.some((t) =>
-          t.fields.some((f) => f.name === 'recipient_name' || f.name === 'recipient_address'),
-        )
+        const hasLegacy = state.templates.some((t) => templateHasLegacyRecipientFields(t))
         if (!hasLegacy) return
         const { templates: nextTemplates, merges } = migrateTemplatesRecipientFields(state.templates)
         const nextSessions = migrateComposeSessionsRecipientFieldIds(state.composeSessions ?? [], merges)
@@ -1055,3 +1070,11 @@ export const useLetterComposerStore = create<LetterComposerState>()(
     },
   ),
 )
+
+useLetterComposerStore.persist.onFinishHydration(() => {
+  const { templates, composeSessions } = useLetterComposerStore.getState()
+  if (!templates.some((t) => templateHasLegacyRecipientFields(t))) return
+  const { templates: nextTemplates, merges } = migrateTemplatesRecipientFields(templates)
+  const nextSessions = migrateComposeSessionsRecipientFieldIds(composeSessions ?? [], merges)
+  useLetterComposerStore.setState({ templates: nextTemplates, composeSessions: nextSessions })
+})
