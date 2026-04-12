@@ -111,19 +111,67 @@ function buildBodyParagraphs(f: Record<string, string>): Paragraph[] {
   )
 }
 
+function getImageDimensions(buffer: Buffer, type: 'png' | 'jpg'): { width: number; height: number } {
+  try {
+    if (type === 'png') {
+      if (buffer.length > 24 && buffer.toString('ascii', 1, 4) === 'PNG') {
+        const width = buffer.readUInt32BE(16)
+        const height = buffer.readUInt32BE(20)
+        if (width > 0 && height > 0) return { width, height }
+      }
+    }
+    if (type === 'jpg') {
+      let offset = 2
+      while (offset < buffer.length - 10) {
+        if (buffer[offset] === 0xff) {
+          const marker = buffer[offset + 1]
+          if (marker === 0xc0 || marker === 0xc2) {
+            const height = buffer.readUInt16BE(offset + 5)
+            const width = buffer.readUInt16BE(offset + 7)
+            if (width > 0 && height > 0) return { width, height }
+          }
+          const len = buffer.readUInt16BE(offset + 2)
+          offset += 2 + len
+        } else {
+          offset++
+        }
+      }
+    }
+  } catch {
+    /* fallback below */
+  }
+  return { width: 300, height: 100 }
+}
+
 function buildDocument(layout: string, f: Record<string, string>, logo: LogoBytes | null): Document {
   const children: Paragraph[] = []
   const margins = layoutPageMargins(layout)
   const rec = f as Record<string, string | undefined>
 
   if (logo) {
+    const dims = getImageDimensions(logo.buffer, logo.type)
+    const maxWidth = 250
+    const maxHeight = 100
+    let w = dims.width
+    let h = dims.height
+    if (w > maxWidth) {
+      h = Math.round(h * (maxWidth / w))
+      w = maxWidth
+    }
+    if (h > maxHeight) {
+      w = Math.round(w * (maxHeight / h))
+      h = maxHeight
+    }
+    w = Math.max(w, 40)
+    h = Math.max(h, 20)
+
     children.push(
       new Paragraph({
         children: [
           new ImageRun({
             type: logo.type,
             data: logo.buffer,
-            transformation: { width: 250, height: 75 },
+            transformation: { width: w, height: h },
           }),
         ],
         alignment: logoAlignment(layout),
@@ -161,38 +209,51 @@ function buildDocument(layout: string, f: Record<string, string>, logo: LogoByte
     ? rec.recipient
     : [rec.recipient_name, rec.recipient_address].filter((x) => x?.trim()).join('\n')
   if (recipientBlock?.trim()) {
-    let recipientLines = recipientBlock.split('\n').map((l) => l.trim()).filter(Boolean)
-    if (recipientLines.length === 1 && recipientLines[0].length > 40) {
-      recipientLines = recipientLines[0]
-        .split(/,\s+(?=\d{4,5}\s)/)
-        .map((l) => l.trim())
-        .filter(Boolean)
-    }
     children.push(
       new Paragraph({
         children: [],
         spacing: { before: recipientSpacingBefore(layout), after: 0 },
       }),
     )
+
+    let recipientLines = recipientBlock.split('\n').map((l) => l.trim()).filter(Boolean)
+
+    if (recipientLines.length === 1 && recipientLines[0].length > 30) {
+      const line = recipientLines[0]
+      const parts = line.split(/,\s+/)
+      if (parts.length > 1) {
+        recipientLines = parts.map((p) => p.trim()).filter(Boolean)
+      }
+    }
+
     for (const line of recipientLines) {
-      children.push(
-        new Paragraph({
-          children: [new TextRun({ text: line, size: 22, font: 'Liberation Sans' })],
-          spacing: { after: 0 },
-        }),
-      )
+      if (line) {
+        children.push(
+          new Paragraph({
+            children: [new TextRun({ text: line, size: 22, font: 'Liberation Sans' })],
+            spacing: { after: 0 },
+          }),
+        )
+      }
     }
     children.push(new Paragraph({ children: [], spacing: { after: 400 } }))
   }
 
-  // NOTE: The date field should contain the CREATION date of this letter,
-  // not the date of a received letter. The UI (ComposeFieldsForm or
-  // LetterViewerPort reply flow) should set date = today when composing
-  // a reply, not copy the received letter's date.
-  if (f.date?.trim()) {
+  // Date: default to today when empty; user override when set. Display DD.MM.YYYY for DE.
+  const rawDate = f.date?.trim() || new Date().toISOString().split('T')[0]
+  let dateStr = rawDate
+  try {
+    const d = new Date(rawDate)
+    if (!Number.isNaN(d.getTime())) {
+      dateStr = d.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' })
+    }
+  } catch {
+    /* keep rawDate */
+  }
+  if (dateStr) {
     children.push(
       new Paragraph({
-        children: [new TextRun({ text: f.date.trim(), size: 22, font: 'Liberation Sans' })],
+        children: [new TextRun({ text: dateStr, size: 22, font: 'Liberation Sans' })],
         alignment: AlignmentType.RIGHT,
         spacing: { after: 300 },
       }),

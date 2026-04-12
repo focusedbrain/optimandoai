@@ -13,8 +13,22 @@ const MANUAL_PATH_STORE = 'libreoffice-manual-path.json'
 let cachedSofficePath: string | null = null
 let detectionDone = false
 
+/** In-flight dedupe: concurrent callers await one detection run (expensive registry/path scan). */
+let detectLibreOfficeInFlight: Promise<string | null> | null = null
+
 /** Cache for {@link getSofficePath} before async {@link detectLibreOffice} completes. */
 let cachedGetSofficePath: string | null | undefined = undefined
+
+/** Reused UserInstallation profile for headless conversions (one dir per app session). */
+let sessionProfileDir: string | null = null
+
+function getSessionProfileDir(): string {
+  if (!sessionProfileDir || !fs.existsSync(sessionProfileDir)) {
+    sessionProfileDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wrdesk-lo-session-'))
+    console.log('[PDF] Created session LO profile:', sessionProfileDir)
+  }
+  return sessionProfileDir
+}
 
 /**
  * Fast synchronous lookup of `soffice` (Program Files / PATH on Windows, common paths on macOS/Linux).
@@ -171,12 +185,25 @@ export function setManualSofficePath(manualPath: string): { ok: true; path: stri
 /**
  * Find soffice on the system. Checks persisted manual path, common install locations + PATH.
  * Returns the path to soffice or null if not found.
+ * Result is cached for the process; concurrent calls share one detection pass.
  */
 export async function detectLibreOffice(): Promise<string | null> {
   if (detectionDone) {
     return cachedSofficePath
   }
+  if (detectLibreOfficeInFlight) {
+    return detectLibreOfficeInFlight
+  }
 
+  detectLibreOfficeInFlight = runDetectLibreOffice()
+  try {
+    return await detectLibreOfficeInFlight
+  } finally {
+    detectLibreOfficeInFlight = null
+  }
+}
+
+async function runDetectLibreOffice(): Promise<string | null> {
   const persisted = loadPersistedManualPath()
   if (persisted) {
     if (fs.existsSync(persisted) && (await tryAcceptCandidate(persisted))) {
@@ -319,6 +346,22 @@ export async function detectLibreOffice(): Promise<string | null> {
 }
 
 /**
+ * Warm path cache and optionally trigger first-time LO init early (call after `app.whenReady()`).
+ */
+export async function preWarmLibreOffice(): Promise<void> {
+  try {
+    const p = await detectLibreOffice()
+    if (p) {
+      console.log('[PDF] LibreOffice pre-warmed, path cached:', p)
+    } else {
+      console.log('[PDF] LibreOffice not found during pre-warm')
+    }
+  } catch {
+    /* Non-critical — detection will happen on first export */
+  }
+}
+
+/**
  * Resolves the `soffice` binary synchronously (persisted manual path, then common install locations).
  * After {@link detectLibreOffice} runs, returns the same cached result.
  */
@@ -354,7 +397,7 @@ const MIN_VALID_PDF_BYTES = 200
 // Future: optional fallback when LibreOffice is missing — render HTML in a hidden BrowserWindow and
 // webContents.printToPDF() (larger change; keep LibreOffice as primary path).
 
-const LIBREOFFICE_CONVERT_TIMEOUT_MS = 30_000
+const LIBREOFFICE_CONVERT_TIMEOUT_MS = 20_000
 
 /**
  * Run headless LibreOffice with an isolated user profile so conversion does not block on a
@@ -367,37 +410,29 @@ async function execLibreOfficeConvert(
   outDir: string,
   timeoutMs: number,
 ): Promise<{ stdout: string; stderr: string }> {
-  const tempProfile = fs.mkdtempSync(path.join(os.tmpdir(), 'wrdesk-lo-'))
-  try {
-    const profileUrl = 'file:///' + tempProfile.replace(/\\/g, '/')
-    const args = [
-      `-env:UserInstallation=${profileUrl}`,
-      '--headless',
-      '--norestore',
-      '--nologo',
-      '--nofirststartwizard',
-      '--convert-to',
-      convertTo,
-      '--outdir',
-      outDir,
-      inputPath,
-    ]
-    const result = await execFileAsync(sofficePath, args, {
-      timeout: timeoutMs,
-      windowsHide: true,
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'pipe'],
-    })
-    const stdout = typeof result.stdout === 'string' ? result.stdout : result.stdout.toString('utf8')
-    const stderr = typeof result.stderr === 'string' ? result.stderr : result.stderr.toString('utf8')
-    return { stdout, stderr }
-  } finally {
-    try {
-      fs.rmSync(tempProfile, { recursive: true, force: true })
-    } catch {
-      /* non-critical */
-    }
-  }
+  const tempProfile = getSessionProfileDir()
+  const profileUrl = 'file:///' + tempProfile.replace(/\\/g, '/')
+  const args = [
+    `-env:UserInstallation=${profileUrl}`,
+    '--headless',
+    '--norestore',
+    '--nologo',
+    '--nofirststartwizard',
+    '--convert-to',
+    convertTo,
+    '--outdir',
+    outDir,
+    inputPath,
+  ]
+  const result = await execFileAsync(sofficePath, args, {
+    timeout: timeoutMs,
+    windowsHide: true,
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  })
+  const stdout = typeof result.stdout === 'string' ? result.stdout : result.stdout.toString('utf8')
+  const stderr = typeof result.stderr === 'string' ? result.stderr : result.stderr.toString('utf8')
+  return { stdout, stderr }
 }
 
 function readPdfHeaderSnippet(filePath: string): string {
@@ -544,4 +579,5 @@ export function resetLibreOfficeDetection(): void {
   cachedSofficePath = null
   detectionDone = false
   cachedGetSofficePath = undefined
+  detectLibreOfficeInFlight = null
 }
