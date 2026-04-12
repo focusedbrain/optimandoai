@@ -198,7 +198,7 @@ export interface ComposeSession {
   createdAt: string
 }
 
-const PERSIST_VERSION = 4
+const PERSIST_VERSION = 5
 
 /** Public helper for mapping UI — derive semantic `name` from a display label. */
 export function slugifyTemplateFieldName(label: string): string {
@@ -291,6 +291,16 @@ export function createLetterComposeSession(templateId: string): ComposeSession {
 
 // --- Store ---
 
+/** Cached vault item fields for letter prompt injection (not persisted). */
+export type LetterVaultData = {
+  name?: string
+  address?: string
+  email?: string
+  phone?: string
+  signerName?: string
+  companyName?: string
+}
+
 interface LetterComposerState {
   templates: LetterTemplate[]
   activeTemplateId: string | null
@@ -351,6 +361,20 @@ interface LetterComposerState {
 
   companyProfile: CompanyProfile
   setCompanyProfile: (profile: Partial<CompanyProfile>) => void
+
+  /** Which vault category to use for sender data injection */
+  letterVaultSource: 'company' | 'personal' | 'none'
+  /** Cached vault item data after successful fetch (cleared on lock/switch) */
+  letterVaultData: LetterVaultData | null
+  /** Whether vault data is currently loading */
+  letterVaultLoading: boolean
+  /** Error message from vault access attempt */
+  letterVaultError: string | null
+  setLetterVaultSource: (source: 'company' | 'personal' | 'none') => void
+  setLetterVaultData: (data: LetterVaultData | null) => void
+  setLetterVaultLoading: (loading: boolean) => void
+  setLetterVaultError: (error: string | null) => void
+  clearLetterVaultData: () => void
 }
 
 export const useLetterComposerStore = create<LetterComposerState>()(
@@ -674,6 +698,17 @@ export const useLetterComposerStore = create<LetterComposerState>()(
         set((s) => ({
           companyProfile: { ...s.companyProfile, ...patch },
         })),
+
+      letterVaultSource: 'none',
+      letterVaultData: null,
+      letterVaultLoading: false,
+      letterVaultError: null,
+      setLetterVaultSource: (source) =>
+        set({ letterVaultSource: source, letterVaultData: null, letterVaultError: null }),
+      setLetterVaultData: (data) => set({ letterVaultData: data, letterVaultLoading: false }),
+      setLetterVaultLoading: (loading) => set({ letterVaultLoading: loading }),
+      setLetterVaultError: (error) => set({ letterVaultError: error, letterVaultLoading: false }),
+      clearLetterVaultData: () => set({ letterVaultData: null, letterVaultError: null }),
     }),
     {
       name: 'wr-desk-letter-composer',
@@ -710,6 +745,15 @@ export const useLetterComposerStore = create<LetterComposerState>()(
             })),
           }
         }
+        if (fromVersion < 5) {
+          const src = (p as { letterVaultSource?: unknown }).letterVaultSource
+          const letterVaultSource =
+            src === 'company' || src === 'personal' || src === 'none' ? src : 'none'
+          return {
+            ...(p as object),
+            letterVaultSource,
+          }
+        }
         return persisted
       },
       partialize: (s) => ({
@@ -721,6 +765,7 @@ export const useLetterComposerStore = create<LetterComposerState>()(
         composeSessions: s.composeSessions,
         activeComposeSessionId: s.activeComposeSessionId,
         companyProfile: s.companyProfile,
+        letterVaultSource: s.letterVaultSource,
       }),
     },
   ),

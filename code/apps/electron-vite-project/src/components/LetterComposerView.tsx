@@ -1,5 +1,6 @@
 import { useCallback, useEffect } from 'react'
 import { useChatFocusStore } from '@ext/stores/chatFocusStore'
+import { fetchLetterVaultData } from '../chat/routing/letterVaultHelper'
 import { useDraftRefineStore } from '../stores/useDraftRefineStore'
 import { useLetterComposerStore } from '../stores/useLetterComposerStore'
 import { LetterTemplatePort } from './LetterTemplatePort'
@@ -72,6 +73,38 @@ function syncLetterComposerChatFocus() {
 }
 
 export function LetterComposerView({ onClose }: { onClose: () => void }) {
+  const letterVaultSource = useLetterComposerStore((s) => s.letterVaultSource)
+  const letterVaultData = useLetterComposerStore((s) => s.letterVaultData)
+  const letterVaultLoading = useLetterComposerStore((s) => s.letterVaultLoading)
+  const letterVaultError = useLetterComposerStore((s) => s.letterVaultError)
+  const setLetterVaultSource = useLetterComposerStore((s) => s.setLetterVaultSource)
+  const setLetterVaultData = useLetterComposerStore((s) => s.setLetterVaultData)
+  const setLetterVaultLoading = useLetterComposerStore((s) => s.setLetterVaultLoading)
+  const setLetterVaultError = useLetterComposerStore((s) => s.setLetterVaultError)
+
+  const handleVaultSourceChange = useCallback(
+    async (source: 'company' | 'personal' | 'none') => {
+      setLetterVaultSource(source)
+      if (source === 'none') {
+        setLetterVaultLoading(false)
+        return
+      }
+      setLetterVaultLoading(true)
+      const result = await fetchLetterVaultData(source)
+      if (result.success && result.data) {
+        setLetterVaultData(result.data)
+      } else {
+        setLetterVaultError(result.error || 'Failed to load vault data')
+      }
+    },
+    [
+      setLetterVaultSource,
+      setLetterVaultData,
+      setLetterVaultLoading,
+      setLetterVaultError,
+    ],
+  )
+
   const handleClose = useCallback(() => {
     useDraftRefineStore.getState().disconnect()
     useLetterComposerStore.getState().setFocusedTemplateField(null)
@@ -101,6 +134,48 @@ export function LetterComposerView({ onClose }: { onClose: () => void }) {
 
   return (
     <div className="letter-composer-view">
+      <div className="letter-composer-vault-bar">
+        <span className="letter-composer-vault-bar__label">Sender data:</span>
+        <select
+          className="letter-composer-vault-bar__select"
+          value={letterVaultSource}
+          onChange={(e) =>
+            handleVaultSourceChange(e.target.value as 'company' | 'personal' | 'none')
+          }
+          aria-label="Sender data source"
+        >
+          <option value="none">Manual</option>
+          <option value="company">Company Data (Vault)</option>
+          <option value="personal">Personal Data (Vault)</option>
+        </select>
+        {letterVaultLoading && (
+          <span className="letter-composer-vault-bar__hint">Loading…</span>
+        )}
+        {letterVaultError === 'vault_locked' && (
+          <span className="letter-composer-vault-bar__err">Vault locked</span>
+        )}
+        {letterVaultError === 'tier_too_low' && (
+          <span className="letter-composer-vault-bar__err">⭐ Upgrade required</span>
+        )}
+        {letterVaultError === 'no_items' && (
+          <span className="letter-composer-vault-bar__err">
+            No data in vault — set up in Data Manager
+          </span>
+        )}
+        {letterVaultError &&
+          letterVaultError !== 'vault_locked' &&
+          letterVaultError !== 'tier_too_low' &&
+          letterVaultError !== 'no_items' && (
+            <span className="letter-composer-vault-bar__err" title={letterVaultError}>
+              {letterVaultError}
+            </span>
+          )}
+        {letterVaultData && !letterVaultLoading && !letterVaultError && (
+          <span className="letter-composer-vault-bar__ok">
+            {letterVaultData.name || letterVaultData.companyName || 'Data loaded'}
+          </span>
+        )}
+      </div>
       <div className="letter-composer-grid">
         <div className="letter-composer-port letter-composer-port--template">
           <LetterTemplatePort />

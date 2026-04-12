@@ -15,6 +15,7 @@ TASK:
 - The user is editing exactly ONE target field of the letter template: ${targetFieldLabel} (technical name: ${targetFieldName}).
 - Produce ONLY the text for this field.
 - Do not explain your reasoning. Do not offer alternatives unless asked.
+- If sender identity details are provided, use them exactly as given. Do not invent placeholder brackets like [Your Name] or [Address] for information that was provided.
 
 LANGUAGE (strict):
 - Your output language MUST match the language of the INSTRUCTION section in the user message.
@@ -42,6 +43,7 @@ export function buildLetterComposerUserPrompt(params: {
   scannedLetterText?: string | null
   contextDocuments?: string | null
   chatAttachmentText?: string | null
+  senderIdentity?: string | null
 }): string {
   const parts: string[] = []
 
@@ -59,6 +61,15 @@ export function buildLetterComposerUserPrompt(params: {
 
   const ca = nonEmpty(params.chatAttachmentText)
   if (ca) parts.push(`CHAT ATTACHMENTS:\n${ca}\n\n`)
+
+  const senderIdentity = nonEmpty(params.senderIdentity)
+  if (senderIdentity) {
+    parts.push(
+      'SENDER IDENTITY (use these exact details, never use bracket placeholders for them):\n' +
+        senderIdentity +
+        '\n\n',
+    )
+  }
 
   const instruction = nonEmpty(params.userInstruction) ?? ''
   parts.push(`INSTRUCTION (write your output in this language):\n${instruction}`)

@@ -57,6 +57,19 @@ export async function handleLetterComposerChat(params: {
       ? documents.map((d) => `--- ${d.name || 'Document'} ---\n${d.text}`).join('\n\n')
       : null
 
+  const vaultData = useLetterComposerStore.getState().letterVaultData
+  let senderIdentity: string | null = null
+  if (vaultData) {
+    const parts: string[] = []
+    if (vaultData.companyName) parts.push(`Company: ${vaultData.companyName}`)
+    if (vaultData.name) parts.push(`Name: ${vaultData.name}`)
+    if (vaultData.address) parts.push(`Address: ${vaultData.address}`)
+    if (vaultData.email) parts.push(`Email: ${vaultData.email}`)
+    if (vaultData.phone) parts.push(`Phone: ${vaultData.phone}`)
+    if (vaultData.signerName) parts.push(`Authorized signer: ${vaultData.signerName}`)
+    senderIdentity = parts.length > 0 ? parts.join('\n') : null
+  }
+
   const userPrompt = buildLetterComposerUserPrompt({
     userInstruction: params.userQuery,
     // templateExcerpt: focusMeta?.letterComposerTemplateHtmlExcerpt ?? null,
@@ -65,6 +78,7 @@ export async function handleLetterComposerChat(params: {
     scannedLetterText: focusMeta?.letterComposerLetterPageText ?? null,
     contextDocuments: contextDocumentsBlock,
     chatAttachmentText: params.chatAttachmentText,
+    senderIdentity,
   })
 
   const chatDirect = window.handshakeView?.chatDirect
