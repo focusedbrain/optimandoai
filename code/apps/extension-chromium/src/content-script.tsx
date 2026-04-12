@@ -31297,7 +31297,7 @@ ${pageText}
                 </div>
                 <div id="sandbox-mode-paid-panel">
                 <div style="background:${csTheme().accentSubtle}; border-radius:4px; padding:5px 8px; margin-bottom:6px;">
-                  <span style="font-size:11px; color:${csTheme().accentText}; line-height:1.4; display:block;">Documents stay local. Only text is sent to the host for inference.</span>
+                  <span style="font-size:11px; color:${csTheme().accentText}; line-height:1.4; display:block;">BEAP packages are cloned from host to sandbox for testing. Only extracted text returns to the host for inference.</span>
                 </div>
                 <div style="margin-bottom:5px;">
                   <label style="font-size:11px; color:${csTheme().muted}; display:block; margin-bottom:2px;">Host inference URL</label>
@@ -31337,7 +31337,7 @@ ${pageText}
             <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; align-items:start;">
               <div style="display:flex; gap:8px; align-items:flex-start;">
                 <div style="width:20px; height:20px; border-radius:50%; background:${csTheme().accentSolid}; color:#fff; font-size:10px; font-weight:500; display:flex; align-items:center; justify-content:center; flex-shrink:0; margin-top:1px;">1</div>
-                <div style="font-size:11px; color:${csTheme().muted}; line-height:1.4;">On your <span style="font-weight:500; color:${csTheme().inputText};">host workstation</span> (GPU), set mode to Host and start a local LLM in Backend Configuration.</div>
+                <div style="font-size:11px; color:${csTheme().muted}; line-height:1.4;">On your <span style="font-weight:500; color:${csTheme().inputText};">host workstation</span> (GPU), set mode to Host, start a local LLM, and configure BEAP cloning to the sandbox.</div>
               </div>
               <div style="display:flex; gap:8px; align-items:flex-start;">
                 <div style="width:20px; height:20px; border-radius:50%; background:${csTheme().accentSolid}; color:#fff; font-size:10px; font-weight:500; display:flex; align-items:center; justify-content:center; flex-shrink:0; margin-top:1px;">2</div>
