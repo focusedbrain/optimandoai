@@ -40,6 +40,16 @@
   color: #c00;
 }
 
+.letter-composer-vault-bar__err--pad {
+  margin-right: 8px;
+}
+
+.letter-composer-vault-bar__single-title {
+  font-size: 12px;
+  color: #333;
+  margin-right: 8px;
+}
+
 .letter-composer-vault-bar__ok {
   font-size: 12px;
   color: #090;
@@ -66,6 +76,17 @@
 
 .letter-composer-vault-bar__apply:hover {
   background: #eee;
+}
+
+.letter-composer-vault-bar__apply--primary {
+  padding: 3px 10px;
+  background: #4a7c59;
+  color: #fff;
+  border: none;
+}
+
+.letter-composer-vault-bar__apply--primary:hover {
+  background: #3d6849;
 }
 
 .letter-composer-vault-bar__applied {

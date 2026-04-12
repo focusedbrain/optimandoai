@@ -1,6 +1,11 @@
 import { useCallback, useEffect } from 'react'
+import type { ChangeEvent } from 'react'
 import { useChatFocusStore } from '@ext/stores/chatFocusStore'
-import { fetchAndMapVaultItem, listLetterVaultItems } from '../chat/routing/letterVaultHelper'
+import {
+  canAccessLetterVaultCategory,
+  fetchAndMapVaultItem,
+  listLetterVaultItems,
+} from '../chat/routing/letterVaultHelper'
 import { useDraftRefineStore } from '../stores/useDraftRefineStore'
 import { useLetterComposerStore } from '../stores/useLetterComposerStore'
 import { LetterTemplatePort } from './LetterTemplatePort'
@@ -90,59 +95,11 @@ export function LetterComposerView({ onClose }: { onClose: () => void }) {
   const setLetterVaultError = useLetterComposerStore((s) => s.setLetterVaultError)
   const applyVaultDataToTemplate = useLetterComposerStore((s) => s.applyVaultDataToTemplate)
 
-  const handleCategoryChange = useCallback(
-    async (source: 'company' | 'personal' | 'none') => {
-      setLetterVaultSource(source)
-      if (source === 'none') return
-
-      setLetterVaultLoading(true)
-      setLetterVaultError(null)
-
-      const listResult = await listLetterVaultItems(source)
-      if (!listResult.success || !listResult.items?.length) {
-        setLetterVaultError(listResult.error ?? 'no_items')
-        setLetterVaultItems([])
-        setLetterVaultLoading(false)
-        return
-      }
-
-      setLetterVaultItems(listResult.items)
-
-      if (listResult.items.length === 1) {
-        const id = listResult.items[0].id
-        setLetterVaultSelectedItemId(id)
-        const fetched = await fetchAndMapVaultItem(id, source)
-        if (fetched.success && fetched.data) {
-          setLetterVaultPreview(fetched.data)
-          setLetterVaultData(fetched.data)
-          setLetterVaultError(null)
-        } else {
-          setLetterVaultError(fetched.error ?? 'Failed to load vault data')
-          setLetterVaultPreview(null)
-          setLetterVaultData(null)
-        }
-      }
-
-      setLetterVaultLoading(false)
-    },
-    [
-      setLetterVaultSource,
-      setLetterVaultItems,
-      setLetterVaultSelectedItemId,
-      setLetterVaultPreview,
-      setLetterVaultData,
-      setLetterVaultLoading,
-      setLetterVaultError,
-    ],
-  )
-
   const handleItemSelect = useCallback(
-    async (itemId: string) => {
-      const source = useLetterComposerStore.getState().letterVaultSource
-      if (source === 'none') return
-
+    async (itemId: string, category: 'company' | 'personal') => {
       if (!itemId) {
         setLetterVaultSelectedItemId(null)
+        setLetterVaultPreview(null)
         setLetterVaultData(null)
         return
       }
@@ -151,13 +108,13 @@ export function LetterComposerView({ onClose }: { onClose: () => void }) {
       setLetterVaultError(null)
       setLetterVaultSelectedItemId(itemId)
 
-      const fetched = await fetchAndMapVaultItem(itemId, source)
-      if (fetched.success && fetched.data) {
-        setLetterVaultPreview(fetched.data)
-        setLetterVaultData(fetched.data)
+      const result = await fetchAndMapVaultItem(itemId, category)
+      if (result.success && result.data) {
+        setLetterVaultPreview(result.data)
+        setLetterVaultData(result.data)
         setLetterVaultError(null)
       } else {
-        setLetterVaultError(fetched.error ?? 'Failed to load vault data')
+        setLetterVaultError(result.error ?? 'fetch_failed')
         setLetterVaultPreview(null)
         setLetterVaultData(null)
       }
@@ -171,6 +128,81 @@ export function LetterComposerView({ onClose }: { onClose: () => void }) {
       setLetterVaultError,
     ],
   )
+
+  const checkVaultAndLoadItems = useCallback(
+    async (source: 'company' | 'personal') => {
+      setLetterVaultLoading(true)
+      setLetterVaultError(null)
+
+      try {
+        const status = await window.handshakeView?.getVaultStatus?.()
+        if (!status?.isUnlocked) {
+          setLetterVaultError('vault_locked')
+          setLetterVaultItems([])
+          setLetterVaultLoading(false)
+          return
+        }
+      } catch {
+        setLetterVaultError('vault_locked')
+        setLetterVaultItems([])
+        setLetterVaultLoading(false)
+        return
+      }
+
+      const access = await canAccessLetterVaultCategory(source)
+      if (!access.allowed) {
+        setLetterVaultError(access.reason || 'tier_too_low')
+        setLetterVaultItems([])
+        setLetterVaultLoading(false)
+        return
+      }
+
+      const listResult = await listLetterVaultItems(source)
+      if (!listResult.success || !listResult.items?.length) {
+        setLetterVaultError(listResult.error ?? 'no_items')
+        setLetterVaultItems([])
+        setLetterVaultLoading(false)
+        return
+      }
+
+      setLetterVaultItems(listResult.items)
+
+      if (listResult.items.length === 1) {
+        await handleItemSelect(listResult.items[0].id, source)
+      } else {
+        setLetterVaultLoading(false)
+      }
+    },
+    [
+      handleItemSelect,
+      setLetterVaultError,
+      setLetterVaultItems,
+      setLetterVaultLoading,
+    ],
+  )
+
+  const handleCategoryChange = useCallback(
+    (e: ChangeEvent<HTMLSelectElement>) => {
+      const source = e.target.value as 'company' | 'personal' | 'none'
+      setLetterVaultSource(source)
+    },
+    [setLetterVaultSource],
+  )
+
+  useEffect(() => {
+    if (letterVaultSource === 'none') return
+    void checkVaultAndLoadItems(letterVaultSource)
+  }, [letterVaultSource, checkVaultAndLoadItems])
+
+  useEffect(() => {
+    const onVaultStatusChanged = () => {
+      const src = useLetterComposerStore.getState().letterVaultSource
+      if (src === 'none') return
+      void checkVaultAndLoadItems(src)
+    }
+    window.addEventListener('vault-status-changed', onVaultStatusChanged)
+    return () => window.removeEventListener('vault-status-changed', onVaultStatusChanged)
+  }, [checkVaultAndLoadItems])
 
   const handleApplyClick = useCallback(() => {
     applyVaultDataToTemplate()
@@ -203,25 +235,34 @@ export function LetterComposerView({ onClose }: { onClose: () => void }) {
     return () => window.removeEventListener('keydown', onKey)
   }, [handleClose])
 
-  const previewSummary =
-    letterVaultPreview &&
-    [
-      letterVaultPreview.name || letterVaultPreview.companyName,
-      letterVaultPreview.address ? letterVaultPreview.address.split('\n')[0] : '',
-    ]
-      .filter(Boolean)
-      .join(', ')
+  const previewPrimary =
+    letterVaultPreview?.name?.trim() ||
+    letterVaultPreview?.companyName?.trim() ||
+    ''
+  const previewAddressLine = letterVaultPreview?.address
+    ? letterVaultPreview.address.split('\n')[0]
+    : ''
+  const previewLine =
+    letterVaultPreview && !letterVaultApplied
+      ? [previewPrimary, previewAddressLine].filter(Boolean).join(' — ') ||
+        letterVaultPreview.email?.trim() ||
+        letterVaultPreview.phone?.trim() ||
+        'Data loaded'
+      : ''
+
+  const vaultActive = letterVaultSource !== 'none'
 
   return (
     <div className="letter-composer-view">
       <div className="letter-composer-vault-bar">
-        <span className="letter-composer-vault-bar__label">Sender data:</span>
+        <label className="letter-composer-vault-bar__label" htmlFor="letter-vault-category">
+          Sender data:
+        </label>
         <select
+          id="letter-vault-category"
           className="letter-composer-vault-bar__select"
           value={letterVaultSource}
-          onChange={(e) =>
-            handleCategoryChange(e.target.value as 'company' | 'personal' | 'none')
-          }
+          onChange={handleCategoryChange}
           aria-label="Sender data source"
         >
           <option value="none">Manual</option>
@@ -229,14 +270,32 @@ export function LetterComposerView({ onClose }: { onClose: () => void }) {
           <option value="personal">Personal Data (Vault)</option>
         </select>
 
-        {letterVaultSource !== 'none' && letterVaultItems.length > 1 && (
+        {vaultActive && letterVaultError === 'vault_locked' && (
+          <span className="letter-composer-vault-bar__err letter-composer-vault-bar__err--pad">
+            🔒 Vault is locked — unlock to use vault data
+          </span>
+        )}
+        {vaultActive && letterVaultError === 'tier_too_low' && (
+          <span className="letter-composer-vault-bar__err letter-composer-vault-bar__err--pad">
+            ⭐ Upgrade required for this data category
+          </span>
+        )}
+        {vaultActive && letterVaultError === 'no_items' && (
+          <span className="letter-composer-vault-bar__err letter-composer-vault-bar__err--pad">
+            No data found — set up in Data Manager
+          </span>
+        )}
+
+        {vaultActive && letterVaultItems.length > 1 && !letterVaultError && (
           <select
             className="letter-composer-vault-bar__select"
             value={letterVaultSelectedItemId ?? ''}
-            onChange={(e) => void handleItemSelect(e.target.value)}
+            onChange={(e) =>
+              void handleItemSelect(e.target.value, letterVaultSource as 'company' | 'personal')
+            }
             aria-label="Vault item"
           >
-            <option value="">Select…</option>
+            <option value="">Select profile…</option>
             {letterVaultItems.map((item) => (
               <option key={item.id} value={item.id}>
                 {item.title}
@@ -245,16 +304,22 @@ export function LetterComposerView({ onClose }: { onClose: () => void }) {
           </select>
         )}
 
-        {letterVaultPreview && !letterVaultApplied && previewSummary && (
-          <span className="letter-composer-vault-bar__preview" title={previewSummary}>
-            {previewSummary}
+        {vaultActive && letterVaultItems.length === 1 && !letterVaultError && (
+          <span className="letter-composer-vault-bar__single-title">
+            {letterVaultItems[0].title}
+          </span>
+        )}
+
+        {letterVaultPreview && !letterVaultApplied && (
+          <span className="letter-composer-vault-bar__preview" title={previewLine}>
+            {previewLine}
           </span>
         )}
 
         {letterVaultPreview && !letterVaultApplied && (
           <button
             type="button"
-            className="letter-composer-vault-bar__apply"
+            className="letter-composer-vault-bar__apply letter-composer-vault-bar__apply--primary"
             onClick={handleApplyClick}
           >
             Apply to Template
@@ -268,18 +333,9 @@ export function LetterComposerView({ onClose }: { onClose: () => void }) {
         {letterVaultLoading && (
           <span className="letter-composer-vault-bar__hint">Loading…</span>
         )}
-        {letterVaultError === 'vault_locked' && (
-          <span className="letter-composer-vault-bar__err">Vault locked</span>
-        )}
-        {letterVaultError === 'tier_too_low' && (
-          <span className="letter-composer-vault-bar__err">⭐ Upgrade required</span>
-        )}
-        {letterVaultError === 'no_items' && (
-          <span className="letter-composer-vault-bar__err">
-            No data in vault — set up in Data Manager
-          </span>
-        )}
-        {letterVaultError &&
+
+        {vaultActive &&
+          letterVaultError &&
           letterVaultError !== 'vault_locked' &&
           letterVaultError !== 'tier_too_low' &&
           letterVaultError !== 'no_items' && (
