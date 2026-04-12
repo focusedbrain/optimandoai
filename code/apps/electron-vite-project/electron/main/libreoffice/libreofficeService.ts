@@ -13,6 +13,50 @@ const MANUAL_PATH_STORE = 'libreoffice-manual-path.json'
 let cachedSofficePath: string | null = null
 let detectionDone = false
 
+/** Cache for {@link getSofficePath} before async {@link detectLibreOffice} completes. */
+let cachedGetSofficePath: string | null | undefined = undefined
+
+/**
+ * Fast synchronous lookup of `soffice` (Program Files / PATH on Windows, common paths on macOS/Linux).
+ * Does not replace full {@link detectLibreOffice} (registry, versioned dirs, etc.).
+ */
+function findLibreOfficeBinary(): string | null {
+  if (process.platform === 'win32') {
+    const programFiles = process.env.ProgramFiles || 'C:\\Program Files'
+    const mainPath = path.join(programFiles, 'LibreOffice', 'program', 'soffice.exe')
+    if (fs.existsSync(mainPath)) return mainPath
+
+    const x86 = process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)'
+    const x86Path = path.join(x86, 'LibreOffice', 'program', 'soffice.exe')
+    if (fs.existsSync(x86Path)) return x86Path
+
+    try {
+      const result = execSync('where soffice.exe', {
+        timeout: 3000,
+        stdio: 'pipe',
+        encoding: 'utf-8',
+        windowsHide: true,
+      })
+      const found = result.trim().split(/\r?\n/)[0]?.trim()
+      if (found && fs.existsSync(found)) return found
+    } catch {
+      /* not in PATH */
+    }
+    return null
+  }
+
+  if (process.platform === 'darwin') {
+    const macPath = '/Applications/LibreOffice.app/Contents/MacOS/soffice'
+    if (fs.existsSync(macPath)) return macPath
+    return null
+  }
+
+  for (const p of ['/usr/bin/soffice', '/usr/local/bin/soffice', '/snap/bin/soffice']) {
+    if (fs.existsSync(p)) return p
+  }
+  return null
+}
+
 function manualPathStoreFile(): string {
   return path.join(app.getPath('userData'), MANUAL_PATH_STORE)
 }
@@ -118,6 +162,7 @@ export function setManualSofficePath(manualPath: string): { ok: true; path: stri
   }
   cachedSofficePath = resolved
   detectionDone = true
+  cachedGetSofficePath = resolved
   persistManualPath(resolved)
   console.log('[LibreOffice] Manual path set:', resolved)
   return { ok: true, path: resolved }
@@ -137,10 +182,20 @@ export async function detectLibreOffice(): Promise<string | null> {
     if (fs.existsSync(persisted) && (await tryAcceptCandidate(persisted))) {
       cachedSofficePath = persisted
       detectionDone = true
+      cachedGetSofficePath = persisted
       console.log('[LibreOffice] Using manually configured path:', persisted)
       return persisted
     }
     clearPersistedManualPath()
+  }
+
+  const quickBinary = findLibreOfficeBinary()
+  if (quickBinary && (await tryAcceptCandidate(quickBinary))) {
+    cachedSofficePath = quickBinary
+    detectionDone = true
+    cachedGetSofficePath = quickBinary
+    console.log('[LibreOffice] Found via quick path:', quickBinary)
+    return quickBinary
   }
 
   const candidates: string[] = []
@@ -249,6 +304,7 @@ export async function detectLibreOffice(): Promise<string | null> {
       if (!(await tryAcceptCandidate(candidate))) continue
       cachedSofficePath = candidate
       detectionDone = true
+      cachedGetSofficePath = candidate
       console.log('[LibreOffice] Found at:', candidate)
       return candidate
     } catch {
@@ -263,11 +319,29 @@ export async function detectLibreOffice(): Promise<string | null> {
 }
 
 /**
- * Same as {@link detectLibreOffice} — resolves the `soffice` binary (cached after first successful detection).
- * Electron may not inherit a full user PATH; detection checks common install locations and Windows registry.
+ * Resolves the `soffice` binary synchronously (persisted manual path, then common install locations).
+ * After {@link detectLibreOffice} runs, returns the same cached result.
  */
-export async function getSofficePath(): Promise<string | null> {
-  return detectLibreOffice()
+export function getSofficePath(): string | null {
+  if (detectionDone) return cachedSofficePath
+  if (typeof cachedGetSofficePath === 'string') return cachedGetSofficePath
+
+  const persisted = loadPersistedManualPath()
+  if (persisted && fs.existsSync(persisted)) {
+    cachedGetSofficePath = persisted
+    console.log('[PDF] LibreOffice path:', persisted)
+    return persisted
+  }
+
+  const q = findLibreOfficeBinary()
+  if (q) {
+    cachedGetSofficePath = q
+    console.log('[PDF] LibreOffice path:', q)
+    return q
+  }
+
+  console.log('[PDF] LibreOffice path (quick lookup): not found')
+  return null
 }
 
 /** Shown when `detectLibreOffice()` finds no `soffice` (also thrown from `convertToPdf` / `convertToDocx`). */
@@ -279,6 +353,52 @@ const MIN_VALID_PDF_BYTES = 200
 
 // Future: optional fallback when LibreOffice is missing — render HTML in a hidden BrowserWindow and
 // webContents.printToPDF() (larger change; keep LibreOffice as primary path).
+
+const LIBREOFFICE_CONVERT_TIMEOUT_MS = 30_000
+
+/**
+ * Run headless LibreOffice with an isolated user profile so conversion does not block on a
+ * running GUI instance or the default profile lock (common on Windows).
+ */
+async function execLibreOfficeConvert(
+  sofficePath: string,
+  convertTo: 'pdf' | 'docx',
+  inputPath: string,
+  outDir: string,
+  timeoutMs: number,
+): Promise<{ stdout: string; stderr: string }> {
+  const tempProfile = fs.mkdtempSync(path.join(os.tmpdir(), 'wrdesk-lo-'))
+  try {
+    const profileUrl = 'file:///' + tempProfile.replace(/\\/g, '/')
+    const args = [
+      `-env:UserInstallation=${profileUrl}`,
+      '--headless',
+      '--norestore',
+      '--nologo',
+      '--nofirststartwizard',
+      '--convert-to',
+      convertTo,
+      '--outdir',
+      outDir,
+      inputPath,
+    ]
+    const result = await execFileAsync(sofficePath, args, {
+      timeout: timeoutMs,
+      windowsHide: true,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    const stdout = typeof result.stdout === 'string' ? result.stdout : result.stdout.toString('utf8')
+    const stderr = typeof result.stderr === 'string' ? result.stderr : result.stderr.toString('utf8')
+    return { stdout, stderr }
+  } finally {
+    try {
+      fs.rmSync(tempProfile, { recursive: true, force: true })
+    } catch {
+      /* non-critical */
+    }
+  }
+}
 
 function readPdfHeaderSnippet(filePath: string): string {
   try {
@@ -317,19 +437,21 @@ export async function convertToPdf(inputPath: string, outputDir: string): Promis
   fs.mkdirSync(resolvedOut, { recursive: true })
   console.log('[PDF] Output dir:', resolvedOut)
 
-  const args = ['--headless', '--convert-to', 'pdf', '--outdir', resolvedOut, resolvedIn]
-  console.log('[PDF] Running LibreOffice:', { command: sofficePath, args })
-
+  const startTime = Date.now()
   let stdout = ''
   let stderr = ''
   try {
-    const result = await execFileAsync(sofficePath, args, {
-      timeout: 120_000,
-      windowsHide: true,
-      encoding: 'utf8',
-    })
-    stdout = typeof result.stdout === 'string' ? result.stdout : result.stdout.toString('utf8')
-    stderr = typeof result.stderr === 'string' ? result.stderr : result.stderr.toString('utf8')
+    const result = await execLibreOfficeConvert(
+      sofficePath,
+      'pdf',
+      resolvedIn,
+      resolvedOut,
+      LIBREOFFICE_CONVERT_TIMEOUT_MS,
+    )
+    stdout = result.stdout
+    stderr = result.stderr
+    const elapsed = Date.now() - startTime
+    console.log(`[PDF] Conversion took ${elapsed}ms`)
     console.log('[PDF] soffice exit code: 0')
     console.log('[PDF] soffice stdout:', stdout)
     console.log('[PDF] soffice stderr:', stderr)
@@ -392,10 +514,12 @@ export async function convertToDocx(inputPath: string): Promise<string> {
 
   const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wrdesk-docx-'))
 
-  await execFileAsync(
+  await execLibreOfficeConvert(
     sofficePath,
-    ['--headless', '--convert-to', 'docx', '--outdir', outputDir, resolvedIn],
-    { timeout: 120_000, windowsHide: true },
+    'docx',
+    resolvedIn,
+    outputDir,
+    LIBREOFFICE_CONVERT_TIMEOUT_MS,
   )
 
   const baseName = path.basename(resolvedIn, path.extname(resolvedIn))
@@ -419,4 +543,5 @@ export async function convertToDocx(inputPath: string): Promise<string> {
 export function resetLibreOfficeDetection(): void {
   cachedSofficePath = null
   detectionDone = false
+  cachedGetSofficePath = undefined
 }
