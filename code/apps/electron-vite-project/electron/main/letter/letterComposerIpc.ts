@@ -85,46 +85,89 @@ function normalizeFillFields(raw: unknown[]): FillFieldPayload[] {
   })
 }
 
+function ipcPdfFailureMessage(err: unknown, fallback: string): string {
+  const msg = err instanceof Error ? err.message : String(err ?? fallback)
+  const t = msg.trim()
+  return t || fallback
+}
+
+/** Delay (ms) after load before opening print — Chromium PDF viewer may need time to render. */
+const PRINT_PDF_RENDER_DELAY_MS = 2000
+
 /** Opens the OS print dialog for a PDF, or falls back to the default viewer. */
 function printPdfWithSystemDialog(pdfPath: string): Promise<void> {
+  console.log('[PRINT] Loading PDF:', pdfPath)
   return new Promise((resolve) => {
+    // show: true helps verify PDF load during debugging; keep false for normal use (no extra window flash).
     const win = new BrowserWindow({
       show: false,
+      width: 800,
+      height: 1000,
       webPreferences: { sandbox: false },
     })
     const url = pathToFileURL(pdfPath).href
-    const fallback = () => {
+
+    const closeWin = () => {
       try {
-        win.destroy()
+        win.close()
       } catch {
-        /* noop */
+        try {
+          win.destroy()
+        } catch {
+          /* noop */
+        }
       }
-      void shell.openPath(pdfPath).then(() => resolve())
     }
-    const timer = setTimeout(fallback, 20_000)
-    win.webContents.once('did-fail-load', () => {
+
+    const fallbackOpen = () => {
+      void shell.openPath(pdfPath).catch((err) => {
+        console.error('[PRINT] Fallback open failed:', err)
+      })
+    }
+
+    const timer = setTimeout(() => {
+      console.error('[PRINT] Timeout — PDF did not load within 20s')
+      closeWin()
+      fallbackOpen()
+      resolve()
+    }, 20_000)
+
+    win.webContents.once('did-fail-load', (_event, errorCode, errorDescription) => {
       clearTimeout(timer)
-      fallback()
+      console.error('[PRINT] PDF failed to load:', { errorCode, errorDescription })
+      closeWin()
+      fallbackOpen()
+      resolve()
     })
+
     win.webContents.once('did-finish-load', () => {
-      try {
-        win.webContents.print({ silent: false, printBackground: true }, () => {
-          clearTimeout(timer)
-          try {
-            win.close()
-          } catch {
-            /* noop */
-          }
-          resolve()
-        })
-      } catch {
-        clearTimeout(timer)
-        fallback()
-      }
-    })
-    win.loadURL(url).catch(() => {
       clearTimeout(timer)
-      fallback()
+      console.log(`[PRINT] did-finish-load; waiting ${PRINT_PDF_RENDER_DELAY_MS}ms before print dialog`)
+      setTimeout(() => {
+        try {
+          win.webContents.print({ silent: false, printBackground: true }, (success, failureReason) => {
+            const reason = failureReason != null ? String(failureReason) : ''
+            if (!success && reason && !/cancel/i.test(reason)) {
+              console.error('[PRINT] Print failed:', failureReason)
+            }
+            closeWin()
+            resolve()
+          })
+        } catch (err) {
+          console.error('[PRINT] print() threw:', err)
+          closeWin()
+          fallbackOpen()
+          resolve()
+        }
+      }, PRINT_PDF_RENDER_DELAY_MS)
+    })
+
+    win.loadURL(url).catch((err) => {
+      clearTimeout(timer)
+      console.error('[PRINT] loadURL failed:', err)
+      closeWin()
+      fallbackOpen()
+      resolve()
     })
   })
 }
@@ -613,6 +656,10 @@ export function registerLetterComposerIpcHandlers(): void {
         }
       }
       const fields = normalizeFillFields(Array.isArray(payload.fields) ? payload.fields : [])
+      console.log('[PDF] letter:exportFilledPdf request', {
+        sourcePath: payload.sourcePath,
+        fieldCount: fields.length,
+      })
       const safe = assertAllowedDocxPath(payload.sourcePath)
       const buf = fs.readFileSync(safe)
       const { fillDocxPlaceholders } = await import('./fillDocxPlaceholders')
@@ -626,13 +673,16 @@ export function registerLetterComposerIpcHandlers(): void {
         const { convertToPdf } = await import('../libreoffice/libreofficeService')
         pdfPath = await convertToPdf(tempDocx, staging)
       } catch (e) {
+        console.error('[PDF/PRINT] letter:exportFilledPdf — convertToPdf failed:', e)
         try {
           fs.unlinkSync(tempDocx)
         } catch {
           /* noop */
         }
-        const msg = e instanceof Error ? e.message : 'PDF conversion failed'
-        return { success: false, error: msg === 'LIBREOFFICE_NOT_FOUND' ? 'LibreOffice not found.' : msg }
+        return {
+          success: false,
+          error: ipcPdfFailureMessage(e, 'PDF operation failed. Is LibreOffice installed?'),
+        }
       }
       try {
         fs.unlinkSync(tempDocx)
@@ -743,6 +793,10 @@ export function registerLetterComposerIpcHandlers(): void {
       }
       const fields = normalizeBuiltinFieldsRecord(payload.fields)
       const logoPath = normalizeLogoPathForBuiltin(payload.logoPath)
+      console.log('[PDF] letter:exportBuiltinPdf request', {
+        layout: payload.layout,
+        fieldCount: Object.keys(fields).length,
+      })
       const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wrdesk-builtin-'))
       const tmpDocx = path.join(tmpDir, 'letter.docx')
       try {
@@ -758,10 +812,10 @@ export function registerLetterComposerIpcHandlers(): void {
         try {
           pdfPath = await convertToPdf(tmpDocx, tmpDir)
         } catch (e) {
-          const msg = e instanceof Error ? e.message : 'PDF conversion failed'
+          console.error('[PDF/PRINT] letter:exportBuiltinPdf — convertToPdf failed:', e)
           return {
             success: false,
-            error: msg === 'LIBREOFFICE_NOT_FOUND' ? 'LibreOffice not found.' : msg,
+            error: ipcPdfFailureMessage(e, 'PDF operation failed. Is LibreOffice installed?'),
           }
         }
         const baseName =
@@ -796,8 +850,11 @@ export function registerLetterComposerIpcHandlers(): void {
         }
         return { success: true, filePath }
       } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e)
-        return { success: false, error: msg }
+        console.error('[PDF/PRINT] letter:exportBuiltinPdf failed:', e)
+        return {
+          success: false,
+          error: ipcPdfFailureMessage(e, 'PDF operation failed. Is LibreOffice installed?'),
+        }
       } finally {
         try {
           fs.rmSync(tmpDir, { recursive: true, force: true })
@@ -826,6 +883,10 @@ export function registerLetterComposerIpcHandlers(): void {
       }
       const fields = normalizeBuiltinFieldsRecord(payload.fields)
       const logoPath = normalizeLogoPathForBuiltin(payload.logoPath)
+      console.log('[PDF] letter:printBuiltinLetter request', {
+        layout: payload.layout,
+        fieldCount: Object.keys(fields).length,
+      })
       const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wrdesk-builtin-print-'))
       const tmpDocx = path.join(tmpDir, 'letter.docx')
       try {
@@ -841,10 +902,10 @@ export function registerLetterComposerIpcHandlers(): void {
         try {
           pdfPath = await convertToPdf(tmpDocx, tmpDir)
         } catch (e) {
-          const msg = e instanceof Error ? e.message : 'PDF conversion failed'
+          console.error('[PDF/PRINT] letter:printBuiltinLetter — convertToPdf failed:', e)
           return {
             success: false,
-            error: msg === 'LIBREOFFICE_NOT_FOUND' ? 'LibreOffice not found.' : msg,
+            error: ipcPdfFailureMessage(e, 'PDF operation failed. Is LibreOffice installed?'),
           }
         }
         try {
@@ -858,8 +919,11 @@ export function registerLetterComposerIpcHandlers(): void {
         }
         return { success: true }
       } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e)
-        return { success: false, error: msg }
+        console.error('[PDF/PRINT] letter:printBuiltinLetter failed:', e)
+        return {
+          success: false,
+          error: ipcPdfFailureMessage(e, 'PDF operation failed. Is LibreOffice installed?'),
+        }
       } finally {
         try {
           fs.rmSync(tmpDir, { recursive: true, force: true })
@@ -886,6 +950,10 @@ export function registerLetterComposerIpcHandlers(): void {
         return { success: false, error: 'Print from filled template requires a .docx source.' }
       }
       const fields = normalizeFillFields(Array.isArray(payload.fields) ? payload.fields : [])
+      console.log('[PDF] letter:printFilledLetter request', {
+        sourcePath: payload.sourcePath,
+        fieldCount: fields.length,
+      })
       const safe = assertAllowedDocxPath(payload.sourcePath)
       const buf = fs.readFileSync(safe)
       const { fillDocxPlaceholders } = await import('./fillDocxPlaceholders')
@@ -899,13 +967,16 @@ export function registerLetterComposerIpcHandlers(): void {
         const { convertToPdf } = await import('../libreoffice/libreofficeService')
         pdfPath = await convertToPdf(tempDocx, staging)
       } catch (e) {
+        console.error('[PDF/PRINT] letter:printFilledLetter — convertToPdf failed:', e)
         try {
           fs.unlinkSync(tempDocx)
         } catch {
           /* noop */
         }
-        const msg = e instanceof Error ? e.message : 'PDF conversion failed'
-        return { success: false, error: msg === 'LIBREOFFICE_NOT_FOUND' ? 'LibreOffice not found.' : msg }
+        return {
+          success: false,
+          error: ipcPdfFailureMessage(e, 'PDF operation failed. Is LibreOffice installed?'),
+        }
       }
       try {
         fs.unlinkSync(tempDocx)

@@ -7,10 +7,10 @@ const appDir = __dirname
 
 /**
  * Parsed by scripts/kill-wr-desk.cjs — must contain a line matching:
- *   return 'C:\\build-output\\build0096'
+ *   return 'C:\\build-output\\build0097'
  */
 function windowsOutputDirMarker() {
-  return 'C:\\build-output\\build0096'
+  return 'C:\\build-output\\build0097'
 }
 
 const workspaceRoot = path.resolve(appDir, '../..')
@@ -86,8 +86,14 @@ module.exports = {
   ],
   extraResources,
   win: {
-    /** NSIS can fail with spawn UNKNOWN on some Windows setups when generating the uninstaller stub; portable is reliable. */
-    target: ['portable'],
+    /**
+     * Use `dir` (unpacked) only as the default Windows artifact. It always fills
+     * `win-unpacked` with `WR DeskT.exe` and Electron DLLs.
+     * Do NOT add `portable` here: the follow-up NSIS/portable step can leave `win-unpacked`
+     * incomplete on some machines (only locales/resources). For a one-file build run
+     * `pnpm run build:portable` separately.
+     */
+    target: ['dir'],
     /** ASCII-only installer/portable exe name (avoids Unicode path issues with child_process). */
     artifactName: 'WR-Desk-Setup-${version}.${ext}',
     executableName: 'WR DeskT',

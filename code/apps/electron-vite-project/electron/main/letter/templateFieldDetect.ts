@@ -129,7 +129,7 @@ function normalizeDetected(raw: unknown): DetectedFieldShape | null {
 const FIELD_DETECT_SYSTEM = `You are analyzing a business letter template. Based on the positioned text snippets (x,y are 0-1 fractions, origin top-left of page), identify logical fillable field zones.
 
 Return a JSON array only (no markdown, no prose) of objects with:
-- name: snake_case semantic name (e.g. sender_address, recipient_address, date, subject, salutation, body, closing, signer_name, reference_number)
+- name: snake_case semantic name (e.g. sender_address, recipient, date, subject, salutation, body, closing, signer_name, reference_number)
 - label: short human-readable label
 - type: one of text|date|multiline|address|richtext
 - mode: fixed or flow (body/subject usually flow; addresses/date often fixed)

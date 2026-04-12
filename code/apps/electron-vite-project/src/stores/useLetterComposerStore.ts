@@ -12,8 +12,8 @@ export type FieldType = 'text' | 'date' | 'multiline' | 'address' | 'richtext'
 
 export interface TemplateField {
   id: string
-  name: string // semantic name: "sender_address", "recipient_address", "body"
-  label: string // display label: "Sender Address", "Recipient Address", "Body"
+  name: string // semantic name: "sender_address", "recipient", "body"
+  label: string // display label: "Sender Address", "Recipient", "Body"
   type: FieldType
   mode: FieldMode // 'fixed' = positioned zone, 'flow' = variable-length region
   // Position on the PDF preview (relative to page, 0-1 normalized coordinates)
@@ -98,8 +98,7 @@ function builtinLetterFields(): BuiltinTemplateField[] {
     { name: 'sender_address', label: 'Sender Address', type: 'address', mode: 'fixed', staticField: true },
     { name: 'sender_phone', label: 'Phone', type: 'text', mode: 'fixed', staticField: true },
     { name: 'sender_email', label: 'Email', type: 'text', mode: 'fixed', staticField: true },
-    { name: 'recipient_name', label: 'Recipient Name', type: 'text', mode: 'fixed', staticField: false },
-    { name: 'recipient_address', label: 'Recipient Address', type: 'address', mode: 'fixed', staticField: false },
+    { name: 'recipient', label: 'Recipient', type: 'address', mode: 'fixed', staticField: false },
     { name: 'date', label: 'Date', type: 'date', mode: 'fixed', staticField: false },
     { name: 'subject', label: 'Subject', type: 'text', mode: 'flow', staticField: false },
     {

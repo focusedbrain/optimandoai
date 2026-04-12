@@ -140,30 +140,24 @@ function buildDocument(layout: string, f: Record<string, string>, logo: LogoByte
     }
   }
 
-  if (f.recipient_name || f.recipient_address) {
+  const recipientBlock = f.recipient?.trim()
+    ? f.recipient
+    : [f.recipient_name, f.recipient_address].filter((x) => x?.trim()).join('\n')
+  if (recipientBlock?.trim()) {
     children.push(
       new Paragraph({
         children: [],
         spacing: { before: recipientSpacingBefore(layout), after: 0 },
       }),
     )
-    if (f.recipient_name?.trim()) {
-      children.push(
-        new Paragraph({
-          children: [new TextRun({ text: f.recipient_name.trim(), size: 22, font: 'Arial' })],
-        }),
-      )
-    }
-    if (f.recipient_address?.trim()) {
-      for (const line of f.recipient_address.split('\n')) {
-        const t = line.trim()
-        if (t) {
-          children.push(
-            new Paragraph({
-              children: [new TextRun({ text: t, size: 22, font: 'Arial' })],
-            }),
-          )
-        }
+    for (const line of recipientBlock.split('\n')) {
+      const t = line.trim()
+      if (t) {
+        children.push(
+          new Paragraph({
+            children: [new TextRun({ text: t, size: 22, font: 'Arial' })],
+          }),
+        )
       }
     }
     children.push(new Paragraph({ children: [], spacing: { after: 400 } }))

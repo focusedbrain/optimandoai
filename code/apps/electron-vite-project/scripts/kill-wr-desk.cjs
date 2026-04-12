@@ -221,12 +221,16 @@ function killProcesses() {
   if (process.platform === 'win32') {
     const k = getActiveWindowsOutputBasename()
     if (k) {
-      const winUnpacked = path.join(BUILD_BASE, k, 'win-unpacked')
-      console.log(`[kill-wr-desk] Current Windows packaged app folder: ${winUnpacked}`)
+      const outDir = path.join(BUILD_BASE, k)
+      const winUnpacked = path.join(outDir, 'win-unpacked')
+      console.log(`[kill-wr-desk] Windows build output: ${outDir}`)
       console.log(
-        '[kill-wr-desk] Run the desktop EXE only from win-unpacked above. Extension: chrome://extensions → Load unpacked → …/extension-chromium/' +
+        `[kill-wr-desk] Desktop app: ${winUnpacked}\\WR DeskT.exe (unpacked build). Not for Chrome.`,
+      )
+      console.log(
+        '[kill-wr-desk] Chrome MV3 extension: Load unpacked → …/apps/extension-chromium/' +
           k +
-          ' (reload after each build bump).',
+          ' — never use win-unpacked for the extension.',
       )
     }
   }

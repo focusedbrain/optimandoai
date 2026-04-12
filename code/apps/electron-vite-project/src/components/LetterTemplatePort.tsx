@@ -20,6 +20,19 @@ const CUSTOM_TEMPLATE_ACCEPT =
 
 const BODY_LINE_WIDTHS = [55, 62, 58, 64, 60]
 
+/** User-facing copy when PDF/print failed because LibreOffice is missing or not detected. */
+function letterComposerPdfFriendlyError(raw: string | undefined): string {
+  if (!raw) return 'PDF export failed'
+  const lower = raw.toLowerCase()
+  if (
+    lower.includes('libreoffice') &&
+    (lower.includes('not found') || lower.includes('not installed') || lower.includes('not detected'))
+  ) {
+    return 'LibreOffice is required for PDF export and printing. Please install it from https://www.libreoffice.org/download/ and restart WR Desk.'
+  }
+  return raw
+}
+
 function TemplatePreviewThumb({ layout }: { layout: BuiltinLayout | string }) {
   const l = layout as BuiltinLayout
   if (l === 'din5008b') {
@@ -655,7 +668,11 @@ export function LetterTemplatePort() {
           logoPath: activeTemplate.logoPath ?? null,
           defaultName: `${activeTemplate.name}.pdf`,
         })
-        if (!r.success && !r.canceled) setError(r.error || 'PDF export failed')
+        if (!r.success && !r.canceled) {
+          const errMsg = letterComposerPdfFriendlyError(r.error || 'PDF export failed')
+          console.error('[PDF] Export error:', errMsg)
+          setError(errMsg)
+        }
         return
       }
       if (!api?.exportFilledPdf) return
@@ -668,9 +685,13 @@ export function LetterTemplatePort() {
         fields: buildExportFieldsPayload(),
         defaultName: `${activeTemplate.name}-filled.pdf`,
       })
-      if (!r.success && !r.canceled) setError(r.error || 'PDF export failed')
+      if (!r.success && !r.canceled) {
+        const errMsg = letterComposerPdfFriendlyError(r.error || 'PDF export failed')
+        console.error('[PDF] Export error:', errMsg)
+        setError(errMsg)
+      }
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'PDF export failed')
+      setError(letterComposerPdfFriendlyError(e instanceof Error ? e.message : 'PDF export failed'))
     } finally {
       setBusy(false)
     }
@@ -688,9 +709,11 @@ export function LetterTemplatePort() {
           fields: buildBuiltinFieldRecord(),
           logoPath: activeTemplate.logoPath ?? null,
         })
-        if (!r.success) setError(r.error || 'Could not start print')
+        if (!r.success) {
+          setError(letterComposerPdfFriendlyError(r.error || 'Could not start print'))
+        }
       } catch (e) {
-        setError(e instanceof Error ? e.message : 'Could not start print')
+        setError(letterComposerPdfFriendlyError(e instanceof Error ? e.message : 'Could not start print'))
       } finally {
         setBusy(false)
       }
@@ -705,9 +728,11 @@ export function LetterTemplatePort() {
           sourcePath: activeTemplate.sourceFilePath,
           fields: buildExportFieldsPayload(),
         })
-        if (!r.success) setError(r.error || 'Could not start print')
+        if (!r.success) {
+          setError(letterComposerPdfFriendlyError(r.error || 'Could not start print'))
+        }
       } catch (e) {
-        setError(e instanceof Error ? e.message : 'Could not start print')
+        setError(letterComposerPdfFriendlyError(e instanceof Error ? e.message : 'Could not start print'))
       } finally {
         setBusy(false)
       }

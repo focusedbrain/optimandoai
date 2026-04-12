@@ -1,4 +1,4 @@
-import { execFile, exec } from 'node:child_process'
+import { execFile, exec, execSync } from 'node:child_process'
 import { promisify } from 'node:util'
 import * as path from 'node:path'
 import * as fs from 'node:fs'
@@ -57,6 +57,42 @@ function dedupeCandidates(paths: string[]): string[] {
     out.push(p)
   }
   return out
+}
+
+/** Windows: parse `reg query` output for LibreOffice install dirs and derive `program\\soffice.exe`. */
+function collectWindowsRegistrySofficeCandidates(): string[] {
+  const out: string[] = []
+  if (process.platform !== 'win32') return out
+  const queries = [
+    'reg query "HKLM\\SOFTWARE\\LibreOffice" /s',
+    'reg query "HKLM\\SOFTWARE\\WOW6432Node\\LibreOffice" /s',
+  ]
+  for (const q of queries) {
+    try {
+      const buf = execSync(`cmd /c ${q} 2>nul`, {
+        encoding: 'utf8',
+        timeout: 12_000,
+        windowsHide: true,
+        maxBuffer: 10 * 1024 * 1024,
+      })
+      for (const line of buf.split(/\r?\n/)) {
+        const m = line.match(/REG_SZ\s+(.+)/i)
+        if (!m) continue
+        const val = m[1].trim().replace(/^"+|"+$/g, '')
+        if (!/libreoffice/i.test(val)) continue
+        const low = val.toLowerCase()
+        if (low.endsWith('soffice.exe') && fs.existsSync(val)) {
+          out.push(val)
+          continue
+        }
+        const candidate = path.join(val, 'program', 'soffice.exe')
+        if (fs.existsSync(candidate)) out.push(candidate)
+      }
+    } catch {
+      /* registry unavailable or query failed */
+    }
+  }
+  return dedupeCandidates(out)
 }
 
 async function tryAcceptCandidate(candidate: string): Promise<boolean> {
@@ -164,6 +200,10 @@ export async function detectLibreOffice(): Promise<string | null> {
     } catch {
       /* permission denied or similar */
     }
+
+    for (const regPath of collectWindowsRegistrySofficeCandidates()) {
+      candidates.unshift(regPath)
+    }
   } else if (process.platform === 'darwin') {
     try {
       const { stdout } = await execAsync('which soffice')
@@ -176,6 +216,10 @@ export async function detectLibreOffice(): Promise<string | null> {
       '/Applications/LibreOffice.app/Contents/MacOS/soffice',
       '/usr/local/bin/soffice',
     )
+    const home = process.env.HOME || os.homedir()
+    if (home) {
+      candidates.push(path.join(home, 'Applications', 'LibreOffice.app', 'Contents', 'MacOS', 'soffice'))
+    }
   } else {
     try {
       const { stdout } = await execAsync('which soffice')
@@ -184,7 +228,13 @@ export async function detectLibreOffice(): Promise<string | null> {
     } catch {
       /* not on PATH */
     }
-    candidates.push('/usr/bin/soffice', '/usr/local/bin/soffice', '/snap/bin/soffice')
+    candidates.push(
+      '/usr/bin/soffice',
+      '/usr/local/bin/soffice',
+      '/snap/bin/soffice',
+      '/usr/lib/libreoffice/program/soffice',
+      '/opt/libreoffice/program/soffice',
+    )
   }
 
   const uniqueCandidates = dedupeCandidates(candidates)
@@ -213,36 +263,116 @@ export async function detectLibreOffice(): Promise<string | null> {
 }
 
 /**
+ * Same as {@link detectLibreOffice} — resolves the `soffice` binary (cached after first successful detection).
+ * Electron may not inherit a full user PATH; detection checks common install locations and Windows registry.
+ */
+export async function getSofficePath(): Promise<string | null> {
+  return detectLibreOffice()
+}
+
+/** Shown when `detectLibreOffice()` finds no `soffice` (also thrown from `convertToPdf` / `convertToDocx`). */
+export const LIBREOFFICE_MISSING_USER_MESSAGE =
+  'LibreOffice is not installed or not found. Install LibreOffice to enable PDF export: https://www.libreoffice.org/download/'
+
+/** Minimum size (bytes) for a plausible PDF; below this is treated as corrupt/empty. */
+const MIN_VALID_PDF_BYTES = 200
+
+// Future: optional fallback when LibreOffice is missing — render HTML in a hidden BrowserWindow and
+// webContents.printToPDF() (larger change; keep LibreOffice as primary path).
+
+function readPdfHeaderSnippet(filePath: string): string {
+  try {
+    const fd = fs.openSync(filePath, 'r')
+    try {
+      const buf = Buffer.alloc(8)
+      const n = fs.readSync(fd, buf, 0, 8, 0)
+      return buf.subarray(0, n).toString('latin1')
+    } finally {
+      fs.closeSync(fd)
+    }
+  } catch {
+    return ''
+  }
+}
+
+/**
  * Convert a document to PDF using LibreOffice headless.
  * Returns the path to the generated PDF.
  */
 export async function convertToPdf(inputPath: string, outputDir: string): Promise<string> {
+  console.log('[PDF] convertToPdf called:', { inputPath })
   const sofficePath = await detectLibreOffice()
   if (!sofficePath) {
-    throw new Error('LIBREOFFICE_NOT_FOUND')
+    console.error('[PDF] LibreOffice not detected:', LIBREOFFICE_MISSING_USER_MESSAGE)
+    throw new Error(LIBREOFFICE_MISSING_USER_MESSAGE)
   }
+  console.log('[PDF] Using soffice:', sofficePath)
 
   const resolvedIn = path.resolve(inputPath)
   const resolvedOut = path.resolve(outputDir)
   if (!fs.existsSync(resolvedIn)) {
+    console.error('[PDF] Input file not found:', resolvedIn)
     throw new Error('Input file not found')
   }
   fs.mkdirSync(resolvedOut, { recursive: true })
+  console.log('[PDF] Output dir:', resolvedOut)
 
-  await execFileAsync(
-    sofficePath,
-    ['--headless', '--convert-to', 'pdf', '--outdir', resolvedOut, resolvedIn],
-    { timeout: 120_000, windowsHide: true },
-  )
+  const args = ['--headless', '--convert-to', 'pdf', '--outdir', resolvedOut, resolvedIn]
+  console.log('[PDF] Running LibreOffice:', { command: sofficePath, args })
 
-  const baseName = path.basename(resolvedIn, path.extname(resolvedIn))
-  const pdfPath = path.join(resolvedOut, `${baseName}.pdf`)
-
-  if (!fs.existsSync(pdfPath)) {
-    throw new Error('PDF conversion produced no output file')
+  let stdout = ''
+  let stderr = ''
+  try {
+    const result = await execFileAsync(sofficePath, args, {
+      timeout: 120_000,
+      windowsHide: true,
+      encoding: 'utf8',
+    })
+    stdout = typeof result.stdout === 'string' ? result.stdout : result.stdout.toString('utf8')
+    stderr = typeof result.stderr === 'string' ? result.stderr : result.stderr.toString('utf8')
+    console.log('[PDF] soffice exit code: 0')
+    console.log('[PDF] soffice stdout:', stdout)
+    console.log('[PDF] soffice stderr:', stderr)
+  } catch (err: unknown) {
+    const e = err as Error & { code?: string | number; stdout?: string | Buffer; stderr?: string | Buffer }
+    const out = e.stdout != null ? (typeof e.stdout === 'string' ? e.stdout : e.stdout.toString('utf8')) : ''
+    const errOut = e.stderr != null ? (typeof e.stderr === 'string' ? e.stderr : e.stderr.toString('utf8')) : ''
+    console.error('[PDF] soffice failed:', e.message, 'code:', e.code)
+    console.error('[PDF] soffice stdout:', out)
+    console.error('[PDF] soffice stderr:', errOut)
+    const detail = errOut.trim() || out.trim() || e.message
+    throw new Error(`LibreOffice PDF conversion failed: ${detail}`)
   }
 
-  return pdfPath
+  const baseName = path.basename(resolvedIn, path.extname(resolvedIn))
+  const expectedPdfPath = path.join(resolvedOut, `${baseName}.pdf`)
+  console.log('[PDF] Expected output path:', expectedPdfPath)
+  console.log('[PDF] Output file exists:', fs.existsSync(expectedPdfPath))
+
+  if (!fs.existsSync(expectedPdfPath)) {
+    console.error('[PDF] Output file not found at:', expectedPdfPath)
+    throw new Error(
+      `PDF conversion failed — output file not created. Expected: ${expectedPdfPath}. Check LibreOffice installation.`,
+    )
+  }
+
+  const stats = fs.statSync(expectedPdfPath)
+  console.log('[PDF] Output file size:', stats.size, 'bytes')
+  if (stats.size < MIN_VALID_PDF_BYTES) {
+    console.error('[PDF] Output file is suspiciously small:', stats.size, 'bytes')
+    throw new Error(
+      `PDF conversion produced an empty file (${stats.size} bytes). The DOCX may be invalid or LibreOffice encountered an error.`,
+    )
+  }
+
+  const header = readPdfHeaderSnippet(expectedPdfPath)
+  if (!header.startsWith('%PDF')) {
+    console.error('[PDF] Output file does not start with %PDF header:', JSON.stringify(header))
+    throw new Error('PDF conversion produced an empty or corrupt file')
+  }
+
+  console.log('[PDF] Conversion successful:', expectedPdfPath, `(${stats.size} bytes)`)
+  return expectedPdfPath
 }
 
 /**
@@ -252,7 +382,7 @@ export async function convertToPdf(inputPath: string, outputDir: string): Promis
 export async function convertToDocx(inputPath: string): Promise<string> {
   const sofficePath = await detectLibreOffice()
   if (!sofficePath) {
-    throw new Error('LIBREOFFICE_NOT_FOUND')
+    throw new Error(LIBREOFFICE_MISSING_USER_MESSAGE)
   }
 
   const resolvedIn = path.resolve(inputPath)

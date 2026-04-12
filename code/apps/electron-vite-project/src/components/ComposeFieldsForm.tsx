@@ -425,10 +425,12 @@ export function ComposeFieldsForm({ template, composeSession, replyToLetter }: C
     const currentSubject =
       template.fields.find((f) => f.name.toLowerCase().includes('subject'))?.value ?? ''
     const currentRecipient =
+      template.fields.find((f) => f.name === 'recipient')?.value ??
       template.fields.find((f) => {
         const n = f.name.toLowerCase()
-        return n.includes('recipient') && !n.includes('address')
-      })?.value ?? ''
+        return n.includes('recipient') && !n.includes('sender')
+      })?.value ??
+      ''
 
     const hint = [
       '\u{1F4DD} **Letter Composer** — Body field selected for AI drafting.',

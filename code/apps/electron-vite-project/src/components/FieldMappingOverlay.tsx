@@ -112,7 +112,7 @@ type Preset = { name: string; label: string; type: FieldType; mode: FieldMode }
 
 const PRESETS: Preset[] = [
   { name: 'sender_address', label: 'Sender Address', type: 'address', mode: 'fixed' },
-  { name: 'recipient_address', label: 'Recipient Address', type: 'address', mode: 'fixed' },
+  { name: 'recipient', label: 'Recipient', type: 'address', mode: 'fixed' },
   { name: 'date', label: 'Date', type: 'date', mode: 'fixed' },
   { name: 'subject', label: 'Subject', type: 'text', mode: 'flow' },
   { name: 'salutation', label: 'Salutation', type: 'text', mode: 'flow' },
@@ -640,7 +640,7 @@ export function FieldMappingOverlay({
             >
               {p.name === 'sender_address'
                 ? 'Sender'
-                : p.name === 'recipient_address'
+                : p.name === 'recipient'
                   ? 'Recipient'
                   : p.name === 'signer'
                     ? 'Signer'
