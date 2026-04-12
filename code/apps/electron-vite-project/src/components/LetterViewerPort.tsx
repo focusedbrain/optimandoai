@@ -54,6 +54,104 @@ function findDateField(fields: TemplateField[]): TemplateField | undefined {
   return fields.find((f) => f.name.toLowerCase() === 'date' || f.type === 'date')
 }
 
+function findSenderNameField(fields: TemplateField[]): TemplateField | undefined {
+  return fields.find((f) => {
+    const n = f.name.toLowerCase()
+    return (
+      n === 'sender_name' ||
+      (n.includes('sender') && !n.includes('address') && !n.includes('recipient'))
+    )
+  })
+}
+
+function findSenderAddressField(fields: TemplateField[]): TemplateField | undefined {
+  return fields.find((f) => {
+    const n = f.name.toLowerCase()
+    return n.includes('sender_address') || (n.includes('sender') && n.includes('address'))
+  })
+}
+
+function findRecipientEmailField(fields: TemplateField[]): TemplateField | undefined {
+  return fields.find((f) => {
+    const n = f.name.toLowerCase()
+    return n.includes('recipient') && n.includes('email')
+  })
+}
+
+function findRecipientPhoneField(fields: TemplateField[]): TemplateField | undefined {
+  return fields.find((f) => {
+    const n = f.name.toLowerCase()
+    return n.includes('recipient') && (n.includes('phone') || n.includes('tel'))
+  })
+}
+
+function findSalutationField(fields: TemplateField[]): TemplateField | undefined {
+  return fields.find((f) => f.name.toLowerCase().includes('salutation'))
+}
+
+function findBodyField(fields: TemplateField[]): TemplateField | undefined {
+  return fields.find((f) => {
+    const n = f.name.toLowerCase()
+    return n === 'body' || n.includes('body') || f.type === 'richtext'
+  })
+}
+
+/** Maps extraction keys to template semantic names (reply = correspondent swap). */
+function mapExtractedToTemplateField(extractedKey: string, mode: 'reply' | 'direct'): string | null {
+  if (mode === 'direct') {
+    return extractedKey
+  }
+  const replyMap: Record<string, string> = {
+    sender_name: 'recipient_name',
+    sender_address: 'recipient_address',
+    recipient_name: 'sender_name',
+    recipient_address: 'sender_address',
+    subject: 'subject',
+    reference_number: 'reference',
+    date: 'date',
+    sender_email: 'recipient_email',
+    sender_phone: 'recipient_phone',
+    salutation: 'salutation',
+    body_summary: 'body',
+  }
+  return replyMap[extractedKey] ?? null
+}
+
+function resolveTemplateFieldForSemanticName(
+  fields: TemplateField[],
+  semanticName: string,
+): TemplateField | undefined {
+  const exact = fields.find((f) => f.name === semanticName)
+  if (exact) return exact
+
+  switch (semanticName) {
+    case 'recipient_name':
+      return findRecipientNameField(fields)
+    case 'recipient_address':
+      return findRecipientAddressField(fields)
+    case 'sender_name':
+      return findSenderNameField(fields)
+    case 'sender_address':
+      return findSenderAddressField(fields)
+    case 'subject':
+      return findSubjectField(fields)
+    case 'reference':
+      return findReferenceField(fields)
+    case 'date':
+      return findDateField(fields)
+    case 'recipient_email':
+      return findRecipientEmailField(fields)
+    case 'recipient_phone':
+      return findRecipientPhoneField(fields)
+    case 'salutation':
+      return findSalutationField(fields)
+    case 'body':
+      return findBodyField(fields)
+    default:
+      return undefined
+  }
+}
+
 function hasExtractedContent(ef: Record<string, string>): boolean {
   return Object.values(ef).some((v) => (v ?? '').trim().length > 0)
 }
@@ -89,6 +187,11 @@ function ExtractedRow({
   multiline,
   onChange,
   hideIfEmpty,
+  selected,
+  onSelectedChange,
+  onUseField,
+  useDisabled,
+  useTitle,
 }: {
   label: string
   fieldKey: string
@@ -97,11 +200,23 @@ function ExtractedRow({
   multiline?: boolean
   onChange: (key: string, v: string) => void
   hideIfEmpty?: boolean
+  selected: boolean
+  onSelectedChange: (checked: boolean) => void
+  onUseField: () => void
+  useDisabled: boolean
+  useTitle?: string
 }) {
   if (hideIfEmpty && !(value ?? '').trim()) return null
   const level = getConfidenceLevel(confidence)
   return (
-    <div className="extracted-row">
+    <div className="extracted-row extracted-row--with-actions">
+      <input
+        type="checkbox"
+        className="extracted-row__check"
+        checked={selected}
+        onChange={(e) => onSelectedChange(e.target.checked)}
+        aria-label={`Include ${label} in bulk actions`}
+      />
       <span className="extracted-row__label">{label}</span>
       <div className="extracted-row__value">
         {multiline ? (
@@ -120,6 +235,15 @@ function ExtractedRow({
           />
         )}
       </div>
+      <button
+        type="button"
+        className="extracted-row__use"
+        disabled={useDisabled}
+        title={useTitle ?? 'Insert this field into the template'}
+        onClick={onUseField}
+      >
+        Use
+      </button>
       <span
         className={`confidence-badge confidence--${level}`}
         title={`${Math.round((confidence || 0) * 100)}% confidence`}
@@ -150,11 +274,9 @@ export function LetterViewerPort() {
   const setActiveLetterPage = useLetterComposerStore((s) => s.setActiveLetterPage)
   const addLetter = useLetterComposerStore((s) => s.addLetter)
   const updateLetter = useLetterComposerStore((s) => s.updateLetter)
+  const removeLetter = useLetterComposerStore((s) => s.removeLetter)
   const templates = useLetterComposerStore((s) => s.templates)
   const activeTemplateId = useLetterComposerStore((s) => s.activeTemplateId)
-  const updateTemplateField = useLetterComposerStore((s) => s.updateTemplateField)
-  const composeSessions = useLetterComposerStore((s) => s.composeSessions)
-  const updateComposeSession = useLetterComposerStore((s) => s.updateComposeSession)
 
   const activeLetter =
     letters.find((l) => l.id === activeLetterId) ?? letters[letters.length - 1] ?? null
@@ -165,12 +287,9 @@ export function LetterViewerPort() {
   const [autofillNote, setAutofillNote] = useState<string | null>(null)
   const [isDragOver, setIsDragOver] = useState(false)
   const [liveLlmModelId, setLiveLlmModelId] = useState<string | null>(null)
+  const [selectedFields, setSelectedFields] = useState<Record<string, boolean>>({})
 
   const activeTemplate = templates.find((t) => t.id === activeTemplateId) ?? null
-  const canAutofill =
-    !!activeTemplate?.mappingComplete &&
-    !!activeLetter &&
-    hasExtractedContent(activeLetter.extractedFields)
 
   useEffect(() => {
     if (letters.length === 0) return
@@ -195,6 +314,20 @@ export function LetterViewerPort() {
       off?.()
     }
   }, [])
+
+  useEffect(() => {
+    if (!activeLetter?.extractedFields) {
+      setSelectedFields({})
+      return
+    }
+    const initial: Record<string, boolean> = {}
+    for (const key of Object.keys(activeLetter.extractedFields)) {
+      if ((activeLetter.extractedFields[key] ?? '').trim()) {
+        initial[key] = true
+      }
+    }
+    setSelectedFields(initial)
+  }, [activeLetter?.id])
 
   const processLetterFiles = useCallback(
     async (files: File[]) => {
@@ -368,68 +501,165 @@ export function LetterViewerPort() {
         extractedFields: { [key]: value },
         confidence: { [key]: 1 },
       })
+      if (value.trim()) {
+        setSelectedFields((prev) => ({ ...prev, [key]: prev[key] ?? true }))
+      }
     },
     [activeLetter, updateLetter],
   )
 
-  const autoFillFromLetter = useCallback(
-    (letter: ScannedLetter) => {
-      setAutofillNote(null)
-      const ef = letter.extractedFields
-      if (!ef || !hasExtractedContent(ef)) return
+  const handleUseSingleField = useCallback((extractedKey: string) => {
+    const store = useLetterComposerStore.getState()
+    const letter = store.letters.find((l) => l.id === store.activeLetterId)
+    const raw = (letter?.extractedFields[extractedKey] ?? '').trim()
+    if (!raw) return
 
-      const tid = activeTemplateId
-      if (!tid) {
-        setAutofillNote('Select a letter template first (Template port).')
-        return
+    const template = store.templates.find((t) => t.id === store.activeTemplateId)
+    if (!template?.mappingComplete) {
+      setAutofillNote('Finish template field mapping before using extracted fields.')
+      return
+    }
+
+    const semantic = mapExtractedToTemplateField(extractedKey, 'reply')
+    if (!semantic) return
+
+    let value = raw
+    if (extractedKey === 'subject') {
+      value = raw.toLowerCase().startsWith('re:') ? raw : `Re: ${raw}`
+    }
+
+    const field = resolveTemplateFieldForSemanticName(template.fields, semantic)
+    if (!field) {
+      setAutofillNote(
+        `No matching template field for “${semantic}”. Add or name a field in the template.`,
+      )
+      return
+    }
+
+    store.updateTemplateField(template.id, field.id, value)
+    setAutofillNote(null)
+  }, [])
+
+  const handleUseSelected = useCallback(() => {
+    const store = useLetterComposerStore.getState()
+    const letter = store.letters.find((l) => l.id === store.activeLetterId)
+    if (!letter?.extractedFields) return
+
+    const template = store.templates.find((t) => t.id === store.activeTemplateId)
+    if (!template?.mappingComplete) {
+      setAutofillNote('Finish template field mapping before using extracted fields.')
+      return
+    }
+
+    for (const [key, isSelected] of Object.entries(selectedFields)) {
+      if (!isSelected) continue
+      const raw = (letter.extractedFields[key] ?? '').trim()
+      if (!raw) continue
+
+      const semantic = mapExtractedToTemplateField(key, 'reply')
+      if (!semantic) continue
+
+      const field = resolveTemplateFieldForSemanticName(template.fields, semantic)
+      if (!field) continue
+
+      store.updateTemplateField(template.id, field.id, raw)
+    }
+    setAutofillNote(null)
+  }, [selectedFields])
+
+  const handleUseAsReply = useCallback(() => {
+    const store = useLetterComposerStore.getState()
+    const letter = store.letters.find((l) => l.id === store.activeLetterId)
+    if (!letter?.extractedFields) return
+
+    const template = store.templates.find((t) => t.id === store.activeTemplateId)
+    if (!template?.mappingComplete) {
+      setAutofillNote('Finish template field mapping before using reply autofill.')
+      return
+    }
+
+    const today = new Date().toISOString().split('T')[0]
+
+    for (const [key, isSelected] of Object.entries(selectedFields)) {
+      if (!isSelected) continue
+      const raw = (letter.extractedFields[key] ?? '').trim()
+      if (!raw) continue
+
+      const semantic = mapExtractedToTemplateField(key, 'reply')
+      if (!semantic) continue
+
+      const field = resolveTemplateFieldForSemanticName(template.fields, semantic)
+      if (!field) continue
+
+      let value = raw
+      if (key === 'subject') {
+        value = raw.toLowerCase().startsWith('re:') ? raw : `Re: ${raw}`
+      } else if (key === 'date') {
+        value = today
       }
-      const tpl = templates.find((t) => t.id === tid)
-      if (!tpl?.mappingComplete) {
-        setAutofillNote('Finish template field mapping before using reply autofill.')
-        return
-      }
 
-      const fields = tpl.fields
-      const rName = findRecipientNameField(fields)
-      const rAddr = findRecipientAddressField(fields)
-      const subj = findSubjectField(fields)
-      const refF = findReferenceField(fields)
-      const dateF = findDateField(fields)
+      store.updateTemplateField(template.id, field.id, value)
+    }
 
-      const recipientAddress = (ef.sender_address ?? '').trim()
-      const recipientName = (ef.sender_name ?? '').trim()
-      const subjVal = (ef.subject ?? '').trim()
-      const refVal = (ef.reference_number ?? '').trim()
-      const today = new Date().toISOString().split('T')[0]
+    const aid = store.activeComposeSessionId
+    const sess =
+      (aid
+        ? store.composeSessions.find((c) => c.id === aid && c.templateId === template.id)
+        : undefined) ?? store.composeSessions.find((c) => c.templateId === template.id)
+    if (sess) {
+      store.updateComposeSession(sess.id, { replyToLetterId: letter.id })
+    }
 
-      if (rName && recipientName) updateTemplateField(tid, rName.id, recipientName)
-      if (rAddr && recipientAddress) updateTemplateField(tid, rAddr.id, recipientAddress)
-      if (subj && subjVal) {
-        const s = subjVal
-        const next = s.toLowerCase().startsWith('re:') ? s : `Re: ${s}`
-        updateTemplateField(tid, subj.id, next)
-      }
-      if (refF && refVal) updateTemplateField(tid, refF.id, refVal)
-      if (dateF) updateTemplateField(tid, dateF.id, today)
+    setAutofillNote('Reply: applied selected fields; subject and date use reply conventions.')
+  }, [selectedFields])
 
-      const sess = composeSessions.find((c) => c.templateId === tid)
-      if (sess) {
-        updateComposeSession(sess.id, { replyToLetterId: letter.id })
-      }
-
-      setAutofillNote('Recipient fields updated from this letter (postal data only).')
-    },
-    [
-      activeTemplateId,
-      templates,
-      updateTemplateField,
-      composeSessions,
-      updateComposeSession,
-    ],
-  )
+  const handleClear = useCallback(() => {
+    const id = activeLetter?.id
+    if (!id) return
+    removeLetter(id)
+    setSelectedFields({})
+    setAutofillNote(null)
+  }, [activeLetter?.id, removeLetter])
 
   const ef = activeLetter?.extractedFields ?? {}
   const conf = activeLetter?.confidence ?? {}
+
+  const canApplyExtracted = !!activeTemplateId && !!activeTemplate?.mappingComplete
+
+  const hasSelectedExtracted = useMemo(
+    () => Object.values(selectedFields).some(Boolean),
+    [selectedFields],
+  )
+
+  const bulkActionsDisabled = !hasSelectedExtracted || !canApplyExtracted
+
+  const getExtractedRowControls = (fieldKey: string) => {
+    const trimmed = (ef[fieldKey] ?? '').trim()
+    const semantic = mapExtractedToTemplateField(fieldKey, 'reply')
+    const resolved =
+      semantic && activeTemplate
+        ? resolveTemplateFieldForSemanticName(activeTemplate.fields, semantic)
+        : undefined
+    const useDisabled = !canApplyExtracted || !trimmed || !semantic || !resolved
+
+    let useTitle = 'Insert this field into the template (reply mapping)'
+    if (!canApplyExtracted) {
+      useTitle = 'Select a template and finish field mapping first'
+    } else if (!trimmed) {
+      useTitle = 'No value to insert'
+    } else if (!semantic || !resolved) {
+      useTitle = 'No matching template field for this extraction'
+    }
+
+    return {
+      selected: selectedFields[fieldKey] ?? false,
+      onSelectedChange: (checked: boolean) =>
+        setSelectedFields((prev) => ({ ...prev, [fieldKey]: checked })),
+      onUseField: () => handleUseSingleField(fieldKey),
+      useDisabled,
+      useTitle,
+    }
+  }
 
   const extractionModelLabel = useMemo(() => {
     if (!activeLetter) return 'local model'
@@ -530,6 +760,18 @@ export function LetterViewerPort() {
       )}
       {busy && <p className="template-port__status">Processing…</p>}
 
+      {activeLetter && !hasExtractedContent(ef) && !busy && (
+        <div className="letter-viewer__extracted-actions letter-viewer__extracted-actions--solo">
+          <button
+            type="button"
+            className="letter-viewer__extracted-actions__btn letter-viewer__extracted-actions__btn--clear"
+            onClick={handleClear}
+          >
+            Clear scan
+          </button>
+        </div>
+      )}
+
       {activeLetter && hasExtractedContent(ef) && (
         <div className="extracted-fields extracted-info">
           <h5 className="extracted-fields__title">Extracted information</h5>
@@ -546,6 +788,7 @@ export function LetterViewerPort() {
               value={ef.sender_name ?? ''}
               confidence={conf.sender_name ?? 0}
               onChange={onExtractedFieldChange}
+              {...getExtractedRowControls('sender_name')}
             />
             <ExtractedRow
               label="Address"
@@ -554,6 +797,7 @@ export function LetterViewerPort() {
               confidence={conf.sender_address ?? 0}
               multiline={MULTILINE_KEYS.has('sender_address')}
               onChange={onExtractedFieldChange}
+              {...getExtractedRowControls('sender_address')}
             />
             <ExtractedRow
               label="Phone"
@@ -562,6 +806,7 @@ export function LetterViewerPort() {
               confidence={conf.sender_phone ?? 0}
               onChange={onExtractedFieldChange}
               hideIfEmpty
+              {...getExtractedRowControls('sender_phone')}
             />
             <ExtractedRow
               label="Fax"
@@ -570,6 +815,7 @@ export function LetterViewerPort() {
               confidence={conf.sender_fax ?? 0}
               onChange={onExtractedFieldChange}
               hideIfEmpty
+              {...getExtractedRowControls('sender_fax')}
             />
             <ExtractedRow
               label="Email"
@@ -578,6 +824,7 @@ export function LetterViewerPort() {
               confidence={conf.sender_email ?? 0}
               onChange={onExtractedFieldChange}
               hideIfEmpty
+              {...getExtractedRowControls('sender_email')}
             />
             <ExtractedRow
               label="Website"
@@ -586,6 +833,7 @@ export function LetterViewerPort() {
               confidence={conf.sender_website ?? 0}
               onChange={onExtractedFieldChange}
               hideIfEmpty
+              {...getExtractedRowControls('sender_website')}
             />
           </div>
 
@@ -597,6 +845,7 @@ export function LetterViewerPort() {
               value={ef.recipient_name ?? ''}
               confidence={conf.recipient_name ?? 0}
               onChange={onExtractedFieldChange}
+              {...getExtractedRowControls('recipient_name')}
             />
             <ExtractedRow
               label="Address"
@@ -605,6 +854,7 @@ export function LetterViewerPort() {
               confidence={conf.recipient_address ?? 0}
               multiline={MULTILINE_KEYS.has('recipient_address')}
               onChange={onExtractedFieldChange}
+              {...getExtractedRowControls('recipient_address')}
             />
           </div>
 
@@ -616,6 +866,7 @@ export function LetterViewerPort() {
               value={ef.date ?? ''}
               confidence={conf.date ?? 0}
               onChange={onExtractedFieldChange}
+              {...getExtractedRowControls('date')}
             />
             <ExtractedRow
               label="Subject"
@@ -623,6 +874,7 @@ export function LetterViewerPort() {
               value={ef.subject ?? ''}
               confidence={conf.subject ?? 0}
               onChange={onExtractedFieldChange}
+              {...getExtractedRowControls('subject')}
             />
             <ExtractedRow
               label="Reference"
@@ -631,6 +883,7 @@ export function LetterViewerPort() {
               confidence={conf.reference_number ?? 0}
               onChange={onExtractedFieldChange}
               hideIfEmpty
+              {...getExtractedRowControls('reference_number')}
             />
             <ExtractedRow
               label="Salutation"
@@ -639,6 +892,7 @@ export function LetterViewerPort() {
               confidence={conf.salutation ?? 0}
               onChange={onExtractedFieldChange}
               hideIfEmpty
+              {...getExtractedRowControls('salutation')}
             />
             <ExtractedRow
               label="Summary"
@@ -648,6 +902,7 @@ export function LetterViewerPort() {
               multiline={MULTILINE_KEYS.has('body_summary')}
               onChange={onExtractedFieldChange}
               hideIfEmpty
+              {...getExtractedRowControls('body_summary')}
             />
           </div>
 
@@ -661,6 +916,7 @@ export function LetterViewerPort() {
                 confidence={conf.sender_iban ?? 0}
                 onChange={onExtractedFieldChange}
                 hideIfEmpty
+                {...getExtractedRowControls('sender_iban')}
               />
               <ExtractedRow
                 label="BIC"
@@ -669,6 +925,7 @@ export function LetterViewerPort() {
                 confidence={conf.sender_bic ?? 0}
                 onChange={onExtractedFieldChange}
                 hideIfEmpty
+                {...getExtractedRowControls('sender_bic')}
               />
               <ExtractedRow
                 label="Bank"
@@ -677,6 +934,7 @@ export function LetterViewerPort() {
                 confidence={conf.sender_bank ?? 0}
                 onChange={onExtractedFieldChange}
                 hideIfEmpty
+                {...getExtractedRowControls('sender_bank')}
               />
             </div>
           ) : null}
@@ -692,6 +950,7 @@ export function LetterViewerPort() {
                 confidence={conf.sender_tax_id ?? 0}
                 onChange={onExtractedFieldChange}
                 hideIfEmpty
+                {...getExtractedRowControls('sender_tax_id')}
               />
               <ExtractedRow
                 label="Registration"
@@ -700,18 +959,37 @@ export function LetterViewerPort() {
                 confidence={conf.sender_registration ?? 0}
                 onChange={onExtractedFieldChange}
                 hideIfEmpty
+                {...getExtractedRowControls('sender_registration')}
               />
             </div>
           ) : null}
 
-          <button
-            type="button"
-            className="letter-viewer__autofill-btn"
-            disabled={!canAutofill}
-            onClick={() => activeLetter && autoFillFromLetter(activeLetter)}
-          >
-            {'\u{1F4EC}'} Use as reply → fill recipient fields
-          </button>
+          <div className="letter-viewer__extracted-actions">
+            <button
+              type="button"
+              className="letter-viewer__extracted-actions__btn"
+              disabled={bulkActionsDisabled}
+              onClick={handleUseSelected}
+            >
+              Use Selected
+            </button>
+            <button
+              type="button"
+              className="letter-viewer__extracted-actions__btn letter-viewer__extracted-actions__btn--primary"
+              disabled={bulkActionsDisabled}
+              onClick={handleUseAsReply}
+              title="Apply checked fields; subject gets Re:; date set to today; links compose session to this letter"
+            >
+              {'\u{1F4EC}'} Use as reply
+            </button>
+            <button
+              type="button"
+              className="letter-viewer__extracted-actions__btn letter-viewer__extracted-actions__btn--clear"
+              onClick={handleClear}
+            >
+              Clear
+            </button>
+          </div>
 
           <div className="extraction-model-hint">
             <span className="extraction-model-hint__icon" aria-hidden>

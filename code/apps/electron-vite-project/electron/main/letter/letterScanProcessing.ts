@@ -13,6 +13,12 @@ import { renderPdfPagesToImages } from './renderPdfPagesInBrowser'
 const MIN_TEXT_CHARS_PER_PAGE = 30
 const MAX_PDF_PAGES = 100
 
+/**
+ * Tesseract language bundle for letter scans. `deu+eng` improves German letterheads;
+ * requires `deu.traineddata` (bundled under resources/tesseract-lang or downloaded from CDN in dev).
+ */
+const LETTER_SCAN_OCR_LANG = 'deu+eng'
+
 export type LetterScanPage = {
   pageNumber: number
   imageDataUrl: string
@@ -96,7 +102,7 @@ export async function processPdfForLetterViewer(absPath: string): Promise<{
       try {
         const ocrResult = await ocrService.processImage(
           { type: 'buffer', data: pngBuffer },
-          { language: 'eng' },
+          { language: LETTER_SCAN_OCR_LANG },
         )
         const ocrText = (ocrResult.text ?? '').trim()
         if (ocrText.length > text.length) {
@@ -125,7 +131,10 @@ export async function processImageFileForLetterViewer(absPath: string): Promise<
 
   let text = ''
   try {
-    const ocrResult = await ocrService.processImage({ type: 'buffer', data: buffer }, { language: 'eng' })
+    const ocrResult = await ocrService.processImage(
+      { type: 'buffer', data: buffer },
+      { language: LETTER_SCAN_OCR_LANG },
+    )
     text = (ocrResult.text ?? '').trim()
   } catch (e) {
     console.warn('[letterScan] Image OCR failed:', e instanceof Error ? e.message : e)

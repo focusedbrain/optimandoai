@@ -1157,6 +1157,38 @@
   margin-bottom: 6px;
 }
 
+.extracted-row__check {
+  flex-shrink: 0;
+  margin-top: 6px;
+}
+
+.extracted-row__use {
+  flex-shrink: 0;
+  margin-top: 4px;
+  font-size: 11px;
+  padding: 2px 8px;
+  cursor: pointer;
+  border-radius: 4px;
+  border: 1px solid #c4b5fd;
+  background: #faf5ff;
+  color: #5b21b6;
+  font-weight: 600;
+}
+
+.extracted-row__use:hover:not(:disabled) {
+  background: #f3e8ff;
+}
+
+.extracted-row__use:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.extracted-row .confidence-badge {
+  flex-shrink: 0;
+  margin-top: 4px;
+}
+
 .extracted-row__label {
   font-weight: 600;
   color: #666;
@@ -1174,20 +1206,59 @@
   margin: 0;
 }
 
-.letter-viewer__autofill-btn {
+.letter-viewer__extracted-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
   margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #e7e5e4;
+}
+
+.letter-viewer__extracted-actions--solo .letter-viewer__extracted-actions__btn--clear {
+  margin-left: 0;
+}
+
+.letter-viewer__extracted-actions__btn {
   font-size: 12px;
-  padding: 8px 12px;
+  padding: 4px 12px;
   border-radius: 6px;
-  border: 1px solid #8b5cf6;
-  background: rgba(139, 92, 246, 0.1);
-  color: #5b21b6;
+  border: 1px solid #d6d3d1;
+  background: #fafaf9;
+  color: #44403c;
   cursor: pointer;
   font-weight: 600;
 }
 
-.letter-viewer__autofill-btn:hover:not(:disabled) {
+.letter-viewer__extracted-actions__btn:hover:not(:disabled) {
+  background: #f5f5f4;
+}
+
+.letter-viewer__extracted-actions__btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.letter-viewer__extracted-actions__btn--primary {
+  border-color: #8b5cf6;
+  background: rgba(139, 92, 246, 0.1);
+  color: #5b21b6;
+}
+
+.letter-viewer__extracted-actions__btn--primary:hover:not(:disabled) {
   background: rgba(139, 92, 246, 0.18);
+}
+
+.letter-viewer__extracted-actions__btn--clear {
+  margin-left: auto;
+  border-color: #fecaca;
+  background: #fff;
+  color: #b91c1c;
+}
+
+.letter-viewer__extracted-actions__btn--clear:hover:not(:disabled) {
+  background: #fef2f2;
 }
 
 .letter-viewer__autofill-btn:disabled {

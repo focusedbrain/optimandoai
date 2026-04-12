@@ -70,10 +70,40 @@ export function preFilterFields(rawText: string): {
 /** Remove bank/contact/legal lines from postal address blobs (Layer 1 safety net). */
 export function sanitizePostalAddressField(text: string): string {
   if (!text || typeof text !== 'string') return ''
-  const lines = text.split(/\n/).map((l) => l.trim()).filter(Boolean)
+
+  // Step 1: split long single lines at IBAN / BIC / common bank-name boundaries (OCR often glues blocks)
+  let normalized = text
+    .replace(
+      /\s+([A-Z]{2}\d{2}(?:\s*\d{4}){2,7}(?:\s*[\dA-Z]{0,4}){0,3})/gi,
+      '\n$1',
+    )
+    .replace(/\s+([A-Z]{4}[A-Z]{2}[A-Z0-9]{2}(?:[A-Z0-9]{3})?)\s/g, '\n$1\n')
+    .replace(
+      /\s+((?:Sparkasse|Postbank|Commerzbank|Deutsche Bank|Volksbank|Raiffeisen)[^\n]*)/gi,
+      '\n$1',
+    )
+
+  const lines = normalized.split('\n').map((l) => l.trim()).filter(Boolean)
   const kept: string[] = []
+
   for (const line of lines) {
     const compact = line.replace(/\s/g, '')
+
+    if (/\b[A-Z]{2}\d{2}[\s\dA-Z]{14,}\b/i.test(line) && /\d/.test(line)) continue
+    if (/\b[A-Z]{4}[A-Z]{2}[A-Z0-9]{2}(?:[A-Z0-9]{3})?\b/.test(line)) continue
+    if (/\b(?:IBAN|BIC|SWIFT|Konto|Bankverbindung)\b/i.test(line)) continue
+    if (
+      /\b(?:Sparkasse|Postbank|Commerzbank|Deutsche Bank|Volksbank|Raiffeisen)\b/i.test(line)
+    )
+      continue
+    if (
+      /\b(?:Geschäftsführ|Handelsregister|HRB|HRA|Amtsgericht|Registergericht|USt-?Id)\b/i.test(line)
+    )
+      continue
+    if (/\b(?:Wirtschaftsprüf|Steuerberater|Rechtsanwält)\b/i.test(line)) continue
+    if (/\bGeschäftsführende\s+Partner\b/i.test(line)) continue
+    if (/^(?:Partner|Gesellschafter|Geschäftsführende\s+Partner)\s*:/i.test(line)) continue
+
     if (/^[A-Z]{2}\d{2}\d{10,30}$/i.test(compact)) continue
     if (/@/.test(line)) continue
     if (/^(https?:\/\/|www\.)/i.test(line)) continue
@@ -81,11 +111,14 @@ export function sanitizePostalAddressField(text: string): string {
     if (/\b(BIC|IBAN|SWIFT)\b/i.test(line)) continue
     if (/\b(USt-?Id|Steuernummer|St\.?\s*-?\s*Nr|UID|VAT|TVA|RCS|SIRET|EIN|TIN|ABN|GST)\b/i.test(line))
       continue
-    if (/\b(HRB|HRA|Amtsgericht|Handelsregister|Geschäftszeichen|Company\s*No\.?)\b/i.test(line)) continue
+    if (/\b(HRB|HRA|Amtsgericht|Handelsregister|Geschäftszeichen|Company\s*No\.?)\b/i.test(line))
+      continue
     if (/^[+(\d][\d\s()./+-]{6,}$/.test(line) && /\d{5,}/.test(compact)) continue
+
     kept.push(line)
     if (kept.length >= 4) break
   }
+
   return kept.join('\n')
 }
 
@@ -100,6 +133,11 @@ FIELD DEFINITIONS — extract ONLY what matches each definition:
 - recipient_name: Name of the person or company the letter is addressed to. Usually in the address window area.
 
 - recipient_address: POSTAL address of the recipient. Same rules as sender_address — postal address only, nothing else.
+
+ADDRESS PURITY (sender_address and recipient_address):
+These two fields must contain ONLY the postal mailing address (street, house number, postal code, city, country).
+They must NEVER contain: bank details (IBAN such as DE16 2305 1030..., BIC/SWIFT such as NOLADE21SHO or DEUTDEFF, bank names such as Sparkasse, Postbank, Commerzbank); legal or registry text (Handelsregister, HRB, HRA, Amtsgericht); partner or auditor lines (Geschäftsführende Partner, Wirtschaftsprüfungsgesellschaft, Steuerberater); tax identifiers (USt-IdNr, Steuernummer); phone, fax, email, or website. Put those values only in sender_iban, sender_bic, sender_bank, sender_tax_id, sender_registration, sender_phone, sender_fax, sender_email, sender_website as applicable.
+Example: CORRECT = "Musterstraße 1" + "24118 Kiel". WRONG in address = "Sparkasse Südholstein DE16 2305 1030 0002 0304 01" (bank + IBAN belong in sender_bank / sender_iban).
 
 - date: The letter date. Return in ISO format YYYY-MM-DD. Recognize all common formats:
   "April 11, 2026" / "11 April 2026" / "11.04.2026" / "04/11/2026" / "2026-04-11" / "11 avril 2026" / "11. April 2026" etc.
@@ -138,10 +176,10 @@ FIELD DEFINITIONS — extract ONLY what matches each definition:
 - detected_language: The language of the letter as ISO 639-1 code (e.g. "de", "en", "fr", "es", "it", "nl", "ja", "ar").
 
 STRICT RULES:
-1. NEVER mix bank details (IBAN, BIC, bank) into address fields.
+1. NEVER mix bank details (IBAN, BIC, bank name, account numbers) into sender_address or recipient_address — use sender_iban, sender_bic, sender_bank.
 2. NEVER include phone/fax/email/website in address fields.
-3. NEVER include tax IDs or registration numbers in address fields.
-4. Address fields contain ONLY postal address components.
+3. NEVER include tax IDs, registration numbers, Handelsregister/HRB/HRA, partner lists, or auditor firm names in address fields.
+4. Address fields contain ONLY postal address components (street, ZIP/postal code, city, optional region/country), at most 4 lines.
 5. If unsure about a field, return empty string — do NOT guess.
 6. Detect the language automatically — do not assume any specific language.
 7. Return ONLY valid JSON. No markdown, no explanation.

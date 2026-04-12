@@ -102,32 +102,6 @@ function fieldGroup(field: TemplateField): FieldGroup {
   return 'other'
 }
 
-function findRecipientNameField(fields: TemplateField[]): TemplateField | undefined {
-  return fields.find((f) => {
-    const n = f.name.toLowerCase()
-    return n.includes('recipient') && !n.includes('address')
-  })
-}
-
-function findRecipientAddressField(fields: TemplateField[]): TemplateField | undefined {
-  return fields.find((f) => f.name.toLowerCase().includes('recipient_address'))
-}
-
-function findSubjectField(fields: TemplateField[]): TemplateField | undefined {
-  return fields.find((f) => f.name.toLowerCase().includes('subject'))
-}
-
-function findReferenceField(fields: TemplateField[]): TemplateField | undefined {
-  return fields.find((f) => {
-    const n = f.name.toLowerCase()
-    return n.includes('reference')
-  })
-}
-
-function findDateField(fields: TemplateField[]): TemplateField | undefined {
-  return fields.find((f) => f.name.toLowerCase() === 'date' || f.type === 'date')
-}
-
 function loadSenderProfile(): { name: string; address: string } {
   try {
     const raw = localStorage.getItem(SENDER_PROFILE_KEY)
@@ -171,7 +145,6 @@ export function ComposeFieldsForm({ template, composeSession, replyToLetter }: C
 
   const [draftError, setDraftError] = useState<string | null>(null)
 
-  const lastReplyAutofillId = useRef<string | null>(null)
   const prevLanguageRef = useRef<string | null>(null)
   const lastDetectedLangLetterId = useRef<string | null>(null)
 
@@ -185,7 +158,6 @@ export function ComposeFieldsForm({ template, composeSession, replyToLetter }: C
   )
 
   useEffect(() => {
-    lastReplyAutofillId.current = null
     lastDetectedLangLetterId.current = null
     prevLanguageRef.current = null
   }, [template.id])
@@ -325,39 +297,6 @@ export function ComposeFieldsForm({ template, composeSession, replyToLetter }: C
     if (composeSession.replyToLetterId === id) return
     updateComposeSession(composeSession.id, { replyToLetterId: id })
   }, [composeSession, replyToLetter?.id, updateComposeSession])
-
-  useEffect(() => {
-    if (!replyToLetter?.extractedFields) return
-    const rid = replyToLetter.id
-    if (lastReplyAutofillId.current === rid) return
-    lastReplyAutofillId.current = rid
-
-    const ef = replyToLetter.extractedFields
-    const fields = template.fields
-    const patch = useLetterComposerStore.getState().updateTemplateField
-
-    const rName = findRecipientNameField(fields)
-    if (rName && ef.sender_name) patch(template.id, rName.id, ef.sender_name)
-
-    const rAddr = findRecipientAddressField(fields)
-    if (rAddr && ef.sender_address) patch(template.id, rAddr.id, ef.sender_address)
-
-    const subj = findSubjectField(fields)
-    if (subj && ef.subject) {
-      const s = ef.subject.trim()
-      const next = s.toLowerCase().startsWith('re:') ? s : `Re: ${s}`
-      patch(template.id, subj.id, next)
-    }
-
-    const refF = findReferenceField(fields)
-    if (refF && ef.reference_number) patch(template.id, refF.id, ef.reference_number)
-
-    const dateF = findDateField(fields)
-    if (dateF) {
-      const today = new Date().toISOString().split('T')[0]
-      patch(template.id, dateF.id, today)
-    }
-  }, [replyToLetter, template.fields, template.id])
 
   useEffect(() => {
     if (!composeSession || !replyToLetter?.extractedFields) return

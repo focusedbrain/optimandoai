@@ -722,6 +722,9 @@ export const useLetterComposerStore = create<LetterComposerState>()(
         set((s) => ({
           letters: s.letters.filter((l) => l.id !== id),
           activeLetterId: s.activeLetterId === id ? null : s.activeLetterId,
+          composeSessions: s.composeSessions.map((c) =>
+            c.replyToLetterId === id ? { ...c, replyToLetterId: null } : c,
+          ),
         })),
       setActiveLetter: (id) => set({ activeLetterId: id, activeLetterPage: 0 }),
       setActiveLetterPage: (page) => set({ activeLetterPage: page }),
