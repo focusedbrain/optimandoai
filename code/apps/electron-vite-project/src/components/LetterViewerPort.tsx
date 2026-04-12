@@ -20,7 +20,33 @@ function isImageFileName(name: string): boolean {
   )
 }
 
-const MULTILINE_KEYS = new Set(['sender_address', 'recipient_address', 'body_summary'])
+const MULTILINE_KEYS = new Set([
+  'sender_address',
+  'recipient_address',
+  'body_summary',
+  'file_reference',
+])
+
+/** Keys shown under References & Contact (reference_number moved here from Letter details). */
+const REFERENCE_CONTACT_KEYS = [
+  'customer_number',
+  'invoice_number',
+  'contract_number',
+  'order_number',
+  'file_reference',
+  'contact_person',
+  'reference_number',
+] as const
+
+const REFERENCE_CONTACT_LABELS: Record<(typeof REFERENCE_CONTACT_KEYS)[number], string> = {
+  customer_number: 'Customer No.',
+  invoice_number: 'Invoice No.',
+  contract_number: 'Contract No.',
+  order_number: 'Order No.',
+  file_reference: 'File reference',
+  contact_person: 'Contact person',
+  reference_number: 'Reference',
+}
 
 function getConfidenceLevel(c: number): 'high' | 'medium' | 'low' {
   if (c >= 0.9) return 'high'
@@ -108,6 +134,12 @@ function mapExtractedToTemplateField(extractedKey: string, mode: 'reply' | 'dire
     recipient_address: 'sender_address',
     subject: 'subject',
     reference_number: 'reference',
+    customer_number: 'customer_number',
+    invoice_number: 'invoice_number',
+    contract_number: 'contract_number',
+    order_number: 'order_number',
+    file_reference: 'file_reference',
+    contact_person: 'contact_person',
     date: 'date',
     sender_email: 'recipient_email',
     sender_phone: 'recipient_phone',
@@ -675,6 +707,11 @@ export function LetterViewerPort() {
     [activeLetter, activeLetter?.confidence, activeLetter?.extractedFields],
   )
 
+  const hasAnyReferenceField = useMemo(() => {
+    const x = activeLetter?.extractedFields ?? {}
+    return REFERENCE_CONTACT_KEYS.some((k) => (x[k] ?? '').trim().length > 0)
+  }, [activeLetter?.id, activeLetter?.extractedFields])
+
   return (
     <div
       className={`viewer-port letter-port${isDragOver ? ' letter-port--drag-over' : ''}`}
@@ -858,6 +895,25 @@ export function LetterViewerPort() {
             />
           </div>
 
+          {hasAnyReferenceField ? (
+            <div className="extracted-group">
+              <h5>References &amp; contact</h5>
+              {REFERENCE_CONTACT_KEYS.map((fieldKey) => (
+                <ExtractedRow
+                  key={fieldKey}
+                  label={REFERENCE_CONTACT_LABELS[fieldKey]}
+                  fieldKey={fieldKey}
+                  value={ef[fieldKey] ?? ''}
+                  confidence={conf[fieldKey] ?? 0}
+                  multiline={MULTILINE_KEYS.has(fieldKey)}
+                  onChange={onExtractedFieldChange}
+                  hideIfEmpty
+                  {...getExtractedRowControls(fieldKey)}
+                />
+              ))}
+            </div>
+          ) : null}
+
           <div className="extracted-group">
             <h5>Letter details</h5>
             <ExtractedRow
@@ -875,15 +931,6 @@ export function LetterViewerPort() {
               confidence={conf.subject ?? 0}
               onChange={onExtractedFieldChange}
               {...getExtractedRowControls('subject')}
-            />
-            <ExtractedRow
-              label="Reference"
-              fieldKey="reference_number"
-              value={ef.reference_number ?? ''}
-              confidence={conf.reference_number ?? 0}
-              onChange={onExtractedFieldChange}
-              hideIfEmpty
-              {...getExtractedRowControls('reference_number')}
             />
             <ExtractedRow
               label="Salutation"

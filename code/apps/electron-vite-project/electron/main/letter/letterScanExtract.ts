@@ -9,6 +9,12 @@ export type LetterScanRawExtraction = {
   subject_line: string | null
   reference: string | null
   salutation_line: string | null
+  customer_number: string | null
+  invoice_number: string | null
+  contract_number: string | null
+  order_number: string | null
+  file_reference: string | null
+  contact_person: string | null
 }
 
 const EMPTY_RAW: LetterScanRawExtraction = {
@@ -18,6 +24,12 @@ const EMPTY_RAW: LetterScanRawExtraction = {
   subject_line: null,
   reference: null,
   salutation_line: null,
+  customer_number: null,
+  invoice_number: null,
+  contract_number: null,
+  order_number: null,
+  file_reference: null,
+  contact_person: null,
 }
 
 const DATE_PATTERNS: RegExp[] = [
@@ -108,6 +120,59 @@ function isNoiseParagraph(lines: string[]): boolean {
   return false
 }
 
+/** Regex hints for IDs / contact (full letter text — invoices may use later pages). */
+function extractIdentificationHints(text: string): Pick<
+  LetterScanRawExtraction,
+  | 'customer_number'
+  | 'invoice_number'
+  | 'contract_number'
+  | 'order_number'
+  | 'file_reference'
+  | 'contact_person'
+> {
+  const t = text || ''
+  const out = {
+    customer_number: null as string | null,
+    invoice_number: null as string | null,
+    contract_number: null as string | null,
+    order_number: null as string | null,
+    file_reference: null as string | null,
+    contact_person: null as string | null,
+  }
+
+  const mCust = t.match(
+    /(?:Kundennummer|Kunden-?Nr\.?|Kd\.?\s*-?\s*Nr\.?|Kundenkonto|Customer\s*(?:No|Number|ID))[:\s]+([A-Za-z0-9\-/.]+)/i,
+  )
+  if (mCust?.[1]) out.customer_number = mCust[1].trim()
+
+  const mInv = t.match(
+    /(?:Rechnungsnummer|Rechnung\s*Nr\.?|Rg\.?\s*-?\s*Nr\.?|Invoice\s*(?:No|Number|ID))[:\s]+([A-Za-z0-9\-/.]+)/i,
+  )
+  if (mInv?.[1]) out.invoice_number = mInv[1].trim()
+
+  const mContract = t.match(
+    /(?:Vertragsnummer|Vertrag\s*Nr\.?|Policennummer|Contract\s*(?:No|Number|ID))[:\s]+([A-Za-z0-9\-/.]+)/i,
+  )
+  if (mContract?.[1]) out.contract_number = mContract[1].trim()
+
+  const mOrder = t.match(
+    /(?:Bestellnummer|Bestell-?Nr\.?|Auftrags-?Nr\.?|Auftragsnummer|Order\s*(?:No|Number|ID))[:\s]+([A-Za-z0-9\-/.]+)/i,
+  )
+  if (mOrder?.[1]) out.order_number = mOrder[1].trim()
+
+  const mFile = t.match(
+    /(?:Aktenzeichen|Az\.?|Geschäftszeichen|Gz\.?|Unser\s*Zeichen|Ihr\s*Zeichen|File\s*Ref)[:\s]+([A-Za-z0-9\-/.\s]+?)(?:\n|$)/i,
+  )
+  if (mFile?.[1]) out.file_reference = mFile[1].trim()
+
+  const mContact = t.match(
+    /(?:Ansprechpartner|Sachbearbeiter|Ihr\s*Ansprechpartner|Bearbeiter|Contact\s*Person)[:\s]+([A-Za-zÄÖÜäöüß.\-\s]+?)(?:\n|$)/i,
+  )
+  if (mContact?.[1]) out.contact_person = mContact[1].trim()
+
+  return out
+}
+
 export function extractRawFromScanText(fullText: string): { raw: LetterScanRawExtraction } {
   if (!fullText || typeof fullText !== 'string') {
     return { raw: { ...EMPTY_RAW } }
@@ -116,7 +181,8 @@ export function extractRawFromScanText(fullText: string): { raw: LetterScanRawEx
   const firstPage =
     fullText.split(/\n--- Page Break ---\n/i)[0]?.trim() ?? fullText.trim()
   if (!firstPage) {
-    return { raw: { ...EMPTY_RAW } }
+    const idHints = extractIdentificationHints(fullText.trim())
+    return { raw: { ...EMPTY_RAW, ...idHints } }
   }
 
   const extractedDate = extractFirstDate(firstPage)
@@ -164,6 +230,8 @@ export function extractRawFromScanText(fullText: string): { raw: LetterScanRawEx
   sender_lines = sender_lines.slice(0, maxLines)
   recipient_lines = recipient_lines.slice(0, maxLines)
 
+  const idHints = extractIdentificationHints(fullText.trim())
+
   return {
     raw: {
       date: extractedDate,
@@ -172,6 +240,7 @@ export function extractRawFromScanText(fullText: string): { raw: LetterScanRawEx
       subject_line,
       reference,
       salutation_line,
+      ...idHints,
     },
   }
 }

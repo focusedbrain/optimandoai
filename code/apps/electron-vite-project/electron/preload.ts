@@ -1462,13 +1462,19 @@ contextBridge.exposeInMainWorld('letterComposer', {
   },
   extractFromScan: (text: string) =>
     ipcRenderer.invoke('letter:extractFromScan', typeof text === 'string' ? text : '') as Promise<{
-      raw: {
+           raw: {
         date: string | null
         sender_lines: string[]
         recipient_lines: string[]
         subject_line: string | null
         reference: string | null
         salutation_line: string | null
+        customer_number: string | null
+        invoice_number: string | null
+        contract_number: string | null
+        order_number: string | null
+        file_reference: string | null
+        contact_person: string | null
       }
     }>,
   normalizeExtracted: (rawFields: unknown, fullText: string) =>

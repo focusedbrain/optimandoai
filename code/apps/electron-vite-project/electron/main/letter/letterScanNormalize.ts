@@ -13,6 +13,12 @@ export const LETTER_EXTRACT_OUTPUT_KEYS = [
   'date',
   'subject',
   'reference_number',
+  'customer_number',
+  'invoice_number',
+  'contract_number',
+  'order_number',
+  'file_reference',
+  'contact_person',
   'salutation',
   'body_summary',
   'sender_phone',
@@ -146,6 +152,18 @@ Example: CORRECT = "Musterstraße 1" + "24118 Kiel". WRONG in address = "Sparkas
 
 - reference_number: Any reference, file number, case number, or tracking ID. May be preceded by: "Ref:", "Reference:", "Our ref:", "Your ref:", "Unser Zeichen:", "Ihr Zeichen:", "Az:", "Dossier:", "N/Réf:", "Réf:". If none found, return empty string.
 
+- customer_number: The sender's customer or client number as used by the recipient toward the sender (e.g. Kundennummer, Kd.-Nr., Kundenkonto, Customer No.). Return only the number or code, not the label text.
+
+- invoice_number: Invoice or bill number (e.g. Rechnungsnummer, Rg.-Nr., Rechnung Nr., Invoice No.). Return only the number or code.
+
+- contract_number: Contract or policy number (e.g. Vertragsnummer, Policennummer, Vertrag Nr., Contract No.). Return only the number or code.
+
+- order_number: Order or purchase number (e.g. Bestellnummer, Bestell-Nr., Auftragsnummer, Order No.). Return only the number or code.
+
+- file_reference: Official file or case reference (e.g. Aktenzeichen, Az., Geschäftszeichen, Gz., Unser Zeichen, Ihr Zeichen when it denotes a file/case code). Return the full reference string. If the same line is only a generic "Ref:" with no separate Aktenzeichen, still capture it here or in reference_number — do not duplicate the same value in both if identical.
+
+- contact_person: Named contact person or case handler (e.g. Ansprechpartner, Sachbearbeiter, Ihr Ansprechpartner, Bearbeiter). Return the person's name only when possible, not their full title block or department name.
+
 - salutation: The greeting line. Examples across languages:
   "Dear Mr. Smith," / "Dear Sir or Madam," / "Sehr geehrte Damen und Herren," / "Madame, Monsieur," / "Estimado/a Sr/Sra," / "Egregio Signore," etc.
 
@@ -194,6 +212,12 @@ Return format:
     "date": "YYYY-MM-DD",
     "subject": "...",
     "reference_number": "...",
+    "customer_number": "...",
+    "invoice_number": "...",
+    "contract_number": "...",
+    "order_number": "...",
+    "file_reference": "...",
+    "contact_person": "...",
     "salutation": "...",
     "body_summary": "...",
     "sender_phone": "...",
@@ -215,6 +239,12 @@ Return format:
     "date": 0.95,
     "subject": 0.95,
     "reference_number": 0.95,
+    "customer_number": 0.95,
+    "invoice_number": 0.95,
+    "contract_number": 0.95,
+    "order_number": 0.95,
+    "file_reference": 0.95,
+    "contact_person": 0.95,
     "salutation": 0.95,
     "body_summary": 0.95,
     "sender_phone": 0.95,
@@ -239,7 +269,20 @@ function isRecord(x: unknown): x is Record<string, unknown> {
   return x !== null && typeof x === 'object' && !Array.isArray(x)
 }
 
+function optStrField(input: Record<string, unknown>, key: string): string | null {
+  const v = input[key]
+  return typeof v === 'string' ? v : null
+}
+
 function coerceRaw(input: unknown): LetterScanRawExtraction {
+  const emptyHints = {
+    customer_number: null as string | null,
+    invoice_number: null as string | null,
+    contract_number: null as string | null,
+    order_number: null as string | null,
+    file_reference: null as string | null,
+    contact_person: null as string | null,
+  }
   if (!isRecord(input)) {
     return {
       date: null,
@@ -248,6 +291,7 @@ function coerceRaw(input: unknown): LetterScanRawExtraction {
       subject_line: null,
       reference: null,
       salutation_line: null,
+      ...emptyHints,
     }
   }
   const lines = (v: unknown): string[] =>
@@ -263,6 +307,12 @@ function coerceRaw(input: unknown): LetterScanRawExtraction {
     subject_line: typeof subjVal === 'string' ? subjVal : null,
     reference: typeof refVal === 'string' ? refVal : null,
     salutation_line: typeof salVal === 'string' ? salVal : null,
+    customer_number: optStrField(input, 'customer_number'),
+    invoice_number: optStrField(input, 'invoice_number'),
+    contract_number: optStrField(input, 'contract_number'),
+    order_number: optStrField(input, 'order_number'),
+    file_reference: optStrField(input, 'file_reference'),
+    contact_person: optStrField(input, 'contact_person'),
   }
 }
 
@@ -326,6 +376,21 @@ export function fallbackNormalizedFromRaw(
   fields.reference_number = raw.reference ?? ''
   fields.salutation = raw.salutation_line ?? ''
   fields.body_summary = bodyStub.slice(0, 500).replace(/\s+/g, ' ').trim()
+
+  const idKeys = [
+    'customer_number',
+    'invoice_number',
+    'contract_number',
+    'order_number',
+    'file_reference',
+    'contact_person',
+  ] as const
+  for (const k of idKeys) {
+    const v = raw[k]
+    if (typeof v === 'string' && v.trim()) {
+      fields[k] = v.trim()
+    }
+  }
 
   const baseConf = 0.45
   const confidence: Record<string, number> = {}

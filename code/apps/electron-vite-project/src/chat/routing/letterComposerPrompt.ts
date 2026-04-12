@@ -41,6 +41,8 @@ export function buildLetterComposerUserPrompt(params: {
   templateExcerpt?: string | null
   fieldSnapshot?: string | null
   scannedLetterText?: string | null
+  /** Structured IDs from letter extraction (customer no., invoice, file ref, contact person, …). */
+  referenceDataFromLetter?: string | null
   contextDocuments?: string | null
   chatAttachmentText?: string | null
   senderIdentity?: string | null
@@ -55,6 +57,9 @@ export function buildLetterComposerUserPrompt(params: {
 
   const sl = nonEmpty(params.scannedLetterText)
   if (sl) parts.push(`SCANNED LETTER:\n${sl}\n\n`)
+
+  const ref = nonEmpty(params.referenceDataFromLetter)
+  if (ref) parts.push(`${ref}\n\n`)
 
   const cd = nonEmpty(params.contextDocuments)
   if (cd) parts.push(`ADDITIONAL DOCUMENTS:\n${cd}\n\n`)

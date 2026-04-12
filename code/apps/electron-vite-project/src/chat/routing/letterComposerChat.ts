@@ -9,6 +9,25 @@ import { buildLetterComposerSystemPrompt, buildLetterComposerUserPrompt } from '
 
 const FALLBACK_FIELD = { label: 'Body', name: 'body' }
 
+const LETTER_REFERENCE_PROMPT_KEYS = [
+  'customer_number',
+  'invoice_number',
+  'contract_number',
+  'order_number',
+  'file_reference',
+  'contact_person',
+  'reference_number',
+] as const
+
+function formatReferenceDataFromLetter(ef: Record<string, string> | undefined): string | null {
+  if (!ef) return null
+  const lines = LETTER_REFERENCE_PROMPT_KEYS.filter((k) => (ef[k] ?? '').trim()).map(
+    (k) => `${k}: ${(ef[k] ?? '').trim()}`,
+  )
+  if (lines.length === 0) return null
+  return `REFERENCE DATA FROM ORIGINAL LETTER:\n${lines.join('\n')}`
+}
+
 export async function handleLetterComposerChat(params: {
   userQuery: string
   chatAttachmentText: string | null
@@ -71,12 +90,16 @@ export async function handleLetterComposerChat(params: {
     senderIdentity = parts.length > 0 ? parts.join('\n') : null
   }
 
+  const activeScan = letter.letters.find((l) => l.id === letter.activeLetterId)
+  const referenceDataFromLetter = formatReferenceDataFromLetter(activeScan?.extractedFields)
+
   const userPrompt = buildLetterComposerUserPrompt({
     userInstruction: params.userQuery,
     // templateExcerpt: focusMeta?.letterComposerTemplateHtmlExcerpt ?? null,
     templateExcerpt: null, // Removed: HTML excerpt biases LLM language toward template language
     fieldSnapshot,
     scannedLetterText: focusMeta?.letterComposerLetterPageText ?? null,
+    referenceDataFromLetter,
     contextDocuments: contextDocumentsBlock,
     chatAttachmentText: params.chatAttachmentText,
     senderIdentity,

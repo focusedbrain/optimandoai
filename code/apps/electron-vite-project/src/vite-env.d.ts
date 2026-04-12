@@ -160,6 +160,12 @@ interface LetterComposerBridge {
       subject_line: string | null
       reference: string | null
       salutation_line: string | null
+      customer_number: string | null
+      invoice_number: string | null
+      contract_number: string | null
+      order_number: string | null
+      file_reference: string | null
+      contact_person: string | null
     }
   }>
   /** AI normalization + confidence (Layer 2); falls back to rules if model missing. */
