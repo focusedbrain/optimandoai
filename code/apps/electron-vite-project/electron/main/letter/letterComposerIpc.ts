@@ -648,6 +648,16 @@ export function registerLetterComposerIpcHandlers(): void {
       }
       try {
         fs.copyFileSync(pdfPath, filePath)
+        if (!fs.existsSync(filePath)) {
+          console.error('[PDF] Copy failed — destination file not found:', filePath)
+          return { success: false, error: 'Failed to save PDF file' }
+        }
+        const savedStats = fs.statSync(filePath)
+        if (savedStats.size < 200) {
+          console.error('[PDF] Saved file is empty:', savedStats.size, 'bytes')
+          return { success: false, error: 'Saved PDF file is empty' }
+        }
+        console.log('[PDF] Export successful:', filePath, `(${savedStats.size} bytes)`)
       } finally {
         try {
           fs.unlinkSync(pdfPath)
@@ -735,6 +745,7 @@ export function registerLetterComposerIpcHandlers(): void {
         layout: payload.layout,
         fieldCount: Object.keys(fields).length,
       })
+      console.log('[PDF-DEBUG] Field values:', JSON.stringify(fields, null, 2))
       const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wrdesk-builtin-'))
       const tmpDocx = path.join(tmpDir, 'letter.docx')
       try {
@@ -745,6 +756,10 @@ export function registerLetterComposerIpcHandlers(): void {
           logoPath,
         })
         fs.writeFileSync(tmpDocx, outBuf)
+        console.log('[PDF-DEBUG] DOCX buffer size:', outBuf.length, 'bytes')
+        console.log('[PDF-DEBUG] DOCX written to:', tmpDocx)
+        console.log('[PDF-DEBUG] DOCX file exists:', fs.existsSync(tmpDocx))
+        console.log('[PDF-DEBUG] DOCX file size:', fs.statSync(tmpDocx).size, 'bytes')
         const { convertToPdf } = await import('../libreoffice/libreofficeService')
         let pdfPath: string
         try {
@@ -759,6 +774,9 @@ export function registerLetterComposerIpcHandlers(): void {
             error: ipcPdfFailureMessage(e, 'PDF operation failed. Is LibreOffice installed?'),
           }
         }
+        console.log('[PDF-DEBUG] PDF path:', pdfPath)
+        console.log('[PDF-DEBUG] PDF exists:', fs.existsSync(pdfPath))
+        console.log('[PDF-DEBUG] PDF size:', fs.statSync(pdfPath).size, 'bytes')
         const baseName =
           typeof payload.defaultName === 'string' && payload.defaultName.trim()
             ? payload.defaultName.trim().replace(/[^\w.\- ()[\]]+/g, '_')
@@ -783,6 +801,19 @@ export function registerLetterComposerIpcHandlers(): void {
         }
         try {
           fs.copyFileSync(pdfPath, filePath)
+          if (!fs.existsSync(filePath)) {
+            console.error('[PDF] Copy failed — destination file not found:', filePath)
+            return { success: false, error: 'Failed to save PDF file' }
+          }
+          const savedStats = fs.statSync(filePath)
+          if (savedStats.size < 200) {
+            console.error('[PDF] Saved file is empty:', savedStats.size, 'bytes')
+            return { success: false, error: 'Saved PDF file is empty' }
+          }
+          console.log('[PDF] Export successful:', filePath, `(${savedStats.size} bytes)`)
+          console.log('[PDF-DEBUG] Saved to:', filePath)
+          console.log('[PDF-DEBUG] Saved file exists:', fs.existsSync(filePath))
+          console.log('[PDF-DEBUG] Saved file size:', fs.statSync(filePath).size, 'bytes')
         } finally {
           try {
             fs.unlinkSync(pdfPath)
@@ -858,15 +889,10 @@ export function registerLetterComposerIpcHandlers(): void {
             error: ipcPdfFailureMessage(e, 'PDF operation failed. Is LibreOffice installed?'),
           }
         }
-        try {
-          await printPdfWithSystemDialog(pdfPath)
-        } finally {
-          try {
-            fs.unlinkSync(pdfPath)
-          } catch {
-            /* noop */
-          }
-        }
+        console.log('[PRINT-DEBUG] PDF path:', pdfPath)
+        console.log('[PRINT-DEBUG] PDF size:', fs.statSync(pdfPath).size, 'bytes')
+        await printPdfWithSystemDialog(pdfPath)
+        console.log('[PRINT-DEBUG] shell.openPath returned, PDF still exists:', fs.existsSync(pdfPath))
         console.log(`[PRINT] letter:printBuiltinLetter completed in ${Date.now() - t0}ms`)
         return { success: true }
       } catch (e) {
@@ -879,11 +905,15 @@ export function registerLetterComposerIpcHandlers(): void {
           error: ipcPdfFailureMessage(e, 'PDF operation failed. Is LibreOffice installed?'),
         }
       } finally {
-        try {
-          fs.rmSync(tmpDir, { recursive: true, force: true })
-        } catch {
-          /* noop */
-        }
+        // Delay cleanup to let the system PDF viewer read the file
+        // 60 seconds is enough for any viewer to open and cache the file
+        setTimeout(() => {
+          try {
+            fs.rmSync(tmpDir, { recursive: true, force: true })
+          } catch {
+            /* noop */
+          }
+        }, 60_000)
       }
     },
   )
@@ -944,11 +974,15 @@ export function registerLetterComposerIpcHandlers(): void {
       try {
         await printPdfWithSystemDialog(pdfPath)
       } finally {
-        try {
-          fs.unlinkSync(pdfPath)
-        } catch {
-          /* noop */
-        }
+        // Delay cleanup to let the system PDF viewer read the file
+        // 60 seconds is enough for any viewer to open and cache the file
+        setTimeout(() => {
+          try {
+            fs.unlinkSync(pdfPath)
+          } catch {
+            /* noop */
+          }
+        }, 60_000)
       }
       console.log(`[PRINT] letter:printFilledLetter completed in ${Date.now() - t0}ms`)
       return { success: true }

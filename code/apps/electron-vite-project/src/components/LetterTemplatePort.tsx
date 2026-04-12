@@ -660,9 +660,15 @@ export function LetterTemplatePort() {
           setError('Built-in PDF export requires WR Desk (Electron) with an up-to-date Letter Composer bridge.')
           return
         }
+        const fieldRecord = buildBuiltinFieldRecord()
+        console.log('[PDF-UI] Field record for export:', JSON.stringify(fieldRecord, null, 2))
+        console.log(
+          '[PDF-UI] Non-empty fields:',
+          Object.entries(fieldRecord).filter(([_, v]) => v?.trim()).length,
+        )
         const r = await api.exportBuiltinPdf({
           layout: activeTemplate.builtinLayout,
-          fields: buildBuiltinFieldRecord(),
+          fields: fieldRecord,
           logoPath: activeTemplate.logoPath ?? null,
           defaultName: `${activeTemplate.name}.pdf`,
         })

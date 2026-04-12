@@ -100,7 +100,7 @@ function buildBodyParagraphs(f: Record<string, string>): Paragraph[] {
   return body.split(/\n\n+/).map(
     (para) =>
       new Paragraph({
-        children: [new TextRun({ text: para.trim(), size: 22, font: 'Arial' })],
+        children: [new TextRun({ text: para.trim(), size: 22, font: 'Liberation Sans' })],
         spacing: { after: 200 },
       }),
   )
@@ -136,7 +136,7 @@ function buildDocument(layout: string, f: Record<string, string>, logo: LogoByte
     if (senderLine) {
       children.push(
         new Paragraph({
-          children: [new TextRun({ text: senderLine, size: 14, font: 'Arial', color: '888888' })],
+          children: [new TextRun({ text: senderLine, size: 14, font: 'Liberation Sans', color: '888888' })],
           alignment: senderLineAlignment(layout),
           spacing: { after: 100 },
         }),
@@ -159,7 +159,7 @@ function buildDocument(layout: string, f: Record<string, string>, logo: LogoByte
       if (t) {
         children.push(
           new Paragraph({
-            children: [new TextRun({ text: t, size: 22, font: 'Arial' })],
+            children: [new TextRun({ text: t, size: 22, font: 'Liberation Sans' })],
           }),
         )
       }
@@ -170,7 +170,7 @@ function buildDocument(layout: string, f: Record<string, string>, logo: LogoByte
   if (f.date?.trim()) {
     children.push(
       new Paragraph({
-        children: [new TextRun({ text: f.date.trim(), size: 22, font: 'Arial' })],
+        children: [new TextRun({ text: f.date.trim(), size: 22, font: 'Liberation Sans' })],
         alignment: AlignmentType.RIGHT,
         spacing: { after: 200 },
       }),
@@ -180,7 +180,7 @@ function buildDocument(layout: string, f: Record<string, string>, logo: LogoByte
   if (f.subject?.trim()) {
     children.push(
       new Paragraph({
-        children: [new TextRun({ text: f.subject.trim(), size: 22, font: 'Arial', bold: true })],
+        children: [new TextRun({ text: f.subject.trim(), size: 22, font: 'Liberation Sans', bold: true })],
         spacing: { after: 200 },
       }),
     )
@@ -189,7 +189,7 @@ function buildDocument(layout: string, f: Record<string, string>, logo: LogoByte
   if (f.salutation?.trim()) {
     children.push(
       new Paragraph({
-        children: [new TextRun({ text: f.salutation.trim(), size: 22, font: 'Arial' })],
+        children: [new TextRun({ text: f.salutation.trim(), size: 22, font: 'Liberation Sans' })],
         spacing: { after: 200 },
       }),
     )
@@ -200,7 +200,7 @@ function buildDocument(layout: string, f: Record<string, string>, logo: LogoByte
   if (f.closing?.trim()) {
     children.push(
       new Paragraph({
-        children: [new TextRun({ text: f.closing.trim(), size: 22, font: 'Arial' })],
+        children: [new TextRun({ text: f.closing.trim(), size: 22, font: 'Liberation Sans' })],
         spacing: { before: 400, after: 400 },
       }),
     )
@@ -209,7 +209,7 @@ function buildDocument(layout: string, f: Record<string, string>, logo: LogoByte
   if (f.signer_name?.trim()) {
     children.push(
       new Paragraph({
-        children: [new TextRun({ text: f.signer_name.trim(), size: 22, font: 'Arial' })],
+        children: [new TextRun({ text: f.signer_name.trim(), size: 22, font: 'Liberation Sans' })],
       }),
     )
   }
@@ -223,7 +223,7 @@ function buildDocument(layout: string, f: Record<string, string>, logo: LogoByte
               new TextRun({
                 text: footerParts.join(' · '),
                 size: 16,
-                font: 'Arial',
+                font: 'Liberation Sans',
                 color: '888888',
               }),
             ],
@@ -237,7 +237,7 @@ function buildDocument(layout: string, f: Record<string, string>, logo: LogoByte
       default: {
         document: {
           run: {
-            font: 'Arial',
+            font: 'Liberation Sans',
             size: 22,
           },
         },
