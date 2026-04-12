@@ -31198,6 +31198,10 @@ ${pageText}
 
     overlay.id = 'settings-lightbox'
 
+    let refreshSettingsOrchestratorToggleChrome: (() => void) | undefined
+
+    let refreshSettingsPrivacyVisuals: (() => void) | undefined
+
     overlay.style.cssText = `
 
       position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
@@ -31215,7 +31219,7 @@ ${pageText}
     overlay.innerHTML = `
 
 
- <div style="background: ${csTheme().panelBg}; border-radius: 16px; max-width: 860px; width: 92vw; color: ${csTheme().text}; box-shadow: ${csTheme().shadow}; display: flex; flex-direction: column; padding: 1.25rem; box-sizing: border-box;">
+ <div id="settings-modal-panel" style="background: ${csTheme().panelBg}; border-radius: 16px; border: 1px solid ${csTheme().border}; max-width: 860px; width: 92vw; color: ${csTheme().text}; box-shadow: ${csTheme().shadow}; display: flex; flex-direction: column; padding: 1.25rem; box-sizing: border-box; color-scheme: ${csTheme().isLight ? 'light' : 'dark'};">
 
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
           <h3 style="margin:0; font-size:16px; font-weight:700; color:${csTheme().inputText};">⚙️ Extension Settings</h3>
@@ -31336,15 +31340,15 @@ ${pageText}
             </div>
             <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; align-items:start;">
               <div style="display:flex; gap:8px; align-items:flex-start;">
-                <div style="width:20px; height:20px; border-radius:50%; background:${csTheme().accentSolid}; color:#fff; font-size:10px; font-weight:500; display:flex; align-items:center; justify-content:center; flex-shrink:0; margin-top:1px;">1</div>
+                <div class="settings-setup-step-badge" style="width:20px; height:20px; border-radius:50%; background:${csTheme().accentSolid}; color:#fff; font-size:10px; font-weight:500; display:flex; align-items:center; justify-content:center; flex-shrink:0; margin-top:1px;">1</div>
                 <div style="font-size:11px; color:${csTheme().muted}; line-height:1.4;">On your <span style="font-weight:500; color:${csTheme().inputText};">host workstation</span> (GPU), set mode to Host, start a local LLM, and configure BEAP cloning to the sandbox.</div>
               </div>
               <div style="display:flex; gap:8px; align-items:flex-start;">
-                <div style="width:20px; height:20px; border-radius:50%; background:${csTheme().accentSolid}; color:#fff; font-size:10px; font-weight:500; display:flex; align-items:center; justify-content:center; flex-shrink:0; margin-top:1px;">2</div>
+                <div class="settings-setup-step-badge" style="width:20px; height:20px; border-radius:50%; background:${csTheme().accentSolid}; color:#fff; font-size:10px; font-weight:500; display:flex; align-items:center; justify-content:center; flex-shrink:0; margin-top:1px;">2</div>
                 <div style="font-size:11px; color:${csTheme().muted}; line-height:1.4;">Run <span style="font-family:monospace; font-size:10px; background:${csTheme().cardBg}; padding:0 4px; border-radius:2px;">hostname</span> on the host or check your router. Use the hostname or IP — dynamic LAN IPs are fine.</div>
               </div>
               <div style="display:flex; gap:8px; align-items:flex-start;">
-                <div style="width:20px; height:20px; border-radius:50%; background:${csTheme().accentSolid}; color:#fff; font-size:10px; font-weight:500; display:flex; align-items:center; justify-content:center; flex-shrink:0; margin-top:1px;">3</div>
+                <div class="settings-setup-step-badge" style="width:20px; height:20px; border-radius:50%; background:${csTheme().accentSolid}; color:#fff; font-size:10px; font-weight:500; display:flex; align-items:center; justify-content:center; flex-shrink:0; margin-top:1px;">3</div>
                 <div style="font-size:11px; color:${csTheme().muted}; line-height:1.4;">Enter URL above (e.g. <span style="font-family:monospace; font-size:10px; background:${csTheme().cardBg}; padding:0 4px; border-radius:2px;">https://my-pc:51248</span>), click Test. Both devices need the same SSO account.</div>
               </div>
             </div>
@@ -31432,6 +31436,49 @@ ${pageText}
     
 
     safeAppendToBody(overlay)
+
+    function paintSettingsLightboxChrome() {
+      const th = csTheme()
+      overlay.style.cssText = `
+ position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+      background: ${th.overlay}; z-index: 2147483649;
+      display: flex; align-items: center; justify-content: center;
+      backdrop-filter: blur(5px);
+      pointer-events: auto;
+    `
+      const modal = document.getElementById('settings-modal-panel')
+      if (modal) {
+        modal.style.background = th.panelBg
+        modal.style.boxShadow = th.shadow
+        modal.style.color = th.text
+        modal.style.border = `1px solid ${th.border}`
+        modal.style.colorScheme = th.isLight ? 'light' : 'dark'
+      }
+
+      const paintSolidPrimary = (id: string) => {
+        const el = document.getElementById(id) as HTMLElement | null
+        if (el) {
+          el.style.background = th.accentSolid
+          el.style.color = '#fff'
+        }
+      }
+      paintSolidPrimary('btn-change-plan')
+      paintSolidPrimary('btn-save-api-keys')
+      paintSolidPrimary('btn-test-connection')
+      paintSolidPrimary('btn-save-system')
+      paintSolidPrimary('btn-export')
+      paintSolidPrimary('btn-upgrade-for-sandbox')
+
+      modal?.querySelectorAll<HTMLElement>('.settings-setup-step-badge').forEach((el) => {
+        el.style.background = th.accentSolid
+        el.style.color = '#fff'
+      })
+
+      refreshSettingsOrchestratorToggleChrome?.()
+      refreshSettingsPrivacyVisuals?.()
+    }
+
+    paintSettingsLightboxChrome()
 
     document.getElementById('settings-close')?.addEventListener('click', () => overlay.remove())
 
@@ -31535,6 +31582,8 @@ ${pageText}
         // Notify other components (e.g., docked Command Chat) to re-style immediately
 
         try { window.dispatchEvent(new CustomEvent('optimando-theme-changed', { detail: { theme } })) } catch {}
+
+        paintSettingsLightboxChrome()
 
       }
 
@@ -31870,6 +31919,10 @@ ${pageText}
         setPaywallVisible(freeSandboxGate)
       }
 
+      refreshSettingsOrchestratorToggleChrome = () => {
+        applyToggleStyles()
+      }
+
       function loadFromStorage() {
         freeSandboxGate = false
         const cfg = readLsConfig()
@@ -32135,6 +32188,8 @@ ${pageText}
         }
       }
 
+      refreshSettingsPrivacyVisuals = syncPrivacyVisuals
+
       const loaded = readMisc()
       applyMiscToDom(loaded)
       syncPrivacyVisuals()
@@ -32251,6 +32306,8 @@ ${pageText}
     }
 
     wireExtensionLightboxMisc()
+
+    paintSettingsLightboxChrome()
 
 
 

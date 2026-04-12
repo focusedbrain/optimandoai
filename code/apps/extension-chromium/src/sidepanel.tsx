@@ -54,6 +54,7 @@ import {
   getEffectiveLlmModelNameForActiveMode,
 } from './stores/activeCustomModeRuntime'
 import { prependHiddenContextToLastUserContent } from './utils/prependChatFocusToLastUser'
+import { getThemeTokens } from './shared/ui/lightboxTheme'
 import { formatWatchdogAlert, type WatchdogThreat } from './utils/formatWatchdogAlert'
 import { WRGuardWorkspace, useWRGuardStore } from './wrguard'
 import { RecipientModeSwitch, RecipientHandshakeSelect, DeliveryMethodPanel, executeDeliveryAction, BeapMessageListView, BeapBulkInbox, initBeapPqAuth } from './beap-messages'
@@ -4675,6 +4676,29 @@ I'm now focused on optimizing this project. Share context, blockers, or referenc
   }
 
   const themeColors = getThemeColors()
+  const lb =
+    theme === 'pro'
+      ? getThemeTokens('pro')
+      : theme === 'dark'
+        ? getThemeTokens('dark')
+        : getThemeTokens('standard')
+
+  const runtimePrimaryButtonStyle: React.CSSProperties = {
+    padding: '12px',
+    background: lb.accentGradient,
+    border: 'none',
+    color: '#ffffff',
+    borderRadius: '8px',
+    cursor: 'pointer',
+    fontSize: '13px',
+    fontWeight: '600',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: '6px',
+    transition: 'all 0.2s ease',
+    boxShadow: '0 2px 6px rgba(0,0,0,0.2)',
+  }
 
   // Selectbox style based on theme
   const getSelectboxStyle = () => {
@@ -10084,11 +10108,11 @@ I'm now focused on optimizing this project. Share context, blockers, or referenc
             const isEnabled = box.enabled !== false // Default to true
             return (
               <div key={box.id} style={{
-                background: 'rgba(255,255,255,0.12)',
+                background: lb.cardBg,
                 borderRadius: '10px',
                 overflow: 'hidden',
                 marginBottom: '16px',
-                border: '1px solid rgba(255,255,255,0.15)',
+                border: `1px solid ${lb.border}`,
                 boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
                 opacity: isEnabled ? 1 : 0.6
               }}>
@@ -10099,7 +10123,7 @@ I'm now focused on optimizing this project. Share context, blockers, or referenc
                   alignItems: 'center',
                   justifyContent: 'space-between'
                 }}>
-                  <span style={{ fontSize: '12px', fontWeight: '700', opacity: isEnabled ? 1 : 0.5 }}>{box.title || 'Agent Box'}</span>
+                  <span style={{ fontSize: '12px', fontWeight: '700', color: '#ffffff', opacity: isEnabled ? 1 : 0.5 }}>{box.title || 'Agent Box'}</span>
                   <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
                     <label
                       style={{
@@ -10237,13 +10261,13 @@ I'm now focused on optimizing this project. Share context, blockers, or referenc
                 </div>
                 <div 
                   style={{
-                    background: theme === 'dark' ? 'rgba(15,23,42,0.95)' : 'rgba(255,255,255,0.96)',
-                    color: theme === 'dark' ? '#f1f5f9' : '#1e293b',
+                    background: lb.inputBg,
+                    color: lb.inputText,
                     borderRadius: '0 0 10px 10px',
                     padding: '16px',
                     minHeight: `${currentHeight}px`,
                     height: `${currentHeight}px`,
-                    border: theme === 'dark' ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.1)',
+                    border: `1px solid ${lb.border}`,
                     boxShadow: '0 2px 6px rgba(0,0,0,0.08)',
                     position: 'relative',
                     overflow: 'auto',
@@ -10251,11 +10275,11 @@ I'm now focused on optimizing this project. Share context, blockers, or referenc
                     pointerEvents: isEnabled ? 'auto' : 'none'
                   }}
                 >
-                  <div style={{ fontSize: '13px', color: theme === 'dark' ? '#f1f5f9' : '#1e293b', lineHeight: '1.6' }}>
+                  <div style={{ fontSize: '13px', color: lb.inputText, lineHeight: '1.6' }}>
                     {isEnabled ? (
-                      box.output || <span style={{ opacity: 0.5, color: theme === 'dark' ? '#94a3b8' : '#64748b' }}>Ready for {box.title?.replace(/[📝🔍🎯🧮]/g, '').trim()}...</span>
+                      box.output || <span style={{ opacity: 0.5, color: lb.textMuted }}>Ready for {box.title?.replace(/[📝🔍🎯🧮]/g, '').trim()}...</span>
                     ) : (
-                      <span style={{ opacity: 0.7, color: theme === 'dark' ? '#94a3b8' : '#64748b', fontStyle: 'italic' }}>Agent disabled - toggle On to activate</span>
+                      <span style={{ opacity: 0.7, color: lb.textMuted, fontStyle: 'italic' }}>Agent disabled - toggle On to activate</span>
                     )}
                   </div>
                   <div 
@@ -10292,19 +10316,9 @@ I'm now focused on optimizing this project. Share context, blockers, or referenc
         style={{
           width: '100%',
           padding: '16px 20px',
-          ...(theme === 'standard' ? {
-            background: 'rgba(15,23,42,0.08)',
-            border: '2px dashed rgba(15,23,42,0.3)',
-            color: '#0f172a'
-          } : theme === 'dark' ? {
-            background: 'rgba(255,255,255,0.1)',
-            border: '2px dashed rgba(255,255,255,0.3)',
-            color: '#f1f5f9'
-          } : {
-            background: 'rgba(118,75,162,0.3)',
-            border: '2px dashed rgba(255,255,255,0.5)',
-            color: 'white'
-          }),
+          background: theme === 'pro' ? 'rgba(118,75,162,0.3)' : lb.inputBg,
+          border: `2px dashed ${lb.border}`,
+          color: theme === 'pro' ? '#ffffff' : lb.inputText,
           borderRadius: '10px',
           cursor: 'pointer',
           fontSize: '15px',
@@ -10319,28 +10333,22 @@ I'm now focused on optimizing this project. Share context, blockers, or referenc
         }}
         onMouseEnter={(e) => {
           e.currentTarget.style.transform = 'translateY(-2px)'
-          if (theme === 'standard') {
-            e.currentTarget.style.background = 'rgba(15,23,42,0.12)'
-            e.currentTarget.style.borderColor = 'rgba(15,23,42,0.4)'
-          } else if (theme === 'dark') {
-            e.currentTarget.style.background = 'rgba(255,255,255,0.15)'
-            e.currentTarget.style.borderColor = 'rgba(255,255,255,0.4)'
-          } else {
+          if (theme === 'pro') {
             e.currentTarget.style.background = 'rgba(118,75,162,0.55)'
-            e.currentTarget.style.borderColor = 'rgba(255,255,255,0.7)'
+            e.currentTarget.style.borderColor = 'rgba(255,255,255,0.45)'
+          } else {
+            e.currentTarget.style.background = lb.cardBg
+            e.currentTarget.style.borderColor = lb.inputBorder
           }
         }}
         onMouseLeave={(e) => {
           e.currentTarget.style.transform = 'translateY(0)'
-          if (theme === 'standard') {
-            e.currentTarget.style.background = 'rgba(15,23,42,0.08)'
-            e.currentTarget.style.borderColor = 'rgba(15,23,42,0.3)'
-          } else if (theme === 'dark') {
-            e.currentTarget.style.background = 'rgba(255,255,255,0.1)'
-            e.currentTarget.style.borderColor = 'rgba(255,255,255,0.3)'
-          } else {
+          if (theme === 'pro') {
             e.currentTarget.style.background = 'rgba(118,75,162,0.3)'
-            e.currentTarget.style.borderColor = 'rgba(255,255,255,0.5)'
+            e.currentTarget.style.borderColor = lb.border
+          } else {
+            e.currentTarget.style.background = lb.inputBg
+            e.currentTarget.style.borderColor = lb.border
           }
         }}
       >
@@ -10349,11 +10357,11 @@ I'm now focused on optimizing this project. Share context, blockers, or referenc
 
       {/* Runtime Controls Section */}
       <div style={{
-        background: theme === 'pro' ? 'rgba(118,75,162,0.5)' : 'rgba(255,255,255,0.12)',
+        background: theme === 'pro' ? 'rgba(118,75,162,0.5)' : lb.cardBg,
         padding: '16px',
-          borderRadius: '10px',
+        borderRadius: '10px',
         marginBottom: '28px',
-        border: '1px solid rgba(255,255,255,0.15)'
+        border: `1px solid ${theme === 'pro' ? 'rgba(255,255,255,0.2)' : lb.border}`
       }}>
         <h3 style={{
           margin: '0 0 14px 0',
@@ -10365,7 +10373,8 @@ I'm now focused on optimizing this project. Share context, blockers, or referenc
           display: 'grid',
           gridTemplateColumns: '1fr 1fr',
           gap: '10px',
-          alignItems: 'center'
+          alignItems: 'center',
+          color: lb.inputText
         }}>
           <span style={{ display: 'flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap' }}>
             ⚡ Runtime Controls
@@ -10386,11 +10395,11 @@ I'm now focused on optimizing this project. Share context, blockers, or referenc
               width: '50px',
               height: '20px',
               background: currentViewMode === 'app'
-                ? (theme === 'pro' ? 'rgba(76,175,80,0.9)' : theme === 'dark' ? 'rgba(76,175,80,0.9)' : 'rgba(34,197,94,0.9)')
-                : (theme === 'pro' ? 'rgba(255,255,255,0.2)' : theme === 'dark' ? 'rgba(255,255,255,0.2)' : 'rgba(15,23,42,0.2)'),
+                ? (lb.isLight ? 'rgba(34,197,94,0.9)' : 'rgba(74,222,128,0.9)')
+                : lb.tabBg,
               borderRadius: '10px',
               transition: 'background 0.2s',
-              border: theme === 'pro' ? '1px solid rgba(255,255,255,0.3)' : theme === 'dark' ? '1px solid rgba(255,255,255,0.3)' : '1px solid rgba(15,23,42,0.3)',
+              border: `1px solid ${lb.border}`,
               overflow: 'hidden'
             }}>
               <span style={{
@@ -10402,8 +10411,8 @@ I'm now focused on optimizing this project. Share context, blockers, or referenc
                 fontSize: '9px',
                 fontWeight: '700',
                 color: currentViewMode === 'app'
-                  ? 'rgba(255,255,255,0.95)'
-                  : (theme === 'pro' ? 'rgba(255,255,255,0.5)' : theme === 'dark' ? 'rgba(255,255,255,0.5)' : 'rgba(15,23,42,0.5)'),
+                  ? '#ffffff'
+                  : lb.textMuted,
                 transition: 'all 0.2s',
                 userSelect: 'none',
                 textTransform: 'uppercase',
@@ -10418,7 +10427,7 @@ I'm now focused on optimizing this project. Share context, blockers, or referenc
                 left: currentViewMode === 'app' ? '32px' : '3px',
                 width: '14px',
                 height: '14px',
-                background: theme === 'pro' ? 'rgba(255,255,255,0.95)' : theme === 'dark' ? 'rgba(255,255,255,0.95)' : 'rgba(255,255,255,0.95)',
+                background: lb.isLight ? '#ffffff' : 'rgba(255,255,255,0.95)',
                 borderRadius: '50%',
                 transition: 'left 0.2s',
                 boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
@@ -10430,25 +10439,10 @@ I'm now focused on optimizing this project. Share context, blockers, or referenc
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
           <button
             onClick={syncSession}
-            style={{
-              padding: '12px',
-              background: '#2196F3',
-              border: 'none',
-              color: 'white',
-              borderRadius: '8px',
-              cursor: 'pointer',
-              fontSize: '13px',
-              fontWeight: '600',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '6px',
-              transition: 'all 0.2s ease',
-              boxShadow: '0 2px 6px rgba(0,0,0,0.2)'
-            }}
+            style={runtimePrimaryButtonStyle}
             onMouseEnter={(e) => {
               e.currentTarget.style.transform = 'translateY(-2px)'
-              e.currentTarget.style.boxShadow = '0 4px 12px rgba(33,150,243,0.4)'
+              e.currentTarget.style.boxShadow = '0 4px 14px rgba(0,0,0,0.32)'
             }}
             onMouseLeave={(e) => {
               e.currentTarget.style.transform = 'translateY(0)'
@@ -10459,25 +10453,10 @@ I'm now focused on optimizing this project. Share context, blockers, or referenc
           </button>
           <button
             onClick={importSession}
-            style={{
-              padding: '12px',
-              background: '#9C27B0',
-              border: 'none',
-              color: 'white',
-              borderRadius: '8px',
-              cursor: 'pointer',
-              fontSize: '13px',
-              fontWeight: '600',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '6px',
-              transition: 'all 0.2s ease',
-              boxShadow: '0 2px 6px rgba(0,0,0,0.2)'
-            }}
+            style={runtimePrimaryButtonStyle}
             onMouseEnter={(e) => {
               e.currentTarget.style.transform = 'translateY(-2px)'
-              e.currentTarget.style.boxShadow = '0 4px 12px rgba(156,39,176,0.4)'
+              e.currentTarget.style.boxShadow = '0 4px 14px rgba(0,0,0,0.32)'
             }}
             onMouseLeave={(e) => {
               e.currentTarget.style.transform = 'translateY(0)'
@@ -10488,25 +10467,10 @@ I'm now focused on optimizing this project. Share context, blockers, or referenc
           </button>
           <button
             onClick={() => sendToContentScript('OPEN_BACKEND_CONFIG_LIGHTBOX')}
-            style={{
-              padding: '12px',
-              background: '#8b5cf6',
-              border: 'none',
-              color: 'white',
-              borderRadius: '8px',
-              cursor: 'pointer',
-              fontSize: '13px',
-              fontWeight: '600',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '6px',
-              transition: 'all 0.2s ease',
-              boxShadow: '0 2px 6px rgba(0,0,0,0.2)'
-            }}
+            style={runtimePrimaryButtonStyle}
             onMouseEnter={(e) => {
               e.currentTarget.style.transform = 'translateY(-2px)'
-              e.currentTarget.style.boxShadow = '0 4px 12px rgba(139,92,246,0.4)'
+              e.currentTarget.style.boxShadow = '0 4px 14px rgba(0,0,0,0.32)'
             }}
             onMouseLeave={(e) => {
               e.currentTarget.style.transform = 'translateY(0)'
@@ -10518,25 +10482,10 @@ I'm now focused on optimizing this project. Share context, blockers, or referenc
           <button
             onClick={() => sendToContentScript('OPEN_POLICY_LIGHTBOX')}
             title="Policy Configuration"
-            style={{
-              padding: '12px',
-              background: '#10b981',
-              border: 'none',
-              color: 'white',
-              borderRadius: '8px',
-              cursor: 'pointer',
-              fontSize: '13px',
-              fontWeight: '600',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '6px',
-              transition: 'all 0.2s ease',
-              boxShadow: '0 2px 6px rgba(0,0,0,0.2)'
-            }}
+            style={runtimePrimaryButtonStyle}
             onMouseEnter={(e) => {
               e.currentTarget.style.transform = 'translateY(-2px)'
-              e.currentTarget.style.boxShadow = '0 4px 12px rgba(16,185,129,0.4)'
+              e.currentTarget.style.boxShadow = '0 4px 14px rgba(0,0,0,0.32)'
             }}
             onMouseLeave={(e) => {
               e.currentTarget.style.transform = 'translateY(0)'
@@ -10549,19 +10498,9 @@ I'm now focused on optimizing this project. Share context, blockers, or referenc
             onClick={openWRVault}
             style={{
               padding: '12px',
-              ...(theme === 'standard' ? {
-                background: 'rgba(15,23,42,0.08)',
-                border: '1px solid #94a3b8',
-                color: '#0f172a'
-              } : theme === 'dark' ? {
-                background: 'rgba(255,255,255,0.1)',
-                border: '1px solid rgba(255,255,255,0.25)',
-                color: '#f1f5f9'
-              } : {
-                background: 'rgba(255,255,255,0.1)',
-                border: '1px solid rgba(255,255,255,0.25)',
-                color: 'white'
-              }),
+              background: lb.cardBg,
+              border: `1px solid ${lb.border}`,
+              color: lb.inputText,
               borderRadius: '8px',
               cursor: 'pointer',
               fontSize: '13px',
@@ -10576,21 +10515,12 @@ I'm now focused on optimizing this project. Share context, blockers, or referenc
             }}
             onMouseEnter={(e) => {
               e.currentTarget.style.transform = 'translateY(-2px)'
-              if (theme === 'standard') {
-                e.currentTarget.style.background = 'rgba(15,23,42,0.12)'
-                e.currentTarget.style.boxShadow = '0 4px 12px rgba(15,23,42,0.15)'
-              } else {
-                e.currentTarget.style.background = 'rgba(255,255,255,0.2)'
-                e.currentTarget.style.boxShadow = '0 4px 12px rgba(255,255,255,0.15)'
-              }
+              e.currentTarget.style.background = lb.tabBg
+              e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.18)'
             }}
             onMouseLeave={(e) => {
               e.currentTarget.style.transform = 'translateY(0)'
-              if (theme === 'standard') {
-                e.currentTarget.style.background = 'rgba(15,23,42,0.08)'
-              } else {
-                e.currentTarget.style.background = 'rgba(255,255,255,0.1)'
-              }
+              e.currentTarget.style.background = lb.cardBg
               e.currentTarget.style.boxShadow = '0 2px 6px rgba(0,0,0,0.15)'
             }}
           >
