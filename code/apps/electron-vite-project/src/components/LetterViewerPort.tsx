@@ -21,6 +21,7 @@ function isImageFileName(name: string): boolean {
 }
 
 const MULTILINE_KEYS = new Set([
+  'sender',
   'sender_address',
   'recipient',
   'body_summary',
@@ -140,12 +141,27 @@ function findDateField(fields: TemplateField[]): TemplateField | undefined {
   return fields.find((f) => f.name.toLowerCase() === 'date' || f.type === 'date')
 }
 
+function isSenderContactSubfield(n: string): boolean {
+  return (
+    n.includes('phone') ||
+    n.includes('email') ||
+    n.includes('fax') ||
+    n.includes('website') ||
+    n.includes('iban') ||
+    n.includes('bic')
+  )
+}
+
 function findSenderNameField(fields: TemplateField[]): TemplateField | undefined {
   return fields.find((f) => {
     const n = f.name.toLowerCase()
     return (
+      n === 'sender' ||
       n === 'sender_name' ||
-      (n.includes('sender') && !n.includes('address') && !n.includes('recipient'))
+      (n.includes('sender') &&
+        !n.includes('address') &&
+        !n.includes('recipient') &&
+        !isSenderContactSubfield(n))
     )
   })
 }
@@ -153,8 +169,19 @@ function findSenderNameField(fields: TemplateField[]): TemplateField | undefined
 function findSenderAddressField(fields: TemplateField[]): TemplateField | undefined {
   return fields.find((f) => {
     const n = f.name.toLowerCase()
-    return n.includes('sender_address') || (n.includes('sender') && n.includes('address'))
+    return (
+      n === 'sender' ||
+      n.includes('sender_address') ||
+      (n.includes('sender') && n.includes('address'))
+    )
   })
+}
+
+/** Prefer merged `sender`; then legacy `sender_name` / `sender_address` template fields. */
+function resolveSenderTemplateField(fields: TemplateField[]): TemplateField | undefined {
+  const merged = fields.find((f) => f.name === 'sender')
+  if (merged) return merged
+  return findSenderNameField(fields) ?? findSenderAddressField(fields)
 }
 
 function findRecipientEmailField(fields: TemplateField[]): TemplateField | undefined {
@@ -190,8 +217,8 @@ function mapExtractedToTemplateField(extractedKey: string, mode: 'reply' | 'dire
   const replyMap: Record<string, string> = {
     sender_name: 'recipient',
     sender_address: 'recipient',
-    recipient_name: 'sender_name',
-    recipient_address: 'sender_address',
+    recipient_name: 'sender',
+    recipient_address: 'sender',
     subject: 'subject',
     reference_number: 'reference',
     customer_number: 'customer_number',
@@ -224,10 +251,10 @@ function resolveTemplateFieldForSemanticName(
         fields.find((f) => f.name === 'recipient_address') ??
         fields.find((f) => f.name === 'recipient_name')
       )
+    case 'sender':
     case 'sender_name':
-      return findSenderNameField(fields)
     case 'sender_address':
-      return findSenderAddressField(fields)
+      return resolveSenderTemplateField(fields)
     case 'subject':
       return findSubjectField(fields)
     case 'reference':

@@ -102,20 +102,22 @@ function fieldGroup(field: TemplateField): FieldGroup {
   return 'other'
 }
 
-function loadSenderProfile(): { name: string; address: string } {
+function loadSenderProfile(): { sender: string } {
   try {
     const raw = localStorage.getItem(SENDER_PROFILE_KEY)
-    if (!raw) return { name: '', address: '' }
-    const o = JSON.parse(raw) as { name?: string; address?: string }
-    return { name: o.name ?? '', address: o.address ?? '' }
+    if (!raw) return { sender: '' }
+    const o = JSON.parse(raw) as { sender?: string; name?: string; address?: string }
+    if (typeof o.sender === 'string') return { sender: o.sender }
+    const legacy = [o.name, o.address].filter((x) => typeof x === 'string' && x.trim()).join('\n')
+    return { sender: legacy }
   } catch {
-    return { name: '', address: '' }
+    return { sender: '' }
   }
 }
 
-function saveSenderProfile(name: string, address: string) {
+function saveSenderProfile(sender: string) {
   try {
-    localStorage.setItem(SENDER_PROFILE_KEY, JSON.stringify({ name, address }))
+    localStorage.setItem(SENDER_PROFILE_KEY, JSON.stringify({ sender }))
   } catch {
     /* noop */
   }
@@ -346,13 +348,8 @@ export function ComposeFieldsForm({ template, composeSession, replyToLetter }: C
   const persistSenderIfNeeded = useCallback((field: TemplateField, value: string) => {
     const n = field.name.toLowerCase()
     if (n.includes('recipient')) return
-    const prof = loadSenderProfile()
-    if (n === 'sender_address' || (n.includes('sender') && n.includes('address'))) {
-      saveSenderProfile(prof.name, value)
-      return
-    }
-    if (n.includes('sender') && !n.includes('address')) {
-      saveSenderProfile(value, prof.address)
+    if (n === 'sender') {
+      saveSenderProfile(value)
     }
   }, [])
 

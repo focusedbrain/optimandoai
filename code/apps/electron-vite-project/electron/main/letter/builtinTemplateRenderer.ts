@@ -126,9 +126,13 @@ function buildDocument(layout: string, f: Record<string, string>, logo: LogoByte
     )
   }
 
-  if (f.sender_name || f.sender_address) {
-    const addrFirst = f.sender_address?.split('\n')[0]?.trim()
-    const senderLine = [f.sender_name?.trim(), addrFirst].filter(Boolean).join(', ')
+  const rec = f as Record<string, string | undefined>
+  if (rec.sender || rec.sender_name || rec.sender_address) {
+    const senderData =
+      rec.sender?.trim() ||
+      [rec.sender_name, rec.sender_address].filter((x) => x?.trim()).join('\n')
+    const senderFirstLine = senderData.split('\n')[0]?.trim() || ''
+    const senderLine = senderFirstLine
     if (senderLine) {
       children.push(
         new Paragraph({

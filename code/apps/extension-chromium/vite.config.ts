@@ -8,7 +8,7 @@ import manifest from './manifest.config.ts'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 /** Build stamp (also set as import.meta.env). */
-const VITE_EXT_BUILD_STAMP = 'build00102'
+const VITE_EXT_BUILD_STAMP = 'build00103'
 
 export default defineConfig({
   plugins: [react(), crx({ manifest })],
@@ -23,7 +23,7 @@ export default defineConfig({
   },
   build: {
     // Literal string required by apps/electron-vite-project/scripts/clear-build-caches.cjs (regex on vite.config.ts)
-    outDir: 'build00102',
+    outDir: 'build00103',
     emptyOutDir: true,
     rollupOptions: {
       // HTML entry so Vite resolves ./popup-chat.tsx inside the template and emits hashed JS (fixes blank popup).

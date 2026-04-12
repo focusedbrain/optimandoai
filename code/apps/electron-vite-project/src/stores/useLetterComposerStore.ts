@@ -12,8 +12,8 @@ export type FieldType = 'text' | 'date' | 'multiline' | 'address' | 'richtext'
 
 export interface TemplateField {
   id: string
-  name: string // semantic name: "sender_address", "recipient", "body"
-  label: string // display label: "Sender Address", "Recipient", "Body"
+  name: string // semantic name: "sender", "recipient", "body"
+  label: string // display label: "Sender", "Recipient", "Body"
   type: FieldType
   mode: FieldMode // 'fixed' = positioned zone, 'flow' = variable-length region
   // Position on the PDF preview (relative to page, 0-1 normalized coordinates)
@@ -50,8 +50,8 @@ export interface LetterTemplate {
 
 /** Saved sender profile for Quick Start wizard pre-fill (persisted). */
 export interface CompanyProfile {
-  sender_name: string
-  sender_address: string
+  /** Name + postal address (merged; same idea as `recipient`). */
+  sender: string
   sender_phone: string
   sender_email: string
   signer_name: string
@@ -60,8 +60,7 @@ export interface CompanyProfile {
 }
 
 export const DEFAULT_COMPANY_PROFILE: CompanyProfile = {
-  sender_name: '',
-  sender_address: '',
+  sender: '',
   sender_phone: '',
   sender_email: '',
   signer_name: '',
@@ -94,8 +93,7 @@ export interface BuiltinTemplate {
 function builtinLetterFields(): BuiltinTemplateField[] {
   return [
     { name: 'company_logo', label: 'Company Logo', type: 'text', mode: 'fixed', staticField: true },
-    { name: 'sender_name', label: 'Sender Name', type: 'text', mode: 'fixed', staticField: true },
-    { name: 'sender_address', label: 'Sender Address', type: 'address', mode: 'fixed', staticField: true },
+    { name: 'sender', label: 'Sender', type: 'address', mode: 'fixed', staticField: true },
     { name: 'sender_phone', label: 'Phone', type: 'text', mode: 'fixed', staticField: true },
     { name: 'sender_email', label: 'Email', type: 'text', mode: 'fixed', staticField: true },
     { name: 'recipient', label: 'Recipient', type: 'address', mode: 'fixed', staticField: false },
@@ -197,7 +195,7 @@ export interface ComposeSession {
   createdAt: string
 }
 
-const PERSIST_VERSION = 8
+const PERSIST_VERSION = 9
 
 /** Public helper for mapping UI — derive semantic `name` from a display label. */
 export function slugifyTemplateFieldName(label: string): string {
@@ -428,10 +426,193 @@ function migrateComposeSessionsRecipientFieldIds(
   })
 }
 
+/** Per-template ID mapping after merging sender_name + sender_address → sender (persist v9). */
+type SenderFieldMergeMeta = {
+  templateId: string
+  oldNameId?: string
+  oldAddrId?: string
+  newSenderId: string
+}
+
+function isLegacySenderNameField(f: TemplateField): boolean {
+  return f.name === 'sender_name'
+}
+
+function isLegacySenderAddressField(f: TemplateField): boolean {
+  return f.name === 'sender_address'
+}
+
+function templateHasLegacySenderFields(template: LetterTemplate): boolean {
+  return template.fields.some((f) => isLegacySenderNameField(f) || isLegacySenderAddressField(f))
+}
+
+/**
+ * Merges legacy `sender_name` + `sender_address` into a single `sender` field.
+ * Idempotent when `sender` already exists alongside legacy fields.
+ */
+function migrateTemplatesSenderFields(templates: LetterTemplate[]): {
+  templates: LetterTemplate[]
+  merges: SenderFieldMergeMeta[]
+} {
+  const merges: SenderFieldMergeMeta[] = []
+  const out = templates.map((template) => {
+    if (!templateHasLegacySenderFields(template)) {
+      return template
+    }
+
+    const oldName = template.fields.find(isLegacySenderNameField)
+    const oldAddr = template.fields.find(isLegacySenderAddressField)
+    const existingSender = template.fields.find((f) => f.name === 'sender')
+
+    const nameValue = oldName?.value?.trim() || ''
+    const addressValue = oldAddr?.value?.trim() || ''
+    const combinedLegacy = combinedRecipientFieldText(nameValue, addressValue)
+
+    if (existingSender) {
+      const cur = (existingSender.value ?? '').trim()
+      const mergedValue =
+        cur && combinedLegacy
+          ? combinedRecipientFieldText(cur, combinedLegacy)
+          : cur || combinedLegacy
+
+      merges.push({
+        templateId: template.id,
+        oldNameId: oldName?.id,
+        oldAddrId: oldAddr?.id,
+        newSenderId: existingSender.id,
+      })
+
+      const newFields = template.fields
+        .filter((f) => !isLegacySenderNameField(f) && !isLegacySenderAddressField(f))
+        .map((f) => (f.id === existingSender.id ? { ...f, value: mergedValue } : f))
+
+      return {
+        ...template,
+        fields: newFields,
+        updatedAt: new Date().toISOString(),
+      }
+    }
+
+    const newSenderId = oldName?.id || oldAddr?.id || crypto.randomUUID()
+    merges.push({
+      templateId: template.id,
+      oldNameId: oldName?.id,
+      oldAddrId: oldAddr?.id,
+      newSenderId,
+    })
+
+    const base = oldAddr ?? oldName
+    const def =
+      (oldAddr?.defaultValue?.trim() || oldName?.defaultValue?.trim() || '').trim() || ''
+    const newSenderField: TemplateField = {
+      id: newSenderId,
+      name: 'sender',
+      label: 'Sender',
+      type: 'address',
+      mode: 'fixed',
+      page: base?.page ?? 0,
+      x: base?.x ?? 0,
+      y: base?.y ?? 0,
+      w: base?.w ?? 0,
+      h: base?.h ?? 0,
+      value: combinedLegacy,
+      defaultValue: def,
+      anchorText: (oldAddr?.anchorText || oldName?.anchorText || '').trim(),
+      placeholder: 'Sender name and address',
+    }
+
+    const oldIndex = template.fields.findIndex(
+      (f) => isLegacySenderNameField(f) || isLegacySenderAddressField(f),
+    )
+    const newFields = template.fields.filter(
+      (f) => !isLegacySenderNameField(f) && !isLegacySenderAddressField(f),
+    )
+    const insertIndex = oldIndex >= 0 ? Math.min(oldIndex, newFields.length) : newFields.length
+    newFields.splice(insertIndex, 0, newSenderField)
+    return {
+      ...template,
+      fields: newFields,
+      updatedAt: new Date().toISOString(),
+    }
+  })
+  return { templates: out, merges }
+}
+
+function migrateComposeSessionsSenderFieldIds(
+  sessions: ComposeSession[],
+  merges: SenderFieldMergeMeta[],
+): ComposeSession[] {
+  const byTemplate = new Map<string, SenderFieldMergeMeta>()
+  for (const m of merges) {
+    byTemplate.set(m.templateId, m)
+  }
+  return sessions.map((session) => {
+    const meta = byTemplate.get(session.templateId)
+    if (!meta) return session
+    const { oldNameId, oldAddrId, newSenderId } = meta
+    const remap = (fv: Record<string, string>): Record<string, string> => {
+      const nameVal = oldNameId ? fv[oldNameId] ?? '' : ''
+      const addrVal = oldAddrId ? fv[oldAddrId] ?? '' : ''
+      const existingNew = fv[newSenderId] ?? ''
+      const next: Record<string, string> = { ...fv }
+      if (oldNameId) delete next[oldNameId]
+      if (oldAddrId && oldAddrId !== oldNameId) delete next[oldAddrId]
+      let combined = combinedRecipientFieldText(nameVal, addrVal)
+      if (!combined.trim() && existingNew.trim()) {
+        combined = existingNew
+      }
+      next[newSenderId] = combined
+      return next
+    }
+    return {
+      ...session,
+      fieldValues: remap(session.fieldValues ?? {}),
+      versions: (session.versions ?? []).map(remap),
+    }
+  })
+}
+
+function migrateCompanyProfileSenderKeys(raw: unknown): CompanyProfile {
+  const legacy = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {}
+  const sender_phone = String(legacy.sender_phone ?? '')
+  const sender_email = String(legacy.sender_email ?? '')
+  const signer_name = String(legacy.signer_name ?? '')
+  const logoRaw = legacy.logoPath
+  const logoPath = logoRaw === null || typeof logoRaw === 'string' ? logoRaw : null
+
+  let sender = String(legacy.sender ?? '').trim()
+  if ('sender_name' in legacy || 'sender_address' in legacy) {
+    const sn = String(legacy.sender_name ?? '').trim()
+    const sa = String(legacy.sender_address ?? '').trim()
+    const legacyCombined = sn && sa ? combinedRecipientFieldText(sn, sa) : sn || sa
+    sender =
+      sender && legacyCombined
+        ? combinedRecipientFieldText(sender, legacyCombined)
+        : sender || legacyCombined
+  }
+
+  return {
+    sender,
+    sender_phone,
+    sender_email,
+    signer_name,
+    logoPath,
+  }
+}
+
 /** Semantic keys used by applyVaultDataToTemplate — matches builtin + common PDF mapping variants. */
 const VAULT_APPLY_FIELD_CANDIDATES: Record<string, string[]> = {
-  sender_name: ['sender_name', 'sender name', 'sendername', 'name', 'organization', 'company'],
-  sender_address: ['sender_address', 'sender address', 'senderaddress', 'address', 'street address'],
+  sender: [
+    'sender',
+    'sender_name',
+    'sender_address',
+    'sender name',
+    'sendername',
+    'name',
+    'organization',
+    'company',
+    'address',
+  ],
   sender_email: ['sender_email', 'sender email', 'senderemail', 'email', 'e-mail', 'e_mail'],
   sender_phone: ['sender_phone', 'sender phone', 'senderphone', 'phone', 'telephone', 'tel', 'mobile'],
   signer_name: ['signer_name', 'signer', 'signer name', 'signername', 'authorized signer', 'ceo_name'],
@@ -956,8 +1137,15 @@ export const useLetterComposerStore = create<LetterComposerState>()(
         if (!preview) return
 
         const mapping: Record<string, string> = {}
-        if (preview.name?.trim()) mapping.sender_name = preview.name.trim()
-        if (preview.address?.trim()) mapping.sender_address = preview.address.trim()
+        const senderName = preview.name?.trim() || ''
+        const senderAddr = preview.address?.trim() || ''
+        const senderCombined =
+          senderName && senderAddr
+            ? senderAddr.toLowerCase().includes(senderName.toLowerCase())
+              ? senderAddr
+              : `${senderName}\n${senderAddr}`
+            : senderName || senderAddr
+        if (senderCombined) mapping.sender = senderCombined
         if (preview.email?.trim()) mapping.sender_email = preview.email.trim()
         if (preview.phone?.trim()) mapping.sender_phone = preview.phone.trim()
         if (preview.signerName?.trim()) mapping.signer_name = preview.signerName.trim()
@@ -1042,19 +1230,56 @@ export const useLetterComposerStore = create<LetterComposerState>()(
             composeSessions: nextSessions,
           }
         }
+        if (fromVersion < 9) {
+          const templates = Array.isArray(p.templates) ? (p.templates as LetterTemplate[]) : []
+          const composeSessions = Array.isArray(p.composeSessions)
+            ? (p.composeSessions as ComposeSession[])
+            : []
+          const { templates: nextTemplates, merges } = migrateTemplatesSenderFields(templates)
+          const nextSessions = migrateComposeSessionsSenderFieldIds(composeSessions, merges)
+          p = {
+            ...p,
+            templates: nextTemplates,
+            composeSessions: nextSessions,
+            companyProfile: migrateCompanyProfileSenderKeys(p.companyProfile),
+          }
+        }
 
         return p
       },
       /** Catches legacy fields after rehydration (label-based + semantic names). */
       onRehydrateStorage: () => (state) => {
-        if (!state?.templates?.length) return
-        const hasLegacy = state.templates.some((t) => templateHasLegacyRecipientFields(t))
-        if (!hasLegacy) return
-        const { templates: nextTemplates, merges } = migrateTemplatesRecipientFields(state.templates)
-        const nextSessions = migrateComposeSessionsRecipientFieldIds(state.composeSessions ?? [], merges)
-        queueMicrotask(() => {
-          useLetterComposerStore.setState({ templates: nextTemplates, composeSessions: nextSessions })
-        })
+        if (!state) return
+        let templates = state.templates ?? []
+        let composeSessions = state.composeSessions ?? []
+        let companyProfile = state.companyProfile
+
+        const hasLegacyRecipient = templates.some((t) => templateHasLegacyRecipientFields(t))
+        if (hasLegacyRecipient) {
+          const { templates: nt, merges } = migrateTemplatesRecipientFields(templates)
+          templates = nt
+          composeSessions = migrateComposeSessionsRecipientFieldIds(composeSessions, merges)
+        }
+
+        const hasLegacySender = templates.some((t) => templateHasLegacySenderFields(t))
+        if (hasLegacySender) {
+          const { templates: nt, merges } = migrateTemplatesSenderFields(templates)
+          templates = nt
+          composeSessions = migrateComposeSessionsSenderFieldIds(composeSessions, merges)
+        }
+
+        if (companyProfile && typeof companyProfile === 'object') {
+          const cp = companyProfile as unknown as Record<string, unknown>
+          if ('sender_name' in cp || 'sender_address' in cp) {
+            companyProfile = migrateCompanyProfileSenderKeys(companyProfile)
+          }
+        }
+
+        if (hasLegacyRecipient || hasLegacySender || companyProfile !== state.companyProfile) {
+          queueMicrotask(() => {
+            useLetterComposerStore.setState({ templates, composeSessions, companyProfile })
+          })
+        }
       },
       partialize: (s) => ({
         templates: s.templates.map((t) => ({
@@ -1072,9 +1297,95 @@ export const useLetterComposerStore = create<LetterComposerState>()(
 )
 
 useLetterComposerStore.persist.onFinishHydration(() => {
-  const { templates, composeSessions } = useLetterComposerStore.getState()
-  if (!templates.some((t) => templateHasLegacyRecipientFields(t))) return
-  const { templates: nextTemplates, merges } = migrateTemplatesRecipientFields(templates)
-  const nextSessions = migrateComposeSessionsRecipientFieldIds(composeSessions ?? [], merges)
-  useLetterComposerStore.setState({ templates: nextTemplates, composeSessions: nextSessions })
+  const state = useLetterComposerStore.getState()
+  let { templates, composeSessions, companyProfile } = state
+  let changed = false
+
+  if (templates.some((t) => templateHasLegacyRecipientFields(t))) {
+    const { templates: nt, merges } = migrateTemplatesRecipientFields(templates)
+    templates = nt
+    composeSessions = migrateComposeSessionsRecipientFieldIds(composeSessions ?? [], merges)
+    changed = true
+  }
+
+  if (templates.some((t) => templateHasLegacySenderFields(t))) {
+    const { templates: nt, merges } = migrateTemplatesSenderFields(templates)
+    templates = nt
+    composeSessions = migrateComposeSessionsSenderFieldIds(composeSessions ?? [], merges)
+    changed = true
+  }
+
+  const cp = companyProfile as unknown as Record<string, unknown> | null
+  if (cp && ('sender_name' in cp || 'sender_address' in cp)) {
+    companyProfile = migrateCompanyProfileSenderKeys(companyProfile)
+    changed = true
+  }
+
+  if (changed) {
+    useLetterComposerStore.setState({ templates, composeSessions, companyProfile })
+  }
 })
+
+// Post-migration guard (runtime): catch any remaining legacy sender fields after rehydration.
+if (typeof window !== 'undefined') {
+  setTimeout(() => {
+    const { templates, companyProfile } = useLetterComposerStore.getState()
+    let changed = false
+
+    const migrated = templates.map((t) => {
+      const hasLegacy = t.fields?.some((f) => f.name === 'sender_name' || f.name === 'sender_address')
+      if (!hasLegacy) return t
+      changed = true
+
+      const fn = t.fields.find((f) => f.name === 'sender_name')
+      const fa = t.fields.find((f) => f.name === 'sender_address')
+      const nv = fn?.value?.trim() || ''
+      const av = fa?.value?.trim() || ''
+      const val = nv && av ? `${nv}\n${av}` : nv || av
+
+      const existingSender = t.fields.find((f) => f.name === 'sender')
+      if (existingSender) {
+        const cur = (existingSender.value ?? '').trim()
+        const mergedValue =
+          cur && val ? combinedRecipientFieldText(cur, val) : cur || val
+        const newFields = t.fields
+          .filter((f) => f.name !== 'sender_name' && f.name !== 'sender_address')
+          .map((f) => (f.id === existingSender.id ? { ...f, value: mergedValue } : f))
+        return { ...t, fields: newFields, updatedAt: new Date().toISOString() }
+      }
+
+      const base = fa ?? fn
+      const nf: TemplateField = {
+        id: fn?.id || fa?.id || crypto.randomUUID(),
+        name: 'sender',
+        label: 'Sender',
+        type: 'address',
+        mode: 'fixed',
+        page: base?.page ?? 0,
+        x: base?.x ?? 0,
+        y: base?.y ?? 0,
+        w: base?.w ?? 0,
+        h: base?.h ?? 0,
+        value: val,
+        defaultValue: '',
+        anchorText: (fa?.anchorText || fn?.anchorText || '').trim(),
+      }
+      const idx = t.fields.findIndex((f) => f.name === 'sender_name' || f.name === 'sender_address')
+      const clean = t.fields.filter((f) => f.name !== 'sender_name' && f.name !== 'sender_address')
+      clean.splice(Math.min(idx >= 0 ? idx : clean.length, clean.length), 0, nf)
+      return { ...t, fields: clean, updatedAt: new Date().toISOString() }
+    })
+
+    let nextCompanyProfile = companyProfile
+    const cpLegacy = companyProfile as unknown as Record<string, unknown>
+    if ('sender_name' in cpLegacy || 'sender_address' in cpLegacy) {
+      changed = true
+      nextCompanyProfile = migrateCompanyProfileSenderKeys(companyProfile)
+    }
+
+    if (changed) {
+      useLetterComposerStore.setState({ templates: migrated, companyProfile: nextCompanyProfile })
+      console.log('[MIGRATION] Sender fields migrated')
+    }
+  }, 500)
+}

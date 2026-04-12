@@ -441,8 +441,7 @@ export function LetterTemplatePort() {
     setupWizardInitRef.current = key
     setCompanyDetails({
       company_logo: '',
-      sender_name: '',
-      sender_address: '',
+      sender: '',
       sender_phone: '',
       sender_email: '',
       signer_name: '',
@@ -475,7 +474,7 @@ export function LetterTemplatePort() {
   const handleFinishBuiltinSetup = useCallback(() => {
     const selected = selectedBuiltinTemplate
     if (!selected) return
-    const senderName = (companyDetails.sender_name || '').trim()
+    const senderName = (companyDetails.sender || '').trim()
     if (!senderName) return
 
     const logoData = logoPreview?.trim() || companyDetails.company_logo?.trim() || null
@@ -511,7 +510,7 @@ export function LetterTemplatePort() {
 
     const template: LetterTemplate = {
       id: `builtin-${selected.id}-${Date.now()}`,
-      name: `${selected.name} — ${senderName}`,
+      name: `${selected.name} — ${senderName.split('\n')[0]?.trim() || senderName}`,
       sourceFileName: '',
       sourceFilePath: '',
       pdfPreviewPath: '',
@@ -527,8 +526,7 @@ export function LetterTemplatePort() {
 
     const st = useLetterComposerStore.getState()
     st.setCompanyProfile({
-      sender_name: companyDetails.sender_name ?? '',
-      sender_address: companyDetails.sender_address ?? '',
+      sender: companyDetails.sender ?? '',
       sender_phone: companyDetails.sender_phone ?? '',
       sender_email: companyDetails.sender_email ?? '',
       signer_name: companyDetails.signer_name ?? '',
@@ -1072,7 +1070,7 @@ export function LetterTemplatePort() {
               type="button"
               className="template-toolbar__btn template-toolbar__btn--primary setup-finish-btn"
               onClick={handleFinishBuiltinSetup}
-              disabled={!(companyDetails.sender_name || '').trim()}
+              disabled={!(companyDetails.sender || '').trim()}
             >
               Finish Setup →
             </button>
