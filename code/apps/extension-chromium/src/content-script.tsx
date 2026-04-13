@@ -31304,6 +31304,10 @@ ${pageText}
 
             <div style="background:var(--cs-card-bg);border:1px solid var(--cs-border);border-radius:8px;padding:10px 12px;display:flex;flex-direction:column;">
               <span style="font-size:13px;font-weight:500;color:var(--cs-input-text);display:block;margin-bottom:6px;">🔗 Orchestrator mode</span>
+              <div style="margin-bottom:6px;">
+                <label for="device-name-input" style="font-size:11px;color:${csTheme().muted};display:block;margin-bottom:2px;">This device</label>
+                <input id="device-name-input" type="text" placeholder="My Computer" autocomplete="off" style="width:100%;box-sizing:border-box;padding:4px 8px;border-radius:4px;border:1px solid ${csTheme().border};background:${csTheme().cardBg};font-size:11px;color:${csTheme().inputText};outline:none;" />
+              </div>
               <div style="display:flex;gap:0;margin-bottom:8px;border-radius:6px;overflow:hidden;border:1px solid var(--cs-border);">
                 <div id="btn-mode-host" style="flex:1;text-align:center;padding:4px 0;font-size:12px;font-weight:500;background:var(--cs-accent);color:#fff;cursor:pointer;">Host</div>
                 <div id="btn-mode-sandbox" style="flex:1;text-align:center;padding:4px 0;font-size:12px;font-weight:500;background:var(--cs-input-bg);color:var(--cs-muted);cursor:pointer;border-left:1px solid var(--cs-border);">Sandbox</div>
@@ -31316,12 +31320,6 @@ ${pageText}
                   <span id="host-inference-status-line" style="font-size:11px;color:var(--cs-success-text);">Serving inference</span>
                 </div>
                 <div style="font-size:11px;color:var(--cs-muted);line-height:1.4;">Ensure inference API is reachable (HTTPS + firewall).</div>
-                <div style="margin-top:8px;margin-bottom:5px;">
-                  <label for="device-name-input-host" style="font-size:11px;color:var(--cs-muted);display:block;margin-bottom:2px;">Device name</label>
-                  <input id="device-name-input-host" type="text" placeholder="This device" autocomplete="off" style="width:100%;box-sizing:border-box;padding:4px 8px;border-radius:4px;border:1px solid var(--cs-border);background:var(--cs-card-bg);font-size:11px;color:var(--cs-input-text);outline:none;" />
-                </div>
-                <div style="font-size:11px;color:var(--cs-muted);margin-bottom:4px;">Connected devices</div>
-                <ul id="host-connected-peers-list" style="list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:4px;min-height:18px;"></ul>
               </div>
 
               <div id="sandbox-mode-content" style="display:none;">
@@ -31331,18 +31329,21 @@ ${pageText}
                     <span id="btn-upgrade-for-sandbox" style="font-size:11px;padding:3px 12px;border-radius:6px;font-weight:700;background:var(--cs-accent);color:#fff;cursor:pointer;display:inline-block;">Upgrade plan</span>
                   </div>
                 </div>
-                <div id="sandbox-mode-paid-panel">
-                <div style="margin-bottom:5px;">
-                  <label for="device-name-input" style="font-size:11px;color:var(--cs-muted);display:block;margin-bottom:2px;">Device name</label>
-                  <input id="device-name-input" type="text" placeholder="This device" autocomplete="off" style="width:100%;box-sizing:border-box;padding:4px 8px;border-radius:4px;border:1px solid var(--cs-border);background:var(--cs-card-bg);font-size:11px;color:var(--cs-input-text);outline:none;" />
+                <div id="sandbox-mode-paid-panel"></div>
+              </div>
+
+              <div id="orchestrator-device-list" style="margin-bottom:6px;">
+                <label style="font-size:11px;color:${csTheme().muted};display:block;margin-bottom:3px;">My devices</label>
+                <div id="device-list-container" style="display:flex;flex-direction:column;gap:2px;max-height:80px;overflow-y:auto;">
+                  <div style="font-size:11px;color:${csTheme().muted};opacity:0.6;padding:4px 8px;">Loading...</div>
                 </div>
+              </div>
+
+              <div id="sandbox-connect-row" style="display:none;">
                 <div style="margin-bottom:6px;">
                   <span id="btn-connect-devices" style="font-size:11px;padding:2px 12px;border-radius:6px;background:var(--cs-accent);color:#fff;cursor:pointer;display:inline-block;font-weight:600;">Connect</span>
                 </div>
-                <div id="sandbox-connect-hint" style="font-size:10px;color:var(--cs-muted);margin-bottom:4px;min-height:14px;line-height:1.3;"></div>
-                <div style="font-size:11px;color:var(--cs-muted);margin-bottom:4px;">Connected devices</div>
-                <ul id="connected-peers-list" style="list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:4px;min-height:18px;"></ul>
-                </div>
+                <div id="connection-status" style="margin-top:4px;"></div>
               </div>
             </div>
 
@@ -31362,20 +31363,20 @@ ${pageText}
             <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
               <span style="font-size:12px;font-weight:500;color:var(--cs-input-text);">Sandbox Setup</span>
               <div style="width:1px;height:12px;background:var(--cs-border);"></div>
-              <span style="font-size:11px;color:var(--cs-muted);opacity:0.8;">Connect a sandbox device to this host's local LLM</span>
+              <span style="font-size:11px;color:var(--cs-muted);opacity:0.8;">Connect your devices via SSO — no IP configuration needed</span>
             </div>
             <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;align-items:start;">
               <div style="display:flex;gap:8px;align-items:flex-start;">
                 <div class="settings-setup-step-badge" style="width:20px;height:20px;border-radius:50%;background:var(--cs-accent);color:#fff;font-size:10px;font-weight:500;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px;">1</div>
-                <div style="font-size:11px;color:var(--cs-muted);line-height:1.4;">On your <span style="font-weight:500;color:var(--cs-input-text);">host workstation</span> (GPU), set mode to Host, start a local LLM, and configure BEAP cloning to the sandbox.</div>
+                <div style="font-size:11px;color:var(--cs-muted);line-height:1.4;">On your host workstation (GPU), set mode to Host and start a local LLM in Backend Configuration.</div>
               </div>
               <div style="display:flex;gap:8px;align-items:flex-start;">
                 <div class="settings-setup-step-badge" style="width:20px;height:20px;border-radius:50%;background:var(--cs-accent);color:#fff;font-size:10px;font-weight:500;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px;">2</div>
-                <div style="font-size:11px;color:var(--cs-muted);line-height:1.4;">Run <span style="font-family:monospace;font-size:10px;background:var(--cs-card-bg);padding:0 4px;border-radius:2px;">hostname</span> on the host or check your router. Use the hostname or IP — dynamic LAN IPs are fine.</div>
+                <div style="font-size:11px;color:var(--cs-muted);line-height:1.4;">Log in with the same SSO account on both devices. Set one to Host, the other to Sandbox.</div>
               </div>
               <div style="display:flex;gap:8px;align-items:flex-start;">
                 <div class="settings-setup-step-badge" style="width:20px;height:20px;border-radius:50%;background:var(--cs-accent);color:#fff;font-size:10px;font-weight:500;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px;">3</div>
-                <div style="font-size:11px;color:var(--cs-muted);line-height:1.4;">Click Connect on both devices. They find each other automatically via your SSO account — no IP address needed.</div>
+                <div style="font-size:11px;color:var(--cs-muted);line-height:1.4;">Click Connect on both devices. They discover each other automatically — BEAP capsules and inference route securely via your shared identity.</div>
               </div>
             </div>
           </div>
@@ -31830,16 +31831,14 @@ ${pageText}
       const sandboxContent = document.getElementById('sandbox-mode-content')
       const desktopHint = document.getElementById('orch-desktop-sync-hint')
       const deviceNameInput = document.getElementById('device-name-input') as HTMLInputElement | null
-      const deviceNameInputHost = document.getElementById('device-name-input-host') as HTMLInputElement | null
       const connectBtn = document.getElementById('btn-connect-devices')
-      const peersListSandbox = document.getElementById('connected-peers-list')
-      const peersListHost = document.getElementById('host-connected-peers-list')
-      const sandboxConnectHint = document.getElementById('sandbox-connect-hint')
+      const deviceListContainer = document.getElementById('device-list-container')
+      const sandboxConnectRow = document.getElementById('sandbox-connect-row')
+      const connectionStatusEl = document.getElementById('connection-status')
 
       let userTier = 'free'
       let selectedMode: 'host' | 'sandbox' = 'host'
       let freeSandboxGate = false
-      let connectBusy = false
       let lastMergedPeers: OrchPeer[] = []
 
       function isPaidOrchestratorTier(t: string): boolean {
@@ -31899,7 +31898,7 @@ ${pageText}
 
       function persistOrchestratorLocal() {
         const cur = readLsBlob()
-        const nameRaw = (deviceNameInput?.value || deviceNameInputHost?.value || '').trim()
+        const nameRaw = (deviceNameInput?.value || '').trim()
         const deviceName = nameRaw || (typeof cur.deviceName === 'string' ? cur.deviceName : '') || ''
         const peers = lastMergedPeers.length > 0 ? lastMergedPeers : (cur.connectedPeers ?? [])
         writeLsBlob({
@@ -31924,49 +31923,95 @@ ${pageText}
         } catch { /* ignore */ }
       }
 
-      function syncDeviceNameInputs(value: string) {
+      function syncDeviceNameInput(value: string) {
         if (deviceNameInput) deviceNameInput.value = value
-        if (deviceNameInputHost) deviceNameInputHost.value = value
       }
 
-      function renderPeerUl(ul: HTMLElement | null, peers: OrchPeer[], perspective: 'host' | 'sandbox') {
-        if (!ul) return
+      function escapeOrchListText(s: string): string {
+        return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;')
+      }
+
+      function ensureStoredDeviceNameDefaults() {
+        const cur = readLsBlob()
+        if (typeof cur.deviceName === 'string' && cur.deviceName.trim()) return
+        const ua = typeof navigator !== 'undefined' ? navigator.userAgent : ''
+        const fallback =
+          ua.includes('Windows') ? 'Windows PC' : ua.includes('Mac') ? 'Mac' : ua.includes('Linux') ? 'Linux PC' : 'My Device'
+        writeLsBlob({
+          ...cur,
+          deviceName: fallback,
+        })
+        syncDeviceNameInput(fallback)
+      }
+
+      const orchModeBridge = (window as unknown as {
+        orchestratorMode?: {
+          getConnectedPeers?: () => Promise<unknown>
+          setDeviceName?: (name: string) => Promise<unknown>
+          removePeer?: (instanceId: string) => Promise<unknown>
+        }
+      }).orchestratorMode
+
+      async function loadDeviceList() {
+        if (!deviceListContainer) return
         const th = csTheme()
-        ul.replaceChildren()
-        const filtered =
-          perspective === 'host' ? peers.filter((p) => p.mode === 'sandbox') : peers.filter((p) => p.mode === 'host')
-        if (filtered.length === 0) {
-          const li = document.createElement('li')
-          li.style.fontSize = '11px'
-          li.style.color = th.muted
-          li.textContent = 'No devices connected'
-          ul.appendChild(li)
+        let peers: OrchPeer[] = []
+        try {
+          if (typeof orchModeBridge?.getConnectedPeers === 'function') {
+            const raw = await orchModeBridge.getConnectedPeers()
+            if (Array.isArray(raw)) {
+              peers = raw.filter(isOrchPeer)
+            }
+          }
+        } catch { /* ignore */ }
+        if (peers.length === 0 && lastMergedPeers.length > 0) {
+          peers = lastMergedPeers
+        }
+        if (peers.length === 0) {
+          const lsPeers = readLsBlob().connectedPeers ?? []
+          if (lsPeers.length > 0) peers = lsPeers
+        }
+        if (peers.length === 0) {
+          deviceListContainer.innerHTML = `
+      <div style="font-size:11px;color:${th.muted};opacity:0.6;padding:4px 8px;text-align:center;">
+        No other devices connected yet.<br>
+        <span style="font-size:10px;">Sign in with the same SSO account on another device and click Connect.</span>
+      </div>`
           return
         }
-        for (const p of filtered) {
-          const li = document.createElement('li')
-          li.style.display = 'flex'
-          li.style.alignItems = 'center'
-          li.style.gap = '6px'
-          li.style.fontSize = '11px'
-          li.style.color = th.inputText
-          const dot = document.createElement('span')
-          dot.style.width = '6px'
-          dot.style.height = '6px'
-          dot.style.borderRadius = '50%'
-          dot.style.background = p.status === 'connected' ? th.success : th.muted
-          dot.style.flexShrink = '0'
-          const label = document.createElement('span')
-          label.textContent = p.deviceName || 'Device'
-          li.appendChild(dot)
-          li.appendChild(label)
-          ul.appendChild(li)
-        }
-      }
-
-      function applyPeerRender() {
-        renderPeerUl(peersListHost, lastMergedPeers, 'host')
-        renderPeerUl(peersListSandbox, lastMergedPeers, 'sandbox')
+        deviceListContainer.innerHTML = peers
+          .map((peer) => {
+            const name = escapeOrchListText(peer.deviceName || 'Unknown device')
+            const modeLabel = escapeOrchListText(peer.mode || '?')
+            const id = escapeOrchListText(peer.instanceId)
+            const dot = peer.status === 'connected' ? th.success : th.muted
+            return `<div style="display:flex;align-items:center;justify-content:space-between;padding:4px 8px;background:${th.inputBg};border-radius:4px;">
+      <div style="display:flex;align-items:center;gap:6px;">
+        <div style="width:6px;height:6px;border-radius:50%;background:${dot};flex-shrink:0;"></div>
+        <span style="font-size:11px;font-weight:500;color:${th.inputText};">${name}</span>
+        <span style="font-size:10px;padding:1px 6px;border-radius:4px;background:${th.accentSubtle};color:${th.accentText};">${modeLabel}</span>
+      </div>
+      <span class="disconnect-peer" data-instance-id="${id}" style="font-size:10px;color:${th.danger};cursor:pointer;">\u00d7</span>
+    </div>`
+          })
+          .join('')
+        deviceListContainer.querySelectorAll('.disconnect-peer').forEach((btn) => {
+          btn.addEventListener('click', async (e) => {
+            const el = e.currentTarget as HTMLElement
+            const instanceId = el.getAttribute('data-instance-id') || ''
+            if (!instanceId) return
+            const cur = readLsBlob()
+            const nextPeers = (cur.connectedPeers ?? []).filter((p) => p.instanceId !== instanceId)
+            lastMergedPeers = nextPeers
+            writeLsBlob({ ...cur, connectedPeers: nextPeers })
+            try {
+              if (typeof orchModeBridge?.removePeer === 'function') {
+                await orchModeBridge.removePeer(instanceId)
+              }
+            } catch { /* ignore */ }
+            void loadDeviceList()
+          })
+        })
       }
 
       function applyToggleStyles() {
@@ -32002,38 +32047,15 @@ ${pageText}
         if (sandboxContent) sandboxContent.style.display = showSandboxColumn ? 'block' : 'none'
 
         setPaywallVisible(freeSandboxGate)
+
+        if (sandboxConnectRow) {
+          sandboxConnectRow.style.display =
+            !freeSandboxGate && selectedMode === 'sandbox' ? 'block' : 'none'
+        }
       }
 
       refreshSettingsOrchestratorToggleChrome = () => {
         applyToggleStyles()
-      }
-
-      function setConnectBusy(busy: boolean) {
-        connectBusy = busy
-        if (!connectBtn) return
-        const th = csTheme()
-        connectBtn.textContent = busy ? 'Connecting...' : 'Connect'
-        connectBtn.setAttribute(
-          'style',
-          `font-size:11px;padding:2px 12px;border-radius:6px;background:${th.accentSolid};color:#fff;cursor:${busy ? 'not-allowed' : 'pointer'};display:inline-block;font-weight:600;opacity:${busy ? '0.75' : '1'};`,
-        )
-      }
-
-      function fetchAuthEmail(): Promise<string> {
-        return new Promise((resolve) => {
-          try {
-            chrome.runtime.sendMessage({ type: 'AUTH_STATUS' }, (response) => {
-              void chrome.runtime.lastError
-              const email =
-                response && typeof (response as { email?: string }).email === 'string'
-                  ? (response as { email: string }).email.trim()
-                  : ''
-              resolve(email)
-            })
-          } catch {
-            resolve('')
-          }
-        })
       }
 
       async function refreshPeersFromDesktop() {
@@ -32041,9 +32063,15 @@ ${pageText}
         const body = rpc.data as
           | { ok?: boolean; config?: { mode?: string; deviceName?: string; connectedPeers?: unknown[] } }
           | undefined
-        if (!rpc.success || !body?.ok || !body.config) return
+        if (!rpc.success || !body?.ok || !body.config) {
+          void loadDeviceList()
+          return
+        }
         const dm = body.config.mode
-        if (dm !== 'host' && dm !== 'sandbox') return
+        if (dm !== 'host' && dm !== 'sandbox') {
+          void loadDeviceList()
+          return
+        }
         if (desktopHint) {
           desktopHint.textContent = `Desktop app orchestrator: ${dm === 'host' ? 'Host' : 'Sandbox'}`
         }
@@ -32056,37 +32084,44 @@ ${pageText}
             ...cur,
             mode: selectedMode,
             connectedPeers: dPeers,
-            ...(dName && !((deviceNameInput?.value || deviceNameInputHost?.value || '').trim()) ? { deviceName: dName } : {}),
+            ...(dName && !(deviceNameInput?.value || '').trim() ? { deviceName: dName } : {}),
           })
         }
-        const inputName = (deviceNameInput?.value || deviceNameInputHost?.value || '').trim()
-        if (!inputName && dName) syncDeviceNameInputs(dName)
-        applyPeerRender()
+        const inputName = (deviceNameInput?.value || '').trim()
+        if (!inputName && dName) syncDeviceNameInput(dName)
+        void loadDeviceList()
       }
 
       function loadFromStorage() {
         freeSandboxGate = false
+        ensureStoredDeviceNameDefaults()
         const cfg = readLsBlob()
         selectedMode = cfg.mode
         applyToggleStyles()
         const nm = typeof cfg.deviceName === 'string' ? cfg.deviceName : ''
-        syncDeviceNameInputs(nm)
+        syncDeviceNameInput(nm)
         lastMergedPeers = cfg.connectedPeers ?? []
-        applyPeerRender()
-        if (sandboxConnectHint) sandboxConnectHint.textContent = ''
+        void loadDeviceList()
+        if (connectionStatusEl) connectionStatusEl.innerHTML = ''
         if (desktopHint) desktopHint.textContent = ''
       }
 
       function onDeviceNameBlur() {
-        const v = (deviceNameInput?.value || deviceNameInputHost?.value || '').trim()
-        syncDeviceNameInputs(v)
+        const raw = (deviceNameInput?.value || '').trim()
+        const v = raw || 'My Device'
+        syncDeviceNameInput(v)
         const cur = readLsBlob()
         writeLsBlob({
           ...cur,
           mode: selectedMode,
-          ...(v ? { deviceName: v } : {}),
+          deviceName: v,
           ...(lastMergedPeers.length > 0 ? { connectedPeers: lastMergedPeers } : {}),
         })
+        try {
+          if (typeof orchModeBridge?.setDeviceName === 'function') {
+            void orchModeBridge.setDeviceName(v)
+          }
+        } catch { /* ignore */ }
         try {
           type OrchIpcInvoke = (ch: string, p?: unknown) => Promise<unknown>
           const w = window as unknown as {
@@ -32101,7 +32136,6 @@ ${pageText}
       }
 
       deviceNameInput?.addEventListener('blur', onDeviceNameBlur)
-      deviceNameInputHost?.addEventListener('blur', onDeviceNameBlur)
 
       document.getElementById('btn-upgrade-for-sandbox')?.addEventListener('click', () => {
         window.open('https://wrdesk.com/?page_id=1080&v=5f02f0889301', '_blank', 'noopener,noreferrer')
@@ -32112,7 +32146,7 @@ ${pageText}
         selectedMode = 'host'
         applyToggleStyles()
         persistOrchestratorLocal()
-        if (sandboxConnectHint) sandboxConnectHint.textContent = ''
+        if (connectionStatusEl) connectionStatusEl.innerHTML = ''
         void refreshPeersFromDesktop()
       })
 
@@ -32126,61 +32160,100 @@ ${pageText}
         selectedMode = 'sandbox'
         applyToggleStyles()
         persistOrchestratorLocal()
-        if (sandboxConnectHint) sandboxConnectHint.textContent = ''
+        if (connectionStatusEl) connectionStatusEl.innerHTML = ''
         void refreshPeersFromDesktop()
       })
 
       connectBtn?.addEventListener('click', () => {
-        if (connectBusy || isFreeTier()) return
+        if (isFreeTier()) return
+        const btn = connectBtn
+        if (!btn) return
+        const statusEl = document.getElementById('connection-status')
         void (async () => {
-          const th = csTheme()
-          if (sandboxConnectHint) sandboxConnectHint.textContent = ''
-          setConnectBusy(true)
+          btn.textContent = 'Connecting...'
+          btn.style.opacity = '0.6'
+          btn.style.pointerEvents = 'none'
           try {
-            const email = await fetchAuthEmail()
-            if (!email) {
-              if (sandboxConnectHint) {
-                sandboxConnectHint.textContent = 'Sign in (same SSO on both devices) to connect.'
-                sandboxConnectHint.style.color = th.danger
+            const authResponse = await new Promise<{ loggedIn?: boolean; email?: string }>((resolve, reject) => {
+              chrome.runtime.sendMessage({ type: 'AUTH_STATUS' }, (response) => {
+                if (chrome.runtime.lastError) {
+                  reject(new Error(chrome.runtime.lastError.message || 'Could not reach extension'))
+                  return
+                }
+                if (!response || !(response as { loggedIn?: boolean }).loggedIn) {
+                  reject(new Error('Not logged in — both devices must be signed in with the same SSO account'))
+                  return
+                }
+                resolve(response as { loggedIn?: boolean; email?: string })
+              })
+            })
+            const th = csTheme()
+            const handshakeView = (window as unknown as {
+              handshakeView?: {
+                initiateHandshake?: (
+                  receiverEmail: string,
+                  fromAccountId: string | null,
+                  opts?: Record<string, unknown>,
+                ) => Promise<unknown>
+              }
+            }).handshakeView
+            if (typeof handshakeView === 'undefined' || typeof handshakeView.initiateHandshake !== 'function') {
+              if (statusEl) {
+                statusEl.innerHTML = `
+          <div style="font-size:11px; color:${th.muted}; line-height:1.4; margin-top:6px;">
+            <div style="color:${th.accentText}; font-weight:500; margin-bottom:4px;">Server update required</div>
+            <div>The silent handshake feature requires a coordination service update that is not yet deployed.</div>
+            <div style="margin-top:4px;">In the meantime, use the <strong>Handshakes</strong> panel to create a handshake with your own email address between both devices.</div>
+          </div>`
               }
               return
             }
-            const { initiateHandshake } = await import('./handshake/handshakeRpc')
-            const res = (await initiateHandshake(email, email, email, {
-              skipVaultContext: true,
-              message: 'Orchestrator device connection',
+            const email = typeof authResponse.email === 'string' ? authResponse.email.trim() : ''
+            if (!email) {
+              throw new Error('Not logged in — both devices must be signed in with the same SSO account')
+            }
+            const result = (await handshakeView.initiateHandshake(email, null, {
+              handshake_type: 'orchestrator',
             })) as {
               success?: boolean
-              type?: string
               error?: string
               local_result?: { success?: boolean; error?: string }
             }
-            const ok =
-              res &&
-              (res.success === true ||
-                res.local_result?.success === true ||
-                (res.type === 'handshake-initiate-result' && res.success !== false))
-            if (!ok) {
-              const err =
-                (typeof res.error === 'string' && res.error) ||
-                (typeof res.local_result?.error === 'string' && res.local_result.error) ||
-                'Handshake initiation may be incomplete.'
-              if (sandboxConnectHint) {
-                sandboxConnectHint.textContent = err
-                sandboxConnectHint.style.color = th.danger
+            const handshakeOk =
+              result &&
+              (result.success === true ||
+                result.local_result?.success === true ||
+                ((result as { type?: string; success?: boolean }).type === 'handshake-initiate-result' &&
+                  (result as { success?: boolean }).success !== false))
+            if (handshakeOk) {
+              if (statusEl) {
+                statusEl.innerHTML = `
+          <div style="display:flex; align-items:center; gap:4px; margin-top:6px;">
+            <div style="width:6px; height:6px; border-radius:50%; background:${th.success};"></div>
+            <span style="font-size:11px; color:${th.successText};">Handshake initiated — accept on your other device</span>
+          </div>`
               }
-            } else if (sandboxConnectHint) {
-              sandboxConnectHint.textContent = ''
+            } else {
+              const errorMsg =
+                (result && typeof result.error === 'string' && result.error) ||
+                (result?.local_result && typeof result.local_result.error === 'string' && result.local_result.error) ||
+                'Could not initiate handshake'
+              if (statusEl) {
+                statusEl.innerHTML = `<span style="font-size:11px; color:${th.danger};">${errorMsg}</span>`
+              }
             }
-          } catch (e) {
-            const msg = e instanceof Error ? e.message : String(e)
-            if (sandboxConnectHint) {
-              sandboxConnectHint.textContent = msg
-              sandboxConnectHint.style.color = th.danger
+          } catch (err) {
+            const th = csTheme()
+            const msg = err instanceof Error ? err.message : 'Connection failed'
+            if (statusEl) {
+              statusEl.innerHTML = `<span style="font-size:11px; color:${th.danger};">${msg}</span>`
             }
           } finally {
-            setConnectBusy(false)
-            await refreshPeersFromDesktop()
+            btn.textContent = 'Connect'
+            btn.style.opacity = '1'
+            btn.style.pointerEvents = 'auto'
+            void refreshPeersFromDesktop()
+            void loadDeviceList()
           }
         })()
       })
