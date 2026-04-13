@@ -17,6 +17,13 @@ import { createHandshakeRegistry } from './handshakeRegistry.js'
 import { createWsManager } from './wsManager.js'
 import { createHealth } from './health.js'
 
+const log = {
+  info(message: string, meta?: Record<string, unknown>): void {
+    if (meta !== undefined) console.log(`[Coordination] ${message}`, meta)
+    else console.log(`[Coordination] ${message}`)
+  },
+}
+
 const MAX_BODY_BYTES = 15 * 1024 * 1024
 
 const STATUS_MESSAGES: Record<number, string> = {
@@ -135,6 +142,8 @@ function createRequestHandler(
         let acceptorUserId: string
         let initiatorEmail: string | undefined
         let acceptorEmail: string | undefined
+        let initiatorDeviceId: string | undefined
+        let acceptorDeviceId: string | undefined
         try {
           const parsed = JSON.parse(body) as Record<string, unknown>
           if (
@@ -150,12 +159,26 @@ function createRequestHandler(
           acceptorUserId = parsed.acceptor_user_id
           initiatorEmail = typeof parsed.initiator_email === 'string' ? parsed.initiator_email : undefined
           acceptorEmail = typeof parsed.acceptor_email === 'string' ? parsed.acceptor_email : undefined
+          const idInit = parsed.initiator_device_id
+          initiatorDeviceId =
+            typeof idInit === 'string' && idInit.trim().length > 0 ? idInit.trim() : undefined
+          const idAcc = parsed.acceptor_device_id
+          acceptorDeviceId =
+            typeof idAcc === 'string' && idAcc.trim().length > 0 ? idAcc.trim() : undefined
         } catch {
           sendError(res, 400)
           return
         }
         try {
-          handshakeRegistry.registerHandshake(handshakeId, initiatorUserId, acceptorUserId, initiatorEmail, acceptorEmail)
+          handshakeRegistry.registerHandshake(
+            handshakeId,
+            initiatorUserId,
+            acceptorUserId,
+            initiatorEmail,
+            acceptorEmail,
+            initiatorDeviceId,
+            acceptorDeviceId,
+          )
         } catch {
           sendError(res, 503, { error: 'Storage unavailable' })
           return
@@ -218,7 +241,7 @@ function createRequestHandler(
         // Reject initiate capsules — must be delivered out-of-band (file/email/USB)
         // Message packages (qBEAP/pBEAP) are allowed and bypass capsule_type check
         if (!isMessagePackage) {
-          const RELAY_ALLOWED_TYPES = ['accept', 'context_sync', 'refresh', 'revoke']
+          const RELAY_ALLOWED_TYPES = ['accept', 'context_sync', 'refresh', 'revoke', 'inference:chat', 'inference:response']
           const capsuleType = typeof parsed?.capsule_type === 'string' ? parsed.capsule_type : ''
           if (!RELAY_ALLOWED_TYPES.includes(capsuleType)) {
             sendError(res, 400, {
@@ -229,11 +252,21 @@ function createRequestHandler(
           }
         }
 
-        const recipientUserId = handshakeRegistry.getRecipientForSender(handshakeId, identity.userId)
-        if (!recipientUserId) {
+        const senderDeviceIdRaw = parsed.sender_device_id
+        const senderDeviceId =
+          typeof senderDeviceIdRaw === 'string' && senderDeviceIdRaw.trim().length > 0
+            ? senderDeviceIdRaw.trim()
+            : undefined
+        const recipientRoute = handshakeRegistry.getRecipientForSender(
+          handshakeId,
+          identity.userId,
+          senderDeviceId,
+        )
+        if (!recipientRoute) {
           sendError(res, 403)
           return
         }
+        const recipientUserId = recipientRoute.userId
 
         let recipientPending: number
         try {
@@ -282,7 +315,22 @@ function createRequestHandler(
         }
         rateLimiter.recordCapsuleSent(identity.userId)
 
-        const pushed = wsManager.pushCapsule(recipientUserId, id, body)
+        const recipientClient =
+          recipientRoute.deviceId != null && recipientRoute.deviceId.length > 0
+            ? wsManager.getClientByDevice(recipientRoute.userId, recipientRoute.deviceId)
+            : wsManager.getClient(recipientRoute.userId)
+        let pushed = false
+        if (recipientClient) {
+          try {
+            recipientClient.ws.send(
+              JSON.stringify({ type: 'capsule', id, capsule: JSON.parse(body) }),
+            )
+            store.markPushed(id)
+            pushed = true
+          } catch {
+            pushed = false
+          }
+        }
         if (pushed) {
           res.writeHead(200, { 'Content-Type': 'application/json' })
           res.end(JSON.stringify({ status: 'Capsule delivered' }))
@@ -341,8 +389,9 @@ export async function createServer(config: CoordinationConfig): Promise<{
   const wss = new WebSocketServer({ server, path: '/beap/ws' })
 
   wss.on('connection', async (ws: import('ws').WebSocket, req: http.IncomingMessage) => {
-    const url = new URL(req.url ?? '', `http://${req.headers.host ?? 'localhost'}`)
+    const url = new URL(req.url ?? '/', `wss://${req.headers.host ?? 'localhost'}`)
     const tokenFromUrl = url.searchParams.get('token') ?? url.searchParams.get('access_token')
+    const deviceId = url.searchParams.get('device_id') || 'default'
     const authHeader = req.headers.authorization
     const token = tokenFromUrl ?? auth.extractBearerToken(authHeader)
 
@@ -366,9 +415,11 @@ export async function createServer(config: CoordinationConfig): Promise<{
       return
     }
 
+    log.info('WS connected', { userId: identity.userId, deviceId })
+
     ws.on('pong', () => wsManager.onPong(ws))
 
-    wsManager.handleConnection(ws, identity)
+    wsManager.handleConnection(ws, identity, deviceId)
 
     ws.on('message', (data: Buffer | string) => {
       try {

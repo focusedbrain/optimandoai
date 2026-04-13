@@ -1,163 +1,91 @@
 /**
- * Persisted orchestrator role (host vs sandbox) and sandbox connection hints.
+ * Persisted orchestrator role (host vs sandbox), device identity, and connected peers.
  * Single JSON file under Electron userData.
  */
 
+import { randomUUID } from 'crypto'
 import fs from 'fs'
+import os from 'os'
 import path from 'path'
 import { app } from 'electron'
 
 const FILE_NAME = 'orchestrator-mode.json'
 
-const DEFAULT_CONFIG: OrchestratorModeConfig = { mode: 'host' }
+export interface ConnectedPeer {
+  instanceId: string
+  deviceName: string
+  mode: 'host' | 'sandbox'
+  handshakeId: string
+  lastSeen: string
+  status: 'connected' | 'disconnected'
+}
 
 export interface OrchestratorModeConfig {
   mode: 'host' | 'sandbox'
-  sandbox?: {
-    hostUrl: string
-    hostFingerprint?: string
-    lastConnected?: string
-    connectionVerified: boolean
-  }
+  deviceName: string
+  instanceId: string
+  connectedPeers: ConnectedPeer[]
 }
 
 function storePath(): string {
   return path.join(app.getPath('userData'), FILE_NAME)
 }
 
-function isValidHttpsUrl(urlStr: string): boolean {
-  try {
-    const u = new URL(urlStr.trim())
-    if (u.protocol !== 'https:') return false
-    if (!u.hostname) return false
-    return true
-  } catch {
-    return false
-  }
+function isConnectedPeer(x: unknown): x is ConnectedPeer {
+  if (x == null || typeof x !== 'object') return false
+  const o = x as Record<string, unknown>
+  return (
+    typeof o.instanceId === 'string' &&
+    o.instanceId.trim().length > 0 &&
+    typeof o.deviceName === 'string' &&
+    typeof o.handshakeId === 'string' &&
+    typeof o.lastSeen === 'string' &&
+    (o.mode === 'host' || o.mode === 'sandbox') &&
+    (o.status === 'connected' || o.status === 'disconnected')
+  )
 }
 
-function normalizeFromDisk(raw: unknown): OrchestratorModeConfig {
-  if (raw == null || typeof raw !== 'object') {
-    console.warn('[OrchestratorMode] invalid root — defaulting to host')
-    return { ...DEFAULT_CONFIG }
-  }
-  const o = raw as Record<string, unknown>
-  const mode = o.mode
-  if (mode !== 'host' && mode !== 'sandbox') {
-    console.warn('[OrchestratorMode] invalid or missing mode — defaulting to host')
-    return { ...DEFAULT_CONFIG }
-  }
-  if (mode === 'host') {
-    return { mode: 'host' }
-  }
-  const sb = o.sandbox
-  if (sb == null || typeof sb !== 'object') {
-    console.warn('[OrchestratorMode] sandbox mode without sandbox object — defaulting to host')
-    return { ...DEFAULT_CONFIG }
-  }
-  const s = sb as Record<string, unknown>
-  const hostUrl = typeof s.hostUrl === 'string' ? s.hostUrl.trim() : ''
-  if (!isValidHttpsUrl(hostUrl)) {
-    console.warn('[OrchestratorMode] sandbox hostUrl missing or not HTTPS — defaulting to host')
-    return { ...DEFAULT_CONFIG }
-  }
-  const hostFingerprint =
-    typeof s.hostFingerprint === 'string' && s.hostFingerprint.trim()
-      ? s.hostFingerprint.trim()
-      : undefined
-  const lastConnected =
-    typeof s.lastConnected === 'string' && s.lastConnected.trim() ? s.lastConnected.trim() : undefined
-  const connectionVerified = s.connectionVerified === true
-
-  return {
-    mode: 'sandbox',
-    sandbox: {
-      hostUrl,
-      ...(hostFingerprint !== undefined ? { hostFingerprint } : {}),
-      ...(lastConnected !== undefined ? { lastConnected } : {}),
-      connectionVerified,
-    },
-  }
-}
-
-function readRaw(): OrchestratorModeConfig {
+function readRawJson(): unknown {
   try {
     const p = storePath()
-    if (!fs.existsSync(p)) {
-      return { ...DEFAULT_CONFIG }
-    }
-    const j = JSON.parse(fs.readFileSync(p, 'utf-8'))
-    return normalizeFromDisk(j)
+    if (!fs.existsSync(p)) return {}
+    return JSON.parse(fs.readFileSync(p, 'utf-8'))
   } catch (e) {
-    console.warn('[OrchestratorMode] read failed — defaulting to host:', e)
-    return { ...DEFAULT_CONFIG }
+    console.warn('[OrchestratorMode] read failed — treating as empty:', e)
+    return {}
   }
 }
 
-export function getOrchestratorMode(): OrchestratorModeConfig {
-  return readRaw()
-}
+function buildConfigFromRaw(raw: unknown): { config: OrchestratorModeConfig; missingInstanceId: boolean } {
+  const o = raw != null && typeof raw === 'object' ? (raw as Record<string, unknown>) : {}
 
-function validateForWrite(config: OrchestratorModeConfig): OrchestratorModeConfig {
-  if (!config || typeof config !== 'object') {
-    throw new Error('OrchestratorMode: config is required')
+  let mode: 'host' | 'sandbox' = 'host'
+  if (o.mode === 'sandbox' || o.mode === 'host') mode = o.mode
+
+  let instanceId = typeof o.instanceId === 'string' && o.instanceId.trim() ? o.instanceId.trim() : ''
+  const missingInstanceId = !instanceId
+  if (missingInstanceId) instanceId = randomUUID()
+
+  let deviceName = typeof o.deviceName === 'string' && o.deviceName.trim() ? o.deviceName.trim() : ''
+  if (!deviceName) deviceName = os.hostname()
+
+  let connectedPeers: ConnectedPeer[] = []
+  if (Array.isArray(o.connectedPeers)) {
+    connectedPeers = o.connectedPeers.filter(isConnectedPeer)
   }
-  if (config.mode !== 'host' && config.mode !== 'sandbox') {
-    throw new Error(`OrchestratorMode: mode must be 'host' or 'sandbox'`)
-  }
-  if (config.mode === 'host') {
-    return { mode: 'host' }
-  }
-  const sb = config.sandbox
-  if (sb == null || typeof sb !== 'object') {
-    throw new Error('OrchestratorMode: sandbox mode requires a sandbox object with hostUrl')
-  }
-  const hostUrl = typeof sb.hostUrl === 'string' ? sb.hostUrl.trim() : ''
-  if (!hostUrl) {
-    throw new Error('OrchestratorMode: sandbox.hostUrl is required')
-  }
-  if (!isValidHttpsUrl(hostUrl)) {
-    throw new Error('OrchestratorMode: sandbox.hostUrl must be a valid https:// URL (http is not allowed)')
-  }
-  let connectionVerified = false
-  if (sb.connectionVerified !== undefined) {
-    if (typeof sb.connectionVerified !== 'boolean') {
-      throw new Error('OrchestratorMode: sandbox.connectionVerified must be a boolean')
-    }
-    connectionVerified = sb.connectionVerified
-  }
-  let hostFingerprint: string | undefined
-  if (sb.hostFingerprint !== undefined) {
-    if (typeof sb.hostFingerprint !== 'string') {
-      throw new Error('OrchestratorMode: sandbox.hostFingerprint must be a string')
-    }
-    const fp = sb.hostFingerprint.trim()
-    hostFingerprint = fp || undefined
-  }
-  let lastConnected: string | undefined
-  if (sb.lastConnected !== undefined) {
-    if (typeof sb.lastConnected !== 'string') {
-      throw new Error('OrchestratorMode: sandbox.lastConnected must be a string')
-    }
-    const lc = sb.lastConnected.trim()
-    lastConnected = lc || undefined
-  }
+
+  // Legacy `sandbox.hostUrl` and related fields are ignored (migration — no crash).
+
   return {
-    mode: 'sandbox',
-    sandbox: {
-      hostUrl,
-      ...(hostFingerprint !== undefined ? { hostFingerprint } : {}),
-      ...(lastConnected !== undefined ? { lastConnected } : {}),
-      connectionVerified,
-    },
+    config: { mode, deviceName, instanceId, connectedPeers },
+    missingInstanceId,
   }
 }
 
-export function setOrchestratorMode(config: OrchestratorModeConfig): void {
-  const normalized = validateForWrite(config)
+function persistConfig(config: OrchestratorModeConfig): void {
   const p = storePath()
   fs.mkdirSync(path.dirname(p), { recursive: true })
-  const payload = JSON.stringify(normalized, null, 2)
+  const payload = JSON.stringify(config, null, 2)
   const tmp = `${p}.${process.pid}.${Date.now()}.tmp`
   try {
     fs.writeFileSync(tmp, payload, 'utf-8')
@@ -176,6 +104,75 @@ export function setOrchestratorMode(config: OrchestratorModeConfig): void {
   }
 }
 
+export function getOrchestratorMode(): OrchestratorModeConfig {
+  const raw = readRawJson()
+  const { config, missingInstanceId } = buildConfigFromRaw(raw)
+  if (missingInstanceId) persistConfig(config)
+  return config
+}
+
+/**
+ * Legacy sandbox → host HTTPS base URL (e.g. https://workstation:51248), if still present on disk.
+ * Silent-handshake flow does not require this; sandbox inference uses it when configured.
+ */
+export function getSandboxHostUrl(): string {
+  const raw = readRawJson()
+  if (raw == null || typeof raw !== 'object') return ''
+  const o = raw as Record<string, unknown>
+  const sandbox = o.sandbox
+  if (sandbox == null || typeof sandbox !== 'object') return ''
+  const hostUrl = (sandbox as Record<string, unknown>).hostUrl
+  return typeof hostUrl === 'string' && hostUrl.trim() ? hostUrl.trim() : ''
+}
+
+function validatePeer(p: ConnectedPeer): ConnectedPeer {
+  if (!p.instanceId?.trim()) throw new Error('OrchestratorMode: peer.instanceId is required')
+  if (!p.deviceName?.trim()) throw new Error('OrchestratorMode: peer.deviceName is required')
+  if (p.mode !== 'host' && p.mode !== 'sandbox') {
+    throw new Error(`OrchestratorMode: peer.mode must be 'host' or 'sandbox'`)
+  }
+  if (!p.handshakeId?.trim()) throw new Error('OrchestratorMode: peer.handshakeId is required')
+  if (!p.lastSeen?.trim()) throw new Error('OrchestratorMode: peer.lastSeen is required')
+  if (p.status !== 'connected' && p.status !== 'disconnected') {
+    throw new Error(`OrchestratorMode: peer.status must be 'connected' or 'disconnected'`)
+  }
+  return {
+    instanceId: p.instanceId.trim(),
+    deviceName: p.deviceName.trim(),
+    mode: p.mode,
+    handshakeId: p.handshakeId.trim(),
+    lastSeen: p.lastSeen.trim(),
+    status: p.status,
+  }
+}
+
+function validateForWrite(config: OrchestratorModeConfig): OrchestratorModeConfig {
+  if (!config || typeof config !== 'object') {
+    throw new Error('OrchestratorMode: config is required')
+  }
+  if (config.mode !== 'host' && config.mode !== 'sandbox') {
+    throw new Error(`OrchestratorMode: mode must be 'host' or 'sandbox'`)
+  }
+  const deviceName = typeof config.deviceName === 'string' ? config.deviceName.trim() : ''
+  if (!deviceName) {
+    throw new Error('OrchestratorMode: deviceName is required')
+  }
+  const instanceId = typeof config.instanceId === 'string' ? config.instanceId.trim() : ''
+  if (!instanceId) {
+    throw new Error('OrchestratorMode: instanceId is required')
+  }
+  if (!Array.isArray(config.connectedPeers)) {
+    throw new Error('OrchestratorMode: connectedPeers must be an array')
+  }
+  const connectedPeers = config.connectedPeers.map((p) => validatePeer(p))
+  return { mode: config.mode, deviceName, instanceId, connectedPeers }
+}
+
+export function setOrchestratorMode(config: OrchestratorModeConfig): void {
+  const normalized = validateForWrite(config)
+  persistConfig(normalized)
+}
+
 export function isHostMode(): boolean {
   return getOrchestratorMode().mode === 'host'
 }
@@ -184,8 +181,48 @@ export function isSandboxMode(): boolean {
   return getOrchestratorMode().mode === 'sandbox'
 }
 
-export function getSandboxHostUrl(): string | null {
+export function getInstanceId(): string {
+  return getOrchestratorMode().instanceId
+}
+
+export function getDeviceName(): string {
+  return getOrchestratorMode().deviceName
+}
+
+export function setDeviceName(name: string): void {
+  const trimmed = typeof name === 'string' ? name.trim() : ''
+  if (!trimmed) throw new Error('OrchestratorMode: deviceName cannot be empty')
   const c = getOrchestratorMode()
-  if (c.mode !== 'sandbox' || !c.sandbox?.hostUrl) return null
-  return c.sandbox.hostUrl.trim() || null
+  setOrchestratorMode({ ...c, deviceName: trimmed })
+}
+
+export function addConnectedPeer(peer: ConnectedPeer): void {
+  const c = getOrchestratorMode()
+  const p = validatePeer(peer)
+  const others = c.connectedPeers.filter((x) => x.instanceId !== p.instanceId)
+  setOrchestratorMode({ ...c, connectedPeers: [...others, p] })
+}
+
+export function removeConnectedPeer(instanceId: string): void {
+  const id = typeof instanceId === 'string' ? instanceId.trim() : ''
+  if (!id) return
+  const c = getOrchestratorMode()
+  setOrchestratorMode({
+    ...c,
+    connectedPeers: c.connectedPeers.filter((p) => p.instanceId !== id),
+  })
+}
+
+export function updatePeerStatus(
+  instanceId: string,
+  status: 'connected' | 'disconnected',
+): void {
+  const id = typeof instanceId === 'string' ? instanceId.trim() : ''
+  if (!id) return
+  const c = getOrchestratorMode()
+  const idx = c.connectedPeers.findIndex((p) => p.instanceId === id)
+  if (idx === -1) return
+  const next = [...c.connectedPeers]
+  next[idx] = { ...next[idx], status }
+  setOrchestratorMode({ ...c, connectedPeers: next })
 }

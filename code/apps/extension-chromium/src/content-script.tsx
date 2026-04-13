@@ -31316,6 +31316,12 @@ ${pageText}
                   <span id="host-inference-status-line" style="font-size:11px;color:var(--cs-success-text);">Serving inference</span>
                 </div>
                 <div style="font-size:11px;color:var(--cs-muted);line-height:1.4;">Ensure inference API is reachable (HTTPS + firewall).</div>
+                <div style="margin-top:8px;margin-bottom:5px;">
+                  <label for="device-name-input-host" style="font-size:11px;color:var(--cs-muted);display:block;margin-bottom:2px;">Device name</label>
+                  <input id="device-name-input-host" type="text" placeholder="This device" autocomplete="off" style="width:100%;box-sizing:border-box;padding:4px 8px;border-radius:4px;border:1px solid var(--cs-border);background:var(--cs-card-bg);font-size:11px;color:var(--cs-input-text);outline:none;" />
+                </div>
+                <div style="font-size:11px;color:var(--cs-muted);margin-bottom:4px;">Connected devices</div>
+                <ul id="host-connected-peers-list" style="list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:4px;min-height:18px;"></ul>
               </div>
 
               <div id="sandbox-mode-content" style="display:none;">
@@ -31326,22 +31332,16 @@ ${pageText}
                   </div>
                 </div>
                 <div id="sandbox-mode-paid-panel">
-                <div style="background:var(--cs-accent-subtle);border-radius:4px;padding:5px 8px;margin-bottom:6px;">
-                  <span style="font-size:11px;color:var(--cs-accent-text);line-height:1.4;display:block;">BEAP packages are cloned from host to sandbox for testing. Only extracted text returns to the host for inference.</span>
-                </div>
                 <div style="margin-bottom:5px;">
-                  <label style="font-size:11px;color:var(--cs-muted);display:block;margin-bottom:2px;">Host inference URL</label>
-                  <input id="sandbox-host-url" type="text" placeholder="https://my-workstation:51248" autocomplete="off" style="width:100%;box-sizing:border-box;padding:4px 8px;border-radius:4px;border:1px solid var(--cs-border);background:var(--cs-card-bg);font-size:11px;color:var(--cs-input-text);outline:none;" />
+                  <label for="device-name-input" style="font-size:11px;color:var(--cs-muted);display:block;margin-bottom:2px;">Device name</label>
+                  <input id="device-name-input" type="text" placeholder="This device" autocomplete="off" style="width:100%;box-sizing:border-box;padding:4px 8px;border-radius:4px;border:1px solid var(--cs-border);background:var(--cs-card-bg);font-size:11px;color:var(--cs-input-text);outline:none;" />
                 </div>
-                <div style="display:flex;flex-wrap:wrap;gap:4px;align-items:center;">
-                  <span id="btn-test-connection" style="font-size:11px;padding:2px 8px;border-radius:6px;background:var(--cs-accent);color:#fff;cursor:pointer;">Test</span>
-                  <span id="btn-save-sandbox" style="font-size:11px;padding:2px 8px;border-radius:6px;border:1px solid var(--cs-border);color:var(--cs-input-text);cursor:pointer;background:transparent;">Save</span>
-                  <div id="sandbox-connection-status" style="display:flex;align-items:center;gap:3px;margin-left:4px;flex-wrap:wrap;min-height:14px;">
-                    <span id="sandbox-connection-dot" style="width:6px;height:6px;border-radius:50%;flex-shrink:0;opacity:0;background:var(--cs-success);"></span>
-                    <span id="sandbox-connection-text" style="font-size:10px;color:var(--cs-muted);"></span>
-                  </div>
+                <div style="margin-bottom:6px;">
+                  <span id="btn-connect-devices" style="font-size:11px;padding:2px 12px;border-radius:6px;background:var(--cs-accent);color:#fff;cursor:pointer;display:inline-block;font-weight:600;">Connect</span>
                 </div>
-                <span id="sandbox-save-confirm" style="font-size:10px;color:var(--cs-success-text);display:none;margin-top:4px;"></span>
+                <div id="sandbox-connect-hint" style="font-size:10px;color:var(--cs-muted);margin-bottom:4px;min-height:14px;line-height:1.3;"></div>
+                <div style="font-size:11px;color:var(--cs-muted);margin-bottom:4px;">Connected devices</div>
+                <ul id="connected-peers-list" style="list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:4px;min-height:18px;"></ul>
                 </div>
               </div>
             </div>
@@ -31375,7 +31375,7 @@ ${pageText}
               </div>
               <div style="display:flex;gap:8px;align-items:flex-start;">
                 <div class="settings-setup-step-badge" style="width:20px;height:20px;border-radius:50%;background:var(--cs-accent);color:#fff;font-size:10px;font-weight:500;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px;">3</div>
-                <div style="font-size:11px;color:var(--cs-muted);line-height:1.4;">Enter URL above (e.g. <span style="font-family:monospace;font-size:10px;background:var(--cs-card-bg);padding:0 4px;border-radius:2px;">https://my-pc:51248</span>), click Test. Both devices need the same SSO account.</div>
+                <div style="font-size:11px;color:var(--cs-muted);line-height:1.4;">Click Connect on both devices. They find each other automatically via your SSO account — no IP address needed.</div>
               </div>
             </div>
           </div>
@@ -31809,22 +31809,38 @@ ${pageText}
     function wireOrchestratorModeUI() {
       const LS_KEY = 'optimando-orchestrator-mode'
       const PAID_ORCH_TIERS = new Set(['pro', 'private', 'private_lifetime', 'publisher', 'publisher_lifetime', 'enterprise'])
+      type OrchPeer = {
+        instanceId: string
+        deviceName: string
+        mode: 'host' | 'sandbox'
+        handshakeId: string
+        lastSeen: string
+        status: 'connected' | 'disconnected'
+      }
+      type LsOrchShape = {
+        mode: 'host' | 'sandbox'
+        deviceName?: string
+        connectedPeers?: OrchPeer[]
+        sandbox?: { hostUrl?: string; connectionVerified?: boolean }
+      }
+
       const hostBtn = document.getElementById('btn-mode-host')
       const sandboxBtn = document.getElementById('btn-mode-sandbox')
       const hostContent = document.getElementById('host-mode-content')
       const sandboxContent = document.getElementById('sandbox-mode-content')
       const desktopHint = document.getElementById('orch-desktop-sync-hint')
-      const urlInput = document.getElementById('sandbox-host-url') as HTMLInputElement | null
-      const testBtn = document.getElementById('btn-test-connection')
-      const connText = document.getElementById('sandbox-connection-text')
-      const saveBtn = document.getElementById('btn-save-sandbox')
-      const saveConfirm = document.getElementById('sandbox-save-confirm')
-      const connDot = document.getElementById('sandbox-connection-dot')
+      const deviceNameInput = document.getElementById('device-name-input') as HTMLInputElement | null
+      const deviceNameInputHost = document.getElementById('device-name-input-host') as HTMLInputElement | null
+      const connectBtn = document.getElementById('btn-connect-devices')
+      const peersListSandbox = document.getElementById('connected-peers-list')
+      const peersListHost = document.getElementById('host-connected-peers-list')
+      const sandboxConnectHint = document.getElementById('sandbox-connect-hint')
 
       let userTier = 'free'
       let selectedMode: 'host' | 'sandbox' = 'host'
       let freeSandboxGate = false
-      let lastTestOk = false
+      let connectBusy = false
+      let lastMergedPeers: OrchPeer[] = []
 
       function isPaidOrchestratorTier(t: string): boolean {
         return PAID_ORCH_TIERS.has(t)
@@ -31834,6 +31850,19 @@ ${pageText}
         return !isPaidOrchestratorTier(userTier)
       }
 
+      function isOrchPeer(x: unknown): x is OrchPeer {
+        if (x == null || typeof x !== 'object') return false
+        const o = x as Record<string, unknown>
+        return (
+          typeof o.instanceId === 'string' &&
+          typeof o.deviceName === 'string' &&
+          (o.mode === 'host' || o.mode === 'sandbox') &&
+          typeof o.handshakeId === 'string' &&
+          typeof o.lastSeen === 'string' &&
+          (o.status === 'connected' || o.status === 'disconnected')
+        )
+      }
+
       function setPaywallVisible(show: boolean) {
         const paywall = document.getElementById('sandbox-mode-paywall')
         const paidPanel = document.getElementById('sandbox-mode-paid-panel')
@@ -31841,48 +31870,103 @@ ${pageText}
         if (paidPanel) paidPanel.style.display = show ? 'none' : 'block'
       }
 
-      function readLsConfig(): { mode: 'host' | 'sandbox'; sandbox?: { hostUrl: string; connectionVerified?: boolean } } {
+      function readLsBlob(): LsOrchShape {
         try {
           const raw = localStorage.getItem(LS_KEY)
-          const data = raw ? JSON.parse(raw) : { mode: 'host' }
-          if (data?.mode === 'sandbox' && data.sandbox && typeof data.sandbox.hostUrl === 'string') {
-            return {
-              mode: 'sandbox',
-              sandbox: {
-                hostUrl: data.sandbox.hostUrl,
-                connectionVerified: data.sandbox.connectionVerified === true,
-              },
-            }
+          const data = raw ? (JSON.parse(raw) as LsOrchShape) : { mode: 'host' }
+          const mode: 'host' | 'sandbox' = data?.mode === 'sandbox' ? 'sandbox' : 'host'
+          const deviceName = typeof data?.deviceName === 'string' ? data.deviceName : ''
+          let connectedPeers: OrchPeer[] = []
+          if (Array.isArray(data?.connectedPeers)) {
+            connectedPeers = data.connectedPeers.filter(isOrchPeer)
           }
+          return {
+            mode,
+            deviceName,
+            connectedPeers,
+            ...(data?.sandbox && typeof data.sandbox === 'object' ? { sandbox: data.sandbox } : {}),
+          }
+        } catch {
+          return { mode: 'host', deviceName: '', connectedPeers: [] }
+        }
+      }
+
+      function writeLsBlob(next: LsOrchShape) {
+        try {
+          localStorage.setItem(LS_KEY, JSON.stringify(next))
         } catch { /* ignore */ }
-        return { mode: 'host' }
+      }
+
+      function persistOrchestratorLocal() {
+        const cur = readLsBlob()
+        const nameRaw = (deviceNameInput?.value || deviceNameInputHost?.value || '').trim()
+        const deviceName = nameRaw || (typeof cur.deviceName === 'string' ? cur.deviceName : '') || ''
+        const peers = lastMergedPeers.length > 0 ? lastMergedPeers : (cur.connectedPeers ?? [])
+        writeLsBlob({
+          mode: selectedMode,
+          ...(deviceName ? { deviceName } : {}),
+          ...(peers.length > 0 ? { connectedPeers: peers } : {}),
+          ...(cur.sandbox ? { sandbox: cur.sandbox } : {}),
+        })
       }
 
       function persistHostIfFreeDowngrade() {
         if (!isFreeTier()) return
         try {
-          const raw = localStorage.getItem(LS_KEY)
-          if (!raw) return
-          const stored = JSON.parse(raw) as { mode?: string }
-          if (stored?.mode === 'sandbox') {
-            localStorage.setItem(LS_KEY, JSON.stringify({ mode: 'host' }))
-          }
+          const cur = readLsBlob()
+          if (cur.mode !== 'sandbox') return
+          writeLsBlob({
+            mode: 'host',
+            ...(cur.deviceName ? { deviceName: cur.deviceName } : {}),
+            ...(Array.isArray(cur.connectedPeers) && cur.connectedPeers.length ? { connectedPeers: cur.connectedPeers } : {}),
+            ...(cur.sandbox ? { sandbox: cur.sandbox } : {}),
+          })
         } catch { /* ignore */ }
       }
 
-      function paintConnDot(variant: 'muted' | 'warn' | 'ok' | 'err') {
-        if (!connDot) return
-        const th = csTheme()
-        const colors = { muted: th.muted, warn: th.accentSolid, ok: th.success, err: th.danger }
-        connDot.style.background = colors[variant]
-        connDot.style.opacity = variant === 'muted' ? '0' : '1'
+      function syncDeviceNameInputs(value: string) {
+        if (deviceNameInput) deviceNameInput.value = value
+        if (deviceNameInputHost) deviceNameInputHost.value = value
       }
 
-      function setConnMessage(text: string, color: string) {
-        if (connText) {
-          connText.textContent = text
-          connText.style.color = color
+      function renderPeerUl(ul: HTMLElement | null, peers: OrchPeer[], perspective: 'host' | 'sandbox') {
+        if (!ul) return
+        const th = csTheme()
+        ul.replaceChildren()
+        const filtered =
+          perspective === 'host' ? peers.filter((p) => p.mode === 'sandbox') : peers.filter((p) => p.mode === 'host')
+        if (filtered.length === 0) {
+          const li = document.createElement('li')
+          li.style.fontSize = '11px'
+          li.style.color = th.muted
+          li.textContent = 'No devices connected'
+          ul.appendChild(li)
+          return
         }
+        for (const p of filtered) {
+          const li = document.createElement('li')
+          li.style.display = 'flex'
+          li.style.alignItems = 'center'
+          li.style.gap = '6px'
+          li.style.fontSize = '11px'
+          li.style.color = th.inputText
+          const dot = document.createElement('span')
+          dot.style.width = '6px'
+          dot.style.height = '6px'
+          dot.style.borderRadius = '50%'
+          dot.style.background = p.status === 'connected' ? th.success : th.muted
+          dot.style.flexShrink = '0'
+          const label = document.createElement('span')
+          label.textContent = p.deviceName || 'Device'
+          li.appendChild(dot)
+          li.appendChild(label)
+          ul.appendChild(li)
+        }
+      }
+
+      function applyPeerRender() {
+        renderPeerUl(peersListHost, lastMergedPeers, 'host')
+        renderPeerUl(peersListSandbox, lastMergedPeers, 'sandbox')
       }
 
       function applyToggleStyles() {
@@ -31924,24 +32008,100 @@ ${pageText}
         applyToggleStyles()
       }
 
+      function setConnectBusy(busy: boolean) {
+        connectBusy = busy
+        if (!connectBtn) return
+        const th = csTheme()
+        connectBtn.textContent = busy ? 'Connecting...' : 'Connect'
+        connectBtn.setAttribute(
+          'style',
+          `font-size:11px;padding:2px 12px;border-radius:6px;background:${th.accentSolid};color:#fff;cursor:${busy ? 'not-allowed' : 'pointer'};display:inline-block;font-weight:600;opacity:${busy ? '0.75' : '1'};`,
+        )
+      }
+
+      function fetchAuthEmail(): Promise<string> {
+        return new Promise((resolve) => {
+          try {
+            chrome.runtime.sendMessage({ type: 'AUTH_STATUS' }, (response) => {
+              void chrome.runtime.lastError
+              const email =
+                response && typeof (response as { email?: string }).email === 'string'
+                  ? (response as { email: string }).email.trim()
+                  : ''
+              resolve(email)
+            })
+          } catch {
+            resolve('')
+          }
+        })
+      }
+
+      async function refreshPeersFromDesktop() {
+        const rpc = await electronRpc('orchestrator.getMode', undefined, 8_000)
+        const body = rpc.data as
+          | { ok?: boolean; config?: { mode?: string; deviceName?: string; connectedPeers?: unknown[] } }
+          | undefined
+        if (!rpc.success || !body?.ok || !body.config) return
+        const dm = body.config.mode
+        if (dm !== 'host' && dm !== 'sandbox') return
+        if (desktopHint) {
+          desktopHint.textContent = `Desktop app orchestrator: ${dm === 'host' ? 'Host' : 'Sandbox'}`
+        }
+        const dName = typeof body.config.deviceName === 'string' ? body.config.deviceName.trim() : ''
+        const dPeers = Array.isArray(body.config.connectedPeers) ? body.config.connectedPeers.filter(isOrchPeer) : []
+        lastMergedPeers = dPeers.length > 0 ? dPeers : lastMergedPeers.length > 0 ? lastMergedPeers : (readLsBlob().connectedPeers ?? [])
+        if (dPeers.length > 0) {
+          const cur = readLsBlob()
+          writeLsBlob({
+            ...cur,
+            mode: selectedMode,
+            connectedPeers: dPeers,
+            ...(dName && !((deviceNameInput?.value || deviceNameInputHost?.value || '').trim()) ? { deviceName: dName } : {}),
+          })
+        }
+        const inputName = (deviceNameInput?.value || deviceNameInputHost?.value || '').trim()
+        if (!inputName && dName) syncDeviceNameInputs(dName)
+        applyPeerRender()
+      }
+
       function loadFromStorage() {
         freeSandboxGate = false
-        const cfg = readLsConfig()
+        const cfg = readLsBlob()
         selectedMode = cfg.mode
         applyToggleStyles()
-        if (urlInput && cfg.mode === 'sandbox') urlInput.value = cfg.sandbox?.hostUrl || ''
-        lastTestOk = cfg.mode === 'sandbox' && cfg.sandbox?.connectionVerified === true
-        const th = csTheme()
-        if (selectedMode === 'sandbox') {
-          setConnMessage(lastTestOk ? 'Verified (saved)' : '', lastTestOk ? th.successText : th.muted)
-          paintConnDot(lastTestOk ? 'ok' : 'muted')
-        } else {
-          setConnMessage('', th.muted)
-          paintConnDot('muted')
-        }
-        if (saveConfirm) saveConfirm.style.display = 'none'
+        const nm = typeof cfg.deviceName === 'string' ? cfg.deviceName : ''
+        syncDeviceNameInputs(nm)
+        lastMergedPeers = cfg.connectedPeers ?? []
+        applyPeerRender()
+        if (sandboxConnectHint) sandboxConnectHint.textContent = ''
         if (desktopHint) desktopHint.textContent = ''
       }
+
+      function onDeviceNameBlur() {
+        const v = (deviceNameInput?.value || deviceNameInputHost?.value || '').trim()
+        syncDeviceNameInputs(v)
+        const cur = readLsBlob()
+        writeLsBlob({
+          ...cur,
+          mode: selectedMode,
+          ...(v ? { deviceName: v } : {}),
+          ...(lastMergedPeers.length > 0 ? { connectedPeers: lastMergedPeers } : {}),
+        })
+        try {
+          type OrchIpcInvoke = (ch: string, p?: unknown) => Promise<unknown>
+          const w = window as unknown as {
+            electron?: { ipcRenderer?: { invoke?: OrchIpcInvoke } }
+          }
+          const invoke = w.electron?.ipcRenderer?.invoke
+          if (typeof invoke === 'function' && v) {
+            void invoke('orchestrator:setDeviceName', { deviceName: v })
+          }
+        } catch { /* ignore */ }
+        void refreshPeersFromDesktop()
+      }
+
+      deviceNameInput?.addEventListener('blur', onDeviceNameBlur)
+      deviceNameInputHost?.addEventListener('blur', onDeviceNameBlur)
 
       document.getElementById('btn-upgrade-for-sandbox')?.addEventListener('click', () => {
         window.open('https://wrdesk.com/?page_id=1080&v=5f02f0889301', '_blank', 'noopener,noreferrer')
@@ -31951,124 +32111,84 @@ ${pageText}
         freeSandboxGate = false
         selectedMode = 'host'
         applyToggleStyles()
-        setConnMessage('', csTheme().muted)
-        paintConnDot('muted')
-        if (saveConfirm) saveConfirm.style.display = 'none'
+        persistOrchestratorLocal()
+        if (sandboxConnectHint) sandboxConnectHint.textContent = ''
+        void refreshPeersFromDesktop()
       })
 
       sandboxBtn?.addEventListener('click', () => {
         if (isFreeTier()) {
           freeSandboxGate = true
           applyToggleStyles()
-          if (saveConfirm) saveConfirm.style.display = 'none'
           return
         }
         freeSandboxGate = false
         selectedMode = 'sandbox'
         applyToggleStyles()
-        const th = csTheme()
-        setConnMessage(lastTestOk ? 'Verified (saved)' : '', lastTestOk ? th.successText : th.muted)
-        paintConnDot(lastTestOk ? 'ok' : 'muted')
-        if (saveConfirm) saveConfirm.style.display = 'none'
+        persistOrchestratorLocal()
+        if (sandboxConnectHint) sandboxConnectHint.textContent = ''
+        void refreshPeersFromDesktop()
       })
 
-      testBtn?.addEventListener('click', async () => {
-        const th = csTheme()
-        const hostUrl = (urlInput?.value || '').trim()
-        if (!hostUrl.startsWith('https://')) {
-          setConnMessage('URL must use HTTPS', th.danger)
-          paintConnDot('err')
-          return
-        }
-        setConnMessage('Testing...', th.muted)
-        paintConnDot('warn')
-
-        const rpc = await electronRpc('orchestrator.testRemoteHost', { hostUrl }, 12_000)
-        const payload = rpc.data as { ok?: boolean; error?: string; host?: { inference?: { available?: boolean; model?: string | null } } } | undefined
-
-        if (rpc.success && payload && payload.ok === true && payload.host) {
-          lastTestOk = true
-          const inf = payload.host.inference
-          const model = inf && typeof inf.model === 'string' ? inf.model : null
-          const avail = inf?.available === true
-          const modelLabel =
-            model != null && model !== ''
-              ? model
-              : avail
-                ? 'host reachable'
-                : 'inference not available'
-          setConnMessage(`Connected — ${modelLabel}`, th.successText)
-          paintConnDot('ok')
-        } else {
-          lastTestOk = false
-          const errMsg =
-            (payload && typeof payload.error === 'string' && payload.error) ||
-            rpc.error ||
-            'Connection test failed'
-          setConnMessage(errMsg, th.danger)
-          paintConnDot('err')
-        }
-      })
-
-      saveBtn?.addEventListener('click', async () => {
-        if (saveConfirm) {
-          saveConfirm.style.display = 'none'
-          saveConfirm.textContent = ''
-        }
-
-        let config: { mode: 'host' } | { mode: 'sandbox'; sandbox: { hostUrl: string; connectionVerified: boolean } }
-
-        if (selectedMode === 'host') {
-          config = { mode: 'host' }
-        } else {
-          const hostUrl = (urlInput?.value || '').trim()
-          if (!hostUrl.startsWith('https://')) {
-            if (saveConfirm) {
-              saveConfirm.style.display = 'inline'
-              saveConfirm.textContent = 'URL must use HTTPS'
-              saveConfirm.style.color = csTheme().danger
+      connectBtn?.addEventListener('click', () => {
+        if (connectBusy || isFreeTier()) return
+        void (async () => {
+          const th = csTheme()
+          if (sandboxConnectHint) sandboxConnectHint.textContent = ''
+          setConnectBusy(true)
+          try {
+            const email = await fetchAuthEmail()
+            if (!email) {
+              if (sandboxConnectHint) {
+                sandboxConnectHint.textContent = 'Sign in (same SSO on both devices) to connect.'
+                sandboxConnectHint.style.color = th.danger
+              }
+              return
             }
-            return
+            const { initiateHandshake } = await import('./handshake/handshakeRpc')
+            const res = (await initiateHandshake(email, email, email, {
+              skipVaultContext: true,
+              message: 'Orchestrator device connection',
+            })) as {
+              success?: boolean
+              type?: string
+              error?: string
+              local_result?: { success?: boolean; error?: string }
+            }
+            const ok =
+              res &&
+              (res.success === true ||
+                res.local_result?.success === true ||
+                (res.type === 'handshake-initiate-result' && res.success !== false))
+            if (!ok) {
+              const err =
+                (typeof res.error === 'string' && res.error) ||
+                (typeof res.local_result?.error === 'string' && res.local_result.error) ||
+                'Handshake initiation may be incomplete.'
+              if (sandboxConnectHint) {
+                sandboxConnectHint.textContent = err
+                sandboxConnectHint.style.color = th.danger
+              }
+            } else if (sandboxConnectHint) {
+              sandboxConnectHint.textContent = ''
+            }
+          } catch (e) {
+            const msg = e instanceof Error ? e.message : String(e)
+            if (sandboxConnectHint) {
+              sandboxConnectHint.textContent = msg
+              sandboxConnectHint.style.color = th.danger
+            }
+          } finally {
+            setConnectBusy(false)
+            await refreshPeersFromDesktop()
           }
-          config = {
-            mode: 'sandbox',
-            sandbox: { hostUrl, connectionVerified: lastTestOk },
-          }
-        }
-
-        try {
-          localStorage.setItem(LS_KEY, JSON.stringify(config))
-        } catch { /* ignore */ }
-
-        const rpc = await electronRpc('orchestrator.setMode', config, 12_000)
-        const body = rpc.data as { ok?: boolean; error?: string } | undefined
-        const thSave = csTheme()
-        if (rpc.success && body?.ok === true) {
-          if (saveConfirm) {
-            saveConfirm.style.display = 'inline'
-            saveConfirm.textContent = 'Saved to this browser and desktop app.'
-            saveConfirm.style.color = thSave.successText
-          }
-        } else {
-          const err = (body && typeof body.error === 'string' && body.error) || rpc.error || 'Save failed'
-          if (saveConfirm) {
-            saveConfirm.style.display = 'inline'
-            saveConfirm.textContent = err
-            saveConfirm.style.color = thSave.danger
-          }
-        }
+        })()
       })
 
       function finishOrchestratorInit() {
         persistHostIfFreeDowngrade()
         loadFromStorage()
-        void electronRpc('orchestrator.getMode', undefined, 8_000).then((rpc) => {
-          const body = rpc.data as { ok?: boolean; config?: { mode?: string } } | undefined
-          if (!rpc.success || !body?.ok || !body.config || !desktopHint) return
-          const dm = body.config.mode
-          if (dm !== 'host' && dm !== 'sandbox') return
-          desktopHint.textContent = `Desktop app orchestrator: ${dm === 'host' ? 'Host' : 'Sandbox'}`
-        })
+        void refreshPeersFromDesktop()
       }
 
       try {

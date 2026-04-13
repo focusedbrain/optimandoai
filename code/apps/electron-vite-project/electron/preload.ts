@@ -36,6 +36,33 @@
 
 import { ipcRenderer, contextBridge } from 'electron'
 
+declare global {
+  interface ConnectedPeer {
+    instanceId: string
+    deviceName: string
+    mode: 'host' | 'sandbox'
+    handshakeId: string
+    lastSeen: string
+    status: 'connected' | 'disconnected'
+  }
+  interface OrchestratorModeConfig {
+    mode: 'host' | 'sandbox'
+    deviceName: string
+    instanceId: string
+    connectedPeers: ConnectedPeer[]
+  }
+  interface Window {
+    orchestratorMode: {
+      getMode: () => Promise<OrchestratorModeConfig>
+      setMode: (config: OrchestratorModeConfig) => Promise<{ ok: boolean; error?: string }>
+      setDeviceName: (name: string) => Promise<void>
+      getDeviceInfo: () => Promise<{ instanceId: string; deviceName: string; mode: string }>
+      getConnectedPeers: () => Promise<ConnectedPeer[]>
+      removePeer: (instanceId: string) => Promise<void>
+    }
+  }
+}
+
 // ============================================================================
 // §1  Argument Validators
 // ============================================================================
@@ -450,6 +477,22 @@ contextBridge.exposeInMainWorld('orchestrator', {
   },
   connect: () => ipcRenderer.invoke('orchestrator:connect'),
   listSessions: () => ipcRenderer.invoke('orchestrator:listSessions'),
+})
+
+contextBridge.exposeInMainWorld('orchestratorMode', {
+  getMode: () => ipcRenderer.invoke('orchestrator:getMode'),
+  setMode: (config: unknown) => {
+    if (config === null || typeof config !== 'object') {
+      throw new Error('orchestratorMode.setMode: expected config object')
+    }
+    return ipcRenderer.invoke('orchestrator:setMode', config)
+  },
+  setDeviceName: (name: unknown) =>
+    ipcRenderer.invoke('orchestrator:setDeviceName', { deviceName: assertString(name, 'deviceName') }),
+  getDeviceInfo: () => ipcRenderer.invoke('orchestrator:getDeviceInfo'),
+  getConnectedPeers: () => ipcRenderer.invoke('orchestrator:getConnectedPeers'),
+  removePeer: (instanceId: unknown) =>
+    ipcRenderer.invoke('orchestrator:removePeer', { instanceId: assertString(instanceId, 'instanceId') }),
 })
 
 // ── Analysis Dashboard ───────────────────────────────────────────────────

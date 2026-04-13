@@ -10,6 +10,7 @@ import type { StoreAdapter } from './store.js'
 export interface ConnectedClient {
   userId: string
   email: string
+  deviceId: string
   ws: WebSocket
   connectedAt: Date
   lastPing: Date
@@ -17,8 +18,21 @@ export interface ConnectedClient {
 
 const PONG_TIMEOUT_MS = 10_000
 
+/** Default device id when the client does not send one (single connection per user, legacy behavior). */
+const DEFAULT_DEVICE_ID = '_default'
+
+function compositeKey(userId: string, deviceId: string): string {
+  return `${userId}:${deviceId}`
+}
+
+function parseCompositeKey(key: string): { userId: string; deviceId: string } {
+  const i = key.indexOf(':')
+  if (i === -1) return { userId: key, deviceId: DEFAULT_DEVICE_ID }
+  return { userId: key.slice(0, i), deviceId: key.slice(i + 1) }
+}
+
 export interface WsManagerAdapter {
-  handleConnection(ws: WebSocket, identity: ValidatedIdentity): void
+  handleConnection(ws: WebSocket, identity: ValidatedIdentity, deviceId?: string): void
   pushCapsule(recipientUserId: string, id: string, capsuleJson: string): boolean
   pushSystemEvent(recipientUserId: string, event: string, payload?: Record<string, unknown>): boolean
   handleAck(userId: string, ids: string[]): void
@@ -26,19 +40,47 @@ export interface WsManagerAdapter {
   startHeartbeat(intervalMs: number): ReturnType<typeof setInterval>
   onPong(ws: WebSocket): void
   getUserIdForWs(ws: WebSocket): string | undefined
+  /** First connected client for this user (any device). Backward compatible with userId-only routing. */
+  getClient(userId: string): ConnectedClient | undefined
+  getClientByDevice(userId: string, deviceId: string): ConnectedClient | undefined
+  getClientsByUser(userId: string): ConnectedClient[]
+  removeClient(clientKey: string): void
 }
 
 export function createWsManager(store: StoreAdapter): WsManagerAdapter {
   const clients = new Map<string, ConnectedClient>()
-  const wsToUserId = new WeakMap<WebSocket, string>()
+  const wsToClientKey = new WeakMap<WebSocket, string>()
 
-  function removeConnection(userId: string): void {
-    clients.delete(userId)
+  function removeClient(clientKey: string): void {
+    clients.delete(clientKey)
+  }
+
+  function getClientsByUser(userId: string): ConnectedClient[] {
+    const prefix = `${userId}:`
+    const out: ConnectedClient[] = []
+    for (const [key, client] of clients.entries()) {
+      if (key === userId || key.startsWith(prefix)) {
+        out.push(client)
+      }
+    }
+    return out
+  }
+
+  function getClient(userId: string): ConnectedClient | undefined {
+    const list = getClientsByUser(userId)
+    return list[0]
+  }
+
+  function getClientByDevice(userId: string, deviceId: string): ConnectedClient | undefined {
+    return clients.get(compositeKey(userId, deviceId))
   }
 
   function resolveClient(recipientUserId: string): ConnectedClient | undefined {
-    const byUuid = clients.get(recipientUserId)
-    if (byUuid) return byUuid
+    if (clients.has(recipientUserId)) {
+      return clients.get(recipientUserId)
+    }
+    const direct = getClient(recipientUserId)
+    if (direct) return direct
     if (recipientUserId.includes('@')) {
       for (const client of clients.values()) {
         if (client.email === recipientUserId) return client
@@ -48,23 +90,26 @@ export function createWsManager(store: StoreAdapter): WsManagerAdapter {
   }
 
   return {
-    handleConnection(ws: WebSocket, identity: ValidatedIdentity): void {
+    handleConnection(ws: WebSocket, identity: ValidatedIdentity, deviceId?: string): void {
       const { userId, email } = identity
-      if (clients.has(userId)) {
-        clients.get(userId)!.ws.terminate()
+      const did = deviceId?.trim() || DEFAULT_DEVICE_ID
+      const clientKey = compositeKey(userId, did)
+      if (clients.has(clientKey)) {
+        clients.get(clientKey)!.ws.terminate()
       }
       const client: ConnectedClient = {
         userId,
         email,
+        deviceId: did,
         ws,
         connectedAt: new Date(),
         lastPing: new Date(),
       }
-      clients.set(userId, client)
-      wsToUserId.set(ws, userId)
+      clients.set(clientKey, client)
+      wsToClientKey.set(ws, clientKey)
 
-      ws.on('close', () => removeConnection(userId))
-      ws.on('error', () => removeConnection(userId))
+      ws.on('close', () => removeClient(clientKey))
+      ws.on('error', () => removeClient(clientKey))
 
       const pending = store.getPendingCapsules(userId, email)
       for (const { id, capsule_json } of pending) {
@@ -78,10 +123,10 @@ export function createWsManager(store: StoreAdapter): WsManagerAdapter {
     },
 
     pushCapsule(recipientUserId: string, id: string, capsuleJson: string): boolean {
-      const client = resolveClient(recipientUserId)
-      if (!client) return false
+      const target = resolveClient(recipientUserId)
+      if (!target) return false
       try {
-        client.ws.send(JSON.stringify({ type: 'capsule', id, capsule: JSON.parse(capsuleJson) }))
+        target.ws.send(JSON.stringify({ type: 'capsule', id, capsule: JSON.parse(capsuleJson) }))
         store.markPushed(id)
         return true
       } catch {
@@ -94,11 +139,11 @@ export function createWsManager(store: StoreAdapter): WsManagerAdapter {
       event: string,
       payload: Record<string, unknown> = {},
     ): boolean {
-      const client = resolveClient(recipientUserId)
-      if (!client) return false
+      const target = resolveClient(recipientUserId)
+      if (!target) return false
 
       try {
-        client.ws.send(JSON.stringify({
+        target.ws.send(JSON.stringify({
           type: 'system_event',
           event,
           ...payload,
@@ -115,8 +160,8 @@ export function createWsManager(store: StoreAdapter): WsManagerAdapter {
 
     handleAck(userId: string, ids: string[]): void {
       if (ids.length === 0) return
-      const client = clients.get(userId)
-      store.acknowledgeCapsules(ids, userId, client?.email)
+      const first = getClient(userId)
+      store.acknowledgeCapsules(ids, userId, first?.email)
     },
 
     getConnectedCount(): number {
@@ -126,10 +171,10 @@ export function createWsManager(store: StoreAdapter): WsManagerAdapter {
     startHeartbeat(intervalMs: number): ReturnType<typeof setInterval> {
       return setInterval(() => {
         const now = Date.now()
-        for (const [userId, client] of clients.entries()) {
+        for (const [clientKey, client] of clients.entries()) {
           if (now - client.lastPing.getTime() > intervalMs + PONG_TIMEOUT_MS) {
             client.ws.terminate()
-            removeConnection(userId)
+            removeClient(clientKey)
             continue
           }
           client.lastPing = new Date()
@@ -139,15 +184,22 @@ export function createWsManager(store: StoreAdapter): WsManagerAdapter {
     },
 
     onPong(ws: WebSocket): void {
-      const userId = wsToUserId.get(ws)
-      if (userId) {
-        const client = clients.get(userId)
+      const clientKey = wsToClientKey.get(ws)
+      if (clientKey) {
+        const client = clients.get(clientKey)
         if (client) client.lastPing = new Date()
       }
     },
 
     getUserIdForWs(ws: WebSocket): string | undefined {
-      return wsToUserId.get(ws)
+      const clientKey = wsToClientKey.get(ws)
+      if (!clientKey) return undefined
+      return parseCompositeKey(clientKey).userId
     },
+
+    getClient,
+    getClientByDevice,
+    getClientsByUser,
+    removeClient,
   }
 }

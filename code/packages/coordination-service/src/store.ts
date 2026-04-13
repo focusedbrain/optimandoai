@@ -28,6 +28,8 @@ CREATE TABLE IF NOT EXISTS coordination_handshake_registry (
   acceptor_user_id TEXT NOT NULL,
   initiator_email TEXT,
   acceptor_email TEXT,
+  initiator_device_id TEXT,
+  acceptor_device_id TEXT,
   created_at TEXT NOT NULL
 );
 
@@ -40,6 +42,23 @@ CREATE TABLE IF NOT EXISTS coordination_token_cache (
   expires_at TEXT NOT NULL
 );
 `
+
+function applyHandshakeRegistryMigrations(db: Database.Database): void {
+  const cols = db
+    .prepare(`PRAGMA table_info(coordination_handshake_registry)`)
+    .all() as Array<{ name: string }>
+  const names = new Set(cols.map((c) => c.name))
+  if (!names.has('initiator_device_id')) {
+    db.exec(
+      'ALTER TABLE coordination_handshake_registry ADD COLUMN initiator_device_id TEXT DEFAULT NULL',
+    )
+  }
+  if (!names.has('acceptor_device_id')) {
+    db.exec(
+      'ALTER TABLE coordination_handshake_registry ADD COLUMN acceptor_device_id TEXT DEFAULT NULL',
+    )
+  }
+}
 
 export interface StoreAdapter {
   init(): void
@@ -77,6 +96,7 @@ export function createStore(config: CoordinationConfig): StoreAdapter {
       if (db) return
       db = new Database(config.db_path)
       db.exec(SCHEMA)
+      applyHandshakeRegistryMigrations(db)
     },
 
     close() {

@@ -29,6 +29,30 @@ const DEFAULT_INBOX_AI: InboxAiSettings = {
   batchSize: 10,
 }
 
+/** Local mirrors of preload orchestratorMode store shape (Settings-only). */
+interface SettingsOrchestratorPeer {
+  instanceId: string
+  deviceName: string
+  mode: 'host' | 'sandbox'
+  handshakeId: string
+  lastSeen: string
+  status: 'connected' | 'disconnected'
+}
+
+interface SettingsOrchestratorConfig {
+  mode: 'host' | 'sandbox'
+  deviceName: string
+  instanceId: string
+  connectedPeers: SettingsOrchestratorPeer[]
+}
+
+function formatOrchestratorLastSeen(iso: string): string {
+  const t = iso?.trim()
+  if (!t) return '—'
+  const d = new Date(t)
+  return Number.isNaN(d.getTime()) ? iso : d.toLocaleString()
+}
+
 export default function SettingsView() {
   const [tier, setTier] = useState<string | null>(null)
   const [relayStatus, setRelayStatus] = useState<{
@@ -42,9 +66,27 @@ export default function SettingsView() {
   const [inboxAiSaving, setInboxAiSaving] = useState(false)
   const [inboxAiUploading, setInboxAiUploading] = useState(false)
 
+  const [orchConfig, setOrchConfig] = useState<SettingsOrchestratorConfig | null>(null)
+  const [orchDeviceNameInput, setOrchDeviceNameInput] = useState('')
+  const [orchPeers, setOrchPeers] = useState<SettingsOrchestratorPeer[]>([])
+  const [orchLoading, setOrchLoading] = useState(true)
+  const [orchConnectLoading, setOrchConnectLoading] = useState(false)
+  const [orchConnectMessage, setOrchConnectMessage] = useState<string | null>(null)
+
   const auth = (window as any).auth
   const relay = (window as any).relay
   const emailInbox = (window as any).emailInbox
+  const orchestratorMode = (window as any).orchestratorMode as
+    | {
+        getMode: () => Promise<SettingsOrchestratorConfig>
+        setMode: (c: SettingsOrchestratorConfig) => Promise<{ ok: boolean; error?: string }>
+        setDeviceName: (name: string) => Promise<{ ok: boolean; error?: string }>
+        getDeviceInfo: () => Promise<{ instanceId: string; deviceName: string; mode: string }>
+        getConnectedPeers: () => Promise<SettingsOrchestratorPeer[]>
+        removePeer: (instanceId: string) => Promise<{ ok: boolean; error?: string }>
+      }
+    | undefined
+  const handshakeView = (window as any).handshakeView
 
   useEffect(() => {
     if (!auth?.getStatus) return
@@ -85,6 +127,124 @@ export default function SettingsView() {
   useEffect(() => {
     loadInboxAiSettings()
   }, [loadInboxAiSettings])
+
+  const loadOrchestratorSettings = useCallback(async () => {
+    if (!orchestratorMode?.getMode) {
+      setOrchLoading(false)
+      return
+    }
+    setOrchLoading(true)
+    try {
+      const infoPromise = orchestratorMode.getDeviceInfo?.() ?? Promise.resolve(null)
+      const [cfg, info] = await Promise.all([orchestratorMode.getMode(), infoPromise])
+      if (cfg && typeof cfg === 'object') {
+        setOrchConfig(cfg)
+        setOrchPeers(Array.isArray(cfg.connectedPeers) ? cfg.connectedPeers : [])
+      }
+      if (info && typeof info === 'object' && typeof (info as { deviceName?: string }).deviceName === 'string') {
+        setOrchDeviceNameInput((info as { deviceName: string }).deviceName)
+      } else if (cfg && typeof cfg.deviceName === 'string') {
+        setOrchDeviceNameInput(cfg.deviceName)
+      }
+    } catch {
+      /* ignore */
+    } finally {
+      setOrchLoading(false)
+    }
+  }, [orchestratorMode])
+
+  useEffect(() => {
+    void loadOrchestratorSettings()
+  }, [loadOrchestratorSettings])
+
+  const saveOrchestratorDeviceNameBlur = async () => {
+    if (!orchestratorMode?.setDeviceName) return
+    const name = orchDeviceNameInput.trim()
+    if (!name) return
+    try {
+      const res = await orchestratorMode.setDeviceName(name)
+      if (res && typeof res === 'object' && res.ok === false && res.error) {
+        console.warn('[Settings] setDeviceName:', res.error)
+      }
+      await loadOrchestratorSettings()
+    } catch (e) {
+      console.warn('[Settings] setDeviceName failed:', e)
+    }
+  }
+
+  const handleOrchestratorModeChange = async (next: 'host' | 'sandbox') => {
+    if (!orchestratorMode?.getMode || !orchestratorMode?.setMode) return
+    try {
+      const cfg = await orchestratorMode.getMode()
+      const res = await orchestratorMode.setMode({ ...cfg, mode: next })
+      if (res && typeof res === 'object' && res.ok === false && res.error) {
+        console.warn('[Settings] setMode:', res.error)
+      }
+      await loadOrchestratorSettings()
+    } catch (e) {
+      console.warn('[Settings] setMode failed:', e)
+    }
+  }
+
+  const handleOrchestratorConnect = async () => {
+    setOrchConnectLoading(true)
+    setOrchConnectMessage(null)
+    const fallbackHint =
+      'Ensure both devices are online and logged in with the same account, then initiate a handshake from the Handshakes panel.'
+    try {
+      if (!handshakeView?.initiateHandshake) {
+        setOrchConnectMessage(fallbackHint)
+        return
+      }
+      let email = ''
+      try {
+        const st = await auth?.getStatus?.()
+        email = typeof st?.email === 'string' ? st.email.trim() : ''
+      } catch {
+        /* ignore */
+      }
+      if (!email) {
+        setOrchConnectMessage(`Sign in first. ${fallbackHint}`)
+        return
+      }
+      const contextOpts: Record<string, unknown> = {
+        skipVaultContext: true,
+        message: 'Orchestrator device connection',
+        handshake_type: 'orchestrator',
+      }
+      const res = await handshakeView.initiateHandshake(email, email, contextOpts)
+      const ok =
+        res &&
+        (res.success === true ||
+          res.local_result?.success === true ||
+          (res.type === 'handshake-initiate-result' && res.success !== false))
+      if (!ok) {
+        const err =
+          (typeof res?.error === 'string' && res.error) ||
+          (typeof res?.local_result?.error === 'string' && res.local_result.error) ||
+          'Handshake initiation may be incomplete.'
+        setOrchConnectMessage(`${err} ${fallbackHint}`)
+      } else {
+        setOrchConnectMessage(fallbackHint)
+      }
+      await loadOrchestratorSettings()
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      setOrchConnectMessage(`${msg} ${fallbackHint}`)
+    } finally {
+      setOrchConnectLoading(false)
+    }
+  }
+
+  const handleOrchestratorRemovePeer = async (instanceId: string) => {
+    if (!orchestratorMode?.removePeer) return
+    try {
+      await orchestratorMode.removePeer(instanceId)
+      await loadOrchestratorSettings()
+    } catch (e) {
+      console.warn('[Settings] removePeer failed:', e)
+    }
+  }
 
   const handleDeactivate = async () => {
     if (!relay?.deactivate) return
@@ -436,6 +596,201 @@ export default function SettingsView() {
             ))}
           </div>
         </div>
+      </section>
+
+      {/* Orchestrator Mode */}
+      <section style={{
+        marginBottom: '24px',
+        padding: '16px',
+        background: 'var(--color-surface, rgba(255,255,255,0.04))',
+        borderRadius: '10px',
+        border: '1px solid var(--color-border, rgba(255,255,255,0.12))',
+      }}>
+        <h3 style={{ margin: '0 0 12px', fontSize: '14px', fontWeight: 600 }}>
+          Orchestrator Mode
+        </h3>
+        <div style={{ height: '1px', background: 'var(--color-border)', margin: '0 0 12px' }} />
+
+        {!orchestratorMode ? (
+          <p style={{ margin: 0, fontSize: '13px', color: 'var(--color-text-muted)' }}>
+            Orchestrator settings are not available in this context.
+          </p>
+        ) : orchLoading ? (
+          <p style={{ margin: 0, fontSize: '13px', color: 'var(--color-text-muted)' }}>Loading orchestrator settings…</p>
+        ) : (
+          <>
+            <div style={{ marginBottom: '16px' }}>
+              <label style={{ display: 'block', marginBottom: '6px', fontSize: '12px', fontWeight: 600, color: 'var(--color-text-muted)' }}>
+                Device name
+              </label>
+              <input
+                type="text"
+                value={orchDeviceNameInput}
+                onChange={(e) => setOrchDeviceNameInput(e.target.value)}
+                onBlur={saveOrchestratorDeviceNameBlur}
+                autoComplete="off"
+                style={{
+                  width: '100%',
+                  padding: '10px 12px',
+                  fontSize: '13px',
+                  background: 'rgba(255,255,255,0.04)',
+                  border: '1px solid var(--color-border, rgba(255,255,255,0.12))',
+                  borderRadius: '8px',
+                  color: 'var(--color-text, #e2e8f0)',
+                  fontFamily: 'inherit',
+                  boxSizing: 'border-box',
+                }}
+              />
+              <p style={{ margin: '8px 0 0', fontSize: '12px', lineHeight: 1.5, color: 'var(--color-text-muted)' }}>
+                This name identifies your device to other connected instances.
+              </p>
+            </div>
+
+            <div style={{ marginBottom: '16px' }}>
+              <span style={{ display: 'block', marginBottom: '8px', fontSize: '12px', fontWeight: 600, color: 'var(--color-text-muted)' }}>
+                Mode
+              </span>
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                {(['host', 'sandbox'] as const).map((m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => { void handleOrchestratorModeChange(m) }}
+                    style={{
+                      padding: '8px 14px',
+                      fontSize: '12px',
+                      fontWeight: 600,
+                      background: orchConfig?.mode === m ? 'var(--purple-accent, #9333ea)' : 'rgba(255,255,255,0.06)',
+                      border: `1px solid ${orchConfig?.mode === m ? 'var(--purple-accent)' : 'rgba(255,255,255,0.12)'}`,
+                      borderRadius: '8px',
+                      color: orchConfig?.mode === m ? '#fff' : 'var(--color-text)',
+                      cursor: 'pointer',
+                      textTransform: 'capitalize',
+                    }}
+                  >
+                    {m}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div style={{ marginBottom: '16px' }}>
+              <button
+                type="button"
+                onClick={() => { void handleOrchestratorConnect() }}
+                disabled={orchConnectLoading}
+                style={{
+                  padding: '10px 16px',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  background: 'var(--color-accent-bg)',
+                  border: '1px solid var(--color-accent-border)',
+                  borderRadius: '8px',
+                  color: 'var(--color-accent)',
+                  cursor: orchConnectLoading ? 'not-allowed' : 'pointer',
+                  opacity: orchConnectLoading ? 0.7 : 1,
+                }}
+              >
+                {orchConnectLoading ? 'Connecting…' : 'Connect to my devices'}
+              </button>
+              {orchConnectMessage && (
+                <p style={{ margin: '10px 0 0', fontSize: '12px', lineHeight: 1.5, color: 'var(--color-text-muted)' }}>
+                  {orchConnectMessage}
+                </p>
+              )}
+            </div>
+
+            <div>
+              <span style={{ display: 'block', marginBottom: '10px', fontSize: '12px', fontWeight: 600, color: 'var(--color-text-muted)' }}>
+                Connected devices
+              </span>
+              {orchPeers.length === 0 ? (
+                <p style={{ margin: 0, fontSize: '13px', color: 'var(--color-text-muted)' }}>
+                  No devices connected yet.
+                </p>
+              ) : (
+                <ul style={{ margin: 0, padding: 0, listStyle: 'none' }}>
+                  {orchPeers.map((peer) => (
+                    <li
+                      key={peer.instanceId}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'flex-start',
+                        justifyContent: 'space-between',
+                        gap: '12px',
+                        padding: '12px',
+                        marginBottom: '8px',
+                        background: 'rgba(255,255,255,0.04)',
+                        borderRadius: '8px',
+                        fontSize: '12px',
+                        border: '1px solid var(--color-border, rgba(255,255,255,0.08))',
+                      }}
+                    >
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginBottom: '6px' }}>
+                          <span
+                            style={{
+                              fontWeight: 700,
+                              fontSize: '13px',
+                              color: 'var(--color-text)',
+                            }}
+                          >
+                            {peer.deviceName || 'Device'}
+                          </span>
+                          <span
+                            style={{
+                              display: 'inline-block',
+                              padding: '2px 8px',
+                              borderRadius: '999px',
+                              fontSize: '10px',
+                              fontWeight: 600,
+                              textTransform: 'capitalize',
+                              background: 'rgba(147,51,234,0.2)',
+                              color: 'var(--purple-accent, #c084fc)',
+                              border: '1px solid rgba(147,51,234,0.35)',
+                            }}
+                          >
+                            {peer.mode}
+                          </span>
+                          <span
+                            title={peer.status}
+                            style={{
+                              width: '8px',
+                              height: '8px',
+                              borderRadius: '50%',
+                              flexShrink: 0,
+                              background: peer.status === 'connected' ? 'var(--success-dark, #10b981)' : 'rgba(148,163,184,0.7)',
+                            }}
+                          />
+                        </div>
+                        <div style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>
+                          Last seen: {formatOrchestratorLastSeen(peer.lastSeen)}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => { void handleOrchestratorRemovePeer(peer.instanceId) }}
+                        style={{
+                          padding: '6px 10px',
+                          fontSize: '11px',
+                          fontWeight: 600,
+                          background: 'transparent',
+                          border: '1px solid var(--color-border)',
+                          borderRadius: '6px',
+                          color: 'var(--color-text-muted)',
+                          cursor: 'pointer',
+                          flexShrink: 0,
+                        }}
+                      >
+                        Disconnect
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </>
+        )}
       </section>
 
       {showWizard && (

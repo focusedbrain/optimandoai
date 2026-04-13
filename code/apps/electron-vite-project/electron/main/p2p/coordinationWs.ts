@@ -16,7 +16,7 @@ import {
   insertIngestionAuditRecord,
   insertQuarantineRecord,
 } from '../ingestion/persistenceDb'
-import { insertPendingP2PBeap } from '../handshake/db'
+import { getHandshakeRecord, insertPendingP2PBeap } from '../handshake/db'
 import { tryEnqueueContextSync } from '../handshake/contextSyncEnqueue'
 import { processOutboundQueue } from '../handshake/outboundQueue'
 import {
@@ -27,6 +27,7 @@ import {
   setP2PHealthCoordinationReconnectAttempts,
 } from './p2pHealth'
 import { notifyBeapRecipientPending } from './beapRecipientNotify'
+import { addConnectedPeer, getInstanceId } from '../orchestrator/orchestratorModeStore'
 
 /**
  * In-memory buffer for context_sync capsules that arrived before the accept was processed.
@@ -94,10 +95,26 @@ async function processCapsuleInternal(
   const capsuleSenderId = (capObj?.sender_wrdesk_user_id as string) ?? ''
   console.log('[Coordination] Processing capsule:', id, 'type=', capsuleType, 'handshake=', handshakeId)
 
+  const localEmailNorm = (ssoSession.email ?? '').trim().toLowerCase()
+  const receiverEmailRaw = capObj.receiver_email
+  const receiverEmailNorm =
+    typeof receiverEmailRaw === 'string' ? receiverEmailRaw.trim().toLowerCase() : ''
+  const orchestratorAutoAcceptEligible =
+    capsuleType === 'initiate' &&
+    capObj.handshake_type === 'orchestrator' &&
+    receiverEmailNorm !== '' &&
+    receiverEmailNorm === localEmailNorm
+
   // Skip capsules we sent ourselves (relay echoes them back).
   // For revoke/refresh/context_sync the sender is us — processing our own capsule would
   // fail verify_handshake_ownership on the receiving side.
-  if (capsuleSenderId && ssoSession.wrdesk_user_id && capsuleSenderId === ssoSession.wrdesk_user_id) {
+  // Exception: same-SSO orchestrator initiates are addressed to this device — auto-accept path below.
+  if (
+    capsuleSenderId &&
+    ssoSession.wrdesk_user_id &&
+    capsuleSenderId === ssoSession.wrdesk_user_id &&
+    !orchestratorAutoAcceptEligible
+  ) {
     console.log('[Coordination] Skipping own capsule (sender=local user):', id, 'type=', capsuleType)
     sendAckFn([id])
     return
@@ -109,6 +126,74 @@ async function processCapsuleInternal(
     return
   }
   console.log('[Coordination] DB check: OK')
+
+  if (orchestratorAutoAcceptEligible) {
+    // Initiate capsules are not in RELAY_ALLOWED_TYPES; delivery must use another path
+    // (e.g. direct WS message) until the relay accepts orchestrator initiates.
+    if (handshakeId !== 'unknown') {
+      const existingInitiator = getHandshakeRecord(db, handshakeId)
+      if (existingInitiator?.local_role === 'initiator') {
+        console.log('[Coordination] Orchestrator initiate echo on initiator device — ACK only')
+        sendAckFn([id])
+        return
+      }
+    }
+    console.log('[Coordination] Auto-accepting orchestrator handshake from same SSO user')
+    try {
+      const { handleHandshakeRPC } = await import('../handshake/ipc')
+      const capsuleJson = typeof capsule === 'string' ? capsule : JSON.stringify(capsule)
+      const importResult = await handleHandshakeRPC('handshake.importCapsule', { capsuleJson }, db)
+      if (!importResult?.success) {
+        console.warn(
+          '[Coordination] Orchestrator auto-accept import failed:',
+          importResult?.error ?? importResult?.reason ?? importResult,
+        )
+        return
+      }
+      const importedHandshakeId = importResult.handshake_id as string
+      const acceptResult = await handleHandshakeRPC(
+        'handshake.accept',
+        {
+          handshake_id: importedHandshakeId,
+          sharing_mode: 'reciprocal',
+          fromAccountId: '',
+        },
+        db,
+      )
+      if (!acceptResult?.success) {
+        console.warn(
+          '[Coordination] Orchestrator auto-accept accept failed:',
+          acceptResult?.error ?? acceptResult?.reason ?? acceptResult,
+        )
+        return
+      }
+      const peerInstanceId =
+        typeof capObj.initiator_instance_id === 'string' ? capObj.initiator_instance_id.trim() : ''
+      if (peerInstanceId) {
+        addConnectedPeer({
+          instanceId: peerInstanceId,
+          deviceName:
+            typeof capObj.initiator_device_name === 'string'
+              ? capObj.initiator_device_name.trim()
+              : 'Peer',
+          mode: capObj.initiator_orchestrator_mode === 'sandbox' ? 'sandbox' : 'host',
+          handshakeId: importedHandshakeId,
+          lastSeen: new Date().toISOString(),
+          status: 'connected',
+        })
+      } else {
+        console.warn(
+          '[Coordination] Orchestrator auto-accept: capsule missing initiator_instance_id — addConnectedPeer skipped (include in orchestrator initiate capsule)',
+        )
+      }
+      onHandshakeUpdated?.()
+      sendAckFn([id])
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err)
+      console.error('[Coordination] Orchestrator auto-accept error:', msg)
+    }
+    return
+  }
 
   try {
     const capsuleJson = typeof capsule === 'string' ? capsule : JSON.stringify(capsule)
@@ -372,7 +457,10 @@ export function createCoordinationWsClient(
       return
     }
 
-    const url = wsUrl.includes('?') ? `${wsUrl}&token=${encodeURIComponent(token)}` : `${wsUrl}?token=${encodeURIComponent(token)}`
+    const instanceId = getInstanceId()
+    const deviceParam = `device_id=${encodeURIComponent(instanceId)}`
+    const baseWithDevice = wsUrl.includes('?') ? `${wsUrl}&${deviceParam}` : `${wsUrl}?${deviceParam}`
+    const url = `${baseWithDevice}&token=${encodeURIComponent(token)}`
     console.log('[Coordination] Connecting to relay WebSocket:', wsUrl.replace(/\?.*/, ''))
 
     return new Promise((resolve, reject) => {

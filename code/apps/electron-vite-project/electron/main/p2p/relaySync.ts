@@ -5,6 +5,8 @@
  * When relay_mode=remote: register with own relay (Bearer secret).
  */
 
+import { getHandshakeRecord } from '../handshake/db'
+import { getInstanceId } from '../orchestrator/orchestratorModeStore'
 import { getP2PConfig } from './p2pConfig'
 
 /** Decode JWT payload for debug — returns aud value or null */
@@ -72,6 +74,21 @@ export async function registerHandshakeWithRelay(
     })
     const base = coordUrl.replace(/\/$/, '')
     const registerUrl = `${base}/beap/register-handshake`
+
+    const instanceId = getInstanceId()
+    const iu = handshakeDetails.initiator_user_id
+    const au = handshakeDetails.acceptor_user_id
+    let initiator_device_id: string | undefined
+    let acceptor_device_id: string | undefined
+    if (iu !== au) {
+      if (tokenSub === iu) initiator_device_id = instanceId
+      else if (tokenSub === au) acceptor_device_id = instanceId
+    } else {
+      const rec = getHandshakeRecord(db, handshakeId)
+      if (rec?.local_role === 'initiator') initiator_device_id = instanceId
+      else if (rec?.local_role === 'acceptor') acceptor_device_id = instanceId
+    }
+
     try {
       const res = await fetch(registerUrl, {
         method: 'POST',
@@ -85,6 +102,8 @@ export async function registerHandshakeWithRelay(
           acceptor_user_id: handshakeDetails.acceptor_user_id,
           initiator_email: handshakeDetails.initiator_email ?? undefined,
           acceptor_email: handshakeDetails.acceptor_email ?? undefined,
+          ...(initiator_device_id !== undefined ? { initiator_device_id } : {}),
+          ...(acceptor_device_id !== undefined ? { acceptor_device_id } : {}),
         }),
       })
       if (!res.ok) {
