@@ -11,6 +11,9 @@
  * Properties:
  *   - Deterministic: same pair of IDs always produces the same relationship_id
  *   - Symmetric: deriveRelationshipId(A, B) === deriveRelationshipId(B, A)
+ *   - Same wrdesk_user_id (internal / same-account devices): pass `sameAccountHandshakeId`
+ *     (the initiate `handshake_id` from the capsule). Both sides derive the same `relationship_id`
+ *     without changing capsule hashing inputs beyond the existing `handshake_id` field.
  *   - Collision-resistant: different pairs produce different IDs with very high probability
  *   - Human-readable prefix: "rel:" makes it identifiable in logs
  *   - Bounded length: 36 chars total ("rel:" + 32 hex chars)
@@ -27,11 +30,27 @@ import { createHash } from 'crypto'
  *
  * @param userIdA - First participant's wrdesk_user_id
  * @param userIdB - Second participant's wrdesk_user_id
+ * @param sameAccountHandshakeId - When both IDs are equal (internal handshake), the capsule `handshake_id` so initiator vs acceptor roles hash distinctly.
  * @returns A 36-character string starting with "rel:"
  */
-export function deriveRelationshipId(userIdA: string, userIdB: string): string {
+export function deriveRelationshipId(
+  userIdA: string,
+  userIdB: string,
+  sameAccountHandshakeId?: string | null,
+): string {
   if (!userIdA || !userIdB) throw new Error('Both user IDs are required to derive a relationship_id')
-  if (userIdA === userIdB) throw new Error('Cannot derive a relationship_id between a user and themselves')
+  if (userIdA === userIdB) {
+    const hs = typeof sameAccountHandshakeId === 'string' ? sameAccountHandshakeId.trim() : ''
+    if (!hs) {
+      throw new Error('Cannot derive a relationship_id between a user and themselves')
+    }
+    const pseudoA = `${userIdA}:internal:party-a:${hs}`
+    const pseudoB = `${userIdB}:internal:party-b:${hs}`
+    const sorted = [pseudoA, pseudoB].sort()
+    const input = sorted.join(':')
+    const hash = createHash('sha256').update(input, 'utf8').digest('hex')
+    return `rel:${hash.slice(0, 32)}`
+  }
 
   const sorted = [userIdA, userIdB].sort()
   const input = sorted.join(':')

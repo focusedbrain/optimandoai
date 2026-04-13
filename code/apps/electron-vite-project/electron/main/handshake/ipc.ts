@@ -1366,7 +1366,11 @@ export async function handleHandshakeRPC(
       if (hasAcceptPolicy) {
         updateHandshakePolicySelections(db, handshake_id, acceptPolicySelections!)
       }
-      const relationshipId = deriveRelationshipId(initiatorUserId, session.wrdesk_user_id)
+      const relationshipId = deriveRelationshipId(
+        initiatorUserId,
+        session.wrdesk_user_id,
+        initiatorUserId === session.wrdesk_user_id ? handshake_id : undefined,
+      )
       const baseline = hasAcceptPolicy
         ? baselineFromPolicySelections(acceptPolicySelections, record.effective_policy)
         : baselineFromHandshake(record)

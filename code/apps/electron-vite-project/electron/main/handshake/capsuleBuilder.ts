@@ -243,7 +243,11 @@ function buildInitiateCapsuleCore(
 ): { capsule: HandshakeCapsuleWire; keypair: SigningKeypair } {
   const timestamp = opts.timestamp ?? new Date().toISOString()
   const handshake_id = opts.handshake_id ?? `hs-${randomUUID()}`
-  const relationship_id = deriveRelationshipId(session.wrdesk_user_id, opts.receiverUserId)
+  const relationship_id = deriveRelationshipId(
+    session.wrdesk_user_id,
+    opts.receiverUserId,
+    session.wrdesk_user_id === opts.receiverUserId ? handshake_id : undefined,
+  )
   const policy = opts.policy ?? DEFAULT_POLICY_DESCRIPTOR
   const nonce = opts.nonce ?? generateNonce()
   const policyHash = computePolicyHash(policy)
@@ -356,7 +360,11 @@ export function buildAcceptCapsule(
   opts: AcceptOptions,
 ): AcceptBuildResult {
   const timestamp = opts.timestamp ?? new Date().toISOString()
-  const relationship_id = deriveRelationshipId(session.wrdesk_user_id, opts.initiatorUserId)
+  const relationship_id = deriveRelationshipId(
+    session.wrdesk_user_id,
+    opts.initiatorUserId,
+    session.wrdesk_user_id === opts.initiatorUserId ? opts.handshake_id : undefined,
+  )
   const policy = opts.policy ?? DEFAULT_POLICY_DESCRIPTOR
   const nonce = opts.nonce ?? generateNonce()
   const policyHash = computePolicyHash(policy)
@@ -490,7 +498,11 @@ export function buildRefreshCapsule(
   opts: RefreshOptions,
 ): HandshakeCapsuleWire {
   const timestamp = opts.timestamp ?? new Date().toISOString()
-  const relationship_id = deriveRelationshipId(session.wrdesk_user_id, opts.counterpartyUserId)
+  const relationship_id = deriveRelationshipId(
+    session.wrdesk_user_id,
+    opts.counterpartyUserId,
+    session.wrdesk_user_id === opts.counterpartyUserId ? opts.handshake_id : undefined,
+  )
   const policy = opts.policy ?? DEFAULT_POLICY_DESCRIPTOR
   const seq = opts.last_seq_received + 1
   const nonce = opts.nonce ?? generateNonce()
@@ -585,7 +597,11 @@ export function buildContextSyncCapsule(
   opts: ContextSyncOptions,
 ): HandshakeCapsuleWire {
   const timestamp = opts.timestamp ?? new Date().toISOString()
-  const relationship_id = deriveRelationshipId(session.wrdesk_user_id, opts.counterpartyUserId)
+  const relationship_id = deriveRelationshipId(
+    session.wrdesk_user_id,
+    opts.counterpartyUserId,
+    session.wrdesk_user_id === opts.counterpartyUserId ? opts.handshake_id : undefined,
+  )
   const policy = opts.policy ?? DEFAULT_POLICY_DESCRIPTOR
   const seq = opts.last_seq_received + 1
   const nonce = opts.nonce ?? generateNonce()
@@ -704,7 +720,11 @@ export function buildRevokeCapsule(
   opts: RevokeOptions,
 ): HandshakeCapsuleWire {
   const timestamp = opts.timestamp ?? new Date().toISOString()
-  const relationship_id = deriveRelationshipId(session.wrdesk_user_id, opts.counterpartyUserId)
+  const relationship_id = deriveRelationshipId(
+    session.wrdesk_user_id,
+    opts.counterpartyUserId,
+    session.wrdesk_user_id === opts.counterpartyUserId ? opts.handshake_id : undefined,
+  )
   const seq = opts.last_seq_received + 1
   const nonce = opts.nonce ?? generateNonce()
 

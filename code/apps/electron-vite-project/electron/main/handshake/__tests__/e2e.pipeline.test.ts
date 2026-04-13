@@ -118,8 +118,17 @@ describe('BEAP Pipeline E2E — Happy Path', () => {
     expect(id1).toMatch(/^rel:[0-9a-f]{32}$/)
   })
 
-  test('P6b: deriveRelationshipId throws for same user', () => {
+  test('P6b: deriveRelationshipId throws for same user without handshake id', () => {
     expect(() => deriveRelationshipId('user-a', 'user-a')).toThrow()
+  })
+
+  test('P6c: deriveRelationshipId same user with handshake_id is symmetric and stable', () => {
+    const hs = 'hs-test-internal-001'
+    const id1 = deriveRelationshipId('user-a', 'user-a', hs)
+    const id2 = deriveRelationshipId('user-a', 'user-a', hs)
+    expect(id1).toBe(id2)
+    expect(id1.startsWith('rel:')).toBe(true)
+    expect(id1.length).toBe(36)
   })
 
   // ── P7: policyAnchor wildcard ──
