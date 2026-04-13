@@ -54,7 +54,7 @@ export interface SendHandshakeDeliveryProps {
   /** Optional: vault unlock state provided by the host (Electron app). When provided,
    *  the internal getVaultStatus fetch is skipped and this value is used directly. */
   isVaultUnlocked?: boolean
-  /** Same-account handshake: hide API email delivery; pass metadata to RPC (DB only). */
+  /** Same-account handshake: pass internal metadata to initiate/download RPC only (does not change delivery UI). */
   isInternalHandshake?: boolean
   /** When set (e.g. SSO email), recipient field is pre-filled and read-only. */
   lockedRecipientEmail?: string
@@ -283,10 +283,6 @@ export const SendHandshakeDelivery: React.FC<SendHandshakeDeliveryProps> = ({
       : null
 
   useEffect(() => {
-    if (isInternalHandshake) setMode('attachment')
-  }, [isInternalHandshake])
-
-  useEffect(() => {
     const v = lockedRecipientEmail?.trim()
     if (v) setRecipientEmail(v)
   }, [lockedRecipientEmail])
@@ -321,7 +317,6 @@ export const SendHandshakeDelivery: React.FC<SendHandshakeDeliveryProps> = ({
   const handleSendViaApi = async () => {
     setTouched(true)
     setError(null)
-    if (isInternalHandshake) return
     if (!isValid) return
     if (!fromAccountId) {
       setError('No email account selected.')
@@ -558,25 +553,19 @@ export const SendHandshakeDelivery: React.FC<SendHandshakeDeliveryProps> = ({
         <div>
           <label style={labelStyle}>Delivery method</label>
           <div style={{ display: 'flex', gap: '8px' }}>
-            {!isInternalHandshake && (
-              <DeliveryOption
-                mode="api"
-                selected={mode === 'api'}
-                label="Email via API"
-                description="Send directly using your connected mailbox."
-                onClick={() => setMode('api')}
-                t={t}
-              />
-            )}
+            <DeliveryOption
+              mode="api"
+              selected={mode === 'api'}
+              label="Email via API"
+              description="Send directly using your connected mailbox."
+              onClick={() => setMode('api')}
+              t={t}
+            />
             <DeliveryOption
               mode="attachment"
               selected={mode === 'attachment'}
-              label={isInternalHandshake ? 'Download capsule' : 'Email as attachment'}
-              description={
-                isInternalHandshake
-                  ? 'Download the .beap file and import it on your other device (or move it via shared storage). Relay stays available if configured.'
-                  : 'Download the BEAP capsule and attach it to an email yourself.'
-              }
+              label="Email as attachment"
+              description="Download the BEAP capsule and attach it to an email yourself."
               onClick={() => setMode('attachment')}
               t={t}
             />
@@ -1042,7 +1031,6 @@ export const SendHandshakeDelivery: React.FC<SendHandshakeDeliveryProps> = ({
                 {sending ? '⏳ Building…' : '💾 Download capsule (.beap)'}
               </button>
 
-              {!isInternalHandshake && (
               <button
                 onClick={handleCopyEmailTemplate}
                 disabled={sending}
@@ -1066,7 +1054,6 @@ export const SendHandshakeDelivery: React.FC<SendHandshakeDeliveryProps> = ({
               >
                 {copySuccess ? '✓ Copied!' : '📋 Copy email template'}
               </button>
-              )}
             </>
           )}
         </div>

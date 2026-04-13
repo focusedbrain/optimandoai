@@ -1453,13 +1453,19 @@ export async function handleHandshakeRPC(
 
       const localResult = await submitCapsuleViaRpc(capsule, db, session)
 
-      if (localResult.success && db && (acceptDeviceName || acceptDeviceRole)) {
-        db.prepare(`
+      if (localResult.success && db) {
+        try {
+          if (acceptDeviceName || acceptDeviceRole) {
+            db.prepare(`
             UPDATE handshakes
             SET acceptor_device_name = ?,
                 acceptor_device_role = ?
             WHERE handshake_id = ?
           `).run(acceptDeviceName || null, acceptDeviceRole || null, handshake_id)
+          }
+        } catch (e) {
+          console.warn('Could not save acceptor device metadata:', e)
+        }
       }
 
       if (localResult.success && (p2pAuthToken || getP2PConfig(db).use_coordination) && initiatorEmail) {

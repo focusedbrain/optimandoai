@@ -16,7 +16,7 @@
  */
 
 import React, { useState, useEffect } from 'react'
-import { initiateHandshake, buildHandshakeForDownload } from '../handshakeRpc'
+import { initiateHandshake } from '../handshakeRpc'
 import { buildInitiateContextOptions } from '../buildInitiateContextOptions'
 import { TOOLTIPS, POLICY_NOTES } from '../microcopy'
 import { formatFingerprintGrouped, formatFingerprintShort } from '../fingerprint'
@@ -145,7 +145,6 @@ export function HandshakeRequestForm({
   const [isSending, setIsSending] = useState(false)
   const [sendError, setSendError] = useState<string | null>(null)
   const [sendSuccess, setSendSuccess] = useState(false)
-  const [sendSuccessWasDownload, setSendSuccessWasDownload] = useState(false)
 
   const copyFingerprint = async () => {
     try {
@@ -179,48 +178,22 @@ export function HandshakeRequestForm({
         contextGraphType,
         adhocBlockPolicy,
       })
-      if (isInternal) {
-        const dl = await buildHandshakeForDownload(recipientEmail.trim(), fromAccountId, {
+      await initiateHandshake(
+        recipientEmail.trim().toLowerCase(),
+        recipientEmail.trim(),
+        fromAccountId,
+        {
           ...opts,
-          handshake_type: 'internal',
-          device_name: deviceName.trim() || undefined,
-          device_role: deviceRole,
-        })
-        if (!dl.success || !dl.capsule_json) {
-          setSendError(dl.error || 'Failed to build handshake capsule.')
-          return
-        }
-        const blob = new Blob([dl.capsule_json], { type: 'application/vnd.beap+json' })
-        const url = URL.createObjectURL(blob)
-        const anchor = document.createElement('a')
-        anchor.href = url
-        const localpart = recipientEmail.trim().split('@')[0]?.toLowerCase().replace(/[^a-z0-9._-]/g, '') || 'unknown'
-        let shortHash = 'capsule'
-        try {
-          const capsuleData = JSON.parse(dl.capsule_json) as { capsule_hash?: string }
-          shortHash = capsuleData?.capsule_hash?.slice(0, 8) || dl.handshake_id?.slice(3, 11) || 'capsule'
-        } catch {
-          shortHash = dl.handshake_id?.slice(3, 11) || 'capsule'
-        }
-        anchor.download = `handshake_${localpart}_${shortHash}.beap`
-        document.body.appendChild(anchor)
-        anchor.click()
-        document.body.removeChild(anchor)
-        URL.revokeObjectURL(url)
-        setSendSuccessWasDownload(true)
-        setSendSuccess(true)
-      } else {
-        setSendSuccessWasDownload(false)
-        await initiateHandshake(
-          recipientEmail.trim().toLowerCase(),
-          recipientEmail.trim(),
-          fromAccountId,
-          {
-            ...opts,
-          },
-        )
-        setSendSuccess(true)
-      }
+          ...(isInternal
+            ? {
+                handshake_type: 'internal',
+                device_name: deviceName.trim() || undefined,
+                device_role: deviceRole,
+              }
+            : {}),
+        },
+      )
+      setSendSuccess(true)
       setTimeout(() => {
         setSendSuccess(false)
         onSuccess()
@@ -734,9 +707,7 @@ export function HandshakeRequestForm({
         )}
         {sendSuccess && (
           <div style={{ padding: '10px 12px', background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.3)', borderRadius: '8px', fontSize: '12px', color: '#22c55e' }}>
-            {sendSuccessWasDownload
-              ? 'Capsule built and downloaded. Import the .beap on your other device (same account) to accept.'
-              : 'Handshake request sent successfully!'}
+            Handshake request sent successfully!
           </div>
         )}
       </div>
@@ -767,7 +738,7 @@ export function HandshakeRequestForm({
             opacity: isSending ? 0.7 : 1,
           }}
         >
-          {isSending ? 'Working...' : isInternal ? 'Build & download .beap' : 'Send request'}
+          {isSending ? 'Working...' : 'Send request'}
         </button>
       </div>
     </div>

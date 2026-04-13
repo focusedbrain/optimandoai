@@ -7,7 +7,7 @@
  */
 
 import React, { useState, useEffect } from 'react'
-import { initiateHandshake, buildHandshakeForDownload } from '../handshakeRpc'
+import { initiateHandshake } from '../handshakeRpc'
 import { buildInitiateContextOptions } from '../buildInitiateContextOptions'
 import { HandshakeContextProfilePicker } from './HandshakeContextProfilePicker'
 import type { ProfileContextItem } from '@shared/handshake/types'
@@ -55,8 +55,6 @@ export const InitiateHandshakeDialog: React.FC<InitiateHandshakeDialogProps> = (
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
-  /** After success: internal uses download path (no outbound email). */
-  const [successWasInternalDownload, setSuccessWasInternalDownload] = useState(false)
 
   // Include Vault Profiles — enabled by default when profiles available
   const [includeVaultProfiles, setIncludeVaultProfiles] = useState(true)
@@ -173,47 +171,19 @@ export const InitiateHandshakeDialog: React.FC<InitiateHandshakeDialogProps> = (
         contextGraphType,
         adhocBlockPolicy,
       })
-      if (isInternal) {
-        const dl = await buildHandshakeForDownload(recipientEmail.trim(), fromAccountId, {
-          ...opts,
-          handshake_type: 'internal',
-          device_name: deviceName.trim() || undefined,
-          device_role: deviceRole,
-        })
-        if (!dl.success || !dl.capsule_json) {
-          setError(dl.error || 'Failed to build handshake capsule.')
-          return
-        }
-        const blob = new Blob([dl.capsule_json], { type: 'application/vnd.beap+json' })
-        const url = URL.createObjectURL(blob)
-        const anchor = document.createElement('a')
-        anchor.href = url
-        const localpart = recipientEmail.trim().split('@')[0]?.toLowerCase().replace(/[^a-z0-9._-]/g, '') || 'unknown'
-        let shortHash = 'capsule'
-        try {
-          const capsuleData = JSON.parse(dl.capsule_json) as { capsule_hash?: string }
-          shortHash = capsuleData?.capsule_hash?.slice(0, 8) || dl.handshake_id?.slice(3, 11) || 'capsule'
-        } catch {
-          shortHash = dl.handshake_id?.slice(3, 11) || 'capsule'
-        }
-        anchor.download = `handshake_${localpart}_${shortHash}.beap`
-        document.body.appendChild(anchor)
-        anchor.click()
-        document.body.removeChild(anchor)
-        URL.revokeObjectURL(url)
-        setSuccessWasInternalDownload(true)
-        setSuccess(true)
-        onInitiated?.(dl.handshake_id)
-        return
-      }
-
-      setSuccessWasInternalDownload(false)
       const result = await initiateHandshake(
         receiverUserId,
         recipientEmail.trim(),
         fromAccountId,
         {
           ...opts,
+          ...(isInternal
+            ? {
+                handshake_type: 'internal',
+                device_name: deviceName.trim() || undefined,
+                device_role: deviceRole,
+              }
+            : {}),
         },
       )
       setSuccess(true)
@@ -230,20 +200,11 @@ export const InitiateHandshakeDialog: React.FC<InitiateHandshakeDialogProps> = (
       <div style={themeOverlayStyle(t)} onClick={onClose}>
         <div style={panelStyle(t)} onClick={(e) => e.stopPropagation()}>
           <div style={{ padding: '48px 32px', textAlign: 'center', color: t.text }}>
-            <div style={{ fontSize: '52px', marginBottom: '16px' }}>{successWasInternalDownload ? String.fromCodePoint(0x1F4E5) : String.fromCodePoint(0x2705)}</div>
+            <div style={{ fontSize: '52px', marginBottom: '16px' }}>{String.fromCodePoint(0x2705)}</div>
             <div style={{ fontSize: '18px', fontWeight: 600, marginBottom: '8px' }}>Handshake Initiated</div>
             <div style={{ fontSize: '13px', color: t.textMuted, marginBottom: '24px', lineHeight: 1.5 }}>
-              {successWasInternalDownload ? (
-                <>
-                  Capsule downloaded for <strong style={{ color: t.text }}>{recipientEmail}</strong> (same account).<br />
-                  Import the .beap file on your other device to accept. Relay registration runs automatically when configured.
-                </>
-              ) : (
-                <>
-                  An email has been sent to <strong style={{ color: t.text }}>{recipientEmail}</strong>.<br />
-                  The handshake will be active once they accept.
-                </>
-              )}
+              Handshake created for <strong style={{ color: t.text }}>{recipientEmail}</strong>.<br />
+              Complete delivery from the handshake screen if needed; the handshake becomes active once the recipient accepts.
             </div>
             <button onClick={onClose} style={primaryButtonStyle(t)}>Done</button>
           </div>
@@ -670,7 +631,7 @@ export const InitiateHandshakeDialog: React.FC<InitiateHandshakeDialogProps> = (
                   boxShadow: '0 4px 14px rgba(59,130,246,0.3)',
                 }}
               >
-                {isSubmitting ? 'Working...' : isInternal ? (String.fromCodePoint(0x1F4BE) + ' Build & download capsule') : (String.fromCodePoint(0x1F4E7) + ' Send Handshake Request')}
+                {isSubmitting ? 'Working...' : `${String.fromCodePoint(0x1F4E7)} Send Handshake Request`}
               </button>
             </div>
           </div>

@@ -150,7 +150,7 @@ export default function HandshakeInitiateModal({ onClose, onSuccess, presetInter
         {isInternal && (
           <div style={{ padding: '12px 16px 0', display: 'flex', flexDirection: 'column', gap: '12px' }}>
             {presetInternal ? (
-              <p style={{ margin: 0, fontSize: '12px', color: '#6b7280' }}>Internal handshake — connect your own devices on this account. Download the capsule or use relay; import the .beap on your other device.</p>
+              <p style={{ margin: 0, fontSize: '12px', color: '#6b7280' }}>Internal handshake — connect your own devices on this account. Use the same delivery options as a normal handshake below.</p>
             ) : null}
             <div>
               <label style={{ fontSize: '11px', fontWeight: 600, color: '#6b7280', display: 'block', marginBottom: '4px' }}>This device name</label>

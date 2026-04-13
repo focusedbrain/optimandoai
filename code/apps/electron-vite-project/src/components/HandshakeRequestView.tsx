@@ -1,16 +1,13 @@
 /**
  * HandshakeRequestView — uses SendHandshakeDelivery from extension-chromium (shimmed via @ext).
- * Supports internal (same-account) handshake with the same controls as HandshakeInitiateModal.
+ * Internal (same-account) mode only pre-fills and locks the recipient email and collects device role;
+ * delivery options match a normal handshake.
  */
 
 import { useState, useEffect } from 'react'
 import { SendHandshakeDelivery } from '@ext/handshake/components/SendHandshakeDelivery'
-import { initiateHandshake } from '@ext/handshake/handshakeRpc'
-import { buildInitiateContextOptions } from '@ext/handshake/buildInitiateContextOptions'
 import VaultStatusIndicator from './VaultStatusIndicator'
 import PolicyRadioGroup, { DEFAULT_AI_POLICY, type PolicySelection } from './PolicyRadioGroup'
-
-const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 function prefillRecipientEmail(setEmail: (v: string) => void): void {
   if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
@@ -45,8 +42,6 @@ export default function HandshakeRequestView({ onBack, onSuccess, presetInternal
   const [deviceRole, setDeviceRole] = useState<'host' | 'sandbox'>('sandbox')
   const [deviceName, setDeviceName] = useState('')
   const [recipientEmail, setRecipientEmail] = useState('')
-  const [internalSubmitting, setInternalSubmitting] = useState(false)
-  const [internalError, setInternalError] = useState<string | null>(null)
 
   useEffect(() => {
     const check = async () => {
@@ -80,49 +75,9 @@ export default function HandshakeRequestView({ onBack, onSuccess, presetInternal
     }
   }, [isInternal])
 
-  const handleSuccess = (result?: { handshake_id?: string }) => {
+  const handleSuccess = () => {
     onSuccess?.()
     onBack()
-  }
-
-  const handleInternalSubmit = async () => {
-    if (!recipientEmail.trim()) {
-      setInternalError('Please enter a recipient email address')
-      return
-    }
-    if (!EMAIL_PATTERN.test(recipientEmail.trim())) {
-      setInternalError('Please enter a valid email address')
-      return
-    }
-    setInternalSubmitting(true)
-    setInternalError(null)
-    try {
-      const opts = await buildInitiateContextOptions({
-        skipVaultContext: !canUseHsContextProfiles,
-        policySelections: policies,
-        selectedProfileItems: [],
-        messageText: '',
-        contextGraphText: '',
-        contextGraphType: 'text',
-        adhocBlockPolicy: { policy_mode: 'inherit' },
-      })
-      await initiateHandshake(
-        recipientEmail.trim().toLowerCase(),
-        recipientEmail.trim(),
-        '',
-        {
-          ...opts,
-          handshake_type: 'internal',
-          device_name: deviceName.trim() || undefined,
-          device_role: deviceRole,
-        } as any,
-      )
-      handleSuccess()
-    } catch (e) {
-      setInternalError(e instanceof Error ? e.message : 'Failed to initiate handshake')
-    } finally {
-      setInternalSubmitting(false)
-    }
   }
 
   return (
@@ -143,65 +98,55 @@ export default function HandshakeRequestView({ onBack, onSuccess, presetInternal
         <PolicyRadioGroup value={policies} onChange={setPolicies} readOnly={false} variant="light" />
       </div>
 
-      {isInternal ? (
-        <div style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-          {presetInternal ? (
-            <p style={{ margin: 0, fontSize: '12px', color: '#6b7280' }}>Internal handshake — connect your own devices on this account.</p>
-          ) : (
-            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', cursor: 'pointer', color: '#1f2937' }}>
-              <input
-                type="checkbox"
-                checked={isInternal}
-                disabled={internalSubmitting}
-                onChange={(e) => {
-                  const next = e.target.checked
-                  setIsInternal(next)
-                  setInternalError(null)
-                  if (next) {
-                    prefillRecipientEmail(setRecipientEmail)
-                  } else {
-                    setRecipientEmail('')
-                  }
-                }}
-              />
-              Internal handshake (connect my own devices)
-            </label>
-          )}
+      {!presetInternal && (
+        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '12px 16px 0', fontSize: '13px', cursor: 'pointer', color: '#1f2937' }}>
+          <input
+            type="checkbox"
+            checked={isInternal}
+            onChange={(e) => {
+              const next = e.target.checked
+              setIsInternal(next)
+              if (next) {
+                prefillRecipientEmail(setRecipientEmail)
+              } else {
+                setRecipientEmail('')
+              }
+            }}
+          />
+          Internal handshake (connect my own devices)
+        </label>
+      )}
 
+      {isInternal && (
+        <div style={{ padding: '12px 16px 0', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+          {presetInternal ? (
+            <p style={{ margin: 0, fontSize: '12px', color: '#6b7280' }}>Internal handshake — connect your own devices on this account. Use the same delivery options as a normal handshake below.</p>
+          ) : null}
           <div>
-            <label style={{ fontSize: '11px', fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', marginBottom: '6px' }}>To</label>
+            <label style={{ fontSize: '11px', fontWeight: 600, color: '#6b7280', display: 'block', marginBottom: '4px' }}>This device name</label>
             <input
-              type="email"
-              value={recipientEmail}
-              onChange={(e) => {
-                if (!isInternal) setRecipientEmail(e.target.value)
-              }}
-              readOnly={isInternal}
-              placeholder={isInternal ? 'Your SSO email (auto-filled)' : 'recipient@example.com'}
-              disabled={internalSubmitting}
+              type="text"
+              value={deviceName}
+              onChange={(e) => setDeviceName(e.target.value)}
+              placeholder="My Computer"
               style={{
                 width: '100%',
-                padding: '10px 12px',
+                padding: '8px 10px',
                 borderRadius: '8px',
                 border: '1px solid rgba(147,51,234,0.18)',
                 fontSize: '13px',
                 boxSizing: 'border-box',
-                opacity: isInternal ? 0.7 : 1,
-                cursor: isInternal ? 'not-allowed' : 'text',
-                backgroundColor: isInternal ? '#f0f0f0' : '#fff',
               }}
             />
           </div>
-
           <div>
             <label style={{ fontSize: '12px', color: '#6b7280', marginBottom: '4px', display: 'block' }}>This device is:</label>
             <div style={{ display: 'flex', gap: '8px' }}>
               <button
                 type="button"
                 onClick={() => setDeviceRole('host')}
-                disabled={internalSubmitting}
                 style={{
-                  flex: 1, padding: '6px', borderRadius: '6px', fontSize: '12px', cursor: internalSubmitting ? 'not-allowed' : 'pointer',
+                  flex: 1, padding: '6px', borderRadius: '6px', fontSize: '12px', cursor: 'pointer',
                   background: deviceRole === 'host' ? '#534AB7' : 'transparent',
                   color: deviceRole === 'host' ? '#fff' : '#6b7280',
                   border: deviceRole === 'host' ? 'none' : '1px solid #ddd',
@@ -210,9 +155,8 @@ export default function HandshakeRequestView({ onBack, onSuccess, presetInternal
               <button
                 type="button"
                 onClick={() => setDeviceRole('sandbox')}
-                disabled={internalSubmitting}
                 style={{
-                  flex: 1, padding: '6px', borderRadius: '6px', fontSize: '12px', cursor: internalSubmitting ? 'not-allowed' : 'pointer',
+                  flex: 1, padding: '6px', borderRadius: '6px', fontSize: '12px', cursor: 'pointer',
                   background: deviceRole === 'sandbox' ? '#534AB7' : 'transparent',
                   color: deviceRole === 'sandbox' ? '#fff' : '#6b7280',
                   border: deviceRole === 'sandbox' ? 'none' : '1px solid #ddd',
@@ -220,54 +164,24 @@ export default function HandshakeRequestView({ onBack, onSuccess, presetInternal
               >Sandbox</button>
             </div>
           </div>
-
-          {internalError && (
-            <div style={{ padding: '10px', background: 'rgba(239,68,68,0.1)', borderRadius: '8px', fontSize: '12px', color: '#b91c1c' }}>{internalError}</div>
-          )}
-
-          <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
-            <button type="button" onClick={onBack} style={{ padding: '8px 14px', borderRadius: '8px', border: '1px solid #ddd', background: '#fff', cursor: 'pointer', fontSize: '13px' }}>Cancel</button>
-            <button
-              type="button"
-              onClick={() => void handleInternalSubmit()}
-              disabled={internalSubmitting}
-              style={{ padding: '8px 14px', borderRadius: '8px', border: 'none', background: 'linear-gradient(135deg,#8b5cf6,#7c3aed)', color: 'white', cursor: internalSubmitting ? 'not-allowed' : 'pointer', fontSize: '13px', fontWeight: 600 }}
-            >
-              {internalSubmitting ? 'Sending…' : 'Create handshake'}
-            </button>
-          </div>
         </div>
-      ) : (
-        <>
-          {!presetInternal && (
-            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '12px 16px 0', fontSize: '13px', cursor: 'pointer', color: '#1f2937' }}>
-              <input
-                type="checkbox"
-                checked={false}
-                onChange={(e) => {
-                  if (e.target.checked) {
-                    setIsInternal(true)
-                    setInternalError(null)
-                    prefillRecipientEmail(setRecipientEmail)
-                  }
-                }}
-              />
-              Internal handshake (connect my own devices)
-            </label>
-          )}
-          <SendHandshakeDelivery
-            theme="standard"
-            onBack={onBack}
-            fromAccountId=""
-            emailAccounts={[]}
-            onSuccess={handleSuccess}
-            policySelections={policies}
-            onRequiresVaultChange={setRequiresVault}
-            isVaultUnlocked={vaultStatus.isUnlocked}
-            canUseHsContextProfiles={canUseHsContextProfiles}
-          />
-        </>
       )}
+
+      <SendHandshakeDelivery
+        theme="standard"
+        onBack={onBack}
+        fromAccountId=""
+        emailAccounts={[]}
+        onSuccess={handleSuccess}
+        policySelections={policies}
+        onRequiresVaultChange={setRequiresVault}
+        isVaultUnlocked={vaultStatus.isUnlocked}
+        canUseHsContextProfiles={canUseHsContextProfiles}
+        isInternalHandshake={isInternal}
+        lockedRecipientEmail={isInternal && recipientEmail.trim() ? recipientEmail : undefined}
+        deviceName={isInternal ? deviceName : undefined}
+        deviceRole={isInternal ? deviceRole : undefined}
+      />
     </div>
   )
 }
