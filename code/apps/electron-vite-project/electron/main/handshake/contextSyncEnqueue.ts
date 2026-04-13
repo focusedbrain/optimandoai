@@ -157,6 +157,7 @@ export function tryEnqueueContextSync(
   }
 
   try {
+    console.log('[HANDSHAKE-DEBUG] Creating context_sync capsule', handshakeId)
     const lastSeq = opts.lastSeqReceived ?? 0
     const contextSyncCapsule = buildContextSyncCapsuleWithContent(session, {
       handshake_id: handshakeId,
@@ -179,6 +180,7 @@ export function tryEnqueueContextSync(
       targetEndpoint,
     })
     enqueueOutboundCapsule(db, handshakeId, targetEndpoint, contextSyncCapsule)
+    console.log('[HANDSHAKE-DEBUG] context_sync enqueued', handshakeId)
     updateHandshakeContextSyncPending(db, handshakeId, false)
     console.log('[ContextSync] Enqueued successfully for handshake:', handshakeId, 'seq=', cap?.seq)
     return { success: true }

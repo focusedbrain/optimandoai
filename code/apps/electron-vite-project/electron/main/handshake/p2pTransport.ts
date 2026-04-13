@@ -9,6 +9,7 @@
 
 /** Direct source import: Vitest + `@repo/ingestion-core` index alias can yield incomplete exports for this module. */
 import { isCoordinationRelayNativeBeap } from '../../../../../packages/ingestion-core/src/beapDetection.ts'
+import { getInstanceId } from '../orchestrator/orchestratorModeStore'
 
 const TIMEOUT_MS = 30_000
 
@@ -458,7 +459,18 @@ export async function sendCapsuleViaCoordination(
 ): Promise<SendCapsuleResult> {
   const base = coordinationUrl.replace(/\/$/, '')
   const targetEndpoint = `${base}/beap/capsule`
-  const payload = buildCoordinationCapsulePostBody(capsule, queueHandshakeId)
+  const payload = buildCoordinationCapsulePostBody(capsule, queueHandshakeId) as Record<string, unknown>
+  // Same-account (internal) relay routing uses initiator_device_id / acceptor_device_id; the service
+  // needs sender_device_id on the POST body to pick the correct peer when userIds match.
+  let senderDeviceId: string | undefined
+  try {
+    const id = getInstanceId()?.trim()
+    if (id) senderDeviceId = id
+  } catch {
+    /* Vitest / non-Electron: orchestrator store may be unavailable */
+  }
+  if (senderDeviceId) payload.sender_device_id = senderDeviceId
+  console.log('[OUTBOUND-DEBUG] Sending capsule with sender_device_id:', senderDeviceId ?? '(none)', 'handshake:', queueHandshakeId)
   return sendCapsuleViaHttpWithAuth(payload, targetEndpoint, oidcToken)
 }
 
@@ -485,6 +497,8 @@ async function sendCapsuleViaHttpWithAuth(
     })
 
     clearTimeout(timeout)
+
+    console.log('[HANDSHAKE-DEBUG] Sending to relay:', targetEndpoint, 'status:', response.status)
 
     if (response.status === 200) {
       console.log('[P2P] Coordination delivery OK (live push)', { endpoint: targetEndpoint, status: response.status })
@@ -595,6 +609,8 @@ export async function sendCapsuleViaHttp(
     })
 
     clearTimeout(timeout)
+
+    console.log('[HANDSHAKE-DEBUG] Sending to relay:', trimmed, 'status:', response.status)
 
     if (response.status === 200) {
       console.log('[P2P] Context-sync delivered', { handshake_id: handshakeId, endpoint: trimmed })

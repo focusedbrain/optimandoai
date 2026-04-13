@@ -399,6 +399,7 @@ export function createCoordinationWsClient(
         flushAcks()
         startHeartbeat()
         console.log('[Coordination] Connected to relay WebSocket — ready to receive capsules')
+        console.log('[WS-DEBUG] WebSocket state:', ws?.readyState, 'connected to:', wsUrl)
         resolve()
       })
 

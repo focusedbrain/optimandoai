@@ -68,6 +68,19 @@ import { replayBufferedContextSync } from '../p2p/coordinationWs'
 import { canonicalRebuild } from './canonicalRebuild'
 import { semanticSearch } from './embeddings'
 import { validateReceiverEmail, isSameAccountHandshakeEmails } from '../../../../../packages/shared/src/handshake/receiverEmailValidation'
+
+/** Coordination registry must use JWT `sub` for both parties when the handshake is same-account, or same-user device routing never engages. */
+function coordinationAcceptorUserIdForRegistration(
+  session: SSOSession,
+  receiverEmail: string,
+  receiverUserId: string,
+  opts: { explicitInternal?: boolean },
+): string {
+  if (opts.explicitInternal || isSameAccountHandshakeEmails(session.email, receiverEmail)) {
+    return session.sub
+  }
+  return receiverUserId
+}
 import { vaultService } from '../vault/rpc'
 import { USER_PACKAGE_BUILDER_SEND_SOURCE } from '../email/mergeExtensionDepackaged'
 import {
@@ -1015,7 +1028,9 @@ export async function handleHandshakeRPC(
           const regResult = p2pConfig.use_coordination
             ? await registerHandshakeWithRelay(db, capsule.handshake_id, p2pAuthToken ?? '', receiverEmail, _getOidcToken, {
                 initiator_user_id: session.sub,
-                acceptor_user_id: receiverUserId,
+                acceptor_user_id: coordinationAcceptorUserIdForRegistration(session, receiverEmail, receiverUserId, {
+                  explicitInternal: initHandshakeType === 'internal',
+                }),
                 initiator_email: session.email,
                 acceptor_email: receiverEmail,
               })
@@ -1186,7 +1201,9 @@ export async function handleHandshakeRPC(
         const registerPromise = p2pConfig.use_coordination
           ? registerHandshakeWithRelay(db, capsule.handshake_id, dlP2PAuthToken ?? '', dlReceiverEmail, _getOidcToken, {
               initiator_user_id: session.sub,
-              acceptor_user_id: dlReceiverUserId,
+              acceptor_user_id: coordinationAcceptorUserIdForRegistration(session, dlReceiverEmail, dlReceiverUserId, {
+                explicitInternal: dlHandshakeType === 'internal',
+              }),
               initiator_email: session.email,
               acceptor_email: dlReceiverEmail,
             })
@@ -1472,6 +1489,16 @@ export async function handleHandshakeRPC(
 
       const localResult = await submitCapsuleViaRpc(capsule, db, session)
 
+      const postAcceptRecord = localResult.success && db ? getHandshakeRecord(db, handshake_id) : null
+      console.log(
+        '[HANDSHAKE-DEBUG] Accept completed for',
+        handshake_id,
+        '- state:',
+        postAcceptRecord?.state ?? '(no record)',
+        'localResult.success:',
+        localResult.success,
+      )
+
       if (localResult.success && db) {
         try {
           if (acceptDeviceName || acceptDeviceRole) {
@@ -1487,8 +1514,22 @@ export async function handleHandshakeRPC(
         }
       }
 
+      const _acceptPostP2pCfg = db ? getP2PConfig(db) : null
+      const _acceptWillScheduleRelay =
+        !!(localResult.success && (p2pAuthToken || _acceptPostP2pCfg?.use_coordination) && initiatorEmail)
+      console.log('[HANDSHAKE-DEBUG] Post-accept relay branch:', {
+        handshake_id,
+        willScheduleSetImmediate: _acceptWillScheduleRelay,
+        localResultSuccess: localResult.success,
+        hasP2pAuthToken: !!p2pAuthToken,
+        use_coordination: !!_acceptPostP2pCfg?.use_coordination,
+        hasInitiatorEmail: !!initiatorEmail,
+        recordP2pEndpoint: record.p2p_endpoint?.trim() ? '(set)' : '(empty)',
+      })
+
       if (localResult.success && (p2pAuthToken || getP2PConfig(db).use_coordination) && initiatorEmail) {
         setImmediate(async () => {
+          console.log('[HANDSHAKE-DEBUG] setImmediate(post-accept relay) started for', handshake_id)
           const p2pConfig = getP2PConfig(db)
           const result = p2pConfig.use_coordination
             ? await registerHandshakeWithRelay(db, handshake_id, p2pAuthToken ?? '', initiatorEmail, _getOidcToken, {
@@ -1500,6 +1541,7 @@ export async function handleHandshakeRPC(
             : await registerHandshakeWithRelay(db, handshake_id, p2pAuthToken ?? '', initiatorEmail)
           if (!result.success) {
             console.error('[HANDSHAKE] Relay registration failed on accept:', result.error, '— handshake_id:', handshake_id)
+            console.log('[HANDSHAKE-DEBUG] Relay registration failed — skipping accept enqueue and context_sync for', handshake_id)
             return
           }
           console.log('[HANDSHAKE] Relay registration succeeded on accept:', handshake_id)
@@ -1507,28 +1549,49 @@ export async function handleHandshakeRPC(
           const targetEndpoint = record.p2p_endpoint?.trim()
           if (targetEndpoint) {
             try {
+              console.log('[HANDSHAKE-DEBUG] Enqueueing accept capsule for relay delivery', handshake_id, 'target:', targetEndpoint)
               enqueueOutboundCapsule(db, handshake_id, targetEndpoint, capsule)
+              console.log('[HANDSHAKE-DEBUG] Accept capsule enqueued, calling processOutboundQueue', handshake_id)
             } catch (err: any) {
               console.warn('[P2P] Enqueue accept capsule failed:', err?.message)
+              console.log('[HANDSHAKE-DEBUG] Accept capsule enqueue threw:', err?.message)
             }
+          } else {
+            console.log(
+              '[HANDSHAKE-DEBUG] Skipping accept capsule enqueue — no record.p2p_endpoint (coordination may still send context_sync)',
+              handshake_id,
+            )
           }
           // Enqueue context_sync AFTER the accept so the initiator always receives
           // the accept capsule first. The accept updates counterparty_public_key on the
           // initiator's record; if context_sync arrives first, the signature check fails.
+          console.log('[HANDSHAKE-DEBUG] Calling tryEnqueueContextSync after accept', handshake_id)
           const contextResult = tryEnqueueContextSync(db, handshake_id, session, {
             lastCapsuleHash: capsule.capsule_hash,
           })
+          console.log('[HANDSHAKE-DEBUG] tryEnqueueContextSync result:', handshake_id, contextResult)
           if (contextResult.success) {
-            processOutboundQueue(db, _getOidcToken).catch(() => {})
+            console.log('[HANDSHAKE-DEBUG] processOutboundQueue starting (coordination path)', handshake_id)
+            processOutboundQueue(db, _getOidcToken)
+              .then(() => console.log('[HANDSHAKE-DEBUG] processOutboundQueue settled (coordination path)', handshake_id))
+              .catch((e) => console.log('[HANDSHAKE-DEBUG] processOutboundQueue rejected (coordination path)', handshake_id, e))
             // Replay any context_sync that arrived before the accept was processed (acceptor path).
             // The initiator's context_sync may have been buffered because our record didn't have
             // counterparty_public_key yet. Now that we've accepted, replay it immediately.
             replayBufferedContextSync(handshake_id, db, session, _getOidcToken)
           } else if (contextResult.reason === 'VAULT_LOCKED') {
             // Already deferred — will be retried when vault is unlocked
+            console.log('[HANDSHAKE-DEBUG] context_sync deferred — vault locked', handshake_id)
           } else {
             console.warn('[P2P] context_sync enqueue skipped after accept:', contextResult.reason)
           }
+        })
+      } else if (localResult.success && db) {
+        console.log('[HANDSHAKE-DEBUG] Post-accept setImmediate NOT scheduled — check p2p token, coordination, initiatorEmail', {
+          handshake_id,
+          p2pAuthToken: !!p2pAuthToken,
+          use_coordination: getP2PConfig(db).use_coordination,
+          initiatorEmail: initiatorEmail || '(missing)',
         })
       }
 
@@ -1539,16 +1602,23 @@ export async function handleHandshakeRPC(
         // (after the accept capsule) to guarantee ordering. Here we only handle non-coordination
         // mode (direct P2P) or when relay registration is not applicable.
         if (!getP2PConfig(db).use_coordination) {
+          console.log('[HANDSHAKE-DEBUG] Non-coordination path: tryEnqueueContextSync from accept handler', handshake_id)
           const contextResult = tryEnqueueContextSync(db, handshake_id, session, {
             lastCapsuleHash: capsule.capsule_hash,
           })
           contextSyncStatus = contextResult.success ? 'sent' : (contextResult.reason === 'VAULT_LOCKED' ? 'vault_locked' : 'skipped')
           if (contextResult.success) {
-            setImmediate(() => { processOutboundQueue(db, _getOidcToken).catch(() => {}) })
+            setImmediate(() => {
+              console.log('[HANDSHAKE-DEBUG] processOutboundQueue (non-coordination) scheduled', handshake_id)
+              processOutboundQueue(db, _getOidcToken)
+                .then(() => console.log('[HANDSHAKE-DEBUG] processOutboundQueue settled (non-coordination)', handshake_id))
+                .catch((e) => console.log('[HANDSHAKE-DEBUG] processOutboundQueue rejected (non-coordination)', handshake_id, e))
+            })
           }
         } else {
           // Coordination: context_sync handled inside setImmediate above, report optimistically
           contextSyncStatus = 'sent'
+          console.log('[HANDSHAKE-DEBUG] Coordination mode: context_sync reported optimistic sent (actual enqueue in setImmediate)', handshake_id)
         }
       }
 

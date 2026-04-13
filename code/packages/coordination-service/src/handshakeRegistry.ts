@@ -63,8 +63,8 @@ export function createHandshakeRegistry(store: StoreAdapter): HandshakeRegistryA
            acceptor_user_id = excluded.acceptor_user_id,
            initiator_email = excluded.initiator_email,
            acceptor_email = excluded.acceptor_email,
-           initiator_device_id = excluded.initiator_device_id,
-           acceptor_device_id = excluded.acceptor_device_id`,
+           initiator_device_id = COALESCE(excluded.initiator_device_id, coordination_handshake_registry.initiator_device_id),
+           acceptor_device_id = COALESCE(excluded.acceptor_device_id, coordination_handshake_registry.acceptor_device_id)`,
       ).run(
         handshakeId,
         initiatorUserId,

@@ -198,6 +198,7 @@ export function enqueueOutboundCapsule(
        (handshake_id, target_endpoint, capsule_json, status, retry_count, max_retries, created_at)
        VALUES (?, ?, ?, 'pending', 0, 10, ?)`,
     ).run(handshakeId, targetEndpoint, JSON.stringify(capsule), now)
+    console.log('[HANDSHAKE-DEBUG] enqueueOutboundCapsule persisted', handshakeId, 'target:', targetEndpoint)
   } catch (err: any) {
     console.warn('[P2P] enqueueOutboundCapsule failed:', err?.message)
   }
@@ -276,6 +277,8 @@ async function processOutboundQueueInner(
 ): Promise<ProcessOutboundQueueResult> {
   if (!db) return { delivered: false, error: 'Database unavailable', queued: false }
   try {
+    const queueSize = getQueueCountsInternal(db).pending
+    console.log('[HANDSHAKE-DEBUG] Processing outbound queue, items:', queueSize)
     const row = db.prepare(
       `SELECT id, handshake_id, target_endpoint, capsule_json, retry_count, max_retries, error,
               IFNULL(retry_after_ms, 0) AS retry_after_ms, failure_class
