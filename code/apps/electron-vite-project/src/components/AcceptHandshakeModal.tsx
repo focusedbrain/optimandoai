@@ -16,7 +16,7 @@ import { computeBlockHashClient } from '../utils/contextBlockHash'
 import VaultStatusIndicator from './VaultStatusIndicator'
 import PolicyRadioGroup, { DEFAULT_AI_POLICY, type PolicySelection } from './PolicyRadioGroup'
 import type { ProfileContextItem, ContextBlockWithPolicy } from '../../../../packages/shared/src/handshake/types'
-import { validateReceiverEmail } from '@shared/handshake/receiverEmailValidation'
+import { validateReceiverEmail, isSameAccountHandshakeEmails } from '@shared/handshake/receiverEmailValidation'
 
 interface HandshakeRecord {
   handshake_id: string
@@ -25,6 +25,8 @@ interface HandshakeRecord {
   acceptor: { email: string; wrdesk_user_id: string } | null
   local_role: 'initiator' | 'acceptor'
   receiver_email?: string | null
+  handshake_type?: 'internal' | 'standard' | null
+  initiator_device_role?: 'host' | 'sandbox' | null
 }
 
 interface Props {
@@ -57,6 +59,12 @@ export default function AcceptHandshakeModal({
   const [vaultWarning, setVaultWarning] = useState(false)
   const [policies, setPolicies] = useState<PolicySelection>(DEFAULT_AI_POLICY)
   const [currentUserEmail, setCurrentUserEmail] = useState<string | null>(null)
+  const [acceptorDeviceName, setAcceptorDeviceName] = useState('')
+  const [acceptorDeviceRole, setAcceptorDeviceRole] = useState<'host' | 'sandbox'>('sandbox')
+
+  const isInternal =
+    record.handshake_type === 'internal' ||
+    isSameAccountHandshakeEmails(record.initiator?.email, record.receiver_email)
 
   const counterpartyEmail = record.initiator?.email ?? '(unknown)'
 
@@ -81,6 +89,23 @@ export default function AcceptHandshakeModal({
     const handler = () => checkVault()
     window.addEventListener('vault-status-changed', handler)
     return () => window.removeEventListener('vault-status-changed', handler)
+  }, [])
+
+  useEffect(() => {
+    const opp =
+      record.initiator_device_role === 'host'
+        ? 'sandbox'
+        : record.initiator_device_role === 'sandbox'
+          ? 'host'
+          : 'sandbox'
+    setAcceptorDeviceRole(opp)
+  }, [record.handshake_id, record.initiator_device_role])
+
+  useEffect(() => {
+    const om = (window as unknown as { orchestratorMode?: { getDeviceInfo?: () => Promise<{ deviceName?: string } | null> } }).orchestratorMode
+    om?.getDeviceInfo?.().then((info) => {
+      if (info?.deviceName) setAcceptorDeviceName(info.deviceName)
+    }).catch(() => { /* optional */ })
   }, [])
 
   // Rehydration: restore draft from localStorage when modal opens
@@ -167,6 +192,8 @@ export default function AcceptHandshakeModal({
         profile_ids?: string[]
         profile_items?: ProfileContextItem[]
         policy_selections?: { ai_processing_mode: 'none' | 'local_only' | 'internal_and_cloud' }
+        device_name?: string
+        device_role?: 'host' | 'sandbox'
       } = {
         policy_selections: policies,
       }
@@ -174,6 +201,10 @@ export default function AcceptHandshakeModal({
       if (selectedProfileItems.length > 0) {
         contextOpts.profile_ids = selectedProfileItems.map((i) => i.profile_id)
         contextOpts.profile_items = selectedProfileItems
+      }
+      if (isInternal) {
+        if (acceptorDeviceName.trim()) contextOpts.device_name = acceptorDeviceName.trim()
+        contextOpts.device_role = acceptorDeviceRole
       }
 
       const result = await acceptHandshake(
@@ -543,6 +574,75 @@ export default function AcceptHandshakeModal({
             }}
           >
             {error}
+          </div>
+        )}
+
+        {isInternal && (
+          <div
+            style={{
+              margin: '0 16px 12px',
+              padding: '12px',
+              background: 'rgba(83,74,183,0.06)',
+              borderRadius: '8px',
+            }}
+          >
+            <div style={{ fontWeight: 500, marginBottom: '8px', fontSize: '13px', color: '#0f172a' }}>
+              Internal handshake — configure this device
+            </div>
+            <div style={{ marginBottom: '8px' }}>
+              <label style={{ fontSize: '12px', color: mutedColor, display: 'block', marginBottom: '4px' }}>
+                Device name
+              </label>
+              <input
+                type="text"
+                value={acceptorDeviceName}
+                onChange={(e) => setAcceptorDeviceName(e.target.value)}
+                placeholder="e.g. Office Mini PC"
+                style={{
+                  width: '100%',
+                  padding: '6px 8px',
+                  borderRadius: '6px',
+                  border: `1px solid ${borderColor}`,
+                  fontSize: '13px',
+                  boxSizing: 'border-box',
+                }}
+              />
+            </div>
+            <div>
+              <label style={{ fontSize: '12px', color: mutedColor, display: 'block', marginBottom: '4px' }}>
+                This device is:
+              </label>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button
+                  type="button"
+                  onClick={() => setAcceptorDeviceRole('host')}
+                  style={{
+                    flex: 1,
+                    padding: '6px',
+                    borderRadius: '6px',
+                    fontSize: '12px',
+                    cursor: 'pointer',
+                    background: acceptorDeviceRole === 'host' ? '#534AB7' : 'transparent',
+                    color: acceptorDeviceRole === 'host' ? '#fff' : mutedColor,
+                    border: acceptorDeviceRole === 'host' ? 'none' : `1px solid ${borderColor}`,
+                  }}
+                >Host</button>
+                <button
+                  type="button"
+                  onClick={() => setAcceptorDeviceRole('sandbox')}
+                  style={{
+                    flex: 1,
+                    padding: '6px',
+                    borderRadius: '6px',
+                    fontSize: '12px',
+                    cursor: 'pointer',
+                    background: acceptorDeviceRole === 'sandbox' ? '#534AB7' : 'transparent',
+                    color: acceptorDeviceRole === 'sandbox' ? '#fff' : mutedColor,
+                    border: acceptorDeviceRole === 'sandbox' ? 'none' : `1px solid ${borderColor}`,
+                  }}
+                >Sandbox</button>
+              </div>
+            </div>
           </div>
         )}
 

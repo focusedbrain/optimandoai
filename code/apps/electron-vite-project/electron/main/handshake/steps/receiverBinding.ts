@@ -30,11 +30,6 @@ export const verifyReceiverBinding: PipelineStep = {
       return { passed: false, reason: ReasonCode.POLICY_VIOLATION }
     }
 
-    // The capsule must not be addressed to the sender themselves
-    if (input.receiver_email === input.sender_email) {
-      return { passed: false, reason: ReasonCode.HANDSHAKE_OWNERSHIP_VIOLATION }
-    }
-
     return { passed: true }
   },
 }

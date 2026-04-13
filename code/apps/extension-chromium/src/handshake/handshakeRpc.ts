@@ -528,6 +528,7 @@ function normalizeRecord(raw: any): HandshakeRecord {
     peerPQPublicKey: raw.peer_mlkem768_public_key_b64 ?? undefined,
     p2pEndpoint: raw.p2p_endpoint ?? undefined,
     localX25519PublicKey: raw.local_x25519_public_key_b64 ?? undefined,
+    receiver_email: raw.receiver_email ?? null,
     handshake_type: raw.handshake_type || null,
     initiator_device_name: raw.initiator_device_name || null,
     acceptor_device_name: raw.acceptor_device_name || null,

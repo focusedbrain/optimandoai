@@ -54,6 +54,8 @@ export interface HandshakeRecord {
    * - Only when this field equals the current device key should send proceed.
    */
   readonly localX25519PublicKey?: string
+  /** Intended recipient email from the initiate capsule (acceptor-side); same as initiator email for internal handshakes. */
+  readonly receiver_email?: string | null
   readonly handshake_type?: 'internal' | 'standard' | null
   readonly initiator_device_name?: string | null
   readonly acceptor_device_name?: string | null

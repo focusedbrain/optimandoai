@@ -16,6 +16,7 @@
 import React, { useState, useEffect } from 'react'
 import type { HandshakeRecord } from '../rpcTypes'
 import { acceptHandshake, revokeHandshake } from '../handshakeRpc'
+import { isSameAccountHandshakeEmails } from '@shared/handshake/receiverEmailValidation'
 import { buildAcceptContextOptions } from '../buildInitiateContextOptions'
 import { HandshakeContextProfilePicker } from './HandshakeContextProfilePicker'
 import type { ProfileContextItem } from '@shared/handshake/types'
@@ -86,7 +87,31 @@ export const HandshakeAcceptModal: React.FC<HandshakeAcceptModalProps> = ({
   const [adhocBlockPolicy, setAdhocBlockPolicy] = useState<{ policy_mode: 'inherit' | 'override'; policy?: { ai_processing_mode: 'none' | 'local_only' | 'internal_and_cloud' } }>({ policy_mode: 'inherit' })
   const defaultPolicy = { ai_processing_mode: 'local_only' as const }
 
+  const isInternal =
+    handshake.handshake_type === 'internal' ||
+    isSameAccountHandshakeEmails(handshake.counterparty_email, handshake.receiver_email)
+
+  const [acceptorDeviceName, setAcceptorDeviceName] = useState('')
+  const [acceptorDeviceRole, setAcceptorDeviceRole] = useState<'host' | 'sandbox'>('sandbox')
+
   const t = getThemeTokens(theme)
+
+  useEffect(() => {
+    const opp =
+      handshake.initiator_device_role === 'host'
+        ? 'sandbox'
+        : handshake.initiator_device_role === 'sandbox'
+          ? 'host'
+          : 'sandbox'
+    setAcceptorDeviceRole(opp)
+  }, [handshake.handshake_id, handshake.initiator_device_role])
+
+  useEffect(() => {
+    const om = (typeof window !== 'undefined' ? (window as unknown as { orchestratorMode?: { getDeviceInfo?: () => Promise<{ deviceName?: string } | null> } }).orchestratorMode : undefined)
+    om?.getDeviceInfo?.().then((info) => {
+      if (info?.deviceName) setAcceptorDeviceName(info.deviceName)
+    }).catch(() => { /* optional */ })
+  }, [])
 
   const handleAccept = async () => {
     setIsSubmitting(true)
@@ -103,11 +128,16 @@ export const HandshakeAcceptModal: React.FC<HandshakeAcceptModalProps> = ({
             })
           : {}
 
+      const opts = Object.keys(contextOpts).length > 0 ? { ...contextOpts } : {}
+      if (isInternal) {
+        if (acceptorDeviceName.trim()) (opts as { device_name?: string }).device_name = acceptorDeviceName.trim()
+        ;(opts as { device_role?: 'host' | 'sandbox' }).device_role = acceptorDeviceRole
+      }
       await acceptHandshake(
         handshake.handshake_id,
         sharingMode,
         fromAccountId,
-        Object.keys(contextOpts).length > 0 ? contextOpts : undefined,
+        Object.keys(opts).length > 0 ? opts : undefined,
       )
       onAccepted?.(handshake.handshake_id)
     } catch (err) {
@@ -433,6 +463,70 @@ export const HandshakeAcceptModal: React.FC<HandshakeAcceptModalProps> = ({
             {error && !(includeVaultProfiles && error.toLowerCase().includes('vault')) && (
               <div style={notificationStyle('error')}>
                 ✕ {error}
+              </div>
+            )}
+
+            {isInternal && (
+              <div style={{ marginBottom: '16px', padding: '12px', background: 'rgba(83,74,183,0.06)', borderRadius: '8px' }}>
+                <div style={{ fontWeight: 500, marginBottom: '8px', fontSize: '13px', color: t.text }}>
+                  Internal handshake — configure this device
+                </div>
+                <div style={{ marginBottom: '8px' }}>
+                  <label style={{ fontSize: '12px', color: t.textMuted, display: 'block', marginBottom: '4px' }}>
+                    Device name
+                  </label>
+                  <input
+                    type="text"
+                    value={acceptorDeviceName}
+                    onChange={(e) => setAcceptorDeviceName(e.target.value)}
+                    placeholder="e.g. Office Mini PC"
+                    style={{
+                      width: '100%',
+                      padding: '6px 8px',
+                      borderRadius: '6px',
+                      border: `1px solid ${t.border}`,
+                      fontSize: '13px',
+                      background: t.inputBg,
+                      color: t.text,
+                      boxSizing: 'border-box',
+                    }}
+                  />
+                </div>
+                <div>
+                  <label style={{ fontSize: '12px', color: t.textMuted, display: 'block', marginBottom: '4px' }}>
+                    This device is:
+                  </label>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <button
+                      type="button"
+                      onClick={() => setAcceptorDeviceRole('host')}
+                      style={{
+                        flex: 1,
+                        padding: '6px',
+                        borderRadius: '6px',
+                        fontSize: '12px',
+                        cursor: 'pointer',
+                        background: acceptorDeviceRole === 'host' ? '#534AB7' : 'transparent',
+                        color: acceptorDeviceRole === 'host' ? '#fff' : t.textMuted,
+                        border: acceptorDeviceRole === 'host' ? 'none' : `1px solid ${t.border}`,
+                      }}
+                    >Host</button>
+                    <button
+                      type="button"
+                      onClick={() => setAcceptorDeviceRole('sandbox')}
+                      style={{
+                        flex: 1,
+                        padding: '6px',
+                        borderRadius: '6px',
+                        fontSize: '12px',
+                        cursor: 'pointer',
+                        background: acceptorDeviceRole === 'sandbox' ? '#534AB7' : 'transparent',
+                        color: acceptorDeviceRole === 'sandbox' ? '#fff' : t.textMuted,
+                        border: acceptorDeviceRole === 'sandbox' ? 'none' : `1px solid ${t.border}`,
+                      }}
+                    >Sandbox</button>
+                  </div>
+                </div>
               </div>
             )}
 

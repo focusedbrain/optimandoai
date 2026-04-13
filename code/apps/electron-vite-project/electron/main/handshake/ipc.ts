@@ -67,7 +67,7 @@ import { processIncomingInput } from '../ingestion/ingestionPipeline'
 import { replayBufferedContextSync } from '../p2p/coordinationWs'
 import { canonicalRebuild } from './canonicalRebuild'
 import { semanticSearch } from './embeddings'
-import { validateReceiverEmail } from '../../../../../packages/shared/src/handshake/receiverEmailValidation'
+import { validateReceiverEmail, isSameAccountHandshakeEmails } from '../../../../../packages/shared/src/handshake/receiverEmailValidation'
 import { vaultService } from '../vault/rpc'
 import { USER_PACKAGE_BUILDER_SEND_SOURCE } from '../email/mergeExtensionDepackaged'
 import {
@@ -584,6 +584,21 @@ export async function handleHandshakeRPC(
       if (!persistResult.success) {
         return { success: false, error: persistResult.error, reason: persistResult.reason ?? 'PERSIST_FAILED' }
       }
+
+      const senderIdentity = cap?.senderIdentity as { email?: string } | undefined
+      const capsuleSenderEmail = (senderIdentity?.email ?? cap?.sender_email) as string | undefined
+      if (
+        persistResult.handshake_id &&
+        capsuleSenderEmail &&
+        isSameAccountHandshakeEmails(capsuleSenderEmail, capsuleReceiverEmail)
+      ) {
+        try {
+          db.prepare(`UPDATE handshakes SET handshake_type = ? WHERE handshake_id = ?`).run('internal', persistResult.handshake_id)
+        } catch (e) {
+          console.warn('[IMPORT] Could not mark handshake as internal:', e)
+        }
+      }
+
       return {
         success: true,
         handshake_id: persistResult.handshake_id,

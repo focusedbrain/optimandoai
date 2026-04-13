@@ -1,5 +1,6 @@
 import { describe, test, expect } from 'vitest'
 import { verifyHandshakeOwnership } from '../steps/ownership'
+import { verifyReceiverBinding } from '../steps/receiverBinding'
 import { checkDuplicateCapsule } from '../steps/dedup'
 import { checkSchemaVersion } from '../steps/schemaCheck'
 import { verifySenderDomain } from '../steps/domain'
@@ -80,7 +81,10 @@ describe('Handshake Ownership', () => {
   test('accept from initiator (own handshake) → HANDSHAKE_OWNERSHIP_VIOLATION', () => {
     const ctx = buildCtx({
       input: buildVerifiedCapsuleInput({ capsuleType: 'handshake-accept', sender_wrdesk_user_id: 'sender-user-001' }),
-      handshakeRecord: buildHandshakeRecord({ initiator: { email: 's@e.com', wrdesk_user_id: 'sender-user-001', iss: 'i', sub: 's' } }),
+      handshakeRecord: buildHandshakeRecord({
+        initiator: { email: 's@e.com', wrdesk_user_id: 'sender-user-001', iss: 'i', sub: 's' },
+        receiver_email: 'other@e.com',
+      }),
       localUserId: 'local-user-001',
     })
     const r = verifyHandshakeOwnership.execute(ctx)
@@ -88,15 +92,59 @@ describe('Handshake Ownership', () => {
     if (!r.passed) expect(r.reason).toBe(ReasonCode.HANDSHAKE_OWNERSHIP_VIOLATION)
   })
 
+  test('accept from initiator allowed for internal same-account (same email)', () => {
+    const ctx = buildCtx({
+      input: buildVerifiedCapsuleInput({ capsuleType: 'handshake-accept', sender_wrdesk_user_id: 'sender-user-001' }),
+      handshakeRecord: buildHandshakeRecord({
+        initiator: { email: 'same@e.com', wrdesk_user_id: 'sender-user-001', iss: 'i', sub: 's' },
+        receiver_email: 'same@e.com',
+      }),
+      localUserId: 'local-user-001',
+    })
+    expect(verifyHandshakeOwnership.execute(ctx).passed).toBe(true)
+  })
+
   test('self-handshake initiate → HANDSHAKE_OWNERSHIP_VIOLATION', () => {
     const ctx = buildCtx({
-      input: buildVerifiedCapsuleInput({ capsuleType: 'handshake-initiate', sender_wrdesk_user_id: 'local-user-001' }),
+      input: buildVerifiedCapsuleInput({
+        capsuleType: 'handshake-initiate',
+        sender_wrdesk_user_id: 'local-user-001',
+        sender_email: 'a@e.com',
+        receiver_email: 'b@e.com',
+      }),
       handshakeRecord: null,
       localUserId: 'local-user-001',
     })
     const r = verifyHandshakeOwnership.execute(ctx)
     expect(r.passed).toBe(false)
     if (!r.passed) expect(r.reason).toBe(ReasonCode.HANDSHAKE_OWNERSHIP_VIOLATION)
+  })
+
+  test('internal same-account initiate (same wrdesk id + same email) → passes', () => {
+    const ctx = buildCtx({
+      input: buildVerifiedCapsuleInput({
+        capsuleType: 'handshake-initiate',
+        sender_wrdesk_user_id: 'local-user-001',
+        sender_email: 'me@e.com',
+        receiver_email: 'me@e.com',
+      }),
+      handshakeRecord: null,
+      localUserId: 'local-user-001',
+    })
+    expect(verifyHandshakeOwnership.execute(ctx).passed).toBe(true)
+  })
+})
+
+describe('Receiver binding (initiate)', () => {
+  test('same sender and receiver email (internal) → passes', () => {
+    const ctx = buildCtx({
+      input: buildVerifiedCapsuleInput({
+        capsuleType: 'handshake-initiate',
+        sender_email: 'user@co.com',
+        receiver_email: 'user@co.com',
+      }),
+    })
+    expect(verifyReceiverBinding.execute(ctx).passed).toBe(true)
   })
 })
 

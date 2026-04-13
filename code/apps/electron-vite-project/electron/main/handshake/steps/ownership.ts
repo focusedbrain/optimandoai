@@ -1,5 +1,6 @@
 import type { PipelineStep } from '../types'
 import { ReasonCode, HandshakeState } from '../types'
+import { isSameAccountHandshakeEmails } from '../../../../../../packages/shared/src/handshake/receiverEmailValidation'
 
 export const verifyHandshakeOwnership: PipelineStep = {
   name: 'verify_handshake_ownership',
@@ -8,9 +9,11 @@ export const verifyHandshakeOwnership: PipelineStep = {
     const senderId = input.sender_wrdesk_user_id
 
     if (input.capsuleType === 'handshake-initiate') {
-      // Self-handshake is invalid
+      // Same wrdesk_user_id on two devices is only valid for internal (same-account) handshakes.
       if (senderId === localUserId) {
-        return { passed: false, reason: ReasonCode.HANDSHAKE_OWNERSHIP_VIOLATION }
+        if (!isSameAccountHandshakeEmails(input.sender_email, input.receiver_email)) {
+          return { passed: false, reason: ReasonCode.HANDSHAKE_OWNERSHIP_VIOLATION }
+        }
       }
 
       // Check for duplicate active/pending handshake for same tuple
@@ -33,10 +36,12 @@ export const verifyHandshakeOwnership: PipelineStep = {
       return { passed: false, reason: ReasonCode.HANDSHAKE_NOT_FOUND }
     }
 
-    // For accept: sender must NOT be the initiator (can't accept own handshake)
+    // For accept: sender must NOT be the initiator unless internal same-account (second device).
     if (input.capsuleType === 'handshake-accept') {
       if (senderId === handshakeRecord.initiator.wrdesk_user_id) {
-        return { passed: false, reason: ReasonCode.HANDSHAKE_OWNERSHIP_VIOLATION }
+        if (!isSameAccountHandshakeEmails(handshakeRecord.initiator.email, handshakeRecord.receiver_email)) {
+          return { passed: false, reason: ReasonCode.HANDSHAKE_OWNERSHIP_VIOLATION }
+        }
       }
       return { passed: true }
     }

@@ -12,9 +12,19 @@ export interface ReceiverEmailValidationResult {
 /**
  * Normalize email for comparison: trim, lowercase.
  */
-function normalizeEmail(email: string | null | undefined): string {
+export function normalizeHandshakeEmail(email: string | null | undefined): string {
   if (email == null || typeof email !== 'string') return ''
   return email.trim().toLowerCase()
+}
+
+/** True when both addresses are non-empty and equal after normalization (same-account / internal handshake). */
+export function isSameAccountHandshakeEmails(
+  a: string | null | undefined,
+  b: string | null | undefined,
+): boolean {
+  const x = normalizeHandshakeEmail(a)
+  const y = normalizeHandshakeEmail(b)
+  return x.length > 0 && x === y
 }
 
 /**
@@ -27,10 +37,10 @@ function toEmailArray(userEmails: string | string[] | null | undefined): string[
   if (Array.isArray(userEmails)) {
     return userEmails
       .filter((e): e is string => typeof e === 'string')
-      .map((e) => normalizeEmail(e))
+      .map((e) => normalizeHandshakeEmail(e))
       .filter((e) => e.length > 0)
   }
-  const s = normalizeEmail(userEmails)
+  const s = normalizeHandshakeEmail(userEmails)
   return s ? [s] : []
 }
 
@@ -45,7 +55,7 @@ export function validateReceiverEmail(
   handshakeReceiverEmail: string | null | undefined,
   userEmails: string | string[] | null | undefined,
 ): ReceiverEmailValidationResult {
-  const receiver = normalizeEmail(handshakeReceiverEmail)
+  const receiver = normalizeHandshakeEmail(handshakeReceiverEmail)
 
   // Legacy handshakes: receiver_email may be null/empty
   if (!receiver) {
