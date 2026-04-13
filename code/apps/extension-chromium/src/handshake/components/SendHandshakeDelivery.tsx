@@ -54,6 +54,12 @@ export interface SendHandshakeDeliveryProps {
   /** Optional: vault unlock state provided by the host (Electron app). When provided,
    *  the internal getVaultStatus fetch is skipped and this value is used directly. */
   isVaultUnlocked?: boolean
+  /** Same-account handshake: hide API email delivery; pass metadata to RPC (DB only). */
+  isInternalHandshake?: boolean
+  /** When set (e.g. SSO email), recipient field is pre-filled and read-only. */
+  lockedRecipientEmail?: string
+  deviceName?: string
+  deviceRole?: 'host' | 'sandbox'
 }
 
 // =============================================================================
@@ -217,6 +223,10 @@ export const SendHandshakeDelivery: React.FC<SendHandshakeDeliveryProps> = ({
   policySelections,
   onRequiresVaultChange,
   isVaultUnlocked: isVaultUnlockedProp,
+  isInternalHandshake = false,
+  lockedRecipientEmail,
+  deviceName,
+  deviceRole,
 }) => {
   const t = useThemeTokens(theme)
 
@@ -251,7 +261,7 @@ export const SendHandshakeDelivery: React.FC<SendHandshakeDeliveryProps> = ({
   const [mode, setMode] = useState<DeliveryMode>('attachment')
 
   // Shared fields
-  const [recipientEmail, setRecipientEmail] = useState('')
+  const [recipientEmail, setRecipientEmail] = useState(() => (lockedRecipientEmail?.trim() ? lockedRecipientEmail.trim() : ''))
   const [subject, setSubject] = useState(defaultSubject)
 
   // API-only fields
@@ -271,6 +281,24 @@ export const SendHandshakeDelivery: React.FC<SendHandshakeDeliveryProps> = ({
         ? 'Recipient email is required.'
         : 'Please enter a valid email address.'
       : null
+
+  useEffect(() => {
+    if (isInternalHandshake) setMode('attachment')
+  }, [isInternalHandshake])
+
+  useEffect(() => {
+    const v = lockedRecipientEmail?.trim()
+    if (v) setRecipientEmail(v)
+  }, [lockedRecipientEmail])
+
+  const internalRpcExtras = () =>
+    isInternalHandshake
+      ? {
+          handshake_type: 'internal' as const,
+          device_name: deviceName?.trim() || undefined,
+          device_role: deviceRole,
+        }
+      : {}
 
   const isValid = !!recipientEmail.trim() && EMAIL_PATTERN.test(recipientEmail.trim())
   const noEmailAccount = mode === 'api' && emailAccounts.length === 0
@@ -293,6 +321,7 @@ export const SendHandshakeDelivery: React.FC<SendHandshakeDeliveryProps> = ({
   const handleSendViaApi = async () => {
     setTouched(true)
     setError(null)
+    if (isInternalHandshake) return
     if (!isValid) return
     if (!fromAccountId) {
       setError('No email account selected.')
@@ -302,10 +331,10 @@ export const SendHandshakeDelivery: React.FC<SendHandshakeDeliveryProps> = ({
     try {
       const opts = await buildContextOptions()
       const result = await initiateHandshake(
-        recipientEmail.trim(),
+        recipientEmail.trim().toLowerCase(),
         recipientEmail.trim(),
         fromAccountId,
-        opts,
+        { ...opts, ...internalRpcExtras() },
       )
       if (result.handshake_id) {
         setActionDone('sent')
@@ -327,11 +356,10 @@ export const SendHandshakeDelivery: React.FC<SendHandshakeDeliveryProps> = ({
     setSending(true)
     try {
       const opts = await buildContextOptions()
-      const result = await buildHandshakeForDownload(
-        recipientEmail.trim(),
-        fromAccountId,
-        opts,
-      )
+      const result = await buildHandshakeForDownload(recipientEmail.trim(), fromAccountId, {
+        ...opts,
+        ...internalRpcExtras(),
+      })
       if (!result.success || !result.capsule_json) {
         setError(result.error || 'Failed to build capsule.')
         return
@@ -530,19 +558,25 @@ export const SendHandshakeDelivery: React.FC<SendHandshakeDeliveryProps> = ({
         <div>
           <label style={labelStyle}>Delivery method</label>
           <div style={{ display: 'flex', gap: '8px' }}>
-            <DeliveryOption
-              mode="api"
-              selected={mode === 'api'}
-              label="Email via API"
-              description="Send directly using your connected mailbox."
-              onClick={() => setMode('api')}
-              t={t}
-            />
+            {!isInternalHandshake && (
+              <DeliveryOption
+                mode="api"
+                selected={mode === 'api'}
+                label="Email via API"
+                description="Send directly using your connected mailbox."
+                onClick={() => setMode('api')}
+                t={t}
+              />
+            )}
             <DeliveryOption
               mode="attachment"
               selected={mode === 'attachment'}
-              label="Email as attachment"
-              description="Download the BEAP capsule and attach it to an email yourself."
+              label={isInternalHandshake ? 'Download capsule' : 'Email as attachment'}
+              description={
+                isInternalHandshake
+                  ? 'Download the .beap file and import it on your other device (or move it via shared storage). Relay stays available if configured.'
+                  : 'Download the BEAP capsule and attach it to an email yourself.'
+              }
               onClick={() => setMode('attachment')}
               t={t}
             />
@@ -625,13 +659,20 @@ export const SendHandshakeDelivery: React.FC<SendHandshakeDeliveryProps> = ({
             type="email"
             value={recipientEmail}
             onChange={(e) => {
+              if (lockedRecipientEmail?.trim()) return
               setRecipientEmail(e.target.value)
               if (touched) setTouched(true)
             }}
             onBlur={() => setTouched(true)}
             placeholder="recipient@example.com"
+            readOnly={!!lockedRecipientEmail?.trim()}
             disabled={sending}
-            style={inputStyle(!!emailError)}
+            style={{
+              ...inputStyle(!!emailError),
+              ...(lockedRecipientEmail?.trim()
+                ? { opacity: 0.85, cursor: 'not-allowed', background: t.isStandard ? '#f3f4f6' : 'rgba(255,255,255,0.06)' }
+                : {}),
+            }}
           />
           {emailError && (
             <div style={{ marginTop: '5px', fontSize: '11px', color: t.errorText }}>
@@ -1001,6 +1042,7 @@ export const SendHandshakeDelivery: React.FC<SendHandshakeDeliveryProps> = ({
                 {sending ? '⏳ Building…' : '💾 Download capsule (.beap)'}
               </button>
 
+              {!isInternalHandshake && (
               <button
                 onClick={handleCopyEmailTemplate}
                 disabled={sending}
@@ -1024,6 +1066,7 @@ export const SendHandshakeDelivery: React.FC<SendHandshakeDeliveryProps> = ({
               >
                 {copySuccess ? '✓ Copied!' : '📋 Copy email template'}
               </button>
+              )}
             </>
           )}
         </div>

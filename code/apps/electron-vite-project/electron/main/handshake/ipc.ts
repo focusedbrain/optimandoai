@@ -1038,6 +1038,9 @@ export async function handleHandshakeRPC(
         profile_items: dlProfileItems,
         p2p_endpoint: dlP2PEndpointParam,
         policy_selections: dlPolicySelections,
+        handshake_type: dlHandshakeType,
+        device_name: dlDeviceName,
+        device_role: dlDeviceRole,
       } = params as {
         receiverUserId: string
         receiverEmail: string
@@ -1048,6 +1051,9 @@ export async function handleHandshakeRPC(
         profile_items?: Array<{ profile_id: string; policy_mode?: 'inherit' | 'override'; policy?: { ai_processing_mode?: 'none' | 'local_only' | 'internal_and_cloud' } | { cloud_ai?: boolean; internal_ai?: boolean } }>
         policy_selections?: { ai_processing_mode?: 'none' | 'local_only' | 'internal_and_cloud' } | { cloud_ai?: boolean; internal_ai?: boolean }
         p2p_endpoint?: string | null
+        handshake_type?: 'internal' | 'standard'
+        device_name?: string
+        device_role?: 'host' | 'sandbox'
       }
 
       if (!dlReceiverUserId || !dlReceiverEmail) {
@@ -1142,6 +1148,16 @@ export async function handleHandshakeRPC(
           capsule_json: JSON.stringify(capsule),
           suggested_filename: `handshake_${localpart}_${shortHash}.beap`,
         }
+      }
+
+      if (dlHandshakeType === 'internal') {
+        db.prepare(`
+            UPDATE handshakes
+            SET handshake_type = ?,
+                initiator_device_name = ?,
+                initiator_device_role = ?
+            WHERE handshake_id = ?
+          `).run(dlHandshakeType, dlDeviceName || null, dlDeviceRole || null, capsule.handshake_id)
       }
 
       // Register with relay BEFORE returning the capsule so that when the acceptor

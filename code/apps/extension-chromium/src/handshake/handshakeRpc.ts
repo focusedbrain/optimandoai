@@ -197,12 +197,16 @@ export async function buildHandshakeForDownload(
     profile_ids?: string[]
     profile_items?: Array<{ profile_id: string; policy_mode?: 'inherit' | 'override'; policy?: PolicySelectionInput }>
     policy_selections?: PolicySelectionInput
+    handshake_type?: 'internal' | 'standard'
+    device_name?: string
+    device_role?: 'host' | 'sandbox'
   },
 ): Promise<HandshakeBuildForDownloadResponse> {
   const keyAgreement = await getKeyAgreementForHandshake()
+  const rid = receiverEmail.trim().toLowerCase()
   const res = await sendHandshakeRpc<HandshakeBuildForDownloadResponse>('handshake.buildForDownload', {
-    receiverUserId: receiverEmail,
-    receiverEmail,
+    receiverUserId: rid,
+    receiverEmail: receiverEmail.trim(),
     senderX25519PublicKeyB64: keyAgreement.x25519PublicKeyB64,
     senderMlkem768PublicKeyB64: keyAgreement.mlkem768PublicKeyB64,
     senderMlkem768SecretKeyB64: keyAgreement.mlkem768SecretKeyB64,
@@ -212,6 +216,9 @@ export async function buildHandshakeForDownload(
     ...(options?.profile_ids?.length ? { profile_ids: options.profile_ids } : {}),
     ...(options?.profile_items?.length ? { profile_items: options.profile_items } : {}),
     ...(options?.policy_selections ? { policy_selections: options.policy_selections } : {}),
+    handshake_type: options?.handshake_type,
+    device_name: options?.device_name,
+    device_role: options?.device_role,
   })
   // ML-KEM secret stored in Electron DB — no chrome.storage copy.
   if (!keyAgreement.mlkem768SecretKeyB64 && !res.electronGeneratedMlkemSecret && res.handshake_id) {
