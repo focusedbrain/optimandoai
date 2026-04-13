@@ -122,4 +122,17 @@ describe('runInboxLifecycleTick', () => {
     expect(queueRemoteDeletion).toHaveBeenCalledWith(db, 'd1', 0)
     expect(r.promotedPendingDeleteToFinalQueue).toBe(1)
   })
+
+  it('orphan gateway account: terminal skip counts, no queue_final error spam', async () => {
+    const { db } = createDb({ deleteIds: ['d1'] })
+    vi.mocked(queueRemoteDeletion).mockReturnValue({
+      ok: false,
+      error: 'Account not found: dead-beef',
+      terminalOrphanAccount: true,
+    })
+    const r = await runInboxLifecycleTick(db)
+    expect(r.skippedFinalDeleteOrphanAccount).toBe(1)
+    expect(r.promotedPendingDeleteToFinalQueue).toBe(0)
+    expect(r.errors.filter((e) => e.startsWith('queue_final:'))).toHaveLength(0)
+  })
 })

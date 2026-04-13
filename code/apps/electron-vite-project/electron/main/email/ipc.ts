@@ -5266,6 +5266,7 @@ ${formatSourceWeightingForPrompt(sortWeight)}`
         tick.errors.length ||
         tick.promotedReviewToPendingDelete ||
         tick.promotedPendingDeleteToFinalQueue ||
+        tick.skippedFinalDeleteOrphanAccount ||
         tick.executedPendingDeletionsPass1.executed ||
         tick.executedPendingDeletionsPass2.executed
       ) {

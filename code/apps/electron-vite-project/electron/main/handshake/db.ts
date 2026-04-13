@@ -972,6 +972,12 @@ const HANDSHAKE_MIGRATIONS: Array<{
       `ALTER TABLE handshakes ADD COLUMN acceptor_device_role TEXT`,
     ],
   },
+  {
+    version: 54,
+    description:
+      'Schema v54: inbox_messages.lifecycle_remote_delete_skip_reason — terminal skip when gateway account_id is orphaned (no infinite lifecycle retries)',
+    sql: [`ALTER TABLE inbox_messages ADD COLUMN lifecycle_remote_delete_skip_reason TEXT`],
+  },
 ]
 
 /**
@@ -1034,6 +1040,11 @@ const EMAIL_PIPELINE_COLUMN_REPAIRS: ReadonlyArray<{ table: string; column: stri
   { table: 'inbox_messages', column: 'remote_orchestrator_last_error', ddl: 'TEXT' },
   { table: 'inbox_messages', column: 'lifecycle_exited_review_utc', ddl: 'TEXT' },
   { table: 'inbox_messages', column: 'lifecycle_final_delete_queued_utc', ddl: 'TEXT' },
+  {
+    table: 'inbox_messages',
+    column: 'lifecycle_remote_delete_skip_reason',
+    ddl: 'TEXT',
+  },
   { table: 'inbox_messages', column: 'imap_remote_mailbox', ddl: 'TEXT' },
   { table: 'inbox_messages', column: 'imap_rfc_message_id', ddl: 'TEXT' },
   { table: 'inbox_messages', column: 'last_autosort_session_id', ddl: 'TEXT' },

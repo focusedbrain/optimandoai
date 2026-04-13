@@ -17,6 +17,7 @@ import {
   type CoordinationRelayDelivery,
 } from './p2pTransport'
 import { getHandshakeRecord } from './db'
+import { getInstanceId } from '../orchestrator/orchestratorModeStore'
 import { getP2PConfig } from '../p2p/p2pConfig'
 import { registerHandshakeWithRelay } from '../p2p/relaySync'
 import {
@@ -28,6 +29,49 @@ import {
 
 const INITIAL_BACKOFF_MS = 5_000
 const MAX_BACKOFF_MS = 5 * 60 * 1000 // 5 minutes
+
+/** Grep: `[Coordination][hs-trace]` — internal-handshake coordination outbound only (logging). */
+function logInternalHsTraceOutbound(
+  db: any,
+  handshakeId: string,
+  capsule: object,
+  decision: string,
+): void {
+  try {
+    const rec = getHandshakeRecord(db, handshakeId)
+    if (rec?.handshake_type !== 'internal') return
+    const cap = capsule as Record<string, unknown>
+    let localDev = ''
+    try {
+      localDev = getInstanceId()?.trim() ?? ''
+    } catch {
+      /* non-Electron */
+    }
+    const localUser =
+      rec.local_role === 'initiator'
+        ? rec.initiator.wrdesk_user_id
+        : (rec.acceptor?.wrdesk_user_id ?? '')
+    console.log(
+      '[Coordination][hs-trace]',
+      JSON.stringify({
+        trace: 'outbound_coordination_send',
+        ts: new Date().toISOString(),
+        handshake_id: handshakeId,
+        handshake_type: rec.handshake_type,
+        capsule_type: typeof cap.capsule_type === 'string' ? cap.capsule_type : null,
+        sender_wrdesk_user_id:
+          typeof cap.sender_wrdesk_user_id === 'string' ? cap.sender_wrdesk_user_id : null,
+        local_wrdesk_user_id: localUser,
+        sender_device_id: localDev || null,
+        local_device_id: localDev || null,
+        decision,
+        local_role: rec.local_role,
+      }),
+    )
+  } catch {
+    /* non-fatal */
+  }
+}
 
 function backoffDelay(retryCount: number): number {
   const delay = Math.min(INITIAL_BACKOFF_MS * Math.pow(2, retryCount), MAX_BACKOFF_MS)
@@ -400,6 +444,7 @@ async function processOutboundQueueInner(
         }
         const token2 = await getOidcToken()
         if (token2?.trim() && targetUrl) {
+          logInternalHsTraceOutbound(db, row.handshake_id, capsule, 'send_after_token_refresh')
           result = await sendCapsuleViaCoordination(capsule, targetUrl, token2, row.handshake_id)
         } else {
           return recordCoordinationPreflightFailure(
@@ -422,6 +467,7 @@ async function processOutboundQueueInner(
           getOidcToken,
         )
       } else {
+        logInternalHsTraceOutbound(db, row.handshake_id, capsule, 'send_with_session_token')
         result = await sendCapsuleViaCoordination(capsule, targetUrl, token!, row.handshake_id)
       }
 
@@ -438,6 +484,7 @@ async function processOutboundQueueInner(
         }
         const token3 = await getOidcToken()
         if (token3?.trim()) {
+          logInternalHsTraceOutbound(db, row.handshake_id, capsule, 'send_after_401_refresh')
           result = await sendCapsuleViaCoordination(capsule, targetUrl, token3, row.handshake_id)
           console.info(
             '[P2P-QUEUE]',
@@ -666,7 +713,14 @@ async function processOutboundQueueInner(
           if (reReg.success) {
             console.log('[P2P-QUEUE]', JSON.stringify({ event: 'relay_403_reregister_success', queue_row_id: row.id, handshake_id: row.handshake_id }))
             // Retry the send immediately with a fresh token
-            const retryResult = await sendCapsuleViaCoordination(JSON.parse(row.capsule_json) as object, config.coordination_url!.trim(), freshToken, row.handshake_id)
+            const capRetry = JSON.parse(row.capsule_json) as object
+            logInternalHsTraceOutbound(db, row.handshake_id, capRetry, 'send_after_403_reregister')
+            const retryResult = await sendCapsuleViaCoordination(
+              capRetry,
+              config.coordination_url!.trim(),
+              freshToken,
+              row.handshake_id,
+            )
             if (retryResult.success) {
               setP2PHealthOutboundSuccess()
               db.prepare(`UPDATE outbound_capsule_queue SET status = 'sent', last_attempt_at = ?, retry_after_ms = NULL, failure_class = NULL WHERE id = ?`).run(now, row.id)

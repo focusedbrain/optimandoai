@@ -16,7 +16,7 @@ import {
   insertIngestionAuditRecord,
   insertQuarantineRecord,
 } from '../ingestion/persistenceDb'
-import { insertPendingP2PBeap } from '../handshake/db'
+import { getHandshakeRecord, insertPendingP2PBeap } from '../handshake/db'
 import { tryEnqueueContextSync } from '../handshake/contextSyncEnqueue'
 import { processOutboundQueue } from '../handshake/outboundQueue'
 import {
@@ -28,6 +28,7 @@ import {
 } from './p2pHealth'
 import { notifyBeapRecipientPending } from './beapRecipientNotify'
 import { getInstanceId } from '../orchestrator/orchestratorModeStore'
+import { computeSamePrincipalCoordinationSkipOwn } from './coordinationSamePrincipalInbound'
 
 /**
  * In-memory buffer for context_sync capsules that arrived before the accept was processed.
@@ -93,19 +94,82 @@ async function processCapsuleInternal(
   const capsuleType = (capObj?.capsule_type as string) ?? 'unknown'
   const handshakeId = (capObj?.handshake_id as string) ?? 'unknown'
   const capsuleSenderId = (capObj?.sender_wrdesk_user_id as string) ?? ''
+  const localUserId = ssoSession.wrdesk_user_id
+  const samePrincipal =
+    !!(capsuleSenderId && localUserId && capsuleSenderId === localUserId)
   console.log('[Coordination] Processing capsule:', id, 'type=', capsuleType, 'handshake=', handshakeId)
 
   // Skip capsules we sent ourselves (relay echoes them back).
   // For revoke/refresh/context_sync the sender is us — processing our own capsule would
   // fail verify_handshake_ownership on the receiving side.
-  if (
-    capsuleSenderId &&
-    ssoSession.wrdesk_user_id &&
-    capsuleSenderId === ssoSession.wrdesk_user_id
-  ) {
-    console.log('[Coordination] Skipping own capsule (sender=local user):', id, 'type=', capsuleType)
-    sendAckFn([id])
-    return
+  //
+  // Internal (same-principal) handshakes: both devices share wrdesk_user_id, so same-principal
+  // does NOT imply "this device authored it". Skip only when sender_device_id matches this
+  // device (or is ambiguous — see below). Normal handshakes: unchanged — same principal => skip.
+  if (samePrincipal) {
+    const capDeviceRaw = capObj.sender_device_id
+    const capDevice = typeof capDeviceRaw === 'string' ? capDeviceRaw.trim() : ''
+    let localDevice = ''
+    try {
+      localDevice = getInstanceId()?.trim() ?? ''
+    } catch {
+      /* Vitest / non-Electron */
+    }
+
+    let handshakeTypeForLog: string | null = null
+    let recordLookup: 'skipped' | 'found' | 'missing' = 'skipped'
+    let senderDeviceForLog = ''
+    let localDeviceForLog = ''
+    let localRoleForLog: 'initiator' | 'acceptor' | null = null
+    let record: ReturnType<typeof getHandshakeRecord> = null
+    if (db && handshakeId && handshakeId !== 'unknown') {
+      record = getHandshakeRecord(db, handshakeId)
+      if (record) {
+        recordLookup = 'found'
+        handshakeTypeForLog = record.handshake_type ?? null
+        localRoleForLog = record.local_role
+        if (record.handshake_type === 'internal') {
+          senderDeviceForLog = capDevice
+          localDeviceForLog = localDevice
+        }
+      } else {
+        recordLookup = 'missing'
+      }
+    }
+
+    const skipAsOwnCapsule = computeSamePrincipalCoordinationSkipOwn({
+      hasDb: !!db,
+      handshakeId,
+      record,
+      capsuleSenderDeviceId: capDevice,
+      localDeviceId: localDevice,
+    })
+    if (handshakeTypeForLog === 'internal' || recordLookup !== 'found') {
+      console.log(
+        '[Coordination][hs-trace]',
+        JSON.stringify({
+          trace: 'same_principal_skip_decision',
+          ts: new Date().toISOString(),
+          relay_message_id: id,
+          handshake_id: handshakeId,
+          handshake_type: handshakeTypeForLog,
+          record_lookup: recordLookup,
+          capsule_type: capsuleType,
+          sender_wrdesk_user_id: capsuleSenderId || null,
+          local_wrdesk_user_id: localUserId || null,
+          sender_device_id: senderDeviceForLog || null,
+          local_device_id: localDeviceForLog || null,
+          decision: skipAsOwnCapsule ? 'skip_own_ack' : 'process_ingest',
+          local_role: localRoleForLog,
+          skip_as_own_capsule: skipAsOwnCapsule,
+        }),
+      )
+    }
+    if (skipAsOwnCapsule) {
+      console.log('[Coordination] Skipping own capsule (sender=local user):', id, 'type=', capsuleType)
+      sendAckFn([id])
+      return
+    }
   }
 
   if (!db) {
@@ -200,6 +264,7 @@ async function processCapsuleInternal(
     }
 
     console.log('[Coordination] Calling processHandshakeCapsule for:', id, 'capsuleType=', capsuleType)
+    const stateBeforeIngest = getHandshakeRecord(db, handshakeId)?.state ?? 'unknown'
     let handshakeResult: ReturnType<typeof processHandshakeCapsule>
     try {
       handshakeResult = processHandshakeCapsule(
@@ -225,6 +290,41 @@ async function processCapsuleInternal(
       onHandshakeUpdated?.()
 
       const record = handshakeResult.handshakeRecord!
+
+      if (record.handshake_type === 'internal') {
+        let ldIngest = ''
+        try {
+          ldIngest = getInstanceId()?.trim() ?? ''
+        } catch {
+          /* non-Electron */
+        }
+        const capIngest = rebuildResult.capsule as unknown as Record<string, unknown>
+        const sd =
+          typeof capIngest.sender_device_id === 'string' ? capIngest.sender_device_id.trim() : null
+        console.log(
+          '[Coordination][hs-trace]',
+          JSON.stringify({
+            trace: 'handshake_state_after_ingest',
+            ts: new Date().toISOString(),
+            relay_message_id: id,
+            handshake_id: record.handshake_id,
+            handshake_type: record.handshake_type,
+            capsule_type:
+              typeof capIngest.capsule_type === 'string' ? capIngest.capsule_type : capsuleType,
+            sender_wrdesk_user_id:
+              typeof capIngest.sender_wrdesk_user_id === 'string'
+                ? capIngest.sender_wrdesk_user_id
+                : null,
+            local_wrdesk_user_id: ssoSession.wrdesk_user_id,
+            sender_device_id: sd,
+            local_device_id: ldIngest || null,
+            decision: `ingest_ok_state_${stateBeforeIngest}_to_${newState}`,
+            local_role: record.local_role,
+            state_before: stateBeforeIngest,
+            state_after: newState,
+          }),
+        )
+      }
 
       // After ACCEPT: send initial context_sync (or defer if vault locked).
       // No targetEndpoint guard — coordination mode delivers via coordination_url, not p2p_endpoint.
@@ -438,6 +538,51 @@ export function createCoordinationWsClient(
               capsule_type: cap?.capsule_type,
               handshake_id: cap?.handshake_id ?? msg.handshake_id,
             }))
+            try {
+              const hidTrace =
+                (typeof cap.handshake_id === 'string' && cap.handshake_id.trim()
+                  ? cap.handshake_id.trim()
+                  : null) ??
+                (typeof msg.handshake_id === 'string' && msg.handshake_id.trim()
+                  ? msg.handshake_id.trim()
+                  : null)
+              if (db && hidTrace) {
+                const trRec = getHandshakeRecord(db, hidTrace)
+                if (trRec?.handshake_type === 'internal') {
+                  let ldRecv = ''
+                  try {
+                    ldRecv = getInstanceId()?.trim() ?? ''
+                  } catch {
+                    /* non-Electron */
+                  }
+                  const capSdRecv =
+                    typeof cap.sender_device_id === 'string' ? cap.sender_device_id.trim() : null
+                  console.log(
+                    '[Coordination][hs-trace]',
+                    JSON.stringify({
+                      trace: 'inbound_ws_receive',
+                      ts: new Date().toISOString(),
+                      relay_message_id: msg.id,
+                      handshake_id: hidTrace,
+                      handshake_type: trRec.handshake_type,
+                      capsule_type:
+                        typeof cap.capsule_type === 'string' ? cap.capsule_type : null,
+                      sender_wrdesk_user_id:
+                        typeof cap.sender_wrdesk_user_id === 'string'
+                          ? cap.sender_wrdesk_user_id
+                          : null,
+                      local_wrdesk_user_id: ssoSession.wrdesk_user_id,
+                      sender_device_id: capSdRecv,
+                      local_device_id: ldRecv || null,
+                      decision: 'received_enqueue_processCapsuleInternal',
+                      local_role: trRec.local_role,
+                    }),
+                  )
+                }
+              }
+            } catch {
+              /* non-fatal */
+            }
             if (capsuleHandler) {
               capsuleHandler(capsuleMsg).catch((err) => {
                 console.error('[Coordination] Custom handler failed:', err?.message)

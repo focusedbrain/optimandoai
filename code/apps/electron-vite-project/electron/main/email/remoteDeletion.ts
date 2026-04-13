@@ -10,6 +10,7 @@
 import { randomUUID } from 'crypto'
 import { existsSync, unlinkSync } from 'fs'
 import { emailGateway } from './gateway'
+import { isGatewayOrphanAccountError } from './gatewayOrphanAccountError'
 
 const P2P_BEAP_ACCOUNT_ID = '__p2p_beap__'
 
@@ -105,6 +106,22 @@ export interface QueueRemoteDeletionResult {
   ok: boolean
   gracePeriodEnds?: string
   error?: string
+  /** Gateway has no account for inbox_messages.account_id — row marked terminal; lifecycle stops retrying. */
+  terminalOrphanAccount?: boolean
+}
+
+function getLifecycleRemoteDeleteSkipReason(db: any, messageId: string): string | null {
+  try {
+    const r = db
+      .prepare(
+        `SELECT lifecycle_remote_delete_skip_reason FROM inbox_messages WHERE id = ?`,
+      )
+      .get(messageId) as { lifecycle_remote_delete_skip_reason?: string | null } | undefined
+    const s = r?.lifecycle_remote_delete_skip_reason
+    return typeof s === 'string' && s.trim().length > 0 ? s.trim() : null
+  } catch {
+    return null
+  }
 }
 
 export interface BulkQueueDeletionResult {
@@ -149,11 +166,37 @@ export function queueRemoteDeletion(
       return { ok: false, error: 'Message not found or not from email' }
     }
 
+    const existingSkip = getLifecycleRemoteDeleteSkipReason(db, messageId)
+    if (existingSkip) {
+      return {
+        ok: false,
+        error: 'Remote deletion skipped (terminal)',
+        terminalOrphanAccount: true,
+      }
+    }
+
     let providerType: string
     try {
       providerType = emailGateway.getProviderSync(row.account_id)
     } catch (e: any) {
       const msg = e?.message ?? 'Account not available'
+      if (isGatewayOrphanAccountError(msg)) {
+        const nowIso = new Date().toISOString()
+        const reason = `orphan_gateway_account|${nowIso}|account_id=${row.account_id}|${msg.slice(0, 400)}`
+        try {
+          db.prepare(
+            `UPDATE inbox_messages SET lifecycle_remote_delete_skip_reason = ? WHERE id = ?`,
+          ).run(reason, messageId)
+        } catch (updErr: any) {
+          console.warn('[RemoteDeletion] Could not persist lifecycle_remote_delete_skip_reason:', updErr?.message)
+        }
+        console.info(
+          '[RemoteDeletion] Terminal skip — orphaned account_id (no remote delete queued):',
+          messageId,
+          row.account_id,
+        )
+        return { ok: false, error: msg, terminalOrphanAccount: true }
+      }
       console.warn('[RemoteDeletion] queueRemoteDeletion: skip —', msg)
       return { ok: false, error: msg }
     }

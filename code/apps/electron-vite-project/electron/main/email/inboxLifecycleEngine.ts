@@ -34,6 +34,8 @@ export interface LifecycleTickResult {
   remoteEnqueuedAfterReviewPromotion: number
   /** Messages moved from Pending Delete → deletion_queue (grace 0 = execute ASAP) */
   promotedPendingDeleteToFinalQueue: number
+  /** Final delete not queued: inbox row references a removed gateway account (terminal marker set). */
+  skippedFinalDeleteOrphanAccount: number
   /** Second pass: run new grace-0 items */
   executedPendingDeletionsPass2: { executed: number; failed: number }
   errors: string[]
@@ -63,6 +65,7 @@ export async function runInboxLifecycleTick(
     promotedReviewToPendingDelete: 0,
     remoteEnqueuedAfterReviewPromotion: 0,
     promotedPendingDeleteToFinalQueue: 0,
+    skippedFinalDeleteOrphanAccount: 0,
     executedPendingDeletionsPass2: { executed: 0, failed: 0 },
     errors: [],
   }
@@ -161,6 +164,7 @@ export async function runInboxLifecycleTick(
            AND m.deleted = 0
            AND m.pending_delete_at IS NOT NULL
            AND m.pending_delete_at <= ?
+           AND (m.lifecycle_remote_delete_skip_reason IS NULL OR TRIM(m.lifecycle_remote_delete_skip_reason) = '')
            AND NOT EXISTS (
              SELECT 1 FROM deletion_queue dq
              WHERE dq.message_id = m.id AND dq.executed = 0 AND dq.cancelled = 0
@@ -182,6 +186,8 @@ export async function runInboxLifecycleTick(
           console.warn(`${LOG} lifecycle_final_delete_queued_utc update failed for ${r.id}:`, markErr?.message)
         }
         result.promotedPendingDeleteToFinalQueue++
+      } else if (q.terminalOrphanAccount) {
+        result.skippedFinalDeleteOrphanAccount++
       } else {
         const err = q.error || 'queueRemoteDeletion failed'
         result.errors.push(`queue_final:${r.id}:${err}`)
