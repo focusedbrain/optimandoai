@@ -53,7 +53,50 @@ function formatOrchestratorLastSeen(iso: string): string {
   return Number.isNaN(d.getTime()) ? iso : d.toLocaleString()
 }
 
-export default function SettingsView() {
+function mapInternalHandshakeRecordToOrchPeer(r: Record<string, unknown>): SettingsOrchestratorPeer | null {
+  const handshakeId = typeof r.handshake_id === 'string' ? r.handshake_id : ''
+  if (!handshakeId) return null
+  const localRole = r.local_role
+  const initiator = r.initiator as { email?: string } | null | undefined
+  const acceptor = r.acceptor as { email?: string } | null | undefined
+  const receiverEmail = typeof r.receiver_email === 'string' ? r.receiver_email : ''
+  const cp =
+    localRole === 'initiator'
+      ? (acceptor?.email ?? receiverEmail ?? '')
+      : (initiator?.email ?? '')
+  const deviceName =
+    localRole === 'initiator'
+      ? (typeof r.acceptor_device_name === 'string' && r.acceptor_device_name.trim()
+        ? r.acceptor_device_name
+        : (cp || 'Peer device'))
+      : (typeof r.initiator_device_name === 'string' && r.initiator_device_name.trim()
+        ? r.initiator_device_name
+        : (cp || 'Peer device'))
+  const peerRole =
+    localRole === 'initiator' ? r.acceptor_device_role : r.initiator_device_role
+  const mode: 'host' | 'sandbox' =
+    peerRole === 'host' || peerRole === 'sandbox' ? peerRole : 'sandbox'
+  const lastSeen =
+    typeof r.activated_at === 'string' && r.activated_at.trim()
+      ? r.activated_at
+      : (typeof r.created_at === 'string' ? r.created_at : '')
+  const state = typeof r.state === 'string' ? r.state : ''
+  return {
+    instanceId: handshakeId,
+    deviceName,
+    mode,
+    handshakeId,
+    lastSeen,
+    status: state === 'ACTIVE' ? 'connected' : 'disconnected',
+  }
+}
+
+export interface SettingsViewProps {
+  /** When set, Connect opens handshake initiation with internal preset (Electron dashboard). */
+  onNavigateToHandshake?: (opts?: { presetInternal?: boolean }) => void
+}
+
+export default function SettingsView({ onNavigateToHandshake }: SettingsViewProps = {}) {
   const [tier, setTier] = useState<string | null>(null)
   const [relayStatus, setRelayStatus] = useState<{
     relay_mode: string
@@ -70,7 +113,6 @@ export default function SettingsView() {
   const [orchDeviceNameInput, setOrchDeviceNameInput] = useState('')
   const [orchPeers, setOrchPeers] = useState<SettingsOrchestratorPeer[]>([])
   const [orchLoading, setOrchLoading] = useState(true)
-  const [orchConnectLoading, setOrchConnectLoading] = useState(false)
   const [orchConnectMessage, setOrchConnectMessage] = useState<string | null>(null)
 
   const auth = (window as any).auth
@@ -86,8 +128,9 @@ export default function SettingsView() {
         removePeer: (instanceId: string) => Promise<{ ok: boolean; error?: string }>
       }
     | undefined
-  const handshakeView = (window as any).handshakeView
-
+  const handshakeView = (window as any).handshakeView as
+    | { listHandshakes?: (filter?: unknown) => Promise<unknown[]> }
+    | undefined
   useEffect(() => {
     if (!auth?.getStatus) return
     auth.getStatus().then((s: { tier?: string | null }) => {
@@ -139,7 +182,26 @@ export default function SettingsView() {
       const [cfg, info] = await Promise.all([orchestratorMode.getMode(), infoPromise])
       if (cfg && typeof cfg === 'object') {
         setOrchConfig(cfg)
-        setOrchPeers(Array.isArray(cfg.connectedPeers) ? cfg.connectedPeers : [])
+        let peersFromHandshakes: SettingsOrchestratorPeer[] = []
+        try {
+          if (typeof handshakeView?.listHandshakes === 'function') {
+            const rows = await handshakeView.listHandshakes({
+              filter: { state: 'ACTIVE', handshake_type: 'internal' },
+            })
+            if (Array.isArray(rows)) {
+              peersFromHandshakes = rows
+                .map((row) => mapInternalHandshakeRecordToOrchPeer(row as Record<string, unknown>))
+                .filter((p): p is SettingsOrchestratorPeer => p != null)
+            }
+          }
+        } catch {
+          /* ignore */
+        }
+        if (peersFromHandshakes.length > 0) {
+          setOrchPeers(peersFromHandshakes)
+        } else {
+          setOrchPeers(Array.isArray(cfg.connectedPeers) ? cfg.connectedPeers : [])
+        }
       }
       if (info && typeof info === 'object' && typeof (info as { deviceName?: string }).deviceName === 'string') {
         setOrchDeviceNameInput((info as { deviceName: string }).deviceName)
@@ -186,54 +248,19 @@ export default function SettingsView() {
     }
   }
 
-  const handleOrchestratorConnect = async () => {
-    setOrchConnectLoading(true)
+  const handleOrchestratorConnect = () => {
     setOrchConnectMessage(null)
-    const fallbackHint =
-      'Ensure both devices are online and logged in with the same account, then initiate a handshake from the Handshakes panel.'
-    try {
-      if (!handshakeView?.initiateHandshake) {
-        setOrchConnectMessage(fallbackHint)
-        return
-      }
-      let email = ''
-      try {
-        const st = await auth?.getStatus?.()
-        email = typeof st?.email === 'string' ? st.email.trim() : ''
-      } catch {
-        /* ignore */
-      }
-      if (!email) {
-        setOrchConnectMessage(`Sign in first. ${fallbackHint}`)
-        return
-      }
-      const contextOpts: Record<string, unknown> = {
-        skipVaultContext: true,
-        message: 'Orchestrator device connection',
-        handshake_type: 'orchestrator',
-      }
-      const res = await handshakeView.initiateHandshake(email, email, contextOpts)
-      const ok =
-        res &&
-        (res.success === true ||
-          res.local_result?.success === true ||
-          (res.type === 'handshake-initiate-result' && res.success !== false))
-      if (!ok) {
-        const err =
-          (typeof res?.error === 'string' && res.error) ||
-          (typeof res?.local_result?.error === 'string' && res.local_result.error) ||
-          'Handshake initiation may be incomplete.'
-        setOrchConnectMessage(`${err} ${fallbackHint}`)
-      } else {
-        setOrchConnectMessage(fallbackHint)
-      }
-      await loadOrchestratorSettings()
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e)
-      setOrchConnectMessage(`${msg} ${fallbackHint}`)
-    } finally {
-      setOrchConnectLoading(false)
+    // Open handshake initiation modal with internal mode pre-set (parent passes navigation callback).
+    if (onNavigateToHandshake) {
+      onNavigateToHandshake({ presetInternal: true })
+      return
     }
+    window.dispatchEvent(
+      new CustomEvent('optimando-open-handshake-initiate', { detail: { presetInternal: true } }),
+    )
+    setOrchConnectMessage(
+      'Open the Handshakes panel and check "Internal handshake" to connect your devices.',
+    )
   }
 
   const handleOrchestratorRemovePeer = async (instanceId: string) => {
@@ -677,8 +704,7 @@ export default function SettingsView() {
             <div style={{ marginBottom: '16px' }}>
               <button
                 type="button"
-                onClick={() => { void handleOrchestratorConnect() }}
-                disabled={orchConnectLoading}
+                onClick={handleOrchestratorConnect}
                 style={{
                   padding: '10px 16px',
                   fontSize: '13px',
@@ -687,11 +713,10 @@ export default function SettingsView() {
                   border: '1px solid var(--color-accent-border)',
                   borderRadius: '8px',
                   color: 'var(--color-accent)',
-                  cursor: orchConnectLoading ? 'not-allowed' : 'pointer',
-                  opacity: orchConnectLoading ? 0.7 : 1,
+                  cursor: 'pointer',
                 }}
               >
-                {orchConnectLoading ? 'Connecting…' : 'Connect to my devices'}
+                Connect to my devices
               </button>
               {orchConnectMessage && (
                 <p style={{ margin: '10px 0 0', fontSize: '12px', lineHeight: 1.5, color: 'var(--color-text-muted)' }}>

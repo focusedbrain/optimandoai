@@ -12,7 +12,6 @@ import { MODEL_CATALOG, getModelConfig } from './config'
 import { ChatRequest } from './types'
 import { resolveInboxAutosortRuntime } from './inboxAutosortRuntime'
 import { isSandboxMode } from '../orchestrator/orchestratorModeStore'
-import { sandboxChat } from '../orchestrator/sandboxInferenceClient'
 
 /**
  * Register all LLM-related IPC handlers
@@ -245,11 +244,11 @@ export function registerLlmHandlers() {
   ipcMain.handle('llm:chat', async (_event, request: ChatRequest) => {
     try {
       if (isSandboxMode()) {
-        const messages = request.messages.map((m) => ({
-          role: m.role,
-          content: m.content,
-        }))
-        return await sandboxChat(messages, request.modelId)
+        return {
+          ok: false,
+          error:
+            'Sandbox inference over HTTP is removed. Create an internal handshake in the Handshakes panel; inference will use the BEAP channel.',
+        }
       }
 
       let modelId = request.modelId

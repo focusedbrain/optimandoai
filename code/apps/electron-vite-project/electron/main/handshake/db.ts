@@ -961,6 +961,17 @@ const HANDSHAKE_MIGRATIONS: Array<{
       `UPDATE handshakes SET state = CASE WHEN activated_at IS NOT NULL THEN 'ACTIVE' ELSE 'PENDING_ACCEPT' END WHERE state = 'EXPIRED' AND revoked_at IS NULL`,
     ],
   },
+  {
+    version: 53,
+    description: 'Internal handshake metadata (type, device names, orchestrator roles)',
+    sql: [
+      `ALTER TABLE handshakes ADD COLUMN handshake_type TEXT`,
+      `ALTER TABLE handshakes ADD COLUMN initiator_device_name TEXT`,
+      `ALTER TABLE handshakes ADD COLUMN acceptor_device_name TEXT`,
+      `ALTER TABLE handshakes ADD COLUMN initiator_device_role TEXT`,
+      `ALTER TABLE handshakes ADD COLUMN acceptor_device_role TEXT`,
+    ],
+  },
 ]
 
 /**
@@ -1381,6 +1392,11 @@ export function serializeHandshakeRecord(record: HandshakeRecord): any {
     local_x25519_public_key_b64: record.local_x25519_public_key_b64 ?? null,
     local_mlkem768_secret_key_b64: record.local_mlkem768_secret_key_b64 ?? null,
     local_mlkem768_public_key_b64: record.local_mlkem768_public_key_b64 ?? null,
+    handshake_type: record.handshake_type ?? null,
+    initiator_device_name: record.initiator_device_name ?? null,
+    acceptor_device_name: record.acceptor_device_name ?? null,
+    initiator_device_role: record.initiator_device_role ?? null,
+    acceptor_device_role: record.acceptor_device_role ?? null,
   }
 }
 
@@ -1427,6 +1443,11 @@ export function deserializeHandshakeRecord(row: any): HandshakeRecord {
     local_mlkem768_public_key_b64: row.local_mlkem768_public_key_b64 ?? null,
     context_sync_pending: !!(row.context_sync_pending),
     policy_selections: parsePolicySelections(row.policy_selections),
+    handshake_type: row.handshake_type ?? null,
+    initiator_device_name: row.initiator_device_name ?? null,
+    acceptor_device_name: row.acceptor_device_name ?? null,
+    initiator_device_role: row.initiator_device_role ?? null,
+    acceptor_device_role: row.acceptor_device_role ?? null,
   }
 }
 
@@ -1492,7 +1513,8 @@ export function insertHandshakeRecord(db: any, record: HandshakeRecord): void {
     initiator_context_commitment, acceptor_context_commitment, p2p_endpoint, counterparty_p2p_token,
     local_public_key, local_private_key, counterparty_public_key, receiver_email,
     peer_x25519_public_key_b64, peer_mlkem768_public_key_b64,
-    local_x25519_private_key_b64, local_x25519_public_key_b64, local_mlkem768_secret_key_b64, local_mlkem768_public_key_b64
+    local_x25519_private_key_b64, local_x25519_public_key_b64, local_mlkem768_secret_key_b64, local_mlkem768_public_key_b64,
+    handshake_type, initiator_device_name, acceptor_device_name, initiator_device_role, acceptor_device_role
   ) VALUES (
     @handshake_id, @relationship_id, @state, @initiator_json, @acceptor_json,
     @local_role, @sharing_mode, @reciprocal_allowed,
@@ -1505,7 +1527,8 @@ export function insertHandshakeRecord(db: any, record: HandshakeRecord): void {
     @initiator_context_commitment, @acceptor_context_commitment, @p2p_endpoint, @counterparty_p2p_token,
     @local_public_key, @local_private_key, @counterparty_public_key, @receiver_email,
     @peer_x25519_public_key_b64, @peer_mlkem768_public_key_b64,
-    @local_x25519_private_key_b64, @local_x25519_public_key_b64, @local_mlkem768_secret_key_b64, @local_mlkem768_public_key_b64
+    @local_x25519_private_key_b64, @local_x25519_public_key_b64, @local_mlkem768_secret_key_b64, @local_mlkem768_public_key_b64,
+    @handshake_type, @initiator_device_name, @acceptor_device_name, @initiator_device_role, @acceptor_device_role
   )`).run(s)
 }
 
@@ -1538,7 +1561,12 @@ export function updateHandshakeRecord(db: any, record: HandshakeRecord): void {
     local_x25519_private_key_b64 = @local_x25519_private_key_b64,
     local_x25519_public_key_b64 = @local_x25519_public_key_b64,
     local_mlkem768_secret_key_b64 = @local_mlkem768_secret_key_b64,
-    local_mlkem768_public_key_b64 = @local_mlkem768_public_key_b64
+    local_mlkem768_public_key_b64 = @local_mlkem768_public_key_b64,
+    handshake_type = @handshake_type,
+    initiator_device_name = @initiator_device_name,
+    acceptor_device_name = @acceptor_device_name,
+    initiator_device_role = @initiator_device_role,
+    acceptor_device_role = @acceptor_device_role
   WHERE handshake_id = @handshake_id`).run(s)
 }
 
@@ -1549,7 +1577,7 @@ export function getHandshakeRecord(db: any, handshakeId: string): HandshakeRecor
 
 export function listHandshakeRecords(
   db: any,
-  filter?: { state?: HandshakeState; relationship_id?: string },
+  filter?: { state?: HandshakeState; relationship_id?: string; handshake_type?: string },
 ): HandshakeRecord[] {
   let sql = 'SELECT * FROM handshakes WHERE 1=1'
   const params: any[] = []
@@ -1561,6 +1589,10 @@ export function listHandshakeRecords(
   if (filter?.relationship_id) {
     sql += ' AND relationship_id = ?'
     params.push(filter.relationship_id)
+  }
+  if (filter?.handshake_type) {
+    sql += ' AND handshake_type = ?'
+    params.push(filter.handshake_type)
   }
 
   sql += ' ORDER BY created_at DESC'

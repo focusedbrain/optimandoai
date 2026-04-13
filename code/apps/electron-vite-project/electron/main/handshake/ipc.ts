@@ -593,7 +593,7 @@ export async function handleHandshakeRPC(
     }
 
     case 'handshake.list': {
-      const filter = params?.filter as { state?: HandshakeState; relationship_id?: string } | undefined
+      const filter = params?.filter as { state?: HandshakeState; relationship_id?: string; handshake_type?: string } | undefined
       let records = listHandshakeRecords(db, filter)
 
       // LAYER 2 — Visibility filtering: receiver-only handshakes must match current user's email
@@ -885,6 +885,9 @@ export async function handleHandshakeRPC(
         profile_items: initProfileItems,
         p2p_endpoint: p2pEndpointParam,
         policy_selections: initPolicySelections,
+        handshake_type: initHandshakeType,
+        device_name: initDeviceName,
+        device_role: initDeviceRole,
       } = params as {
         receiverUserId: string
         receiverEmail: string
@@ -896,6 +899,9 @@ export async function handleHandshakeRPC(
         profile_items?: Array<{ profile_id: string; policy_mode?: 'inherit' | 'override'; policy?: { ai_processing_mode?: 'none' | 'local_only' | 'internal_and_cloud' } | { cloud_ai?: boolean; internal_ai?: boolean } }>
         p2p_endpoint?: string | null
         policy_selections?: { ai_processing_mode?: 'none' | 'local_only' | 'internal_and_cloud' } | { cloud_ai?: boolean; internal_ai?: boolean }
+        handshake_type?: 'internal' | 'standard'
+        device_name?: string
+        device_role?: 'host' | 'sandbox'
       }
 
       if (!receiverUserId || !receiverEmail) {
@@ -959,7 +965,7 @@ export async function handleHandshakeRPC(
       const effectiveAccountId = fromAccountId || session.email || ''
 
       let emailResult: any = null
-      if (effectiveAccountId) {
+      if (initHandshakeType !== 'internal' && effectiveAccountId) {
         emailResult = await sendCapsuleViaEmail(effectiveAccountId, receiverEmail, capsule)
       }
 
@@ -977,6 +983,15 @@ export async function handleHandshakeRPC(
           canonicalBlockPolicyMap,
           keyAgreement,
         )
+        if (localResult.success && initHandshakeType === 'internal') {
+          db.prepare(`
+            UPDATE handshakes
+            SET handshake_type = ?,
+                initiator_device_name = ?,
+                initiator_device_role = ?
+            WHERE handshake_id = ?
+          `).run(initHandshakeType, initDeviceName || null, initDeviceRole || null, capsule.handshake_id)
+        }
         if (localResult.success && (p2pAuthToken || getP2PConfig(db).use_coordination) && receiverEmail) {
           // Registration is blocking: if the relay doesn't know this handshake exists, the
           // accept capsule will 403. Use session.sub (JWT sub claim) — NOT wrdesk_user_id —
@@ -1171,7 +1186,7 @@ export async function handleHandshakeRPC(
     }
 
     case 'handshake.accept': {
-      const { handshake_id, sharing_mode: requested_sharing_mode, fromAccountId, context_blocks: receiverRawBlocks, profile_ids: receiverProfileIds, profile_items: receiverProfileItems, p2p_endpoint: p2pEndpointParam, policy_selections: acceptPolicySelections } = params as {
+      const { handshake_id, sharing_mode: requested_sharing_mode, fromAccountId, context_blocks: receiverRawBlocks, profile_ids: receiverProfileIds, profile_items: receiverProfileItems, p2p_endpoint: p2pEndpointParam, policy_selections: acceptPolicySelections, device_name: acceptDeviceName, device_role: acceptDeviceRole } = params as {
         handshake_id: string
         sharing_mode: 'receive-only' | 'reciprocal'
         fromAccountId: string
@@ -1180,6 +1195,8 @@ export async function handleHandshakeRPC(
         profile_items?: Array<{ profile_id: string; policy_mode?: 'inherit' | 'override'; policy?: { ai_processing_mode?: 'none' | 'local_only' | 'internal_and_cloud' } | { cloud_ai?: boolean; internal_ai?: boolean } }>
         p2p_endpoint?: string | null
         policy_selections?: { ai_processing_mode?: 'none' | 'local_only' | 'internal_and_cloud' } | { cloud_ai?: boolean; internal_ai?: boolean }
+        device_name?: string
+        device_role?: 'host' | 'sandbox'
       }
 
       if (!handshake_id || !requested_sharing_mode) {
@@ -1419,6 +1436,15 @@ export async function handleHandshakeRPC(
       }
 
       const localResult = await submitCapsuleViaRpc(capsule, db, session)
+
+      if (localResult.success && db && (acceptDeviceName || acceptDeviceRole)) {
+        db.prepare(`
+            UPDATE handshakes
+            SET acceptor_device_name = ?,
+                acceptor_device_role = ?
+            WHERE handshake_id = ?
+          `).run(acceptDeviceName || null, acceptDeviceRole || null, handshake_id)
+      }
 
       if (localResult.success && (p2pAuthToken || getP2PConfig(db).use_coordination) && initiatorEmail) {
         setImmediate(async () => {

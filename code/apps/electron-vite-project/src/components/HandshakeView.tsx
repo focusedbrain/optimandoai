@@ -36,6 +36,11 @@ interface HandshakeRecord {
   receiver_email?: string | null
   context_sync_pending?: boolean
   policy_selections?: { cloud_ai?: boolean; internal_ai?: boolean }
+  handshake_type?: 'internal' | 'standard' | null
+  initiator_device_name?: string | null
+  acceptor_device_name?: string | null
+  initiator_device_role?: 'host' | 'sandbox' | null
+  acceptor_device_role?: 'host' | 'sandbox' | null
 }
 
 import './handshakeViewTypes'
@@ -267,9 +272,22 @@ export default function HandshakeView({
                 }}
               >
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '6px', minWidth: 0 }}>
-                  <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--color-text, #e2e8f0)', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {counterpartyEmail(r)}
-                  </span>
+                  <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '4px', minWidth: 0, flex: 1 }}>
+                    <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--color-text, #e2e8f0)', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {counterpartyEmail(r)}
+                    </span>
+                    {r.handshake_type === 'internal' && (
+                      <span style={{ fontSize: '10px', padding: '1px 6px', borderRadius: '4px', background: 'rgba(83,74,183,0.1)', color: '#534AB7', marginLeft: '6px' }}>
+                        Internal
+                      </span>
+                    )}
+                    {r.initiator_device_name && (
+                      <span style={{ fontSize: '10px', color: '#888', marginLeft: '4px' }}>
+                        {r.initiator_device_name}
+                        {r.initiator_device_role && ` (${r.initiator_device_role})`}
+                      </span>
+                    )}
+                  </div>
                   <span style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: '6px' }}>
                     {selectedHandshakeId === r.handshake_id && (
                       <span style={{ fontSize: '16px', color: 'var(--color-accent, #a78bfa)', lineHeight: 1, marginLeft: '8px' }} title="Chat scoped to this handshake">🤝</span>

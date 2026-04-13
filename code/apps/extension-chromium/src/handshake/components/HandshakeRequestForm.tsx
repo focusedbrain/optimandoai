@@ -64,6 +64,8 @@ export interface HandshakeRequestFormProps {
    * Controls visibility of the HS Context Profile picker.
    */
   canUseHsContextProfiles?: boolean
+  /** Opens with internal handshake mode pre-selected (same-account devices). */
+  presetInternal?: boolean
 }
 
 export function HandshakeRequestForm({
@@ -80,6 +82,7 @@ export function HandshakeRequestForm({
   onCancel,
   onSuccess,
   canUseHsContextProfiles = false,
+  presetInternal = false,
 }: HandshakeRequestFormProps) {
   const defaultEmailAccountRowId = pickDefaultEmailAccountRowId(emailAccounts)
   const isStandard = theme === 'standard'
@@ -90,6 +93,9 @@ export function HandshakeRequestForm({
   const sectionBorder = isStandard ? '1px solid rgba(147,51,234,0.12)' : '1px solid rgba(255,255,255,0.1)'
 
   const [recipientEmail, setRecipientEmail] = useState('')
+  const [isInternal, setIsInternal] = useState(!!presetInternal)
+  const [deviceRole, setDeviceRole] = useState<'host' | 'sandbox'>('sandbox')
+  const [deviceName, setDeviceName] = useState('')
   const [message, setMessage] = useState('')
   const [fingerprintCopied, setFingerprintCopied] = useState(false)
 
@@ -103,6 +109,26 @@ export function HandshakeRequestForm({
       .then((s) => setIsVaultUnlocked(s?.isUnlocked === true || s?.locked === false))
       .catch(() => setIsVaultUnlocked(false))
   }, [])
+
+  useEffect(() => {
+    if (typeof chrome === 'undefined' || !chrome.runtime?.sendMessage) return
+    chrome.runtime.sendMessage({ type: 'AUTH_STATUS' }, (response) => {
+      if (chrome.runtime.lastError) return
+      if (response?.email && isInternal) {
+        setRecipientEmail(response.email as string)
+      }
+    })
+    try {
+      const stored = JSON.parse(localStorage.getItem('optimando-orchestrator-mode') || '{}') as { deviceName?: string }
+      setDeviceName(typeof stored.deviceName === 'string' ? stored.deviceName : '')
+    } catch {
+      setDeviceName('')
+    }
+  }, [isInternal])
+
+  useEffect(() => {
+    if (presetInternal) setIsInternal(true)
+  }, [presetInternal])
 
   // Context Graph
   const [showContextGraph, setShowContextGraph] = useState(false)
@@ -156,7 +182,12 @@ export function HandshakeRequestForm({
         recipientEmail.trim().toLowerCase(),
         recipientEmail.trim(),
         fromAccountId,
-        opts,
+        {
+          ...opts,
+          handshake_type: isInternal ? 'internal' : undefined,
+          device_name: isInternal ? (deviceName.trim() || undefined) : undefined,
+          device_role: isInternal ? deviceRole : undefined,
+        },
       )
 
       setSendSuccess(true)
@@ -315,17 +346,84 @@ export function HandshakeRequestForm({
           </div>
         </div>
 
+        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '0', fontSize: '13px', cursor: 'pointer', color: textColor }}>
+          <input
+            type="checkbox"
+            checked={isInternal}
+            disabled={isSending}
+            onChange={(e) => {
+              const next = e.target.checked
+              setIsInternal(next)
+              setSendError(null)
+              if (next) {
+                if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
+                  chrome.runtime.sendMessage({ type: 'AUTH_STATUS' }, (response) => {
+                    if (chrome.runtime.lastError) return
+                    if (response?.email) setRecipientEmail(response.email as string)
+                  })
+                }
+              } else {
+                setRecipientEmail('')
+              }
+            }}
+          />
+          Internal handshake (connect my own devices)
+        </label>
+
         {/* Recipient */}
         <div>
           <label style={labelStyle}>To:</label>
           <input
             type="email"
             value={recipientEmail}
-            onChange={(e) => setRecipientEmail(e.target.value)}
-            placeholder="recipient@example.com"
-            style={inputStyle}
+            onChange={(e) => {
+              if (!isInternal) setRecipientEmail(e.target.value)
+            }}
+            readOnly={isInternal}
+            placeholder={isInternal ? 'Your SSO email (auto-filled)' : 'recipient@example.com'}
+            disabled={isSending}
+            style={{
+              ...inputStyle,
+              opacity: isInternal ? 0.7 : 1,
+              cursor: isInternal ? 'not-allowed' : 'text',
+              backgroundColor: isInternal
+                ? (theme === 'dark' || theme === 'pro' ? 'rgba(255,255,255,0.06)' : '#f0f0f0')
+                : inputBg,
+            }}
           />
         </div>
+
+        {isInternal && (
+          <div style={{ marginBottom: '0' }}>
+            <label style={{ fontSize: '12px', color: mutedColor, marginBottom: '4px', display: 'block' }}>
+              This device is:
+            </label>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button
+                type="button"
+                onClick={() => setDeviceRole('host')}
+                disabled={isSending}
+                style={{
+                  flex: 1, padding: '6px', borderRadius: '6px', fontSize: '12px', cursor: isSending ? 'not-allowed' : 'pointer',
+                  background: deviceRole === 'host' ? '#534AB7' : 'transparent',
+                  color: deviceRole === 'host' ? '#fff' : mutedColor,
+                  border: deviceRole === 'host' ? 'none' : `1px solid ${borderColor}`,
+                }}
+              >Host</button>
+              <button
+                type="button"
+                onClick={() => setDeviceRole('sandbox')}
+                disabled={isSending}
+                style={{
+                  flex: 1, padding: '6px', borderRadius: '6px', fontSize: '12px', cursor: isSending ? 'not-allowed' : 'pointer',
+                  background: deviceRole === 'sandbox' ? '#534AB7' : 'transparent',
+                  color: deviceRole === 'sandbox' ? '#fff' : mutedColor,
+                  border: deviceRole === 'sandbox' ? 'none' : `1px solid ${borderColor}`,
+                }}
+              >Sandbox</button>
+            </div>
+          </div>
+        )}
 
         <div style={{
           padding: '10px 14px',

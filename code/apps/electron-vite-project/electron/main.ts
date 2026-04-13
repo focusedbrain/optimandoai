@@ -22,15 +22,8 @@ import {
   resetLibreOfficeDetection,
   setManualSofficePath,
 } from './main/libreoffice/libreofficeService'
-import { registerOrchestratorIPC, testRemoteOrchestratorInferenceStatus } from './main/orchestrator/ipc'
-import { createJwtMiddleware, requireScope } from './main/orchestrator/jwtAuth'
-import {
-  inferenceChatRateLimitMiddleware,
-  startInferenceChatRateLimiterCleanup,
-} from './main/orchestrator/rateLimiter'
-import { sandboxChat } from './main/orchestrator/sandboxInferenceClient'
+import { registerOrchestratorIPC } from './main/orchestrator/ipc'
 import { getOrchestratorMode, isSandboxMode, setOrchestratorMode } from './main/orchestrator/orchestratorModeStore'
-import { attachInferenceChatRouteAudit, inferenceStatusAuthAuditMiddleware } from './main/orchestrator/auditLog'
 
 function stripDataUriPrefixForLlm(s: string): string {
   if (!s.startsWith('data:')) return s
@@ -3343,7 +3336,7 @@ app.whenReady().then(async () => {
       }
     })
 
-    ipcMain.handle('handshake:accept', async (_e, id: string, sharingMode: string, fromAccountId: string, contextOpts?: { context_blocks?: any[]; profile_ids?: string[]; profile_items?: any[]; policy_selections?: { cloud_ai?: boolean; internal_ai?: boolean }; senderX25519PublicKeyB64?: string; senderMlkem768PublicKeyB64?: string; senderMlkem768SecretKeyB64?: string }) => {
+    ipcMain.handle('handshake:accept', async (_e, id: string, sharingMode: string, fromAccountId: string, contextOpts?: { context_blocks?: any[]; profile_ids?: string[]; profile_items?: any[]; policy_selections?: { cloud_ai?: boolean; internal_ai?: boolean }; senderX25519PublicKeyB64?: string; senderMlkem768PublicKeyB64?: string; senderMlkem768SecretKeyB64?: string; device_name?: string; device_role?: 'host' | 'sandbox' }) => {
       try {
         const db = await getHandshakeDb()
         if (!db) return { success: false, error: 'No active session. Please log in first.' }
@@ -3368,6 +3361,8 @@ app.whenReady().then(async () => {
         if (contextOpts?.senderX25519PublicKeyB64) params.senderX25519PublicKeyB64 = contextOpts.senderX25519PublicKeyB64
         if (contextOpts?.senderMlkem768PublicKeyB64) params.senderMlkem768PublicKeyB64 = contextOpts.senderMlkem768PublicKeyB64
         if (contextOpts?.senderMlkem768SecretKeyB64) params.senderMlkem768SecretKeyB64 = contextOpts.senderMlkem768SecretKeyB64
+        if (contextOpts?.device_name !== undefined) params.device_name = contextOpts.device_name
+        if (contextOpts?.device_role !== undefined) params.device_role = contextOpts.device_role
         const result = await handleHandshakeRPC('handshake.accept', params, db)
         if (!result?.success) {
           console.error('[HANDSHAKE:ACCEPT] failed:', JSON.stringify(result))
@@ -4531,7 +4526,7 @@ app.whenReady().then(async () => {
 
     // email:listAccounts is registered by registerEmailHandlers() â€” do not duplicate here
 
-    ipcMain.handle('handshake:initiate', async (_e, receiverEmail: string, fromAccountId: string, contextOpts?: { skipVaultContext?: boolean; message?: string; context_blocks?: any[]; profile_ids?: string[]; profile_items?: any[]; policy_selections?: { cloud_ai?: boolean; internal_ai?: boolean } }) => {
+    ipcMain.handle('handshake:initiate', async (_e, receiverEmail: string, fromAccountId: string, contextOpts?: { skipVaultContext?: boolean; message?: string; context_blocks?: any[]; profile_ids?: string[]; profile_items?: any[]; policy_selections?: { cloud_ai?: boolean; internal_ai?: boolean }; handshake_type?: 'internal' | 'standard'; device_name?: string; device_role?: 'host' | 'sandbox' }) => {
       try {
         const db = await getHandshakeDb()
         return await handleHandshakeRPC('handshake.initiate', {
@@ -4544,6 +4539,9 @@ app.whenReady().then(async () => {
           ...(contextOpts?.profile_ids?.length ? { profile_ids: contextOpts.profile_ids } : {}),
           ...(contextOpts?.profile_items?.length ? { profile_items: contextOpts.profile_items } : {}),
           ...(contextOpts?.policy_selections ? { policy_selections: contextOpts.policy_selections } : {}),
+          handshake_type: contextOpts?.handshake_type,
+          device_name: contextOpts?.device_name,
+          device_role: contextOpts?.device_role,
         }, db)
       } catch (err: any) {
         return { success: false, error: err?.message || 'Initiation failed.' }
@@ -6473,153 +6471,6 @@ async function runDeviceKeyMigration(
   try {
     console.log('[MAIN] ===== STARTING HTTP API SERVER =====')
     const httpApp = express()
-    const jwtAuth = await createJwtMiddleware()
-    startInferenceChatRateLimiterCleanup()
-
-    // Sandbox inference API — JWT + stricter body limit (before global 100mb JSON parser)
-    const sandboxInferenceRouter = express.Router()
-    sandboxInferenceRouter.use((req, res, next) => {
-      if (req.method === 'POST' && req.path === '/chat') {
-        attachInferenceChatRouteAudit(req, res)
-      }
-      const origin = req.headers['origin'] as string | undefined
-      const requestPrivateNetwork = req.headers['access-control-request-private-network'] === 'true'
-      if (req.method === 'OPTIONS') {
-        if (!isCorsAllowedOrigin(origin)) {
-          res.status(403).end()
-          return
-        }
-        const headers = corsPnaHeaders(origin, requestPrivateNetwork)
-        for (const [k, v] of Object.entries(headers)) res.setHeader(k, v)
-        res.status(204).end()
-        return
-      }
-      if (origin && !isCorsAllowedOrigin(origin)) {
-        console.warn(
-          `[SECURITY] Blocked request with disallowed Origin: ${origin} → ${req.method} ${req.path} (sandbox inference)`,
-        )
-        res.status(403).json({ error: 'Forbidden: cross-origin request denied' })
-        return
-      }
-      res.setHeader('Access-Control-Expose-Headers', 'Content-Type')
-      if (origin && isCorsAllowedOrigin(origin)) {
-        const headers = corsPnaHeaders(origin, true)
-        for (const [k, v] of Object.entries(headers)) res.setHeader(k, v)
-      }
-      next()
-    })
-    sandboxInferenceRouter.use(express.json({ limit: '512kb' }))
-    sandboxInferenceRouter.post(
-      '/chat',
-      jwtAuth,
-      requireScope('inference:chat'),
-      inferenceChatRateLimitMiddleware,
-      async (req, res) => {
-        const body = req.body as Record<string, unknown>
-        const rawMessages = body.messages
-        const rawModelId = body.modelId
-        if (Array.isArray(rawMessages)) {
-          res.locals.inferenceAuditMeta = {
-            messageCount: rawMessages.length,
-            modelId: typeof rawModelId === 'string' && rawModelId.trim() ? rawModelId.trim() : undefined,
-          }
-        }
-
-        if (getOrchestratorMode().mode !== 'host') {
-          res.locals.inferenceAuditNotHost = true
-          res.status(403).json({
-            error: 'not_host',
-            message: 'This instance is not configured as a host',
-          })
-          return
-        }
-
-        if (!rawMessages || !Array.isArray(rawMessages)) {
-          res.status(400).json({ error: 'bad_request', message: 'messages array is required' })
-          return
-        }
-
-        const messages: ChatMessage[] = []
-        for (const item of rawMessages) {
-          if (item == null || typeof item !== 'object') {
-            res.status(400).json({
-              error: 'text_only',
-              message: 'Sandbox inference accepts text content only',
-            })
-            return
-          }
-          const m = item as Record<string, unknown>
-          if ('images' in m) {
-            res.status(400).json({
-              error: 'text_only',
-              message: 'Sandbox inference accepts text content only',
-            })
-            return
-          }
-          if (typeof m.content !== 'string') {
-            res.status(400).json({
-              error: 'text_only',
-              message: 'Sandbox inference accepts text content only',
-            })
-            return
-          }
-          const role = m.role
-          if (role !== 'user' && role !== 'assistant' && role !== 'system') {
-            res.status(400).json({ error: 'bad_request', message: 'Invalid message role' })
-            return
-          }
-          messages.push({ role, content: m.content })
-        }
-
-        const { ollamaManager } = await import('./main/llm/ollama-manager')
-
-        let resolvedModel: string | null = null
-        if (typeof rawModelId === 'string' && rawModelId.trim()) {
-          resolvedModel = rawModelId.trim()
-          const installed = await ollamaManager.listModels()
-          if (!installed.some((x) => x.name === resolvedModel)) {
-            res.status(400).json({
-              ok: false,
-              error: 'unknown_model',
-              message: `Model is not installed on this host: ${resolvedModel}`,
-            })
-            return
-          }
-        } else {
-          resolvedModel = await ollamaManager.getEffectiveChatModelName()
-          if (!resolvedModel) {
-            res.status(400).json({
-              ok: false,
-              error: 'no_model',
-              message: 'No chat model available on this host',
-            })
-            return
-          }
-        }
-
-        res.locals.inferenceAuditMeta = {
-          modelId: resolvedModel,
-          messageCount: messages.length,
-        }
-
-        try {
-          const response = await ollamaManager.chat(resolvedModel, messages)
-          res.json({
-            ok: true,
-            data: { content: response.content, model: response.model },
-          })
-        } catch (err: unknown) {
-          const detail = err instanceof Error ? err.message : String(err)
-          console.error('[HTTP-INFERENCE] Ollama chat failed:', detail)
-          res.status(502).json({
-            ok: false,
-            error: 'inference_failed',
-            detail,
-          })
-        }
-      },
-    )
-    httpApp.use('/api/inference', sandboxInferenceRouter)
 
     httpApp.use(express.json({ limit: '100mb' }))
     
@@ -6696,8 +6547,6 @@ async function runDeviceKeyMigration(
     const AUTH_EXEMPT_PATHS = new Set([
       '/api/health',               // Lightweight liveness probe, returns no sensitive data
       '/api/orchestrator/status',  // Availability check for getActiveAdapter (before WebSocket handshake)
-      '/api/orchestrator/inference-status', // JWT auth on route (no launch secret; not anonymous)
-      '/api/inference/chat',       // Sandbox inference — JWT + scope (no launch secret)
       '/api/crypto/pq/status',     // ML-KEM availability probe (boolean only; no secrets). Extension may call before WS supplies X-Launch-Secret; POST /mlkem768/* still require auth
       // Localhost-only: merge still requires matching inbox row + exact package JSON (or handshake fallback).
       '/api/inbox/merge-depackaged',
@@ -8888,32 +8737,6 @@ async function runDeviceKeyMigration(
       }
     })
 
-    // GET /api/orchestrator/inference-status — host mode + Ollama availability (JWT; exempt from launch secret)
-    httpApp.get(
-      '/api/orchestrator/inference-status',
-      inferenceStatusAuthAuditMiddleware,
-      jwtAuth,
-      async (_req, res) => {
-        try {
-          const modeConfig = getOrchestratorMode()
-          const { ollamaManager } = await import('./main/llm/ollama-manager')
-          const ollamaRunning = await ollamaManager.isRunning()
-          const model = ollamaRunning ? await ollamaManager.getEffectiveChatModelName() : null
-          res.json({
-            orchestrator: true,
-            mode: modeConfig.mode,
-            inference: {
-              available: modeConfig.mode === 'host' && ollamaRunning,
-              model,
-            },
-          })
-        } catch (error: any) {
-          console.error('[HTTP-ORCHESTRATOR] Error in inference-status:', error)
-          res.status(500).json({ error: error.message || 'Failed to get inference status' })
-        }
-      },
-    )
-
     // GET /api/orchestrator/mode — persisted host/sandbox role (extension RPC; X-Launch-Secret)
     httpApp.get('/api/orchestrator/mode', (_req, res) => {
       try {
@@ -8953,54 +8776,6 @@ async function runDeviceKeyMigration(
       } catch (error: any) {
         console.error('[HTTP-ORCHESTRATOR] Error in mode-config POST:', error)
         res.status(400).json({ ok: false as const, error: error.message || 'Invalid mode config' })
-      }
-    })
-
-    // POST /api/orchestrator/test-connection — probe remote host (extension RPC; session token; X-Launch-Secret)
-    httpApp.post('/api/orchestrator/test-connection', async (req, res) => {
-      try {
-        const hostUrl = typeof req.body?.hostUrl === 'string' ? req.body.hostUrl : ''
-        const token = getAccessToken() || ''
-        if (!token) {
-          res.status(401).json({
-            ok: false as const,
-            error: 'Not signed in — no access token in desktop session',
-          })
-          return
-        }
-        const result = await testRemoteOrchestratorInferenceStatus(hostUrl, token)
-        if (result.ok) {
-          res.json(result)
-        } else {
-          res.status(400).json(result)
-        }
-      } catch (error: any) {
-        console.error('[HTTP-ORCHESTRATOR] Error in test-connection:', error)
-        res.status(500).json({ ok: false as const, error: error.message || 'test-connection failed' })
-      }
-    })
-
-    // POST /api/orchestrator/remote-test — probe a remote HTTPS host (extension RPC; uses desktop session token)
-    httpApp.post('/api/orchestrator/remote-test', async (req, res) => {
-      try {
-        const hostUrl = typeof req.body?.hostUrl === 'string' ? req.body.hostUrl : ''
-        const token = getAccessToken() || ''
-        if (!token) {
-          res.status(401).json({
-            ok: false as const,
-            error: 'Not signed in — no access token in desktop session',
-          })
-          return
-        }
-        const result = await testRemoteOrchestratorInferenceStatus(hostUrl, token)
-        if (result.ok) {
-          res.json(result)
-        } else {
-          res.status(400).json(result)
-        }
-      } catch (error: any) {
-        console.error('[HTTP-ORCHESTRATOR] Error in remote-test:', error)
-        res.status(500).json({ ok: false as const, error: error.message || 'remote-test failed' })
       }
     })
 
@@ -9400,21 +9175,12 @@ async function runDeviceKeyMigration(
           return
         }
 
-        // If sandbox mode, route to host inference API
         if (isSandboxMode()) {
-          try {
-            const textMessages = messages.map((m: { role?: unknown; content?: unknown }) => ({
-              role: typeof m.role === 'string' ? m.role : String(m.role ?? 'user'),
-              content: typeof m.content === 'string' ? m.content : String(m.content ?? ''),
-            }))
-            const result = await sandboxChat(textMessages, typeof modelId === 'string' ? modelId : undefined)
-            if (result.ok && result.data) {
-              return res.json({ ok: true, data: result.data })
-            }
-            return res.status(502).json({ ok: false, error: result.error ?? 'Sandbox inference failed' })
-          } catch {
-            return res.status(500).json({ ok: false, error: 'Sandbox inference routing failed' })
-          }
+          return res.status(503).json({
+            ok: false,
+            error:
+              'Sandbox inference over HTTP is removed — complete an internal handshake in the Handshakes panel; inference will use the BEAP channel.',
+          })
         }
 
         const enrichedMessages = enrichHttpChatMessages(req.body)

@@ -74,8 +74,6 @@ function buildConfigFromRaw(raw: unknown): { config: OrchestratorModeConfig; mis
     connectedPeers = o.connectedPeers.filter(isConnectedPeer)
   }
 
-  // Legacy `sandbox.hostUrl` and related fields are ignored (migration — no crash).
-
   return {
     config: { mode, deviceName, instanceId, connectedPeers },
     missingInstanceId,
@@ -109,20 +107,6 @@ export function getOrchestratorMode(): OrchestratorModeConfig {
   const { config, missingInstanceId } = buildConfigFromRaw(raw)
   if (missingInstanceId) persistConfig(config)
   return config
-}
-
-/**
- * Legacy sandbox → host HTTPS base URL (e.g. https://workstation:51248), if still present on disk.
- * Silent-handshake flow does not require this; sandbox inference uses it when configured.
- */
-export function getSandboxHostUrl(): string {
-  const raw = readRawJson()
-  if (raw == null || typeof raw !== 'object') return ''
-  const o = raw as Record<string, unknown>
-  const sandbox = o.sandbox
-  if (sandbox == null || typeof sandbox !== 'object') return ''
-  const hostUrl = (sandbox as Record<string, unknown>).hostUrl
-  return typeof hostUrl === 'string' && hostUrl.trim() ? hostUrl.trim() : ''
 }
 
 function validatePeer(p: ConnectedPeer): ConnectedPeer {

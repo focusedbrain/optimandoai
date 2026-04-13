@@ -31308,42 +31308,9 @@ ${pageText}
                 <label for="device-name-input" style="font-size:11px;color:${csTheme().muted};display:block;margin-bottom:2px;">This device</label>
                 <input id="device-name-input" type="text" placeholder="My Computer" autocomplete="off" style="width:100%;box-sizing:border-box;padding:4px 8px;border-radius:4px;border:1px solid ${csTheme().border};background:${csTheme().cardBg};font-size:11px;color:${csTheme().inputText};outline:none;" />
               </div>
-              <div style="display:flex;gap:0;margin-bottom:8px;border-radius:6px;overflow:hidden;border:1px solid var(--cs-border);">
-                <div id="btn-mode-host" style="flex:1;text-align:center;padding:4px 0;font-size:12px;font-weight:500;background:var(--cs-accent);color:#fff;cursor:pointer;">Host</div>
-                <div id="btn-mode-sandbox" style="flex:1;text-align:center;padding:4px 0;font-size:12px;font-weight:500;background:var(--cs-input-bg);color:var(--cs-muted);cursor:pointer;border-left:1px solid var(--cs-border);">Sandbox</div>
-              </div>
-              <div id="orch-desktop-sync-hint" style="font-size:10px;color:var(--cs-muted);margin-bottom:6px;min-height:12px;"></div>
-
-              <div id="host-mode-content" style="display:block;">
-                <div style="display:flex;align-items:center;gap:5px;margin-bottom:6px;">
-                  <div style="width:6px;height:6px;border-radius:50%;background:var(--cs-success);flex-shrink:0;"></div>
-                  <span id="host-inference-status-line" style="font-size:11px;color:var(--cs-success-text);">Serving inference</span>
-                </div>
-                <div style="font-size:11px;color:var(--cs-muted);line-height:1.4;">Ensure inference API is reachable (HTTPS + firewall).</div>
-              </div>
-
-              <div id="sandbox-mode-content" style="display:none;">
-                <div id="sandbox-mode-paywall" style="display:none;">
-                  <div style="background:var(--cs-accent-subtle);border-radius:4px;padding:8px 10px;text-align:center;">
-                    <div style="font-size:11px;color:var(--cs-accent-text);margin-bottom:6px;">Sandbox mode requires a paid plan.</div>
-                    <span id="btn-upgrade-for-sandbox" style="font-size:11px;padding:3px 12px;border-radius:6px;font-weight:700;background:var(--cs-accent);color:#fff;cursor:pointer;display:inline-block;">Upgrade plan</span>
-                  </div>
-                </div>
-                <div id="sandbox-mode-paid-panel"></div>
-              </div>
-
-              <div id="orchestrator-device-list" style="margin-bottom:6px;">
-                <label style="font-size:11px;color:${csTheme().muted};display:block;margin-bottom:3px;">My devices</label>
-                <div id="device-list-container" style="display:flex;flex-direction:column;gap:2px;max-height:80px;overflow-y:auto;">
-                  <div style="font-size:11px;color:${csTheme().muted};opacity:0.6;padding:4px 8px;">Loading...</div>
-                </div>
-              </div>
-
-              <div id="sandbox-connect-row" style="display:none;">
-                <div style="margin-bottom:6px;">
-                  <span id="btn-connect-devices" style="font-size:11px;padding:2px 12px;border-radius:6px;background:var(--cs-accent);color:#fff;cursor:pointer;display:inline-block;font-weight:600;">Connect</span>
-                </div>
-                <div id="connection-status" style="margin-top:4px;"></div>
+              <div style="display:flex;gap:0;border-radius:6px;overflow:hidden;border:1px solid var(--cs-border);">
+                <div id="btn-mode-host" style="flex:1;text-align:center;padding:4px 0;font-size:12px;font-weight:500;background:var(--cs-accent);color:#fff;cursor:default;">Host</div>
+                <div id="btn-mode-sandbox" style="flex:1;text-align:center;padding:4px 0;font-size:12px;font-weight:500;background:var(--cs-input-bg);color:var(--cs-muted);cursor:default;border-left:1px solid var(--cs-border);">Sandbox</div>
               </div>
             </div>
 
@@ -31356,28 +31323,6 @@ ${pageText}
                 <option value="dark">Dark</option>
               </select>
               <p style="font-size:11px;color:var(--cs-muted);margin:4px 0 0;line-height:1.3;opacity:0.8;">Only sidebars and the top header bar are themed.</p>
-            </div>
-          </div>
-
-          <div style="background:var(--cs-input-bg);border-radius:8px;padding:8px 12px;margin-bottom:8px;">
-            <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
-              <span style="font-size:12px;font-weight:500;color:var(--cs-input-text);">Sandbox Setup</span>
-              <div style="width:1px;height:12px;background:var(--cs-border);"></div>
-              <span style="font-size:11px;color:var(--cs-muted);opacity:0.8;">Connect your devices via SSO — no IP configuration needed</span>
-            </div>
-            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;align-items:start;">
-              <div style="display:flex;gap:8px;align-items:flex-start;">
-                <div class="settings-setup-step-badge" style="width:20px;height:20px;border-radius:50%;background:var(--cs-accent);color:#fff;font-size:10px;font-weight:500;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px;">1</div>
-                <div style="font-size:11px;color:var(--cs-muted);line-height:1.4;">On your host workstation (GPU), set mode to Host and start a local LLM in Backend Configuration.</div>
-              </div>
-              <div style="display:flex;gap:8px;align-items:flex-start;">
-                <div class="settings-setup-step-badge" style="width:20px;height:20px;border-radius:50%;background:var(--cs-accent);color:#fff;font-size:10px;font-weight:500;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px;">2</div>
-                <div style="font-size:11px;color:var(--cs-muted);line-height:1.4;">Log in with the same SSO account on both devices. Set one to Host, the other to Sandbox.</div>
-              </div>
-              <div style="display:flex;gap:8px;align-items:flex-start;">
-                <div class="settings-setup-step-badge" style="width:20px;height:20px;border-radius:50%;background:var(--cs-accent);color:#fff;font-size:10px;font-weight:500;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px;">3</div>
-                <div style="font-size:11px;color:var(--cs-muted);line-height:1.4;">Click Connect on both devices. They discover each other automatically — BEAP capsules and inference route securely via your shared identity.</div>
-              </div>
             </div>
           </div>
 
@@ -31807,39 +31752,29 @@ ${pageText}
 
     wireApiKeyUI()
 
-    function wireOrchestratorModeUI() {
+    async function wireOrchestratorModeUI() {
       const LS_KEY = 'optimando-orchestrator-mode'
       const PAID_ORCH_TIERS = new Set(['pro', 'private', 'private_lifetime', 'publisher', 'publisher_lifetime', 'enterprise'])
-      type OrchPeer = {
-        instanceId: string
-        deviceName: string
-        mode: 'host' | 'sandbox'
-        handshakeId: string
-        lastSeen: string
-        status: 'connected' | 'disconnected'
-      }
       type LsOrchShape = {
         mode: 'host' | 'sandbox'
         deviceName?: string
-        connectedPeers?: OrchPeer[]
-        sandbox?: { hostUrl?: string; connectionVerified?: boolean }
       }
 
       const hostBtn = document.getElementById('btn-mode-host')
       const sandboxBtn = document.getElementById('btn-mode-sandbox')
-      const hostContent = document.getElementById('host-mode-content')
-      const sandboxContent = document.getElementById('sandbox-mode-content')
-      const desktopHint = document.getElementById('orch-desktop-sync-hint')
       const deviceNameInput = document.getElementById('device-name-input') as HTMLInputElement | null
-      const connectBtn = document.getElementById('btn-connect-devices')
-      const deviceListContainer = document.getElementById('device-list-container')
-      const sandboxConnectRow = document.getElementById('sandbox-connect-row')
-      const connectionStatusEl = document.getElementById('connection-status')
 
       let userTier = 'free'
       let selectedMode: 'host' | 'sandbox' = 'host'
       let freeSandboxGate = false
-      let lastMergedPeers: OrchPeer[] = []
+
+      let roleLocked = false
+      let lockedRole: 'host' | 'sandbox' | null = null
+      let activeHandshakeInfo: { peerName: string | null; peerRole: 'host' | 'sandbox' | null; handshakeId: string } | null = null
+
+      function escapeOrchLockHtml(s: string): string {
+        return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;')
+      }
 
       function isPaidOrchestratorTier(t: string): boolean {
         return PAID_ORCH_TIERS.has(t)
@@ -31849,44 +31784,15 @@ ${pageText}
         return !isPaidOrchestratorTier(userTier)
       }
 
-      function isOrchPeer(x: unknown): x is OrchPeer {
-        if (x == null || typeof x !== 'object') return false
-        const o = x as Record<string, unknown>
-        return (
-          typeof o.instanceId === 'string' &&
-          typeof o.deviceName === 'string' &&
-          (o.mode === 'host' || o.mode === 'sandbox') &&
-          typeof o.handshakeId === 'string' &&
-          typeof o.lastSeen === 'string' &&
-          (o.status === 'connected' || o.status === 'disconnected')
-        )
-      }
-
-      function setPaywallVisible(show: boolean) {
-        const paywall = document.getElementById('sandbox-mode-paywall')
-        const paidPanel = document.getElementById('sandbox-mode-paid-panel')
-        if (paywall) paywall.style.display = show ? 'block' : 'none'
-        if (paidPanel) paidPanel.style.display = show ? 'none' : 'block'
-      }
-
       function readLsBlob(): LsOrchShape {
         try {
           const raw = localStorage.getItem(LS_KEY)
-          const data = raw ? (JSON.parse(raw) as LsOrchShape) : { mode: 'host' }
+          const data = raw ? (JSON.parse(raw) as LsOrchShape & { connectedPeers?: unknown }) : { mode: 'host' }
           const mode: 'host' | 'sandbox' = data?.mode === 'sandbox' ? 'sandbox' : 'host'
           const deviceName = typeof data?.deviceName === 'string' ? data.deviceName : ''
-          let connectedPeers: OrchPeer[] = []
-          if (Array.isArray(data?.connectedPeers)) {
-            connectedPeers = data.connectedPeers.filter(isOrchPeer)
-          }
-          return {
-            mode,
-            deviceName,
-            connectedPeers,
-            ...(data?.sandbox && typeof data.sandbox === 'object' ? { sandbox: data.sandbox } : {}),
-          }
+          return { mode, deviceName }
         } catch {
-          return { mode: 'host', deviceName: '', connectedPeers: [] }
+          return { mode: 'host', deviceName: '' }
         }
       }
 
@@ -31900,12 +31806,9 @@ ${pageText}
         const cur = readLsBlob()
         const nameRaw = (deviceNameInput?.value || '').trim()
         const deviceName = nameRaw || (typeof cur.deviceName === 'string' ? cur.deviceName : '') || ''
-        const peers = lastMergedPeers.length > 0 ? lastMergedPeers : (cur.connectedPeers ?? [])
         writeLsBlob({
           mode: selectedMode,
           ...(deviceName ? { deviceName } : {}),
-          ...(peers.length > 0 ? { connectedPeers: peers } : {}),
-          ...(cur.sandbox ? { sandbox: cur.sandbox } : {}),
         })
       }
 
@@ -31917,18 +31820,12 @@ ${pageText}
           writeLsBlob({
             mode: 'host',
             ...(cur.deviceName ? { deviceName: cur.deviceName } : {}),
-            ...(Array.isArray(cur.connectedPeers) && cur.connectedPeers.length ? { connectedPeers: cur.connectedPeers } : {}),
-            ...(cur.sandbox ? { sandbox: cur.sandbox } : {}),
           })
         } catch { /* ignore */ }
       }
 
       function syncDeviceNameInput(value: string) {
         if (deviceNameInput) deviceNameInput.value = value
-      }
-
-      function escapeOrchListText(s: string): string {
-        return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;')
       }
 
       function ensureStoredDeviceNameDefaults() {
@@ -31946,92 +31843,28 @@ ${pageText}
 
       const orchModeBridge = (window as unknown as {
         orchestratorMode?: {
-          getConnectedPeers?: () => Promise<unknown>
           setDeviceName?: (name: string) => Promise<unknown>
-          removePeer?: (instanceId: string) => Promise<unknown>
         }
       }).orchestratorMode
-
-      async function loadDeviceList() {
-        if (!deviceListContainer) return
-        const th = csTheme()
-        let peers: OrchPeer[] = []
-        try {
-          if (typeof orchModeBridge?.getConnectedPeers === 'function') {
-            const raw = await orchModeBridge.getConnectedPeers()
-            if (Array.isArray(raw)) {
-              peers = raw.filter(isOrchPeer)
-            }
-          }
-        } catch { /* ignore */ }
-        if (peers.length === 0 && lastMergedPeers.length > 0) {
-          peers = lastMergedPeers
-        }
-        if (peers.length === 0) {
-          const lsPeers = readLsBlob().connectedPeers ?? []
-          if (lsPeers.length > 0) peers = lsPeers
-        }
-        if (peers.length === 0) {
-          deviceListContainer.innerHTML = `
-      <div style="font-size:11px;color:${th.muted};opacity:0.6;padding:4px 8px;text-align:center;">
-        No other devices connected yet.<br>
-        <span style="font-size:10px;">Sign in with the same SSO account on another device and click Connect.</span>
-      </div>`
-          return
-        }
-        deviceListContainer.innerHTML = peers
-          .map((peer) => {
-            const name = escapeOrchListText(peer.deviceName || 'Unknown device')
-            const modeLabel = escapeOrchListText(peer.mode || '?')
-            const id = escapeOrchListText(peer.instanceId)
-            const dot = peer.status === 'connected' ? th.success : th.muted
-            return `<div style="display:flex;align-items:center;justify-content:space-between;padding:4px 8px;background:${th.inputBg};border-radius:4px;">
-      <div style="display:flex;align-items:center;gap:6px;">
-        <div style="width:6px;height:6px;border-radius:50%;background:${dot};flex-shrink:0;"></div>
-        <span style="font-size:11px;font-weight:500;color:${th.inputText};">${name}</span>
-        <span style="font-size:10px;padding:1px 6px;border-radius:4px;background:${th.accentSubtle};color:${th.accentText};">${modeLabel}</span>
-      </div>
-      <span class="disconnect-peer" data-instance-id="${id}" style="font-size:10px;color:${th.danger};cursor:pointer;">\u00d7</span>
-    </div>`
-          })
-          .join('')
-        deviceListContainer.querySelectorAll('.disconnect-peer').forEach((btn) => {
-          btn.addEventListener('click', async (e) => {
-            const el = e.currentTarget as HTMLElement
-            const instanceId = el.getAttribute('data-instance-id') || ''
-            if (!instanceId) return
-            const cur = readLsBlob()
-            const nextPeers = (cur.connectedPeers ?? []).filter((p) => p.instanceId !== instanceId)
-            lastMergedPeers = nextPeers
-            writeLsBlob({ ...cur, connectedPeers: nextPeers })
-            try {
-              if (typeof orchModeBridge?.removePeer === 'function') {
-                await orchModeBridge.removePeer(instanceId)
-              }
-            } catch { /* ignore */ }
-            void loadDeviceList()
-          })
-        })
-      }
 
       function applyToggleStyles() {
         const th = csTheme()
         const free = isFreeTier()
         const hostActive =
-          `flex:1;text-align:center;padding:4px 0;font-size:12px;font-weight:500;background:${th.accentSolid};color:#fff;cursor:pointer;`
+          `flex:1;text-align:center;padding:4px 0;font-size:12px;font-weight:500;background:${th.accentSolid};color:#fff;cursor:default;`
         const hostInactive =
-          `flex:1;text-align:center;padding:4px 0;font-size:12px;font-weight:500;background:${th.inputBg};color:${th.muted};cursor:pointer;`
+          `flex:1;text-align:center;padding:4px 0;font-size:12px;font-weight:500;background:${th.inputBg};color:${th.muted};cursor:default;`
         const sandboxActivePaid =
-          `flex:1;text-align:center;padding:4px 0;font-size:12px;font-weight:500;background:${th.accentSolid};color:#fff;cursor:pointer;border-left:1px solid ${th.border};`
+          `flex:1;text-align:center;padding:4px 0;font-size:12px;font-weight:500;background:${th.accentSolid};color:#fff;cursor:default;border-left:1px solid ${th.border};`
         const sandboxInactive =
-          `flex:1;text-align:center;padding:4px 0;font-size:12px;font-weight:500;background:${th.inputBg};color:${th.muted};cursor:${free ? 'not-allowed' : 'pointer'};border-left:1px solid ${th.border};${free ? 'opacity:0.5;' : ''}`
+          `flex:1;text-align:center;padding:4px 0;font-size:12px;font-weight:500;background:${th.inputBg};color:${th.muted};cursor:default;border-left:1px solid ${th.border};${free ? 'opacity:0.5;' : ''}`
 
         if (freeSandboxGate) {
           if (hostBtn) hostBtn.setAttribute('style', hostInactive)
           if (sandboxBtn) {
             sandboxBtn.setAttribute(
               'style',
-              `${sandboxActivePaid};opacity:0.5;cursor:not-allowed`,
+              `${sandboxActivePaid};opacity:0.5;cursor:default`,
             )
           }
         } else if (selectedMode === 'host') {
@@ -32042,54 +31875,116 @@ ${pageText}
           if (sandboxBtn) sandboxBtn.setAttribute('style', sandboxActivePaid)
         }
 
-        const showSandboxColumn = freeSandboxGate || selectedMode === 'sandbox'
-        if (hostContent) hostContent.style.display = showSandboxColumn ? 'none' : 'block'
-        if (sandboxContent) sandboxContent.style.display = showSandboxColumn ? 'block' : 'none'
-
-        setPaywallVisible(freeSandboxGate)
-
-        if (sandboxConnectRow) {
-          sandboxConnectRow.style.display =
-            !freeSandboxGate && selectedMode === 'sandbox' ? 'block' : 'none'
+        if (roleLocked && lockedRole && hostBtn && sandboxBtn) {
+          const dim = '0.4'
+          const h = hostBtn.getAttribute('style') || ''
+          const s = sandboxBtn.getAttribute('style') || ''
+          hostBtn.setAttribute(
+            'style',
+            `${h};pointer-events:none;cursor:default;opacity:${lockedRole === 'host' ? '1' : dim}`,
+          )
+          sandboxBtn.setAttribute(
+            'style',
+            `${s};pointer-events:none;cursor:default;opacity:${lockedRole === 'sandbox' ? '1' : dim}`,
+          )
         }
+      }
+
+      function renderRoleLockNotice() {
+        document.getElementById('orch-internal-role-lock-info')?.remove()
+        if (!roleLocked || !activeHandshakeInfo || !hostBtn) return
+        const toggleContainer = hostBtn.parentElement
+        if (!toggleContainer?.parentElement) return
+        const th = csTheme()
+        const peerLabel = escapeOrchLockHtml(activeHandshakeInfo.peerName?.trim() || 'peer device')
+        const lockInfo = document.createElement('div')
+        lockInfo.id = 'orch-internal-role-lock-info'
+        lockInfo.style.cssText = `font-size:11px;margin-top:8px;color:${th.muted};line-height:1.4;`
+        lockInfo.innerHTML = `
+    <div style="display:flex;align-items:center;gap:4px;margin-bottom:4px;">
+      <div style="width:6px;height:6px;border-radius:50%;background:${th.success};"></div>
+      <span style="color:${th.successText};">Connected to ${peerLabel}</span>
+    </div>
+    <div style="color:${th.muted};opacity:0.8;">
+      Role locked by active internal handshake. To change role, revoke the handshake first.
+    </div>`
+        toggleContainer.parentElement.insertBefore(lockInfo, toggleContainer.nextSibling)
+      }
+
+      async function applyInternalHandshakeLockAsync() {
+        roleLocked = false
+        lockedRole = null
+        activeHandshakeInfo = null
+        document.getElementById('orch-internal-role-lock-info')?.remove()
+        try {
+          const id = `orch-role-lock-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
+          const result = await new Promise<Record<string, unknown> | null>((resolve) => {
+            try {
+              chrome.runtime.sendMessage(
+                {
+                  type: 'VAULT_RPC',
+                  id,
+                  method: 'handshake.list',
+                  params: { filter: { state: 'ACTIVE', handshake_type: 'internal' } },
+                },
+                (response) => {
+                  resolve((response as Record<string, unknown>) ?? null)
+                },
+              )
+            } catch {
+              resolve(null)
+            }
+          })
+          const records = result && Array.isArray(result.records) ? (result.records as unknown[]) : []
+          if (records.length > 0) {
+            const record = records[0] as Record<string, unknown> & {
+              handshake_id?: string
+              local_role?: string
+              initiator_device_role?: string | null
+              acceptor_device_role?: string | null
+              initiator_device_name?: string | null
+              acceptor_device_name?: string | null
+            }
+            const myRoleRaw =
+              record.local_role === 'initiator'
+                ? record.initiator_device_role
+                : record.acceptor_device_role
+            const peerName =
+              record.local_role === 'initiator'
+                ? record.acceptor_device_name
+                : record.initiator_device_name
+            const peerRole =
+              record.local_role === 'initiator'
+                ? record.acceptor_device_role
+                : record.initiator_device_role
+            const stored = readLsBlob()
+            const locked: 'host' | 'sandbox' =
+              myRoleRaw === 'host' || myRoleRaw === 'sandbox'
+                ? myRoleRaw
+                : stored.mode === 'sandbox'
+                  ? 'sandbox'
+                  : 'host'
+            roleLocked = true
+            lockedRole = locked
+            selectedMode = locked
+            freeSandboxGate = false
+            persistOrchestratorLocal()
+            activeHandshakeInfo = {
+              peerName: typeof peerName === 'string' && peerName.trim() ? peerName.trim() : null,
+              peerRole: peerRole === 'host' || peerRole === 'sandbox' ? peerRole : null,
+              handshakeId: typeof record.handshake_id === 'string' ? record.handshake_id : '',
+            }
+          }
+        } catch {
+          /* ignore */
+        }
+        applyToggleStyles()
+        renderRoleLockNotice()
       }
 
       refreshSettingsOrchestratorToggleChrome = () => {
         applyToggleStyles()
-      }
-
-      async function refreshPeersFromDesktop() {
-        const rpc = await electronRpc('orchestrator.getMode', undefined, 8_000)
-        const body = rpc.data as
-          | { ok?: boolean; config?: { mode?: string; deviceName?: string; connectedPeers?: unknown[] } }
-          | undefined
-        if (!rpc.success || !body?.ok || !body.config) {
-          void loadDeviceList()
-          return
-        }
-        const dm = body.config.mode
-        if (dm !== 'host' && dm !== 'sandbox') {
-          void loadDeviceList()
-          return
-        }
-        if (desktopHint) {
-          desktopHint.textContent = `Desktop app orchestrator: ${dm === 'host' ? 'Host' : 'Sandbox'}`
-        }
-        const dName = typeof body.config.deviceName === 'string' ? body.config.deviceName.trim() : ''
-        const dPeers = Array.isArray(body.config.connectedPeers) ? body.config.connectedPeers.filter(isOrchPeer) : []
-        lastMergedPeers = dPeers.length > 0 ? dPeers : lastMergedPeers.length > 0 ? lastMergedPeers : (readLsBlob().connectedPeers ?? [])
-        if (dPeers.length > 0) {
-          const cur = readLsBlob()
-          writeLsBlob({
-            ...cur,
-            mode: selectedMode,
-            connectedPeers: dPeers,
-            ...(dName && !(deviceNameInput?.value || '').trim() ? { deviceName: dName } : {}),
-          })
-        }
-        const inputName = (deviceNameInput?.value || '').trim()
-        if (!inputName && dName) syncDeviceNameInput(dName)
-        void loadDeviceList()
+        renderRoleLockNotice()
       }
 
       function loadFromStorage() {
@@ -32100,22 +31995,16 @@ ${pageText}
         applyToggleStyles()
         const nm = typeof cfg.deviceName === 'string' ? cfg.deviceName : ''
         syncDeviceNameInput(nm)
-        lastMergedPeers = cfg.connectedPeers ?? []
-        void loadDeviceList()
-        if (connectionStatusEl) connectionStatusEl.innerHTML = ''
-        if (desktopHint) desktopHint.textContent = ''
       }
 
       function onDeviceNameBlur() {
         const raw = (deviceNameInput?.value || '').trim()
         const v = raw || 'My Device'
         syncDeviceNameInput(v)
-        const cur = readLsBlob()
         writeLsBlob({
-          ...cur,
+          ...readLsBlob(),
           mode: selectedMode,
           deviceName: v,
-          ...(lastMergedPeers.length > 0 ? { connectedPeers: lastMergedPeers } : {}),
         })
         try {
           if (typeof orchModeBridge?.setDeviceName === 'function') {
@@ -32132,136 +32021,14 @@ ${pageText}
             void invoke('orchestrator:setDeviceName', { deviceName: v })
           }
         } catch { /* ignore */ }
-        void refreshPeersFromDesktop()
       }
 
       deviceNameInput?.addEventListener('blur', onDeviceNameBlur)
 
-      document.getElementById('btn-upgrade-for-sandbox')?.addEventListener('click', () => {
-        window.open('https://wrdesk.com/?page_id=1080&v=5f02f0889301', '_blank', 'noopener,noreferrer')
-      })
-
-      hostBtn?.addEventListener('click', () => {
-        freeSandboxGate = false
-        selectedMode = 'host'
-        applyToggleStyles()
-        persistOrchestratorLocal()
-        if (connectionStatusEl) connectionStatusEl.innerHTML = ''
-        void refreshPeersFromDesktop()
-      })
-
-      sandboxBtn?.addEventListener('click', () => {
-        if (isFreeTier()) {
-          freeSandboxGate = true
-          applyToggleStyles()
-          return
-        }
-        freeSandboxGate = false
-        selectedMode = 'sandbox'
-        applyToggleStyles()
-        persistOrchestratorLocal()
-        if (connectionStatusEl) connectionStatusEl.innerHTML = ''
-        void refreshPeersFromDesktop()
-      })
-
-      connectBtn?.addEventListener('click', () => {
-        if (isFreeTier()) return
-        const btn = connectBtn
-        if (!btn) return
-        const statusEl = document.getElementById('connection-status')
-        void (async () => {
-          btn.textContent = 'Connecting...'
-          btn.style.opacity = '0.6'
-          btn.style.pointerEvents = 'none'
-          try {
-            const authResponse = await new Promise<{ loggedIn?: boolean; email?: string }>((resolve, reject) => {
-              chrome.runtime.sendMessage({ type: 'AUTH_STATUS' }, (response) => {
-                if (chrome.runtime.lastError) {
-                  reject(new Error(chrome.runtime.lastError.message || 'Could not reach extension'))
-                  return
-                }
-                if (!response || !(response as { loggedIn?: boolean }).loggedIn) {
-                  reject(new Error('Not logged in — both devices must be signed in with the same SSO account'))
-                  return
-                }
-                resolve(response as { loggedIn?: boolean; email?: string })
-              })
-            })
-            const th = csTheme()
-            const handshakeView = (window as unknown as {
-              handshakeView?: {
-                initiateHandshake?: (
-                  receiverEmail: string,
-                  fromAccountId: string | null,
-                  opts?: Record<string, unknown>,
-                ) => Promise<unknown>
-              }
-            }).handshakeView
-            if (typeof handshakeView === 'undefined' || typeof handshakeView.initiateHandshake !== 'function') {
-              if (statusEl) {
-                statusEl.innerHTML = `
-          <div style="font-size:11px; color:${th.muted}; line-height:1.4; margin-top:6px;">
-            <div style="color:${th.accentText}; font-weight:500; margin-bottom:4px;">Server update required</div>
-            <div>The silent handshake feature requires a coordination service update that is not yet deployed.</div>
-            <div style="margin-top:4px;">In the meantime, use the <strong>Handshakes</strong> panel to create a handshake with your own email address between both devices.</div>
-          </div>`
-              }
-              return
-            }
-            const email = typeof authResponse.email === 'string' ? authResponse.email.trim() : ''
-            if (!email) {
-              throw new Error('Not logged in — both devices must be signed in with the same SSO account')
-            }
-            const result = (await handshakeView.initiateHandshake(email, null, {
-              handshake_type: 'orchestrator',
-            })) as {
-              success?: boolean
-              error?: string
-              local_result?: { success?: boolean; error?: string }
-            }
-            const handshakeOk =
-              result &&
-              (result.success === true ||
-                result.local_result?.success === true ||
-                ((result as { type?: string; success?: boolean }).type === 'handshake-initiate-result' &&
-                  (result as { success?: boolean }).success !== false))
-            if (handshakeOk) {
-              if (statusEl) {
-                statusEl.innerHTML = `
-          <div style="display:flex; align-items:center; gap:4px; margin-top:6px;">
-            <div style="width:6px; height:6px; border-radius:50%; background:${th.success};"></div>
-            <span style="font-size:11px; color:${th.successText};">Handshake initiated — accept on your other device</span>
-          </div>`
-              }
-            } else {
-              const errorMsg =
-                (result && typeof result.error === 'string' && result.error) ||
-                (result?.local_result && typeof result.local_result.error === 'string' && result.local_result.error) ||
-                'Could not initiate handshake'
-              if (statusEl) {
-                statusEl.innerHTML = `<span style="font-size:11px; color:${th.danger};">${errorMsg}</span>`
-              }
-            }
-          } catch (err) {
-            const th = csTheme()
-            const msg = err instanceof Error ? err.message : 'Connection failed'
-            if (statusEl) {
-              statusEl.innerHTML = `<span style="font-size:11px; color:${th.danger};">${msg}</span>`
-            }
-          } finally {
-            btn.textContent = 'Connect'
-            btn.style.opacity = '1'
-            btn.style.pointerEvents = 'auto'
-            void refreshPeersFromDesktop()
-            void loadDeviceList()
-          }
-        })()
-      })
-
       function finishOrchestratorInit() {
         persistHostIfFreeDowngrade()
         loadFromStorage()
-        void refreshPeersFromDesktop()
+        void applyInternalHandshakeLockAsync()
       }
 
       try {

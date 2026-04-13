@@ -377,6 +377,12 @@ export interface HandshakeRecord {
   context_sync_pending?: boolean;
   /** AI policy: ai_processing_mode (new) or legacy cloud_ai/internal_ai. Parsed from JSON. */
   policy_selections?: { ai_processing_mode?: string } | { cloud_ai?: boolean; internal_ai?: boolean };
+  /** Ledger-only: internal (same-account orchestrator) vs standard cross-party handshake */
+  handshake_type?: 'internal' | 'standard' | null;
+  initiator_device_name?: string | null;
+  acceptor_device_name?: string | null;
+  initiator_device_role?: 'host' | 'sandbox' | null;
+  acceptor_device_role?: 'host' | 'sandbox' | null;
 }
 
 /** Material returned from `ensureKeyAgreementKeys` / persisted on `handshakes` for qBEAP. */

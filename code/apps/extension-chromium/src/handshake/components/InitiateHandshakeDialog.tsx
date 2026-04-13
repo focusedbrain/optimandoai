@@ -36,6 +36,8 @@ interface InitiateHandshakeDialogProps {
   onClose?: () => void
   /** Whether the current user has Publisher/Enterprise tier. */
   canUseHsContextProfiles?: boolean
+  /** Opens with internal handshake mode pre-selected (same-account devices). */
+  presetInternal?: boolean
 }
 
 export const InitiateHandshakeDialog: React.FC<InitiateHandshakeDialogProps> = ({
@@ -44,8 +46,12 @@ export const InitiateHandshakeDialog: React.FC<InitiateHandshakeDialogProps> = (
   onInitiated,
   onClose,
   canUseHsContextProfiles = false,
+  presetInternal = false,
 }) => {
   const [recipientEmail, setRecipientEmail] = useState('')
+  const [isInternal, setIsInternal] = useState(!!presetInternal)
+  const [deviceRole, setDeviceRole] = useState<'host' | 'sandbox'>('sandbox')
+  const [deviceName, setDeviceName] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
@@ -60,6 +66,72 @@ export const InitiateHandshakeDialog: React.FC<InitiateHandshakeDialogProps> = (
       .then((s) => setIsVaultUnlocked(s?.isUnlocked === true || s?.locked === false))
       .catch(() => setIsVaultUnlocked(false))
   }, [])
+
+  useEffect(() => {
+    if (presetInternal) setIsInternal(true)
+  }, [presetInternal])
+
+  /** When internal mode is on, load SSO email into `recipientEmail` (value drives the input, not placeholder-only). */
+  useEffect(() => {
+    if (!isInternal) return
+    let cancelled = false
+
+    const loadEmail = (): Promise<string | null> =>
+      new Promise((resolve) => {
+        if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
+          chrome.runtime.sendMessage({ type: 'AUTH_STATUS' }, (response) => {
+            if (chrome.runtime.lastError) {
+              resolve(null)
+              return
+            }
+            const em = typeof (response as { email?: unknown })?.email === 'string'
+              ? (response as { email: string }).email.trim()
+              : ''
+            resolve(em || null)
+          })
+          return
+        }
+        resolve(null)
+      })
+
+    const loadStoredAuthEmail = (): Promise<string | null> =>
+      new Promise((resolve) => {
+        if (typeof chrome === 'undefined' || !chrome.storage?.local?.get) {
+          resolve(null)
+          return
+        }
+        chrome.storage.local.get(['authEmail'], (r) => {
+          const em = typeof r.authEmail === 'string' ? r.authEmail.trim() : ''
+          resolve(em || null)
+        })
+      })
+
+    void (async () => {
+      let email = await loadEmail()
+      if (!email) email = await loadStoredAuthEmail()
+      if (!email && typeof window !== 'undefined') {
+        const auth = (window as unknown as { auth?: { getStatus?: () => Promise<{ email?: string } | null | undefined> } }).auth
+        try {
+          const st = await auth?.getStatus?.()
+          if (typeof st?.email === 'string' && st.email.trim()) email = st.email.trim()
+        } catch {
+          /* ignore */
+        }
+      }
+      if (!cancelled && email) setRecipientEmail(email)
+
+      try {
+        const stored = JSON.parse(localStorage.getItem('optimando-orchestrator-mode') || '{}') as { deviceName?: string }
+        if (!cancelled) setDeviceName(typeof stored.deviceName === 'string' ? stored.deviceName : '')
+      } catch {
+        if (!cancelled) setDeviceName('')
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [isInternal])
 
   // Context Graph (optional — attached to handshake.initiate RPC)
   const [showContextGraph, setShowContextGraph] = useState(false)
@@ -103,7 +175,12 @@ export const InitiateHandshakeDialog: React.FC<InitiateHandshakeDialogProps> = (
         receiverUserId,
         recipientEmail.trim(),
         fromAccountId,
-        opts,
+        {
+          ...opts,
+          handshake_type: isInternal ? 'internal' : undefined,
+          device_name: isInternal ? (deviceName.trim() || undefined) : undefined,
+          device_role: isInternal ? deviceRole : undefined,
+        },
       )
       setSuccess(true)
       onInitiated?.(result.handshake_id)
@@ -159,17 +236,101 @@ export const InitiateHandshakeDialog: React.FC<InitiateHandshakeDialogProps> = (
         {/* Form */}
         <div style={bodyStyle(t)}>
           <div style={{ maxWidth: '560px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '0', fontSize: '13px', cursor: 'pointer', color: t.text }}>
+              <input
+                type="checkbox"
+                checked={isInternal}
+                disabled={isSubmitting}
+                onChange={(e) => {
+                  const checked = e.target.checked
+                  setIsInternal(checked)
+                  setError(null)
+                  if (!checked) setRecipientEmail('')
+                }}
+              />
+              Internal handshake (connect my own devices)
+            </label>
+
+            {isInternal && (
+              <div style={{
+                background: 'rgba(83, 74, 183, 0.06)',
+                borderRadius: '8px',
+                padding: '10px 12px',
+                marginBottom: '12px',
+                fontSize: '12px',
+                lineHeight: '1.5',
+                color: '#536471',
+              }}>
+                <div style={{ fontWeight: 500, color: '#333', marginBottom: '6px' }}>
+                  Connect your own devices
+                </div>
+                <div style={{ marginBottom: '4px' }}>
+                  Internal handshakes link two of your devices under the same SSO account.
+                  Set one device as <strong>Host</strong> (runs the local LLM) and the other as <strong>Sandbox</strong> (processes documents locally, uses the Host for inference).
+                </div>
+                <div style={{ marginBottom: '4px' }}>
+                  BEAP capsules flow securely between both devices. Only extracted text is sent for inference — files and images never leave the Sandbox.
+                </div>
+                <div style={{ fontSize: '11px', color: '#888' }}>
+                  Both devices must be logged in with the same account. Accept the handshake on the other device to complete the connection.
+                </div>
+              </div>
+            )}
+
+            {isInternal && (
+              <div style={{ marginBottom: '0' }}>
+                <label style={{ fontSize: '12px', color: t.textMuted, marginBottom: '4px', display: 'block' }}>
+                  This device is:
+                </label>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button
+                    type="button"
+                    onClick={() => setDeviceRole('host')}
+                    disabled={isSubmitting}
+                    style={{
+                      flex: 1, padding: '6px', borderRadius: '6px', fontSize: '12px', cursor: isSubmitting ? 'not-allowed' : 'pointer',
+                      background: deviceRole === 'host' ? '#534AB7' : 'transparent',
+                      color: deviceRole === 'host' ? '#fff' : t.textMuted,
+                      border: deviceRole === 'host' ? 'none' : `1px solid ${t.inputBorder}`,
+                    }}
+                  >Host</button>
+                  <button
+                    type="button"
+                    onClick={() => setDeviceRole('sandbox')}
+                    disabled={isSubmitting}
+                    style={{
+                      flex: 1, padding: '6px', borderRadius: '6px', fontSize: '12px', cursor: isSubmitting ? 'not-allowed' : 'pointer',
+                      background: deviceRole === 'sandbox' ? '#534AB7' : 'transparent',
+                      color: deviceRole === 'sandbox' ? '#fff' : t.textMuted,
+                      border: deviceRole === 'sandbox' ? 'none' : `1px solid ${t.inputBorder}`,
+                    }}
+                  >Sandbox</button>
+                </div>
+              </div>
+            )}
+
             <div>
               <label style={themeLabelStyle(t)}>Recipient Email</label>
               <input
                 type="email"
                 value={recipientEmail}
-                onChange={(e) => { setRecipientEmail(e.target.value); setError(null); }}
-                placeholder="recipient@example.com"
+                onChange={(e) => {
+                  if (!isInternal) {
+                    setRecipientEmail(e.target.value)
+                    setError(null)
+                  }
+                }}
+                readOnly={isInternal}
+                placeholder={isInternal ? 'Your SSO email (auto-filled)' : 'recipient@example.com'}
                 disabled={isSubmitting}
                 style={{
                   ...themeInputStyle(t),
                   border: `1px solid ${error ? 'rgba(239,68,68,0.5)' : t.inputBorder}`,
+                  opacity: isInternal ? 0.7 : 1,
+                  cursor: isInternal ? 'not-allowed' : 'text',
+                  backgroundColor: isInternal
+                    ? (theme === 'dark' ? 'rgba(255,255,255,0.06)' : '#f0f0f0')
+                    : undefined,
                 }}
                 onKeyDown={(e) => { if (e.key === 'Enter') handleSubmit(); }}
               />

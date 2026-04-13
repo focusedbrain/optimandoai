@@ -601,6 +601,8 @@ contextBridge.exposeInMainWorld('handshakeView', {
       ...(typeof opts.senderX25519PublicKeyB64 === 'string' ? { senderX25519PublicKeyB64: opts.senderX25519PublicKeyB64 } : {}),
       ...(typeof opts.senderMlkem768PublicKeyB64 === 'string' ? { senderMlkem768PublicKeyB64: opts.senderMlkem768PublicKeyB64 } : {}),
       ...(typeof opts.senderMlkem768SecretKeyB64 === 'string' ? { senderMlkem768SecretKeyB64: opts.senderMlkem768SecretKeyB64 } : {}),
+      ...(typeof opts.device_name === 'string' && opts.device_name.trim() ? { device_name: opts.device_name.trim() } : {}),
+      ...(opts.device_role === 'host' || opts.device_role === 'sandbox' ? { device_role: opts.device_role } : {}),
     } : undefined
     return ipcRenderer.invoke('handshake:accept', assertString(id, 'id'), assertString(sharingMode, 'sharingMode'), typeof fromAccountId === 'string' ? fromAccountId : '', safeOpts)
   },
@@ -823,6 +825,9 @@ contextBridge.exposeInMainWorld('handshakeView', {
       ...(Array.isArray(opts.profile_ids) ? { profile_ids: opts.profile_ids } : {}),
       ...(Array.isArray(opts.profile_items) ? { profile_items: opts.profile_items } : {}),
       ...(opts.policy_selections && typeof opts.policy_selections === 'object' ? { policy_selections: opts.policy_selections } : {}),
+      ...(opts.handshake_type === 'internal' || opts.handshake_type === 'standard' ? { handshake_type: opts.handshake_type } : {}),
+      ...(typeof opts.device_name === 'string' && opts.device_name.trim() ? { device_name: opts.device_name.trim() } : {}),
+      ...(opts.device_role === 'host' || opts.device_role === 'sandbox' ? { device_role: opts.device_role } : {}),
     } : undefined
     return ipcRenderer.invoke('handshake:initiate', email, acct, safeOpts)
   },
@@ -836,6 +841,9 @@ contextBridge.exposeInMainWorld('handshakeView', {
       ...(Array.isArray(opts.profile_ids) ? { profile_ids: opts.profile_ids } : {}),
       ...(Array.isArray(opts.profile_items) ? { profile_items: opts.profile_items } : {}),
       ...(opts.policy_selections && typeof opts.policy_selections === 'object' ? { policy_selections: opts.policy_selections } : {}),
+      ...(opts.handshake_type === 'internal' || opts.handshake_type === 'standard' ? { handshake_type: opts.handshake_type } : {}),
+      ...(typeof opts.device_name === 'string' && opts.device_name.trim() ? { device_name: opts.device_name.trim() } : {}),
+      ...(opts.device_role === 'host' || opts.device_role === 'sandbox' ? { device_role: opts.device_role } : {}),
     } : undefined
     return ipcRenderer.invoke('handshake:buildForDownload', email, safeOpts)
   },

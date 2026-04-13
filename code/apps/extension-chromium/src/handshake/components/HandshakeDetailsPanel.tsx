@@ -489,6 +489,25 @@ export const HandshakeDetailsPanel: React.FC<HandshakeDetailsPanelProps> = ({
                   isPro={isPro}
                 />
               )}
+              {handshake.handshake_type === 'internal' && (
+                <>
+                  <DetailRow label="Type" value="Internal (same account)" isPro={isPro} />
+                  {handshake.initiator_device_name && (
+                    <DetailRow
+                      label="Initiator device"
+                      value={`${handshake.initiator_device_name} (${handshake.initiator_device_role || 'unknown'})`}
+                      isPro={isPro}
+                    />
+                  )}
+                  {handshake.acceptor_device_name && (
+                    <DetailRow
+                      label="Acceptor device"
+                      value={`${handshake.acceptor_device_name} (${handshake.acceptor_device_role || 'unknown'})`}
+                      isPro={isPro}
+                    />
+                  )}
+                </>
+              )}
               <DetailRow label="Created" value={new Date(handshake.created_at).toLocaleString()} isPro={isPro} />
             </div>
           </div>

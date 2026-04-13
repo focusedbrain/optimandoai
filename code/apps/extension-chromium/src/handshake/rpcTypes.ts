@@ -54,6 +54,11 @@ export interface HandshakeRecord {
    * - Only when this field equals the current device key should send proceed.
    */
   readonly localX25519PublicKey?: string
+  readonly handshake_type?: 'internal' | 'standard' | null
+  readonly initiator_device_name?: string | null
+  readonly acceptor_device_name?: string | null
+  readonly initiator_device_role?: 'host' | 'sandbox' | null
+  readonly acceptor_device_role?: 'host' | 'sandbox' | null
 }
 
 // ── Context block proof (hash-only, no content in handshake capsules) ──

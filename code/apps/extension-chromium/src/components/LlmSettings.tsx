@@ -70,10 +70,6 @@ interface LlmSettingsProps {
 /** Matches Electron `orchestratorModeStore` payload (subset used by UI). */
 interface OrchestratorModeConfig {
   mode: 'host' | 'sandbox'
-  sandbox?: {
-    hostUrl?: string
-    connectionVerified?: boolean
-  }
 }
 
 // ─── Typed RPC adapter ───────────────────────────────────────────────────
@@ -163,8 +159,6 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [orchestratorConfig, setOrchestratorConfig] = useState<OrchestratorModeConfig | null>(null)
-  /** Sandbox only: result of host inference-status reachability test */
-  const [hostReachable, setHostReachable] = useState<boolean | null>(null)
   
   // Bridge-agnostic API
   const api = useMemo(() => {
@@ -194,14 +188,6 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
           }
           return { ok: false }
         },
-        testHostInference: async (hostUrl: string): Promise<{ ok: boolean }> => {
-          try {
-            const r = await (window as any).electron.ipcRenderer.invoke('orchestrator:testConnection', { hostUrl })
-            return { ok: !!(r && typeof r === 'object' && (r as { ok?: boolean }).ok === true) }
-          } catch {
-            return { ok: false }
-          }
-        },
       }
     } else {
       // HTTP bridge for Extension — typed RPC, no dynamic endpoints
@@ -223,11 +209,6 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
           const c = data.config as OrchestratorModeConfig
           if (c.mode !== 'host' && c.mode !== 'sandbox') return { ok: false }
           return { ok: true, config: c }
-        },
-        testHostInference: async (hostUrl: string): Promise<{ ok: boolean }> => {
-          const res = await rpc('orchestrator.testRemoteHost', { hostUrl })
-          if (!res.ok || res.data == null || typeof res.data !== 'object') return { ok: false }
-          return { ok: (res.data as { ok?: boolean }).ok === true }
         },
       }
     }
@@ -280,19 +261,11 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
       setError(null)
 
       let orchCfg: OrchestratorModeConfig | null = null
-      let hostReach: boolean | null = null
       const orchPromise = (async () => {
         try {
           const om = await api.getOrchestratorMode()
           if (om.ok && om.config) {
             orchCfg = om.config
-            if (om.config.mode === 'sandbox') {
-              const url = om.config.sandbox?.hostUrl?.trim()
-              if (url) {
-                const th = await api.testHostInference(url)
-                hostReach = th.ok
-              }
-            }
           }
         } catch (e) {
           console.warn('[LlmSettings] Orchestrator mode load failed:', e)
@@ -317,7 +290,6 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
       ])
 
       setOrchestratorConfig(orchCfg)
-      setHostReachable(hostReach)
       
       const hwEntity = unwrapLlmEnvelope(hwRes, isHardwareEntity)
       if (hwEntity) setHardware(hwEntity)
@@ -542,7 +514,6 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
 
   const isSandbox = orchestratorConfig?.mode === 'sandbox'
   const sandboxOllamaDisabled = isSandbox
-  const sandboxHostUrl = (orchestratorConfig?.sandbox?.hostUrl || '').trim()
 
   /** Extension Settings persists host/sandbox to localStorage only when the user clicks Save. */
   const showHostServingLabel = useMemo(() => {
@@ -557,16 +528,6 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
     }
   }, [orchestratorConfig?.mode])
 
-  const sandboxHostStatusTitle = !sandboxHostUrl
-    ? 'Configure host URL in Extension Settings'
-    : hostReachable === true
-      ? 'Connected to host'
-      : hostReachable === false
-        ? 'Host unreachable'
-        : 'Checking host…'
-  const sandboxStatusOk = Boolean(sandboxHostUrl && hostReachable === true)
-  const sandboxStatusBad = Boolean(sandboxHostUrl && hostReachable === false)
-  
   return (
     <div style={{ padding: '10px', color: textColor }}>
       <h4 style={{ margin: '0 0 12px 0', fontSize: '13px', fontWeight: '600' }}>
@@ -597,9 +558,9 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
             color: tt.infoText,
           }}
         >
-          {'🔗'} Sandbox Mode — Inference is routed to host at{' '}
-          <strong style={{ wordBreak: 'break-all' }}>{sandboxHostUrl || '(not configured)'}</strong>. Local Ollama
-          management is disabled.
+          {
+            '🔗 Sandbox Mode — Inference will use the BEAP channel after you create an internal handshake in the Handshakes panel. Local Ollama management is disabled.'
+          }
         </div>
       )}
       
@@ -795,38 +756,23 @@ export function LlmSettings({ theme = 'default', bridge }: LlmSettingsProps) {
         </div>
       )}
       
-      {/* Ollama Status (host mode) / remote host reachability (sandbox) */}
       {isSandbox && !loading && (
         <div
           style={{
             padding: '10px',
-            background: sandboxStatusOk
-              ? 'rgba(34,197,94,0.15)'
-              : sandboxStatusBad
-                ? 'rgba(239,68,68,0.15)'
-                : 'rgba(245,158,11,0.12)',
-            border: `1px solid ${
-              sandboxStatusOk
-                ? 'rgba(34,197,94,0.4)'
-                : sandboxStatusBad
-                  ? 'rgba(239,68,68,0.4)'
-                  : 'rgba(245,158,11,0.35)'
-            }`,
+            background: 'rgba(245,158,11,0.12)',
+            border: '1px solid rgba(245,158,11,0.35)',
             borderRadius: '6px',
             marginBottom: '12px',
             fontSize: '11px',
+            lineHeight: 1.45,
           }}
         >
-          <div style={{ fontWeight: '600', marginBottom: '6px', fontSize: '10px' }}>
-            {sandboxStatusOk ? '✅ ' : sandboxStatusBad ? '❌ ' : '⚠️ '}
-            {sandboxHostStatusTitle.toUpperCase()}
+          <div style={{ fontWeight: '600', marginBottom: '6px', fontSize: '10px' }}>CONNECT VIA HANDSHAKE</div>
+          <div style={{ fontSize: '10px', opacity: 0.95 }}>
+            Complete an internal handshake with your host device in the <strong>Handshakes</strong> panel. No manual host
+            URL is required.
           </div>
-          {sandboxHostUrl ? (
-            <div style={{ display: 'grid', gridTemplateColumns: '80px 1fr', gap: '4px', fontSize: '10px' }}>
-              <span style={{ opacity: 0.7 }}>Host URL:</span>
-              <span style={{ wordBreak: 'break-all' }}>{sandboxHostUrl}</span>
-            </div>
-          ) : null}
         </div>
       )}
       {!isSandbox && status && (

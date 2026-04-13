@@ -344,8 +344,19 @@ const HandshakeListItem: React.FC<{
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <span style={{ fontSize: '16px' }}>{handshakeListRowIcon(handshake)}</span>
           <div>
-            <div style={{ fontSize: '12px', fontWeight: 600, color: isProfessional ? '#1f2937' : 'white' }}>
+            <div style={{ fontSize: '12px', fontWeight: 600, color: isProfessional ? '#1f2937' : 'white', display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '4px' }}>
               {handshake.counterparty_email}
+              {handshake.handshake_type === 'internal' && (
+                <span style={{ fontSize: '10px', padding: '1px 6px', borderRadius: '4px', background: 'rgba(83,74,183,0.1)', color: '#534AB7', marginLeft: '6px' }}>
+                  Internal
+                </span>
+              )}
+              {handshake.initiator_device_name && (
+                <span style={{ fontSize: '10px', color: '#888', marginLeft: '4px' }}>
+                  {handshake.initiator_device_name}
+                  {handshake.initiator_device_role && ` (${handshake.initiator_device_role})`}
+                </span>
+              )}
             </div>
             <div style={{ fontSize: '10px', color: isProfessional ? '#9ca3af' : 'rgba(255,255,255,0.4)' }}>
               {handshake.state === 'ACTIVE' && !hasHandshakeKeyMaterial(handshake)

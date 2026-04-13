@@ -146,7 +146,7 @@ export async function getHandshakeMlkemSecret(handshakeId: string): Promise<stri
 export async function initiateHandshake(
   receiverUserId: string,
   receiverEmail: string,
-  fromAccountId: string,
+  fromAccountId: string | null,
   options?: {
     skipVaultContext?: boolean
     message?: string
@@ -154,13 +154,16 @@ export async function initiateHandshake(
     profile_ids?: string[]
     profile_items?: Array<{ profile_id: string; policy_mode?: 'inherit' | 'override'; policy?: PolicySelectionInput }>
     policy_selections?: PolicySelectionInput
+    handshake_type?: 'internal' | 'standard'
+    device_name?: string
+    device_role?: 'host' | 'sandbox'
   },
 ): Promise<HandshakeInitiateResponse> {
   const keyAgreement = await getKeyAgreementForHandshake()
   const res = await sendHandshakeRpc<HandshakeInitiateResponse>('handshake.initiate', {
     receiverUserId,
     receiverEmail,
-    fromAccountId,
+    fromAccountId: fromAccountId ?? '',
     senderX25519PublicKeyB64: keyAgreement.x25519PublicKeyB64,
     senderMlkem768PublicKeyB64: keyAgreement.mlkem768PublicKeyB64,
     senderMlkem768SecretKeyB64: keyAgreement.mlkem768SecretKeyB64,
@@ -170,6 +173,9 @@ export async function initiateHandshake(
     ...(options?.profile_ids?.length ? { profile_ids: options.profile_ids } : {}),
     ...(options?.profile_items?.length ? { profile_items: options.profile_items } : {}),
     ...(options?.policy_selections ? { policy_selections: options.policy_selections } : {}),
+    handshake_type: options?.handshake_type,
+    device_name: options?.device_name,
+    device_role: options?.device_role,
   })
   // ML-KEM secret is persisted exclusively in the Electron DB (local_mlkem768_secret_key_b64).
   // The senderMlkem768SecretKeyB64 field above ensures it was written by the ipc.ts handler.
@@ -224,6 +230,8 @@ export async function acceptHandshake(
     profile_ids?: string[]
     profile_items?: Array<{ profile_id: string; policy_mode?: 'inherit' | 'override'; policy?: PolicySelectionInput }>
     policy_selections?: PolicySelectionInput
+    device_name?: string
+    device_role?: 'host' | 'sandbox'
   },
 ): Promise<HandshakeAcceptResponse> {
   const keyAgreement = await getKeyAgreementForHandshake()
@@ -238,6 +246,8 @@ export async function acceptHandshake(
     ...(contextOpts?.profile_ids?.length ? { profile_ids: contextOpts.profile_ids } : {}),
     ...(contextOpts?.profile_items?.length ? { profile_items: contextOpts.profile_items } : {}),
     ...(contextOpts?.policy_selections ? { policy_selections: contextOpts.policy_selections } : {}),
+    device_name: contextOpts?.device_name,
+    device_role: contextOpts?.device_role,
   })
 
   // ML-KEM secret stored in Electron DB — no chrome.storage copy.
@@ -511,6 +521,11 @@ function normalizeRecord(raw: any): HandshakeRecord {
     peerPQPublicKey: raw.peer_mlkem768_public_key_b64 ?? undefined,
     p2pEndpoint: raw.p2p_endpoint ?? undefined,
     localX25519PublicKey: raw.local_x25519_public_key_b64 ?? undefined,
+    handshake_type: raw.handshake_type || null,
+    initiator_device_name: raw.initiator_device_name || null,
+    acceptor_device_name: raw.acceptor_device_name || null,
+    initiator_device_role: raw.initiator_device_role || null,
+    acceptor_device_role: raw.acceptor_device_role || null,
   }
 }
 
