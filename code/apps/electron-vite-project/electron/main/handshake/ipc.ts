@@ -1256,7 +1256,7 @@ export async function handleHandshakeRPC(
         return { success: false, error: err.message }
       }
 
-      const record = getHandshakeRecord(db, handshake_id)
+      let record = getHandshakeRecord(db, handshake_id)
       if (!record) {
         return { success: false, error: 'Handshake not found', reason: ReasonCode.HANDSHAKE_NOT_FOUND }
       }
@@ -1281,7 +1281,10 @@ export async function handleHandshakeRPC(
           : requested_sharing_mode
 
       const initiatorUserId = record.initiator.wrdesk_user_id
-      const initiatorEmail = record.initiator.email
+      let initiatorEmail = record.initiator.email
+      if (!initiatorEmail?.trim() && record.handshake_type === 'internal' && session.email?.trim()) {
+        initiatorEmail = session.email
+      }
 
       // 1. Query initiator's echoed blocks (from initiate capsule)
       let initiatorBlocks: ContextBlockForCommitment[] = []
@@ -1512,6 +1515,8 @@ export async function handleHandshakeRPC(
         } catch (e) {
           console.warn('Could not save acceptor device metadata:', e)
         }
+        const refreshed = getHandshakeRecord(db, handshake_id)
+        if (refreshed) record = refreshed
       }
 
       const _acceptPostP2pCfg = db ? getP2PConfig(db) : null
@@ -1531,9 +1536,10 @@ export async function handleHandshakeRPC(
         setImmediate(async () => {
           console.log('[HANDSHAKE-DEBUG] setImmediate(post-accept relay) started for', handshake_id)
           const p2pConfig = getP2PConfig(db)
+          const coordinationInitiatorUserId = record.initiator.sub?.trim() || initiatorUserId
           const result = p2pConfig.use_coordination
             ? await registerHandshakeWithRelay(db, handshake_id, p2pAuthToken ?? '', initiatorEmail, _getOidcToken, {
-                initiator_user_id: initiatorUserId,
+                initiator_user_id: coordinationInitiatorUserId,
                 acceptor_user_id: session.sub,
                 initiator_email: initiatorEmail,
                 acceptor_email: session.email,
