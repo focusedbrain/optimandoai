@@ -498,6 +498,12 @@ async function sendCapsuleViaHttpWithAuth(
 
     clearTimeout(timeout)
 
+    const responseText = await response.text()
+    console.log('[RELAY-POST] URL:', targetEndpoint)
+    console.log('[RELAY-POST] Body:', JSON.stringify(capsule, null, 2))
+    console.log('[RELAY-POST] Response status:', response.status)
+    console.log('[RELAY-POST] Response body:', responseText.slice(0, 8000))
+
     console.log('[HANDSHAKE-DEBUG] Sending to relay:', targetEndpoint, 'status:', response.status)
 
     if (response.status === 200) {
@@ -524,8 +530,7 @@ async function sendCapsuleViaHttpWithAuth(
     console.warn('[P2P] Coordination delivery failed', { endpoint: targetEndpoint, status: response.status })
     let responseBodySnippet: string | undefined
     if (!response.ok) {
-      const errBody = await response.text()
-      responseBodySnippet = sanitizeHttpResponseBodyForLogs(errBody)
+      responseBodySnippet = sanitizeHttpResponseBodyForLogs(responseText)
       console.log('[P2P-DEBUG] Error body:', responseBodySnippet)
     }
     const snapshot = buildOutboundRequestDebugSnapshot(
@@ -610,6 +615,16 @@ export async function sendCapsuleViaHttp(
 
     clearTimeout(timeout)
 
+    const responseText = await response.text()
+    console.log('[RELAY-POST] URL:', trimmed)
+    try {
+      console.log('[RELAY-POST] Body:', JSON.stringify(JSON.parse(body), null, 2))
+    } catch {
+      console.log('[RELAY-POST] Body:', body.slice(0, 8000))
+    }
+    console.log('[RELAY-POST] Response status:', response.status)
+    console.log('[RELAY-POST] Response body:', responseText.slice(0, 8000))
+
     console.log('[HANDSHAKE-DEBUG] Sending to relay:', trimmed, 'status:', response.status)
 
     if (response.status === 200) {
@@ -619,8 +634,7 @@ export async function sendCapsuleViaHttp(
 
     const retryAfterSec = parseRetryAfterSeconds(response)
     console.warn('[P2P] Context-sync delivery failed', { handshake_id: handshakeId, endpoint: trimmed, status: response.status })
-    const errBody = await response.text()
-    const responseBodySnippet = sanitizeHttpResponseBodyForLogs(errBody)
+    const responseBodySnippet = sanitizeHttpResponseBodyForLogs(responseText)
     const snapshot = buildOutboundRequestDebugSnapshot(
       'direct',
       trimmed,

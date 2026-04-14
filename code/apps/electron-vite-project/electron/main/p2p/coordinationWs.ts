@@ -93,6 +93,8 @@ async function processCapsuleInternal(
   const capObj = typeof capsule === 'object' && capsule !== null ? capsule as Record<string, unknown> : {}
   const capsuleType = (capObj?.capsule_type as string) ?? 'unknown'
   const handshakeId = (capObj?.handshake_id as string) ?? 'unknown'
+  console.log('[INITIATOR-RECV] Received capsule for handshake:', handshakeId)
+  console.log('[INITIATOR-RECV] Capsule type:', capsuleType)
   const capsuleSenderId = (capObj?.sender_wrdesk_user_id as string) ?? ''
   const localUserId = ssoSession.wrdesk_user_id
   const samePrincipal =
@@ -500,6 +502,8 @@ export function createCoordinationWsClient(
         startHeartbeat()
         console.log('[Coordination] Connected to relay WebSocket — ready to receive capsules')
         console.log('[WS-DEBUG] WebSocket state:', ws?.readyState, 'connected to:', wsUrl)
+        console.log('[RELAY-WS] Connected to:', wsUrl)
+        console.log('[RELAY-WS] Connection state:', ws?.readyState)
         resolve()
       })
 
@@ -508,6 +512,17 @@ export function createCoordinationWsClient(
         try {
           const text = typeof data === 'string' ? data : data.toString('utf8')
           const msg = JSON.parse(text) as { type?: string; id?: string; handshake_id?: string; capsule?: unknown }
+          const capPayloadTop = msg.capsule
+          const capForType =
+            typeof capPayloadTop === 'object' && capPayloadTop !== null
+              ? (capPayloadTop as Record<string, unknown>)
+              : null
+          console.log('[RELAY-WS] Received message type:', msg?.type)
+          console.log(
+            '[RELAY-WS] Capsule type:',
+            capForType?.capsule_type ?? (msg as Record<string, unknown>)?.capsule_type ?? '(n/a)',
+          )
+          console.log('[RELAY-WS] Full message:', JSON.stringify(msg).substring(0, 500))
 
           // System events (e.g. tier_changed) are no longer processed — tier/entitlement
           // updates come from /api/vault/status and auth status polling only.

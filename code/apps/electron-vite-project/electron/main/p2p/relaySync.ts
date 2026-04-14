@@ -89,26 +89,31 @@ export async function registerHandshakeWithRelay(
       else if (rec?.local_role === 'acceptor') acceptor_device_id = instanceId
     }
 
+    const registrationBody = {
+      handshake_id: handshakeId,
+      initiator_user_id: handshakeDetails.initiator_user_id,
+      acceptor_user_id: handshakeDetails.acceptor_user_id,
+      initiator_email: handshakeDetails.initiator_email ?? undefined,
+      acceptor_email: handshakeDetails.acceptor_email ?? undefined,
+      ...(initiator_device_id !== undefined ? { initiator_device_id } : {}),
+      ...(acceptor_device_id !== undefined ? { acceptor_device_id } : {}),
+    }
     try {
+      console.log('[RELAY-REG] URL:', registerUrl)
+      console.log('[RELAY-REG] Body:', JSON.stringify(registrationBody, null, 2))
       const res = await fetch(registerUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({
-          handshake_id: handshakeId,
-          initiator_user_id: handshakeDetails.initiator_user_id,
-          acceptor_user_id: handshakeDetails.acceptor_user_id,
-          initiator_email: handshakeDetails.initiator_email ?? undefined,
-          acceptor_email: handshakeDetails.acceptor_email ?? undefined,
-          ...(initiator_device_id !== undefined ? { initiator_device_id } : {}),
-          ...(acceptor_device_id !== undefined ? { acceptor_device_id } : {}),
-        }),
+        body: JSON.stringify(registrationBody),
       })
+      const responseText = await res.text()
+      console.log('[RELAY-REG] Response status:', res.status)
+      console.log('[RELAY-REG] Response body:', responseText.slice(0, 8000))
       if (!res.ok) {
-        const text = await res.text()
-        console.error('[RELAY-REG] Failed:', { handshakeId, status: res.status, body: text })
+        console.error('[RELAY-REG] Failed:', { handshakeId, status: res.status, body: responseText })
         return { success: false, error: res.status === 401 ? 'Auth failed' : `HTTP ${res.status}` }
       }
       console.log('[RELAY-REG] Success:', { handshakeId, status: res.status })
@@ -135,23 +140,29 @@ export async function registerHandshakeWithRelay(
     return { success: false, error: 'relay_url must end with /ingest' }
   }
 
+  const registrationBody = {
+    handshake_id: handshakeId,
+    expected_token: expectedToken,
+    counterparty_email: counterpartyEmail,
+  }
   try {
+    console.log('[RELAY-REG] URL:', registerUrl)
+    console.log('[RELAY-REG] Body:', JSON.stringify(registrationBody, null, 2))
     const res = await fetch(registerUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${authSecret}`,
       },
-      body: JSON.stringify({
-        handshake_id: handshakeId,
-        expected_token: expectedToken,
-        counterparty_email: counterpartyEmail,
-      }),
+      body: JSON.stringify(registrationBody),
     })
 
+    const responseText = await res.text()
+    console.log('[RELAY-REG] Response status:', res.status)
+    console.log('[RELAY-REG] Response body:', responseText.slice(0, 8000))
+
     if (!res.ok) {
-      const text = await res.text()
-      console.error('[Relay] Register handshake failed:', res.status, text)
+      console.error('[Relay] Register handshake failed:', res.status, responseText)
       return { success: false, error: res.status === 401 ? 'Relay auth failed' : `HTTP ${res.status}` }
     }
 
