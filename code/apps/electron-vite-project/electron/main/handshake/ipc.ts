@@ -1282,7 +1282,8 @@ export async function handleHandshakeRPC(
 
       const initiatorUserId = record.initiator.wrdesk_user_id
       let initiatorEmail = record.initiator.email
-      if (!initiatorEmail?.trim() && record.handshake_type === 'internal' && session.email?.trim()) {
+      // For internal handshakes, initiator email is always the same as session email
+      if (!initiatorEmail && record.handshake_type === 'internal') {
         initiatorEmail = session.email
       }
 
@@ -1515,8 +1516,14 @@ export async function handleHandshakeRPC(
         } catch (e) {
           console.warn('Could not save acceptor device metadata:', e)
         }
+        // Refresh record from DB after accept ingest (captures p2p_endpoint update)
         const refreshed = getHandshakeRecord(db, handshake_id)
         if (refreshed) record = refreshed
+      }
+
+      // For internal handshakes, initiator email is always the same as session email
+      if (!initiatorEmail && record.handshake_type === 'internal') {
+        initiatorEmail = session.email
       }
 
       const _acceptPostP2pCfg = db ? getP2PConfig(db) : null
@@ -1536,7 +1543,15 @@ export async function handleHandshakeRPC(
         setImmediate(async () => {
           console.log('[HANDSHAKE-DEBUG] setImmediate(post-accept relay) started for', handshake_id)
           const p2pConfig = getP2PConfig(db)
-          const coordinationInitiatorUserId = record.initiator.sub?.trim() || initiatorUserId
+          const coordinationInitiatorUserId =
+            record.initiator?.sub || record.initiator?.wrdesk_user_id || record.initiator?.email
+          console.log('[ACCEPT-RELAY-REG]', {
+            initiator_user_id: coordinationInitiatorUserId,
+            acceptor_user_id: session.sub,
+            same_principal: coordinationInitiatorUserId === session.sub,
+            p2p_endpoint: record.p2p_endpoint,
+            initiatorEmail: initiatorEmail,
+          })
           const result = p2pConfig.use_coordination
             ? await registerHandshakeWithRelay(db, handshake_id, p2pAuthToken ?? '', initiatorEmail, _getOidcToken, {
                 initiator_user_id: coordinationInitiatorUserId,
