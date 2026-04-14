@@ -978,6 +978,12 @@ const HANDSHAKE_MIGRATIONS: Array<{
       'Schema v54: inbox_messages.lifecycle_remote_delete_skip_reason — terminal skip when gateway account_id is orphaned (no infinite lifecycle retries)',
     sql: [`ALTER TABLE inbox_messages ADD COLUMN lifecycle_remote_delete_skip_reason TEXT`],
   },
+  {
+    version: 55,
+    description:
+      'Schema v55: handshakes.initiator_coordination_device_id — relay routing for internal same-user handshakes',
+    sql: [`ALTER TABLE handshakes ADD COLUMN initiator_coordination_device_id TEXT`],
+  },
 ]
 
 /**
@@ -1408,6 +1414,7 @@ export function serializeHandshakeRecord(record: HandshakeRecord): any {
     acceptor_device_name: record.acceptor_device_name ?? null,
     initiator_device_role: record.initiator_device_role ?? null,
     acceptor_device_role: record.acceptor_device_role ?? null,
+    initiator_coordination_device_id: record.initiator_coordination_device_id ?? null,
   }
 }
 
@@ -1459,6 +1466,7 @@ export function deserializeHandshakeRecord(row: any): HandshakeRecord {
     acceptor_device_name: row.acceptor_device_name ?? null,
     initiator_device_role: row.initiator_device_role ?? null,
     acceptor_device_role: row.acceptor_device_role ?? null,
+    initiator_coordination_device_id: row.initiator_coordination_device_id ?? null,
   }
 }
 
@@ -1524,8 +1532,9 @@ export function insertHandshakeRecord(db: any, record: HandshakeRecord): void {
     initiator_context_commitment, acceptor_context_commitment, p2p_endpoint, counterparty_p2p_token,
     local_public_key, local_private_key, counterparty_public_key, receiver_email,
     peer_x25519_public_key_b64, peer_mlkem768_public_key_b64,
-    local_x25519_private_key_b64, local_x25519_public_key_b64, local_mlkem768_secret_key_b64, local_mlkem768_public_key_b64,
-    handshake_type, initiator_device_name, acceptor_device_name, initiator_device_role, acceptor_device_role
+    local_x25519_private_key_b64, local_x25519_public_key_b64,     local_mlkem768_secret_key_b64, local_mlkem768_public_key_b64,
+    handshake_type, initiator_device_name, acceptor_device_name, initiator_device_role, acceptor_device_role,
+    initiator_coordination_device_id
   ) VALUES (
     @handshake_id, @relationship_id, @state, @initiator_json, @acceptor_json,
     @local_role, @sharing_mode, @reciprocal_allowed,
@@ -1538,8 +1547,9 @@ export function insertHandshakeRecord(db: any, record: HandshakeRecord): void {
     @initiator_context_commitment, @acceptor_context_commitment, @p2p_endpoint, @counterparty_p2p_token,
     @local_public_key, @local_private_key, @counterparty_public_key, @receiver_email,
     @peer_x25519_public_key_b64, @peer_mlkem768_public_key_b64,
-    @local_x25519_private_key_b64, @local_x25519_public_key_b64, @local_mlkem768_secret_key_b64, @local_mlkem768_public_key_b64,
-    @handshake_type, @initiator_device_name, @acceptor_device_name, @initiator_device_role, @acceptor_device_role
+    @local_x25519_private_key_b64, @local_x25519_public_key_b64,     @local_mlkem768_secret_key_b64, @local_mlkem768_public_key_b64,
+    @handshake_type, @initiator_device_name, @acceptor_device_name, @initiator_device_role, @acceptor_device_role,
+    @initiator_coordination_device_id
   )`).run(s)
 }
 
@@ -1577,7 +1587,8 @@ export function updateHandshakeRecord(db: any, record: HandshakeRecord): void {
     initiator_device_name = @initiator_device_name,
     acceptor_device_name = @acceptor_device_name,
     initiator_device_role = @initiator_device_role,
-    acceptor_device_role = @acceptor_device_role
+    acceptor_device_role = @acceptor_device_role,
+    initiator_coordination_device_id = @initiator_coordination_device_id
   WHERE handshake_id = @handshake_id`).run(s)
 }
 

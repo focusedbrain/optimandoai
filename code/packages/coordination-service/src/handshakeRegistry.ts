@@ -59,11 +59,11 @@ export function createHandshakeRegistry(store: StoreAdapter): HandshakeRegistryA
          )
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(handshake_id) DO UPDATE SET
-           initiator_user_id = excluded.initiator_user_id,
-           acceptor_user_id = excluded.acceptor_user_id,
-           initiator_email = excluded.initiator_email,
-           acceptor_email = excluded.acceptor_email,
-           initiator_device_id = COALESCE(excluded.initiator_device_id, coordination_handshake_registry.initiator_device_id),
+           initiator_user_id = COALESCE(excluded.initiator_user_id, coordination_handshake_registry.initiator_user_id),
+           acceptor_user_id = COALESCE(excluded.acceptor_user_id, coordination_handshake_registry.acceptor_user_id),
+           initiator_email = COALESCE(excluded.initiator_email, coordination_handshake_registry.initiator_email),
+           acceptor_email = COALESCE(excluded.acceptor_email, coordination_handshake_registry.acceptor_email),
+           initiator_device_id = COALESCE(coordination_handshake_registry.initiator_device_id, excluded.initiator_device_id),
            acceptor_device_id = COALESCE(excluded.acceptor_device_id, coordination_handshake_registry.acceptor_device_id)`,
       ).run(
         handshakeId,

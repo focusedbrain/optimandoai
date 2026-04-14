@@ -479,10 +479,24 @@ export function createCoordinationWsClient(
       return
     }
 
-    const instanceId = getInstanceId()
-    const deviceParam = `device_id=${encodeURIComponent(instanceId)}`
-    const baseWithDevice = wsUrl.includes('?') ? `${wsUrl}&${deviceParam}` : `${wsUrl}?${deviceParam}`
-    const url = `${baseWithDevice}&token=${encodeURIComponent(token)}`
+    let wsUrlForConnect = wsUrl
+    let deviceIdParam = ''
+    try {
+      const { getInstanceId } = require('../orchestrator/orchestratorModeStore') as {
+        getInstanceId: () => string | undefined
+      }
+      const did = getInstanceId?.()
+      if (did && did !== 'default') {
+        deviceIdParam = `device_id=${encodeURIComponent(did)}`
+      }
+    } catch {
+      // No device_id available — relay will use 'default', which is fine for cross-party
+    }
+    if (deviceIdParam) {
+      const separator = wsUrlForConnect.includes('?') ? '&' : '?'
+      wsUrlForConnect = `${wsUrlForConnect}${separator}${deviceIdParam}`
+    }
+    const url = `${wsUrlForConnect}${wsUrlForConnect.includes('?') ? '&' : '?'}token=${encodeURIComponent(token)}`
     console.log('[Coordination] Connecting to relay WebSocket:', wsUrl.replace(/\?.*/, ''))
 
     return new Promise((resolve, reject) => {

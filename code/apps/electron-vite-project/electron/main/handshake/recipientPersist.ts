@@ -75,6 +75,10 @@ export function persistRecipientHandshakeRecord(
       (typeof c?.sender_mlkem768_public_key_b64 === 'string' && c.sender_mlkem768_public_key_b64.trim().length > 0)
         ? c.sender_mlkem768_public_key_b64.trim()
         : null
+    const initiatorCoordinationDeviceId: string | null =
+      typeof c?.sender_device_id === 'string' && c.sender_device_id.trim().length > 0
+        ? c.sender_device_id.trim()
+        : null
 
     const senderIdentity = c.senderIdentity ?? {
       email: c.sender_email ?? '',
@@ -122,6 +126,7 @@ export function persistRecipientHandshakeRecord(
       receiver_email: c.receiver_email ?? null,
       peer_x25519_public_key_b64: senderX25519,
       peer_mlkem768_public_key_b64: senderMlkem768,
+      initiator_coordination_device_id: initiatorCoordinationDeviceId,
     }
 
     insertHandshakeRecord(db, record)

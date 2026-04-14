@@ -35,6 +35,7 @@ import { computeContextCommitment, stripContentFromBlocks, type ContextBlockForC
 import { computePolicyHash, DEFAULT_POLICY_DESCRIPTOR, type PolicyDescriptor } from './policyHash'
 import { deriveRelationshipId } from './relationshipId'
 import { generateSigningKeypair, signCapsuleHash, type SigningKeypair } from './signatureKeys'
+import { getInstanceId } from '../orchestrator/orchestratorModeStore'
 
 // ── Wire format types ──
 
@@ -83,6 +84,11 @@ export interface HandshakeCapsuleWire {
   readonly sender_x25519_public_key_b64?: string;
   /** ML-KEM-768 public key (base64, 1184 bytes) for post-quantum key agreement */
   readonly sender_mlkem768_public_key_b64?: string;
+  /**
+   * Orchestrator instance id (same as coordination WS device_id). Not included in capsule_hash;
+   * used so the acceptor can register both relay routing ids for internal (same-user) handshakes.
+   */
+  readonly sender_device_id?: string;
 }
 
 // ── Options types ──
@@ -289,6 +295,13 @@ function buildInitiateCapsuleCore(
   const keypair = generateSigningKeypair()
   const senderSignature = signCapsuleHash(capsuleHash, keypair.privateKey)
 
+  let coordinationDeviceId: string | undefined
+  try {
+    coordinationDeviceId = getInstanceId()?.trim() || undefined
+  } catch {
+    coordinationDeviceId = undefined
+  }
+
   const capsule: HandshakeCapsuleWire = {
     schema_version: 2,
     capsule_type: 'initiate',
@@ -325,6 +338,7 @@ function buildInitiateCapsuleCore(
     ...(opts.p2p_auth_token ? { p2p_auth_token: opts.p2p_auth_token } : {}),
     ...(opts.sender_x25519_public_key_b64 ? { sender_x25519_public_key_b64: opts.sender_x25519_public_key_b64 } : {}),
     ...(opts.sender_mlkem768_public_key_b64 ? { sender_mlkem768_public_key_b64: opts.sender_mlkem768_public_key_b64 } : {}),
+    ...(coordinationDeviceId ? { sender_device_id: coordinationDeviceId } : {}),
   }
   return { capsule, keypair }
 }

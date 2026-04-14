@@ -383,6 +383,11 @@ export interface HandshakeRecord {
   acceptor_device_name?: string | null;
   initiator_device_role?: 'host' | 'sandbox' | null;
   acceptor_device_role?: 'host' | 'sandbox' | null;
+  /**
+   * Initiator orchestrator device id (from initiate capsule sender_device_id). Acceptor-side only;
+   * used with relay register-handshake so same-user routing has both WS device ids.
+   */
+  initiator_coordination_device_id?: string | null;
 }
 
 /** Material returned from `ensureKeyAgreementKeys` / persisted on `handshakes` for qBEAP. */

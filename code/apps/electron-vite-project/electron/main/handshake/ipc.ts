@@ -81,6 +81,19 @@ function coordinationAcceptorUserIdForRegistration(
   }
   return receiverUserId
 }
+
+/** Orchestrator instance id for relay registration — optional; omit when unavailable (cross-party unchanged). */
+function getLocalDeviceIdForRelay(): string | undefined {
+  try {
+    const { getInstanceId } = require('../orchestrator/orchestratorModeStore') as {
+      getInstanceId: () => string | undefined
+    }
+    const id = getInstanceId?.()
+    return typeof id === 'string' && id.trim().length > 0 ? id.trim() : undefined
+  } catch {
+    return undefined
+  }
+}
 import { vaultService } from '../vault/rpc'
 import { USER_PACKAGE_BUILDER_SEND_SOURCE } from '../email/mergeExtensionDepackaged'
 import {
@@ -1025,6 +1038,7 @@ export async function handleHandshakeRPC(
           // accept capsule will 403. Use session.sub (JWT sub claim) — NOT wrdesk_user_id —
           // because the relay extracts sub from the Bearer token for authorization checks.
           const p2pConfig = getP2PConfig(db)
+          const localRelayDeviceId = getLocalDeviceIdForRelay()
           const regResult = p2pConfig.use_coordination
             ? await registerHandshakeWithRelay(db, capsule.handshake_id, p2pAuthToken ?? '', receiverEmail, _getOidcToken, {
                 initiator_user_id: session.sub,
@@ -1033,6 +1047,7 @@ export async function handleHandshakeRPC(
                 }),
                 initiator_email: session.email,
                 acceptor_email: receiverEmail,
+                ...(localRelayDeviceId ? { initiator_device_id: localRelayDeviceId } : {}),
               })
             : await registerHandshakeWithRelay(db, capsule.handshake_id, p2pAuthToken ?? '', receiverEmail)
           if (!regResult.success) {
@@ -1197,6 +1212,7 @@ export async function handleHandshakeRPC(
       // user can retry via email or direct delivery.
       if (dlP2PAuthToken || getP2PConfig(db).use_coordination) {
         const p2pConfig = getP2PConfig(db)
+        const localRelayDeviceId = getLocalDeviceIdForRelay()
         // Use session.sub (JWT sub) — relay always authorizes by sub, not wrdesk_user_id.
         const registerPromise = p2pConfig.use_coordination
           ? registerHandshakeWithRelay(db, capsule.handshake_id, dlP2PAuthToken ?? '', dlReceiverEmail, _getOidcToken, {
@@ -1206,6 +1222,7 @@ export async function handleHandshakeRPC(
               }),
               initiator_email: session.email,
               acceptor_email: dlReceiverEmail,
+              ...(localRelayDeviceId ? { initiator_device_id: localRelayDeviceId } : {}),
             })
           : registerHandshakeWithRelay(db, capsule.handshake_id, dlP2PAuthToken ?? '', dlReceiverEmail)
 
@@ -1567,12 +1584,17 @@ export async function handleHandshakeRPC(
             initiatorEmail: initiatorEmail,
           })
           console.log('[ACCEPT-5] About to register with relay')
+          const acceptLocalDeviceId = getLocalDeviceIdForRelay()
           const regResult = p2pConfig.use_coordination
             ? await registerHandshakeWithRelay(db, handshake_id, p2pAuthToken ?? '', initiatorEmail, _getOidcToken, {
                 initiator_user_id: coordinationInitiatorUserId,
                 acceptor_user_id: session.sub,
                 initiator_email: initiatorEmail,
                 acceptor_email: session.email,
+                ...(acceptLocalDeviceId ? { acceptor_device_id: acceptLocalDeviceId } : {}),
+                ...(record.initiator_coordination_device_id?.trim()
+                  ? { initiator_device_id: record.initiator_coordination_device_id.trim() }
+                  : {}),
               })
             : await registerHandshakeWithRelay(db, handshake_id, p2pAuthToken ?? '', initiatorEmail)
           console.log('[ACCEPT-6] Relay registration result:', JSON.stringify(regResult))

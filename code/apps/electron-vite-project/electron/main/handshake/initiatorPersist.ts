@@ -117,6 +117,9 @@ export function persistInitiatorHandshakeRecord(
             local_mlkem768_public_key_b64: beapKeys.sender_mlkem768_public_key_b64,
           }
         : {}),
+      ...(capsule.sender_device_id?.trim()
+        ? { initiator_coordination_device_id: capsule.sender_device_id.trim() }
+        : {}),
     }
 
     insertHandshakeRecord(db, record)

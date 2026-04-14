@@ -5,8 +5,6 @@
  * When relay_mode=remote: register with own relay (Bearer secret).
  */
 
-import { getHandshakeRecord } from '../handshake/db'
-import { getInstanceId } from '../orchestrator/orchestratorModeStore'
 import { getP2PConfig } from './p2pConfig'
 
 /** Decode JWT payload for debug — returns aud value or null */
@@ -45,6 +43,10 @@ export async function registerHandshakeWithRelay(
     acceptor_user_id: string
     initiator_email?: string
     acceptor_email?: string
+    /** Optional — same-user / internal relay routing; omit for cross-party (unchanged). */
+    initiator_device_id?: string
+    /** Optional — same-user / internal relay routing; omit for cross-party (unchanged). */
+    acceptor_device_id?: string
   },
 ): Promise<{ success: boolean; error?: string }> {
   if (!db) return { success: false, error: 'No database' }
@@ -75,28 +77,21 @@ export async function registerHandshakeWithRelay(
     const base = coordUrl.replace(/\/$/, '')
     const registerUrl = `${base}/beap/register-handshake`
 
-    const instanceId = getInstanceId()
-    const iu = handshakeDetails.initiator_user_id
-    const au = handshakeDetails.acceptor_user_id
-    let initiator_device_id: string | undefined
-    let acceptor_device_id: string | undefined
-    if (iu !== au) {
-      if (tokenSub === iu) initiator_device_id = instanceId
-      else if (tokenSub === au) acceptor_device_id = instanceId
-    } else {
-      const rec = getHandshakeRecord(db, handshakeId)
-      if (rec?.local_role === 'initiator') initiator_device_id = instanceId
-      else if (rec?.local_role === 'acceptor') acceptor_device_id = instanceId
-    }
+    // Device ids are optional and only sent when ipc passes them (internal / same-user routing).
+    // Cross-party registrations omit them — POST body matches previous behavior.
 
-    const registrationBody = {
+    const registrationBody: Record<string, unknown> = {
       handshake_id: handshakeId,
       initiator_user_id: handshakeDetails.initiator_user_id,
       acceptor_user_id: handshakeDetails.acceptor_user_id,
       initiator_email: handshakeDetails.initiator_email ?? undefined,
       acceptor_email: handshakeDetails.acceptor_email ?? undefined,
-      ...(initiator_device_id !== undefined ? { initiator_device_id } : {}),
-      ...(acceptor_device_id !== undefined ? { acceptor_device_id } : {}),
+    }
+    if (handshakeDetails.initiator_device_id) {
+      registrationBody.initiator_device_id = handshakeDetails.initiator_device_id
+    }
+    if (handshakeDetails.acceptor_device_id) {
+      registrationBody.acceptor_device_id = handshakeDetails.acceptor_device_id
     }
     try {
       console.log('[RELAY-REG] URL:', registerUrl)
