@@ -12,9 +12,12 @@ import { getHandshakeRecord, updateHandshakeContextSyncPending } from './db'
 import { getContextStoreByHandshake } from './db'
 import { buildContextSyncCapsuleWithContent } from './capsuleBuilder'
 import { enqueueOutboundCapsule } from './outboundQueue'
+import { formatLocalInternalRelayValidationJson } from './internalRelayOutboundGuards'
 import { persistContextBlocks } from './contextBlocks'
 import { getP2PConfig, getEffectiveRelayEndpoint } from '../p2p/p2pConfig'
 import { vaultService } from '../vault/rpc'
+import { getInstanceId } from '../orchestrator/orchestratorModeStore'
+import { internalRelayCapsuleWireOptsFromRecord } from './internalCoordinationWire'
 import {
   parseGovernanceJson,
   resolveEffectiveGovernance,
@@ -77,6 +80,18 @@ export function tryEnqueueContextSync(
   if (record.state !== 'ACCEPTED') {
     console.warn('[ContextSync] INVALID_STATE:', handshakeId, 'state=', record.state)
     return { success: false, reason: 'INVALID_STATE' }
+  }
+
+  let localCoordId = ''
+  try {
+    localCoordId = getInstanceId()?.trim() ?? ''
+  } catch {
+    localCoordId = ''
+  }
+  const internalRelayWire = internalRelayCapsuleWireOptsFromRecord(record, localCoordId)
+  if (record.handshake_type === 'internal' && !internalRelayWire) {
+    console.warn('[ContextSync] INTERNAL_RELAY_ENDPOINTS_INCOMPLETE:', handshakeId)
+    return { success: false, reason: 'INTERNAL_RELAY_ENDPOINTS_INCOMPLETE' }
   }
 
   // Resolve the target endpoint: use the stored p2p_endpoint (counterparty's direct address),
@@ -168,6 +183,7 @@ export function tryEnqueueContextSync(
       context_blocks: contextBlocks,
       local_public_key: localPub,
       local_private_key: localPriv,
+      ...(internalRelayWire ?? {}),
     })
     const cap = contextSyncCapsule as unknown as Record<string, unknown>
     console.log('[ContextSync] Building capsule:', {
@@ -179,7 +195,17 @@ export function tryEnqueueContextSync(
       blockCount: contextBlocks.length,
       targetEndpoint,
     })
-    enqueueOutboundCapsule(db, handshakeId, targetEndpoint, contextSyncCapsule)
+    const enq = enqueueOutboundCapsule(db, handshakeId, targetEndpoint, contextSyncCapsule)
+    if (!enq.enqueued) {
+      const reason = formatLocalInternalRelayValidationJson({
+        phase: 'enqueue_guard',
+        invariant: enq.invariant,
+        message: enq.message,
+        missing_fields: enq.missing_fields,
+      })
+      console.warn('[ContextSync] enqueue blocked:', reason)
+      return { success: false, reason }
+    }
     console.log('[HANDSHAKE-DEBUG] context_sync enqueued', handshakeId)
     updateHandshakeContextSyncPending(db, handshakeId, false)
     console.log('[ContextSync] Enqueued successfully for handshake:', handshakeId, 'seq=', cap?.seq)

@@ -36,8 +36,89 @@ import { computePolicyHash, DEFAULT_POLICY_DESCRIPTOR, type PolicyDescriptor } f
 import { deriveRelationshipId } from './relationshipId'
 import { generateSigningKeypair, signCapsuleHash, type SigningKeypair } from './signatureKeys'
 import { getInstanceId } from '../orchestrator/orchestratorModeStore'
+import { INTERNAL_ENDPOINT_ERROR_CODES } from '../../../../../packages/shared/src/handshake/internalEndpointValidation'
 
 // ── Wire format types ──
+
+/**
+ * Thrown when an internal relay-eligible capsule cannot be built with required device identity.
+ * Wire fields are excluded from capsule_hash / context_hash; this does not affect signing inputs.
+ */
+export class InternalCapsuleRelayIdentityError extends Error {
+  readonly code = INTERNAL_ENDPOINT_ERROR_CODES.INTERNAL_CAPSULE_MISSING_DEVICE_ID
+  constructor(message: string) {
+    super(`${INTERNAL_ENDPOINT_ERROR_CODES.INTERNAL_CAPSULE_MISSING_DEVICE_ID}: ${message}`)
+    this.name = 'InternalCapsuleRelayIdentityError'
+  }
+}
+
+/**
+ * Merge internal / same-principal relay fields onto the wire envelope.
+ * These fields are not part of {@link computeCapsuleHash} or {@link computeContextHash}.
+ */
+function mergeInternalRelayWireFields(opts: {
+  isInternalHandshake?: boolean
+  coordinationSenderDeviceId?: string
+  coordinationReceiverDeviceId?: string
+  senderDeviceRole?: 'host' | 'sandbox'
+  receiverDeviceRole?: 'host' | 'sandbox'
+  senderComputerName?: string
+  receiverComputerName?: string
+}): Partial<HandshakeCapsuleWire> {
+  const s = opts.coordinationSenderDeviceId?.trim()
+  const r = opts.coordinationReceiverDeviceId?.trim()
+
+  if (opts.isInternalHandshake) {
+    if (!s || !r) {
+      throw new InternalCapsuleRelayIdentityError(
+        'internal handshake capsule requires coordinationSenderDeviceId and coordinationReceiverDeviceId',
+      )
+    }
+    if (s === r) {
+      throw new InternalCapsuleRelayIdentityError(
+        'sender_device_id and receiver_device_id must differ for internal relay capsules',
+      )
+    }
+    if (!opts.senderDeviceRole || !opts.receiverDeviceRole) {
+      throw new InternalCapsuleRelayIdentityError(
+        'internal relay capsule requires sender_device_role and receiver_device_role',
+      )
+    }
+    const sname = opts.senderComputerName?.trim()
+    const rname = opts.receiverComputerName?.trim()
+    if (!sname || !rname) {
+      throw new InternalCapsuleRelayIdentityError(
+        'internal relay capsule requires sender_computer_name and receiver_computer_name',
+      )
+    }
+    return {
+      handshake_type: 'internal',
+      sender_device_id: s,
+      receiver_device_id: r,
+      sender_device_role: opts.senderDeviceRole,
+      receiver_device_role: opts.receiverDeviceRole,
+      sender_computer_name: sname,
+      receiver_computer_name: rname,
+    }
+  }
+
+  if (s && r && s !== r) {
+    return {
+      handshake_type: 'internal',
+      sender_device_id: s,
+      receiver_device_id: r,
+      ...(opts.senderDeviceRole ? { sender_device_role: opts.senderDeviceRole } : {}),
+      ...(opts.receiverDeviceRole ? { receiver_device_role: opts.receiverDeviceRole } : {}),
+      ...(opts.senderComputerName?.trim()
+        ? { sender_computer_name: opts.senderComputerName.trim() }
+        : {}),
+      ...(opts.receiverComputerName?.trim()
+        ? { receiver_computer_name: opts.receiverComputerName.trim() }
+        : {}),
+    }
+  }
+  return {}
+}
 
 export interface HandshakeCapsuleWire {
   readonly schema_version: 2;
@@ -89,6 +170,14 @@ export interface HandshakeCapsuleWire {
    * used so the acceptor can register both relay routing ids for internal (same-user) handshakes.
    */
   readonly sender_device_id?: string;
+  /** Internal handshakes only — sender endpoint metadata (not in capsule_hash). */
+  readonly handshake_type?: 'internal' | 'standard';
+  readonly sender_device_role?: 'host' | 'sandbox';
+  readonly sender_computer_name?: string;
+  /** Internal initiate / relay: intended receiver device (peer). Not in capsule_hash. */
+  readonly receiver_device_id?: string;
+  readonly receiver_device_role?: 'host' | 'sandbox';
+  readonly receiver_computer_name?: string;
 }
 
 // ── Options types ──
@@ -120,6 +209,16 @@ export interface InitiateOptions {
   sender_x25519_public_key_b64?: string | null;
   /** ML-KEM-768 public key (base64) for post-quantum key agreement. Generated or from caller. */
   sender_mlkem768_public_key_b64?: string | null;
+  /** Internal: this device's role (must differ from peer). */
+  initiatorDeviceRole?: 'host' | 'sandbox';
+  /** Internal: this device's computer name (must differ from peer after normalize). */
+  initiatorComputerName?: string;
+  /** Internal: full peer endpoint — required with initiator metadata for internal initiate. */
+  internalEndpointPeer?: {
+    deviceId: string
+    deviceRole: 'host' | 'sandbox'
+    computerName: string
+  };
 }
 
 /** Result of buildInitiateCapsuleWithContent including keypair for persistence */
@@ -162,6 +261,16 @@ export interface AcceptOptions {
   sender_x25519_public_key_b64?: string | null;
   /** ML-KEM-768 public key (base64) for post-quantum key agreement. Generated or from caller. */
   sender_mlkem768_public_key_b64?: string | null;
+  /** Initiator's coordination device id (internal accept only). */
+  initiatorCoordinationDeviceId?: string;
+  /** When true, attach coordination routing ids for same-principal relay. */
+  isInternalHandshake?: boolean;
+  /** Internal accept: wire sender_* (local acceptor). Required with isInternalHandshake. */
+  senderDeviceRole?: 'host' | 'sandbox';
+  senderComputerName?: string;
+  /** Internal accept: wire receiver_* (initiator peer). Required with isInternalHandshake. */
+  receiverDeviceRole?: 'host' | 'sandbox';
+  receiverComputerName?: string;
 }
 
 export interface RefreshOptions {
@@ -189,6 +298,15 @@ export interface RefreshOptions {
   local_public_key: string;
   /** Sender's private key (64-char hex) for signing — required for refresh. From handshake record. */
   local_private_key: string;
+  /** Same-principal relay: local and peer coordination device ids. */
+  coordinationSenderDeviceId?: string;
+  coordinationReceiverDeviceId?: string;
+  /** When true, require full internal relay wire (ids + roles + computer names). */
+  isInternalHandshake?: boolean;
+  senderDeviceRole?: 'host' | 'sandbox';
+  receiverDeviceRole?: 'host' | 'sandbox';
+  senderComputerName?: string;
+  receiverComputerName?: string;
 }
 
 export interface RevokeOptions {
@@ -210,6 +328,13 @@ export interface RevokeOptions {
   local_public_key: string;
   /** Sender's private key (64-char hex) for signing — required for revoke */
   local_private_key: string;
+  coordinationSenderDeviceId?: string;
+  coordinationReceiverDeviceId?: string;
+  isInternalHandshake?: boolean;
+  senderDeviceRole?: 'host' | 'sandbox';
+  receiverDeviceRole?: 'host' | 'sandbox';
+  senderComputerName?: string;
+  receiverComputerName?: string;
 }
 
 /** Options for context_sync — first post-activation capsule delivering context blocks. */
@@ -236,6 +361,13 @@ export interface ContextSyncOptions {
   local_public_key: string;
   /** Sender's private key (64-char hex) for signing — required for context_sync */
   local_private_key: string;
+  coordinationSenderDeviceId?: string;
+  coordinationReceiverDeviceId?: string;
+  isInternalHandshake?: boolean;
+  senderDeviceRole?: 'host' | 'sandbox';
+  receiverDeviceRole?: 'host' | 'sandbox';
+  senderComputerName?: string;
+  receiverComputerName?: string;
 }
 
 // ── Builder functions ──
@@ -302,6 +434,42 @@ function buildInitiateCapsuleCore(
     coordinationDeviceId = undefined
   }
 
+  let internalWire: Partial<HandshakeCapsuleWire> = {}
+  if (opts.internalEndpointPeer) {
+    if (!coordinationDeviceId) {
+      throw new InternalCapsuleRelayIdentityError(
+        'orchestrator device_id is required for internal initiate capsule',
+      )
+    }
+    if (!opts.initiatorDeviceRole || !opts.initiatorComputerName?.trim()) {
+      throw new InternalCapsuleRelayIdentityError(
+        'initiator device_role and computer_name are required for internal initiate capsule',
+      )
+    }
+    const peerId = opts.internalEndpointPeer.deviceId?.trim()
+    if (!peerId) {
+      throw new InternalCapsuleRelayIdentityError(
+        'internal initiate requires internalEndpointPeer.deviceId',
+      )
+    }
+    if (!opts.internalEndpointPeer.deviceRole || !opts.internalEndpointPeer.computerName?.trim()) {
+      throw new InternalCapsuleRelayIdentityError(
+        'internal initiate requires peer device_role and computer_name',
+      )
+    }
+    internalWire = {
+      handshake_type: 'internal',
+      sender_device_id: coordinationDeviceId,
+      sender_device_role: opts.initiatorDeviceRole,
+      sender_computer_name: opts.initiatorComputerName.trim(),
+      receiver_device_id: peerId,
+      receiver_device_role: opts.internalEndpointPeer.deviceRole,
+      receiver_computer_name: opts.internalEndpointPeer.computerName.trim(),
+    }
+  } else if (coordinationDeviceId) {
+    internalWire = { sender_device_id: coordinationDeviceId }
+  }
+
   const capsule: HandshakeCapsuleWire = {
     schema_version: 2,
     capsule_type: 'initiate',
@@ -338,7 +506,7 @@ function buildInitiateCapsuleCore(
     ...(opts.p2p_auth_token ? { p2p_auth_token: opts.p2p_auth_token } : {}),
     ...(opts.sender_x25519_public_key_b64 ? { sender_x25519_public_key_b64: opts.sender_x25519_public_key_b64 } : {}),
     ...(opts.sender_mlkem768_public_key_b64 ? { sender_mlkem768_public_key_b64: opts.sender_mlkem768_public_key_b64 } : {}),
-    ...(coordinationDeviceId ? { sender_device_id: coordinationDeviceId } : {}),
+    ...internalWire,
   }
   return { capsule, keypair }
 }
@@ -452,6 +620,24 @@ export function buildAcceptCapsule(
     })
   }
 
+  let acceptCoordinationDeviceId: string | undefined
+  try {
+    acceptCoordinationDeviceId = getInstanceId()?.trim() || undefined
+  } catch {
+    acceptCoordinationDeviceId = undefined
+  }
+  const internalCoord: Partial<HandshakeCapsuleWire> = opts.isInternalHandshake
+    ? mergeInternalRelayWireFields({
+        isInternalHandshake: true,
+        coordinationSenderDeviceId: acceptCoordinationDeviceId,
+        coordinationReceiverDeviceId: opts.initiatorCoordinationDeviceId?.trim(),
+        senderDeviceRole: opts.senderDeviceRole,
+        receiverDeviceRole: opts.receiverDeviceRole,
+        senderComputerName: opts.senderComputerName,
+        receiverComputerName: opts.receiverComputerName,
+      })
+    : {}
+
   const capsule: HandshakeCapsuleWire = {
     schema_version: 2,
     capsule_type: 'accept',
@@ -490,6 +676,7 @@ export function buildAcceptCapsule(
     ...(opts.p2p_auth_token ? { p2p_auth_token: opts.p2p_auth_token } : {}),
     ...(opts.sender_x25519_public_key_b64 ? { sender_x25519_public_key_b64: opts.sender_x25519_public_key_b64 } : {}),
     ...(opts.sender_mlkem768_public_key_b64 ? { sender_mlkem768_public_key_b64: opts.sender_mlkem768_public_key_b64 } : {}),
+    ...internalCoord,
   }
   return { capsule, keypair }
 }
@@ -596,6 +783,15 @@ export function buildRefreshCapsule(
       ? { context_block_proofs: opts.context_block_proofs }
       : {}),
     context_blocks: refreshCanonicalBlocks ? stripContentFromBlocks(refreshCanonicalBlocks) : [],
+    ...mergeInternalRelayWireFields({
+      isInternalHandshake: opts.isInternalHandshake,
+      coordinationSenderDeviceId: opts.coordinationSenderDeviceId,
+      coordinationReceiverDeviceId: opts.coordinationReceiverDeviceId,
+      senderDeviceRole: opts.senderDeviceRole,
+      receiverDeviceRole: opts.receiverDeviceRole,
+      senderComputerName: opts.senderComputerName,
+      receiverComputerName: opts.receiverComputerName,
+    }),
   }
   return wire
 }
@@ -692,6 +888,15 @@ export function buildContextSyncCapsule(
     sender_public_key: opts.local_public_key,
     sender_signature: senderSignature,
     context_blocks: canonicalBlocks ? stripContentFromBlocks(canonicalBlocks) : [],
+    ...mergeInternalRelayWireFields({
+      isInternalHandshake: opts.isInternalHandshake,
+      coordinationSenderDeviceId: opts.coordinationSenderDeviceId,
+      coordinationReceiverDeviceId: opts.coordinationReceiverDeviceId,
+      senderDeviceRole: opts.senderDeviceRole,
+      receiverDeviceRole: opts.receiverDeviceRole,
+      senderComputerName: opts.senderComputerName,
+      receiverComputerName: opts.receiverComputerName,
+    }),
   }
 }
 
@@ -803,6 +1008,15 @@ export function buildRevokeCapsule(
     wrdesk_policy_hash: '',
     wrdesk_policy_version: '',
     context_blocks: [],
+    ...mergeInternalRelayWireFields({
+      isInternalHandshake: opts.isInternalHandshake,
+      coordinationSenderDeviceId: opts.coordinationSenderDeviceId,
+      coordinationReceiverDeviceId: opts.coordinationReceiverDeviceId,
+      senderDeviceRole: opts.senderDeviceRole,
+      receiverDeviceRole: opts.receiverDeviceRole,
+      senderComputerName: opts.senderComputerName,
+      receiverComputerName: opts.receiverComputerName,
+    }),
   }
 }
 

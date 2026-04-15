@@ -9,6 +9,12 @@
  * Security invariants:
  *   - Only explicitly listed fields survive the rebuild
  *   - Denied fields (context_blocks, data, payload, etc.) cause immediate rejection
+ *
+ * Internal handshake wire (handshake_type === 'internal'):
+ *   - sender_device_id, receiver_device_id, sender/receiver_device_role,
+ *     sender/receiver_computer_name are required after sanitization
+ *   - Pair must pass {@link validateInternalEndpointPairDistinct} (distinct ids, roles, names)
+ * Standard / external: those fields remain optional for backward compatibility.
  *   - All strings are NFC-normalized and control-char stripped
  *   - Emails are validated
  *   - Size limit: 64KB on serialized input
@@ -16,6 +22,7 @@
  */
 
 import { normalizeNFC, stripControlChars, isValidEmail } from './sanitize'
+import { validateInternalEndpointPairDistinct } from '../../../../../packages/shared/src/handshake/internalEndpointValidation'
 
 // ── Max input size ──
 
@@ -96,6 +103,14 @@ export interface HandshakeCapsuleCanonical {
   readonly sender_x25519_public_key_b64?: string
   /** ML-KEM-768 public key (base64, 1184 bytes) for post-quantum key agreement */
   readonly sender_mlkem768_public_key_b64?: string
+  /** Coordination / internal routing — advisory, not in capsule_hash */
+  readonly handshake_type?: 'internal' | 'standard'
+  readonly sender_device_id?: string
+  readonly receiver_device_id?: string
+  readonly sender_device_role?: 'host' | 'sandbox'
+  readonly receiver_device_role?: 'host' | 'sandbox'
+  readonly sender_computer_name?: string
+  readonly receiver_computer_name?: string
 }
 
 export interface CanonicalContextBlock {
@@ -169,6 +184,13 @@ const FIELD_RULES: Record<string, FieldRule> = {
   countersigned_hash: { type: 'regex', pattern: /^[a-f0-9]{128}$/ },
   sender_x25519_public_key_b64: { type: 'string', maxLength: 64 },
   sender_mlkem768_public_key_b64: { type: 'string', maxLength: 1600 },
+  handshake_type: { type: 'enum', values: ['internal', 'standard'] },
+  sender_device_id: { type: 'string', maxLength: 256 },
+  receiver_device_id: { type: 'string', maxLength: 256 },
+  sender_device_role: { type: 'enum', values: ['host', 'sandbox'] },
+  receiver_device_role: { type: 'enum', values: ['host', 'sandbox'] },
+  sender_computer_name: { type: 'string', maxLength: 512 },
+  receiver_computer_name: { type: 'string', maxLength: 512 },
 }
 
 // ── Sender identity validation rules ──
@@ -359,6 +381,70 @@ function rebuildContextBlockProofs(raw: unknown): { ok: true; proofs: ContextBlo
   return { ok: true, proofs }
 }
 
+/**
+ * When handshake_type is internal, require full symmetric endpoint identity on the wire.
+ * Standard capsules skip this — optional sender_device_id etc. stay best-effort.
+ */
+function validateInternalHandshakeWireIfNeeded(
+  canonical: Record<string, unknown>,
+): RebuildResult | null {
+  if (canonical.handshake_type !== 'internal') {
+    return null
+  }
+
+  const sid = canonical.sender_device_id
+  const rid = canonical.receiver_device_id
+  const sr = canonical.sender_device_role
+  const rr = canonical.receiver_device_role
+  const sname = canonical.sender_computer_name
+  const rname = canonical.receiver_computer_name
+
+  if (typeof sid !== 'string' || typeof rid !== 'string') {
+    return {
+      ok: false,
+      reason:
+        'Internal handshake capsule requires sender_device_id and receiver_device_id after canonical rebuild',
+      field: 'sender_device_id',
+    }
+  }
+  if (sr !== 'host' && sr !== 'sandbox') {
+    return {
+      ok: false,
+      reason: 'Internal handshake capsule requires sender_device_role (host | sandbox)',
+      field: 'sender_device_role',
+    }
+  }
+  if (rr !== 'host' && rr !== 'sandbox') {
+    return {
+      ok: false,
+      reason: 'Internal handshake capsule requires receiver_device_role (host | sandbox)',
+      field: 'receiver_device_role',
+    }
+  }
+  if (typeof sname !== 'string' || typeof rname !== 'string') {
+    return {
+      ok: false,
+      reason:
+        'Internal handshake capsule requires sender_computer_name and receiver_computer_name',
+      field: 'sender_computer_name',
+    }
+  }
+
+  const pair = validateInternalEndpointPairDistinct(
+    { deviceId: sid, deviceRole: sr, computerName: sname },
+    { deviceId: rid, deviceRole: rr, computerName: rname },
+  )
+  if (!pair.ok) {
+    return {
+      ok: false,
+      reason: pair.message ?? 'Invalid internal endpoint pair on capsule wire',
+      field: 'handshake_type',
+    }
+  }
+
+  return null
+}
+
 // ── Main entry point ──
 
 export function canonicalRebuild(raw: unknown): RebuildResult {
@@ -511,6 +597,34 @@ export function canonicalRebuild(raw: unknown): RebuildResult {
       }
       canonical[keyField] = result.sanitized
     }
+  }
+
+  // Internal / coordination routing (optional — preserved for relay + ledger)
+  for (const coordField of [
+    'handshake_type',
+    'sender_device_id',
+    'receiver_device_id',
+    'sender_device_role',
+    'receiver_device_role',
+    'sender_computer_name',
+    'receiver_computer_name',
+  ] as const) {
+    if (coordField in obj && obj[coordField] !== undefined && obj[coordField] !== null) {
+      const rule = FIELD_RULES[coordField]
+      if (!rule) {
+        return { ok: false, reason: `No validation rule for ${coordField}`, field: coordField }
+      }
+      const result = validateField(obj[coordField], rule)
+      if (!result.valid) {
+        return { ok: false, reason: `Invalid value for ${coordField}`, field: coordField }
+      }
+      canonical[coordField] = result.sanitized as never
+    }
+  }
+
+  const internalWireError = validateInternalHandshakeWireIfNeeded(canonical)
+  if (internalWireError) {
+    return internalWireError
   }
 
   // Validate context_commitment (optional — sha-256 hex or null)

@@ -14,6 +14,11 @@ export interface HandshakeEntry {
   acceptor_email: string | null
   initiator_device_id: string | null
   acceptor_device_id: string | null
+  /** Optional audit / ops (same-principal internal) */
+  initiator_device_role: string | null
+  acceptor_device_role: string | null
+  initiator_device_name: string | null
+  acceptor_device_name: string | null
   created_at: string
 }
 
@@ -28,7 +33,12 @@ export interface HandshakeRegistryAdapter {
     acceptorEmail?: string,
     initiatorDeviceId?: string,
     acceptorDeviceId?: string,
+    initiatorDeviceRole?: string,
+    acceptorDeviceRole?: string,
+    initiatorDeviceName?: string,
+    acceptorDeviceName?: string,
   ): void
+  /** @internal exposed for relay capsule validation */
   getHandshake(handshakeId: string): HandshakeEntry | null
   getRecipientForSender(
     handshakeId: string,
@@ -48,6 +58,10 @@ export function createHandshakeRegistry(store: StoreAdapter): HandshakeRegistryA
       acceptorEmail?: string,
       initiatorDeviceId?: string,
       acceptorDeviceId?: string,
+      initiatorDeviceRole?: string,
+      acceptorDeviceRole?: string,
+      initiatorDeviceName?: string,
+      acceptorDeviceName?: string,
     ): void {
       const db = store.getDb()
       const now = new Date().toISOString()
@@ -55,16 +69,23 @@ export function createHandshakeRegistry(store: StoreAdapter): HandshakeRegistryA
         `INSERT INTO coordination_handshake_registry (
            handshake_id, initiator_user_id, acceptor_user_id,
            initiator_email, acceptor_email,
-           initiator_device_id, acceptor_device_id, created_at
+           initiator_device_id, acceptor_device_id,
+           initiator_device_role, acceptor_device_role,
+           initiator_device_name, acceptor_device_name,
+           created_at
          )
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(handshake_id) DO UPDATE SET
            initiator_user_id = COALESCE(excluded.initiator_user_id, coordination_handshake_registry.initiator_user_id),
            acceptor_user_id = COALESCE(excluded.acceptor_user_id, coordination_handshake_registry.acceptor_user_id),
            initiator_email = COALESCE(excluded.initiator_email, coordination_handshake_registry.initiator_email),
            acceptor_email = COALESCE(excluded.acceptor_email, coordination_handshake_registry.acceptor_email),
            initiator_device_id = COALESCE(coordination_handshake_registry.initiator_device_id, excluded.initiator_device_id),
-           acceptor_device_id = COALESCE(excluded.acceptor_device_id, coordination_handshake_registry.acceptor_device_id)`,
+           acceptor_device_id = COALESCE(excluded.acceptor_device_id, coordination_handshake_registry.acceptor_device_id),
+           initiator_device_role = COALESCE(excluded.initiator_device_role, coordination_handshake_registry.initiator_device_role),
+           acceptor_device_role = COALESCE(excluded.acceptor_device_role, coordination_handshake_registry.acceptor_device_role),
+           initiator_device_name = COALESCE(excluded.initiator_device_name, coordination_handshake_registry.initiator_device_name),
+           acceptor_device_name = COALESCE(excluded.acceptor_device_name, coordination_handshake_registry.acceptor_device_name)`,
       ).run(
         handshakeId,
         initiatorUserId,
@@ -73,6 +94,10 @@ export function createHandshakeRegistry(store: StoreAdapter): HandshakeRegistryA
         acceptorEmail ?? null,
         initiatorDeviceId ?? null,
         acceptorDeviceId ?? null,
+        initiatorDeviceRole ?? null,
+        acceptorDeviceRole ?? null,
+        initiatorDeviceName ?? null,
+        acceptorDeviceName ?? null,
         now,
       )
     },
@@ -82,7 +107,10 @@ export function createHandshakeRegistry(store: StoreAdapter): HandshakeRegistryA
       const row = db.prepare(
         `SELECT handshake_id, initiator_user_id, acceptor_user_id,
                 initiator_email, acceptor_email,
-                initiator_device_id, acceptor_device_id, created_at FROM coordination_handshake_registry WHERE handshake_id = ?`,
+                initiator_device_id, acceptor_device_id,
+                initiator_device_role, acceptor_device_role,
+                initiator_device_name, acceptor_device_name,
+                created_at FROM coordination_handshake_registry WHERE handshake_id = ?`,
       ).get(handshakeId) as HandshakeEntry | undefined
       return row ?? null
     },
@@ -96,11 +124,20 @@ export function createHandshakeRegistry(store: StoreAdapter): HandshakeRegistryA
       if (!h) return null
 
       if (h.initiator_user_id === h.acceptor_user_id) {
-        if (senderDeviceId === h.initiator_device_id) {
-          return { userId: h.acceptor_user_id, deviceId: h.acceptor_device_id }
+        const idI = (h.initiator_device_id ?? '').trim()
+        const idA = (h.acceptor_device_id ?? '').trim()
+        if (!idI || !idA || idI === idA) {
+          return null
         }
-        if (senderDeviceId === h.acceptor_device_id) {
-          return { userId: h.initiator_user_id, deviceId: h.initiator_device_id }
+        const sd = (senderDeviceId ?? '').trim()
+        if (!sd) {
+          return null
+        }
+        if (sd === idI) {
+          return { userId: h.acceptor_user_id, deviceId: idA }
+        }
+        if (sd === idA) {
+          return { userId: h.initiator_user_id, deviceId: idI }
         }
         return null
       }

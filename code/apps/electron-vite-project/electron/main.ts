@@ -4526,7 +4526,7 @@ app.whenReady().then(async () => {
 
     // email:listAccounts is registered by registerEmailHandlers() â€” do not duplicate here
 
-    ipcMain.handle('handshake:initiate', async (_e, receiverEmail: string, fromAccountId: string, contextOpts?: { skipVaultContext?: boolean; message?: string; context_blocks?: any[]; profile_ids?: string[]; profile_items?: any[]; policy_selections?: { cloud_ai?: boolean; internal_ai?: boolean }; handshake_type?: 'internal' | 'standard'; device_name?: string; device_role?: 'host' | 'sandbox' }) => {
+    ipcMain.handle('handshake:initiate', async (_e, receiverEmail: string, fromAccountId: string, contextOpts?: { skipVaultContext?: boolean; message?: string; context_blocks?: any[]; profile_ids?: string[]; profile_items?: any[]; policy_selections?: { cloud_ai?: boolean; internal_ai?: boolean }; handshake_type?: 'internal' | 'standard'; device_name?: string; device_role?: 'host' | 'sandbox'; counterparty_device_id?: string; counterparty_device_role?: 'host' | 'sandbox'; counterparty_computer_name?: string }) => {
       try {
         const db = await getHandshakeDb()
         return await handleHandshakeRPC('handshake.initiate', {
@@ -4542,13 +4542,16 @@ app.whenReady().then(async () => {
           handshake_type: contextOpts?.handshake_type,
           device_name: contextOpts?.device_name,
           device_role: contextOpts?.device_role,
+          ...(contextOpts?.counterparty_device_id ? { counterparty_device_id: contextOpts.counterparty_device_id } : {}),
+          ...(contextOpts?.counterparty_device_role ? { counterparty_device_role: contextOpts.counterparty_device_role } : {}),
+          ...(contextOpts?.counterparty_computer_name ? { counterparty_computer_name: contextOpts.counterparty_computer_name } : {}),
         }, db)
       } catch (err: any) {
         return { success: false, error: err?.message || 'Initiation failed.' }
       }
     })
 
-    ipcMain.handle('handshake:buildForDownload', async (_e, receiverEmail: string, contextOpts?: { skipVaultContext?: boolean; message?: string; context_blocks?: any[]; profile_ids?: string[]; profile_items?: any[]; policy_selections?: { cloud_ai?: boolean; internal_ai?: boolean } }) => {
+    ipcMain.handle('handshake:buildForDownload', async (_e, receiverEmail: string, contextOpts?: { skipVaultContext?: boolean; message?: string; context_blocks?: any[]; profile_ids?: string[]; profile_items?: any[]; policy_selections?: { cloud_ai?: boolean; internal_ai?: boolean }; handshake_type?: 'internal' | 'standard'; device_name?: string; device_role?: 'host' | 'sandbox'; counterparty_device_id?: string; counterparty_device_role?: 'host' | 'sandbox'; counterparty_computer_name?: string }) => {
       try {
         const db = await getHandshakeDb()
         if (!db) {
@@ -4564,6 +4567,12 @@ app.whenReady().then(async () => {
           ...(contextOpts?.profile_ids?.length ? { profile_ids: contextOpts.profile_ids } : {}),
           ...(contextOpts?.profile_items?.length ? { profile_items: contextOpts.profile_items } : {}),
           ...(contextOpts?.policy_selections ? { policy_selections: contextOpts.policy_selections } : {}),
+          handshake_type: contextOpts?.handshake_type,
+          device_name: contextOpts?.device_name,
+          device_role: contextOpts?.device_role,
+          ...(contextOpts?.counterparty_device_id ? { counterparty_device_id: contextOpts.counterparty_device_id } : {}),
+          ...(contextOpts?.counterparty_device_role ? { counterparty_device_role: contextOpts.counterparty_device_role } : {}),
+          ...(contextOpts?.counterparty_computer_name ? { counterparty_computer_name: contextOpts.counterparty_computer_name } : {}),
         }, db)
       } catch (err: any) {
         return { success: false, error: err?.message || 'Build failed.' }

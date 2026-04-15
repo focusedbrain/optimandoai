@@ -17,6 +17,7 @@ import type {
   AuditLogEntry,
   HandshakeState,
 } from './types'
+import { finalizeInternalHandshakePersistence } from './internalPersistence'
 
 // ── Migration ──
 
@@ -984,6 +985,60 @@ const HANDSHAKE_MIGRATIONS: Array<{
       'Schema v55: handshakes.initiator_coordination_device_id — relay routing for internal same-user handshakes',
     sql: [`ALTER TABLE handshakes ADD COLUMN initiator_coordination_device_id TEXT`],
   },
+  {
+    version: 56,
+    description:
+      'Schema v56: internal endpoint persistence — acceptor coordination device id + expected peer from initiate',
+    sql: [
+      `ALTER TABLE handshakes ADD COLUMN acceptor_coordination_device_id TEXT`,
+      `ALTER TABLE handshakes ADD COLUMN internal_peer_device_id TEXT`,
+      `ALTER TABLE handshakes ADD COLUMN internal_peer_device_role TEXT`,
+      `ALTER TABLE handshakes ADD COLUMN internal_peer_computer_name TEXT`,
+    ],
+  },
+  {
+    version: 57,
+    description:
+      'Schema v57: internal_routing_key + internal_coordination_identity_complete (no invented device ids)',
+    sql: [
+      `ALTER TABLE handshakes ADD COLUMN internal_routing_key TEXT`,
+      `ALTER TABLE handshakes ADD COLUMN internal_coordination_identity_complete INTEGER NOT NULL DEFAULT 0`,
+      // Backfill: only rows with full symmetric internal identity get routing key + complete=1
+      `UPDATE handshakes SET
+        internal_routing_key = 'internal:' || json_extract(initiator_json, '$.wrdesk_user_id') || ':' ||
+          CASE WHEN trim(initiator_coordination_device_id) <= trim(acceptor_coordination_device_id)
+            THEN trim(initiator_coordination_device_id) ELSE trim(acceptor_coordination_device_id) END || ':' ||
+          CASE WHEN trim(initiator_coordination_device_id) <= trim(acceptor_coordination_device_id)
+            THEN trim(acceptor_coordination_device_id) ELSE trim(initiator_coordination_device_id) END,
+        internal_coordination_identity_complete = 1
+      WHERE handshake_type = 'internal'
+        AND initiator_coordination_device_id IS NOT NULL AND trim(initiator_coordination_device_id) != ''
+        AND acceptor_coordination_device_id IS NOT NULL AND trim(acceptor_coordination_device_id) != ''
+        AND initiator_device_role IS NOT NULL AND trim(initiator_device_role) != ''
+        AND acceptor_device_role IS NOT NULL AND trim(acceptor_device_role) != ''
+        AND initiator_device_name IS NOT NULL AND trim(initiator_device_name) != ''
+        AND acceptor_device_name IS NOT NULL AND trim(acceptor_device_name) != ''
+        AND json_extract(initiator_json, '$.wrdesk_user_id') IS NOT NULL
+        AND trim(json_extract(initiator_json, '$.wrdesk_user_id')) != ''`,
+    ],
+  },
+  {
+    version: 58,
+    description:
+      'Schema v58: internal_coordination_repair_needed — flag degraded internal rows; block coordination until repair UX',
+    sql: [
+      `ALTER TABLE handshakes ADD COLUMN internal_coordination_repair_needed INTEGER NOT NULL DEFAULT 0`,
+      `UPDATE handshakes SET internal_coordination_repair_needed = 1
+       WHERE handshake_type = 'internal'
+         AND state IN ('ACCEPTED', 'ACTIVE')
+         AND (
+           internal_coordination_identity_complete = 0
+           OR internal_routing_key IS NULL
+           OR trim(ifnull(initiator_coordination_device_id, '')) = ''
+           OR trim(ifnull(acceptor_coordination_device_id, '')) = ''
+         )`,
+    ],
+  },
 ]
 
 /**
@@ -1415,6 +1470,13 @@ export function serializeHandshakeRecord(record: HandshakeRecord): any {
     initiator_device_role: record.initiator_device_role ?? null,
     acceptor_device_role: record.acceptor_device_role ?? null,
     initiator_coordination_device_id: record.initiator_coordination_device_id ?? null,
+    acceptor_coordination_device_id: record.acceptor_coordination_device_id ?? null,
+    internal_peer_device_id: record.internal_peer_device_id ?? null,
+    internal_peer_device_role: record.internal_peer_device_role ?? null,
+    internal_peer_computer_name: record.internal_peer_computer_name ?? null,
+    internal_routing_key: record.internal_routing_key ?? null,
+    internal_coordination_identity_complete: record.internal_coordination_identity_complete ? 1 : 0,
+    internal_coordination_repair_needed: record.internal_coordination_repair_needed ? 1 : 0,
   }
 }
 
@@ -1467,6 +1529,13 @@ export function deserializeHandshakeRecord(row: any): HandshakeRecord {
     initiator_device_role: row.initiator_device_role ?? null,
     acceptor_device_role: row.acceptor_device_role ?? null,
     initiator_coordination_device_id: row.initiator_coordination_device_id ?? null,
+    acceptor_coordination_device_id: row.acceptor_coordination_device_id ?? null,
+    internal_peer_device_id: row.internal_peer_device_id ?? null,
+    internal_peer_device_role: row.internal_peer_device_role ?? null,
+    internal_peer_computer_name: row.internal_peer_computer_name ?? null,
+    internal_routing_key: row.internal_routing_key ?? null,
+    internal_coordination_identity_complete: row.internal_coordination_identity_complete === 1,
+    internal_coordination_repair_needed: row.internal_coordination_repair_needed === 1,
   }
 }
 
@@ -1519,7 +1588,7 @@ export function updateHandshakeCounterpartyKey(
 }
 
 export function insertHandshakeRecord(db: any, record: HandshakeRecord): void {
-  const s = serializeHandshakeRecord(record)
+  const s = serializeHandshakeRecord(finalizeInternalHandshakePersistence(record))
   db.prepare(`INSERT INTO handshakes (
     handshake_id, relationship_id, state, initiator_json, acceptor_json,
     local_role, sharing_mode, reciprocal_allowed,
@@ -1534,7 +1603,9 @@ export function insertHandshakeRecord(db: any, record: HandshakeRecord): void {
     peer_x25519_public_key_b64, peer_mlkem768_public_key_b64,
     local_x25519_private_key_b64, local_x25519_public_key_b64,     local_mlkem768_secret_key_b64, local_mlkem768_public_key_b64,
     handshake_type, initiator_device_name, acceptor_device_name, initiator_device_role, acceptor_device_role,
-    initiator_coordination_device_id
+    initiator_coordination_device_id, acceptor_coordination_device_id,
+    internal_peer_device_id, internal_peer_device_role, internal_peer_computer_name,
+    internal_routing_key, internal_coordination_identity_complete, internal_coordination_repair_needed
   ) VALUES (
     @handshake_id, @relationship_id, @state, @initiator_json, @acceptor_json,
     @local_role, @sharing_mode, @reciprocal_allowed,
@@ -1549,12 +1620,14 @@ export function insertHandshakeRecord(db: any, record: HandshakeRecord): void {
     @peer_x25519_public_key_b64, @peer_mlkem768_public_key_b64,
     @local_x25519_private_key_b64, @local_x25519_public_key_b64,     @local_mlkem768_secret_key_b64, @local_mlkem768_public_key_b64,
     @handshake_type, @initiator_device_name, @acceptor_device_name, @initiator_device_role, @acceptor_device_role,
-    @initiator_coordination_device_id
+    @initiator_coordination_device_id, @acceptor_coordination_device_id,
+    @internal_peer_device_id, @internal_peer_device_role, @internal_peer_computer_name,
+    @internal_routing_key, @internal_coordination_identity_complete, @internal_coordination_repair_needed
   )`).run(s)
 }
 
 export function updateHandshakeRecord(db: any, record: HandshakeRecord): void {
-  const s = serializeHandshakeRecord(record)
+  const s = serializeHandshakeRecord(finalizeInternalHandshakePersistence(record))
   db.prepare(`UPDATE handshakes SET
     relationship_id = @relationship_id, state = @state,
     initiator_json = @initiator_json, acceptor_json = @acceptor_json,
@@ -1588,13 +1661,27 @@ export function updateHandshakeRecord(db: any, record: HandshakeRecord): void {
     acceptor_device_name = @acceptor_device_name,
     initiator_device_role = @initiator_device_role,
     acceptor_device_role = @acceptor_device_role,
-    initiator_coordination_device_id = @initiator_coordination_device_id
+    initiator_coordination_device_id = @initiator_coordination_device_id,
+    acceptor_coordination_device_id = @acceptor_coordination_device_id,
+    internal_peer_device_id = @internal_peer_device_id,
+    internal_peer_device_role = @internal_peer_device_role,
+    internal_peer_computer_name = @internal_peer_computer_name,
+    internal_routing_key = @internal_routing_key,
+    internal_coordination_identity_complete = @internal_coordination_identity_complete,
+    internal_coordination_repair_needed = @internal_coordination_repair_needed
   WHERE handshake_id = @handshake_id`).run(s)
 }
 
 export function getHandshakeRecord(db: any, handshakeId: string): HandshakeRecord | null {
   const row = db.prepare('SELECT * FROM handshakes WHERE handshake_id = ?').get(handshakeId) as any
   return row ? deserializeHandshakeRecord(row) : null
+}
+
+/** Recompute `internal_routing_key` / `internal_coordination_identity_complete` after raw SQL updates. */
+export function refreshInternalHandshakePersistenceFlags(db: any, handshakeId: string): void {
+  const r = getHandshakeRecord(db, handshakeId)
+  if (!r) return
+  updateHandshakeRecord(db, r)
 }
 
 export function listHandshakeRecords(

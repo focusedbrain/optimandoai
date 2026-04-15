@@ -52,6 +52,8 @@ export const InitiateHandshakeDialog: React.FC<InitiateHandshakeDialogProps> = (
   const [isInternal, setIsInternal] = useState(!!presetInternal)
   const [deviceRole, setDeviceRole] = useState<'host' | 'sandbox'>('sandbox')
   const [deviceName, setDeviceName] = useState('')
+  const [counterpartyDeviceId, setCounterpartyDeviceId] = useState('')
+  const [counterpartyComputerName, setCounterpartyComputerName] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
@@ -158,6 +160,21 @@ export const InitiateHandshakeDialog: React.FC<InitiateHandshakeDialogProps> = (
       return
     }
 
+    if (isInternal) {
+      if (!deviceName.trim()) {
+        setError('This computer name is required for internal handshakes')
+        return
+      }
+      if (!counterpartyDeviceId.trim()) {
+        setError('Other device coordination ID is required for internal handshakes')
+        return
+      }
+      if (!counterpartyComputerName.trim()) {
+        setError('Other computer name is required for internal handshakes')
+        return
+      }
+    }
+
     setIsSubmitting(true)
     setError(null)
 
@@ -180,8 +197,11 @@ export const InitiateHandshakeDialog: React.FC<InitiateHandshakeDialogProps> = (
           ...(isInternal
             ? {
                 handshake_type: 'internal',
-                device_name: deviceName.trim() || undefined,
+                device_name: deviceName.trim(),
                 device_role: deviceRole,
+                counterparty_device_id: counterpartyDeviceId.trim(),
+                counterparty_device_role: deviceRole === 'host' ? 'sandbox' : 'host',
+                counterparty_computer_name: counterpartyComputerName.trim(),
               }
             : {}),
         },
@@ -249,7 +269,11 @@ export const InitiateHandshakeDialog: React.FC<InitiateHandshakeDialogProps> = (
                   const checked = e.target.checked
                   setIsInternal(checked)
                   setError(null)
-                  if (!checked) setRecipientEmail('')
+                  if (!checked) {
+                    setRecipientEmail('')
+                    setCounterpartyDeviceId('')
+                    setCounterpartyComputerName('')
+                  }
                 }}
               />
               Internal handshake (connect my own devices)
@@ -309,6 +333,56 @@ export const InitiateHandshakeDialog: React.FC<InitiateHandshakeDialogProps> = (
                       border: deviceRole === 'sandbox' ? 'none' : `1px solid ${t.inputBorder}`,
                     }}
                   >Sandbox</button>
+                </div>
+                <p style={{ fontSize: '11px', color: t.textMuted, marginTop: '8px', marginBottom: 0, lineHeight: 1.45 }}>
+                  The other device must be the opposite role ({deviceRole === 'host' ? 'Sandbox' : 'Host'}).
+                </p>
+              </div>
+            )}
+
+            {isInternal && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                <div>
+                  <label style={themeLabelStyle(t)}>This computer name *</label>
+                  <input
+                    type="text"
+                    value={deviceName}
+                    onChange={(e) => setDeviceName(e.target.value)}
+                    disabled={isSubmitting}
+                    placeholder="e.g. HOST-DEV or hostname from the other device’s view"
+                    style={{
+                      ...themeInputStyle(t),
+                      border: `1px solid ${error && !deviceName.trim() ? 'rgba(239,68,68,0.5)' : t.inputBorder}`,
+                    }}
+                  />
+                </div>
+                <div>
+                  <label style={themeLabelStyle(t)}>Other device coordination ID *</label>
+                  <input
+                    type="text"
+                    value={counterpartyDeviceId}
+                    onChange={(e) => setCounterpartyDeviceId(e.target.value)}
+                    disabled={isSubmitting}
+                    placeholder="Orchestrator / relay device id from the other machine"
+                    style={{
+                      ...themeInputStyle(t),
+                      border: `1px solid ${error && !counterpartyDeviceId.trim() ? 'rgba(239,68,68,0.5)' : t.inputBorder}`,
+                    }}
+                  />
+                </div>
+                <div>
+                  <label style={themeLabelStyle(t)}>Other computer name *</label>
+                  <input
+                    type="text"
+                    value={counterpartyComputerName}
+                    onChange={(e) => setCounterpartyComputerName(e.target.value)}
+                    disabled={isSubmitting}
+                    placeholder="Computer name as shown on the other device (must differ from this one)"
+                    style={{
+                      ...themeInputStyle(t),
+                      border: `1px solid ${error && !counterpartyComputerName.trim() ? 'rgba(239,68,68,0.5)' : t.inputBorder}`,
+                    }}
+                  />
                 </div>
               </div>
             )}

@@ -24,6 +24,7 @@ import { classifyHandshakeTier } from './tierClassification'
 import { resolveEffectivePolicyFn } from './steps/policyResolution'
 import { insertHandshakeRecord, insertSeenCapsuleHash } from './db'
 import type { ValidatedCapsule } from '../ingestion/types'
+import { validateInternalInitiateCapsuleWire } from './internalPersistence'
 
 export interface PersistRecipientResult {
   success: boolean
@@ -80,6 +81,14 @@ export function persistRecipientHandshakeRecord(
         ? c.sender_device_id.trim()
         : null
 
+    const wireInternal = c?.handshake_type === 'internal'
+    if (wireInternal) {
+      const w = validateInternalInitiateCapsuleWire(c as Record<string, unknown>)
+      if (!w.ok) {
+        return { success: false, error: w.error ?? 'Internal initiate capsule invalid', reason: w.code }
+      }
+    }
+
     const senderIdentity = c.senderIdentity ?? {
       email: c.sender_email ?? '',
       iss: c.iss ?? '',
@@ -127,6 +136,23 @@ export function persistRecipientHandshakeRecord(
       peer_x25519_public_key_b64: senderX25519,
       peer_mlkem768_public_key_b64: senderMlkem768,
       initiator_coordination_device_id: initiatorCoordinationDeviceId,
+      ...(wireInternal
+        ? {
+            handshake_type: 'internal' as const,
+            initiator_device_name:
+              typeof c.sender_computer_name === 'string' ? c.sender_computer_name.trim() : null,
+            initiator_device_role: c.sender_device_role ?? null,
+            acceptor_device_name:
+              typeof c.receiver_computer_name === 'string' ? c.receiver_computer_name.trim() : null,
+            acceptor_device_role: c.receiver_device_role ?? null,
+            acceptor_coordination_device_id: null,
+            internal_peer_device_id:
+              typeof c.receiver_device_id === 'string' ? c.receiver_device_id.trim() : null,
+            internal_peer_device_role: c.receiver_device_role ?? null,
+            internal_peer_computer_name:
+              typeof c.receiver_computer_name === 'string' ? c.receiver_computer_name.trim() : null,
+          }
+        : {}),
     }
 
     insertHandshakeRecord(db, record)

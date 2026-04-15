@@ -19,6 +19,7 @@ import { buildDefaultReceiverPolicy } from './types'
 import { classifyHandshakeTier } from './tierClassification'
 import { resolveEffectivePolicyFn } from './steps/policyResolution'
 import { insertHandshakeRecord, insertSeenCapsuleHash, insertContextStoreEntry, updateHandshakePolicySelections } from './db'
+import { validateInternalInitiateCapsuleWire } from './internalPersistence'
 import type { AiProcessingMode } from '../../../../../packages/shared/src/handshake/policyUtils'
 import {
   createDefaultGovernance,
@@ -48,6 +49,13 @@ export function persistInitiatorHandshakeRecord(
   beapKeys?: BeapKeyAgreementMaterial | null,
 ): PersistInitiatorResult {
   try {
+    if (capsule.handshake_type === 'internal') {
+      const w = validateInternalInitiateCapsuleWire(capsule as unknown as Record<string, unknown>)
+      if (!w.ok) {
+        return { success: false, error: w.error ?? 'Internal initiate capsule invalid' }
+      }
+    }
+
     const tierDecision = classifyHandshakeTier({
       plan: session.plan,
       hardwareAttestation: session.currentHardwareAttestation,
@@ -119,6 +127,19 @@ export function persistInitiatorHandshakeRecord(
         : {}),
       ...(capsule.sender_device_id?.trim()
         ? { initiator_coordination_device_id: capsule.sender_device_id.trim() }
+        : {}),
+      ...(capsule.handshake_type === 'internal'
+        ? {
+            handshake_type: 'internal',
+            initiator_device_name: capsule.sender_computer_name?.trim() || null,
+            initiator_device_role: capsule.sender_device_role ?? null,
+            acceptor_coordination_device_id: capsule.receiver_device_id?.trim() || null,
+            acceptor_device_name: capsule.receiver_computer_name?.trim() || null,
+            acceptor_device_role: capsule.receiver_device_role ?? null,
+            internal_peer_device_id: capsule.receiver_device_id?.trim() || null,
+            internal_peer_device_role: capsule.receiver_device_role ?? null,
+            internal_peer_computer_name: capsule.receiver_computer_name?.trim() || null,
+          }
         : {}),
     }
 

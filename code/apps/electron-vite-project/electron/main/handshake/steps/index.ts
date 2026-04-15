@@ -14,6 +14,7 @@ import { verifyInputLimits } from './inputLimits'
 import { verifyCapsuleHash } from './verifyCapsuleHash'
 import { verifyContextHashStep } from './verifyContextHash'
 import { checkStateTransition } from './stateTransition'
+import { verifyInternalCapsuleRouting } from './internalRoutingCapsule'
 import { verifyChainIntegrity } from './chainIntegrity'
 import { verifySharingMode } from './sharingMode'
 import { verifyExternalProcessing } from './externalProcessing'
@@ -37,6 +38,7 @@ export const HANDSHAKE_PIPELINE: readonly PipelineStep[] = Object.freeze([
   verifyCapsuleHash,
   verifyContextHashStep,
   checkStateTransition,
+  verifyInternalCapsuleRouting,
   verifyChainIntegrity,
   verifySharingMode,
   verifyExternalProcessing,
@@ -63,6 +65,7 @@ export {
   verifyCapsuleHash,
   verifyContextHashStep,
   checkStateTransition,
+  verifyInternalCapsuleRouting,
   verifyChainIntegrity,
   verifySharingMode,
   verifyExternalProcessing,

@@ -61,6 +61,15 @@ export interface HandshakeRecord {
   readonly acceptor_device_name?: string | null
   readonly initiator_device_role?: 'host' | 'sandbox' | null
   readonly acceptor_device_role?: 'host' | 'sandbox' | null
+  readonly initiator_coordination_device_id?: string | null
+  readonly acceptor_coordination_device_id?: string | null
+  readonly internal_peer_device_id?: string | null
+  readonly internal_peer_device_role?: 'host' | 'sandbox' | null
+  readonly internal_peer_computer_name?: string | null
+  /** Canonical internal pair key when both coordination device ids are known */
+  readonly internal_routing_key?: string | null
+  /** False for degraded legacy / incomplete internal rows — coordination relay must not send */
+  readonly internal_coordination_identity_complete?: boolean
 }
 
 // ── Context block proof (hash-only, no content in handshake capsules) ──

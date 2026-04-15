@@ -828,6 +828,15 @@ contextBridge.exposeInMainWorld('handshakeView', {
       ...(opts.handshake_type === 'internal' || opts.handshake_type === 'standard' ? { handshake_type: opts.handshake_type } : {}),
       ...(typeof opts.device_name === 'string' && opts.device_name.trim() ? { device_name: opts.device_name.trim() } : {}),
       ...(opts.device_role === 'host' || opts.device_role === 'sandbox' ? { device_role: opts.device_role } : {}),
+      ...(typeof opts.counterparty_device_id === 'string' && opts.counterparty_device_id.trim()
+        ? { counterparty_device_id: opts.counterparty_device_id.trim() }
+        : {}),
+      ...(opts.counterparty_device_role === 'host' || opts.counterparty_device_role === 'sandbox'
+        ? { counterparty_device_role: opts.counterparty_device_role }
+        : {}),
+      ...(typeof opts.counterparty_computer_name === 'string' && opts.counterparty_computer_name.trim()
+        ? { counterparty_computer_name: opts.counterparty_computer_name.trim() }
+        : {}),
     } : undefined
     return ipcRenderer.invoke('handshake:initiate', email, acct, safeOpts)
   },
@@ -844,6 +853,15 @@ contextBridge.exposeInMainWorld('handshakeView', {
       ...(opts.handshake_type === 'internal' || opts.handshake_type === 'standard' ? { handshake_type: opts.handshake_type } : {}),
       ...(typeof opts.device_name === 'string' && opts.device_name.trim() ? { device_name: opts.device_name.trim() } : {}),
       ...(opts.device_role === 'host' || opts.device_role === 'sandbox' ? { device_role: opts.device_role } : {}),
+      ...(typeof opts.counterparty_device_id === 'string' && opts.counterparty_device_id.trim()
+        ? { counterparty_device_id: opts.counterparty_device_id.trim() }
+        : {}),
+      ...(opts.counterparty_device_role === 'host' || opts.counterparty_device_role === 'sandbox'
+        ? { counterparty_device_role: opts.counterparty_device_role }
+        : {}),
+      ...(typeof opts.counterparty_computer_name === 'string' && opts.counterparty_computer_name.trim()
+        ? { counterparty_computer_name: opts.counterparty_computer_name.trim() }
+        : {}),
     } : undefined
     return ipcRenderer.invoke('handshake:buildForDownload', email, safeOpts)
   },

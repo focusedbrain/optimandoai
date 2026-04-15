@@ -47,6 +47,7 @@ export async function registerHandshakeWithRelay(
     initiator_device_id?: string
     /** Optional — same-user / internal relay routing; omit for cross-party (unchanged). */
     acceptor_device_id?: string
+    handshake_type?: 'internal' | 'standard'
   },
 ): Promise<{ success: boolean; error?: string }> {
   if (!db) return { success: false, error: 'No database' }
@@ -92,6 +93,9 @@ export async function registerHandshakeWithRelay(
     }
     if (handshakeDetails.acceptor_device_id) {
       registrationBody.acceptor_device_id = handshakeDetails.acceptor_device_id
+    }
+    if (handshakeDetails.handshake_type === 'internal') {
+      registrationBody.handshake_type = 'internal'
     }
     try {
       console.log('[RELAY-REG] URL:', registerUrl)

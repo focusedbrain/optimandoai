@@ -274,6 +274,16 @@ export const SendHandshakeDelivery: React.FC<SendHandshakeDeliveryProps> = ({
   const [actionDone, setActionDone] = useState<'sent' | 'downloaded' | null>(null)
   const [error, setError] = useState<string | null>(null)
 
+  const [internalLocalComputerName, setInternalLocalComputerName] = useState('')
+  const [counterpartyDeviceId, setCounterpartyDeviceId] = useState('')
+  const [counterpartyComputerName, setCounterpartyComputerName] = useState('')
+
+  useEffect(() => {
+    if (!isInternalHandshake) return
+    const v = deviceName?.trim()
+    if (v) setInternalLocalComputerName(v)
+  }, [isInternalHandshake, deviceName])
+
   // Validation
   const emailError =
     touched && (!recipientEmail.trim() || !EMAIL_PATTERN.test(recipientEmail.trim()))
@@ -287,16 +297,32 @@ export const SendHandshakeDelivery: React.FC<SendHandshakeDeliveryProps> = ({
     if (v) setRecipientEmail(v)
   }, [lockedRecipientEmail])
 
-  const internalRpcExtras = () =>
-    isInternalHandshake
-      ? {
-          handshake_type: 'internal' as const,
-          device_name: deviceName?.trim() || undefined,
-          device_role: deviceRole,
-        }
-      : {}
+  const effectiveInternalRole = deviceRole ?? 'sandbox'
 
-  const isValid = !!recipientEmail.trim() && EMAIL_PATTERN.test(recipientEmail.trim())
+  const resolvedLocalComputerName = internalLocalComputerName.trim() || deviceName?.trim() || ''
+
+  const internalRpcExtras = () => {
+    if (!isInternalHandshake) return {}
+    return {
+      handshake_type: 'internal' as const,
+      device_name: resolvedLocalComputerName,
+      device_role: effectiveInternalRole,
+      counterparty_device_id: counterpartyDeviceId.trim(),
+      counterparty_device_role: effectiveInternalRole === 'host' ? ('sandbox' as const) : ('host' as const),
+      counterparty_computer_name: counterpartyComputerName.trim(),
+    }
+  }
+
+  const internalFieldsComplete =
+    !isInternalHandshake ||
+    (!!resolvedLocalComputerName &&
+      !!counterpartyDeviceId.trim() &&
+      !!counterpartyComputerName.trim())
+
+  const isValid =
+    !!recipientEmail.trim() &&
+    EMAIL_PATTERN.test(recipientEmail.trim()) &&
+    internalFieldsComplete
   const noEmailAccount = mode === 'api' && emailAccounts.length === 0
 
   // -------------------------------------------------------------------------
@@ -318,6 +344,20 @@ export const SendHandshakeDelivery: React.FC<SendHandshakeDeliveryProps> = ({
     setTouched(true)
     setError(null)
     if (!isValid) return
+    if (isInternalHandshake) {
+      if (!resolvedLocalComputerName) {
+        setError('This computer name is required for internal handshakes.')
+        return
+      }
+      if (!counterpartyDeviceId.trim()) {
+        setError('Other device coordination ID is required for internal handshakes.')
+        return
+      }
+      if (!counterpartyComputerName.trim()) {
+        setError('Other computer name is required for internal handshakes.')
+        return
+      }
+    }
     if (!fromAccountId) {
       setError('No email account selected.')
       return
@@ -348,6 +388,20 @@ export const SendHandshakeDelivery: React.FC<SendHandshakeDeliveryProps> = ({
     setTouched(true)
     setError(null)
     if (!isValid) return
+    if (isInternalHandshake) {
+      if (!resolvedLocalComputerName) {
+        setError('This computer name is required for internal handshakes.')
+        return
+      }
+      if (!counterpartyDeviceId.trim()) {
+        setError('Other device coordination ID is required for internal handshakes.')
+        return
+      }
+      if (!counterpartyComputerName.trim()) {
+        setError('Other computer name is required for internal handshakes.')
+        return
+      }
+    }
     setSending(true)
     try {
       const opts = await buildContextOptions()
@@ -462,6 +516,8 @@ export const SendHandshakeDelivery: React.FC<SendHandshakeDeliveryProps> = ({
           onClick={() => {
             setActionDone(null)
             setTouched(false)
+            setCounterpartyDeviceId('')
+            setCounterpartyComputerName('')
             setRecipientEmail('')
             setSubject(defaultSubject)
             setMessage('')
@@ -685,6 +741,61 @@ export const SendHandshakeDelivery: React.FC<SendHandshakeDeliveryProps> = ({
             <span>Use the exact SSO/account email of the intended recipient — not a personal email, alias, or forwarding address. Only the account with that email can accept this handshake.</span>
           </div>
         </div>
+
+        {isInternalHandshake && (
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '10px',
+              padding: '12px 14px',
+              background: t.accentPrimaryLight,
+              border: `1px solid ${t.accentPrimaryBorder}`,
+              borderRadius: '10px',
+            }}
+          >
+            <div style={{ fontSize: '12px', fontWeight: 700, color: t.text }}>Internal handshake — device pairing</div>
+            <p style={{ fontSize: '11px', color: t.muted, margin: 0, lineHeight: 1.45 }}>
+              This device is <strong style={{ color: t.text }}>{effectiveInternalRole}</strong>. The other device must be{' '}
+              <strong style={{ color: t.text }}>{effectiveInternalRole === 'host' ? 'Sandbox' : 'Host'}</strong>. Enter the peer’s coordination device id and computer name exactly as on the other machine.
+            </p>
+            {!deviceName?.trim() && (
+              <div>
+                <label style={labelStyle}>This computer name *</label>
+                <input
+                  type="text"
+                  value={internalLocalComputerName}
+                  onChange={(e) => setInternalLocalComputerName(e.target.value)}
+                  disabled={sending}
+                  placeholder="Required — must differ from the other device"
+                  style={inputStyle(touched && !resolvedLocalComputerName)}
+                />
+              </div>
+            )}
+            <div>
+              <label style={labelStyle}>Other device coordination ID *</label>
+              <input
+                type="text"
+                value={counterpartyDeviceId}
+                onChange={(e) => setCounterpartyDeviceId(e.target.value)}
+                disabled={sending}
+                placeholder="From the other machine (orchestrator / relay device id)"
+                style={inputStyle(touched && !counterpartyDeviceId.trim())}
+              />
+            </div>
+            <div>
+              <label style={labelStyle}>Other computer name *</label>
+              <input
+                type="text"
+                value={counterpartyComputerName}
+                onChange={(e) => setCounterpartyComputerName(e.target.value)}
+                disabled={sending}
+                placeholder="Computer name on the other device"
+                style={inputStyle(touched && !counterpartyComputerName.trim())}
+              />
+            </div>
+          </div>
+        )}
 
         {/* ---- Subject ---- */}
         <div>

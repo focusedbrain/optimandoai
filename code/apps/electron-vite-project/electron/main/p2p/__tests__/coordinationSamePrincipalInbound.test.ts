@@ -55,7 +55,7 @@ describe('computeSamePrincipalCoordinationSkipOwn — internal multi-device inbo
     ).toBe(false)
   })
 
-  test('4) internal + missing sender_device_id => conservative skip', () => {
+  test('4) internal + missing sender_device_id => not classified as own echo (caller rejects earlier)', () => {
     expect(
       computeSamePrincipalCoordinationSkipOwn({
         hasDb: true,
@@ -64,7 +64,7 @@ describe('computeSamePrincipalCoordinationSkipOwn — internal multi-device inbo
         capsuleSenderDeviceId: '',
         localDeviceId: 'HOST-PC',
       }),
-    ).toBe(true)
+    ).toBe(false)
 
     expect(
       computeSamePrincipalCoordinationSkipOwn({
@@ -74,10 +74,10 @@ describe('computeSamePrincipalCoordinationSkipOwn — internal multi-device inbo
         capsuleSenderDeviceId: '   ',
         localDeviceId: 'HOST-PC',
       }),
-    ).toBe(true)
+    ).toBe(false)
   })
 
-  test('4b) internal + missing local device id => conservative skip', () => {
+  test('4b) internal + missing local device id => not classified as own echo', () => {
     expect(
       computeSamePrincipalCoordinationSkipOwn({
         hasDb: true,
@@ -86,10 +86,10 @@ describe('computeSamePrincipalCoordinationSkipOwn — internal multi-device inbo
         capsuleSenderDeviceId: 'SANDBOX-PC',
         localDeviceId: '',
       }),
-    ).toBe(true)
+    ).toBe(false)
   })
 
-  test('5) internal + handshake record null (not found) => safe legacy skip', () => {
+  test('5) record null + wire not internal => legacy skip (relay echo without DB row)', () => {
     expect(
       computeSamePrincipalCoordinationSkipOwn({
         hasDb: true,
@@ -99,6 +99,45 @@ describe('computeSamePrincipalCoordinationSkipOwn — internal multi-device inbo
         localDeviceId: 'HOST-PC',
       }),
     ).toBe(true)
+  })
+
+  test('5b) record null + wire internal + distinct devices => do not skip (peer)', () => {
+    expect(
+      computeSamePrincipalCoordinationSkipOwn({
+        hasDb: true,
+        handshakeId: hs,
+        record: null,
+        capsuleSenderDeviceId: 'SANDBOX-PC',
+        localDeviceId: 'HOST-PC',
+        capsuleHandshakeType: 'internal',
+      }),
+    ).toBe(false)
+  })
+
+  test('5c) record null + wire internal + same device => skip own echo', () => {
+    expect(
+      computeSamePrincipalCoordinationSkipOwn({
+        hasDb: true,
+        handshakeId: hs,
+        record: null,
+        capsuleSenderDeviceId: 'HOST-PC',
+        localDeviceId: 'HOST-PC',
+        capsuleHandshakeType: 'internal',
+      }),
+    ).toBe(true)
+  })
+
+  test('5d) record null + wire internal + missing capsule device => do not skip', () => {
+    expect(
+      computeSamePrincipalCoordinationSkipOwn({
+        hasDb: true,
+        handshakeId: hs,
+        record: null,
+        capsuleSenderDeviceId: '',
+        localDeviceId: 'HOST-PC',
+        capsuleHandshakeType: 'internal',
+      }),
+    ).toBe(false)
   })
 
   test('edge: no db / unknown handshake id => skip', () => {

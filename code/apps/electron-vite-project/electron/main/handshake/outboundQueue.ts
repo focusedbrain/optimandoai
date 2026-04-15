@@ -26,6 +26,17 @@ import {
   setP2PHealthQueueCounts,
   formatP2PErrorForUser,
 } from '../p2p/p2pHealth'
+import {
+  parseCoordinationRelayErrorSnippet,
+  terminalRelayIdentityInvariant,
+  isCoordinationStaleRegistry403,
+} from './relayOutboundClassification'
+import {
+  validateInternalCapsuleBeforeEnqueue,
+  type EnqueueOutboundCapsuleResult,
+} from './internalRelayOutboundGuards'
+
+export type { EnqueueOutboundCapsuleResult } from './internalRelayOutboundGuards'
 
 const INITIAL_BACKOFF_MS = 5_000
 const MAX_BACKOFF_MS = 5 * 60 * 1000 // 5 minutes
@@ -110,6 +121,8 @@ export type FailureClass =
   /** Deterministic handshake-bound protocol mismatch (ERR_HANDSHAKE_LOCAL_KEY_MISMATCH etc).
    *  Cannot self-heal — handshake must be re-established. Never retry automatically. */
   | 'PROTOCOL_PERMANENT'
+  /** Stale-registry re-register already consumed for this queue row (403 RELAY_SENDER_UNAUTHORIZED path) */
+  | 'COORD_REREG_ATTEMPTED'
 
 export type HealingStatus =
   | 'idle'
@@ -233,8 +246,31 @@ export function enqueueOutboundCapsule(
   handshakeId: string,
   targetEndpoint: string,
   capsule: object,
-): void {
-  if (!db) return
+): EnqueueOutboundCapsuleResult {
+  if (!db) {
+    return {
+      enqueued: false,
+      phase: 'enqueue_guard',
+      invariant: 'INTERNAL_ENDPOINT_INCOMPLETE',
+      message: 'Database unavailable',
+      missing_fields: [],
+    }
+  }
+  const guard = validateInternalCapsuleBeforeEnqueue(db, handshakeId, capsule)
+  if (!guard.enqueued) {
+    console.warn(
+      '[P2P-QUEUE]',
+      JSON.stringify({
+        event: 'enqueue_blocked_internal_relay',
+        handshake_id: handshakeId,
+        phase: guard.phase,
+        invariant: guard.invariant,
+        message: guard.message,
+        missing_fields: guard.missing_fields,
+      }),
+    )
+    return guard
+  }
   const now = new Date().toISOString()
   try {
     db.prepare(
@@ -243,8 +279,16 @@ export function enqueueOutboundCapsule(
        VALUES (?, ?, ?, 'pending', 0, 10, ?)`,
     ).run(handshakeId, targetEndpoint, JSON.stringify(capsule), now)
     console.log('[HANDSHAKE-DEBUG] enqueueOutboundCapsule persisted', handshakeId, 'target:', targetEndpoint)
+    return { enqueued: true }
   } catch (err: any) {
     console.warn('[P2P] enqueueOutboundCapsule failed:', err?.message)
+    return {
+      enqueued: false,
+      phase: 'enqueue_guard',
+      invariant: 'ENQUEUE_DB_ERROR',
+      message: err?.message ?? 'enqueue insert failed',
+      missing_fields: [],
+    }
   }
 }
 
@@ -304,6 +348,357 @@ function recordCoordinationPreflightFailure(
     failure_class: fc,
     healing_status: failedMax ? 'terminal_non_recoverable' : 'idle',
   }
+}
+
+function logCoordination403Policy(extra: Record<string, unknown>): void {
+  console.warn('[P2P-QUEUE]', JSON.stringify({ event: 'coordination_http_403_policy', ...extra }))
+}
+
+/**
+ * Coordination 403: structured relay errors drive policy.
+ * - Terminal identity invariants → fail row immediately (no re-register).
+ * - Generic 403 without RELAY_SENDER_UNAUTHORIZED → terminal (no infinite re-register loop).
+ * - Stale registry → one re-register + immediate resend; second stale403 or failed resend 403 → terminal.
+ */
+async function handleCoordinationOutbound403(
+  db: any,
+  row: {
+    id: number
+    handshake_id: string
+    retry_count: number
+    max_retries: number
+    capsule_json: string
+    failure_class: string | null
+  },
+  now: string,
+  transportResult: SendCapsuleResult,
+  coordinationUrl: string,
+  getOidcToken: () => Promise<string | null>,
+): Promise<
+  | { done: true; result: ProcessOutboundQueueResult }
+  | { done: false; nextResult: SendCapsuleResult }
+> {
+  const snip403 = (transportResult.responseBodySnippet ?? '').trim()
+  const parsed403 = parseCoordinationRelayErrorSnippet(snip403)
+  const invariant403 = terminalRelayIdentityInvariant(snip403, parsed403)
+
+  const markSchemaTerminal = (
+    persistedError: string,
+    meta: Record<string, unknown>,
+  ): ProcessOutboundQueueResult => {
+    setP2PHealthOutboundFailure(persistedError)
+    const n = row.retry_count + 1
+    db.prepare(
+      `UPDATE outbound_capsule_queue SET status = 'failed', retry_count = ?, last_attempt_at = ?, error = ?, failure_class = ?, retry_after_ms = NULL WHERE id = ?`,
+    ).run(n, now, persistedError, 'SCHEMA_PERMANENT', row.id)
+    const c = getQueueCountsInternal(db)
+    setP2PHealthQueueCounts(c.pending, c.failed)
+    logCoordination403Policy({
+      queue_row_id: row.id,
+      handshake_id: row.handshake_id,
+      http_status: 403,
+      terminal: true,
+      ...meta,
+    })
+    return {
+      delivered: false,
+      error: persistedError,
+      queued: false,
+      code: 'REQUEST_INVALID',
+      last_queue_error: persistedError,
+      retry_count: n,
+      max_retries: row.max_retries,
+      failure_class: 'SCHEMA_PERMANENT',
+      healing_status: 'STOPPED_REQUIRES_FIX',
+      http_status: 403,
+      ...(snip403.length > 0 && { response_body_snippet: snip403 }),
+      ...(transportResult.outboundDebug && { outbound_debug: transportResult.outboundDebug }),
+    }
+  }
+
+  if (invariant403) {
+    const persistedError = `HTTP 403 — ${snip403 || invariant403}`
+    return {
+      done: true,
+      result: markSchemaTerminal(persistedError, {
+        retry_allowed: false,
+        blocked_reason: 'terminal_relay_identity_invariant',
+        invariant_code: invariant403,
+        relay_error_code: parsed403.code,
+        relay_error_field: parsed403.error,
+      }),
+    }
+  }
+
+  const stale403 = isCoordinationStaleRegistry403(snip403, parsed403)
+
+  if (!stale403) {
+    const persistedError = `HTTP 403 — ${snip403 || 'relay forbidden (no stale-registry signal); not re-registering'}`
+    return {
+      done: true,
+      result: markSchemaTerminal(persistedError, {
+        retry_allowed: false,
+        blocked_reason: 'generic_forbidden_not_stale_registry',
+        invariant_code: null,
+        policy_note: 'Re-register is only allowed when body indicates RELAY_SENDER_UNAUTHORIZED',
+      }),
+    }
+  }
+
+  if (row.failure_class === 'COORD_REREG_ATTEMPTED') {
+    const persistedError = `HTTP 403 — ${snip403 || 'RELAY_SENDER_UNAUTHORIZED after coordination re-register (exhausted)'}`
+    return {
+      done: true,
+      result: markSchemaTerminal(persistedError, {
+        retry_allowed: false,
+        blocked_reason: 'stale_registry_reregister_exhausted',
+        invariant_code: null,
+      }),
+    }
+  }
+
+  console.warn(
+    '[P2P-QUEUE]',
+    JSON.stringify({
+      event: 'relay_403_reregister_attempt',
+      queue_row_id: row.id,
+      handshake_id: row.handshake_id,
+      retry_allowed: true,
+      blocked_reason: null,
+      policy: 'stale_registry_one_shot',
+    }),
+  )
+
+  const record = getHandshakeRecord(db, row.handshake_id)
+  const freshToken = await getOidcToken()
+  let reRegSucceeded = false
+  if (record && freshToken?.trim()) {
+    const initiatorId = record.initiator?.sub ?? record.initiator?.wrdesk_user_id ?? ''
+    const acceptorId = record.acceptor?.sub ?? record.acceptor?.wrdesk_user_id ?? ''
+    const initiatorEmail = record.initiator?.email ?? ''
+    const acceptorEmail = record.acceptor?.email ?? ''
+    try {
+      const reReg = await registerHandshakeWithRelay(db, row.handshake_id, '', '', getOidcToken, {
+        initiator_user_id: initiatorId,
+        acceptor_user_id: acceptorId,
+        initiator_email: initiatorEmail,
+        acceptor_email: acceptorEmail,
+        handshake_type: record.handshake_type === 'internal' ? 'internal' : undefined,
+        ...(record.initiator_coordination_device_id?.trim()
+          ? { initiator_device_id: record.initiator_coordination_device_id.trim() }
+          : {}),
+        ...(record.acceptor_coordination_device_id?.trim()
+          ? { acceptor_device_id: record.acceptor_coordination_device_id.trim() }
+          : {}),
+      })
+      if (reReg.success) {
+        db.prepare(`UPDATE outbound_capsule_queue SET failure_class = ? WHERE id = ?`).run('COORD_REREG_ATTEMPTED', row.id)
+        let capRetry: object
+        try {
+          capRetry = JSON.parse(row.capsule_json) as object
+        } catch {
+          const persistedError = 'HTTP 403 — invalid capsule_json in outbound queue after re-register'
+          setP2PHealthOutboundFailure(persistedError)
+          const n = row.retry_count + 1
+          db.prepare(
+            `UPDATE outbound_capsule_queue SET status = 'failed', retry_count = ?, last_attempt_at = ?, error = ?, failure_class = ?, retry_after_ms = NULL WHERE id = ?`,
+          ).run(n, now, persistedError, 'SCHEMA_PERMANENT', row.id)
+          const c = getQueueCountsInternal(db)
+          setP2PHealthQueueCounts(c.pending, c.failed)
+          logCoordination403Policy({
+            queue_row_id: row.id,
+            handshake_id: row.handshake_id,
+            terminal: true,
+            retry_allowed: false,
+            blocked_reason: 'invalid_queue_capsule_json_after_reregister',
+            invariant_code: null,
+          })
+          return {
+            done: true,
+            result: {
+              delivered: false,
+              error: persistedError,
+              queued: false,
+              code: 'REQUEST_INVALID',
+              last_queue_error: persistedError,
+              retry_count: n,
+              max_retries: row.max_retries,
+              failure_class: 'SCHEMA_PERMANENT',
+              healing_status: 'STOPPED_REQUIRES_FIX',
+              http_status: 403,
+            },
+          }
+        }
+        reRegSucceeded = true
+        console.info(
+          '[P2P-QUEUE]',
+          JSON.stringify({ event: 'relay_403_reregister_success', queue_row_id: row.id, handshake_id: row.handshake_id }),
+        )
+        logInternalHsTraceOutbound(db, row.handshake_id, capRetry, 'send_after_403_reregister')
+        const retryResult = await sendCapsuleViaCoordination(
+          capRetry,
+          coordinationUrl,
+          freshToken,
+          row.handshake_id,
+          db,
+        )
+        if (retryResult.success) {
+          setP2PHealthOutboundSuccess()
+          db.prepare(
+            `UPDATE outbound_capsule_queue SET status = 'sent', last_attempt_at = ?, retry_after_ms = NULL, failure_class = NULL WHERE id = ?`,
+          ).run(now, row.id)
+          const countsOk = getQueueCountsInternal(db)
+          setP2PHealthQueueCounts(countsOk.pending, countsOk.failed)
+          console.info(
+            '[P2P-QUEUE]',
+            JSON.stringify({ event: 'relay_403_retry_succeeded', queue_row_id: row.id, handshake_id: row.handshake_id }),
+          )
+          return {
+            done: true,
+            result: {
+              delivered: true,
+              code: 'DELIVERED',
+              healing_status: 'idle',
+              ...(retryResult.coordinationRelayDelivery && {
+                coordinationRelayDelivery: retryResult.coordinationRelayDelivery,
+              }),
+            },
+          }
+        }
+        if (retryResult.localRelayValidationFailed) {
+          const persistedError = retryResult.error ?? 'LOCAL_INTERNAL_RELAY_VALIDATION_FAILED'
+          setP2PHealthOutboundFailure(persistedError)
+          const nLoc = row.retry_count + 1
+          db.prepare(
+            `UPDATE outbound_capsule_queue SET status = 'failed', retry_count = ?, last_attempt_at = ?, error = ?, failure_class = ?, retry_after_ms = NULL WHERE id = ?`,
+          ).run(nLoc, now, persistedError, 'SCHEMA_PERMANENT', row.id)
+          const cLoc = getQueueCountsInternal(db)
+          setP2PHealthQueueCounts(cLoc.pending, cLoc.failed)
+          return {
+            done: true,
+            result: {
+              delivered: false,
+              error: persistedError,
+              queued: false,
+              code: 'REQUEST_INVALID',
+              last_queue_error: persistedError,
+              retry_count: nLoc,
+              max_retries: row.max_retries,
+              failure_class: 'SCHEMA_PERMANENT',
+              healing_status: 'STOPPED_REQUIRES_FIX',
+              ...(retryResult.outboundDebug && { outbound_debug: retryResult.outboundDebug }),
+            },
+          }
+        }
+        const retrySnip = (retryResult.responseBodySnippet ?? '').trim()
+        const retryParsed = parseCoordinationRelayErrorSnippet(retrySnip)
+        const retryInv = terminalRelayIdentityInvariant(retrySnip, retryParsed)
+        if (retryInv || retryResult.statusCode === 403) {
+          const persistedError = `HTTP ${retryResult.statusCode ?? 403} — ${retrySnip || retryInv || 'forbidden after re-register'}`
+          setP2PHealthOutboundFailure(persistedError)
+          const n403 = row.retry_count + 1
+          db.prepare(
+            `UPDATE outbound_capsule_queue SET status = 'failed', retry_count = ?, last_attempt_at = ?, error = ?, failure_class = ?, retry_after_ms = NULL WHERE id = ?`,
+          ).run(n403, now, persistedError, 'SCHEMA_PERMANENT', row.id)
+          const c403 = getQueueCountsInternal(db)
+          setP2PHealthQueueCounts(c403.pending, c403.failed)
+          logCoordination403Policy({
+            queue_row_id: row.id,
+            handshake_id: row.handshake_id,
+            http_status: retryResult.statusCode ?? 403,
+            terminal: true,
+            retry_allowed: false,
+            blocked_reason: retryInv ? 'terminal_invariant_after_reregister' : 'forbidden_status_after_reregister',
+            invariant_code: retryInv,
+          })
+          return {
+            done: true,
+            result: {
+              delivered: false,
+              error: persistedError,
+              queued: false,
+              code: 'REQUEST_INVALID',
+              last_queue_error: persistedError,
+              retry_count: n403,
+              max_retries: row.max_retries,
+              failure_class: 'SCHEMA_PERMANENT',
+              healing_status: 'STOPPED_REQUIRES_FIX',
+              http_status: retryResult.statusCode ?? 403,
+              ...(retrySnip.length > 0 && { response_body_snippet: retrySnip }),
+              ...(retryResult.outboundDebug && { outbound_debug: retryResult.outboundDebug }),
+            },
+          }
+        }
+        return { done: false, nextResult: retryResult }
+      } else {
+        console.error(
+          '[P2P-QUEUE]',
+          JSON.stringify({
+            event: 'relay_403_reregister_failed',
+            queue_row_id: row.id,
+            handshake_id: row.handshake_id,
+            error: reReg.error,
+          }),
+        )
+      }
+    } catch (reRegErr: any) {
+      console.error(
+        '[P2P-QUEUE]',
+        JSON.stringify({
+          event: 'relay_403_reregister_threw',
+          queue_row_id: row.id,
+          handshake_id: row.handshake_id,
+          error: String(reRegErr?.message ?? reRegErr),
+        }),
+      )
+    }
+  } else {
+    console.warn(
+      '[P2P-QUEUE]',
+      JSON.stringify({
+        event: 'relay_403_reregister_skipped',
+        queue_row_id: row.id,
+        handshake_id: row.handshake_id,
+        has_record: !!record,
+        has_token: !!freshToken?.trim(),
+      }),
+    )
+  }
+
+  if (!reRegSucceeded) {
+    const persistedError = 'HTTP 403 — relay rejected sender: handshake not registered. Re-registration failed.'
+    setP2PHealthOutboundFailure(persistedError)
+    const newRetry403 = row.retry_count + 1
+    db.prepare(
+      `UPDATE outbound_capsule_queue SET status = 'failed', retry_count = ?, last_attempt_at = ?, error = ?, failure_class = ?, retry_after_ms = NULL WHERE id = ?`,
+    ).run(newRetry403, now, persistedError, 'PAYLOAD_PERMANENT', row.id)
+    const counts403 = getQueueCountsInternal(db)
+    setP2PHealthQueueCounts(counts403.pending, counts403.failed)
+    logCoordination403Policy({
+      queue_row_id: row.id,
+      handshake_id: row.handshake_id,
+      retry_allowed: false,
+      blocked_reason: 're_register_failed_or_skipped',
+      terminal: true,
+    })
+    return {
+      done: true,
+      result: {
+        delivered: false,
+        error: persistedError,
+        queued: false,
+        code: 'TRANSPORT_FAILED',
+        last_queue_error: persistedError,
+        retry_count: newRetry403,
+        max_retries: row.max_retries,
+        failure_class: 'PAYLOAD_PERMANENT',
+        healing_status: 'terminal_non_recoverable',
+        http_status: 403,
+      },
+    }
+  }
+
+  throw new Error('coordination 403 policy: unexpected fallthrough')
 }
 
 export async function processOutboundQueue(
@@ -445,7 +840,7 @@ async function processOutboundQueueInner(
         const token2 = await getOidcToken()
         if (token2?.trim() && targetUrl) {
           logInternalHsTraceOutbound(db, row.handshake_id, capsule, 'send_after_token_refresh')
-          result = await sendCapsuleViaCoordination(capsule, targetUrl, token2, row.handshake_id)
+          result = await sendCapsuleViaCoordination(capsule, targetUrl, token2, row.handshake_id, db)
         } else {
           return recordCoordinationPreflightFailure(
             db,
@@ -468,7 +863,7 @@ async function processOutboundQueueInner(
         )
       } else {
         logInternalHsTraceOutbound(db, row.handshake_id, capsule, 'send_with_session_token')
-        result = await sendCapsuleViaCoordination(capsule, targetUrl, token!, row.handshake_id)
+        result = await sendCapsuleViaCoordination(capsule, targetUrl, token!, row.handshake_id, db)
       }
 
       if (targetUrl && result && !result.success && result.statusCode === 401 && _refreshSession) {
@@ -485,7 +880,7 @@ async function processOutboundQueueInner(
         const token3 = await getOidcToken()
         if (token3?.trim()) {
           logInternalHsTraceOutbound(db, row.handshake_id, capsule, 'send_after_401_refresh')
-          result = await sendCapsuleViaCoordination(capsule, targetUrl, token3, row.handshake_id)
+          result = await sendCapsuleViaCoordination(capsule, targetUrl, token3, row.handshake_id, db)
           console.info(
             '[P2P-QUEUE]',
             JSON.stringify({
@@ -558,6 +953,38 @@ async function processOutboundQueueInner(
       }
     }
 
+    if (!result.success && result.localRelayValidationFailed) {
+      const persistedError = result.error ?? 'LOCAL_INTERNAL_RELAY_VALIDATION_FAILED'
+      setP2PHealthOutboundFailure(persistedError)
+      const nlv = row.retry_count + 1
+      db.prepare(
+        `UPDATE outbound_capsule_queue SET status = 'failed', retry_count = ?, last_attempt_at = ?, error = ?, failure_class = ?, retry_after_ms = NULL WHERE id = ?`,
+      ).run(nlv, now, persistedError, 'SCHEMA_PERMANENT', row.id)
+      const cLv = getQueueCountsInternal(db)
+      setP2PHealthQueueCounts(cLv.pending, cLv.failed)
+      console.warn(
+        '[P2P-QUEUE]',
+        JSON.stringify({
+          event: 'local_relay_validation_terminal',
+          queue_row_id: row.id,
+          handshake_id: row.handshake_id,
+          ...result.localRelayValidation,
+        }),
+      )
+      return {
+        delivered: false,
+        error: persistedError,
+        queued: false,
+        code: 'REQUEST_INVALID',
+        last_queue_error: persistedError,
+        retry_count: nlv,
+        max_retries: row.max_retries,
+        failure_class: 'SCHEMA_PERMANENT',
+        healing_status: 'STOPPED_REQUIRES_FIX',
+        ...(result.outboundDebug && { outbound_debug: result.outboundDebug }),
+      }
+    }
+
     // HTTP 413 — request body too large for relay
     if (result.statusCode === 413) {
       const snippet = (result.responseBodySnippet ?? '').trim()
@@ -621,6 +1048,7 @@ async function processOutboundQueueInner(
     // HTTP 400 — bad request / validation: terminal, no backoff, no automatic retries
     if (result.statusCode === 400) {
       const snippet = (result.responseBodySnippet ?? '').trim()
+      const identityInvariant400 = terminalRelayIdentityInvariant(snippet)
       const failureClass: FailureClass = 'SCHEMA_PERMANENT'
       const relayTypeNotAllowed =
         snippet.includes('capsule_type_not_allowed') || /"capsule_type_not_allowed"/.test(snippet)
@@ -667,6 +1095,13 @@ async function processOutboundQueueInner(
           request_shape,
           queue_code: queueCode,
           relay_type_not_allowed: relayTypeNotAllowed,
+          retry_allowed: false,
+          ...(identityInvariant400
+            ? {
+                blocked_reason: 'terminal_relay_identity_invariant',
+                invariant_code: identityInvariant400,
+              }
+            : { blocked_reason: 'relay_validation_or_contract', invariant_code: null }),
         }),
       )
       return {
@@ -686,87 +1121,14 @@ async function processOutboundQueueInner(
       }
     }
 
-    // HTTP 403 — relay rejected sender as unauthorized for this handshake.
-    // This usually means the handshake was never registered (or registered with the wrong user ID).
-    // Attempt re-registration once, then retry the send. If re-registration also fails, mark terminal.
+    // HTTP 403 — coordination: structured body classifies terminal identity vs one-shot stale-registry re-register.
     if (result.statusCode === 403 && config.use_coordination && getOidcToken) {
-      console.warn('[P2P-QUEUE]', JSON.stringify({
-        event: 'relay_403_reregister_attempt',
-        queue_row_id: row.id,
-        handshake_id: row.handshake_id,
-      }))
-      const record = getHandshakeRecord(db, row.handshake_id)
-      const freshToken = await getOidcToken()
-      let reRegOk = false
-      if (record && freshToken?.trim()) {
-        const initiatorId = record.initiator?.sub ?? record.initiator?.wrdesk_user_id ?? ''
-        const acceptorId = record.acceptor?.sub ?? record.acceptor?.wrdesk_user_id ?? ''
-        const initiatorEmail = record.initiator?.email ?? ''
-        const acceptorEmail = record.acceptor?.email ?? ''
-        try {
-          const reReg = await registerHandshakeWithRelay(db, row.handshake_id, '', '', getOidcToken, {
-            initiator_user_id: initiatorId,
-            acceptor_user_id: acceptorId,
-            initiator_email: initiatorEmail,
-            acceptor_email: acceptorEmail,
-          })
-          if (reReg.success) {
-            console.log('[P2P-QUEUE]', JSON.stringify({ event: 'relay_403_reregister_success', queue_row_id: row.id, handshake_id: row.handshake_id }))
-            // Retry the send immediately with a fresh token
-            const capRetry = JSON.parse(row.capsule_json) as object
-            logInternalHsTraceOutbound(db, row.handshake_id, capRetry, 'send_after_403_reregister')
-            const retryResult = await sendCapsuleViaCoordination(
-              capRetry,
-              config.coordination_url!.trim(),
-              freshToken,
-              row.handshake_id,
-            )
-            if (retryResult.success) {
-              setP2PHealthOutboundSuccess()
-              db.prepare(`UPDATE outbound_capsule_queue SET status = 'sent', last_attempt_at = ?, retry_after_ms = NULL, failure_class = NULL WHERE id = ?`).run(now, row.id)
-              const countsOk = getQueueCountsInternal(db)
-              setP2PHealthQueueCounts(countsOk.pending, countsOk.failed)
-              console.info('[P2P-QUEUE]', JSON.stringify({ event: 'relay_403_retry_succeeded', queue_row_id: row.id, handshake_id: row.handshake_id }))
-              return {
-                delivered: true,
-                code: 'DELIVERED',
-                healing_status: 'idle',
-                ...(retryResult.coordinationRelayDelivery && { coordinationRelayDelivery: retryResult.coordinationRelayDelivery }),
-              }
-            }
-            reRegOk = true // registration worked but retry send failed — fall through to normal retry
-          } else {
-            console.error('[P2P-QUEUE]', JSON.stringify({ event: 'relay_403_reregister_failed', queue_row_id: row.id, handshake_id: row.handshake_id, error: reReg.error }))
-          }
-        } catch (reRegErr: any) {
-          console.error('[P2P-QUEUE]', JSON.stringify({ event: 'relay_403_reregister_threw', queue_row_id: row.id, handshake_id: row.handshake_id, error: String(reRegErr?.message ?? reRegErr) }))
-        }
-      } else {
-        console.warn('[P2P-QUEUE]', JSON.stringify({ event: 'relay_403_reregister_skipped', queue_row_id: row.id, handshake_id: row.handshake_id, has_record: !!record, has_token: !!freshToken?.trim() }))
+      const coordUrl = config.coordination_url?.trim() ?? ''
+      if (coordUrl) {
+        const r403 = await handleCoordinationOutbound403(db, row, now, result, coordUrl, getOidcToken)
+        if (r403.done) return r403.result
+        result = r403.nextResult
       }
-      if (!reRegOk) {
-        // Re-registration failed — mark terminal so we don't loop indefinitely
-        const persistedError = 'HTTP 403 — relay rejected sender: handshake not registered. Re-registration failed.'
-        setP2PHealthOutboundFailure(persistedError)
-        const newRetry403 = row.retry_count + 1
-        db.prepare(`UPDATE outbound_capsule_queue SET status = 'failed', retry_count = ?, last_attempt_at = ?, error = ?, failure_class = ?, retry_after_ms = NULL WHERE id = ?`)
-          .run(newRetry403, now, persistedError, 'PAYLOAD_PERMANENT', row.id)
-        const counts403 = getQueueCountsInternal(db)
-        setP2PHealthQueueCounts(counts403.pending, counts403.failed)
-        return {
-          delivered: false,
-          error: persistedError,
-          queued: false,
-          code: 'TRANSPORT_FAILED',
-          last_queue_error: persistedError,
-          retry_count: newRetry403,
-          max_retries: row.max_retries,
-          failure_class: 'PAYLOAD_PERMANENT',
-          healing_status: 'terminal_non_recoverable',
-          http_status: 403,
-        }
-      }
-      // Re-registration succeeded but the immediate retry failed — fall through to normal backoff retry
     }
 
     const is401 = result.statusCode === 401
@@ -787,17 +1149,6 @@ async function processOutboundQueueInner(
       result.statusCode === 429 && result.retryAfterSec != null && result.retryAfterSec >= 0
         ? Math.round(result.retryAfterSec * 1000)
         : null
-
-    console.info(
-      '[P2P-QUEUE]',
-      JSON.stringify({
-        event: 'retry_attempt_failed',
-        queue_row_id: row.id,
-        handshake_id: row.handshake_id,
-        status_code: result.statusCode ?? null,
-        failure_class: failureClass,
-      }),
-    )
 
     // 401 = auth issue — do not increment retry; leave pending for retry after re-auth
     if (is401) {
@@ -820,8 +1171,36 @@ async function processOutboundQueueInner(
       }
     }
 
+    const postTransportSnippet = (result.responseBodySnippet ?? '').trim()
+    const postTransportParsed = parseCoordinationRelayErrorSnippet(postTransportSnippet)
+    const postTransportInvariant = terminalRelayIdentityInvariant(postTransportSnippet, postTransportParsed)
+
     const newRetry = row.retry_count + 1
     const isFailed = newRetry >= row.max_retries
+    const autodrainOk = !isFailed && shouldAutodrainOnBackoff(userError, failureClass)
+
+    console.info(
+      '[P2P-QUEUE]',
+      JSON.stringify({
+        event: 'retry_attempt_failed',
+        queue_row_id: row.id,
+        handshake_id: row.handshake_id,
+        status_code: result.statusCode ?? null,
+        failure_class: failureClass,
+        persisted_queue_failure_class: row.failure_class ?? null,
+        relay_identity_invariant_code: postTransportInvariant,
+        relay_error_code: postTransportParsed.code,
+        relay_error_field: postTransportParsed.error,
+        retry_allowed_next: !isFailed,
+        autodrain_scheduled_next: autodrainOk,
+        blocked_reason: isFailed
+          ? 'max_retries_exhausted'
+          : !autodrainOk
+            ? 'backoff_autodrain_suppressed'
+            : null,
+      }),
+    )
+
     if (isFailed) {
       queued = false
       console.warn(

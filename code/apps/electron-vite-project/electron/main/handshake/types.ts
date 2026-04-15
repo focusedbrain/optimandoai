@@ -308,6 +308,14 @@ export interface VerifiedCapsuleInput {
   preview?: ExecutionCapsule;
   wrdesk_policy_hash: string;
   wrdesk_policy_version: string;
+  /** Internal initiate / accept capsule wire (optional). */
+  handshake_type?: 'internal' | 'standard' | null;
+  sender_device_id?: string | null;
+  receiver_device_id?: string | null;
+  sender_device_role?: 'host' | 'sandbox' | null;
+  receiver_device_role?: 'host' | 'sandbox' | null;
+  sender_computer_name?: string | null;
+  receiver_computer_name?: string | null;
 }
 
 // ── Party Identity ──
@@ -388,6 +396,30 @@ export interface HandshakeRecord {
    * used with relay register-handshake so same-user routing has both WS device ids.
    */
   initiator_coordination_device_id?: string | null;
+  /** Acceptor orchestrator device id after accept — required for internal coordination sends. */
+  acceptor_coordination_device_id?: string | null;
+  /**
+   * Intended acceptor endpoint from internal initiate (wire receiver_device_* on initiate capsule).
+   * Validated against local identity on accept.
+   */
+  internal_peer_device_id?: string | null;
+  internal_peer_device_role?: 'host' | 'sandbox' | null;
+  internal_peer_computer_name?: string | null;
+  /**
+   * Canonical internal pair key: internal:{owner_wrdesk_user_id}:{min(device_id)}:{max(device_id)}.
+   * Populated when both coordination device ids exist (never invented).
+   */
+  internal_routing_key?: string | null;
+  /**
+   * True only when internal handshake has full symmetric endpoint identity (both coordination ids,
+   * roles, computer names). Degraded legacy rows stay false — coordination relay must not send.
+   */
+  internal_coordination_identity_complete?: boolean;
+  /**
+   * Set when an internal handshake reached ACCEPTED/ACTIVE without full coordination identity
+   * (migration backfill or runtime finalize). Outbound coordination envelopes are blocked until UX repair.
+   */
+  internal_coordination_repair_needed?: boolean;
 }
 
 /** Material returned from `ensureKeyAgreementKeys` / persisted on `handshakes` for qBEAP. */

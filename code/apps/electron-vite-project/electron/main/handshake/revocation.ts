@@ -21,6 +21,8 @@ import { buildRevocationAuditEntry } from './auditLog'
 import { buildRevokeCapsule } from './capsuleBuilder'
 import { enqueueOutboundCapsule, processOutboundQueue } from './outboundQueue'
 import { getP2PConfig, getEffectiveRelayEndpoint } from '../p2p/p2pConfig'
+import { getInstanceId } from '../orchestrator/orchestratorModeStore'
+import { internalRelayCapsuleWireOptsFromRecord } from './internalCoordinationWire'
 
 export async function revokeHandshake(
   db: any,
@@ -90,6 +92,21 @@ export async function revokeHandshake(
         return
       }
 
+      let revokeLocalDev: string | undefined
+      try {
+        revokeLocalDev = getInstanceId()?.trim() || undefined
+      } catch {
+        revokeLocalDev = undefined
+      }
+      const revokeInternalWire = internalRelayCapsuleWireOptsFromRecord(record, revokeLocalDev)
+      if (p2pConfig.use_coordination && record.handshake_type === 'internal' && !revokeInternalWire) {
+        console.warn(
+          '[Revoke] Skipping peer notify — INTERNAL_RELAY_ENDPOINTS_INCOMPLETE, handshake:',
+          handshakeId,
+        )
+        return
+      }
+
       const revokeCapsule = buildRevokeCapsule(session, {
         handshake_id: handshakeId,
         counterpartyUserId,
@@ -98,9 +115,14 @@ export async function revokeHandshake(
         last_capsule_hash_received: lastCapsuleHash,
         local_public_key: localPub,
         local_private_key: localPriv,
+        ...(revokeInternalWire ?? {}),
       })
 
-      enqueueOutboundCapsule(db, handshakeId, targetEndpoint, revokeCapsule)
+      const enqRv = enqueueOutboundCapsule(db, handshakeId, targetEndpoint, revokeCapsule)
+      if (!enqRv.enqueued) {
+        console.warn('[Revoke] Revoke capsule enqueue blocked:', enqRv.message)
+        return
+      }
       console.log('[Revoke] Revoke capsule enqueued for peer delivery, handshake:', handshakeId)
 
       if (getOidcToken) {

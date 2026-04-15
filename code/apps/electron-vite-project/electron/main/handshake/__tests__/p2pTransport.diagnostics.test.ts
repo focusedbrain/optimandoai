@@ -26,6 +26,30 @@ describe('describeOutboundPayloadForLogs', () => {
     expect(d.looks_like_relay_capsule_envelope).toBe(true)
     expect(d.looks_like_beap_message_package).toBe(false)
     expect(d.has_top_level_handshake_id).toBe(true)
+    expect(d.internal_wire).toBeUndefined()
+  })
+
+  test('internal routing fields produce internal_wire summary (no raw secrets)', () => {
+    const d = describeOutboundPayloadForLogs({
+      capsule_type: 'context_sync',
+      handshake_id: 'hs-int',
+      handshake_type: 'internal',
+      sender_device_id: 'dev-a',
+      receiver_device_id: 'dev-b',
+      sender_device_role: 'host',
+      receiver_device_role: 'sandbox',
+      sender_computer_name: 'HostBox',
+      receiver_computer_name: 'SandboxBox',
+    })
+    expect(d.internal_wire).toEqual({
+      handshake_type: 'internal',
+      has_sender_device_id: true,
+      has_receiver_device_id: true,
+      has_sender_device_role: true,
+      has_receiver_device_role: true,
+      has_sender_computer_name: true,
+      has_receiver_computer_name: true,
+    })
   })
 
   test('BEAP message package shape (no top-level capsule_type)', () => {

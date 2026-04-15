@@ -144,6 +144,10 @@ function createRequestHandler(
         let acceptorEmail: string | undefined
         let initiatorDeviceId: string | undefined
         let acceptorDeviceId: string | undefined
+        let initiatorDeviceRole: string | undefined
+        let acceptorDeviceRole: string | undefined
+        let initiatorDeviceName: string | undefined
+        let acceptorDeviceName: string | undefined
         try {
           const parsed = JSON.parse(body) as Record<string, unknown>
           if (
@@ -165,11 +169,60 @@ function createRequestHandler(
           const idAcc = parsed.acceptor_device_id
           acceptorDeviceId =
             typeof idAcc === 'string' && idAcc.trim().length > 0 ? idAcc.trim() : undefined
+          const trimOpt = (k: string): string | undefined => {
+            const v = parsed[k]
+            return typeof v === 'string' && v.trim().length > 0 ? v.trim() : undefined
+          }
+          initiatorDeviceRole = trimOpt('initiator_device_role')
+          acceptorDeviceRole = trimOpt('acceptor_device_role')
+          initiatorDeviceName = trimOpt('initiator_device_name')
+          acceptorDeviceName = trimOpt('acceptor_device_name')
         } catch {
           sendError(res, 400)
           return
         }
+        const samePrincipalReg = initiatorUserId === acceptorUserId
+        if (samePrincipalReg) {
+          if (!initiatorDeviceId) {
+            sendError(res, 400, {
+              error: 'internal_routing',
+              code: 'INTERNAL_RELAY_REGISTRATION_MISSING_INITIATOR_DEVICE_ID',
+              detail: 'Same-principal handshakes require non-empty initiator_device_id',
+              field: 'initiator_device_id',
+            })
+            return
+          }
+          if (!acceptorDeviceId) {
+            sendError(res, 400, {
+              error: 'internal_routing',
+              code: 'INTERNAL_RELAY_REGISTRATION_MISSING_ACCEPTOR_DEVICE_ID',
+              detail: 'Same-principal handshakes require non-empty acceptor_device_id',
+              field: 'acceptor_device_id',
+            })
+            return
+          }
+          if (initiatorDeviceId === acceptorDeviceId) {
+            sendError(res, 400, {
+              error: 'internal_routing',
+              code: 'INTERNAL_RELAY_REGISTRATION_DEVICE_IDS_NOT_DISTINCT',
+              detail: 'initiator_device_id and acceptor_device_id must differ for same-principal routing',
+              field: 'initiator_device_id',
+            })
+            return
+          }
+        }
         try {
+          if (samePrincipalReg) {
+            log.info('register-handshake same-principal', {
+              handshake_id: handshakeId,
+              initiator_device_id: initiatorDeviceId,
+              acceptor_device_id: acceptorDeviceId,
+              initiator_device_role: initiatorDeviceRole ?? null,
+              acceptor_device_role: acceptorDeviceRole ?? null,
+              has_initiator_device_name: Boolean(initiatorDeviceName),
+              has_acceptor_device_name: Boolean(acceptorDeviceName),
+            })
+          }
           handshakeRegistry.registerHandshake(
             handshakeId,
             initiatorUserId,
@@ -178,6 +231,10 @@ function createRequestHandler(
             acceptorEmail,
             initiatorDeviceId,
             acceptorDeviceId,
+            initiatorDeviceRole,
+            acceptorDeviceRole,
+            initiatorDeviceName,
+            acceptorDeviceName,
           )
         } catch {
           sendError(res, 503, { error: 'Storage unavailable' })
@@ -234,7 +291,7 @@ function createRequestHandler(
         handshakeId = handshakeId.trim()
 
         if (!handshakeRegistry.isSenderAuthorized(handshakeId, identity.userId)) {
-          sendError(res, 403)
+          sendError(res, 403, { error: 'RELAY_SENDER_UNAUTHORIZED' })
           return
         }
 
@@ -257,16 +314,68 @@ function createRequestHandler(
           typeof senderDeviceIdRaw === 'string' && senderDeviceIdRaw.trim().length > 0
             ? senderDeviceIdRaw.trim()
             : undefined
+        const regEntryPreRoute = handshakeRegistry.getHandshake(handshakeId)
+        const samePrincipalRelay =
+          regEntryPreRoute != null &&
+          regEntryPreRoute.initiator_user_id === regEntryPreRoute.acceptor_user_id
+
         const recipientRoute = handshakeRegistry.getRecipientForSender(
           handshakeId,
           identity.userId,
           senderDeviceId,
         )
         if (!recipientRoute) {
-          sendError(res, 403)
+          if (samePrincipalRelay && !isMessagePackage) {
+            sendError(res, 403, {
+              error: 'INTERNAL_RELAY_ROUTING_AMBIGUOUS',
+              code: 'INTERNAL_RELAY_ROUTING_AMBIGUOUS',
+              detail:
+                'Same-principal relay requires both devices registered with distinct ids; sender_device_id must match the registered initiator or acceptor device for this handshake',
+            })
+          } else {
+            sendError(res, 403, {
+              error: 'RELAY_RECIPIENT_RESOLUTION_FAILED',
+              code: 'RELAY_RECIPIENT_RESOLUTION_FAILED',
+              detail: 'Could not resolve recipient for this handshake and authenticated sender',
+            })
+          }
           return
         }
         const recipientUserId = recipientRoute.userId
+
+        const regEntry = regEntryPreRoute
+        if (samePrincipalRelay && !isMessagePackage) {
+          if (!senderDeviceId) {
+            sendError(res, 400, {
+              error: 'internal_capsule',
+              code: 'INTERNAL_CAPSULE_MISSING_DEVICE_ID',
+              detail: 'sender_device_id is required for same-principal relay capsules',
+            })
+            return
+          }
+          const receiverDeviceIdRaw = parsed.receiver_device_id
+          const receiverDeviceId =
+            typeof receiverDeviceIdRaw === 'string' && receiverDeviceIdRaw.trim().length > 0
+              ? receiverDeviceIdRaw.trim()
+              : undefined
+          if (!receiverDeviceId) {
+            sendError(res, 400, {
+              error: 'internal_capsule',
+              code: 'INTERNAL_CAPSULE_MISSING_DEVICE_ID',
+              detail: 'receiver_device_id is required for same-principal relay capsules',
+            })
+            return
+          }
+          const expectedPeerDeviceId = recipientRoute.deviceId?.trim() ?? ''
+          if (!expectedPeerDeviceId || receiverDeviceId !== expectedPeerDeviceId) {
+            sendError(res, 403, {
+              error: 'RELAY_RECEIVER_DEVICE_MISMATCH',
+              code: 'RELAY_RECEIVER_DEVICE_MISMATCH',
+              detail: 'receiver_device_id does not match registry route for this sender (device-scoped routing)',
+            })
+            return
+          }
+        }
 
         let recipientPending: number
         try {

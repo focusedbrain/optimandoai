@@ -10,6 +10,11 @@
 /** Direct source import: Vitest + `@repo/ingestion-core` index alias can yield incomplete exports for this module. */
 import { isCoordinationRelayNativeBeap } from '../../../../../packages/ingestion-core/src/beapDetection.ts'
 import { getInstanceId } from '../orchestrator/orchestratorModeStore'
+import {
+  applyContextSyncInternalRoutingFromRecord,
+  validateCoordinationInternalPayloadBeforePost,
+  formatLocalInternalRelayValidationJson,
+} from './internalRelayOutboundGuards'
 
 const TIMEOUT_MS = 30_000
 
@@ -37,6 +42,46 @@ export function coordinationRelayContractSatisfied(parsed: unknown): boolean {
  * (`header`+`metadata`+`envelope`|`payload`|`payloadEnc`|`innerEnvelopeCiphertext`, no top-level `capsule_type`) or a
  * capsule envelope (`capsule_type` in accept|context_sync|refresh|revoke).
  */
+export type OutboundInternalWireLogSummary = {
+  /** Declared handshake_type when valid; otherwise null even if routing fields exist */
+  handshake_type: 'internal' | 'standard' | null
+  has_sender_device_id: boolean
+  has_receiver_device_id: boolean
+  has_sender_device_role: boolean
+  has_receiver_device_role: boolean
+  has_sender_computer_name: boolean
+  has_receiver_computer_name: boolean
+}
+
+function summarizeInternalWireForLogs(o: Record<string, unknown>): OutboundInternalWireLogSummary | undefined {
+  const routingKeys = [
+    'handshake_type',
+    'sender_device_id',
+    'receiver_device_id',
+    'sender_device_role',
+    'receiver_device_role',
+    'sender_computer_name',
+    'receiver_computer_name',
+  ] as const
+  if (!routingKeys.some((k) => k in o)) return undefined
+
+  const ht = o.handshake_type
+  const handshake_type: 'internal' | 'standard' | null =
+    ht === 'internal' || ht === 'standard' ? ht : null
+
+  const nz = (v: unknown): boolean => typeof v === 'string' && v.trim().length > 0
+
+  return {
+    handshake_type,
+    has_sender_device_id: nz(o.sender_device_id),
+    has_receiver_device_id: nz(o.receiver_device_id),
+    has_sender_device_role: o.sender_device_role === 'host' || o.sender_device_role === 'sandbox',
+    has_receiver_device_role: o.receiver_device_role === 'host' || o.receiver_device_role === 'sandbox',
+    has_sender_computer_name: nz(o.sender_computer_name),
+    has_receiver_computer_name: nz(o.receiver_computer_name),
+  }
+}
+
 export function describeOutboundPayloadForLogs(capsule: unknown): {
   value_kind: 'object' | 'other'
   top_level_keys: string[]
@@ -45,6 +90,8 @@ export function describeOutboundPayloadForLogs(capsule: unknown): {
   looks_like_beap_message_package: boolean
   looks_like_relay_capsule_envelope: boolean
   has_message_header_receiver_binding_handshake_id: boolean
+  /** Present when any internal / coordination routing field exists on the envelope */
+  internal_wire?: OutboundInternalWireLogSummary
 } {
   if (!capsule || typeof capsule !== 'object' || Array.isArray(capsule)) {
     return {
@@ -74,6 +121,7 @@ export function describeOutboundPayloadForLogs(capsule: unknown): {
       has_message_header_receiver_binding_handshake_id = typeof id === 'string' && id.trim().length > 0
     }
   }
+  const internal_wire = summarizeInternalWireForLogs(o)
   return {
     value_kind: 'object',
     top_level_keys: keys.slice(0, 48),
@@ -82,6 +130,7 @@ export function describeOutboundPayloadForLogs(capsule: unknown): {
     looks_like_beap_message_package,
     looks_like_relay_capsule_envelope,
     has_message_header_receiver_binding_handshake_id,
+    ...(internal_wire ? { internal_wire } : {}),
   }
 }
 
@@ -154,6 +203,14 @@ export interface SendCapsuleResult {
   responseBodySnippet?: string
   /** Structured request/response diagnostics for terminal failures and debugging */
   outboundDebug?: OutboundRequestDebugSnapshot
+  /** Internal relay guards blocked the coordination POST before fetch */
+  localRelayValidationFailed?: boolean
+  localRelayValidation?: {
+    phase: 'coordination_pre_http'
+    invariant: string
+    message: string
+    missing_fields: string[]
+  }
 }
 
 /** Top-level JSON keys of the serialized request body (no values). */
@@ -456,6 +513,7 @@ export async function sendCapsuleViaCoordination(
   coordinationUrl: string,
   oidcToken: string,
   queueHandshakeId: string,
+  db?: any,
 ): Promise<SendCapsuleResult> {
   const base = coordinationUrl.replace(/\/$/, '')
   const targetEndpoint = `${base}/beap/capsule`
@@ -470,6 +528,45 @@ export async function sendCapsuleViaCoordination(
     /* Vitest / non-Electron: orchestrator store may be unavailable */
   }
   if (senderDeviceId) payload.sender_device_id = senderDeviceId
+
+  if (db) {
+    applyContextSyncInternalRoutingFromRecord(db, queueHandshakeId, payload)
+    const v = validateCoordinationInternalPayloadBeforePost(db, queueHandshakeId, payload)
+    if (!v.ok) {
+      const errJson = formatLocalInternalRelayValidationJson({
+        phase: 'coordination_pre_http',
+        invariant: v.invariant,
+        message: v.message,
+        missing_fields: v.missing_fields,
+      })
+      const bodyUtf8 = JSON.stringify(payload)
+      const snapshot = buildOutboundRequestDebugSnapshot(
+        'coordination',
+        targetEndpoint,
+        payload,
+        bodyUtf8,
+        'application/json',
+        0,
+        undefined,
+        errJson,
+      )
+      logOutboundRequestFailureDiagnostics(snapshot)
+      console.warn('[P2P] Coordination send blocked by local internal relay validation', queueHandshakeId)
+      return {
+        success: false,
+        error: errJson,
+        localRelayValidationFailed: true,
+        localRelayValidation: {
+          phase: 'coordination_pre_http',
+          invariant: v.invariant,
+          message: v.message,
+          missing_fields: v.missing_fields,
+        },
+        outboundDebug: snapshot,
+      }
+    }
+  }
+
   console.log('[OUTBOUND-DEBUG] Sending capsule with sender_device_id:', senderDeviceId ?? '(none)', 'handshake:', queueHandshakeId)
   return sendCapsuleViaHttpWithAuth(payload, targetEndpoint, oidcToken)
 }

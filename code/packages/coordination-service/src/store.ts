@@ -30,6 +30,10 @@ CREATE TABLE IF NOT EXISTS coordination_handshake_registry (
   acceptor_email TEXT,
   initiator_device_id TEXT,
   acceptor_device_id TEXT,
+  initiator_device_role TEXT,
+  acceptor_device_role TEXT,
+  initiator_device_name TEXT,
+  acceptor_device_name TEXT,
   created_at TEXT NOT NULL
 );
 
@@ -57,6 +61,18 @@ function applyHandshakeRegistryMigrations(db: Database.Database): void {
     db.exec(
       'ALTER TABLE coordination_handshake_registry ADD COLUMN acceptor_device_id TEXT DEFAULT NULL',
     )
+  }
+  for (const col of [
+    'initiator_device_role',
+    'acceptor_device_role',
+    'initiator_device_name',
+    'acceptor_device_name',
+  ] as const) {
+    if (!names.has(col)) {
+      db.exec(
+        `ALTER TABLE coordination_handshake_registry ADD COLUMN ${col} TEXT DEFAULT NULL`,
+      )
+    }
   }
 }
 

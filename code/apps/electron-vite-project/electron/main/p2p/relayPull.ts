@@ -18,8 +18,10 @@ import {
 import { enqueueOutboundCapsule } from '../handshake/outboundQueue'
 import { getContextStoreByHandshake } from '../handshake/db'
 import { buildContextSyncCapsuleWithContent } from '../handshake/capsuleBuilder'
+import { internalRelayCapsuleWireOptsFromRecord } from '../handshake/internalCoordinationWire'
 import type { ContextBlockForCommitment } from '../handshake/contextCommitment'
 import type { SSOSession } from '../handshake/types'
+import { getInstanceId } from '../orchestrator/orchestratorModeStore'
 import { notifyBeapRecipientPending } from './beapRecipientNotify'
 import {
   setP2PHealthRelayPullSuccess,
@@ -224,6 +226,20 @@ export async function pullFromRelay(
                       type: b.type,
                       content: b.content ?? '',
                     }))
+                    let localRelayDev = ''
+                    try {
+                      localRelayDev = getInstanceId()?.trim() ?? ''
+                    } catch {
+                      localRelayDev = ''
+                    }
+                    const reverseInternalWire = internalRelayCapsuleWireOptsFromRecord(record, localRelayDev)
+                    if (record.handshake_type === 'internal' && !reverseInternalWire) {
+                      console.warn(
+                        '[Relay] Skipping reverse context_sync — internal relay identity incomplete, handshake:',
+                        record.handshake_id,
+                      )
+                      return
+                    }
                     const contextSyncCapsule = buildContextSyncCapsuleWithContent(ssoSession, {
                       handshake_id: record.handshake_id,
                       counterpartyUserId,
@@ -233,8 +249,13 @@ export async function pullFromRelay(
                       context_blocks: contextBlocks,
                       local_public_key: localPub,
                       local_private_key: localPriv,
+                      ...(reverseInternalWire ?? {}),
                     })
-                    enqueueOutboundCapsule(db, record.handshake_id, targetEndpoint.trim(), contextSyncCapsule)
+                    const enqRev = enqueueOutboundCapsule(db, record.handshake_id, targetEndpoint.trim(), contextSyncCapsule)
+                    if (!enqRev.enqueued) {
+                      console.warn('[Relay] Reverse context_sync enqueue blocked:', enqRev.message)
+                      return
+                    }
                   } catch (err: any) {
                     console.warn('[Relay] Reverse context-sync enqueue failed:', err?.message)
                   }

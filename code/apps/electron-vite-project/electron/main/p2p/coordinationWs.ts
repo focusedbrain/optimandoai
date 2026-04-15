@@ -5,6 +5,7 @@
  * Receives capsules via push, sends ACKs after processing, auto-reconnects on disconnect.
  */
 
+import { createHash } from 'crypto'
 import WebSocket from 'ws'
 import type { P2PConfig } from './p2pConfig'
 import type { SSOSession } from '../handshake/types'
@@ -139,12 +140,63 @@ async function processCapsuleInternal(
       }
     }
 
+    const wireHandshakeType =
+      typeof capObj.handshake_type === 'string' ? capObj.handshake_type.trim() : ''
+    const isInternalInboundContext =
+      record?.handshake_type === 'internal' || wireHandshakeType === 'internal'
+
+    if (isInternalInboundContext && (!capDevice || !localDevice)) {
+      const reasonCode = 'INTERNAL_WS_INBOUND_DEVICE_IDENTITY_INCOMPLETE'
+      const detail =
+        'Internal same-principal WS push requires sender_device_id and local orchestrator device_id; not ACKing — relay will retry'
+      console.warn(
+        '[Coordination][INTERNAL_INBOUND_REJECT]',
+        JSON.stringify({
+          code: reasonCode,
+          trace: 'internal_inbound_device_identity_incomplete',
+          ts: new Date().toISOString(),
+          relay_message_id: id,
+          handshake_id: handshakeId,
+          capsule_type: capsuleType,
+          record_handshake_type: record?.handshake_type ?? null,
+          wire_handshake_type: wireHandshakeType || null,
+          has_capsule_sender_device_id: Boolean(capDevice),
+          has_local_orchestrator_device_id: Boolean(localDevice),
+          decision: 'quarantine_no_ack',
+        }),
+      )
+      if (db) {
+        try {
+          const rawInputHash = createHash('sha256').update(`${id}:${handshakeId}`).digest('hex')
+          insertQuarantineRecord(db, {
+            raw_input_hash: rawInputHash,
+            source_type: 'coordination_ws',
+            origin_classification: 'handshake',
+            input_classification: 'rejected',
+            validation_reason_code: reasonCode,
+            validation_details: detail,
+            provenance_json: JSON.stringify({
+              relay_message_id: id,
+              handshake_id: handshakeId,
+              capsule_type: capsuleType,
+              record_handshake_type: record?.handshake_type ?? null,
+              wire_handshake_type: wireHandshakeType || null,
+            }),
+          })
+        } catch {
+          /* non-fatal */
+        }
+      }
+      return
+    }
+
     const skipAsOwnCapsule = computeSamePrincipalCoordinationSkipOwn({
       hasDb: !!db,
       handshakeId,
       record,
       capsuleSenderDeviceId: capDevice,
       localDeviceId: localDevice,
+      capsuleHandshakeType: wireHandshakeType || null,
     })
     if (handshakeTypeForLog === 'internal' || recordLookup !== 'found') {
       console.log(

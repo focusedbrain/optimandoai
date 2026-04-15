@@ -1,6 +1,7 @@
 import type { PipelineStep } from '../types'
 import { ReasonCode, HandshakeState } from '../types'
 import { isSameAccountHandshakeEmails } from '../../../../../../packages/shared/src/handshake/receiverEmailValidation'
+import { computeInternalRoutingKey } from '../internalPersistence'
 
 export const verifyHandshakeOwnership: PipelineStep = {
   name: 'verify_handshake_ownership',
@@ -13,6 +14,29 @@ export const verifyHandshakeOwnership: PipelineStep = {
       if (senderId === localUserId) {
         if (!isSameAccountHandshakeEmails(input.sender_email, input.receiver_email)) {
           return { passed: false, reason: ReasonCode.HANDSHAKE_OWNERSHIP_VIOLATION }
+        }
+      }
+
+      // Same-principal internal: duplicate is keyed by device pair + owner, not email pair
+      // (relationship_id embeds handshake_id so two device-pair handshakes differ on rel id alone).
+      if (input.handshake_type === 'internal') {
+        const routeKey = computeInternalRoutingKey(
+          input.sender_wrdesk_user_id,
+          input.sender_device_id ?? undefined,
+          input.receiver_device_id ?? undefined,
+        )
+        if (routeKey) {
+          const dupByRoute = existingHandshakes.find(
+            h =>
+              h.handshake_type === 'internal' &&
+              (h.state === HandshakeState.PENDING_ACCEPT ||
+                h.state === HandshakeState.ACCEPTED ||
+                h.state === HandshakeState.ACTIVE) &&
+              h.internal_routing_key === routeKey,
+          )
+          if (dupByRoute) {
+            return { passed: false, reason: ReasonCode.DUPLICATE_ACTIVE_HANDSHAKE }
+          }
         }
       }
 

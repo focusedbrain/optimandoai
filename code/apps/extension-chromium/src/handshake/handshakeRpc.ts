@@ -157,6 +157,9 @@ export async function initiateHandshake(
     handshake_type?: 'internal' | 'standard'
     device_name?: string
     device_role?: 'host' | 'sandbox'
+    counterparty_device_id?: string
+    counterparty_device_role?: 'host' | 'sandbox'
+    counterparty_computer_name?: string
   },
 ): Promise<HandshakeInitiateResponse> {
   const keyAgreement = await getKeyAgreementForHandshake()
@@ -176,6 +179,15 @@ export async function initiateHandshake(
     handshake_type: options?.handshake_type,
     device_name: options?.device_name,
     device_role: options?.device_role,
+    ...(options?.counterparty_device_id?.trim()
+      ? { counterparty_device_id: options.counterparty_device_id.trim() }
+      : {}),
+    ...(options?.counterparty_device_role
+      ? { counterparty_device_role: options.counterparty_device_role }
+      : {}),
+    ...(options?.counterparty_computer_name?.trim()
+      ? { counterparty_computer_name: options.counterparty_computer_name.trim() }
+      : {}),
   })
   // ML-KEM secret is persisted exclusively in the Electron DB (local_mlkem768_secret_key_b64).
   // The senderMlkem768SecretKeyB64 field above ensures it was written by the ipc.ts handler.
@@ -200,6 +212,9 @@ export async function buildHandshakeForDownload(
     handshake_type?: 'internal' | 'standard'
     device_name?: string
     device_role?: 'host' | 'sandbox'
+    counterparty_device_id?: string
+    counterparty_device_role?: 'host' | 'sandbox'
+    counterparty_computer_name?: string
   },
 ): Promise<HandshakeBuildForDownloadResponse> {
   const keyAgreement = await getKeyAgreementForHandshake()
@@ -219,6 +234,15 @@ export async function buildHandshakeForDownload(
     handshake_type: options?.handshake_type,
     device_name: options?.device_name,
     device_role: options?.device_role,
+    ...(options?.counterparty_device_id?.trim()
+      ? { counterparty_device_id: options.counterparty_device_id.trim() }
+      : {}),
+    ...(options?.counterparty_device_role
+      ? { counterparty_device_role: options.counterparty_device_role }
+      : {}),
+    ...(options?.counterparty_computer_name?.trim()
+      ? { counterparty_computer_name: options.counterparty_computer_name.trim() }
+      : {}),
   })
   // ML-KEM secret stored in Electron DB — no chrome.storage copy.
   if (!keyAgreement.mlkem768SecretKeyB64 && !res.electronGeneratedMlkemSecret && res.handshake_id) {
@@ -397,6 +421,16 @@ export type OutboundRequestDebugSnapshot = {
     looks_like_beap_message_package: boolean
     looks_like_relay_capsule_envelope: boolean
     has_message_header_receiver_binding_handshake_id: boolean
+    /** Mirrors Electron `describeOutboundPayloadForLogs` — internal routing field presence (no raw values). */
+    internal_wire?: {
+      handshake_type: 'internal' | 'standard' | null
+      has_sender_device_id: boolean
+      has_receiver_device_id: boolean
+      has_sender_device_role: boolean
+      has_receiver_device_role: boolean
+      has_sender_computer_name: boolean
+      has_receiver_computer_name: boolean
+    }
   }
   http_status: number
   response_body_snippet?: string
@@ -534,6 +568,14 @@ function normalizeRecord(raw: any): HandshakeRecord {
     acceptor_device_name: raw.acceptor_device_name || null,
     initiator_device_role: raw.initiator_device_role || null,
     acceptor_device_role: raw.acceptor_device_role || null,
+    initiator_coordination_device_id: raw.initiator_coordination_device_id ?? null,
+    acceptor_coordination_device_id: raw.acceptor_coordination_device_id ?? null,
+    internal_peer_device_id: raw.internal_peer_device_id ?? null,
+    internal_peer_device_role: raw.internal_peer_device_role ?? null,
+    internal_peer_computer_name: raw.internal_peer_computer_name ?? null,
+    internal_routing_key: raw.internal_routing_key ?? null,
+    internal_coordination_identity_complete:
+      raw.internal_coordination_identity_complete === true || raw.internal_coordination_identity_complete === 1,
   }
 }
 

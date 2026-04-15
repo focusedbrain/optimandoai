@@ -96,6 +96,8 @@ export function HandshakeRequestForm({
   const [isInternal, setIsInternal] = useState(!!presetInternal)
   const [deviceRole, setDeviceRole] = useState<'host' | 'sandbox'>('sandbox')
   const [deviceName, setDeviceName] = useState('')
+  const [counterpartyDeviceId, setCounterpartyDeviceId] = useState('')
+  const [counterpartyComputerName, setCounterpartyComputerName] = useState('')
   const [message, setMessage] = useState('')
   const [fingerprintCopied, setFingerprintCopied] = useState(false)
 
@@ -165,6 +167,21 @@ export function HandshakeRequestForm({
       return
     }
 
+    if (isInternal) {
+      if (!deviceName.trim()) {
+        setSendError('This computer name is required for internal handshakes')
+        return
+      }
+      if (!counterpartyDeviceId.trim()) {
+        setSendError('Other device coordination ID is required for internal handshakes')
+        return
+      }
+      if (!counterpartyComputerName.trim()) {
+        setSendError('Other computer name is required for internal handshakes')
+        return
+      }
+    }
+
     setSendError(null)
     setIsSending(true)
 
@@ -187,8 +204,11 @@ export function HandshakeRequestForm({
           ...(isInternal
             ? {
                 handshake_type: 'internal',
-                device_name: deviceName.trim() || undefined,
+                device_name: deviceName.trim(),
                 device_role: deviceRole,
+                counterparty_device_id: counterpartyDeviceId.trim(),
+                counterparty_device_role: deviceRole === 'host' ? 'sandbox' : 'host',
+                counterparty_computer_name: counterpartyComputerName.trim(),
               }
             : {}),
         },
@@ -367,6 +387,8 @@ export function HandshakeRequestForm({
                 }
               } else {
                 setRecipientEmail('')
+                setCounterpartyDeviceId('')
+                setCounterpartyComputerName('')
               }
             }}
           />
@@ -424,6 +446,47 @@ export function HandshakeRequestForm({
                   border: deviceRole === 'sandbox' ? 'none' : `1px solid ${borderColor}`,
                 }}
               >Sandbox</button>
+            </div>
+            <p style={{ fontSize: '11px', color: mutedColor, marginTop: '8px', marginBottom: 0, lineHeight: 1.45 }}>
+              The other device must be the opposite role ({deviceRole === 'host' ? 'Sandbox' : 'Host'}).
+            </p>
+          </div>
+        )}
+
+        {isInternal && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            <div>
+              <label style={labelStyle}>This computer name *</label>
+              <input
+                type="text"
+                value={deviceName}
+                onChange={(e) => setDeviceName(e.target.value)}
+                disabled={isSending}
+                placeholder="Must differ from the other device’s computer name"
+                style={inputStyle}
+              />
+            </div>
+            <div>
+              <label style={labelStyle}>Other device coordination ID *</label>
+              <input
+                type="text"
+                value={counterpartyDeviceId}
+                onChange={(e) => setCounterpartyDeviceId(e.target.value)}
+                disabled={isSending}
+                placeholder="Orchestrator / relay device id from the other machine"
+                style={inputStyle}
+              />
+            </div>
+            <div>
+              <label style={labelStyle}>Other computer name *</label>
+              <input
+                type="text"
+                value={counterpartyComputerName}
+                onChange={(e) => setCounterpartyComputerName(e.target.value)}
+                disabled={isSending}
+                placeholder="Computer name as shown on the other device"
+                style={inputStyle}
+              />
             </div>
           </div>
         )}

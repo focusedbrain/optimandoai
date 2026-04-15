@@ -16,6 +16,7 @@ import {
   deleteHandshakeRecord,
   updateHandshakeSigningKeys,
   updateHandshakeRecord,
+  refreshInternalHandshakePersistenceFlags,
   getPendingP2PBeapMessages,
   markP2PPendingBeapProcessed,
   getPendingPlainEmails,
@@ -68,6 +69,15 @@ import { replayBufferedContextSync } from '../p2p/coordinationWs'
 import { canonicalRebuild } from './canonicalRebuild'
 import { semanticSearch } from './embeddings'
 import { validateReceiverEmail, isSameAccountHandshakeEmails } from '../../../../../packages/shared/src/handshake/receiverEmailValidation'
+import {
+  validateInternalEndpointFields,
+  validateInternalEndpointPairDistinct,
+} from '../../../../../packages/shared/src/handshake/internalEndpointValidation'
+import {
+  coordinationDevicePairForInternalRecord,
+  internalRelayCapsuleWireOptsFromRecord,
+} from './internalCoordinationWire'
+import { formatLocalInternalRelayValidationJson } from './internalRelayOutboundGuards'
 
 /** Coordination registry must use JWT `sub` for both parties when the handshake is same-account, or same-user device routing never engages. */
 function coordinationAcceptorUserIdForRegistration(
@@ -104,10 +114,34 @@ import {
 
 // ── Key Agreement: always generate paired keys in main process (qBEAP decrypt requires local secrets) ──
 
-async function ensureKeyAgreementKeys(params: {
-  sender_x25519_public_key_b64?: string | null
-  sender_mlkem768_public_key_b64?: string | null
-}): Promise<BeapKeyAgreementMaterial> {
+/** Thrown when internal (device-bound) continuity requires X25519 and none can be resolved. */
+class BoundKeyAgreementError extends Error {
+  readonly code = 'ERR_HANDSHAKE_BOUND_KEY_MISSING' as const
+
+  constructor(message: string) {
+    super(message)
+    this.name = 'BoundKeyAgreementError'
+    Object.setPrototypeOf(this, new.target.prototype)
+  }
+}
+
+type EnsureKeyAgreementKeysOptions = {
+  /**
+   * Internal handshakes: never mint a random X25519 keypair here — use caller-provided pubkey
+   * (extension) or the orchestrator `device_keys` row. Otherwise fail fast (capsule vs encrypt drift).
+   * Cross-party flows may still use ephemeral fallback when the caller omits the key.
+   */
+  strictDeviceBoundX25519?: boolean
+}
+
+async function ensureKeyAgreementKeys(
+  params: {
+    sender_x25519_public_key_b64?: string | null
+    sender_mlkem768_public_key_b64?: string | null
+  },
+  options?: EnsureKeyAgreementKeysOptions,
+): Promise<BeapKeyAgreementMaterial> {
+  const strictDeviceX25519 = options?.strictDeviceBoundX25519 === true
   // X25519: use the key provided by the caller (extension device key) when valid.
   // The extension sends its persistent chrome.storage device key so that the key
   // exchanged in the handshake capsule matches the key used at encrypt time.
@@ -123,6 +157,21 @@ async function ensureKeyAgreementKeys(params: {
     x25519Pub = providedX25519
     x25519Priv = null
     console.log('[KEY-AGREEMENT] Using caller-provided X25519 public key (extension device key)')
+  } else if (strictDeviceX25519) {
+    try {
+      const devPub = await getDeviceX25519PublicKey()
+      x25519Pub = devPub.trim()
+      x25519Priv = null
+      console.log('[KEY-AGREEMENT] Using orchestrator device X25519 public key (strict internal continuity)')
+    } catch (e) {
+      if (e instanceof DeviceKeyNotFoundError) {
+        throw new BoundKeyAgreementError(
+          'ERR_HANDSHAKE_BOUND_KEY_MISSING: Internal handshake requires a stable X25519 identity. ' +
+            'Pass senderX25519PublicKeyB64 (or key_agreement.x25519_public_key_b64), or provision the orchestrator device key.',
+        )
+      }
+      throw e
+    }
   } else {
     // ERR_HANDSHAKE_BOUND_KEY_MISSING: generating a fresh X25519 keypair in a bound flow means
     // the acceptor will store a key the sender never uses for encryption — AES-GCM auth WILL fail.
@@ -620,6 +669,7 @@ export async function handleHandshakeRPC(
       ) {
         try {
           db.prepare(`UPDATE handshakes SET handshake_type = ? WHERE handshake_id = ?`).run('internal', persistResult.handshake_id)
+          refreshInternalHandshakePersistenceFlags(db, persistResult.handshake_id)
         } catch (e) {
           console.warn('[IMPORT] Could not mark handshake as internal:', e)
         }
@@ -805,7 +855,22 @@ export async function handleHandshakeRPC(
       // `pkg` is parsed JSON: BEAP message package (header/metadata/envelope|payload) from the extension,
       // or a capsule envelope — coordination `/beap/capsule` accepts both (see coordination-service).
       console.log(`[P2P-SEND] Enqueuing capsule for handshake ${handshakeId} → ${targetEndpoint}`)
-      enqueueOutboundCapsule(db, handshakeId, targetEndpoint, pkg)
+      const enqCap = enqueueOutboundCapsule(db, handshakeId, targetEndpoint, pkg)
+      if (!enqCap.enqueued) {
+        const errJson = formatLocalInternalRelayValidationJson({
+          phase: 'enqueue_guard',
+          invariant: enqCap.invariant,
+          message: enqCap.message,
+          missing_fields: enqCap.missing_fields,
+        })
+        return {
+          success: false,
+          delivered: false,
+          queued: false,
+          error: errJson,
+          code: 'LOCAL_INTERNAL_RELAY_VALIDATION_FAILED',
+        }
+      }
       const deliveryResult = await processOutboundQueue(db, _getOidcToken)
       console.log('[P2P-SEND] Delivery result:', JSON.stringify({
         delivered: deliveryResult.delivered,
@@ -929,6 +994,9 @@ export async function handleHandshakeRPC(
         handshake_type: initHandshakeType,
         device_name: initDeviceName,
         device_role: initDeviceRole,
+        counterparty_device_id: initCounterpartyDeviceId,
+        counterparty_device_role: initCounterpartyDeviceRole,
+        counterparty_computer_name: initCounterpartyComputerName,
       } = params as {
         receiverUserId: string
         receiverEmail: string
@@ -943,10 +1011,56 @@ export async function handleHandshakeRPC(
         handshake_type?: 'internal' | 'standard'
         device_name?: string
         device_role?: 'host' | 'sandbox'
+        counterparty_device_id?: string
+        counterparty_device_role?: 'host' | 'sandbox'
+        counterparty_computer_name?: string
       }
 
       if (!receiverUserId || !receiverEmail) {
         return { success: false, error: 'receiverUserId and receiverEmail are required' }
+      }
+
+      if (initHandshakeType === 'internal') {
+        const localRelayId = getLocalDeviceIdForRelay()
+        if (!localRelayId?.trim()) {
+          return {
+            success: false,
+            error: 'INTERNAL_ENDPOINT_INCOMPLETE: orchestrator device_id is required for internal handshakes',
+          }
+        }
+        const vSelf = validateInternalEndpointFields(
+          'initiator',
+          localRelayId,
+          initDeviceRole,
+          initDeviceName,
+        )
+        if (!vSelf.ok) {
+          return { success: false, error: `${vSelf.code}: ${vSelf.message}` }
+        }
+        const vPeer = validateInternalEndpointFields(
+          'receiver',
+          initCounterpartyDeviceId,
+          initCounterpartyDeviceRole,
+          initCounterpartyComputerName,
+        )
+        if (!vPeer.ok) {
+          return { success: false, error: `${vPeer.code}: ${vPeer.message}` }
+        }
+        const pair = validateInternalEndpointPairDistinct(
+          {
+            deviceId: localRelayId.trim(),
+            deviceRole: initDeviceRole!,
+            computerName: initDeviceName!.trim(),
+          },
+          {
+            deviceId: initCounterpartyDeviceId!.trim(),
+            deviceRole: initCounterpartyDeviceRole!,
+            computerName: initCounterpartyComputerName!.trim(),
+          },
+        )
+        if (!pair.ok) {
+          return { success: false, error: `${pair.code}: ${pair.message}` }
+        }
       }
 
       let session: SSOSession
@@ -955,6 +1069,7 @@ export async function handleHandshakeRPC(
       }
 
       const handshakeId = `hs-${randomUUID()}`
+      const strictInternalX25519 = initHandshakeType === 'internal'
       const { blocks: contextBlocks, blockPolicyMap: initBlockPolicyMap } = buildContextBlocksFromParamsWithPolicy(rawBlocks, rawMessage)
       const profileIds = initProfileIds ?? (initProfileItems?.map((i) => i.profile_id) ?? [])
       const profileBlocks = profileIds.length > 0
@@ -973,10 +1088,30 @@ export async function handleHandshakeRPC(
       const p2pEndpoint = p2pEndpointParam ?? getEffectiveRelayEndpoint(p2pConfig, localEndpoint) ?? (typeof process !== 'undefined' ? (process as any).env?.BEAP_P2P_ENDPOINT : null) ?? null
       const p2pAuthToken = p2pEndpoint ? randomBytes(32).toString('hex') : null
 
-      const keyAgreementRaw = await ensureKeyAgreementKeys({
-        sender_x25519_public_key_b64: (params as any).senderX25519PublicKeyB64 ?? (params as any).key_agreement?.x25519_public_key_b64,
-        sender_mlkem768_public_key_b64: (params as any).senderMlkem768PublicKeyB64 ?? (params as any).key_agreement?.mlkem768_public_key_b64,
-      })
+      let keyAgreementRaw: BeapKeyAgreementMaterial
+      try {
+        keyAgreementRaw = await ensureKeyAgreementKeys(
+          {
+            sender_x25519_public_key_b64: (params as any).senderX25519PublicKeyB64 ?? (params as any).key_agreement?.x25519_public_key_b64,
+            sender_mlkem768_public_key_b64: (params as any).senderMlkem768PublicKeyB64 ?? (params as any).key_agreement?.mlkem768_public_key_b64,
+          },
+          { strictDeviceBoundX25519: strictInternalX25519 },
+        )
+      } catch (e) {
+        if (e instanceof BoundKeyAgreementError) {
+          return {
+            type: 'handshake-initiate-result',
+            success: false,
+            error: e.message,
+            code: e.code,
+            handshake_id: handshakeId,
+            email_sent: false,
+            local_result: { success: false, error: e.message },
+            electronGeneratedMlkemSecret: null,
+          }
+        }
+        throw e
+      }
       // If the extension provided the ML-KEM secret, store it in the DB record.
       // ensureKeyAgreementKeys sets sender_mlkem768_secret_key_b64=null when a caller-provided public key
       // is used (it assumes the extension holds the secret). We override that here so the Electron-side
@@ -995,6 +1130,22 @@ export async function handleHandshakeRPC(
         ...(p2pAuthToken ? { p2p_auth_token: p2pAuthToken } : {}),
         sender_x25519_public_key_b64: keyAgreement.sender_x25519_public_key_b64,
         sender_mlkem768_public_key_b64: keyAgreement.sender_mlkem768_public_key_b64,
+        ...(initHandshakeType === 'internal' &&
+        initDeviceRole &&
+        initDeviceName?.trim() &&
+        initCounterpartyDeviceId?.trim() &&
+        initCounterpartyDeviceRole &&
+        initCounterpartyComputerName?.trim()
+          ? {
+              initiatorDeviceRole: initDeviceRole,
+              initiatorComputerName: initDeviceName.trim(),
+              internalEndpointPeer: {
+                deviceId: initCounterpartyDeviceId.trim(),
+                deviceRole: initCounterpartyDeviceRole,
+                computerName: initCounterpartyComputerName.trim(),
+              },
+            }
+          : {}),
       })
 
       const canonicalBlockPolicyMap = new Map<string, { ai_processing_mode?: 'none' | 'local_only' | 'internal_and_cloud' } | { cloud_ai?: boolean; internal_ai?: boolean }>()
@@ -1024,15 +1175,6 @@ export async function handleHandshakeRPC(
           canonicalBlockPolicyMap,
           keyAgreement,
         )
-        if (localResult.success && initHandshakeType === 'internal') {
-          db.prepare(`
-            UPDATE handshakes
-            SET handshake_type = ?,
-                initiator_device_name = ?,
-                initiator_device_role = ?
-            WHERE handshake_id = ?
-          `).run(initHandshakeType, initDeviceName || null, initDeviceRole || null, capsule.handshake_id)
-        }
         if (localResult.success && (p2pAuthToken || getP2PConfig(db).use_coordination) && receiverEmail) {
           // Registration is blocking: if the relay doesn't know this handshake exists, the
           // accept capsule will 403. Use session.sub (JWT sub claim) — NOT wrdesk_user_id —
@@ -1047,7 +1189,11 @@ export async function handleHandshakeRPC(
                 }),
                 initiator_email: session.email,
                 acceptor_email: receiverEmail,
+                handshake_type: initHandshakeType,
                 ...(localRelayDeviceId ? { initiator_device_id: localRelayDeviceId } : {}),
+                ...(initHandshakeType === 'internal' && initCounterpartyDeviceId?.trim()
+                  ? { acceptor_device_id: initCounterpartyDeviceId.trim() }
+                  : {}),
               })
             : await registerHandshakeWithRelay(db, capsule.handshake_id, p2pAuthToken ?? '', receiverEmail)
           if (!regResult.success) {
@@ -1086,6 +1232,9 @@ export async function handleHandshakeRPC(
         handshake_type: dlHandshakeType,
         device_name: dlDeviceName,
         device_role: dlDeviceRole,
+        counterparty_device_id: dlCounterpartyDeviceId,
+        counterparty_device_role: dlCounterpartyDeviceRole,
+        counterparty_computer_name: dlCounterpartyComputerName,
       } = params as {
         receiverUserId: string
         receiverEmail: string
@@ -1099,10 +1248,56 @@ export async function handleHandshakeRPC(
         handshake_type?: 'internal' | 'standard'
         device_name?: string
         device_role?: 'host' | 'sandbox'
+        counterparty_device_id?: string
+        counterparty_device_role?: 'host' | 'sandbox'
+        counterparty_computer_name?: string
       }
 
       if (!dlReceiverUserId || !dlReceiverEmail) {
         return { success: false, error: 'receiverUserId and receiverEmail are required' }
+      }
+
+      if (dlHandshakeType === 'internal') {
+        const localRelayIdDl = getLocalDeviceIdForRelay()
+        if (!localRelayIdDl?.trim()) {
+          return {
+            success: false,
+            error: 'INTERNAL_ENDPOINT_INCOMPLETE: orchestrator device_id is required for internal handshakes',
+          }
+        }
+        const vSelfDl = validateInternalEndpointFields(
+          'initiator',
+          localRelayIdDl,
+          dlDeviceRole,
+          dlDeviceName,
+        )
+        if (!vSelfDl.ok) {
+          return { success: false, error: `${vSelfDl.code}: ${vSelfDl.message}` }
+        }
+        const vPeerDl = validateInternalEndpointFields(
+          'receiver',
+          dlCounterpartyDeviceId,
+          dlCounterpartyDeviceRole,
+          dlCounterpartyComputerName,
+        )
+        if (!vPeerDl.ok) {
+          return { success: false, error: `${vPeerDl.code}: ${vPeerDl.message}` }
+        }
+        const pairDl = validateInternalEndpointPairDistinct(
+          {
+            deviceId: localRelayIdDl.trim(),
+            deviceRole: dlDeviceRole!,
+            computerName: dlDeviceName!.trim(),
+          },
+          {
+            deviceId: dlCounterpartyDeviceId!.trim(),
+            deviceRole: dlCounterpartyDeviceRole!,
+            computerName: dlCounterpartyComputerName!.trim(),
+          },
+        )
+        if (!pairDl.ok) {
+          return { success: false, error: `${pairDl.code}: ${pairDl.message}` }
+        }
       }
 
       let session: SSOSession
@@ -1111,6 +1306,7 @@ export async function handleHandshakeRPC(
       }
 
       const dlHandshakeId = `hs-${randomUUID()}`
+      const dlStrictInternalX25519 = dlHandshakeType === 'internal'
       const { blocks: dlContextBlocks, blockPolicyMap: dlBlockPolicyMap } = buildContextBlocksFromParamsWithPolicy(dlRawBlocks, dlRawMessage)
       const dlProfileIdsList = dlProfileIds ?? (dlProfileItems?.map((i) => i.profile_id) ?? [])
       const dlProfileBlocks = dlProfileIdsList.length > 0
@@ -1129,10 +1325,30 @@ export async function handleHandshakeRPC(
       const dlP2PEndpoint = dlP2PEndpointParam ?? getEffectiveRelayEndpoint(dlP2PConfig, dlLocalEndpoint) ?? (typeof process !== 'undefined' ? (process as any).env?.BEAP_P2P_ENDPOINT : null) ?? null
       const dlP2PAuthToken = dlP2PEndpoint ? randomBytes(32).toString('hex') : null
 
-      const dlKeyAgreementRaw = await ensureKeyAgreementKeys({
-        sender_x25519_public_key_b64: (params as any).senderX25519PublicKeyB64 ?? (params as any).key_agreement?.x25519_public_key_b64,
-        sender_mlkem768_public_key_b64: (params as any).senderMlkem768PublicKeyB64 ?? (params as any).key_agreement?.mlkem768_public_key_b64,
-      })
+      let dlKeyAgreementRaw: BeapKeyAgreementMaterial
+      try {
+        dlKeyAgreementRaw = await ensureKeyAgreementKeys(
+          {
+            sender_x25519_public_key_b64: (params as any).senderX25519PublicKeyB64 ?? (params as any).key_agreement?.x25519_public_key_b64,
+            sender_mlkem768_public_key_b64: (params as any).senderMlkem768PublicKeyB64 ?? (params as any).key_agreement?.mlkem768_public_key_b64,
+          },
+          { strictDeviceBoundX25519: dlStrictInternalX25519 },
+        )
+      } catch (e) {
+        if (e instanceof BoundKeyAgreementError) {
+          return {
+            type: 'handshake-build-result',
+            success: false,
+            error: e.message,
+            code: e.code,
+            handshake_id: dlHandshakeId,
+            capsule_json: null,
+            suggested_filename: null,
+            electronGeneratedMlkemSecret: null,
+          }
+        }
+        throw e
+      }
       // Override ML-KEM secret with caller-provided value so it gets persisted in the DB record.
       const dlCallerMlkemSecret = (params as any).senderMlkem768SecretKeyB64?.trim() || null
       const dlKeyAgreement = dlCallerMlkemSecret
@@ -1148,6 +1364,22 @@ export async function handleHandshakeRPC(
         ...(dlP2PAuthToken ? { p2p_auth_token: dlP2PAuthToken } : {}),
         sender_x25519_public_key_b64: dlKeyAgreement.sender_x25519_public_key_b64,
         sender_mlkem768_public_key_b64: dlKeyAgreement.sender_mlkem768_public_key_b64,
+        ...(dlHandshakeType === 'internal' &&
+        dlDeviceRole &&
+        dlDeviceName?.trim() &&
+        dlCounterpartyDeviceId?.trim() &&
+        dlCounterpartyDeviceRole &&
+        dlCounterpartyComputerName?.trim()
+          ? {
+              initiatorDeviceRole: dlDeviceRole,
+              initiatorComputerName: dlDeviceName.trim(),
+              internalEndpointPeer: {
+                deviceId: dlCounterpartyDeviceId.trim(),
+                deviceRole: dlCounterpartyDeviceRole,
+                computerName: dlCounterpartyComputerName.trim(),
+              },
+            }
+          : {}),
       })
 
       const dlCanonicalBlockPolicyMap = new Map<string, { ai_processing_mode?: 'none' | 'local_only' | 'internal_and_cloud' } | { cloud_ai?: boolean; internal_ai?: boolean }>()
@@ -1195,16 +1427,6 @@ export async function handleHandshakeRPC(
         }
       }
 
-      if (dlHandshakeType === 'internal') {
-        db.prepare(`
-            UPDATE handshakes
-            SET handshake_type = ?,
-                initiator_device_name = ?,
-                initiator_device_role = ?
-            WHERE handshake_id = ?
-          `).run(dlHandshakeType, dlDeviceName || null, dlDeviceRole || null, capsule.handshake_id)
-      }
-
       // Register with relay BEFORE returning the capsule so that when the acceptor
       // imports and submits the accept capsule, the relay already knows the routing.
       // We still do this async (non-blocking) because relay registration failure is
@@ -1222,7 +1444,11 @@ export async function handleHandshakeRPC(
               }),
               initiator_email: session.email,
               acceptor_email: dlReceiverEmail,
+              handshake_type: dlHandshakeType,
               ...(localRelayDeviceId ? { initiator_device_id: localRelayDeviceId } : {}),
+              ...(dlHandshakeType === 'internal' && dlCounterpartyDeviceId?.trim()
+                ? { acceptor_device_id: dlCounterpartyDeviceId.trim() }
+                : {}),
             })
           : registerHandshakeWithRelay(db, capsule.handshake_id, dlP2PAuthToken ?? '', dlReceiverEmail)
 
@@ -1304,6 +1530,60 @@ export async function handleHandshakeRPC(
         initiatorEmail = session.email
       }
 
+      if (record.handshake_type === 'internal') {
+        const acceptLocalDev = getLocalDeviceIdForRelay()
+        if (!acceptLocalDev?.trim()) {
+          return {
+            success: false,
+            error:
+              'INTERNAL_ENDPOINT_INCOMPLETE: orchestrator device_id is required to accept an internal handshake',
+          }
+        }
+        const vInit = validateInternalEndpointFields(
+          'initiator',
+          record.initiator_coordination_device_id,
+          record.initiator_device_role,
+          record.initiator_device_name,
+        )
+        if (!vInit.ok) {
+          return { success: false, error: `${vInit.code}: ${vInit.message}` }
+        }
+        const vAcc = validateInternalEndpointFields(
+          'acceptor',
+          acceptLocalDev,
+          acceptDeviceRole,
+          acceptDeviceName,
+        )
+        if (!vAcc.ok) {
+          return { success: false, error: `${vAcc.code}: ${vAcc.message}` }
+        }
+        const pairAcc = validateInternalEndpointPairDistinct(
+          {
+            deviceId: record.initiator_coordination_device_id!.trim(),
+            deviceRole: record.initiator_device_role!,
+            computerName: record.initiator_device_name!.trim(),
+          },
+          {
+            deviceId: acceptLocalDev.trim(),
+            deviceRole: acceptDeviceRole!,
+            computerName: acceptDeviceName!.trim(),
+          },
+        )
+        if (!pairAcc.ok) {
+          return { success: false, error: `${pairAcc.code}: ${pairAcc.message}` }
+        }
+        if (
+          record.internal_peer_device_id?.trim() &&
+          acceptLocalDev.trim() !== record.internal_peer_device_id.trim()
+        ) {
+          return {
+            success: false,
+            error:
+              'INTERNAL_PEER_DEVICE_MISMATCH: this device is not the intended peer for this internal handshake',
+          }
+        }
+      }
+
       // 1. Query initiator's echoed blocks (from initiate capsule)
       let initiatorBlocks: ContextBlockForCommitment[] = []
       try {
@@ -1354,10 +1634,33 @@ export async function handleHandshakeRPC(
       const p2pEndpoint = p2pEndpointParam ?? getEffectiveRelayEndpoint(acceptP2PConfig, acceptLocalEndpoint) ?? (typeof process !== 'undefined' ? (process as any).env?.BEAP_P2P_ENDPOINT : null) ?? null
       const p2pAuthToken = p2pEndpoint ? randomBytes(32).toString('hex') : null
 
-      const acceptKeyAgreementRaw = await ensureKeyAgreementKeys({
-        sender_x25519_public_key_b64: (params as any).senderX25519PublicKeyB64 ?? (params as any).key_agreement?.x25519_public_key_b64,
-        sender_mlkem768_public_key_b64: (params as any).senderMlkem768PublicKeyB64 ?? (params as any).key_agreement?.mlkem768_public_key_b64,
-      })
+      let acceptKeyAgreementRaw: BeapKeyAgreementMaterial
+      try {
+        acceptKeyAgreementRaw = await ensureKeyAgreementKeys(
+          {
+            sender_x25519_public_key_b64: (params as any).senderX25519PublicKeyB64 ?? (params as any).key_agreement?.x25519_public_key_b64,
+            sender_mlkem768_public_key_b64: (params as any).senderMlkem768PublicKeyB64 ?? (params as any).key_agreement?.mlkem768_public_key_b64,
+          },
+          { strictDeviceBoundX25519: record.handshake_type === 'internal' },
+        )
+      } catch (e) {
+        if (e instanceof BoundKeyAgreementError) {
+          return {
+            type: 'handshake-accept-result',
+            success: false,
+            error: e.message,
+            code: e.code,
+            handshake_id,
+            email_sent: false,
+            email_error: undefined,
+            local_result: { success: false, error: e.message },
+            context_sync_status: 'skipped',
+            electronGeneratedMlkemSecret: null,
+            message: undefined,
+          }
+        }
+        throw e
+      }
       // Override ML-KEM secret with caller-provided value so it gets persisted in the DB record.
       const acceptCallerMlkemSecret = (params as any).senderMlkem768SecretKeyB64?.trim() || null
       const acceptKeyAgreement = acceptCallerMlkemSecret
@@ -1391,6 +1694,16 @@ export async function handleHandshakeRPC(
         ...(p2pAuthToken ? { p2p_auth_token: p2pAuthToken } : {}),
         sender_x25519_public_key_b64: acceptKeyAgreement.sender_x25519_public_key_b64,
         sender_mlkem768_public_key_b64: acceptKeyAgreement.sender_mlkem768_public_key_b64,
+        initiatorCoordinationDeviceId: record.initiator_coordination_device_id?.trim() ?? undefined,
+        isInternalHandshake: record.handshake_type === 'internal',
+        ...(record.handshake_type === 'internal'
+          ? {
+              senderDeviceRole: acceptDeviceRole,
+              senderComputerName: acceptDeviceName,
+              receiverDeviceRole: record.initiator_device_role ?? undefined,
+              receiverComputerName: record.initiator_device_name?.trim() ?? undefined,
+            }
+          : {}),
       })
       console.log('[ACCEPT-1] Accept capsule built for:', handshake_id)
       updateHandshakeSigningKeys(db, handshake_id, {
@@ -1524,7 +1837,21 @@ export async function handleHandshakeRPC(
 
       if (localResult.success && db) {
         try {
-          if (acceptDeviceName || acceptDeviceRole) {
+          const accCoordDev = getLocalDeviceIdForRelay()
+          if (record.handshake_type === 'internal' && accCoordDev?.trim()) {
+            db.prepare(`
+            UPDATE handshakes
+            SET acceptor_device_name = ?,
+                acceptor_device_role = ?,
+                acceptor_coordination_device_id = ?
+            WHERE handshake_id = ?
+          `).run(
+            acceptDeviceName || null,
+            acceptDeviceRole || null,
+            accCoordDev.trim(),
+            handshake_id,
+          )
+          } else if (acceptDeviceName || acceptDeviceRole) {
             db.prepare(`
             UPDATE handshakes
             SET acceptor_device_name = ?,
@@ -1535,9 +1862,13 @@ export async function handleHandshakeRPC(
         } catch (e) {
           console.warn('Could not save acceptor device metadata:', e)
         }
-        // Refresh record from DB after accept ingest (captures p2p_endpoint update)
+        // Refresh record from DB after accept ingest (captures p2p_endpoint update + internal routing flags)
         const refreshed = getHandshakeRecord(db, handshake_id)
-        if (refreshed) record = refreshed
+        if (refreshed) {
+          record = refreshed
+          refreshInternalHandshakePersistenceFlags(db, handshake_id)
+          record = getHandshakeRecord(db, handshake_id) ?? record
+        }
       }
 
       // For internal handshakes, initiator email is always the same as session email
@@ -1591,6 +1922,7 @@ export async function handleHandshakeRPC(
                 acceptor_user_id: session.sub,
                 initiator_email: initiatorEmail,
                 acceptor_email: session.email,
+                handshake_type: record.handshake_type ?? undefined,
                 ...(acceptLocalDeviceId ? { acceptor_device_id: acceptLocalDeviceId } : {}),
                 ...(record.initiator_coordination_device_id?.trim()
                   ? { initiator_device_id: record.initiator_coordination_device_id.trim() }
@@ -1610,8 +1942,15 @@ export async function handleHandshakeRPC(
             try {
               console.log('[ACCEPT-7] Enqueue target:', record?.p2p_endpoint)
               console.log('[HANDSHAKE-DEBUG] Enqueueing accept capsule for relay delivery', handshake_id, 'target:', targetEndpoint)
-              enqueueOutboundCapsule(db, handshake_id, targetEndpoint, capsule)
-              console.log('[HANDSHAKE-DEBUG] Accept capsule enqueued, calling processOutboundQueue', handshake_id)
+              const enqAccept = enqueueOutboundCapsule(db, handshake_id, targetEndpoint, capsule)
+              if (!enqAccept.enqueued) {
+                console.warn(
+                  '[HANDSHAKE] Accept capsule enqueue blocked by internal relay guard:',
+                  enqAccept.message,
+                )
+              } else {
+                console.log('[HANDSHAKE-DEBUG] Accept capsule enqueued, calling processOutboundQueue', handshake_id)
+              }
             } catch (err: any) {
               console.warn('[P2P] Enqueue accept capsule failed:', err?.message)
               console.log('[HANDSHAKE-DEBUG] Accept capsule enqueue threw:', err?.message)
@@ -1755,6 +2094,20 @@ export async function handleHandshakeRPC(
       if (!localPub || !localPriv) {
         return { success: false, error: 'Handshake signing keys not found. Re-accept the handshake to enable signatures.' }
       }
+      let refreshLocalDev: string | undefined
+      try {
+        refreshLocalDev = getLocalDeviceIdForRelay()
+      } catch {
+        refreshLocalDev = undefined
+      }
+      const refreshInternalWire = internalRelayCapsuleWireOptsFromRecord(record, refreshLocalDev)
+      if (record.handshake_type === 'internal' && getP2PConfig(db).use_coordination && !refreshInternalWire) {
+        return {
+          success: false,
+          error:
+            'INTERNAL_RELAY_ENDPOINTS_INCOMPLETE: cannot refresh over coordination without both device ids on the handshake record',
+        }
+      }
       const capsule = buildRefreshCapsule(session, {
         handshake_id,
         counterpartyUserId,
@@ -1764,6 +2117,7 @@ export async function handleHandshakeRPC(
         context_block_proofs: context_block_proofs ?? [],
         local_public_key: localPub,
         local_private_key: localPriv,
+        ...(refreshInternalWire ?? {}),
       })
 
       let emailResult: any = null

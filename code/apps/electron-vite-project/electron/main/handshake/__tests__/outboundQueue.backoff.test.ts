@@ -5,6 +5,13 @@
 
 import { describe, test, expect, beforeEach, afterEach, vi } from 'vitest'
 import { createRequire } from 'module'
+
+const registerHandshakeMock = vi.hoisted(() => vi.fn())
+
+vi.mock('../../p2p/relaySync', () => ({
+  registerHandshakeWithRelay: (...args: unknown[]) => registerHandshakeMock(...args),
+}))
+
 import {
   processOutboundQueue,
   enqueueOutboundCapsule,
@@ -83,6 +90,8 @@ describe.skipIf(!hasSqlite)('outboundQueue: backoff & transport', () => {
   beforeEach(() => {
     db = createTestDb()
     fetchSpy = vi.spyOn(globalThis, 'fetch')
+    registerHandshakeMock.mockReset()
+    registerHandshakeMock.mockResolvedValue({ success: false, error: 'mock default' })
   })
 
   afterEach(() => {
@@ -529,5 +538,105 @@ describe.skipIf(!hasSqlite)('outboundQueue: backoff & transport', () => {
       retry_count: number
     }
     expect(row2.retry_count).toBe(1)
+  })
+
+  test('QB_20_coordination_403_terminal_identity_no_reregister', async () => {
+    upsertP2PConfig(db, {
+      relay_mode: 'local',
+      use_coordination: true,
+      coordination_url: 'https://coordination.wrdesk.com',
+    })
+    insertHandshakeRecord(db, relayDirectHandshake('hs-qb-20'))
+    fetchSpy.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          code: 'RELAY_RECEIVER_DEVICE_MISMATCH',
+          error: 'RELAY_RECEIVER_DEVICE_MISMATCH',
+          detail: 'receiver_device_id does not match registry route',
+        }),
+        { status: 403, headers: { 'Content-Type': 'application/json' } },
+      ),
+    )
+    enqueueOutboundCapsule(db, 'hs-qb-20', 'https://coordination.wrdesk.com/beap/capsule', minimalCapsule('hs-qb-20'))
+
+    const r = await processOutboundQueue(db, async () => 'oidc-token')
+
+    expect(registerHandshakeMock).not.toHaveBeenCalled()
+    expect(fetchSpy).toHaveBeenCalledTimes(1)
+    expect(r.queued).toBe(false)
+    expect(r.code).toBe('REQUEST_INVALID')
+    expect(r.failure_class).toBe('SCHEMA_PERMANENT')
+  })
+
+  test('QB_21_coordination_403_generic_forbidden_no_reregister', async () => {
+    upsertP2PConfig(db, {
+      relay_mode: 'local',
+      use_coordination: true,
+      coordination_url: 'https://coordination.wrdesk.com',
+    })
+    insertHandshakeRecord(db, relayDirectHandshake('hs-qb-21'))
+    fetchSpy.mockResolvedValue(new Response('Forbidden', { status: 403 }))
+    enqueueOutboundCapsule(db, 'hs-qb-21', 'https://coordination.wrdesk.com/beap/capsule', minimalCapsule('hs-qb-21'))
+
+    const r = await processOutboundQueue(db, async () => 'oidc-token')
+
+    expect(registerHandshakeMock).not.toHaveBeenCalled()
+    expect(fetchSpy).toHaveBeenCalledTimes(1)
+    expect(r.queued).toBe(false)
+    expect(r.code).toBe('REQUEST_INVALID')
+  })
+
+  test('QB_22_coordination_403_stale_registry_reregister_then_success', async () => {
+    registerHandshakeMock.mockResolvedValue({ success: true })
+    upsertP2PConfig(db, {
+      relay_mode: 'local',
+      use_coordination: true,
+      coordination_url: 'https://coordination.wrdesk.com',
+    })
+    insertHandshakeRecord(db, relayDirectHandshake('hs-qb-22'))
+    fetchSpy
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ error: 'RELAY_SENDER_UNAUTHORIZED' }), {
+          status: 403,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      )
+      .mockResolvedValueOnce(new Response(JSON.stringify({ status: 'ok' }), { status: 200 }))
+    enqueueOutboundCapsule(db, 'hs-qb-22', 'https://coordination.wrdesk.com/beap/capsule', minimalCapsule('hs-qb-22'))
+
+    const r = await processOutboundQueue(db, async () => 'oidc-token')
+
+    expect(registerHandshakeMock).toHaveBeenCalledTimes(1)
+    expect(fetchSpy).toHaveBeenCalledTimes(2)
+    expect(r.delivered).toBe(true)
+    expect(r.code).toBe('DELIVERED')
+  })
+
+  test('QB_23_coordination_403_stale_registry_second_unauthorized_terminal', async () => {
+    registerHandshakeMock.mockResolvedValue({ success: true })
+    upsertP2PConfig(db, {
+      relay_mode: 'local',
+      use_coordination: true,
+      coordination_url: 'https://coordination.wrdesk.com',
+    })
+    insertHandshakeRecord(db, relayDirectHandshake('hs-qb-23'))
+    fetchSpy.mockResolvedValue(
+      new Response(JSON.stringify({ error: 'RELAY_SENDER_UNAUTHORIZED' }), {
+        status: 403,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    )
+    enqueueOutboundCapsule(db, 'hs-qb-23', 'https://coordination.wrdesk.com/beap/capsule', minimalCapsule('hs-qb-23'))
+    db.prepare(`UPDATE outbound_capsule_queue SET failure_class = ? WHERE handshake_id = ?`).run(
+      'COORD_REREG_ATTEMPTED',
+      'hs-qb-23',
+    )
+
+    const r = await processOutboundQueue(db, async () => 'oidc-token')
+
+    expect(registerHandshakeMock).not.toHaveBeenCalled()
+    expect(fetchSpy).toHaveBeenCalledTimes(1)
+    expect(r.queued).toBe(false)
+    expect(r.code).toBe('REQUEST_INVALID')
   })
 })

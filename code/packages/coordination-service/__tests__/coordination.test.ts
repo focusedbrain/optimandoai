@@ -27,6 +27,19 @@ function validBeapCapsule(handshakeId: string, senderId = 'user-1'): string {
   })
 }
 
+/** Same-principal relay: device routing fields on top of accept capsule JSON. */
+function samePrincipalCapsule(
+  handshakeId: string,
+  senderUserId: string,
+  senderDeviceId: string,
+  receiverDeviceId?: string,
+): string {
+  const o = JSON.parse(validBeapCapsule(handshakeId, senderUserId)) as Record<string, unknown>
+  o.sender_device_id = senderDeviceId
+  if (receiverDeviceId !== undefined) o.receiver_device_id = receiverDeviceId
+  return JSON.stringify(o)
+}
+
 function makeConfig(overrides: Partial<CoordinationConfig>): CoordinationConfig {
   const base: CoordinationConfig = {
     port: 0,
@@ -641,6 +654,203 @@ describe('coordination-service', () => {
 
     const after = db.prepare(`SELECT COUNT(*) as c FROM coordination_handshake_registry WHERE handshake_id = ?`).get(hsId) as { c: number }
     expect(after?.c ?? 0).toBe(0)
+  })
+
+  test('CS_18_same_principal_register_requires_distinct_device_ids', async () => {
+    const hsId = 'hs-cs18'
+    const r0 = await request(port, 'POST', '/beap/register-handshake', {
+      body: JSON.stringify({
+        handshake_id: hsId,
+        initiator_user_id: 'spuser18',
+        acceptor_user_id: 'spuser18',
+      }),
+      auth: 'test-spuser18-pro',
+      contentType: 'application/json',
+    })
+    expect(r0.status).toBe(400)
+    const b0 = JSON.parse(r0.body)
+    expect(b0.code).toBe('INTERNAL_RELAY_REGISTRATION_MISSING_INITIATOR_DEVICE_ID')
+
+    const r0b = await request(port, 'POST', '/beap/register-handshake', {
+      body: JSON.stringify({
+        handshake_id: `${hsId}a`,
+        initiator_user_id: 'spuser18',
+        acceptor_user_id: 'spuser18',
+        initiator_device_id: 'dev-only-init',
+      }),
+      auth: 'test-spuser18-pro',
+      contentType: 'application/json',
+    })
+    expect(r0b.status).toBe(400)
+    expect(JSON.parse(r0b.body).code).toBe('INTERNAL_RELAY_REGISTRATION_MISSING_ACCEPTOR_DEVICE_ID')
+
+    const r1 = await request(port, 'POST', '/beap/register-handshake', {
+      body: JSON.stringify({
+        handshake_id: `${hsId}b`,
+        initiator_user_id: 'spuser18',
+        acceptor_user_id: 'spuser18',
+        initiator_device_id: 'dev-x',
+        acceptor_device_id: 'dev-x',
+      }),
+      auth: 'test-spuser18-pro',
+      contentType: 'application/json',
+    })
+    expect(r1.status).toBe(400)
+    expect(JSON.parse(r1.body).code).toBe('INTERNAL_RELAY_REGISTRATION_DEVICE_IDS_NOT_DISTINCT')
+
+    const r2 = await request(port, 'POST', '/beap/register-handshake', {
+      body: JSON.stringify({
+        handshake_id: `${hsId}c`,
+        initiator_user_id: 'spuser18',
+        acceptor_user_id: 'spuser18',
+        initiator_device_id: 'dev-host',
+        acceptor_device_id: 'dev-sandbox',
+      }),
+      auth: 'test-spuser18-pro',
+      contentType: 'application/json',
+    })
+    expect(r2.status).toBe(200)
+  })
+
+  test('CS_18b_same_principal_register_persists_optional_audit_columns', async () => {
+    const hsId = 'hs-cs18b-audit'
+    const r = await request(port, 'POST', '/beap/register-handshake', {
+      body: JSON.stringify({
+        handshake_id: hsId,
+        initiator_user_id: 'spuser18b',
+        acceptor_user_id: 'spuser18b',
+        initiator_device_id: 'dev-host-18b',
+        acceptor_device_id: 'dev-sandbox-18b',
+        initiator_device_role: 'host',
+        acceptor_device_role: 'sandbox',
+        initiator_device_name: 'Primary',
+        acceptor_device_name: 'Secondary',
+      }),
+      auth: 'test-spuser18b-pro',
+      contentType: 'application/json',
+    })
+    expect(r.status).toBe(200)
+    const row = relay!.store
+      .getDb()
+      .prepare(
+        `SELECT initiator_device_role, acceptor_device_role, initiator_device_name, acceptor_device_name
+         FROM coordination_handshake_registry WHERE handshake_id = ?`,
+      )
+      .get(hsId) as {
+      initiator_device_role: string | null
+      acceptor_device_role: string | null
+      initiator_device_name: string | null
+      acceptor_device_name: string | null
+    }
+    expect(row.initiator_device_role).toBe('host')
+    expect(row.acceptor_device_role).toBe('sandbox')
+    expect(row.initiator_device_name).toBe('Primary')
+    expect(row.acceptor_device_name).toBe('Secondary')
+  })
+
+  test('CS_19_same_principal_capsule_requires_receiver_device_id', async () => {
+    const hsId = 'hs-cs19'
+    await request(port, 'POST', '/beap/register-handshake', {
+      body: JSON.stringify({
+        handshake_id: hsId,
+        initiator_user_id: 'spuser19',
+        acceptor_user_id: 'spuser19',
+        initiator_device_id: 'dev-host-19',
+        acceptor_device_id: 'dev-sandbox-19',
+      }),
+      auth: 'test-spuser19-pro',
+      contentType: 'application/json',
+    })
+
+    const r = await request(port, 'POST', '/beap/capsule', {
+      body: samePrincipalCapsule(hsId, 'spuser19', 'dev-host-19'),
+      auth: 'test-spuser19-pro',
+      contentType: 'application/json',
+    })
+    expect(r.status).toBe(400)
+    const body = JSON.parse(r.body)
+    expect(body.code).toBe('INTERNAL_CAPSULE_MISSING_DEVICE_ID')
+    expect(String(body.detail)).toContain('receiver_device_id')
+  })
+
+  test('CS_20_same_principal_capsule_rejects_receiver_device_mismatch', async () => {
+    const hsId = 'hs-cs20'
+    await request(port, 'POST', '/beap/register-handshake', {
+      body: JSON.stringify({
+        handshake_id: hsId,
+        initiator_user_id: 'spuser20',
+        acceptor_user_id: 'spuser20',
+        initiator_device_id: 'dev-host-20',
+        acceptor_device_id: 'dev-sandbox-20',
+      }),
+      auth: 'test-spuser20-pro',
+      contentType: 'application/json',
+    })
+
+    const r = await request(port, 'POST', '/beap/capsule', {
+      body: samePrincipalCapsule(hsId, 'spuser20', 'dev-host-20', 'wrong-receiver'),
+      auth: 'test-spuser20-pro',
+      contentType: 'application/json',
+    })
+    expect(r.status).toBe(403)
+    const body = JSON.parse(r.body)
+    expect(body.code).toBe('RELAY_RECEIVER_DEVICE_MISMATCH')
+    expect(body.error).toBe('RELAY_RECEIVER_DEVICE_MISMATCH')
+  })
+
+  test('CS_21_same_principal_unknown_sender_device_returns_ambiguous_routing', async () => {
+    const hsId = 'hs-cs21-route'
+    await request(port, 'POST', '/beap/register-handshake', {
+      body: JSON.stringify({
+        handshake_id: hsId,
+        initiator_user_id: 'spuser21',
+        acceptor_user_id: 'spuser21',
+        initiator_device_id: 'dev-host-21',
+        acceptor_device_id: 'dev-sandbox-21',
+      }),
+      auth: 'test-spuser21-pro',
+      contentType: 'application/json',
+    })
+    const o = JSON.parse(validBeapCapsule(hsId, 'spuser21')) as Record<string, unknown>
+    o.sender_device_id = 'not-a-registered-device'
+    o.receiver_device_id = 'dev-sandbox-21'
+    const r = await request(port, 'POST', '/beap/capsule', {
+      body: JSON.stringify(o),
+      auth: 'test-spuser21-pro',
+      contentType: 'application/json',
+    })
+    expect(r.status).toBe(403)
+    const body = JSON.parse(r.body)
+    expect(body.code).toBe('INTERNAL_RELAY_ROUTING_AMBIGUOUS')
+    expect(body.error).toBe('INTERNAL_RELAY_ROUTING_AMBIGUOUS')
+  })
+
+  test('CS_22_same_principal_capsule_requires_sender_device_id', async () => {
+    const hsId = 'hs-cs22'
+    await request(port, 'POST', '/beap/register-handshake', {
+      body: JSON.stringify({
+        handshake_id: hsId,
+        initiator_user_id: 'spuser22',
+        acceptor_user_id: 'spuser22',
+        initiator_device_id: 'dev-host-22',
+        acceptor_device_id: 'dev-sandbox-22',
+      }),
+      auth: 'test-spuser22-pro',
+      contentType: 'application/json',
+    })
+
+    const o = JSON.parse(validBeapCapsule(hsId, 'spuser22')) as Record<string, unknown>
+    delete o.sender_device_id
+    o.receiver_device_id = 'dev-sandbox-22'
+    const r = await request(port, 'POST', '/beap/capsule', {
+      body: JSON.stringify(o),
+      auth: 'test-spuser22-pro',
+      contentType: 'application/json',
+    })
+    expect(r.status).toBe(400)
+    const body = JSON.parse(r.body)
+    expect(body.code).toBe('INTERNAL_CAPSULE_MISSING_DEVICE_ID')
+    expect(String(body.detail)).toContain('sender_device_id')
   })
 })
 

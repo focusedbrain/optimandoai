@@ -227,7 +227,91 @@ describe('canonicalRebuild', () => {
     expect(canonicalRebuild([]).ok).toBe(false)
   })
 
-  // Test 14: Invalid email in senderIdentity
+  // Test 14: Internal wire — full symmetric identity preserved and idempotent under rebuild
+  it('internal handshake_type preserves device identity and round-trips rebuild', () => {
+    const raw = buildValidCapsule({
+      handshake_type: 'internal',
+      sender_device_id: 'orch-host-01',
+      receiver_device_id: 'orch-sandbox-02',
+      sender_device_role: 'host',
+      receiver_device_role: 'sandbox',
+      sender_computer_name: 'StudioWorkstation',
+      receiver_computer_name: 'IsolatedSandbox',
+    })
+    const first = canonicalRebuild(raw)
+    expect(first.ok).toBe(true)
+    if (!first.ok) return
+    expect(first.capsule.handshake_type).toBe('internal')
+    expect(first.capsule.sender_device_id).toBe('orch-host-01')
+    expect(first.capsule.receiver_device_id).toBe('orch-sandbox-02')
+    expect(first.capsule.sender_device_role).toBe('host')
+    expect(first.capsule.receiver_device_role).toBe('sandbox')
+    expect(first.capsule.sender_computer_name).toBe('StudioWorkstation')
+    expect(first.capsule.receiver_computer_name).toBe('IsolatedSandbox')
+
+    const second = canonicalRebuild(JSON.parse(JSON.stringify(first.capsule)))
+    expect(second.ok).toBe(true)
+    if (!second.ok) return
+    expect(second.capsule).toEqual(first.capsule)
+  })
+
+  it('internal handshake_type rejects missing receiver_device_id', () => {
+    const raw = buildValidCapsule({
+      handshake_type: 'internal',
+      sender_device_id: 'a',
+      sender_device_role: 'host',
+      receiver_device_role: 'sandbox',
+      sender_computer_name: 'H',
+      receiver_computer_name: 'S',
+    })
+    const result = canonicalRebuild(raw)
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(result.field).toBe('sender_device_id')
+      expect(result.reason).toMatch(/receiver_device_id|Internal handshake/i)
+    }
+  })
+
+  it('internal handshake_type rejects same device_role on both endpoints', () => {
+    const raw = buildValidCapsule({
+      handshake_type: 'internal',
+      sender_device_id: 'dev-a',
+      receiver_device_id: 'dev-b',
+      sender_device_role: 'host',
+      receiver_device_role: 'host',
+      sender_computer_name: 'BoxA',
+      receiver_computer_name: 'BoxB',
+    })
+    const result = canonicalRebuild(raw)
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(result.field).toBe('handshake_type')
+    }
+  })
+
+  it('standard capsule may carry only sender_device_id (backward compatible)', () => {
+    const raw = buildValidCapsule({
+      sender_device_id: 'optional-orchestrator-id',
+    })
+    const result = canonicalRebuild(raw)
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.capsule.sender_device_id).toBe('optional-orchestrator-id')
+      expect(result.capsule.handshake_type).toBeUndefined()
+    }
+  })
+
+  it('handshake_type standard does not require internal endpoint pair', () => {
+    const raw = buildValidCapsule({
+      handshake_type: 'standard',
+      sender_device_id: 'x',
+      receiver_device_id: 'y',
+    })
+    const result = canonicalRebuild(raw)
+    expect(result.ok).toBe(true)
+  })
+
+  // Test 15: Invalid email in senderIdentity
   it('should reject invalid email in senderIdentity', () => {
     const raw = buildValidCapsule({
       senderIdentity: {

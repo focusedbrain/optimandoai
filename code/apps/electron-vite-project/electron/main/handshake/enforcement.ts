@@ -42,7 +42,6 @@ import { indexCapsuleBlocks } from './capsuleBlockIndexer'
 import { buildSuccessAuditEntry, buildDenialAuditEntry } from './auditLog'
 import { verifyCapsuleSignature } from './signatureKeys'
 import { verifyCapsuleHashIntegrity } from './steps/verifyCapsuleHash'
-
 /**
  * Map ValidatedCapsule's capsule_type to the handshake layer's CapsuleType.
  * internal_draft is not a handshake capsule type — it should not reach here.
@@ -150,6 +149,13 @@ function extractVerifiedInput(validated: ValidatedCapsule): VerifiedCapsuleInput
     preview: c.preview,
     wrdesk_policy_hash: c.wrdesk_policy_hash ?? '',
     wrdesk_policy_version: c.wrdesk_policy_version ?? '',
+    handshake_type: c.handshake_type ?? null,
+    sender_device_id: typeof c.sender_device_id === 'string' ? c.sender_device_id : null,
+    receiver_device_id: typeof c.receiver_device_id === 'string' ? c.receiver_device_id : null,
+    sender_device_role: c.sender_device_role === 'host' || c.sender_device_role === 'sandbox' ? c.sender_device_role : null,
+    receiver_device_role: c.receiver_device_role === 'host' || c.receiver_device_role === 'sandbox' ? c.receiver_device_role : null,
+    sender_computer_name: typeof c.sender_computer_name === 'string' ? c.sender_computer_name : null,
+    receiver_computer_name: typeof c.receiver_computer_name === 'string' ? c.receiver_computer_name : null,
   }
 }
 
@@ -681,6 +687,21 @@ function buildInitiateRecord(
     counterparty_public_key: senderPublicKey || null,
     peer_x25519_public_key_b64: senderX25519,
     peer_mlkem768_public_key_b64: senderMlkem768,
+    receiver_email: input.receiver_email || null,
+    ...(input.handshake_type === 'internal'
+      ? {
+          handshake_type: 'internal' as const,
+          initiator_coordination_device_id: input.sender_device_id?.trim() || null,
+          acceptor_coordination_device_id: input.receiver_device_id?.trim() || null,
+          initiator_device_name: input.sender_computer_name?.trim() || null,
+          acceptor_device_name: input.receiver_computer_name?.trim() || null,
+          initiator_device_role: input.sender_device_role ?? null,
+          acceptor_device_role: input.receiver_device_role ?? null,
+          internal_peer_device_id: input.receiver_device_id?.trim() || null,
+          internal_peer_device_role: input.receiver_device_role ?? null,
+          internal_peer_computer_name: input.receiver_computer_name?.trim() || null,
+        }
+      : {}),
   }
 }
 
@@ -701,6 +722,8 @@ function buildAcceptRecord(
   // - Acceptor row: peer_* MUST stay the INITIATOR's keys from the initiate capsule.
   //   Self-processing the accept capsule would wrongly set peer_* to our own public keys
   //   (same as local_*), so qBEAP encrypt-to-peer uses the wrong recipient keys.
+  // Internal (same-principal, device-routed) handshakes use the same rule: role distinguishes
+  // devices, not wrdesk_user_id — initiator device ingesting accept updates peer to the other device.
   const shouldUpdatePeerFromAcceptCapsule = existing.local_role === 'initiator'
 
   console.log('[HANDSHAKE-ACCEPT-PROCESS] Accept capsule peer key update:', {
