@@ -172,6 +172,26 @@ export interface HandshakeInitiateResponse {
   status: string
   /** Kept for diagnostic logging. Secret is persisted in the Electron DB; use beap.getMlkemSecret IPC to read it. */
   electronGeneratedMlkemSecret?: string | null
+  /**
+   * Phase 3: outcome of the coordination relay push for internal handshakes.
+   * - 'pushed_live'              — relay accepted and pushed to the peer's WS.
+   * - 'queued_recipient_offline' — relay stored for later pickup (peer offline).
+   * - 'coordination_unavailable' — relay push failed; caller should fall back to file download.
+   * - 'skipped'                  — internal handshake but coordination is not configured.
+   * - null / undefined           — external handshake (no relay push in this phase).
+   */
+  relay_delivery?:
+    | 'pushed_live'
+    | 'queued_recipient_offline'
+    | 'coordination_unavailable'
+    | 'skipped'
+    | null
+  /** Present when relay_delivery === 'coordination_unavailable'. User-safe message. */
+  relay_error?: string
+  /** Backend sets this to false when an RPC-level failure occurs — business failures stay true. */
+  success?: boolean
+  /** Optional user-safe error message when `success === false`. */
+  error?: string
 }
 
 export interface HandshakeAcceptResponse {

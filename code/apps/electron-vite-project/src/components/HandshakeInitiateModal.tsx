@@ -50,7 +50,10 @@ export default function HandshakeInitiateModal({ onClose, onSuccess, presetInter
   const [isInternal, setIsInternal] = useState(!!presetInternal)
   const [deviceRole, setDeviceRole] = useState<'host' | 'sandbox'>('sandbox')
   const [deviceName, setDeviceName] = useState('')
+  const [localDeviceId, setLocalDeviceId] = useState<string>('')
   const [recipientEmail, setRecipientEmail] = useState('')
+  /** Phase 2: one-time contextual hint shown when the user toggles internal mode. */
+  const [showInternalHint, setShowInternalHint] = useState(false)
 
   useEffect(() => {
     const check = async () => {
@@ -70,17 +73,49 @@ export default function HandshakeInitiateModal({ onClose, onSuccess, presetInter
   }, [])
 
   useEffect(() => {
-    if (presetInternal) setIsInternal(true)
+    if (presetInternal) {
+      setIsInternal(true)
+      setShowInternalHint(true)
+    }
   }, [presetInternal])
 
   useEffect(() => {
     if (!isInternal) return
     prefillRecipientEmail(setRecipientEmail)
-    try {
-      const stored = JSON.parse(localStorage.getItem('optimando-orchestrator-mode') || '{}') as { deviceName?: string }
-      setDeviceName(typeof stored.deviceName === 'string' ? stored.deviceName : '')
-    } catch {
-      setDeviceName('')
+    // Prefer orchestratorMode IPC (Electron main) so we pick up the canonical deviceName
+    // and the local instanceId (Coordination ID) for the self-paste guard in
+    // SendHandshakeDelivery. Fall back to localStorage for legacy paths.
+    const om = (window as unknown as {
+      orchestratorMode?: {
+        getDeviceInfo?: () => Promise<{ instanceId?: string; deviceName?: string } | null | undefined>
+      }
+    }).orchestratorMode
+    let cancelled = false
+    const fallbackFromLocalStorage = () => {
+      try {
+        const stored = JSON.parse(localStorage.getItem('optimando-orchestrator-mode') || '{}') as { deviceName?: string }
+        if (!cancelled) setDeviceName(typeof stored.deviceName === 'string' ? stored.deviceName : '')
+      } catch {
+        if (!cancelled) setDeviceName('')
+      }
+    }
+    if (typeof om?.getDeviceInfo === 'function') {
+      om.getDeviceInfo()
+        .then((info) => {
+          if (cancelled) return
+          const n = typeof info?.deviceName === 'string' ? info.deviceName : ''
+          const id = typeof info?.instanceId === 'string' ? info.instanceId : ''
+          setDeviceName(n)
+          setLocalDeviceId(id)
+        })
+        .catch(() => {
+          fallbackFromLocalStorage()
+        })
+    } else {
+      fallbackFromLocalStorage()
+    }
+    return () => {
+      cancelled = true
     }
   }, [isInternal])
 
@@ -136,6 +171,7 @@ export default function HandshakeInitiateModal({ onClose, onSuccess, presetInter
               onChange={(e) => {
                 const next = e.target.checked
                 setIsInternal(next)
+                setShowInternalHint(next)
                 if (next) {
                   prefillRecipientEmail(setRecipientEmail)
                 } else {
@@ -145,6 +181,49 @@ export default function HandshakeInitiateModal({ onClose, onSuccess, presetInter
             />
             Internal handshake (connect my own devices)
           </label>
+        )}
+
+        {isInternal && showInternalHint && (
+          <div
+            data-testid="internal-handshake-hint"
+            style={{
+              margin: '12px 16px 0',
+              padding: '10px 12px',
+              background: 'rgba(59,130,246,0.08)',
+              border: '1px solid rgba(59,130,246,0.25)',
+              borderRadius: '8px',
+              display: 'flex',
+              gap: '8px',
+              alignItems: 'flex-start',
+              fontSize: '12px',
+              color: '#1e40af',
+              lineHeight: 1.5,
+            }}
+          >
+            <span style={{ fontSize: '14px', flexShrink: 0 }} aria-hidden>ℹ️</span>
+            <span style={{ flex: 1 }}>
+              Internal handshakes pair two devices on the same account. You’ll need the{' '}
+              <strong>Coordination ID</strong> from the other device — find it in{' '}
+              <strong>Settings → Orchestrator</strong>.
+            </span>
+            <button
+              type="button"
+              onClick={() => setShowInternalHint(false)}
+              aria-label="Dismiss internal handshake hint"
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: '#1e40af',
+                cursor: 'pointer',
+                fontSize: '13px',
+                lineHeight: 1,
+                padding: '0 2px',
+                flexShrink: 0,
+              }}
+            >
+              ✕
+            </button>
+          </div>
         )}
 
         {isInternal && (
@@ -211,6 +290,7 @@ export default function HandshakeInitiateModal({ onClose, onSuccess, presetInter
           lockedRecipientEmail={isInternal && recipientEmail.trim() ? recipientEmail : undefined}
           deviceName={isInternal ? deviceName : undefined}
           deviceRole={isInternal ? deviceRole : undefined}
+          localDeviceId={isInternal ? localDeviceId : undefined}
         />
       </div>
     </div>

@@ -1,4 +1,4 @@
-﻿import { app, BrowserWindow, globalShortcut, Tray, Menu, Notification, screen, dialog, shell, ipcMain } from 'electron'
+﻿import { app, BrowserWindow, globalShortcut, Tray, Menu, Notification, screen, dialog, shell, ipcMain, clipboard } from 'electron'
 import { loginWithKeycloak, prepareLoginUrl, setUrlOpener } from '../src/auth/login'
 import { saveRefreshToken, clearRefreshToken } from '../src/auth/tokenStore'
 import { ensureSession, updateSessionFromTokens, clearSession, getCachedUserInfo, getAccessToken } from '../src/auth/session'
@@ -23,7 +23,7 @@ import {
   setManualSofficePath,
 } from './main/libreoffice/libreofficeService'
 import { registerOrchestratorIPC } from './main/orchestrator/ipc'
-import { getOrchestratorMode, isSandboxMode, setOrchestratorMode } from './main/orchestrator/orchestratorModeStore'
+import { getInstanceId, getOrchestratorMode, isSandboxMode, setOrchestratorMode } from './main/orchestrator/orchestratorModeStore'
 
 function stripDataUriPrefixForLlm(s: string): string {
   if (!s.startsWith('data:')) return s
@@ -2301,6 +2301,23 @@ function updateTrayMenu() {
             console.error('[MAIN] Failed to update autostart setting:', err)
           }
         }
+      },
+      { type: 'separator' },
+      {
+        label: 'Copy Coordination ID',
+        click: () => {
+          try {
+            const id = getInstanceId()
+            if (id) {
+              clipboard.writeText(id)
+              console.log('[TRAY] Coordination ID copied to clipboard')
+            } else {
+              console.log('[TRAY] Copy Coordination ID: no instanceId available')
+            }
+          } catch (err) {
+            console.log('[TRAY] Copy Coordination ID failed:', err)
+          }
+        },
       },
       { type: 'separator' },
       { label: 'Quit', role: 'quit' as const },

@@ -13,7 +13,16 @@ import { getInstanceId } from '../orchestrator/orchestratorModeStore'
 
 export const LOCAL_INTERNAL_RELAY_VALIDATION_FAILED = 'LOCAL_INTERNAL_RELAY_VALIDATION_FAILED'
 
-const RELAY_ENVELOPE_INTERNAL_WIRE_TYPES = new Set(['accept', 'context_sync', 'refresh', 'revoke'])
+// Phase 3: `initiate` is now sent via the coordination relay for internal handshakes
+// (previously file/email/USB only). Include it so the enqueue-time guard also rejects
+// internal initiate capsules that lack receiver_device_id — defense-in-depth.
+const RELAY_ENVELOPE_INTERNAL_WIRE_TYPES = new Set([
+  'initiate',
+  'accept',
+  'context_sync',
+  'refresh',
+  'revoke',
+])
 
 function nz(s: unknown): string | null {
   if (typeof s !== 'string') return null

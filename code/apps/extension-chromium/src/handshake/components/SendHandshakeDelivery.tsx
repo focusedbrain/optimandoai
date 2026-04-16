@@ -60,6 +60,12 @@ export interface SendHandshakeDeliveryProps {
   lockedRecipientEmail?: string
   deviceName?: string
   deviceRole?: 'host' | 'sandbox'
+  /**
+   * Phase 2: local orchestrator Coordination ID (instanceId) — used to detect when
+   * the user accidentally pastes this device's own ID into the "Other device" field.
+   * When omitted, the self-paste guard is skipped (the backend still enforces distinctness).
+   */
+  localDeviceId?: string
 }
 
 // =============================================================================
@@ -67,6 +73,21 @@ export interface SendHandshakeDeliveryProps {
 // =============================================================================
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
+/** RFC 4122 v4 UUID. Case-insensitive. Used to validate a pasted Coordination ID client-side. */
+const UUID_V4_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+
+function isLikelyUuid(s: string): boolean {
+  return UUID_V4_PATTERN.test(s.trim())
+}
+
+/**
+ * Phase 2: placeholder value the initiator submits for the peer's computer_name
+ * when they don't yet know it. Must match INTERNAL_COMPUTER_NAME_SENTINEL in
+ * packages/shared/src/handshake/internalEndpointValidation.ts. The real name is
+ * learned after accept and overwrites this via the normal update path.
+ */
+const INTERNAL_COMPUTER_NAME_SENTINEL = '<unknown>'
 
 function useThemeTokens(theme: Theme) {
   const isStandard = theme === 'standard'
@@ -227,6 +248,7 @@ export const SendHandshakeDelivery: React.FC<SendHandshakeDeliveryProps> = ({
   lockedRecipientEmail,
   deviceName,
   deviceRole,
+  localDeviceId,
 }) => {
   const t = useThemeTokens(theme)
 
@@ -273,16 +295,40 @@ export const SendHandshakeDelivery: React.FC<SendHandshakeDeliveryProps> = ({
   const [copySuccess, setCopySuccess] = useState(false)
   const [actionDone, setActionDone] = useState<'sent' | 'downloaded' | null>(null)
   const [error, setError] = useState<string | null>(null)
+  // Phase 3: relay push outcome for internal handshakes. Keeps the form visible (unlike
+  // actionDone which replaces the whole panel) so the user can send more or fall back
+  // to a manual download without navigating back.
+  type InternalRelayOutcome =
+    | { kind: 'pushed_live'; handshakeId: string }
+    | { kind: 'queued_recipient_offline'; handshakeId: string }
+    | { kind: 'coordination_unavailable'; message: string }
+    | { kind: 'skipped'; handshakeId: string }
+  const [internalRelayOutcome, setInternalRelayOutcome] = useState<InternalRelayOutcome | null>(null)
 
   const [internalLocalComputerName, setInternalLocalComputerName] = useState('')
   const [counterpartyDeviceId, setCounterpartyDeviceId] = useState('')
   const [counterpartyComputerName, setCounterpartyComputerName] = useState('')
+  const [showInternalAdvanced, setShowInternalAdvanced] = useState(false)
 
   useEffect(() => {
     if (!isInternalHandshake) return
     const v = deviceName?.trim()
     if (v) setInternalLocalComputerName(v)
   }, [isInternalHandshake, deviceName])
+
+  // Phase 2: inline error for the single paste field. Null when the value is empty
+  // or when it is a valid-looking UUID that is NOT this device's own ID.
+  const pastedCoordinationId = counterpartyDeviceId.trim()
+  const pastedIsSelf =
+    !!pastedCoordinationId &&
+    !!localDeviceId?.trim() &&
+    pastedCoordinationId.toLowerCase() === localDeviceId.trim().toLowerCase()
+  const pastedFormatInvalid = !!pastedCoordinationId && !isLikelyUuid(pastedCoordinationId)
+  const coordinationIdInlineError: string | null = pastedIsSelf
+    ? "That's this device's Coordination ID. Paste the ID from the other device."
+    : pastedFormatInvalid
+      ? "That doesn't look like a Coordination ID. Copy the full UUID from Settings → Orchestrator on the other device."
+      : null
 
   // Validation
   const emailError =
@@ -301,6 +347,13 @@ export const SendHandshakeDelivery: React.FC<SendHandshakeDeliveryProps> = ({
 
   const resolvedLocalComputerName = internalLocalComputerName.trim() || deviceName?.trim() || ''
 
+  // Phase 2: if the user didn't expand Advanced and override it, we submit a sentinel
+  // placeholder for the peer's computer name. The backend is aware of this sentinel
+  // (see INTERNAL_COMPUTER_NAME_SENTINEL in shared/handshake/internalEndpointValidation.ts)
+  // and skips the computer_name collision check. The real name flows back after accept.
+  const resolvedCounterpartyComputerName =
+    counterpartyComputerName.trim() || INTERNAL_COMPUTER_NAME_SENTINEL
+
   const internalRpcExtras = () => {
     if (!isInternalHandshake) return {}
     return {
@@ -308,16 +361,23 @@ export const SendHandshakeDelivery: React.FC<SendHandshakeDeliveryProps> = ({
       device_name: resolvedLocalComputerName,
       device_role: effectiveInternalRole,
       counterparty_device_id: counterpartyDeviceId.trim(),
+      // handshakeRpc.ts infers this as the opposite of device_role, but we still
+      // pass it here so older callers / direct RPC consumers get an explicit value.
       counterparty_device_role: effectiveInternalRole === 'host' ? ('sandbox' as const) : ('host' as const),
-      counterparty_computer_name: counterpartyComputerName.trim(),
+      counterparty_computer_name: resolvedCounterpartyComputerName,
     }
   }
 
+  // Phase 2 simplification: only the pasted Coordination ID is user-required.
+  // This device's computer name comes from the deviceName prop (auto-derived),
+  // and the peer's computer name falls back to the sentinel when Advanced is
+  // untouched. If the user chose to reveal Advanced and entered nothing, the
+  // sentinel is still used — Advanced is purely an override.
   const internalFieldsComplete =
     !isInternalHandshake ||
     (!!resolvedLocalComputerName &&
       !!counterpartyDeviceId.trim() &&
-      !!counterpartyComputerName.trim())
+      !coordinationIdInlineError)
 
   const isValid =
     !!recipientEmail.trim() &&
@@ -343,22 +403,22 @@ export const SendHandshakeDelivery: React.FC<SendHandshakeDeliveryProps> = ({
   const handleSendViaApi = async () => {
     setTouched(true)
     setError(null)
+    setInternalRelayOutcome(null)
     if (!isValid) return
     if (isInternalHandshake) {
-      if (!resolvedLocalComputerName) {
-        setError('This computer name is required for internal handshakes.')
-        return
-      }
       if (!counterpartyDeviceId.trim()) {
-        setError('Other device coordination ID is required for internal handshakes.')
+        setError("Paste the Coordination ID from the other device to continue.")
         return
       }
-      if (!counterpartyComputerName.trim()) {
-        setError('Other computer name is required for internal handshakes.')
+      if (coordinationIdInlineError) {
+        setError(coordinationIdInlineError)
         return
       }
     }
-    if (!fromAccountId) {
+    // Internal handshakes don't need an email account — the coordination relay handles
+    // delivery. For external handshakes we still require one because the initiate capsule
+    // is delivered via API email in this phase.
+    if (!isInternalHandshake && !fromAccountId) {
       setError('No email account selected.')
       return
     }
@@ -368,14 +428,38 @@ export const SendHandshakeDelivery: React.FC<SendHandshakeDeliveryProps> = ({
       const result = await initiateHandshake(
         recipientEmail.trim().toLowerCase(),
         recipientEmail.trim(),
-        fromAccountId,
+        isInternalHandshake ? (fromAccountId || null) : fromAccountId,
         { ...opts, ...internalRpcExtras() },
       )
-      if (result.handshake_id) {
-        setActionDone('sent')
+      if (!result.handshake_id || result.success === false) {
+        setError(result.error || 'Failed to send handshake.')
+        return
+      }
+      if (isInternalHandshake) {
+        // Phase 3: the backend pushes the initiate capsule via the coordination relay.
+        // We surface the outcome inline and keep the form open so the user can send more
+        // handshakes or switch to the download fallback without re-entering state.
+        const rd = result.relay_delivery
+        if (rd === 'pushed_live') {
+          setInternalRelayOutcome({ kind: 'pushed_live', handshakeId: result.handshake_id })
+        } else if (rd === 'queued_recipient_offline') {
+          setInternalRelayOutcome({ kind: 'queued_recipient_offline', handshakeId: result.handshake_id })
+        } else if (rd === 'coordination_unavailable') {
+          setInternalRelayOutcome({
+            kind: 'coordination_unavailable',
+            message:
+              result.relay_error ??
+              "Couldn't reach the coordination service. Download the capsule and transfer it manually.",
+          })
+        } else {
+          // 'skipped' or null — coordination not configured; treat as successful create
+          // but recommend manual transfer.
+          setInternalRelayOutcome({ kind: 'skipped', handshakeId: result.handshake_id })
+        }
         onSuccess?.({ handshake_id: result.handshake_id })
       } else {
-        setError((result as any).error || 'Failed to send handshake.')
+        setActionDone('sent')
+        onSuccess?.({ handshake_id: result.handshake_id })
       }
     } catch (err: any) {
       setError(err?.message || 'Failed to send handshake.')
@@ -389,16 +473,12 @@ export const SendHandshakeDelivery: React.FC<SendHandshakeDeliveryProps> = ({
     setError(null)
     if (!isValid) return
     if (isInternalHandshake) {
-      if (!resolvedLocalComputerName) {
-        setError('This computer name is required for internal handshakes.')
-        return
-      }
       if (!counterpartyDeviceId.trim()) {
-        setError('Other device coordination ID is required for internal handshakes.')
+        setError("Paste the Coordination ID from the other device to continue.")
         return
       }
-      if (!counterpartyComputerName.trim()) {
-        setError('Other computer name is required for internal handshakes.')
+      if (coordinationIdInlineError) {
+        setError(coordinationIdInlineError)
         return
       }
     }
@@ -605,28 +685,33 @@ export const SendHandshakeDelivery: React.FC<SendHandshakeDeliveryProps> = ({
           gap: '13px',
         }}
       >
-        {/* ---- Delivery mode selector ---- */}
-        <div>
-          <label style={labelStyle}>Delivery method</label>
-          <div style={{ display: 'flex', gap: '8px' }}>
-            <DeliveryOption
-              mode="api"
-              selected={mode === 'api'}
-              label="Email via API"
-              description="Send directly using your connected mailbox."
-              onClick={() => setMode('api')}
-              t={t}
-            />
-            <DeliveryOption
-              mode="attachment"
-              selected={mode === 'attachment'}
-              label="Email as attachment"
-              description="Download the BEAP capsule and attach it to an email yourself."
-              onClick={() => setMode('attachment')}
-              t={t}
-            />
+        {/* ---- Delivery mode selector ----
+            Phase 3: internal handshakes always push via the coordination relay (with
+            a file download fallback offered inline in the action area). The email
+            mode selector is only meaningful for external, email-identified peers. */}
+        {!isInternalHandshake && (
+          <div>
+            <label style={labelStyle}>Delivery method</label>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <DeliveryOption
+                mode="api"
+                selected={mode === 'api'}
+                label="Email via API"
+                description="Send directly using your connected mailbox."
+                onClick={() => setMode('api')}
+                t={t}
+              />
+              <DeliveryOption
+                mode="attachment"
+                selected={mode === 'attachment'}
+                label="Email as attachment"
+                description="Download the BEAP capsule and attach it to an email yourself."
+                onClick={() => setMode('attachment')}
+                t={t}
+              />
+            </div>
           </div>
-        </div>
+        )}
 
         {/* ---- Include Vault Profiles toggle (only when HS Context Profiles available) ---- */}
         {canUseHsContextProfiles && (
@@ -673,8 +758,11 @@ export const SendHandshakeDelivery: React.FC<SendHandshakeDeliveryProps> = ({
           </div>
         )}
 
-        {/* ---- Attachment-mode warning ---- */}
-        {mode === 'attachment' && (
+        {/* ---- Attachment-mode warning ----
+            Suppressed for internal handshakes: the warning is about spoofing risk when
+            a recipient sees an email from a different address than the BEAP-account
+            owner, which doesn't apply to a same-account device-to-device pairing. */}
+        {mode === 'attachment' && !isInternalHandshake && (
           <div
             style={{
               padding: '10px 13px',
@@ -754,45 +842,122 @@ export const SendHandshakeDelivery: React.FC<SendHandshakeDeliveryProps> = ({
               borderRadius: '10px',
             }}
           >
-            <div style={{ fontSize: '12px', fontWeight: 700, color: t.text }}>Internal handshake — device pairing</div>
-            <p style={{ fontSize: '11px', color: t.muted, margin: 0, lineHeight: 1.45 }}>
-              This device is <strong style={{ color: t.text }}>{effectiveInternalRole}</strong>. The other device must be{' '}
-              <strong style={{ color: t.text }}>{effectiveInternalRole === 'host' ? 'Sandbox' : 'Host'}</strong>. Enter the peer’s coordination device id and computer name exactly as on the other machine.
-            </p>
-            {!deviceName?.trim() && (
-              <div>
-                <label style={labelStyle}>This computer name *</label>
-                <input
-                  type="text"
-                  value={internalLocalComputerName}
-                  onChange={(e) => setInternalLocalComputerName(e.target.value)}
-                  disabled={sending}
-                  placeholder="Required — must differ from the other device"
-                  style={inputStyle(touched && !resolvedLocalComputerName)}
-                />
-              </div>
-            )}
-            <div>
-              <label style={labelStyle}>Other device coordination ID *</label>
-              <input
-                type="text"
-                value={counterpartyDeviceId}
-                onChange={(e) => setCounterpartyDeviceId(e.target.value)}
-                disabled={sending}
-                placeholder="From the other machine (orchestrator / relay device id)"
-                style={inputStyle(touched && !counterpartyDeviceId.trim())}
-              />
+            <div style={{ fontSize: '12px', fontWeight: 700, color: t.text }}>
+              Internal handshake — device pairing
             </div>
+            <p
+              data-testid="internal-pairing-helper"
+              style={{ fontSize: '11px', color: t.muted, margin: 0, lineHeight: 1.5 }}
+            >
+              On your other device, open <strong style={{ color: t.text }}>Settings → Orchestrator</strong> and copy the{' '}
+              <strong style={{ color: t.text }}>Coordination ID</strong> from the “This device” card, then paste it here.
+            </p>
             <div>
-              <label style={labelStyle}>Other computer name *</label>
+              <label style={labelStyle}>Coordination ID from the other device *</label>
               <input
                 type="text"
-                value={counterpartyComputerName}
-                onChange={(e) => setCounterpartyComputerName(e.target.value)}
+                inputMode="text"
+                autoComplete="off"
+                spellCheck={false}
+                data-testid="internal-counterparty-coordination-id"
+                value={counterpartyDeviceId}
+                onChange={(e) => setCounterpartyDeviceId(e.target.value.trim())}
+                onPaste={(e) => {
+                  const pasted = e.clipboardData?.getData('text') ?? ''
+                  const trimmed = pasted.trim()
+                  if (trimmed && trimmed !== pasted) {
+                    e.preventDefault()
+                    setCounterpartyDeviceId(trimmed)
+                  }
+                }}
                 disabled={sending}
-                placeholder="Computer name on the other device"
-                style={inputStyle(touched && !counterpartyComputerName.trim())}
+                placeholder="Paste the UUID shown in Settings → Orchestrator on the other device"
+                style={{
+                  ...inputStyle(
+                    !!coordinationIdInlineError ||
+                      (touched && !counterpartyDeviceId.trim()),
+                  ),
+                  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
+                  letterSpacing: '0.3px',
+                }}
               />
+              {coordinationIdInlineError && (
+                <div
+                  data-testid="internal-counterparty-coordination-id-error"
+                  style={{ marginTop: '5px', fontSize: '11px', color: t.errorText }}
+                >
+                  {coordinationIdInlineError}
+                </div>
+              )}
+            </div>
+
+            {/* Advanced disclosure — collapsed by default. Overrides the auto-derived
+                local device name and the sentinel placeholder for the peer's name. */}
+            <div
+              style={{
+                borderTop: `1px dashed ${t.border}`,
+                paddingTop: '8px',
+                marginTop: '2px',
+              }}
+            >
+              <button
+                type="button"
+                aria-expanded={showInternalAdvanced}
+                aria-controls="internal-advanced-section"
+                onClick={() => setShowInternalAdvanced((v) => !v)}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  padding: 0,
+                  color: t.muted,
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                }}
+              >
+                <span style={{ fontSize: '10px' }}>{showInternalAdvanced ? '▲' : '▼'}</span>
+                Advanced (optional — override computer names)
+              </button>
+
+              {showInternalAdvanced && (
+                <div
+                  id="internal-advanced-section"
+                  style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '10px' }}
+                >
+                  <div>
+                    <label style={labelStyle}>This computer name</label>
+                    <input
+                      type="text"
+                      value={internalLocalComputerName}
+                      onChange={(e) => setInternalLocalComputerName(e.target.value)}
+                      disabled={sending}
+                      placeholder={deviceName?.trim() || 'Defaults to this machine’s name'}
+                      style={inputStyle()}
+                    />
+                    <div style={{ marginTop: '5px', fontSize: '11px', color: t.muted, lineHeight: 1.45 }}>
+                      Auto-filled from this machine’s orchestrator settings.
+                    </div>
+                  </div>
+                  <div>
+                    <label style={labelStyle}>Other computer name</label>
+                    <input
+                      type="text"
+                      value={counterpartyComputerName}
+                      onChange={(e) => setCounterpartyComputerName(e.target.value)}
+                      disabled={sending}
+                      placeholder={`Leave blank to use “${INTERNAL_COMPUTER_NAME_SENTINEL}”`}
+                      style={inputStyle()}
+                    />
+                    <div style={{ marginTop: '5px', fontSize: '11px', color: t.muted, lineHeight: 1.45 }}>
+                      Optional. The other device’s actual name is learned automatically once the
+                      handshake is accepted.
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -1079,6 +1244,49 @@ export const SendHandshakeDelivery: React.FC<SendHandshakeDeliveryProps> = ({
           </div>
         )}
 
+        {/* ---- Phase 3: Internal handshake relay outcome (inline) ---- */}
+        {isInternalHandshake && internalRelayOutcome && (
+          <div
+            data-testid="internal-relay-outcome"
+            style={{
+              padding: '10px 13px',
+              background:
+                internalRelayOutcome.kind === 'coordination_unavailable'
+                  ? t.dangerBg
+                  : t.successBg,
+              border: `1px solid ${
+                internalRelayOutcome.kind === 'coordination_unavailable'
+                  ? t.dangerBorder
+                  : t.successBorder
+              }`,
+              borderRadius: '8px',
+              fontSize: '11px',
+              color:
+                internalRelayOutcome.kind === 'coordination_unavailable'
+                  ? t.dangerText
+                  : t.successText,
+              lineHeight: 1.5,
+              display: 'flex',
+              gap: '8px',
+              alignItems: 'flex-start',
+            }}
+          >
+            <span style={{ flexShrink: 0, fontSize: '13px' }}>
+              {internalRelayOutcome.kind === 'coordination_unavailable' ? '⚠️' : '✅'}
+            </span>
+            <span>
+              {internalRelayOutcome.kind === 'pushed_live' &&
+                'Sent. Open WR Desk on your other device and accept the handshake request.'}
+              {internalRelayOutcome.kind === 'queued_recipient_offline' &&
+                "Sent. Your other device is offline right now — it'll appear the moment that device comes online and opens WR Desk."}
+              {internalRelayOutcome.kind === 'coordination_unavailable' &&
+                internalRelayOutcome.message}
+              {internalRelayOutcome.kind === 'skipped' &&
+                'Handshake created locally. Coordination service is not configured on this device — use the download fallback to transfer the capsule manually.'}
+            </span>
+          </div>
+        )}
+
         {/* ---- Actions ---- */}
         <div
           style={{
@@ -1088,7 +1296,67 @@ export const SendHandshakeDelivery: React.FC<SendHandshakeDeliveryProps> = ({
             paddingTop: '2px',
           }}
         >
-          {mode === 'api' ? (
+          {isInternalHandshake ? (
+            <>
+              <button
+                onClick={handleSendViaApi}
+                disabled={sending}
+                data-testid="send-to-paired-device"
+                style={{
+                  width: '100%',
+                  padding: '10px 16px',
+                  background: sending
+                    ? 'rgba(139,92,246,0.5)'
+                    : 'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)',
+                  border: 'none',
+                  borderRadius: '9px',
+                  color: 'white',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  cursor: sending ? 'wait' : 'pointer',
+                  opacity: sending ? 0.75 : 1,
+                  transition: 'opacity 0.15s',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '7px',
+                }}
+              >
+                {sending ? '⏳ Sending…' : '🔗 Send to paired device'}
+              </button>
+              <button
+                type="button"
+                onClick={handleDownloadCapsule}
+                disabled={sending}
+                data-testid="download-capsule-instead"
+                style={{
+                  width: '100%',
+                  padding: '8px 16px',
+                  background: 'transparent',
+                  border:
+                    internalRelayOutcome?.kind === 'coordination_unavailable'
+                      ? `1.5px solid ${t.accentPrimary}`
+                      : 'none',
+                  borderRadius: '9px',
+                  color: t.isStandard ? '#7c3aed' : '#c4b5fd',
+                  fontSize: '12px',
+                  fontWeight:
+                    internalRelayOutcome?.kind === 'coordination_unavailable' ? 700 : 500,
+                  textDecoration:
+                    internalRelayOutcome?.kind === 'coordination_unavailable'
+                      ? 'none'
+                      : 'underline',
+                  cursor: sending ? 'wait' : 'pointer',
+                  opacity: sending ? 0.6 : 1,
+                  transition: 'opacity 0.15s',
+                }}
+              >
+                {internalRelayOutcome?.kind === 'coordination_unavailable'
+                  ? '💾 Download capsule (.beap)'
+                  : 'Download capsule instead'}
+              </button>
+            </>
+          ) : mode === 'api' ? (
             <button
               onClick={handleSendViaApi}
               disabled={sending || noEmailAccount}

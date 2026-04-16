@@ -1025,7 +1025,8 @@ export async function handleHandshakeRPC(
         if (!localRelayId?.trim()) {
           return {
             success: false,
-            error: 'INTERNAL_ENDPOINT_INCOMPLETE: orchestrator device_id is required for internal handshakes',
+            error:
+              "INTERNAL_ENDPOINT_INCOMPLETE: This device isn't ready to pair yet. Restart the app, or open Settings → Orchestrator to verify this device has a Coordination ID.",
           }
         }
         const vSelf = validateInternalEndpointFields(
@@ -1162,6 +1163,16 @@ export async function handleHandshakeRPC(
       }
 
       let localResult: any = { success: true }
+      // Phase 3: for internal handshakes with coordination configured, we push the initiate
+      // capsule through the relay instead of requiring a file transfer. The download path
+      // remains available as a fallback via `handshake.buildForDownload`.
+      let relayDelivery:
+        | 'pushed_live'
+        | 'queued_recipient_offline'
+        | 'coordination_unavailable'
+        | 'skipped'
+        | null = null
+      let relayError: string | null = null
       if (db) {
         // Initiator persists own record via direct insert — NOT the receive pipeline.
         // The pipeline rejects when senderId === localUserId (ownership check).
@@ -1201,7 +1212,55 @@ export async function handleHandshakeRPC(
           } else {
             console.log('[HANDSHAKE] Relay registration succeeded on initiate:', capsule.handshake_id)
           }
-          // Initiate capsule is NOT sent via relay — only file/email/USB. Relay used after accept.
+
+          // Phase 3: push internal initiate capsules through the coordination relay directly.
+          // External handshakes still rely on email/file/USB delivery — no behavior change
+          // for the standard flow (byte-identical outbound). The coordination relay already
+          // accepts `initiate` as a valid capsule_type (see RELAY_HANDSHAKE_CAPSULE_TYPES in
+          // p2pTransport.ts) and the acceptor's WS handler routes it through the handshake
+          // pipeline the same way a .beap file import would.
+          const shouldRelayInitiate =
+            initHandshakeType === 'internal' &&
+            p2pConfig.use_coordination === true &&
+            !!p2pConfig.coordination_url?.trim() &&
+            regResult.success
+          if (shouldRelayInitiate) {
+            const coordTarget = p2pConfig.coordination_url!.trim().replace(/\/$/, '') + '/beap/capsule'
+            const enq = enqueueOutboundCapsule(db, capsule.handshake_id, coordTarget, capsule)
+            if (!enq.enqueued) {
+              console.warn(
+                '[HANDSHAKE] Internal initiate enqueue blocked by relay guard:',
+                enq.message,
+                '— handshake_id:',
+                capsule.handshake_id,
+              )
+              relayDelivery = 'coordination_unavailable'
+              relayError = enq.message
+            } else {
+              try {
+                const drain: ProcessOutboundQueueResult = await processOutboundQueue(db, _getOidcToken)
+                if (drain.delivered) {
+                  relayDelivery = drain.coordinationRelayDelivery ?? 'pushed_live'
+                } else {
+                  relayDelivery = 'coordination_unavailable'
+                  relayError = drain.error ?? drain.last_queue_error ?? 'Coordination delivery did not complete'
+                  console.warn(
+                    '[HANDSHAKE] Internal initiate relay push failed:',
+                    relayError,
+                    '— handshake_id:',
+                    capsule.handshake_id,
+                  )
+                }
+              } catch (err: any) {
+                relayDelivery = 'coordination_unavailable'
+                relayError = err?.message ?? String(err)
+                console.warn('[HANDSHAKE] Internal initiate relay push threw:', relayError)
+              }
+            }
+          } else if (initHandshakeType === 'internal') {
+            // Internal handshake but coordination isn't configured — skip relay push silently.
+            relayDelivery = 'skipped'
+          }
         }
       } else if (!skipVaultContext) {
         return { success: false, error: 'Vault must be unlocked for contextual handshakes' }
@@ -1214,6 +1273,12 @@ export async function handleHandshakeRPC(
         email_sent: emailResult?.success ?? false,
         email_error: emailResult?.error,
         local_result: localResult,
+        // Phase 3: relay_delivery tells the renderer whether the internal initiate capsule
+        // was pushed live, queued for the offline peer, or whether coordination was unavailable
+        // and the user should fall back to the .beap download path. Null / 'skipped' for
+        // external handshakes and for internal handshakes when coordination is not configured.
+        relay_delivery: relayDelivery,
+        ...(relayError ? { relay_error: relayError } : {}),
         // Non-null when Electron generated the ML-KEM keypair (PQ unavailable in extension at initiate time).
         electronGeneratedMlkemSecret: keyAgreement.sender_mlkem768_secret_key_b64 ?? null,
       }
@@ -1262,7 +1327,8 @@ export async function handleHandshakeRPC(
         if (!localRelayIdDl?.trim()) {
           return {
             success: false,
-            error: 'INTERNAL_ENDPOINT_INCOMPLETE: orchestrator device_id is required for internal handshakes',
+            error:
+              "INTERNAL_ENDPOINT_INCOMPLETE: This device isn't ready to pair yet. Restart the app, or open Settings → Orchestrator to verify this device has a Coordination ID.",
           }
         }
         const vSelfDl = validateInternalEndpointFields(
@@ -1536,7 +1602,7 @@ export async function handleHandshakeRPC(
           return {
             success: false,
             error:
-              'INTERNAL_ENDPOINT_INCOMPLETE: orchestrator device_id is required to accept an internal handshake',
+              "INTERNAL_ENDPOINT_INCOMPLETE: This device isn't ready to accept an internal handshake yet. Restart the app, or open Settings → Orchestrator to verify this device has a Coordination ID.",
           }
         }
         const vInit = validateInternalEndpointFields(
@@ -1579,7 +1645,7 @@ export async function handleHandshakeRPC(
           return {
             success: false,
             error:
-              'INTERNAL_PEER_DEVICE_MISMATCH: this device is not the intended peer for this internal handshake',
+              'INTERNAL_PEER_DEVICE_MISMATCH: This capsule was created for a different device. Open the capsule on the device whose Coordination ID matches the one in the capsule.',
           }
         }
       }

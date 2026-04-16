@@ -24,6 +24,21 @@ function nextRpcId(): string {
   return `hs-rpc-${Date.now()}-${++_rpcIdCounter}`
 }
 
+/**
+ * Phase 2: the counterparty role for an internal handshake is always the opposite
+ * of the local device's role (host ↔ sandbox). Callers that pass it explicitly
+ * still win — this only fills in when the caller leaves it blank.
+ */
+function inferCounterpartyDeviceRole(
+  localRole: 'host' | 'sandbox' | undefined,
+  explicit: 'host' | 'sandbox' | undefined,
+): 'host' | 'sandbox' | undefined {
+  if (explicit === 'host' || explicit === 'sandbox') return explicit
+  if (localRole === 'host') return 'sandbox'
+  if (localRole === 'sandbox') return 'host'
+  return undefined
+}
+
 async function sendHandshakeRpc<T = unknown>(
   method: string,
   params: Record<string, unknown> = {},
@@ -163,6 +178,10 @@ export async function initiateHandshake(
   },
 ): Promise<HandshakeInitiateResponse> {
   const keyAgreement = await getKeyAgreementForHandshake()
+  const inferredCounterpartyRole = inferCounterpartyDeviceRole(
+    options?.device_role,
+    options?.counterparty_device_role,
+  )
   const res = await sendHandshakeRpc<HandshakeInitiateResponse>('handshake.initiate', {
     receiverUserId,
     receiverEmail,
@@ -182,8 +201,8 @@ export async function initiateHandshake(
     ...(options?.counterparty_device_id?.trim()
       ? { counterparty_device_id: options.counterparty_device_id.trim() }
       : {}),
-    ...(options?.counterparty_device_role
-      ? { counterparty_device_role: options.counterparty_device_role }
+    ...(inferredCounterpartyRole
+      ? { counterparty_device_role: inferredCounterpartyRole }
       : {}),
     ...(options?.counterparty_computer_name?.trim()
       ? { counterparty_computer_name: options.counterparty_computer_name.trim() }
@@ -219,6 +238,10 @@ export async function buildHandshakeForDownload(
 ): Promise<HandshakeBuildForDownloadResponse> {
   const keyAgreement = await getKeyAgreementForHandshake()
   const rid = receiverEmail.trim().toLowerCase()
+  const inferredCounterpartyRole = inferCounterpartyDeviceRole(
+    options?.device_role,
+    options?.counterparty_device_role,
+  )
   const res = await sendHandshakeRpc<HandshakeBuildForDownloadResponse>('handshake.buildForDownload', {
     receiverUserId: rid,
     receiverEmail: receiverEmail.trim(),
@@ -237,8 +260,8 @@ export async function buildHandshakeForDownload(
     ...(options?.counterparty_device_id?.trim()
       ? { counterparty_device_id: options.counterparty_device_id.trim() }
       : {}),
-    ...(options?.counterparty_device_role
-      ? { counterparty_device_role: options.counterparty_device_role }
+    ...(inferredCounterpartyRole
+      ? { counterparty_device_role: inferredCounterpartyRole }
       : {}),
     ...(options?.counterparty_computer_name?.trim()
       ? { counterparty_computer_name: options.counterparty_computer_name.trim() }

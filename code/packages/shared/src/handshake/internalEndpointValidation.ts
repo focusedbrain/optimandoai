@@ -51,6 +51,23 @@ export interface InternalEndpointPairValidationResult {
 }
 
 /**
+ * Sentinel value used for a counterparty `computer_name` when the initiator does not
+ * yet know the other device's human-readable name (Phase 2 single-paste UX).
+ *
+ * The actual name is learned out-of-band after a successful accept round-trip and
+ * overwrites this sentinel via the normal update path. Validation treats this value
+ * as a non-empty, non-colliding name so an initiator can pair using only the
+ * Coordination ID of the other device.
+ */
+export const INTERNAL_COMPUTER_NAME_SENTINEL = '<unknown>'
+
+/** True if `name` is the pairing-time placeholder sentinel. */
+export function isInternalComputerNameSentinel(name: string | null | undefined): boolean {
+  if (typeof name !== 'string') return false
+  return name.trim() === INTERNAL_COMPUTER_NAME_SENTINEL
+}
+
+/**
  * Normalize `computer_name` for equality checks:
  * - trim
  * - Unicode NFKC normalization
@@ -119,21 +136,24 @@ export function validateInternalEndpointIdentity(
     return {
       ok: false,
       code: INTERNAL_ENDPOINT_ERROR_CODES.INTERNAL_ENDPOINT_INCOMPLETE,
-      message: `${label}: coordination device_id is required for internal handshakes`,
+      message:
+        "The other device's Coordination ID is missing. On your other device, open Settings → Orchestrator and copy the Coordination ID.",
     }
   }
   if (!validRole(partial.device_role)) {
     return {
       ok: false,
       code: INTERNAL_ENDPOINT_ERROR_CODES.INTERNAL_ENDPOINT_INCOMPLETE,
-      message: `${label}: device_role must be "host" or "sandbox"`,
+      message:
+        "The other device's role is missing. It should be the opposite of this device's role (host ↔ sandbox).",
     }
   }
   if (!isNonEmpty(partial.computer_name)) {
     return {
       ok: false,
       code: INTERNAL_ENDPOINT_ERROR_CODES.INTERNAL_ENDPOINT_INCOMPLETE,
-      message: `${label}: computer_name is required for internal handshakes`,
+      message:
+        "The other device's name is missing. Open the Advanced section and enter it, or rely on the default placeholder.",
     }
   }
   return { ok: true }
@@ -173,31 +193,42 @@ export function validateInternalEndpointPair(
     return {
       ok: false,
       code: INTERNAL_ENDPOINT_ERROR_CODES.INTERNAL_ENDPOINT_ID_COLLISION,
-      message: 'device_id must differ between internal handshake endpoints',
+      message:
+        "The Coordination ID you pasted is the same as this device's. Paste the ID from the other device.",
     }
   }
   if (a.device_role === b.device_role) {
     return {
       ok: false,
       code: INTERNAL_ENDPOINT_ERROR_CODES.INTERNAL_ENDPOINT_ROLE_COLLISION,
-      message: 'device_role must differ between internal handshake endpoints (host vs sandbox)',
+      message:
+        "Both devices have the same role. One must be 'host' and the other 'sandbox' — change the role in Settings → Orchestrator on one device, then try again.",
     }
   }
 
-  const na = normalizeComputerNameForHandshake(a.computer_name)
-  const nb = normalizeComputerNameForHandshake(b.computer_name)
-  if (!na || !nb) {
-    return {
-      ok: false,
-      code: INTERNAL_ENDPOINT_ERROR_CODES.INTERNAL_ENDPOINT_INCOMPLETE,
-      message: 'computer_name is required on both endpoints after normalization',
+  // Phase 2: counterparty computer_name may be the pairing-time sentinel when the
+  // initiator does not yet know the peer's name. Treat sentinel as non-colliding —
+  // device_id is the authoritative routing key. The real name flows back after accept.
+  const aSentinel = isInternalComputerNameSentinel(a.computer_name)
+  const bSentinel = isInternalComputerNameSentinel(b.computer_name)
+  if (!aSentinel && !bSentinel) {
+    const na = normalizeComputerNameForHandshake(a.computer_name)
+    const nb = normalizeComputerNameForHandshake(b.computer_name)
+    if (!na || !nb) {
+      return {
+        ok: false,
+        code: INTERNAL_ENDPOINT_ERROR_CODES.INTERNAL_ENDPOINT_INCOMPLETE,
+        message:
+          "A device name is missing. Open the Advanced section and enter it, or leave it blank to use the default placeholder.",
+      }
     }
-  }
-  if (na === nb) {
-    return {
-      ok: false,
-      code: INTERNAL_ENDPOINT_ERROR_CODES.INTERNAL_COMPUTER_NAME_COLLISION,
-      message: 'normalized computer_name must differ between endpoints',
+    if (na === nb) {
+      return {
+        ok: false,
+        code: INTERNAL_ENDPOINT_ERROR_CODES.INTERNAL_COMPUTER_NAME_COLLISION,
+        message:
+          'Both devices have the same name. Rename one device in Settings → Orchestrator, then try again.',
+      }
     }
   }
   return { ok: true }

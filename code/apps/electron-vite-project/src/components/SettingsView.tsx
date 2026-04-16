@@ -5,6 +5,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import RelaySetupWizard from './RelaySetupWizard'
+import ThisDeviceCard from './ThisDeviceCard'
 
 // ── Inbox AI Settings types ──
 interface InboxAiSettings {
@@ -724,6 +725,12 @@ export default function SettingsView({ onNavigateToHandshake }: SettingsViewProp
                 </p>
               )}
             </div>
+
+            <ThisDeviceCard
+              deviceName={orchConfig?.deviceName ?? ''}
+              mode={orchConfig?.mode ?? 'host'}
+              instanceId={orchConfig?.instanceId ?? ''}
+            />
 
             <div>
               <span style={{ display: 'block', marginBottom: '10px', fontSize: '12px', fontWeight: 600, color: 'var(--color-text-muted)' }}>

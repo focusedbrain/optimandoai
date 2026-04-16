@@ -52,7 +52,10 @@ describe('handshake.initiate internal — no orchestrator device_id', () => {
 
     expect((result as any).success).toBe(false)
     const msg = String((result as any).error ?? '')
+    // Code prefix is stable (asserted here and consumed by logging). The human-readable
+    // portion after the colon was rewritten to be action-oriented in Phase 2 —
+    // assert a substring of the new message without locking the whole sentence.
     expect(msg).toContain('INTERNAL_ENDPOINT_INCOMPLETE')
-    expect(msg).toContain('orchestrator device_id')
+    expect(msg).toMatch(/Settings → Orchestrator/i)
   })
 })
