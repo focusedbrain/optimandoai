@@ -31312,6 +31312,23 @@ ${pageText}
                 <div id="btn-mode-host" style="flex:1;text-align:center;padding:4px 0;font-size:12px;font-weight:500;background:var(--cs-accent);color:#fff;cursor:default;">Host</div>
                 <div id="btn-mode-sandbox" style="flex:1;text-align:center;padding:4px 0;font-size:12px;font-weight:500;background:var(--cs-input-bg);color:var(--cs-muted);cursor:default;border-left:1px solid var(--cs-border);">Sandbox</div>
               </div>
+              <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--cs-border);">
+                <label style="display:block;font-size:11px;font-weight:600;color:var(--cs-muted);margin-bottom:4px;">Coordination ID</label>
+                <div style="display:flex;gap:6px;align-items:center;">
+                  <code id="this-device-coordination-id"
+                        data-testid="this-device-coordination-id"
+                        style="flex:1;min-width:0;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-size:11px;padding:6px 8px;background:var(--cs-input-bg);border:1px solid var(--cs-border);border-radius:4px;color:var(--cs-input-text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;user-select:all;">—</code>
+                  <button id="this-device-copy-button"
+                          type="button"
+                          data-testid="this-device-copy-button"
+                          aria-label="Copy Coordination ID"
+                          disabled
+                          style="padding:6px 10px;font-size:11px;font-weight:600;border:1px solid var(--cs-border);background:var(--cs-accent-subtle);color:var(--cs-accent-text);border-radius:4px;cursor:not-allowed;opacity:0.6;flex-shrink:0;">Copy</button>
+                </div>
+                <div style="font-size:10px;color:var(--cs-muted);margin-top:4px;line-height:1.4;">
+                  Share this ID with your other device to pair it for internal handshakes.
+                </div>
+              </div>
             </div>
 
             <div style="background:var(--cs-card-bg);border:1px solid var(--cs-border);border-radius:8px;padding:10px 12px;display:flex;flex-direction:column;">
@@ -31755,14 +31772,21 @@ ${pageText}
     async function wireOrchestratorModeUI() {
       const LS_KEY = 'optimando-orchestrator-mode'
       const PAID_ORCH_TIERS = new Set(['pro', 'private', 'private_lifetime', 'publisher', 'publisher_lifetime', 'enterprise'])
+      // `instanceId` is cached only so the row can render immediately on card open; the RPC
+      // value is always treated as authoritative and overwrites it on every successful fetch.
       type LsOrchShape = {
         mode: 'host' | 'sandbox'
         deviceName?: string
+        instanceId?: string
       }
 
       const hostBtn = document.getElementById('btn-mode-host')
       const sandboxBtn = document.getElementById('btn-mode-sandbox')
       const deviceNameInput = document.getElementById('device-name-input') as HTMLInputElement | null
+      const coordIdEl = document.getElementById('this-device-coordination-id')
+      const copyBtn = document.getElementById('this-device-copy-button') as HTMLButtonElement | null
+      let currentInstanceId = ''
+      let copyResetTimer: ReturnType<typeof setTimeout> | null = null
 
       let userTier = 'free'
       let selectedMode: 'host' | 'sandbox' = 'host'
@@ -31790,7 +31814,8 @@ ${pageText}
           const data = raw ? (JSON.parse(raw) as LsOrchShape & { connectedPeers?: unknown }) : { mode: 'host' }
           const mode: 'host' | 'sandbox' = data?.mode === 'sandbox' ? 'sandbox' : 'host'
           const deviceName = typeof data?.deviceName === 'string' ? data.deviceName : ''
-          return { mode, deviceName }
+          const instanceId = typeof data?.instanceId === 'string' ? data.instanceId : ''
+          return { mode, deviceName, ...(instanceId ? { instanceId } : {}) }
         } catch {
           return { mode: 'host', deviceName: '' }
         }
@@ -31809,6 +31834,7 @@ ${pageText}
         writeLsBlob({
           mode: selectedMode,
           ...(deviceName ? { deviceName } : {}),
+          ...(cur.instanceId ? { instanceId: cur.instanceId } : {}),
         })
       }
 
@@ -31820,6 +31846,7 @@ ${pageText}
           writeLsBlob({
             mode: 'host',
             ...(cur.deviceName ? { deviceName: cur.deviceName } : {}),
+            ...(cur.instanceId ? { instanceId: cur.instanceId } : {}),
           })
         } catch { /* ignore */ }
       }
@@ -32025,9 +32052,92 @@ ${pageText}
 
       deviceNameInput?.addEventListener('blur', onDeviceNameBlur)
 
+      function setCoordinationIdDisplay(id: string) {
+        currentInstanceId = typeof id === 'string' ? id.trim() : ''
+        if (coordIdEl) coordIdEl.textContent = currentInstanceId || '—'
+        if (copyBtn) {
+          const enabled = currentInstanceId.length > 0
+          copyBtn.disabled = !enabled
+          copyBtn.style.cursor = enabled ? 'pointer' : 'not-allowed'
+          copyBtn.style.opacity = enabled ? '1' : '0.6'
+        }
+      }
+
+      function cacheInstanceId(id: string) {
+        if (!id) return
+        try {
+          const cur = readLsBlob()
+          if (cur.instanceId === id) return
+          writeLsBlob({
+            mode: cur.mode,
+            ...(cur.deviceName ? { deviceName: cur.deviceName } : {}),
+            instanceId: id,
+          })
+        } catch { /* ignore */ }
+      }
+
+      async function refreshCoordinationIdFromRpc() {
+        try {
+          const res = await electronRpc('orchestrator.getMode', undefined, 8_000)
+          const data = res?.data as { ok?: boolean; config?: { instanceId?: unknown } } | undefined
+          if (!res?.success || !data || data.ok !== true || !data.config) {
+            return
+          }
+          const fetched = typeof data.config.instanceId === 'string' ? data.config.instanceId.trim() : ''
+          if (!fetched) return
+          setCoordinationIdDisplay(fetched)
+          cacheInstanceId(fetched)
+        } catch (err) {
+          console.debug('[OrchestratorMode] getMode RPC failed (display-only):', err)
+        }
+      }
+
+      function onCopyCoordinationIdClick() {
+        if (!currentInstanceId) return
+        const label = copyBtn
+        const restore = () => {
+          if (!label) return
+          label.textContent = 'Copy'
+        }
+        const flashCopied = () => {
+          if (!label) return
+          label.textContent = 'Copied'
+          if (copyResetTimer) clearTimeout(copyResetTimer)
+          copyResetTimer = setTimeout(restore, 2000)
+        }
+        try {
+          const cb = navigator.clipboard
+          if (cb && typeof cb.writeText === 'function') {
+            void cb
+              .writeText(currentInstanceId)
+              .then(flashCopied)
+              .catch((err) => console.debug('[OrchestratorMode] clipboard.writeText rejected:', err))
+            return
+          }
+        } catch { /* fall through to legacy path */ }
+        // Legacy fallback for contexts where navigator.clipboard is unavailable.
+        try {
+          const ta = document.createElement('textarea')
+          ta.value = currentInstanceId
+          ta.setAttribute('readonly', '')
+          ta.style.position = 'fixed'
+          ta.style.opacity = '0'
+          document.body.appendChild(ta)
+          ta.select()
+          const ok = document.execCommand('copy')
+          document.body.removeChild(ta)
+          if (ok) flashCopied()
+        } catch { /* no-op — display-only field */ }
+      }
+
+      copyBtn?.addEventListener('click', onCopyCoordinationIdClick)
+
       function finishOrchestratorInit() {
         persistHostIfFreeDowngrade()
         loadFromStorage()
+        const cached = readLsBlob().instanceId
+        setCoordinationIdDisplay(cached || '')
+        void refreshCoordinationIdFromRpc()
         void applyInternalHandshakeLockAsync()
       }
 

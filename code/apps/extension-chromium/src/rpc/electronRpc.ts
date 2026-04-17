@@ -179,6 +179,28 @@ const DashboardStatus = {
 
 // ── Orchestrator host / sandbox (Extension Settings) ──
 
+/**
+ * Orchestrator mode config returned by GET /api/orchestrator/mode.
+ *
+ * Shape mirrors `OrchestratorModeConfig` in
+ * `electron/main/orchestrator/orchestratorModeStore.ts`. The HTTP handler
+ * (`main.ts` GET `/api/orchestrator/mode`) already returns this full object
+ * inside `{ ok: true, config }`; this interface only documents/types the
+ * fields so extension callers (e.g. the on-page Settings lightbox) can
+ * consume `instanceId` and `deviceName` safely.
+ */
+export interface OrchestratorMode {
+  mode: 'host' | 'sandbox'
+  deviceName: string
+  instanceId: string
+  connectedPeers: unknown[]
+}
+
+/** Full response envelope of `orchestrator.getMode`. */
+export type OrchestratorGetModeResponse =
+  | { ok: true; config: OrchestratorMode }
+  | { ok: false; error?: string }
+
 const OrchestratorGetMode = {
   method: 'orchestrator.getMode' as const,
   schema: z.void(),
