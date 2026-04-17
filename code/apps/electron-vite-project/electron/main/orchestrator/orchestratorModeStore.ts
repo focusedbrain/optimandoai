@@ -3,7 +3,7 @@
  * Single JSON file under Electron userData.
  */
 
-import { randomUUID } from 'crypto'
+import { randomInt, randomUUID } from 'crypto'
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
@@ -24,8 +24,45 @@ export interface OrchestratorModeConfig {
   mode: 'host' | 'sandbox'
   deviceName: string
   instanceId: string
+  /**
+   * 6-digit decimal pairing code (string, zero-padded), unique per SSO account.
+   * Stored without a dash — UI is responsible for "482-917" style display.
+   * Persisted lazily: missing on disk triggers generate-and-save on next read.
+   */
+  pairingCode: string
   connectedPeers: ConnectedPeer[]
 }
+
+/**
+ * Server-side pairing-code registrar. Injected by `main.ts` at startup so
+ * the store stays free of HTTP / OIDC dependencies. When unset (e.g. tests
+ * or before login), generation/regeneration only updates the local file.
+ *
+ * Returning `'inserted' | 'idempotent'` means the code is now owned by this
+ * device. `'collision'` means the code is already held by another device on
+ * the same account and the caller should retry with a new code.
+ * `'unavailable'` means the registrar is not configured / network down — the
+ * caller may still persist locally and retry registration later.
+ */
+export type PairingCodeRegistrar = (
+  pairingCode: string,
+) => Promise<'inserted' | 'idempotent' | 'collision' | 'unavailable'>
+
+let pairingCodeRegistrar: PairingCodeRegistrar | null = null
+
+export function setPairingCodeRegistrar(fn: PairingCodeRegistrar | null): void {
+  pairingCodeRegistrar = fn
+}
+
+/** Generate a fresh 6-digit code (zero-padded). Cryptographically random. */
+export function generatePairingCode(): string {
+  // randomInt is exclusive of `max`, so 0..999_999 inclusive.
+  return String(randomInt(0, 1_000_000)).padStart(6, '0')
+}
+
+const PAIRING_CODE_RE = /^[0-9]{6}$/
+
+const MAX_REGISTRATION_ATTEMPTS = 5
 
 function storePath(): string {
   return path.join(app.getPath('userData'), FILE_NAME)
@@ -56,7 +93,11 @@ function readRawJson(): unknown {
   }
 }
 
-function buildConfigFromRaw(raw: unknown): { config: OrchestratorModeConfig; missingInstanceId: boolean } {
+function buildConfigFromRaw(raw: unknown): {
+  config: OrchestratorModeConfig
+  missingInstanceId: boolean
+  missingPairingCode: boolean
+} {
   const o = raw != null && typeof raw === 'object' ? (raw as Record<string, unknown>) : {}
 
   let mode: 'host' | 'sandbox' = 'host'
@@ -69,14 +110,24 @@ function buildConfigFromRaw(raw: unknown): { config: OrchestratorModeConfig; mis
   let deviceName = typeof o.deviceName === 'string' && o.deviceName.trim() ? o.deviceName.trim() : ''
   if (!deviceName) deviceName = os.hostname()
 
+  // Lazy-migrate: legacy on-disk configs predating pairing codes will be
+  // missing this field. Generate one and let the caller persist it. Server
+  // registration happens on the next call to `ensurePairingCodeRegistered`.
+  let pairingCode = typeof o.pairingCode === 'string' && PAIRING_CODE_RE.test(o.pairingCode)
+    ? o.pairingCode
+    : ''
+  const missingPairingCode = !pairingCode
+  if (missingPairingCode) pairingCode = generatePairingCode()
+
   let connectedPeers: ConnectedPeer[] = []
   if (Array.isArray(o.connectedPeers)) {
     connectedPeers = o.connectedPeers.filter(isConnectedPeer)
   }
 
   return {
-    config: { mode, deviceName, instanceId, connectedPeers },
+    config: { mode, deviceName, instanceId, pairingCode, connectedPeers },
     missingInstanceId,
+    missingPairingCode,
   }
 }
 
@@ -104,8 +155,8 @@ function persistConfig(config: OrchestratorModeConfig): void {
 
 export function getOrchestratorMode(): OrchestratorModeConfig {
   const raw = readRawJson()
-  const { config, missingInstanceId } = buildConfigFromRaw(raw)
-  if (missingInstanceId) persistConfig(config)
+  const { config, missingInstanceId, missingPairingCode } = buildConfigFromRaw(raw)
+  if (missingInstanceId || missingPairingCode) persistConfig(config)
   return config
 }
 
@@ -145,11 +196,20 @@ function validateForWrite(config: OrchestratorModeConfig): OrchestratorModeConfi
   if (!instanceId) {
     throw new Error('OrchestratorMode: instanceId is required')
   }
+  // Pairing code must be 6 decimal digits if present. To support code paths
+  // (e.g. setOrchestratorMode from legacy callers / extension) that don't
+  // know about pairing codes yet, accept missing/empty by minting a fresh
+  // one rather than rejecting — this keeps callers backwards-compatible.
+  let pairingCode = typeof config.pairingCode === 'string' ? config.pairingCode.trim() : ''
+  if (!pairingCode) pairingCode = generatePairingCode()
+  if (!PAIRING_CODE_RE.test(pairingCode)) {
+    throw new Error('OrchestratorMode: pairingCode must be 6 decimal digits')
+  }
   if (!Array.isArray(config.connectedPeers)) {
     throw new Error('OrchestratorMode: connectedPeers must be an array')
   }
   const connectedPeers = config.connectedPeers.map((p) => validatePeer(p))
-  return { mode: config.mode, deviceName, instanceId, connectedPeers }
+  return { mode: config.mode, deviceName, instanceId, pairingCode, connectedPeers }
 }
 
 export function setOrchestratorMode(config: OrchestratorModeConfig): void {
@@ -178,6 +238,81 @@ export function setDeviceName(name: string): void {
   if (!trimmed) throw new Error('OrchestratorMode: deviceName cannot be empty')
   const c = getOrchestratorMode()
   setOrchestratorMode({ ...c, deviceName: trimmed })
+}
+
+/**
+ * Read the persisted 6-digit pairing code (zero-padded). Generates and
+ * persists one if the on-disk config predates pairing codes.
+ */
+export function getPairingCode(): string {
+  return getOrchestratorMode().pairingCode
+}
+
+/** Internal — replace the persisted pairing code without server registration. */
+function setPairingCodeLocal(code: string): void {
+  if (!PAIRING_CODE_RE.test(code)) {
+    throw new Error('OrchestratorMode: pairingCode must be 6 decimal digits')
+  }
+  const c = getOrchestratorMode()
+  if (c.pairingCode === code) return
+  setOrchestratorMode({ ...c, pairingCode: code })
+}
+
+/**
+ * Ensure the currently-persisted pairing code is registered with the
+ * coordination service. Safe to call repeatedly (idempotent on the server).
+ *
+ *   - If the registrar reports a collision, generate a new code and retry up
+ *     to MAX_REGISTRATION_ATTEMPTS times. Each successful insert replaces the
+ *     prior `(user, *) → instance` row server-side.
+ *   - If the registrar is unavailable (no token / network), persist whatever
+ *     we have and return; a later call will retry.
+ *
+ * Returns the code that ended up being registered (or attempted last).
+ */
+export async function ensurePairingCodeRegistered(): Promise<string> {
+  let current = getPairingCode()
+  if (!pairingCodeRegistrar) return current
+
+  for (let attempt = 0; attempt < MAX_REGISTRATION_ATTEMPTS; attempt += 1) {
+    let result: 'inserted' | 'idempotent' | 'collision' | 'unavailable'
+    try {
+      result = await pairingCodeRegistrar(current)
+    } catch (err) {
+      console.warn('[OrchestratorMode] pairing-code registrar threw:', err)
+      return current
+    }
+    if (result === 'inserted' || result === 'idempotent') {
+      return current
+    }
+    if (result === 'unavailable') {
+      // Network / auth not ready yet — keep the local code, retry later.
+      return current
+    }
+    // collision — pick a new code and try again.
+    const next = generatePairingCode()
+    setPairingCodeLocal(next)
+    current = next
+  }
+
+  console.warn(
+    '[OrchestratorMode] pairing-code registration: all retries collided; persisting locally anyway',
+  )
+  return current
+}
+
+/**
+ * Generate a new pairing code, register it with the coordination service
+ * (with collision retry), and persist it. Returns the new code.
+ *
+ * Local persistence happens before the server roundtrip so even if the
+ * registrar is offline the new code takes effect locally; a later
+ * `ensurePairingCodeRegistered` will sync it.
+ */
+export async function regeneratePairingCode(): Promise<string> {
+  const fresh = generatePairingCode()
+  setPairingCodeLocal(fresh)
+  return ensurePairingCodeRegistered()
 }
 
 export function addConnectedPeer(peer: ConnectedPeer): void {

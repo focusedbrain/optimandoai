@@ -1,4 +1,4 @@
-﻿import { app, BrowserWindow, globalShortcut, Tray, Menu, Notification, screen, dialog, shell, ipcMain, clipboard } from 'electron'
+﻿import { app, BrowserWindow, globalShortcut, Tray, Menu, Notification, screen, dialog, shell, ipcMain } from 'electron'
 import { loginWithKeycloak, prepareLoginUrl, setUrlOpener } from '../src/auth/login'
 import { saveRefreshToken, clearRefreshToken } from '../src/auth/tokenStore'
 import { ensureSession, updateSessionFromTokens, clearSession, getCachedUserInfo, getAccessToken } from '../src/auth/session'
@@ -23,7 +23,15 @@ import {
   setManualSofficePath,
 } from './main/libreoffice/libreofficeService'
 import { registerOrchestratorIPC } from './main/orchestrator/ipc'
-import { getInstanceId, getOrchestratorMode, isSandboxMode, setOrchestratorMode } from './main/orchestrator/orchestratorModeStore'
+import {
+  ensurePairingCodeRegistered,
+  getOrchestratorMode,
+  isSandboxMode,
+  regeneratePairingCode,
+  setOrchestratorMode,
+  setPairingCodeRegistrar,
+  type PairingCodeRegistrar,
+} from './main/orchestrator/orchestratorModeStore'
 
 function stripDataUriPrefixForLlm(s: string): string {
   if (!s.startsWith('data:')) return s
@@ -2301,23 +2309,6 @@ function updateTrayMenu() {
             console.error('[MAIN] Failed to update autostart setting:', err)
           }
         }
-      },
-      { type: 'separator' },
-      {
-        label: 'Copy Coordination ID',
-        click: () => {
-          try {
-            const id = getInstanceId()
-            if (id) {
-              clipboard.writeText(id)
-              console.log('[TRAY] Coordination ID copied to clipboard')
-            } else {
-              console.log('[TRAY] Copy Coordination ID: no instanceId available')
-            }
-          } catch (err) {
-            console.log('[TRAY] Copy Coordination ID failed:', err)
-          }
-        },
       },
       { type: 'separator' },
       { label: 'Quit', role: 'quit' as const },
@@ -8784,6 +8775,75 @@ async function runDeviceKeyMigration(
       }
     })
 
+    // POST /api/orchestrator/regenerate-pairing-code — rotate the device's
+    // 6-digit pairing code. Returns the new code; the old code is invalidated
+    // server-side (subsequent resolve calls return 404). Local persistence
+    // happens before the server roundtrip so the new code takes effect even
+    // if the coordination service is briefly unreachable.
+    httpApp.post('/api/orchestrator/regenerate-pairing-code', async (_req, res) => {
+      try {
+        const pairingCode = await regeneratePairingCode()
+        res.json({ ok: true as const, pairingCode })
+      } catch (error: any) {
+        console.error('[HTTP-ORCHESTRATOR] Error in regenerate-pairing-code:', error)
+        res.status(500).json({ ok: false as const, error: error?.message || 'Failed to regenerate pairing code' })
+      }
+    })
+
+    // GET /api/coordination/resolve-pairing-code?code=XXXXXX — resolve a
+    // 6-digit pairing code to { instance_id, device_name } scoped to the
+    // current account. Proxies to the coordination service using the host's
+    // OIDC token; the extension never sees the OIDC token. Returns 404 for
+    // unknown codes AND for codes registered by other users.
+    httpApp.get('/api/coordination/resolve-pairing-code', async (req, res) => {
+      try {
+        const codeParam = typeof req.query?.code === 'string' ? req.query.code.trim() : ''
+        if (!/^[0-9]{6}$/.test(codeParam)) {
+          res.status(400).json({ ok: false as const, error: 'code must be 6 digits' })
+          return
+        }
+        const handshakeDb = getHandshakeDb()
+        if (!handshakeDb) {
+          res.status(503).json({ ok: false as const, error: 'Handshake DB not ready' })
+          return
+        }
+        const token = await getOidcToken()
+        if (!token?.trim()) {
+          res.status(401).json({ ok: false as const, error: 'No OIDC token' })
+          return
+        }
+        const coordUrl = getP2PConfig(handshakeDb).coordination_url?.trim()
+        if (!coordUrl) {
+          res.status(503).json({ ok: false as const, error: 'Coordination URL not configured' })
+          return
+        }
+        const upstreamUrl = `${coordUrl.replace(/\/$/, '')}/api/coordination/resolve-pairing-code?code=${encodeURIComponent(codeParam)}`
+        const upstream = await fetch(upstreamUrl, {
+          method: 'GET',
+          headers: { Authorization: `Bearer ${token}` },
+          signal: AbortSignal.timeout(8000),
+        })
+        const text = await upstream.text()
+        let data: unknown
+        try { data = JSON.parse(text) } catch { data = { error: text } }
+        if (!upstream.ok) {
+          res.status(upstream.status).json({ ok: false as const, error: (data as any)?.error || `HTTP ${upstream.status}` })
+          return
+        }
+        const obj = (data && typeof data === 'object') ? (data as Record<string, unknown>) : {}
+        const instance_id = typeof obj.instance_id === 'string' ? obj.instance_id : ''
+        const device_name = typeof obj.device_name === 'string' ? obj.device_name : ''
+        if (!instance_id) {
+          res.status(502).json({ ok: false as const, error: 'Malformed upstream response' })
+          return
+        }
+        res.json({ ok: true as const, instance_id, device_name })
+      } catch (error: any) {
+        console.error('[HTTP-ORCHESTRATOR] Error in resolve-pairing-code:', error)
+        res.status(500).json({ ok: false as const, error: error?.message || 'Failed to resolve pairing code' })
+      }
+    })
+
     // GET /api/orchestrator/mode-config — legacy alias (same payload as /api/orchestrator/mode)
     httpApp.get('/api/orchestrator/mode-config', (_req, res) => {
       try {
@@ -10684,6 +10744,64 @@ async function runDeviceKeyMigration(
       }
     }
 
+    /**
+     * Wire the orchestrator-mode store's pairing-code registrar so codes
+     * generated on disk get mirrored to the coordination service. Resolves
+     * OIDC token, coord URL, user_id, and device identity on each call so
+     * we never cache stale credentials.
+     *
+     * Returns:
+     *   - 'inserted' / 'idempotent' on 201 / 200
+     *   - 'collision' on 409 (caller picks a new code and retries)
+     *   - 'unavailable' for any other failure (no token, no URL, network, 5xx)
+     *
+     * The 'unavailable' bucket is intentionally broad: pairing codes are
+     * a best-effort registration and a missing server-side row never blocks
+     * local handshake handling. Background retries pick up where this
+     * leaves off.
+     */
+    const orchestratorPairingCodeRegistrar: PairingCodeRegistrar = async (pairingCode) => {
+      try {
+        const handshakeDb = getHandshakeDb()
+        if (!handshakeDb) return 'unavailable'
+        const token = await getOidcToken()
+        if (!token?.trim()) return 'unavailable'
+        const coordUrl = getP2PConfig(handshakeDb).coordination_url?.trim()
+        if (!coordUrl) return 'unavailable'
+
+        // user_id must match token.sub (the coordination service enforces this).
+        const session = await ensureSession().catch(() => null)
+        const userId = session?.userInfo?.sub?.trim()
+        if (!userId) return 'unavailable'
+
+        const deviceConfig = getOrchestratorMode()
+        const url = `${coordUrl.replace(/\/$/, '')}/api/coordination/register-pairing-code`
+
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            user_id: userId,
+            instance_id: deviceConfig.instanceId,
+            pairing_code: pairingCode,
+            device_name: deviceConfig.deviceName,
+          }),
+          signal: AbortSignal.timeout(8000),
+        })
+        if (res.status === 200 || res.status === 201) {
+          return res.status === 201 ? 'inserted' : 'idempotent'
+        }
+        if (res.status === 409) return 'collision'
+        return 'unavailable'
+      } catch {
+        return 'unavailable'
+      }
+    }
+    setPairingCodeRegistrar(orchestratorPairingCodeRegistrar)
+
     function tryP2PStartup(): void {
       const handshakeDb = getHandshakeDb()
       if (!handshakeDb) {
@@ -10701,6 +10819,13 @@ async function runDeviceKeyMigration(
       }
       processOutboundQueue(handshakeDb, getOidcToken).catch((err) => {
         console.warn('[P2P] processOutboundQueue error:', err?.message)
+      })
+
+      // Best-effort: ensure this device's pairing code is registered with the
+      // coordination service. Safe to call repeatedly — the server treats
+      // (user_id, instance_id) re-registration as idempotent.
+      void ensurePairingCodeRegistered().catch((err) => {
+        console.warn('[OrchestratorMode] ensurePairingCodeRegistered error:', err?.message ?? err)
       })
 
       // Re-trigger context_sync for any ACCEPTED handshakes where we haven't sent yet

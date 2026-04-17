@@ -50,7 +50,9 @@ export default function HandshakeInitiateModal({ onClose, onSuccess, presetInter
   const [isInternal, setIsInternal] = useState(!!presetInternal)
   const [deviceRole, setDeviceRole] = useState<'host' | 'sandbox'>('sandbox')
   const [deviceName, setDeviceName] = useState('')
-  const [localDeviceId, setLocalDeviceId] = useState<string>('')
+  /** This device's local 6-digit pairing code, used for the self-pair guard in
+   *  SendHandshakeDelivery. Surfaced from orchestrator preload (getDeviceInfo). */
+  const [localPairingCode, setLocalPairingCode] = useState<string>('')
   const [recipientEmail, setRecipientEmail] = useState('')
   /** Phase 2: one-time contextual hint shown when the user toggles internal mode. */
   const [showInternalHint, setShowInternalHint] = useState(false)
@@ -83,11 +85,12 @@ export default function HandshakeInitiateModal({ onClose, onSuccess, presetInter
     if (!isInternal) return
     prefillRecipientEmail(setRecipientEmail)
     // Prefer orchestratorMode IPC (Electron main) so we pick up the canonical deviceName
-    // and the local instanceId (Coordination ID) for the self-paste guard in
-    // SendHandshakeDelivery. Fall back to localStorage for legacy paths.
+    // and the local 6-digit pairing code for the self-pair guard in SendHandshakeDelivery.
+    // Fall back to localStorage for legacy paths (deviceName only — pairing code is not
+    // mirrored to localStorage in the desktop app).
     const om = (window as unknown as {
       orchestratorMode?: {
-        getDeviceInfo?: () => Promise<{ instanceId?: string; deviceName?: string } | null | undefined>
+        getDeviceInfo?: () => Promise<{ pairingCode?: string; deviceName?: string } | null | undefined>
       }
     }).orchestratorMode
     let cancelled = false
@@ -104,9 +107,9 @@ export default function HandshakeInitiateModal({ onClose, onSuccess, presetInter
         .then((info) => {
           if (cancelled) return
           const n = typeof info?.deviceName === 'string' ? info.deviceName : ''
-          const id = typeof info?.instanceId === 'string' ? info.instanceId : ''
+          const code = typeof info?.pairingCode === 'string' ? info.pairingCode.trim() : ''
           setDeviceName(n)
-          setLocalDeviceId(id)
+          setLocalPairingCode(code)
         })
         .catch(() => {
           fallbackFromLocalStorage()
@@ -203,8 +206,8 @@ export default function HandshakeInitiateModal({ onClose, onSuccess, presetInter
             <span style={{ fontSize: '14px', flexShrink: 0 }} aria-hidden>ℹ️</span>
             <span style={{ flex: 1 }}>
               Internal handshakes pair two devices on the same account. You’ll need the{' '}
-              <strong>Coordination ID</strong> from the other device — find it in{' '}
-              <strong>Settings → Orchestrator</strong>.
+              <strong>6-digit Pairing code</strong> from the other device — find it in{' '}
+              <strong>Settings → Orchestrator mode</strong>.
             </span>
             <button
               type="button"
@@ -290,7 +293,7 @@ export default function HandshakeInitiateModal({ onClose, onSuccess, presetInter
           lockedRecipientEmail={isInternal && recipientEmail.trim() ? recipientEmail : undefined}
           deviceName={isInternal ? deviceName : undefined}
           deviceRole={isInternal ? deviceRole : undefined}
-          localDeviceId={isInternal ? localDeviceId : undefined}
+          localPairingCode={isInternal ? localPairingCode : undefined}
         />
       </div>
     </div>

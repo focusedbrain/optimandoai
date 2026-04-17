@@ -51,23 +51,6 @@ export interface InternalEndpointPairValidationResult {
 }
 
 /**
- * Sentinel value used for a counterparty `computer_name` when the initiator does not
- * yet know the other device's human-readable name (Phase 2 single-paste UX).
- *
- * The actual name is learned out-of-band after a successful accept round-trip and
- * overwrites this sentinel via the normal update path. Validation treats this value
- * as a non-empty, non-colliding name so an initiator can pair using only the
- * Coordination ID of the other device.
- */
-export const INTERNAL_COMPUTER_NAME_SENTINEL = '<unknown>'
-
-/** True if `name` is the pairing-time placeholder sentinel. */
-export function isInternalComputerNameSentinel(name: string | null | undefined): boolean {
-  if (typeof name !== 'string') return false
-  return name.trim() === INTERNAL_COMPUTER_NAME_SENTINEL
-}
-
-/**
  * Normalize `computer_name` for equality checks:
  * - trim
  * - Unicode NFKC normalization
@@ -137,7 +120,7 @@ export function validateInternalEndpointIdentity(
       ok: false,
       code: INTERNAL_ENDPOINT_ERROR_CODES.INTERNAL_ENDPOINT_INCOMPLETE,
       message:
-        "The other device's Coordination ID is missing. On your other device, open Settings → Orchestrator and copy the Coordination ID.",
+        "The other device's pairing code is missing or invalid. On your other device, open Settings → Orchestrator mode and read the 6-digit code.",
     }
   }
   if (!validRole(partial.device_role)) {
@@ -153,7 +136,7 @@ export function validateInternalEndpointIdentity(
       ok: false,
       code: INTERNAL_ENDPOINT_ERROR_CODES.INTERNAL_ENDPOINT_INCOMPLETE,
       message:
-        "The other device's name is missing. Open the Advanced section and enter it, or rely on the default placeholder.",
+        "The other device's name is missing. Restart the orchestrator on that device and try again.",
     }
   }
   return { ok: true }
@@ -194,7 +177,7 @@ export function validateInternalEndpointPair(
       ok: false,
       code: INTERNAL_ENDPOINT_ERROR_CODES.INTERNAL_ENDPOINT_ID_COLLISION,
       message:
-        "The Coordination ID you pasted is the same as this device's. Paste the ID from the other device.",
+        'The pairing code resolved to this same device. Read the code from your other device.',
     }
   }
   if (a.device_role === b.device_role) {
@@ -202,33 +185,30 @@ export function validateInternalEndpointPair(
       ok: false,
       code: INTERNAL_ENDPOINT_ERROR_CODES.INTERNAL_ENDPOINT_ROLE_COLLISION,
       message:
-        "Both devices have the same role. One must be 'host' and the other 'sandbox' — change the role in Settings → Orchestrator on one device, then try again.",
+        "Both devices have the same role. One must be 'host' and the other 'sandbox' — change the role in Settings → Orchestrator mode on one device, then try again.",
     }
   }
 
-  // Phase 2: counterparty computer_name may be the pairing-time sentinel when the
-  // initiator does not yet know the peer's name. Treat sentinel as non-colliding —
-  // device_id is the authoritative routing key. The real name flows back after accept.
-  const aSentinel = isInternalComputerNameSentinel(a.computer_name)
-  const bSentinel = isInternalComputerNameSentinel(b.computer_name)
-  if (!aSentinel && !bSentinel) {
-    const na = normalizeComputerNameForHandshake(a.computer_name)
-    const nb = normalizeComputerNameForHandshake(b.computer_name)
-    if (!na || !nb) {
-      return {
-        ok: false,
-        code: INTERNAL_ENDPOINT_ERROR_CODES.INTERNAL_ENDPOINT_INCOMPLETE,
-        message:
-          "A device name is missing. Open the Advanced section and enter it, or leave it blank to use the default placeholder.",
-      }
+  // Both endpoints carry real `computer_name` values: the initiator side comes from
+  // local orchestrator settings; the counterparty side is filled in by the
+  // pairing-code resolve RPC, which returns the registered device_name. There is no
+  // sentinel/placeholder path anymore (Phase 4).
+  const na = normalizeComputerNameForHandshake(a.computer_name)
+  const nb = normalizeComputerNameForHandshake(b.computer_name)
+  if (!na || !nb) {
+    return {
+      ok: false,
+      code: INTERNAL_ENDPOINT_ERROR_CODES.INTERNAL_ENDPOINT_INCOMPLETE,
+      message:
+        'A device name is missing. Open Settings → Orchestrator mode on each device and make sure both have a name set.',
     }
-    if (na === nb) {
-      return {
-        ok: false,
-        code: INTERNAL_ENDPOINT_ERROR_CODES.INTERNAL_COMPUTER_NAME_COLLISION,
-        message:
-          'Both devices have the same name. Rename one device in Settings → Orchestrator, then try again.',
-      }
+  }
+  if (na === nb) {
+    return {
+      ok: false,
+      code: INTERNAL_ENDPOINT_ERROR_CODES.INTERNAL_COMPUTER_NAME_COLLISION,
+      message:
+        'Both devices have the same name. Rename one device in Settings → Orchestrator mode, then try again.',
     }
   }
   return { ok: true }

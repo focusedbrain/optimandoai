@@ -49,6 +49,7 @@ declare global {
     mode: 'host' | 'sandbox'
     deviceName: string
     instanceId: string
+    pairingCode: string
     connectedPeers: ConnectedPeer[]
   }
   interface Window {
@@ -56,9 +57,10 @@ declare global {
       getMode: () => Promise<OrchestratorModeConfig>
       setMode: (config: OrchestratorModeConfig) => Promise<{ ok: boolean; error?: string }>
       setDeviceName: (name: string) => Promise<void>
-      getDeviceInfo: () => Promise<{ instanceId: string; deviceName: string; mode: string }>
+      getDeviceInfo: () => Promise<{ instanceId: string; deviceName: string; mode: string; pairingCode: string }>
       getConnectedPeers: () => Promise<ConnectedPeer[]>
       removePeer: (instanceId: string) => Promise<void>
+      regeneratePairingCode: () => Promise<{ ok: boolean; pairingCode?: string; error?: string }>
     }
   }
 }
@@ -493,6 +495,7 @@ contextBridge.exposeInMainWorld('orchestratorMode', {
   getConnectedPeers: () => ipcRenderer.invoke('orchestrator:getConnectedPeers'),
   removePeer: (instanceId: unknown) =>
     ipcRenderer.invoke('orchestrator:removePeer', { instanceId: assertString(instanceId, 'instanceId') }),
+  regeneratePairingCode: () => ipcRenderer.invoke('orchestrator:regeneratePairingCode'),
 })
 
 // ── Analysis Dashboard ───────────────────────────────────────────────────

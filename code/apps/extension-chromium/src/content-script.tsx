@@ -31313,20 +31313,21 @@ ${pageText}
                 <div id="btn-mode-sandbox" style="flex:1;text-align:center;padding:4px 0;font-size:12px;font-weight:500;background:var(--cs-input-bg);color:var(--cs-muted);cursor:default;border-left:1px solid var(--cs-border);">Sandbox</div>
               </div>
               <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--cs-border);">
-                <label style="display:block;font-size:11px;font-weight:600;color:var(--cs-muted);margin-bottom:4px;">Coordination ID</label>
-                <div style="display:flex;gap:6px;align-items:center;">
-                  <code id="this-device-coordination-id"
-                        data-testid="this-device-coordination-id"
-                        style="flex:1;min-width:0;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-size:11px;padding:6px 8px;background:var(--cs-input-bg);border:1px solid var(--cs-border);border-radius:4px;color:var(--cs-input-text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;user-select:all;">—</code>
-                  <button id="this-device-copy-button"
+                <label style="display:block;font-size:11px;font-weight:600;color:var(--cs-muted);margin-bottom:6px;">Pairing code</label>
+                <div id="this-device-pairing-code"
+                     data-testid="this-device-pairing-code"
+                     style="font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-size:22px;font-weight:600;letter-spacing:2px;padding:8px 10px;background:var(--cs-input-bg);border:1px solid var(--cs-border);border-radius:4px;text-align:center;color:var(--cs-input-text);user-select:all;">———</div>
+                <div style="display:flex;gap:8px;align-items:center;margin-top:6px;flex-wrap:wrap;">
+                  <button id="this-device-regenerate-button"
                           type="button"
-                          data-testid="this-device-copy-button"
-                          aria-label="Copy Coordination ID"
-                          disabled
-                          style="padding:6px 10px;font-size:11px;font-weight:600;border:1px solid var(--cs-border);background:var(--cs-accent-subtle);color:var(--cs-accent-text);border-radius:4px;cursor:not-allowed;opacity:0.6;flex-shrink:0;">Copy</button>
+                          data-testid="this-device-regenerate-button"
+                          style="padding:4px 10px;font-size:11px;border:1px solid var(--cs-border);background:transparent;color:var(--cs-input-text);border-radius:4px;cursor:pointer;">Regenerate</button>
+                  <span id="this-device-pairing-code-status"
+                        data-testid="this-device-pairing-code-status"
+                        style="font-size:11px;line-height:1.2;color:var(--cs-muted);"></span>
                 </div>
-                <div style="font-size:10px;color:var(--cs-muted);margin-top:4px;line-height:1.4;">
-                  Share this ID with your other device to pair it for internal handshakes.
+                <div style="font-size:10px;color:var(--cs-muted);margin-top:6px;line-height:1.4;">
+                  Read this code aloud or write it down to pair your other device for internal handshakes.
                 </div>
               </div>
             </div>
@@ -31772,21 +31773,24 @@ ${pageText}
     async function wireOrchestratorModeUI() {
       const LS_KEY = 'optimando-orchestrator-mode'
       const PAID_ORCH_TIERS = new Set(['pro', 'private', 'private_lifetime', 'publisher', 'publisher_lifetime', 'enterprise'])
-      // `instanceId` is cached only so the row can render immediately on card open; the RPC
+      // `pairingCode` is cached only so the row can render immediately on card open; the RPC
       // value is always treated as authoritative and overwrites it on every successful fetch.
+      // The legacy `instanceId` field is retained on the shape solely so old cached blobs
+      // round-trip without crashing readLsBlob — it is never displayed and never re-written.
       type LsOrchShape = {
         mode: 'host' | 'sandbox'
         deviceName?: string
-        instanceId?: string
+        pairingCode?: string
       }
 
       const hostBtn = document.getElementById('btn-mode-host')
       const sandboxBtn = document.getElementById('btn-mode-sandbox')
       const deviceNameInput = document.getElementById('device-name-input') as HTMLInputElement | null
-      const coordIdEl = document.getElementById('this-device-coordination-id')
-      const copyBtn = document.getElementById('this-device-copy-button') as HTMLButtonElement | null
-      let currentInstanceId = ''
-      let copyResetTimer: ReturnType<typeof setTimeout> | null = null
+      const pairingCodeEl = document.getElementById('this-device-pairing-code')
+      const regenerateBtn = document.getElementById('this-device-regenerate-button') as HTMLButtonElement | null
+      const pairingCodeStatusEl = document.getElementById('this-device-pairing-code-status')
+      let currentPairingCode = ''
+      let pairingStatusTimer: ReturnType<typeof setTimeout> | null = null
 
       let userTier = 'free'
       let selectedMode: 'host' | 'sandbox' = 'host'
@@ -31811,11 +31815,16 @@ ${pageText}
       function readLsBlob(): LsOrchShape {
         try {
           const raw = localStorage.getItem(LS_KEY)
-          const data = raw ? (JSON.parse(raw) as LsOrchShape & { connectedPeers?: unknown }) : { mode: 'host' }
-          const mode: 'host' | 'sandbox' = data?.mode === 'sandbox' ? 'sandbox' : 'host'
-          const deviceName = typeof data?.deviceName === 'string' ? data.deviceName : ''
-          const instanceId = typeof data?.instanceId === 'string' ? data.instanceId : ''
-          return { mode, deviceName, ...(instanceId ? { instanceId } : {}) }
+          const data: Partial<LsOrchShape> & Record<string, unknown> = raw
+            ? (JSON.parse(raw) as Partial<LsOrchShape> & Record<string, unknown>)
+            : {}
+          const mode: 'host' | 'sandbox' = data.mode === 'sandbox' ? 'sandbox' : 'host'
+          const deviceName = typeof data.deviceName === 'string' ? data.deviceName : ''
+          const pairingCodeRaw = typeof data.pairingCode === 'string' ? data.pairingCode.trim() : ''
+          // Validate cached pairing code matches the 6-digit shape; otherwise drop it
+          // (also defensively drops any legacy `instanceId` field — it's never read or written here).
+          const pairingCode = /^[0-9]{6}$/.test(pairingCodeRaw) ? pairingCodeRaw : ''
+          return { mode, deviceName, ...(pairingCode ? { pairingCode } : {}) }
         } catch {
           return { mode: 'host', deviceName: '' }
         }
@@ -31834,7 +31843,7 @@ ${pageText}
         writeLsBlob({
           mode: selectedMode,
           ...(deviceName ? { deviceName } : {}),
-          ...(cur.instanceId ? { instanceId: cur.instanceId } : {}),
+          ...(cur.pairingCode ? { pairingCode: cur.pairingCode } : {}),
         })
       }
 
@@ -31846,7 +31855,7 @@ ${pageText}
           writeLsBlob({
             mode: 'host',
             ...(cur.deviceName ? { deviceName: cur.deviceName } : {}),
-            ...(cur.instanceId ? { instanceId: cur.instanceId } : {}),
+            ...(cur.pairingCode ? { pairingCode: cur.pairingCode } : {}),
           })
         } catch { /* ignore */ }
       }
@@ -32052,92 +32061,110 @@ ${pageText}
 
       deviceNameInput?.addEventListener('blur', onDeviceNameBlur)
 
-      function setCoordinationIdDisplay(id: string) {
-        currentInstanceId = typeof id === 'string' ? id.trim() : ''
-        if (coordIdEl) coordIdEl.textContent = currentInstanceId || '—'
-        if (copyBtn) {
-          const enabled = currentInstanceId.length > 0
-          copyBtn.disabled = !enabled
-          copyBtn.style.cursor = enabled ? 'pointer' : 'not-allowed'
-          copyBtn.style.opacity = enabled ? '1' : '0.6'
+      /** Insert a dash after the third digit purely for display. Falls back to placeholder when invalid. */
+      function formatPairingCodeForDisplay(code: string): string {
+        if (!code) return '———'
+        const digits = code.replace(/\D+/g, '')
+        if (digits.length !== 6) return '———'
+        return `${digits.slice(0, 3)}-${digits.slice(3)}`
+      }
+
+      function setPairingCodeDisplay(code: string) {
+        currentPairingCode = typeof code === 'string' ? code.trim() : ''
+        if (pairingCodeEl) pairingCodeEl.textContent = formatPairingCodeForDisplay(currentPairingCode)
+      }
+
+      function setPairingCodeStatus(text: string, kind: 'success' | 'error' | 'muted', autoClearMs: number | null) {
+        if (!pairingCodeStatusEl) return
+        const th = csTheme()
+        const color = kind === 'success' ? th.successText : kind === 'error' ? th.errorText : th.muted
+        pairingCodeStatusEl.textContent = text
+        pairingCodeStatusEl.style.color = color
+        if (pairingStatusTimer) {
+          clearTimeout(pairingStatusTimer)
+          pairingStatusTimer = null
+        }
+        if (autoClearMs && autoClearMs > 0) {
+          pairingStatusTimer = setTimeout(() => {
+            if (pairingCodeStatusEl) pairingCodeStatusEl.textContent = ''
+          }, autoClearMs)
         }
       }
 
-      function cacheInstanceId(id: string) {
-        if (!id) return
+      function cachePairingCode(code: string) {
+        if (!/^[0-9]{6}$/.test(code)) return
         try {
           const cur = readLsBlob()
-          if (cur.instanceId === id) return
+          if (cur.pairingCode === code) return
           writeLsBlob({
             mode: cur.mode,
             ...(cur.deviceName ? { deviceName: cur.deviceName } : {}),
-            instanceId: id,
+            pairingCode: code,
           })
         } catch { /* ignore */ }
       }
 
-      async function refreshCoordinationIdFromRpc() {
+      async function refreshPairingCodeFromRpc() {
         try {
           const res = await electronRpc('orchestrator.getMode', undefined, 8_000)
-          const data = res?.data as { ok?: boolean; config?: { instanceId?: unknown } } | undefined
+          const data = res?.data as { ok?: boolean; config?: { pairingCode?: unknown } } | undefined
           if (!res?.success || !data || data.ok !== true || !data.config) {
             return
           }
-          const fetched = typeof data.config.instanceId === 'string' ? data.config.instanceId.trim() : ''
-          if (!fetched) return
-          setCoordinationIdDisplay(fetched)
-          cacheInstanceId(fetched)
+          const fetched = typeof data.config.pairingCode === 'string' ? data.config.pairingCode.trim() : ''
+          if (!/^[0-9]{6}$/.test(fetched)) return
+          setPairingCodeDisplay(fetched)
+          cachePairingCode(fetched)
         } catch (err) {
           console.debug('[OrchestratorMode] getMode RPC failed (display-only):', err)
         }
       }
 
-      function onCopyCoordinationIdClick() {
-        if (!currentInstanceId) return
-        const label = copyBtn
-        const restore = () => {
-          if (!label) return
-          label.textContent = 'Copy'
-        }
-        const flashCopied = () => {
-          if (!label) return
-          label.textContent = 'Copied'
-          if (copyResetTimer) clearTimeout(copyResetTimer)
-          copyResetTimer = setTimeout(restore, 2000)
-        }
+      async function onRegeneratePairingCodeClick() {
+        if (!regenerateBtn || regenerateBtn.disabled) return
+        const previousLabel = regenerateBtn.textContent || 'Regenerate'
+        regenerateBtn.disabled = true
+        regenerateBtn.style.cursor = 'wait'
+        regenerateBtn.style.opacity = '0.7'
+        regenerateBtn.textContent = 'Regenerating...'
+        setPairingCodeStatus('', 'muted', null)
         try {
-          const cb = navigator.clipboard
-          if (cb && typeof cb.writeText === 'function') {
-            void cb
-              .writeText(currentInstanceId)
-              .then(flashCopied)
-              .catch((err) => console.debug('[OrchestratorMode] clipboard.writeText rejected:', err))
-            return
+          const res = await electronRpc('orchestrator.regeneratePairingCode', undefined, 12_000)
+          const data = res?.data as { ok?: boolean; pairingCode?: unknown; error?: unknown } | undefined
+          if (!res?.success || !data || data.ok !== true) {
+            const errMsg =
+              (data && typeof data.error === 'string' && data.error) ||
+              res?.error ||
+              `Could not regenerate (HTTP ${res?.status ?? '?'})`
+            throw new Error(errMsg)
           }
-        } catch { /* fall through to legacy path */ }
-        // Legacy fallback for contexts where navigator.clipboard is unavailable.
-        try {
-          const ta = document.createElement('textarea')
-          ta.value = currentInstanceId
-          ta.setAttribute('readonly', '')
-          ta.style.position = 'fixed'
-          ta.style.opacity = '0'
-          document.body.appendChild(ta)
-          ta.select()
-          const ok = document.execCommand('copy')
-          document.body.removeChild(ta)
-          if (ok) flashCopied()
-        } catch { /* no-op — display-only field */ }
+          const next = typeof data.pairingCode === 'string' ? data.pairingCode.trim() : ''
+          if (!/^[0-9]{6}$/.test(next)) {
+            throw new Error('Server returned an invalid pairing code')
+          }
+          setPairingCodeDisplay(next)
+          cachePairingCode(next)
+          setPairingCodeStatus('New code generated', 'success', 2000)
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err)
+          console.debug('[OrchestratorMode] regeneratePairingCode failed:', message)
+          setPairingCodeStatus(`Could not regenerate: ${message}`, 'error', 4000)
+        } finally {
+          regenerateBtn.disabled = false
+          regenerateBtn.style.cursor = 'pointer'
+          regenerateBtn.style.opacity = '1'
+          regenerateBtn.textContent = previousLabel
+        }
       }
 
-      copyBtn?.addEventListener('click', onCopyCoordinationIdClick)
+      regenerateBtn?.addEventListener('click', () => { void onRegeneratePairingCodeClick() })
 
       function finishOrchestratorInit() {
         persistHostIfFreeDowngrade()
         loadFromStorage()
-        const cached = readLsBlob().instanceId
-        setCoordinationIdDisplay(cached || '')
-        void refreshCoordinationIdFromRpc()
+        const cached = readLsBlob().pairingCode
+        setPairingCodeDisplay(cached || '')
+        void refreshPairingCodeFromRpc()
         void applyInternalHandshakeLockAsync()
       }
 

@@ -182,17 +182,20 @@ const DashboardStatus = {
 /**
  * Orchestrator mode config returned by GET /api/orchestrator/mode.
  *
- * Shape mirrors `OrchestratorModeConfig` in
+ * Shape mirrors a subset of `OrchestratorModeConfig` in
  * `electron/main/orchestrator/orchestratorModeStore.ts`. The HTTP handler
- * (`main.ts` GET `/api/orchestrator/mode`) already returns this full object
- * inside `{ ok: true, config }`; this interface only documents/types the
- * fields so extension callers (e.g. the on-page Settings lightbox) can
- * consume `instanceId` and `deviceName` safely.
+ * (`main.ts` GET `/api/orchestrator/mode`) returns the full object inside
+ * `{ ok: true, config }` — this interface intentionally excludes
+ * `instanceId` so the extension is type-prevented from rendering the raw
+ * UUID. Pairing codes are the only device identifier the extension UI
+ * should ever surface to the user; deeper handshake routing happens in the
+ * Electron host where the UUID is available.
  */
 export interface OrchestratorMode {
   mode: 'host' | 'sandbox'
   deviceName: string
-  instanceId: string
+  /** 6-digit decimal pairing code, stored without a dash (e.g. "482917"). */
+  pairingCode: string
   connectedPeers: unknown[]
 }
 
@@ -215,11 +218,51 @@ const OrchestratorSetMode = {
       mode: z.enum(['host', 'sandbox']),
       deviceName: z.string().optional(),
       instanceId: z.string().optional(),
+      pairingCode: z.string().optional(),
       connectedPeers: z.array(z.unknown()).optional(),
     })
     .passthrough(),
   http: 'POST' as const,
   route: '/api/orchestrator/mode',
+}
+
+/**
+ * Rotate this device's 6-digit pairing code. Returns the new code; the
+ * old code is invalidated server-side (subsequent resolve calls return
+ * 404). Idempotent local persistence — even if the coordination service
+ * is unreachable the new code takes effect locally.
+ */
+export type OrchestratorRegeneratePairingCodeResponse =
+  | { ok: true; pairingCode: string }
+  | { ok: false; error?: string }
+
+const OrchestratorRegeneratePairingCode = {
+  method: 'orchestrator.regeneratePairingCode' as const,
+  schema: z.void(),
+  http: 'POST' as const,
+  route: '/api/orchestrator/regenerate-pairing-code',
+}
+
+/**
+ * Resolve a 6-digit pairing code to the owning device's instance_id and
+ * device_name. Scoped to the current SSO account: codes registered by
+ * other users return 404 even if the same digits collide across accounts.
+ *
+ * Architecture note: the request URL targets the coordination service,
+ * but the extension does not call coordination directly — it goes through
+ * the local Electron host bridge, which holds the OIDC token and proxies
+ * the call. The extension never sees the OIDC bearer.
+ */
+export type OrchestratorResolvePairingCodeResponse =
+  | { ok: true; instance_id: string; device_name: string }
+  | { ok: false; error?: string }
+
+const OrchestratorResolvePairingCode = {
+  method: 'orchestrator.resolvePairingCode' as const,
+  schema: z.object({ code: z.string().regex(/^[0-9]{6}$/, 'pairing code must be 6 digits') }),
+  http: 'GET' as const,
+  build: (p: { code: string }) =>
+    `/api/coordination/resolve-pairing-code?code=${encodeURIComponent(p.code)}`,
 }
 
 // ============================================================================
@@ -244,6 +287,8 @@ const RPC_REGISTRY = [
   DashboardStatus,
   OrchestratorGetMode,
   OrchestratorSetMode,
+  OrchestratorRegeneratePairingCode,
+  OrchestratorResolvePairingCode,
 ] as const
 
 type RpcDef = (typeof RPC_REGISTRY)[number]

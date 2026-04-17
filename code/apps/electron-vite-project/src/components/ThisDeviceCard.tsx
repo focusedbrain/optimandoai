@@ -1,9 +1,9 @@
 /**
  * ThisDeviceCard — shows the local device's pairing identity in Settings → Orchestrator.
  *
- * Phase 1 (display-only): surfaces the Coordination ID (instanceId) so a user can copy it
- * and share it with their other device to enable internal handshakes. This component does
- * not perform any validation or mutate any state.
+ * Surfaces the per-account 6-digit pairing code so a user can read it aloud or write it
+ * down to pair their other device for internal handshakes. The underlying instanceId
+ * (UUID) is intentionally NOT shown — it's an implementation detail.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -13,36 +13,70 @@ export interface ThisDeviceCardProps {
   deviceName: string
   /** Local device role. */
   mode: 'host' | 'sandbox'
-  /** Local coordination device id (the per-install UUID). */
-  instanceId: string
+  /** Local 6-digit pairing code (decimal digits, no dash; "" if not yet generated). */
+  pairingCode: string
 }
 
-export default function ThisDeviceCard({ deviceName, mode, instanceId }: ThisDeviceCardProps) {
-  const [copied, setCopied] = useState(false)
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+/** Insert a dash after the third digit purely for display. Falls back to "—" when empty. */
+function formatPairingCode(code: string): string {
+  if (!code) return '—'
+  const digits = code.replace(/\D+/g, '')
+  if (digits.length !== 6) return code
+  return `${digits.slice(0, 3)}-${digits.slice(3)}`
+}
+
+export default function ThisDeviceCard({ deviceName, mode, pairingCode }: ThisDeviceCardProps) {
+  const [displayedCode, setDisplayedCode] = useState(pairingCode)
+  const [regenerating, setRegenerating] = useState(false)
+  const [confirmation, setConfirmation] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const fadeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Keep local state in sync if the parent reloads the config.
+  useEffect(() => {
+    setDisplayedCode(pairingCode)
+  }, [pairingCode])
 
   useEffect(() => {
     return () => {
-      if (timerRef.current) {
-        clearTimeout(timerRef.current)
-        timerRef.current = null
+      if (fadeTimerRef.current) {
+        clearTimeout(fadeTimerRef.current)
+        fadeTimerRef.current = null
       }
     }
   }, [])
 
-  const handleCopy = useCallback(async () => {
-    if (!instanceId) return
+  const handleRegenerate = useCallback(async () => {
+    if (regenerating) return
+    setRegenerating(true)
+    setError(null)
+    setConfirmation(null)
     try {
-      if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(instanceId)
+      const bridge = (window as unknown as {
+        orchestratorMode?: {
+          regeneratePairingCode?: () => Promise<{ ok: boolean; pairingCode?: string; error?: string }>
+        }
+      }).orchestratorMode
+      if (!bridge?.regeneratePairingCode) {
+        throw new Error('Pairing code service unavailable')
       }
-      setCopied(true)
-      if (timerRef.current) clearTimeout(timerRef.current)
-      timerRef.current = setTimeout(() => setCopied(false), 2000)
-    } catch {
-      /* clipboard unavailable — no-op; user can still select the text manually */
+      const res = await bridge.regeneratePairingCode()
+      if (!res?.ok || !res.pairingCode) {
+        throw new Error(res?.error || 'Failed to regenerate pairing code')
+      }
+      setDisplayedCode(res.pairingCode)
+      setConfirmation('New code generated')
+      if (fadeTimerRef.current) clearTimeout(fadeTimerRef.current)
+      fadeTimerRef.current = setTimeout(() => setConfirmation(null), 2000)
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err)
+      setError(message)
+      if (fadeTimerRef.current) clearTimeout(fadeTimerRef.current)
+      fadeTimerRef.current = setTimeout(() => setError(null), 4000)
+    } finally {
+      setRegenerating(false)
     }
-  }, [instanceId])
+  }, [regenerating])
 
   return (
     <div
@@ -99,56 +133,69 @@ export default function ThisDeviceCard({ deviceName, mode, instanceId }: ThisDev
           letterSpacing: '0.04em',
         }}
       >
-        Coordination ID
+        Pairing code
       </div>
       <div
+        data-testid="this-device-pairing-code"
         style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: '8px',
-          flexWrap: 'wrap',
+          display: 'inline-block',
+          padding: '10px 14px',
+          fontFamily:
+            'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
+          fontSize: '22px',
+          fontWeight: 600,
+          letterSpacing: '2px',
+          lineHeight: 1.2,
+          color: 'var(--color-text, #e2e8f0)',
+          background: 'rgba(0,0,0,0.25)',
+          border: '1px solid var(--color-border, rgba(255,255,255,0.12))',
+          borderRadius: '6px',
+          userSelect: 'all',
         }}
       >
-        <code
-          data-testid="this-device-coordination-id"
-          style={{
-            flex: '1 1 auto',
-            minWidth: 0,
-            padding: '8px 10px',
-            fontFamily:
-              'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
-            fontSize: '12px',
-            lineHeight: 1.4,
-            color: 'var(--color-text, #e2e8f0)',
-            background: 'rgba(0,0,0,0.25)',
-            border: '1px solid var(--color-border, rgba(255,255,255,0.12))',
-            borderRadius: '6px',
-            userSelect: 'all',
-            wordBreak: 'break-all',
-          }}
-        >
-          {instanceId || '—'}
-        </code>
+        {formatPairingCode(displayedCode)}
+      </div>
+
+      <div style={{ marginTop: '10px', display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
         <button
           type="button"
-          data-testid="this-device-copy-button"
-          aria-label="Copy Coordination ID"
-          onClick={() => { void handleCopy() }}
-          disabled={!instanceId}
+          data-testid="this-device-regenerate-button"
+          onClick={() => { void handleRegenerate() }}
+          disabled={regenerating}
           style={{
-            padding: '8px 12px',
+            padding: '6px 12px',
             fontSize: '12px',
             fontWeight: 600,
-            background: copied ? 'rgba(16,185,129,0.2)' : 'var(--color-accent-bg, rgba(147,51,234,0.15))',
-            border: `1px solid ${copied ? 'rgba(16,185,129,0.45)' : 'var(--color-accent-border, rgba(147,51,234,0.35))'}`,
+            background: 'rgba(255,255,255,0.06)',
+            border: '1px solid var(--color-border, rgba(255,255,255,0.16))',
             borderRadius: '6px',
-            color: copied ? 'var(--success-dark, #10b981)' : 'var(--color-accent, #c084fc)',
-            cursor: instanceId ? 'pointer' : 'not-allowed',
-            flexShrink: 0,
+            color: 'var(--color-text, #e2e8f0)',
+            cursor: regenerating ? 'wait' : 'pointer',
+            opacity: regenerating ? 0.7 : 1,
           }}
         >
-          {copied ? 'Copied' : 'Copy'}
+          {regenerating ? 'Regenerating...' : 'Regenerate'}
         </button>
+        {confirmation && (
+          <span
+            data-testid="this-device-pairing-code-confirmation"
+            style={{
+              fontSize: '12px',
+              color: 'var(--success-dark, #10b981)',
+              transition: 'opacity 0.3s ease',
+            }}
+          >
+            {confirmation}
+          </span>
+        )}
+        {error && (
+          <span
+            data-testid="this-device-pairing-code-error"
+            style={{ fontSize: '12px', color: 'var(--color-danger, #f87171)' }}
+          >
+            {error}
+          </span>
+        )}
       </div>
 
       <p
@@ -159,7 +206,7 @@ export default function ThisDeviceCard({ deviceName, mode, instanceId }: ThisDev
           color: 'var(--color-text-muted)',
         }}
       >
-        Share this ID with your other device to pair it for internal handshakes.
+        Read this code aloud or write it down to pair your other device for internal handshakes.
       </p>
     </div>
   )

@@ -14,6 +14,7 @@ import { createStore } from './store.js'
 import { createAuth } from './auth.js'
 import { createRateLimiter } from './rateLimiter.js'
 import { createHandshakeRegistry } from './handshakeRegistry.js'
+import { createPairingCodeRegistry } from './pairingCodeRegistry.js'
 import { createWsManager } from './wsManager.js'
 import { createHealth } from './health.js'
 
@@ -70,6 +71,7 @@ export interface RelayInstance {
   store: ReturnType<typeof createStore>
   auth: ReturnType<typeof createAuth>
   handshakeRegistry: ReturnType<typeof createHandshakeRegistry>
+  pairingCodeRegistry: ReturnType<typeof createPairingCodeRegistry>
   rateLimiter: ReturnType<typeof createRateLimiter>
   wsManager: ReturnType<typeof createWsManager>
   health: ReturnType<typeof createHealth>
@@ -79,7 +81,7 @@ function createRequestHandler(
   config: CoordinationConfig,
   relay: RelayInstance,
 ): (req: http.IncomingMessage, res: http.ServerResponse) => void {
-  const { store, auth, handshakeRegistry, rateLimiter, wsManager, health } = relay
+  const { store, auth, handshakeRegistry, pairingCodeRegistry, rateLimiter, wsManager, health } = relay
 
   return (req: http.IncomingMessage, res: http.ServerResponse) => {
     void (async () => {
@@ -242,6 +244,86 @@ function createRequestHandler(
         }
         res.writeHead(200, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify({ registered: true }))
+        return
+      }
+
+      /* ── POST /api/coordination/register-pairing-code ───────────
+       * Register or refresh a (user, pairing_code) → instance_id mapping.
+       *
+       * Body: { user_id, instance_id, pairing_code, device_name? }
+       *   - JWT required; token.sub MUST equal user_id (cross-user writes
+       *     are rejected with 403 even if the body would otherwise be valid).
+       *   - 201 if newly inserted (and any prior code for this device removed).
+       *   - 200 if (user_id, pairing_code) already maps to the same device.
+       *   - 409 if (user_id, pairing_code) maps to a different device.
+       */
+      if (req.method === 'POST' && path === '/api/coordination/register-pairing-code') {
+        if (!identity) { sendError(res, 401); return }
+        const { body, ok } = await readBody(req, 64 * 1024)
+        if (!ok) { sendError(res, 413); return }
+        let parsed: Record<string, unknown>
+        try { parsed = JSON.parse(body) as Record<string, unknown> }
+        catch { sendError(res, 400, { error: 'Invalid JSON' }); return }
+        const userId = typeof parsed.user_id === 'string' ? parsed.user_id.trim() : ''
+        const instanceId = typeof parsed.instance_id === 'string' ? parsed.instance_id.trim() : ''
+        const pairingCode = typeof parsed.pairing_code === 'string' ? parsed.pairing_code.trim() : ''
+        const deviceName = typeof parsed.device_name === 'string' ? parsed.device_name.trim() : ''
+        if (!userId || !instanceId || !/^[0-9]{6}$/.test(pairingCode)) {
+          sendError(res, 400, {
+            error: 'Missing or invalid fields: user_id, instance_id, pairing_code (6 digits)',
+          })
+          return
+        }
+        if (userId !== identity.userId) {
+          sendError(res, 403, { error: 'user_id must equal token.sub' })
+          return
+        }
+        let result
+        try {
+          result = pairingCodeRegistry.registerPairingCode(userId, instanceId, pairingCode, deviceName || instanceId)
+        } catch {
+          sendError(res, 503, { error: 'Storage unavailable' })
+          return
+        }
+        if (result.status === 'collision') {
+          sendError(res, 409, { error: 'pairing_code already registered to a different device' })
+          return
+        }
+        const status = result.status === 'inserted' ? 201 : 200
+        res.writeHead(status, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ status: result.status }))
+        return
+      }
+
+      /* ── GET /api/coordination/resolve-pairing-code?code=XXXXXX ──
+       * Resolve a pairing code within the caller's account scope only.
+       * Returns 404 for unknown codes AND for codes registered by other
+       * users — never leaks instance_ids across accounts.
+       */
+      if (req.method === 'GET' && path === '/api/coordination/resolve-pairing-code') {
+        if (!identity) { sendError(res, 401); return }
+        const codeParam = new URL(url, 'http://x').searchParams.get('code') ?? ''
+        const pairingCode = codeParam.trim()
+        if (!/^[0-9]{6}$/.test(pairingCode)) {
+          sendError(res, 400, { error: 'code must be 6 digits' })
+          return
+        }
+        let entry
+        try {
+          entry = pairingCodeRegistry.resolvePairingCode(identity.userId, pairingCode)
+        } catch {
+          sendError(res, 503, { error: 'Storage unavailable' })
+          return
+        }
+        if (!entry) {
+          sendError(res, 404, { error: 'pairing_code not found in this account' })
+          return
+        }
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({
+          instance_id: entry.instance_id,
+          device_name: entry.device_name,
+        }))
         return
       }
 
@@ -469,6 +551,7 @@ export async function createServer(config: CoordinationConfig): Promise<{
   })
 
   const handshakeRegistry = createHandshakeRegistry(store)
+  const pairingCodeRegistry = createPairingCodeRegistry(store)
   const rateLimiter = createRateLimiter()
   const wsManager = createWsManager(store)
   const health = createHealth(store, auth, wsManager)
@@ -477,6 +560,7 @@ export async function createServer(config: CoordinationConfig): Promise<{
     store,
     auth,
     handshakeRegistry,
+    pairingCodeRegistry,
     rateLimiter,
     wsManager,
     health,

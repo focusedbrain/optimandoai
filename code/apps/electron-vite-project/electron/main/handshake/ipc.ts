@@ -1026,7 +1026,7 @@ export async function handleHandshakeRPC(
           return {
             success: false,
             error:
-              "INTERNAL_ENDPOINT_INCOMPLETE: This device isn't ready to pair yet. Restart the app, or open Settings → Orchestrator to verify this device has a Coordination ID.",
+              "INTERNAL_ENDPOINT_INCOMPLETE: This device isn't ready to pair yet. Restart the app, or open Settings → Orchestrator mode to verify this device has a pairing code.",
           }
         }
         const vSelf = validateInternalEndpointFields(
@@ -1328,7 +1328,7 @@ export async function handleHandshakeRPC(
           return {
             success: false,
             error:
-              "INTERNAL_ENDPOINT_INCOMPLETE: This device isn't ready to pair yet. Restart the app, or open Settings → Orchestrator to verify this device has a Coordination ID.",
+              "INTERNAL_ENDPOINT_INCOMPLETE: This device isn't ready to pair yet. Restart the app, or open Settings → Orchestrator mode to verify this device has a pairing code.",
           }
         }
         const vSelfDl = validateInternalEndpointFields(
@@ -1602,7 +1602,7 @@ export async function handleHandshakeRPC(
           return {
             success: false,
             error:
-              "INTERNAL_ENDPOINT_INCOMPLETE: This device isn't ready to accept an internal handshake yet. Restart the app, or open Settings → Orchestrator to verify this device has a Coordination ID.",
+              "INTERNAL_ENDPOINT_INCOMPLETE: This device isn't ready to accept an internal handshake yet. Restart the app, or open Settings → Orchestrator mode to verify this device has a pairing code.",
           }
         }
         const vInit = validateInternalEndpointFields(
@@ -1645,7 +1645,7 @@ export async function handleHandshakeRPC(
           return {
             success: false,
             error:
-              'INTERNAL_PEER_DEVICE_MISMATCH: This capsule was created for a different device. Open the capsule on the device whose Coordination ID matches the one in the capsule.',
+              'INTERNAL_PEER_DEVICE_MISMATCH: This capsule was created for a different device. Open it on the device whose pairing code matches the one used to create it.',
           }
         }
       }

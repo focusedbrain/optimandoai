@@ -43,7 +43,10 @@ interface SettingsOrchestratorPeer {
 interface SettingsOrchestratorConfig {
   mode: 'host' | 'sandbox'
   deviceName: string
+  /** Per-install UUID. Kept on the type so setMode can round-trip the full config; the UI must not display it. */
   instanceId: string
+  /** 6-digit decimal pairing code, scoped per SSO account. Display formatting (XXX-XXX) lives in ThisDeviceCard. */
+  pairingCode: string
   connectedPeers: SettingsOrchestratorPeer[]
 }
 
@@ -124,7 +127,7 @@ export default function SettingsView({ onNavigateToHandshake }: SettingsViewProp
         getMode: () => Promise<SettingsOrchestratorConfig>
         setMode: (c: SettingsOrchestratorConfig) => Promise<{ ok: boolean; error?: string }>
         setDeviceName: (name: string) => Promise<{ ok: boolean; error?: string }>
-        getDeviceInfo: () => Promise<{ instanceId: string; deviceName: string; mode: string }>
+        getDeviceInfo: () => Promise<{ deviceName: string; mode: string; pairingCode: string }>
         getConnectedPeers: () => Promise<SettingsOrchestratorPeer[]>
         removePeer: (instanceId: string) => Promise<{ ok: boolean; error?: string }>
       }
@@ -729,7 +732,7 @@ export default function SettingsView({ onNavigateToHandshake }: SettingsViewProp
             <ThisDeviceCard
               deviceName={orchConfig?.deviceName ?? ''}
               mode={orchConfig?.mode ?? 'host'}
-              instanceId={orchConfig?.instanceId ?? ''}
+              pairingCode={orchConfig?.pairingCode ?? ''}
             />
 
             <div>

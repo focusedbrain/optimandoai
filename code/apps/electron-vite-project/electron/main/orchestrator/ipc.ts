@@ -5,6 +5,7 @@
 import { ipcMain } from 'electron'
 import {
   getOrchestratorMode,
+  regeneratePairingCode,
   removeConnectedPeer,
   setDeviceName,
   setOrchestratorMode,
@@ -46,7 +47,23 @@ export function registerOrchestratorIPC(): void {
 
   ipcMain.handle('orchestrator:getDeviceInfo', async () => {
     const c = getOrchestratorMode()
-    return { instanceId: c.instanceId, deviceName: c.deviceName, mode: c.mode }
+    return {
+      instanceId: c.instanceId,
+      deviceName: c.deviceName,
+      mode: c.mode,
+      pairingCode: c.pairingCode,
+    }
+  })
+
+  ipcMain.handle('orchestrator:regeneratePairingCode', async () => {
+    try {
+      const pairingCode = await regeneratePairingCode()
+      return { ok: true as const, pairingCode }
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err)
+      console.warn('[Orchestrator IPC] regeneratePairingCode failed:', message)
+      return { ok: false as const, error: message }
+    }
   })
 
   ipcMain.handle('orchestrator:getConnectedPeers', async () => {

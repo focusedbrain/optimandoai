@@ -15,6 +15,7 @@ import { buildInitiateContextOptions } from '../buildInitiateContextOptions'
 import { parsePolicyToMode } from '@shared/handshake/policyUtils'
 import type { ProfileContextItem } from '@shared/handshake/types'
 import { getVaultStatus } from '../../vault/api'
+import { electronRpc } from '../../rpc/electronRpc'
 
 // =============================================================================
 // Types
@@ -61,11 +62,12 @@ export interface SendHandshakeDeliveryProps {
   deviceName?: string
   deviceRole?: 'host' | 'sandbox'
   /**
-   * Phase 2: local orchestrator Coordination ID (instanceId) — used to detect when
-   * the user accidentally pastes this device's own ID into the "Other device" field.
-   * When omitted, the self-paste guard is skipped (the backend still enforces distinctness).
+   * Local orchestrator 6-digit pairing code — used as a client-side guard so the
+   * user can't accidentally type this device's own pairing code into the "other
+   * device" field. When omitted, the self-pairing guard is skipped (the backend
+   * resolve + validators still enforce distinctness).
    */
-  localDeviceId?: string
+  localPairingCode?: string
 }
 
 // =============================================================================
@@ -74,20 +76,19 @@ export interface SendHandshakeDeliveryProps {
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
-/** RFC 4122 v4 UUID. Case-insensitive. Used to validate a pasted Coordination ID client-side. */
-const UUID_V4_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+/** Six decimal digits, no separators. Matches the persisted `pairingCode` form. */
+const PAIRING_CODE_PATTERN = /^[0-9]{6}$/
 
-function isLikelyUuid(s: string): boolean {
-  return UUID_V4_PATTERN.test(s.trim())
+/** Strip all non-digit characters and clamp to 6 digits — used as the user types. */
+function normalizePairingCodeInput(raw: string): string {
+  return raw.replace(/\D/g, '').slice(0, 6)
 }
 
-/**
- * Phase 2: placeholder value the initiator submits for the peer's computer_name
- * when they don't yet know it. Must match INTERNAL_COMPUTER_NAME_SENTINEL in
- * packages/shared/src/handshake/internalEndpointValidation.ts. The real name is
- * learned after accept and overwrites this via the normal update path.
- */
-const INTERNAL_COMPUTER_NAME_SENTINEL = '<unknown>'
+/** Format a digit string for display: "482917" → "482-917", "4829" → "4829". */
+function formatPairingCodeForInput(digits: string): string {
+  if (digits.length <= 3) return digits
+  return `${digits.slice(0, 3)}-${digits.slice(3)}`
+}
 
 function useThemeTokens(theme: Theme) {
   const isStandard = theme === 'standard'
@@ -248,7 +249,7 @@ export const SendHandshakeDelivery: React.FC<SendHandshakeDeliveryProps> = ({
   lockedRecipientEmail,
   deviceName,
   deviceRole,
-  localDeviceId,
+  localPairingCode,
 }) => {
   const t = useThemeTokens(theme)
 
@@ -305,30 +306,34 @@ export const SendHandshakeDelivery: React.FC<SendHandshakeDeliveryProps> = ({
     | { kind: 'skipped'; handshakeId: string }
   const [internalRelayOutcome, setInternalRelayOutcome] = useState<InternalRelayOutcome | null>(null)
 
-  const [internalLocalComputerName, setInternalLocalComputerName] = useState('')
-  const [counterpartyDeviceId, setCounterpartyDeviceId] = useState('')
-  const [counterpartyComputerName, setCounterpartyComputerName] = useState('')
-  const [showInternalAdvanced, setShowInternalAdvanced] = useState(false)
+  // Pairing code typed by the user — stored as a digits-only string (≤6 chars).
+  // Display layer adds the dash. Cleared when the form is reset after a send.
+  const [counterpartyPairingCode, setCounterpartyPairingCode] = useState('')
+  // Resolved counterparty device identity from `orchestrator.resolvePairingCode`.
+  // Used for the actual capsule build; the raw pairing code is never sent on the wire.
+  const [resolvedCounterparty, setResolvedCounterparty] = useState<{
+    instance_id: string
+    device_name: string
+  } | null>(null)
+  const [resolvingPairingCode, setResolvingPairingCode] = useState(false)
 
+  // Drop any cached resolution as soon as the user edits the code so a stale
+  // (instance_id, device_name) pair can never be submitted by mistake.
   useEffect(() => {
-    if (!isInternalHandshake) return
-    const v = deviceName?.trim()
-    if (v) setInternalLocalComputerName(v)
-  }, [isInternalHandshake, deviceName])
+    setResolvedCounterparty(null)
+  }, [counterpartyPairingCode])
 
-  // Phase 2: inline error for the single paste field. Null when the value is empty
-  // or when it is a valid-looking UUID that is NOT this device's own ID.
-  const pastedCoordinationId = counterpartyDeviceId.trim()
-  const pastedIsSelf =
-    !!pastedCoordinationId &&
-    !!localDeviceId?.trim() &&
-    pastedCoordinationId.toLowerCase() === localDeviceId.trim().toLowerCase()
-  const pastedFormatInvalid = !!pastedCoordinationId && !isLikelyUuid(pastedCoordinationId)
-  const coordinationIdInlineError: string | null = pastedIsSelf
-    ? "That's this device's Coordination ID. Paste the ID from the other device."
-    : pastedFormatInvalid
-      ? "That doesn't look like a Coordination ID. Copy the full UUID from Settings → Orchestrator on the other device."
-      : null
+  // Inline validation for the pairing code field. We intentionally do NOT mark
+  // a partially typed code as invalid (would feel buggy as the user is typing);
+  // the submit handler enforces the 6-digit minimum.
+  const pairingCodeIsSelf =
+    counterpartyPairingCode.length === 6 &&
+    !!localPairingCode?.trim() &&
+    PAIRING_CODE_PATTERN.test(localPairingCode.trim()) &&
+    counterpartyPairingCode === localPairingCode.trim()
+  const pairingCodeInlineError: string | null = pairingCodeIsSelf
+    ? "That's this device's pairing code. Read the code from your other device's Settings screen."
+    : null
 
   // Validation
   const emailError =
@@ -345,39 +350,38 @@ export const SendHandshakeDelivery: React.FC<SendHandshakeDeliveryProps> = ({
 
   const effectiveInternalRole = deviceRole ?? 'sandbox'
 
-  const resolvedLocalComputerName = internalLocalComputerName.trim() || deviceName?.trim() || ''
+  // This device's computer name is auto-derived from orchestrator settings via the
+  // `deviceName` prop. There is no longer a manual override — the pairing-code resolve
+  // returns the peer's real `device_name` so the previous Advanced section is gone.
+  const resolvedLocalComputerName = deviceName?.trim() ?? ''
 
-  // Phase 2: if the user didn't expand Advanced and override it, we submit a sentinel
-  // placeholder for the peer's computer name. The backend is aware of this sentinel
-  // (see INTERNAL_COMPUTER_NAME_SENTINEL in shared/handshake/internalEndpointValidation.ts)
-  // and skips the computer_name collision check. The real name flows back after accept.
-  const resolvedCounterpartyComputerName =
-    counterpartyComputerName.trim() || INTERNAL_COMPUTER_NAME_SENTINEL
-
+  // Build the internal RPC extras for the underlying initiate / build-for-download call.
+  // Requires a successful resolve first — the wire format wants the real instance_id and
+  // device_name, never the 6-digit pairing code.
   const internalRpcExtras = () => {
     if (!isInternalHandshake) return {}
+    if (!resolvedCounterparty) return {}
     return {
       handshake_type: 'internal' as const,
       device_name: resolvedLocalComputerName,
       device_role: effectiveInternalRole,
-      counterparty_device_id: counterpartyDeviceId.trim(),
+      counterparty_device_id: resolvedCounterparty.instance_id,
       // handshakeRpc.ts infers this as the opposite of device_role, but we still
       // pass it here so older callers / direct RPC consumers get an explicit value.
       counterparty_device_role: effectiveInternalRole === 'host' ? ('sandbox' as const) : ('host' as const),
-      counterparty_computer_name: resolvedCounterpartyComputerName,
+      counterparty_computer_name:
+        resolvedCounterparty.device_name.trim() || 'Other device',
     }
   }
 
-  // Phase 2 simplification: only the pasted Coordination ID is user-required.
-  // This device's computer name comes from the deviceName prop (auto-derived),
-  // and the peer's computer name falls back to the sentinel when Advanced is
-  // untouched. If the user chose to reveal Advanced and entered nothing, the
-  // sentinel is still used — Advanced is purely an override.
+  // Submit gating for the internal flow: a complete (6-digit, non-self) pairing code
+  // and a non-empty local device name. The peer's computer name is filled in after
+  // resolve, so it isn't part of the precondition check.
   const internalFieldsComplete =
     !isInternalHandshake ||
     (!!resolvedLocalComputerName &&
-      !!counterpartyDeviceId.trim() &&
-      !coordinationIdInlineError)
+      counterpartyPairingCode.length === 6 &&
+      !pairingCodeInlineError)
 
   const isValid =
     !!recipientEmail.trim() &&
@@ -400,20 +404,75 @@ export const SendHandshakeDelivery: React.FC<SendHandshakeDeliveryProps> = ({
       adhocBlockPolicy,
     })
 
+  /**
+   * Resolve the typed 6-digit pairing code to the peer's `instance_id` + `device_name`
+   * via the local Electron host bridge, which proxies to the coordination service using
+   * the OIDC token (never exposed to the extension).
+   *
+   * Returns the resolved identity on success, or null on failure (in which case `error`
+   * state has already been set with a user-actionable message). Callers should bail out
+   * when `null` is returned.
+   *
+   * Self-pairing is rejected before the network call so the user sees the same
+   * inline message that already shows on the field.
+   */
+  const ensureCounterpartyResolved = async (): Promise<{ instance_id: string; device_name: string } | null> => {
+    if (counterpartyPairingCode.length !== 6) {
+      setError("Enter the 6-digit pairing code from your other device.")
+      return null
+    }
+    if (pairingCodeIsSelf) {
+      setError("That's this device's pairing code. Read the code from your other device's Settings screen.")
+      return null
+    }
+    // Cached resolution from a prior attempt is reused as long as the code hasn't
+    // changed (the useEffect above invalidates it on edit).
+    if (resolvedCounterparty) return resolvedCounterparty
+    setResolvingPairingCode(true)
+    try {
+      const result = await electronRpc('orchestrator.resolvePairingCode', { code: counterpartyPairingCode })
+      if (!result.success) {
+        if (result.status === 404) {
+          setError(
+            "No device found with that pairing code. Check the code on your other device's Settings screen, or regenerate it if it's stale.",
+          )
+        } else {
+          setError(result.error || 'Could not resolve pairing code. Try again in a moment.')
+        }
+        return null
+      }
+      const data = result.data as { ok?: boolean; instance_id?: unknown; device_name?: unknown; error?: unknown } | null
+      const instance_id = typeof data?.instance_id === 'string' ? data.instance_id.trim() : ''
+      const device_name = typeof data?.device_name === 'string' ? data.device_name : ''
+      if (!data?.ok || !instance_id) {
+        setError(
+          (typeof data?.error === 'string' && data.error) ||
+            'Pairing code resolution returned no device. Try regenerating the code on your other device.',
+        )
+        return null
+      }
+      const resolved = { instance_id, device_name }
+      setResolvedCounterparty(resolved)
+      return resolved
+    } catch (err: any) {
+      setError(err?.message || 'Could not reach the coordination service to resolve the pairing code.')
+      return null
+    } finally {
+      setResolvingPairingCode(false)
+    }
+  }
+
   const handleSendViaApi = async () => {
     setTouched(true)
     setError(null)
     setInternalRelayOutcome(null)
     if (!isValid) return
     if (isInternalHandshake) {
-      if (!counterpartyDeviceId.trim()) {
-        setError("Paste the Coordination ID from the other device to continue.")
-        return
-      }
-      if (coordinationIdInlineError) {
-        setError(coordinationIdInlineError)
-        return
-      }
+      // Resolve runs first so a 404 / collision shows up before the user sees the
+      // "Sending…" spinner. The button is gated by `sending || resolvingPairingCode`
+      // (see button JSX) so a double-click can't fire two resolves in parallel.
+      const resolved = await ensureCounterpartyResolved()
+      if (!resolved) return
     }
     // Internal handshakes don't need an email account — the coordination relay handles
     // delivery. For external handshakes we still require one because the initiate capsule
@@ -473,14 +532,8 @@ export const SendHandshakeDelivery: React.FC<SendHandshakeDeliveryProps> = ({
     setError(null)
     if (!isValid) return
     if (isInternalHandshake) {
-      if (!counterpartyDeviceId.trim()) {
-        setError("Paste the Coordination ID from the other device to continue.")
-        return
-      }
-      if (coordinationIdInlineError) {
-        setError(coordinationIdInlineError)
-        return
-      }
+      const resolved = await ensureCounterpartyResolved()
+      if (!resolved) return
     }
     setSending(true)
     try {
@@ -596,8 +649,8 @@ export const SendHandshakeDelivery: React.FC<SendHandshakeDeliveryProps> = ({
           onClick={() => {
             setActionDone(null)
             setTouched(false)
-            setCounterpartyDeviceId('')
-            setCounterpartyComputerName('')
+            setCounterpartyPairingCode('')
+            setResolvedCounterparty(null)
             setRecipientEmail('')
             setSubject(defaultSubject)
             setMessage('')
@@ -849,115 +902,76 @@ export const SendHandshakeDelivery: React.FC<SendHandshakeDeliveryProps> = ({
               data-testid="internal-pairing-helper"
               style={{ fontSize: '11px', color: t.muted, margin: 0, lineHeight: 1.5 }}
             >
-              On your other device, open <strong style={{ color: t.text }}>Settings → Orchestrator</strong> and copy the{' '}
-              <strong style={{ color: t.text }}>Coordination ID</strong> from the “This device” card, then paste it here.
+              Internal handshakes pair two devices on the same account. You'll need the{' '}
+              <strong style={{ color: t.text }}>6-digit Pairing code</strong> from the other device — find it in{' '}
+              <strong style={{ color: t.text }}>Settings → Orchestrator mode</strong>.
             </p>
             <div>
-              <label style={labelStyle}>Coordination ID from the other device *</label>
-              <input
-                type="text"
-                inputMode="text"
-                autoComplete="off"
-                spellCheck={false}
-                data-testid="internal-counterparty-coordination-id"
-                value={counterpartyDeviceId}
-                onChange={(e) => setCounterpartyDeviceId(e.target.value.trim())}
-                onPaste={(e) => {
-                  const pasted = e.clipboardData?.getData('text') ?? ''
-                  const trimmed = pasted.trim()
-                  if (trimmed && trimmed !== pasted) {
-                    e.preventDefault()
-                    setCounterpartyDeviceId(trimmed)
-                  }
-                }}
-                disabled={sending}
-                placeholder="Paste the UUID shown in Settings → Orchestrator on the other device"
+              <div
                 style={{
-                  ...inputStyle(
-                    !!coordinationIdInlineError ||
-                      (touched && !counterpartyDeviceId.trim()),
-                  ),
-                  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
-                  letterSpacing: '0.3px',
-                }}
-              />
-              {coordinationIdInlineError && (
-                <div
-                  data-testid="internal-counterparty-coordination-id-error"
-                  style={{ marginTop: '5px', fontSize: '11px', color: t.errorText }}
-                >
-                  {coordinationIdInlineError}
-                </div>
-              )}
-            </div>
-
-            {/* Advanced disclosure — collapsed by default. Overrides the auto-derived
-                local device name and the sentinel placeholder for the peer's name. */}
-            <div
-              style={{
-                borderTop: `1px dashed ${t.border}`,
-                paddingTop: '8px',
-                marginTop: '2px',
-              }}
-            >
-              <button
-                type="button"
-                aria-expanded={showInternalAdvanced}
-                aria-controls="internal-advanced-section"
-                onClick={() => setShowInternalAdvanced((v) => !v)}
-                style={{
-                  background: 'transparent',
-                  border: 'none',
-                  padding: 0,
-                  color: t.muted,
                   fontSize: '11px',
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '4px',
+                  color: t.muted,
+                  marginBottom: '6px',
+                  lineHeight: 1.4,
                 }}
               >
-                <span style={{ fontSize: '10px' }}>{showInternalAdvanced ? '▲' : '▼'}</span>
-                Advanced (optional — override computer names)
-              </button>
-
-              {showInternalAdvanced && (
+                On your other device, open Settings → Orchestrator mode and read the 6-digit Pairing code.
+              </div>
+              <label style={labelStyle}>Pairing code from the other device *</label>
+              <input
+                type="text"
+                inputMode="numeric"
+                autoComplete="off"
+                spellCheck={false}
+                maxLength={7}
+                data-testid="internal-counterparty-pairing-code"
+                value={formatPairingCodeForInput(counterpartyPairingCode)}
+                onChange={(e) =>
+                  setCounterpartyPairingCode(normalizePairingCodeInput(e.target.value))
+                }
+                onPaste={(e) => {
+                  const pasted = e.clipboardData?.getData('text') ?? ''
+                  const digits = normalizePairingCodeInput(pasted)
+                  if (digits) {
+                    e.preventDefault()
+                    setCounterpartyPairingCode(digits)
+                  }
+                }}
+                disabled={sending || resolvingPairingCode}
+                placeholder="XXX-XXX"
+                aria-invalid={
+                  !!pairingCodeInlineError ||
+                  (touched && counterpartyPairingCode.length > 0 && counterpartyPairingCode.length < 6)
+                }
+                style={{
+                  ...inputStyle(
+                    !!pairingCodeInlineError ||
+                      (touched && counterpartyPairingCode.length > 0 && counterpartyPairingCode.length < 6),
+                  ),
+                  fontFamily:
+                    'ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace',
+                  fontSize: '22px',
+                  fontWeight: 600,
+                  letterSpacing: '2px',
+                  textAlign: 'center',
+                  padding: '12px 14px',
+                }}
+              />
+              {pairingCodeInlineError ? (
                 <div
-                  id="internal-advanced-section"
-                  style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '10px' }}
+                  data-testid="internal-counterparty-pairing-code-error"
+                  style={{ marginTop: '5px', fontSize: '11px', color: t.errorText }}
                 >
-                  <div>
-                    <label style={labelStyle}>This computer name</label>
-                    <input
-                      type="text"
-                      value={internalLocalComputerName}
-                      onChange={(e) => setInternalLocalComputerName(e.target.value)}
-                      disabled={sending}
-                      placeholder={deviceName?.trim() || 'Defaults to this machine’s name'}
-                      style={inputStyle()}
-                    />
-                    <div style={{ marginTop: '5px', fontSize: '11px', color: t.muted, lineHeight: 1.45 }}>
-                      Auto-filled from this machine’s orchestrator settings.
-                    </div>
-                  </div>
-                  <div>
-                    <label style={labelStyle}>Other computer name</label>
-                    <input
-                      type="text"
-                      value={counterpartyComputerName}
-                      onChange={(e) => setCounterpartyComputerName(e.target.value)}
-                      disabled={sending}
-                      placeholder={`Leave blank to use “${INTERNAL_COMPUTER_NAME_SENTINEL}”`}
-                      style={inputStyle()}
-                    />
-                    <div style={{ marginTop: '5px', fontSize: '11px', color: t.muted, lineHeight: 1.45 }}>
-                      Optional. The other device’s actual name is learned automatically once the
-                      handshake is accepted.
-                    </div>
-                  </div>
+                  {pairingCodeInlineError}
                 </div>
-              )}
+              ) : touched && counterpartyPairingCode.length > 0 && counterpartyPairingCode.length < 6 ? (
+                <div
+                  data-testid="internal-counterparty-pairing-code-error"
+                  style={{ marginTop: '5px', fontSize: '11px', color: t.errorText }}
+                >
+                  Pairing codes are 6 digits — keep typing.
+                </div>
+              ) : null}
             </div>
           </div>
         )}
@@ -1300,12 +1314,12 @@ export const SendHandshakeDelivery: React.FC<SendHandshakeDeliveryProps> = ({
             <>
               <button
                 onClick={handleSendViaApi}
-                disabled={sending}
+                disabled={sending || resolvingPairingCode}
                 data-testid="send-to-paired-device"
                 style={{
                   width: '100%',
                   padding: '10px 16px',
-                  background: sending
+                  background: sending || resolvingPairingCode
                     ? 'rgba(139,92,246,0.5)'
                     : 'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)',
                   border: 'none',
@@ -1313,8 +1327,8 @@ export const SendHandshakeDelivery: React.FC<SendHandshakeDeliveryProps> = ({
                   color: 'white',
                   fontSize: '13px',
                   fontWeight: 600,
-                  cursor: sending ? 'wait' : 'pointer',
-                  opacity: sending ? 0.75 : 1,
+                  cursor: sending || resolvingPairingCode ? 'wait' : 'pointer',
+                  opacity: sending || resolvingPairingCode ? 0.75 : 1,
                   transition: 'opacity 0.15s',
                   display: 'flex',
                   alignItems: 'center',
@@ -1322,12 +1336,16 @@ export const SendHandshakeDelivery: React.FC<SendHandshakeDeliveryProps> = ({
                   gap: '7px',
                 }}
               >
-                {sending ? '⏳ Sending…' : '🔗 Send to paired device'}
+                {resolvingPairingCode
+                  ? '⏳ Resolving pairing code…'
+                  : sending
+                    ? '⏳ Sending…'
+                    : '🔗 Send to paired device'}
               </button>
               <button
                 type="button"
                 onClick={handleDownloadCapsule}
-                disabled={sending}
+                disabled={sending || resolvingPairingCode}
                 data-testid="download-capsule-instead"
                 style={{
                   width: '100%',
@@ -1346,8 +1364,8 @@ export const SendHandshakeDelivery: React.FC<SendHandshakeDeliveryProps> = ({
                     internalRelayOutcome?.kind === 'coordination_unavailable'
                       ? 'none'
                       : 'underline',
-                  cursor: sending ? 'wait' : 'pointer',
-                  opacity: sending ? 0.6 : 1,
+                  cursor: sending || resolvingPairingCode ? 'wait' : 'pointer',
+                  opacity: sending || resolvingPairingCode ? 0.6 : 1,
                   transition: 'opacity 0.15s',
                 }}
               >

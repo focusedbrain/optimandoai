@@ -45,6 +45,23 @@ CREATE TABLE IF NOT EXISTS coordination_token_cache (
   validated_at TEXT NOT NULL,
   expires_at TEXT NOT NULL
 );
+
+-- Per-user 6-digit pairing codes for device handshake routing.
+-- A given (user_id, pairing_code) pair maps to exactly one instance_id.
+-- A given (user_id, instance_id) device "owns" at most one pairing_code at a
+-- time; regeneration removes the previous row for the device before inserting
+-- the new one. Cross-user collisions are allowed and isolated at lookup time.
+CREATE TABLE IF NOT EXISTS coordination_pairing_codes (
+  user_id TEXT NOT NULL,
+  pairing_code TEXT NOT NULL,
+  instance_id TEXT NOT NULL,
+  device_name TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (user_id, pairing_code)
+);
+
+CREATE INDEX IF NOT EXISTS idx_coord_pairing_user_instance
+  ON coordination_pairing_codes(user_id, instance_id);
 `
 
 function applyHandshakeRegistryMigrations(db: Database.Database): void {

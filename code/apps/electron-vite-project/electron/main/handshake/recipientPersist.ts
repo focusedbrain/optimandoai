@@ -83,12 +83,10 @@ export function persistRecipientHandshakeRecord(
 
     const wireInternal = c?.handshake_type === 'internal'
     if (wireInternal) {
-      // Phase 2: the initiator may have used the pairing-time sentinel
-      // (INTERNAL_COMPUTER_NAME_SENTINEL, see shared/handshake/internalEndpointValidation.ts)
-      // for the receiver's computer name when they didn't yet know it. The shared
-      // validator treats that sentinel as non-colliding, so it flows through here
-      // into `internal_peer_computer_name` and is overwritten with the real name via
-      // the normal update path once the accept round-trip completes.
+      // Phase 4: the initiator now learns the peer's `device_name` from the
+      // pairing-code resolve RPC before building the capsule, so both endpoints
+      // always carry real, non-empty computer names on the wire. The earlier
+      // pairing-time `<unknown>` sentinel path no longer exists.
       const w = validateInternalInitiateCapsuleWire(c as Record<string, unknown>)
       if (!w.ok) {
         return { success: false, error: w.error ?? 'Internal initiate capsule invalid', reason: w.code }
