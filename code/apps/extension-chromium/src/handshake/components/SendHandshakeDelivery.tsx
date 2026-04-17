@@ -15,7 +15,6 @@ import { buildInitiateContextOptions } from '../buildInitiateContextOptions'
 import { parsePolicyToMode } from '@shared/handshake/policyUtils'
 import type { ProfileContextItem } from '@shared/handshake/types'
 import { getVaultStatus } from '../../vault/api'
-import { electronRpc } from '../../rpc/electronRpc'
 
 // =============================================================================
 // Types
@@ -296,32 +295,13 @@ export const SendHandshakeDelivery: React.FC<SendHandshakeDeliveryProps> = ({
   const [copySuccess, setCopySuccess] = useState(false)
   const [actionDone, setActionDone] = useState<'sent' | 'downloaded' | null>(null)
   const [error, setError] = useState<string | null>(null)
-  // Phase 3: relay push outcome for internal handshakes. Keeps the form visible (unlike
-  // actionDone which replaces the whole panel) so the user can send more or fall back
-  // to a manual download without navigating back.
-  type InternalRelayOutcome =
-    | { kind: 'pushed_live'; handshakeId: string }
-    | { kind: 'queued_recipient_offline'; handshakeId: string }
-    | { kind: 'coordination_unavailable'; message: string }
-    | { kind: 'skipped'; handshakeId: string }
-  const [internalRelayOutcome, setInternalRelayOutcome] = useState<InternalRelayOutcome | null>(null)
 
   // Pairing code typed by the user — stored as a digits-only string (≤6 chars).
   // Display layer adds the dash. Cleared when the form is reset after a send.
+  // The code is forwarded to the Electron handshake IPC as `counterparty_pairing_code`,
+  // which resolves it to the peer's full instance_id server-side. The renderer never
+  // calls the coordination service directly.
   const [counterpartyPairingCode, setCounterpartyPairingCode] = useState('')
-  // Resolved counterparty device identity from `orchestrator.resolvePairingCode`.
-  // Used for the actual capsule build; the raw pairing code is never sent on the wire.
-  const [resolvedCounterparty, setResolvedCounterparty] = useState<{
-    instance_id: string
-    device_name: string
-  } | null>(null)
-  const [resolvingPairingCode, setResolvingPairingCode] = useState(false)
-
-  // Drop any cached resolution as soon as the user edits the code so a stale
-  // (instance_id, device_name) pair can never be submitted by mistake.
-  useEffect(() => {
-    setResolvedCounterparty(null)
-  }, [counterpartyPairingCode])
 
   // Inline validation for the pairing code field. We intentionally do NOT mark
   // a partially typed code as invalid (would feel buggy as the user is typing);
@@ -351,32 +331,29 @@ export const SendHandshakeDelivery: React.FC<SendHandshakeDeliveryProps> = ({
   const effectiveInternalRole = deviceRole ?? 'sandbox'
 
   // This device's computer name is auto-derived from orchestrator settings via the
-  // `deviceName` prop. There is no longer a manual override — the pairing-code resolve
-  // returns the peer's real `device_name` so the previous Advanced section is gone.
+  // `deviceName` prop. The peer's `device_name` is filled in by the Electron IPC after
+  // it resolves the pairing code via the coordination service.
   const resolvedLocalComputerName = deviceName?.trim() ?? ''
 
   // Build the internal RPC extras for the underlying initiate / build-for-download call.
-  // Requires a successful resolve first — the wire format wants the real instance_id and
-  // device_name, never the 6-digit pairing code.
+  // The 6-digit pairing code is forwarded as-is; the Electron IPC translates it into
+  // `counterparty_device_id` + `counterparty_computer_name` server-side. The renderer
+  // never sees the peer's full instance_id.
   const internalRpcExtras = () => {
     if (!isInternalHandshake) return {}
-    if (!resolvedCounterparty) return {}
     return {
       handshake_type: 'internal' as const,
       device_name: resolvedLocalComputerName,
       device_role: effectiveInternalRole,
-      counterparty_device_id: resolvedCounterparty.instance_id,
       // handshakeRpc.ts infers this as the opposite of device_role, but we still
       // pass it here so older callers / direct RPC consumers get an explicit value.
       counterparty_device_role: effectiveInternalRole === 'host' ? ('sandbox' as const) : ('host' as const),
-      counterparty_computer_name:
-        resolvedCounterparty.device_name.trim() || 'Other device',
+      counterparty_pairing_code: counterpartyPairingCode,
     }
   }
 
   // Submit gating for the internal flow: a complete (6-digit, non-self) pairing code
-  // and a non-empty local device name. The peer's computer name is filled in after
-  // resolve, so it isn't part of the precondition check.
+  // and a non-empty local device name.
   const internalFieldsComplete =
     !isInternalHandshake ||
     (!!resolvedLocalComputerName &&
@@ -405,79 +382,30 @@ export const SendHandshakeDelivery: React.FC<SendHandshakeDeliveryProps> = ({
     })
 
   /**
-   * Resolve the typed 6-digit pairing code to the peer's `instance_id` + `device_name`
-   * via the local Electron host bridge, which proxies to the coordination service using
-   * the OIDC token (never exposed to the extension).
-   *
-   * Returns the resolved identity on success, or null on failure (in which case `error`
-   * state has already been set with a user-actionable message). Callers should bail out
-   * when `null` is returned.
-   *
-   * Self-pairing is rejected before the network call so the user sees the same
-   * inline message that already shows on the field.
+   * Pre-flight checks for the internal flow. The actual pairing-code → instance_id
+   * resolution happens in the Electron IPC handler (`handshake.initiate` /
+   * `handshake.buildForDownload`) so the renderer never touches the OIDC token. We
+   * just enforce the obvious local guards (6-digit length, not own code) so the
+   * user sees inline feedback instead of an opaque IPC error.
    */
-  const ensureCounterpartyResolved = async (): Promise<{ instance_id: string; device_name: string } | null> => {
+  const validatePairingCodeBeforeSend = (): boolean => {
     if (counterpartyPairingCode.length !== 6) {
-      setError("Enter the 6-digit pairing code from your other device.")
-      return null
+      setError('Enter the 6-digit pairing code from your other device.')
+      return false
     }
     if (pairingCodeIsSelf) {
       setError("That's this device's pairing code. Read the code from your other device's Settings screen.")
-      return null
+      return false
     }
-    // Cached resolution from a prior attempt is reused as long as the code hasn't
-    // changed (the useEffect above invalidates it on edit).
-    if (resolvedCounterparty) return resolvedCounterparty
-    setResolvingPairingCode(true)
-    try {
-      const result = await electronRpc('orchestrator.resolvePairingCode', { code: counterpartyPairingCode })
-      if (!result.success) {
-        if (result.status === 404) {
-          setError(
-            "No device found with that pairing code. Check the code on your other device's Settings screen, or regenerate it if it's stale.",
-          )
-        } else {
-          setError(result.error || 'Could not resolve pairing code. Try again in a moment.')
-        }
-        return null
-      }
-      const data = result.data as { ok?: boolean; instance_id?: unknown; device_name?: unknown; error?: unknown } | null
-      const instance_id = typeof data?.instance_id === 'string' ? data.instance_id.trim() : ''
-      const device_name = typeof data?.device_name === 'string' ? data.device_name : ''
-      if (!data?.ok || !instance_id) {
-        setError(
-          (typeof data?.error === 'string' && data.error) ||
-            'Pairing code resolution returned no device. Try regenerating the code on your other device.',
-        )
-        return null
-      }
-      const resolved = { instance_id, device_name }
-      setResolvedCounterparty(resolved)
-      return resolved
-    } catch (err: any) {
-      setError(err?.message || 'Could not reach the coordination service to resolve the pairing code.')
-      return null
-    } finally {
-      setResolvingPairingCode(false)
-    }
+    return true
   }
 
   const handleSendViaApi = async () => {
     setTouched(true)
     setError(null)
-    setInternalRelayOutcome(null)
     if (!isValid) return
-    if (isInternalHandshake) {
-      // Resolve runs first so a 404 / collision shows up before the user sees the
-      // "Sending…" spinner. The button is gated by `sending || resolvingPairingCode`
-      // (see button JSX) so a double-click can't fire two resolves in parallel.
-      const resolved = await ensureCounterpartyResolved()
-      if (!resolved) return
-    }
-    // Internal handshakes don't need an email account — the coordination relay handles
-    // delivery. For external handshakes we still require one because the initiate capsule
-    // is delivered via API email in this phase.
-    if (!isInternalHandshake && !fromAccountId) {
+    if (isInternalHandshake && !validatePairingCodeBeforeSend()) return
+    if (!fromAccountId) {
       setError('No email account selected.')
       return
     }
@@ -487,39 +415,15 @@ export const SendHandshakeDelivery: React.FC<SendHandshakeDeliveryProps> = ({
       const result = await initiateHandshake(
         recipientEmail.trim().toLowerCase(),
         recipientEmail.trim(),
-        isInternalHandshake ? (fromAccountId || null) : fromAccountId,
+        fromAccountId,
         { ...opts, ...internalRpcExtras() },
       )
       if (!result.handshake_id || result.success === false) {
         setError(result.error || 'Failed to send handshake.')
         return
       }
-      if (isInternalHandshake) {
-        // Phase 3: the backend pushes the initiate capsule via the coordination relay.
-        // We surface the outcome inline and keep the form open so the user can send more
-        // handshakes or switch to the download fallback without re-entering state.
-        const rd = result.relay_delivery
-        if (rd === 'pushed_live') {
-          setInternalRelayOutcome({ kind: 'pushed_live', handshakeId: result.handshake_id })
-        } else if (rd === 'queued_recipient_offline') {
-          setInternalRelayOutcome({ kind: 'queued_recipient_offline', handshakeId: result.handshake_id })
-        } else if (rd === 'coordination_unavailable') {
-          setInternalRelayOutcome({
-            kind: 'coordination_unavailable',
-            message:
-              result.relay_error ??
-              "Couldn't reach the coordination service. Download the capsule and transfer it manually.",
-          })
-        } else {
-          // 'skipped' or null — coordination not configured; treat as successful create
-          // but recommend manual transfer.
-          setInternalRelayOutcome({ kind: 'skipped', handshakeId: result.handshake_id })
-        }
-        onSuccess?.({ handshake_id: result.handshake_id })
-      } else {
-        setActionDone('sent')
-        onSuccess?.({ handshake_id: result.handshake_id })
-      }
+      setActionDone('sent')
+      onSuccess?.({ handshake_id: result.handshake_id })
     } catch (err: any) {
       setError(err?.message || 'Failed to send handshake.')
     } finally {
@@ -531,10 +435,7 @@ export const SendHandshakeDelivery: React.FC<SendHandshakeDeliveryProps> = ({
     setTouched(true)
     setError(null)
     if (!isValid) return
-    if (isInternalHandshake) {
-      const resolved = await ensureCounterpartyResolved()
-      if (!resolved) return
-    }
+    if (isInternalHandshake && !validatePairingCodeBeforeSend()) return
     setSending(true)
     try {
       const opts = await buildContextOptions()
@@ -650,7 +551,6 @@ export const SendHandshakeDelivery: React.FC<SendHandshakeDeliveryProps> = ({
             setActionDone(null)
             setTouched(false)
             setCounterpartyPairingCode('')
-            setResolvedCounterparty(null)
             setRecipientEmail('')
             setSubject(defaultSubject)
             setMessage('')
@@ -739,32 +639,31 @@ export const SendHandshakeDelivery: React.FC<SendHandshakeDeliveryProps> = ({
         }}
       >
         {/* ---- Delivery mode selector ----
-            Phase 3: internal handshakes always push via the coordination relay (with
-            a file download fallback offered inline in the action area). The email
-            mode selector is only meaningful for external, email-identified peers. */}
-        {!isInternalHandshake && (
-          <div>
-            <label style={labelStyle}>Delivery method</label>
-            <div style={{ display: 'flex', gap: '8px' }}>
-              <DeliveryOption
-                mode="api"
-                selected={mode === 'api'}
-                label="Email via API"
-                description="Send directly using your connected mailbox."
-                onClick={() => setMode('api')}
-                t={t}
-              />
-              <DeliveryOption
-                mode="attachment"
-                selected={mode === 'attachment'}
-                label="Email as attachment"
-                description="Download the BEAP capsule and attach it to an email yourself."
-                onClick={() => setMode('attachment')}
-                t={t}
-              />
-            </div>
+            Internal and external handshakes share the same picker. For internal
+            handshakes the coordination relay also pushes the capsule transparently
+            in the IPC layer; the user-visible delivery is identical to the external
+            flow (email via API or .beap download). */}
+        <div>
+          <label style={labelStyle}>Delivery method</label>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <DeliveryOption
+              mode="api"
+              selected={mode === 'api'}
+              label="Email via API"
+              description="Send directly using your connected mailbox."
+              onClick={() => setMode('api')}
+              t={t}
+            />
+            <DeliveryOption
+              mode="attachment"
+              selected={mode === 'attachment'}
+              label="Email as attachment"
+              description="Download the BEAP capsule and attach it to an email yourself."
+              onClick={() => setMode('attachment')}
+              t={t}
+            />
           </div>
-        )}
+        </div>
 
         {/* ---- Include Vault Profiles toggle (only when HS Context Profiles available) ---- */}
         {canUseHsContextProfiles && (
@@ -884,95 +783,57 @@ export const SendHandshakeDelivery: React.FC<SendHandshakeDeliveryProps> = ({
         </div>
 
         {isInternalHandshake && (
-          <div
-            style={{
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '10px',
-              padding: '12px 14px',
-              background: t.accentPrimaryLight,
-              border: `1px solid ${t.accentPrimaryBorder}`,
-              borderRadius: '10px',
-            }}
-          >
-            <div style={{ fontSize: '12px', fontWeight: 700, color: t.text }}>
-              Internal handshake — device pairing
-            </div>
-            <p
-              data-testid="internal-pairing-helper"
-              style={{ fontSize: '11px', color: t.muted, margin: 0, lineHeight: 1.5 }}
-            >
-              Internal handshakes pair two devices on the same account. You'll need the{' '}
-              <strong style={{ color: t.text }}>6-digit Pairing code</strong> from the other device — find it in{' '}
-              <strong style={{ color: t.text }}>Settings → Orchestrator mode</strong>.
-            </p>
-            <div>
+          <div data-testid="internal-pairing-field">
+            <label style={labelStyle}>Pairing code</label>
+            <input
+              type="text"
+              inputMode="numeric"
+              autoComplete="off"
+              spellCheck={false}
+              maxLength={7}
+              data-testid="internal-counterparty-pairing-code"
+              value={formatPairingCodeForInput(counterpartyPairingCode)}
+              onChange={(e) =>
+                setCounterpartyPairingCode(normalizePairingCodeInput(e.target.value))
+              }
+              onPaste={(e) => {
+                const pasted = e.clipboardData?.getData('text') ?? ''
+                const digits = normalizePairingCodeInput(pasted)
+                if (digits) {
+                  e.preventDefault()
+                  setCounterpartyPairingCode(digits)
+                }
+              }}
+              disabled={sending}
+              placeholder="XXX-XXX"
+              aria-invalid={
+                !!pairingCodeInlineError ||
+                (touched && counterpartyPairingCode.length > 0 && counterpartyPairingCode.length < 6)
+              }
+              style={inputStyle(
+                !!pairingCodeInlineError ||
+                  (touched && counterpartyPairingCode.length > 0 && counterpartyPairingCode.length < 6),
+              )}
+            />
+            {pairingCodeInlineError ? (
               <div
-                style={{
-                  fontSize: '11px',
-                  color: t.muted,
-                  marginBottom: '6px',
-                  lineHeight: 1.4,
-                }}
+                data-testid="internal-counterparty-pairing-code-error"
+                style={{ marginTop: '5px', fontSize: '11px', color: t.errorText }}
               >
-                On your other device, open Settings → Orchestrator mode and read the 6-digit Pairing code.
+                {pairingCodeInlineError}
               </div>
-              <label style={labelStyle}>Pairing code from the other device *</label>
-              <input
-                type="text"
-                inputMode="numeric"
-                autoComplete="off"
-                spellCheck={false}
-                maxLength={7}
-                data-testid="internal-counterparty-pairing-code"
-                value={formatPairingCodeForInput(counterpartyPairingCode)}
-                onChange={(e) =>
-                  setCounterpartyPairingCode(normalizePairingCodeInput(e.target.value))
-                }
-                onPaste={(e) => {
-                  const pasted = e.clipboardData?.getData('text') ?? ''
-                  const digits = normalizePairingCodeInput(pasted)
-                  if (digits) {
-                    e.preventDefault()
-                    setCounterpartyPairingCode(digits)
-                  }
-                }}
-                disabled={sending || resolvingPairingCode}
-                placeholder="XXX-XXX"
-                aria-invalid={
-                  !!pairingCodeInlineError ||
-                  (touched && counterpartyPairingCode.length > 0 && counterpartyPairingCode.length < 6)
-                }
-                style={{
-                  ...inputStyle(
-                    !!pairingCodeInlineError ||
-                      (touched && counterpartyPairingCode.length > 0 && counterpartyPairingCode.length < 6),
-                  ),
-                  fontFamily:
-                    'ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace',
-                  fontSize: '22px',
-                  fontWeight: 600,
-                  letterSpacing: '2px',
-                  textAlign: 'center',
-                  padding: '12px 14px',
-                }}
-              />
-              {pairingCodeInlineError ? (
-                <div
-                  data-testid="internal-counterparty-pairing-code-error"
-                  style={{ marginTop: '5px', fontSize: '11px', color: t.errorText }}
-                >
-                  {pairingCodeInlineError}
-                </div>
-              ) : touched && counterpartyPairingCode.length > 0 && counterpartyPairingCode.length < 6 ? (
-                <div
-                  data-testid="internal-counterparty-pairing-code-error"
-                  style={{ marginTop: '5px', fontSize: '11px', color: t.errorText }}
-                >
-                  Pairing codes are 6 digits — keep typing.
-                </div>
-              ) : null}
-            </div>
+            ) : touched && counterpartyPairingCode.length > 0 && counterpartyPairingCode.length < 6 ? (
+              <div
+                data-testid="internal-counterparty-pairing-code-error"
+                style={{ marginTop: '5px', fontSize: '11px', color: t.errorText }}
+              >
+                Pairing codes are 6 digits.
+              </div>
+            ) : (
+              <div style={{ marginTop: '5px', fontSize: '11px', color: t.muted, lineHeight: 1.4 }}>
+                From the other device's Settings → Orchestrator mode.
+              </div>
+            )}
           </div>
         )}
 
@@ -1258,49 +1119,6 @@ export const SendHandshakeDelivery: React.FC<SendHandshakeDeliveryProps> = ({
           </div>
         )}
 
-        {/* ---- Phase 3: Internal handshake relay outcome (inline) ---- */}
-        {isInternalHandshake && internalRelayOutcome && (
-          <div
-            data-testid="internal-relay-outcome"
-            style={{
-              padding: '10px 13px',
-              background:
-                internalRelayOutcome.kind === 'coordination_unavailable'
-                  ? t.dangerBg
-                  : t.successBg,
-              border: `1px solid ${
-                internalRelayOutcome.kind === 'coordination_unavailable'
-                  ? t.dangerBorder
-                  : t.successBorder
-              }`,
-              borderRadius: '8px',
-              fontSize: '11px',
-              color:
-                internalRelayOutcome.kind === 'coordination_unavailable'
-                  ? t.dangerText
-                  : t.successText,
-              lineHeight: 1.5,
-              display: 'flex',
-              gap: '8px',
-              alignItems: 'flex-start',
-            }}
-          >
-            <span style={{ flexShrink: 0, fontSize: '13px' }}>
-              {internalRelayOutcome.kind === 'coordination_unavailable' ? '⚠️' : '✅'}
-            </span>
-            <span>
-              {internalRelayOutcome.kind === 'pushed_live' &&
-                'Sent. Open WR Desk on your other device and accept the handshake request.'}
-              {internalRelayOutcome.kind === 'queued_recipient_offline' &&
-                "Sent. Your other device is offline right now — it'll appear the moment that device comes online and opens WR Desk."}
-              {internalRelayOutcome.kind === 'coordination_unavailable' &&
-                internalRelayOutcome.message}
-              {internalRelayOutcome.kind === 'skipped' &&
-                'Handshake created locally. Coordination service is not configured on this device — use the download fallback to transfer the capsule manually.'}
-            </span>
-          </div>
-        )}
-
         {/* ---- Actions ---- */}
         <div
           style={{
@@ -1310,71 +1128,7 @@ export const SendHandshakeDelivery: React.FC<SendHandshakeDeliveryProps> = ({
             paddingTop: '2px',
           }}
         >
-          {isInternalHandshake ? (
-            <>
-              <button
-                onClick={handleSendViaApi}
-                disabled={sending || resolvingPairingCode}
-                data-testid="send-to-paired-device"
-                style={{
-                  width: '100%',
-                  padding: '10px 16px',
-                  background: sending || resolvingPairingCode
-                    ? 'rgba(139,92,246,0.5)'
-                    : 'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)',
-                  border: 'none',
-                  borderRadius: '9px',
-                  color: 'white',
-                  fontSize: '13px',
-                  fontWeight: 600,
-                  cursor: sending || resolvingPairingCode ? 'wait' : 'pointer',
-                  opacity: sending || resolvingPairingCode ? 0.75 : 1,
-                  transition: 'opacity 0.15s',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '7px',
-                }}
-              >
-                {resolvingPairingCode
-                  ? '⏳ Resolving pairing code…'
-                  : sending
-                    ? '⏳ Sending…'
-                    : '🔗 Send to paired device'}
-              </button>
-              <button
-                type="button"
-                onClick={handleDownloadCapsule}
-                disabled={sending || resolvingPairingCode}
-                data-testid="download-capsule-instead"
-                style={{
-                  width: '100%',
-                  padding: '8px 16px',
-                  background: 'transparent',
-                  border:
-                    internalRelayOutcome?.kind === 'coordination_unavailable'
-                      ? `1.5px solid ${t.accentPrimary}`
-                      : 'none',
-                  borderRadius: '9px',
-                  color: t.isStandard ? '#7c3aed' : '#c4b5fd',
-                  fontSize: '12px',
-                  fontWeight:
-                    internalRelayOutcome?.kind === 'coordination_unavailable' ? 700 : 500,
-                  textDecoration:
-                    internalRelayOutcome?.kind === 'coordination_unavailable'
-                      ? 'none'
-                      : 'underline',
-                  cursor: sending || resolvingPairingCode ? 'wait' : 'pointer',
-                  opacity: sending || resolvingPairingCode ? 0.6 : 1,
-                  transition: 'opacity 0.15s',
-                }}
-              >
-                {internalRelayOutcome?.kind === 'coordination_unavailable'
-                  ? '💾 Download capsule (.beap)'
-                  : 'Download capsule instead'}
-              </button>
-            </>
-          ) : mode === 'api' ? (
+          {mode === 'api' ? (
             <button
               onClick={handleSendViaApi}
               disabled={sending || noEmailAccount}

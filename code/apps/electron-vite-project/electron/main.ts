@@ -8790,59 +8790,12 @@ async function runDeviceKeyMigration(
       }
     })
 
-    // GET /api/coordination/resolve-pairing-code?code=XXXXXX — resolve a
-    // 6-digit pairing code to { instance_id, device_name } scoped to the
-    // current account. Proxies to the coordination service using the host's
-    // OIDC token; the extension never sees the OIDC token. Returns 404 for
-    // unknown codes AND for codes registered by other users.
-    httpApp.get('/api/coordination/resolve-pairing-code', async (req, res) => {
-      try {
-        const codeParam = typeof req.query?.code === 'string' ? req.query.code.trim() : ''
-        if (!/^[0-9]{6}$/.test(codeParam)) {
-          res.status(400).json({ ok: false as const, error: 'code must be 6 digits' })
-          return
-        }
-        const handshakeDb = getHandshakeDb()
-        if (!handshakeDb) {
-          res.status(503).json({ ok: false as const, error: 'Handshake DB not ready' })
-          return
-        }
-        const token = await getOidcToken()
-        if (!token?.trim()) {
-          res.status(401).json({ ok: false as const, error: 'No OIDC token' })
-          return
-        }
-        const coordUrl = getP2PConfig(handshakeDb).coordination_url?.trim()
-        if (!coordUrl) {
-          res.status(503).json({ ok: false as const, error: 'Coordination URL not configured' })
-          return
-        }
-        const upstreamUrl = `${coordUrl.replace(/\/$/, '')}/api/coordination/resolve-pairing-code?code=${encodeURIComponent(codeParam)}`
-        const upstream = await fetch(upstreamUrl, {
-          method: 'GET',
-          headers: { Authorization: `Bearer ${token}` },
-          signal: AbortSignal.timeout(8000),
-        })
-        const text = await upstream.text()
-        let data: unknown
-        try { data = JSON.parse(text) } catch { data = { error: text } }
-        if (!upstream.ok) {
-          res.status(upstream.status).json({ ok: false as const, error: (data as any)?.error || `HTTP ${upstream.status}` })
-          return
-        }
-        const obj = (data && typeof data === 'object') ? (data as Record<string, unknown>) : {}
-        const instance_id = typeof obj.instance_id === 'string' ? obj.instance_id : ''
-        const device_name = typeof obj.device_name === 'string' ? obj.device_name : ''
-        if (!instance_id) {
-          res.status(502).json({ ok: false as const, error: 'Malformed upstream response' })
-          return
-        }
-        res.json({ ok: true as const, instance_id, device_name })
-      } catch (error: any) {
-        console.error('[HTTP-ORCHESTRATOR] Error in resolve-pairing-code:', error)
-        res.status(500).json({ ok: false as const, error: error?.message || 'Failed to resolve pairing code' })
-      }
-    })
+    // The previous `GET /api/coordination/resolve-pairing-code` proxy was removed.
+    // Pairing-code resolution now happens server-side in the handshake initiate IPC
+    // (`electron/main/handshake/ipc.ts → resolvePairingCodeViaCoordination`) so the
+    // extension never needs to make a UI-time resolve call. The capsule wire format
+    // continues to carry the full `instance_id`; the 6-digit code is purely a
+    // human-friendly handle for picking the target device on the same account.
 
     // GET /api/orchestrator/mode-config — legacy alias (same payload as /api/orchestrator/mode)
     httpApp.get('/api/orchestrator/mode-config', (_req, res) => {

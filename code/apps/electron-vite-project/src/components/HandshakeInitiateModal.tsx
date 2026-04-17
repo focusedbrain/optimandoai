@@ -48,14 +48,17 @@ export default function HandshakeInitiateModal({ onClose, onSuccess, presetInter
   const [requiresVault, setRequiresVault] = useState(false)
 
   const [isInternal, setIsInternal] = useState(!!presetInternal)
-  const [deviceRole, setDeviceRole] = useState<'host' | 'sandbox'>('sandbox')
+  // Device role + name flow through to SendHandshakeDelivery as props for the internal
+  // capsule build. They're populated automatically (role defaults to 'sandbox';
+  // deviceName comes from orchestratorMode.getDeviceInfo) and are no longer surfaced
+  // in this modal — internal/external share the same form chrome, the only visible
+  // difference being a compact Pairing code field rendered inside SendHandshakeDelivery.
+  const [deviceRole] = useState<'host' | 'sandbox'>('sandbox')
   const [deviceName, setDeviceName] = useState('')
   /** This device's local 6-digit pairing code, used for the self-pair guard in
    *  SendHandshakeDelivery. Surfaced from orchestrator preload (getDeviceInfo). */
   const [localPairingCode, setLocalPairingCode] = useState<string>('')
   const [recipientEmail, setRecipientEmail] = useState('')
-  /** Phase 2: one-time contextual hint shown when the user toggles internal mode. */
-  const [showInternalHint, setShowInternalHint] = useState(false)
 
   useEffect(() => {
     const check = async () => {
@@ -77,7 +80,6 @@ export default function HandshakeInitiateModal({ onClose, onSuccess, presetInter
   useEffect(() => {
     if (presetInternal) {
       setIsInternal(true)
-      setShowInternalHint(true)
     }
   }, [presetInternal])
 
@@ -174,7 +176,6 @@ export default function HandshakeInitiateModal({ onClose, onSuccess, presetInter
               onChange={(e) => {
                 const next = e.target.checked
                 setIsInternal(next)
-                setShowInternalHint(next)
                 if (next) {
                   prefillRecipientEmail(setRecipientEmail)
                 } else {
@@ -184,99 +185,6 @@ export default function HandshakeInitiateModal({ onClose, onSuccess, presetInter
             />
             Internal handshake (connect my own devices)
           </label>
-        )}
-
-        {isInternal && showInternalHint && (
-          <div
-            data-testid="internal-handshake-hint"
-            style={{
-              margin: '12px 16px 0',
-              padding: '10px 12px',
-              background: 'rgba(59,130,246,0.08)',
-              border: '1px solid rgba(59,130,246,0.25)',
-              borderRadius: '8px',
-              display: 'flex',
-              gap: '8px',
-              alignItems: 'flex-start',
-              fontSize: '12px',
-              color: '#1e40af',
-              lineHeight: 1.5,
-            }}
-          >
-            <span style={{ fontSize: '14px', flexShrink: 0 }} aria-hidden>ℹ️</span>
-            <span style={{ flex: 1 }}>
-              Internal handshakes pair two devices on the same account. You’ll need the{' '}
-              <strong>6-digit Pairing code</strong> from the other device — find it in{' '}
-              <strong>Settings → Orchestrator mode</strong>.
-            </span>
-            <button
-              type="button"
-              onClick={() => setShowInternalHint(false)}
-              aria-label="Dismiss internal handshake hint"
-              style={{
-                background: 'transparent',
-                border: 'none',
-                color: '#1e40af',
-                cursor: 'pointer',
-                fontSize: '13px',
-                lineHeight: 1,
-                padding: '0 2px',
-                flexShrink: 0,
-              }}
-            >
-              ✕
-            </button>
-          </div>
-        )}
-
-        {isInternal && (
-          <div style={{ padding: '12px 16px 0', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            {presetInternal ? (
-              <p style={{ margin: 0, fontSize: '12px', color: '#6b7280' }}>Internal handshake — connect your own devices on this account. Use the same delivery options as a normal handshake below.</p>
-            ) : null}
-            <div>
-              <label style={{ fontSize: '11px', fontWeight: 600, color: '#6b7280', display: 'block', marginBottom: '4px' }}>This device name</label>
-              <input
-                type="text"
-                value={deviceName}
-                onChange={(e) => setDeviceName(e.target.value)}
-                placeholder="My Computer"
-                style={{
-                  width: '100%',
-                  padding: '8px 10px',
-                  borderRadius: '8px',
-                  border: '1px solid rgba(147,51,234,0.18)',
-                  fontSize: '13px',
-                  boxSizing: 'border-box',
-                }}
-              />
-            </div>
-            <div>
-              <label style={{ fontSize: '12px', color: '#6b7280', marginBottom: '4px', display: 'block' }}>This device is:</label>
-              <div style={{ display: 'flex', gap: '8px' }}>
-                <button
-                  type="button"
-                  onClick={() => setDeviceRole('host')}
-                  style={{
-                    flex: 1, padding: '6px', borderRadius: '6px', fontSize: '12px', cursor: 'pointer',
-                    background: deviceRole === 'host' ? '#534AB7' : 'transparent',
-                    color: deviceRole === 'host' ? '#fff' : '#6b7280',
-                    border: deviceRole === 'host' ? 'none' : '1px solid #ddd',
-                  }}
-                >Host</button>
-                <button
-                  type="button"
-                  onClick={() => setDeviceRole('sandbox')}
-                  style={{
-                    flex: 1, padding: '6px', borderRadius: '6px', fontSize: '12px', cursor: 'pointer',
-                    background: deviceRole === 'sandbox' ? '#534AB7' : 'transparent',
-                    color: deviceRole === 'sandbox' ? '#fff' : '#6b7280',
-                    border: deviceRole === 'sandbox' ? 'none' : '1px solid #ddd',
-                  }}
-                >Sandbox</button>
-              </div>
-            </div>
-          </div>
         )}
 
         <SendHandshakeDelivery

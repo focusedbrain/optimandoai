@@ -175,6 +175,13 @@ export async function initiateHandshake(
     counterparty_device_id?: string
     counterparty_device_role?: 'host' | 'sandbox'
     counterparty_computer_name?: string
+    /**
+     * Internal handshake only: 6-digit pairing code of the target device. The Electron
+     * IPC resolves it to `counterparty_device_id` + `counterparty_computer_name` via the
+     * coordination service, so the renderer never needs the peer's full instance_id.
+     * Ignored when `counterparty_device_id` is also provided.
+     */
+    counterparty_pairing_code?: string
   },
 ): Promise<HandshakeInitiateResponse> {
   const keyAgreement = await getKeyAgreementForHandshake()
@@ -207,6 +214,9 @@ export async function initiateHandshake(
     ...(options?.counterparty_computer_name?.trim()
       ? { counterparty_computer_name: options.counterparty_computer_name.trim() }
       : {}),
+    ...(options?.counterparty_pairing_code?.trim()
+      ? { counterparty_pairing_code: options.counterparty_pairing_code.trim() }
+      : {}),
   })
   // ML-KEM secret is persisted exclusively in the Electron DB (local_mlkem768_secret_key_b64).
   // The senderMlkem768SecretKeyB64 field above ensures it was written by the ipc.ts handler.
@@ -234,6 +244,8 @@ export async function buildHandshakeForDownload(
     counterparty_device_id?: string
     counterparty_device_role?: 'host' | 'sandbox'
     counterparty_computer_name?: string
+    /** See {@link initiateHandshake} — pairing-code shorthand for internal handshakes. */
+    counterparty_pairing_code?: string
   },
 ): Promise<HandshakeBuildForDownloadResponse> {
   const keyAgreement = await getKeyAgreementForHandshake()
@@ -265,6 +277,9 @@ export async function buildHandshakeForDownload(
       : {}),
     ...(options?.counterparty_computer_name?.trim()
       ? { counterparty_computer_name: options.counterparty_computer_name.trim() }
+      : {}),
+    ...(options?.counterparty_pairing_code?.trim()
+      ? { counterparty_pairing_code: options.counterparty_pairing_code.trim() }
       : {}),
   })
   // ML-KEM secret stored in Electron DB — no chrome.storage copy.

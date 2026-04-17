@@ -243,27 +243,10 @@ const OrchestratorRegeneratePairingCode = {
   route: '/api/orchestrator/regenerate-pairing-code',
 }
 
-/**
- * Resolve a 6-digit pairing code to the owning device's instance_id and
- * device_name. Scoped to the current SSO account: codes registered by
- * other users return 404 even if the same digits collide across accounts.
- *
- * Architecture note: the request URL targets the coordination service,
- * but the extension does not call coordination directly — it goes through
- * the local Electron host bridge, which holds the OIDC token and proxies
- * the call. The extension never sees the OIDC bearer.
- */
-export type OrchestratorResolvePairingCodeResponse =
-  | { ok: true; instance_id: string; device_name: string }
-  | { ok: false; error?: string }
-
-const OrchestratorResolvePairingCode = {
-  method: 'orchestrator.resolvePairingCode' as const,
-  schema: z.object({ code: z.string().regex(/^[0-9]{6}$/, 'pairing code must be 6 digits') }),
-  http: 'GET' as const,
-  build: (p: { code: string }) =>
-    `/api/coordination/resolve-pairing-code?code=${encodeURIComponent(p.code)}`,
-}
+// Pairing-code resolution intentionally has no extension-facing RPC. The 6-digit
+// code is forwarded through the existing handshake initiate / buildForDownload IPC
+// (`counterparty_pairing_code`) and resolved on the Electron side via the
+// coordination service, keeping the OIDC token off the renderer.
 
 // ============================================================================
 // §2  Full Registry + Type Extraction
@@ -288,7 +271,6 @@ const RPC_REGISTRY = [
   OrchestratorGetMode,
   OrchestratorSetMode,
   OrchestratorRegeneratePairingCode,
-  OrchestratorResolvePairingCode,
 ] as const
 
 type RpcDef = (typeof RPC_REGISTRY)[number]
