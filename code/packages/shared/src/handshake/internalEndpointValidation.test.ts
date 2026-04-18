@@ -106,4 +106,79 @@ describe('internalEndpointValidation', () => {
   test('validateInternalCapsuleDeviceIds accepts two non-empty ids', () => {
     expect(validateInternalCapsuleDeviceIds('a', 'b').ok).toBe(true)
   })
+
+  describe('per-field diagnostics (missing_field + side)', () => {
+    test("local 'initiator' missing device_id maps to side=local, field=device_id", () => {
+      const r = validateInternalEndpointIdentity('initiator', {
+        device_id: '',
+        device_role: 'host',
+        computer_name: 'PC',
+      })
+      expect(r.ok).toBe(false)
+      expect(r.missing_field).toBe('device_id')
+      expect(r.side).toBe('local')
+      expect(r.message).toMatch(/Settings → Orchestrator mode/)
+      expect(r.message).not.toMatch(/Restart the app/i)
+    })
+
+    test("counterparty 'receiver' missing device_id maps to side=counterparty (resolve gap)", () => {
+      const r = validateInternalEndpointIdentity('receiver', {
+        device_id: '',
+        device_role: 'host',
+        computer_name: 'PC',
+      })
+      expect(r.ok).toBe(false)
+      expect(r.missing_field).toBe('device_id')
+      expect(r.side).toBe('counterparty')
+      expect(r.message).toMatch(/pairing code didn't resolve/)
+    })
+
+    test("counterparty missing device_role flagged as internal error (programmer bug)", () => {
+      const r = validateInternalEndpointIdentity('receiver', {
+        device_id: 'peer-id',
+        device_role: undefined,
+        computer_name: 'PC',
+      })
+      expect(r.ok).toBe(false)
+      expect(r.missing_field).toBe('device_role')
+      expect(r.side).toBe('counterparty')
+      expect(r.message).toMatch(/Internal error/)
+    })
+
+    test("counterparty missing computer_name flagged as internal error (programmer bug)", () => {
+      const r = validateInternalEndpointIdentity('sender', {
+        device_id: 'peer-id',
+        device_role: 'sandbox',
+        computer_name: '',
+      })
+      expect(r.ok).toBe(false)
+      expect(r.missing_field).toBe('computer_name')
+      expect(r.side).toBe('counterparty')
+      expect(r.message).toMatch(/Internal error/)
+    })
+
+    test("local 'acceptor' missing computer_name asks the user to set a device name", () => {
+      const r = validateInternalEndpointIdentity('acceptor', {
+        device_id: 'self-id',
+        device_role: 'sandbox',
+        computer_name: '   ',
+      })
+      expect(r.ok).toBe(false)
+      expect(r.missing_field).toBe('computer_name')
+      expect(r.side).toBe('local')
+      expect(r.message).toMatch(/Give this device a name/)
+    })
+
+    test("local missing device_role asks the user to pick host/sandbox", () => {
+      const r = validateInternalEndpointIdentity('initiator', {
+        device_id: 'self-id',
+        device_role: 'invalid' as unknown,
+        computer_name: 'PC',
+      })
+      expect(r.ok).toBe(false)
+      expect(r.missing_field).toBe('device_role')
+      expect(r.side).toBe('local')
+      expect(r.message).toMatch(/Pick Host or Sandbox/)
+    })
+  })
 })

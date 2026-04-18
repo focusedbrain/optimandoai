@@ -44,10 +44,33 @@ export const INTERNAL_ENDPOINT_ERROR_CODES = {
 export type InternalEndpointErrorCode =
   (typeof INTERNAL_ENDPOINT_ERROR_CODES)[keyof typeof INTERNAL_ENDPOINT_ERROR_CODES]
 
+/**
+ * Discriminator for the specific field that failed validation. Lets call sites
+ * (currently the Electron IPC and the renderer pre-flight) render a per-field,
+ * user-actionable message instead of the legacy generic "this device isn't ready"
+ * string. Only set on `ok: false` results that come from a single-field check.
+ *
+ * `side` distinguishes whether the missing field belongs to the local device
+ * (Settings → Orchestrator mode misconfiguration) or the counterparty (resolved
+ * via the pairing code → coordination service). The IPC uses this to choose
+ * between the user-actionable message and the "internal error, please report"
+ * message for fields the renderer is supposed to populate automatically.
+ */
+export type InternalEndpointMissingField =
+  | 'device_id'
+  | 'device_role'
+  | 'computer_name'
+
+export type InternalEndpointSide = 'local' | 'counterparty'
+
 export interface InternalEndpointPairValidationResult {
   readonly ok: boolean
   readonly code?: InternalEndpointErrorCode
   readonly message?: string
+  /** Which field tripped the validator (only set for single-field failures). */
+  readonly missing_field?: InternalEndpointMissingField
+  /** Which side (local vs counterparty) the missing field belongs to. */
+  readonly side?: InternalEndpointSide
 }
 
 /**
@@ -103,9 +126,53 @@ function validRole(r: unknown): r is InternalDeviceRole {
 }
 
 /**
+ * Map a label to a side (local vs counterparty). The IPC labels are
+ * `'initiator'` / `'acceptor'` for the local device and `'sender'` / `'receiver'`
+ * for the counterparty in the initiate flow. Anything unrecognised defaults to
+ * `'counterparty'` — the safer default since "internal error, please report"
+ * pages a developer rather than misdirecting the user to Settings.
+ */
+function sideFromLabel(label: string): InternalEndpointSide {
+  if (label === 'initiator' || label === 'acceptor') return 'local'
+  return 'counterparty'
+}
+
+/**
+ * Build the user-facing message for a specific missing field on a specific side.
+ * Three of these (counterparty role/name, local device_id) are programmer bugs
+ * because the renderer / resolve step is responsible for filling them; the rest
+ * are real Settings misconfigurations the user can act on.
+ */
+function messageForMissingField(
+  field: InternalEndpointMissingField,
+  side: InternalEndpointSide,
+): string {
+  if (side === 'counterparty') {
+    if (field === 'device_id') {
+      return "The pairing code didn't resolve to a device. Check that the code was read correctly from the other device's Settings → Orchestrator mode, and that the other device is online."
+    }
+    if (field === 'device_role') {
+      return "Internal error: counterparty role not set. Please report this — your handshake wasn't sent."
+    }
+    return "Internal error: counterparty device name missing from resolve. Please report this — your handshake wasn't sent."
+  }
+  if (field === 'device_id') {
+    return 'This device has no coordination identity. Open Settings → Orchestrator mode to check the device configuration.'
+  }
+  if (field === 'device_role') {
+    return 'Pick Host or Sandbox for this device in Settings → Orchestrator mode, then try again.'
+  }
+  return 'Give this device a name in Settings → Orchestrator mode, then try again.'
+}
+
+/**
  * Validate one endpoint: non-empty `device_id`, valid `device_role`, non-empty `computer_name`.
  *
  * Invariants: all three fields required; role must be host | sandbox.
+ *
+ * The `label` is used both for human-readable diagnostics and to discriminate
+ * between local (`'initiator'` / `'acceptor'`) and counterparty (`'sender'` /
+ * `'receiver'`) sides so the returned `side` field can drive per-field messages.
  */
 export function validateInternalEndpointIdentity(
   label: 'sender' | 'receiver' | 'initiator' | 'acceptor' | string,
@@ -115,28 +182,32 @@ export function validateInternalEndpointIdentity(
     computer_name?: string | null
   },
 ): InternalEndpointPairValidationResult {
+  const side = sideFromLabel(label)
   if (!isNonEmpty(partial.device_id)) {
     return {
       ok: false,
       code: INTERNAL_ENDPOINT_ERROR_CODES.INTERNAL_ENDPOINT_INCOMPLETE,
-      message:
-        "The other device's pairing code is missing or invalid. On your other device, open Settings → Orchestrator mode and read the 6-digit code.",
+      message: messageForMissingField('device_id', side),
+      missing_field: 'device_id',
+      side,
     }
   }
   if (!validRole(partial.device_role)) {
     return {
       ok: false,
       code: INTERNAL_ENDPOINT_ERROR_CODES.INTERNAL_ENDPOINT_INCOMPLETE,
-      message:
-        "The other device's role is missing. It should be the opposite of this device's role (host ↔ sandbox).",
+      message: messageForMissingField('device_role', side),
+      missing_field: 'device_role',
+      side,
     }
   }
   if (!isNonEmpty(partial.computer_name)) {
     return {
       ok: false,
       code: INTERNAL_ENDPOINT_ERROR_CODES.INTERNAL_ENDPOINT_INCOMPLETE,
-      message:
-        "The other device's name is missing. Restart the orchestrator on that device and try again.",
+      message: messageForMissingField('computer_name', side),
+      missing_field: 'computer_name',
+      side,
     }
   }
   return { ok: true }
@@ -196,11 +267,17 @@ export function validateInternalEndpointPair(
   const na = normalizeComputerNameForHandshake(a.computer_name)
   const nb = normalizeComputerNameForHandshake(b.computer_name)
   if (!na || !nb) {
+    // Both individual validateInternalEndpointIdentity passes already accepted these
+    // strings as non-empty above; getting here means a name was whitespace-only and
+    // collapsed during normalization. Treat as a local Settings issue (the user can
+    // act on it) rather than a programmer bug.
     return {
       ok: false,
       code: INTERNAL_ENDPOINT_ERROR_CODES.INTERNAL_ENDPOINT_INCOMPLETE,
       message:
         'A device name is missing. Open Settings → Orchestrator mode on each device and make sure both have a name set.',
+      missing_field: 'computer_name',
+      side: !na ? 'local' : 'counterparty',
     }
   }
   if (na === nb) {

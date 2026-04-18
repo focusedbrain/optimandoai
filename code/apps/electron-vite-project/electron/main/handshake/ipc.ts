@@ -186,6 +186,36 @@ function pairingCodeResolveErrorMessage(failure: { status: number; error: string
   }
   return `INTERNAL_ENDPOINT_INCOMPLETE: Couldn't resolve the pairing code (${failure.error}). Try regenerating the code on your other device.`
 }
+
+/**
+ * Format a `validateInternalEndpointFields` failure into the wire-level error
+ * string returned by the IPC ("CODE: message"). For counterparty failures of
+ * fields the renderer / resolve step is supposed to populate (`device_role`,
+ * `computer_name`), the validator's own message already says "Internal error,
+ * please report" — we additionally log at ERROR so the bug is captured even if
+ * the user never reports it.
+ *
+ * For local failures (`device_id` / `device_role` / `computer_name`) we also log
+ * at WARN level — these are user-actionable Settings issues, not bugs, but the
+ * log helps when triaging "user said it didn't work" tickets.
+ */
+function formatInternalEndpointValidationFailure(
+  v: import('../../../../../packages/shared/src/handshake/internalEndpointValidation').InternalEndpointPairValidationResult,
+  context: { call: 'initiate' | 'buildForDownload' | 'accept'; handshake_id?: string },
+): string {
+  const tag = `[handshake.${context.call}]`
+  const ctx = context.handshake_id ? ` handshake_id=${context.handshake_id}` : ''
+  if (v.side === 'counterparty' && (v.missing_field === 'device_role' || v.missing_field === 'computer_name')) {
+    console.error(
+      `${tag} INTERNAL_ENDPOINT_INCOMPLETE programmer-bug: counterparty.${v.missing_field} not populated by renderer/resolve${ctx}`,
+    )
+  } else if (v.side === 'local' && v.missing_field) {
+    console.warn(
+      `${tag} INTERNAL_ENDPOINT_INCOMPLETE local Settings gap: ${v.missing_field}${ctx}`,
+    )
+  }
+  return `${v.code}: ${v.message}`
+}
 import { vaultService } from '../vault/rpc'
 import { USER_PACKAGE_BUILDER_SEND_SOURCE } from '../email/mergeExtensionDepackaged'
 import {
@@ -1121,7 +1151,7 @@ export async function handleHandshakeRPC(
           return {
             success: false,
             error:
-              "INTERNAL_ENDPOINT_INCOMPLETE: This device isn't ready to pair yet. Restart the app, or open Settings → Orchestrator mode to verify this device has a pairing code.",
+              'INTERNAL_ENDPOINT_INCOMPLETE: This device has no coordination identity. Open Settings → Orchestrator mode to check the device configuration.',
           }
         }
 
@@ -1150,7 +1180,7 @@ export async function handleHandshakeRPC(
           initDeviceName,
         )
         if (!vSelf.ok) {
-          return { success: false, error: `${vSelf.code}: ${vSelf.message}` }
+          return { success: false, error: formatInternalEndpointValidationFailure(vSelf, { call: 'initiate' }) }
         }
         const vPeer = validateInternalEndpointFields(
           'receiver',
@@ -1159,7 +1189,7 @@ export async function handleHandshakeRPC(
           initCounterpartyComputerName,
         )
         if (!vPeer.ok) {
-          return { success: false, error: `${vPeer.code}: ${vPeer.message}` }
+          return { success: false, error: formatInternalEndpointValidationFailure(vPeer, { call: 'initiate' }) }
         }
         const pair = validateInternalEndpointPairDistinct(
           {
@@ -1174,7 +1204,7 @@ export async function handleHandshakeRPC(
           },
         )
         if (!pair.ok) {
-          return { success: false, error: `${pair.code}: ${pair.message}` }
+          return { success: false, error: formatInternalEndpointValidationFailure(pair, { call: 'initiate' }) }
         }
       }
 
@@ -1448,7 +1478,7 @@ export async function handleHandshakeRPC(
           return {
             success: false,
             error:
-              "INTERNAL_ENDPOINT_INCOMPLETE: This device isn't ready to pair yet. Restart the app, or open Settings → Orchestrator mode to verify this device has a pairing code.",
+              'INTERNAL_ENDPOINT_INCOMPLETE: This device has no coordination identity. Open Settings → Orchestrator mode to check the device configuration.',
           }
         }
 
@@ -1474,7 +1504,7 @@ export async function handleHandshakeRPC(
           dlDeviceName,
         )
         if (!vSelfDl.ok) {
-          return { success: false, error: `${vSelfDl.code}: ${vSelfDl.message}` }
+          return { success: false, error: formatInternalEndpointValidationFailure(vSelfDl, { call: 'buildForDownload' }) }
         }
         const vPeerDl = validateInternalEndpointFields(
           'receiver',
@@ -1483,7 +1513,7 @@ export async function handleHandshakeRPC(
           dlCounterpartyComputerName,
         )
         if (!vPeerDl.ok) {
-          return { success: false, error: `${vPeerDl.code}: ${vPeerDl.message}` }
+          return { success: false, error: formatInternalEndpointValidationFailure(vPeerDl, { call: 'buildForDownload' }) }
         }
         const pairDl = validateInternalEndpointPairDistinct(
           {
@@ -1498,7 +1528,7 @@ export async function handleHandshakeRPC(
           },
         )
         if (!pairDl.ok) {
-          return { success: false, error: `${pairDl.code}: ${pairDl.message}` }
+          return { success: false, error: formatInternalEndpointValidationFailure(pairDl, { call: 'buildForDownload' }) }
         }
       }
 
@@ -1738,17 +1768,22 @@ export async function handleHandshakeRPC(
           return {
             success: false,
             error:
-              "INTERNAL_ENDPOINT_INCOMPLETE: This device isn't ready to accept an internal handshake yet. Restart the app, or open Settings → Orchestrator mode to verify this device has a pairing code.",
+              'INTERNAL_ENDPOINT_INCOMPLETE: This device has no coordination identity. Open Settings → Orchestrator mode to check the device configuration.',
           }
         }
+        // The initiator side comes from the persisted record — if it's incomplete by
+        // the time the acceptor reads it, the bug is upstream (initiate or relay
+        // ingestion). Treat as counterparty for messaging so we surface the
+        // "internal error, please report" + ERROR log path instead of pointing the
+        // accepting user to a Settings screen they can't fix.
         const vInit = validateInternalEndpointFields(
-          'initiator',
+          'sender',
           record.initiator_coordination_device_id,
           record.initiator_device_role,
           record.initiator_device_name,
         )
         if (!vInit.ok) {
-          return { success: false, error: `${vInit.code}: ${vInit.message}` }
+          return { success: false, error: formatInternalEndpointValidationFailure(vInit, { call: 'accept', handshake_id }) }
         }
         const vAcc = validateInternalEndpointFields(
           'acceptor',
@@ -1757,7 +1792,7 @@ export async function handleHandshakeRPC(
           acceptDeviceName,
         )
         if (!vAcc.ok) {
-          return { success: false, error: `${vAcc.code}: ${vAcc.message}` }
+          return { success: false, error: formatInternalEndpointValidationFailure(vAcc, { call: 'accept', handshake_id }) }
         }
         const pairAcc = validateInternalEndpointPairDistinct(
           {
@@ -1772,7 +1807,7 @@ export async function handleHandshakeRPC(
           },
         )
         if (!pairAcc.ok) {
-          return { success: false, error: `${pairAcc.code}: ${pairAcc.message}` }
+          return { success: false, error: formatInternalEndpointValidationFailure(pairAcc, { call: 'accept', handshake_id }) }
         }
         if (
           record.internal_peer_device_id?.trim() &&

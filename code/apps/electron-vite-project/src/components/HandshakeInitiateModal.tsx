@@ -58,6 +58,10 @@ export default function HandshakeInitiateModal({ onClose, onSuccess, presetInter
   /** This device's local 6-digit pairing code, used for the self-pair guard in
    *  SendHandshakeDelivery. Surfaced from orchestrator preload (getDeviceInfo). */
   const [localPairingCode, setLocalPairingCode] = useState<string>('')
+  /** Local orchestrator instanceId. Surfaced only as a presence flag so the form
+   *  can render a Settings gap notice when it's empty (instead of letting the IPC
+   *  reject with INTERNAL_ENDPOINT_INCOMPLETE). Never echoed onto the wire. */
+  const [localInstanceId, setLocalInstanceId] = useState<string>('')
   const [recipientEmail, setRecipientEmail] = useState('')
 
   useEffect(() => {
@@ -92,7 +96,7 @@ export default function HandshakeInitiateModal({ onClose, onSuccess, presetInter
     // mirrored to localStorage in the desktop app).
     const om = (window as unknown as {
       orchestratorMode?: {
-        getDeviceInfo?: () => Promise<{ pairingCode?: string; deviceName?: string } | null | undefined>
+        getDeviceInfo?: () => Promise<{ pairingCode?: string; deviceName?: string; instanceId?: string } | null | undefined>
       }
     }).orchestratorMode
     let cancelled = false
@@ -110,8 +114,10 @@ export default function HandshakeInitiateModal({ onClose, onSuccess, presetInter
           if (cancelled) return
           const n = typeof info?.deviceName === 'string' ? info.deviceName : ''
           const code = typeof info?.pairingCode === 'string' ? info.pairingCode.trim() : ''
+          const iid = typeof info?.instanceId === 'string' ? info.instanceId.trim() : ''
           setDeviceName(n)
           setLocalPairingCode(code)
+          setLocalInstanceId(iid)
         })
         .catch(() => {
           fallbackFromLocalStorage()
@@ -202,6 +208,7 @@ export default function HandshakeInitiateModal({ onClose, onSuccess, presetInter
           deviceName={isInternal ? deviceName : undefined}
           deviceRole={isInternal ? deviceRole : undefined}
           localPairingCode={isInternal ? localPairingCode : undefined}
+          localInstanceId={isInternal ? localInstanceId : undefined}
         />
       </div>
     </div>

@@ -227,7 +227,7 @@ export function validateCoordinationInternalPayloadBeforePost(
         ok: false,
         invariant: INTERNAL_ENDPOINT_ERROR_CODES.INTERNAL_ENDPOINT_INCOMPLETE,
         message:
-          'Internal context_sync cannot be sent: handshake record lacks complete internal coordination identity or local orchestrator device id',
+          'This handshake is missing pairing details. Create it again with a valid pairing code.',
         missing_fields: [],
       }
     }

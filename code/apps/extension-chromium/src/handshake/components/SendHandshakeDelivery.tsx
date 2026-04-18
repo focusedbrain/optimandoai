@@ -67,6 +67,15 @@ export interface SendHandshakeDeliveryProps {
    * resolve + validators still enforce distinctness).
    */
   localPairingCode?: string
+  /**
+   * Local orchestrator instance id (`getDeviceInfo().instanceId`). Only used as a
+   * presence flag for the form-level pre-check: when empty for an internal
+   * handshake, the form surfaces a Settings notice and disables Send instead of
+   * letting the IPC reject with `INTERNAL_ENDPOINT_INCOMPLETE`. The Electron
+   * handler still reads the canonical id via `getLocalDeviceIdForRelay()` — this
+   * prop is never echoed onto the wire.
+   */
+  localInstanceId?: string
 }
 
 // =============================================================================
@@ -249,6 +258,7 @@ export const SendHandshakeDelivery: React.FC<SendHandshakeDeliveryProps> = ({
   deviceName,
   deviceRole,
   localPairingCode,
+  localInstanceId,
 }) => {
   const t = useThemeTokens(theme)
 
@@ -335,6 +345,38 @@ export const SendHandshakeDelivery: React.FC<SendHandshakeDeliveryProps> = ({
   // it resolves the pairing code via the coordination service.
   const resolvedLocalComputerName = deviceName?.trim() ?? ''
 
+  // Local Settings completeness pre-check (internal flow only). Each missing
+  // field maps to the same Settings → Orchestrator mode screen but the message
+  // names the specific gap so the user knows what to fix. We do NOT block on
+  // `device_role` (it defaults to 'sandbox' so it's effectively always set),
+  // but we still surface a notice when the host failed to pass an explicit
+  // role so the user is aware their handshake will use the default.
+  const localSettingsGaps: Array<{ field: 'device_id' | 'device_role' | 'computer_name'; message: string }> = []
+  if (isInternalHandshake) {
+    if (!localInstanceId?.trim()) {
+      localSettingsGaps.push({
+        field: 'device_id',
+        message:
+          'This device has no coordination identity. Open Settings → Orchestrator mode to check the device configuration.',
+      })
+    }
+    if (!resolvedLocalComputerName) {
+      localSettingsGaps.push({
+        field: 'computer_name',
+        message:
+          'Give this device a name in Settings → Orchestrator mode, then try again.',
+      })
+    }
+    if (deviceRole !== 'host' && deviceRole !== 'sandbox') {
+      localSettingsGaps.push({
+        field: 'device_role',
+        message:
+          'Pick Host or Sandbox for this device in Settings → Orchestrator mode, then try again.',
+      })
+    }
+  }
+  const hasLocalSettingsGap = localSettingsGaps.length > 0
+
   // Build the internal RPC extras for the underlying initiate / build-for-download call.
   // The 6-digit pairing code is forwarded as-is; the Electron IPC translates it into
   // `counterparty_device_id` + `counterparty_computer_name` server-side. The renderer
@@ -352,11 +394,13 @@ export const SendHandshakeDelivery: React.FC<SendHandshakeDeliveryProps> = ({
     }
   }
 
-  // Submit gating for the internal flow: a complete (6-digit, non-self) pairing code
-  // and a non-empty local device name.
+  // Submit gating for the internal flow: a complete (6-digit, non-self) pairing
+  // code AND no local Settings gap. Without the local pre-check the IPC would
+  // reject with INTERNAL_ENDPOINT_INCOMPLETE — the form-level guard turns that
+  // late failure into early, contextual feedback.
   const internalFieldsComplete =
     !isInternalHandshake ||
-    (!!resolvedLocalComputerName &&
+    (!hasLocalSettingsGap &&
       counterpartyPairingCode.length === 6 &&
       !pairingCodeInlineError)
 
@@ -638,6 +682,41 @@ export const SendHandshakeDelivery: React.FC<SendHandshakeDeliveryProps> = ({
           gap: '13px',
         }}
       >
+        {/* ---- Local Settings gap notice (internal flow only) ----
+            Rendered when `getDeviceInfo` reports any of the three local fields
+            empty. Each gap maps to the same Settings → Orchestrator mode screen
+            but the message names the specific missing field so the user knows
+            what to fix. The Send buttons are disabled while this is showing —
+            we never want the form to submit a payload that the IPC validator
+            will reject with INTERNAL_ENDPOINT_INCOMPLETE. */}
+        {hasLocalSettingsGap && (
+          <div
+            data-testid="internal-local-settings-gap"
+            style={{
+              padding: '12px 14px',
+              background: t.dangerBg,
+              border: `1px solid ${t.dangerBorder}`,
+              borderRadius: '8px',
+              fontSize: '12px',
+              color: t.dangerText,
+              lineHeight: 1.5,
+              display: 'flex',
+              gap: '10px',
+              alignItems: 'flex-start',
+            }}
+          >
+            <span style={{ flexShrink: 0, fontSize: '16px' }}>⚠️</span>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              <div style={{ fontWeight: 700 }}>This device isn't ready for internal handshakes.</div>
+              {localSettingsGaps.map((g) => (
+                <div key={g.field} data-testid={`internal-local-settings-gap-${g.field}`}>
+                  • {g.message}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* ---- Delivery mode selector ----
             Internal and external handshakes share the same picker. For internal
             handshakes the coordination relay also pushes the capsule transparently
