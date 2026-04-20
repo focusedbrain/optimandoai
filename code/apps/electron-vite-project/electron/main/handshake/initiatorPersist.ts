@@ -133,12 +133,18 @@ export function persistInitiatorHandshakeRecord(
             handshake_type: 'internal',
             initiator_device_name: capsule.sender_computer_name?.trim() || null,
             initiator_device_role: capsule.sender_device_role ?? null,
+            // For new pairing-code-routed initiate capsules, receiver_device_id /
+            // receiver_device_role / receiver_computer_name are not present on the
+            // wire — `internal_peer_pairing_code` is the sole peer identifier and is
+            // verified at acceptance time. We persist nulls for the legacy peer
+            // metadata so the row is intentionally pairing-code-routed.
             acceptor_coordination_device_id: capsule.receiver_device_id?.trim() || null,
             acceptor_device_name: capsule.receiver_computer_name?.trim() || null,
             acceptor_device_role: capsule.receiver_device_role ?? null,
             internal_peer_device_id: capsule.receiver_device_id?.trim() || null,
             internal_peer_device_role: capsule.receiver_device_role ?? null,
             internal_peer_computer_name: capsule.receiver_computer_name?.trim() || null,
+            internal_peer_pairing_code: capsule.receiver_pairing_code?.trim() || null,
           }
         : {}),
     }

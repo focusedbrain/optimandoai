@@ -72,6 +72,11 @@ import { validateReceiverEmail, isSameAccountHandshakeEmails } from '../../../..
 import {
   validateInternalEndpointFields,
   validateInternalEndpointPairDistinct,
+  validateInternalInitiateContract,
+  isValidPairingCodeFormat,
+  normalizePairingCode,
+  formatPairingCodeForDisplay,
+  INTERNAL_ENDPOINT_ERROR_CODES as INTERNAL_ERROR_CODES,
 } from '../../../../../packages/shared/src/handshake/internalEndpointValidation'
 import {
   coordinationDevicePairForInternalRecord,
@@ -106,85 +111,20 @@ function getLocalDeviceIdForRelay(): string | undefined {
 }
 
 /**
- * Resolve a 6-digit internal pairing code to the peer's `instance_id` and `device_name`
- * via the coordination service, scoped to the local SSO account (server enforces via OIDC `sub`).
- *
- * Used only by the internal-handshake initiate / buildForDownload flow so the form can pass
- * a pairing code (UX) while the wire format keeps the full instance_id (routing key). The
- * extension never makes this call directly — keeping the OIDC token off the renderer.
- *
- * Returns `{ ok: true, instance_id, device_name }` on success, or `{ ok: false, status, error }`
- * on failure. `status` is the upstream HTTP status (404 = unknown / cross-account, 401 = no token,
- * 503 = no coordination URL configured, 0 = network/timeout).
+ * Local 6-digit pairing code from the orchestrator config. Used for the self-pair
+ * check at initiate time and to render the "this device's code" diagnostic in the
+ * acceptance mismatch message.
  */
-async function resolvePairingCodeViaCoordination(
-  db: any,
-  pairingCode: string,
-): Promise<
-  | { ok: true; instance_id: string; device_name: string }
-  | { ok: false; status: number; error: string }
-> {
-  const trimmed = typeof pairingCode === 'string' ? pairingCode.trim() : ''
-  if (!/^[0-9]{6}$/.test(trimmed)) {
-    return { ok: false, status: 400, error: 'pairing code must be 6 digits' }
-  }
-  if (!db) {
-    return { ok: false, status: 503, error: 'Handshake DB not ready' }
-  }
-  const coordUrl = getP2PConfig(db).coordination_url?.trim()
-  if (!coordUrl) {
-    return { ok: false, status: 503, error: 'Coordination URL not configured' }
-  }
-  let token: string | null
+function getLocalPairingCode(): string | undefined {
   try {
-    token = await _getOidcToken()
-  } catch (err: any) {
-    return { ok: false, status: 401, error: err?.message || 'Failed to read OIDC token' }
-  }
-  if (!token?.trim()) {
-    return { ok: false, status: 401, error: 'No OIDC token available' }
-  }
-  try {
-    const upstreamUrl = `${coordUrl.replace(/\/$/, '')}/api/coordination/resolve-pairing-code?code=${encodeURIComponent(trimmed)}`
-    const upstream = await fetch(upstreamUrl, {
-      method: 'GET',
-      headers: { Authorization: `Bearer ${token}` },
-      signal: AbortSignal.timeout(8000),
-    })
-    const text = await upstream.text()
-    let data: unknown
-    try { data = JSON.parse(text) } catch { data = { error: text } }
-    if (!upstream.ok) {
-      const errMsg = (data as any)?.error || `HTTP ${upstream.status}`
-      return { ok: false, status: upstream.status, error: errMsg }
+    const mod = require('../orchestrator/orchestratorModeStore') as {
+      getPairingCode?: () => string | undefined
     }
-    const obj = data && typeof data === 'object' ? (data as Record<string, unknown>) : {}
-    const instance_id = typeof obj.instance_id === 'string' ? obj.instance_id.trim() : ''
-    const device_name = typeof obj.device_name === 'string' ? obj.device_name : ''
-    if (!instance_id) {
-      return { ok: false, status: 502, error: 'Malformed coordination response (no instance_id)' }
-    }
-    return { ok: true, instance_id, device_name }
-  } catch (err: any) {
-    return { ok: false, status: 0, error: err?.message || 'Failed to reach coordination service' }
+    const code = mod.getPairingCode?.()
+    return typeof code === 'string' && /^\d{6}$/.test(code.trim()) ? code.trim() : undefined
+  } catch {
+    return undefined
   }
-}
-
-/**
- * Translate a `resolvePairingCodeViaCoordination` failure into a user-actionable
- * `INTERNAL_ENDPOINT_INCOMPLETE`-style error string consumed by the initiate / download IPC paths.
- */
-function pairingCodeResolveErrorMessage(failure: { status: number; error: string }): string {
-  if (failure.status === 404) {
-    return "INTERNAL_ENDPOINT_INCOMPLETE: No device found with that pairing code. Check the code on your other device's Settings screen, or regenerate it if it's stale."
-  }
-  if (failure.status === 401) {
-    return 'INTERNAL_ENDPOINT_INCOMPLETE: Sign-in expired while resolving the pairing code. Sign in again and retry.'
-  }
-  if (failure.status === 503) {
-    return "INTERNAL_ENDPOINT_INCOMPLETE: Coordination service isn't reachable. Check your connection and try again."
-  }
-  return `INTERNAL_ENDPOINT_INCOMPLETE: Couldn't resolve the pairing code (${failure.error}). Try regenerating the code on your other device.`
 }
 
 /**
@@ -1137,9 +1077,13 @@ export async function handleHandshakeRPC(
         counterparty_pairing_code?: string
       }
 
-      // Mutable copies — overwritten when `counterparty_pairing_code` is resolved.
-      let initCounterpartyDeviceId = initCounterpartyDeviceIdRaw
-      let initCounterpartyComputerName = initCounterpartyComputerNameRaw
+      // Pairing-code routing: receiver_pairing_code is the sole peer identifier for new
+      // internal initiate capsules. counterparty_device_id / counterparty_computer_name are
+      // accepted for backwards compatibility but no longer required and not used to route
+      // — they survive only as descriptive metadata if a caller still passes them.
+      const initCounterpartyDeviceId = initCounterpartyDeviceIdRaw
+      const initCounterpartyComputerName = initCounterpartyComputerNameRaw
+      const initReceiverPairingCode = normalizePairingCode(initCounterpartyPairingCode ?? null)
 
       if (!receiverUserId || !receiverEmail) {
         return { success: false, error: 'receiverUserId and receiverEmail are required' }
@@ -1147,64 +1091,16 @@ export async function handleHandshakeRPC(
 
       if (initHandshakeType === 'internal') {
         const localRelayId = getLocalDeviceIdForRelay()
-        if (!localRelayId?.trim()) {
-          return {
-            success: false,
-            error:
-              'INTERNAL_ENDPOINT_INCOMPLETE: This device has no coordination identity. Open Settings → Orchestrator mode to check the device configuration.',
-          }
-        }
-
-        // Pairing-code → instance_id resolution. Runs only when the form supplied a 6-digit
-        // code AND no explicit counterparty_device_id was provided. The resolve uses the host's
-        // OIDC token (server-side scoped to the JWT `sub`) so cross-account pairing codes 404.
-        if (
-          (!initCounterpartyDeviceId || !initCounterpartyDeviceId.trim()) &&
-          typeof initCounterpartyPairingCode === 'string' &&
-          initCounterpartyPairingCode.trim()
-        ) {
-          const resolveResult = await resolvePairingCodeViaCoordination(db, initCounterpartyPairingCode)
-          if (!resolveResult.ok) {
-            return { success: false, error: pairingCodeResolveErrorMessage(resolveResult) }
-          }
-          initCounterpartyDeviceId = resolveResult.instance_id
-          if (!initCounterpartyComputerName || !initCounterpartyComputerName.trim()) {
-            initCounterpartyComputerName = resolveResult.device_name?.trim() || 'Other device'
-          }
-        }
-
-        const vSelf = validateInternalEndpointFields(
-          'initiator',
-          localRelayId,
-          initDeviceRole,
-          initDeviceName,
-        )
-        if (!vSelf.ok) {
-          return { success: false, error: formatInternalEndpointValidationFailure(vSelf, { call: 'initiate' }) }
-        }
-        const vPeer = validateInternalEndpointFields(
-          'receiver',
-          initCounterpartyDeviceId,
-          initCounterpartyDeviceRole,
-          initCounterpartyComputerName,
-        )
-        if (!vPeer.ok) {
-          return { success: false, error: formatInternalEndpointValidationFailure(vPeer, { call: 'initiate' }) }
-        }
-        const pair = validateInternalEndpointPairDistinct(
-          {
-            deviceId: localRelayId.trim(),
-            deviceRole: initDeviceRole!,
-            computerName: initDeviceName!.trim(),
-          },
-          {
-            deviceId: initCounterpartyDeviceId!.trim(),
-            deviceRole: initCounterpartyDeviceRole!,
-            computerName: initCounterpartyComputerName!.trim(),
-          },
-        )
-        if (!pair.ok) {
-          return { success: false, error: formatInternalEndpointValidationFailure(pair, { call: 'initiate' }) }
+        const localPairingCode = getLocalPairingCode()
+        const vContract = validateInternalInitiateContract({
+          sender_device_id: localRelayId,
+          sender_device_role: initDeviceRole,
+          sender_computer_name: initDeviceName,
+          receiver_pairing_code: initReceiverPairingCode,
+          local_pairing_code: localPairingCode,
+        })
+        if (!vContract.ok) {
+          return { success: false, error: formatInternalEndpointValidationFailure(vContract, { call: 'initiate' }) }
         }
       }
 
@@ -1278,17 +1174,11 @@ export async function handleHandshakeRPC(
         ...(initHandshakeType === 'internal' &&
         initDeviceRole &&
         initDeviceName?.trim() &&
-        initCounterpartyDeviceId?.trim() &&
-        initCounterpartyDeviceRole &&
-        initCounterpartyComputerName?.trim()
+        initReceiverPairingCode
           ? {
               initiatorDeviceRole: initDeviceRole,
               initiatorComputerName: initDeviceName.trim(),
-              internalEndpointPeer: {
-                deviceId: initCounterpartyDeviceId.trim(),
-                deviceRole: initCounterpartyDeviceRole,
-                computerName: initCounterpartyComputerName.trim(),
-              },
+              internalReceiverPairingCode: initReceiverPairingCode,
             }
           : {}),
       })
@@ -1302,7 +1192,11 @@ export async function handleHandshakeRPC(
       const effectiveAccountId = fromAccountId || session.email || ''
 
       let emailResult: any = null
-      if (initHandshakeType !== 'internal' && effectiveAccountId) {
+      if (effectiveAccountId) {
+        // Internal handshakes use the same Delivery Method as external (Email via API
+        // or Email as attachment). The receiver_pairing_code embedded in the capsule
+        // identifies the intended device at acceptance time; the relay email path does
+        // not need to know about it. Internal special-casing is intentionally absent.
         emailResult = await sendCapsuleViaEmail(effectiveAccountId, receiverEmail, capsule)
       }
 
@@ -1465,8 +1359,9 @@ export async function handleHandshakeRPC(
         counterparty_pairing_code?: string
       }
 
-      let dlCounterpartyDeviceId = dlCounterpartyDeviceIdRaw
-      let dlCounterpartyComputerName = dlCounterpartyComputerNameRaw
+      const dlCounterpartyDeviceId = dlCounterpartyDeviceIdRaw
+      const dlCounterpartyComputerName = dlCounterpartyComputerNameRaw
+      const dlReceiverPairingCode = normalizePairingCode(dlCounterpartyPairingCode ?? null)
 
       if (!dlReceiverUserId || !dlReceiverEmail) {
         return { success: false, error: 'receiverUserId and receiverEmail are required' }
@@ -1474,61 +1369,16 @@ export async function handleHandshakeRPC(
 
       if (dlHandshakeType === 'internal') {
         const localRelayIdDl = getLocalDeviceIdForRelay()
-        if (!localRelayIdDl?.trim()) {
-          return {
-            success: false,
-            error:
-              'INTERNAL_ENDPOINT_INCOMPLETE: This device has no coordination identity. Open Settings → Orchestrator mode to check the device configuration.',
-          }
-        }
-
-        if (
-          (!dlCounterpartyDeviceId || !dlCounterpartyDeviceId.trim()) &&
-          typeof dlCounterpartyPairingCode === 'string' &&
-          dlCounterpartyPairingCode.trim()
-        ) {
-          const resolveResult = await resolvePairingCodeViaCoordination(db, dlCounterpartyPairingCode)
-          if (!resolveResult.ok) {
-            return { success: false, error: pairingCodeResolveErrorMessage(resolveResult) }
-          }
-          dlCounterpartyDeviceId = resolveResult.instance_id
-          if (!dlCounterpartyComputerName || !dlCounterpartyComputerName.trim()) {
-            dlCounterpartyComputerName = resolveResult.device_name?.trim() || 'Other device'
-          }
-        }
-
-        const vSelfDl = validateInternalEndpointFields(
-          'initiator',
-          localRelayIdDl,
-          dlDeviceRole,
-          dlDeviceName,
-        )
-        if (!vSelfDl.ok) {
-          return { success: false, error: formatInternalEndpointValidationFailure(vSelfDl, { call: 'buildForDownload' }) }
-        }
-        const vPeerDl = validateInternalEndpointFields(
-          'receiver',
-          dlCounterpartyDeviceId,
-          dlCounterpartyDeviceRole,
-          dlCounterpartyComputerName,
-        )
-        if (!vPeerDl.ok) {
-          return { success: false, error: formatInternalEndpointValidationFailure(vPeerDl, { call: 'buildForDownload' }) }
-        }
-        const pairDl = validateInternalEndpointPairDistinct(
-          {
-            deviceId: localRelayIdDl.trim(),
-            deviceRole: dlDeviceRole!,
-            computerName: dlDeviceName!.trim(),
-          },
-          {
-            deviceId: dlCounterpartyDeviceId!.trim(),
-            deviceRole: dlCounterpartyDeviceRole!,
-            computerName: dlCounterpartyComputerName!.trim(),
-          },
-        )
-        if (!pairDl.ok) {
-          return { success: false, error: formatInternalEndpointValidationFailure(pairDl, { call: 'buildForDownload' }) }
+        const localPairingCodeDl = getLocalPairingCode()
+        const vContractDl = validateInternalInitiateContract({
+          sender_device_id: localRelayIdDl,
+          sender_device_role: dlDeviceRole,
+          sender_computer_name: dlDeviceName,
+          receiver_pairing_code: dlReceiverPairingCode,
+          local_pairing_code: localPairingCodeDl,
+        })
+        if (!vContractDl.ok) {
+          return { success: false, error: formatInternalEndpointValidationFailure(vContractDl, { call: 'buildForDownload' }) }
         }
       }
 
@@ -1599,17 +1449,11 @@ export async function handleHandshakeRPC(
         ...(dlHandshakeType === 'internal' &&
         dlDeviceRole &&
         dlDeviceName?.trim() &&
-        dlCounterpartyDeviceId?.trim() &&
-        dlCounterpartyDeviceRole &&
-        dlCounterpartyComputerName?.trim()
+        dlReceiverPairingCode
           ? {
               initiatorDeviceRole: dlDeviceRole,
               initiatorComputerName: dlDeviceName.trim(),
-              internalEndpointPeer: {
-                deviceId: dlCounterpartyDeviceId.trim(),
-                deviceRole: dlCounterpartyDeviceRole,
-                computerName: dlCounterpartyComputerName.trim(),
-              },
+              internalReceiverPairingCode: dlReceiverPairingCode,
             }
           : {}),
       })
@@ -1709,7 +1553,7 @@ export async function handleHandshakeRPC(
     }
 
     case 'handshake.accept': {
-      const { handshake_id, sharing_mode: requested_sharing_mode, fromAccountId, context_blocks: receiverRawBlocks, profile_ids: receiverProfileIds, profile_items: receiverProfileItems, p2p_endpoint: p2pEndpointParam, policy_selections: acceptPolicySelections, device_name: acceptDeviceName, device_role: acceptDeviceRole } = params as {
+      const { handshake_id, sharing_mode: requested_sharing_mode, fromAccountId, context_blocks: receiverRawBlocks, profile_ids: receiverProfileIds, profile_items: receiverProfileItems, p2p_endpoint: p2pEndpointParam, policy_selections: acceptPolicySelections, device_name: acceptDeviceName, device_role: acceptDeviceRole, local_pairing_code_typed: acceptTypedPairingCode } = params as {
         handshake_id: string
         sharing_mode: 'receive-only' | 'reciprocal'
         fromAccountId: string
@@ -1720,6 +1564,14 @@ export async function handleHandshakeRPC(
         policy_selections?: { ai_processing_mode?: 'none' | 'local_only' | 'internal_and_cloud' } | { cloud_ai?: boolean; internal_ai?: boolean }
         device_name?: string
         device_role?: 'host' | 'sandbox'
+        /**
+         * Internal handshakes only — the 6-digit pairing code the user typed in the
+         * AcceptHandshakeModal (this device's own code). Must equal the capsule's
+         * `receiver_pairing_code` (persisted as `internal_peer_pairing_code` on the
+         * record). Required for new internal capsules; ignored for legacy capsules
+         * that only carry `internal_peer_device_id`.
+         */
+        local_pairing_code_typed?: string
       }
 
       if (!handshake_id || !requested_sharing_mode) {
@@ -1809,14 +1661,60 @@ export async function handleHandshakeRPC(
         if (!pairAcc.ok) {
           return { success: false, error: formatInternalEndpointValidationFailure(pairAcc, { call: 'accept', handshake_id }) }
         }
-        if (
+        // Peer-device check.
+        //
+        // New capsules carry `receiver_pairing_code` (persisted as
+        // `internal_peer_pairing_code`) — verify by string-equality against the user's
+        // typed code, which must equal this device's own pairing code from
+        // orchestratorModeStore. Typing the code is a deliberate UX choice: the user
+        // confirms they're on the right device by reading the code from Settings.
+        //
+        // Legacy capsules (created before the pairing-code refactor) only carry
+        // `internal_peer_device_id` — fall back to the original UUID-equality check
+        // against the local instance id.
+        const expectedReceiverCode = record.internal_peer_pairing_code?.trim() ?? ''
+        const localOwnCode = getLocalPairingCode()
+        const typedCode = normalizePairingCode(acceptTypedPairingCode ?? null)
+        if (expectedReceiverCode) {
+          if (!typedCode || !isValidPairingCodeFormat(typedCode)) {
+            return {
+              success: false,
+              error:
+                `${INTERNAL_ERROR_CODES.INTERNAL_PAIRING_CODE_INVALID}: Enter the 6-digit pairing code shown in this device's Settings → Orchestrator mode to accept the handshake.`,
+            }
+          }
+          if (typedCode !== expectedReceiverCode) {
+            const expectedDisplay = formatPairingCodeForDisplay(expectedReceiverCode)
+            const localDisplay = localOwnCode
+              ? formatPairingCodeForDisplay(localOwnCode)
+              : 'unknown'
+            return {
+              success: false,
+              error:
+                `${INTERNAL_ERROR_CODES.INTERNAL_PEER_DEVICE_MISMATCH}: This handshake was sent to a device with pairing code ${expectedDisplay}. This device's code is ${localDisplay}. Open the capsule on the other device.`,
+            }
+          }
+          // Defense in depth: if we know the local pairing code from the orchestrator
+          // store, the typed code MUST also equal it. Catches a user who typed the
+          // sender's intended code but on the wrong device — same string, different
+          // physical machine.
+          if (localOwnCode && typedCode !== localOwnCode) {
+            const expectedDisplay = formatPairingCodeForDisplay(expectedReceiverCode)
+            const localDisplay = formatPairingCodeForDisplay(localOwnCode)
+            return {
+              success: false,
+              error:
+                `${INTERNAL_ERROR_CODES.INTERNAL_PEER_DEVICE_MISMATCH}: This handshake was sent to a device with pairing code ${expectedDisplay}. This device's code is ${localDisplay}. Open the capsule on the other device.`,
+            }
+          }
+        } else if (
           record.internal_peer_device_id?.trim() &&
           acceptLocalDev.trim() !== record.internal_peer_device_id.trim()
         ) {
           return {
             success: false,
             error:
-              'INTERNAL_PEER_DEVICE_MISMATCH: This capsule was created for a different device. Open it on the device whose pairing code matches the one used to create it.',
+              `${INTERNAL_ERROR_CODES.INTERNAL_PEER_DEVICE_MISMATCH}: This capsule was created for a different device. Open it on the device whose pairing code matches the one used to create it.`,
           }
         }
       }

@@ -33,6 +33,12 @@ export const INTERNAL_ENDPOINT_ERROR_CODES = {
   INTERNAL_ENDPOINT_ROLE_COLLISION: 'INTERNAL_ENDPOINT_ROLE_COLLISION',
   INTERNAL_COMPUTER_NAME_COLLISION: 'INTERNAL_COMPUTER_NAME_COLLISION',
   INTERNAL_CAPSULE_MISSING_DEVICE_ID: 'INTERNAL_CAPSULE_MISSING_DEVICE_ID',
+  /** Internal initiate capsule missing or malformed `receiver_pairing_code` (6 decimal digits required) */
+  INTERNAL_PAIRING_CODE_INVALID: 'INTERNAL_PAIRING_CODE_INVALID',
+  /** Internal initiate capsule's `receiver_pairing_code` equals the sender's own pairing code */
+  INTERNAL_PAIRING_CODE_SELF: 'INTERNAL_PAIRING_CODE_SELF',
+  /** Receiver-side acceptance: capsule.receiver_pairing_code does not match this device's own code */
+  INTERNAL_PEER_DEVICE_MISMATCH: 'INTERNAL_PEER_DEVICE_MISMATCH',
   /** Internal relay envelope missing required routing fields (device ids, roles, names, handshake_type) */
   INTERNAL_RELAY_WIRE_INCOMPLETE: 'INTERNAL_RELAY_WIRE_INCOMPLETE',
   /** POST body sender_device_id does not match local orchestrator device id */
@@ -340,4 +346,95 @@ export function validateInternalEndpointPairDistinct(
     labelA: 'endpoint_a',
     labelB: 'endpoint_b',
   })
+}
+
+// ── Pairing-code-based internal initiate validation ───────────────────────────
+
+/** Strict 6-decimal-digit format check (no dash, no whitespace). */
+export function isValidPairingCodeFormat(code: unknown): code is string {
+  return typeof code === 'string' && /^\d{6}$/.test(code)
+}
+
+/** Strip non-digit characters and re-check 6-digit format. Used to normalize
+ *  user-typed input (e.g. `482-917` → `482917`) before comparison or storage. */
+export function normalizePairingCode(input: string | null | undefined): string | null {
+  if (typeof input !== 'string') return null
+  const digits = input.replace(/\D+/g, '')
+  return digits.length === 6 ? digits : null
+}
+
+/**
+ * Validate the internal-initiate contract under the new pairing-code model.
+ *
+ * Required:
+ *  - `sender_device_id` non-empty
+ *  - `sender_device_role` ∈ {host, sandbox}
+ *  - `sender_computer_name` non-empty
+ *  - `receiver_pairing_code` is 6 decimal digits and ≠ sender's own pairing code
+ *
+ * Notably NOT required (the prior model demanded these for routing — now obsolete):
+ *  - `receiver_device_id`
+ *  - `receiver_device_role`
+ *  - `receiver_computer_name`
+ */
+export function validateInternalInitiateContract(input: {
+  sender_device_id?: string | null
+  sender_device_role?: unknown
+  sender_computer_name?: string | null
+  receiver_pairing_code?: string | null
+  /** This device's own pairing code (from orchestratorModeStore.getPairingCode()), used for self-pair check. */
+  local_pairing_code?: string | null
+}): InternalEndpointPairValidationResult {
+  if (!isNonEmpty(input.sender_device_id)) {
+    return {
+      ok: false,
+      code: INTERNAL_ENDPOINT_ERROR_CODES.INTERNAL_ENDPOINT_INCOMPLETE,
+      message: 'This device has no coordination identity. Check Settings → Orchestrator mode.',
+      missing_field: 'device_id',
+      side: 'local',
+    }
+  }
+  if (!validRole(input.sender_device_role)) {
+    return {
+      ok: false,
+      code: INTERNAL_ENDPOINT_ERROR_CODES.INTERNAL_ENDPOINT_INCOMPLETE,
+      message: 'Pick Host or Sandbox for this device in Settings → Orchestrator mode, then try again.',
+      missing_field: 'device_role',
+      side: 'local',
+    }
+  }
+  if (!isNonEmpty(input.sender_computer_name)) {
+    return {
+      ok: false,
+      code: INTERNAL_ENDPOINT_ERROR_CODES.INTERNAL_ENDPOINT_INCOMPLETE,
+      message: 'Give this device a name in Settings → Orchestrator mode, then try again.',
+      missing_field: 'computer_name',
+      side: 'local',
+    }
+  }
+  if (!isValidPairingCodeFormat(input.receiver_pairing_code)) {
+    return {
+      ok: false,
+      code: INTERNAL_ENDPOINT_ERROR_CODES.INTERNAL_PAIRING_CODE_INVALID,
+      message:
+        "The pairing code is missing or invalid. Enter the 6-digit code from the other device's Settings → Orchestrator mode.",
+    }
+  }
+  const local = typeof input.local_pairing_code === 'string' ? input.local_pairing_code.trim() : ''
+  if (local && local === input.receiver_pairing_code) {
+    return {
+      ok: false,
+      code: INTERNAL_ENDPOINT_ERROR_CODES.INTERNAL_PAIRING_CODE_SELF,
+      message: "That's this device's own pairing code. Enter the code from your other device.",
+    }
+  }
+  return { ok: true }
+}
+
+/** Format a 6-digit code as `XXX-XXX` for display. Returns the input unchanged if not 6 digits. */
+export function formatPairingCodeForDisplay(code: string | null | undefined): string {
+  if (typeof code !== 'string') return ''
+  const digits = code.replace(/\D+/g, '')
+  if (digits.length !== 6) return code ?? ''
+  return `${digits.slice(0, 3)}-${digits.slice(3)}`
 }

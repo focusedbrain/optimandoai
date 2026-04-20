@@ -406,6 +406,13 @@ export interface HandshakeRecord {
   internal_peer_device_role?: 'host' | 'sandbox' | null;
   internal_peer_computer_name?: string | null;
   /**
+   * 6-digit pairing code carried in the internal initiate capsule (`receiver_pairing_code`)
+   * and verified at acceptance time. Sole peer identifier for new internal handshakes;
+   * legacy rows fall back to `internal_peer_device_id` UUID equality.
+   * Excluded from `capsule_hash` / `context_hash` inputs.
+   */
+  internal_peer_pairing_code?: string | null;
+  /**
    * Canonical internal pair key: internal:{owner_wrdesk_user_id}:{min(device_id)}:{max(device_id)}.
    * Populated when both coordination device ids exist (never invented).
    */

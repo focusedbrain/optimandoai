@@ -1039,6 +1039,14 @@ const HANDSHAKE_MIGRATIONS: Array<{
          )`,
     ],
   },
+  {
+    version: 59,
+    description:
+      'Schema v59: handshakes.internal_peer_pairing_code — 6-digit pairing code carried in the internal initiate capsule and verified at accept time. Replaces UUID-based peer routing for new internal handshakes; legacy rows keep internal_peer_device_id for backwards compatibility.',
+    sql: [
+      `ALTER TABLE handshakes ADD COLUMN internal_peer_pairing_code TEXT`,
+    ],
+  },
 ]
 
 /**
@@ -1474,6 +1482,7 @@ export function serializeHandshakeRecord(record: HandshakeRecord): any {
     internal_peer_device_id: record.internal_peer_device_id ?? null,
     internal_peer_device_role: record.internal_peer_device_role ?? null,
     internal_peer_computer_name: record.internal_peer_computer_name ?? null,
+    internal_peer_pairing_code: record.internal_peer_pairing_code ?? null,
     internal_routing_key: record.internal_routing_key ?? null,
     internal_coordination_identity_complete: record.internal_coordination_identity_complete ? 1 : 0,
     internal_coordination_repair_needed: record.internal_coordination_repair_needed ? 1 : 0,
@@ -1533,6 +1542,7 @@ export function deserializeHandshakeRecord(row: any): HandshakeRecord {
     internal_peer_device_id: row.internal_peer_device_id ?? null,
     internal_peer_device_role: row.internal_peer_device_role ?? null,
     internal_peer_computer_name: row.internal_peer_computer_name ?? null,
+    internal_peer_pairing_code: row.internal_peer_pairing_code ?? null,
     internal_routing_key: row.internal_routing_key ?? null,
     internal_coordination_identity_complete: row.internal_coordination_identity_complete === 1,
     internal_coordination_repair_needed: row.internal_coordination_repair_needed === 1,

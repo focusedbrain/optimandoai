@@ -7,6 +7,8 @@ import { HandshakeState } from './types'
 import {
   validateInternalEndpointFields,
   validateInternalEndpointPairDistinct,
+  isValidPairingCodeFormat,
+  INTERNAL_ENDPOINT_ERROR_CODES,
 } from '../../../../../packages/shared/src/handshake/internalEndpointValidation'
 
 /** Canonical ordered pair: internal:{owner_user_id}:{min(device_ids)}:{max(device_ids)} */
@@ -73,7 +75,21 @@ export function finalizeInternalHandshakePersistence(record: HandshakeRecord): H
   }
 }
 
-/** Fail-fast for internal initiate capsule wire (initiator + intended acceptor endpoints). */
+/**
+ * Fail-fast for internal initiate capsule wire.
+ *
+ * Two acceptable shapes:
+ *   1. NEW (pairing-code-routed): sender_device_id + sender_device_role +
+ *      sender_computer_name + receiver_pairing_code (6 digits). Receiver-side
+ *      device id / role / computer name are NOT required and MAY be absent.
+ *   2. LEGACY (UUID-routed, pre-pairing-code-refactor): full
+ *      initiator + receiver endpoint identity (both ids, both roles, both
+ *      computer names, all distinct).
+ *
+ * The validator tries shape 1 first and only falls back to shape 2 if no
+ * `receiver_pairing_code` is present, so existing legacy capsules from older
+ * peers continue to import without changes.
+ */
 export function validateInternalInitiateCapsuleWire(c: Record<string, unknown>): {
   ok: boolean
   error?: string
@@ -91,6 +107,20 @@ export function validateInternalInitiateCapsuleWire(c: Record<string, unknown>):
     c.sender_computer_name,
   )
   if (!vInit.ok) return { ok: false, error: vInit.message, code: vInit.code }
+
+  const pairingCodeRaw = typeof c.receiver_pairing_code === 'string' ? c.receiver_pairing_code.trim() : ''
+  if (pairingCodeRaw) {
+    if (!isValidPairingCodeFormat(pairingCodeRaw)) {
+      return {
+        ok: false,
+        error: 'receiver_pairing_code must be exactly 6 decimal digits',
+        code: INTERNAL_ENDPOINT_ERROR_CODES.INTERNAL_PAIRING_CODE_INVALID,
+      }
+    }
+    return { ok: true }
+  }
+
+  // Legacy shape — preserved for capsules created before the pairing-code refactor.
   const vRecv = validateInternalEndpointFields(
     'receiver',
     typeof c.receiver_device_id === 'string' ? c.receiver_device_id : null,

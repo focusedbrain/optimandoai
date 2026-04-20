@@ -27,6 +27,10 @@ interface HandshakeRecord {
   receiver_email?: string | null
   handshake_type?: 'internal' | 'standard' | null
   initiator_device_role?: 'host' | 'sandbox' | null
+  /** 6-digit pairing code from the initiate capsule's `receiver_pairing_code`. New
+   *  internal capsules carry this; legacy capsules omit it (acceptance falls back
+   *  to UUID equality on `internal_peer_device_id`). */
+  internal_peer_pairing_code?: string | null
 }
 
 interface Props {
@@ -61,10 +65,21 @@ export default function AcceptHandshakeModal({
   const [currentUserEmail, setCurrentUserEmail] = useState<string | null>(null)
   const [acceptorDeviceName, setAcceptorDeviceName] = useState('')
   const [acceptorDeviceRole, setAcceptorDeviceRole] = useState<'host' | 'sandbox'>('sandbox')
+  const [typedPairingCode, setTypedPairingCode] = useState('')
+  const [localPairingCodeHint, setLocalPairingCodeHint] = useState<string | null>(null)
 
   const isInternal =
     record.handshake_type === 'internal' ||
     isSameAccountHandshakeEmails(record.initiator?.email, record.receiver_email)
+
+  // Pairing-code-routed capsules carry receiver_pairing_code; legacy capsules don't.
+  // Only require the typed-code input when the capsule actually uses pairing-code routing.
+  const requiresTypedPairingCode = isInternal && !!record.internal_peer_pairing_code?.trim()
+  const normalizedTypedCode = typedPairingCode.replace(/\D+/g, '').slice(0, 6)
+  const typedCodeIsComplete = /^\d{6}$/.test(normalizedTypedCode)
+  const formattedTypedCode = normalizedTypedCode.length > 3
+    ? `${normalizedTypedCode.slice(0, 3)}-${normalizedTypedCode.slice(3)}`
+    : normalizedTypedCode
 
   const counterpartyEmail = record.initiator?.email ?? '(unknown)'
 
@@ -102,9 +117,16 @@ export default function AcceptHandshakeModal({
   }, [record.handshake_id, record.initiator_device_role])
 
   useEffect(() => {
-    const om = (window as unknown as { orchestratorMode?: { getDeviceInfo?: () => Promise<{ deviceName?: string } | null> } }).orchestratorMode
+    const om = (window as unknown as {
+      orchestratorMode?: {
+        getDeviceInfo?: () => Promise<{ deviceName?: string; pairingCode?: string } | null>
+      }
+    }).orchestratorMode
     om?.getDeviceInfo?.().then((info) => {
       if (info?.deviceName) setAcceptorDeviceName(info.deviceName)
+      if (typeof info?.pairingCode === 'string' && /^\d{6}$/.test(info.pairingCode)) {
+        setLocalPairingCodeHint(info.pairingCode)
+      }
     }).catch(() => { /* optional */ })
   }, [])
 
@@ -184,6 +206,10 @@ export default function AcceptHandshakeModal({
       setVaultWarning(true)
       return
     }
+    if (requiresTypedPairingCode && !typedCodeIsComplete) {
+      setError("Type the 6-digit pairing code shown in this device's Settings → Orchestrator mode to confirm acceptance on the right device.")
+      return
+    }
     setAccepting(true)
     try {
       const context_blocks = await buildContextBlocks()
@@ -194,6 +220,7 @@ export default function AcceptHandshakeModal({
         policy_selections?: { ai_processing_mode: 'none' | 'local_only' | 'internal_and_cloud' }
         device_name?: string
         device_role?: 'host' | 'sandbox'
+        local_pairing_code_typed?: string
       } = {
         policy_selections: policies,
       }
@@ -205,6 +232,7 @@ export default function AcceptHandshakeModal({
       if (isInternal) {
         if (acceptorDeviceName.trim()) contextOpts.device_name = acceptorDeviceName.trim()
         contextOpts.device_role = acceptorDeviceRole
+        if (requiresTypedPairingCode) contextOpts.local_pairing_code_typed = normalizedTypedCode
       }
 
       const result = await acceptHandshake(
@@ -589,6 +617,47 @@ export default function AcceptHandshakeModal({
             <div style={{ fontWeight: 500, marginBottom: '8px', fontSize: '13px', color: '#0f172a' }}>
               Internal handshake — configure this device
             </div>
+            {requiresTypedPairingCode && (
+              <div style={{ marginBottom: '12px' }}>
+                <label style={{ fontSize: '12px', color: mutedColor, display: 'block', marginBottom: '4px' }}>
+                  This device's pairing code
+                </label>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete="off"
+                  value={formattedTypedCode}
+                  onChange={(e) => setTypedPairingCode(e.target.value)}
+                  placeholder="XXX-XXX"
+                  aria-label="This device's pairing code"
+                  data-testid="accept-pairing-code-input"
+                  style={{
+                    width: '100%',
+                    padding: '8px 10px',
+                    borderRadius: '6px',
+                    border: `1px solid ${typedCodeIsComplete ? 'rgba(34,197,94,0.45)' : borderColor}`,
+                    fontSize: '17px',
+                    fontFamily: 'monospace',
+                    fontWeight: 600,
+                    letterSpacing: '2px',
+                    textAlign: 'center',
+                    boxSizing: 'border-box',
+                  }}
+                />
+                <div style={{ fontSize: '11px', color: mutedColor, marginTop: '5px', lineHeight: 1.4 }}>
+                  Open Settings → Orchestrator mode on this device and type the 6-digit code shown there.
+                  This confirms the handshake is being accepted on the right device.
+                  {localPairingCodeHint && (
+                    <span style={{ display: 'block', marginTop: '3px', color: '#7c3aed' }}>
+                      Hint: this device's code is{' '}
+                      <span style={{ fontFamily: 'monospace', fontWeight: 600 }}>
+                        {`${localPairingCodeHint.slice(0, 3)}-${localPairingCodeHint.slice(3)}`}
+                      </span>.
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
             <div style={{ marginBottom: '8px' }}>
               <label style={{ fontSize: '12px', color: mutedColor, display: 'block', marginBottom: '4px' }}>
                 Device name
@@ -670,25 +739,41 @@ export default function AcceptHandshakeModal({
           >
             Cancel
           </button>
-          {!receiverEmailMismatch && (
-            <button
-              onClick={handleAccept}
-              disabled={accepting || !isVaultUnlocked}
-              title={!isVaultUnlocked ? 'Unlock your Vault to accept' : undefined}
-              style={{
-                padding: '9px 18px',
-                background: accepting || !isVaultUnlocked ? 'rgba(34,197,94,0.4)' : 'rgba(34,197,94,0.9)',
-                border: 'none',
-                borderRadius: '8px',
-                color: 'white',
-                fontSize: '12px',
-                fontWeight: 600,
-                cursor: accepting || !isVaultUnlocked ? 'not-allowed' : 'pointer',
-              }}
-            >
-              {accepting ? 'Accepting…' : !isVaultUnlocked ? '🔒 Unlock Vault to Accept' : 'Accept'}
-            </button>
-          )}
+          {!receiverEmailMismatch && (() => {
+            const pairingCodeBlocked = requiresTypedPairingCode && !typedCodeIsComplete
+            const disabled = accepting || !isVaultUnlocked || pairingCodeBlocked
+            const title = !isVaultUnlocked
+              ? 'Unlock your Vault to accept'
+              : pairingCodeBlocked
+                ? "Type this device's 6-digit pairing code to accept"
+                : undefined
+            const label = accepting
+              ? 'Accepting…'
+              : !isVaultUnlocked
+                ? '🔒 Unlock Vault to Accept'
+                : pairingCodeBlocked
+                  ? 'Enter pairing code to Accept'
+                  : 'Accept'
+            return (
+              <button
+                onClick={handleAccept}
+                disabled={disabled}
+                title={title}
+                style={{
+                  padding: '9px 18px',
+                  background: disabled ? 'rgba(34,197,94,0.4)' : 'rgba(34,197,94,0.9)',
+                  border: 'none',
+                  borderRadius: '8px',
+                  color: 'white',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  cursor: disabled ? 'not-allowed' : 'pointer',
+                }}
+              >
+                {label}
+              </button>
+            )
+          })()}
         </div>
       </div>
     </div>

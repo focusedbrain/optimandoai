@@ -48,12 +48,13 @@ export default function HandshakeInitiateModal({ onClose, onSuccess, presetInter
   const [requiresVault, setRequiresVault] = useState(false)
 
   const [isInternal, setIsInternal] = useState(!!presetInternal)
-  // Device role + name flow through to SendHandshakeDelivery as props for the internal
-  // capsule build. They're populated automatically (role defaults to 'sandbox';
-  // deviceName comes from orchestratorMode.getDeviceInfo) and are no longer surfaced
-  // in this modal — internal/external share the same form chrome, the only visible
-  // difference being a compact Pairing code field rendered inside SendHandshakeDelivery.
-  const [deviceRole] = useState<'host' | 'sandbox'>('sandbox')
+  // Device role for this internal handshake. Initialised from the persisted
+  // orchestrator mode (Settings → Orchestrator mode) via getDeviceInfo so the form
+  // matches what the user already configured globally, but kept as local state so
+  // the user can override per-handshake from this modal. Forwarded to
+  // SendHandshakeDelivery → handshake.initiate IPC as `device_role`; the receiver
+  // device must be the opposite role for the capsule to validate on accept.
+  const [deviceRole, setDeviceRole] = useState<'host' | 'sandbox'>('sandbox')
   const [deviceName, setDeviceName] = useState('')
   /** This device's local 6-digit pairing code, used for the self-pair guard in
    *  SendHandshakeDelivery. Surfaced from orchestrator preload (getDeviceInfo). */
@@ -96,14 +97,17 @@ export default function HandshakeInitiateModal({ onClose, onSuccess, presetInter
     // mirrored to localStorage in the desktop app).
     const om = (window as unknown as {
       orchestratorMode?: {
-        getDeviceInfo?: () => Promise<{ pairingCode?: string; deviceName?: string; instanceId?: string } | null | undefined>
+        getDeviceInfo?: () => Promise<{ pairingCode?: string; deviceName?: string; instanceId?: string; mode?: string } | null | undefined>
       }
     }).orchestratorMode
     let cancelled = false
     const fallbackFromLocalStorage = () => {
       try {
-        const stored = JSON.parse(localStorage.getItem('optimando-orchestrator-mode') || '{}') as { deviceName?: string }
-        if (!cancelled) setDeviceName(typeof stored.deviceName === 'string' ? stored.deviceName : '')
+        const stored = JSON.parse(localStorage.getItem('optimando-orchestrator-mode') || '{}') as { deviceName?: string; mode?: string }
+        if (!cancelled) {
+          setDeviceName(typeof stored.deviceName === 'string' ? stored.deviceName : '')
+          if (stored.mode === 'host' || stored.mode === 'sandbox') setDeviceRole(stored.mode)
+        }
       } catch {
         if (!cancelled) setDeviceName('')
       }
@@ -118,6 +122,7 @@ export default function HandshakeInitiateModal({ onClose, onSuccess, presetInter
           setDeviceName(n)
           setLocalPairingCode(code)
           setLocalInstanceId(iid)
+          if (info?.mode === 'host' || info?.mode === 'sandbox') setDeviceRole(info.mode)
         })
         .catch(() => {
           fallbackFromLocalStorage()
@@ -191,6 +196,53 @@ export default function HandshakeInitiateModal({ onClose, onSuccess, presetInter
             />
             Internal handshake (connect my own devices)
           </label>
+        )}
+
+        {/* Host / Sandbox role picker (internal handshakes only).
+            Initialised from Settings → Orchestrator mode (`getDeviceInfo().mode`)
+            but overridable per-handshake. The receiver device must be the opposite
+            role for the capsule to validate on accept (see validateInternalEndpointPair). */}
+        {isInternal && (
+          <div style={{ padding: '12px 16px 0' }}>
+            <div style={{ fontSize: '12px', color: '#6b7280', marginBottom: '6px' }}>This device is:</div>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button
+                type="button"
+                onClick={() => setDeviceRole('host')}
+                aria-pressed={deviceRole === 'host'}
+                style={{
+                  flex: 1,
+                  padding: '8px 12px',
+                  borderRadius: '8px',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  background: deviceRole === 'host' ? '#534AB7' : 'transparent',
+                  color: deviceRole === 'host' ? '#fff' : '#6b7280',
+                  border: deviceRole === 'host' ? 'none' : '1px solid rgba(147,51,234,0.18)',
+                }}
+              >Host orchestrator</button>
+              <button
+                type="button"
+                onClick={() => setDeviceRole('sandbox')}
+                aria-pressed={deviceRole === 'sandbox'}
+                style={{
+                  flex: 1,
+                  padding: '8px 12px',
+                  borderRadius: '8px',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  background: deviceRole === 'sandbox' ? '#534AB7' : 'transparent',
+                  color: deviceRole === 'sandbox' ? '#fff' : '#6b7280',
+                  border: deviceRole === 'sandbox' ? 'none' : '1px solid rgba(147,51,234,0.18)',
+                }}
+              >Sandbox orchestrator</button>
+            </div>
+            <p style={{ margin: '6px 0 0', fontSize: '11px', color: '#6b7280', lineHeight: 1.45 }}>
+              The other device must be set as <strong>{deviceRole === 'host' ? 'Sandbox' : 'Host'}</strong> for the handshake to complete.
+            </p>
+          </div>
         )}
 
         <SendHandshakeDelivery

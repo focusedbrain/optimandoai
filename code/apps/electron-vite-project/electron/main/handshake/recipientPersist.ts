@@ -155,6 +155,14 @@ export function persistRecipientHandshakeRecord(
             internal_peer_device_role: c.receiver_device_role ?? null,
             internal_peer_computer_name:
               typeof c.receiver_computer_name === 'string' ? c.receiver_computer_name.trim() : null,
+            // Pairing-code routed initiate capsules carry receiver_pairing_code on the
+            // wire. Persist into internal_peer_pairing_code so the AcceptHandshakeModal
+            // / handshake.accept comparison can read it. Legacy capsules omit this and
+            // fall back to the UUID equality check via internal_peer_device_id.
+            internal_peer_pairing_code:
+              typeof c.receiver_pairing_code === 'string' && /^\d{6}$/.test(c.receiver_pairing_code.trim())
+                ? c.receiver_pairing_code.trim()
+                : null,
           }
         : {}),
     }

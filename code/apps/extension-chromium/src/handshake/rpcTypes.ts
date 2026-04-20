@@ -66,6 +66,13 @@ export interface HandshakeRecord {
   readonly internal_peer_device_id?: string | null
   readonly internal_peer_device_role?: 'host' | 'sandbox' | null
   readonly internal_peer_computer_name?: string | null
+  /**
+   * 6-digit pairing code from the initiate capsule's `receiver_pairing_code` (no dash).
+   * Present on internal handshakes created with the pairing-code routing model;
+   * legacy internal handshakes omit this field and fall back to UUID-equality on
+   * `internal_peer_device_id` for the acceptance check.
+   */
+  readonly internal_peer_pairing_code?: string | null
   /** Canonical internal pair key when both coordination device ids are known */
   readonly internal_routing_key?: string | null
   /** False for degraded legacy / incomplete internal rows — coordination relay must not send */

@@ -69,6 +69,10 @@ function mergeInternalRelayWireFields(opts: {
   const r = opts.coordinationReceiverDeviceId?.trim()
 
   if (opts.isInternalHandshake) {
+    // accept/refresh/revoke/context_sync paths still need both device ids — they're
+    // sent over the coordination relay using the legacy ID-based routing. Only the
+    // initiate path was rewritten to pairing-code routing (handled in
+    // mergeInternalInitiateWireFields below).
     if (!s || !r) {
       throw new InternalCapsuleRelayIdentityError(
         'internal handshake capsule requires coordinationSenderDeviceId and coordinationReceiverDeviceId',
@@ -118,6 +122,55 @@ function mergeInternalRelayWireFields(opts: {
     }
   }
   return {}
+}
+
+/**
+ * Pairing-code-based internal initiate wire. Sender device fields (id, role, computer name)
+ * still travel on the wire because the relay routes by sender_device_id + recipient email
+ * exactly like external handshakes. The peer is identified solely by `receiver_pairing_code`,
+ * which is verified at acceptance time on the receiver's device. The full
+ * `receiver_device_id` UUID is no longer required for new internal initiate capsules.
+ *
+ * `receiver_pairing_code` is intentionally NOT included in `capsule_hash` /
+ * `context_hash` inputs — adding it would break legacy capsules and falsely tie
+ * the signed identity of the capsule to a routing artefact.
+ */
+function mergeInternalInitiatePairingWireFields(opts: {
+  coordinationSenderDeviceId?: string
+  senderDeviceRole?: 'host' | 'sandbox'
+  senderComputerName?: string
+  receiverPairingCode?: string
+}): Partial<HandshakeCapsuleWire> {
+  const s = opts.coordinationSenderDeviceId?.trim()
+  const code = opts.receiverPairingCode?.trim()
+  if (!s) {
+    throw new InternalCapsuleRelayIdentityError(
+      'internal initiate capsule requires sender_device_id (local orchestrator instance id)',
+    )
+  }
+  if (!code || !/^\d{6}$/.test(code)) {
+    throw new InternalCapsuleRelayIdentityError(
+      'internal initiate capsule requires a 6-digit receiver_pairing_code',
+    )
+  }
+  if (!opts.senderDeviceRole) {
+    throw new InternalCapsuleRelayIdentityError(
+      'internal initiate capsule requires sender_device_role',
+    )
+  }
+  const sname = opts.senderComputerName?.trim()
+  if (!sname) {
+    throw new InternalCapsuleRelayIdentityError(
+      'internal initiate capsule requires sender_computer_name',
+    )
+  }
+  return {
+    handshake_type: 'internal',
+    sender_device_id: s,
+    sender_device_role: opts.senderDeviceRole,
+    sender_computer_name: sname,
+    receiver_pairing_code: code,
+  }
 }
 
 export interface HandshakeCapsuleWire {
@@ -178,6 +231,16 @@ export interface HandshakeCapsuleWire {
   readonly receiver_device_id?: string;
   readonly receiver_device_role?: 'host' | 'sandbox';
   readonly receiver_computer_name?: string;
+  /**
+   * Internal initiate ONLY — 6-digit decimal pairing code (no dash) of the intended
+   * receiver device. Sole peer identifier for new internal initiate capsules:
+   * verified at acceptance time by string-equality with the receiver's own pairing
+   * code from `orchestratorModeStore.getPairingCode()`. Not part of `capsule_hash`
+   * or `context_hash` inputs (metadata only). Mutually exclusive in practice with
+   * `receiver_device_id` for new internal initiate capsules; legacy capsules carry
+   * `receiver_device_id` instead.
+   */
+  readonly receiver_pairing_code?: string;
 }
 
 // ── Options types ──
@@ -209,16 +272,16 @@ export interface InitiateOptions {
   sender_x25519_public_key_b64?: string | null;
   /** ML-KEM-768 public key (base64) for post-quantum key agreement. Generated or from caller. */
   sender_mlkem768_public_key_b64?: string | null;
-  /** Internal: this device's role (must differ from peer). */
+  /** Internal: this device's role. */
   initiatorDeviceRole?: 'host' | 'sandbox';
-  /** Internal: this device's computer name (must differ from peer after normalize). */
+  /** Internal: this device's computer name. */
   initiatorComputerName?: string;
-  /** Internal: full peer endpoint — required with initiator metadata for internal initiate. */
-  internalEndpointPeer?: {
-    deviceId: string
-    deviceRole: 'host' | 'sandbox'
-    computerName: string
-  };
+  /**
+   * Internal initiate (pairing-code routing): the 6-digit pairing code of the intended
+   * receiver device, as typed by the user. This is the sole peer identifier for new
+   * internal initiate capsules and replaces `internalEndpointPeer.deviceId`.
+   */
+  internalReceiverPairingCode?: string;
 }
 
 /** Result of buildInitiateCapsuleWithContent including keypair for persistence */
@@ -435,37 +498,13 @@ function buildInitiateCapsuleCore(
   }
 
   let internalWire: Partial<HandshakeCapsuleWire> = {}
-  if (opts.internalEndpointPeer) {
-    if (!coordinationDeviceId) {
-      throw new InternalCapsuleRelayIdentityError(
-        'orchestrator device_id is required for internal initiate capsule',
-      )
-    }
-    if (!opts.initiatorDeviceRole || !opts.initiatorComputerName?.trim()) {
-      throw new InternalCapsuleRelayIdentityError(
-        'initiator device_role and computer_name are required for internal initiate capsule',
-      )
-    }
-    const peerId = opts.internalEndpointPeer.deviceId?.trim()
-    if (!peerId) {
-      throw new InternalCapsuleRelayIdentityError(
-        'internal initiate requires internalEndpointPeer.deviceId',
-      )
-    }
-    if (!opts.internalEndpointPeer.deviceRole || !opts.internalEndpointPeer.computerName?.trim()) {
-      throw new InternalCapsuleRelayIdentityError(
-        'internal initiate requires peer device_role and computer_name',
-      )
-    }
-    internalWire = {
-      handshake_type: 'internal',
-      sender_device_id: coordinationDeviceId,
-      sender_device_role: opts.initiatorDeviceRole,
-      sender_computer_name: opts.initiatorComputerName.trim(),
-      receiver_device_id: peerId,
-      receiver_device_role: opts.internalEndpointPeer.deviceRole,
-      receiver_computer_name: opts.internalEndpointPeer.computerName.trim(),
-    }
+  if (opts.internalReceiverPairingCode) {
+    internalWire = mergeInternalInitiatePairingWireFields({
+      coordinationSenderDeviceId: coordinationDeviceId,
+      senderDeviceRole: opts.initiatorDeviceRole,
+      senderComputerName: opts.initiatorComputerName,
+      receiverPairingCode: opts.internalReceiverPairingCode,
+    })
   } else if (coordinationDeviceId) {
     internalWire = { sender_device_id: coordinationDeviceId }
   }

@@ -301,6 +301,13 @@ export async function acceptHandshake(
     policy_selections?: PolicySelectionInput
     device_name?: string
     device_role?: 'host' | 'sandbox'
+    /**
+     * Internal handshakes (pairing-code-routed) only. The 6-digit code the user typed
+     * in the AcceptHandshakeModal — must equal this device's own pairing code from
+     * Settings → Orchestrator mode AND the capsule's `receiver_pairing_code`. Omit
+     * for legacy capsules (acceptance falls back to UUID-equality check).
+     */
+    local_pairing_code_typed?: string
   },
 ): Promise<HandshakeAcceptResponse> {
   const keyAgreement = await getKeyAgreementForHandshake()
@@ -317,6 +324,9 @@ export async function acceptHandshake(
     ...(contextOpts?.policy_selections ? { policy_selections: contextOpts.policy_selections } : {}),
     device_name: contextOpts?.device_name,
     device_role: contextOpts?.device_role,
+    ...(contextOpts?.local_pairing_code_typed
+      ? { local_pairing_code_typed: contextOpts.local_pairing_code_typed }
+      : {}),
   })
 
   // ML-KEM secret stored in Electron DB — no chrome.storage copy.

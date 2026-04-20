@@ -35,17 +35,35 @@ export function isInternalRelayCapsuleEnvelope(o: Record<string, unknown>): bool
   return typeof ct === 'string' && RELAY_ENVELOPE_INTERNAL_WIRE_TYPES.has(ct.trim())
 }
 
-/** Fields missing for coordination internal relay (same-principal) on handshake capsule envelopes. */
+/**
+ * Fields missing for coordination internal relay (same-principal) on handshake capsule envelopes.
+ *
+ * Initiate capsules use the pairing-code model: receiver_pairing_code is the sole peer
+ * identifier (verified at acceptance time), and receiver_device_id / receiver_device_role
+ * / receiver_computer_name are NOT required.
+ *
+ * Accept / refresh / revoke / context_sync still need the full legacy wire because the
+ * relay routes by sender + receiver device ids for those capsule types — by then both
+ * peer ids are persisted on the handshake record.
+ */
 export function collectInternalRelayWireGaps(o: Record<string, unknown>): string[] {
   const missing: string[] = []
   if (o.handshake_type !== 'internal') missing.push('handshake_type')
   if (!nz(o.sender_device_id)) missing.push('sender_device_id')
-  if (!nz(o.receiver_device_id)) missing.push('receiver_device_id')
   const sr = o.sender_device_role
-  const rr = o.receiver_device_role
   if (sr !== 'host' && sr !== 'sandbox') missing.push('sender_device_role')
-  if (rr !== 'host' && rr !== 'sandbox') missing.push('receiver_device_role')
   if (!nz(o.sender_computer_name)) missing.push('sender_computer_name')
+
+  const ct = typeof o.capsule_type === 'string' ? o.capsule_type.trim() : ''
+  if (ct === 'initiate') {
+    const code = nz(o.receiver_pairing_code)
+    if (!code || !/^\d{6}$/.test(code)) missing.push('receiver_pairing_code')
+    return missing
+  }
+
+  if (!nz(o.receiver_device_id)) missing.push('receiver_device_id')
+  const rr = o.receiver_device_role
+  if (rr !== 'host' && rr !== 'sandbox') missing.push('receiver_device_role')
   if (!nz(o.receiver_computer_name)) missing.push('receiver_computer_name')
   return missing
 }

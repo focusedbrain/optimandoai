@@ -861,6 +861,46 @@ export const SendHandshakeDelivery: React.FC<SendHandshakeDeliveryProps> = ({
           </div>
         </div>
 
+        {isInternalHandshake && localPairingCode && PAIRING_CODE_PATTERN.test(localPairingCode) && (
+          <div
+            data-testid="internal-self-pairing-display"
+            style={{
+              padding: '10px 14px',
+              border: `1px solid ${t.noteBorder}`,
+              borderRadius: '8px',
+              background: t.noteBg,
+              color: t.noteText,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '12px',
+              flexWrap: 'wrap',
+            }}
+          >
+            <div style={{ fontSize: '12px', lineHeight: 1.4 }}>
+              <div style={{ fontWeight: 600, marginBottom: '2px' }}>This device's pairing code</div>
+              <div style={{ fontSize: '11px', color: t.muted }}>
+                Read this aloud to the receiver so they can confirm the handshake on their device.
+              </div>
+            </div>
+            <div
+              style={{
+                fontFamily: 'monospace',
+                fontSize: '20px',
+                fontWeight: 700,
+                letterSpacing: '2px',
+                padding: '4px 10px',
+                borderRadius: '6px',
+                background: t.isStandard ? '#ffffff' : 'rgba(255,255,255,0.08)',
+                border: `1px solid ${t.noteBorder}`,
+                userSelect: 'all',
+              }}
+            >
+              {`${localPairingCode.slice(0, 3)}-${localPairingCode.slice(3)}`}
+            </div>
+          </div>
+        )}
+
         {isInternalHandshake && (
           <div data-testid="internal-pairing-field">
             <label style={labelStyle}>Pairing code</label>
@@ -910,7 +950,8 @@ export const SendHandshakeDelivery: React.FC<SendHandshakeDeliveryProps> = ({
               </div>
             ) : (
               <div style={{ marginTop: '5px', fontSize: '11px', color: t.muted, lineHeight: 1.4 }}>
-                From the other device's Settings → Orchestrator mode.
+                Type the 6-digit code shown on the other device's Settings → Orchestrator mode.
+                The receiver will type their own code on their device to confirm acceptance.
               </div>
             )}
           </div>
