@@ -111,6 +111,12 @@ export interface HandshakeCapsuleCanonical {
   readonly receiver_device_role?: 'host' | 'sandbox'
   readonly sender_computer_name?: string
   readonly receiver_computer_name?: string
+  /**
+   * Internal initiate capsules only — 6-digit decimal pairing code of the intended
+   * receiver device. Sole peer identifier under the pairing-code routing model;
+   * not part of capsule_hash / context_hash inputs (advisory routing field).
+   */
+  readonly receiver_pairing_code?: string
 }
 
 export interface CanonicalContextBlock {
@@ -191,6 +197,7 @@ const FIELD_RULES: Record<string, FieldRule> = {
   receiver_device_role: { type: 'enum', values: ['host', 'sandbox'] },
   sender_computer_name: { type: 'string', maxLength: 512 },
   receiver_computer_name: { type: 'string', maxLength: 512 },
+  receiver_pairing_code: { type: 'regex', pattern: /^\d{6}$/, maxLength: 6 },
 }
 
 // ── Sender identity validation rules ──
@@ -382,8 +389,29 @@ function rebuildContextBlockProofs(raw: unknown): { ok: true; proofs: ContextBlo
 }
 
 /**
- * When handshake_type is internal, require full symmetric endpoint identity on the wire.
- * Standard capsules skip this — optional sender_device_id etc. stay best-effort.
+ * When handshake_type is internal, enforce the wire identity invariants the
+ * routing layer needs after canonical rebuild.
+ *
+ * Two acceptable shapes — the same matrix the relay outbound guards
+ * (`internalRelayOutboundGuards.collectInternalRelayWireGaps`) and the
+ * recipient persistence layer (`internalPersistence.validateInitiateInternalIdentity`)
+ * already accept:
+ *
+ *  1. Pairing-code initiate (current model, `capsule_type === 'initiate'`):
+ *       sender_device_id + sender_device_role + sender_computer_name +
+ *       receiver_pairing_code (6 digits). Receiver-side device fields are
+ *       resolved on the acceptor against the user-typed code, so they are
+ *       NOT required on the wire.
+ *
+ *  2. Legacy full-pair (any capsule type, kept for backwards compatibility
+ *     with already-issued capsules and for non-initiate envelopes — accept,
+ *     refresh, revoke, context_sync — which the relay routes by both peer
+ *     device ids):
+ *       full sender + receiver device id / role / computer name pair, and
+ *       the pair must pass `validateInternalEndpointPairDistinct`.
+ *
+ * Standard (non-internal) capsules skip both — optional sender_device_id etc.
+ * stay best-effort.
  */
 function validateInternalHandshakeWireIfNeeded(
   canonical: Record<string, unknown>,
@@ -393,17 +421,14 @@ function validateInternalHandshakeWireIfNeeded(
   }
 
   const sid = canonical.sender_device_id
-  const rid = canonical.receiver_device_id
   const sr = canonical.sender_device_role
-  const rr = canonical.receiver_device_role
   const sname = canonical.sender_computer_name
-  const rname = canonical.receiver_computer_name
 
-  if (typeof sid !== 'string' || typeof rid !== 'string') {
+  if (typeof sid !== 'string' || sid.trim().length === 0) {
     return {
       ok: false,
       reason:
-        'Internal handshake capsule requires sender_device_id and receiver_device_id after canonical rebuild',
+        'Internal handshake capsule requires sender_device_id after canonical rebuild',
       field: 'sender_device_id',
     }
   }
@@ -414,6 +439,49 @@ function validateInternalHandshakeWireIfNeeded(
       field: 'sender_device_role',
     }
   }
+  if (typeof sname !== 'string' || sname.trim().length === 0) {
+    return {
+      ok: false,
+      reason: 'Internal handshake capsule requires sender_computer_name',
+      field: 'sender_computer_name',
+    }
+  }
+
+  const capsuleType = canonical.capsule_type
+  const pairingCode = canonical.receiver_pairing_code
+  const hasPairingCode =
+    typeof pairingCode === 'string' && /^\d{6}$/.test(pairingCode.trim())
+
+  // Pairing-code initiate shape (current model) — sole peer identifier on the wire.
+  if (capsuleType === 'initiate' && hasPairingCode) {
+    // Self-pair check between sender_device_id and pairing code is not possible here
+    // (we don't know the receiver's device id yet). The acceptor's
+    // handshake.accept handler does the equality check against this device's own
+    // pairing code from orchestratorModeStore.
+    return null
+  }
+
+  // Legacy full-pair shape (required for non-initiate envelopes and pre-pairing-code
+  // initiate capsules from older peers).
+  const rid = canonical.receiver_device_id
+  const rr = canonical.receiver_device_role
+  const rname = canonical.receiver_computer_name
+
+  if (typeof rid !== 'string' || rid.trim().length === 0) {
+    if (capsuleType === 'initiate') {
+      return {
+        ok: false,
+        reason:
+          'Internal initiate capsule requires either receiver_pairing_code (6 digits) or a legacy receiver_device_id',
+        field: 'receiver_pairing_code',
+      }
+    }
+    return {
+      ok: false,
+      reason: 'Internal handshake capsule requires receiver_device_id after canonical rebuild',
+      field: 'receiver_device_id',
+    }
+  }
   if (rr !== 'host' && rr !== 'sandbox') {
     return {
       ok: false,
@@ -421,12 +489,11 @@ function validateInternalHandshakeWireIfNeeded(
       field: 'receiver_device_role',
     }
   }
-  if (typeof sname !== 'string' || typeof rname !== 'string') {
+  if (typeof rname !== 'string' || rname.trim().length === 0) {
     return {
       ok: false,
-      reason:
-        'Internal handshake capsule requires sender_computer_name and receiver_computer_name',
-      field: 'sender_computer_name',
+      reason: 'Internal handshake capsule requires receiver_computer_name',
+      field: 'receiver_computer_name',
     }
   }
 
@@ -599,7 +666,10 @@ export function canonicalRebuild(raw: unknown): RebuildResult {
     }
   }
 
-  // Internal / coordination routing (optional — preserved for relay + ledger)
+  // Internal / coordination routing (optional — preserved for relay + ledger).
+  // `receiver_pairing_code` is included so the new pairing-code initiate model
+  // survives Gate-2 rebuild and reaches `recipientPersist` /
+  // `validateInternalHandshakeWireIfNeeded`.
   for (const coordField of [
     'handshake_type',
     'sender_device_id',
@@ -608,6 +678,7 @@ export function canonicalRebuild(raw: unknown): RebuildResult {
     'receiver_device_role',
     'sender_computer_name',
     'receiver_computer_name',
+    'receiver_pairing_code',
   ] as const) {
     if (coordField in obj && obj[coordField] !== undefined && obj[coordField] !== null) {
       const rule = FIELD_RULES[coordField]

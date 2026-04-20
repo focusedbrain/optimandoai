@@ -255,7 +255,7 @@ describe('canonicalRebuild', () => {
     expect(second.capsule).toEqual(first.capsule)
   })
 
-  it('internal handshake_type rejects missing receiver_device_id', () => {
+  it('internal initiate without receiver_pairing_code and without receiver_device_id is rejected', () => {
     const raw = buildValidCapsule({
       handshake_type: 'internal',
       sender_device_id: 'a',
@@ -267,8 +267,61 @@ describe('canonicalRebuild', () => {
     const result = canonicalRebuild(raw)
     expect(result.ok).toBe(false)
     if (!result.ok) {
-      expect(result.field).toBe('sender_device_id')
-      expect(result.reason).toMatch(/receiver_device_id|Internal handshake/i)
+      expect(result.field).toBe('receiver_pairing_code')
+      expect(result.reason).toMatch(/receiver_pairing_code|receiver_device_id/i)
+    }
+  })
+
+  it('internal initiate with receiver_pairing_code does NOT require receiver device fields', () => {
+    const raw = buildValidCapsule({
+      capsule_type: 'initiate',
+      handshake_type: 'internal',
+      sender_device_id: 'orch-host-01',
+      sender_device_role: 'host',
+      sender_computer_name: 'StudioWorkstation',
+      receiver_pairing_code: '482917',
+    })
+    const result = canonicalRebuild(raw)
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.capsule.handshake_type).toBe('internal')
+      expect(result.capsule.sender_device_id).toBe('orch-host-01')
+      expect(result.capsule.receiver_pairing_code).toBe('482917')
+      expect(result.capsule.receiver_device_id).toBeUndefined()
+      expect(result.capsule.receiver_device_role).toBeUndefined()
+      expect(result.capsule.receiver_computer_name).toBeUndefined()
+    }
+  })
+
+  it('internal initiate rejects malformed receiver_pairing_code (not 6 digits)', () => {
+    const raw = buildValidCapsule({
+      capsule_type: 'initiate',
+      handshake_type: 'internal',
+      sender_device_id: 'orch-host-01',
+      sender_device_role: 'host',
+      sender_computer_name: 'StudioWorkstation',
+      receiver_pairing_code: '12345',
+    })
+    const result = canonicalRebuild(raw)
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(result.field).toBe('receiver_pairing_code')
+    }
+  })
+
+  it('internal accept capsule still requires the full receiver pair (no pairing-code path)', () => {
+    const raw = buildValidCapsule({
+      capsule_type: 'accept',
+      handshake_type: 'internal',
+      sender_device_id: 'orch-host-01',
+      sender_device_role: 'host',
+      sender_computer_name: 'StudioWorkstation',
+      receiver_pairing_code: '482917',
+    })
+    const result = canonicalRebuild(raw)
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(result.field).toBe('receiver_device_id')
     }
   })
 
