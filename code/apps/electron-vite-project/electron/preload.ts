@@ -606,6 +606,13 @@ contextBridge.exposeInMainWorld('handshakeView', {
       ...(typeof opts.senderMlkem768SecretKeyB64 === 'string' ? { senderMlkem768SecretKeyB64: opts.senderMlkem768SecretKeyB64 } : {}),
       ...(typeof opts.device_name === 'string' && opts.device_name.trim() ? { device_name: opts.device_name.trim() } : {}),
       ...(opts.device_role === 'host' || opts.device_role === 'sandbox' ? { device_role: opts.device_role } : {}),
+      // 6-digit pairing code the user typed in AcceptHandshakeModal. Required for
+      // internal handshakes so the main process can confirm it matches the
+      // `receiver_pairing_code` baked into the initiate capsule (and persisted as
+      // `internal_peer_pairing_code` on the handshake record).
+      ...(typeof opts.local_pairing_code_typed === 'string' && /^\d{6}$/.test(opts.local_pairing_code_typed.trim())
+        ? { local_pairing_code_typed: opts.local_pairing_code_typed.trim() }
+        : {}),
     } : undefined
     return ipcRenderer.invoke('handshake:accept', assertString(id, 'id'), assertString(sharingMode, 'sharingMode'), typeof fromAccountId === 'string' ? fromAccountId : '', safeOpts)
   },
@@ -840,6 +847,13 @@ contextBridge.exposeInMainWorld('handshakeView', {
       ...(typeof opts.counterparty_computer_name === 'string' && opts.counterparty_computer_name.trim()
         ? { counterparty_computer_name: opts.counterparty_computer_name.trim() }
         : {}),
+      // Internal handshake routing: the 6-digit pairing code typed by the sender
+      // identifies the receiver. The main process resolves it into the peer's
+      // device_id / computer_name via the coordination service and bakes the
+      // canonical code into the initiate capsule as `receiver_pairing_code`.
+      ...(typeof opts.counterparty_pairing_code === 'string' && /^\d{6}$/.test(opts.counterparty_pairing_code.trim())
+        ? { counterparty_pairing_code: opts.counterparty_pairing_code.trim() }
+        : {}),
     } : undefined
     return ipcRenderer.invoke('handshake:initiate', email, acct, safeOpts)
   },
@@ -864,6 +878,12 @@ contextBridge.exposeInMainWorld('handshakeView', {
         : {}),
       ...(typeof opts.counterparty_computer_name === 'string' && opts.counterparty_computer_name.trim()
         ? { counterparty_computer_name: opts.counterparty_computer_name.trim() }
+        : {}),
+      // Same pairing-code routing as `handshake:initiate`. Required for offline
+      // (file / email / USB) internal handshakes — the main process embeds it as
+      // `receiver_pairing_code` in the offline capsule.
+      ...(typeof opts.counterparty_pairing_code === 'string' && /^\d{6}$/.test(opts.counterparty_pairing_code.trim())
+        ? { counterparty_pairing_code: opts.counterparty_pairing_code.trim() }
         : {}),
     } : undefined
     return ipcRenderer.invoke('handshake:buildForDownload', email, safeOpts)

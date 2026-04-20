@@ -83,6 +83,10 @@ import {
   internalRelayCapsuleWireOptsFromRecord,
 } from './internalCoordinationWire'
 import { formatLocalInternalRelayValidationJson } from './internalRelayOutboundGuards'
+import {
+  getInstanceId as getOrchestratorInstanceId,
+  getPairingCode as getOrchestratorPairingCode,
+} from '../orchestrator/orchestratorModeStore'
 
 /** Coordination registry must use JWT `sub` for both parties when the handshake is same-account, or same-user device routing never engages. */
 function coordinationAcceptorUserIdForRegistration(
@@ -97,15 +101,22 @@ function coordinationAcceptorUserIdForRegistration(
   return receiverUserId
 }
 
-/** Orchestrator instance id for relay registration — optional; omit when unavailable (cross-party unchanged). */
+/**
+ * Orchestrator instance id for relay registration — optional; omit when unavailable
+ * (cross-party unchanged).
+ *
+ * Uses a static import (see top of file). The previous dynamic `require()` worked
+ * under CommonJS but throws `ReferenceError: require is not defined` once the
+ * Electron main bundle is emitted as ESM (vite-plugin-electron + `"type": "module"`).
+ * The silently-caught throw was the root cause of `INTERNAL_ENDPOINT_INCOMPLETE`
+ * for every internal initiate, even when the renderer had a valid `instanceId`.
+ */
 function getLocalDeviceIdForRelay(): string | undefined {
   try {
-    const { getInstanceId } = require('../orchestrator/orchestratorModeStore') as {
-      getInstanceId: () => string | undefined
-    }
-    const id = getInstanceId?.()
+    const id = getOrchestratorInstanceId()
     return typeof id === 'string' && id.trim().length > 0 ? id.trim() : undefined
-  } catch {
+  } catch (err) {
+    console.warn('[handshake.ipc] getLocalDeviceIdForRelay: orchestrator store unavailable:', err)
     return undefined
   }
 }
@@ -114,15 +125,15 @@ function getLocalDeviceIdForRelay(): string | undefined {
  * Local 6-digit pairing code from the orchestrator config. Used for the self-pair
  * check at initiate time and to render the "this device's code" diagnostic in the
  * acceptance mismatch message.
+ *
+ * Same ESM-safe static import pattern as `getLocalDeviceIdForRelay`.
  */
 function getLocalPairingCode(): string | undefined {
   try {
-    const mod = require('../orchestrator/orchestratorModeStore') as {
-      getPairingCode?: () => string | undefined
-    }
-    const code = mod.getPairingCode?.()
+    const code = getOrchestratorPairingCode()
     return typeof code === 'string' && /^\d{6}$/.test(code.trim()) ? code.trim() : undefined
-  } catch {
+  } catch (err) {
+    console.warn('[handshake.ipc] getLocalPairingCode: orchestrator store unavailable:', err)
     return undefined
   }
 }

@@ -3344,7 +3344,7 @@ app.whenReady().then(async () => {
       }
     })
 
-    ipcMain.handle('handshake:accept', async (_e, id: string, sharingMode: string, fromAccountId: string, contextOpts?: { context_blocks?: any[]; profile_ids?: string[]; profile_items?: any[]; policy_selections?: { cloud_ai?: boolean; internal_ai?: boolean }; senderX25519PublicKeyB64?: string; senderMlkem768PublicKeyB64?: string; senderMlkem768SecretKeyB64?: string; device_name?: string; device_role?: 'host' | 'sandbox' }) => {
+    ipcMain.handle('handshake:accept', async (_e, id: string, sharingMode: string, fromAccountId: string, contextOpts?: { context_blocks?: any[]; profile_ids?: string[]; profile_items?: any[]; policy_selections?: { cloud_ai?: boolean; internal_ai?: boolean }; senderX25519PublicKeyB64?: string; senderMlkem768PublicKeyB64?: string; senderMlkem768SecretKeyB64?: string; device_name?: string; device_role?: 'host' | 'sandbox'; local_pairing_code_typed?: string }) => {
       try {
         const db = await getHandshakeDb()
         if (!db) return { success: false, error: 'No active session. Please log in first.' }
@@ -3371,6 +3371,14 @@ app.whenReady().then(async () => {
         if (contextOpts?.senderMlkem768SecretKeyB64) params.senderMlkem768SecretKeyB64 = contextOpts.senderMlkem768SecretKeyB64
         if (contextOpts?.device_name !== undefined) params.device_name = contextOpts.device_name
         if (contextOpts?.device_role !== undefined) params.device_role = contextOpts.device_role
+        // 6-digit pairing code typed by the user in AcceptHandshakeModal. ipc.ts
+        // (handshake.accept) compares this against the `receiver_pairing_code` baked
+        // into the originating initiate capsule (persisted as
+        // `internal_peer_pairing_code` on the handshake record). Without it, internal
+        // accepts fail with INTERNAL_ENDPOINT_INCOMPLETE.
+        if (typeof contextOpts?.local_pairing_code_typed === 'string' && contextOpts.local_pairing_code_typed.trim()) {
+          params.local_pairing_code_typed = contextOpts.local_pairing_code_typed.trim()
+        }
         const result = await handleHandshakeRPC('handshake.accept', params, db)
         if (!result?.success) {
           console.error('[HANDSHAKE:ACCEPT] failed:', JSON.stringify(result))
@@ -4534,7 +4542,7 @@ app.whenReady().then(async () => {
 
     // email:listAccounts is registered by registerEmailHandlers() â€” do not duplicate here
 
-    ipcMain.handle('handshake:initiate', async (_e, receiverEmail: string, fromAccountId: string, contextOpts?: { skipVaultContext?: boolean; message?: string; context_blocks?: any[]; profile_ids?: string[]; profile_items?: any[]; policy_selections?: { cloud_ai?: boolean; internal_ai?: boolean }; handshake_type?: 'internal' | 'standard'; device_name?: string; device_role?: 'host' | 'sandbox'; counterparty_device_id?: string; counterparty_device_role?: 'host' | 'sandbox'; counterparty_computer_name?: string }) => {
+    ipcMain.handle('handshake:initiate', async (_e, receiverEmail: string, fromAccountId: string, contextOpts?: { skipVaultContext?: boolean; message?: string; context_blocks?: any[]; profile_ids?: string[]; profile_items?: any[]; policy_selections?: { cloud_ai?: boolean; internal_ai?: boolean }; handshake_type?: 'internal' | 'standard'; device_name?: string; device_role?: 'host' | 'sandbox'; counterparty_device_id?: string; counterparty_device_role?: 'host' | 'sandbox'; counterparty_computer_name?: string; counterparty_pairing_code?: string }) => {
       try {
         const db = await getHandshakeDb()
         return await handleHandshakeRPC('handshake.initiate', {
@@ -4553,13 +4561,18 @@ app.whenReady().then(async () => {
           ...(contextOpts?.counterparty_device_id ? { counterparty_device_id: contextOpts.counterparty_device_id } : {}),
           ...(contextOpts?.counterparty_device_role ? { counterparty_device_role: contextOpts.counterparty_device_role } : {}),
           ...(contextOpts?.counterparty_computer_name ? { counterparty_computer_name: contextOpts.counterparty_computer_name } : {}),
+          // Pairing-code routing for internal handshakes. ipc.ts (handshake.initiate)
+          // uses this to (a) reject self-pair, (b) resolve the receiver via the
+          // coordination service, and (c) bake `receiver_pairing_code` into the
+          // capsule so the acceptor can verify the typed code matches.
+          ...(contextOpts?.counterparty_pairing_code ? { counterparty_pairing_code: contextOpts.counterparty_pairing_code } : {}),
         }, db)
       } catch (err: any) {
         return { success: false, error: err?.message || 'Initiation failed.' }
       }
     })
 
-    ipcMain.handle('handshake:buildForDownload', async (_e, receiverEmail: string, contextOpts?: { skipVaultContext?: boolean; message?: string; context_blocks?: any[]; profile_ids?: string[]; profile_items?: any[]; policy_selections?: { cloud_ai?: boolean; internal_ai?: boolean }; handshake_type?: 'internal' | 'standard'; device_name?: string; device_role?: 'host' | 'sandbox'; counterparty_device_id?: string; counterparty_device_role?: 'host' | 'sandbox'; counterparty_computer_name?: string }) => {
+    ipcMain.handle('handshake:buildForDownload', async (_e, receiverEmail: string, contextOpts?: { skipVaultContext?: boolean; message?: string; context_blocks?: any[]; profile_ids?: string[]; profile_items?: any[]; policy_selections?: { cloud_ai?: boolean; internal_ai?: boolean }; handshake_type?: 'internal' | 'standard'; device_name?: string; device_role?: 'host' | 'sandbox'; counterparty_device_id?: string; counterparty_device_role?: 'host' | 'sandbox'; counterparty_computer_name?: string; counterparty_pairing_code?: string }) => {
       try {
         const db = await getHandshakeDb()
         if (!db) {
@@ -4581,6 +4594,10 @@ app.whenReady().then(async () => {
           ...(contextOpts?.counterparty_device_id ? { counterparty_device_id: contextOpts.counterparty_device_id } : {}),
           ...(contextOpts?.counterparty_device_role ? { counterparty_device_role: contextOpts.counterparty_device_role } : {}),
           ...(contextOpts?.counterparty_computer_name ? { counterparty_computer_name: contextOpts.counterparty_computer_name } : {}),
+          // Same pairing-code routing as `handshake:initiate`. The offline capsule
+          // (file / email / USB) carries the canonical `receiver_pairing_code` so
+          // the recipient can verify their typed code at acceptance time.
+          ...(contextOpts?.counterparty_pairing_code ? { counterparty_pairing_code: contextOpts.counterparty_pairing_code } : {}),
         }, db)
       } catch (err: any) {
         return { success: false, error: err?.message || 'Build failed.' }
