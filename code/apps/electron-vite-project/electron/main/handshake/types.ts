@@ -316,6 +316,14 @@ export interface VerifiedCapsuleInput {
   receiver_device_role?: 'host' | 'sandbox' | null;
   sender_computer_name?: string | null;
   receiver_computer_name?: string | null;
+  /**
+   * Internal initiate ONLY — 6-digit decimal pairing code (no dash) of the intended
+   * receiver device. Sole peer identifier for new internal initiate capsules; verified
+   * at acceptance time by string-equality with the receiver's own pairing code.
+   * Carried on the wire and through the pipeline so the relay/coordination ingestion
+   * path matches the file-import path.
+   */
+  receiver_pairing_code?: string | null;
 }
 
 // ── Party Identity ──

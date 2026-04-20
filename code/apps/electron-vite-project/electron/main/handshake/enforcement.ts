@@ -156,6 +156,10 @@ function extractVerifiedInput(validated: ValidatedCapsule): VerifiedCapsuleInput
     receiver_device_role: c.receiver_device_role === 'host' || c.receiver_device_role === 'sandbox' ? c.receiver_device_role : null,
     sender_computer_name: typeof c.sender_computer_name === 'string' ? c.sender_computer_name : null,
     receiver_computer_name: typeof c.receiver_computer_name === 'string' ? c.receiver_computer_name : null,
+    receiver_pairing_code:
+      typeof c.receiver_pairing_code === 'string' && /^\d{6}$/.test(c.receiver_pairing_code.trim())
+        ? c.receiver_pairing_code.trim()
+        : null,
   }
 }
 
@@ -700,6 +704,14 @@ function buildInitiateRecord(
           internal_peer_device_id: input.receiver_device_id?.trim() || null,
           internal_peer_device_role: input.receiver_device_role ?? null,
           internal_peer_computer_name: input.receiver_computer_name?.trim() || null,
+          // Pairing-code initiate carries `receiver_pairing_code` on the wire as the
+          // sole peer identifier. Persist it here so the AcceptHandshakeModal /
+          // handshake.accept comparison works regardless of which ingestion path
+          // (file-import vs coordination-relay) created the record.
+          internal_peer_pairing_code:
+            typeof input.receiver_pairing_code === 'string' && /^\d{6}$/.test(input.receiver_pairing_code.trim())
+              ? input.receiver_pairing_code.trim()
+              : null,
         }
       : {}),
   }

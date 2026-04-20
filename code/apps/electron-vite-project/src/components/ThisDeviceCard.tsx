@@ -1,9 +1,10 @@
 /**
  * ThisDeviceCard — shows the local device's pairing identity in Settings → Orchestrator.
  *
- * Surfaces the per-account 6-digit pairing code so a user can read it aloud or write it
- * down to pair their other device for internal handshakes. The underlying instanceId
- * (UUID) is intentionally NOT shown — it's an implementation detail.
+ * Surfaces the per-account 6-digit pairing code. The user enters this code on their
+ * other device (or vice versa) when initiating an internal handshake — it's the
+ * shared secret that gives both devices a coordination identity. The underlying
+ * instanceId (UUID) is intentionally NOT shown — it's an implementation detail.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -206,7 +207,7 @@ export default function ThisDeviceCard({ deviceName, mode, pairingCode }: ThisDe
           color: 'var(--color-text-muted)',
         }}
       >
-        Read this code aloud or write it down to pair your other device for internal handshakes.
+        Enter this code on your other device when initiating an internal handshake.
       </p>
     </div>
   )

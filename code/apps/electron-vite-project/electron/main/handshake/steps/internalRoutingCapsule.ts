@@ -22,6 +22,11 @@ export const verifyInternalCapsuleRouting: PipelineStep = {
       if (input.handshake_type !== 'internal') {
         return { passed: true }
       }
+      // Pass `receiver_pairing_code` through so pairing-code initiates (the new
+      // routing model) survive validation. Without this, the validator falls back
+      // to the legacy full-pair shape and rejects every pairing-code initiate
+      // that arrives via the coordination relay (file-import path bypasses the
+      // pipeline and was unaffected, masking the bug).
       const wire: Record<string, unknown> = {
         handshake_type: 'internal',
         sender_device_id: input.sender_device_id,
@@ -30,6 +35,9 @@ export const verifyInternalCapsuleRouting: PipelineStep = {
         receiver_device_id: input.receiver_device_id,
         receiver_device_role: input.receiver_device_role,
         receiver_computer_name: input.receiver_computer_name,
+        ...(input.receiver_pairing_code
+          ? { receiver_pairing_code: input.receiver_pairing_code }
+          : {}),
       }
       const w = validateInternalInitiateCapsuleWire(wire)
       if (!w.ok) {

@@ -2082,11 +2082,35 @@ export async function handleHandshakeRPC(
             return
           }
           console.log('[HANDSHAKE] Relay registration succeeded on accept:', handshake_id)
-          // Enqueue accept capsule for relay delivery to initiator
-          const targetEndpoint = record.p2p_endpoint?.trim()
+          // Enqueue accept capsule for relay delivery to initiator.
+          //
+          // The wire `p2p_endpoint` from the initiate is a routing hint, not a
+          // hard requirement: coordination mode actually delivers via the local
+          // `coordination_url`/beap/capsule (see processOutboundQueue). If the
+          // initiator's wire didn't carry `p2p_endpoint` (e.g. coordination
+          // wasn't yet configured at initiate time, or the field was stripped
+          // somewhere upstream), the accept capsule must STILL be enqueued so
+          // the roundtrip can complete — otherwise the initiator never learns
+          // about the acceptance and the handshake silently dies in
+          // PENDING_ACCEPT forever. Synthesise the coordination URL here as a
+          // safe fallback so that condition cannot break the roundtrip.
+          const recordedTargetEndpoint = record.p2p_endpoint?.trim()
+          const coordinationFallbackEndpoint =
+            !recordedTargetEndpoint && p2pConfig.use_coordination && p2pConfig.coordination_url?.trim()
+              ? `${p2pConfig.coordination_url.trim().replace(/\/$/, '')}/beap/capsule`
+              : null
+          const targetEndpoint = recordedTargetEndpoint || coordinationFallbackEndpoint
           if (targetEndpoint) {
+            if (!recordedTargetEndpoint && coordinationFallbackEndpoint) {
+              console.warn(
+                '[HANDSHAKE-DEBUG] record.p2p_endpoint empty — falling back to coordination URL for accept relay:',
+                handshake_id,
+                'fallback:',
+                coordinationFallbackEndpoint,
+              )
+            }
             try {
-              console.log('[ACCEPT-7] Enqueue target:', record?.p2p_endpoint)
+              console.log('[ACCEPT-7] Enqueue target:', targetEndpoint)
               console.log('[HANDSHAKE-DEBUG] Enqueueing accept capsule for relay delivery', handshake_id, 'target:', targetEndpoint)
               const enqAccept = enqueueOutboundCapsule(db, handshake_id, targetEndpoint, capsule)
               if (!enqAccept.enqueued) {
@@ -2102,8 +2126,8 @@ export async function handleHandshakeRPC(
               console.log('[HANDSHAKE-DEBUG] Accept capsule enqueue threw:', err?.message)
             }
           } else {
-            console.log(
-              '[HANDSHAKE-DEBUG] Skipping accept capsule enqueue — no record.p2p_endpoint (coordination may still send context_sync)',
+            console.warn(
+              '[HANDSHAKE-DEBUG] Skipping accept capsule enqueue — no record.p2p_endpoint AND no coordination_url configured. Initiator will NOT receive the accept; the handshake will stall.',
               handshake_id,
             )
           }

@@ -221,7 +221,7 @@ export default function HandshakeInitiateModal({ onClose, onSuccess, presetInter
                   color: deviceRole === 'host' ? '#fff' : '#6b7280',
                   border: deviceRole === 'host' ? 'none' : '1px solid rgba(147,51,234,0.18)',
                 }}
-              >Host orchestrator</button>
+              >Host</button>
               <button
                 type="button"
                 onClick={() => setDeviceRole('sandbox')}
@@ -237,7 +237,7 @@ export default function HandshakeInitiateModal({ onClose, onSuccess, presetInter
                   color: deviceRole === 'sandbox' ? '#fff' : '#6b7280',
                   border: deviceRole === 'sandbox' ? 'none' : '1px solid rgba(147,51,234,0.18)',
                 }}
-              >Sandbox orchestrator</button>
+              >Sandbox</button>
             </div>
             <p style={{ margin: '6px 0 0', fontSize: '11px', color: '#6b7280', lineHeight: 1.45 }}>
               The other device must be set as <strong>{deviceRole === 'host' ? 'Sandbox' : 'Host'}</strong> for the handshake to complete.
