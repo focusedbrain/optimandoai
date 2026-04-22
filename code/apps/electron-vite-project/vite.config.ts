@@ -9,7 +9,7 @@ const root = __dirname
 const extSrc = path.resolve(root, '../extension-chromium/src')
 
 /** Parsed by scripts/kill-wr-desk.cjs and clear-build-caches (extension); keep in sync with extension outDir. */
-const ORCHESTRATOR_BUILD_STAMP = 'build00150'
+const ORCHESTRATOR_BUILD_STAMP = 'build00151'
 
 const oauthId =
   process.env.GOOGLE_OAUTH_CLIENT_ID?.trim() ||
@@ -53,6 +53,11 @@ export default defineConfig({
             __BUILD_TIME_GOOGLE_OAUTH_CLIENT_SECRET__: JSON.stringify(oauthSecret),
           },
           build: {
+            // ws relies on dynamic prototype methods (Sender.mask / Receiver.mask).
+            // Esbuild minification rewrites them to t.mask and the runtime crashes
+            // with "t.mask is not a function" on every received frame, freezing
+            // the coordination WebSocket. Disable minify on the main bundle.
+            minify: false,
             rollupOptions: {
               external: [
                 'canvas',
@@ -68,6 +73,11 @@ export default defineConfig({
                 'webidl-conversions',
                 /** CJS packages that use __dirname — must not be bundled into ESM main (ReferenceError at runtime) */
                 'open',
+                // Must be required at runtime, not bundled. Bundling+minifying ws
+                // mangles its internal Sender.mask/Receiver.mask prototype methods.
+                'ws',
+                'bufferutil',
+                'utf-8-validate',
               ],
             },
           },

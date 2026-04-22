@@ -421,9 +421,17 @@ describe('coordination-service', () => {
       contentType: 'application/json',
     })
 
+    // capsule_type is `accept` here so the request reaches `validateInput`
+    // (server.ts:486) and exercises the schema-validation path. Using
+    // `'initiate'` would be intercepted earlier by the initiate-specific
+    // guard (server.ts:380-440) which returns 400 for missing routing
+    // fields — not the 422 schema rejection this test pins. The original
+    // `'initiate'` value was unreachable for 422 even before that guard
+    // existed (the whitelist rejected it with 400 capsule_type_not_allowed
+    // before validateInput ran).
     const badCapsule = JSON.stringify({
       schema_version: 1,
-      capsule_type: 'initiate',
+      capsule_type: 'accept',
       handshake_id: hsId,
       // missing required: sender_id, capsule_hash, timestamp, wrdesk_policy_hash, seq
     })
@@ -619,6 +627,190 @@ describe('coordination-service', () => {
     })
     expect(r.status).toBe(400)
     expect(JSON.parse(r.body).error).toBe('capsule_type_not_allowed')
+  })
+
+  // ───────────────────────────────────────────────────────────────────────
+  // Initiate-specific guard — internal handshakes only, with same-principal
+  // routing. Server source: packages/coordination-service/src/server.ts,
+  // initiate guard immediately after RELAY_ALLOWED_TYPES check.
+  //
+  // The four cases below pin the contract surfaced to the Electron client's
+  // outbound queue so PAYLOAD_PERMANENT classification (outboundQueue.ts:183)
+  // routes each error correctly to terminal-no-retry.
+  // ───────────────────────────────────────────────────────────────────────
+
+  /** Build a minimally-routable internal initiate capsule. Schema validation
+   *  (validateInput at server.ts:486) runs AFTER the new guards, so for the
+   *  guard tests we only need the fields the guards inspect: capsule_type,
+   *  handshake_type, sender_device_id, receiver_device_id, handshake_id. The
+   *  success-path test (CS_20) accepts 422 because validateInput then rejects
+   *  the under-specified initiate body — what matters is the new guards have
+   *  passed (no 400 initiate_*, no 404 no_route_for_internal_initiate). */
+  function internalInitiateCapsule(
+    handshakeId: string,
+    senderDeviceId: string,
+    receiverDeviceId: string,
+    overrides: Record<string, unknown> = {},
+  ): string {
+    return JSON.stringify({
+      schema_version: 1,
+      capsule_type: 'initiate',
+      handshake_type: 'internal',
+      handshake_id: handshakeId,
+      sender_device_id: senderDeviceId,
+      receiver_device_id: receiverDeviceId,
+      ...overrides,
+    })
+  }
+
+  test('CS_20_initiate_internal_routed: same-principal route resolves → guards pass (no 400/404)', async () => {
+    const hsId = 'hs-cs20'
+    const userId = 'sameuser20'
+    const devA = 'dev-a-20'
+    const devB = 'dev-b-20'
+    await request(port, 'POST', '/beap/register-handshake', {
+      body: JSON.stringify({
+        handshake_id: hsId,
+        initiator_user_id: userId,
+        acceptor_user_id: userId,
+        initiator_device_id: devA,
+        acceptor_device_id: devB,
+      }),
+      auth: `test-${userId}-pro`,
+      contentType: 'application/json',
+    })
+
+    const r = await request(port, 'POST', '/beap/capsule', {
+      body: internalInitiateCapsule(hsId, devA, devB),
+      auth: `test-${userId}-pro`,
+      contentType: 'application/json',
+    })
+    // Guards passed. Either:
+    //   - 200/202 if the body somehow satisfied validateInput's coordination_service schema, or
+    //   - 422 because the minimal initiate body fails schema validation downstream.
+    // Both prove the new initiate guard did NOT reject the request.
+    expect([200, 202, 422]).toContain(r.status)
+    if (r.status === 400 || r.status === 404) {
+      const body = JSON.parse(r.body)
+      throw new Error(
+        `initiate guard rejected a valid same-principal route: status=${r.status} error=${body?.error}`,
+      )
+    }
+  })
+
+  test('CS_21_initiate_internal_no_route: registry has no acceptor device → 404 no_route_for_internal_initiate', async () => {
+    const hsId = 'hs-cs21'
+    const userId = 'sameuser21'
+    const devA = 'dev-a-21'
+    const devGhost = 'dev-ghost-21'
+    // Register only the initiator device — acceptor_device_id omitted.
+    await request(port, 'POST', '/beap/register-handshake', {
+      body: JSON.stringify({
+        handshake_id: hsId,
+        initiator_user_id: userId,
+        acceptor_user_id: userId,
+        initiator_device_id: devA,
+      }),
+      auth: `test-${userId}-pro`,
+      contentType: 'application/json',
+    })
+
+    const r = await request(port, 'POST', '/beap/capsule', {
+      body: internalInitiateCapsule(hsId, devA, devGhost),
+      auth: `test-${userId}-pro`,
+      contentType: 'application/json',
+    })
+    expect(r.status).toBe(404)
+    const body = JSON.parse(r.body)
+    expect(body.error).toBe('no_route_for_internal_initiate')
+    // Detail must NOT name which side is missing — that would leak whether the
+    // peer device exists in the account.
+    expect(body.detail).not.toMatch(/acceptor|initiator/i)
+    expect(body.detail).not.toContain(devA)
+    expect(body.detail).not.toContain(devGhost)
+  })
+
+  test('CS_22_initiate_missing_sender_device_id: 400 initiate_missing_routing_fields', async () => {
+    const hsId = 'hs-cs22'
+    const userId = 'sameuser22'
+    const devB = 'dev-b-22'
+    await request(port, 'POST', '/beap/register-handshake', {
+      body: JSON.stringify({
+        handshake_id: hsId,
+        initiator_user_id: userId,
+        acceptor_user_id: userId,
+        initiator_device_id: 'dev-a-22',
+        acceptor_device_id: devB,
+      }),
+      auth: `test-${userId}-pro`,
+      contentType: 'application/json',
+    })
+
+    const r = await request(port, 'POST', '/beap/capsule', {
+      body: JSON.stringify({
+        schema_version: 1,
+        capsule_type: 'initiate',
+        handshake_type: 'internal',
+        handshake_id: hsId,
+        // sender_device_id intentionally omitted
+        receiver_device_id: devB,
+      }),
+      auth: `test-${userId}-pro`,
+      contentType: 'application/json',
+    })
+    expect(r.status).toBe(400)
+    const body = JSON.parse(r.body)
+    expect(body.error).toBe('initiate_missing_routing_fields')
+    expect(Array.isArray(body.detail)).toBe(true)
+    expect(body.detail).toContain('sender_device_id')
+  })
+
+  test('CS_23_initiate_external_rejected: handshake_type missing or non-internal → 400 initiate_external_not_allowed', async () => {
+    // Cross-user registration — this is exactly the path the guard exists to
+    // protect (an external handshake whose initiate must NOT relay).
+    const hsId = 'hs-cs23'
+    await request(port, 'POST', '/beap/register-handshake', {
+      body: JSON.stringify({
+        handshake_id: hsId,
+        initiator_user_id: 'extinit23',
+        acceptor_user_id: 'extacc23',
+        initiator_device_id: 'dev-init-23',
+        acceptor_device_id: 'dev-acc-23',
+      }),
+      auth: 'test-extinit23-pro',
+      contentType: 'application/json',
+    })
+
+    // Case 1: handshake_type omitted entirely (the legacy/standard wire shape).
+    const r1 = await request(port, 'POST', '/beap/capsule', {
+      body: JSON.stringify({
+        schema_version: 1,
+        capsule_type: 'initiate',
+        handshake_id: hsId,
+        sender_device_id: 'dev-init-23',
+        receiver_device_id: 'dev-acc-23',
+      }),
+      auth: 'test-extinit23-pro',
+      contentType: 'application/json',
+    })
+    expect(r1.status).toBe(400)
+    expect(JSON.parse(r1.body).error).toBe('initiate_external_not_allowed')
+
+    // Case 2: handshake_type explicitly set to 'standard' — same rejection.
+    const r2 = await request(port, 'POST', '/beap/capsule', {
+      body: JSON.stringify({
+        schema_version: 1,
+        capsule_type: 'initiate',
+        handshake_type: 'standard',
+        handshake_id: hsId,
+        sender_device_id: 'dev-init-23',
+        receiver_device_id: 'dev-acc-23',
+      }),
+      auth: 'test-extinit23-pro',
+      contentType: 'application/json',
+    })
+    expect(r2.status).toBe(400)
+    expect(JSON.parse(r2.body).error).toBe('initiate_external_not_allowed')
   })
 
   test('health: GET /health → 200 with status when healthy', async () => {

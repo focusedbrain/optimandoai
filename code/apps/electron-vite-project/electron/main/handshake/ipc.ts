@@ -22,6 +22,7 @@ import {
   getPendingPlainEmails,
   markPlainEmailProcessed,
 } from './db'
+import { isInternalCoordinationIdentityComplete } from './internalPersistence'
 import { queryContextBlocks, queryContextBlocksWithGovernance } from './contextBlocks'
 import { authorizeAction, diagnoseHandshakeInactive, isHandshakeActive } from './enforcement'
 import { revokeHandshake } from './revocation'
@@ -1262,12 +1263,23 @@ export async function handleHandshakeRPC(
             console.log('[HANDSHAKE] Relay registration succeeded on initiate:', capsule.handshake_id)
           }
 
-          // Phase 3: push internal initiate capsules through the coordination relay directly.
-          // External handshakes still rely on email/file/USB delivery — no behavior change
-          // for the standard flow (byte-identical outbound). The coordination relay already
-          // accepts `initiate` as a valid capsule_type (see RELAY_HANDSHAKE_CAPSULE_TYPES in
-          // p2pTransport.ts) and the acceptor's WS handler routes it through the handshake
-          // pipeline the same way a .beap file import would.
+          // Internal initiates traverse the coordination relay with same-principal
+          // routing; external initiates are delivered out-of-band via email/file/USB
+          // and never reach this branch (`initHandshakeType === 'internal'` gate
+          // below). The relay's per-capsule_type whitelist
+          // (packages/coordination-service/src/server.ts:RELAY_ALLOWED_TYPES) includes
+          // `'initiate'` and an initiate-specific guard immediately after enforces
+          // (a) `handshake_type === 'internal'` on the wire — cross-user initiates
+          // are rejected with 400 `initiate_external_not_allowed`,
+          // (b) `sender_device_id` and `receiver_device_id` non-empty and distinct —
+          // missing fields produce 400 `initiate_missing_routing_fields`,
+          // (c) the (sender_device_id, receiver_device_id) pair resolves to a
+          // registered same-principal route — no route produces 404
+          // `no_route_for_internal_initiate`. The acceptor's WS handler then routes
+          // the initiate through the handshake pipeline exactly as a .beap file
+          // import would. Both routing fields are populated upstream by
+          // `resolvePairingCodeViaCoordination` so the server guards never fire on
+          // a healthy client.
           const shouldRelayInitiate =
             initHandshakeType === 'internal' &&
             p2pConfig.use_coordination === true &&
@@ -1727,6 +1739,116 @@ export async function handleHandshakeRPC(
             error:
               `${INTERNAL_ERROR_CODES.INTERNAL_PEER_DEVICE_MISMATCH}: This capsule was created for a different device. Open it on the device whose pairing code matches the one used to create it.`,
           }
+        }
+
+        // ─── Acceptor-side coordination-identity repair ──────────────────
+        // Pairing-code-routed initiates carry NO receiver_* fields on the wire
+        // (validateInternalInitiateCapsuleWire at internalPersistence.ts:111-121
+        // accepts that shape), so buildInitiateRecord (enforcement.ts:695-714)
+        // persists `acceptor_coordination_device_id`, `acceptor_device_role`,
+        // and `acceptor_device_name` as null. If we let buildAcceptCapsule and
+        // submitCapsuleViaRpc proceed against that incomplete record, the
+        // ACCEPTED-state row written by the receive pipeline carries
+        // `internal_coordination_identity_complete=false`, and the subsequent
+        // tryEnqueueContextSync (line 2139, inside the post-accept setImmediate)
+        // hits the INTERNAL_RELAY_ENDPOINTS_INCOMPLETE gate at
+        // contextSyncEnqueue.ts:91-95 (because internalRelayCapsuleWireOptsFromRecord
+        // at internalCoordinationWire.ts:34-40 early-returns null when
+        // internal_coordination_identity_complete !== true). The handshake then
+        // stalls in ACCEPTED forever.
+        //
+        // Repair the in-memory record with the local device's coordination
+        // identity here — BEFORE buildAcceptCapsule — and persist via
+        // updateHandshakeRecord, which auto-runs finalizeInternalHandshakePersistence
+        // (db.ts:1639-1640) and flips internal_coordination_identity_complete to
+        // true. submitCapsuleViaRpc's downstream buildAcceptRecord
+        // (enforcement.ts:720-786) preserves these acceptor_* columns via its
+        // `...existing` spread, so the repair survives the ACCEPTED-state write.
+        //
+        // All three input values are already validated:
+        //   - acceptLocalDev:    non-empty per the line 1630-1636 guard above.
+        //   - acceptDeviceRole:  validated by validateInternalEndpointFields at 1651.
+        //   - acceptDeviceName:  same.
+        //
+        // Pre-existing non-empty acceptor_* values (legacy UUID-routed initiate
+        // path where receiver_* came in on the wire) are preserved — only fill
+        // gaps. A mismatch between the persisted value and the local device's
+        // identity is logged at WARN; we do not overwrite, because the legacy
+        // path's value is the authoritative one signed into the initiate.
+        const repairFields = {
+          acceptor_coordination_device_id: acceptLocalDev.trim(),
+          acceptor_device_role: acceptDeviceRole as 'host' | 'sandbox',
+          acceptor_device_name: acceptDeviceName!.trim(),
+        }
+        const acceptRepairPatch: Partial<HandshakeRecord> = {}
+        if (!record.acceptor_coordination_device_id?.trim()) {
+          acceptRepairPatch.acceptor_coordination_device_id = repairFields.acceptor_coordination_device_id
+        } else if (record.acceptor_coordination_device_id.trim() !== repairFields.acceptor_coordination_device_id) {
+          console.warn(
+            '[HANDSHAKE-DEBUG] Internal acceptor identity repair: acceptor_coordination_device_id already populated and differs from local device — preserving persisted value',
+            { handshake_id, persisted: record.acceptor_coordination_device_id.trim(), local: repairFields.acceptor_coordination_device_id },
+          )
+        }
+        if (!record.acceptor_device_role) {
+          acceptRepairPatch.acceptor_device_role = repairFields.acceptor_device_role
+        } else if (record.acceptor_device_role !== repairFields.acceptor_device_role) {
+          console.warn(
+            '[HANDSHAKE-DEBUG] Internal acceptor identity repair: acceptor_device_role already populated and differs — preserving persisted value',
+            { handshake_id, persisted: record.acceptor_device_role, local: repairFields.acceptor_device_role },
+          )
+        }
+        if (!record.acceptor_device_name?.trim()) {
+          acceptRepairPatch.acceptor_device_name = repairFields.acceptor_device_name
+        } else if (record.acceptor_device_name.trim() !== repairFields.acceptor_device_name) {
+          console.warn(
+            '[HANDSHAKE-DEBUG] Internal acceptor identity repair: acceptor_device_name already populated and differs — preserving persisted value',
+            { handshake_id, persisted: record.acceptor_device_name.trim(), local: repairFields.acceptor_device_name },
+          )
+        }
+
+        if (Object.keys(acceptRepairPatch).length > 0) {
+          const repaired: HandshakeRecord = { ...record, ...acceptRepairPatch }
+          // updateHandshakeRecord runs finalizeInternalHandshakePersistence
+          // (db.ts:1640) which recomputes internal_routing_key and
+          // internal_coordination_identity_complete based on the new values.
+          // Let DB exceptions propagate — we do NOT want to silently degrade
+          // the way the post-submit try/catch at 1984-2018 currently does.
+          updateHandshakeRecord(db, repaired)
+          const reread = getHandshakeRecord(db, handshake_id)
+          if (!reread) {
+            return {
+              success: false,
+              error: 'INTERNAL_IDENTITY_INCOMPLETE',
+              detail: { missing: ['record_disappeared_after_repair'] },
+            } as any
+          }
+          record = reread
+        }
+
+        // Hard gate: after repair, identity MUST be complete. The only way to
+        // reach this branch with completeness still false is if one of the
+        // initiator-side fields (initiator_coordination_device_id,
+        // initiator_device_role, initiator_device_name) is missing on the
+        // persisted record — which means the initiate import was malformed
+        // and the renderer needs an explicit failure rather than a silently
+        // half-built ACCEPTED row.
+        if (!isInternalCoordinationIdentityComplete(record)) {
+          const missing: string[] = []
+          if (!record.initiator_coordination_device_id?.trim()) missing.push('initiator_coordination_device_id')
+          if (!record.acceptor_coordination_device_id?.trim()) missing.push('acceptor_coordination_device_id')
+          if (!record.initiator_device_role) missing.push('initiator_device_role')
+          if (!record.acceptor_device_role) missing.push('acceptor_device_role')
+          if (!record.initiator_device_name?.trim()) missing.push('initiator_device_name')
+          if (!record.acceptor_device_name?.trim()) missing.push('acceptor_device_name')
+          console.error(
+            '[HANDSHAKE] INTERNAL_IDENTITY_INCOMPLETE after acceptor repair — refusing to build accept capsule',
+            { handshake_id, missing },
+          )
+          return {
+            success: false,
+            error: 'INTERNAL_IDENTITY_INCOMPLETE',
+            detail: { missing },
+          } as any
         }
       }
 

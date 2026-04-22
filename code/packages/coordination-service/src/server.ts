@@ -377,10 +377,25 @@ function createRequestHandler(
           return
         }
 
-        // Reject initiate capsules — must be delivered out-of-band (file/email/USB)
-        // Message packages (qBEAP/pBEAP) are allowed and bypass capsule_type check
+        // Capsule-type whitelist for non-message-package envelopes.
+        // Source of truth: this constant. Mirrored on the client at
+        // apps/electron-vite-project/electron/main/handshake/p2pTransport.ts —
+        // both `RELAY_HANDSHAKE_CAPSULE_TYPES` and
+        // `COORDINATION_RELAY_ALLOWED_CAPSULE_TYPES` must stay in sync with
+        // this list. Message packages (qBEAP/pBEAP) bypass this check
+        // entirely (`isMessagePackage` above).
+        //
+        // `initiate` is conditionally allowed: only for internal (same-principal)
+        // handshakes, and only when both device ids are present and resolve to
+        // a registered same-principal route. The initiate-specific guard
+        // immediately below this whitelist enforces those preconditions and
+        // produces dedicated error codes (`initiate_external_not_allowed`,
+        // `initiate_missing_routing_fields`, `no_route_for_internal_initiate`)
+        // so the client can distinguish them from generic post-route failures.
+        // External (cross-user) initiates must still be delivered out-of-band
+        // (file/email/USB) — they are rejected here with 400.
         if (!isMessagePackage) {
-          const RELAY_ALLOWED_TYPES = ['accept', 'context_sync', 'refresh', 'revoke', 'inference:chat', 'inference:response']
+          const RELAY_ALLOWED_TYPES = ['accept', 'context_sync', 'refresh', 'revoke', 'inference:chat', 'inference:response', 'initiate']
           const capsuleType = typeof parsed?.capsule_type === 'string' ? parsed.capsule_type : ''
           if (!RELAY_ALLOWED_TYPES.includes(capsuleType)) {
             sendError(res, 400, {
@@ -388,6 +403,79 @@ function createRequestHandler(
               detail: `Type '${capsuleType || 'unknown'}' must be delivered out-of-band (file, email, USB). Relay accepts: ${RELAY_ALLOWED_TYPES.join(', ')}`,
             })
             return
+          }
+
+          // ── Initiate-specific guard: only internal handshakes may relay ──
+          if (capsuleType === 'initiate') {
+            const handshakeType =
+              typeof parsed?.handshake_type === 'string' ? parsed.handshake_type.trim() : ''
+            if (handshakeType !== 'internal') {
+              sendError(res, 400, {
+                error: 'initiate_external_not_allowed',
+                code: 'initiate_external_not_allowed',
+                detail:
+                  'External initiates must be delivered out-of-band (file, email, USB). Only internal handshakes may traverse the relay.',
+              })
+              return
+            }
+
+            // Require both routing ids non-empty and distinct. The client-side
+            // resolver (resolvePairingCodeViaCoordination, ipc.ts) populates
+            // sender_device_id and receiver_device_id on the wire before
+            // enqueue; this catches any pre-resolver client path that slips
+            // through. Reported field names match the wire keys verbatim so
+            // the renderer can surface them directly.
+            const initSenderIdRaw = parsed?.sender_device_id
+            const initReceiverIdRaw = parsed?.receiver_device_id
+            const initSenderId =
+              typeof initSenderIdRaw === 'string' && initSenderIdRaw.trim().length > 0
+                ? initSenderIdRaw.trim()
+                : ''
+            const initReceiverId =
+              typeof initReceiverIdRaw === 'string' && initReceiverIdRaw.trim().length > 0
+                ? initReceiverIdRaw.trim()
+                : ''
+            const initiateMissing: string[] = []
+            if (!initSenderId) initiateMissing.push('sender_device_id')
+            if (!initReceiverId) initiateMissing.push('receiver_device_id')
+            if (initSenderId && initReceiverId && initSenderId === initReceiverId) {
+              initiateMissing.push('sender_device_id_distinct_from_receiver_device_id')
+            }
+            if (initiateMissing.length > 0) {
+              sendError(res, 400, {
+                error: 'initiate_missing_routing_fields',
+                code: 'initiate_missing_routing_fields',
+                detail: initiateMissing,
+              })
+              return
+            }
+
+            // Resolve same-principal route here so we can emit the
+            // initiate-specific 404 instead of the generic 403 the existing
+            // post-whitelist path uses for accept/context_sync/etc. The
+            // detail string deliberately does NOT identify which side of the
+            // pair is missing from the registry — that distinction would
+            // leak whether the peer device exists in the account, which is
+            // pairing-code information the relay must not expose.
+            const initRoute = handshakeRegistry.getRecipientForSender(
+              handshakeId,
+              identity.userId,
+              initSenderId,
+            )
+            if (!initRoute) {
+              sendError(res, 404, {
+                error: 'no_route_for_internal_initiate',
+                code: 'no_route_for_internal_initiate',
+                detail:
+                  'Neither device is registered in the coordination service for this account, or the pairing code was never resolved.',
+              })
+              return
+            }
+            // Fall through to the existing post-whitelist routing block, which
+            // re-resolves the route (cheap SQLite lookup) and applies the
+            // same-principal device-id-match guard at lines 429-460. That
+            // belt-and-suspenders re-check is intentional — every relay POST
+            // converges on a single routing path regardless of capsule_type.
           }
         }
 

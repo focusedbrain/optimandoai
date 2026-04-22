@@ -202,13 +202,22 @@ describe('describeOutboundPayloadForLogs', () => {
         handshake_id: 'h',
       }),
     ).toBe(true)
+    // 'initiate' is conditionally allowed by the relay for internal handshakes
+    // (see packages/coordination-service/src/server.ts: RELAY_ALLOWED_TYPES and
+    // the initiate-specific guard immediately after). The client-side contract
+    // checker only validates wire shape — the server's per-capsule guard
+    // enforces handshake_type === 'internal' and same-principal routing,
+    // returning 400 'initiate_external_not_allowed' / 400
+    // 'initiate_missing_routing_fields' / 404 'no_route_for_internal_initiate'
+    // when those preconditions fail. So the contract checker correctly
+    // returns true for an initiate envelope here; rejection happens server-side.
     expect(
       coordinationRelayContractSatisfied({
         schema_version: 1,
         capsule_type: 'initiate',
         handshake_id: 'h',
       }),
-    ).toBe(false)
+    ).toBe(true)
   })
 
   test('analyzeSerializedCoordinationContract — reflects final JSON wire', () => {

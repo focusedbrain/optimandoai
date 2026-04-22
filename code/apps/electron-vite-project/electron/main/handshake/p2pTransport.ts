@@ -18,11 +18,36 @@ import {
 
 const TIMEOUT_MS = 30_000
 
-/** Handshake relay envelopes (top-level `capsule_type`) — must match coordination-service `/beap/capsule`. */
+/**
+ * Handshake relay envelopes (top-level `capsule_type`) — must match the server's
+ * `RELAY_ALLOWED_TYPES` at packages/coordination-service/src/server.ts.
+ *
+ * `'initiate'` is conditionally allowed: the server accepts it only for
+ * internal (same-principal) handshakes whose registered route resolves both
+ * device ids. Cross-user initiates are rejected with 400
+ * `initiate_external_not_allowed`. We list `'initiate'` here regardless because
+ * this client-side set determines whether we *attempt* a relay POST at all;
+ * the server is the source of truth for the per-capsule decision.
+ *
+ * Keep this set, `COORDINATION_RELAY_ALLOWED_CAPSULE_TYPES` below, and
+ * server.ts:RELAY_ALLOWED_TYPES synchronised.
+ */
 const RELAY_HANDSHAKE_CAPSULE_TYPES = new Set(['accept', 'context_sync', 'refresh', 'revoke', 'initiate'])
 
-/** Relay accepts these when not a native message package (coordination-service `RELAY_ALLOWED_TYPES`). */
-export const COORDINATION_RELAY_ALLOWED_CAPSULE_TYPES = ['accept', 'context_sync', 'refresh', 'revoke'] as const
+/**
+ * Relay accepts these when not a native message package — exact mirror of
+ * coordination-service `RELAY_ALLOWED_TYPES` (server.ts:380-392). Used by
+ * `coordinationRelayContractSatisfied` to short-circuit doomed POSTs.
+ *
+ * `'initiate'` is conditionally allowed by the server (same-principal only with
+ * resolved routing); the client-side contract checker only validates shape, not
+ * routing, so listing it here is correct — the server-side `initiate`-specific
+ * guard rejects cross-user / unrouted attempts with 400/404.
+ *
+ * Keep this list, `RELAY_HANDSHAKE_CAPSULE_TYPES` above, and
+ * server.ts:RELAY_ALLOWED_TYPES synchronised.
+ */
+export const COORDINATION_RELAY_ALLOWED_CAPSULE_TYPES = ['accept', 'context_sync', 'refresh', 'revoke', 'initiate'] as const
 
 /**
  * True iff coordination `/beap/capsule` would accept this body (same rules as coordination-service):

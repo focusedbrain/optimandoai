@@ -61,6 +61,7 @@
     "regenerator-runtime": "^0.14.1",
     "tesseract.js": "^5.1.1",
     "whatwg-url": "^5.0.0",
+    "ws": "^8.18.3",
     "zod": "^3.22.4",
     "zustand": "^5.0.11"
   },
@@ -86,8 +87,7 @@
     "typescript": "^5.2.2",
     "vite": "^5.1.6",
     "vite-plugin-electron": "^0.28.6",
-    "vite-plugin-electron-renderer": "^0.14.5",
-    "ws": "^8.18.3"
+    "vite-plugin-electron-renderer": "^0.14.5"
   },
   "main": "dist-electron/main.js"
 }
