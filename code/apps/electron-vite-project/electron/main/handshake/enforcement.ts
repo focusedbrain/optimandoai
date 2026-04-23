@@ -42,6 +42,7 @@ import { indexCapsuleBlocks } from './capsuleBlockIndexer'
 import { buildSuccessAuditEntry, buildDenialAuditEntry } from './auditLog'
 import { verifyCapsuleSignature } from './signatureKeys'
 import { verifyCapsuleHashIntegrity } from './steps/verifyCapsuleHash'
+import { logHandshakeKeyBinding } from './keyBindingDebug'
 /**
  * Map ValidatedCapsule's capsule_type to the handshake layer's CapsuleType.
  * internal_draft is not a handshake capsule type — it should not reach here.
@@ -250,6 +251,16 @@ export function processHandshakeCapsule(
     (input.capsuleType === 'handshake-refresh' || input.capsuleType === 'handshake-revoke' || input.capsuleType === 'handshake-context-sync') &&
     handshakeRecord?.counterparty_public_key
   ) {
+    logHandshakeKeyBinding({
+      source_function: 'processHandshakeCapsule:counterparty_ed25519_verify',
+      handshake_id: input.handshake_id,
+      local_role: handshakeRecord.local_role,
+      capsule_type: input.capsuleType,
+      old_counterparty: handshakeRecord.counterparty_public_key,
+      new_counterparty: handshakeRecord.counterparty_public_key,
+      sender_public_key: senderPublicKey,
+      record: handshakeRecord,
+    })
     if (senderPublicKey !== handshakeRecord.counterparty_public_key) {
       console.error('[HANDSHAKE] SIGNATURE_INVALID key mismatch:', {
         capsuleType: input.capsuleType,
@@ -653,6 +664,17 @@ function buildInitiateRecord(
   senderX25519: string | null,
   senderMlkem768: string | null,
 ): HandshakeRecord {
+  const newCounterparty = senderPublicKey || null
+  logHandshakeKeyBinding({
+    source_function: 'buildInitiateRecord',
+    handshake_id: input.handshake_id,
+    local_role: 'acceptor',
+    capsule_type: 'initiate',
+    old_counterparty: null,
+    new_counterparty: newCounterparty,
+    sender_public_key: senderPublicKey,
+    record: null,
+  })
   return {
     handshake_id: input.handshake_id,
     relationship_id: input.relationship_id,
@@ -688,7 +710,7 @@ function buildInitiateRecord(
     acceptor_context_commitment: null,
     p2p_endpoint: p2pEndpoint,
     counterparty_p2p_token: counterpartyP2PToken,
-    counterparty_public_key: senderPublicKey || null,
+    counterparty_public_key: newCounterparty,
     peer_x25519_public_key_b64: senderX25519,
     peer_mlkem768_public_key_b64: senderMlkem768,
     receiver_email: input.receiver_email || null,
@@ -748,6 +770,25 @@ function buildAcceptRecord(
     existingPeerMlkem: existing.peer_mlkem768_public_key_b64?.substring(0, 20) || 'NULL',
   })
 
+  // counterparty_public_key = remote party's Ed25519 signing key (inbound verify expects this).
+  // Accept capsule `sender_public_key` is the ACCEPTOR's key — use it only on the initiator row
+  // to store the acceptor. On the acceptor row, `senderPublicKey` is our own; never use it here.
+  const existingCp = existing.counterparty_public_key?.trim() ?? ''
+  const newCounterpartyAccept: string | null =
+    existing.local_role === 'initiator'
+      ? (existingCp.length > 0 ? existing.counterparty_public_key!.trim() : senderPublicKey)
+      : (existingCp.length > 0 ? existing.counterparty_public_key!.trim() : null)
+  logHandshakeKeyBinding({
+    source_function: 'buildAcceptRecord',
+    handshake_id: existing.handshake_id,
+    local_role: existing.local_role,
+    capsule_type: 'accept',
+    old_counterparty: existing.counterparty_public_key,
+    new_counterparty: newCounterpartyAccept,
+    sender_public_key: senderPublicKey,
+    record: existing,
+  })
+
   return {
     ...existing,
     state: HS.ACCEPTED,  // ACTIVE only after context roundtrip (see buildContextSyncRecord)
@@ -771,11 +812,9 @@ function buildAcceptRecord(
     acceptor_context_commitment: input.context_commitment ?? null,
     p2p_endpoint: existing.p2p_endpoint ?? p2pEndpoint,
     counterparty_p2p_token: counterpartyP2PToken ?? existing.counterparty_p2p_token,
-    // counterparty_public_key must stay as the INITIATOR's key (set during initiate import).
-    // senderPublicKey here is the acceptor's own key (from the outbound accept capsule being
-    // processed via submitCapsuleViaRpc). Overwriting it with the acceptor's own key causes
-    // SIGNATURE_INVALID when the initiator's context_sync later arrives.
-    counterparty_public_key: existing.counterparty_public_key || senderPublicKey,
+    // Acceptor: counterparty stays the initiator's key from initiate; never the local acceptor sender key.
+    // Initiator: set to acceptor's key from this capsule when not already stored.
+    counterparty_public_key: newCounterpartyAccept,
     peer_x25519_public_key_b64: shouldUpdatePeerFromAcceptCapsule
       ? (senderX25519 ?? existing.peer_x25519_public_key_b64 ?? null)
       : (existing.peer_x25519_public_key_b64 ?? null),

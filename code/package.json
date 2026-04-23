@@ -28,7 +28,8 @@
     "release:verify": "node scripts/release/verify-manifest.mjs",
     "lint": "eslint .",
     "format": "prettier -w .",
-    "format:check": "prettier -c ."
+    "format:check": "prettier -c .",
+    "handshake:repair-counterparty": "tsx apps/electron-vite-project/scripts/repair-handshake-counterparty.ts"
   },
   "devDependencies": {
     "eslint": "^9.34.0",
@@ -36,6 +37,7 @@
     "husky": "^9.1.7",
     "lint-staged": "^15.5.2",
     "prettier": "^3.3.0",
+    "tsx": "^4.21.0",
     "typescript": "^5.5.0",
     "typescript-eslint": "^8.41.0",
     "vitest": "^2.0.0"

@@ -6,6 +6,8 @@
  */
 
 import { getP2PConfig } from './p2pConfig'
+import { getHandshakeRecord } from '../handshake/db'
+import { logHandshakeKeyBinding } from '../handshake/keyBindingDebug'
 
 /** Decode JWT payload for debug — returns aud value or null */
 function decodeJwtAud(token: string): string | string[] | null {
@@ -115,6 +117,18 @@ export async function registerHandshakeWithRelay(
         console.error('[RELAY-REG] Failed:', { handshakeId, status: res.status, body: responseText })
         return { success: false, error: res.status === 401 ? 'Auth failed' : `HTTP ${res.status}` }
       }
+      try {
+        const row = getHandshakeRecord(db, handshakeId)
+        logHandshakeKeyBinding({
+          source_function: 'registerHandshakeWithRelay:coordination_http_200',
+          handshake_id: handshakeId,
+          local_role: row?.local_role,
+          capsule_type: null,
+          old_counterparty: row?.counterparty_public_key,
+          new_counterparty: row?.counterparty_public_key,
+          record: row,
+        })
+      } catch { /* read-only log */ }
       console.log('[RELAY-REG] Success:', { handshakeId, status: res.status })
       return { success: true }
     } catch (err: any) {
@@ -164,7 +178,18 @@ export async function registerHandshakeWithRelay(
       console.error('[Relay] Register handshake failed:', res.status, responseText)
       return { success: false, error: res.status === 401 ? 'Relay auth failed' : `HTTP ${res.status}` }
     }
-
+    try {
+      const row = getHandshakeRecord(db, handshakeId)
+      logHandshakeKeyBinding({
+        source_function: 'registerHandshakeWithRelay:remote_relay_http_200',
+        handshake_id: handshakeId,
+        local_role: row?.local_role,
+        capsule_type: null,
+        old_counterparty: row?.counterparty_public_key,
+        new_counterparty: row?.counterparty_public_key,
+        record: row,
+      })
+    } catch { /* read-only log */ }
     return { success: true }
   } catch (err: any) {
     const msg = err?.message ?? String(err)

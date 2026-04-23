@@ -10,6 +10,22 @@
  */
 
 import { describe, test, expect, beforeEach, vi } from 'vitest'
+import os from 'node:os'
+
+// Email gateway reads `app.getPath` at module-load time via `ingestion/ipc` → `emailTransport` →
+// `messageRouter` (same pattern as ipc.internal.relayPush.test.ts).
+vi.mock('electron', () => ({
+  app: { getPath: () => os.tmpdir() },
+  safeStorage: { isEncryptionAvailable: () => false },
+  ipcMain: { handle: () => undefined, on: () => undefined, removeHandler: () => undefined },
+  BrowserWindow: class {
+    webContents = { send: () => undefined }
+    static getAllWindows() {
+      return []
+    }
+  },
+}))
+
 import { buildTestSession } from '../sessionFactory'
 import { createHandshakeTestDb } from './handshakeTestDb'
 import { migrateIngestionTables } from '../../ingestion/persistenceDb'

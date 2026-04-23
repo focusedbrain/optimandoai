@@ -18,6 +18,7 @@ import type {
   HandshakeState,
 } from './types'
 import { finalizeInternalHandshakePersistence } from './internalPersistence'
+import { logHandshakeKeyBinding, warnIfCounterpartyKeySuspiciousOverwrite } from './keyBindingDebug'
 
 // ── Migration ──
 
@@ -1592,12 +1593,33 @@ export function updateHandshakeCounterpartyKey(
   handshakeId: string,
   counterparty_public_key: string,
 ): void {
+  // Protocol: explicit counterparty set/replace (unit tests, harness repair, rare manual key repair).
+  // Intentionally not guarded by warnIfCounterpartyKeySuspiciousOverwrite — replacing a stored
+  // value is the purpose of this entry point.
+  const prev = getHandshakeRecord(db, handshakeId)
+  logHandshakeKeyBinding({
+    source_function: 'updateHandshakeCounterpartyKey',
+    handshake_id: handshakeId,
+    local_role: prev?.local_role,
+    old_counterparty: prev?.counterparty_public_key,
+    new_counterparty: counterparty_public_key,
+    record: prev,
+  })
   db.prepare(
     'UPDATE handshakes SET counterparty_public_key = ? WHERE handshake_id = ?',
   ).run(counterparty_public_key, handshakeId)
 }
 
 export function insertHandshakeRecord(db: any, record: HandshakeRecord): void {
+  logHandshakeKeyBinding({
+    source_function: 'insertHandshakeRecord',
+    handshake_id: record.handshake_id,
+    local_role: record.local_role,
+    capsule_type: null,
+    old_counterparty: null,
+    new_counterparty: record.counterparty_public_key,
+    record,
+  })
   const s = serializeHandshakeRecord(finalizeInternalHandshakePersistence(record))
   db.prepare(`INSERT INTO handshakes (
     handshake_id, relationship_id, state, initiator_json, acceptor_json,
@@ -1637,6 +1659,22 @@ export function insertHandshakeRecord(db: any, record: HandshakeRecord): void {
 }
 
 export function updateHandshakeRecord(db: any, record: HandshakeRecord): void {
+  const prev = getHandshakeRecord(db, record.handshake_id)
+  warnIfCounterpartyKeySuspiciousOverwrite(
+    record.handshake_id,
+    'updateHandshakeRecord',
+    prev?.counterparty_public_key,
+    record.counterparty_public_key,
+  )
+  logHandshakeKeyBinding({
+    source_function: 'updateHandshakeRecord',
+    handshake_id: record.handshake_id,
+    local_role: record.local_role,
+    capsule_type: null,
+    old_counterparty: prev?.counterparty_public_key,
+    new_counterparty: record.counterparty_public_key,
+    record: prev,
+  })
   const s = serializeHandshakeRecord(finalizeInternalHandshakePersistence(record))
   db.prepare(`UPDATE handshakes SET
     relationship_id = @relationship_id, state = @state,
@@ -1685,6 +1723,25 @@ export function updateHandshakeRecord(db: any, record: HandshakeRecord): void {
 export function getHandshakeRecord(db: any, handshakeId: string): HandshakeRecord | null {
   const row = db.prepare('SELECT * FROM handshakes WHERE handshake_id = ?').get(handshakeId) as any
   return row ? deserializeHandshakeRecord(row) : null
+}
+
+/**
+ * P2P BEAP package blobs (if any) for a handshake — used by the offline
+ * `counterpartyRepair` dev tool to recover a wire `sender_public_key` when the row
+ * is poisoned. Read-only; does not touch verification.
+ */
+export function getP2pPendingPackageJsonsForHandshake(db: any, handshakeId: string): string[] {
+  try {
+    const cols = getColumnNames(db, 'p2p_pending_beap')
+    if (!cols.has('package_json') && !cols.has('raw_package')) return []
+    const col = cols.has('package_json') ? 'package_json' : 'raw_package'
+    const rows = db.prepare(
+      `SELECT ${col} AS j FROM p2p_pending_beap WHERE handshake_id = ? AND trim(coalesce(${col},'')) != ''`,
+    ).all(handshakeId) as Array<{ j: string }>
+    return rows.map((r) => r.j)
+  } catch {
+    return []
+  }
 }
 
 /** Recompute `internal_routing_key` / `internal_coordination_identity_complete` after raw SQL updates. */
