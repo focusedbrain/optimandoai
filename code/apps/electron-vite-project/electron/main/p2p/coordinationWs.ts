@@ -541,17 +541,9 @@ export function createCoordinationWsClient(
     let wsUrlForConnect = wsUrl
     let deviceIdParam = ''
     try {
-      const { getInstanceId } = require('../orchestrator/orchestratorModeStore') as {
-        getInstanceId: () => string | undefined
-      }
-      const did = getInstanceId?.()
-      // Always send device_id when we have any non-empty value. The WS
-      // map key MUST match the device id used in handshake registrations
-      // (initiator_device_id / acceptor_device_id) and on the capsule
-      // wire (sender_device_id / receiver_device_id). Suppressing this
-      // registers the socket under userId:default while the handshake
-      // registry holds a UUID, breaking live push (server.ts getClientByDevice
-      // returns undefined → 202 "recipient offline" despite a live WS).
+      const mod = await import('../orchestrator/orchestratorModeStore')
+      const getInstanceId = mod.getInstanceId as (() => string | undefined) | undefined
+      const did = typeof getInstanceId === 'function' ? getInstanceId() : undefined
       const didTrimmed = typeof did === 'string' ? did.trim() : ''
       if (didTrimmed.length > 0) {
         deviceIdParam = `device_id=${encodeURIComponent(didTrimmed)}`
