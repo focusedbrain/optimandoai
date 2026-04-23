@@ -545,11 +545,21 @@ export function createCoordinationWsClient(
         getInstanceId: () => string | undefined
       }
       const did = getInstanceId?.()
-      if (did && did !== 'default') {
-        deviceIdParam = `device_id=${encodeURIComponent(did)}`
+      // Always send device_id when we have any non-empty value. The WS
+      // map key MUST match the device id used in handshake registrations
+      // (initiator_device_id / acceptor_device_id) and on the capsule
+      // wire (sender_device_id / receiver_device_id). Suppressing this
+      // registers the socket under userId:default while the handshake
+      // registry holds a UUID, breaking live push (server.ts getClientByDevice
+      // returns undefined → 202 "recipient offline" despite a live WS).
+      const didTrimmed = typeof did === 'string' ? did.trim() : ''
+      if (didTrimmed.length > 0) {
+        deviceIdParam = `device_id=${encodeURIComponent(didTrimmed)}`
+      } else {
+        console.warn('[Coordination] getInstanceId() returned empty — WS will register under userId:default. Handshake delivery to this device will fail until the orchestrator instanceId is populated.')
       }
-    } catch {
-      // No device_id available — relay will use 'default', which is fine for cross-party
+    } catch (err: any) {
+      console.warn('[Coordination] orchestratorModeStore unavailable when building WS URL — WS will register under userId:default. Handshake delivery to this device will fail. Error:', err?.message)
     }
     if (deviceIdParam) {
       const separator = wsUrlForConnect.includes('?') ? '&' : '?'
