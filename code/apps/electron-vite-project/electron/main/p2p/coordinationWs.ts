@@ -471,6 +471,13 @@ export function createCoordinationWsClient(
     lastActivityAt = Date.now()
     heartbeatTimer = setInterval(() => {
       if (!ws || ws.readyState !== WebSocket.OPEN) return
+
+      try {
+        ws.ping()
+      } catch (err: any) {
+        console.warn('[Coordination] Heartbeat ping failed:', err?.message)
+      }
+
       const staleSec = (Date.now() - lastActivityAt) / 1000
       if (staleSec > 90) {
         console.warn('[Coordination] WS stale for', Math.round(staleSec), 's — forcing reconnect')
@@ -696,6 +703,10 @@ export function createCoordinationWsClient(
       ws.on('ping', () => {
         bumpActivity()
         ws?.pong()
+      })
+
+      ws.on('pong', () => {
+        bumpActivity()
       })
     })
   }

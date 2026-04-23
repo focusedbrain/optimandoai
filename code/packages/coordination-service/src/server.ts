@@ -585,6 +585,7 @@ function createRequestHandler(
             handshakeId,
             identity.userId,
             recipientUserId,
+            recipientRoute.deviceId ?? null,
             body,
             config.capsule_retention_days,
           )

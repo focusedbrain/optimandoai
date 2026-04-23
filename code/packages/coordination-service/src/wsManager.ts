@@ -111,7 +111,7 @@ export function createWsManager(store: StoreAdapter): WsManagerAdapter {
       ws.on('close', () => removeClient(clientKey))
       ws.on('error', () => removeClient(clientKey))
 
-      const pending = store.getPendingCapsules(userId, email)
+      const pending = store.getPendingCapsules(userId, email, did)
       for (const { id, capsule_json } of pending) {
         try {
           ws.send(JSON.stringify({ type: 'capsule', id, capsule: JSON.parse(capsule_json) }))

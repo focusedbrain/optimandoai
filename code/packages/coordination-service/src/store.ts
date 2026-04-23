@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS coordination_capsules (
   handshake_id TEXT NOT NULL,
   sender_user_id TEXT NOT NULL,
   recipient_user_id TEXT NOT NULL,
+  recipient_device_id TEXT,
   capsule_json TEXT NOT NULL,
   received_at TEXT NOT NULL,
   pushed_at TEXT,
@@ -102,10 +103,15 @@ export interface StoreAdapter {
     handshakeId: string,
     senderUserId: string,
     recipientUserId: string,
+    recipientDeviceId: string | null | undefined,
     capsuleJson: string,
     retentionDays: number,
   ): void
-  getPendingCapsules(userId: string, email?: string | null): Array<{ id: string; capsule_json: string }>
+  getPendingCapsules(
+    userId: string,
+    email?: string | null,
+    deviceId?: string | null,
+  ): Array<{ id: string; capsule_json: string }>
   markPushed(id: string): void
   acknowledgeCapsules(ids: string[], userId: string, email?: string | null): number
   countPending(): number
@@ -129,6 +135,11 @@ export function createStore(config: CoordinationConfig): StoreAdapter {
       if (db) return
       db = new Database(config.db_path)
       db.exec(SCHEMA)
+      try {
+        db.exec('ALTER TABLE coordination_capsules ADD COLUMN recipient_device_id TEXT')
+      } catch {
+        // Column already exists — SQLite throws on duplicate ADD COLUMN.
+      }
       applyHandshakeRegistryMigrations(db)
     },
 
@@ -154,6 +165,7 @@ export function createStore(config: CoordinationConfig): StoreAdapter {
       handshakeId: string,
       senderUserId: string,
       recipientUserId: string,
+      recipientDeviceId: string | null | undefined,
       capsuleJson: string,
       retentionDays: number,
     ): void {
@@ -161,14 +173,51 @@ export function createStore(config: CoordinationConfig): StoreAdapter {
       const now = new Date().toISOString()
       const expires = new Date(Date.now() + retentionDays * 24 * 60 * 60 * 1000).toISOString()
       d.prepare(
-        `INSERT INTO coordination_capsules (id, handshake_id, sender_user_id, recipient_user_id, capsule_json, received_at, expires_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      ).run(id, handshakeId, senderUserId, recipientUserId, capsuleJson, now, expires)
+        `INSERT INTO coordination_capsules (id, handshake_id, sender_user_id, recipient_user_id, recipient_device_id, capsule_json, received_at, expires_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(
+        id,
+        handshakeId,
+        senderUserId,
+        recipientUserId,
+        recipientDeviceId ?? null,
+        capsuleJson,
+        now,
+        expires,
+      )
     },
 
-    getPendingCapsules(userId: string, email?: string | null): Array<{ id: string; capsule_json: string }> {
+    getPendingCapsules(
+      userId: string,
+      email?: string | null,
+      deviceId?: string | null,
+    ): Array<{ id: string; capsule_json: string }> {
       const d = ensureDb()
       const now = new Date().toISOString()
+      const dev =
+        typeof deviceId === 'string' && deviceId.trim().length > 0 ? deviceId.trim() : null
+
+      if (dev) {
+        if (email?.includes('@')) {
+          const rows = d
+            .prepare(
+              `SELECT id, capsule_json FROM coordination_capsules
+               WHERE (recipient_user_id = ? OR recipient_user_id = ?) AND (recipient_device_id = ? OR recipient_device_id IS NULL) AND acknowledged_at IS NULL AND expires_at > ?
+               ORDER BY received_at ASC`,
+            )
+            .all(userId, email, dev, now) as Array<{ id: string; capsule_json: string }>
+          return rows
+        }
+        const rows = d
+          .prepare(
+            `SELECT id, capsule_json FROM coordination_capsules
+             WHERE recipient_user_id = ? AND (recipient_device_id = ? OR recipient_device_id IS NULL) AND acknowledged_at IS NULL AND expires_at > ?
+             ORDER BY received_at ASC`,
+          )
+          .all(userId, dev, now) as Array<{ id: string; capsule_json: string }>
+        return rows
+      }
+
       if (email?.includes('@')) {
         const rows = d.prepare(
           `SELECT id, capsule_json FROM coordination_capsules
