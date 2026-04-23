@@ -20,7 +20,7 @@ import type {
   AuthorizationResult,
   ActionType,
 } from './types'
-import { ReasonCode, HandshakeState as HS, INPUT_LIMITS } from './types'
+import { HandshakeState as HS, INPUT_LIMITS, ReasonCode } from './types'
 import type { ValidatedCapsule } from '../ingestion/types'
 import { runHandshakeVerification } from './pipeline'
 import { HANDSHAKE_PIPELINE } from './steps'
@@ -43,6 +43,11 @@ import { buildSuccessAuditEntry, buildDenialAuditEntry } from './auditLog'
 import { verifyCapsuleSignature } from './signatureKeys'
 import { verifyCapsuleHashIntegrity } from './steps/verifyCapsuleHash'
 import { logHandshakeKeyBinding } from './keyBindingDebug'
+import { getNextStateAfterInboundContextSync } from './contextSyncActiveGate'
+export { getNextStateAfterInboundContextSync }
+import { getP2PConfig } from '../p2p/p2pConfig'
+import { registerHandshakeWithRelay } from '../p2p/relaySync'
+import { retryDeferredInitialContextSyncForInternalHandshake } from './contextSyncEnqueue'
 /**
  * Map ValidatedCapsule's capsule_type to the handshake layer's CapsuleType.
  * internal_draft is not a handshake capsule type — it should not reach here.
@@ -412,12 +417,20 @@ export function processHandshakeCapsule(
         incoming_seq: input.seq,
         state_before: handshakeRecord?.state,
         context_sync_pending: (handshakeRecord as any)?.context_sync_pending,
+        last_seq_sent: handshakeRecord?.last_seq_sent,
         last_seq_received: handshakeRecord?.last_seq_received,
         last_capsule_hash_received: handshakeRecord?.last_capsule_hash_received,
         incoming_prev_hash: (capsuleObj as any)?.prev_hash,
       })
       record = buildContextSyncRecord(handshakeRecord!, input)
-      console.log('[HANDSHAKE] context_sync result state:', record.state, 'ownSent=', !(handshakeRecord as any)?.context_sync_pending)
+      console.log(
+        '[HANDSHAKE] context_sync result state:',
+        record.state,
+        'ownDurableContextSync=',
+        (handshakeRecord as any)?.last_seq_sent >= 1,
+        'last_seq_sent=',
+        (handshakeRecord as any)?.last_seq_sent,
+      )
       updateHandshakeRecord(db, record)
     } else if (input.capsuleType === 'handshake-revoke') {
       record = buildRevokeRecord(handshakeRecord!, input)
@@ -510,6 +523,12 @@ export function processHandshakeCapsule(
 
   try {
     tx()
+    if (input.capsuleType === 'handshake-accept') {
+      const r = getHandshakeRecord(db, input.handshake_id)
+      if (r?.handshake_type === 'internal' && r.local_role === 'initiator' && r.state === HS.ACCEPTED) {
+        scheduleInternalInitiatorPostAcceptCoordinationRepair(db, input.handshake_id, ssoSession)
+      }
+    }
     // Index blocks into capsule_blocks for query-time search (no parsing at query).
     // Fire-and-forget: indexing runs after commit; failures are logged, not surfaced.
     if (blocksStored > 0) {
@@ -789,7 +808,7 @@ function buildAcceptRecord(
     record: existing,
   })
 
-  return {
+  const next: HandshakeRecord = {
     ...existing,
     state: HS.ACCEPTED,  // ACTIVE only after context roundtrip (see buildContextSyncRecord)
     acceptor: {
@@ -822,6 +841,90 @@ function buildAcceptRecord(
       ? (senderMlkem768 ?? existing.peer_mlkem768_public_key_b64 ?? null)
       : (existing.peer_mlkem768_public_key_b64 ?? null),
   }
+
+  if (existing.handshake_type === 'internal' && existing.local_role === 'initiator') {
+    // Initiator row: on internal accept, wire `sender_*` is the acceptor’s coordination identity.
+    const acceptorDev = input.sender_device_id?.trim() || undefined
+    const acceptorRole = input.sender_device_role ?? undefined
+    const acceptorName = input.sender_computer_name?.trim() || undefined
+    return {
+      ...next,
+      // Fields: acceptor coordination endpoint + `finalizeInternalHandshakePersistence` → internal_coordination_identity_complete
+      acceptor_coordination_device_id: acceptorDev ?? next.acceptor_coordination_device_id ?? null,
+      acceptor_device_role: acceptorRole ?? next.acceptor_device_role ?? null,
+      acceptor_device_name: acceptorName ?? next.acceptor_device_name ?? null,
+      internal_peer_device_id: acceptorDev ?? next.internal_peer_device_id ?? null,
+      internal_peer_device_role: acceptorRole ?? next.internal_peer_device_role ?? null,
+      internal_peer_computer_name: acceptorName ?? next.internal_peer_computer_name ?? null,
+    }
+  }
+  return next
+}
+
+/**
+ * After initiator ingests an internal accept, coordination routing may be complete and relay
+ * may need a second register-handshake (acceptor device id was unknown at initiate). Fire-and-forget
+ * to avoid static import of ipc (ipc imports enforcement for authorize). Then retry deferred
+ * initial context_sync.
+ */
+function scheduleInternalInitiatorPostAcceptCoordinationRepair(
+  db: any,
+  handshakeId: string,
+  ssoSession: SSOSession,
+): void {
+  setImmediate(() => {
+    void (async () => {
+      try {
+        const ipc = await import('./ipc')
+        const getToken = () => ipc.getCoordinationOidcToken()
+        const rec = getHandshakeRecord(db, handshakeId)
+        if (!rec) return
+        if (rec.handshake_type !== 'internal' || rec.local_role !== 'initiator' || rec.state !== HS.ACCEPTED) {
+          return
+        }
+        if (!rec.acceptor) {
+          return
+        }
+
+        const cfg = getP2PConfig(db)
+        if (
+          cfg.relay_mode !== 'disabled' &&
+          cfg.use_coordination &&
+          rec.internal_coordination_identity_complete === true
+        ) {
+          const iid = rec.initiator_coordination_device_id?.trim() ?? ''
+          const aid = rec.acceptor_coordination_device_id?.trim() ?? ''
+          if (iid && aid) {
+            const reg = await registerHandshakeWithRelay(
+              db,
+              handshakeId,
+              '',
+              rec.acceptor.email ?? rec.initiator.email,
+              getToken,
+              {
+                initiator_user_id: rec.initiator.sub ?? rec.initiator.wrdesk_user_id,
+                acceptor_user_id: rec.acceptor.sub ?? rec.acceptor.wrdesk_user_id,
+                initiator_email: rec.initiator.email,
+                acceptor_email: rec.acceptor.email,
+                initiator_device_id: iid,
+                acceptor_device_id: aid,
+                handshake_type: 'internal',
+              },
+            )
+            if (!reg.success) {
+              console.warn('[HANDSHAKE] Post-accept relay re-register (initiator, repair):', reg.error, handshakeId)
+            }
+          }
+        }
+
+        const session = ipc.getCurrentSession() ?? ssoSession
+        // Exact retry: deferred initial context_sync (e.g. INTERNAL_RELAY_ENDPOINTS_INCOMPLETE) for this id only
+        retryDeferredInitialContextSyncForInternalHandshake(db, handshakeId, session, getToken)
+      } catch (e: any) {
+        console.warn('[HANDSHAKE] scheduleInternalInitiatorPostAcceptCoordinationRepair:', e?.message ?? e)
+      }
+    })()
+  })
 }
 
 function buildRefreshRecord(
@@ -839,16 +942,14 @@ function buildRefreshRecord(
 
 /** context-sync: updates seq/hash; ACCEPTED → ACTIVE when roundtrip completes.
  * Only transition to ACTIVE when BOTH: (1) received other's context_sync (seq>=1),
- * (2) own context_sync was sent (context_sync_pending=false).
- * If own is still pending (vault was locked), stay ACCEPTED until we send ours.
+ * (2) own context_sync is durably enqueued (tryEnqueue → `last_seq_sent` + `last_capsule_hash_sent`).
+ * `context_sync_pending` alone is not used for this gate.
  */
 function buildContextSyncRecord(
   existing: HandshakeRecord,
   input: VerifiedCapsuleInput,
 ): HandshakeRecord {
-  const receivedContextSync = existing.state === HS.ACCEPTED && input.seq >= 1
-  const ownSent = !existing.context_sync_pending
-  const nextState = receivedContextSync && ownSent ? HS.ACTIVE : existing.state
+  const nextState = getNextStateAfterInboundContextSync(existing, input.seq)
   if (nextState === HS.ACTIVE) {
     if (!existing.peer_x25519_public_key_b64?.trim() || !existing.peer_mlkem768_public_key_b64?.trim()) {
       console.error('[HANDSHAKE] CRITICAL: Handshake ACTIVE but missing peer BEAP keys!', {

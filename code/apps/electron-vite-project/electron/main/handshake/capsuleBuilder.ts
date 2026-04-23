@@ -14,7 +14,8 @@
  * Key correctness invariants enforced here:
  *   - schema_version is always 2
  *   - seq is always 0 for initiate and accept (independent chains)
- *   - seq for refresh/revoke is last_seq_received + 1
+ *   - seq for refresh/revoke/context_sync (post-accept) is nextOutboundHandshakeSeq
+ *     (max(last_seq_sent, last_seq_received) + 1) so a local send cannot reuse seq
  *   - prev_hash is absent on initiate/accept, required on refresh (and ignored on revoke)
  *   - sharing_mode is absent on initiate, required on accept
  *   - capsule_hash is computed over canonical fields (SHA-256)
@@ -336,6 +337,21 @@ export interface AcceptOptions {
   receiverComputerName?: string;
 }
 
+/**
+ * Monotonic next seq for our outbound post-accept capsules, shared by context_sync, refresh, and revoke.
+ * `last_seq_sent` is the highest seq we have already enqueued from this side; it must be included when
+ * it can exceed `last_seq_received` (e.g. after we sent context_sync with seq 1 while still having
+ * `last_seq_received === 0`).
+ */
+export function nextOutboundHandshakeSeq(params: {
+  last_seq_sent?: number
+  last_seq_received: number
+}): number {
+  const sent = params.last_seq_sent ?? 0
+  const rec = params.last_seq_received
+  return Math.max(sent, rec) + 1
+}
+
 export interface RefreshOptions {
   /** The handshake_id of the active handshake */
   handshake_id: string;
@@ -343,6 +359,8 @@ export interface RefreshOptions {
   counterpartyUserId: string;
   /** The counterparty's email */
   counterpartyEmail: string;
+  /** The highest seq we have already sent on this handshake (outbound); omit if 0 */
+  last_seq_sent?: number;
   /** The seq of the last capsule received FROM the counterparty */
   last_seq_received: number;
   /** The hash of the last capsule received FROM the counterparty */
@@ -379,6 +397,8 @@ export interface RevokeOptions {
   counterpartyUserId: string;
   /** The counterparty's email */
   counterpartyEmail: string;
+  /** The highest seq we have already sent on this handshake; omit if 0 */
+  last_seq_sent?: number;
   /** The seq of the last capsule received FROM the counterparty */
   last_seq_received: number;
   /** The hash of the last capsule received FROM the counterparty */
@@ -408,7 +428,9 @@ export interface ContextSyncOptions {
   counterpartyUserId: string;
   /** The counterparty's email */
   counterpartyEmail: string;
-  /** Must be 0 (last capsule was accept) */
+  /** The highest seq we have already sent on this handshake; omit if 0 */
+  last_seq_sent?: number;
+  /** Last seq received from the counterparty (0 after accept) */
   last_seq_received: number;
   /** The hash of the accept capsule received */
   last_capsule_hash_received: string;
@@ -730,7 +752,7 @@ export interface AcceptBuildResult {
  * Build a `refresh` handshake capsule.
  *
  * Requires chain state from the stored HandshakeRecord:
- *   - `last_seq_received` — the pipeline will expect seq = last_seq_received + 1
+ *   - `last_seq_sent` / `last_seq_received` — seq = nextOutboundHandshakeSeq(…)
  *   - `last_capsule_hash_received` — used as `prev_hash`
  */
 export function buildRefreshCapsule(
@@ -744,7 +766,10 @@ export function buildRefreshCapsule(
     session.wrdesk_user_id === opts.counterpartyUserId ? opts.handshake_id : undefined,
   )
   const policy = opts.policy ?? DEFAULT_POLICY_DESCRIPTOR
-  const seq = opts.last_seq_received + 1
+  const seq = nextOutboundHandshakeSeq({
+    last_seq_sent: opts.last_seq_sent,
+    last_seq_received: opts.last_seq_received,
+  })
   const nonce = opts.nonce ?? generateNonce()
   const policyHash = computePolicyHash(policy)
   const refreshCanonicalBlocks = canonicalizeBlockIds(opts.context_blocks, opts.handshake_id)
@@ -852,7 +877,10 @@ export function buildContextSyncCapsule(
     session.wrdesk_user_id === opts.counterpartyUserId ? opts.handshake_id : undefined,
   )
   const policy = opts.policy ?? DEFAULT_POLICY_DESCRIPTOR
-  const seq = opts.last_seq_received + 1
+  const seq = nextOutboundHandshakeSeq({
+    last_seq_sent: opts.last_seq_sent,
+    last_seq_received: opts.last_seq_received,
+  })
   const nonce = opts.nonce ?? generateNonce()
   const policyHash = computePolicyHash(policy)
   const canonicalBlocks = canonicalizeBlockIds(opts.context_blocks ?? [], opts.handshake_id)
@@ -983,7 +1011,10 @@ export function buildRevokeCapsule(
     opts.counterpartyUserId,
     session.wrdesk_user_id === opts.counterpartyUserId ? opts.handshake_id : undefined,
   )
-  const seq = opts.last_seq_received + 1
+  const seq = nextOutboundHandshakeSeq({
+    last_seq_sent: opts.last_seq_sent,
+    last_seq_received: opts.last_seq_received,
+  })
   const nonce = opts.nonce ?? generateNonce()
 
   const hashInput: CapsuleHashInput = {

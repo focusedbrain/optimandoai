@@ -349,7 +349,7 @@ describe('BEAP Pipeline E2E — Happy Path', () => {
       local_private_key: keypair.privateKey,
     })
     expect(revoke.capsule_type).toBe('revoke')
-    expect(revoke.seq).toBe(2) // last_seq_received + 1
+    expect(revoke.seq).toBe(2) // nextOutboundHandshakeSeq(0, 1) when last_seq_sent omitted
     expect(revoke.capsule_hash).toMatch(/^[0-9a-f]{64}$/)
   })
 })

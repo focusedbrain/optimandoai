@@ -493,6 +493,19 @@ async function handleCoordinationOutbound403(
       })
       if (reReg.success) {
         db.prepare(`UPDATE outbound_capsule_queue SET failure_class = ? WHERE id = ?`).run('COORD_REREG_ATTEMPTED', row.id)
+        /* Trigger: stale-registry 403 recovery re-registered this handshake with relay — retry deferred initial context_sync for this id. */
+        try {
+          const { retryDeferredInitialContextSyncForInternalHandshake } = await import('./contextSyncEnqueue')
+          const { getCurrentSession } = await import('./ipc')
+          retryDeferredInitialContextSyncForInternalHandshake(
+            db,
+            row.handshake_id,
+            getCurrentSession() ?? null,
+            getOidcToken,
+          )
+        } catch (e: any) {
+          console.warn('[P2P-QUEUE] retryDeferredInitialContextSync after re-register:', e?.message ?? e)
+        }
         let capRetry: object
         try {
           capRetry = JSON.parse(row.capsule_json) as object

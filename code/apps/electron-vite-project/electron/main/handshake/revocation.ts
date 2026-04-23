@@ -43,6 +43,7 @@ export async function revokeHandshake(
   const localPub = record.local_public_key ?? ''
   const localPriv = record.local_private_key ?? ''
   const lastSeqReceived = record.last_seq_received ?? 0
+  const lastSeqSent = record.last_seq_sent ?? 0
   const lastCapsuleHash = record.last_capsule_hash_received ?? ''
   const counterpartyUserId = record.local_role === 'initiator'
     ? record.acceptor?.wrdesk_user_id ?? ''
@@ -111,6 +112,7 @@ export async function revokeHandshake(
         handshake_id: handshakeId,
         counterpartyUserId,
         counterpartyEmail,
+        last_seq_sent: lastSeqSent,
         last_seq_received: lastSeqReceived,
         last_capsule_hash_received: lastCapsuleHash,
         local_public_key: localPub,

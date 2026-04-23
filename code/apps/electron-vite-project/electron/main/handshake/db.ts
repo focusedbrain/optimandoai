@@ -1563,6 +1563,21 @@ export function updateHandshakeContextSyncPending(db: any, handshakeId: string, 
   db.prepare('UPDATE handshakes SET context_sync_pending = ? WHERE handshake_id = ?').run(pending ? 1 : 0, handshakeId)
 }
 
+/**
+ * Record that a context_sync was durably enqueued: seq + hash are evidence for ACCEPTED → ACTIVE
+ * (see buildContextSyncRecord), stronger than `context_sync_pending` alone. Clears pending in the same update.
+ */
+export function updateHandshakeContextSyncEnqueued(
+  db: any,
+  handshakeId: string,
+  lastSeqSent: number,
+  lastCapsuleHashSent: string,
+): void {
+  db.prepare(
+    'UPDATE handshakes SET last_seq_sent = ?, last_capsule_hash_sent = ?, context_sync_pending = 0 WHERE handshake_id = ?',
+  ).run(lastSeqSent, lastCapsuleHashSent, handshakeId)
+}
+
 export function updateHandshakePolicySelections(
   db: any,
   handshakeId: string,

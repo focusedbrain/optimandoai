@@ -1,17 +1,20 @@
 /**
- * tryEnqueueContextSync — Build and enqueue context_sync capsule, or defer when vault is locked.
+ * tryEnqueueContextSync — Build and enqueue context_sync capsule, or defer when the send
+ * cannot proceed yet.
  *
- * When vault is locked, sets context_sync_pending=1 so UI can show "Unlock vault" guidance
- * and onVaultUnlocked can complete the exchange automatically.
+ * Sets context_sync_pending=1 when: vault is locked, or (internal handshake) relay wire fields
+ * are incomplete (INTERNAL_RELAY_ENDPOINTS_INCOMPLETE). P2P startup retries via
+ * completePendingContextSyncs. Successful enqueue sets last_seq_sent/last_capsule_hash_sent
+ * and clears pending (durable local proof; ACCEPTED → ACTIVE does not use pending alone).
  */
 
 import type { SSOSession } from './types'
 import type { ContextBlockForCommitment } from './contextCommitment'
 import type { ContextBlockInput } from './types'
-import { getHandshakeRecord, updateHandshakeContextSyncPending } from './db'
+import { getHandshakeRecord, updateHandshakeContextSyncPending, updateHandshakeContextSyncEnqueued } from './db'
 import { getContextStoreByHandshake } from './db'
 import { buildContextSyncCapsuleWithContent } from './capsuleBuilder'
-import { enqueueOutboundCapsule } from './outboundQueue'
+import { enqueueOutboundCapsule, processOutboundQueue } from './outboundQueue'
 import { formatLocalInternalRelayValidationJson } from './internalRelayOutboundGuards'
 import { persistContextBlocks } from './contextBlocks'
 import { getP2PConfig, getEffectiveRelayEndpoint } from '../p2p/p2pConfig'
@@ -91,6 +94,17 @@ export function tryEnqueueContextSync(
   const internalRelayWire = internalRelayCapsuleWireOptsFromRecord(record, localCoordId)
   if (record.handshake_type === 'internal' && !internalRelayWire) {
     console.warn('[ContextSync] INTERNAL_RELAY_ENDPOINTS_INCOMPLETE:', handshakeId)
+    // Do not let callers treat this as "our context_sync is out" — ownSent in
+    // buildContextSyncRecord uses last_seq_sent >= 1, not `context_sync_pending` alone, for the ACTIVE gate.
+    try {
+      updateHandshakeContextSyncPending(db, handshakeId, true)
+      console.log(
+        '[ContextSync] Deferred — internal relay device ids not ready. context_sync_pending=1 handshake:',
+        handshakeId,
+      )
+    } catch (err: any) {
+      console.warn('[ContextSync] Failed to set context_sync_pending (INTERNAL_RELAY):', err?.message)
+    }
     return { success: false, reason: 'INTERNAL_RELAY_ENDPOINTS_INCOMPLETE' }
   }
 
@@ -178,6 +192,7 @@ export function tryEnqueueContextSync(
       handshake_id: handshakeId,
       counterpartyUserId,
       counterpartyEmail,
+      last_seq_sent: record.last_seq_sent ?? 0,
       last_seq_received: lastSeq,
       last_capsule_hash_received: opts.lastCapsuleHash,
       context_blocks: contextBlocks,
@@ -186,9 +201,24 @@ export function tryEnqueueContextSync(
       ...(internalRelayWire ?? {}),
     })
     const cap = contextSyncCapsule as unknown as Record<string, unknown>
+    const sentSeq =
+      typeof cap.seq === 'number' && Number.isFinite(cap.seq)
+        ? cap.seq
+        : Math.floor(Number(cap.seq))
+    const sentHash =
+      typeof cap.capsule_hash === 'string' && cap.capsule_hash.trim().length > 0
+        ? cap.capsule_hash.trim()
+        : ''
+    if (!Number.isFinite(sentSeq) || sentSeq < 1 || !sentHash) {
+      console.error('[ContextSync] Built context_sync missing seq (>=1) or capsule_hash — not enqueuing', handshakeId, {
+        sentSeq,
+        hasHash: Boolean(sentHash),
+      })
+      return { success: false, reason: 'CONTEXT_SYNC_INVARIANT' }
+    }
     console.log('[ContextSync] Building capsule:', {
       handshake_id: handshakeId,
-      seq: cap?.seq,
+      seq: sentSeq,
       prev_hash: cap?.prev_hash,
       lastCapsuleHash: opts.lastCapsuleHash,
       lastSeqReceived: lastSeq,
@@ -207,8 +237,9 @@ export function tryEnqueueContextSync(
       return { success: false, reason }
     }
     console.log('[HANDSHAKE-DEBUG] context_sync enqueued', handshakeId)
-    updateHandshakeContextSyncPending(db, handshakeId, false)
-    console.log('[ContextSync] Enqueued successfully for handshake:', handshakeId, 'seq=', cap?.seq)
+    // Durable local proof: outbound queue + persisted seq/hash (enforced by buildContextSyncRecord).
+    updateHandshakeContextSyncEnqueued(db, handshakeId, sentSeq, sentHash)
+    console.log('[ContextSync] Enqueued successfully for handshake:', handshakeId, 'seq=', sentSeq)
     return { success: true }
   } catch (err: any) {
     console.warn('[ContextSync] Enqueue failed:', err?.message)
@@ -217,8 +248,39 @@ export function tryEnqueueContextSync(
 }
 
 /**
- * Complete all handshakes with context_sync_pending=1 (deferred due to vault lock).
- * Call this when vault is unlocked.
+ * Re-try `tryEnqueueContextSync` for a single internal handshake in ACCEPTED state with
+ * `context_sync_pending` (e.g. after INTERNAL_RELAY_ENDPOINTS_INCOMPLETE). Scoped to
+ * one `handshake_id` — no table scan, no polling. Call on events that may make
+ * `internal_coordination_identity_complete` / device ids resolvable, or right after
+ * successful relay re-registration.
+ */
+export function retryDeferredInitialContextSyncForInternalHandshake(
+  db: any,
+  handshakeId: string,
+  session: SSOSession | null | undefined,
+  getOidcToken?: () => Promise<string | null>,
+): void {
+  if (!db || !session) return
+  const r0 = getHandshakeRecord(db, handshakeId)
+  if (!r0) return
+  if (r0.handshake_type !== 'internal' || r0.state !== 'ACCEPTED' || !r0.context_sync_pending) {
+    return
+  }
+  const result = tryEnqueueContextSync(db, handshakeId, session, {
+    lastCapsuleHash: r0.last_capsule_hash_received ?? '',
+    lastSeqReceived: 0,
+  })
+  if (result.success && getOidcToken) {
+    setImmediate(() => {
+      void processOutboundQueue(db, getOidcToken)
+    })
+  }
+}
+
+/**
+ * Complete all handshakes with context_sync_pending=1 (e.g. vault was locked, or
+ * internal relay device ids were incomplete and tryEnqueue set pending).
+ * Called from P2P startup; safe to re-call.
  */
 export function completePendingContextSyncs(db: any, session: SSOSession | undefined): void {
   if (!db || !session) return
@@ -237,7 +299,7 @@ export function completePendingContextSyncs(db: any, session: SSOSession | undef
         console.log(`[Vault] Context sync sent for ${row.handshake_id}`)
         // If we had already received their context_sync (seq>=1), we can now transition to ACTIVE
         const record = getHandshakeRecord(db, row.handshake_id)
-        if (record && record.last_seq_received >= 1) {
+        if (record && record.last_seq_received >= 1 && record.last_seq_sent >= 1) {
           db.prepare("UPDATE handshakes SET state = 'ACTIVE' WHERE handshake_id = ?").run(row.handshake_id)
           console.log(`[Vault] Handshake ACTIVE (roundtrip complete):`, row.handshake_id)
         }

@@ -59,7 +59,7 @@ import {
   updateContextStoreStatusBulk,
   updateHandshakePolicySelections,
 } from './db'
-import { tryEnqueueContextSync } from './contextSyncEnqueue'
+import { tryEnqueueContextSync, retryDeferredInitialContextSyncForInternalHandshake } from './contextSyncEnqueue'
 import { deriveRelationshipId } from './relationshipId'
 import { enqueueOutboundCapsule, processOutboundQueue, type ProcessOutboundQueueResult } from './outboundQueue'
 import { randomBytes, randomUUID } from 'crypto'
@@ -554,6 +554,11 @@ export function _resetSSOSessionProvider(): void {
  */
 export function getCurrentSession() {
   return _getSession()
+}
+
+/** OIDC bearer for coordination `register-handshake` and deferred context_sync drain (mirrors setOidcTokenProvider). */
+export function getCoordinationOidcToken(): Promise<string | null> {
+  return _getOidcToken()
 }
 
 function requireSession(): SSOSession {
@@ -1261,6 +1266,8 @@ export async function handleHandshakeRPC(
             console.error('[HANDSHAKE] Relay registration failed on initiate:', regResult.error, '— handshake_id:', capsule.handshake_id)
           } else {
             console.log('[HANDSHAKE] Relay registration succeeded on initiate:', capsule.handshake_id)
+            /* Trigger: relay registration HTTP 200 — internal same-principal row may now route; retry deferred initial context_sync for this id only. */
+            retryDeferredInitialContextSyncForInternalHandshake(db, capsule.handshake_id, session, _getOidcToken)
           }
 
           // Internal initiates traverse the coordination relay with same-principal
@@ -1556,6 +1563,8 @@ export async function handleHandshakeRPC(
             console.error('[HANDSHAKE] Relay registration failed on buildForDownload:', result.error, '— handshake_id:', capsule.handshake_id)
           } else {
             console.log('[HANDSHAKE] Relay registration succeeded on buildForDownload:', capsule.handshake_id)
+            /* Same trigger as initiate relay reg — single-handshake retry for deferred context_sync. */
+            retryDeferredInitialContextSyncForInternalHandshake(db, capsule.handshake_id, session, _getOidcToken)
           }
           // Initiate capsule is NOT sent via relay — only file/email/USB. Relay used after accept.
         }).catch((err: any) => {
@@ -2204,6 +2213,8 @@ export async function handleHandshakeRPC(
             return
           }
           console.log('[HANDSHAKE] Relay registration succeeded on accept:', handshake_id)
+          /* Trigger: post-accept relay register-handshake 200 — may unblock a prior deferred initial context_sync for this id. */
+          retryDeferredInitialContextSyncForInternalHandshake(db, handshake_id, session, _getOidcToken)
           // Enqueue accept capsule for relay delivery to initiator.
           //
           // The wire `p2p_endpoint` from the initiate is a routing hint, not a
@@ -2276,6 +2287,9 @@ export async function handleHandshakeRPC(
           } else if (contextResult.reason === 'VAULT_LOCKED') {
             // Already deferred — will be retried when vault is unlocked
             console.log('[HANDSHAKE-DEBUG] context_sync deferred — vault locked', handshake_id)
+          } else if (contextResult.reason === 'INTERNAL_RELAY_ENDPOINTS_INCOMPLETE') {
+            // context_sync_pending=1 (set in tryEnqueue) — P2P startup / completePending will retry
+            console.log('[HANDSHAKE-DEBUG] context_sync deferred — internal relay endpoints incomplete', handshake_id)
           } else {
             console.warn('[P2P] context_sync enqueue skipped after accept:', contextResult.reason)
           }
@@ -2318,9 +2332,14 @@ export async function handleHandshakeRPC(
             })
           }
         } else {
-          // Coordination: context_sync handled inside setImmediate above, report optimistically
-          contextSyncStatus = 'sent'
-          console.log('[HANDSHAKE-DEBUG] Coordination mode: context_sync reported optimistic sent (actual enqueue in setImmediate)', handshake_id)
+          // Coordination: tryEnqueueContextSync runs inside setImmediate (after accept + relay
+          // registration). Result is unknown here — do not report 'sent'. DB defers with
+          // context_sync_pending when vault is locked or INTERNAL_RELAY_ENDPOINTS_INCOMPLETE.
+          contextSyncStatus = 'skipped'
+          console.log(
+            '[HANDSHAKE-DEBUG] Coordination mode: context_sync is attempted asynchronously after accept; check context_sync_pending on the row for deferrals',
+            handshake_id,
+          )
         }
       }
 
@@ -2404,6 +2423,7 @@ export async function handleHandshakeRPC(
         handshake_id,
         counterpartyUserId,
         counterpartyEmail,
+        last_seq_sent: record.last_seq_sent ?? 0,
         last_seq_received: record.last_seq_received,
         last_capsule_hash_received: record.last_capsule_hash_received,
         context_block_proofs: context_block_proofs ?? [],

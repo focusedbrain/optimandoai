@@ -18,7 +18,7 @@ import {
   insertQuarantineRecord,
 } from '../ingestion/persistenceDb'
 import { getHandshakeRecord, insertPendingP2PBeap } from '../handshake/db'
-import { tryEnqueueContextSync } from '../handshake/contextSyncEnqueue'
+import { tryEnqueueContextSync, retryDeferredInitialContextSyncForInternalHandshake } from '../handshake/contextSyncEnqueue'
 import { processOutboundQueue } from '../handshake/outboundQueue'
 import {
   setP2PHealthCoordinationConnected,
@@ -395,6 +395,8 @@ async function processCapsuleInternal(
           setImmediate(() => { processOutboundQueue(db, getOidcToken).catch(() => {}) })
         } else if (contextResult.reason === 'VAULT_LOCKED') {
           console.log('[Coordination] Context sync deferred for initiator — vault locked')
+        } else if (contextResult.reason === 'INTERNAL_RELAY_ENDPOINTS_INCOMPLETE') {
+          console.log('[Coordination] Initial context_sync deferred — internal relay endpoints incomplete (context_sync_pending=1)')
         } else {
           console.warn('[Coordination] Initial context_sync skipped, reason=', contextResult.reason)
         }
@@ -407,7 +409,12 @@ async function processCapsuleInternal(
           setImmediate(() => {
             processCapsuleInternal(buffered.id, buffered.capsule, db, buffered.ssoSession, sendAckFn, getOidcToken, onHandshakeUpdated)
           })
-        }      }
+        }
+      }
+
+      /* Trigger: inbound handshake pipeline commit (any capsule) — same principal may have just
+       * become routing-complete in this transaction; retry one id only if pending. */
+      retryDeferredInitialContextSyncForInternalHandshake(db, record.handshake_id, ssoSession, getOidcToken)
 
       // Each side independently sends exactly one context_sync (seq=1) after accept.
       // Both sides reach ACTIVE when they receive the other's seq=1. No reverse is needed.
