@@ -29,6 +29,7 @@ import BeapSandboxCloneDialog from './BeapSandboxCloneDialog'
 import BeapSandboxUnavailableDialog, { type BeapSandboxUnavailableVariant } from './BeapSandboxUnavailableDialog'
 import BeapRedirectDialog from './BeapRedirectDialog'
 import { isBeapQbeapOutboundEcho } from '../lib/inboxBeapOutbound'
+import { canShowSandboxAction } from '../lib/beapInboxSandboxVisibility'
 import { tryParsePartialAnalysis, tryParseAnalysis, type NormalInboxAiResultKey } from '../utils/parseInboxAiJson'
 import { reconcileAnalyzeTriage } from '../lib/inboxClassificationReconcile'
 import { deriveInboxMessageKind } from '../lib/inboxMessageKind'
@@ -1657,8 +1658,11 @@ interface InboxMessageRowProps {
   onToggleMultiSelect: () => void
   onMouseEnter?: () => void
   onNavigateToHandshake?: (handshakeId: string) => void
-  /** When true, show row-level Sandbox (clone) control for BEAP rows. */
-  showSandboxInRow?: boolean
+  /**
+   * Host orchestrator + mode ready. Row combines with per-message `canShowSandboxAction`
+   * (same rules as the message detail pane).
+   */
+  sandboxOrchestrator: { modeReady: boolean; isHost: boolean }
   onSandboxInRow?: (e: MouseEvent, message: InboxMessage) => void
   /** Row-level Redirect (forwarding); independent of Sandbox clone eligibility. */
   onRedirectInRow?: (e: MouseEvent, message: InboxMessage) => void
@@ -1673,14 +1677,13 @@ function InboxMessageRow({
   onToggleMultiSelect,
   onMouseEnter,
   onNavigateToHandshake,
-  showSandboxInRow,
+  sandboxOrchestrator,
   onSandboxInRow,
   onRedirectInRow,
 }: InboxMessageRowProps) {
   const isBeap = message.source_type === 'email_beap' || message.source_type === 'direct_beap'
   const canRowRedirect = Boolean(onRedirectInRow) && isBeap && !isBeapQbeapOutboundEcho(message)
-  const canRowSandbox =
-    showSandboxInRow && isBeap && !isBeapQbeapOutboundEcho(message)
+  const canRowSandbox = canShowSandboxAction({ ...sandboxOrchestrator, message })
   const bodyPreview = (message.body_text || '').slice(0, 100).replace(/\s+/g, ' ').trim()
   const hasAttachments = message.has_attachments === 1
 
@@ -1950,6 +1953,7 @@ export default function EmailInboxView({
     hasUsableSandbox,
     cloneEligibleSandboxes,
     sandboxAvailability,
+    refresh: refreshInternalSandboxesList,
   } = useInternalSandboxesList()
 
   const showInternalSandboxInboxRow =
@@ -2524,6 +2528,12 @@ export default function EmailInboxView({
     (_e: MouseEvent, m: InboxMessage) => {
       if (!hostModeReady || !isHost) return
       const n = cloneEligibleSandboxes.length
+      if (internalSandboxesLoading && n === 0) {
+        setSandboxRowFeedback('Checking Sandbox connection…')
+        void refreshInternalSandboxesList()
+        window.setTimeout(() => setSandboxRowFeedback(null), 5000)
+        return
+      }
       if (n === 0) {
         openSandboxUnavailableDialog()
         return
@@ -2548,7 +2558,15 @@ export default function EmailInboxView({
       }
       setSandboxCloneForMessage(m)
     },
-    [hostModeReady, isHost, cloneEligibleSandboxes.length, fetchMessages, openSandboxUnavailableDialog],
+    [
+      hostModeReady,
+      isHost,
+      internalSandboxesLoading,
+      cloneEligibleSandboxes.length,
+      fetchMessages,
+      openSandboxUnavailableDialog,
+      refreshInternalSandboxesList,
+    ],
   )
 
   const handleReply = useCallback((msg: InboxMessage) => {
@@ -2991,7 +3009,7 @@ export default function EmailInboxView({
                 onToggleMultiSelect={() => toggleMultiSelect(msg.id)}
                 onMouseEnter={() => prioritize(msg.id)}
                 onNavigateToHandshake={onNavigateToHandshake}
-                showSandboxInRow={hostModeReady && isHost}
+                sandboxOrchestrator={{ modeReady: hostModeReady, isHost }}
                 onSandboxInRow={handleInboxRowSandbox}
                 onRedirectInRow={(_e, m) => setBeapRedirectForMessage(m)}
               />
@@ -3179,6 +3197,8 @@ export default function EmailInboxView({
               }
               onNoSandboxConnectedInfo={openSandboxUnavailableDialog}
               onSandboxCloneComplete={() => void fetchMessages()}
+              internalSandboxListLoading={internalSandboxesLoading}
+              onRequestInternalSandboxListRefresh={() => void refreshInternalSandboxesList()}
             />
           </div>
           <div className="inbox-detail-ai" data-collapsed={aiPanelCollapsed}>

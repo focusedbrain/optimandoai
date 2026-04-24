@@ -11,6 +11,7 @@ import LinkWarningDialog from './LinkWarningDialog'
 import { extractLinkParts } from '../utils/safeLinks'
 import { deriveInboxMessageKind } from '../lib/inboxMessageKind'
 import { isBeapQbeapOutboundEcho } from '../lib/inboxBeapOutbound'
+import { canShowSandboxAction } from '../lib/beapInboxSandboxVisibility'
 import type { InternalSandboxTargetWire } from '../hooks/useInternalSandboxesList'
 import { useOrchestratorMode } from '../hooks/useOrchestratorMode'
 import { beapInboxCloneToSandboxApi } from '../lib/beapInboxCloneToSandbox'
@@ -39,6 +40,10 @@ export interface EmailMessageDetailProps {
   onNoSandboxConnectedInfo?: () => void
   /** After a direct single-target clone from this detail panel succeeds. */
   onSandboxCloneComplete?: () => void
+  /** While internal Host→Sandbox list is loading (targets may be empty temporarily). */
+  internalSandboxListLoading?: boolean
+  /** Refresh internal sandbox list when user clicks Sandbox during loading. */
+  onRequestInternalSandboxListRefresh?: () => void
 }
 
 // ── Helpers ──
@@ -270,6 +275,8 @@ export default function EmailMessageDetail({
   onSandboxMultiSelect,
   onNoSandboxConnectedInfo,
   onSandboxCloneComplete,
+  internalSandboxListLoading,
+  onRequestInternalSandboxListRefresh,
 }: EmailMessageDetailProps) {
   const { isHost, ready: modeReady } = useOrchestratorMode()
   const [beapRedirectOpen, setBeapRedirectOpen] = useState(false)
@@ -566,17 +573,21 @@ export default function EmailMessageDetail({
     [importingSession],
   )
 
-  const isBeapForHostSandbox =
-    message != null && (message.source_type === 'email_beap' || message.source_type === 'direct_beap')
   const isOutboundQbeap =
     message != null &&
     isNativeBeap &&
     (parsedDepackaged?.format === 'beap_qbeap_outbound' || isBeapQbeapOutboundEcho(message))
-  const showHostSandboxStrip = Boolean(modeReady && isHost && isBeapForHostSandbox && !isOutboundQbeap)
+  const showHostSandboxStrip = canShowSandboxAction({ modeReady, isHost, message })
 
   const handleHostSandboxClick = useCallback(async () => {
     if (!message) return
     const targets = internalSandboxTargets ?? []
+    if (internalSandboxListLoading && targets.length === 0) {
+      onRequestInternalSandboxListRefresh?.()
+      setHostSandboxInlineFeedback('Checking Sandbox connection…')
+      window.setTimeout(() => setHostSandboxInlineFeedback(null), 5000)
+      return
+    }
     if (targets.length === 0) {
       onNoSandboxConnectedInfo?.()
       return
@@ -601,7 +612,15 @@ export default function EmailMessageDetail({
     } finally {
       setHostSandboxBusy(false)
     }
-  }, [message, internalSandboxTargets, onNoSandboxConnectedInfo, onSandboxMultiSelect, onSandboxCloneComplete])
+  }, [
+    message,
+    internalSandboxTargets,
+    internalSandboxListLoading,
+    onRequestInternalSandboxListRefresh,
+    onNoSandboxConnectedInfo,
+    onSandboxMultiSelect,
+    onSandboxCloneComplete,
+  ])
 
   if (!message) return null
 
@@ -774,7 +793,7 @@ export default function EmailMessageDetail({
             >
               Delete
             </button>
-            {onReply && !isOutboundQbeap && (
+            {onReply && !isBeapQbeapOutboundEcho(message) && (
               <button
                 type="button"
                 onClick={handleReply}
@@ -786,7 +805,8 @@ export default function EmailMessageDetail({
                 </span>
               </button>
             )}
-            {(message.source_type === 'direct_beap' || message.source_type === 'email_beap') && !isOutboundQbeap && (
+            {(message.source_type === 'direct_beap' || message.source_type === 'email_beap') &&
+              !isBeapQbeapOutboundEcho(message) && (
               <div className="inbox-detail-beap-action-group" aria-label="BEAP actions">
                 <button
                   type="button"
