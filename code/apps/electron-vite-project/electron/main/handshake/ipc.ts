@@ -16,6 +16,7 @@ import {
   deleteHandshakeRecord,
   updateHandshakeSigningKeys,
   updateHandshakeRecord,
+  updateHandshakeContextSyncPending,
   refreshInternalHandshakePersistenceFlags,
   getPendingP2PBeapMessages,
   markP2PPendingBeapProcessed,
@@ -1747,10 +1748,31 @@ export async function handleHandshakeRPC(
           ? 'receive-only'
           : requested_sharing_mode
 
-      // Normal (cross-principal) accept: require acceptor X25519 up front — same params
-      // `ensureKeyAgreementKeys` reads later; avoids silent ephemeral fallback (see KEY-AGREEMENT log).
-      if (record.handshake_type !== 'internal') {
-        if (!acceptorX25519FromHandshakeAcceptParams(params)) {
+      // X25519 preflight (normal only): authoritative internal classification is
+      // `record.handshake_type === 'internal'`. Internal accepts skip this wire check;
+      // `ensureKeyAgreementKeys(..., { strictDeviceBoundX25519: true })` may call
+      // `getDeviceX25519PublicKey` when the acceptor did not pass a wire key.
+      const isInternalRecord = record.handshake_type === 'internal'
+      const x25519WireFromAcceptor = acceptorX25519FromHandshakeAcceptParams(params)
+      const has_sender_x25519 = x25519WireFromAcceptor.length > 0
+      const record_handshake_type = record.handshake_type ?? null
+      const decision = isInternalRecord
+        ? 'internal_skip_x25519_preflight'
+        : has_sender_x25519
+          ? 'normal_x25519_ok'
+          : 'normal_x25519_reject'
+      console.log(
+        '[HANDSHAKE][ACCEPT_MODE]',
+        JSON.stringify({
+          handshake_id,
+          record_handshake_type,
+          has_sender_x25519,
+          decision,
+        }),
+      )
+
+      if (!isInternalRecord) {
+        if (!has_sender_x25519) {
           logNormalAcceptX25519BindingFailure({
             handshake_id,
             local_role: record.local_role,
@@ -2345,7 +2367,26 @@ export async function handleHandshakeRPC(
           console.log('[ACCEPT-6] Relay registration result:', JSON.stringify(regResult))
           if (!regResult.success) {
             console.error('[HANDSHAKE] Relay registration failed on accept:', regResult.error, '— handshake_id:', handshake_id)
-            console.log('[HANDSHAKE-DEBUG] Relay registration failed — skipping accept enqueue and context_sync for', handshake_id)
+            if (record.handshake_type === 'internal') {
+              const reason = regResult.error ?? 'RELAY_REGISTRATION_FAILED'
+              try {
+                updateHandshakeContextSyncPending(db, handshake_id, true)
+              } catch (e: any) {
+                console.warn('[HANDSHAKE] Failed to set context_sync_pending after relay reg failure:', e?.message ?? e)
+              }
+              console.log(
+                '[HANDSHAKE][INTERNAL_CONTEXT_SYNC_DEFERRED]',
+                JSON.stringify({ handshake_id, reason }),
+              )
+              setImmediate(() => {
+                retryDeferredInitialContextSyncForInternalHandshake(db, handshake_id, session, _getOidcToken)
+              })
+            } else {
+              console.log(
+                '[HANDSHAKE-DEBUG] Relay registration failed — skipping accept enqueue and context_sync for',
+                handshake_id,
+              )
+            }
             return
           }
           console.log('[HANDSHAKE] Relay registration succeeded on accept:', handshake_id)

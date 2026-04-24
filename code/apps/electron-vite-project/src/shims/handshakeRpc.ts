@@ -175,10 +175,10 @@ function classifyBeapGetDevicePublicKeyResultShape(raw: unknown): BeapDevicePubl
   return 'invalid'
 }
 
-/** Normal cross-principal shim path only — no key material. */
+/** Normal-for-shim path only (no device_role hint) — beap returned no usable key. */
 function logNormalAcceptX25519ShimFailure(args: {
   handshakeId: string
-  isInternalHandshake: boolean
+  deviceRoleInternalHint: boolean
   handshakeType?: string | null
   raw: unknown
 }): void {
@@ -188,7 +188,7 @@ function logNormalAcceptX25519ShimFailure(args: {
     '[HANDSHAKE][ACCEPT_X25519]',
     JSON.stringify({
       handshakeId: args.handshakeId,
-      isInternalHandshake: args.isInternalHandshake,
+      device_role_internal_hint: args.deviceRoleInternalHint,
       handshake_type: args.handshakeType ?? null,
       has_beap: !!beap,
       has_getDevicePublicKey: typeof beap?.getDevicePublicKey === 'function',
@@ -206,7 +206,11 @@ export async function acceptHandshake(
     profile_ids?: string[]
     profile_items?: Array<{ profile_id: string; policy_mode?: 'inherit' | 'override'; policy?: { cloud_ai?: boolean; internal_ai?: boolean } }>
     policy_selections?: { cloud_ai?: boolean; internal_ai?: boolean }
-    /** Present only for internal same-principal accepts (`AcceptHandshakeModal`); used to skip X25519 shim enforcement (main resolves device key). */
+    /**
+     * UX for internal pairing in `AcceptHandshakeModal` (host/sandbox). This is a **hint only**;
+     * whether the handshake is internal same-principal is **authoritative in main** via persisted
+     * `record.handshake_type`. The shim does not use `device_role` as the final security decision.
+     */
     device_name?: string
     device_role?: 'host' | 'sandbox'
     local_pairing_code_typed?: string
@@ -214,6 +218,20 @@ export async function acceptHandshake(
 ): Promise<HandshakeAcceptResponse> {
   if (!window.handshakeView?.acceptHandshake) throw new Error('Handshake IPC not available')
 
+  /**
+   * X25519 + ML-KEM: supply keys for normal accepts when beap is available; main `ensureKeyAgreementKeys`
+   * remains canonical for binding.
+   *
+   * Control flow (after refactor — behavior aligned with main using `record.handshake_type`):
+   * - **Before (conceptual bug):** `internalAccept := device_role` doubled as a security label; easy to
+   *   misread as “internal handshake” vs persisted row state.
+   * - **After:** `deviceRoleInternalHint` only affects *shim* fail-fast: when absent, the shim can treat
+   *   the call as a normal accept path and require `getDevicePublicKey` before IPC. When present, the shim
+   *   never returns ERR just for missing `senderX25519PublicKeyB64` — main/core loads the row and applies
+   *   `record.handshake_type` (see `handleHandshakeRPC` + `handshake:accept` in Electron main).
+   * - `deviceRoleInternalHint` true → optional beap, forward without X25519 if unavailable.
+   * - `deviceRoleInternalHint` false → require non-empty beap key; fail fast if missing.
+   */
   // Fetch the device X25519 public key and generate a fresh ML-KEM-768 keypair so that
   // ensureKeyAgreementKeys in the main process does NOT fall back to generating a random
   // ephemeral keypair that would later mismatch on reply.
@@ -221,7 +239,7 @@ export async function acceptHandshake(
   let senderMlkem768PublicKeyB64: string | undefined
   let mlkem768SecretKeyB64: string | undefined
 
-  const internalAccept =
+  const deviceRoleInternalHint =
     contextOpts?.device_role === 'host' || contextOpts?.device_role === 'sandbox'
   const handshakeTypeOpt =
     contextOpts && typeof contextOpts === 'object' && 'handshake_type' in contextOpts
@@ -229,7 +247,7 @@ export async function acceptHandshake(
       : null
 
   let normalAcceptBeapRaw: unknown = undefined
-  if (!internalAccept) {
+  if (!deviceRoleInternalHint) {
     try {
       normalAcceptBeapRaw = await window.beap?.getDevicePublicKey()
     } catch (e) {
@@ -240,7 +258,7 @@ export async function acceptHandshake(
     if (!trimmed) {
       logNormalAcceptX25519ShimFailure({
         handshakeId: handshakeId,
-        isInternalHandshake: internalAccept,
+        deviceRoleInternalHint: false,
         handshakeType: handshakeTypeOpt,
         raw: normalAcceptBeapRaw,
       })
@@ -284,12 +302,14 @@ export async function acceptHandshake(
     // PQ service unavailable — Electron will generate the keypair and return the secret
   }
 
-  // Normal path: never invoke IPC without a concrete device X25519 (contextOpts cannot override).
-  if (!internalAccept) {
+  // When there is no device_role hint, the shim is on the normal-accept path: do not call IPC
+  // without a concrete device X25519. When `deviceRoleInternalHint` is set, main may resolve the key
+  // from the orchestrator record for true internal handshakes (`record.handshake_type === 'internal'`).
+  if (!deviceRoleInternalHint) {
     if (typeof senderX25519PublicKeyB64 !== 'string' || !senderX25519PublicKeyB64.trim()) {
       logNormalAcceptX25519ShimFailure({
         handshakeId: handshakeId,
-        isInternalHandshake: internalAccept,
+        deviceRoleInternalHint: false,
         handshakeType: handshakeTypeOpt,
         raw: normalAcceptBeapRaw,
       })

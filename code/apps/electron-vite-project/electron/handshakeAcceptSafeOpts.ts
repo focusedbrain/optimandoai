@@ -1,56 +1,99 @@
 /**
  * Pure builder for `handshake:accept` IPC options — shared with preload tests.
- * Validates normal cross-principal X25519 presence; forwards only allowlisted fields.
+ * Forwards an explicit allowlist only (no pass-through of arbitrary objects).
+ * Internal vs normal and X25519 requirements are decided in main using persisted
+ * `record.handshake_type` — this module does not use `device_role` as proof of internal.
  */
 
-export function buildHandshakeAcceptSafeOpts(
-  contextOpts: unknown,
-  errIfNormalMissingX25519: string,
-): Record<string, unknown> | undefined {
-  const opts = contextOpts && typeof contextOpts === 'object' ? (contextOpts as Record<string, unknown>) : undefined
-  const internalAccept = !!(opts && (opts.device_role === 'host' || opts.device_role === 'sandbox'))
+const MAX_B64 = 8192
+const MAX_NAME = 512
+const MAX_PEER_STR = 2048
 
-  const trimmedNonEmpty = (v: unknown): string => (typeof v === 'string' ? v.trim() : '')
+function trimStr(v: unknown, max: number): string {
+  if (typeof v !== 'string') return ''
+  const t = v.trim()
+  if (!t) return ''
+  return t.length > max ? t.slice(0, max) : t
+}
 
-  let keyAgreementX25519 = ''
-  let keyAgreementMlkemPub = ''
-  if (opts && opts.key_agreement !== null && typeof opts.key_agreement === 'object') {
-    const ka = opts.key_agreement as Record<string, unknown>
-    keyAgreementX25519 = trimmedNonEmpty(ka.x25519_public_key_b64)
-    keyAgreementMlkemPub = trimmedNonEmpty(ka.mlkem768_public_key_b64)
+function optString(opts: Record<string, unknown>, key: string, max: number): string | undefined {
+  const t = trimStr(opts[key], max)
+  return t || undefined
+}
+
+/**
+ * `key_agreement` — only the two public key fields; strips extra nested keys and non-strings.
+ */
+function safeKeyAgreement(raw: unknown): { x25519_public_key_b64?: string; mlkem768_public_key_b64?: string } | undefined {
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return undefined
+  const ka = raw as Record<string, unknown>
+  const out: { x25519_public_key_b64?: string; mlkem768_public_key_b64?: string } = {}
+  const x = trimStr(ka.x25519_public_key_b64, MAX_B64)
+  const m = trimStr(ka.mlkem768_public_key_b64, MAX_B64)
+  if (x) out.x25519_public_key_b64 = x
+  if (m) out.mlkem768_public_key_b64 = m
+  return Object.keys(out).length > 0 ? out : undefined
+}
+
+/**
+ * Shallow allowlist for policy — not arbitrary server/renderer objects.
+ */
+function safePolicySelections(raw: unknown): Record<string, unknown> | undefined {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined
+  const o = raw as Record<string, unknown>
+  const out: Record<string, unknown> = {}
+  if (typeof o.cloud_ai === 'boolean') out.cloud_ai = o.cloud_ai
+  if (typeof o.internal_ai === 'boolean') out.internal_ai = o.internal_ai
+  const ap = trimStr(o.ai_processing_mode, 64)
+  if (ap) out.ai_processing_mode = ap
+  return Object.keys(out).length > 0 ? out : undefined
+}
+
+export function buildHandshakeAcceptSafeOpts(contextOpts: unknown): Record<string, unknown> | undefined {
+  if (!contextOpts || typeof contextOpts !== 'object' || Array.isArray(contextOpts)) {
+    return undefined
+  }
+  const opts = contextOpts as Record<string, unknown>
+  const out: Record<string, unknown> = {}
+
+  if (Array.isArray(opts.context_blocks)) out.context_blocks = opts.context_blocks
+  if (Array.isArray(opts.profile_ids)) out.profile_ids = opts.profile_ids
+  if (Array.isArray(opts.profile_items)) out.profile_items = opts.profile_items
+
+  const pol = safePolicySelections(opts.policy_selections)
+  if (pol) out.policy_selections = pol
+
+  const senderX = optString(opts, 'senderX25519PublicKeyB64', MAX_B64)
+  if (senderX) out.senderX25519PublicKeyB64 = senderX
+  const senderSnake = optString(opts, 'sender_x25519_public_key_b64', MAX_B64)
+  if (senderSnake) out.sender_x25519_public_key_b64 = senderSnake
+
+  const ka = safeKeyAgreement(opts.key_agreement)
+  if (ka) out.key_agreement = ka
+
+  const mlkPub = optString(opts, 'senderMlkem768PublicKeyB64', MAX_B64)
+  if (mlkPub) out.senderMlkem768PublicKeyB64 = mlkPub
+  const mlkSec = optString(opts, 'senderMlkem768SecretKeyB64', MAX_B64)
+  if (mlkSec) out.senderMlkem768SecretKeyB64 = mlkSec
+
+  const deviceName = optString(opts, 'device_name', MAX_NAME)
+  if (deviceName) out.device_name = deviceName
+  if (opts.device_role === 'host' || opts.device_role === 'sandbox') {
+    out.device_role = opts.device_role
   }
 
-  const senderX25519Camel = opts ? trimmedNonEmpty(opts.senderX25519PublicKeyB64) : ''
-  const senderX25519Snake = opts ? trimmedNonEmpty(opts.sender_x25519_public_key_b64) : ''
-  const hasAnyX25519 = !!(senderX25519Camel || senderX25519Snake || keyAgreementX25519)
+  const id = optString(opts, 'internal_peer_device_id', MAX_PEER_STR)
+  if (id) out.internal_peer_device_id = id
+  const irole = optString(opts, 'internal_peer_device_role', 64)
+  if (irole) out.internal_peer_device_role = irole
+  const icn = optString(opts, 'internal_peer_computer_name', MAX_NAME)
+  if (icn) out.internal_peer_computer_name = icn
+  const ipc = optString(opts, 'internal_peer_pairing_code', 32)
+  if (ipc) out.internal_peer_pairing_code = ipc
 
-  if (opts && !internalAccept && !hasAnyX25519) {
-    throw new Error(errIfNormalMissingX25519)
+  if (typeof opts.local_pairing_code_typed === 'string' && /^\d{6}$/.test(opts.local_pairing_code_typed.trim())) {
+    out.local_pairing_code_typed = opts.local_pairing_code_typed.trim()
   }
 
-  const safeKeyAgreement: { x25519_public_key_b64?: string; mlkem768_public_key_b64?: string } = {}
-  if (keyAgreementX25519) safeKeyAgreement.x25519_public_key_b64 = keyAgreementX25519
-  if (keyAgreementMlkemPub) safeKeyAgreement.mlkem768_public_key_b64 = keyAgreementMlkemPub
-
-  const senderMlkemPub = opts ? trimmedNonEmpty(opts.senderMlkem768PublicKeyB64) : ''
-  const senderMlkemSecret = opts ? trimmedNonEmpty(opts.senderMlkem768SecretKeyB64) : ''
-
-  if (!opts) return undefined
-
-  return {
-    ...(Array.isArray(opts.context_blocks) ? { context_blocks: opts.context_blocks } : {}),
-    ...(Array.isArray(opts.profile_ids) ? { profile_ids: opts.profile_ids } : {}),
-    ...(Array.isArray(opts.profile_items) ? { profile_items: opts.profile_items } : {}),
-    ...(opts.policy_selections && typeof opts.policy_selections === 'object' ? { policy_selections: opts.policy_selections } : {}),
-    ...(senderX25519Camel ? { senderX25519PublicKeyB64: senderX25519Camel } : {}),
-    ...(senderX25519Snake ? { sender_x25519_public_key_b64: senderX25519Snake } : {}),
-    ...(Object.keys(safeKeyAgreement).length > 0 ? { key_agreement: safeKeyAgreement } : {}),
-    ...(senderMlkemPub ? { senderMlkem768PublicKeyB64: senderMlkemPub } : {}),
-    ...(senderMlkemSecret ? { senderMlkem768SecretKeyB64: senderMlkemSecret } : {}),
-    ...(typeof opts.device_name === 'string' && opts.device_name.trim() ? { device_name: opts.device_name.trim() } : {}),
-    ...(opts.device_role === 'host' || opts.device_role === 'sandbox' ? { device_role: opts.device_role } : {}),
-    ...(typeof opts.local_pairing_code_typed === 'string' && /^\d{6}$/.test(opts.local_pairing_code_typed.trim())
-      ? { local_pairing_code_typed: opts.local_pairing_code_typed.trim() }
-      : {}),
-  }
+  return out
 }

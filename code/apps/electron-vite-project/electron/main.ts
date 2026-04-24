@@ -3344,7 +3344,7 @@ app.whenReady().then(async () => {
       }
     })
 
-    ipcMain.handle('handshake:accept', async (_e, id: string, sharingMode: string, fromAccountId: string, contextOpts?: { context_blocks?: any[]; profile_ids?: string[]; profile_items?: any[]; policy_selections?: { cloud_ai?: boolean; internal_ai?: boolean }; senderX25519PublicKeyB64?: string; sender_x25519_public_key_b64?: string; key_agreement?: { x25519_public_key_b64?: string; mlkem768_public_key_b64?: string }; senderMlkem768PublicKeyB64?: string; senderMlkem768SecretKeyB64?: string; device_name?: string; device_role?: 'host' | 'sandbox'; local_pairing_code_typed?: string }) => {
+    ipcMain.handle('handshake:accept', async (_e, id: string, sharingMode: string, fromAccountId: string, contextOpts?: { context_blocks?: any[]; profile_ids?: string[]; profile_items?: any[]; policy_selections?: { cloud_ai?: boolean; internal_ai?: boolean; ai_processing_mode?: string }; senderX25519PublicKeyB64?: string; sender_x25519_public_key_b64?: string; key_agreement?: { x25519_public_key_b64?: string; mlkem768_public_key_b64?: string }; senderMlkem768PublicKeyB64?: string; senderMlkem768SecretKeyB64?: string; device_name?: string; device_role?: 'host' | 'sandbox'; local_pairing_code_typed?: string; internal_peer_device_id?: string; internal_peer_device_role?: string; internal_peer_computer_name?: string; internal_peer_pairing_code?: string }) => {
       try {
         const db = await getHandshakeDb()
         if (!db) return { success: false, error: 'No active session. Please log in first.' }
@@ -3361,8 +3361,16 @@ app.whenReady().then(async () => {
             }
           }
         } catch { /* vault not initialized â€” allow (keys in ledger) */ }
-        const isInternalAccept =
-          contextOpts?.device_role === 'host' || contextOpts?.device_role === 'sandbox'
+        const { getHandshakeRecord } = await import('./main/handshake/db')
+        const acceptRecord = getHandshakeRecord(db, id)
+        if (!acceptRecord) {
+          return { success: false, error: 'Handshake not found', reason: 'HANDSHAKE_NOT_FOUND' }
+        }
+        // Before (split contract): isInternalAccept = contextOpts?.device_role === 'host' || 'sandbox'
+        //   — could misclassify when device_role is missing/filtered.
+        // After: same source of truth as handleHandshakeRPC handshake.accept (record.handshake_type).
+        // contextOpts.device_role remains for internal pairing/UX; it is not the X25519 guard signal.
+        const isInternalAccept = acceptRecord.handshake_type === 'internal'
         const co = contextOpts
         const trimmedSenderX25519 =
           (typeof co?.senderX25519PublicKeyB64 === 'string' ? co.senderX25519PublicKeyB64.trim() : '') ||
@@ -3370,15 +3378,15 @@ app.whenReady().then(async () => {
           (typeof co?.key_agreement?.x25519_public_key_b64 === 'string'
             ? co.key_agreement.x25519_public_key_b64.trim()
             : '')
+        // Normal (non-internal) accept: require acceptor X25519 on the wire. Internal: allow omit —
+        // ipc ensureKeyAgreementKeys uses orchestrator device key when strict internal.
         if (!isInternalAccept && !trimmedSenderX25519) {
           try {
             const { logNormalAcceptX25519BindingFailure } = await import('./main/handshake/ipc')
-            const { getHandshakeRecord } = await import('./main/handshake/db')
-            const rec = db ? getHandshakeRecord(db, id) : null
             logNormalAcceptX25519BindingFailure({
               handshake_id: id,
-              local_role: rec?.local_role ?? null,
-              handshake_type: rec?.handshake_type ?? null,
+              local_role: acceptRecord.local_role ?? null,
+              handshake_type: acceptRecord.handshake_type ?? null,
               params: {
                 senderX25519PublicKeyB64: co?.senderX25519PublicKeyB64,
                 key_agreement: co?.key_agreement,
@@ -3412,10 +3420,36 @@ app.whenReady().then(async () => {
         if (contextOpts?.profile_items?.length) params.profile_items = contextOpts.profile_items
         if (contextOpts?.policy_selections) params.policy_selections = contextOpts.policy_selections
         if (trimmedSenderX25519) params.senderX25519PublicKeyB64 = trimmedSenderX25519
-        if (contextOpts?.senderMlkem768PublicKeyB64) params.senderMlkem768PublicKeyB64 = contextOpts.senderMlkem768PublicKeyB64
+        if (co?.key_agreement && typeof co.key_agreement === 'object' && !Array.isArray(co.key_agreement)) {
+          const kag = co.key_agreement as { x25519_public_key_b64?: string; mlkem768_public_key_b64?: string }
+          const safeKa: { x25519_public_key_b64?: string; mlkem768_public_key_b64?: string } = {}
+          if (typeof kag.x25519_public_key_b64 === 'string' && kag.x25519_public_key_b64.trim()) {
+            safeKa.x25519_public_key_b64 = kag.x25519_public_key_b64.trim()
+          }
+          if (typeof kag.mlkem768_public_key_b64 === 'string' && kag.mlkem768_public_key_b64.trim()) {
+            safeKa.mlkem768_public_key_b64 = kag.mlkem768_public_key_b64.trim()
+          }
+          if (Object.keys(safeKa).length > 0) params.key_agreement = safeKa
+        }
+        const mlkemFromTop = typeof co?.senderMlkem768PublicKeyB64 === 'string' ? co.senderMlkem768PublicKeyB64.trim() : ''
+        const mlkemFromNested =
+          typeof co?.key_agreement?.mlkem768_public_key_b64 === 'string'
+            ? co.key_agreement.mlkem768_public_key_b64.trim()
+            : ''
+        if (mlkemFromTop) params.senderMlkem768PublicKeyB64 = mlkemFromTop
+        else if (mlkemFromNested) params.senderMlkem768PublicKeyB64 = mlkemFromNested
         if (contextOpts?.senderMlkem768SecretKeyB64) params.senderMlkem768SecretKeyB64 = contextOpts.senderMlkem768SecretKeyB64
         if (contextOpts?.device_name !== undefined) params.device_name = contextOpts.device_name
         if (contextOpts?.device_role !== undefined) params.device_role = contextOpts.device_role
+        for (const peerKey of [
+          'internal_peer_device_id',
+          'internal_peer_device_role',
+          'internal_peer_computer_name',
+          'internal_peer_pairing_code',
+        ] as const) {
+          const v = co && typeof (co as Record<string, unknown>)[peerKey] === 'string' ? String((co as Record<string, unknown>)[peerKey]).trim() : ''
+          if (v) (params as Record<string, string>)[peerKey] = v
+        }
         // 6-digit pairing code typed by the user in AcceptHandshakeModal. ipc.ts
         // (handshake.accept) compares this against the `receiver_pairing_code` baked
         // into the originating initiate capsule (persisted as

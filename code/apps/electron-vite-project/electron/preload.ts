@@ -37,12 +37,6 @@
 import { ipcRenderer, contextBridge } from 'electron'
 import { buildHandshakeAcceptSafeOpts } from './handshakeAcceptSafeOpts'
 
-/** Matches main `handshake.accept` / shim — normal cross-principal accepts must not reach IPC without this key. */
-const ERR_HANDSHAKE_ACCEPT_X25519_REQUIRED_MSG =
-  'ERR_HANDSHAKE_ACCEPT_X25519_REQUIRED: Normal handshake accept requires the acceptor device X25519 public key ' +
-  '(`senderX25519PublicKeyB64` or `key_agreement.x25519_public_key_b64`). ' +
-  'If it is omitted, Electron would generate an ephemeral X25519 key here, which breaks key continuity with the acceptor device and qBEAP decryption.'
-
 declare global {
   interface ConnectedPeer {
     instanceId: string
@@ -602,7 +596,8 @@ contextBridge.exposeInMainWorld('handshakeView', {
     return ipcRenderer.invoke('handshake:importCapsule', jsonString)
   },
   acceptHandshake: (id: unknown, sharingMode: unknown, fromAccountId: unknown, contextOpts?: unknown) => {
-    const safeOpts = buildHandshakeAcceptSafeOpts(contextOpts, ERR_HANDSHAKE_ACCEPT_X25519_REQUIRED_MSG)
+    // Allowlisted fields only; X25519 / internal vs normal is enforced in main (persisted `record.handshake_type`).
+    const safeOpts = buildHandshakeAcceptSafeOpts(contextOpts)
     return ipcRenderer.invoke('handshake:accept', assertString(id, 'id'), assertString(sharingMode, 'sharingMode'), typeof fromAccountId === 'string' ? fromAccountId : '', safeOpts)
   },
   declineHandshake: (id: unknown) => {
