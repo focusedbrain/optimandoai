@@ -33,7 +33,11 @@ import type {
 import BeapSandboxCloneDialog from './BeapSandboxCloneDialog'
 import BeapSandboxUnavailableDialog, { type BeapSandboxUnavailableVariant } from './BeapSandboxUnavailableDialog'
 import BeapRedirectDialog from './BeapRedirectDialog'
-import { canShowSandboxCloneAction, logSandboxCloneEligibilityDebug } from '../lib/beapInboxSandboxVisibility'
+import {
+  canShowSandboxCloneAction,
+  logSandboxActionVisibility,
+  logSandboxCloneEligibilityDebug,
+} from '../lib/beapInboxSandboxVisibility'
 import { isInboxMessageActionable } from '../lib/inboxMessageActionable'
 import {
   resolveHostSandboxCloneClickAction,
@@ -1677,7 +1681,11 @@ interface InboxMessageRowProps {
     orchestratorMode: 'host' | 'sandbox' | null
     authoritativeDeviceInternalRole: AuthoritativeDeviceInternalRole
     internalSandboxListReady: boolean
-    hasActiveInternalSandboxHandshake: boolean
+  }
+  /** For dev visibility diagnostics only. */
+  sandboxVisibilityDiagnostics: {
+    activeInternalHandshakeCount: number
+    internalListLoading: boolean
   }
   /** Drives Sandbox button hover (connected / offline / not configured). */
   sandboxAvailability: SandboxOrchestratorAvailability
@@ -1696,18 +1704,44 @@ function InboxMessageRow({
   onMouseEnter,
   onNavigateToHandshake,
   sandboxOrchestrator,
+  sandboxVisibilityDiagnostics,
   sandboxAvailability,
   onSandboxInRow,
   onRedirectInRow,
 }: InboxMessageRowProps) {
   const canRowAction = isInboxMessageActionable(message)
   const canRowRedirect = Boolean(onRedirectInRow) && canRowAction
-  const canRowSandbox = canShowSandboxCloneAction({
-    ...sandboxOrchestrator,
-    message,
-  })
+  const canShowParams = useMemo(
+    () => ({ ...sandboxOrchestrator, message }),
+    [
+      message,
+      sandboxOrchestrator.modeReady,
+      sandboxOrchestrator.orchestratorMode,
+      sandboxOrchestrator.authoritativeDeviceInternalRole,
+      sandboxOrchestrator.internalSandboxListReady,
+    ],
+  )
+  const canRowSandbox = canShowSandboxCloneAction(canShowParams)
   const rowRedirectTip = beapInboxRedirectTooltipPropsForRow()
   const rowSandboxTip = beapHostSandboxCloneTooltipForAvailability(sandboxAvailability, 'row')
+
+  useEffect(() => {
+    logSandboxActionVisibility({
+      message_id: message.id,
+      modeReady: sandboxOrchestrator.modeReady,
+      orchestratorMode: sandboxOrchestrator.orchestratorMode,
+      activeInternalSandboxHandshakeCount: sandboxVisibilityDiagnostics.activeInternalHandshakeCount,
+      internalSandboxesLoading: sandboxVisibilityDiagnostics.internalListLoading,
+      canShowParams,
+    })
+  }, [
+    canShowParams,
+    message.id,
+    sandboxOrchestrator.modeReady,
+    sandboxOrchestrator.orchestratorMode,
+    sandboxVisibilityDiagnostics.activeInternalHandshakeCount,
+    sandboxVisibilityDiagnostics.internalListLoading,
+  ])
   const bodyPreview = (message.body_text || '').slice(0, 100).replace(/\s+/g, ' ').trim()
   const hasAttachments = message.has_attachments === 1
 
@@ -1972,7 +2006,6 @@ export default function EmailInboxView({
     incomplete: internalSandboxesIncomplete,
     loading: internalSandboxesLoading,
     hasUsableSandbox,
-    hasActiveInternalSandboxHandshake,
     cloneEligibleSandboxes,
     sendableCloneSandboxes,
     sandboxAvailability,
@@ -1996,7 +2029,6 @@ export default function EmailInboxView({
         message: selectedMessage,
         authoritativeDeviceInternalRole,
         internalSandboxListReady,
-        hasActiveInternalSandboxHandshake,
       },
       { selectedHandshakeId: sendableCloneSandboxes[0]?.handshake_id ?? null },
     )
@@ -2006,7 +2038,6 @@ export default function EmailInboxView({
     orchestratorMode,
     authoritativeDeviceInternalRole,
     internalSandboxListReady,
-    hasActiveInternalSandboxHandshake,
     sendableCloneSandboxes,
   ])
 
@@ -3109,7 +3140,10 @@ export default function EmailInboxView({
                   orchestratorMode,
                   authoritativeDeviceInternalRole,
                   internalSandboxListReady,
-                  hasActiveInternalSandboxHandshake,
+                }}
+                sandboxVisibilityDiagnostics={{
+                  activeInternalHandshakeCount: internalSandboxes.length,
+                  internalListLoading: internalSandboxesLoading,
                 }}
                 sandboxAvailability={sandboxAvailability}
                 onSandboxInRow={handleInboxRowSandbox}

@@ -1704,7 +1704,6 @@ export default function EmailInboxBulkView({
 
   const {
     sandboxes: bulkInternalSandboxes,
-    hasActiveInternalSandboxHandshake: bulkHasActiveInternalSandboxHandshake,
     sendableCloneSandboxes: bulkSendableCloneSandboxes,
     sandboxAvailability: bulkSandboxAvailability,
     loading: bulkInternalSandboxesLoading,
@@ -1955,7 +1954,6 @@ export default function EmailInboxBulkView({
       message: pendingLink.message,
       authoritativeDeviceInternalRole: bulkAuthoritativeDeviceInternalRole,
       internalSandboxListReady: bulkInternalSandboxListReady,
-      hasActiveInternalSandboxHandshake: bulkHasActiveInternalSandboxHandshake,
     })
   }, [
     pendingLink,
@@ -1963,7 +1961,6 @@ export default function EmailInboxBulkView({
     bulkOrchestratorMode,
     bulkAuthoritativeDeviceInternalRole,
     bulkInternalSandboxListReady,
-    bulkHasActiveInternalSandboxHandshake,
   ])
   const [aiSortProgress, setAiSortProgress] = useState<AiSortProgressState | null>(null)
   /** Messages per `aiClassifyBatch` chunk (1–8). Persisted; read at each chunk boundary — changes apply from the next chunk. */

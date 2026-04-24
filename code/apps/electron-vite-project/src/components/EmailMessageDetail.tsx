@@ -626,7 +626,6 @@ export default function EmailMessageDetail({
     message,
     authoritativeDeviceInternalRole,
     internalSandboxListReady,
-    hasActiveInternalSandboxHandshake: activeInternalHandshakeCount > 0,
   })
 
   const handleHostSandboxClick = useCallback(async () => {

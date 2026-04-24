@@ -4,11 +4,11 @@
 
 import type { SandboxOrchestratorAvailability } from '../types/sandboxOrchestratorAvailability'
 
-/** Primary hover + screen reader line — clone does not require live relay; 202-queued is OK. */
+/** List + detail: icon-only; no live-relay requirement for showing the icon. */
 const BEAP_SANDBOX_CLONE_TIP =
-  'Clone this entire BEAP message and send it to the connected Sandbox orchestrator. If the Sandbox is offline, the clone will be queued and delivered when it reconnects.'
+  'Clone this BEAP message and send it to the Sandbox orchestrator. If the Sandbox is offline, the clone will be queued.'
 
-const SANDBOX_ARIA_SHORT = 'Clone message to Sandbox'
+const SANDBOX_ARIA_SHORT = 'Clone to Sandbox'
 
 /**
  * @param _availability — retained for call sites; tri-state (relay live vs offline) does not change the copy.
@@ -22,9 +22,9 @@ export function beapHostSandboxCloneTooltipForAvailability(
   return { title: BEAP_SANDBOX_CLONE_TIP, 'aria-label': ariaLabel }
 }
 
-export const BEAP_INBOX_REDIRECT_TIP = 'Redirect'
+export const BEAP_INBOX_REDIRECT_TIP = 'Redirect this BEAP message.'
 
-export const BEAP_INBOX_REDIRECT_ARIA = 'Redirect message'
+export const BEAP_INBOX_REDIRECT_ARIA = 'Redirect this BEAP message'
 
 /** List row. */
 export function beapInboxRedirectTooltipPropsForRow(): { title: string; 'aria-label': string } {

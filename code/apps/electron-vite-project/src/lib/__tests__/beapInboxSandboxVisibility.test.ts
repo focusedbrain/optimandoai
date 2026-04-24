@@ -10,12 +10,10 @@ import type { InboxMessage } from '../../stores/useEmailInboxStore'
 const listOkHost = {
   internalSandboxListReady: true as const,
   authoritativeDeviceInternalRole: 'host' as const,
-  hasActiveInternalSandboxHandshake: true,
 }
 const listOkNone = {
   internalSandboxListReady: true as const,
   authoritativeDeviceInternalRole: 'none' as const,
-  hasActiveInternalSandboxHandshake: true,
 }
 
 function msg(over: Partial<InboxMessage> & { id: string }): InboxMessage {
@@ -41,12 +39,11 @@ function params(p: Partial<import('../beapInboxSandboxVisibility').CanShowSandbo
   return {
     authoritativeDeviceInternalRole: 'host' as const,
     internalSandboxListReady: true,
-    hasActiveInternalSandboxHandshake: true,
     ...p,
   } as import('../beapInboxSandboxVisibility').CanShowSandboxCloneIconParams
 }
 
-describe('beapInboxSandboxVisibility (every inbox message on Host)', () => {
+describe('beapInboxSandboxVisibility (Host row + detail, not handshake-count gated)', () => {
   test('plain email_plain: show on Host, hide on Sandbox, hide when authoritative sandbox', () => {
     const ordinary = msg({ id: '1' })
     expect(
@@ -67,13 +64,12 @@ describe('beapInboxSandboxVisibility (every inbox message on Host)', () => {
           message: ordinary,
           internalSandboxListReady: true,
           authoritativeDeviceInternalRole: 'sandbox',
-          hasActiveInternalSandboxHandshake: true,
         }),
       ),
     ).toBe(false)
   })
 
-  test('list still loading: Sandbox icon hidden until internal handshake list is known', () => {
+  test('internal sandbox list still loading: Host still shows Sandbox icon (not gated on list ready)', () => {
     const ordinary = msg({ id: '2' })
     expect(
       canShowSandboxCloneIcon(
@@ -83,10 +79,9 @@ describe('beapInboxSandboxVisibility (every inbox message on Host)', () => {
           message: ordinary,
           internalSandboxListReady: false,
           authoritativeDeviceInternalRole: 'none',
-          hasActiveInternalSandboxHandshake: false,
         }),
       ),
-    ).toBe(false)
+    ).toBe(true)
   })
 
   test('direct_beap and email_beap same as plain for visibility', () => {
@@ -118,20 +113,18 @@ describe('beapInboxSandboxVisibility (every inbox message on Host)', () => {
     expect(canShowSandboxAction(p)).toBe(canShowSandboxCloneAction(p))
   })
 
-  test('getSandboxCloneEligibilityDetail: no active internal handshake => hidden', () => {
+  test('getSandboxCloneEligibilityDetail: Host with zero handshakes in API still shows icon (visibility not handshake-gated)', () => {
     const d = getSandboxCloneEligibilityDetail({
       modeReady: true,
       orchestratorMode: 'host',
       message: msg({ id: 'n' }),
       authoritativeDeviceInternalRole: 'none',
       internalSandboxListReady: true,
-      hasActiveInternalSandboxHandshake: false,
     })
-    expect(d.show).toBe(false)
-    expect(d.reason).toBe('no_active_internal_sandbox_handshake')
+    expect(d.show).toBe(true)
   })
 
-  test('orchestrator sandbox hides even if handshake would say host', () => {
+  test('orchestrator sandbox hides', () => {
     const d = getSandboxCloneEligibilityDetail({
       modeReady: true,
       orchestratorMode: 'sandbox',
@@ -140,6 +133,6 @@ describe('beapInboxSandboxVisibility (every inbox message on Host)', () => {
       internalSandboxListReady: true,
     })
     expect(d.show).toBe(false)
-    expect(d.reason).toBe('orchestrator_not_host')
+    expect(d.reason).toBe('orchestrator_sandbox_mode')
   })
 })
