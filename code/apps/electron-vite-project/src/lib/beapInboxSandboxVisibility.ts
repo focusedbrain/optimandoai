@@ -1,6 +1,15 @@
 /**
  * UI rules for the inbox Sandbox (Host → internal Sandbox) clone action.
  * Does not affect main-process host checks (ipc) or crypto.
+ *
+ * Received-BEAP rows (show Sandbox in Host mode when not echo):
+ * - `source_type === 'direct_beap'`: P2P / native BEAP delivery.
+ * - `source_type === 'email_beap'`: same logical message after email ingress; depackaging uses
+ *   `depackaged_json` (e.g. `beap_qbeap_decrypted`, `beap_qbeap_pending`, …) — there is no separate
+ *   inbox `source_type` for “depackaged” vs “raw capsule”.
+ * Not clone-eligible in UI: outbound qBEAP echo (`isBeapQbeapOutboundEcho`), non-Host orchestrator,
+ * or `source_type` outside the two above (e.g. `email_plain`). Prepare/clone may still return
+ * `SOURCE_NO_EXTRACTABLE_CONTENT` when plaintext is not yet available.
  */
 
 import type { InboxMessage } from '../stores/useEmailInboxStore'

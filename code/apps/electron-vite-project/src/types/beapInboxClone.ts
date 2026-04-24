@@ -37,6 +37,7 @@ export type BeapInboxClonePrepareErrorCode =
   | 'NO_SANDBOX_CONNECTED'
   | 'TARGET_HANDSHAKE_REQUIRED'
   | 'SOURCE_NOT_RECEIVED_BEAP'
+  | 'SOURCE_NO_EXTRACTABLE_CONTENT'
   | 'PREPARE_FAILED'
 
 export type BeapInboxCloneNoSandboxDetails = {

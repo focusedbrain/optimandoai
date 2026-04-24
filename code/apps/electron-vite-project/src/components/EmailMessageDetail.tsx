@@ -15,7 +15,10 @@ import { canShowSandboxAction } from '../lib/beapInboxSandboxVisibility'
 import type { InternalSandboxTargetWire } from '../hooks/useInternalSandboxesList'
 import { useOrchestratorMode } from '../hooks/useOrchestratorMode'
 import { beapInboxCloneToSandboxApi } from '../lib/beapInboxCloneToSandbox'
-import { beapHostSandboxCloneTooltipProps, beapInboxReplyTooltipProps } from '../lib/beapInboxActionTooltips'
+import { beapHostSandboxCloneTooltipForAvailability, beapInboxReplyTooltipProps } from '../lib/beapInboxActionTooltips'
+import { resolveHostSandboxCloneClickAction } from '../lib/beapInboxHostSandboxClickPolicy'
+import type { SandboxOrchestratorAvailability } from '../types/sandboxOrchestratorAvailability'
+import { defaultSandboxAvailability } from '../types/sandboxOrchestratorAvailability'
 import SessionImportDialog, { type SessionImportDialogSessionRef } from './SessionImportDialog'
 import BeapRedirectDialog from './BeapRedirectDialog'
 import { listHandshakes } from '../shims/handshakeRpc'
@@ -44,6 +47,8 @@ export interface EmailMessageDetailProps {
   internalSandboxListLoading?: boolean
   /** Refresh internal sandbox list when user clicks Sandbox during loading. */
   onRequestInternalSandboxListRefresh?: () => void
+  /** From `useInternalSandboxesList().sandboxAvailability`; drives Sandbox button hover. */
+  sandboxAvailability?: SandboxOrchestratorAvailability
 }
 
 // ── Helpers ──
@@ -277,6 +282,7 @@ export default function EmailMessageDetail({
   onSandboxCloneComplete,
   internalSandboxListLoading,
   onRequestInternalSandboxListRefresh,
+  sandboxAvailability = defaultSandboxAvailability,
 }: EmailMessageDetailProps) {
   const { isHost, ready: modeReady } = useOrchestratorMode()
   const [beapRedirectOpen, setBeapRedirectOpen] = useState(false)
@@ -582,17 +588,21 @@ export default function EmailMessageDetail({
   const handleHostSandboxClick = useCallback(async () => {
     if (!message) return
     const targets = internalSandboxTargets ?? []
-    if (internalSandboxListLoading && targets.length === 0) {
+    const next = resolveHostSandboxCloneClickAction({
+      internalListLoading: internalSandboxListLoading ?? false,
+      cloneEligibleTargetCount: targets.length,
+    })
+    if (next === 'loading_refresh') {
       onRequestInternalSandboxListRefresh?.()
       setHostSandboxInlineFeedback('Checking Sandbox connection…')
       window.setTimeout(() => setHostSandboxInlineFeedback(null), 5000)
       return
     }
-    if (targets.length === 0) {
+    if (next === 'open_unavailable_dialog') {
       onNoSandboxConnectedInfo?.()
       return
     }
-    if (targets.length > 1) {
+    if (next === 'open_target_picker') {
       onSandboxMultiSelect?.(message)
       return
     }
@@ -837,7 +847,7 @@ export default function EmailMessageDetail({
                         className="inbox-detail-beap-btn inbox-detail-beap-btn--sandbox"
                         onClick={() => void handleHostSandboxClick()}
                         disabled={hostSandboxBusy}
-                        {...beapHostSandboxCloneTooltipProps()}
+                        {...beapHostSandboxCloneTooltipForAvailability(sandboxAvailability)}
                       >
                         Sandbox
                       </button>

@@ -2,7 +2,12 @@
  * Inbox Type filter: message origin only (not status, not Handshakes tab).
  * Independent of raw `source_type` for display — renderer + main stay aligned on filter SQL.
  *
- * Rules:
+ * “Received BEAP” (clone / Redirect / Sandbox product rules) is *not* this dimension.
+ * The store uses `source_type` ∈ {`direct_beap`, `email_beap`} for P2P vs email-carried BEAP;
+ * depackaging state (e.g. `beap_qbeap_pending`, `beap_qbeap_decrypted` in `depackaged_json`) lives
+ * alongside those types — see `beapInboxSandboxVisibility` and `extractBeapRedirectSourceFromRow`.
+ *
+ * Rules (this file only):
  * - `handshake` (UI: Native BEAP): non-empty `handshake_id` OR `source_type === 'direct_beap'`
  * - `depackaged` (UI: Depackaged Email): everything else
  */

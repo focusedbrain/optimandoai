@@ -28,6 +28,12 @@ type InboxRow = {
   depackaged_json?: string | null
 }
 
+/** Inbox `source_type` values that represent a received BEAP row (P2P direct or email-carried / depackaged). */
+export function isReceivedBeapInboxSourceType(st: string | null | undefined): boolean {
+  const t = String(st ?? '')
+  return t === 'direct_beap' || t === 'email_beap'
+}
+
 function extractBodyFromDepackaged(d: Record<string, unknown>): string {
   const body = d.body
   if (typeof body === 'string') return body
@@ -44,8 +50,12 @@ function extractBodyFromDepackaged(d: Record<string, unknown>): string {
 export function extractBeapRedirectSourceFromRow(row: InboxRow | null | undefined): BeapRedirectSourceResult {
   if (!row?.id) return { ok: false, error: 'Message not found' }
   const st = String(row.source_type ?? '')
-  if (st !== 'direct_beap' && st !== 'email_beap') {
-    return { ok: false, error: 'Redirect applies only to BEAP inbox messages (direct_beap or email_beap)' }
+  if (!isReceivedBeapInboxSourceType(st)) {
+    return {
+      ok: false,
+      error:
+        'This row is not a received BEAP inbox message. Redirect and Sandbox clone use source types `direct_beap` or `email_beap` (including depackaged BEAP from email, stored as `email_beap`).',
+    }
   }
 
   const subject = String(row.subject ?? '').trim() || '(No subject)'
@@ -69,7 +79,7 @@ export function extractBeapRedirectSourceFromRow(row: InboxRow | null | undefine
         publicText = extractBodyFromDepackaged(d) || String(row.body_text ?? '').trim()
         encText = publicText
         warning =
-          'This message is still qBEAP-pending: only the preview excerpt is available. Decrypt the message in the inbox (or wait for key sync) before redirecting for full content.'
+          'This message is still qBEAP-pending: only a preview is available. Decrypt or let the extension merge into the inbox for full content before redirect or Sandbox clone.'
       } else {
         // pBEAP, plain, merged, or legacy — single readable body
         const subj = d.subject
@@ -97,7 +107,11 @@ export function extractBeapRedirectSourceFromRow(row: InboxRow | null | undefine
   }
 
   if (!encText.trim()) {
-    return { ok: false, error: 'No extractable text for redirect — check that the message is decrypted or has body content.' }
+    return {
+      ok: false,
+      error:
+        'No extractable content yet. If the message is qBEAP-encrypted, pending, or not merged into the inbox, wait for decryption and sync (or open it in the extension), then try Sandbox clone or Redirect again. Plain pBEAP and depackaged `email_beap` rows need body or depackaged text.',
+    }
   }
 
   return {

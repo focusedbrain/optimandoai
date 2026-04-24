@@ -48,6 +48,7 @@ import { AutoSortSessionReview } from './AutoSortSessionReview'
 import { AutoSortSessionHistory } from './AutoSortSessionHistory'
 import { InboxHandshakeNavIconButton } from './InboxHandshakeNavIcon'
 import { useInternalSandboxesList } from '../hooks/useInternalSandboxesList'
+import { sandboxCloneUnavailableDialogVariant } from '../lib/beapInboxHostSandboxClickPolicy'
 import BeapSandboxCloneDialog from './BeapSandboxCloneDialog'
 import BeapSandboxUnavailableDialog, { type BeapSandboxUnavailableVariant } from './BeapSandboxUnavailableDialog'
 import '../components/handshakeViewTypes'
@@ -1704,11 +1705,9 @@ export default function EmailInboxBulkView({
     useState<BeapSandboxUnavailableVariant>('not_configured')
 
   const openBulkSandboxUnavailableDialog = useCallback(() => {
-    setBulkSandboxUnavailableVariant(
-      bulkSandboxAvailability.status === 'exists_but_offline' ? 'exists_but_offline' : 'not_configured',
-    )
+    setBulkSandboxUnavailableVariant(sandboxCloneUnavailableDialogVariant(bulkSandboxAvailability))
     setBulkSandboxUnavailableOpen(true)
-  }, [bulkSandboxAvailability.status])
+  }, [bulkSandboxAvailability])
 
   useEffect(() => {
     void refreshInboxSyncBackendState({
@@ -6637,6 +6636,7 @@ export default function EmailInboxBulkView({
                   }
                   onNoSandboxConnectedInfo={openBulkSandboxUnavailableDialog}
                   onSandboxCloneComplete={() => void refreshMessages()}
+                  sandboxAvailability={bulkSandboxAvailability}
                 />
               ) : (
                 <div className="bulk-view-modal-loading">Loading…</div>

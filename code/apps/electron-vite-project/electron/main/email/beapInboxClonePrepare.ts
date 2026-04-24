@@ -3,7 +3,7 @@
  * Eligibility: internal ACTIVE host↔sandbox, same identity, peer sandbox role, keys + relay (see internalSandboxesApi).
  */
 
-import { extractBeapRedirectSourceFromRow } from './beapRedirectSource'
+import { extractBeapRedirectSourceFromRow, isReceivedBeapInboxSourceType } from './beapRedirectSource'
 import { getHandshakeRecord } from '../handshake/db'
 import {
   isBeapCloneEligibleForRecord,
@@ -49,6 +49,8 @@ export type BeapInboxCloneErrorCode =
   | 'NO_SANDBOX_CONNECTED'
   | 'TARGET_HANDSHAKE_REQUIRED'
   | 'SOURCE_NOT_RECEIVED_BEAP'
+  /** Row is BEAP but `extractBeapRedirectSourceFromRow` found no buildable plaintext (e.g. pending qBEAP, not decrypted). */
+  | 'SOURCE_NO_EXTRACTABLE_CONTENT'
   | 'PREPARE_FAILED'
 
 export type BeapInboxCloneNoSandboxDetails = {
@@ -152,6 +154,16 @@ export function prepareBeapInboxSandboxClone(
     return own
   }
 
+  const st0 = String(row.source_type ?? '').trim()
+  if (st0 && !isReceivedBeapInboxSourceType(st0)) {
+    return {
+      ok: false,
+      code: 'SOURCE_NOT_RECEIVED_BEAP',
+      error:
+        'Sandbox clone applies only to received BEAP inbox messages (`direct_beap` or `email_beap`). Depackaged BEAP delivered via email is stored as `email_beap`.',
+    }
+  }
+
   const list = listAvailableInternalSandboxes(db, session)
   if (!list.success) {
     return { ok: false, error: list.error || 'Could not list internal sandboxes' }
@@ -219,7 +231,12 @@ export function prepareBeapInboxSandboxClone(
 
   const extracted = extractBeapRedirectSourceFromRow(row)
   if (!extracted.ok) {
-    return extracted
+    return {
+      ok: false,
+      code: 'SOURCE_NO_EXTRACTABLE_CONTENT',
+      error: extracted.error,
+      details: { reason: 'extraction_failed' as const, extraction_error: extracted.error },
+    }
   }
 
   const live = entry.live_status_optional ?? 'coordination_disabled'

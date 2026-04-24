@@ -24,12 +24,17 @@ import { useInboxPreloadQueue } from '../hooks/useInboxPreloadQueue'
 import { useInternalSandboxesList } from '../hooks/useInternalSandboxesList'
 import { useOrchestratorMode } from '../hooks/useOrchestratorMode'
 import { beapInboxCloneToSandboxApi } from '../lib/beapInboxCloneToSandbox'
-import { beapHostSandboxCloneTooltipProps } from '../lib/beapInboxActionTooltips'
+import { beapHostSandboxCloneTooltipForAvailability } from '../lib/beapInboxActionTooltips'
+import type { SandboxOrchestratorAvailability } from '../types/sandboxOrchestratorAvailability'
 import BeapSandboxCloneDialog from './BeapSandboxCloneDialog'
 import BeapSandboxUnavailableDialog, { type BeapSandboxUnavailableVariant } from './BeapSandboxUnavailableDialog'
 import BeapRedirectDialog from './BeapRedirectDialog'
 import { isBeapQbeapOutboundEcho } from '../lib/inboxBeapOutbound'
 import { canShowSandboxAction } from '../lib/beapInboxSandboxVisibility'
+import {
+  resolveHostSandboxCloneClickAction,
+  sandboxCloneUnavailableDialogVariant,
+} from '../lib/beapInboxHostSandboxClickPolicy'
 import { tryParsePartialAnalysis, tryParseAnalysis, type NormalInboxAiResultKey } from '../utils/parseInboxAiJson'
 import { reconcileAnalyzeTriage } from '../lib/inboxClassificationReconcile'
 import { deriveInboxMessageKind } from '../lib/inboxMessageKind'
@@ -1663,6 +1668,8 @@ interface InboxMessageRowProps {
    * (same rules as the message detail pane).
    */
   sandboxOrchestrator: { modeReady: boolean; isHost: boolean }
+  /** Drives Sandbox button hover (connected / offline / not configured). */
+  sandboxAvailability: SandboxOrchestratorAvailability
   onSandboxInRow?: (e: MouseEvent, message: InboxMessage) => void
   /** Row-level Redirect (forwarding); independent of Sandbox clone eligibility. */
   onRedirectInRow?: (e: MouseEvent, message: InboxMessage) => void
@@ -1678,6 +1685,7 @@ function InboxMessageRow({
   onMouseEnter,
   onNavigateToHandshake,
   sandboxOrchestrator,
+  sandboxAvailability,
   onSandboxInRow,
   onRedirectInRow,
 }: InboxMessageRowProps) {
@@ -1855,7 +1863,7 @@ function InboxMessageRow({
                 e.preventDefault()
                 onSandboxInRow(e, message)
               }}
-              {...beapHostSandboxCloneTooltipProps()}
+              {...beapHostSandboxCloneTooltipForAvailability(sandboxAvailability)}
             >
               Sandbox
             </button>
@@ -2519,45 +2527,47 @@ export default function EmailInboxView({
   }, [selectMessage, onSelectMessage])
 
   const openSandboxUnavailableDialog = useCallback(() => {
-    setSandboxUnavailableVariant(
-      sandboxAvailability.status === 'exists_but_offline' ? 'exists_but_offline' : 'not_configured',
-    )
+    setSandboxUnavailableVariant(sandboxCloneUnavailableDialogVariant(sandboxAvailability))
     setSandboxUnavailableOpen(true)
-  }, [sandboxAvailability.status])
+  }, [sandboxAvailability])
 
   const handleInboxRowSandbox = useCallback(
     (_e: MouseEvent, m: InboxMessage) => {
       if (!hostModeReady || !isHost) return
       const n = cloneEligibleSandboxes.length
-      if (internalSandboxesLoading && n === 0) {
+      const next = resolveHostSandboxCloneClickAction({
+        internalListLoading: internalSandboxesLoading,
+        cloneEligibleTargetCount: n,
+      })
+      if (next === 'loading_refresh') {
         setSandboxRowFeedback('Checking Sandbox connection…')
         void refreshInternalSandboxesList()
         window.setTimeout(() => setSandboxRowFeedback(null), 5000)
         return
       }
-      if (n === 0) {
+      if (next === 'open_unavailable_dialog') {
         openSandboxUnavailableDialog()
         return
       }
-      if (n === 1) {
-        void (async () => {
-          try {
-            const r = await beapInboxCloneToSandboxApi({ sourceMessageId: m.id })
-            if (r.success) {
-              setSandboxRowFeedback('Clone sent to Sandbox orchestrator.')
-              void fetchMessages()
-            } else {
-              setSandboxRowFeedback('error' in r ? r.error : 'Failed to send clone')
-            }
-            window.setTimeout(() => setSandboxRowFeedback(null), 4000)
-          } catch (e) {
-            setSandboxRowFeedback(e instanceof Error ? e.message : 'Failed to send clone')
-            window.setTimeout(() => setSandboxRowFeedback(null), 5000)
-          }
-        })()
+      if (next === 'open_target_picker') {
+        setSandboxCloneForMessage(m)
         return
       }
-      setSandboxCloneForMessage(m)
+      void (async () => {
+        try {
+          const r = await beapInboxCloneToSandboxApi({ sourceMessageId: m.id })
+          if (r.success) {
+            setSandboxRowFeedback('Clone sent to Sandbox orchestrator.')
+            void fetchMessages()
+          } else {
+            setSandboxRowFeedback('error' in r ? r.error : 'Failed to send clone')
+          }
+          window.setTimeout(() => setSandboxRowFeedback(null), 4000)
+        } catch (e) {
+          setSandboxRowFeedback(e instanceof Error ? e.message : 'Failed to send clone')
+          window.setTimeout(() => setSandboxRowFeedback(null), 5000)
+        }
+      })()
     },
     [
       hostModeReady,
@@ -3011,6 +3021,7 @@ export default function EmailInboxView({
                 onMouseEnter={() => prioritize(msg.id)}
                 onNavigateToHandshake={onNavigateToHandshake}
                 sandboxOrchestrator={{ modeReady: hostModeReady, isHost }}
+                sandboxAvailability={sandboxAvailability}
                 onSandboxInRow={handleInboxRowSandbox}
                 onRedirectInRow={(_e, m) => setBeapRedirectForMessage(m)}
               />
@@ -3200,6 +3211,7 @@ export default function EmailInboxView({
               onSandboxCloneComplete={() => void fetchMessages()}
               internalSandboxListLoading={internalSandboxesLoading}
               onRequestInternalSandboxListRefresh={() => void refreshInternalSandboxesList()}
+              sandboxAvailability={sandboxAvailability}
             />
           </div>
           <div className="inbox-detail-ai" data-collapsed={aiPanelCollapsed}>
