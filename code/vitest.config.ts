@@ -5,11 +5,19 @@
 import { defineConfig } from 'vitest/config'
 import path from 'node:path'
 
+const repoRoot = __dirname
+
 export default defineConfig({
   resolve: {
-    alias: {
-      '@repo/ingestion-core': path.resolve(__dirname, 'packages/ingestion-core/src/index.ts'),
-    },
+    alias: [
+      { find: '@repo/ingestion-core', replacement: path.resolve(repoRoot, 'packages/ingestion-core/src/index.ts') },
+      {
+        find: '@ext/handshake/handshakeRpc',
+        replacement: path.resolve(repoRoot, 'apps/electron-vite-project/src/shims/handshakeRpc.ts'),
+      },
+      { find: /^@ext\/(.+)$/, replacement: path.resolve(repoRoot, 'apps/extension-chromium/src/$1') },
+      { find: /^@shared\/(.+)$/, replacement: path.resolve(repoRoot, 'packages/shared/src/$1') },
+    ],
   },
   test: {
     server: {

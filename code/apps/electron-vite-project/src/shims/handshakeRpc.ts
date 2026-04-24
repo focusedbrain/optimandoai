@@ -143,6 +143,60 @@ const ERR_HANDSHAKE_ACCEPT_X25519_REQUIRED_MSG =
   '(`senderX25519PublicKeyB64` or `key_agreement.x25519_public_key_b64`). ' +
   'If it is omitted, Electron would generate an ephemeral X25519 key here, which breaks key continuity with the acceptor device and qBEAP decryption.'
 
+/**
+ * Electron preload's `beap.getDevicePublicKey` resolves to `{ success, publicKey? }`;
+ * older or browser-style call sites may return the base64 string directly.
+ */
+function extractDevicePublicKeyB64(result: unknown): string {
+  if (result == null) return ''
+  if (typeof result === 'string') {
+    const s = result.trim()
+    return s
+  }
+  if (typeof result !== 'object') return ''
+  const o = result as { success?: unknown; publicKey?: unknown }
+  if (o.success !== true) return ''
+  if (typeof o.publicKey !== 'string') return ''
+  return o.publicKey.trim()
+}
+
+type BeapDevicePublicKeyResultShape = 'string' | 'object_success' | 'object_failure' | 'missing' | 'invalid'
+
+function classifyBeapGetDevicePublicKeyResultShape(raw: unknown): BeapDevicePublicKeyResultShape {
+  if (raw == null) return 'missing'
+  if (typeof raw === 'string') return raw.trim() === '' ? 'invalid' : 'string'
+  if (typeof raw !== 'object') return 'invalid'
+  const o = raw as { success?: unknown; publicKey?: unknown }
+  if (o.success === true) {
+    if (typeof o.publicKey !== 'string' || o.publicKey.trim() === '') return 'invalid'
+    return 'object_success'
+  }
+  if (o.success === false) return 'object_failure'
+  return 'invalid'
+}
+
+/** Normal cross-principal shim path only — no key material. */
+function logNormalAcceptX25519ShimFailure(args: {
+  handshakeId: string
+  isInternalHandshake: boolean
+  handshakeType?: string | null
+  raw: unknown
+}): void {
+  const beap = typeof window !== 'undefined' ? (window as Window & { beap?: { getDevicePublicKey?: unknown } }).beap : undefined
+  const resultShape = classifyBeapGetDevicePublicKeyResultShape(args.raw)
+  console.warn(
+    '[HANDSHAKE][ACCEPT_X25519]',
+    JSON.stringify({
+      handshakeId: args.handshakeId,
+      isInternalHandshake: args.isInternalHandshake,
+      handshake_type: args.handshakeType ?? null,
+      has_beap: !!beap,
+      has_getDevicePublicKey: typeof beap?.getDevicePublicKey === 'function',
+      result_shape: resultShape,
+    }),
+  )
+}
+
 export async function acceptHandshake(
   handshakeId: string,
   sharingMode: 'receive-only' | 'reciprocal',
@@ -169,18 +223,27 @@ export async function acceptHandshake(
 
   const internalAccept =
     contextOpts?.device_role === 'host' || contextOpts?.device_role === 'sandbox'
+  const handshakeTypeOpt =
+    contextOpts && typeof contextOpts === 'object' && 'handshake_type' in contextOpts
+      ? (contextOpts as { handshake_type?: string }).handshake_type ?? null
+      : null
 
+  let normalAcceptBeapRaw: unknown = undefined
   if (!internalAccept) {
-    let rawX25519: unknown
     try {
-      rawX25519 = await window.beap?.getDevicePublicKey()
+      normalAcceptBeapRaw = await window.beap?.getDevicePublicKey()
     } catch (e) {
       console.error('[KEY-AGREEMENT] acceptHandshake (shim): failed to get device X25519 key:', e)
-      rawX25519 = undefined
+      normalAcceptBeapRaw = undefined
     }
-    const trimmed = typeof rawX25519 === 'string' ? rawX25519.trim() : ''
+    const trimmed = extractDevicePublicKeyB64(normalAcceptBeapRaw)
     if (!trimmed) {
-      console.error('[KEY-AGREEMENT] acceptHandshake (shim):', ERR_HANDSHAKE_ACCEPT_X25519_REQUIRED_MSG)
+      logNormalAcceptX25519ShimFailure({
+        handshakeId: handshakeId,
+        isInternalHandshake: internalAccept,
+        handshakeType: handshakeTypeOpt,
+        raw: normalAcceptBeapRaw,
+      })
       return {
         type: 'handshake-accept-result',
         success: false,
@@ -200,8 +263,10 @@ export async function acceptHandshake(
     console.log('[KEY-AGREEMENT] acceptHandshake (shim): device X25519 public key fetched')
   } else {
     try {
-      senderX25519PublicKeyB64 = await window.beap?.getDevicePublicKey()
-      console.log('[KEY-AGREEMENT] acceptHandshake (shim): device X25519 public key fetched')
+      const rawInternal = await window.beap?.getDevicePublicKey()
+      const t = extractDevicePublicKeyB64(rawInternal)
+      if (t) senderX25519PublicKeyB64 = t
+      if (t) console.log('[KEY-AGREEMENT] acceptHandshake (shim): device X25519 public key fetched')
     } catch (e) {
       console.error('[KEY-AGREEMENT] acceptHandshake (shim): failed to get device X25519 key:', e)
     }
@@ -222,7 +287,12 @@ export async function acceptHandshake(
   // Normal path: never invoke IPC without a concrete device X25519 (contextOpts cannot override).
   if (!internalAccept) {
     if (typeof senderX25519PublicKeyB64 !== 'string' || !senderX25519PublicKeyB64.trim()) {
-      console.error('[KEY-AGREEMENT] acceptHandshake (shim):', ERR_HANDSHAKE_ACCEPT_X25519_REQUIRED_MSG)
+      logNormalAcceptX25519ShimFailure({
+        handshakeId: handshakeId,
+        isInternalHandshake: internalAccept,
+        handshakeType: handshakeTypeOpt,
+        raw: normalAcceptBeapRaw,
+      })
       return {
         type: 'handshake-accept-result',
         success: false,
