@@ -37,6 +37,7 @@ export interface BeapInboxClonePrepareOk {
 /** Main-process prepare path (not including vault / host envelope errors). */
 export type BeapInboxClonePrepareErrorCode =
   | 'NO_SANDBOX_CONNECTED'
+  | 'INCOMPLETE_SANDBOX_KEYING'
   | 'TARGET_HANDSHAKE_REQUIRED'
   | 'SOURCE_NO_EXTRACTABLE_CONTENT'
   | 'PREPARE_FAILED'

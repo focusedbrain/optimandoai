@@ -1,7 +1,6 @@
 /**
- * Shown when the user chooses Sandbox on a received BEAP message in Host mode
- * but there is no clone-eligible (live) Sandbox path — with copy that depends on
- * whether a handshake + keys exist vs not configured.
+ * Shown when the user chooses Sandbox in Host mode but there is no **active internal**
+ * Host↔Sandbox handshake. Live relay / queue status does not use this dialog.
  *
  * Styling: explicit light card on dim overlay (no theme inheritance for body text).
  */
@@ -80,7 +79,7 @@ export default function BeapSandboxUnavailableDialog({
       >
         <div style={{ padding: '24px 24px 20px' }}>
           <h2 id="beap-sandbox-unavailable-title" className="wrdesk-modal__title" style={{ fontSize: 20, letterSpacing: '-0.02em' }}>
-            {isOffline ? 'Sandbox orchestrator is offline' : 'No Sandbox orchestrator available'}
+            No active Sandbox handshake found
           </h2>
         </div>
 
@@ -97,16 +96,15 @@ export default function BeapSandboxUnavailableDialog({
               color: DIALOG.body,
             }}
           >
-            <strong style={{ color: DIALOG.bodyStrong, fontWeight: 600 }}>Sandbox</strong> sends a{' '}
-            <strong style={{ color: DIALOG.bodyStrong, fontWeight: 600 }}>clone</strong> of this message to
-            your Sandbox orchestrator. The <strong style={{ color: DIALOG.bodyStrong, fontWeight: 600 }}>original
-            message stays unchanged</strong>.
+            Sandbox requires an <strong style={{ color: DIALOG.bodyStrong, fontWeight: 600 }}>ACTIVE internal Host ↔
+            Sandbox</strong> handshake under the same identity. Once this handshake exists, BEAP messages can be cloned
+            to the Sandbox. If the Sandbox is temporarily offline, the clone can still be queued for delivery.
           </p>
 
           {isOffline ? (
             <div
               role="region"
-              aria-label="Offline status"
+              aria-label="Coordination status"
               style={{
                 marginBottom: 16,
                 padding: 14,
@@ -118,91 +116,17 @@ export default function BeapSandboxUnavailableDialog({
               <p
                 style={{
                   margin: 0,
-                  fontSize: 15,
-                  lineHeight: 1.5,
-                  fontWeight: 600,
-                  color: DIALOG.bodyStrong,
-                }}
-              >
-                A Sandbox handshake is set up, but the Sandbox device is not connected right now (offline or the
-                coordination relay is down).
-              </p>
-              <p
-                style={{
-                  margin: '10px 0 0',
                   fontSize: 14,
                   lineHeight: 1.55,
                   fontWeight: 500,
                   color: DIALOG.body,
                 }}
               >
-                Start the Sandbox orchestrator on that device, ensure it can reach the network, and wait for the relay
-                to connect—then use Sandbox again from this message.
+                The coordination relay may be disconnected — that does not remove your handshake. Create or open an
+                active internal Host ↔ Sandbox pairing in Handshakes if you still need setup.
               </p>
             </div>
-          ) : (
-            <>
-              <p
-                style={{
-                  margin: '0 0 14px',
-                  fontSize: 15,
-                  lineHeight: 1.55,
-                  fontWeight: 500,
-                  color: DIALOG.body,
-                }}
-              >
-                To use Sandbox, sign in to a <strong style={{ color: DIALOG.bodyStrong, fontWeight: 600 }}>Sandbox
-                orchestrator under the same identity</strong> as this Host, then create and activate an internal{' '}
-                <strong style={{ color: DIALOG.bodyStrong, fontWeight: 600 }}>Host ↔ Sandbox</strong> handshake.
-              </p>
-
-              <p
-                style={{
-                  margin: '0 0 8px',
-                  fontSize: 13,
-                  fontWeight: 700,
-                  textTransform: 'uppercase' as const,
-                  letterSpacing: '0.04em',
-                  color: DIALOG.supporting,
-                }}
-              >
-                Next steps
-              </p>
-              <ol
-                style={{
-                  margin: '0 0 16px',
-                  padding: '12px 16px 12px 32px',
-                  fontSize: 14,
-                  lineHeight: 1.55,
-                  fontWeight: 500,
-                  color: DIALOG.body,
-                  background: DIALOG.stepBg,
-                  border: `1px solid ${DIALOG.stepBorder}`,
-                  borderRadius: 8,
-                }}
-              >
-                <li style={{ marginBottom: 8 }}>
-                  In Handshakes, add or <strong style={{ color: DIALOG.bodyStrong, fontWeight: 600 }}>activate</strong>
-                  the internal Host ↔ Sandbox relationship for this account.
-                </li>
-                <li style={{ marginBottom: 0 }}>
-                  Keep the <strong style={{ color: DIALOG.bodyStrong, fontWeight: 600 }}>Sandbox orchestrator
-                  running</strong> and connected so the coordination relay can deliver the clone.
-                </li>
-              </ol>
-              <p
-                style={{
-                  margin: 0,
-                  fontSize: 14,
-                  lineHeight: 1.5,
-                  fontWeight: 500,
-                  color: DIALOG.supporting,
-                }}
-              >
-                After setup, the Sandbox action will send a test copy without changing this inbox message.
-              </p>
-            </>
-          )}
+          ) : null}
         </div>
 
         <div

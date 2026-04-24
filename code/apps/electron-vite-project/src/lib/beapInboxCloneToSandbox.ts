@@ -185,6 +185,29 @@ export type BeapInboxClonePrepareFailure = {
   details?: unknown
 }
 
+const CLONE_OK_LIVE = 'Message cloned and sent to Sandbox.'
+const CLONE_OK_QUEUED =
+  'Message cloned and queued for Sandbox. It will be delivered when the Sandbox orchestrator reconnects.'
+
+/** User-facing string after a clone attempt (200 vs 202 vs prepare/send failure). */
+export function sandboxCloneFeedbackFromOutcome(
+  r: BeapInboxCloneToSandboxResult | BeapInboxClonePrepareFailure,
+): { kind: 'success_live' | 'success_queued' | 'error'; text: string } {
+  if (r && 'success' in r && r.success === false) {
+    return { kind: 'error', text: r.error || 'Sandbox clone failed.' }
+  }
+  if (r && 'success' in r && r.success === true) {
+    if (r.deliveryMode === 'queued') {
+      return { kind: 'success_queued', text: CLONE_OK_QUEUED }
+    }
+    if (r.deliveryMode === 'failed') {
+      return { kind: 'error', text: 'Sandbox clone failed: delivery did not complete.' }
+    }
+    return { kind: 'success_live', text: CLONE_OK_LIVE }
+  }
+  return { kind: 'error', text: 'Sandbox clone failed.' }
+}
+
 export async function beapInboxCloneToSandboxApi(params: {
   sourceMessageId: string
   targetHandshakeId?: string

@@ -4,57 +4,22 @@
 
 import type { SandboxOrchestratorAvailability } from '../types/sandboxOrchestratorAvailability'
 
-const SANDBOX_HOVER = 'Clone this message and send it to your Sandbox orchestrator for safe testing.'
+/** Primary hover + screen reader line — clone does not require live relay; 202-queued is OK. */
+const BEAP_SANDBOX_CLONE_TIP =
+  'Clone this entire BEAP message and send it to the connected Sandbox orchestrator. If the Sandbox is offline, the clone will be queued and delivered when it reconnects.'
 
 const SANDBOX_ARIA_SHORT = 'Clone message to Sandbox'
 
-const SANDBOX_ARIA_SUFFIX_CONNECTED =
-  'Sends a clone to your connected Sandbox orchestrator. The original message stays in your inbox.'
-
-const SANDBOX_ARIA_SUFFIX_NOT_CONFIGURED =
-  'Connect a Sandbox orchestrator under the same identity, then try again. You can open setup from this action.'
-
-const SANDBOX_ARIA_SUFFIX_OFFLINE =
-  'Your Sandbox exists but the coordination path is offline. Start the Sandbox app or check the relay, then try again.'
-
 /**
- * @param variant `row` and `detail` use the same primary `title` per product spec; list adds status on a second line when not connected.
+ * @param _availability — retained for call sites; tri-state (relay live vs offline) does not change the copy.
+ * @param _variant — retained for call sites; row and detail use the same primary line.
  */
 export function beapHostSandboxCloneTooltipForAvailability(
-  availability: SandboxOrchestratorAvailability,
-  variant: 'row' | 'detail' = 'detail',
+  _availability: SandboxOrchestratorAvailability,
+  _variant: 'row' | 'detail' = 'detail',
 ): { title: string; 'aria-label': string } {
-  let long: string
-  switch (availability.status) {
-    case 'connected':
-      long = SANDBOX_ARIA_SUFFIX_CONNECTED
-      break
-    case 'exists_but_offline':
-      long = SANDBOX_ARIA_SUFFIX_OFFLINE
-      break
-    case 'not_configured':
-    default:
-      long = SANDBOX_ARIA_SUFFIX_NOT_CONFIGURED
-      break
-  }
-
-  const ariaLabel = `${SANDBOX_ARIA_SHORT}. ${long}`
-
-  if (variant === 'row' && availability.status !== 'connected') {
-    return {
-      title: `${SANDBOX_HOVER}\n${long}`,
-      'aria-label': ariaLabel,
-    }
-  }
-
-  if (variant === 'detail' && availability.status !== 'connected') {
-    return {
-      title: `${SANDBOX_HOVER}\n${long}`,
-      'aria-label': ariaLabel,
-    }
-  }
-
-  return { title: SANDBOX_HOVER, 'aria-label': ariaLabel }
+  const ariaLabel = `${SANDBOX_ARIA_SHORT}. ${BEAP_SANDBOX_CLONE_TIP} The original message stays in your inbox.`
+  return { title: BEAP_SANDBOX_CLONE_TIP, 'aria-label': ariaLabel }
 }
 
 export const BEAP_INBOX_REDIRECT_TIP = 'Redirect'

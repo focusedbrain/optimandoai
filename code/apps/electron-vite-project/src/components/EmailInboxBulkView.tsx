@@ -55,6 +55,7 @@ import { canShowSandboxCloneAction } from '../lib/beapInboxSandboxVisibility'
 import { beapInboxCloneToSandboxApi } from '../lib/beapInboxCloneToSandbox'
 import {
   resolveHostSandboxCloneClickAction,
+  SANDBOX_KEYING_INCOMPLETE_USER_MESSAGE,
   sandboxCloneUnavailableDialogVariant,
 } from '../lib/beapInboxHostSandboxClickPolicy'
 import BeapSandboxCloneDialog from './BeapSandboxCloneDialog'
@@ -1703,8 +1704,8 @@ export default function EmailInboxBulkView({
 
   const {
     sandboxes: bulkInternalSandboxes,
-    hasUsableSandbox: bulkHasUsableSandbox,
-    cloneEligibleSandboxes: bulkCloneEligibleSandboxes,
+    hasActiveInternalSandboxHandshake: bulkHasActiveInternalSandboxHandshake,
+    sendableCloneSandboxes: bulkSendableCloneSandboxes,
     sandboxAvailability: bulkSandboxAvailability,
     loading: bulkInternalSandboxesLoading,
     refresh: refreshBulkInternalSandboxesList,
@@ -1945,6 +1946,7 @@ export default function EmailInboxBulkView({
   const [pendingLink, setPendingLink] = useState<{ url: string; message: InboxMessage } | null>(null)
   const [linkDialogSandboxBusy, setLinkDialogSandboxBusy] = useState(false)
   const [bulkLinkSandboxInfoOpen, setBulkLinkSandboxInfoOpen] = useState(false)
+  const [bulkLinkKeyingNotice, setBulkLinkKeyingNotice] = useState<string | null>(null)
   const showSandboxOnLinkDialog = useMemo(() => {
     if (!pendingLink) return false
     return canShowSandboxCloneAction({
@@ -1953,6 +1955,7 @@ export default function EmailInboxBulkView({
       message: pendingLink.message,
       authoritativeDeviceInternalRole: bulkAuthoritativeDeviceInternalRole,
       internalSandboxListReady: bulkInternalSandboxListReady,
+      hasActiveInternalSandboxHandshake: bulkHasActiveInternalSandboxHandshake,
     })
   }, [
     pendingLink,
@@ -1960,6 +1963,7 @@ export default function EmailInboxBulkView({
     bulkOrchestratorMode,
     bulkAuthoritativeDeviceInternalRole,
     bulkInternalSandboxListReady,
+    bulkHasActiveInternalSandboxHandshake,
   ])
   const [aiSortProgress, setAiSortProgress] = useState<AiSortProgressState | null>(null)
   /** Messages per `aiClassifyBatch` chunk (1–8). Persisted; read at each chunk boundary — changes apply from the next chunk. */
@@ -4252,10 +4256,10 @@ export default function EmailInboxBulkView({
   const handleBulkLinkWarningSandbox = useCallback(async () => {
     if (!pendingLink) return
     const { url, message: msg } = pendingLink
-    const targets = bulkCloneEligibleSandboxes
     const next = resolveHostSandboxCloneClickAction({
       internalListLoading: bulkInternalSandboxesLoading,
-      cloneEligibleTargetCount: targets.length,
+      sendableTargetCount: bulkSendableCloneSandboxes.length,
+      activeInternalHandshakeCount: bulkInternalSandboxes.length,
     })
     if (next === 'loading_refresh') {
       void refreshBulkInternalSandboxesList()
@@ -4263,6 +4267,11 @@ export default function EmailInboxBulkView({
     }
     if (next === 'open_unavailable_dialog') {
       setBulkLinkSandboxInfoOpen(true)
+      return
+    }
+    if (next === 'keying_incomplete') {
+      setBulkLinkKeyingNotice(SANDBOX_KEYING_INCOMPLETE_USER_MESSAGE)
+      window.setTimeout(() => setBulkLinkKeyingNotice(null), 10000)
       return
     }
     if (next === 'open_target_picker') {
@@ -4290,7 +4299,8 @@ export default function EmailInboxBulkView({
     }
   }, [
     pendingLink,
-    bulkCloneEligibleSandboxes,
+    bulkSendableCloneSandboxes,
+    bulkInternalSandboxes.length,
     bulkInternalSandboxesLoading,
     refreshBulkInternalSandboxesList,
     refreshMessages,
@@ -6579,6 +6589,27 @@ export default function EmailInboxBulkView({
         onSandbox={() => void handleBulkLinkWarningSandbox()}
         sandboxBusy={linkDialogSandboxBusy}
       />
+      {bulkLinkKeyingNotice ? (
+        <div
+          role="status"
+          style={{
+            position: 'fixed',
+            bottom: 100,
+            left: 24,
+            right: 24,
+            zIndex: 1100,
+            padding: 12,
+            background: 'rgba(30, 41, 59, 0.95)',
+            color: '#fecaca',
+            fontSize: 13,
+            borderRadius: 8,
+            maxWidth: 480,
+            margin: '0 auto',
+          }}
+        >
+          {bulkLinkKeyingNotice}
+        </div>
+      ) : null}
       <SandboxLinkInfoDialog
         isOpen={bulkLinkSandboxInfoOpen}
         onClose={() => setBulkLinkSandboxInfoOpen(false)}
@@ -6669,10 +6700,10 @@ export default function EmailInboxBulkView({
       {/* EmailComposeOverlay removed — use EmailInlineComposer via composeMode (Prompt 3/6) */}
 
       {/* Full message modal — stays inside bulk mode */}
-      {bulkSandboxCloneFor && bulkCloneEligibleSandboxes.length > 1 && (
+      {bulkSandboxCloneFor && bulkSendableCloneSandboxes.length > 1 && (
         <BeapSandboxCloneDialog
           message={bulkSandboxCloneFor}
-          sandboxes={bulkCloneEligibleSandboxes}
+          sandboxes={bulkSendableCloneSandboxes}
           cloneContext={bulkSandboxClonePickerContext}
           onClose={() => {
             setBulkSandboxCloneFor(null)
@@ -6726,9 +6757,10 @@ export default function EmailInboxBulkView({
                     onSelectAttachment?.(attachmentId)
                   }}
                   onReply={handleReply}
-                  internalSandboxTargets={bulkCloneEligibleSandboxes}
+                  internalSandboxTargets={bulkSendableCloneSandboxes}
+                  activeInternalHandshakeCount={bulkInternalSandboxes.length}
                   onSandboxMultiSelect={
-                    bulkCloneEligibleSandboxes.length > 1
+                    bulkSendableCloneSandboxes.length > 1
                       ? (m, ctx) => {
                           setBulkSandboxCloneFor(m)
                           setBulkSandboxClonePickerContext(ctx ?? null)

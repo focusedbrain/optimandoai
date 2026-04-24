@@ -72,6 +72,8 @@ describe('beapInbox Ux source regressions', () => {
     expect(detail).toContain('authoritativeDeviceInternalRole')
     expect(detail).toContain('internalSandboxListReady')
     expect(detail).toContain('canShowSandboxCloneAction(')
+    expect(detail).toContain('hasActiveInternalSandboxHandshake')
+    expect(vis).toContain('hasActiveInternalSandboxHandshake')
   })
 
   test('14: clone prepare IPC enforces Host orchestrator before vault/db', () => {

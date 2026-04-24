@@ -1,10 +1,11 @@
 /**
  * Host-only Sandbox clone icon. Does not apply crypto; main IPC still enforces host + target.
  *
- * - Every actionable inbox message on a Host orchestrator can show the icon; connected vs offline
- *   only changes what happens on click (clone vs unavailable dialog).
- * - When `internalSandboxes.listAvailable` has succeeded and marks this device as the Sandbox side,
- *   the icon is hidden (fail closed vs mis-set global mode).
+ * - Shown when the Host has at least one **ACTIVE internal** Host↔Sandbox handshake (from
+ *   `listAvailable` / `hasActiveInternalSandboxHandshake`), the list RPC has completed, the row is
+ *   actionable, and this device is not the Sandbox orchestrator. **Not** gated on live relay
+ *   or `beap_clone_eligible`.
+ * - When the same list marks this device as the Sandbox side, the icon is hidden.
  */
 
 import type { AuthoritativeDeviceInternalRole } from '../types/sandboxOrchestratorAvailability'
@@ -21,6 +22,11 @@ export type CanShowSandboxCloneIconParams = {
    * While false (loading or RPC error), we do not treat the device as Sandbox unless mode says so.
    */
   internalSandboxListReady: boolean
+  /**
+   * At least one ACTIVE internal Host↔Sandbox handshake (same identity) from `listAvailable` — not relay-connected.
+   * While list is not ready, icon stays hidden (fail closed).
+   */
+  hasActiveInternalSandboxHandshake: boolean
 }
 
 /** @deprecated use {@link CanShowSandboxCloneIconParams} */
@@ -37,7 +43,14 @@ export type SandboxCloneEligibilityDetail = {
 export function getSandboxCloneEligibilityDetail(
   p: CanShowSandboxCloneIconParams,
 ): SandboxCloneEligibilityDetail {
-  const { modeReady, orchestratorMode, message, authoritativeDeviceInternalRole, internalSandboxListReady } = p
+  const {
+    modeReady,
+    orchestratorMode,
+    message,
+    authoritativeDeviceInternalRole,
+    internalSandboxListReady,
+    hasActiveInternalSandboxHandshake,
+  } = p
   logOrchestratorRoleModeConflict(p)
   if (!modeReady) {
     return { show: false, reason: 'mode_not_ready', orchestratorMode, authoritativeDeviceInternalRole, internalSandboxListReady }
@@ -49,6 +62,24 @@ export function getSandboxCloneEligibilityDetail(
     return {
       show: false,
       reason: 'authoritative_device_is_sandbox_orchestrator',
+      orchestratorMode,
+      authoritativeDeviceInternalRole,
+      internalSandboxListReady,
+    }
+  }
+  if (!internalSandboxListReady) {
+    return {
+      show: false,
+      reason: 'internal_sandbox_list_not_ready',
+      orchestratorMode,
+      authoritativeDeviceInternalRole,
+      internalSandboxListReady,
+    }
+  }
+  if (!hasActiveInternalSandboxHandshake) {
+    return {
+      show: false,
+      reason: 'no_active_internal_sandbox_handshake',
       orchestratorMode,
       authoritativeDeviceInternalRole,
       internalSandboxListReady,
@@ -122,6 +153,7 @@ export function logSandboxCloneEligibilityDebug(
     orchestratorMode: p.orchestratorMode,
     authoritativeDeviceInternalRole: p.authoritativeDeviceInternalRole,
     internalSandboxListReady: p.internalSandboxListReady,
+    hasActiveInternalSandboxHandshake: p.hasActiveInternalSandboxHandshake,
     selectedInternalSandboxHandshakeId: firstHs,
     messageId: message?.id,
   })

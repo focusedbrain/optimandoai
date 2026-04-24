@@ -126,12 +126,22 @@ export function useInternalSandboxesList() {
     return () => window.removeEventListener('vault-status-changed', onVaultStatusChanged)
   }, [refresh])
 
+  /** Live relay + keys — display only; must not block clone (use {@link sendableCloneSandboxes}). */
   const cloneEligibleSandboxes = useMemo(
     () => sandboxes.filter((s) => s.beap_clone_eligible === true),
     [sandboxes],
   )
+  /**
+   * Active internal Host→Sandbox handshakes with enough material to build qBEAP (P2P endpoint + local + peer keys).
+   * Clone send works even when relay is down (message may queue).
+   */
+  const sendableCloneSandboxes = useMemo(
+    () => sandboxes.filter((s) => s.sandbox_keying_complete === true),
+    [sandboxes],
+  )
 
   const internalSandboxListReady = !loading && lastSuccess
+  const hasActiveInternalSandboxHandshake = sandboxes.length > 0
 
   return {
     sandboxes,
@@ -149,10 +159,14 @@ export function useInternalSandboxesList() {
     refresh,
     /** Tri-state: connected (live send), exists_but_offline (keys OK, relay/path down), not_configured. */
     sandboxAvailability,
-    /** True when at least one coordination-complete sandbox target exists. */
+    /** True when at least one active internal Host↔Sandbox row exists (identity complete). */
     hasUsableSandbox: sandboxes.length > 0,
-    /** Relays + keys: eligible for “Sandbox” clone on received BEAP rows. */
+    hasActiveInternalSandboxHandshake,
+    /** Relays + keys: informational only. */
     cloneEligibleSandboxes,
     hasCloneEligibleSandbox: cloneEligibleSandboxes.length > 0,
+    /** Targets that can be used for clone send (keying complete). */
+    sendableCloneSandboxes,
+    hasSendableCloneSandbox: sendableCloneSandboxes.length > 0,
   }
 }

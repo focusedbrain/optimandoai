@@ -5,42 +5,42 @@ import {
 } from '../beapInboxHostSandboxClickPolicy'
 
 describe('beapInboxHostSandboxClickPolicy (Host Sandbox row + detail)', () => {
-  test('3: loading with zero eligible targets => refresh path (button stays enabled in UI; no dialog)', () => {
-    expect(
-      resolveHostSandboxCloneClickAction({ internalListLoading: true, cloneEligibleTargetCount: 0 }),
-    ).toBe('loading_refresh')
+  const p = (o: { internalListLoading: boolean; sendableTargetCount: number; activeInternalHandshakeCount: number }) => o
+
+  test('3: loading with no active handshakes yet => refresh path', () => {
+    expect(resolveHostSandboxCloneClickAction(p({ internalListLoading: true, sendableTargetCount: 0, activeInternalHandshakeCount: 0 }))).toBe('loading_refresh')
   })
 
-  test('4: not_configured (no eligible sandboxes) => unavailable dialog', () => {
-    expect(
-      resolveHostSandboxCloneClickAction({ internalListLoading: false, cloneEligibleTargetCount: 0 }),
-    ).toBe('open_unavailable_dialog')
+  test('4: no active internal handshakes => unavailable dialog', () => {
+    expect(resolveHostSandboxCloneClickAction(p({ internalListLoading: false, sendableTargetCount: 0, activeInternalHandshakeCount: 0 }))).toBe('open_unavailable_dialog')
   })
 
-  test('5: same zero-target path; offline is distinguished only by dialog copy (availability), not this resolver', () => {
+  test('4b: active handshake but keying incomplete => keying_incomplete, not setup dialog', () => {
     expect(
-      sandboxCloneUnavailableDialogVariant({ status: 'exists_but_offline' }),
-    ).toBe('exists_but_offline')
-    expect(
-      sandboxCloneUnavailableDialogVariant({ status: 'not_configured' }),
-    ).toBe('not_configured')
+      resolveHostSandboxCloneClickAction(p({ internalListLoading: false, sendableTargetCount: 0, activeInternalHandshakeCount: 1 })),
+    ).toBe('keying_incomplete')
   })
 
-  test('6a: one eligible sandbox => direct clone (single send)', () => {
+  test('5: tri-state no longer changes unavailable variant (no-handshake copy only)', () => {
+    expect(sandboxCloneUnavailableDialogVariant({ status: 'exists_but_offline' })).toBe('not_configured')
+    expect(sandboxCloneUnavailableDialogVariant({ status: 'not_configured' })).toBe('not_configured')
+  })
+
+  test('6a: one sendable target => direct clone (single send)', () => {
     expect(
-      resolveHostSandboxCloneClickAction({ internalListLoading: false, cloneEligibleTargetCount: 1 }),
+      resolveHostSandboxCloneClickAction(p({ internalListLoading: false, sendableTargetCount: 1, activeInternalHandshakeCount: 1 })),
     ).toBe('direct_clone')
   })
 
-  test('6b: multiple eligible sandboxes => target picker / multi dialog', () => {
+  test('6b: multiple sendable targets => target picker', () => {
     expect(
-      resolveHostSandboxCloneClickAction({ internalListLoading: false, cloneEligibleTargetCount: 2 }),
+      resolveHostSandboxCloneClickAction(p({ internalListLoading: false, sendableTargetCount: 2, activeInternalHandshakeCount: 2 })),
     ).toBe('open_target_picker')
   })
 
-  test('loading + already has targets => direct_clone or picker (not stuck on loading branch)', () => {
+  test('loading + one sendable => direct_clone (not stuck on loading branch)', () => {
     expect(
-      resolveHostSandboxCloneClickAction({ internalListLoading: true, cloneEligibleTargetCount: 1 }),
+      resolveHostSandboxCloneClickAction(p({ internalListLoading: true, sendableTargetCount: 1, activeInternalHandshakeCount: 1 })),
     ).toBe('direct_clone')
   })
 })

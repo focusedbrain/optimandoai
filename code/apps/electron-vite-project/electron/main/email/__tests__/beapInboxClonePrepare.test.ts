@@ -286,7 +286,7 @@ describe('prepareBeapInboxSandboxClone', () => {
     }
   })
 
-  test('NO_SANDBOX_CONNECTED when no eligible internal sandboxes', () => {
+  test('prepare succeeds when relay is down but sandbox_keying_complete (queued send path OK)', () => {
     const row = {
       id: 'm-1',
       source_type: 'direct_beap',
@@ -302,13 +302,79 @@ describe('prepareBeapInboxSandboxClone', () => {
     }
     listAvailableInternalSandboxes.mockReturnValue({
       success: true,
-      sandboxes: [makeEligibleEntry({ beap_clone_eligible: false, live_status_optional: 'relay_disconnected' })],
+      sandboxes: [
+        makeEligibleEntry({
+          beap_clone_eligible: false,
+          sandbox_keying_complete: true,
+          live_status_optional: 'relay_disconnected',
+        }),
+      ],
       incomplete: [],
       sandbox_availability: { status: 'exists_but_offline', relay_connected: false, use_coordination: true },
       authoritative_device_internal_role: 'host',
     })
+    getHandshakeRecord.mockReturnValue(makeHandshakeRecord('hs-sbx-1'))
     const db = makeInboxDb(row)
     const r = prepareBeapInboxSandboxClone(db as any, session, 'm-1', undefined, null, allowed)
+    expect(r.ok).toBe(true)
+  })
+
+  test('INCOMPLETE_SANDBOX_KEYING when handshake row exists but keying is not complete', () => {
+    const row = {
+      id: 'm-k',
+      source_type: 'direct_beap',
+      handshake_id: 'hs-orig',
+      subject: 'S',
+      body_text: 'ok',
+      depackaged_json: null,
+      has_attachments: 0,
+      from_address: 'from@x.com',
+      account_id: P2P_BEAP_INBOX_ACCOUNT_ID,
+      received_at: '2020-01-01T00:00:00.000Z',
+      ingested_at: null,
+    }
+    listAvailableInternalSandboxes.mockReturnValue({
+      success: true,
+      sandboxes: [
+        makeEligibleEntry({
+          handshake_id: 'hs-sbx-1',
+          sandbox_keying_complete: false,
+          p2p_endpoint_set: false,
+        }),
+      ],
+      incomplete: [],
+      sandbox_availability: { status: 'not_configured', relay_connected: true, use_coordination: true },
+      authoritative_device_internal_role: 'host',
+    })
+    const db = makeInboxDb(row)
+    const r = prepareBeapInboxSandboxClone(db as any, session, 'm-k', undefined, null, allowed)
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.code).toBe('INCOMPLETE_SANDBOX_KEYING')
+  })
+
+  test('NO_SANDBOX_CONNECTED when there are no active internal sandboxes in the list', () => {
+    const row = {
+      id: 'm-ns',
+      source_type: 'direct_beap',
+      handshake_id: 'hs-orig',
+      subject: 'S',
+      body_text: 'ok',
+      depackaged_json: null,
+      has_attachments: 0,
+      from_address: 'from@x.com',
+      account_id: P2P_BEAP_INBOX_ACCOUNT_ID,
+      received_at: '2020-01-01T00:00:00.000Z',
+      ingested_at: null,
+    }
+    listAvailableInternalSandboxes.mockReturnValue({
+      success: true,
+      sandboxes: [],
+      incomplete: [],
+      sandbox_availability: { status: 'not_configured', relay_connected: false, use_coordination: true },
+      authoritative_device_internal_role: 'host',
+    })
+    const db = makeInboxDb(row)
+    const r = prepareBeapInboxSandboxClone(db as any, session, 'm-ns', undefined, null, allowed)
     expect(r.ok).toBe(false)
     if (!r.ok) expect(r.code).toBe('NO_SANDBOX_CONNECTED')
   })

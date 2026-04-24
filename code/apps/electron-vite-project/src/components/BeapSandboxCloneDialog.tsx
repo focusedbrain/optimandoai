@@ -5,7 +5,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { InboxMessage } from '../stores/useEmailInboxStore'
 import type { InternalSandboxTargetWire } from '../hooks/useInternalSandboxesList'
-import { beapInboxCloneToSandboxApi } from '../lib/beapInboxCloneToSandbox'
+import { beapInboxCloneToSandboxApi, sandboxCloneFeedbackFromOutcome } from '../lib/beapInboxCloneToSandbox'
 import { UI_BUTTON } from '../styles/uiContrastTokens'
 import './handshakeViewTypes'
 
@@ -51,6 +51,16 @@ export default function BeapSandboxCloneDialog({
       setErr('Select a sandbox orchestrator')
       return
     }
+    const hid = sandboxes.length === 1 ? sandboxes[0]!.handshake_id : (targetId ?? '')
+    // eslint-disable-next-line no-console
+    console.log('[BEAP_SANDBOX_CLONE] target_selected', {
+      message_id: message.id,
+      handshake_id: hid,
+      peer_role: 'sandbox',
+      peer_pairing_code: selected?.peer_pairing_code_six,
+    })
+    // eslint-disable-next-line no-console
+    console.log('[BEAP_SANDBOX_CLONE] send_begin', { message_id: message.id, target_handshake_id: hid })
     setSending(true)
     setErr(null)
     setToast(null)
@@ -68,11 +78,16 @@ export default function BeapSandboxCloneDialog({
           : {}),
       })
       if (r.success) {
-        setToast({ type: 'success', text: 'Clone sent to Sandbox orchestrator.' })
+        const fb = sandboxCloneFeedbackFromOutcome(r)
+        // eslint-disable-next-line no-console
+        console.log('[BEAP_SANDBOX_CLONE] send_result', { message_id: message.id, deliveryMode: r.deliveryMode })
+        setToast({ type: 'success', text: fb.text })
         onSent?.()
         window.setTimeout(() => onClose(), 1200)
       } else {
-        const msg = 'error' in r ? r.error : 'Failed to send clone'
+        // eslint-disable-next-line no-console
+        console.log('[BEAP_SANDBOX_CLONE] send_result', { message_id: message.id, error: r })
+        const msg = 'error' in r ? `Sandbox clone failed: ${r.error}` : 'Sandbox clone failed.'
         setToast({ type: 'error', text: msg })
         setErr(msg)
       }
@@ -83,7 +98,7 @@ export default function BeapSandboxCloneDialog({
     } finally {
       setSending(false)
     }
-  }, [cloneContext, message.id, onClose, onSent, sandboxes.length, targetId])
+  }, [cloneContext, message.id, onClose, onSent, sandboxes, targetId, selected])
 
   return (
     <div

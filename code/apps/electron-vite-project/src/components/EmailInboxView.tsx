@@ -23,7 +23,7 @@ import type { NormalInboxAiResult } from '../types/inboxAi'
 import { useInboxPreloadQueue } from '../hooks/useInboxPreloadQueue'
 import { useInternalSandboxesList } from '../hooks/useInternalSandboxesList'
 import { useOrchestratorMode } from '../hooks/useOrchestratorMode'
-import { beapInboxCloneToSandboxApi } from '../lib/beapInboxCloneToSandbox'
+import { beapInboxCloneToSandboxApi, sandboxCloneFeedbackFromOutcome } from '../lib/beapInboxCloneToSandbox'
 import { beapHostSandboxCloneTooltipForAvailability, beapInboxRedirectTooltipPropsForRow } from '../lib/beapInboxActionTooltips'
 import { InboxRedirectActionIcon, InboxSandboxCloneActionIcon } from './InboxActionIcons'
 import type {
@@ -37,6 +37,7 @@ import { canShowSandboxCloneAction, logSandboxCloneEligibilityDebug } from '../l
 import { isInboxMessageActionable } from '../lib/inboxMessageActionable'
 import {
   resolveHostSandboxCloneClickAction,
+  SANDBOX_KEYING_INCOMPLETE_USER_MESSAGE,
   sandboxCloneUnavailableDialogVariant,
 } from '../lib/beapInboxHostSandboxClickPolicy'
 import { tryParsePartialAnalysis, tryParseAnalysis, type NormalInboxAiResultKey } from '../utils/parseInboxAiJson'
@@ -1676,6 +1677,7 @@ interface InboxMessageRowProps {
     orchestratorMode: 'host' | 'sandbox' | null
     authoritativeDeviceInternalRole: AuthoritativeDeviceInternalRole
     internalSandboxListReady: boolean
+    hasActiveInternalSandboxHandshake: boolean
   }
   /** Drives Sandbox button hover (connected / offline / not configured). */
   sandboxAvailability: SandboxOrchestratorAvailability
@@ -1700,7 +1702,10 @@ function InboxMessageRow({
 }: InboxMessageRowProps) {
   const canRowAction = isInboxMessageActionable(message)
   const canRowRedirect = Boolean(onRedirectInRow) && canRowAction
-  const canRowSandbox = canShowSandboxCloneAction({ ...sandboxOrchestrator, message })
+  const canRowSandbox = canShowSandboxCloneAction({
+    ...sandboxOrchestrator,
+    message,
+  })
   const rowRedirectTip = beapInboxRedirectTooltipPropsForRow()
   const rowSandboxTip = beapHostSandboxCloneTooltipForAvailability(sandboxAvailability, 'row')
   const bodyPreview = (message.body_text || '').slice(0, 100).replace(/\s+/g, ' ').trim()
@@ -1967,7 +1972,9 @@ export default function EmailInboxView({
     incomplete: internalSandboxesIncomplete,
     loading: internalSandboxesLoading,
     hasUsableSandbox,
+    hasActiveInternalSandboxHandshake,
     cloneEligibleSandboxes,
+    sendableCloneSandboxes,
     sandboxAvailability,
     refresh: refreshInternalSandboxesList,
     authoritativeDeviceInternalRole,
@@ -1989,8 +1996,9 @@ export default function EmailInboxView({
         message: selectedMessage,
         authoritativeDeviceInternalRole,
         internalSandboxListReady,
+        hasActiveInternalSandboxHandshake,
       },
-      { selectedHandshakeId: cloneEligibleSandboxes[0]?.handshake_id ?? null },
+      { selectedHandshakeId: sendableCloneSandboxes[0]?.handshake_id ?? null },
     )
   }, [
     selectedMessage,
@@ -1998,7 +2006,8 @@ export default function EmailInboxView({
     orchestratorMode,
     authoritativeDeviceInternalRole,
     internalSandboxListReady,
-    cloneEligibleSandboxes,
+    hasActiveInternalSandboxHandshake,
+    sendableCloneSandboxes,
   ])
 
   const primaryAccountId = pickDefaultEmailAccountRowId(accounts)
@@ -2571,19 +2580,34 @@ export default function EmailInboxView({
   const handleInboxRowSandbox = useCallback(
     (_e: MouseEvent, m: InboxMessage) => {
       if (!hostModeReady || orchestratorMode !== 'host') return
-      const n = cloneEligibleSandboxes.length
+      // eslint-disable-next-line no-console
+      console.log('[BEAP_SANDBOX_CLONE] click', {
+        message_id: m.id,
+        host_mode: true,
+        active_sandbox_count: internalSandboxes.length,
+      })
       const next = resolveHostSandboxCloneClickAction({
         internalListLoading: internalSandboxesLoading,
-        cloneEligibleTargetCount: n,
+        sendableTargetCount: sendableCloneSandboxes.length,
+        activeInternalHandshakeCount: internalSandboxes.length,
       })
       if (next === 'loading_refresh') {
-        setSandboxRowFeedback('Checking Sandbox connection…')
+        setSandboxRowFeedback('Checking internal Sandbox handshakes…')
         void refreshInternalSandboxesList()
         window.setTimeout(() => setSandboxRowFeedback(null), 5000)
         return
       }
       if (next === 'open_unavailable_dialog') {
+        // eslint-disable-next-line no-console
+        console.log('[BEAP_SANDBOX_CLONE] no_active_sandbox_handshake', { message_id: m.id })
         openSandboxUnavailableDialog()
+        return
+      }
+      if (next === 'keying_incomplete') {
+        // eslint-disable-next-line no-console
+        console.log('[BEAP_SANDBOX_CLONE] keying_incomplete', { message_id: m.id })
+        setSandboxRowFeedback(SANDBOX_KEYING_INCOMPLETE_USER_MESSAGE)
+        window.setTimeout(() => setSandboxRowFeedback(null), 8000)
         return
       }
       if (next === 'open_target_picker') {
@@ -2591,15 +2615,29 @@ export default function EmailInboxView({
         return
       }
       void (async () => {
+        // eslint-disable-next-line no-console
+        console.log('[BEAP_SANDBOX_CLONE] send_begin', {
+          message_id: m.id,
+          target_handshake_id: sendableCloneSandboxes[0]?.handshake_id,
+        })
         try {
+          setSandboxRowFeedback('Cloning message to Sandbox…')
           const r = await beapInboxCloneToSandboxApi({ sourceMessageId: m.id })
           if (r.success) {
-            setSandboxRowFeedback('Clone sent to Sandbox orchestrator.')
+            const fb = sandboxCloneFeedbackFromOutcome(r)
+            // eslint-disable-next-line no-console
+            console.log('[BEAP_SANDBOX_CLONE] send_result', {
+              message_id: m.id,
+              deliveryMode: r.deliveryMode,
+            })
+            setSandboxRowFeedback(fb.text)
             void fetchMessages()
           } else {
-            setSandboxRowFeedback('error' in r ? r.error : 'Failed to send clone')
+            // eslint-disable-next-line no-console
+            console.log('[BEAP_SANDBOX_CLONE] send_result', { message_id: m.id, error: r })
+            setSandboxRowFeedback('error' in r ? `Sandbox clone failed: ${r.error}` : 'Sandbox clone failed.')
           }
-          window.setTimeout(() => setSandboxRowFeedback(null), 4000)
+          window.setTimeout(() => setSandboxRowFeedback(null), 5000)
         } catch (e) {
           setSandboxRowFeedback(e instanceof Error ? e.message : 'Failed to send clone')
           window.setTimeout(() => setSandboxRowFeedback(null), 5000)
@@ -2610,7 +2648,8 @@ export default function EmailInboxView({
       hostModeReady,
       orchestratorMode,
       internalSandboxesLoading,
-      cloneEligibleSandboxes.length,
+      internalSandboxes.length,
+      sendableCloneSandboxes,
       fetchMessages,
       openSandboxUnavailableDialog,
       refreshInternalSandboxesList,
@@ -2881,7 +2920,15 @@ export default function EmailInboxView({
                 padding: '6px 12px',
                 fontSize: 11,
                 lineHeight: 1.4,
-                color: sandboxRowFeedback.startsWith('Clone sent') ? '#4ade80' : '#f87171',
+                color: (() => {
+                  const t = sandboxRowFeedback
+                  if (t.startsWith('Message cloned') || t.startsWith('Cloning message')) {
+                    return t.startsWith('Cloning') ? '#a78bfa' : '#4ade80'
+                  }
+                  if (/failed|key material|handshake is active but/i.test(t)) return '#f87171'
+                  if (t.startsWith('Checking internal')) return '#94a3b8'
+                  return '#e2e8f0'
+                })(),
                 borderBottom: '1px solid var(--color-border, rgba(255,255,255,0.08))',
                 flexShrink: 0,
               }}
@@ -3062,6 +3109,7 @@ export default function EmailInboxView({
                   orchestratorMode,
                   authoritativeDeviceInternalRole,
                   internalSandboxListReady,
+                  hasActiveInternalSandboxHandshake,
                 }}
                 sandboxAvailability={sandboxAvailability}
                 onSandboxInRow={handleInboxRowSandbox}
@@ -3245,9 +3293,10 @@ export default function EmailInboxView({
               message={selectedMessage}
               onSelectAttachment={onSelectAttachment ? handleSelectAttachment : undefined}
               onReply={handleReply}
-              internalSandboxTargets={cloneEligibleSandboxes}
+              internalSandboxTargets={sendableCloneSandboxes}
+              activeInternalHandshakeCount={internalSandboxes.length}
               onSandboxMultiSelect={
-                cloneEligibleSandboxes.length > 1
+                sendableCloneSandboxes.length > 1
                   ? (m, ctx) => {
                       setSandboxCloneForMessage(m)
                       setSandboxClonePickerContext(ctx ?? null)
@@ -3277,10 +3326,10 @@ export default function EmailInboxView({
         </div>
       ) : null}
 
-      {sandboxCloneForMessage && cloneEligibleSandboxes.length > 1 && (
+      {sandboxCloneForMessage && sendableCloneSandboxes.length > 1 && (
         <BeapSandboxCloneDialog
           message={sandboxCloneForMessage}
-          sandboxes={cloneEligibleSandboxes}
+          sandboxes={sendableCloneSandboxes}
           cloneContext={sandboxClonePickerContext}
           onClose={() => {
             setSandboxCloneForMessage(null)

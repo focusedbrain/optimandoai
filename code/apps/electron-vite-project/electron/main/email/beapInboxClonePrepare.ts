@@ -6,7 +6,6 @@
 import { extractInboxMessageRedirectSourceFromRow } from './beapRedirectSource'
 import { getHandshakeRecord } from '../handshake/db'
 import {
-  isBeapCloneEligibleForRecord,
   isEligibleActiveInternalHostSandboxRecord,
   listAvailableInternalSandboxes,
   P2P_BEAP_INBOX_ACCOUNT_ID,
@@ -55,6 +54,7 @@ export type BeapInboxClonePrepareOptions = {
 /** Structured failure for `inbox:cloneBeapToSandbox` / prepare (UI + logs). */
 export type BeapInboxCloneErrorCode =
   | 'NO_SANDBOX_CONNECTED'
+  | 'INCOMPLETE_SANDBOX_KEYING'
   | 'TARGET_HANDSHAKE_REQUIRED'
   /** Generic row could not be serialized (extremely rare). */
   | 'SOURCE_NO_EXTRACTABLE_CONTENT'
@@ -96,7 +96,7 @@ function assertInboxMessageOwned(
 
 /**
  * @param session - Current SSO session (account scope).
- * @param targetHandshakeId - When omitted, must be exactly one `beap_clone_eligible` sandbox in the list.
+ * @param targetHandshakeId - When omitted, must be exactly one `sandbox_keying_complete` sandbox in the list.
  * @param allowedInboxAccountIds - Email `account_id` values for the logged-in user (from gateway).
  */
 export function prepareBeapInboxSandboxClone(
@@ -152,14 +152,14 @@ export function prepareBeapInboxSandboxClone(
     return { ok: false, error: list.error || 'Could not list internal sandboxes' }
   }
 
+  const sendable = list.sandboxes.filter((s) => s.sandbox_keying_complete)
   let tgtId = String(targetHandshakeId ?? '').trim()
-  const eligible = list.sandboxes.filter((s) => s.beap_clone_eligible)
   if (!tgtId) {
-    if (eligible.length === 0) {
+    if (list.sandboxes.length === 0) {
       const sa = list.sandbox_availability
       const details: BeapInboxCloneNoSandboxDetails = {
         eligible_count: 0,
-        internal_sandbox_list_count: list.sandboxes.length,
+        internal_sandbox_list_count: 0,
         relay_connected: sa.relay_connected,
         use_coordination: sa.use_coordination,
         availability_status: sa.status,
@@ -167,19 +167,28 @@ export function prepareBeapInboxSandboxClone(
       return {
         ok: false,
         code: 'NO_SANDBOX_CONNECTED',
-        error: 'No eligible sandbox orchestrator is connected for the live send path.',
+        error: 'No active internal Host ↔ Sandbox handshake is available for this account.',
         details,
       }
     }
-    if (eligible.length > 1) {
+    if (sendable.length === 0) {
+      return {
+        ok: false,
+        code: 'INCOMPLETE_SANDBOX_KEYING',
+        error:
+          'Sandbox handshake is active but missing BEAP key material. Reconnect or repair the internal handshake.',
+        details: { internal_sandbox_list_count: list.sandboxes.length },
+      }
+    }
+    if (sendable.length > 1) {
       return {
         ok: false,
         code: 'TARGET_HANDSHAKE_REQUIRED',
         error: 'targetHandshakeId is required when multiple sandboxes are available',
-        details: { eligible_count: eligible.length },
+        details: { eligible_count: sendable.length },
       }
     }
-    tgtId = eligible[0]!.handshake_id
+    tgtId = sendable[0]!.handshake_id
   }
 
   const targetRecord = getHandshakeRecord(db, tgtId)
@@ -199,17 +208,17 @@ export function prepareBeapInboxSandboxClone(
   if (!targetRecord.local_x25519_public_key_b64?.trim()) {
     return { ok: false, error: 'ERR_HANDSHAKE_LOCAL_KEY_MISSING: sandbox handshake has no bound local X25519 key' }
   }
-  const liveForTgt = list.sandboxes.find((s) => s.handshake_id === tgtId)?.live_status_optional ?? 'coordination_disabled'
-  if (!isBeapCloneEligibleForRecord(targetRecord, liveForTgt)) {
-    return { ok: false, error: 'Target sandbox is not connected or is missing key material' }
-  }
-
   const entry = list.sandboxes.find((s) => s.handshake_id === tgtId)
   if (!entry) {
     return { ok: false, error: 'Target handshake is not in the current internal sandbox list' }
   }
-  if (!entry.beap_clone_eligible) {
-    return { ok: false, error: 'Target sandbox is not available for clone (relay or keys)' }
+  if (!entry.sandbox_keying_complete) {
+    return {
+      ok: false,
+      code: 'INCOMPLETE_SANDBOX_KEYING',
+      error:
+        'Sandbox handshake is active but missing BEAP key material. Reconnect or repair the internal handshake.',
+    }
   }
 
   const extracted = extractInboxMessageRedirectSourceFromRow(row)
