@@ -29,6 +29,9 @@ describe('beapInbox Ux source regressions', () => {
     expect(dlg).toMatch(/Sandbox/)
     expect(dlg).toMatch(/Open link/)
     expect(dlg).not.toMatch(/Open anyway/)
+    expect(dlg).toMatch(/I understand the risks of opening external links/)
+    expect(dlg).toMatch(/contextKey/)
+    expect(dlg).toMatch(/disabled=\{!riskAccepted\}/)
   })
 
   test('11: legacy “Reply using capsule fields” copy is not present in message detail', () => {

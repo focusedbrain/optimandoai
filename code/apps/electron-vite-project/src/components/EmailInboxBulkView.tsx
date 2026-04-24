@@ -27,6 +27,8 @@ import { SyncFailureBanner } from './SyncFailureBanner'
 import EmailInboxSyncControls from './EmailInboxSyncControls'
 import { InboxMessageKindSelect } from './InboxMessageKindSelect'
 import LinkWarningDialog from './LinkWarningDialog'
+import SandboxLinkInfoDialog from './SandboxLinkInfoDialog'
+import { openAppExternalUrl } from '../lib/openAppExternalUrl'
 import { extractLinkParts } from '../utils/safeLinks'
 import { BulkOllamaModelSelect } from './BulkOllamaModelSelect'
 import { AutosortRuntimeStatus } from './AutosortRuntimeStatus'
@@ -1942,6 +1944,7 @@ export default function EmailInboxBulkView({
 
   const [pendingLink, setPendingLink] = useState<{ url: string; message: InboxMessage } | null>(null)
   const [linkDialogSandboxBusy, setLinkDialogSandboxBusy] = useState(false)
+  const [bulkLinkSandboxInfoOpen, setBulkLinkSandboxInfoOpen] = useState(false)
   const showSandboxOnLinkDialog = useMemo(() => {
     if (!pendingLink) return false
     return canShowSandboxCloneAction({
@@ -4237,9 +4240,9 @@ export default function EmailInboxBulkView({
     setPendingLink({ url, message: msg })
   }, [])
 
-  const handleLinkConfirm = useCallback(() => {
+  const handleLinkConfirm = useCallback(async () => {
     if (pendingLink) {
-      window.open(pendingLink.url, '_blank', 'noopener,noreferrer')
+      await openAppExternalUrl(pendingLink.url)
       setPendingLink(null)
     }
   }, [pendingLink])
@@ -4259,7 +4262,7 @@ export default function EmailInboxBulkView({
       return
     }
     if (next === 'open_unavailable_dialog') {
-      openBulkSandboxUnavailableDialog()
+      setBulkLinkSandboxInfoOpen(true)
       return
     }
     if (next === 'open_target_picker') {
@@ -4290,7 +4293,6 @@ export default function EmailInboxBulkView({
     bulkCloneEligibleSandboxes,
     bulkInternalSandboxesLoading,
     refreshBulkInternalSandboxesList,
-    openBulkSandboxUnavailableDialog,
     refreshMessages,
   ])
 
@@ -6570,11 +6572,17 @@ export default function EmailInboxBulkView({
       <LinkWarningDialog
         isOpen={!!pendingLink}
         url={pendingLink?.url || ''}
-        onConfirm={handleLinkConfirm}
+        contextKey={pendingLink ? `${pendingLink.message.id}:${pendingLink.url}` : ''}
+        onConfirm={() => void handleLinkConfirm()}
         onCancel={handleLinkCancel}
         showSandboxAction={showSandboxOnLinkDialog}
         onSandbox={() => void handleBulkLinkWarningSandbox()}
         sandboxBusy={linkDialogSandboxBusy}
+      />
+      <SandboxLinkInfoDialog
+        isOpen={bulkLinkSandboxInfoOpen}
+        onClose={() => setBulkLinkSandboxInfoOpen(false)}
+        onOpenHandshakes={() => onOpenHandshakesView?.()}
       />
 
       {connectEmailFlowModal}

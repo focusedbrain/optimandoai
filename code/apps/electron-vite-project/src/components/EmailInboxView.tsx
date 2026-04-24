@@ -3261,6 +3261,7 @@ export default function EmailInboxView({
               sandboxAvailability={sandboxAvailability}
               authoritativeDeviceInternalRole={authoritativeDeviceInternalRole}
               internalSandboxListReady={internalSandboxListReady}
+              onOpenHandshakesView={onOpenHandshakesView}
             />
           </div>
           <div className="inbox-detail-ai" data-collapsed={aiPanelCollapsed}>

@@ -8,6 +8,8 @@ import type { InboxMessage } from '../stores/useEmailInboxStore'
 import { useEmailInboxStore } from '../stores/useEmailInboxStore'
 import InboxAttachmentRow from './InboxAttachmentRow'
 import LinkWarningDialog from './LinkWarningDialog'
+import SandboxLinkInfoDialog from './SandboxLinkInfoDialog'
+import { openAppExternalUrl } from '../lib/openAppExternalUrl'
 import { extractLinkParts } from '../utils/safeLinks'
 import { deriveInboxMessageKind } from '../lib/inboxMessageKind'
 import { isBeapQbeapOutboundEcho } from '../lib/inboxBeapOutbound'
@@ -68,6 +70,8 @@ export interface EmailMessageDetailProps {
   authoritativeDeviceInternalRole?: AuthoritativeDeviceInternalRole
   /** `useInternalSandboxesList().internalSandboxListReady` — false hides Sandbox until RPC succeeds. */
   internalSandboxListReady?: boolean
+  /** Open Handshakes (e.g. from link-dialog “no Sandbox” help). */
+  onOpenHandshakesView?: () => void
 }
 
 // ── Helpers ──
@@ -304,12 +308,14 @@ export default function EmailMessageDetail({
   sandboxAvailability = defaultSandboxAvailability,
   authoritativeDeviceInternalRole = 'none',
   internalSandboxListReady = false,
+  onOpenHandshakesView,
 }: EmailMessageDetailProps) {
   const { mode: orchestratorMode, ready: modeReady } = useOrchestratorMode()
   const [beapRedirectOpen, setBeapRedirectOpen] = useState(false)
   const [beapPanelOpen, setBeapPanelOpen] = useState(false)
   const [pendingLinkUrl, setPendingLinkUrl] = useState<string | null>(null)
   const [linkDialogSandboxBusy, setLinkDialogSandboxBusy] = useState(false)
+  const [linkSandboxInfoOpen, setLinkSandboxInfoOpen] = useState(false)
   const [importingSession, setImportingSession] = useState<Record<string, unknown> | null>(null)
   const [importStatus, setImportStatus] = useState<Record<string, 'idle' | 'importing' | 'imported' | 'error'>>({})
   const [hostSandboxBusy, setHostSandboxBusy] = useState(false)
@@ -662,9 +668,9 @@ export default function EmailMessageDetail({
   ])
 
   const handleLinkClick = useCallback((url: string) => setPendingLinkUrl(url), [])
-  const handleLinkConfirm = useCallback(() => {
+  const handleLinkConfirm = useCallback(async () => {
     if (pendingLinkUrl) {
-      window.open(pendingLinkUrl, '_blank', 'noopener,noreferrer')
+      await openAppExternalUrl(pendingLinkUrl)
       setPendingLinkUrl(null)
     }
   }, [pendingLinkUrl])
@@ -682,7 +688,7 @@ export default function EmailMessageDetail({
       return
     }
     if (next === 'open_unavailable_dialog') {
-      onNoSandboxConnectedInfo?.()
+      setLinkSandboxInfoOpen(true)
       return
     }
     if (next === 'open_target_picker') {
@@ -713,7 +719,6 @@ export default function EmailMessageDetail({
     internalSandboxTargets,
     internalSandboxListLoading,
     onRequestInternalSandboxListRefresh,
-    onNoSandboxConnectedInfo,
     onSandboxMultiSelect,
     onSandboxCloneComplete,
   ])
@@ -764,11 +769,17 @@ export default function EmailMessageDetail({
       <LinkWarningDialog
         isOpen={!!pendingLinkUrl}
         url={pendingLinkUrl || ''}
-        onConfirm={handleLinkConfirm}
+        contextKey={message ? `${message.id}:${pendingLinkUrl || ''}` : ''}
+        onConfirm={() => void handleLinkConfirm()}
         onCancel={handleLinkCancel}
         showSandboxAction={showSandboxCloneIcon}
         onSandbox={handleLinkWarningSandbox}
         sandboxBusy={linkDialogSandboxBusy}
+      />
+      <SandboxLinkInfoDialog
+        isOpen={linkSandboxInfoOpen}
+        onClose={() => setLinkSandboxInfoOpen(false)}
+        onOpenHandshakes={() => onOpenHandshakesView?.()}
       />
       {importingSession && dialogSessionRef ? (
         <SessionImportDialog

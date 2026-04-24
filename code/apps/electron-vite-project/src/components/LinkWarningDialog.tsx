@@ -1,14 +1,16 @@
 /**
- * LinkWarningDialog — Confirmation before opening external links from BEAP inbox bodies.
- * Strongly encourages cloning the full message to a Sandbox orchestrator before opening risky URLs.
+ * LinkWarningDialog — Mandatory gate before opening external links from BEAP inbox bodies.
+ * Open link is disabled until the user checks the risk acknowledgement.
  */
 
-import React, { useEffect } from 'react'
+import React, { useEffect, useState } from 'react'
 import { BeapInboxSandboxCloneIcon } from './BeapInboxSandboxCloneIcon'
 
 export interface LinkWarningDialogProps {
   isOpen: boolean
   url: string
+  /** Resets the risk checkbox when the user opens a different link or message (e.g. `${messageId}:${url}`). */
+  contextKey: string
   onConfirm: () => void
   onCancel: () => void
   /** Host orchestrator only; hidden on Sandbox or until mode is known. */
@@ -27,15 +29,28 @@ const BODY_SANDBOX =
 const BODY_KVM =
   'A KVM switch with hotkeys is the recommended setup, so you can inspect risky content in the Sandbox environment without interrupting your normal workflow.'
 
+const RISK_CHECK_LABEL = 'I understand the risks of opening external links and want to continue.'
+
+const SANDBOX_ACTION_TOOLTIP =
+  'Clone this entire BEAP message and push it to the connected Sandbox orchestrator. Use this to inspect risky links, PDFs, attachments, and original artifacts in an isolated environment.'
+
 export default function LinkWarningDialog({
   isOpen,
   url,
+  contextKey,
   onConfirm,
   onCancel,
   showSandboxAction = false,
   onSandbox,
   sandboxBusy = false,
 }: LinkWarningDialogProps) {
+  const [riskAccepted, setRiskAccepted] = useState(false)
+
+  useEffect(() => {
+    if (!isOpen) return
+    setRiskAccepted(false)
+  }, [isOpen, url, contextKey])
+
   useEffect(() => {
     if (!isOpen) return
     const handler = (e: KeyboardEvent) => {
@@ -55,7 +70,7 @@ export default function LinkWarningDialog({
       aria-labelledby="link-warning-title"
       onClick={(e) => e.target === e.currentTarget && onCancel()}
     >
-      <div className="link-warning-dialog">
+      <div className="link-warning-dialog" onClick={(e) => e.stopPropagation()}>
         <h2 id="link-warning-title" className="link-warning-title">
           Open external link?
         </h2>
@@ -68,6 +83,19 @@ export default function LinkWarningDialog({
         <div className="link-warning-url-block" title={url}>
           {url}
         </div>
+
+        <div className="link-warning-risk-row">
+          <label className="link-warning-risk-label">
+            <input
+              type="checkbox"
+              className="link-warning-risk-check"
+              checked={riskAccepted}
+              onChange={(e) => setRiskAccepted(e.target.checked)}
+            />
+            <span>{RISK_CHECK_LABEL}</span>
+          </label>
+        </div>
+
         <div className="link-warning-actions">
           {showSandboxAction && onSandbox ? (
             <button
@@ -76,6 +104,7 @@ export default function LinkWarningDialog({
               onClick={() => void onSandbox()}
               disabled={sandboxBusy}
               aria-busy={sandboxBusy}
+              title={SANDBOX_ACTION_TOOLTIP}
             >
               <span className="link-warning-btn-sandbox__icon" aria-hidden>
                 <BeapInboxSandboxCloneIcon />
@@ -83,7 +112,14 @@ export default function LinkWarningDialog({
               <span className="link-warning-btn-sandbox__label">Sandbox</span>
             </button>
           ) : null}
-          <button type="button" className="link-warning-btn-open" onClick={onConfirm}>
+          <button
+            type="button"
+            className="link-warning-btn-open"
+            onClick={onConfirm}
+            disabled={!riskAccepted}
+            aria-disabled={!riskAccepted}
+            title={!riskAccepted ? 'Confirm the checkbox above to enable opening this link' : 'Open in your default browser (controlled app path when available)'}
+          >
             Open link
           </button>
           <button type="button" className="link-warning-btn-cancel" onClick={onCancel}>
@@ -94,3 +130,5 @@ export default function LinkWarningDialog({
     </div>
   )
 }
+
+export { SANDBOX_ACTION_TOOLTIP, RISK_CHECK_LABEL }
