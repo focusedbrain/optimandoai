@@ -85,10 +85,12 @@ import {
   internalRelayCapsuleWireOptsFromRecord,
 } from './internalCoordinationWire'
 import { formatLocalInternalRelayValidationJson } from './internalRelayOutboundGuards'
+import { getCanonicalRelayDeviceId } from '../p2p/relayDeviceBinding'
+import { coordinationRegistryUserIdsForSession } from '../p2p/relayIdentity'
 import {
-  getInstanceId as getOrchestratorInstanceId,
   getPairingCode as getOrchestratorPairingCode,
 } from '../orchestrator/orchestratorModeStore'
+import { filterHandshakeRecordsForCurrentSession } from './handshakeAccountIsolation'
 
 /** Coordination registry must use JWT `sub` for both parties when the handshake is same-account, or same-user device routing never engages. */
 function coordinationAcceptorUserIdForRegistration(
@@ -113,10 +115,11 @@ function coordinationAcceptorUserIdForRegistration(
  * The silently-caught throw was the root cause of `INTERNAL_ENDPOINT_INCOMPLETE`
  * for every internal initiate, even when the renderer had a valid `instanceId`.
  */
+/** Same value as coordination WebSocket `device_id` and outbound `sender_device_id` — `getCanonicalRelayDeviceId`. */
 function getLocalDeviceIdForRelay(): string | undefined {
   try {
-    const id = getOrchestratorInstanceId()
-    return typeof id === 'string' && id.trim().length > 0 ? id.trim() : undefined
+    const id = getCanonicalRelayDeviceId()
+    return id ?? undefined
   } catch (err) {
     console.warn('[handshake.ipc] getLocalDeviceIdForRelay: orchestrator store unavailable:', err)
     return undefined
@@ -862,23 +865,15 @@ export async function handleHandshakeRPC(
       const filter = params?.filter as { state?: HandshakeState; relationship_id?: string; handshake_type?: string } | undefined
       let records = listHandshakeRecords(db, filter)
 
-      // LAYER 2 — Visibility filtering: receiver-only handshakes must match current user's email
-      let session: SSOSession | undefined
-      try {
-        session = requireSession()
-      } catch {
-        session = undefined
-      }
+      // LAYER 2 — Pending acceptor: receiver must match current email (in addition to account isolation)
+      const session: SSOSession | undefined = getCurrentSession()
       if (session?.email) {
         const userEmails = session.email
         records = records.filter((r) => {
-          // Initiator: always show (they created it)
           if (r.local_role === 'initiator') return true
-          // Active/completed: always show (don't hide history)
           if (r.state === HS.ACCEPTED || r.state === HS.ACTIVE || r.state === HS.EXPIRED || r.state === HS.REVOKED) {
             return true
           }
-          // Acceptor, pending: only show if receiver_email matches
           if (r.local_role === 'acceptor' && (r.state === HS.PENDING_ACCEPT || r.state === HS.PENDING_REVIEW)) {
             const check = validateReceiverEmail(r.receiver_email, userEmails)
             return check.valid
@@ -886,6 +881,9 @@ export async function handleHandshakeRPC(
           return true
         })
       }
+
+      // LAYER 3 — Account isolation: only initiator/acceptor for this SSO session; internal same-principal
+      records = filterHandshakeRecordsForCurrentSession(records, session)
 
       return { type: 'handshake-list', records }
     }
@@ -2348,12 +2346,16 @@ export async function handleHandshakeRPC(
           console.log('[ACCEPT-4] setImmediate RUNNING for:', handshake_id)
           console.log('[HANDSHAKE-DEBUG] setImmediate(post-accept relay) started for', handshake_id)
           const p2pConfig = getP2PConfig(db)
-          const coordinationInitiatorUserId =
-            record.initiator?.sub || record.initiator?.wrdesk_user_id || record.initiator?.email
+          const regUserIds = coordinationRegistryUserIdsForSession(session, {
+            handshake_type: record.handshake_type,
+            initiator: record.initiator,
+            acceptor: record.acceptor,
+          })
           console.log('[ACCEPT-RELAY-REG]', {
-            initiator_user_id: coordinationInitiatorUserId,
-            acceptor_user_id: session.sub,
-            same_principal: coordinationInitiatorUserId === session.sub,
+            initiator_user_id: regUserIds.initiator_user_id,
+            acceptor_user_id: regUserIds.acceptor_user_id,
+            same_principal: regUserIds.initiator_user_id === regUserIds.acceptor_user_id,
+            internal_handshake: record.handshake_type === 'internal',
             p2p_endpoint: record.p2p_endpoint,
             initiatorEmail: initiatorEmail,
           })
@@ -2361,8 +2363,8 @@ export async function handleHandshakeRPC(
           const acceptLocalDeviceId = getLocalDeviceIdForRelay()
           const regResult = p2pConfig.use_coordination
             ? await registerHandshakeWithRelay(db, handshake_id, p2pAuthToken ?? '', initiatorEmail, _getOidcToken, {
-                initiator_user_id: coordinationInitiatorUserId,
-                acceptor_user_id: session.sub,
+                initiator_user_id: regUserIds.initiator_user_id,
+                acceptor_user_id: regUserIds.acceptor_user_id,
                 initiator_email: initiatorEmail,
                 acceptor_email: session.email,
                 handshake_type: record.handshake_type ?? undefined,

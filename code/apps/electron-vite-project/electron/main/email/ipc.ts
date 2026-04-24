@@ -177,6 +177,7 @@ function getInboxAiRulesForPrompt(): string {
     .join('\n')
 }
 import { emailGateway } from './gateway'
+import { P2P_BEAP_INBOX_ACCOUNT_ID } from '../handshake/internalSandboxesApi'
 import { pickOauthDebugFromError } from './gmailOAuthConnectDebug'
 import { DIAGNOSE_IMAP_IPC_DEV, EMAIL_DEBUG, emailDebugLog, gmailPersistenceDebugLog } from './emailDebug'
 import { runDiagnoseImapStandalone } from './diagnoseImapStandalone'
@@ -1564,6 +1565,7 @@ export function registerInboxHandlers(
     'inbox:getSyncState',
     'inbox:listMessages', 'inbox:listMessageIds', 'inbox:dashboardSnapshot', 'inbox:getMessage', 'inbox:getBeapRedirectSource',
     'inbox:beapInboxCloneToSandboxPrepare',
+    'inbox:cloneBeapToSandbox',
     'inbox:markRead', 'inbox:toggleStar', 'inbox:archiveMessages', 'inbox:setCategory',
     'inbox:deleteMessages', 'inbox:cancelDeletion', 'inbox:getDeletedMessages', 'inbox:deleteAllDirectBeap',
     'inbox:getAttachment', 'inbox:getAttachmentText', 'inbox:openAttachmentOriginal', 'inbox:rasterAttachment',
@@ -3244,66 +3246,98 @@ Rules:
   })
 
   /**
+   * Email accounts whose `id` is allowed to own an inbox row for the logged-in session (same address).
+   * Always includes the P2P BEAP synthetic id for device-local `direct_beap` / `email_beap` rows.
+   */
+  const resolveAllowedInboxAccountIds = async (session: {
+    email?: string | null
+  }): Promise<Set<string>> => {
+    const s = new Set<string>()
+    s.add(P2P_BEAP_INBOX_ACCOUNT_ID)
+    const em = (session?.email ?? '').trim().toLowerCase()
+    if (!em) return s
+    try {
+      const accounts = await emailGateway.listAccounts()
+      for (const a of accounts) {
+        if (String(a.email ?? '')
+          .trim()
+          .toLowerCase() === em) {
+          s.add(String(a.id).trim())
+        }
+      }
+    } catch {
+      /* still allow P2P rows */
+    }
+    return s
+  }
+
+  /**
    * Validate vault + account, internal sandbox target, and extract cloneable plaintext.
    * Does not build or send the BEAP package (renderer uses BeapPackageBuilder + executeDeliveryAction).
+   * `inbox:cloneBeapToSandbox` is the product channel name; both invoke the same logic.
    */
-  ipcMain.handle(
-    'inbox:beapInboxCloneToSandboxPrepare',
-    async (
-      _e,
-      payload: { sourceMessageId?: string; targetHandshakeId?: string } | undefined,
-    ) => {
-      try {
-        const { vaultService: vs } = await import('../vault/rpc')
-        let tok = (globalThis as { __og_dashboard_vsbt__?: string }).__og_dashboard_vsbt__
-        if (!tok || !vs.validateToken(tok)) {
-          const t2 = vs.getSessionToken()
-          if (t2 && vs.validateToken(t2)) {
-            tok = t2
-            ;(globalThis as { __og_dashboard_vsbt__?: string }).__og_dashboard_vsbt__ = t2
-          }
+  async function handleBeapInboxCloneToSandbox(
+    _e: unknown,
+    payload: { sourceMessageId?: string; targetHandshakeId?: string } | undefined,
+  ) {
+    try {
+      const { vaultService: vs } = await import('../vault/rpc')
+      let tok = (globalThis as { __og_dashboard_vsbt__?: string }).__og_dashboard_vsbt__
+      if (!tok || !vs.validateToken(tok)) {
+        const t2 = vs.getSessionToken()
+        if (t2 && vs.validateToken(t2)) {
+          tok = t2
+          ;(globalThis as { __og_dashboard_vsbt__?: string }).__og_dashboard_vsbt__ = t2
         }
-        if (!tok || !vs.validateToken(tok)) {
-          return {
-            success: false,
-            error: 'Vault session not bound — unlock the vault to clone to sandbox',
-          }
-        }
-
-        const { getCurrentSession } = await import('../handshake/ipc')
-        const session = getCurrentSession()
-        if (!session) {
-          return { success: false, error: 'Not logged in' }
-        }
-
-        const db = await resolveDb()
-        if (!db) {
-          return { success: false, error: 'Database unavailable' }
-        }
-
-        const srcId = typeof payload?.sourceMessageId === 'string' ? payload.sourceMessageId.trim() : ''
-        const tgtId = typeof payload?.targetHandshakeId === 'string' ? payload.targetHandshakeId.trim() : ''
-        if (!srcId || !tgtId) {
-          return { success: false, error: 'sourceMessageId and targetHandshakeId are required' }
-        }
-
-        const accountTag =
-          (session.email && String(session.email).trim()) ||
-          (session.wrdesk_user_id && String(session.wrdesk_user_id).trim()) ||
-          (session.sub && String(session.sub).trim()) ||
-          null
-
-        const prep = prepareBeapInboxSandboxClone(db, session, srcId, tgtId, accountTag)
-        if (!prep.ok) {
-          return { success: false, error: prep.error }
-        }
-
-        return { success: true, prepare: prep }
-      } catch (err: any) {
-        return { success: false, error: err?.message ?? 'beapInboxCloneToSandboxPrepare failed' }
       }
-    },
-  )
+      if (!tok || !vs.validateToken(tok)) {
+        return {
+          success: false,
+          error: 'Vault session not bound — unlock the vault to clone to sandbox',
+        }
+      }
+
+      const { getCurrentSession } = await import('../handshake/ipc')
+      const session = getCurrentSession()
+      if (!session) {
+        return { success: false, error: 'Not logged in' }
+      }
+
+      const db = await resolveDb()
+      if (!db) {
+        return { success: false, error: 'Database unavailable' }
+      }
+
+      const srcId = typeof payload?.sourceMessageId === 'string' ? payload.sourceMessageId.trim() : ''
+      if (!srcId) {
+        return { success: false, error: 'sourceMessageId is required' }
+      }
+
+      const tgt =
+        typeof payload?.targetHandshakeId === 'string' && payload.targetHandshakeId.trim()
+          ? payload.targetHandshakeId.trim()
+          : undefined
+
+      const accountTag =
+        (session.email && String(session.email).trim()) ||
+        (session.wrdesk_user_id && String(session.wrdesk_user_id).trim()) ||
+        (session.sub && String(session.sub).trim()) ||
+        null
+
+      const allowed = await resolveAllowedInboxAccountIds(session)
+      const prep = prepareBeapInboxSandboxClone(db, session, srcId, tgt, accountTag, allowed)
+      if (!prep.ok) {
+        return { success: false, error: prep.error }
+      }
+
+      return { success: true, prepare: prep }
+    } catch (err: any) {
+      return { success: false, error: err?.message ?? 'beapInboxCloneToSandboxPrepare failed' }
+    }
+  }
+
+  ipcMain.handle('inbox:beapInboxCloneToSandboxPrepare', handleBeapInboxCloneToSandbox)
+  ipcMain.handle('inbox:cloneBeapToSandbox', handleBeapInboxCloneToSandbox)
 
   // ── Actions ──
   ipcMain.handle('inbox:markRead', async (_e, messageIds: string[], read: boolean) => {

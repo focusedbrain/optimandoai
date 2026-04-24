@@ -9,25 +9,11 @@ import { beapInboxCloneToSandboxApi } from '../lib/beapInboxCloneToSandbox'
 import { UI_BUTTON } from '../styles/uiContrastTokens'
 import './handshakeViewTypes'
 
-function primaryActionLabel(
-  s: InternalSandboxTargetWire | undefined,
-  multipleTargets: boolean,
-): { main: string; hint?: string } {
-  if (!s) return { main: multipleTargets ? 'Sandbox…' : 'Sandbox' }
-  if (s.live_status_optional === 'relay_disconnected') {
-    return {
-      main: 'Queue to Sandbox',
-      hint: 'Sandbox offline — message will be queued for delivery when the relay connects.',
-    }
-  }
-  if (s.live_status_optional === 'coordination_disabled') {
-    return {
-      main: 'Queue to Sandbox',
-      hint: 'Coordination relay not connected — message will be queued if supported.',
-    }
-  }
-  if (multipleTargets) return { main: 'Send to sandbox…' }
-  return { main: 'Send to Sandbox' }
+function formatSandboxSelectLabel(s: InternalSandboxTargetWire): string {
+  const name = (s.peer_device_name || s.peer_device_id || 'Device').trim()
+  const code =
+    s.peer_pairing_code_six && /^\d{6}$/.test(s.peer_pairing_code_six) ? s.peer_pairing_code_six : '— — —'
+  return `${name} — Sandbox orchestrator — ${code}`
 }
 
 export interface BeapSandboxCloneDialogProps {
@@ -46,6 +32,7 @@ export default function BeapSandboxCloneDialog({
   const [targetId, setTargetId] = useState<string | null>(sandboxes.length === 1 ? sandboxes[0]!.handshake_id : null)
   const [sending, setSending] = useState(false)
   const [err, setErr] = useState<string | null>(null)
+  const [toast, setToast] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
   useEffect(() => {
     if (sandboxes.length === 1) setTargetId(sandboxes[0]!.handshake_id)
@@ -56,35 +43,38 @@ export default function BeapSandboxCloneDialog({
     [sandboxes, targetId],
   )
 
-  const labels = useMemo(
-    () => primaryActionLabel(selected, sandboxes.length > 1),
-    [selected, sandboxes.length],
-  )
-
   const send = useCallback(async () => {
-    if (!targetId) {
-      setErr('Select a sandbox')
+    if (sandboxes.length > 1 && !targetId) {
+      setErr('Select a sandbox orchestrator')
       return
     }
     setSending(true)
     setErr(null)
+    setToast(null)
     try {
       const r = await beapInboxCloneToSandboxApi({
         sourceMessageId: message.id,
-        targetHandshakeId: targetId,
+        ...(sandboxes.length === 1
+          ? {}
+          : { targetHandshakeId: targetId ?? undefined }),
       })
       if (r.success) {
+        setToast({ type: 'success', text: 'Clone sent to Sandbox orchestrator.' })
         onSent?.()
-        onClose()
+        window.setTimeout(() => onClose(), 1200)
       } else {
-        setErr('error' in r ? r.error : 'Failed')
+        const msg = 'error' in r ? r.error : 'Failed to send clone'
+        setToast({ type: 'error', text: msg })
+        setErr(msg)
       }
     } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Failed')
+      const msg = e instanceof Error ? e.message : 'Failed to send clone'
+      setToast({ type: 'error', text: msg })
+      setErr(msg)
     } finally {
       setSending(false)
     }
-  }, [message.id, onClose, onSent, targetId])
+  }, [message.id, onClose, onSent, sandboxes.length, targetId])
 
   return (
     <div
@@ -122,10 +112,6 @@ export default function BeapSandboxCloneDialog({
           Sends a <strong>new</strong> qBEAP message to your sandbox for automation testing. The original inbox
           message is not modified.
         </p>
-        {labels.hint && (
-          <p style={{ fontSize: 11, color: 'var(--color-text-muted)', marginBottom: 10 }}>{labels.hint}</p>
-        )}
-
         {sandboxes.length > 1 && (
           <>
             <label style={{ display: 'block', fontSize: 11, fontWeight: 600, marginBottom: 6 }} htmlFor="beap-sbx-target">
@@ -149,7 +135,7 @@ export default function BeapSandboxCloneDialog({
               <option value="">Select…</option>
               {sandboxes.map((s) => (
                 <option key={s.handshake_id} value={s.handshake_id}>
-                  {s.peer_device_name || s.peer_device_id} ({s.handshake_id.slice(0, 8)}…)
+                  {formatSandboxSelectLabel(s)}
                 </option>
               ))}
             </select>
@@ -158,23 +144,62 @@ export default function BeapSandboxCloneDialog({
 
         {sandboxes.length === 1 && selected && (
           <p style={{ fontSize: 12, color: 'var(--color-text)', marginBottom: 12 }}>
-            Target: <strong>{selected.peer_device_name || 'Sandbox'}</strong>
+            Target: <strong>{formatSandboxSelectLabel(selected)}</strong>
           </p>
         )}
 
         {err && <p style={{ fontSize: 12, color: '#f87171', marginBottom: 8 }}>{err}</p>}
 
+        {toast && (
+          <p
+            style={{
+              fontSize: 12,
+              marginBottom: 10,
+              color: toast.type === 'success' ? '#4ade80' : '#f87171',
+            }}
+            role="status"
+          >
+            {toast.text}
+          </p>
+        )}
+
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 8 }}>
-          <button type="button" className={UI_BUTTON.ghost} onClick={onClose} disabled={sending}>
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={sending}
+            style={{
+              fontSize: 12,
+              padding: '8px 14px',
+              borderRadius: 6,
+              cursor: sending ? 'not-allowed' : 'pointer',
+              opacity: sending ? 0.6 : 1,
+              background: 'rgba(255,255,255,0.06)',
+              color: 'var(--color-text, #e2e8f0)',
+              border: '1px solid rgba(255,255,255,0.12)',
+            }}
+          >
             Cancel
           </button>
           <button
             type="button"
-            className={UI_BUTTON.primary}
-            disabled={!targetId || sending}
+            style={{
+              ...UI_BUTTON.primary,
+              fontSize: 12,
+              padding: '8px 14px',
+              borderRadius: 6,
+              cursor:
+                (sandboxes.length > 1 && !targetId) || sending ? 'not-allowed' : 'pointer',
+              opacity: (sandboxes.length > 1 && !targetId) || sending ? 0.5 : 1,
+            }}
+            disabled={(sandboxes.length > 1 && !targetId) || sending}
             onClick={() => void send()}
           >
-            {sending ? 'Sending…' : labels.main}
+            {sending
+              ? 'Sending…'
+              : sandboxes.length > 1
+                ? 'Send clone'
+                : 'Send clone to Sandbox'}
           </button>
         </div>
       </div>

@@ -50,7 +50,11 @@ interface HandshakeRecord {
 }
 
 import './handshakeViewTypes'
-import { formatInternalListSubtitle, isInternalHandshake } from '@shared/handshake/internalIdentityUi'
+import {
+  formatInternalPairingIdLine,
+  formatInternalPrimaryLine,
+  isInternalHandshake,
+} from '@shared/handshake/internalIdentityUi'
 
 // ── Helpers ──
 
@@ -258,6 +262,8 @@ export default function HandshakeView({
         </div>
         {records.map(r => {
           const count = contextBlockCounts[r.handshake_id] ?? 0
+          const internalPrimary = isInternalHandshake(r) ? formatInternalPrimaryLine(r) : null
+          const internalPairing = isInternalHandshake(r) ? formatInternalPairingIdLine(r) : null
           return (
             <div
               key={r.handshake_id}
@@ -296,9 +302,16 @@ export default function HandshakeView({
                     <StateBadge state={r.state} />
                   </span>
                 </div>
-                {isInternalHandshake(r) && formatInternalListSubtitle(r) && (
-                  <div style={{ fontSize: '10px', color: '#a5b4ca', lineHeight: 1.35, marginTop: '4px', fontWeight: 500 }}>
-                    {formatInternalListSubtitle(r)}
+                {internalPrimary && (
+                  <div style={{ marginTop: '4px', display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                    <div style={{ fontSize: '11px', color: '#e2e8f0', lineHeight: 1.35, fontWeight: 600 }}>
+                      {internalPrimary}
+                    </div>
+                    {internalPairing && (
+                      <div style={{ fontSize: '10px', color: '#a5b4ca', lineHeight: 1.35, fontWeight: 500 }}>
+                        {internalPairing}
+                      </div>
+                    )}
                   </div>
                 )}
                 <div style={{ fontSize: '10px', color: 'var(--color-text-muted, #94a3b8)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>

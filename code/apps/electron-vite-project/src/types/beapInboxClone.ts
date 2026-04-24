@@ -7,6 +7,7 @@ export interface BeapInboxClonePrepareOk {
   source_message_id: string
   source_type: string
   original_handshake_id: string | null
+  original_received_at: string | null
   subject: string
   public_text: string
   encrypted_text: string
@@ -16,6 +17,9 @@ export interface BeapInboxClonePrepareOk {
   target_handshake_id: string
   sandbox_target_device_id: string
   sandbox_target_handshake_id: string
+  sandbox_target_pairing_code: string | null
+  cloned_at: string
+  cloned_by_account: string | null
   live_status_optional: 'relay_connected' | 'relay_disconnected' | 'coordination_disabled'
   last_known_delivery_status: string
   p2p_endpoint_set: boolean

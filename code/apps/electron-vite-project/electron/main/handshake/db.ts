@@ -1786,6 +1786,10 @@ export function refreshInternalHandshakePersistenceFlags(db: any, handshakeId: s
   updateHandshakeRecord(db, r)
 }
 
+/**
+ * List persisted handshake rows (no account filter). The IPC `handshake.list` handler
+ * applies `filterHandshakeRecordsForCurrentSession` so only the logged-in principal sees rows.
+ */
 export function listHandshakeRecords(
   db: any,
   filter?: { state?: HandshakeState; relationship_id?: string; handshake_type?: string },

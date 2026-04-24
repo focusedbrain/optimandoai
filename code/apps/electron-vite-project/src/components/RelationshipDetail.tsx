@@ -47,6 +47,7 @@ interface HandshakeRecord {
   acceptor_coordination_device_id?: string | null
   internal_peer_device_id?: string | null
   internal_peer_computer_name?: string | null
+  internal_peer_pairing_code?: string | null
   internal_peer_device_role?: 'host' | 'sandbox' | null
   internal_coordination_identity_complete?: boolean
   internal_coordination_repair_needed?: boolean

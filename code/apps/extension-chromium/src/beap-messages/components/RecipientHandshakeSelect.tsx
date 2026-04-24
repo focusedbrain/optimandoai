@@ -5,15 +5,17 @@
  * Only visible in PRIVATE (qBEAP) mode.
  *
  * Reads from the backend via useHandshakes('active').
- * No X25519/ML-KEM fields — crypto is handled entirely by the backend pipeline.
+ * Selection requires `peerX25519PublicKey` + `peerPQPublicKey` on the record; the composer passes them
+ * into the qBEAP path — this component only enforces that they are present.
  */
 
 import React, { useState } from 'react'
 import type { HandshakeRecord, HandshakeState, SelectedHandshakeRecipient } from '../../handshake/rpcTypes'
-import { hasHandshakeKeyMaterial } from '../../handshake/rpcTypes'
+import { hasHandshakeKeyMaterial, handshakeKeyMaterialStatus } from '../../handshake/rpcTypes'
 import {
   formatInternalBeapTargetSummary,
-  formatInternalListSubtitle,
+  formatInternalPairingIdLine,
+  formatInternalPrimaryLine,
   isInternalHandshake,
 } from '@shared/handshake/internalIdentityUi'
 
@@ -72,6 +74,10 @@ export const RecipientHandshakeSelect: React.FC<RecipientHandshakeSelectProps> =
   const bgColor = isStandard ? 'white' : 'rgba(255,255,255,0.08)'
 
   const activeHandshakes = handshakes.filter((h) => h.state === 'ACTIVE')
+  const selectedRecord =
+    selectedHandshakeId != null ? handshakes.find((h) => h.handshake_id === selectedHandshakeId) : undefined
+  const hasValidRecipientSelection =
+    selectedRecord != null && hasHandshakeKeyMaterial(selectedRecord)
 
   const handleSelect = (hs: HandshakeRecord) => {
     if (disabled) return
@@ -90,7 +96,30 @@ export const RecipientHandshakeSelect: React.FC<RecipientHandshakeSelectProps> =
     onSelect(recipient)
   }
 
-  const getStateBadge = (state: HandshakeState) => {
+  const getStateBadge = (state: HandshakeState, keyComplete: boolean) => {
+    if (state === 'ACTIVE' && !keyComplete) {
+      return (
+        <span
+          style={{
+            fontSize: '9px',
+            fontWeight: 600,
+            padding: '2px 6px',
+            borderRadius: '4px',
+            background: isStandard ? 'rgba(245,158,11,0.2)' : 'rgba(245,158,11,0.22)',
+            color: isStandard ? '#b45309' : '#fcd34d',
+            border: isStandard ? '1px solid rgba(245,158,11,0.4)' : '1px solid rgba(245,158,11,0.35)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '3px',
+            maxWidth: '160px',
+            textAlign: 'center',
+            lineHeight: 1.2,
+          }}
+        >
+          Key material incomplete
+        </span>
+      )
+    }
     if (state === 'ACTIVE') {
       return (
         <span
@@ -249,11 +278,13 @@ export const RecipientHandshakeSelect: React.FC<RecipientHandshakeSelectProps> =
         {activeHandshakes.map((hs) => {
           const isSelected = selectedHandshakeId === hs.handshake_id
           const hasKeys = hasHandshakeKeyMaterial(hs)
+          const keyStatus = handshakeKeyMaterialStatus(hs)
           const isSelectable = hasKeys && !disabled
           const expiryHint = formatExpiry(hs.expires_at)
           const expiryAbsolute = formatExpiryAbsolute(hs.expires_at)
           const showExpiryBadge = expiryHint != null
-          const internalListLine = isInternalHandshake(hs) ? formatInternalListSubtitle(hs) : null
+          const internalPrimary = isInternalHandshake(hs) ? formatInternalPrimaryLine(hs) : null
+          const internalPairingId = isInternalHandshake(hs) ? formatInternalPairingIdLine(hs) : null
 
           return (
             <div
@@ -262,14 +293,16 @@ export const RecipientHandshakeSelect: React.FC<RecipientHandshakeSelectProps> =
               style={{
                 padding: '12px',
                 background: !hasKeys
-                  ? isStandard ? 'rgba(107,114,128,0.08)' : 'rgba(107,114,128,0.12)'
+                  ? isStandard
+                    ? 'rgba(180,83,9,0.08)'
+                    : 'rgba(180,83,9,0.12)'
                   : isSelected
                     ? isStandard
                       ? 'rgba(59,130,246,0.1)'
                       : 'rgba(139,92,246,0.2)'
                     : bgColor,
                 border: !hasKeys
-                  ? `1px dashed ${isStandard ? 'rgba(107,114,128,0.3)' : 'rgba(107,114,128,0.4)'}`
+                  ? `1px dashed ${isStandard ? 'rgba(180,83,9,0.45)' : 'rgba(245,158,11,0.4)'}`
                   : isSelected
                     ? isStandard
                       ? '2px solid #3b82f6'
@@ -277,7 +310,7 @@ export const RecipientHandshakeSelect: React.FC<RecipientHandshakeSelectProps> =
                     : `1px solid ${borderColor}`,
                 borderRadius: '8px',
                 cursor: isSelectable ? 'pointer' : 'not-allowed',
-                opacity: hasKeys ? (disabled ? 0.5 : 1) : 0.7,
+                opacity: hasKeys ? (disabled ? 0.5 : 1) : 0.75,
                 transition: 'all 0.15s ease',
               }}
             >
@@ -290,22 +323,40 @@ export const RecipientHandshakeSelect: React.FC<RecipientHandshakeSelectProps> =
                 }}
               >
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <span style={{ fontSize: '18px' }}>{hasKeys ? '🔒' : '⚠️'}</span>
+                  <span style={{ fontSize: '18px' }} title={hasKeys ? 'qBEAP key material present' : `Missing: ${keyStatus}`}>
+                    {hasKeys ? '🔒' : '⛔'}
+                  </span>
                   <div>
-                    <div style={{ fontSize: '13px', fontWeight: 600, color: hasKeys ? textColor : mutedColor }}>
-                      {hs.counterparty_email}
-                    </div>
-                    {internalListLine && (
-                      <div
-                        style={{
-                          fontSize: '10px',
-                          fontWeight: 600,
-                          color: isStandard ? '#4338ca' : '#a5b4fc',
-                          marginTop: '4px',
-                          lineHeight: 1.35,
-                        }}
-                      >
-                        {internalListLine}
+                    {isInternalHandshake(hs) && internalPrimary ? (
+                      <>
+                        <div
+                          style={{
+                            fontSize: '13px',
+                            fontWeight: 600,
+                            color: hasKeys ? textColor : mutedColor,
+                            lineHeight: 1.35,
+                          }}
+                        >
+                          {internalPrimary}
+                        </div>
+                        {internalPairingId && (
+                          <div
+                            style={{
+                              fontSize: '11px',
+                              fontWeight: 600,
+                              color: isStandard ? '#4338ca' : '#a5b4fc',
+                              marginTop: '2px',
+                              lineHeight: 1.35,
+                            }}
+                          >
+                            {internalPairingId}
+                          </div>
+                        )}
+                        <div style={{ fontSize: '10px', color: mutedColor, marginTop: '3px' }}>{hs.counterparty_email}</div>
+                      </>
+                    ) : (
+                      <div style={{ fontSize: '13px', fontWeight: 600, color: hasKeys ? textColor : mutedColor }}>
+                        {hs.counterparty_email}
                       </div>
                     )}
                     {hasKeys ? (
@@ -373,7 +424,7 @@ export const RecipientHandshakeSelect: React.FC<RecipientHandshakeSelectProps> =
                       {expiryHint}
                     </span>
                   )}
-                  {getStateBadge(hs.state)}
+                  {getStateBadge(hs.state, hasKeys)}
                   {isSelected && hasKeys && (
                     <span style={{ fontSize: '14px', color: isStandard ? '#3b82f6' : '#a78bfa' }}>
                       ✓
@@ -396,12 +447,13 @@ export const RecipientHandshakeSelect: React.FC<RecipientHandshakeSelectProps> =
                   <span>{new Date(hs.activated_at).toLocaleDateString()}</span>
                 </div>
               )}
+
             </div>
           )
         })}
       </div>
 
-      {!selectedHandshakeId && (
+      {!hasValidRecipientSelection && (
         <div
           style={{
             marginTop: '8px',

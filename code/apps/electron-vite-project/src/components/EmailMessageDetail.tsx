@@ -794,7 +794,7 @@ export default function EmailMessageDetail({
               <button
                 type="button"
                 onClick={() => setBeapRedirectOpen(true)}
-                title="Send a new BEAP copy of this content to another handshake"
+                title="Redirect this BEAP message to another destination."
                 style={{
                   padding: '6px 10px',
                   fontSize: 11,
@@ -813,7 +813,7 @@ export default function EmailMessageDetail({
               <button
                 type="button"
                 onClick={() => onSandboxClone(message)}
-                title="Clone to internal sandbox (new qBEAP; original unchanged)"
+                title="Send a clone of this BEAP message to your connected Sandbox orchestrator for testing. The original message stays unchanged."
                 style={{
                   padding: '6px 10px',
                   fontSize: 11,
@@ -825,11 +825,7 @@ export default function EmailMessageDetail({
                   color: 'var(--purple-accent, #c4b5fd)',
                 }}
               >
-                {internalSandboxTargets?.length === 1 &&
-                (internalSandboxTargets[0]?.live_status_optional === 'relay_disconnected' ||
-                  internalSandboxTargets[0]?.live_status_optional === 'coordination_disabled')
-                  ? 'Queue to Sandbox'
-                  : 'Sandbox'}
+                {internalSandboxTargets && internalSandboxTargets.length > 1 ? 'Sandbox…' : 'Sandbox'}
               </button>
             )}
           </div>

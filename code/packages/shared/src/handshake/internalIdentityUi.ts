@@ -1,6 +1,9 @@
 /**
  * Pure UI helpers for internal (same-account) handshakes: Host vs Sandbox, device ids, labels.
  * Used by Electron dashboard and extension BEAP builder — no I/O.
+ *
+ * User-facing labels use computer/device name, orchestrator role (Host/Sandbox), and
+ * 6-digit pairing id. Coordination UUIDs are for debug/advanced only.
  */
 
 export type OrchestratorKind = 'host' | 'sandbox'
@@ -18,6 +21,8 @@ export interface InternalIdentitySource {
   internal_peer_device_id?: string | null
   internal_peer_device_role?: OrchestratorKind | null
   internal_peer_computer_name?: string | null
+  /** 6-digit decimal pairing code (no dash) — user-facing id when present */
+  internal_peer_pairing_code?: string | null
   internal_coordination_identity_complete?: boolean
   internal_coordination_repair_needed?: boolean
 }
@@ -61,7 +66,8 @@ export function localCoordinationDeviceId(r: InternalIdentitySource): string | n
 }
 
 /**
- * Stable id for the peer: coordination id first, else legacy internal_peer_device_id, else unknown placeholder.
+ * Stable technical id for the peer: coordination id first, else legacy internal_peer_device_id.
+ * For UI, use only in debug/advanced — not as a primary label.
  */
 export function peerStableIdentifier(r: InternalIdentitySource): { kind: 'coordination' | 'legacy_peer' | 'unknown'; text: string } {
   const c = peerCoordinationDeviceId(r)
@@ -76,32 +82,62 @@ export function peerDeviceDisplayName(r: InternalIdentitySource): string | null 
   return n?.trim() || null
 }
 
-/** One line for list rows: "Sandbox orchestrator · abcd…wxyz" */
-export function formatInternalListSubtitle(r: InternalIdentitySource): string | null {
-  if (!isInternalHandshake(r)) return null
-  const peerK = peerOrchestratorKind(r)
-  const sid = peerStableIdentifier(r)
-  const idPart = sid.kind === 'unknown' ? sid.text : shortDeviceIdForUi(sid.text)
-  return `${orchestratorUserLabel(peerK)} · ${idPart}`
+/**
+ * Best-effort human computer/device name for the **peer** (Host/Sandbox perspective).
+ */
+export function peerDisplayComputerName(r: InternalIdentitySource): string {
+  const c = r.internal_peer_computer_name?.trim()
+  if (c) return c
+  const d = peerDeviceDisplayName(r)
+  if (d) return d
+  return 'Unknown device'
+}
+
+/** Format 6-digit storage form to "123-456" for display; null if not exactly six digits. */
+export function formatPairingCodeForDisplay(code: string | null | undefined): string | null {
+  const t = (code ?? '').replace(/\D/g, '')
+  if (t.length !== 6) return null
+  return `${t.slice(0, 3)}-${t.slice(3, 6)}`
 }
 
 /**
- * Obvious private-mode send target: peer orchestrator + names + full device id for internal handshakes.
+ * Primary user-facing line (peer perspective):
+ * "<computer/device name> — <Host orchestrator|Sandbox orchestrator>"
+ */
+export function formatInternalPrimaryLine(r: InternalIdentitySource): string | null {
+  if (!isInternalHandshake(r)) return null
+  const name = peerDisplayComputerName(r)
+  const peerK = peerOrchestratorKind(r)
+  return `${name} — ${orchestratorUserLabel(peerK)}`
+}
+
+/**
+ * Secondary line: "ID: 123-456" when a valid pairing code exists.
+ */
+export function formatInternalPairingIdLine(r: InternalIdentitySource): string | null {
+  if (!isInternalHandshake(r)) return null
+  const formatted = formatPairingCodeForDisplay(r.internal_peer_pairing_code)
+  if (!formatted) return null
+  return `ID: ${formatted}`
+}
+
+/**
+ * @deprecated Prefer {@link formatInternalPrimaryLine} + {@link formatInternalPairingIdLine} for two-line UIs.
+ * Single-line list hint: same as {@link formatInternalPrimaryLine} (no UUID, no old "orchestrator · uuid" format).
+ */
+export function formatInternalListSubtitle(r: InternalIdentitySource): string | null {
+  return formatInternalPrimaryLine(r)
+}
+
+/**
+ * One-line + optional pairing, for tooltips and package summary (no coordination UUIDs).
  */
 export function formatInternalBeapTargetSummary(r: InternalIdentitySource): string | null {
   if (!isInternalHandshake(r)) return null
-  const peerK = peerOrchestratorKind(r)
-  const sid = peerStableIdentifier(r)
-  const dname = peerDeviceDisplayName(r)
-  const comp = r.internal_peer_computer_name?.trim()
-  const idLine = sid.kind === 'unknown' ? sid.text : sid.text
-  const bits: string[] = [
-    `Target: ${orchestratorUserLabel(peerK)}`,
-  ]
-  if (dname) bits.push(`“${dname}”`)
-  if (comp) bits.push(`PC: ${comp}`)
-  bits.push(`Device ID: ${idLine}`)
-  return bits.join(' — ')
+  const primary = formatInternalPrimaryLine(r)
+  if (!primary) return null
+  const idLine = formatInternalPairingIdLine(r)
+  return idLine ? `${primary} — ${idLine}` : primary
 }
 
 export function internalIdentityNeedsAttention(r: InternalIdentitySource): boolean {

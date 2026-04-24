@@ -5,22 +5,13 @@
  * (reconstructPageText for positioned items — avoids CMap/stream garbage from raw parsing).
  */
 
-import { createRequire } from 'module'
-import path from 'path'
-import { pathToFileURL } from 'url'
 import { ExtractedAttachmentText } from './types'
-
-const require = createRequire(import.meta.url)
-
-function resolvePdfWorkerSrc(): string {
-  const root = path.dirname(require.resolve('pdfjs-dist/package.json'))
-  return pathToFileURL(path.join(root, 'build', 'pdf.worker.mjs')).href
-}
+import { resolvePdfjsDistWorkerFileUrl } from '../pdfjsWorkerSrc'
 
 async function loadPdfjs(): Promise<any> {
   const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs' as any).catch(() => import('pdfjs-dist' as any))
   if (pdfjs.GlobalWorkerOptions) {
-    pdfjs.GlobalWorkerOptions.workerSrc = resolvePdfWorkerSrc()
+    pdfjs.GlobalWorkerOptions.workerSrc = resolvePdfjsDistWorkerFileUrl()
   }
   return pdfjs
 }

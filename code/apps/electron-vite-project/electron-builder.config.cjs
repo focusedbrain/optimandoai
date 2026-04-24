@@ -7,10 +7,10 @@ const appDir = __dirname
 
 /**
  * Parsed by scripts/kill-wr-desk.cjs — must contain a line matching:
- *   return 'C:\\build-output\\build34'
+ *   return 'C:\\build-output\\build35'
  */
 function windowsOutputDirMarker() {
-  return 'C:\\build-output\\build34'
+  return 'C:\\build-output\\build35'
 }
 
 const workspaceRoot = path.resolve(appDir, '../..')
@@ -72,6 +72,8 @@ module.exports = {
     'node_modules/**/*',
   ],
   asarUnpack: [
+    // pdfjs worker: file-URL load + Node fake-worker; unpacked avoids edge cases inside app.asar
+    'node_modules/pdfjs-dist/**',
     'node_modules/pg/**',
     'node_modules/pg-*/**',
     'node_modules/pgpass/**',

@@ -3,7 +3,7 @@
  * Calls `window.handshakeView.vaultRpc({ method: 'internalSandboxes.listAvailable' })`.
  */
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 
 export interface InternalSandboxTargetWire {
   handshake_id: string
@@ -13,10 +13,13 @@ export interface InternalSandboxTargetWire {
   peer_label: string
   peer_device_id: string
   peer_device_name: string | null
+  /** 6-digit internal pairing id when available (not a UUID). */
+  peer_pairing_code_six?: string | null
   internal_coordination_identity_complete: boolean
   p2p_endpoint_set: boolean
   last_known_delivery_status: string
   live_status_optional?: string
+  beap_clone_eligible?: boolean
 }
 
 export interface InternalSandboxIncompleteWire {
@@ -56,7 +59,7 @@ export function useInternalSandboxesList() {
       }
       if (r?.success) {
         setLastSuccess(true)
-        setSandboxes(Array.isArray(r.sandboxes) ? r.sandboxes : [])
+        setSandboxes((Array.isArray(r.sandboxes) ? r.sandboxes : []) as InternalSandboxTargetWire[])
         setIncomplete(Array.isArray(r.incomplete) ? r.incomplete : [])
       } else {
         setLastSuccess(false)
@@ -86,6 +89,11 @@ export function useInternalSandboxesList() {
     return () => window.removeEventListener('vault-status-changed', onVaultStatusChanged)
   }, [refresh])
 
+  const cloneEligibleSandboxes = useMemo(
+    () => sandboxes.filter((s) => s.beap_clone_eligible === true),
+    [sandboxes],
+  )
+
   return {
     sandboxes,
     incomplete,
@@ -95,5 +103,8 @@ export function useInternalSandboxesList() {
     refresh,
     /** True when at least one coordination-complete sandbox target exists. */
     hasUsableSandbox: sandboxes.length > 0,
+    /** Relays + keys: eligible for “Sandbox” clone on received BEAP rows. */
+    cloneEligibleSandboxes,
+    hasCloneEligibleSandbox: cloneEligibleSandboxes.length > 0,
   }
 }

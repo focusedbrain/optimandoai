@@ -492,8 +492,16 @@ async function handleCoordinationOutbound403(
   const freshToken = await getOidcToken()
   let reRegSucceeded = false
   if (record && freshToken?.trim()) {
-    const initiatorId = record.initiator?.sub ?? record.initiator?.wrdesk_user_id ?? ''
-    const acceptorId = record.acceptor?.sub ?? record.acceptor?.wrdesk_user_id ?? ''
+    const { getCurrentSession } = await import('./ipc')
+    const sess = getCurrentSession()
+    const initiatorId =
+      record.handshake_type === 'internal' && sess?.sub?.trim()
+        ? sess.sub.trim()
+        : (record.initiator?.sub ?? record.initiator?.wrdesk_user_id ?? '')
+    const acceptorId =
+      record.handshake_type === 'internal' && sess?.sub?.trim()
+        ? sess.sub.trim()
+        : (record.acceptor?.sub ?? record.acceptor?.wrdesk_user_id ?? '')
     const initiatorEmail = record.initiator?.email ?? ''
     const acceptorEmail = record.acceptor?.email ?? ''
     try {
@@ -515,11 +523,10 @@ async function handleCoordinationOutbound403(
         /* Trigger: stale-registry 403 recovery re-registered this handshake with relay — retry deferred initial context_sync for this id. */
         try {
           const { retryDeferredInitialContextSyncForInternalHandshake } = await import('./contextSyncEnqueue')
-          const { getCurrentSession } = await import('./ipc')
           retryDeferredInitialContextSyncForInternalHandshake(
             db,
             row.handshake_id,
-            getCurrentSession() ?? null,
+            sess ?? null,
             getOidcToken,
           )
         } catch (e: any) {

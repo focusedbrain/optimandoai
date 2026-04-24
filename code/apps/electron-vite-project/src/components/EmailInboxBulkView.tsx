@@ -1689,7 +1689,12 @@ export default function EmailInboxBulkView({
     }
   }, [storeTabCounts])
 
-  const { sandboxes: bulkInternalSandboxes, hasUsableSandbox: bulkHasUsableSandbox } = useInternalSandboxesList()
+  const {
+    sandboxes: bulkInternalSandboxes,
+    hasUsableSandbox: bulkHasUsableSandbox,
+    hasCloneEligibleSandbox: bulkHasCloneEligibleSandbox,
+    cloneEligibleSandboxes: bulkCloneEligibleSandboxes,
+  } = useInternalSandboxesList()
   const [bulkSandboxCloneFor, setBulkSandboxCloneFor] = useState<InboxMessage | null>(null)
 
   useEffect(() => {
@@ -6561,10 +6566,10 @@ export default function EmailInboxBulkView({
       {/* EmailComposeOverlay removed — use EmailInlineComposer via composeMode (Prompt 3/6) */}
 
       {/* Full message modal — stays inside bulk mode */}
-      {bulkSandboxCloneFor && bulkHasUsableSandbox && bulkInternalSandboxes.length > 0 && (
+      {bulkSandboxCloneFor && bulkHasCloneEligibleSandbox && bulkCloneEligibleSandboxes.length > 0 && (
         <BeapSandboxCloneDialog
           message={bulkSandboxCloneFor}
-          sandboxes={bulkInternalSandboxes}
+          sandboxes={bulkCloneEligibleSandboxes}
           onClose={() => setBulkSandboxCloneFor(null)}
           onSent={() => {
             setBulkSandboxCloneFor(null)
@@ -6606,8 +6611,8 @@ export default function EmailInboxBulkView({
                     onSelectAttachment?.(attachmentId)
                   }}
                   onReply={handleReply}
-                  internalSandboxTargets={bulkHasUsableSandbox ? bulkInternalSandboxes : undefined}
-                  onSandboxClone={bulkHasUsableSandbox ? (m) => setBulkSandboxCloneFor(m) : undefined}
+                  internalSandboxTargets={bulkHasCloneEligibleSandbox ? bulkCloneEligibleSandboxes : undefined}
+                  onSandboxClone={bulkHasCloneEligibleSandbox ? (m) => setBulkSandboxCloneFor(m) : undefined}
                 />
               ) : (
                 <div className="bulk-view-modal-loading">Loading…</div>

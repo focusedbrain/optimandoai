@@ -19,18 +19,8 @@
  * Updates extraction_status in hs_context_profile_documents on completion.
  */
 
-import { createRequire } from 'module'
-import path from 'path'
-import { pathToFileURL } from 'url'
 import { ocrService } from '../ocr/ocr-service'
-
-const require = createRequire(import.meta.url)
-
-/** Same strategy as `email/pdf-extractor.ts`: bundled chunks may live in subdirs, so `./pdf.worker.mjs` next to import.meta.url is often wrong. */
-function resolvePdfWorkerSrc(): string {
-  const root = path.dirname(require.resolve('pdfjs-dist/package.json'))
-  return pathToFileURL(path.join(root, 'build', 'pdf.worker.mjs')).href
-}
+import { resolvePdfjsDistWorkerFileUrl } from '../pdfjsWorkerSrc'
 
 // Minimum average non-whitespace characters per page for the direct path to
 // be considered "dense enough" to skip OCR.
@@ -86,7 +76,7 @@ async function loadPdfjs(): Promise<any> {
     )
     // pdfjs-dist v4+ requires workerSrc for the Node fake-worker path (dynamic import).
     if (pdfjs.GlobalWorkerOptions) {
-      pdfjs.GlobalWorkerOptions.workerSrc = resolvePdfWorkerSrc()
+      pdfjs.GlobalWorkerOptions.workerSrc = resolvePdfjsDistWorkerFileUrl()
     }
     return pdfjs
   } catch (err: any) {

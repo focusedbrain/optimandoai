@@ -3,12 +3,13 @@
  * instead of chrome.runtime.sendMessage.
  */
 
-import type {
-  HandshakeRecord,
-  HandshakeInitiateResponse,
-  HandshakeAcceptResponse,
-  HandshakeRefreshResponse,
-  HandshakeBuildForDownloadResponse,
+import {
+  peerKeyMaterialFromBackendRow,
+  type HandshakeRecord,
+  type HandshakeInitiateResponse,
+  type HandshakeAcceptResponse,
+  type HandshakeRefreshResponse,
+  type HandshakeBuildForDownloadResponse,
 } from '@ext/handshake/rpcTypes'
 
 type LedgerParty = { email: string; wrdesk_user_id: string }
@@ -18,8 +19,17 @@ type LedgerParty = { email: string; wrdesk_user_id: string }
  * snake_case peer key fields). Map to extension `HandshakeRecord` for `RecipientHandshakeSelect`.
  */
 export function mapLedgerHandshakeToRpc(raw: unknown): HandshakeRecord {
+  /** Ledger sometimes returns rows already flattened (counterparty_*, no initiator/acceptor). Never cast through
+   *  without merging `peerKeyMaterialFromBackendRow`, or only-`peer_*_b64` rows lose X25519/PQ on the DTO. */
   if (typeof raw === 'object' && raw !== null && 'counterparty_email' in raw && !('initiator' in raw)) {
-    return raw as HandshakeRecord
+    const r = raw as Record<string, unknown>
+    const keyMat = peerKeyMaterialFromBackendRow(r)
+    const p2p = r.p2p_endpoint ?? r.p2pEndpoint
+    return {
+      ...(raw as object as HandshakeRecord),
+      ...keyMat,
+      p2pEndpoint: p2p === undefined || p2p === null ? null : (p2p as string),
+    } as HandshakeRecord
   }
 
   const r = raw as {
@@ -68,6 +78,8 @@ export function mapLedgerHandshakeToRpc(raw: unknown): HandshakeRecord {
     counterparty_user_id = r.initiator?.wrdesk_user_id ?? ''
   }
 
+  const keyMat = peerKeyMaterialFromBackendRow(r as unknown as Record<string, unknown>)
+
   return {
     handshake_id: r.handshake_id,
     state: r.state,
@@ -79,10 +91,8 @@ export function mapLedgerHandshakeToRpc(raw: unknown): HandshakeRecord {
     created_at: r.created_at,
     activated_at: r.activated_at ?? undefined,
     expires_at: r.expires_at ?? null,
-    peerX25519PublicKey: r.peer_x25519_public_key_b64 ?? undefined,
-    peerPQPublicKey: r.peer_mlkem768_public_key_b64 ?? undefined,
+    ...keyMat,
     p2pEndpoint: r.p2p_endpoint ?? null,
-    localX25519PublicKey: r.local_x25519_public_key_b64 ?? undefined,
     handshake_type: r.handshake_type ?? undefined,
     initiator_device_name: r.initiator_device_name ?? null,
     acceptor_device_name: r.acceptor_device_name ?? null,

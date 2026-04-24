@@ -355,11 +355,15 @@ declare global {
     }
     /** Email Inbox IPC bridge (inbox_messages, sync, deletion, attachments, AI placeholders) */
     emailInbox?: EmailInboxBridge
-    /** BEAP inbox → sandbox: `inbox:beapInboxCloneToSandboxPrepare` (vault + target validation; no ciphertext). */
+    /** BEAP inbox → sandbox: `inbox:cloneBeapToSandbox` / `inbox:beapInboxCloneToSandboxPrepare` (vault; no ciphertext). */
     beapInbox?: {
       cloneToSandboxPrepare: (payload: {
         sourceMessageId: string
-        targetHandshakeId: string
+        targetHandshakeId?: string
+      }) => Promise<{ success: boolean; error?: string; prepare?: BeapInboxClonePrepareOk }>
+      cloneBeapToSandbox?: (payload: {
+        sourceMessageId: string
+        targetHandshakeId?: string
       }) => Promise<{ success: boolean; error?: string; prepare?: BeapInboxClonePrepareOk }>
     }
     /** AutoSort run CRUD + session summary (IPC). */

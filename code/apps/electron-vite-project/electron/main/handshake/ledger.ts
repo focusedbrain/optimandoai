@@ -245,7 +245,9 @@ export async function openLedger(sessionToken: string): Promise<any> {
 
 /**
  * Close the ledger and discard the session key from memory.
- * Must be called on SSO logout.
+ * Must be called on SSO logout so the next `openLedger` uses the new account key;
+ * `handshakeAccountIsolation` also filters rows, but a stale open DB + old session
+ * must never occur across account switches.
  */
 export function closeLedger(): void {
   if (_ledgerDb) {

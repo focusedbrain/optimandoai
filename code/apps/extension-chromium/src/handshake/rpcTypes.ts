@@ -130,9 +130,45 @@ export interface SelectedHandshakeRecipient {
  * No upgrade path — handshakes without keys are invalid. User must delete and re-establish.
  */
 export function hasHandshakeKeyMaterial(
-  record: Pick<HandshakeRecord | SelectedHandshakeRecipient, 'peerX25519PublicKey' | 'peerPQPublicKey'>
+  record: Pick<HandshakeRecord | SelectedHandshakeRecipient, 'peerX25519PublicKey' | 'peerPQPublicKey'>,
 ): boolean {
   return !!(record.peerX25519PublicKey && record.peerPQPublicKey)
+}
+
+function nzString(s: unknown): string | undefined {
+  if (typeof s !== 'string') return undefined
+  const t = s.trim()
+  return t.length > 0 ? t : undefined
+}
+
+/**
+ * Maps ledger / IPC rows (`peer_x25519_public_key_b64`, `peer_mlkem768_public_key_b64`) and optional
+ * camelCased copies onto UI key fields. Trims; empty string → undefined (so `hasHandshakeKeyMaterial` is false).
+ * Use for every list/get DTO path so key material is never dropped when payloads mix shapes.
+ */
+export function peerKeyMaterialFromBackendRow(raw: Record<string, unknown>): {
+  peerX25519PublicKey?: string
+  peerPQPublicKey?: string
+  localX25519PublicKey?: string
+} {
+  return {
+    peerX25519PublicKey: nzString(raw.peerX25519PublicKey ?? raw.peer_x25519_public_key_b64),
+    peerPQPublicKey: nzString(raw.peerPQPublicKey ?? raw.peer_mlkem768_public_key_b64),
+    localX25519PublicKey: nzString(raw.localX25519PublicKey ?? raw.local_x25519_public_key_b64),
+  }
+}
+
+export type HandshakeKeyMaterialStatus = 'complete' | 'missing_x25519' | 'missing_pq' | 'missing_both'
+
+export function handshakeKeyMaterialStatus(
+  record: Pick<HandshakeRecord, 'peerX25519PublicKey' | 'peerPQPublicKey'>,
+): HandshakeKeyMaterialStatus {
+  const x = !!record.peerX25519PublicKey
+  const p = !!record.peerPQPublicKey
+  if (x && p) return 'complete'
+  if (!x && !p) return 'missing_both'
+  if (!x) return 'missing_x25519'
+  return 'missing_pq'
 }
 
 /** Prefix shown next to the status label in detail panels (exhaustive over HandshakeState). */

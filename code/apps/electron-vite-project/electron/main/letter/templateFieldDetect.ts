@@ -4,6 +4,7 @@
 
 import fs from 'fs'
 import type { ChatMessage } from '../llm/types'
+import { resolvePdfjsDistWorkerFileUrl } from '../pdfjsWorkerSrc'
 
 const MAX_PAGES = 30
 const MAX_TEXT_DUMP = 6000
@@ -26,13 +27,8 @@ async function loadPdfjs(): Promise<any> {
   const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs' as any).catch(() =>
     import('pdfjs-dist' as any),
   )
-  const { createRequire } = await import('module')
-  const { pathToFileURL } = await import('url')
-  const path = await import('path')
-  const require = createRequire(import.meta.url)
   if (pdfjs.GlobalWorkerOptions) {
-    const root = path.dirname(require.resolve('pdfjs-dist/package.json'))
-    pdfjs.GlobalWorkerOptions.workerSrc = pathToFileURL(path.join(root, 'build', 'pdf.worker.mjs')).href
+    pdfjs.GlobalWorkerOptions.workerSrc = resolvePdfjsDistWorkerFileUrl()
   }
   return pdfjs
 }

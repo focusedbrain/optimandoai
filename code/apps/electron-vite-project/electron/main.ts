@@ -32,6 +32,7 @@ import {
   setPairingCodeRegistrar,
   type PairingCodeRegistrar,
 } from './main/orchestrator/orchestratorModeStore'
+import { resolvePdfjsDistWorkerFileUrl } from './main/pdfjsWorkerSrc'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import os from 'node:os'
@@ -512,6 +513,11 @@ async function openDashboardWindow(): Promise<void> {
         // Always send IPC so renderer shows Analysis view (extension brain icon, tray, etc.)
         win.webContents.send('OPEN_ANALYSIS_DASHBOARD', { phase: 'live', theme: currentExtensionTheme })
         console.log('[AUTH] Sent OPEN_ANALYSIS_DASHBOARD to new window')
+        try {
+          win.webContents.send('handshake-list-refresh')
+        } catch {
+          /* no receiver */
+        }
       }
       // Open DevTools AFTER showing â€” never during createWindow() because
       // docked DevTools can make a hidden BrowserWindow visible on Windows.
@@ -10247,10 +10253,7 @@ async function runDeviceKeyMigration(
         const binaryString = Buffer.from(base64, 'base64')
         const pdfData = new Uint8Array(binaryString)
         const pdfjsLib = await import('pdfjs-dist')
-        const { pathToFileURL } = await import('url')
-        const path = await import('path')
-        const workerPath = path.join(__dirname, 'pdf.worker.mjs')
-        pdfjsLib.GlobalWorkerOptions.workerSrc = pathToFileURL(workerPath).href
+        pdfjsLib.GlobalWorkerOptions.workerSrc = resolvePdfjsDistWorkerFileUrl()
         const loadingTask = pdfjsLib.getDocument({ data: pdfData })
         const pdfDoc = await loadingTask.promise
         const pageCount = pdfDoc.numPages
@@ -10389,15 +10392,12 @@ async function runDeviceKeyMigration(
         
         // Import required modules
         const pdfjsLib = await import('pdfjs-dist')
-        const { pathToFileURL } = await import('url')
         const pathModule = await import('path')
         const fsModule = await import('fs')
         const cryptoModule = await import('crypto')
         const { homedir } = await import('os')
-        
-        // Set worker source to bundled worker
-        const workerPath = pathModule.join(__dirname, 'pdf.worker.mjs')
-        pdfjsLib.GlobalWorkerOptions.workerSrc = pathToFileURL(workerPath).href
+
+        pdfjsLib.GlobalWorkerOptions.workerSrc = resolvePdfjsDistWorkerFileUrl()
         
         // Load canvas module (node-canvas with Path2D support)
         let canvasModule: any

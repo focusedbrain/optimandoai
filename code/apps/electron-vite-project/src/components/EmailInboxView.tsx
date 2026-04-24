@@ -23,6 +23,7 @@ import type { NormalInboxAiResult } from '../types/inboxAi'
 import { useInboxPreloadQueue } from '../hooks/useInboxPreloadQueue'
 import { useInternalSandboxesList } from '../hooks/useInternalSandboxesList'
 import BeapSandboxCloneDialog from './BeapSandboxCloneDialog'
+import BeapRedirectDialog from './BeapRedirectDialog'
 import { isBeapQbeapOutboundEcho } from '../lib/inboxBeapOutbound'
 import { tryParsePartialAnalysis, tryParseAnalysis, type NormalInboxAiResultKey } from '../utils/parseInboxAiJson'
 import { reconcileAnalyzeTriage } from '../lib/inboxClassificationReconcile'
@@ -1655,6 +1656,8 @@ interface InboxMessageRowProps {
   /** When true, show row-level Sandbox (clone) control for BEAP rows. */
   showSandboxInRow?: boolean
   onSandboxInRow?: (e: MouseEvent, message: InboxMessage) => void
+  /** Row-level Redirect (forwarding); independent of Sandbox clone eligibility. */
+  onRedirectInRow?: (e: MouseEvent, message: InboxMessage) => void
 }
 
 function InboxMessageRow({
@@ -1668,8 +1671,10 @@ function InboxMessageRow({
   onNavigateToHandshake,
   showSandboxInRow,
   onSandboxInRow,
+  onRedirectInRow,
 }: InboxMessageRowProps) {
   const isBeap = message.source_type === 'email_beap' || message.source_type === 'direct_beap'
+  const canRowRedirect = Boolean(onRedirectInRow) && isBeap && !isBeapQbeapOutboundEcho(message)
   const canRowSandbox =
     showSandboxInRow && isBeap && !isBeapQbeapOutboundEcho(message)
   const bodyPreview = (message.body_text || '').slice(0, 100).replace(/\s+/g, ' ').trim()
@@ -1819,6 +1824,30 @@ function InboxMessageRow({
           </div>
         )}
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+          {canRowRedirect && onRedirectInRow && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation()
+                e.preventDefault()
+                onRedirectInRow(e, message)
+              }}
+              title="Redirect this BEAP message to another destination."
+              style={{
+                fontSize: 9,
+                fontWeight: 700,
+                padding: '2px 8px',
+                borderRadius: 4,
+                border: '1px solid rgba(59, 130, 246, 0.45)',
+                background: 'rgba(59, 130, 246, 0.12)',
+                color: '#93c5fd',
+                cursor: 'pointer',
+                flexShrink: 0,
+              }}
+            >
+              Redirect
+            </button>
+          )}
           {canRowSandbox && onSandboxInRow && (
             <button
               type="button"
@@ -1827,7 +1856,7 @@ function InboxMessageRow({
                 e.preventDefault()
                 onSandboxInRow(e, message)
               }}
-              title="Clone to internal sandbox (new package)"
+              title="Send a clone of this BEAP message to your connected Sandbox orchestrator for testing. The original message stays unchanged."
               style={{
                 fontSize: 9,
                 fontWeight: 700,
@@ -1931,6 +1960,8 @@ export default function EmailInboxView({
     incomplete: internalSandboxesIncomplete,
     loading: internalSandboxesLoading,
     hasUsableSandbox,
+    hasCloneEligibleSandbox,
+    cloneEligibleSandboxes,
   } = useInternalSandboxesList()
 
   const showInternalSandboxInboxRow =
@@ -1976,6 +2007,7 @@ export default function EmailInboxView({
   } | null>(null)
 
   const [sandboxCloneForMessage, setSandboxCloneForMessage] = useState<InboxMessage | null>(null)
+  const [beapRedirectForMessage, setBeapRedirectForMessage] = useState<InboxMessage | null>(null)
 
   const [leftPanelTab, setLeftPanelTab] = useState<'inbox' | 'sent'>('inbox')
   const [sentMessages, setSentMessages] = useState<Array<Record<string, unknown>>>([])
@@ -2909,8 +2941,9 @@ export default function EmailInboxView({
                 onToggleMultiSelect={() => toggleMultiSelect(msg.id)}
                 onMouseEnter={() => prioritize(msg.id)}
                 onNavigateToHandshake={onNavigateToHandshake}
-                showSandboxInRow={hasUsableSandbox && !internalSandboxesLoading}
+                showSandboxInRow={hasCloneEligibleSandbox && !internalSandboxesLoading}
                 onSandboxInRow={(_e, m) => setSandboxCloneForMessage(m)}
+                onRedirectInRow={(_e, m) => setBeapRedirectForMessage(m)}
               />
             ))
           )}
@@ -3090,8 +3123,8 @@ export default function EmailInboxView({
               message={selectedMessage}
               onSelectAttachment={onSelectAttachment ? handleSelectAttachment : undefined}
               onReply={handleReply}
-              internalSandboxTargets={hasUsableSandbox ? internalSandboxes : undefined}
-              onSandboxClone={hasUsableSandbox ? (m) => setSandboxCloneForMessage(m) : undefined}
+              internalSandboxTargets={hasCloneEligibleSandbox ? cloneEligibleSandboxes : undefined}
+              onSandboxClone={hasCloneEligibleSandbox ? (m) => setSandboxCloneForMessage(m) : undefined}
             />
           </div>
           <div className="inbox-detail-ai" data-collapsed={aiPanelCollapsed}>
@@ -3107,13 +3140,24 @@ export default function EmailInboxView({
         </div>
       ) : null}
 
-      {sandboxCloneForMessage && hasUsableSandbox && internalSandboxes.length > 0 && (
+      {sandboxCloneForMessage && hasCloneEligibleSandbox && cloneEligibleSandboxes.length > 0 && (
         <BeapSandboxCloneDialog
           message={sandboxCloneForMessage}
-          sandboxes={internalSandboxes}
+          sandboxes={cloneEligibleSandboxes}
           onClose={() => setSandboxCloneForMessage(null)}
           onSent={() => {
             setSandboxCloneForMessage(null)
+            void fetchMessages()
+          }}
+        />
+      )}
+
+      {beapRedirectForMessage && (
+        <BeapRedirectDialog
+          message={beapRedirectForMessage}
+          onClose={() => setBeapRedirectForMessage(null)}
+          onSent={() => {
+            setBeapRedirectForMessage(null)
             void fetchMessages()
           }}
         />

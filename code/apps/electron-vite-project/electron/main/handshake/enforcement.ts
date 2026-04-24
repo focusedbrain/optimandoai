@@ -902,8 +902,8 @@ function scheduleInternalInitiatorPostAcceptCoordinationRepair(
               rec.acceptor.email ?? rec.initiator.email,
               getToken,
               {
-                initiator_user_id: rec.initiator.sub ?? rec.initiator.wrdesk_user_id,
-                acceptor_user_id: rec.acceptor.sub ?? rec.acceptor.wrdesk_user_id,
+                initiator_user_id: ssoSession.sub,
+                acceptor_user_id: ssoSession.sub,
                 initiator_email: rec.initiator.email,
                 acceptor_email: rec.acceptor.email,
                 initiator_device_id: iid,

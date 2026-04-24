@@ -11,6 +11,7 @@
 import { isCoordinationRelayNativeBeap } from '../../../../../packages/ingestion-core/src/beapDetection.ts'
 import { getCanonicalRelayDeviceId, logDeviceIdBinding } from '../p2p/relayDeviceBinding'
 import { decodeJwtSubForLogs } from '../p2p/relayIdentity'
+import { getHandshakeRecord } from './db'
 import {
   applyContextSyncInternalRoutingFromRecord,
   validateCoordinationInternalPayloadBeforePost,
@@ -596,6 +597,28 @@ export async function sendCapsuleViaCoordination(
         },
         outboundDebug: snapshot,
       }
+    }
+  }
+
+  if (db && queueHandshakeId?.trim()) {
+    try {
+      const rec = getHandshakeRecord(db, queueHandshakeId.trim())
+      if (rec?.handshake_type === 'internal') {
+        console.log(
+          '[RELAY_ROUTING_DEBUG] internal_handshake_device_context',
+          JSON.stringify({
+            handshake_id: queueHandshakeId,
+            sender_device_id_outbound: senderDeviceId ?? null,
+            must_match_getCanonicalRelayDeviceId: getCanonicalRelayDeviceId() ?? null,
+            local_role: rec.local_role ?? null,
+            db_initiator_coordination_device_id: rec.initiator_coordination_device_id ?? null,
+            db_acceptor_coordination_device_id: rec.acceptor_coordination_device_id ?? null,
+            internal_coordination_identity_complete: rec.internal_coordination_identity_complete === true,
+          }),
+        )
+      }
+    } catch {
+      /* non-fatal */
     }
   }
 

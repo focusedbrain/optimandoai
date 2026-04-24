@@ -8,6 +8,9 @@ import { getQueueStatus } from './outboundQueue'
 import { getP2PHealth } from '../p2p/p2pHealth'
 import { HandshakeState, type HandshakeRecord, type SSOSession } from './types'
 
+/** P2P-ingested inbox rows (no IMAP `account_id`); see `beapEmailIngestion`. */
+export const P2P_BEAP_INBOX_ACCOUNT_ID = '__p2p_beap__'
+
 export interface InternalSandboxListEntry {
   handshake_id: string
   relationship_id: string
@@ -16,10 +19,17 @@ export interface InternalSandboxListEntry {
   peer_label: string
   peer_device_id: string
   peer_device_name: string | null
+  /** 6-digit internal pairing code when set (not a UUID; preferred human id). */
+  peer_pairing_code_six: string | null
   internal_coordination_identity_complete: boolean
   p2p_endpoint_set: boolean
   last_known_delivery_status: 'idle' | 'queue_pending' | 'queue_failed' | 'queue_sent' | 'unknown'
   live_status_optional?: 'relay_connected' | 'relay_disconnected' | 'coordination_disabled'
+  /**
+   * True when the relay is connected, P2P endpoint + local + peer qBEAP material exist.
+   * Used to show “Sandbox” clone for received BEAP (not a substitute for queue-only sends).
+   */
+  beap_clone_eligible: boolean
 }
 
 export interface InternalSandboxListIncompleteEntry {
@@ -81,6 +91,27 @@ function deriveLiveStatus(): InternalSandboxListEntry['live_status_optional'] {
   return h.coordination_connected ? 'relay_connected' : 'relay_disconnected'
 }
 
+/** Peer public keys required for qBEAP encrypt to the sandbox orchestrator. */
+export function hasPeerQbeapPublicKeyMaterial(record: HandshakeRecord): boolean {
+  return Boolean(
+    record.peer_x25519_public_key_b64?.trim() && record.peer_mlkem768_public_key_b64?.trim(),
+  )
+}
+
+/**
+ * `true` when clone UI may offer “Sandbox”: relay up, P2P path, full handshake crypto.
+ * Does not relax account or role rules — caller still uses `isEligibleActiveInternalHostSandboxRecord`.
+ */
+export function isBeapCloneEligibleForRecord(
+  record: HandshakeRecord,
+  live: InternalSandboxListEntry['live_status_optional'],
+): boolean {
+  if (live !== 'relay_connected') return false
+  if (!record.p2p_endpoint?.trim()) return false
+  if (!record.local_x25519_public_key_b64?.trim()) return false
+  return hasPeerQbeapPublicKeyMaterial(record)
+}
+
 /**
  * Exported for `beapInbox` sandbox clone: ACTIVE internal host↔sandbox, same account, identity complete.
  */
@@ -136,6 +167,11 @@ export function listAvailableInternalSandboxes(
     }
 
     const delivery = deriveDeliveryStatus(db, record.handshake_id)
+    const live = deriveLiveStatus()
+    const code = record.internal_peer_pairing_code?.trim() ?? null
+    const pairingSix =
+      code && /^\d{6}$/.test(code) ? code : null
+    const beap_clone_eligible = isBeapCloneEligibleForRecord(record, live)
     sandboxes.push({
       handshake_id: record.handshake_id,
       relationship_id: record.relationship_id,
@@ -144,10 +180,12 @@ export function listAvailableInternalSandboxes(
       peer_label: 'Sandbox orchestrator',
       peer_device_id: peerCoordinationOrLegacyId(record),
       peer_device_name: peerDeviceName(record),
+      peer_pairing_code_six: pairingSix,
       internal_coordination_identity_complete: true,
       p2p_endpoint_set: Boolean(record.p2p_endpoint?.trim()),
       last_known_delivery_status: delivery,
-      live_status_optional: deriveLiveStatus(),
+      live_status_optional: live,
+      beap_clone_eligible,
     })
   }
 

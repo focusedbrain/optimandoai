@@ -22,22 +22,39 @@ function buildCloneMetadata(
   p: BeapInboxClonePrepareOk,
   atIso: string,
 ): string {
+  const clonedBy = p.cloned_by_account ?? p.account_tag ?? null
   return [
     '\n\n---\n',
     JSON.stringify({
       sandbox_clone: true,
+      automation_sandbox_clone: true,
       beap_sandbox_clone: {
         clone_reason: 'sandbox_test',
         original_message_id: p.source_message_id,
-        original_handshake_id: p.original_handshake_id,
+        original_sender: p.from_address ?? null,
+        original_received_at: p.original_received_at ?? null,
         cloned_at: atIso,
-        sandbox_target_device_id: p.sandbox_target_device_id,
         sandbox_target_handshake_id: p.sandbox_target_handshake_id,
-        source_sender: p.from_address || undefined,
-        account: p.account_tag || undefined,
+        sandbox_target_device_id: p.sandbox_target_device_id,
+        sandbox_target_pairing_code: p.sandbox_target_pairing_code ?? null,
+        cloned_by_account: clonedBy,
+        original_handshake_id: p.original_handshake_id,
+        account_tag: p.account_tag ?? null,
       },
     }),
   ].join('')
+}
+
+export type BeapInboxCloneAuditMetadata = {
+  original_message_id: string
+  original_sender: string | null
+  original_received_at: string | null
+  cloned_at: string
+  sandbox_target_handshake_id: string
+  sandbox_target_device_id: string
+  sandbox_target_pairing_code: string | null
+  clone_reason: 'sandbox_test'
+  cloned_by_account: string | null
 }
 
 export type BeapInboxCloneToSandboxResult =
@@ -46,6 +63,7 @@ export type BeapInboxCloneToSandboxResult =
       delivery: DeliveryResult
       /** 'live' | 'queued' | 'failed' — from coordinationRelayDelivery + success */
       deliveryMode: 'live' | 'queued' | 'failed' | 'unknown'
+      cloneMetadata: BeapInboxCloneAuditMetadata
     }
   | { success: false; error: string }
 
@@ -94,6 +112,18 @@ export async function cloneBeapInboxToSandbox(
 
   const deliveryMode = mapCoordinationDeliveryToMatrixMode(delivery)
 
+  const cloneMetadata: BeapInboxCloneAuditMetadata = {
+    original_message_id: preparePayload.source_message_id,
+    original_sender: preparePayload.from_address ?? null,
+    original_received_at: preparePayload.original_received_at ?? null,
+    cloned_at: at,
+    sandbox_target_handshake_id: preparePayload.sandbox_target_handshake_id,
+    sandbox_target_device_id: preparePayload.sandbox_target_device_id,
+    sandbox_target_pairing_code: preparePayload.sandbox_target_pairing_code ?? null,
+    clone_reason: 'sandbox_test',
+    cloned_by_account: preparePayload.cloned_by_account ?? preparePayload.account_tag ?? null,
+  }
+
   try {
     const subj =
       preparePayload.subject.startsWith('Sandbox:') || preparePayload.subject.startsWith('Re:')
@@ -112,6 +142,7 @@ export async function cloneBeapInboxToSandbox(
         deliveryStatus: deliveryMode === 'queued' ? 'queued' : 'sent',
         deliveryDetailJson: JSON.stringify({
           beap_sandbox_clone: true,
+          clone_metadata: cloneMetadata,
           original_message_id: preparePayload.source_message_id,
           coordinationRelayDelivery: delivery.coordinationRelayDelivery,
           deliveryMode,
@@ -122,7 +153,7 @@ export async function cloneBeapInboxToSandbox(
     /* ignore */
   }
 
-  return { success: true, delivery, deliveryMode }
+  return { success: true, delivery, deliveryMode, cloneMetadata }
 }
 
 /**
@@ -131,15 +162,15 @@ export async function cloneBeapInboxToSandbox(
  */
 export async function beapInboxCloneToSandboxApi(params: {
   sourceMessageId: string
-  targetHandshakeId: string
+  targetHandshakeId?: string
 }): Promise<BeapInboxCloneToSandboxResult | { success: false; error: string }> {
-  const fn = window.beapInbox?.cloneToSandboxPrepare
+  const fn = window.beapInbox?.cloneBeapToSandbox ?? window.beapInbox?.cloneToSandboxPrepare
   if (typeof fn !== 'function') {
-    return { success: false, error: 'beapInbox.cloneToSandboxPrepare not available' }
+    return { success: false, error: 'beapInbox.cloneBeapToSandbox not available' }
   }
   const r = await fn({
     sourceMessageId: params.sourceMessageId,
-    targetHandshakeId: params.targetHandshakeId,
+    ...(params.targetHandshakeId ? { targetHandshakeId: params.targetHandshakeId } : {}),
   })
   if (!r?.success || !r.prepare) {
     return { success: false, error: typeof r?.error === 'string' ? r.error : 'Prepare failed' }

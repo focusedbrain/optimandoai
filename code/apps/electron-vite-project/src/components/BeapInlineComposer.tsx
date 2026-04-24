@@ -317,6 +317,15 @@ export function BeapInlineComposer({
     return () => window.removeEventListener('orchestrator-session-display-updated', onOrchestratorSession);
   }, [loadSessions]);
 
+  useEffect(() => {
+    const onListRefresh = () => {
+      setSelectedHandshakeId(null);
+      void refreshHandshakes();
+    };
+    window.addEventListener('handshake-list-refresh', onListRefresh);
+    return () => window.removeEventListener('handshake-list-refresh', onListRefresh);
+  }, [refreshHandshakes]);
+
   const resetForm = useCallback(() => {
     disconnect();
 

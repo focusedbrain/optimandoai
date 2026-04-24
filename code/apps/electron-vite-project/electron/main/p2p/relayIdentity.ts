@@ -5,7 +5,7 @@
  */
 
 import type { SessionUserInfo } from '../../../src/auth/session'
-import type { SSOSession } from '../handshake/types'
+import type { PartyIdentity, SSOSession } from '../handshake/types'
 
 export type RelaySessionLike = SessionUserInfo | SSOSession | null | undefined
 
@@ -43,4 +43,28 @@ export function decodeJwtSubForLogs(token: string): string {
   } catch {
     return '(decode_error)'
   }
+}
+
+/**
+ * `/beap/register-handshake` user ids for internal (same-principal) rows **must** be the JWT `sub` for
+ * both initiator and acceptor, or the relay stores `initiator_user_id !== acceptor_user_id`, the row is
+ * not treated as same-principal, and `getRecipientForSender` device routing (Host ↔ Sandbox) breaks
+ * (HTTP 202 with live recipient but wrong device map).
+ */
+export function coordinationRegistryUserIdsForSession(
+  session: SSOSession,
+  record: {
+    handshake_type?: 'internal' | 'standard' | null
+    initiator?: PartyIdentity | null
+    acceptor?: PartyIdentity | null
+  },
+): { initiator_user_id: string; acceptor_user_id: string } {
+  if (record.handshake_type === 'internal') {
+    const sub = getRelayUserIdForRegistry(session)
+    if (sub) return { initiator_user_id: sub, acceptor_user_id: sub }
+  }
+  const iu =
+    (record.initiator?.sub || record.initiator?.wrdesk_user_id || '').trim() || (session.sub || '').trim()
+  const au = (record.acceptor?.sub || record.acceptor?.wrdesk_user_id || '').trim() || (session.sub || '').trim()
+  return { initiator_user_id: iu, acceptor_user_id: au }
 }

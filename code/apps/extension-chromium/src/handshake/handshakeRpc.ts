@@ -11,13 +11,14 @@ import {
 } from '../beap-messages/services/x25519KeyAgreement'
 import { pqKemGenerateKeyPair, pqKemSupportedAsync } from '../beap-messages/services/beapCrypto'
 import { removeLocalMlkemSecret } from './mlkemHandshakeStorage'
-import type {
-  HandshakeRecord,
-  HandshakeListResponse,
-  HandshakeInitiateResponse,
-  HandshakeAcceptResponse,
-  HandshakeRefreshResponse,
-  HandshakeBuildForDownloadResponse,
+import {
+  peerKeyMaterialFromBackendRow,
+  type HandshakeRecord,
+  type HandshakeListResponse,
+  type HandshakeInitiateResponse,
+  type HandshakeAcceptResponse,
+  type HandshakeRefreshResponse,
+  type HandshakeBuildForDownloadResponse,
 } from './rpcTypes'
 import type { PolicySelectionInput } from '@shared/handshake/policyUtils'
 
@@ -609,10 +610,12 @@ export async function checkHandshakeSendReady(
  * Normalize a backend HandshakeRecord into the extension-side projection.
  * The backend stores initiator/acceptor as nested objects; we flatten to
  * counterparty_email / counterparty_user_id for the UI.
+ *
+ * Always merges `peerKeyMaterialFromBackendRow` — never return `raw` blindly when
+ * `counterparty_email` is set, or snake_case key fields can be dropped.
  */
-function normalizeRecord(raw: any): HandshakeRecord {
-  if (raw.counterparty_email !== undefined) return raw as HandshakeRecord
-
+export function normalizeRecord(raw: any): HandshakeRecord {
+  const keyMat = peerKeyMaterialFromBackendRow(raw as Record<string, unknown>)
   const isInitiator = raw.local_role === 'initiator'
   const counterparty = isInitiator ? raw.acceptor : raw.initiator
 
@@ -620,17 +623,15 @@ function normalizeRecord(raw: any): HandshakeRecord {
     handshake_id: raw.handshake_id,
     state: raw.state,
     local_role: raw.local_role,
-    counterparty_email: counterparty?.email ?? '',
-    counterparty_user_id: counterparty?.wrdesk_user_id ?? '',
+    counterparty_email: (raw.counterparty_email ?? counterparty?.email) ?? '',
+    counterparty_user_id: (raw.counterparty_user_id ?? counterparty?.wrdesk_user_id) ?? '',
     relationship_id: raw.relationship_id,
     sharing_mode: raw.sharing_mode ?? undefined,
     created_at: raw.created_at,
     activated_at: raw.activated_at ?? undefined,
     expires_at: raw.expires_at ?? null,
-    peerX25519PublicKey: raw.peer_x25519_public_key_b64 ?? undefined,
-    peerPQPublicKey: raw.peer_mlkem768_public_key_b64 ?? undefined,
-    p2pEndpoint: raw.p2p_endpoint ?? undefined,
-    localX25519PublicKey: raw.local_x25519_public_key_b64 ?? undefined,
+    ...keyMat,
+    p2pEndpoint: raw.p2p_endpoint ?? raw.p2pEndpoint ?? undefined,
     receiver_email: raw.receiver_email ?? null,
     handshake_type: raw.handshake_type || null,
     initiator_device_name: raw.initiator_device_name || null,
@@ -642,10 +643,13 @@ function normalizeRecord(raw: any): HandshakeRecord {
     internal_peer_device_id: raw.internal_peer_device_id ?? null,
     internal_peer_device_role: raw.internal_peer_device_role ?? null,
     internal_peer_computer_name: raw.internal_peer_computer_name ?? null,
+    internal_peer_pairing_code: raw.internal_peer_pairing_code ?? null,
     internal_routing_key: raw.internal_routing_key ?? null,
     internal_coordination_identity_complete:
       raw.internal_coordination_identity_complete === true || raw.internal_coordination_identity_complete === 1,
-  }
+    internal_coordination_repair_needed:
+      raw.internal_coordination_repair_needed === true || raw.internal_coordination_repair_needed === 1,
+  } as HandshakeRecord
 }
 
 // ── Exported for testing ──

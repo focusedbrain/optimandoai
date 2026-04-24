@@ -39,6 +39,7 @@ import {
   refreshHandshake,
   revokeHandshake,
   sendBeapViaP2P,
+  normalizeRecord,
 } from '../handshakeRpc'
 import type { HandshakeRecord } from '../rpcTypes'
 import {
@@ -164,6 +165,44 @@ describe('RecipientHandshakeSelect integration', () => {
 
     expect(selected.peerX25519PublicKey).toBe('AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=')
     expect(selected.peerPQPublicKey).toBe('dGVzdC1tbC1rZW0tNzY4LXB1YmxpYy1rZXktYmFzZTY0')
+  })
+
+  it('T6: does not drop snake_case peer keys when counterparty_email is already set (regression: DTO strip)', async () => {
+    const preFlattened: Record<string, unknown> = {
+      ...MOCK_RECORD,
+      state: 'ACTIVE',
+      counterparty_email: 'them@test.com',
+      counterparty_user_id: 'u-them',
+      peer_x25519_public_key_b64: 'X25519_FROM_SNAKE=',
+      peer_mlkem768_public_key_b64: 'MLKEM768_FROM_SNAKE=',
+    }
+    mockRpcResponse({ type: 'handshake-list', records: [preFlattened] })
+
+    const result = await listHandshakes('active')
+    const r = result[0]
+    expect(r.counterparty_email).toBe('them@test.com')
+    expect(r.peerX25519PublicKey).toBe('X25519_FROM_SNAKE=')
+    expect(r.peerPQPublicKey).toBe('MLKEM768_FROM_SNAKE=')
+  })
+})
+
+describe('normalizeRecord', () => {
+  it('maps peerKeyMaterial when only snake_case is present on a flattened row', () => {
+    const n = normalizeRecord({
+      handshake_id: 'hs-1',
+      state: 'ACTIVE',
+      local_role: 'initiator',
+      relationship_id: 'rel-1',
+      created_at: '2025-01-01T00:00:00Z',
+      counterparty_email: 'a@b.com',
+      counterparty_user_id: 'u1',
+      peer_x25519_public_key_b64: 'AAA=',
+      peer_mlkem768_public_key_b64: 'BBB=',
+      initiator: { email: 'i@b.com' },
+      acceptor: { email: 'a@b.com' },
+    })
+    expect(n.peerX25519PublicKey).toBe('AAA=')
+    expect(n.peerPQPublicKey).toBe('BBB=')
   })
 })
 
