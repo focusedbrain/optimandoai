@@ -1018,12 +1018,17 @@ body {
 }
 
 /*
- * BEAP message detail — Redirect + Sandbox: compact same height, #fff on solid fills (AA on control).
+ * BEAP actions — Redirect (blue) vs Sandbox (violet): solid bg + #fff, see uiContrastTokens UI_INBOX_BEAP_ACTION.
+ * Detail: slightly larger than list row; both use :hover / :active / :focus-visible (a11y).
  */
 .inbox-detail-beap-btn {
   font-family: inherit;
-  line-height: 1.25;
+  line-height: 1.2;
   box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  -webkit-font-smoothing: antialiased;
   transition:
     background-color 0.12s ease,
     border-color 0.12s ease,
@@ -1032,22 +1037,28 @@ body {
 }
 
 .inbox-detail-beap-btn--redirect {
-  min-height: 32px;
-  padding: 0 10px;
-  font-size: 11px;
+  min-height: 34px;
+  padding: 0 12px;
+  font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.01em;
   border-radius: 8px;
   cursor: pointer;
   background: #1d4ed8;
   color: #ffffff;
-  border: 1px solid #3b82f6;
-  box-shadow: 0 1px 1px rgba(15, 23, 42, 0.08);
+  border: 1px solid #2563eb;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.12);
 }
 
 .inbox-detail-beap-btn--redirect:hover:not(:disabled) {
   background: #2563eb;
-  border-color: #60a5fa;
+  border-color: #3b82f6;
+  color: #ffffff;
+}
+
+.inbox-detail-beap-btn--redirect:active:not(:disabled) {
+  background: #1e40af;
+  border-color: #2563eb;
   color: #ffffff;
 }
 
@@ -1059,8 +1070,8 @@ body {
   outline: 2px solid #2563eb;
   outline-offset: 2px;
   box-shadow:
-    0 1px 1px rgba(15, 23, 42, 0.08),
-    0 0 0 3px rgba(37, 99, 235, 0.35);
+    0 1px 2px rgba(15, 23, 42, 0.12),
+    0 0 0 3px rgba(37, 99, 235, 0.4);
 }
 
 .inbox-detail-beap-btn--redirect:disabled {
@@ -1072,12 +1083,9 @@ body {
 }
 
 .inbox-detail-beap-btn--sandbox {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 32px;
-  padding: 0 10px;
-  font-size: 11px;
+  min-height: 34px;
+  padding: 0 12px;
+  font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.01em;
   border-radius: 8px;
@@ -1085,12 +1093,18 @@ body {
   background: #6d28d9;
   color: #ffffff;
   border: 1px solid #7c3aed;
-  box-shadow: 0 1px 1px rgba(15, 23, 42, 0.1);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.12);
 }
 
 .inbox-detail-beap-btn--sandbox:hover:not(:disabled) {
   background: #7c3aed;
   border-color: #8b5cf6;
+  color: #ffffff;
+}
+
+.inbox-detail-beap-btn--sandbox:active:not(:disabled) {
+  background: #5b21b6;
+  border-color: #7c3aed;
   color: #ffffff;
 }
 
@@ -1110,33 +1124,44 @@ body {
   background: #64748b;
   border-color: #94a3b8;
   color: #f8fafc;
-  /* Busy sending clone — keep legible slate + light text, not faded */
   cursor: wait;
   opacity: 1;
 }
 
-/* Inbox list row — BEAP Redirect / Sandbox: solid fills, white text (same contrast intent as detail) */
+/* Inbox list — compact BEAP controls on dark strip; same palette as detail, no low-contrast tints */
 .inbox-row-beap-btn {
   font-family: inherit;
-  font-size: 9px;
-  font-weight: 700;
   line-height: 1.2;
-  padding: 2px 8px;
-  border-radius: 4px;
-  cursor: pointer;
   box-sizing: border-box;
-  border: 1px solid transparent;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 26px;
+  padding: 0 10px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  border-radius: 6px;
+  cursor: pointer;
   flex-shrink: 0;
+  -webkit-font-smoothing: antialiased;
+  color: #ffffff;
+  border-style: solid;
+  border-width: 1px;
   transition:
     background-color 0.12s ease,
-    border-color 0.12s ease;
+    border-color 0.12s ease,
+    box-shadow 0.12s ease;
+}
+
+.inbox-row-beap-btn:focus {
+  outline: none;
 }
 
 .inbox-row-beap-btn--redirect {
   background: #1d4ed8;
-  color: #ffffff;
   border-color: #3b82f6;
-  box-shadow: 0 1px 1px rgba(15, 23, 42, 0.12);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
 }
 
 .inbox-row-beap-btn--redirect:hover {
@@ -1145,17 +1170,40 @@ body {
   color: #ffffff;
 }
 
+.inbox-row-beap-btn--redirect:active {
+  background: #1e40af;
+  border-color: #2563eb;
+  color: #ffffff;
+}
+
+.inbox-row-beap-btn--redirect:focus-visible {
+  outline: 2px solid #93c5fd;
+  outline-offset: 2px;
+  box-shadow: 0 0 0 2px rgba(15, 23, 42, 0.6);
+}
+
 .inbox-row-beap-btn--sandbox {
   background: #6d28d9;
-  color: #ffffff;
-  border-color: #7c3aed;
-  box-shadow: 0 1px 1px rgba(15, 23, 42, 0.12);
+  border-color: #8b5cf6;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
 }
 
 .inbox-row-beap-btn--sandbox:hover {
   background: #7c3aed;
-  border-color: #8b5cf6;
+  border-color: #a78bfa;
   color: #ffffff;
+}
+
+.inbox-row-beap-btn--sandbox:active {
+  background: #5b21b6;
+  border-color: #7c3aed;
+  color: #ffffff;
+}
+
+.inbox-row-beap-btn--sandbox:focus-visible {
+  outline: 2px solid #c4b5fd;
+  outline-offset: 2px;
+  box-shadow: 0 0 0 2px rgba(15, 23, 42, 0.6);
 }
 
 /* BeapSandboxUnavailableDialog — keyboard focus (light card, explicit colors in component) */

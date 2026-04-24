@@ -62,27 +62,40 @@ export const UI_BUTTON = {
 } as const
 
 /**
- * Inbox message detail, BEAP actions (Redirect / Sandbox) on light premium panel (`inbox-detail-message-inner--premium`).
- * Styling is applied in `App.css` (`.inbox-detail-beap-btn--*`, `.inbox-detail-action-toolbar`); this documents hex values for audits.
- * Compact row: 32px min height, 11px label, 8px radius; white on blue-700 / violet-800 meets WCAG 2.1 AA for UI components.
+ * BEAP Redirect / Sandbox: always **solid fills + #fff text** (no pale text on tinted bg).
+ * Redirect = blue family; Sandbox = violet family — distinct hues.
+ * App.css: `.inbox-detail-beap-btn--*` (light detail panel), `.inbox-row-beap-btn--*` (dark list strip).
  */
 export const UI_INBOX_BEAP_ACTION = {
   redirect: {
     background: '#1d4ed8' as const,
     color: '#ffffff' as const,
-    border: '1px solid #3b82f6' as const,
+    border: '1px solid #2563eb' as const,
     hoverBackground: '#2563eb' as const,
+    activeBackground: '#1e40af' as const,
   },
   sandbox: {
     background: '#6d28d9' as const,
     color: '#ffffff' as const,
     border: '1px solid #7c3aed' as const,
     hoverBackground: '#7c3aed' as const,
+    activeBackground: '#5b21b6' as const,
   },
 } as const
 
-/** Shared geometry for message detail icon + text + BEAP actions (see App.css). */
+/** Message detail BEAP buttons — slightly larger than list row (see App.css). */
 export const UI_INBOX_MESSAGE_DETAIL_ACTION = {
-  minHeightPx: 32,
+  minHeightPx: 34,
+  fontSize: '12px',
   borderRadius: '8px',
+} as const
+
+/** Inbox list row BEAP chips — compact, same color system as detail (see App.css). */
+export const UI_INBOX_BEAP_LIST_ROW = {
+  minHeightPx: 26,
+  fontSize: '11px',
+  fontWeight: 600,
+  borderRadius: '6px',
+  redirect: UI_INBOX_BEAP_ACTION.redirect,
+  sandbox: UI_INBOX_BEAP_ACTION.sandbox,
 } as const

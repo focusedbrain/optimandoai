@@ -1835,6 +1835,7 @@ function InboxMessageRow({
             <button
               type="button"
               className="inbox-row-beap-btn inbox-row-beap-btn--redirect"
+              aria-label="Redirect"
               onClick={(e) => {
                 e.stopPropagation()
                 e.preventDefault()
