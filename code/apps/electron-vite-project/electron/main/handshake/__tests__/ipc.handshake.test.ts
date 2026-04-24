@@ -318,7 +318,22 @@ describe('Handshake IPC — handshake.accept', () => {
     )
     expect(result.success).toBe(false)
     expect((result as { code?: string }).code).toBe('ERR_HANDSHAKE_ACCEPT_X25519_REQUIRED')
-    expect(String((result as { error?: string }).error ?? '')).toMatch(/senderX25519PublicKeyB64|key_agreement\.x25519_public_key_b64/)
+    expect(String((result as { error?: string }).error ?? '')).toMatch(
+      /senderX25519PublicKeyB64|sender_x25519_public_key_b64|key_agreement\.x25519_public_key_b64/,
+    )
+  })
+
+  test('normal accept accepts sender_x25519_public_key_b64 wire alias (preflight matches ensureKeyAgreementKeys)', async () => {
+    const receiver = receiverSession()
+    setSSOSessionProvider(() => receiver)
+    const handshakeId = await createPendingHandshake()
+    const result = await handleHandshakeRPC('handshake.accept', {
+      handshake_id: handshakeId,
+      sharing_mode: 'receive-only',
+      fromAccountId: 'acct-1',
+      sender_x25519_public_key_b64: MOCK_EXTENSION_X25519_PUBLIC_B64,
+    }, db)
+    expect(result.success).toBe(true)
   })
 
   test('normal accept accepts key_agreement.x25519_public_key_b64', async () => {
@@ -329,6 +344,20 @@ describe('Handshake IPC — handshake.accept', () => {
       handshake_id: handshakeId,
       sharing_mode: 'receive-only',
       fromAccountId: 'acct-1',
+      key_agreement: { x25519_public_key_b64: MOCK_EXTENSION_X25519_PUBLIC_B64 },
+    }, db)
+    expect(result.success).toBe(true)
+  })
+
+  test('normal accept: empty senderX25519PublicKeyB64 still uses key_agreement (no ?? empty-string bypass to ephemeral)', async () => {
+    const receiver = receiverSession()
+    setSSOSessionProvider(() => receiver)
+    const handshakeId = await createPendingHandshake()
+    const result = await handleHandshakeRPC('handshake.accept', {
+      handshake_id: handshakeId,
+      sharing_mode: 'receive-only',
+      fromAccountId: 'acct-1',
+      senderX25519PublicKeyB64: '',
       key_agreement: { x25519_public_key_b64: MOCK_EXTENSION_X25519_PUBLIC_B64 },
     }, db)
     expect(result.success).toBe(true)

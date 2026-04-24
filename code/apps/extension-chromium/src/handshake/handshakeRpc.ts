@@ -5,7 +5,10 @@
  * Uses the existing VAULT_RPC message channel which is already wired up.
  */
 
-import { getDeviceX25519PublicKey } from '../beap-messages/services/x25519KeyAgreement'
+import {
+  getDeviceX25519PublicKey,
+  getPersistedDeviceX25519PublicKeyB64FromChromeStorage,
+} from '../beap-messages/services/x25519KeyAgreement'
 import { pqKemGenerateKeyPair, pqKemSupportedAsync } from '../beap-messages/services/beapCrypto'
 import { removeLocalMlkemSecret } from './mlkemHandshakeStorage'
 import type {
@@ -91,12 +94,17 @@ async function sendHandshakeRpc<T = unknown>(
 }
 
 /** Get X25519 + ML-KEM public keys for handshake key agreement. Uses device X25519; generates ML-KEM if PQ available. */
-async function getKeyAgreementForHandshake(): Promise<{
+async function getKeyAgreementForHandshake(opts?: {
+  /** Prefer this X25519 public key (e.g. from chrome.storage) instead of `beap.getDevicePublicKey`. */
+  x25519PublicKeyB64Override?: string | null
+}): Promise<{
   x25519PublicKeyB64: string
   mlkem768PublicKeyB64: string | undefined
   mlkem768SecretKeyB64: string | undefined
 }> {
-  const x25519PublicKeyB64 = await getDeviceX25519PublicKey()
+  const override = opts?.x25519PublicKeyB64Override?.trim()
+  const x25519PublicKeyB64 =
+    override && override.length > 0 ? override : await getDeviceX25519PublicKey()
   let mlkem768PublicKeyB64: string | undefined
   let mlkem768SecretKeyB64: string | undefined
   try {
@@ -310,7 +318,10 @@ export async function acceptHandshake(
     local_pairing_code_typed?: string
   },
 ): Promise<HandshakeAcceptResponse> {
-  const keyAgreement = await getKeyAgreementForHandshake()
+  const x25519FromStorage = await getPersistedDeviceX25519PublicKeyB64FromChromeStorage()
+  const keyAgreement = await getKeyAgreementForHandshake(
+    x25519FromStorage ? { x25519PublicKeyB64Override: x25519FromStorage } : undefined,
+  )
   const res = await sendHandshakeRpc<HandshakeAcceptResponse>('handshake.accept', {
     handshake_id: handshakeId,
     sharing_mode: sharingMode,

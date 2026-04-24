@@ -178,13 +178,17 @@ import {
 
 // ── Key Agreement: always generate paired keys in main process (qBEAP decrypt requires local secrets) ──
 
-/** Thrown when internal (device-bound) continuity requires X25519 and none can be resolved. */
+/** Thrown when device-bound key agreement cannot proceed (internal strict path or normal-accept guard). */
 class BoundKeyAgreementError extends Error {
-  readonly code = 'ERR_HANDSHAKE_BOUND_KEY_MISSING' as const
+  readonly code: 'ERR_HANDSHAKE_BOUND_KEY_MISSING' | 'ERR_HANDSHAKE_ACCEPT_X25519_GUARD'
 
-  constructor(message: string) {
+  constructor(
+    message: string,
+    code: 'ERR_HANDSHAKE_BOUND_KEY_MISSING' | 'ERR_HANDSHAKE_ACCEPT_X25519_GUARD' = 'ERR_HANDSHAKE_BOUND_KEY_MISSING',
+  ) {
     super(message)
     this.name = 'BoundKeyAgreementError'
+    this.code = code
     Object.setPrototypeOf(this, new.target.prototype)
   }
 }
@@ -197,27 +201,76 @@ type EnsureKeyAgreementKeysOptions = {
    * Other call sites (e.g. initiate) may still use ephemeral fallback when the caller omits the key.
    */
   strictDeviceBoundX25519?: boolean
+  /**
+   * Normal cross-principal `handshake.accept` only (`record.handshake_type !== 'internal'`).
+   * When true, the ephemeral X25519 mint branch is unreachable: missing key throws
+   * `ERR_HANDSHAKE_ACCEPT_X25519_GUARD` after a loud log (regression / preflight bypass).
+   */
+  forbidEphemeralX25519ForNormalAccept?: boolean
+  /** Present with `forbidEphemeralX25519ForNormalAccept` so guard failures emit structured `[HANDSHAKE][ACCEPT_X25519]` diagnostics. */
+  normalAcceptX25519BindingDiag?: {
+    handshake_id: string
+    local_role: string | null | undefined
+    handshake_type: string | null | undefined
+    rawParams: unknown
+    ingress: string
+  }
 }
 
 /**
- * Acceptors pass X25519 on `handshake.accept` via `senderX25519PublicKeyB64` or nested
- * `key_agreement.x25519_public_key_b64` (must match `ensureKeyAgreementKeys` extraction).
+ * Single extraction for `handshake.accept` X25519 — preflight and `ensureKeyAgreementKeys` MUST use this
+ * so wire shapes cannot pass the guard yet reach ephemeral fallback (e.g. snake_case only).
+ *
+ * Acceptors pass X25519 via `senderX25519PublicKeyB64`, wire alias `sender_x25519_public_key_b64`, or nested
+ * `key_agreement.x25519_public_key_b64`.
  */
 function acceptorX25519FromHandshakeAcceptParams(params: unknown): string {
   const p = params as {
     senderX25519PublicKeyB64?: string | null
+    sender_x25519_public_key_b64?: string | null
     key_agreement?: { x25519_public_key_b64?: string | null }
   }
-  const top = p?.senderX25519PublicKeyB64?.trim() ?? ''
-  if (top.length > 0) return top
+  const camel = p?.senderX25519PublicKeyB64?.trim() ?? ''
+  if (camel.length > 0) return camel
+  const snake = typeof p?.sender_x25519_public_key_b64 === 'string' ? p.sender_x25519_public_key_b64.trim() : ''
+  if (snake.length > 0) return snake
   return p?.key_agreement?.x25519_public_key_b64?.trim() ?? ''
+}
+
+/** Low-noise structured diagnostic for normal accept X25519 binding failures (no secrets / key material). */
+export function logNormalAcceptX25519BindingFailure(diag: {
+  handshake_id: string
+  local_role?: string | null
+  handshake_type?: string | null
+  params: unknown
+  ingress: string
+}): void {
+  const p = diag.params as {
+    senderX25519PublicKeyB64?: string | null
+    key_agreement?: { x25519_public_key_b64?: string | null } | null
+  } | null
+  const has_senderX25519PublicKeyB64 =
+    typeof p?.senderX25519PublicKeyB64 === 'string' && p.senderX25519PublicKeyB64.trim().length > 0
+  const nested = p?.key_agreement?.x25519_public_key_b64
+  const has_nested_key_agreement_x25519 = typeof nested === 'string' && nested.trim().length > 0
+  console.warn(
+    '[HANDSHAKE][ACCEPT_X25519]',
+    JSON.stringify({
+      handshake_id: diag.handshake_id,
+      local_role: diag.local_role ?? null,
+      handshake_type: diag.handshake_type ?? null,
+      has_senderX25519PublicKeyB64,
+      has_nested_key_agreement_x25519,
+      ingress: diag.ingress,
+    }),
+  )
 }
 
 function handshakeAcceptMissingX25519Result(handshake_id: string) {
   const msg =
-    'ERR_HANDSHAKE_ACCEPT_X25519_REQUIRED: Normal handshake accept requires the acceptor device X25519 public key. ' +
-    'Set `senderX25519PublicKeyB64` or `key_agreement.x25519_public_key_b64` on the handshake.accept request ' +
-    '(extension chrome.storage device key). Without it, Electron would mint an ephemeral X25519 key that does not match encrypt-time keys and qBEAP decrypt fails.'
+    'ERR_HANDSHAKE_ACCEPT_X25519_REQUIRED: Normal handshake accept requires the acceptor device X25519 public key ' +
+    '(`senderX25519PublicKeyB64`, `sender_x25519_public_key_b64`, or `key_agreement.x25519_public_key_b64`). ' +
+    'If it is omitted, Electron would generate an ephemeral X25519 key here, which breaks key continuity with the acceptor device and qBEAP decryption.'
   return {
     type: 'handshake-accept-result' as const,
     success: false as const,
@@ -271,6 +324,23 @@ async function ensureKeyAgreementKeys(
       }
       throw e
     }
+  } else if (options?.forbidEphemeralX25519ForNormalAccept === true) {
+    // Condition: non-internal handshake.accept passed forbidEphemeralX25519ForNormalAccept but landed in
+    // the would-be ephemeral branch (no caller X25519 after trim, strictDeviceBoundX25519 false).
+    // Preflight in handshake.accept should have returned ERR_HANDSHAKE_ACCEPT_X25519_REQUIRED first.
+    const d = options.normalAcceptX25519BindingDiag
+    logNormalAcceptX25519BindingFailure({
+      handshake_id: d?.handshake_id ?? '(unknown)',
+      local_role: d?.local_role,
+      handshake_type: d?.handshake_type,
+      params: d?.rawParams ?? {},
+      ingress: d?.ingress ?? 'ensureKeyAgreementKeys.forbid_ephemeral_x25519',
+    })
+    throw new BoundKeyAgreementError(
+      'ERR_HANDSHAKE_ACCEPT_X25519_GUARD: Normal cross-principal handshake.accept must not mint an ephemeral X25519 keypair. ' +
+        'A device public key is required; this path means a guard was bypassed.',
+      'ERR_HANDSHAKE_ACCEPT_X25519_GUARD',
+    )
   } else {
     // ERR_HANDSHAKE_BOUND_KEY_MISSING: generating a fresh X25519 keypair in a bound flow means
     // the acceptor will store a key the sender never uses for encryption — AES-GCM auth WILL fail.
@@ -1681,6 +1751,13 @@ export async function handleHandshakeRPC(
       // `ensureKeyAgreementKeys` reads later; avoids silent ephemeral fallback (see KEY-AGREEMENT log).
       if (record.handshake_type !== 'internal') {
         if (!acceptorX25519FromHandshakeAcceptParams(params)) {
+          logNormalAcceptX25519BindingFailure({
+            handshake_id,
+            local_role: record.local_role,
+            handshake_type: record.handshake_type ?? null,
+            params,
+            ingress: 'handleHandshakeRPC.handshake.accept.preflight',
+          })
           return handshakeAcceptMissingX25519Result(handshake_id)
         }
       }
@@ -1961,10 +2038,23 @@ export async function handleHandshakeRPC(
       try {
         acceptKeyAgreementRaw = await ensureKeyAgreementKeys(
           {
-            sender_x25519_public_key_b64: (params as any).senderX25519PublicKeyB64 ?? (params as any).key_agreement?.x25519_public_key_b64,
+            sender_x25519_public_key_b64: acceptorX25519FromHandshakeAcceptParams(params),
             sender_mlkem768_public_key_b64: (params as any).senderMlkem768PublicKeyB64 ?? (params as any).key_agreement?.mlkem768_public_key_b64,
           },
-          { strictDeviceBoundX25519: record.handshake_type === 'internal' },
+          {
+            strictDeviceBoundX25519: record.handshake_type === 'internal',
+            forbidEphemeralX25519ForNormalAccept: record.handshake_type !== 'internal',
+            normalAcceptX25519BindingDiag:
+              record.handshake_type !== 'internal'
+                ? {
+                    handshake_id,
+                    local_role: record.local_role,
+                    handshake_type: record.handshake_type ?? null,
+                    rawParams: params,
+                    ingress: 'handleHandshakeRPC.handshake.accept.ensureKeyAgreementKeys',
+                  }
+                : undefined,
+          },
         )
       } catch (e) {
         if (e instanceof BoundKeyAgreementError) {

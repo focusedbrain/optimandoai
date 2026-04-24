@@ -213,6 +213,10 @@ export default function AcceptHandshakeModal({
     setAccepting(true)
     try {
       const context_blocks = await buildContextBlocks()
+      // Payload to `acceptHandshake` (shim): cross-principal accepts omit `device_role` so
+      // shim/preload/main enforce `senderX25519PublicKeyB64` end-to-end. Internal accepts add
+      // `device_name` / `device_role` / optional `local_pairing_code_typed` only — X25519 may
+      // be resolved in the main process; do not set `device_role` here for cross-principal.
       const contextOpts: {
         context_blocks?: ContextBlockWithPolicy[]
         profile_ids?: string[]

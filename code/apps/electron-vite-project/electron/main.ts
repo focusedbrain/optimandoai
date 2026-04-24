@@ -3344,7 +3344,7 @@ app.whenReady().then(async () => {
       }
     })
 
-    ipcMain.handle('handshake:accept', async (_e, id: string, sharingMode: string, fromAccountId: string, contextOpts?: { context_blocks?: any[]; profile_ids?: string[]; profile_items?: any[]; policy_selections?: { cloud_ai?: boolean; internal_ai?: boolean }; senderX25519PublicKeyB64?: string; senderMlkem768PublicKeyB64?: string; senderMlkem768SecretKeyB64?: string; device_name?: string; device_role?: 'host' | 'sandbox'; local_pairing_code_typed?: string }) => {
+    ipcMain.handle('handshake:accept', async (_e, id: string, sharingMode: string, fromAccountId: string, contextOpts?: { context_blocks?: any[]; profile_ids?: string[]; profile_items?: any[]; policy_selections?: { cloud_ai?: boolean; internal_ai?: boolean }; senderX25519PublicKeyB64?: string; sender_x25519_public_key_b64?: string; key_agreement?: { x25519_public_key_b64?: string; mlkem768_public_key_b64?: string }; senderMlkem768PublicKeyB64?: string; senderMlkem768SecretKeyB64?: string; device_name?: string; device_role?: 'host' | 'sandbox'; local_pairing_code_typed?: string }) => {
       try {
         const db = await getHandshakeDb()
         if (!db) return { success: false, error: 'No active session. Please log in first.' }
@@ -3361,12 +3361,57 @@ app.whenReady().then(async () => {
             }
           }
         } catch { /* vault not initialized â€” allow (keys in ledger) */ }
+        const isInternalAccept =
+          contextOpts?.device_role === 'host' || contextOpts?.device_role === 'sandbox'
+        const co = contextOpts
+        const trimmedSenderX25519 =
+          (typeof co?.senderX25519PublicKeyB64 === 'string' ? co.senderX25519PublicKeyB64.trim() : '') ||
+          (typeof co?.sender_x25519_public_key_b64 === 'string' ? co.sender_x25519_public_key_b64.trim() : '') ||
+          (typeof co?.key_agreement?.x25519_public_key_b64 === 'string'
+            ? co.key_agreement.x25519_public_key_b64.trim()
+            : '')
+        if (!isInternalAccept && !trimmedSenderX25519) {
+          try {
+            const { logNormalAcceptX25519BindingFailure } = await import('./main/handshake/ipc')
+            const { getHandshakeRecord } = await import('./main/handshake/db')
+            const rec = db ? getHandshakeRecord(db, id) : null
+            logNormalAcceptX25519BindingFailure({
+              handshake_id: id,
+              local_role: rec?.local_role ?? null,
+              handshake_type: rec?.handshake_type ?? null,
+              params: {
+                senderX25519PublicKeyB64: co?.senderX25519PublicKeyB64,
+                key_agreement: co?.key_agreement,
+              },
+              ingress: 'ipcMain.handle.handshake:accept',
+            })
+          } catch {
+            /* diagnostic only */
+          }
+          const msg =
+            'ERR_HANDSHAKE_ACCEPT_X25519_REQUIRED: Normal handshake accept requires the acceptor device X25519 public key ' +
+            '(`senderX25519PublicKeyB64`, `sender_x25519_public_key_b64`, or `key_agreement.x25519_public_key_b64`). ' +
+            'If it is omitted, Electron would generate an ephemeral X25519 key here, which breaks key continuity with the acceptor device and qBEAP decryption.'
+          return {
+            type: 'handshake-accept-result',
+            success: false,
+            error: msg,
+            code: 'ERR_HANDSHAKE_ACCEPT_X25519_REQUIRED',
+            handshake_id: id,
+            email_sent: false,
+            email_error: undefined,
+            local_result: { success: false, error: msg },
+            context_sync_status: 'skipped',
+            electronGeneratedMlkemSecret: null,
+            message: undefined,
+          }
+        }
         const params: Record<string, unknown> = { handshake_id: id, sharing_mode: sharingMode, fromAccountId }
         if (contextOpts?.context_blocks?.length) params.context_blocks = contextOpts.context_blocks
         if (contextOpts?.profile_ids?.length) params.profile_ids = contextOpts.profile_ids
         if (contextOpts?.profile_items?.length) params.profile_items = contextOpts.profile_items
         if (contextOpts?.policy_selections) params.policy_selections = contextOpts.policy_selections
-        if (contextOpts?.senderX25519PublicKeyB64) params.senderX25519PublicKeyB64 = contextOpts.senderX25519PublicKeyB64
+        if (trimmedSenderX25519) params.senderX25519PublicKeyB64 = trimmedSenderX25519
         if (contextOpts?.senderMlkem768PublicKeyB64) params.senderMlkem768PublicKeyB64 = contextOpts.senderMlkem768PublicKeyB64
         if (contextOpts?.senderMlkem768SecretKeyB64) params.senderMlkem768SecretKeyB64 = contextOpts.senderMlkem768SecretKeyB64
         if (contextOpts?.device_name !== undefined) params.device_name = contextOpts.device_name

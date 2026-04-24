@@ -36,6 +36,12 @@
 
 import { ipcRenderer, contextBridge } from 'electron'
 
+/** Matches main `handshake.accept` / shim — normal cross-principal accepts must not reach IPC without this key. */
+const ERR_HANDSHAKE_ACCEPT_X25519_REQUIRED_MSG =
+  'ERR_HANDSHAKE_ACCEPT_X25519_REQUIRED: Normal handshake accept requires the acceptor device X25519 public key ' +
+  '(`senderX25519PublicKeyB64` or `key_agreement.x25519_public_key_b64`). ' +
+  'If it is omitted, Electron would generate an ephemeral X25519 key here, which breaks key continuity with the acceptor device and qBEAP decryption.'
+
 declare global {
   interface ConnectedPeer {
     instanceId: string
@@ -596,12 +602,18 @@ contextBridge.exposeInMainWorld('handshakeView', {
   },
   acceptHandshake: (id: unknown, sharingMode: unknown, fromAccountId: unknown, contextOpts?: unknown) => {
     const opts = contextOpts && typeof contextOpts === 'object' ? contextOpts as Record<string, unknown> : undefined
+    const internalAccept = !!(opts && (opts.device_role === 'host' || opts.device_role === 'sandbox'))
+    const trimmedX25519 =
+      opts && typeof opts.senderX25519PublicKeyB64 === 'string' ? opts.senderX25519PublicKeyB64.trim() : ''
+    if (opts && !internalAccept && !trimmedX25519) {
+      throw new Error(ERR_HANDSHAKE_ACCEPT_X25519_REQUIRED_MSG)
+    }
     const safeOpts = opts ? {
       ...(Array.isArray(opts.context_blocks) ? { context_blocks: opts.context_blocks } : {}),
       ...(Array.isArray(opts.profile_ids) ? { profile_ids: opts.profile_ids } : {}),
       ...(Array.isArray(opts.profile_items) ? { profile_items: opts.profile_items } : {}),
       ...(opts.policy_selections && typeof opts.policy_selections === 'object' ? { policy_selections: opts.policy_selections } : {}),
-      ...(typeof opts.senderX25519PublicKeyB64 === 'string' ? { senderX25519PublicKeyB64: opts.senderX25519PublicKeyB64 } : {}),
+      ...(trimmedX25519 ? { senderX25519PublicKeyB64: trimmedX25519 } : {}),
       ...(typeof opts.senderMlkem768PublicKeyB64 === 'string' ? { senderMlkem768PublicKeyB64: opts.senderMlkem768PublicKeyB64 } : {}),
       ...(typeof opts.senderMlkem768SecretKeyB64 === 'string' ? { senderMlkem768SecretKeyB64: opts.senderMlkem768SecretKeyB64 } : {}),
       ...(typeof opts.device_name === 'string' && opts.device_name.trim() ? { device_name: opts.device_name.trim() } : {}),

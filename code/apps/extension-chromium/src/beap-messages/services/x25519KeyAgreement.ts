@@ -122,6 +122,32 @@ export async function getDeviceX25519PublicKey(): Promise<string> {
   return response.publicKey
 }
 
+/** chrome.storage.local key for the legacy device keypair; see `background.ts` (BEAP_EXPORT_DEVICE_KEY). */
+export const BEAP_X25519_DEVICE_KEYPAIR_STORAGE_KEY = 'beap_x25519_device_keypair' as const
+
+/**
+ * Read the persisted X25519 device **public** key from chrome.storage.local.
+ * Does not generate keys. Returns null if storage is unavailable, missing, or invalid.
+ * Used for `handshake.accept` so the RPC carries the same stable key the extension still stores.
+ */
+export async function getPersistedDeviceX25519PublicKeyB64FromChromeStorage(): Promise<string | null> {
+  try {
+    if (typeof chrome === 'undefined' || !chrome.storage?.local?.get) {
+      return null
+    }
+    const stored = await chrome.storage.local.get(BEAP_X25519_DEVICE_KEYPAIR_STORAGE_KEY)
+    const kp = stored[BEAP_X25519_DEVICE_KEYPAIR_STORAGE_KEY] as { publicKey?: unknown } | undefined
+    if (!kp || typeof kp !== 'object') return null
+    const pub = typeof kp.publicKey === 'string' ? kp.publicKey.trim() : ''
+    if (!pub) return null
+    const decoded = safeAtob(pub)
+    if (decoded.length !== 32) return null
+    return pub
+  } catch {
+    return null
+  }
+}
+
 /**
  * Derive shared secret via X25519 ECDH. ECDH happens in Electron main process —
  * the private key never travels to the extension.

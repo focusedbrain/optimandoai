@@ -138,6 +138,11 @@ export async function buildHandshakeForDownload(
   throw new Error('Handshake IPC not available')
 }
 
+const ERR_HANDSHAKE_ACCEPT_X25519_REQUIRED_MSG =
+  'ERR_HANDSHAKE_ACCEPT_X25519_REQUIRED: Normal handshake accept requires the acceptor device X25519 public key ' +
+  '(`senderX25519PublicKeyB64` or `key_agreement.x25519_public_key_b64`). ' +
+  'If it is omitted, Electron would generate an ephemeral X25519 key here, which breaks key continuity with the acceptor device and qBEAP decryption.'
+
 export async function acceptHandshake(
   handshakeId: string,
   sharingMode: 'receive-only' | 'reciprocal',
@@ -147,6 +152,10 @@ export async function acceptHandshake(
     profile_ids?: string[]
     profile_items?: Array<{ profile_id: string; policy_mode?: 'inherit' | 'override'; policy?: { cloud_ai?: boolean; internal_ai?: boolean } }>
     policy_selections?: { cloud_ai?: boolean; internal_ai?: boolean }
+    /** Present only for internal same-principal accepts (`AcceptHandshakeModal`); used to skip X25519 shim enforcement (main resolves device key). */
+    device_name?: string
+    device_role?: 'host' | 'sandbox'
+    local_pairing_code_typed?: string
   },
 ): Promise<HandshakeAcceptResponse> {
   if (!window.handshakeView?.acceptHandshake) throw new Error('Handshake IPC not available')
@@ -158,11 +167,44 @@ export async function acceptHandshake(
   let senderMlkem768PublicKeyB64: string | undefined
   let mlkem768SecretKeyB64: string | undefined
 
-  try {
-    senderX25519PublicKeyB64 = await window.beap?.getDevicePublicKey()
+  const internalAccept =
+    contextOpts?.device_role === 'host' || contextOpts?.device_role === 'sandbox'
+
+  if (!internalAccept) {
+    let rawX25519: unknown
+    try {
+      rawX25519 = await window.beap?.getDevicePublicKey()
+    } catch (e) {
+      console.error('[KEY-AGREEMENT] acceptHandshake (shim): failed to get device X25519 key:', e)
+      rawX25519 = undefined
+    }
+    const trimmed = typeof rawX25519 === 'string' ? rawX25519.trim() : ''
+    if (!trimmed) {
+      console.error('[KEY-AGREEMENT] acceptHandshake (shim):', ERR_HANDSHAKE_ACCEPT_X25519_REQUIRED_MSG)
+      return {
+        type: 'handshake-accept-result',
+        success: false,
+        error: ERR_HANDSHAKE_ACCEPT_X25519_REQUIRED_MSG,
+        code: 'ERR_HANDSHAKE_ACCEPT_X25519_REQUIRED',
+        handshake_id: handshakeId,
+        email_sent: false,
+        email_error: undefined,
+        local_result: { success: false, error: ERR_HANDSHAKE_ACCEPT_X25519_REQUIRED_MSG },
+        context_sync_status: 'skipped',
+        electronGeneratedMlkemSecret: null,
+        message: undefined,
+        status: 'error',
+      } as HandshakeAcceptResponse
+    }
+    senderX25519PublicKeyB64 = trimmed
     console.log('[KEY-AGREEMENT] acceptHandshake (shim): device X25519 public key fetched')
-  } catch (e) {
-    console.error('[KEY-AGREEMENT] acceptHandshake (shim): failed to get device X25519 key:', e)
+  } else {
+    try {
+      senderX25519PublicKeyB64 = await window.beap?.getDevicePublicKey()
+      console.log('[KEY-AGREEMENT] acceptHandshake (shim): device X25519 public key fetched')
+    } catch (e) {
+      console.error('[KEY-AGREEMENT] acceptHandshake (shim): failed to get device X25519 key:', e)
+    }
   }
 
   try {
@@ -175,6 +217,27 @@ export async function acceptHandshake(
     }
   } catch {
     // PQ service unavailable — Electron will generate the keypair and return the secret
+  }
+
+  // Normal path: never invoke IPC without a concrete device X25519 (contextOpts cannot override).
+  if (!internalAccept) {
+    if (typeof senderX25519PublicKeyB64 !== 'string' || !senderX25519PublicKeyB64.trim()) {
+      console.error('[KEY-AGREEMENT] acceptHandshake (shim):', ERR_HANDSHAKE_ACCEPT_X25519_REQUIRED_MSG)
+      return {
+        type: 'handshake-accept-result',
+        success: false,
+        error: ERR_HANDSHAKE_ACCEPT_X25519_REQUIRED_MSG,
+        code: 'ERR_HANDSHAKE_ACCEPT_X25519_REQUIRED',
+        handshake_id: handshakeId,
+        email_sent: false,
+        email_error: undefined,
+        local_result: { success: false, error: ERR_HANDSHAKE_ACCEPT_X25519_REQUIRED_MSG },
+        context_sync_status: 'skipped',
+        electronGeneratedMlkemSecret: null,
+        message: undefined,
+        status: 'error',
+      } as HandshakeAcceptResponse
+    }
   }
 
   const optsWithKeys = {

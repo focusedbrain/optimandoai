@@ -9,6 +9,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 vi.mock('../../beap-messages/services/x25519KeyAgreement', () => ({
   getDeviceX25519PublicKey: vi.fn().mockResolvedValue('AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA='),
+  getPersistedDeviceX25519PublicKeyB64FromChromeStorage: vi.fn().mockResolvedValue(null),
 }))
 
 vi.mock('../../beap-messages/services/beapCrypto', async (importOriginal) => {
@@ -40,6 +41,10 @@ import {
   sendBeapViaP2P,
 } from '../handshakeRpc'
 import type { HandshakeRecord } from '../rpcTypes'
+import {
+  getDeviceX25519PublicKey,
+  getPersistedDeviceX25519PublicKeyB64FromChromeStorage,
+} from '../../beap-messages/services/x25519KeyAgreement'
 
 function mockRpcResponse(response: any) {
   mockSendMessage.mockImplementation((_msg: any, cb: (res: any) => void) => {
@@ -190,6 +195,19 @@ describe('acceptHandshake', () => {
 
     const call = mockSendMessage.mock.calls[0][0]
     expect(call.params.sharing_mode).toBe('receive-only')
+  })
+
+  it('accept prefers chrome.storage device X25519 public key when present', async () => {
+    const storagePub = 'BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB='
+    vi.mocked(getDeviceX25519PublicKey).mockClear()
+    vi.mocked(getPersistedDeviceX25519PublicKeyB64FromChromeStorage).mockResolvedValueOnce(storagePub)
+    mockRpcResponse({ handshake_id: 'hs-001', status: 'ACTIVE' })
+
+    await acceptHandshake('hs-001', 'reciprocal', 'acct-1')
+
+    const call = mockSendMessage.mock.calls[0][0]
+    expect(call.params.senderX25519PublicKeyB64).toBe(storagePub)
+    expect(vi.mocked(getDeviceX25519PublicKey)).not.toHaveBeenCalled()
   })
 })
 
