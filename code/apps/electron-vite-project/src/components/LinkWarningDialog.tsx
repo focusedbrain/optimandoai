@@ -29,10 +29,10 @@ const BODY_SANDBOX =
 const BODY_KVM =
   'A KVM switch with hotkeys is the recommended setup, so you can inspect risky content in the Sandbox environment without interrupting your normal workflow.'
 
-const RISK_CHECK_LABEL = 'I understand the risks of opening external links and want to continue.'
+const RISK_CHECK_LABEL = 'I understand the risks of opening external links.'
 
 const SANDBOX_ACTION_TOOLTIP =
-  'Clone this entire BEAP message and push it to the connected Sandbox orchestrator. Use this to inspect risky links, PDFs, attachments, and original artifacts in an isolated environment.'
+  'Clone the entire BEAP message to your Sandbox orchestrator so links, PDFs, attachments, and original artifacts can be inspected on isolated hardware. If the Sandbox is offline, the clone will be queued.'
 
 export default function LinkWarningDialog({
   isOpen,

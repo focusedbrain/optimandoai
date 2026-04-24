@@ -40,7 +40,10 @@ import {
 } from '../lib/beapInboxSandboxVisibility'
 import { isInboxMessageActionable } from '../lib/inboxMessageActionable'
 import {
+  logSandboxTargetResolution,
+  mapSandboxClickActionToResolutionDecision,
   resolveHostSandboxCloneClickAction,
+  SANDBOX_IDENTITY_INCOMPLETE_USER_MESSAGE,
   SANDBOX_KEYING_INCOMPLETE_USER_MESSAGE,
   sandboxCloneUnavailableDialogVariant,
 } from '../lib/beapInboxHostSandboxClickPolicy'
@@ -2006,6 +2009,7 @@ export default function EmailInboxView({
     incomplete: internalSandboxesIncomplete,
     loading: internalSandboxesLoading,
     hasUsableSandbox,
+    lastSuccess: internalSandboxesListLastSuccess,
     cloneEligibleSandboxes,
     sendableCloneSandboxes,
     sandboxAvailability,
@@ -2013,6 +2017,8 @@ export default function EmailInboxView({
     authoritativeDeviceInternalRole,
     internalSandboxListReady,
   } = useInternalSandboxesList()
+  const activeHostSandboxHandshakeCount =
+    internalSandboxes.length + internalSandboxesIncomplete.length
 
   const showInternalSandboxInboxRow =
     hostModeReady &&
@@ -2610,17 +2616,66 @@ export default function EmailInboxView({
 
   const handleInboxRowSandbox = useCallback(
     (_e: MouseEvent, m: InboxMessage) => {
-      if (!hostModeReady || orchestratorMode !== 'host') return
+      if (!hostModeReady || orchestratorMode !== 'host') {
+        if (orchestratorMode === 'sandbox') {
+          logSandboxTargetResolution({
+            source: 'inbox_row',
+            messageId: m.id,
+            modeReady: hostModeReady,
+            orchestratorMode,
+            isHost: false,
+            internalSandboxRowsCount: internalSandboxes.length,
+            activeSandboxTargetsCount: activeHostSandboxHandshakeCount,
+            liveSandboxTargetsCount: cloneEligibleSandboxes.length,
+            selectedTargetHandshakeId: sendableCloneSandboxes[0]?.handshake_id ?? null,
+            action: null,
+            decision: 'sandbox_mode_hide_action',
+            reason: 'orchestrator_sandbox',
+          })
+        } else {
+          logSandboxTargetResolution({
+            source: 'inbox_row',
+            messageId: m.id,
+            modeReady: hostModeReady,
+            orchestratorMode,
+            isHost: false,
+            internalSandboxRowsCount: internalSandboxes.length,
+            activeSandboxTargetsCount: activeHostSandboxHandshakeCount,
+            liveSandboxTargetsCount: cloneEligibleSandboxes.length,
+            selectedTargetHandshakeId: sendableCloneSandboxes[0]?.handshake_id ?? null,
+            action: null,
+            decision: 'mode_not_ready_hide_action',
+            reason: 'orchestrator_mode_not_ready',
+          })
+        }
+        return
+      }
       // eslint-disable-next-line no-console
       console.log('[BEAP_SANDBOX_CLONE] click', {
         message_id: m.id,
         host_mode: true,
-        active_sandbox_count: internalSandboxes.length,
+        active_sandbox_count: activeHostSandboxHandshakeCount,
       })
       const next = resolveHostSandboxCloneClickAction({
         internalListLoading: internalSandboxesLoading,
+        listLastSuccess: internalSandboxesListLastSuccess,
         sendableTargetCount: sendableCloneSandboxes.length,
-        activeInternalHandshakeCount: internalSandboxes.length,
+        activeIdentityCompleteHostSandboxCount: internalSandboxes.length,
+        identityIncompleteHostSandboxCount: internalSandboxesIncomplete.length,
+      })
+      logSandboxTargetResolution({
+        source: 'inbox_row',
+        messageId: m.id,
+        modeReady: hostModeReady,
+        orchestratorMode,
+        isHost: true,
+        internalSandboxRowsCount: internalSandboxes.length,
+        activeSandboxTargetsCount: activeHostSandboxHandshakeCount,
+        liveSandboxTargetsCount: cloneEligibleSandboxes.length,
+        selectedTargetHandshakeId: sendableCloneSandboxes[0]?.handshake_id ?? null,
+        action: next,
+        decision: mapSandboxClickActionToResolutionDecision(next),
+        reason: 'host_sandbox_routing',
       })
       if (next === 'loading_refresh') {
         setSandboxRowFeedback('Checking internal Sandbox handshakes…')
@@ -2638,6 +2693,13 @@ export default function EmailInboxView({
         // eslint-disable-next-line no-console
         console.log('[BEAP_SANDBOX_CLONE] keying_incomplete', { message_id: m.id })
         setSandboxRowFeedback(SANDBOX_KEYING_INCOMPLETE_USER_MESSAGE)
+        window.setTimeout(() => setSandboxRowFeedback(null), 8000)
+        return
+      }
+      if (next === 'identity_incomplete') {
+        // eslint-disable-next-line no-console
+        console.log('[BEAP_SANDBOX_CLONE] identity_incomplete', { message_id: m.id })
+        setSandboxRowFeedback(SANDBOX_IDENTITY_INCOMPLETE_USER_MESSAGE)
         window.setTimeout(() => setSandboxRowFeedback(null), 8000)
         return
       }
@@ -2679,8 +2741,12 @@ export default function EmailInboxView({
       hostModeReady,
       orchestratorMode,
       internalSandboxesLoading,
+      internalSandboxesListLastSuccess,
       internalSandboxes.length,
+      internalSandboxesIncomplete.length,
+      activeHostSandboxHandshakeCount,
       sendableCloneSandboxes,
+      cloneEligibleSandboxes,
       fetchMessages,
       openSandboxUnavailableDialog,
       refreshInternalSandboxesList,
@@ -3142,7 +3208,7 @@ export default function EmailInboxView({
                   internalSandboxListReady,
                 }}
                 sandboxVisibilityDiagnostics={{
-                  activeInternalHandshakeCount: internalSandboxes.length,
+                  activeInternalHandshakeCount: activeHostSandboxHandshakeCount,
                   internalListLoading: internalSandboxesLoading,
                 }}
                 sandboxAvailability={sandboxAvailability}
@@ -3328,7 +3394,10 @@ export default function EmailInboxView({
               onSelectAttachment={onSelectAttachment ? handleSelectAttachment : undefined}
               onReply={handleReply}
               internalSandboxTargets={sendableCloneSandboxes}
-              activeInternalHandshakeCount={internalSandboxes.length}
+              activeInternalHandshakeCount={activeHostSandboxHandshakeCount}
+              internalSandboxesListLastSuccess={internalSandboxesListLastSuccess}
+              activeIdentityCompleteHostSandboxCount={internalSandboxes.length}
+              identityIncompleteHostSandboxCount={internalSandboxesIncomplete.length}
               onSandboxMultiSelect={
                 sendableCloneSandboxes.length > 1
                   ? (m, ctx) => {
@@ -3345,6 +3414,7 @@ export default function EmailInboxView({
               authoritativeDeviceInternalRole={authoritativeDeviceInternalRole}
               internalSandboxListReady={internalSandboxListReady}
               onOpenHandshakesView={onOpenHandshakesView}
+              sandboxLiveEligibleCount={cloneEligibleSandboxes.length}
             />
           </div>
           <div className="inbox-detail-ai" data-collapsed={aiPanelCollapsed}>

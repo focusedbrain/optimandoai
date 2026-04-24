@@ -1,6 +1,6 @@
 /**
- * Shown from the external-link warning when the user picks Sandbox but no connected Sandbox
- * orchestrator is available. Copy is specific to the link/Sandbox flow (separate from toolbar unavailable).
+ * Shown from the external-link warning when the user picks Sandbox but there is no active internal
+ * Host↔Sandbox handshake. Live relay is not required; copy matches main “no handshake” help.
  */
 
 import { useEffect } from 'react'
@@ -46,19 +46,20 @@ export default function SandboxLinkInfoDialog({ isOpen, onClose, onOpenHandshake
       >
         <div style={{ padding: '24px 24px 0' }}>
           <h2 id="sandbox-link-info-title" className="wrdesk-modal__title" style={{ color: CARD.title, fontSize: 20, letterSpacing: '-0.02em' }}>
-            No Sandbox orchestrator connected
+            No active Sandbox handshake found
           </h2>
         </div>
         <div style={{ padding: '8px 24px 20px' }}>
           <p style={{ margin: '0 0 16px', fontSize: 15, lineHeight: 1.6, color: CARD.body, fontWeight: 500 }}>
-            Sandbox sends a clone of the entire BEAP message to a connected Sandbox orchestrator. This lets you inspect risky links, PDFs, attachments, and
-            original artifacts in an isolated environment without changing the original message.
+            To use Sandbox, start a Sandbox orchestrator under the same identity and create or activate an internal Host
+            ↔ Sandbox handshake. Once the handshake is ACTIVE, this Host can clone BEAP messages to the Sandbox for
+            isolated inspection of links, PDFs, attachments, and other original artifacts.
           </p>
           <p style={{ margin: '0 0 8px', fontSize: 14, fontWeight: 700, color: CARD.title }}>To use Sandbox:</p>
           <ol style={{ margin: '0 0 16px', paddingLeft: 22, fontSize: 14, lineHeight: 1.65, color: CARD.body, fontWeight: 500 }}>
             <li>Start a Sandbox orchestrator under the same identity.</li>
             <li>Create or activate an internal Host ↔ Sandbox handshake.</li>
-            <li>Keep the Sandbox orchestrator online and connected to the coordination relay.</li>
+            <li>If the Sandbox is offline, clones are queued and delivered when it reconnects.</li>
           </ol>
           <p style={{ margin: 0, fontSize: 14, lineHeight: 1.6, color: CARD.body, fontWeight: 500 }}>
             Recommended setup: run the Sandbox orchestrator on isolated hardware such as a mini PC. A KVM switch with hotkeys is recommended so you can inspect

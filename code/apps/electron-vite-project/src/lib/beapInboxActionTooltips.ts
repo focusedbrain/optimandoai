@@ -6,7 +6,7 @@ import type { SandboxOrchestratorAvailability } from '../types/sandboxOrchestrat
 
 /** List + detail: icon-only; no live-relay requirement for showing the icon. */
 const BEAP_SANDBOX_CLONE_TIP =
-  'Clone this BEAP message and send it to the Sandbox orchestrator. If the Sandbox is offline, the clone will be queued.'
+  'Clone the entire BEAP message to your Sandbox orchestrator so content can be inspected on isolated hardware. If the Sandbox is offline, the clone will be queued.'
 
 const SANDBOX_ARIA_SHORT = 'Clone to Sandbox'
 

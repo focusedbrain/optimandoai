@@ -55,6 +55,7 @@ import { canShowSandboxCloneAction } from '../lib/beapInboxSandboxVisibility'
 import { beapInboxCloneToSandboxApi } from '../lib/beapInboxCloneToSandbox'
 import {
   resolveHostSandboxCloneClickAction,
+  SANDBOX_IDENTITY_INCOMPLETE_USER_MESSAGE,
   SANDBOX_KEYING_INCOMPLETE_USER_MESSAGE,
   sandboxCloneUnavailableDialogVariant,
 } from '../lib/beapInboxHostSandboxClickPolicy'
@@ -1704,13 +1705,18 @@ export default function EmailInboxBulkView({
 
   const {
     sandboxes: bulkInternalSandboxes,
+    incomplete: bulkInternalSandboxesIncomplete,
     sendableCloneSandboxes: bulkSendableCloneSandboxes,
+    lastSuccess: bulkInternalSandboxesListLastSuccess,
+    cloneEligibleSandboxes: bulkCloneEligibleSandboxes,
     sandboxAvailability: bulkSandboxAvailability,
     loading: bulkInternalSandboxesLoading,
     refresh: refreshBulkInternalSandboxesList,
     authoritativeDeviceInternalRole: bulkAuthoritativeDeviceInternalRole,
     internalSandboxListReady: bulkInternalSandboxListReady,
   } = useInternalSandboxesList()
+  const bulkActiveHostSandboxHandshakeCount =
+    bulkInternalSandboxes.length + bulkInternalSandboxesIncomplete.length
   const { mode: bulkOrchestratorMode, ready: bulkHostModeReady } = useOrchestratorMode()
   const [bulkSandboxCloneFor, setBulkSandboxCloneFor] = useState<InboxMessage | null>(null)
   const [bulkSandboxClonePickerContext, setBulkSandboxClonePickerContext] = useState<{
@@ -4255,8 +4261,10 @@ export default function EmailInboxBulkView({
     const { url, message: msg } = pendingLink
     const next = resolveHostSandboxCloneClickAction({
       internalListLoading: bulkInternalSandboxesLoading,
+      listLastSuccess: bulkInternalSandboxesListLastSuccess,
       sendableTargetCount: bulkSendableCloneSandboxes.length,
-      activeInternalHandshakeCount: bulkInternalSandboxes.length,
+      activeIdentityCompleteHostSandboxCount: bulkInternalSandboxes.length,
+      identityIncompleteHostSandboxCount: bulkInternalSandboxesIncomplete.length,
     })
     if (next === 'loading_refresh') {
       void refreshBulkInternalSandboxesList()
@@ -4268,6 +4276,11 @@ export default function EmailInboxBulkView({
     }
     if (next === 'keying_incomplete') {
       setBulkLinkKeyingNotice(SANDBOX_KEYING_INCOMPLETE_USER_MESSAGE)
+      window.setTimeout(() => setBulkLinkKeyingNotice(null), 10000)
+      return
+    }
+    if (next === 'identity_incomplete') {
+      setBulkLinkKeyingNotice(SANDBOX_IDENTITY_INCOMPLETE_USER_MESSAGE)
       window.setTimeout(() => setBulkLinkKeyingNotice(null), 10000)
       return
     }
@@ -4298,6 +4311,8 @@ export default function EmailInboxBulkView({
     pendingLink,
     bulkSendableCloneSandboxes,
     bulkInternalSandboxes.length,
+    bulkInternalSandboxesIncomplete.length,
+    bulkInternalSandboxesListLastSuccess,
     bulkInternalSandboxesLoading,
     refreshBulkInternalSandboxesList,
     refreshMessages,
@@ -6755,7 +6770,11 @@ export default function EmailInboxBulkView({
                   }}
                   onReply={handleReply}
                   internalSandboxTargets={bulkSendableCloneSandboxes}
-                  activeInternalHandshakeCount={bulkInternalSandboxes.length}
+                  activeInternalHandshakeCount={bulkActiveHostSandboxHandshakeCount}
+                  internalSandboxesListLastSuccess={bulkInternalSandboxesListLastSuccess}
+                  activeIdentityCompleteHostSandboxCount={bulkInternalSandboxes.length}
+                  identityIncompleteHostSandboxCount={bulkInternalSandboxesIncomplete.length}
+                  sandboxLiveEligibleCount={bulkCloneEligibleSandboxes.length}
                   onSandboxMultiSelect={
                     bulkSendableCloneSandboxes.length > 1
                       ? (m, ctx) => {
