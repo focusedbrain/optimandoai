@@ -11,8 +11,8 @@ export const BEAP_INBOX_REPLY_TOOLTIP = 'Reply'
 /**
  * Spread onto Sandbox buttons for native hover text (browser `title` tooltip).
  */
-export function beapHostSandboxCloneTooltipProps(): { title: string } {
-  return { title: BEAP_HOST_SANDBOX_CLONE_TOOLTIP }
+export function beapHostSandboxCloneTooltipProps(): { title: string; 'aria-label': string } {
+  return { title: BEAP_HOST_SANDBOX_CLONE_TOOLTIP, 'aria-label': 'Send clone to Sandbox' }
 }
 
 export function beapInboxReplyTooltipProps(): { title: string; 'aria-label': string } {

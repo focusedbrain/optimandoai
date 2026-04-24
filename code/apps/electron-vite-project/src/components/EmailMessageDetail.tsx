@@ -633,6 +633,12 @@ export default function EmailMessageDetail({
   const attachmentsPendingRows = attachmentMetaExpected && attachments.length === 0
   const isDeleted = message.deleted === 1
 
+  const canShowDetailReply = Boolean(onReply) && !isBeapQbeapOutboundEcho(message)
+  const canShowBeapDetailActions =
+    (message.source_type === 'direct_beap' || message.source_type === 'email_beap') &&
+    !isBeapQbeapOutboundEcho(message)
+  const showDetailActionEnd = canShowDetailReply || canShowBeapDetailActions
+
   const automationTags = parsedDepackaged ? getAutomationTags(parsedDepackaged) : []
   const sessionRefsList = parsedDepackaged ? getSessionRefs(parsedDepackaged) : []
 
@@ -749,86 +755,97 @@ export default function EmailMessageDetail({
             {message.subject || '(No subject)'}
           </h2>
           <div className="inbox-detail-action-toolbar">
-            {editingDraftForMessageId === message.id && (
-              <span
-                role="button"
-                tabIndex={0}
-                className="inbox-detail-editing-draft-indicator"
-                onClick={() => setEditingDraftForMessageId(null)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault()
-                    setEditingDraftForMessageId(null)
-                  }
-                }}
-                title="Click to exit edit mode"
-              >
-                Editing draft
-              </span>
-            )}
-            <button
-              type="button"
-              onClick={handleStar}
-              title={message.starred === 1 ? 'Unstar' : 'Star'}
-              aria-label={message.starred === 1 ? 'Unstar' : 'Star'}
-              className={
-                message.starred === 1
-                  ? 'inbox-detail-icon-btn inbox-detail-icon-btn--starred'
-                  : 'inbox-detail-icon-btn'
-              }
-            >
-              {message.starred === 1 ? '★' : '☆'}
-            </button>
-            <button
-              type="button"
-              onClick={handleArchive}
-              className="inbox-detail-toolbar-text-btn"
-            >
-              Archive
-            </button>
-            <button
-              type="button"
-              onClick={handleDelete}
-              className="inbox-detail-toolbar-text-btn inbox-detail-toolbar-text-btn--danger"
-            >
-              Delete
-            </button>
-            {onReply && !isBeapQbeapOutboundEcho(message) && (
+            <div className="inbox-detail-action-group inbox-detail-action-group--start" aria-label="Message actions">
+              {editingDraftForMessageId === message.id && (
+                <span
+                  role="button"
+                  tabIndex={0}
+                  className="inbox-detail-editing-draft-indicator"
+                  onClick={() => setEditingDraftForMessageId(null)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault()
+                      setEditingDraftForMessageId(null)
+                    }
+                  }}
+                  title="Click to exit edit mode"
+                >
+                  Editing draft
+                </span>
+              )}
               <button
                 type="button"
-                onClick={handleReply}
-                className="inbox-detail-icon-btn inbox-detail-icon-btn--reply"
-                {...beapInboxReplyTooltipProps()}
+                onClick={handleStar}
+                title={message.starred === 1 ? 'Unstar' : 'Star'}
+                aria-label={message.starred === 1 ? 'Unstar' : 'Star'}
+                className={
+                  message.starred === 1
+                    ? 'inbox-detail-icon-btn inbox-detail-icon-btn--starred'
+                    : 'inbox-detail-icon-btn'
+                }
               >
-                <span className="inbox-detail-reply-glyph" aria-hidden>
-                  ↩
-                </span>
+                {message.starred === 1 ? '★' : '☆'}
               </button>
-            )}
-            {(message.source_type === 'direct_beap' || message.source_type === 'email_beap') &&
-              !isBeapQbeapOutboundEcho(message) && (
-              <div className="inbox-detail-beap-action-group" aria-label="BEAP actions">
-                <button
-                  type="button"
-                  className="inbox-detail-beap-btn inbox-detail-beap-btn--redirect"
-                  onClick={() => setBeapRedirectOpen(true)}
-                  title="Forward this message as a new BEAP to another handshake (separate from Sandbox clone)."
-                >
-                  Redirect
-                </button>
-                {showHostSandboxStrip ? (
+              <button
+                type="button"
+                onClick={handleArchive}
+                className="inbox-detail-toolbar-text-btn"
+                aria-label="Archive"
+              >
+                Archive
+              </button>
+              <button
+                type="button"
+                onClick={handleDelete}
+                className="inbox-detail-toolbar-text-btn inbox-detail-toolbar-text-btn--danger"
+                aria-label="Delete"
+              >
+                Delete
+              </button>
+            </div>
+            {showDetailActionEnd ? (
+              <div
+                className="inbox-detail-action-group inbox-detail-action-group--end"
+                aria-label="Reply, redirect, and sandbox"
+              >
+                {canShowDetailReply && (
                   <button
                     type="button"
-                    className="inbox-detail-beap-btn inbox-detail-beap-btn--sandbox inbox-detail-beap-sandbox--actionrow"
-                    onClick={() => void handleHostSandboxClick()}
-                    disabled={hostSandboxBusy}
-                    {...beapHostSandboxCloneTooltipProps()}
+                    onClick={handleReply}
+                    className="inbox-detail-icon-btn inbox-detail-icon-btn--reply"
+                    {...beapInboxReplyTooltipProps()}
                   >
-                    Sandbox
+                    <span className="inbox-detail-reply-glyph" aria-hidden>
+                      ↩
+                    </span>
                   </button>
-                ) : null}
+                )}
+                {canShowBeapDetailActions && (
+                  <>
+                    <button
+                      type="button"
+                      className="inbox-detail-beap-btn inbox-detail-beap-btn--redirect"
+                      onClick={() => setBeapRedirectOpen(true)}
+                      aria-label="Redirect"
+                      title="Forward as a new BEAP message to a different handshake. Does not change this inbox row."
+                    >
+                      Redirect
+                    </button>
+                    {showHostSandboxStrip ? (
+                      <button
+                        type="button"
+                        className="inbox-detail-beap-btn inbox-detail-beap-btn--sandbox"
+                        onClick={() => void handleHostSandboxClick()}
+                        disabled={hostSandboxBusy}
+                        {...beapHostSandboxCloneTooltipProps()}
+                      >
+                        Sandbox
+                      </button>
+                    ) : null}
+                  </>
+                )}
               </div>
-            )}
+            ) : null}
           </div>
           {showHostSandboxStrip && hostSandboxInlineFeedback ? (
             <div

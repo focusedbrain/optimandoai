@@ -11,9 +11,10 @@ describe('beapInboxActionTooltips', () => {
     expect(BEAP_HOST_SANDBOX_CLONE_TOOLTIP).toContain('original message stays unchanged')
   })
 
-  test('beapHostSandboxCloneTooltipProps returns title', () => {
+  test('beapHostSandboxCloneTooltipProps returns title and aria-label', () => {
     const p = beapHostSandboxCloneTooltipProps()
     expect(p.title).toBe(BEAP_HOST_SANDBOX_CLONE_TOOLTIP)
+    expect(p['aria-label']).toBe('Send clone to Sandbox')
   })
 
   test('beapInboxReplyTooltipProps is Reply for title and aria-label', () => {

@@ -62,10 +62,9 @@ export const UI_BUTTON = {
 } as const
 
 /**
- * Inbox message detail, BEAP actions (Redirect / Sandbox) on dark chrome.
- * Styling is applied via `App.css` classes (`.inbox-detail-beap-btn--*`) for :hover / :focus-visible / :disabled;
- * this object documents the same hex values and supports typed reuse / audits.
- * Contrast: white on blue-700 / violet-700 exceeds WCAG 2.1 AA for normal text (≥4.5:1) on the control surface.
+ * Inbox message detail, BEAP actions (Redirect / Sandbox) on light premium panel (`inbox-detail-message-inner--premium`).
+ * Styling is applied in `App.css` (`.inbox-detail-beap-btn--*`, `.inbox-detail-action-toolbar`); this documents hex values for audits.
+ * Compact row: 32px min height, 11px label, 8px radius; white on blue-700 / violet-800 meets WCAG 2.1 AA for UI components.
  */
 export const UI_INBOX_BEAP_ACTION = {
   redirect: {
@@ -80,4 +79,10 @@ export const UI_INBOX_BEAP_ACTION = {
     border: '1px solid #7c3aed' as const,
     hoverBackground: '#7c3aed' as const,
   },
+} as const
+
+/** Shared geometry for message detail icon + text + BEAP actions (see App.css). */
+export const UI_INBOX_MESSAGE_DETAIL_ACTION = {
+  minHeightPx: 32,
+  borderRadius: '8px',
 } as const
