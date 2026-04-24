@@ -877,6 +877,109 @@ body {
   color: #0f172a;
 }
 
+/*
+ * BEAP message detail — Redirect + Sandbox in the action row (no source-type badge).
+ * Solid fills + #fff label: WCAG AA on the control.
+ * `inbox-detail-beap-sandbox--actionrow` matches Redirect scale in the same row.
+ */
+.inbox-detail-beap-btn {
+  font-family: inherit;
+  line-height: 1.25;
+  box-sizing: border-box;
+  transition:
+    background-color 0.12s ease,
+    border-color 0.12s ease,
+    color 0.12s ease,
+    box-shadow 0.12s ease;
+}
+
+.inbox-detail-beap-btn--redirect {
+  padding: 6px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 6px;
+  cursor: pointer;
+  background: #1d4ed8;
+  color: #ffffff;
+  border: 1px solid #3b82f6;
+  box-shadow: 0 1px 1px rgba(15, 23, 42, 0.08);
+}
+
+.inbox-detail-beap-btn--redirect:hover:not(:disabled) {
+  background: #2563eb;
+  border-color: #60a5fa;
+  color: #ffffff;
+}
+
+.inbox-detail-beap-btn--redirect:focus {
+  outline: none;
+}
+
+.inbox-detail-beap-btn--redirect:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+  box-shadow:
+    0 1px 1px rgba(15, 23, 42, 0.08),
+    0 0 0 3px rgba(37, 99, 235, 0.35);
+}
+
+.inbox-detail-beap-btn--redirect:disabled {
+  background: #64748b;
+  border-color: #94a3b8;
+  color: #f8fafc;
+  cursor: not-allowed;
+  opacity: 1;
+}
+
+.inbox-detail-beap-btn--sandbox {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 700;
+  padding: 10px 20px;
+  border-radius: 8px;
+  cursor: pointer;
+  background: #6d28d9;
+  color: #ffffff;
+  border: 1px solid #7c3aed;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.12);
+}
+
+.inbox-detail-beap-btn--sandbox:hover:not(:disabled) {
+  background: #7c3aed;
+  border-color: #8b5cf6;
+  color: #ffffff;
+}
+
+.inbox-detail-beap-btn--sandbox:focus {
+  outline: none;
+}
+
+.inbox-detail-beap-btn--sandbox:focus-visible {
+  outline: 2px solid #7c3aed;
+  outline-offset: 2px;
+  box-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.12),
+    0 0 0 3px rgba(124, 58, 237, 0.4);
+}
+
+.inbox-detail-beap-btn--sandbox:disabled {
+  background: #64748b;
+  border-color: #94a3b8;
+  color: #f8fafc;
+  /* Busy sending clone — keep legible slate + light text, not faded */
+  cursor: wait;
+  opacity: 1;
+}
+
+.inbox-detail-beap-btn--sandbox.inbox-detail-beap-sandbox--actionrow {
+  font-size: 11px;
+  padding: 6px 14px;
+  border-radius: 6px;
+  box-shadow: 0 1px 1px rgba(15, 23, 42, 0.1);
+}
+
 /* Attachments block — light separation from body without restructuring layout */
 .inbox-detail-attachments-block {
   margin-top: 20px;

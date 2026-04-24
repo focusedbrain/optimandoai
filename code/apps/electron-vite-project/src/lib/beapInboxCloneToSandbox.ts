@@ -8,7 +8,10 @@ import { getSigningKeyPair } from '@ext/beap-messages/services/beapCrypto'
 import { hasHandshakeKeyMaterial, type HandshakeRecord } from '@ext/handshake/rpcTypes'
 import { listHandshakes } from '../shims/handshakeRpc'
 import { handshakeRecordToSelectedRecipient } from './handshakeRecipientMap'
-import type { BeapInboxClonePrepareOk } from '../types/beapInboxClone'
+import type {
+  BeapInboxClonePrepareOk,
+  CloneBeapToSandboxIpcErrorCode,
+} from '../types/beapInboxClone'
 import type { DeliveryResult } from '@ext/beap-messages/services/BeapPackageBuilder'
 import '../components/handshakeViewTypes'
 import { mapCoordinationDeliveryToMatrixMode } from './beapSandboxCloneDeliverySemantics'
@@ -29,13 +32,15 @@ function buildCloneMetadata(
       sandbox_clone: true,
       automation_sandbox_clone: true,
       beap_sandbox_clone: {
-        clone_reason: 'sandbox_test',
+        clone_reason: p.clone_reason,
         original_message_id: p.source_message_id,
         original_sender: p.from_address ?? null,
         original_received_at: p.original_received_at ?? null,
         cloned_at: atIso,
+        target_handshake_id: p.target_handshake_id,
         sandbox_target_handshake_id: p.sandbox_target_handshake_id,
         sandbox_target_device_id: p.sandbox_target_device_id,
+        target_sandbox_device_name: p.target_sandbox_device_name,
         sandbox_target_pairing_code: p.sandbox_target_pairing_code ?? null,
         cloned_by_account: clonedBy,
         original_handshake_id: p.original_handshake_id,
@@ -50,8 +55,10 @@ export type BeapInboxCloneAuditMetadata = {
   original_sender: string | null
   original_received_at: string | null
   cloned_at: string
+  target_handshake_id: string
   sandbox_target_handshake_id: string
   sandbox_target_device_id: string
+  target_sandbox_device_name: string | null
   sandbox_target_pairing_code: string | null
   clone_reason: 'sandbox_test'
   cloned_by_account: string | null
@@ -117,10 +124,12 @@ export async function cloneBeapInboxToSandbox(
     original_sender: preparePayload.from_address ?? null,
     original_received_at: preparePayload.original_received_at ?? null,
     cloned_at: at,
+    target_handshake_id: preparePayload.target_handshake_id,
     sandbox_target_handshake_id: preparePayload.sandbox_target_handshake_id,
     sandbox_target_device_id: preparePayload.sandbox_target_device_id,
+    target_sandbox_device_name: preparePayload.target_sandbox_device_name,
     sandbox_target_pairing_code: preparePayload.sandbox_target_pairing_code ?? null,
-    clone_reason: 'sandbox_test',
+    clone_reason: preparePayload.clone_reason,
     cloned_by_account: preparePayload.cloned_by_account ?? preparePayload.account_tag ?? null,
   }
 
@@ -160,10 +169,17 @@ export async function cloneBeapInboxToSandbox(
  * Call main prepare, then build/send. Returns error from prepare or send.
  * Product name: beapInbox.cloneToSandbox (prepare + renderer qBEAP build).
  */
+export type BeapInboxClonePrepareFailure = {
+  success: false
+  error: string
+  code?: CloneBeapToSandboxIpcErrorCode
+  details?: unknown
+}
+
 export async function beapInboxCloneToSandboxApi(params: {
   sourceMessageId: string
   targetHandshakeId?: string
-}): Promise<BeapInboxCloneToSandboxResult | { success: false; error: string }> {
+}): Promise<BeapInboxCloneToSandboxResult | BeapInboxClonePrepareFailure> {
   const fn = window.beapInbox?.cloneBeapToSandbox ?? window.beapInbox?.cloneToSandboxPrepare
   if (typeof fn !== 'function') {
     return { success: false, error: 'beapInbox.cloneBeapToSandbox not available' }
@@ -172,8 +188,13 @@ export async function beapInboxCloneToSandboxApi(params: {
     sourceMessageId: params.sourceMessageId,
     ...(params.targetHandshakeId ? { targetHandshakeId: params.targetHandshakeId } : {}),
   })
-  if (!r?.success || !r.prepare) {
-    return { success: false, error: typeof r?.error === 'string' ? r.error : 'Prepare failed' }
+  if (!r?.success || !('prepare' in r) || !r.prepare) {
+    const fail = r as { success: false; error?: string; code?: CloneBeapToSandboxIpcErrorCode; details?: unknown }
+    return {
+      success: false,
+      error: typeof fail?.error === 'string' ? fail.error : 'Prepare failed',
+      ...(fail.code != null ? { code: fail.code, details: fail.details } : {}),
+    }
   }
   return cloneBeapInboxToSandbox(r.prepare)
 }

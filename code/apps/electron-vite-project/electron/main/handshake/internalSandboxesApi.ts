@@ -26,8 +26,13 @@ export interface InternalSandboxListEntry {
   last_known_delivery_status: 'idle' | 'queue_pending' | 'queue_failed' | 'queue_sent' | 'unknown'
   live_status_optional?: 'relay_connected' | 'relay_disconnected' | 'coordination_disabled'
   /**
+   * Local + peer qBEAP key material and P2P endpoint present — handshake is “real” for this Host,
+   * independent of whether the relay WebSocket is up (`sandbox_connected_now` / `beap_clone_eligible`).
+   */
+  sandbox_keying_complete: boolean
+  /**
    * True when the relay is connected, P2P endpoint + local + peer qBEAP material exist.
-   * Used to show “Sandbox” clone for received BEAP (not a substitute for queue-only sends).
+   * This is the **live send now** path (best available proxy: coordination relay + same checks as keying).
    */
   beap_clone_eligible: boolean
 }
@@ -36,6 +41,36 @@ export interface InternalSandboxListIncompleteEntry {
   handshake_id: string
   relationship_id: string
   reason: 'identity_incomplete'
+}
+
+/**
+ * Aggregate UI + IPC: whether a Sandbox can be used for immediate clone-send vs “exists but offline” vs not set up.
+ * - `connected` — at least one row `beap_clone_eligible` (relay up + keying).
+ * - `exists_but_offline` — at least one row `sandbox_keying_complete` but none clone-eligible (relay down / coordination off).
+ * - `not_configured` — no row with full keying (no live path possible even if relay returned).
+ */
+export type SandboxOrchestratorAvailabilityStatus = 'connected' | 'exists_but_offline' | 'not_configured'
+
+export interface SandboxOrchestratorAvailability {
+  status: SandboxOrchestratorAvailabilityStatus
+  /** Same source as per-row `live_status`: coordination relay WebSocket (see `p2pHealth.ts`). */
+  relay_connected: boolean
+  use_coordination: boolean
+}
+
+function computeSandboxOrchestratorAvailability(
+  sandboxes: InternalSandboxListEntry[],
+): SandboxOrchestratorAvailability {
+  const h = getP2PHealth()
+  const relay_connected = h.coordination_connected
+  const use_coordination = h.use_coordination
+  if (sandboxes.some((s) => s.beap_clone_eligible)) {
+    return { status: 'connected', relay_connected, use_coordination }
+  }
+  if (sandboxes.some((s) => s.sandbox_keying_complete)) {
+    return { status: 'exists_but_offline', relay_connected, use_coordination }
+  }
+  return { status: 'not_configured', relay_connected, use_coordination }
 }
 
 function norm(s: string | null | undefined): string {
@@ -99,17 +134,27 @@ export function hasPeerQbeapPublicKeyMaterial(record: HandshakeRecord): boolean 
 }
 
 /**
+ * “Sandbox exists” (cryptographic + addressing): internal host↔sandbox row can target qBEAP
+ * when the relay is up — i.e. same preconditions as live send, **except** live relay presence.
+ * Proxy: P2P endpoint from handshake + local X25519 + peer ML-KEM + peer X25519.
+ */
+export function isInternalHostSandboxKeyingComplete(record: HandshakeRecord): boolean {
+  if (!record.p2p_endpoint?.trim()) return false
+  if (!record.local_x25519_public_key_b64?.trim()) return false
+  return hasPeerQbeapPublicKeyMaterial(record)
+}
+
+/**
  * `true` when clone UI may offer “Sandbox”: relay up, P2P path, full handshake crypto.
  * Does not relax account or role rules — caller still uses `isEligibleActiveInternalHostSandboxRecord`.
+ * **Live presence proxy:** `getP2PHealth().coordination_connected` (coordination / relay WebSocket).
  */
 export function isBeapCloneEligibleForRecord(
   record: HandshakeRecord,
   live: InternalSandboxListEntry['live_status_optional'],
 ): boolean {
   if (live !== 'relay_connected') return false
-  if (!record.p2p_endpoint?.trim()) return false
-  if (!record.local_x25519_public_key_b64?.trim()) return false
-  return hasPeerQbeapPublicKeyMaterial(record)
+  return isInternalHostSandboxKeyingComplete(record)
 }
 
 /**
@@ -139,12 +184,35 @@ export function listAvailableInternalSandboxes(
   error?: string
   sandboxes: InternalSandboxListEntry[]
   incomplete: InternalSandboxListIncompleteEntry[]
+  sandbox_availability: SandboxOrchestratorAvailability
 } {
   if (!db) {
-    return { success: false, error: 'Database unavailable', sandboxes: [], incomplete: [] }
+    const h0 = getP2PHealth()
+    return {
+      success: false,
+      error: 'Database unavailable',
+      sandboxes: [],
+      incomplete: [],
+      sandbox_availability: {
+        status: 'not_configured',
+        relay_connected: h0.coordination_connected,
+        use_coordination: h0.use_coordination,
+      },
+    }
   }
   if (!session) {
-    return { success: false, error: 'Not logged in', sandboxes: [], incomplete: [] }
+    const h0 = getP2PHealth()
+    return {
+      success: false,
+      error: 'Not logged in',
+      sandboxes: [],
+      incomplete: [],
+      sandbox_availability: {
+        status: 'not_configured',
+        relay_connected: h0.coordination_connected,
+        use_coordination: h0.use_coordination,
+      },
+    }
   }
 
   const rows = listHandshakeRecords(db, {
@@ -171,6 +239,7 @@ export function listAvailableInternalSandboxes(
     const code = record.internal_peer_pairing_code?.trim() ?? null
     const pairingSix =
       code && /^\d{6}$/.test(code) ? code : null
+    const sandbox_keying_complete = isInternalHostSandboxKeyingComplete(record)
     const beap_clone_eligible = isBeapCloneEligibleForRecord(record, live)
     sandboxes.push({
       handshake_id: record.handshake_id,
@@ -185,9 +254,11 @@ export function listAvailableInternalSandboxes(
       p2p_endpoint_set: Boolean(record.p2p_endpoint?.trim()),
       last_known_delivery_status: delivery,
       live_status_optional: live,
+      sandbox_keying_complete,
       beap_clone_eligible,
     })
   }
 
-  return { success: true, sandboxes, incomplete }
+  const sandbox_availability = computeSandboxOrchestratorAvailability(sandboxes)
+  return { success: true, sandboxes, incomplete, sandbox_availability }
 }

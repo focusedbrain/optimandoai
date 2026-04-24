@@ -1,6 +1,10 @@
 /**
- * Response shape for `inbox:beapInboxCloneToSandboxPrepare` → `prepare` (mirrors main `beapInboxClonePrepare.ts`).
+ * `inbox:cloneBeapToSandbox` / `inbox:beapInboxCloneToSandboxPrepare` — prepare payload and IPC errors.
+ * Mirrors `electron/main/email/beapInboxClonePrepare.ts` (kept in sync for renderer + types).
  */
+
+import type { SandboxOrchestratorAvailabilityStatus } from './sandboxOrchestratorAvailability'
+
 export interface BeapInboxClonePrepareOk {
   /** Present when coming from main `prepareBeapInboxSandboxClone`. */
   ok?: true
@@ -17,7 +21,9 @@ export interface BeapInboxClonePrepareOk {
   target_handshake_id: string
   sandbox_target_device_id: string
   sandbox_target_handshake_id: string
+  target_sandbox_device_name: string | null
   sandbox_target_pairing_code: string | null
+  clone_reason: 'sandbox_test'
   cloned_at: string
   cloned_by_account: string | null
   live_status_optional: 'relay_connected' | 'relay_disconnected' | 'coordination_disabled'
@@ -25,3 +31,38 @@ export interface BeapInboxClonePrepareOk {
   p2p_endpoint_set: boolean
   account_tag: string | null
 }
+
+/** Main-process prepare path (not including vault / host envelope errors). */
+export type BeapInboxClonePrepareErrorCode =
+  | 'NO_SANDBOX_CONNECTED'
+  | 'TARGET_HANDSHAKE_REQUIRED'
+  | 'SOURCE_NOT_RECEIVED_BEAP'
+  | 'PREPARE_FAILED'
+
+export type BeapInboxCloneNoSandboxDetails = {
+  eligible_count: 0
+  internal_sandbox_list_count: number
+  relay_connected: boolean
+  use_coordination: boolean
+  availability_status: SandboxOrchestratorAvailabilityStatus
+}
+
+export type CloneBeapToSandboxIpcErrorCode =
+  | BeapInboxClonePrepareErrorCode
+  | 'NOT_HOST_ORCHESTRATOR'
+  | 'VAULT_NOT_BOUND'
+  | 'UNAUTHENTICATED'
+  | 'DB_UNAVAILABLE'
+
+/**
+ * `inbox:cloneBeapToSandbox` success: prepare only (renderer builds new qBEAP + send).
+ * Failure: `code` is set for NO_SANDBOX_CONNECTED and other structured cases.
+ */
+export type CloneBeapToSandboxIpcResult =
+  | { success: true; prepare: BeapInboxClonePrepareOk }
+  | {
+      success: false
+      error: string
+      code?: CloneBeapToSandboxIpcErrorCode
+      details?: BeapInboxCloneNoSandboxDetails | Record<string, unknown>
+    }

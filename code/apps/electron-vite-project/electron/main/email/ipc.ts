@@ -27,6 +27,7 @@ import * as path from 'path'
 import { fileURLToPath } from 'node:url'
 import { extractBeapRedirectSourceFromRow } from './beapRedirectSource'
 import { prepareBeapInboxSandboxClone } from './beapInboxClonePrepare'
+import { isHostMode } from '../orchestrator/orchestratorModeStore'
 
 /** Per-call ⚡ logs for `inbox:aiAnalyzeMessage` — keep false in production. */
 const DEBUG_INBOX_AI_IPC_VERBOSE = false
@@ -3275,12 +3276,24 @@ Rules:
    * Validate vault + account, internal sandbox target, and extract cloneable plaintext.
    * Does not build or send the BEAP package (renderer uses BeapPackageBuilder + executeDeliveryAction).
    * `inbox:cloneBeapToSandbox` is the product channel name; both invoke the same logic.
+   *
+   * Host only: clone is a Host → Sandbox orchestration path (same identity, internal handshake).
+   * On failure, `code` may be `NO_SANDBOX_CONNECTED`, `TARGET_HANDSHAKE_REQUIRED`, `SOURCE_NOT_RECEIVED_BEAP`, or
+   * `NOT_HOST_ORCHESTRATOR` (envelope) for structured UI.
    */
   async function handleBeapInboxCloneToSandbox(
     _e: unknown,
     payload: { sourceMessageId?: string; targetHandshakeId?: string } | undefined,
   ) {
     try {
+      if (!isHostMode()) {
+        return {
+          success: false,
+          code: 'NOT_HOST_ORCHESTRATOR' as const,
+          error: 'Sandbox clone is only available when this device is the Host orchestrator.',
+        }
+      }
+
       const { vaultService: vs } = await import('../vault/rpc')
       let tok = (globalThis as { __og_dashboard_vsbt__?: string }).__og_dashboard_vsbt__
       if (!tok || !vs.validateToken(tok)) {
@@ -3293,6 +3306,7 @@ Rules:
       if (!tok || !vs.validateToken(tok)) {
         return {
           success: false,
+          code: 'VAULT_NOT_BOUND' as const,
           error: 'Vault session not bound — unlock the vault to clone to sandbox',
         }
       }
@@ -3300,12 +3314,12 @@ Rules:
       const { getCurrentSession } = await import('../handshake/ipc')
       const session = getCurrentSession()
       if (!session) {
-        return { success: false, error: 'Not logged in' }
+        return { success: false, code: 'UNAUTHENTICATED' as const, error: 'Not logged in' }
       }
 
       const db = await resolveDb()
       if (!db) {
-        return { success: false, error: 'Database unavailable' }
+        return { success: false, code: 'DB_UNAVAILABLE' as const, error: 'Database unavailable' }
       }
 
       const srcId = typeof payload?.sourceMessageId === 'string' ? payload.sourceMessageId.trim() : ''
@@ -3327,7 +3341,13 @@ Rules:
       const allowed = await resolveAllowedInboxAccountIds(session)
       const prep = prepareBeapInboxSandboxClone(db, session, srcId, tgt, accountTag, allowed)
       if (!prep.ok) {
-        return { success: false, error: prep.error }
+        return {
+          success: false,
+          error: prep.error,
+          ...(prep.code != null
+            ? { code: prep.code as string, details: prep.details as Record<string, unknown> | undefined }
+            : {}),
+        }
       }
 
       return { success: true, prepare: prep }

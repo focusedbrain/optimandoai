@@ -4,7 +4,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import type { InboxMessage, InboxSourceType } from '../stores/useEmailInboxStore'
+import type { InboxMessage } from '../stores/useEmailInboxStore'
 import { useEmailInboxStore } from '../stores/useEmailInboxStore'
 import InboxAttachmentRow from './InboxAttachmentRow'
 import LinkWarningDialog from './LinkWarningDialog'
@@ -12,6 +12,9 @@ import { extractLinkParts } from '../utils/safeLinks'
 import { deriveInboxMessageKind } from '../lib/inboxMessageKind'
 import { isBeapQbeapOutboundEcho } from '../lib/inboxBeapOutbound'
 import type { InternalSandboxTargetWire } from '../hooks/useInternalSandboxesList'
+import { useOrchestratorMode } from '../hooks/useOrchestratorMode'
+import { beapInboxCloneToSandboxApi } from '../lib/beapInboxCloneToSandbox'
+import { beapHostSandboxCloneTooltipProps } from '../lib/beapInboxActionTooltips'
 import SessionImportDialog, { type SessionImportDialogSessionRef } from './SessionImportDialog'
 import BeapRedirectDialog from './BeapRedirectDialog'
 import { listHandshakes } from '../shims/handshakeRpc'
@@ -25,10 +28,17 @@ export interface EmailMessageDetailProps {
   onSelectAttachment?: (attachmentId: string | null) => void
   /** When provided, called when user clicks Reply — parent routes depackaged → inline email compose, BEAP → capsule reply */
   onReply?: (message: InboxMessage) => void
-  /** When set and non-empty, show Sandbox (clone) for BEAP rows when a sandbox orchestrator is available. */
+  /**
+   * Clone-eligible, connected internal Sandbox orchestrators (from main-process sandbox list / IPC).
+   * May be empty when none are available — Host UI still shows Sandbox; click opens help or direct clone.
+   */
   internalSandboxTargets?: InternalSandboxTargetWire[]
-  /** Open sandbox clone flow for this message (parent owns dialog state). */
-  onSandboxClone?: (message: InboxMessage) => void
+  /** More than one eligible sandbox: parent opens the target selector dialog. */
+  onSandboxMultiSelect?: (message: InboxMessage) => void
+  /** No eligible connected sandbox: parent shows the “No Sandbox orchestrator connected” explainer. */
+  onNoSandboxConnectedInfo?: () => void
+  /** After a direct single-target clone from this detail panel succeeds. */
+  onSandboxCloneComplete?: () => void
 }
 
 // ── Helpers ──
@@ -46,19 +56,6 @@ function formatDate(isoString: string | null): string {
     })
   } catch {
     return '—'
-  }
-}
-
-function formatSourceBadge(sourceType: InboxSourceType): string {
-  switch (sourceType) {
-    case 'direct_beap':
-      return 'Direct BEAP'
-    case 'email_beap':
-      return 'BEAP'
-    case 'email_plain':
-      return 'Plain Email'
-    default:
-      return 'Email'
   }
 }
 
@@ -270,13 +267,18 @@ export default function EmailMessageDetail({
   onSelectAttachment,
   onReply,
   internalSandboxTargets,
-  onSandboxClone,
+  onSandboxMultiSelect,
+  onNoSandboxConnectedInfo,
+  onSandboxCloneComplete,
 }: EmailMessageDetailProps) {
+  const { isHost, ready: modeReady } = useOrchestratorMode()
   const [beapRedirectOpen, setBeapRedirectOpen] = useState(false)
   const [beapPanelOpen, setBeapPanelOpen] = useState(false)
   const [pendingLinkUrl, setPendingLinkUrl] = useState<string | null>(null)
   const [importingSession, setImportingSession] = useState<Record<string, unknown> | null>(null)
   const [importStatus, setImportStatus] = useState<Record<string, 'idle' | 'importing' | 'imported' | 'error'>>({})
+  const [hostSandboxBusy, setHostSandboxBusy] = useState(false)
+  const [hostSandboxInlineFeedback, setHostSandboxInlineFeedback] = useState<string | null>(null)
   const {
     selectedAttachmentId: storeSelectedAttachmentId,
     selectAttachment,
@@ -479,6 +481,10 @@ export default function EmailMessageDetail({
     setImportStatus({})
   }, [message?.id])
 
+  useEffect(() => {
+    setHostSandboxInlineFeedback(null)
+  }, [message?.id])
+
   /** List rows sometimes omit attachment rows while `has_attachments` is set — hydrate like BulkInboxAttachmentsStrip. */
   useEffect(() => {
     const mid = message?.id
@@ -560,9 +566,45 @@ export default function EmailMessageDetail({
     [importingSession],
   )
 
+  const isBeapForHostSandbox =
+    message != null && (message.source_type === 'email_beap' || message.source_type === 'direct_beap')
+  const isOutboundQbeap =
+    message != null &&
+    isNativeBeap &&
+    (parsedDepackaged?.format === 'beap_qbeap_outbound' || isBeapQbeapOutboundEcho(message))
+  const showHostSandboxStrip = Boolean(modeReady && isHost && isBeapForHostSandbox && !isOutboundQbeap)
+
+  const handleHostSandboxClick = useCallback(async () => {
+    if (!message) return
+    const targets = internalSandboxTargets ?? []
+    if (targets.length === 0) {
+      onNoSandboxConnectedInfo?.()
+      return
+    }
+    if (targets.length > 1) {
+      onSandboxMultiSelect?.(message)
+      return
+    }
+    setHostSandboxBusy(true)
+    setHostSandboxInlineFeedback(null)
+    try {
+      const r = await beapInboxCloneToSandboxApi({ sourceMessageId: message.id })
+      if (r.success) {
+        onSandboxCloneComplete?.()
+        setHostSandboxInlineFeedback('Clone sent to Sandbox orchestrator.')
+        window.setTimeout(() => setHostSandboxInlineFeedback(null), 4000)
+      } else {
+        setHostSandboxInlineFeedback('error' in r ? r.error : 'Failed to send clone')
+      }
+    } catch (e) {
+      setHostSandboxInlineFeedback(e instanceof Error ? e.message : 'Failed to send clone')
+    } finally {
+      setHostSandboxBusy(false)
+    }
+  }, [message, internalSandboxTargets, onNoSandboxConnectedInfo, onSandboxMultiSelect, onSandboxCloneComplete])
+
   if (!message) return null
 
-  const isBeap = message.source_type === 'email_beap' || message.source_type === 'direct_beap'
   const attachments = message.attachments ?? []
   const attachmentMetaExpected =
     message.has_attachments === 1 ||
@@ -574,13 +616,6 @@ export default function EmailMessageDetail({
 
   const automationTags = parsedDepackaged ? getAutomationTags(parsedDepackaged) : []
   const sessionRefsList = parsedDepackaged ? getSessionRefs(parsedDepackaged) : []
-
-  const isOutboundQbeap =
-    isNativeBeap && (parsedDepackaged?.format === 'beap_qbeap_outbound' || isBeapQbeapOutboundEcho(message))
-  const canSandboxClone =
-    (message.source_type === 'direct_beap' || message.source_type === 'email_beap') &&
-    !isOutboundQbeap &&
-    (internalSandboxTargets?.length ?? 0) > 0
 
   const handleStar = useCallback(() => {
     toggleStar(message.id)
@@ -761,7 +796,7 @@ export default function EmailMessageDetail({
             >
               Delete
             </button>
-            {onReply && (message.source_type === 'email_plain' || message.source_type === 'depackaged') && (
+            {onReply && message.source_type === 'email_plain' && (
               <button
                 type="button"
                 onClick={handleReply}
@@ -791,64 +826,60 @@ export default function EmailMessageDetail({
               </span>
             )}
             {(message.source_type === 'direct_beap' || message.source_type === 'email_beap') && !isOutboundQbeap && (
-              <button
-                type="button"
-                onClick={() => setBeapRedirectOpen(true)}
-                title="Redirect this BEAP message to another destination."
+              <div
                 style={{
-                  padding: '6px 10px',
-                  fontSize: 11,
-                  fontWeight: 600,
-                  borderRadius: 6,
-                  cursor: 'pointer',
-                  background: 'rgba(59, 130, 246, 0.12)',
-                  border: '1px solid rgba(59, 130, 246, 0.35)',
-                  color: '#93c5fd',
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  alignItems: 'center',
+                  gap: 8,
+                  marginLeft: 4,
+                  paddingLeft: 12,
+                  borderLeft: '1px solid var(--color-border, rgba(148, 163, 184, 0.4))',
                 }}
+                aria-label="BEAP actions"
               >
-                Redirect
-              </button>
-            )}
-            {canSandboxClone && onSandboxClone && (
-              <button
-                type="button"
-                onClick={() => onSandboxClone(message)}
-                title="Send a clone of this BEAP message to your connected Sandbox orchestrator for testing. The original message stays unchanged."
-                style={{
-                  padding: '6px 10px',
-                  fontSize: 11,
-                  fontWeight: 600,
-                  borderRadius: 6,
-                  cursor: 'pointer',
-                  background: 'rgba(124, 58, 237, 0.12)',
-                  border: '1px solid rgba(124, 58, 237, 0.4)',
-                  color: 'var(--purple-accent, #c4b5fd)',
-                }}
-              >
-                {internalSandboxTargets && internalSandboxTargets.length > 1 ? 'Sandbox…' : 'Sandbox'}
-              </button>
+                <button
+                  type="button"
+                  className="inbox-detail-beap-btn inbox-detail-beap-btn--redirect"
+                  onClick={() => setBeapRedirectOpen(true)}
+                  title="Redirect this BEAP message to another destination."
+                >
+                  Redirect
+                </button>
+                {showHostSandboxStrip ? (
+                  <button
+                    type="button"
+                    className="inbox-detail-beap-btn inbox-detail-beap-btn--sandbox inbox-detail-beap-sandbox--actionrow"
+                    onClick={() => void handleHostSandboxClick()}
+                    disabled={hostSandboxBusy}
+                    {...beapHostSandboxCloneTooltipProps()}
+                  >
+                    Sandbox
+                  </button>
+                ) : null}
+              </div>
             )}
           </div>
+          {showHostSandboxStrip && hostSandboxInlineFeedback ? (
+            <div
+              role="status"
+              style={{
+                marginTop: 8,
+                marginBottom: 0,
+                fontSize: 11,
+                color: hostSandboxInlineFeedback.startsWith('Clone sent') ? '#4ade80' : '#f87171',
+                maxWidth: 480,
+                lineHeight: 1.4,
+              }}
+            >
+              {hostSandboxInlineFeedback}
+            </div>
+          ) : null}
           <div style={{ fontSize: 12, color: 'var(--color-text-muted, #94a3b8)' }}>
             <div>From: {fromDisplay}</div>
             <div>To: {toDisplay}</div>
             <div>{formatDate(message.received_at)}</div>
           </div>
-        </div>
-
-        {/* Source badge */}
-        <div style={{ marginBottom: 16 }}>
-          <span
-            style={{
-              fontSize: 10,
-              padding: '4px 8px',
-              borderRadius: 4,
-              fontWeight: 600,
-              ...(isBeap ? UI_BADGE.purple : UI_BADGE.gray),
-            }}
-          >
-            {formatSourceBadge(message.source_type)}
-          </span>
         </div>
 
         {/* Body — human-readable by default; native BEAP uses structured depackaged sections */}

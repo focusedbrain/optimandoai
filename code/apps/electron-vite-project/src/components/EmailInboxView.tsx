@@ -22,7 +22,11 @@ import { useDraftRefineStore } from '../stores/useDraftRefineStore'
 import type { NormalInboxAiResult } from '../types/inboxAi'
 import { useInboxPreloadQueue } from '../hooks/useInboxPreloadQueue'
 import { useInternalSandboxesList } from '../hooks/useInternalSandboxesList'
+import { useOrchestratorMode } from '../hooks/useOrchestratorMode'
+import { beapInboxCloneToSandboxApi } from '../lib/beapInboxCloneToSandbox'
+import { beapHostSandboxCloneTooltipProps } from '../lib/beapInboxActionTooltips'
 import BeapSandboxCloneDialog from './BeapSandboxCloneDialog'
+import BeapSandboxUnavailableDialog, { type BeapSandboxUnavailableVariant } from './BeapSandboxUnavailableDialog'
 import BeapRedirectDialog from './BeapRedirectDialog'
 import { isBeapQbeapOutboundEcho } from '../lib/inboxBeapOutbound'
 import { tryParsePartialAnalysis, tryParseAnalysis, type NormalInboxAiResultKey } from '../utils/parseInboxAiJson'
@@ -1856,7 +1860,7 @@ function InboxMessageRow({
                 e.preventDefault()
                 onSandboxInRow(e, message)
               }}
-              title="Send a clone of this BEAP message to your connected Sandbox orchestrator for testing. The original message stays unchanged."
+              {...beapHostSandboxCloneTooltipProps()}
               style={{
                 fontSize: 9,
                 fontWeight: 700,
@@ -1908,6 +1912,8 @@ export interface EmailInboxViewProps {
   selectedAttachmentId?: string | null
   onSelectAttachment?: (attachmentId: string | null) => void
   onNavigateToHandshake?: (handshakeId: string) => void
+  /** Inbox “Open Handshakes” from Sandbox help and similar affordances. */
+  onOpenHandshakesView?: () => void
 }
 
 export default function EmailInboxView({
@@ -1918,6 +1924,7 @@ export default function EmailInboxView({
   selectedAttachmentId: selectedAttachmentIdProp,
   onSelectAttachment,
   onNavigateToHandshake,
+  onOpenHandshakesView,
 }: EmailInboxViewProps) {
   const {
     messages,
@@ -1955,13 +1962,14 @@ export default function EmailInboxView({
 
   const { prioritize } = useInboxPreloadQueue({ messages, analysisCache })
 
+  const { isHost, ready: hostModeReady } = useOrchestratorMode()
   const {
     sandboxes: internalSandboxes,
     incomplete: internalSandboxesIncomplete,
     loading: internalSandboxesLoading,
     hasUsableSandbox,
-    hasCloneEligibleSandbox,
     cloneEligibleSandboxes,
+    sandboxAvailability,
   } = useInternalSandboxesList()
 
   const showInternalSandboxInboxRow =
@@ -2007,6 +2015,10 @@ export default function EmailInboxView({
   } | null>(null)
 
   const [sandboxCloneForMessage, setSandboxCloneForMessage] = useState<InboxMessage | null>(null)
+  const [sandboxUnavailableOpen, setSandboxUnavailableOpen] = useState(false)
+  const [sandboxUnavailableVariant, setSandboxUnavailableVariant] =
+    useState<BeapSandboxUnavailableVariant>('not_configured')
+  const [sandboxRowFeedback, setSandboxRowFeedback] = useState<string | null>(null)
   const [beapRedirectForMessage, setBeapRedirectForMessage] = useState<InboxMessage | null>(null)
 
   const [leftPanelTab, setLeftPanelTab] = useState<'inbox' | 'sent'>('inbox')
@@ -2521,6 +2533,44 @@ export default function EmailInboxView({
     onSelectMessage?.(null)
   }, [selectMessage, onSelectMessage])
 
+  const openSandboxUnavailableDialog = useCallback(() => {
+    setSandboxUnavailableVariant(
+      sandboxAvailability.status === 'exists_but_offline' ? 'exists_but_offline' : 'not_configured',
+    )
+    setSandboxUnavailableOpen(true)
+  }, [sandboxAvailability.status])
+
+  const handleInboxRowSandbox = useCallback(
+    (_e: MouseEvent, m: InboxMessage) => {
+      if (!hostModeReady || !isHost) return
+      const n = cloneEligibleSandboxes.length
+      if (n === 0) {
+        openSandboxUnavailableDialog()
+        return
+      }
+      if (n === 1) {
+        void (async () => {
+          try {
+            const r = await beapInboxCloneToSandboxApi({ sourceMessageId: m.id })
+            if (r.success) {
+              setSandboxRowFeedback('Clone sent to Sandbox orchestrator.')
+              void fetchMessages()
+            } else {
+              setSandboxRowFeedback('error' in r ? r.error : 'Failed to send clone')
+            }
+            window.setTimeout(() => setSandboxRowFeedback(null), 4000)
+          } catch (e) {
+            setSandboxRowFeedback(e instanceof Error ? e.message : 'Failed to send clone')
+            window.setTimeout(() => setSandboxRowFeedback(null), 5000)
+          }
+        })()
+        return
+      }
+      setSandboxCloneForMessage(m)
+    },
+    [hostModeReady, isHost, cloneEligibleSandboxes.length, fetchMessages, openSandboxUnavailableDialog],
+  )
+
   const handleReply = useCallback((msg: InboxMessage) => {
     const src = msg.source_type as string
     if (src === 'email_plain' || src === 'depackaged') {
@@ -2773,6 +2823,21 @@ export default function EmailInboxView({
         ) : null}
 
         <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden' }}>
+          {sandboxRowFeedback && leftPanelTab === 'inbox' ? (
+            <div
+              role="status"
+              style={{
+                padding: '6px 12px',
+                fontSize: 11,
+                lineHeight: 1.4,
+                color: sandboxRowFeedback.startsWith('Clone sent') ? '#4ade80' : '#f87171',
+                borderBottom: '1px solid var(--color-border, rgba(255,255,255,0.08))',
+                flexShrink: 0,
+              }}
+            >
+              {sandboxRowFeedback}
+            </div>
+          ) : null}
           {leftPanelTab === 'sent' ? (
             sentLoading ? (
               <div
@@ -2941,8 +3006,8 @@ export default function EmailInboxView({
                 onToggleMultiSelect={() => toggleMultiSelect(msg.id)}
                 onMouseEnter={() => prioritize(msg.id)}
                 onNavigateToHandshake={onNavigateToHandshake}
-                showSandboxInRow={hasCloneEligibleSandbox && !internalSandboxesLoading}
-                onSandboxInRow={(_e, m) => setSandboxCloneForMessage(m)}
+                showSandboxInRow={hostModeReady && isHost && !internalSandboxesLoading}
+                onSandboxInRow={handleInboxRowSandbox}
                 onRedirectInRow={(_e, m) => setBeapRedirectForMessage(m)}
               />
             ))
@@ -3123,8 +3188,12 @@ export default function EmailInboxView({
               message={selectedMessage}
               onSelectAttachment={onSelectAttachment ? handleSelectAttachment : undefined}
               onReply={handleReply}
-              internalSandboxTargets={hasCloneEligibleSandbox ? cloneEligibleSandboxes : undefined}
-              onSandboxClone={hasCloneEligibleSandbox ? (m) => setSandboxCloneForMessage(m) : undefined}
+              internalSandboxTargets={cloneEligibleSandboxes}
+              onSandboxMultiSelect={
+                cloneEligibleSandboxes.length > 1 ? (m) => setSandboxCloneForMessage(m) : undefined
+              }
+              onNoSandboxConnectedInfo={openSandboxUnavailableDialog}
+              onSandboxCloneComplete={() => void fetchMessages()}
             />
           </div>
           <div className="inbox-detail-ai" data-collapsed={aiPanelCollapsed}>
@@ -3140,7 +3209,7 @@ export default function EmailInboxView({
         </div>
       ) : null}
 
-      {sandboxCloneForMessage && hasCloneEligibleSandbox && cloneEligibleSandboxes.length > 0 && (
+      {sandboxCloneForMessage && cloneEligibleSandboxes.length > 1 && (
         <BeapSandboxCloneDialog
           message={sandboxCloneForMessage}
           sandboxes={cloneEligibleSandboxes}
@@ -3151,6 +3220,13 @@ export default function EmailInboxView({
           }}
         />
       )}
+
+      <BeapSandboxUnavailableDialog
+        isOpen={sandboxUnavailableOpen}
+        variant={sandboxUnavailableVariant}
+        onClose={() => setSandboxUnavailableOpen(false)}
+        onOpenHandshakes={() => onOpenHandshakesView?.()}
+      />
 
       {beapRedirectForMessage && (
         <BeapRedirectDialog

@@ -301,6 +301,15 @@ function App() {
     setSelectedAttachmentId(null)
   }, [])
 
+  const handleOpenHandshakesViewFromInbox = useCallback(() => {
+    setActiveView('handshakes')
+    setSelectedHandshakeId(null)
+    setSelectedHandshakeEmail(null)
+    setSelectedDocumentId(null)
+    setSelectedMessageId(null)
+    setSelectedAttachmentId(null)
+  }, [])
+
   /** Analysis dashboard → Inbox: select workflow tab then message (read-only navigation). */
   const handleOpenInboxMessageFromDashboard = useCallback((payload: { messageId: string; workflowTab: InboxFilter['filter'] }) => {
     setActiveView('beap-inbox')
@@ -473,6 +482,7 @@ function App() {
               selectedAttachmentId={selectedAttachmentId}
               onSelectAttachment={setSelectedAttachmentId}
               onNavigateToHandshake={handleNavigateToHandshakeFromInbox}
+              onOpenHandshakesView={handleOpenHandshakesViewFromInbox}
             />
           ) : (
             <EmailInboxView
@@ -486,6 +496,7 @@ function App() {
               selectedAttachmentId={selectedAttachmentId}
               onSelectAttachment={setSelectedAttachmentId}
               onNavigateToHandshake={handleNavigateToHandshakeFromInbox}
+              onOpenHandshakesView={handleOpenHandshakesViewFromInbox}
             />
           )
         ) : activeView === 'settings' ? (

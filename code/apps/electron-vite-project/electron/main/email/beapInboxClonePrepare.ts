@@ -1,5 +1,6 @@
 /**
  * Validate + extract plaintext for BEAP inbox → internal sandbox clone (new package in renderer; no wire reuse).
+ * Eligibility: internal ACTIVE host↔sandbox, same identity, peer sandbox role, keys + relay (see internalSandboxesApi).
  */
 
 import { extractBeapRedirectSourceFromRow } from './beapRedirectSource'
@@ -9,6 +10,7 @@ import {
   isEligibleActiveInternalHostSandboxRecord,
   listAvailableInternalSandboxes,
   P2P_BEAP_INBOX_ACCOUNT_ID,
+  type SandboxOrchestratorAvailabilityStatus,
 } from '../handshake/internalSandboxesApi'
 import type { SSOSession } from '../handshake/types'
 
@@ -27,7 +29,11 @@ export type BeapInboxClonePrepareOk = {
   target_handshake_id: string
   sandbox_target_device_id: string
   sandbox_target_handshake_id: string
+  /** Display name of the sandbox peer device (audit + UI). */
+  target_sandbox_device_name: string | null
   sandbox_target_pairing_code: string | null
+  /** Fixed audit value for this product path. */
+  clone_reason: 'sandbox_test'
   /** ISO time when clone is prepared; renderer may refresh `cloned_at` at send time. */
   cloned_at: string
   cloned_by_account: string | null
@@ -38,7 +44,26 @@ export type BeapInboxClonePrepareOk = {
   account_tag: string | null
 }
 
-export type BeapInboxClonePrepareResult = BeapInboxClonePrepareOk | { ok: false; error: string }
+/** Structured failure for `inbox:cloneBeapToSandbox` / prepare (UI + logs). */
+export type BeapInboxCloneErrorCode =
+  | 'NO_SANDBOX_CONNECTED'
+  | 'TARGET_HANDSHAKE_REQUIRED'
+  | 'SOURCE_NOT_RECEIVED_BEAP'
+  | 'PREPARE_FAILED'
+
+export type BeapInboxCloneNoSandboxDetails = {
+  eligible_count: 0
+  /** Internal host↔sandbox rows (identity-complete; may lack keying or relay). */
+  internal_sandbox_list_count: number
+  relay_connected: boolean
+  use_coordination: boolean
+  /** Tri-state from `listAvailableInternalSandboxes` — which dialog variant to show. */
+  availability_status: SandboxOrchestratorAvailabilityStatus
+}
+
+export type BeapInboxClonePrepareResult =
+  | BeapInboxClonePrepareOk
+  | { ok: false; error: string; code?: BeapInboxCloneErrorCode; details?: BeapInboxCloneNoSandboxDetails | Record<string, unknown> }
 
 function assertInboxMessageOwned(
   accountId: string,
@@ -106,6 +131,22 @@ export function prepareBeapInboxSandboxClone(
     return { ok: false, error: 'Source message not found' }
   }
 
+  const depStr = typeof row.depackaged_json === 'string' ? row.depackaged_json.trim() : ''
+  if (depStr) {
+    try {
+      const dj = JSON.parse(depStr) as { format?: string }
+      if (dj?.format === 'beap_qbeap_outbound') {
+        return {
+          ok: false,
+          code: 'SOURCE_NOT_RECEIVED_BEAP',
+          error: 'Sandbox clone applies only to received BEAP messages, not outbound sends.',
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
   const own = assertInboxMessageOwned(row.account_id ?? '', row.source_type, allowedInboxAccountIds)
   if (!own.ok) {
     return own
@@ -120,10 +161,28 @@ export function prepareBeapInboxSandboxClone(
   const eligible = list.sandboxes.filter((s) => s.beap_clone_eligible)
   if (!tgtId) {
     if (eligible.length === 0) {
-      return { ok: false, error: 'No connected sandbox orchestrator is available for cloning' }
+      const sa = list.sandbox_availability
+      const details: BeapInboxCloneNoSandboxDetails = {
+        eligible_count: 0,
+        internal_sandbox_list_count: list.sandboxes.length,
+        relay_connected: sa.relay_connected,
+        use_coordination: sa.use_coordination,
+        availability_status: sa.status,
+      }
+      return {
+        ok: false,
+        code: 'NO_SANDBOX_CONNECTED',
+        error: 'No eligible sandbox orchestrator is connected for the live send path.',
+        details,
+      }
     }
     if (eligible.length > 1) {
-      return { ok: false, error: 'targetHandshakeId is required when multiple sandboxes are available' }
+      return {
+        ok: false,
+        code: 'TARGET_HANDSHAKE_REQUIRED',
+        error: 'targetHandshakeId is required when multiple sandboxes are available',
+        details: { eligible_count: eligible.length },
+      }
     }
     tgtId = eligible[0]!.handshake_id
   }
@@ -176,6 +235,8 @@ export function prepareBeapInboxSandboxClone(
     (session.wrdesk_user_id && String(session.wrdesk_user_id).trim()) ||
     null
 
+  const deviceName = entry.peer_device_name?.trim() || null
+
   return {
     ok: true,
     source_message_id: extracted.message_id,
@@ -191,7 +252,9 @@ export function prepareBeapInboxSandboxClone(
     target_handshake_id: tgtId,
     sandbox_target_device_id: entry.peer_device_id,
     sandbox_target_handshake_id: tgtId,
+    target_sandbox_device_name: deviceName,
     sandbox_target_pairing_code: pairing,
+    clone_reason: 'sandbox_test',
     cloned_at: new Date().toISOString(),
     cloned_by_account: clonedBy,
     live_status_optional: live,

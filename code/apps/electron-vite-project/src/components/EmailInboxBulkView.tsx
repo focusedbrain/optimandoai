@@ -49,6 +49,7 @@ import { AutoSortSessionHistory } from './AutoSortSessionHistory'
 import { InboxHandshakeNavIconButton } from './InboxHandshakeNavIcon'
 import { useInternalSandboxesList } from '../hooks/useInternalSandboxesList'
 import BeapSandboxCloneDialog from './BeapSandboxCloneDialog'
+import BeapSandboxUnavailableDialog, { type BeapSandboxUnavailableVariant } from './BeapSandboxUnavailableDialog'
 import '../components/handshakeViewTypes'
 import {
   DEBUG_AUTOSORT_DIAGNOSTICS,
@@ -1551,6 +1552,7 @@ export interface EmailInboxBulkViewProps {
   onSelectAttachment?: (attachmentId: string | null) => void
   /** Open Handshakes view and select this relationship */
   onNavigateToHandshake?: (handshakeId: string) => void
+  onOpenHandshakesView?: () => void
 }
 
 export default function EmailInboxBulkView({
@@ -1561,6 +1563,7 @@ export default function EmailInboxBulkView({
   selectedAttachmentId,
   onSelectAttachment,
   onNavigateToHandshake,
+  onOpenHandshakesView,
 }: EmailInboxBulkViewProps) {
   const {
     messages,
@@ -1692,10 +1695,20 @@ export default function EmailInboxBulkView({
   const {
     sandboxes: bulkInternalSandboxes,
     hasUsableSandbox: bulkHasUsableSandbox,
-    hasCloneEligibleSandbox: bulkHasCloneEligibleSandbox,
     cloneEligibleSandboxes: bulkCloneEligibleSandboxes,
+    sandboxAvailability: bulkSandboxAvailability,
   } = useInternalSandboxesList()
   const [bulkSandboxCloneFor, setBulkSandboxCloneFor] = useState<InboxMessage | null>(null)
+  const [bulkSandboxUnavailableOpen, setBulkSandboxUnavailableOpen] = useState(false)
+  const [bulkSandboxUnavailableVariant, setBulkSandboxUnavailableVariant] =
+    useState<BeapSandboxUnavailableVariant>('not_configured')
+
+  const openBulkSandboxUnavailableDialog = useCallback(() => {
+    setBulkSandboxUnavailableVariant(
+      bulkSandboxAvailability.status === 'exists_but_offline' ? 'exists_but_offline' : 'not_configured',
+    )
+    setBulkSandboxUnavailableOpen(true)
+  }, [bulkSandboxAvailability.status])
 
   useEffect(() => {
     void refreshInboxSyncBackendState({
@@ -6566,7 +6579,7 @@ export default function EmailInboxBulkView({
       {/* EmailComposeOverlay removed — use EmailInlineComposer via composeMode (Prompt 3/6) */}
 
       {/* Full message modal — stays inside bulk mode */}
-      {bulkSandboxCloneFor && bulkHasCloneEligibleSandbox && bulkCloneEligibleSandboxes.length > 0 && (
+      {bulkSandboxCloneFor && bulkCloneEligibleSandboxes.length > 1 && (
         <BeapSandboxCloneDialog
           message={bulkSandboxCloneFor}
           sandboxes={bulkCloneEligibleSandboxes}
@@ -6577,6 +6590,13 @@ export default function EmailInboxBulkView({
           }}
         />
       )}
+
+      <BeapSandboxUnavailableDialog
+        isOpen={bulkSandboxUnavailableOpen}
+        variant={bulkSandboxUnavailableVariant}
+        onClose={() => setBulkSandboxUnavailableOpen(false)}
+        onOpenHandshakes={() => onOpenHandshakesView?.()}
+      />
 
       {expandedMessageId && (
         <div
@@ -6611,8 +6631,12 @@ export default function EmailInboxBulkView({
                     onSelectAttachment?.(attachmentId)
                   }}
                   onReply={handleReply}
-                  internalSandboxTargets={bulkHasCloneEligibleSandbox ? bulkCloneEligibleSandboxes : undefined}
-                  onSandboxClone={bulkHasCloneEligibleSandbox ? (m) => setBulkSandboxCloneFor(m) : undefined}
+                  internalSandboxTargets={bulkCloneEligibleSandboxes}
+                  onSandboxMultiSelect={
+                    bulkCloneEligibleSandboxes.length > 1 ? (m) => setBulkSandboxCloneFor(m) : undefined
+                  }
+                  onNoSandboxConnectedInfo={openBulkSandboxUnavailableDialog}
+                  onSandboxCloneComplete={() => void refreshMessages()}
                 />
               ) : (
                 <div className="bulk-view-modal-loading">Loading…</div>

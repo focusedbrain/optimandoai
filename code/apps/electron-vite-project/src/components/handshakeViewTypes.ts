@@ -5,7 +5,7 @@
 
 import type { VerifiedContextBlock } from './contextEscaping'
 import type { NormalInboxAiResult, BulkClassification } from '../types/inboxAi'
-import type { BeapInboxClonePrepareOk } from '../types/beapInboxClone'
+import type { BeapInboxClonePrepareOk, CloneBeapToSandboxIpcResult } from '../types/beapInboxClone'
 
 /** AutoSort session persistence / review (preload `window.autosortSession`). */
 export interface AutosortSessionAPI {
@@ -93,7 +93,7 @@ declare global {
       checkHandshakeSendReady?: (handshakeId: string) => Promise<{ ready: boolean; error?: string; localX25519PublicKey?: string; hasStoredPrivateKey?: boolean }>
       /**
        * Same RPC dispatch as extension WebSocket VAULT_RPC (vault.* / handshake.* / ingestion.*).
-       * Also supports `internalSandboxes.listAvailable` (vault unlocked) → `{ success, sandboxes, incomplete }`.
+       * `internalSandboxes.listAvailable` (vault unlocked) → `{ success, sandboxes, incomplete, sandbox_availability }`.
        */
       vaultRpc?: (args: { method: string; params?: Record<string, unknown>; id?: string }) => Promise<Record<string, unknown>>
       /** Electron: X-Launch-Secret for localhost PQ KEM HTTP (beapCrypto pqEncapsulate). */
@@ -360,11 +360,11 @@ declare global {
       cloneToSandboxPrepare: (payload: {
         sourceMessageId: string
         targetHandshakeId?: string
-      }) => Promise<{ success: boolean; error?: string; prepare?: BeapInboxClonePrepareOk }>
+      }) => Promise<CloneBeapToSandboxIpcResult>
       cloneBeapToSandbox?: (payload: {
         sourceMessageId: string
         targetHandshakeId?: string
-      }) => Promise<{ success: boolean; error?: string; prepare?: BeapInboxClonePrepareOk }>
+      }) => Promise<CloneBeapToSandboxIpcResult>
     }
     /** AutoSort run CRUD + session summary (IPC). */
     autosortSession?: AutosortSessionAPI
