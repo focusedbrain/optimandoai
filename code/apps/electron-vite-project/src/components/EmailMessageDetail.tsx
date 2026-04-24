@@ -17,12 +17,11 @@ import { useOrchestratorMode } from '../hooks/useOrchestratorMode'
 import { beapInboxCloneToSandboxApi } from '../lib/beapInboxCloneToSandbox'
 import {
   beapHostSandboxCloneTooltipForAvailability,
-  beapInboxRedirectTooltipProps,
+  beapInboxRedirectTooltipPropsForDetail,
   beapInboxReplyTooltipProps,
 } from '../lib/beapInboxActionTooltips'
 import { resolveHostSandboxCloneClickAction } from '../lib/beapInboxHostSandboxClickPolicy'
-import { BeapInboxSandboxCloneIcon } from './BeapInboxSandboxCloneIcon'
-import { BeapInboxRedirectIcon } from './BeapInboxRedirectIcon'
+import { BeapActionIconButton } from './BeapActionIconButton'
 import type { SandboxOrchestratorAvailability } from '../types/sandboxOrchestratorAvailability'
 import { defaultSandboxAvailability } from '../types/sandboxOrchestratorAvailability'
 import SessionImportDialog, { type SessionImportDialogSessionRef } from './SessionImportDialog'
@@ -654,6 +653,8 @@ export default function EmailMessageDetail({
     (message.source_type === 'direct_beap' || message.source_type === 'email_beap') &&
     !isBeapQbeapOutboundEcho(message)
   const showDetailActionEnd = canShowDetailReply || canShowBeapDetailActions
+  const beapRedirectDetailTip = beapInboxRedirectTooltipPropsForDetail()
+  const beapSandboxDetailTip = beapHostSandboxCloneTooltipForAvailability(sandboxAvailability, 'detail')
 
   const automationTags = parsedDepackaged ? getAutomationTags(parsedDepackaged) : []
   const sessionRefsList = parsedDepackaged ? getSessionRefs(parsedDepackaged) : []
@@ -838,24 +839,20 @@ export default function EmailMessageDetail({
                 )}
                 {canShowBeapDetailActions && (
                   <>
-                    <button
-                      type="button"
-                      className="inbox-redirect-icon-only"
+                    <BeapActionIconButton
+                      kind="redirect"
+                      title={beapRedirectDetailTip.title}
+                      ariaLabel={beapRedirectDetailTip['aria-label']}
                       onClick={() => setBeapRedirectOpen(true)}
-                      {...beapInboxRedirectTooltipProps()}
-                    >
-                      <BeapInboxRedirectIcon />
-                    </button>
+                    />
                     {showHostSandboxStrip ? (
-                      <button
-                        type="button"
-                        className="inbox-detail-sandbox-clone-icon-btn"
+                      <BeapActionIconButton
+                        kind="sandbox"
+                        title={beapSandboxDetailTip.title}
+                        ariaLabel={beapSandboxDetailTip['aria-label']}
                         onClick={() => void handleHostSandboxClick()}
                         disabled={hostSandboxBusy}
-                        {...beapHostSandboxCloneTooltipForAvailability(sandboxAvailability)}
-                      >
-                        <BeapInboxSandboxCloneIcon />
-                      </button>
+                      />
                     ) : null}
                   </>
                 )}

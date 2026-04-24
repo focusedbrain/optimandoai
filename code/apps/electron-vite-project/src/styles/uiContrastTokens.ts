@@ -63,7 +63,7 @@ export const UI_BUTTON = {
 
 /**
  * BEAP Redirect (historical solid chip) / Sandbox: solid fills + #fff on Sandbox; Redirect UI is icon-only
- * in App.css (`.inbox-redirect-icon-only`). List Sandbox row: `.inbox-row-beap-btn--sandbox`.
+ * in App.css (`.beap-action-icon--redirect` / `.beap-action-icon--sandbox`, optional `--row`).
  */
 export const UI_INBOX_BEAP_ACTION = {
   redirect: {

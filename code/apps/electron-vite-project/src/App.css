@@ -953,60 +953,96 @@ body {
   display: inline-block;
 }
 
-/* Host-only Sandbox clone — 3-ray icon, same violet treatment as previous “Sandbox” chip */
-.inbox-detail-sandbox-clone-icon-btn {
+/* BEAP Redirect + Sandbox (Host): filled sibling icon buttons; detail = default, list = --row */
+.beap-action-icon {
+  width: 34px;
+  height: 34px;
+  min-width: 34px;
+  flex-shrink: 0;
+  border: 0;
+  border-radius: 10px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  box-sizing: border-box;
-  min-width: 34px;
-  min-height: 34px;
-  padding: 6px;
+  cursor: pointer;
+  color: #ffffff;
   font-family: inherit;
   line-height: 0;
-  border-radius: 8px;
-  cursor: pointer;
-  border: 1px solid #7c3aed;
-  background: #6d28d9;
-  color: #ffffff;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.12);
+  box-sizing: border-box;
+  padding: 0;
   -webkit-font-smoothing: antialiased;
-  transition: background-color 0.12s ease, border-color 0.12s ease, color 0.12s ease, box-shadow 0.12s ease;
+  box-shadow: 0 6px 14px rgba(15, 23, 42, 0.16);
+  transition:
+    transform 120ms ease,
+    box-shadow 120ms ease,
+    background-color 120ms ease;
 }
 
-.inbox-detail-sandbox-clone-icon-btn .beap-sandbox-clone-icon-svg {
-  display: block;
-  flex-shrink: 0;
+.beap-action-icon svg {
+  width: 17px;
+  height: 17px;
+  stroke-width: 2.2;
 }
 
-.inbox-detail-sandbox-clone-icon-btn:hover:not(:disabled) {
-  background: #7c3aed;
-  border-color: #8b5cf6;
-  color: #ffffff;
+.beap-action-icon:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.22);
 }
 
-.inbox-detail-sandbox-clone-icon-btn:active:not(:disabled) {
-  background: #5b21b6;
-  border-color: #7c3aed;
-  color: #ffffff;
-}
-
-.inbox-detail-sandbox-clone-icon-btn:focus {
+.beap-action-icon:focus {
   outline: none;
 }
 
-.inbox-detail-sandbox-clone-icon-btn:focus-visible {
-  outline: 2px solid #7c3aed;
+.beap-action-icon:focus-visible {
+  outline: 3px solid rgba(147, 197, 253, 0.9);
   outline-offset: 2px;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.12), 0 0 0 3px rgba(124, 58, 237, 0.35);
 }
 
-.inbox-detail-sandbox-clone-icon-btn:disabled {
-  background: #64748b;
-  border-color: #94a3b8;
-  color: #f8fafc;
+.beap-action-icon:active:not(:disabled) {
+  transform: translateY(0);
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.18);
+}
+
+.beap-action-icon:disabled {
+  opacity: 0.55;
   cursor: wait;
-  opacity: 1;
+  transform: none;
+  box-shadow: 0 3px 10px rgba(15, 23, 42, 0.12);
+}
+
+.beap-action-icon--redirect {
+  background: #2563eb;
+}
+
+.beap-action-icon--redirect:hover:not(:disabled) {
+  background: #1d4ed8;
+}
+
+.beap-action-icon--sandbox {
+  background: #7c3aed;
+}
+
+.beap-action-icon--sandbox:hover:not(:disabled) {
+  background: #6d28d9;
+}
+
+/* Inbox list: same look, slightly smaller — still readable on dark strip */
+.beap-action-icon--row {
+  width: 30px;
+  height: 30px;
+  min-width: 30px;
+  border-radius: 8px;
+  box-shadow: 0 4px 10px rgba(15, 23, 42, 0.14);
+}
+
+.beap-action-icon--row:hover:not(:disabled) {
+  box-shadow: 0 6px 14px rgba(15, 23, 42, 0.2);
+}
+
+.beap-action-icon--row svg {
+  width: 15px;
+  height: 15px;
+  stroke-width: 2.2;
 }
 
 .inbox-detail-icon-btn {
@@ -1104,133 +1140,6 @@ body {
 
 .inbox-detail-toolbar-text-btn--danger:focus-visible {
   outline-color: #dc2626;
-}
-
-/* BEAP Redirect — icon-only (detail + list row); no filled label button */
-.inbox-redirect-icon-only {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  box-sizing: border-box;
-  width: 28px;
-  height: 28px;
-  min-width: 28px;
-  min-height: 28px;
-  padding: 0;
-  margin: 0;
-  border: 0;
-  background: transparent;
-  color: var(--color-text, #334155);
-  border-radius: 8px;
-  cursor: pointer;
-  flex-shrink: 0;
-  -webkit-font-smoothing: antialiased;
-  box-shadow: none;
-  transition: background-color 0.12s ease, color 0.12s ease;
-}
-
-.inbox-redirect-icon-only:hover {
-  background: rgba(124, 58, 237, 0.1);
-  color: var(--color-primary, #7c3aed);
-}
-
-.inbox-redirect-icon-only:focus {
-  outline: none;
-}
-
-.inbox-redirect-icon-only:focus-visible {
-  outline: 2px solid var(--color-primary, #7c3aed);
-  outline-offset: 2px;
-}
-
-.inbox-redirect-icon-only .beap-redirect-icon-svg {
-  display: block;
-  flex-shrink: 0;
-}
-
-/* Dark list strip: high-contrast icon */
-.inbox-redirect-icon-only--row {
-  color: #e2e8f0;
-}
-
-.inbox-redirect-icon-only--row:hover {
-  background: rgba(124, 58, 237, 0.22);
-  color: #f5f3ff;
-}
-
-.inbox-redirect-icon-only--row:focus-visible {
-  outline-color: #a78bfa;
-}
-
-/* Inbox list — compact BEAP text chip (Sandbox only); Redirect uses .inbox-redirect-icon-only--row */
-.inbox-row-beap-btn {
-  font-family: inherit;
-  line-height: 1.2;
-  box-sizing: border-box;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 26px;
-  padding: 0 10px;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.01em;
-  border-radius: 6px;
-  cursor: pointer;
-  flex-shrink: 0;
-  -webkit-font-smoothing: antialiased;
-  color: #ffffff;
-  border-style: solid;
-  border-width: 1px;
-  transition:
-    background-color 0.12s ease,
-    border-color 0.12s ease,
-    box-shadow 0.12s ease;
-}
-
-.inbox-row-beap-btn:focus {
-  outline: none;
-}
-
-.inbox-row-beap-btn--sandbox {
-  background: #6d28d9;
-  border-color: #8b5cf6;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
-}
-
-.inbox-row-beap-btn--sandbox:hover {
-  background: #7c3aed;
-  border-color: #a78bfa;
-  color: #ffffff;
-}
-
-.inbox-row-beap-btn--sandbox:active {
-  background: #5b21b6;
-  border-color: #7c3aed;
-  color: #ffffff;
-}
-
-.inbox-row-beap-btn--sandbox:focus-visible {
-  outline: 2px solid #c4b5fd;
-  outline-offset: 2px;
-  box-shadow: 0 0 0 2px rgba(15, 23, 42, 0.6);
-}
-
-/* List row: Sandbox clone icon (no “Sandbox” label) */
-.inbox-row-sandbox-clone-icon-btn {
-  min-width: 28px;
-  min-height: 28px;
-  padding: 4px 6px;
-  font-size: 0;
-  line-height: 0;
-  color: #ffffff;
-}
-
-.inbox-row-sandbox-clone-icon-btn .beap-sandbox-clone-icon-svg {
-  display: block;
-  width: 18px;
-  height: 18px;
-  margin: 0 auto;
 }
 
 /* BeapSandboxUnavailableDialog — keyboard focus (light card, explicit colors in component) */

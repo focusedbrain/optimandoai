@@ -1,5 +1,5 @@
 /**
- * Forward/redirect (BEAP to another recipient). Icon-only; label from parent `aria-label` / `title`.
+ * Forward/redirect (BEAP to another recipient). Bold “forward” chevron; size from `.beap-action-icon svg`.
  */
 export function BeapInboxRedirectIcon() {
   return (
@@ -7,17 +7,15 @@ export function BeapInboxRedirectIcon() {
       className="beap-redirect-icon-svg"
       xmlns="http://www.w3.org/2000/svg"
       viewBox="0 0 24 24"
-      width={18}
-      height={18}
       fill="none"
       stroke="currentColor"
-      strokeWidth="2.1"
+      strokeWidth="2.2"
       strokeLinecap="round"
       strokeLinejoin="round"
       aria-hidden
     >
-      <path d="M5 12h10.5a3.5 3.5 0 0 0 3.5-3.5V5" />
-      <path d="M16 3l3 3-3 3" />
+      <path d="M4 12h12" />
+      <path d="M13 6l6 6-6 6" />
     </svg>
   )
 }

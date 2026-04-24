@@ -24,9 +24,8 @@ import { useInboxPreloadQueue } from '../hooks/useInboxPreloadQueue'
 import { useInternalSandboxesList } from '../hooks/useInternalSandboxesList'
 import { useOrchestratorMode } from '../hooks/useOrchestratorMode'
 import { beapInboxCloneToSandboxApi } from '../lib/beapInboxCloneToSandbox'
-import { beapHostSandboxCloneTooltipForAvailability, beapInboxRedirectTooltipProps } from '../lib/beapInboxActionTooltips'
-import { BeapInboxSandboxCloneIcon } from './BeapInboxSandboxCloneIcon'
-import { BeapInboxRedirectIcon } from './BeapInboxRedirectIcon'
+import { beapHostSandboxCloneTooltipForAvailability, beapInboxRedirectTooltipPropsForRow } from '../lib/beapInboxActionTooltips'
+import { BeapActionIconButton } from './BeapActionIconButton'
 import type { SandboxOrchestratorAvailability } from '../types/sandboxOrchestratorAvailability'
 import BeapSandboxCloneDialog from './BeapSandboxCloneDialog'
 import BeapSandboxUnavailableDialog, { type BeapSandboxUnavailableVariant } from './BeapSandboxUnavailableDialog'
@@ -1694,6 +1693,8 @@ function InboxMessageRow({
   const isBeap = message.source_type === 'email_beap' || message.source_type === 'direct_beap'
   const canRowRedirect = Boolean(onRedirectInRow) && isBeap && !isBeapQbeapOutboundEcho(message)
   const canRowSandbox = canShowSandboxCloneAction({ ...sandboxOrchestrator, message })
+  const rowRedirectTip = beapInboxRedirectTooltipPropsForRow()
+  const rowSandboxTip = beapHostSandboxCloneTooltipForAvailability(sandboxAvailability, 'row')
   const bodyPreview = (message.body_text || '').slice(0, 100).replace(/\s+/g, ' ').trim()
   const hasAttachments = message.has_attachments === 1
 
@@ -1842,32 +1843,30 @@ function InboxMessageRow({
         )}
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
           {canRowRedirect && onRedirectInRow && (
-            <button
-              type="button"
-              className="inbox-redirect-icon-only inbox-redirect-icon-only--row"
+            <BeapActionIconButton
+              kind="redirect"
+              row
+              title={rowRedirectTip.title}
+              ariaLabel={rowRedirectTip['aria-label']}
               onClick={(e) => {
                 e.stopPropagation()
                 e.preventDefault()
                 onRedirectInRow(e, message)
               }}
-              {...beapInboxRedirectTooltipProps()}
-            >
-              <BeapInboxRedirectIcon />
-            </button>
+            />
           )}
           {canRowSandbox && onSandboxInRow && (
-            <button
-              type="button"
-              className="inbox-row-beap-btn inbox-row-beap-btn--sandbox inbox-row-sandbox-clone-icon-btn"
+            <BeapActionIconButton
+              kind="sandbox"
+              row
+              title={rowSandboxTip.title}
+              ariaLabel={rowSandboxTip['aria-label']}
               onClick={(e) => {
                 e.stopPropagation()
                 e.preventDefault()
                 onSandboxInRow(e, message)
               }}
-              {...beapHostSandboxCloneTooltipForAvailability(sandboxAvailability)}
-            >
-              <BeapInboxSandboxCloneIcon />
-            </button>
+            />
           )}
           {hasAttachments && (
             <span style={{ fontSize: 10, color: 'var(--color-text-muted, #94a3b8)' }}>📎</span>
