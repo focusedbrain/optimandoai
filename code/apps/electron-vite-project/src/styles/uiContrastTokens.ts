@@ -62,9 +62,8 @@ export const UI_BUTTON = {
 } as const
 
 /**
- * BEAP Redirect / Sandbox: always **solid fills + #fff text** (no pale text on tinted bg).
- * Redirect = blue family; Sandbox = violet family — distinct hues.
- * App.css: `.inbox-detail-beap-btn--*` (light detail panel), `.inbox-row-beap-btn--*` (dark list strip).
+ * BEAP Redirect (historical solid chip) / Sandbox: solid fills + #fff on Sandbox; Redirect UI is icon-only
+ * in App.css (`.inbox-redirect-icon-only`). List Sandbox row: `.inbox-row-beap-btn--sandbox`.
  */
 export const UI_INBOX_BEAP_ACTION = {
   redirect: {

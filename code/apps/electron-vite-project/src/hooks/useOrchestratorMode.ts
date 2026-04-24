@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
 
 /**
- * Best-effort Host vs Sandbox detection via main-process persisted orchestrator mode.
- * When the bridge is missing (e.g. web dev), `mode` stays null and `isHost` is false.
+ * Best-effort Host vs Sandbox detection via main-process persisted orchestrator mode
+ * (`orchestrator:getMode`). When the bridge is missing (e.g. web dev), `mode` stays null and
+ * `isHost` is false. Refetches when the document becomes visible again (e.g. after changing mode in Settings).
  */
 export function useOrchestratorMode() {
   const [mode, setMode] = useState<'host' | 'sandbox' | null>(null)
@@ -10,7 +11,7 @@ export function useOrchestratorMode() {
 
   useEffect(() => {
     let cancelled = false
-    const run = async () => {
+    const fetchMode = async () => {
       const getMode = window.orchestratorMode?.getMode
       if (typeof getMode !== 'function') {
         if (!cancelled) {
@@ -34,9 +35,14 @@ export function useOrchestratorMode() {
         if (!cancelled) setReady(true)
       }
     }
-    void run()
+    void fetchMode()
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') void fetchMode()
+    }
+    document.addEventListener('visibilitychange', onVisibility)
     return () => {
       cancelled = true
+      document.removeEventListener('visibilitychange', onVisibility)
     }
   }, [])
 

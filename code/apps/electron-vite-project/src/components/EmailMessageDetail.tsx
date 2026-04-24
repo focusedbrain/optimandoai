@@ -11,13 +11,18 @@ import LinkWarningDialog from './LinkWarningDialog'
 import { extractLinkParts } from '../utils/safeLinks'
 import { deriveInboxMessageKind } from '../lib/inboxMessageKind'
 import { isBeapQbeapOutboundEcho } from '../lib/inboxBeapOutbound'
-import { canShowSandboxAction } from '../lib/beapInboxSandboxVisibility'
+import { canShowSandboxCloneAction } from '../lib/beapInboxSandboxVisibility'
 import type { InternalSandboxTargetWire } from '../hooks/useInternalSandboxesList'
 import { useOrchestratorMode } from '../hooks/useOrchestratorMode'
 import { beapInboxCloneToSandboxApi } from '../lib/beapInboxCloneToSandbox'
-import { beapHostSandboxCloneTooltipForAvailability, beapInboxReplyTooltipProps } from '../lib/beapInboxActionTooltips'
+import {
+  beapHostSandboxCloneTooltipForAvailability,
+  beapInboxRedirectTooltipProps,
+  beapInboxReplyTooltipProps,
+} from '../lib/beapInboxActionTooltips'
 import { resolveHostSandboxCloneClickAction } from '../lib/beapInboxHostSandboxClickPolicy'
 import { BeapInboxSandboxCloneIcon } from './BeapInboxSandboxCloneIcon'
+import { BeapInboxRedirectIcon } from './BeapInboxRedirectIcon'
 import type { SandboxOrchestratorAvailability } from '../types/sandboxOrchestratorAvailability'
 import { defaultSandboxAvailability } from '../types/sandboxOrchestratorAvailability'
 import SessionImportDialog, { type SessionImportDialogSessionRef } from './SessionImportDialog'
@@ -584,7 +589,7 @@ export default function EmailMessageDetail({
     message != null &&
     isNativeBeap &&
     (parsedDepackaged?.format === 'beap_qbeap_outbound' || isBeapQbeapOutboundEcho(message))
-  const showHostSandboxStrip = canShowSandboxAction({ modeReady, orchestratorMode, message })
+  const showHostSandboxStrip = canShowSandboxCloneAction({ modeReady, orchestratorMode, message })
 
   const handleHostSandboxClick = useCallback(async () => {
     if (!message) return
@@ -835,12 +840,11 @@ export default function EmailMessageDetail({
                   <>
                     <button
                       type="button"
-                      className="inbox-detail-beap-btn inbox-detail-beap-btn--redirect"
+                      className="inbox-redirect-icon-only"
                       onClick={() => setBeapRedirectOpen(true)}
-                      aria-label="Redirect"
-                      title="Forward as a new BEAP message to a different handshake. Does not change this inbox row."
+                      {...beapInboxRedirectTooltipProps()}
                     >
-                      Redirect
+                      <BeapInboxRedirectIcon />
                     </button>
                     {showHostSandboxStrip ? (
                       <button

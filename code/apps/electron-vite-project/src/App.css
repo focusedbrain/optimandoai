@@ -1106,118 +1106,63 @@ body {
   outline-color: #dc2626;
 }
 
-/*
- * BEAP actions — Redirect (blue) vs Sandbox (violet): solid bg + #fff, see uiContrastTokens UI_INBOX_BEAP_ACTION.
- * Detail: slightly larger than list row; both use :hover / :active / :focus-visible (a11y).
- */
-.inbox-detail-beap-btn {
-  font-family: inherit;
-  line-height: 1.2;
-  box-sizing: border-box;
+/* BEAP Redirect — icon-only (detail + list row); no filled label button */
+.inbox-redirect-icon-only {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  box-sizing: border-box;
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  min-height: 28px;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-text, #334155);
+  border-radius: 8px;
+  cursor: pointer;
+  flex-shrink: 0;
   -webkit-font-smoothing: antialiased;
-  transition:
-    background-color 0.12s ease,
-    border-color 0.12s ease,
-    color 0.12s ease,
-    box-shadow 0.12s ease;
+  box-shadow: none;
+  transition: background-color 0.12s ease, color 0.12s ease;
 }
 
-.inbox-detail-beap-btn--redirect {
-  min-height: 34px;
-  padding: 0 12px;
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.01em;
-  border-radius: 8px;
-  cursor: pointer;
-  background: #1d4ed8;
-  color: #ffffff;
-  border: 1px solid #2563eb;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.12);
+.inbox-redirect-icon-only:hover {
+  background: rgba(124, 58, 237, 0.1);
+  color: var(--color-primary, #7c3aed);
 }
 
-.inbox-detail-beap-btn--redirect:hover:not(:disabled) {
-  background: #2563eb;
-  border-color: #3b82f6;
-  color: #ffffff;
-}
-
-.inbox-detail-beap-btn--redirect:active:not(:disabled) {
-  background: #1e40af;
-  border-color: #2563eb;
-  color: #ffffff;
-}
-
-.inbox-detail-beap-btn--redirect:focus {
+.inbox-redirect-icon-only:focus {
   outline: none;
 }
 
-.inbox-detail-beap-btn--redirect:focus-visible {
-  outline: 2px solid #2563eb;
+.inbox-redirect-icon-only:focus-visible {
+  outline: 2px solid var(--color-primary, #7c3aed);
   outline-offset: 2px;
-  box-shadow:
-    0 1px 2px rgba(15, 23, 42, 0.12),
-    0 0 0 3px rgba(37, 99, 235, 0.4);
 }
 
-.inbox-detail-beap-btn--redirect:disabled {
-  background: #64748b;
-  border-color: #94a3b8;
-  color: #f8fafc;
-  cursor: not-allowed;
-  opacity: 1;
+.inbox-redirect-icon-only .beap-redirect-icon-svg {
+  display: block;
+  flex-shrink: 0;
 }
 
-.inbox-detail-beap-btn--sandbox {
-  min-height: 34px;
-  padding: 0 12px;
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.01em;
-  border-radius: 8px;
-  cursor: pointer;
-  background: #6d28d9;
-  color: #ffffff;
-  border: 1px solid #7c3aed;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.12);
+/* Dark list strip: high-contrast icon */
+.inbox-redirect-icon-only--row {
+  color: #e2e8f0;
 }
 
-.inbox-detail-beap-btn--sandbox:hover:not(:disabled) {
-  background: #7c3aed;
-  border-color: #8b5cf6;
-  color: #ffffff;
+.inbox-redirect-icon-only--row:hover {
+  background: rgba(124, 58, 237, 0.22);
+  color: #f5f3ff;
 }
 
-.inbox-detail-beap-btn--sandbox:active:not(:disabled) {
-  background: #5b21b6;
-  border-color: #7c3aed;
-  color: #ffffff;
+.inbox-redirect-icon-only--row:focus-visible {
+  outline-color: #a78bfa;
 }
 
-.inbox-detail-beap-btn--sandbox:focus {
-  outline: none;
-}
-
-.inbox-detail-beap-btn--sandbox:focus-visible {
-  outline: 2px solid #7c3aed;
-  outline-offset: 2px;
-  box-shadow:
-    0 1px 2px rgba(15, 23, 42, 0.12),
-    0 0 0 3px rgba(124, 58, 237, 0.4);
-}
-
-.inbox-detail-beap-btn--sandbox:disabled {
-  background: #64748b;
-  border-color: #94a3b8;
-  color: #f8fafc;
-  cursor: wait;
-  opacity: 1;
-}
-
-/* Inbox list — compact BEAP controls on dark strip; same palette as detail, no low-contrast tints */
+/* Inbox list — compact BEAP text chip (Sandbox only); Redirect uses .inbox-redirect-icon-only--row */
 .inbox-row-beap-btn {
   font-family: inherit;
   line-height: 1.2;
@@ -1245,30 +1190,6 @@ body {
 
 .inbox-row-beap-btn:focus {
   outline: none;
-}
-
-.inbox-row-beap-btn--redirect {
-  background: #1d4ed8;
-  border-color: #3b82f6;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
-}
-
-.inbox-row-beap-btn--redirect:hover {
-  background: #2563eb;
-  border-color: #60a5fa;
-  color: #ffffff;
-}
-
-.inbox-row-beap-btn--redirect:active {
-  background: #1e40af;
-  border-color: #2563eb;
-  color: #ffffff;
-}
-
-.inbox-row-beap-btn--redirect:focus-visible {
-  outline: 2px solid #93c5fd;
-  outline-offset: 2px;
-  box-shadow: 0 0 0 2px rgba(15, 23, 42, 0.6);
 }
 
 .inbox-row-beap-btn--sandbox {

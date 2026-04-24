@@ -24,14 +24,15 @@ import { useInboxPreloadQueue } from '../hooks/useInboxPreloadQueue'
 import { useInternalSandboxesList } from '../hooks/useInternalSandboxesList'
 import { useOrchestratorMode } from '../hooks/useOrchestratorMode'
 import { beapInboxCloneToSandboxApi } from '../lib/beapInboxCloneToSandbox'
-import { beapHostSandboxCloneTooltipForAvailability } from '../lib/beapInboxActionTooltips'
+import { beapHostSandboxCloneTooltipForAvailability, beapInboxRedirectTooltipProps } from '../lib/beapInboxActionTooltips'
 import { BeapInboxSandboxCloneIcon } from './BeapInboxSandboxCloneIcon'
+import { BeapInboxRedirectIcon } from './BeapInboxRedirectIcon'
 import type { SandboxOrchestratorAvailability } from '../types/sandboxOrchestratorAvailability'
 import BeapSandboxCloneDialog from './BeapSandboxCloneDialog'
 import BeapSandboxUnavailableDialog, { type BeapSandboxUnavailableVariant } from './BeapSandboxUnavailableDialog'
 import BeapRedirectDialog from './BeapRedirectDialog'
 import { isBeapQbeapOutboundEcho } from '../lib/inboxBeapOutbound'
-import { canShowSandboxAction } from '../lib/beapInboxSandboxVisibility'
+import { canShowSandboxCloneAction } from '../lib/beapInboxSandboxVisibility'
 import {
   resolveHostSandboxCloneClickAction,
   sandboxCloneUnavailableDialogVariant,
@@ -1665,8 +1666,8 @@ interface InboxMessageRowProps {
   onMouseEnter?: () => void
   onNavigateToHandshake?: (handshakeId: string) => void
   /**
-   * Host orchestrator + mode ready. Row combines with per-message `canShowSandboxAction`
-   * (same rules as the message detail pane). `orchestratorMode` must be `'host'` to show Sandbox.
+   * Host orchestrator + mode ready. Row uses `canShowSandboxCloneAction` (same as message detail).
+   * `orchestratorMode` must be `'host'`; never inferred from remote handshake peer.
    */
   sandboxOrchestrator: { modeReady: boolean; orchestratorMode: 'host' | 'sandbox' | null }
   /** Drives Sandbox button hover (connected / offline / not configured). */
@@ -1692,7 +1693,7 @@ function InboxMessageRow({
 }: InboxMessageRowProps) {
   const isBeap = message.source_type === 'email_beap' || message.source_type === 'direct_beap'
   const canRowRedirect = Boolean(onRedirectInRow) && isBeap && !isBeapQbeapOutboundEcho(message)
-  const canRowSandbox = canShowSandboxAction({ ...sandboxOrchestrator, message })
+  const canRowSandbox = canShowSandboxCloneAction({ ...sandboxOrchestrator, message })
   const bodyPreview = (message.body_text || '').slice(0, 100).replace(/\s+/g, ' ').trim()
   const hasAttachments = message.has_attachments === 1
 
@@ -1843,16 +1844,15 @@ function InboxMessageRow({
           {canRowRedirect && onRedirectInRow && (
             <button
               type="button"
-              className="inbox-row-beap-btn inbox-row-beap-btn--redirect"
-              aria-label="Redirect"
+              className="inbox-redirect-icon-only inbox-redirect-icon-only--row"
               onClick={(e) => {
                 e.stopPropagation()
                 e.preventDefault()
                 onRedirectInRow(e, message)
               }}
-              title="Forward as a new BEAP to another handshake (separate from Sandbox clone)."
+              {...beapInboxRedirectTooltipProps()}
             >
-              Redirect
+              <BeapInboxRedirectIcon />
             </button>
           )}
           {canRowSandbox && onSandboxInRow && (
@@ -1967,7 +1967,9 @@ export default function EmailInboxView({
   } = useInternalSandboxesList()
 
   const showInternalSandboxInboxRow =
-    internalSandboxesLoading || hasUsableSandbox || internalSandboxesIncomplete.length > 0
+    hostModeReady &&
+    orchestratorMode === 'host' &&
+    (internalSandboxesLoading || hasUsableSandbox || internalSandboxesIncomplete.length > 0)
 
   const primaryAccountId = pickDefaultEmailAccountRowId(accounts)
   const autoSyncEligibleAccountIds = useMemo(() => activeEmailAccountIdsForSync(accounts), [accounts])

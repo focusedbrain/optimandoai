@@ -10,6 +10,9 @@
  * Not clone-eligible in UI: outbound qBEAP echo (`isBeapQbeapOutboundEcho`), non-Host orchestrator,
  * or `source_type` outside the two above (e.g. `email_plain`). Prepare/clone may still return
  * `SOURCE_NO_EXTRACTABLE_CONTENT` when plaintext is not yet available.
+ *
+ * Gating uses **local persisted** `orchestratorMode` from `useOrchestratorMode()` / `orchestrator:getMode`
+ * only — not remote handshake peer `mode`.
  */
 
 import type { InboxMessage } from '../stores/useEmailInboxStore'
@@ -22,29 +25,37 @@ export function isReceivedBeapMessageForSandbox(m: Pick<InboxMessage, 'source_ty
   return t === 'email_beap' || t === 'direct_beap'
 }
 
+/** Alias for docs / call sites that match the name `isReceivedBeapMessage`. */
+export const isReceivedBeapMessage = isReceivedBeapMessageForSandbox
+
 /**
  * True when the row must not offer Sandbox: user's outbound qBEAP echo, not a received message.
- * (Same as list logic; use this everywhere for consistent visibility with `canShowSandboxAction`.)
+ * (Same as list logic; use this everywhere for consistent visibility with `canShowSandboxCloneAction`.)
  */
 export function isOutboundQbeapEchoForSandboxAction(message: InboxMessage | null | undefined): boolean {
   if (!message) return false
   return isBeapQbeapOutboundEcho(message)
 }
 
-/**
- * Host-only: Sandbox clone is a Host → internal Sandbox path. Gated on **local** orchestrator
- * mode (not handshake peer role). `orchestratorMode === 'host'` from `useOrchestratorMode` —
- * never show on Sandbox device or when mode is null/unknown (until ready+host).
- */
-export function canShowSandboxAction(params: {
+type SandboxCloneActionParams = {
   modeReady: boolean
-  /** From `useOrchestratorMode().mode` — must be exactly `'host'` to show UI. */
+  /** From `useOrchestratorMode().mode` / `window.orchestratorMode.getMode()` — must be `'host'`. */
   orchestratorMode: 'host' | 'sandbox' | null
   message: InboxMessage | null | undefined
-}): boolean {
+}
+
+/**
+ * `canShowSandboxCloneAction` ⇔
+ * `modeReady && orchestratorMode === 'host' && isReceivedBeapMessage(m) && !isOutboundQbeapEcho(m)`.
+ * Never true when the local device is configured as a Sandbox orchestrator.
+ */
+export function canShowSandboxCloneAction(params: SandboxCloneActionParams): boolean {
   const { modeReady, orchestratorMode, message } = params
   if (!modeReady || orchestratorMode !== 'host' || !message) return false
   if (!isReceivedBeapMessageForSandbox(message)) return false
   if (isOutboundQbeapEchoForSandboxAction(message)) return false
   return true
 }
+
+/** Same as `canShowSandboxCloneAction` (kept for existing imports). */
+export const canShowSandboxAction = canShowSandboxCloneAction

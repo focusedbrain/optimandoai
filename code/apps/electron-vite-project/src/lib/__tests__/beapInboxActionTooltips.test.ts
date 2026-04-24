@@ -3,8 +3,11 @@ import {
   BEAP_HOST_SANDBOX_CLONE_ARIA_SUFFIX_CONNECTED,
   BEAP_HOST_SANDBOX_CLONE_ARIA_SUFFIX_NOT_CONFIGURED,
   BEAP_HOST_SANDBOX_CLONE_ARIA_SUFFIX_OFFLINE,
+  BEAP_INBOX_REDIRECT_TIP,
+  BEAP_INBOX_REDIRECT_TIP_DESC,
   BEAP_INBOX_REPLY_TOOLTIP,
   beapHostSandboxCloneTooltipForAvailability,
+  beapInboxRedirectTooltipProps,
   beapInboxReplyTooltipProps,
 } from '../beapInboxActionTooltips'
 import { defaultSandboxAvailability } from '../../types/sandboxOrchestratorAvailability'
@@ -30,5 +33,11 @@ describe('beapInboxActionTooltips', () => {
     const p = beapInboxReplyTooltipProps()
     expect(p.title).toBe(BEAP_INBOX_REPLY_TOOLTIP)
     expect(p['aria-label']).toBe('Reply')
+  })
+
+  test('beapInboxRedirectTooltipProps: aria-label Redirect; title includes short + expanded line', () => {
+    const p = beapInboxRedirectTooltipProps()
+    expect(p['aria-label']).toBe(BEAP_INBOX_REDIRECT_TIP)
+    expect(p.title).toBe(`${BEAP_INBOX_REDIRECT_TIP}\n${BEAP_INBOX_REDIRECT_TIP_DESC}`)
   })
 })

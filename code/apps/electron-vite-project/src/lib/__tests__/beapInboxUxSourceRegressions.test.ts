@@ -1,3 +1,4 @@
+/** @vitest-environment node */
 /**
  * File-level regressions (Node env, no jsdom) — same approach as ThisDeviceCard.test.tsx.
  * Guards IPC host gate, clone semantics string, and removal of legacy reply affordances.
@@ -28,6 +29,17 @@ describe('beapInbox Ux source regressions', () => {
     expect(src).not.toMatch(/className="[^"]*inbox-detail-icon-btn[^"]*--reply/)
   })
 
+  test('15: Redirect is icon-only in detail + list row; no button text node Redirect', () => {
+    const detail = readRel('components', 'EmailMessageDetail.tsx')
+    const inbox = readRel('components', 'EmailInboxView.tsx')
+    expect(detail).toContain('BeapInboxRedirectIcon')
+    expect(detail).toContain('inbox-redirect-icon-only')
+    expect(detail).toContain('beapInboxRedirectTooltipProps()')
+    expect(detail).not.toMatch(/>Redirect</)
+    expect(inbox).toContain('inbox-redirect-icon-only--row')
+    expect(inbox).not.toMatch(/>Redirect</)
+  })
+
   test('Sandbox UI: Host gate on orchestratorMode; 3-ray icon component', () => {
     const vis = readRel('lib', 'beapInboxSandboxVisibility.ts')
     expect(vis).toContain("orchestratorMode !== 'host'")
@@ -35,7 +47,7 @@ describe('beapInbox Ux source regressions', () => {
     const inbox = readRel('components', 'EmailInboxView.tsx')
     expect(detail).toContain('BeapInboxSandboxCloneIcon')
     expect(inbox).toContain('BeapInboxSandboxCloneIcon')
-    expect(detail).toContain('canShowSandboxAction({ modeReady, orchestratorMode, message })')
+    expect(detail).toContain('canShowSandboxCloneAction({ modeReady, orchestratorMode, message })')
   })
 
   test('14: clone prepare IPC enforces Host orchestrator before vault/db', () => {

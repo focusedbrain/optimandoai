@@ -1,6 +1,8 @@
 import { describe, test, expect } from 'vitest'
 import {
   canShowSandboxAction,
+  canShowSandboxCloneAction,
+  isReceivedBeapMessage,
   isReceivedBeapMessageForSandbox,
   isOutboundQbeapEchoForSandboxAction,
 } from '../beapInboxSandboxVisibility'
@@ -60,6 +62,19 @@ describe('beapInboxSandboxVisibility', () => {
     expect(isReceivedBeapMessageForSandbox({ source_type: 'direct_beap' })).toBe(true)
     expect(isReceivedBeapMessageForSandbox({ source_type: 'email_beap' })).toBe(true)
     expect(isReceivedBeapMessageForSandbox({ source_type: 'email_plain' })).toBe(false)
+  })
+
+  test('isReceivedBeapMessage is an alias of isReceivedBeapMessageForSandbox', () => {
+    expect(isReceivedBeapMessage({ source_type: 'direct_beap' })).toBe(
+      isReceivedBeapMessageForSandbox({ source_type: 'direct_beap' }),
+    )
+  })
+
+  test('canShowSandboxCloneAction matches canShowSandboxAction', () => {
+    const received = beapMsg({ source_type: 'email_beap' })
+    const a = canShowSandboxAction({ modeReady: true, orchestratorMode: 'host', message: received })
+    const b = canShowSandboxCloneAction({ modeReady: true, orchestratorMode: 'host', message: received })
+    expect(a).toBe(b)
   })
 
   test('isOutboundQbeapEchoForSandboxAction when depackaged format is outbound', () => {

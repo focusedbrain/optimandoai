@@ -43,6 +43,17 @@ export function beapHostSandboxCloneTooltipForAvailability(
   }
 }
 
+/** BEAP redirect to another recipient — short hover; long `aria-label`. */
+export const BEAP_INBOX_REDIRECT_TIP = 'Redirect'
+export const BEAP_INBOX_REDIRECT_TIP_DESC = 'Redirect this BEAP message to another recipient.'
+
+export function beapInboxRedirectTooltipProps(): { title: string; 'aria-label': string } {
+  return {
+    title: `${BEAP_INBOX_REDIRECT_TIP}\n${BEAP_INBOX_REDIRECT_TIP_DESC}`,
+    'aria-label': BEAP_INBOX_REDIRECT_TIP,
+  }
+}
+
 /** Inbox message detail — compact Reply icon (`title` / screen reader). */
 export const BEAP_INBOX_REPLY_TOOLTIP = 'Reply'
 
