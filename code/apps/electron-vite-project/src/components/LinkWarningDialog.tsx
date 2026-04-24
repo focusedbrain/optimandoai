@@ -1,30 +1,46 @@
 /**
- * LinkWarningDialog — Confirmation before opening external links.
- * Warns that links may be untrusted/executable content.
+ * LinkWarningDialog — Confirmation before opening external links from BEAP inbox bodies.
+ * Strongly encourages cloning the full message to a Sandbox orchestrator before opening risky URLs.
  */
 
 import React, { useEffect } from 'react'
+import { BeapInboxSandboxCloneIcon } from './BeapInboxSandboxCloneIcon'
 
 export interface LinkWarningDialogProps {
   isOpen: boolean
   url: string
   onConfirm: () => void
   onCancel: () => void
+  /** Host orchestrator only; hidden on Sandbox or until mode is known. */
+  showSandboxAction?: boolean
+  /** Clone full message via existing sandbox prepare/send (not URL-only). */
+  onSandbox?: () => void
+  sandboxBusy?: boolean
 }
 
-const WARNING_TEXT = `Opening links is potentially risky. Each external link should be treated as potential code or untrusted content.
+const BODY_PRIMARY =
+  'External links and original artifacts can be unsafe. Treat every link, PDF, attachment, or downloaded file as untrusted content.'
 
-It is recommended to view links in a connected sandbox orchestrator on a separate mini PC when possible.`
+const BODY_SANDBOX =
+  'For security reasons, it is strongly recommended to open links and original artifacts only inside a connected Sandbox orchestrator running on isolated hardware, such as a separate mini PC.'
+
+const BODY_KVM =
+  'A KVM switch with hotkeys is the recommended setup, so you can inspect risky content in the Sandbox environment without interrupting your normal workflow.'
 
 export default function LinkWarningDialog({
   isOpen,
   url,
   onConfirm,
   onCancel,
+  showSandboxAction = false,
+  onSandbox,
+  sandboxBusy = false,
 }: LinkWarningDialogProps) {
   useEffect(() => {
     if (!isOpen) return
-    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onCancel() }
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onCancel()
+    }
     document.addEventListener('keydown', handler)
     return () => document.removeEventListener('keydown', handler)
   }, [isOpen, onCancel])
@@ -43,16 +59,35 @@ export default function LinkWarningDialog({
         <h2 id="link-warning-title" className="link-warning-title">
           Open external link?
         </h2>
-        <p className="link-warning-body">{WARNING_TEXT}</p>
-        <p className="link-warning-url" title={url}>
-          {url.length > 80 ? url.slice(0, 77) + '…' : url}
-        </p>
+        <div className="link-warning-body">
+          <p className="link-warning-para link-warning-para--primary">{BODY_PRIMARY}</p>
+          <p className="link-warning-para">{BODY_SANDBOX}</p>
+          <p className="link-warning-para">{BODY_KVM}</p>
+        </div>
+        <div className="link-warning-url-label">Target URL</div>
+        <div className="link-warning-url-block" title={url}>
+          {url}
+        </div>
         <div className="link-warning-actions">
+          {showSandboxAction && onSandbox ? (
+            <button
+              type="button"
+              className="link-warning-btn-sandbox"
+              onClick={() => void onSandbox()}
+              disabled={sandboxBusy}
+              aria-busy={sandboxBusy}
+            >
+              <span className="link-warning-btn-sandbox__icon" aria-hidden>
+                <BeapInboxSandboxCloneIcon />
+              </span>
+              <span className="link-warning-btn-sandbox__label">Sandbox</span>
+            </button>
+          ) : null}
+          <button type="button" className="link-warning-btn-open" onClick={onConfirm}>
+            Open link
+          </button>
           <button type="button" className="link-warning-btn-cancel" onClick={onCancel}>
             Cancel
-          </button>
-          <button type="button" className="link-warning-btn-confirm" onClick={onConfirm}>
-            Open anyway
           </button>
         </div>
       </div>

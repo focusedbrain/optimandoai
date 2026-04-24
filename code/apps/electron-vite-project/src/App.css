@@ -5806,85 +5806,156 @@ body {
   font-size: 13px;
 }
 
-/* --- Link warning dialog (safe link confirmation) --- */
+/* --- Link warning dialog (safe link confirmation) — Standard/light readable surface --- */
 .link-warning-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.5);
+  background: rgba(15, 23, 42, 0.55);
   backdrop-filter: blur(4px);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 1100;
+  padding: 16px;
 }
 
 .link-warning-dialog {
-  width: 90%;
-  max-width: 440px;
-  padding: 20px 24px;
-  background: var(--color-bg, #0f172a);
-  border: 1px solid var(--color-border, rgba(255, 255, 255, 0.1));
-  border-radius: 10px;
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4);
+  width: 100%;
+  max-width: 460px;
+  padding: 22px 24px 20px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  box-shadow: 0 20px 50px rgba(15, 23, 42, 0.18);
+  color: #0f172a;
 }
 
 .link-warning-title {
-  margin: 0 0 12px;
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--color-text, #e2e8f0);
+  margin: 0 0 14px;
+  font-size: 17px;
+  font-weight: 700;
+  color: #0f172a;
+  letter-spacing: -0.02em;
 }
 
 .link-warning-body {
-  margin: 0 0 12px;
-  font-size: 12px;
-  line-height: 1.55;
-  color: var(--color-text-muted, #94a3b8);
-  white-space: pre-wrap;
+  margin: 0 0 14px;
 }
 
-.link-warning-url {
-  margin: 0 0 16px;
+.link-warning-para {
+  margin: 0 0 10px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: #334155;
+}
+
+.link-warning-para:last-child {
+  margin-bottom: 0;
+}
+
+.link-warning-para--primary {
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.link-warning-url-label {
   font-size: 11px;
-  font-family: 'SF Mono', 'Consolas', monospace;
-  color: var(--color-text-muted, #94a3b8);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #64748b;
+  margin-bottom: 6px;
+}
+
+.link-warning-url-block {
+  margin: 0 0 18px;
+  padding: 10px 12px;
+  font-size: 12px;
+  line-height: 1.45;
+  font-family: ui-monospace, 'SF Mono', Consolas, monospace;
+  color: #0f172a;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
   word-break: break-all;
+  user-select: text;
+  max-height: 120px;
+  overflow-y: auto;
 }
 
 .link-warning-actions {
   display: flex;
+  flex-wrap: wrap;
+  align-items: center;
   gap: 10px;
   justify-content: flex-end;
 }
 
-.link-warning-btn-cancel {
-  padding: 8px 16px;
+.link-warning-btn-sandbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 700;
+  border-radius: 8px;
+  border: 1px solid #7c3aed;
+  background: linear-gradient(180deg, #7c3aed 0%, #6d28d9 100%);
+  color: #ffffff;
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.12);
+}
+
+.link-warning-btn-sandbox:hover:not(:disabled) {
+  filter: brightness(1.05);
+}
+
+.link-warning-btn-sandbox:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.link-warning-btn-sandbox__icon {
+  display: flex;
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+
+.link-warning-btn-sandbox__icon .beap-sandbox-clone-icon-svg {
+  width: 18px;
+  height: 18px;
+}
+
+.link-warning-btn-open {
+  padding: 8px 14px;
   font-size: 12px;
   font-weight: 600;
-  border-radius: 6px;
-  border: 1px solid var(--color-border, rgba(255, 255, 255, 0.12));
-  background: rgba(255, 255, 255, 0.06);
-  color: var(--color-text, #e2e8f0);
+  border-radius: 8px;
+  border: 1px solid #cbd5e1;
+  background: #f1f5f9;
+  color: #475569;
+  cursor: pointer;
+}
+
+.link-warning-btn-open:hover {
+  background: #e2e8f0;
+  color: #334155;
+}
+
+.link-warning-btn-cancel {
+  padding: 8px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+  background: #ffffff;
+  color: #0f172a;
   cursor: pointer;
 }
 
 .link-warning-btn-cancel:hover {
-  background: rgba(255, 255, 255, 0.1);
-}
-
-.link-warning-btn-confirm {
-  padding: 8px 16px;
-  font-size: 12px;
-  font-weight: 600;
-  border-radius: 6px;
-  border: 1px solid rgba(147, 51, 234, 0.4);
-  background: rgba(147, 51, 234, 0.2);
-  color: #a78bfa;
-  cursor: pointer;
-}
-
-.link-warning-btn-confirm:hover {
-  background: rgba(147, 51, 234, 0.3);
+  background: #f8fafc;
 }
 
 /* Safe link button (replaces raw URLs in message body) */

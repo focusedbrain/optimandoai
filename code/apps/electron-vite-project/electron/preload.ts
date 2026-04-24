@@ -1227,11 +1227,19 @@ contextBridge.exposeInMainWorld('emailInbox', {
 
 /** BEAP inbox automation helpers (vault-gated; main validates + extract only for sandbox clone). */
 contextBridge.exposeInMainWorld('beapInbox', {
-  cloneToSandboxPrepare: (payload: { sourceMessageId: string; targetHandshakeId?: string }) =>
-    ipcRenderer.invoke('inbox:beapInboxCloneToSandboxPrepare', payload),
+  cloneToSandboxPrepare: (payload: {
+    sourceMessageId: string
+    targetHandshakeId?: string
+    cloneReason?: 'sandbox_test' | 'external_link_or_artifact_review'
+    triggeredUrl?: string
+  }) => ipcRenderer.invoke('inbox:beapInboxCloneToSandboxPrepare', payload),
   /** Product IPC: `inbox:cloneBeapToSandbox` — same prepare contract as `cloneToSandboxPrepare`. */
-  cloneBeapToSandbox: (payload: { sourceMessageId: string; targetHandshakeId?: string }) =>
-    ipcRenderer.invoke('inbox:cloneBeapToSandbox', payload),
+  cloneBeapToSandbox: (payload: {
+    sourceMessageId: string
+    targetHandshakeId?: string
+    cloneReason?: 'sandbox_test' | 'external_link_or_artifact_review'
+    triggeredUrl?: string
+  }) => ipcRenderer.invoke('inbox:cloneBeapToSandbox', payload),
 })
 
 contextBridge.exposeInMainWorld('autosortSession', {

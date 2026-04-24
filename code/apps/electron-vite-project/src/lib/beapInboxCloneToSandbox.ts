@@ -46,6 +46,9 @@ function buildCloneMetadata(
         cloned_by_account: clonedBy,
         original_handshake_id: p.original_handshake_id,
         account_tag: p.account_tag ?? null,
+        ...(p.triggered_url && String(p.triggered_url).trim()
+          ? { triggered_url: String(p.triggered_url).trim() }
+          : {}),
       },
     }),
   ].join('')
@@ -62,8 +65,9 @@ export type BeapInboxCloneAuditMetadata = {
   sandbox_target_device_id: string
   target_sandbox_device_name: string | null
   sandbox_target_pairing_code: string | null
-  clone_reason: 'sandbox_test'
+  clone_reason: 'sandbox_test' | 'external_link_or_artifact_review'
   cloned_by_account: string | null
+  triggered_url?: string | null
 }
 
 export type BeapInboxCloneToSandboxResult =
@@ -121,6 +125,7 @@ export async function cloneBeapInboxToSandbox(
 
   const deliveryMode = mapCoordinationDeliveryToMatrixMode(delivery)
 
+  const tu = preparePayload.triggered_url != null && String(preparePayload.triggered_url).trim() ? String(preparePayload.triggered_url).trim() : null
   const cloneMetadata: BeapInboxCloneAuditMetadata = {
     original_message_id: preparePayload.source_message_id,
     original_source_type: preparePayload.source_type,
@@ -134,6 +139,7 @@ export async function cloneBeapInboxToSandbox(
     sandbox_target_pairing_code: preparePayload.sandbox_target_pairing_code ?? null,
     clone_reason: preparePayload.clone_reason,
     cloned_by_account: preparePayload.cloned_by_account ?? preparePayload.account_tag ?? null,
+    ...(tu ? { triggered_url: tu } : {}),
   }
 
   try {
@@ -182,6 +188,8 @@ export type BeapInboxClonePrepareFailure = {
 export async function beapInboxCloneToSandboxApi(params: {
   sourceMessageId: string
   targetHandshakeId?: string
+  cloneReason?: 'sandbox_test' | 'external_link_or_artifact_review'
+  triggeredUrl?: string
 }): Promise<BeapInboxCloneToSandboxResult | BeapInboxClonePrepareFailure> {
   const fn = window.beapInbox?.cloneBeapToSandbox ?? window.beapInbox?.cloneToSandboxPrepare
   if (typeof fn !== 'function') {
@@ -190,6 +198,8 @@ export async function beapInboxCloneToSandboxApi(params: {
   const r = await fn({
     sourceMessageId: params.sourceMessageId,
     ...(params.targetHandshakeId ? { targetHandshakeId: params.targetHandshakeId } : {}),
+    ...(params.cloneReason ? { cloneReason: params.cloneReason } : {}),
+    ...(params.triggeredUrl && params.triggeredUrl.trim() ? { triggeredUrl: params.triggeredUrl.trim() } : {}),
   })
   if (!r?.success || !('prepare' in r) || !r.prepare) {
     const fail = r as { success: false; error?: string; code?: CloneBeapToSandboxIpcErrorCode; details?: unknown }

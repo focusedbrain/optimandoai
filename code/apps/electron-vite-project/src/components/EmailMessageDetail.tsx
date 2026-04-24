@@ -46,8 +46,11 @@ export interface EmailMessageDetailProps {
    * May be empty when none are available — Host UI still shows Sandbox; click opens help or direct clone.
    */
   internalSandboxTargets?: InternalSandboxTargetWire[]
-  /** More than one eligible sandbox: parent opens the target selector dialog. */
-  onSandboxMultiSelect?: (message: InboxMessage) => void
+  /** More than one eligible sandbox: parent opens the target selector dialog. `context` when user chose Sandbox from external-link warning. */
+  onSandboxMultiSelect?: (
+    message: InboxMessage,
+    context?: { cloneReason: 'external_link_or_artifact_review'; triggeredUrl: string },
+  ) => void
   /** No eligible connected sandbox: parent shows the “No Sandbox orchestrator connected” explainer. */
   onNoSandboxConnectedInfo?: () => void
   /** After a direct single-target clone from this detail panel succeeds. */
@@ -306,6 +309,7 @@ export default function EmailMessageDetail({
   const [beapRedirectOpen, setBeapRedirectOpen] = useState(false)
   const [beapPanelOpen, setBeapPanelOpen] = useState(false)
   const [pendingLinkUrl, setPendingLinkUrl] = useState<string | null>(null)
+  const [linkDialogSandboxBusy, setLinkDialogSandboxBusy] = useState(false)
   const [importingSession, setImportingSession] = useState<Record<string, unknown> | null>(null)
   const [importStatus, setImportStatus] = useState<Record<string, 'idle' | 'importing' | 'imported' | 'error'>>({})
   const [hostSandboxBusy, setHostSandboxBusy] = useState(false)
@@ -657,6 +661,63 @@ export default function EmailMessageDetail({
     onSandboxCloneComplete,
   ])
 
+  const handleLinkClick = useCallback((url: string) => setPendingLinkUrl(url), [])
+  const handleLinkConfirm = useCallback(() => {
+    if (pendingLinkUrl) {
+      window.open(pendingLinkUrl, '_blank', 'noopener,noreferrer')
+      setPendingLinkUrl(null)
+    }
+  }, [pendingLinkUrl])
+  const handleLinkCancel = useCallback(() => setPendingLinkUrl(null), [])
+
+  const handleLinkWarningSandbox = useCallback(async () => {
+    if (!message || !pendingLinkUrl) return
+    const targets = internalSandboxTargets ?? []
+    const next = resolveHostSandboxCloneClickAction({
+      internalListLoading: internalSandboxListLoading ?? false,
+      cloneEligibleTargetCount: targets.length,
+    })
+    if (next === 'loading_refresh') {
+      onRequestInternalSandboxListRefresh?.()
+      return
+    }
+    if (next === 'open_unavailable_dialog') {
+      onNoSandboxConnectedInfo?.()
+      return
+    }
+    if (next === 'open_target_picker') {
+      onSandboxMultiSelect?.(message, {
+        cloneReason: 'external_link_or_artifact_review',
+        triggeredUrl: pendingLinkUrl,
+      })
+      setPendingLinkUrl(null)
+      return
+    }
+    setLinkDialogSandboxBusy(true)
+    try {
+      const r = await beapInboxCloneToSandboxApi({
+        sourceMessageId: message.id,
+        cloneReason: 'external_link_or_artifact_review',
+        triggeredUrl: pendingLinkUrl,
+      })
+      if (r.success) {
+        onSandboxCloneComplete?.()
+        setPendingLinkUrl(null)
+      }
+    } finally {
+      setLinkDialogSandboxBusy(false)
+    }
+  }, [
+    message,
+    pendingLinkUrl,
+    internalSandboxTargets,
+    internalSandboxListLoading,
+    onRequestInternalSandboxListRefresh,
+    onNoSandboxConnectedInfo,
+    onSandboxMultiSelect,
+    onSandboxCloneComplete,
+  ])
+
   if (!message) return null
 
   const attachments = message.attachments ?? []
@@ -698,15 +759,6 @@ export default function EmailMessageDetail({
     onReply?.(message)
   }, [message, onReply])
 
-  const handleLinkClick = useCallback((url: string) => setPendingLinkUrl(url), [])
-  const handleLinkConfirm = useCallback(() => {
-    if (pendingLinkUrl) {
-      window.open(pendingLinkUrl, '_blank', 'noopener,noreferrer')
-      setPendingLinkUrl(null)
-    }
-  }, [pendingLinkUrl])
-  const handleLinkCancel = useCallback(() => setPendingLinkUrl(null), [])
-
   return (
     <>
       <LinkWarningDialog
@@ -714,6 +766,9 @@ export default function EmailMessageDetail({
         url={pendingLinkUrl || ''}
         onConfirm={handleLinkConfirm}
         onCancel={handleLinkCancel}
+        showSandboxAction={showSandboxCloneIcon}
+        onSandbox={handleLinkWarningSandbox}
+        sandboxBusy={linkDialogSandboxBusy}
       />
       {importingSession && dialogSessionRef ? (
         <SessionImportDialog

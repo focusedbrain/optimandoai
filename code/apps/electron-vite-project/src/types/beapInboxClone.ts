@@ -23,13 +23,15 @@ export interface BeapInboxClonePrepareOk {
   sandbox_target_handshake_id: string
   target_sandbox_device_name: string | null
   sandbox_target_pairing_code: string | null
-  clone_reason: 'sandbox_test'
+  clone_reason: 'sandbox_test' | 'external_link_or_artifact_review'
   cloned_at: string
   cloned_by_account: string | null
   live_status_optional: 'relay_connected' | 'relay_disconnected' | 'coordination_disabled'
   last_known_delivery_status: string
   p2p_endpoint_set: boolean
   account_tag: string | null
+  /** Present when the clone was triggered from the external-link warning (audit / provenance). */
+  triggered_url?: string | null
 }
 
 /** Main-process prepare path (not including vault / host envelope errors). */

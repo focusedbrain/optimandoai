@@ -19,6 +19,8 @@ function formatSandboxSelectLabel(s: InternalSandboxTargetWire): string {
 export interface BeapSandboxCloneDialogProps {
   message: InboxMessage
   sandboxes: InternalSandboxTargetWire[]
+  /** When set (e.g. from external-link warning), pass clone reason + URL into prepare/send. */
+  cloneContext?: { cloneReason: 'external_link_or_artifact_review'; triggeredUrl: string } | null
   onClose: () => void
   onSent?: () => void
 }
@@ -26,6 +28,7 @@ export interface BeapSandboxCloneDialogProps {
 export default function BeapSandboxCloneDialog({
   message,
   sandboxes,
+  cloneContext = null,
   onClose,
   onSent,
 }: BeapSandboxCloneDialogProps) {
@@ -57,6 +60,12 @@ export default function BeapSandboxCloneDialog({
         ...(sandboxes.length === 1
           ? {}
           : { targetHandshakeId: targetId ?? undefined }),
+        ...(cloneContext
+          ? {
+              cloneReason: 'external_link_or_artifact_review' as const,
+              triggeredUrl: cloneContext.triggeredUrl,
+            }
+          : {}),
       })
       if (r.success) {
         setToast({ type: 'success', text: 'Clone sent to Sandbox orchestrator.' })
@@ -74,7 +83,7 @@ export default function BeapSandboxCloneDialog({
     } finally {
       setSending(false)
     }
-  }, [message.id, onClose, onSent, sandboxes.length, targetId])
+  }, [cloneContext, message.id, onClose, onSent, sandboxes.length, targetId])
 
   return (
     <div

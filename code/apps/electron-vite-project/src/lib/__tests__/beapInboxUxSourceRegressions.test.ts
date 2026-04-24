@@ -21,6 +21,16 @@ describe('beapInbox Ux source regressions', () => {
     expect(inbox).not.toMatch(/\bisBeap\b/)
   })
 
+  test('LinkWarningDialog: security copy + Sandbox button with icon label', () => {
+    const dlg = readRel('components', 'LinkWarningDialog.tsx')
+    expect(dlg).toMatch(/Open external link\?/)
+    expect(dlg).toMatch(/KVM switch with hotkeys/)
+    expect(dlg).toMatch(/BeapInboxSandboxCloneIcon/)
+    expect(dlg).toMatch(/Sandbox/)
+    expect(dlg).toMatch(/Open link/)
+    expect(dlg).not.toMatch(/Open anyway/)
+  })
+
   test('11: legacy “Reply using capsule fields” copy is not present in message detail', () => {
     const src = readRel('components', 'EmailMessageDetail.tsx')
     expect(src).not.toMatch(/Reply using capsule fields/i)

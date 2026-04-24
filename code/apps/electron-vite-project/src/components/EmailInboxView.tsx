@@ -2041,6 +2041,10 @@ export default function EmailInboxView({
   } | null>(null)
 
   const [sandboxCloneForMessage, setSandboxCloneForMessage] = useState<InboxMessage | null>(null)
+  const [sandboxClonePickerContext, setSandboxClonePickerContext] = useState<{
+    cloneReason: 'external_link_or_artifact_review'
+    triggeredUrl: string
+  } | null>(null)
   const [sandboxUnavailableOpen, setSandboxUnavailableOpen] = useState(false)
   const [sandboxUnavailableVariant, setSandboxUnavailableVariant] =
     useState<BeapSandboxUnavailableVariant>('not_configured')
@@ -3243,7 +3247,12 @@ export default function EmailInboxView({
               onReply={handleReply}
               internalSandboxTargets={cloneEligibleSandboxes}
               onSandboxMultiSelect={
-                cloneEligibleSandboxes.length > 1 ? (m) => setSandboxCloneForMessage(m) : undefined
+                cloneEligibleSandboxes.length > 1
+                  ? (m, ctx) => {
+                      setSandboxCloneForMessage(m)
+                      setSandboxClonePickerContext(ctx ?? null)
+                    }
+                  : undefined
               }
               onNoSandboxConnectedInfo={openSandboxUnavailableDialog}
               onSandboxCloneComplete={() => void fetchMessages()}
@@ -3271,9 +3280,14 @@ export default function EmailInboxView({
         <BeapSandboxCloneDialog
           message={sandboxCloneForMessage}
           sandboxes={cloneEligibleSandboxes}
-          onClose={() => setSandboxCloneForMessage(null)}
+          cloneContext={sandboxClonePickerContext}
+          onClose={() => {
+            setSandboxCloneForMessage(null)
+            setSandboxClonePickerContext(null)
+          }}
           onSent={() => {
             setSandboxCloneForMessage(null)
+            setSandboxClonePickerContext(null)
             void fetchMessages()
           }}
         />

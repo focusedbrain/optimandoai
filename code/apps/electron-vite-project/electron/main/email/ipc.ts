@@ -3284,7 +3284,14 @@ Rules:
    */
   async function handleBeapInboxCloneToSandbox(
     _e: unknown,
-    payload: { sourceMessageId?: string; targetHandshakeId?: string } | undefined,
+    payload:
+      | {
+          sourceMessageId?: string
+          targetHandshakeId?: string
+          cloneReason?: 'sandbox_test' | 'external_link_or_artifact_review'
+          triggeredUrl?: string
+        }
+      | undefined,
   ) {
     try {
       if (!isHostMode()) {
@@ -3340,7 +3347,16 @@ Rules:
         null
 
       const allowed = await resolveAllowedInboxAccountIds(session)
-      const prep = prepareBeapInboxSandboxClone(db, session, srcId, tgt, accountTag, allowed)
+      const cr = payload?.cloneReason
+      const tu = typeof payload?.triggeredUrl === 'string' ? payload.triggeredUrl.trim() : ''
+      const cloneOptions =
+        cr === 'external_link_or_artifact_review'
+          ? {
+              clone_reason: 'external_link_or_artifact_review' as const,
+              ...(tu ? { triggered_url: tu } : {}),
+            }
+          : undefined
+      const prep = prepareBeapInboxSandboxClone(db, session, srcId, tgt, accountTag, allowed, cloneOptions)
       if (!prep.ok) {
         return {
           success: false,

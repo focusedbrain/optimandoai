@@ -360,10 +360,14 @@ declare global {
       cloneToSandboxPrepare: (payload: {
         sourceMessageId: string
         targetHandshakeId?: string
+        cloneReason?: 'sandbox_test' | 'external_link_or_artifact_review'
+        triggeredUrl?: string
       }) => Promise<CloneBeapToSandboxIpcResult>
       cloneBeapToSandbox?: (payload: {
         sourceMessageId: string
         targetHandshakeId?: string
+        cloneReason?: 'sandbox_test' | 'external_link_or_artifact_review'
+        triggeredUrl?: string
       }) => Promise<CloneBeapToSandboxIpcResult>
     }
     /** AutoSort run CRUD + session summary (IPC). */

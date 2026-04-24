@@ -255,6 +255,37 @@ describe('prepareBeapInboxSandboxClone', () => {
     }
   })
 
+  test('external link flow: provenance encodes external_link_or_artifact_review and triggered_url', () => {
+    const row = {
+      id: 'm-link',
+      source_type: 'email_plain',
+      beap_package_json: null,
+      handshake_id: null,
+      subject: 'S',
+      body_text: 'x',
+      depackaged_json: null,
+      has_attachments: 0,
+      from_address: 'from@x.com',
+      account_id: 'acc-1',
+      received_at: '2020-01-01T00:00:00.000Z',
+      ingested_at: null,
+    }
+    mockHappyList([makeEligibleEntry({ handshake_id: 'hs-sbx-1' })])
+    getHandshakeRecord.mockReturnValue(makeHandshakeRecord('hs-sbx-1'))
+    const db = makeInboxDb(row)
+    const r = prepareBeapInboxSandboxClone(db as any, session, 'm-link', undefined, null, allowed, {
+      clone_reason: 'external_link_or_artifact_review',
+      triggered_url: 'https://example.com/risk',
+    })
+    expect(r.ok).toBe(true)
+    if (r.ok) {
+      expect(r.clone_reason).toBe('external_link_or_artifact_review')
+      expect(r.triggered_url).toBe('https://example.com/risk')
+      expect(r.encrypted_text).toContain('external_link_or_artifact_review')
+      expect(r.encrypted_text).toContain('https://example.com/risk')
+    }
+  })
+
   test('NO_SANDBOX_CONNECTED when no eligible internal sandboxes', () => {
     const row = {
       id: 'm-1',

@@ -32,8 +32,8 @@ export type BeapInboxClonePrepareOk = {
   /** Display name of the sandbox peer device (audit + UI). */
   target_sandbox_device_name: string | null
   sandbox_target_pairing_code: string | null
-  /** Fixed audit value for this product path. */
-  clone_reason: 'sandbox_test'
+  /** Audit: default inbox toolbar clone, or link-warning / artifact review flow. */
+  clone_reason: 'sandbox_test' | 'external_link_or_artifact_review'
   /** ISO time when clone is prepared; renderer may refresh `cloned_at` at send time. */
   cloned_at: string
   cloned_by_account: string | null
@@ -42,6 +42,14 @@ export type BeapInboxClonePrepareOk = {
   last_known_delivery_status: string
   p2p_endpoint_set: boolean
   account_tag: string | null
+  /** Set when the user invoked clone from the external-link warning dialog. */
+  triggered_url?: string | null
+}
+
+export type BeapInboxClonePrepareOptions = {
+  clone_reason: 'sandbox_test' | 'external_link_or_artifact_review'
+  /** URL the user was about to open; embedded in provenance (not a wire reuse). */
+  triggered_url?: string
 }
 
 /** Structured failure for `inbox:cloneBeapToSandbox` / prepare (UI + logs). */
@@ -98,6 +106,7 @@ export function prepareBeapInboxSandboxClone(
   targetHandshakeId: string | undefined,
   accountTag: string | null,
   allowedInboxAccountIds: ReadonlySet<string>,
+  cloneOptions?: BeapInboxClonePrepareOptions,
 ): BeapInboxClonePrepareResult {
   if (!db) return { ok: false, error: 'Database unavailable' }
   if (!session) return { ok: false, error: 'Not logged in' }
@@ -213,13 +222,19 @@ export function prepareBeapInboxSandboxClone(
     }
   }
 
+  const reason: 'sandbox_test' | 'external_link_or_artifact_review' =
+    cloneOptions?.clone_reason === 'external_link_or_artifact_review'
+      ? 'external_link_or_artifact_review'
+      : 'sandbox_test'
+  const provTriggered = (cloneOptions?.triggered_url ?? '').trim()
   const provenance = {
     source_message_id: extracted.message_id,
     original_source_type: extracted.source_type,
     original_handshake_id: extracted.original_handshake_id,
-    clone_reason: 'sandbox_test' as const,
+    clone_reason: reason,
     cloned_at: new Date().toISOString(),
     target_sandbox_handshake_id: tgtId,
+    ...(provTriggered ? { triggered_url: provTriggered } : {}),
   }
   const encWithProvenance = `${extracted.encrypted_text}\n\n---\n${JSON.stringify({ inbox_sandbox_clone_provenance: provenance })}`
 
@@ -255,12 +270,13 @@ export function prepareBeapInboxSandboxClone(
     sandbox_target_handshake_id: tgtId,
     target_sandbox_device_name: deviceName,
     sandbox_target_pairing_code: pairing,
-    clone_reason: 'sandbox_test',
+    clone_reason: reason,
     cloned_at: new Date().toISOString(),
     cloned_by_account: clonedBy,
     live_status_optional: live,
     last_known_delivery_status: entry.last_known_delivery_status,
     p2p_endpoint_set: entry.p2p_endpoint_set,
     account_tag: accountTag,
+    ...(provTriggered ? { triggered_url: provTriggered } : {}),
   }
 }

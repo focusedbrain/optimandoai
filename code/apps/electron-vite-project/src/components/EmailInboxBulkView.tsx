@@ -48,7 +48,13 @@ import { AutoSortSessionReview } from './AutoSortSessionReview'
 import { AutoSortSessionHistory } from './AutoSortSessionHistory'
 import { InboxHandshakeNavIconButton } from './InboxHandshakeNavIcon'
 import { useInternalSandboxesList } from '../hooks/useInternalSandboxesList'
-import { sandboxCloneUnavailableDialogVariant } from '../lib/beapInboxHostSandboxClickPolicy'
+import { useOrchestratorMode } from '../hooks/useOrchestratorMode'
+import { canShowSandboxCloneAction } from '../lib/beapInboxSandboxVisibility'
+import { beapInboxCloneToSandboxApi } from '../lib/beapInboxCloneToSandbox'
+import {
+  resolveHostSandboxCloneClickAction,
+  sandboxCloneUnavailableDialogVariant,
+} from '../lib/beapInboxHostSandboxClickPolicy'
 import BeapSandboxCloneDialog from './BeapSandboxCloneDialog'
 import BeapSandboxUnavailableDialog, { type BeapSandboxUnavailableVariant } from './BeapSandboxUnavailableDialog'
 import '../components/handshakeViewTypes'
@@ -1703,7 +1709,12 @@ export default function EmailInboxBulkView({
     authoritativeDeviceInternalRole: bulkAuthoritativeDeviceInternalRole,
     internalSandboxListReady: bulkInternalSandboxListReady,
   } = useInternalSandboxesList()
+  const { mode: bulkOrchestratorMode, ready: bulkHostModeReady } = useOrchestratorMode()
   const [bulkSandboxCloneFor, setBulkSandboxCloneFor] = useState<InboxMessage | null>(null)
+  const [bulkSandboxClonePickerContext, setBulkSandboxClonePickerContext] = useState<{
+    cloneReason: 'external_link_or_artifact_review'
+    triggeredUrl: string
+  } | null>(null)
   const [bulkSandboxUnavailableOpen, setBulkSandboxUnavailableOpen] = useState(false)
   const [bulkSandboxUnavailableVariant, setBulkSandboxUnavailableVariant] =
     useState<BeapSandboxUnavailableVariant>('not_configured')
@@ -1929,7 +1940,24 @@ export default function EmailInboxBulkView({
     [providerAccounts],
   )
 
-  const [pendingLinkUrl, setPendingLinkUrl] = useState<string | null>(null)
+  const [pendingLink, setPendingLink] = useState<{ url: string; message: InboxMessage } | null>(null)
+  const [linkDialogSandboxBusy, setLinkDialogSandboxBusy] = useState(false)
+  const showSandboxOnLinkDialog = useMemo(() => {
+    if (!pendingLink) return false
+    return canShowSandboxCloneAction({
+      modeReady: bulkHostModeReady,
+      orchestratorMode: bulkOrchestratorMode,
+      message: pendingLink.message,
+      authoritativeDeviceInternalRole: bulkAuthoritativeDeviceInternalRole,
+      internalSandboxListReady: bulkInternalSandboxListReady,
+    })
+  }, [
+    pendingLink,
+    bulkHostModeReady,
+    bulkOrchestratorMode,
+    bulkAuthoritativeDeviceInternalRole,
+    bulkInternalSandboxListReady,
+  ])
   const [aiSortProgress, setAiSortProgress] = useState<AiSortProgressState | null>(null)
   /** Messages per `aiClassifyBatch` chunk (1–8). Persisted; read at each chunk boundary — changes apply from the next chunk. */
   const [sortConcurrency, setSortConcurrency] = useState<number>(() => {
@@ -4205,18 +4233,66 @@ export default function EmailInboxBulkView({
     selectMessage(null)
   }, [selectMessage])
 
-  const handleLinkClick = useCallback((url: string) => {
-    setPendingLinkUrl(url)
+  const handleLinkClick = useCallback((url: string, msg: InboxMessage) => {
+    setPendingLink({ url, message: msg })
   }, [])
 
   const handleLinkConfirm = useCallback(() => {
-    if (pendingLinkUrl) {
-      window.open(pendingLinkUrl, '_blank', 'noopener,noreferrer')
-      setPendingLinkUrl(null)
+    if (pendingLink) {
+      window.open(pendingLink.url, '_blank', 'noopener,noreferrer')
+      setPendingLink(null)
     }
-  }, [pendingLinkUrl])
+  }, [pendingLink])
 
-  const handleLinkCancel = useCallback(() => setPendingLinkUrl(null), [])
+  const handleLinkCancel = useCallback(() => setPendingLink(null), [])
+
+  const handleBulkLinkWarningSandbox = useCallback(async () => {
+    if (!pendingLink) return
+    const { url, message: msg } = pendingLink
+    const targets = bulkCloneEligibleSandboxes
+    const next = resolveHostSandboxCloneClickAction({
+      internalListLoading: bulkInternalSandboxesLoading,
+      cloneEligibleTargetCount: targets.length,
+    })
+    if (next === 'loading_refresh') {
+      void refreshBulkInternalSandboxesList()
+      return
+    }
+    if (next === 'open_unavailable_dialog') {
+      openBulkSandboxUnavailableDialog()
+      return
+    }
+    if (next === 'open_target_picker') {
+      setBulkSandboxCloneFor(msg)
+      setBulkSandboxClonePickerContext({
+        cloneReason: 'external_link_or_artifact_review',
+        triggeredUrl: url,
+      })
+      setPendingLink(null)
+      return
+    }
+    setLinkDialogSandboxBusy(true)
+    try {
+      const r = await beapInboxCloneToSandboxApi({
+        sourceMessageId: msg.id,
+        cloneReason: 'external_link_or_artifact_review',
+        triggeredUrl: url,
+      })
+      if (r.success) {
+        setPendingLink(null)
+        void refreshMessages()
+      }
+    } finally {
+      setLinkDialogSandboxBusy(false)
+    }
+  }, [
+    pendingLink,
+    bulkCloneEligibleSandboxes,
+    bulkInternalSandboxesLoading,
+    refreshBulkInternalSandboxesList,
+    openBulkSandboxUnavailableDialog,
+    refreshMessages,
+  ])
 
   const handleComposeClick = useCallback((fn: () => void) => {
     const now = Date.now()
@@ -4788,7 +4864,7 @@ export default function EmailInboxBulkView({
         }
         return
       }
-      if (pendingLinkUrl || composeMode) return
+      if (pendingLink || composeMode) return
 
       const focusedMsg = focusedMessageId
         ? sortedMessages.find((m) => m.id === focusedMessageId)
@@ -4847,7 +4923,7 @@ export default function EmailInboxBulkView({
     return () => document.removeEventListener('keydown', handler)
   }, [
     expandedMessageId,
-    pendingLinkUrl,
+    pendingLink,
     composeMode,
     handleCloseExpand,
     sortedMessages,
@@ -6303,7 +6379,7 @@ export default function EmailInboxBulkView({
                                 className="msg-safe-link-btn"
                                 onClick={(e) => {
                                   e.stopPropagation()
-                                  handleLinkClick(part.url!)
+                                  handleLinkClick(part.url!, msg)
                                 }}
                               >
                                 {part.text}
@@ -6492,10 +6568,13 @@ export default function EmailInboxBulkView({
       </div>
 
       <LinkWarningDialog
-        isOpen={!!pendingLinkUrl}
-        url={pendingLinkUrl || ''}
+        isOpen={!!pendingLink}
+        url={pendingLink?.url || ''}
         onConfirm={handleLinkConfirm}
         onCancel={handleLinkCancel}
+        showSandboxAction={showSandboxOnLinkDialog}
+        onSandbox={() => void handleBulkLinkWarningSandbox()}
+        sandboxBusy={linkDialogSandboxBusy}
       />
 
       {connectEmailFlowModal}
@@ -6586,9 +6665,14 @@ export default function EmailInboxBulkView({
         <BeapSandboxCloneDialog
           message={bulkSandboxCloneFor}
           sandboxes={bulkCloneEligibleSandboxes}
-          onClose={() => setBulkSandboxCloneFor(null)}
+          cloneContext={bulkSandboxClonePickerContext}
+          onClose={() => {
+            setBulkSandboxCloneFor(null)
+            setBulkSandboxClonePickerContext(null)
+          }}
           onSent={() => {
             setBulkSandboxCloneFor(null)
+            setBulkSandboxClonePickerContext(null)
             void refreshMessages()
           }}
         />
@@ -6636,7 +6720,12 @@ export default function EmailInboxBulkView({
                   onReply={handleReply}
                   internalSandboxTargets={bulkCloneEligibleSandboxes}
                   onSandboxMultiSelect={
-                    bulkCloneEligibleSandboxes.length > 1 ? (m) => setBulkSandboxCloneFor(m) : undefined
+                    bulkCloneEligibleSandboxes.length > 1
+                      ? (m, ctx) => {
+                          setBulkSandboxCloneFor(m)
+                          setBulkSandboxClonePickerContext(ctx ?? null)
+                        }
+                      : undefined
                   }
                   onNoSandboxConnectedInfo={openBulkSandboxUnavailableDialog}
                   onSandboxCloneComplete={() => void refreshMessages()}
