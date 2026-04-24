@@ -29,7 +29,8 @@
     "lint": "eslint .",
     "format": "prettier -w .",
     "format:check": "prettier -c .",
-    "handshake:repair-counterparty": "tsx apps/electron-vite-project/scripts/repair-handshake-counterparty.ts"
+    "handshake:repair-counterparty": "tsx apps/electron-vite-project/scripts/repair-handshake-counterparty.ts",
+    "test:regression-relay-handshake": "vitest run apps/electron-vite-project/electron/main/handshake/__tests__/regressionMatrix.relayHandshakeSandbox.test.ts apps/electron-vite-project/src/lib/__tests__/beapSandboxCloneDeliverySemantics.test.ts"
   },
   "devDependencies": {
     "eslint": "^9.34.0",

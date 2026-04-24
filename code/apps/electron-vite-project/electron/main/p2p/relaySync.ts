@@ -85,6 +85,7 @@ export async function registerHandshakeWithRelay(
         acceptor_user_id: handshakeDetails.acceptor_user_id,
         initiator_device_id: handshakeDetails.initiator_device_id ?? null,
         acceptor_device_id: handshakeDetails.acceptor_device_id ?? null,
+        handshake_type: handshakeDetails.handshake_type ?? null,
         token_sub: tokenSub,
       }),
     )

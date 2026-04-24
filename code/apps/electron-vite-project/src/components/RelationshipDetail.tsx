@@ -14,6 +14,8 @@ import VaultStatusIndicator from './VaultStatusIndicator'
 import HandshakeContextSection from './HandshakeContextSection'
 import { DEFAULT_AI_POLICY, type PolicySelection } from './PolicyRadioGroup'
 import { parsePolicyToMode } from '@shared/handshake/policyUtils'
+import type { InternalIdentitySource } from '@shared/handshake/internalIdentityUi'
+import { InternalHandshakeIdentityPanel } from './InternalHandshakeIdentityPanel'
 import type { VerifiedContextBlock } from './contextEscaping'
 
 interface HandshakeRecord {
@@ -36,6 +38,18 @@ interface HandshakeRecord {
   p2p_endpoint?: string | null
   context_sync_pending?: boolean
   policy_selections?: PolicySelection | { cloud_ai?: boolean; internal_ai?: boolean }
+  handshake_type?: 'internal' | 'standard' | null
+  initiator_device_name?: string | null
+  acceptor_device_name?: string | null
+  initiator_device_role?: 'host' | 'sandbox' | null
+  acceptor_device_role?: 'host' | 'sandbox' | null
+  initiator_coordination_device_id?: string | null
+  acceptor_coordination_device_id?: string | null
+  internal_peer_device_id?: string | null
+  internal_peer_computer_name?: string | null
+  internal_peer_device_role?: 'host' | 'sandbox' | null
+  internal_coordination_identity_complete?: boolean
+  internal_coordination_repair_needed?: boolean
 }
 
 interface VaultStatus {
@@ -330,6 +344,8 @@ export default function RelationshipDetail({ record, contextBlockCount, vaultSta
           )}
         </div>
       </div>
+
+      <InternalHandshakeIdentityPanel record={record as unknown as InternalIdentitySource} />
 
       {/* ── Vault status indicator ── */}
       {showVaultIndicator && (

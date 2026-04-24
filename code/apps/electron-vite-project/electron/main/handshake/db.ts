@@ -1741,6 +1741,26 @@ export function getHandshakeRecord(db: any, handshakeId: string): HandshakeRecor
 }
 
 /**
+ * True when an internal handshake is active enough that the relay WebSocket must register
+ * with a non-empty canonical device id (instance id) — not the legacy default connection.
+ */
+export function needsCanonicalRelayDeviceIdForCoordination(db: any): boolean {
+  if (!db) return false
+  try {
+    const row = db
+      .prepare(
+        `SELECT 1 AS ok FROM handshakes
+         WHERE handshake_type = 'internal' AND state IN ('ACCEPTED', 'ACTIVE')
+         LIMIT 1`,
+      )
+      .get() as { ok: number } | undefined
+    return Boolean(row)
+  } catch {
+    return false
+  }
+}
+
+/**
  * P2P BEAP package blobs (if any) for a handshake — used by the offline
  * `counterpartyRepair` dev tool to recover a wire `sender_public_key` when the row
  * is poisoned. Read-only; does not touch verification.

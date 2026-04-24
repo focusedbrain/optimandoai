@@ -16,6 +16,9 @@ import {
   type OutboundRequestDebugSnapshot,
   type CoordinationRelayDelivery,
 } from './p2pTransport'
+import { mapSendResultToQueueOutcome } from './relayQueueTransportOutcome'
+
+export { mapSendResultToQueueOutcome, type CoordinationQueueTransportOutcome } from './relayQueueTransportOutcome'
 import { getHandshakeRecord } from './db'
 import { getInstanceId } from '../orchestrator/orchestratorModeStore'
 import { getP2PConfig } from '../p2p/p2pConfig'
@@ -92,6 +95,17 @@ function backoffDelay(retryCount: number): number {
 /** Stable codes for IPC/diagnostics (additive; optional on each path). */
 export type OutboundQueueCode =
   | 'BACKOFF_WAIT'
+  /** Coordination: HTTP 200, recipient had a live matching WS and capsule was pushed. */
+  | 'DELIVERED_LIVE'
+  /**
+   * Coordination: HTTP 202 — relay stored the capsule; recipient did not have a matching live WS
+   * (not peer delivery). `relayTransportAccepted` is still true; local queue row is cleared.
+   */
+  | 'QUEUED_RECIPIENT_OFFLINE'
+  /**
+   * @deprecated Prefer `DELIVERED_LIVE` or `QUEUED_RECIPIENT_OFFLINE` for coordination; direct HTTP 200
+   * uses `DELIVERED_LIVE`. Kept for legacy log greps.
+   */
   | 'DELIVERED'
   | 'PREFLIGHT_FAILED'
   | 'TRANSPORT_FAILED'
@@ -164,6 +178,11 @@ export interface ProcessOutboundQueueResult {
   derived_outgoing_relay_capsule_type?: string | null
   /** Coordination relay: live WebSocket push vs stored while recipient offline. */
   coordinationRelayDelivery?: CoordinationRelayDelivery
+  /**
+   * True when the transport request succeeded and the local outbound row was marked `sent` (HTTP 2xx
+   * to relay or 200 to direct P2P). **Includes HTTP 202** (recipient offline queue) — not peer live delivery.
+   */
+  relayTransportAccepted?: boolean
 }
 
 function jitterMs(max = 400): number {
@@ -562,19 +581,23 @@ async function handleCoordinationOutbound403(
           ).run(now, row.id)
           const countsOk = getQueueCountsInternal(db)
           setP2PHealthQueueCounts(countsOk.pending, countsOk.failed)
+          const outcome403 = mapSendResultToQueueOutcome(retryResult)
           console.info(
             '[P2P-QUEUE]',
-            JSON.stringify({ event: 'relay_403_retry_succeeded', queue_row_id: row.id, handshake_id: row.handshake_id }),
+            JSON.stringify({
+              event: 'relay_403_retry_succeeded',
+              queue_row_id: row.id,
+              handshake_id: row.handshake_id,
+              code: outcome403.code,
+              delivered_peer_live: outcome403.delivered,
+              relay_transport_ok: outcome403.relayTransportAccepted,
+            }),
           )
           return {
             done: true,
             result: {
-              delivered: true,
-              code: 'DELIVERED',
+              ...outcome403,
               healing_status: 'idle',
-              ...(retryResult.coordinationRelayDelivery && {
-                coordinationRelayDelivery: retryResult.coordinationRelayDelivery,
-              }),
             },
           }
         }
@@ -946,23 +969,28 @@ async function processOutboundQueueInner(
 
     if (result.success) {
       setP2PHealthOutboundSuccess()
-      // status 'sent' means the relay (or direct endpoint) accepted the payload — not that the recipient ingested it.
+      // status 'sent' means the relay (or direct endpoint) accepted the payload — not that the peer live-received it (202 = queued for recipient WS).
       db.prepare(
         `UPDATE outbound_capsule_queue SET status = 'sent', last_attempt_at = ?, retry_after_ms = NULL, failure_class = NULL WHERE id = ?`,
       ).run(now, row.id)
       const counts = getQueueCountsInternal(db)
       setP2PHealthQueueCounts(counts.pending, counts.failed)
+      const outcome = mapSendResultToQueueOutcome(result)
       console.info(
         '[P2P-QUEUE]',
-        JSON.stringify({ event: 'retry_attempt_succeeded', queue_row_id: row.id, handshake_id: row.handshake_id }),
+        JSON.stringify({
+          event: 'retry_attempt_succeeded',
+          queue_row_id: row.id,
+          handshake_id: row.handshake_id,
+          code: outcome.code,
+          delivered_peer_live: outcome.delivered,
+          relay_transport_ok: outcome.relayTransportAccepted,
+          coordination_relay: outcome.coordinationRelayDelivery ?? null,
+        }),
       )
       return {
-        delivered: true,
-        code: 'DELIVERED',
+        ...outcome,
         healing_status: 'idle',
-        ...(result.coordinationRelayDelivery && {
-          coordinationRelayDelivery: result.coordinationRelayDelivery,
-        }),
       }
     }
 

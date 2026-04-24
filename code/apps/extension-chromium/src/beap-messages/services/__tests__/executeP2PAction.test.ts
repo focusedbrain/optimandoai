@@ -117,9 +117,52 @@ describe('executeP2PAction — REQUEST_INVALID + outbound_debug', () => {
     expect(r.p2pCooldownUntilMs).toBeUndefined()
   })
 
+  it('HTTP 202 queued: success, not failure, with offline message', async () => {
+    vi.mocked(sendBeapViaP2P).mockResolvedValue({
+      success: true,
+      delivered: false,
+      relayTransportAccepted: true,
+      queued: true,
+      code: 'QUEUED_RECIPIENT_OFFLINE',
+      coordinationRelayDelivery: 'queued_recipient_offline',
+    })
+    const pkg = { header: {}, metadata: {}, envelope: {} } as unknown as BeapPackage
+    const config = {
+      recipientMode: 'private' as const,
+      deliveryMethod: 'p2p' as const,
+      selectedRecipient: {
+        handshake_id: 'hs-1',
+        p2pEndpoint: 'https://peer.example/beap',
+        counterparty_email: 'a@b.com',
+        counterparty_user_id: 'u',
+        sharing_mode: 'reciprocal' as const,
+        receiver_fingerprint_short: 'x',
+        receiver_fingerprint_full: 'y',
+        receiver_display_name: 'R',
+        receiver_organization: '',
+        receiver_email_list: ['a@b.com'],
+      },
+      senderFingerprint: 's',
+      senderFingerprintShort: 'ss',
+      emailTo: '',
+      subject: '',
+      messageBody: 'hi',
+      attachments: [],
+    } satisfies BeapPackageConfig
+
+    const r = await executeP2PAction(pkg, config)
+    expect(r.success).toBe(true)
+    expect(r.delivered).toBe(false)
+    expect(r.queued).toBe(true)
+    expect(r.coordinationRelayDelivery).toBe('queued_recipient_offline')
+    expect(r.message).toContain('Queued')
+    expect(r.message).toContain('offline')
+  })
+
   it('sets p2pRelayAcceptedPendingIngest when relay succeeds without recipient ingest confirmation', async () => {
     vi.mocked(sendBeapViaP2P).mockResolvedValue({
       success: true,
+      delivered: true,
       coordinationRelayDelivery: 'pushed_live',
       recipient_ingest_confirmed: false,
     })
@@ -159,6 +202,7 @@ describe('executeP2PAction — REQUEST_INVALID + outbound_debug', () => {
   it('sets recipientIngestConfirmed when Electron reports recipient_ingest_confirmed', async () => {
     vi.mocked(sendBeapViaP2P).mockResolvedValue({
       success: true,
+      delivered: true,
       coordinationRelayDelivery: 'pushed_live',
       recipient_ingest_confirmed: true,
     })

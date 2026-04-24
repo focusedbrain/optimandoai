@@ -116,6 +116,10 @@ export interface StoreAdapter {
   acknowledgeCapsules(ids: string[], userId: string, email?: string | null): number
   countPending(): number
   countPendingForRecipient(recipientUserId: string): number
+  /** Unacked, non-expired pending rows grouped by recipient_device_id (for relay drain diagnostics). */
+  getPendingDeviceAggregateForUser(
+    userId: string,
+  ): Array<{ recipient_device_id: string | null; count: number }>
   cleanupExpired(): number
   cleanupAcknowledged(): number
   cleanupStaleHandshakes(ttlSeconds: number): number
@@ -279,6 +283,18 @@ export function createStore(config: CoordinationConfig): StoreAdapter {
          WHERE recipient_user_id = ? AND acknowledged_at IS NULL AND expires_at > ?`,
       ).get(recipientUserId, new Date().toISOString()) as { cnt: number }
       return row?.cnt ?? 0
+    },
+
+    getPendingDeviceAggregateForUser(userId: string): Array<{ recipient_device_id: string | null; count: number }> {
+      const d = ensureDb()
+      const now = new Date().toISOString()
+      return d
+        .prepare(
+          `SELECT recipient_device_id, COUNT(*) as count FROM coordination_capsules
+           WHERE recipient_user_id = ? AND acknowledged_at IS NULL AND expires_at > ?
+           GROUP BY recipient_device_id`,
+        )
+        .all(userId, now) as Array<{ recipient_device_id: string | null; count: number }>
     },
 
     cleanupExpired(): number {

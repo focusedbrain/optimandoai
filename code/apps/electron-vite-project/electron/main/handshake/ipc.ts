@@ -1047,14 +1047,20 @@ export async function handleHandshakeRPC(
         }
       }
       const deliveryResult = await processOutboundQueue(db, _getOidcToken)
-      console.log('[P2P-SEND] Delivery result:', JSON.stringify({
-        delivered: deliveryResult.delivered,
-        code: deliveryResult.code,
-        http_status: deliveryResult.http_status,
-        error: deliveryResult.error,
-      }))
-      if (!deliveryResult.delivered) {
-        const d = deliveryResult as ProcessOutboundQueueResult
+      const d = deliveryResult as ProcessOutboundQueueResult
+      console.log(
+        '[P2P-SEND] Delivery result:',
+        JSON.stringify({
+          delivered_peer_live: d.delivered,
+          relay_transport_accepted: d.relayTransportAccepted,
+          code: d.code,
+          coordinationRelayDelivery: d.coordinationRelayDelivery,
+          http_status: d.http_status,
+          error: d.error,
+        }),
+      )
+      // Failure: no HTTP transport success to relay/direct (or terminal HTTP error), or outbound backoff.
+      if (d.relayTransportAccepted !== true) {
         return {
           success: false,
           delivered: d.delivered,
@@ -1076,15 +1082,17 @@ export async function handleHandshakeRPC(
           }),
         }
       }
-      const ok = deliveryResult as ProcessOutboundQueueResult
+      // Relay accepted: HTTP 200 (live) or 202 (queued for recipient) — not the same as peer live receipt.
       return {
         success: true,
-        delivered: ok.delivered,
+        delivered: d.delivered,
+        relayTransportAccepted: true,
         recipient_ingest_confirmed: false,
-        ...(ok.code && { code: ok.code }),
-        ...(ok.healing_status !== undefined && { healing_status: ok.healing_status }),
-        ...(ok.coordinationRelayDelivery && {
-          coordinationRelayDelivery: ok.coordinationRelayDelivery,
+        ...(d.code === 'QUEUED_RECIPIENT_OFFLINE' ? { queued: true as const } : {}),
+        ...(d.code && { code: d.code }),
+        ...(d.healing_status !== undefined && { healing_status: d.healing_status }),
+        ...(d.coordinationRelayDelivery && {
+          coordinationRelayDelivery: d.coordinationRelayDelivery,
         }),
       }
     }
@@ -1413,7 +1421,7 @@ export async function handleHandshakeRPC(
             } else {
               try {
                 const drain: ProcessOutboundQueueResult = await processOutboundQueue(db, _getOidcToken)
-                if (drain.delivered) {
+                if (drain.relayTransportAccepted) {
                   relayDelivery = drain.coordinationRelayDelivery ?? 'pushed_live'
                 } else {
                   relayDelivery = 'coordination_unavailable'

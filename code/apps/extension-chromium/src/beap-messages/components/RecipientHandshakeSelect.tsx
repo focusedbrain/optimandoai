@@ -11,6 +11,11 @@
 import React, { useState } from 'react'
 import type { HandshakeRecord, HandshakeState, SelectedHandshakeRecipient } from '../../handshake/rpcTypes'
 import { hasHandshakeKeyMaterial } from '../../handshake/rpcTypes'
+import {
+  formatInternalBeapTargetSummary,
+  formatInternalListSubtitle,
+  isInternalHandshake,
+} from '@shared/handshake/internalIdentityUi'
 
 export type { SelectedHandshakeRecipient }
 
@@ -80,6 +85,7 @@ export const RecipientHandshakeSelect: React.FC<RecipientHandshakeSelectProps> =
       peerPQPublicKey: hs.peerPQPublicKey,
       p2pEndpoint: hs.p2pEndpoint,
       localX25519PublicKey: hs.localX25519PublicKey,
+      internal_target_summary: isInternalHandshake(hs) ? formatInternalBeapTargetSummary(hs) : null,
     }
     onSelect(recipient)
   }
@@ -247,6 +253,7 @@ export const RecipientHandshakeSelect: React.FC<RecipientHandshakeSelectProps> =
           const expiryHint = formatExpiry(hs.expires_at)
           const expiryAbsolute = formatExpiryAbsolute(hs.expires_at)
           const showExpiryBadge = expiryHint != null
+          const internalListLine = isInternalHandshake(hs) ? formatInternalListSubtitle(hs) : null
 
           return (
             <div
@@ -288,6 +295,19 @@ export const RecipientHandshakeSelect: React.FC<RecipientHandshakeSelectProps> =
                     <div style={{ fontSize: '13px', fontWeight: 600, color: hasKeys ? textColor : mutedColor }}>
                       {hs.counterparty_email}
                     </div>
+                    {internalListLine && (
+                      <div
+                        style={{
+                          fontSize: '10px',
+                          fontWeight: 600,
+                          color: isStandard ? '#4338ca' : '#a5b4fc',
+                          marginTop: '4px',
+                          lineHeight: 1.35,
+                        }}
+                      >
+                        {internalListLine}
+                      </div>
+                    )}
                     {hasKeys ? (
                       <>
                         {hs.sharing_mode && (

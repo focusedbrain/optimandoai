@@ -31,6 +31,44 @@ function parseCompositeKey(key: string): { userId: string; deviceId: string } {
   return { userId: key.slice(0, i), deviceId: key.slice(i + 1) }
 }
 
+function logOrphanedPendingForUser(
+  store: StoreAdapter,
+  getClientsByUser: (userId: string) => ConnectedClient[],
+  userId: string,
+  context: { reason: string; client_device_id?: string },
+): void {
+  let summary: Array<{ recipient_device_id: string | null; count: number }> = []
+  try {
+    summary = store.getPendingDeviceAggregateForUser(userId)
+  } catch {
+    return
+  }
+  if (summary.length === 0) return
+  const connectedDeviceIds = new Set(getClientsByUser(userId).map((c) => c.deviceId))
+  const hasLegacyDefaultClient = [...connectedDeviceIds].some(
+    (id) => id === DEFAULT_DEVICE_ID || id === 'default',
+  )
+  for (const row of summary) {
+    if (row.count <= 0) continue
+    const d = row.recipient_device_id
+    if (d == null || d === '') continue
+    if (connectedDeviceIds.has(d)) continue
+    console.log(
+      '[RELAY-QUEUE] pending_cannot_drain_device_mismatch',
+      JSON.stringify({
+        reason: context.reason,
+        client_device_id: context.client_device_id ?? null,
+        recipient_user_id: userId,
+        pending_count: row.count,
+        pending_recipient_device_id: d,
+        connected_device_ids: [...connectedDeviceIds],
+        no_matching_live_client_for_pending_device: true,
+        likely_legacy_default_ws: hasLegacyDefaultClient,
+      }),
+    )
+  }
+}
+
 /** One WebSocket: send all pending rows matching this (user, email, device) per store.getPendingCapsules. */
 function deliverPendingToWs(
   store: StoreAdapter,
@@ -90,6 +128,7 @@ export interface WsManagerAdapter {
   getClient(userId: string): ConnectedClient | undefined
   getClientByDevice(userId: string, deviceId: string): ConnectedClient | undefined
   getClientsByUser(userId: string): ConnectedClient[]
+  listConnectedDeviceIdsForUser(userId: string): string[]
   removeClient(clientKey: string): void
 }
 
@@ -166,6 +205,7 @@ export function createWsManager(store: StoreAdapter): WsManagerAdapter {
           JSON.stringify({ reason: 'ws_connect', userId, device_id: did, delivered: deliveredOnConnect }),
         )
       }
+      logOrphanedPendingForUser(store, getClientsByUser, userId, { reason: 'ws_connect', client_device_id: did })
     },
 
     flushPendingToConnectedClientsForUser(
@@ -203,6 +243,7 @@ export function createWsManager(store: StoreAdapter): WsManagerAdapter {
           JSON.stringify({ userId, reason, device_count: list.length }),
         )
       }
+      logOrphanedPendingForUser(store, getClientsByUser, userId, { reason })
       return { delivered }
     },
 
@@ -284,6 +325,9 @@ export function createWsManager(store: StoreAdapter): WsManagerAdapter {
     getClient,
     getClientByDevice,
     getClientsByUser,
+    listConnectedDeviceIdsForUser(userId: string): string[] {
+      return getClientsByUser(userId).map((c) => c.deviceId)
+    },
     removeClient,
   }
 }

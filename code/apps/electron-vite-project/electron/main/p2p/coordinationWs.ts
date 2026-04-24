@@ -17,7 +17,7 @@ import {
   insertIngestionAuditRecord,
   insertQuarantineRecord,
 } from '../ingestion/persistenceDb'
-import { getHandshakeRecord, insertPendingP2PBeap } from '../handshake/db'
+import { getHandshakeRecord, insertPendingP2PBeap, needsCanonicalRelayDeviceIdForCoordination } from '../handshake/db'
 import { maybeEnqueueInitialContextSyncAfterInboundAccept } from './coordinationHandshakePostIngest'
 import { retryDeferredInitialContextSyncForInternalHandshake } from '../handshake/contextSyncEnqueue'
 import {
@@ -559,11 +559,38 @@ export function createCoordinationWsClient(
     const sso = getSsoSession()
     const idSnap = relayIdentitySnapshot(sso)
     const canonicalDev = getCanonicalRelayDeviceId()
+    let needsDeviceId = false
+    try {
+      const db = getDb()
+      needsDeviceId = needsCanonicalRelayDeviceIdForCoordination(db)
+    } catch {
+      needsDeviceId = false
+    }
     logDeviceIdBinding('pre_ws_connect', {
       source: 'getCanonicalRelayDeviceId',
       value: canonicalDev,
+      account: idSnap.relay_user_id ?? null,
+      sub: idSnap.sub ?? null,
+      wss_device_id: canonicalDev?.trim() ? canonicalDev : 'default',
+      internal_handshake_requires_device_id: needsDeviceId,
       register_handshake_device_expectation: 'same as outbound sender_device_id when present',
     })
+    if (needsDeviceId && !canonicalDev?.trim()) {
+      const msg =
+        'Orchestrator instance id is required for an active internal handshake — refusing relay WebSocket without device_id (would register as default and miss device-scoped live push).'
+      console.error(
+        '[DEVICE_ID_BINDING] BLOCKED pre_ws_connect',
+        JSON.stringify({
+          phase: 'pre_ws_connect',
+          reason: 'empty_canonical_relay_device_id',
+          account: idSnap.relay_user_id ?? null,
+          sub: idSnap.sub ?? null,
+          wrdesk_user_id: idSnap.wrdesk_user_id ?? null,
+        }),
+      )
+      setP2PHealthCoordinationError(msg)
+      return
+    }
 
     let wsUrlForConnect = wsUrl
     let deviceIdParam = ''
@@ -634,6 +661,8 @@ export function createCoordinationWsClient(
             user_id: openSnap.relay_user_id,
             sub: openSnap.sub,
             wrdesk_user_id: openSnap.wrdesk_user_id,
+            email: openSnap.email,
+            canonical_relay_device_id: openDev ?? null,
             device_id: openDev ?? 'default',
           }),
         )

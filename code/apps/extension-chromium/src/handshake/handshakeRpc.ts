@@ -516,13 +516,23 @@ export type OutboundRequestDebugSnapshot = {
 /** Matches Electron `handshake.sendBeapViaP2P` response (additive fields). */
 export type SendBeapViaP2PResult = {
   success: boolean
-  /** When present and false while success is true, outbound queue did not confirm HTTP delivery. */
+  /**
+   * When true, the peer had a **live** matching coordination push (HTTP 200).
+   * When false while `success` is true, relay may still have **accepted** the message (e.g. HTTP 202) — see `relayTransportAccepted` and `code`.
+   */
   delivered?: boolean
+  /**
+   * True when the relay/direct HTTP request succeeded and the local outbound row was marked sent
+   * (including HTTP 202 = queued for recipient — **not** peer live delivery).
+   */
+  relayTransportAccepted?: boolean
   error?: string
   queued?: boolean
   code?:
     | 'BACKOFF_WAIT'
     | 'DELIVERED'
+    | 'DELIVERED_LIVE'
+    | 'QUEUED_RECIPIENT_OFFLINE'
     | 'PREFLIGHT_FAILED'
     | 'TRANSPORT_FAILED'
     | 'AUTH_REQUIRED'

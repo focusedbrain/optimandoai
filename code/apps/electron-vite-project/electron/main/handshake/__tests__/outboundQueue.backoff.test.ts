@@ -609,7 +609,33 @@ describe.skipIf(!hasSqlite)('outboundQueue: backoff & transport', () => {
     expect(registerHandshakeMock).toHaveBeenCalledTimes(1)
     expect(fetchSpy).toHaveBeenCalledTimes(2)
     expect(r.delivered).toBe(true)
-    expect(r.code).toBe('DELIVERED')
+    expect(r.relayTransportAccepted).toBe(true)
+    expect(r.code).toBe('DELIVERED_LIVE')
+  })
+
+  test('QB_24_coordination_202_queued_relay_not_peer_delivered', async () => {
+    upsertP2PConfig(db, {
+      relay_mode: 'local',
+      use_coordination: true,
+      coordination_url: 'https://coordination.wrdesk.com',
+    })
+    insertHandshakeRecord(db, relayDirectHandshake('hs-qb-24'))
+    fetchSpy.mockResolvedValue(
+      new Response(JSON.stringify({ status: 'Capsule stored, recipient offline' }), {
+        status: 202,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    )
+    enqueueOutboundCapsule(db, 'hs-qb-24', 'https://coordination.wrdesk.com/beap/capsule', minimalCapsule('hs-qb-24'))
+
+    const r = await processOutboundQueue(db, async () => 'oidc-token')
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1)
+    expect(r.relayTransportAccepted).toBe(true)
+    expect(r.delivered).toBe(false)
+    expect(r.queued).toBe(true)
+    expect(r.code).toBe('QUEUED_RECIPIENT_OFFLINE')
+    expect(r.coordinationRelayDelivery).toBe('queued_recipient_offline')
   })
 
   test('QB_23_coordination_403_stale_registry_second_unauthorized_terminal', async () => {

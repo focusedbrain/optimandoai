@@ -41,9 +41,16 @@ interface HandshakeRecord {
   acceptor_device_name?: string | null
   initiator_device_role?: 'host' | 'sandbox' | null
   acceptor_device_role?: 'host' | 'sandbox' | null
+  initiator_coordination_device_id?: string | null
+  acceptor_coordination_device_id?: string | null
+  internal_peer_device_id?: string | null
+  internal_peer_computer_name?: string | null
+  internal_coordination_identity_complete?: boolean
+  internal_coordination_repair_needed?: boolean
 }
 
 import './handshakeViewTypes'
+import { formatInternalListSubtitle, isInternalHandshake } from '@shared/handshake/internalIdentityUi'
 
 // ── Helpers ──
 
@@ -281,12 +288,6 @@ export default function HandshakeView({
                         Internal
                       </span>
                     )}
-                    {r.initiator_device_name && (
-                      <span style={{ fontSize: '10px', color: '#888', marginLeft: '4px' }}>
-                        {r.initiator_device_name}
-                        {r.initiator_device_role && ` (${r.initiator_device_role})`}
-                      </span>
-                    )}
                   </div>
                   <span style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: '6px' }}>
                     {selectedHandshakeId === r.handshake_id && (
@@ -295,6 +296,11 @@ export default function HandshakeView({
                     <StateBadge state={r.state} />
                   </span>
                 </div>
+                {isInternalHandshake(r) && formatInternalListSubtitle(r) && (
+                  <div style={{ fontSize: '10px', color: '#a5b4ca', lineHeight: 1.35, marginTop: '4px', fontWeight: 500 }}>
+                    {formatInternalListSubtitle(r)}
+                  </div>
+                )}
                 <div style={{ fontSize: '10px', color: 'var(--color-text-muted, #94a3b8)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {formatDate(r.created_at)}
                   {count > 0 && (

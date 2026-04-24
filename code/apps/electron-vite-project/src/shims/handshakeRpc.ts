@@ -37,6 +37,21 @@ export function mapLedgerHandshakeToRpc(raw: unknown): HandshakeRecord {
     receiver_email?: string | null
     peer_x25519_public_key_b64?: string | null
     peer_mlkem768_public_key_b64?: string | null
+    local_x25519_public_key_b64?: string | null
+    handshake_type?: 'internal' | 'standard' | null
+    initiator_device_name?: string | null
+    acceptor_device_name?: string | null
+    initiator_device_role?: 'host' | 'sandbox' | null
+    acceptor_device_role?: 'host' | 'sandbox' | null
+    initiator_coordination_device_id?: string | null
+    acceptor_coordination_device_id?: string | null
+    internal_peer_device_id?: string | null
+    internal_peer_device_role?: 'host' | 'sandbox' | null
+    internal_peer_computer_name?: string | null
+    internal_peer_pairing_code?: string | null
+    internal_routing_key?: string | null
+    internal_coordination_identity_complete?: boolean
+    internal_coordination_repair_needed?: boolean
   }
 
   let counterparty_email = ''
@@ -67,6 +82,21 @@ export function mapLedgerHandshakeToRpc(raw: unknown): HandshakeRecord {
     peerX25519PublicKey: r.peer_x25519_public_key_b64 ?? undefined,
     peerPQPublicKey: r.peer_mlkem768_public_key_b64 ?? undefined,
     p2pEndpoint: r.p2p_endpoint ?? null,
+    localX25519PublicKey: r.local_x25519_public_key_b64 ?? undefined,
+    handshake_type: r.handshake_type ?? undefined,
+    initiator_device_name: r.initiator_device_name ?? null,
+    acceptor_device_name: r.acceptor_device_name ?? null,
+    initiator_device_role: r.initiator_device_role ?? null,
+    acceptor_device_role: r.acceptor_device_role ?? null,
+    initiator_coordination_device_id: r.initiator_coordination_device_id ?? null,
+    acceptor_coordination_device_id: r.acceptor_coordination_device_id ?? null,
+    internal_peer_device_id: r.internal_peer_device_id ?? null,
+    internal_peer_device_role: r.internal_peer_device_role ?? null,
+    internal_peer_computer_name: r.internal_peer_computer_name ?? null,
+    internal_peer_pairing_code: r.internal_peer_pairing_code ?? null,
+    internal_routing_key: r.internal_routing_key ?? null,
+    internal_coordination_identity_complete: r.internal_coordination_identity_complete,
+    internal_coordination_repair_needed: r.internal_coordination_repair_needed,
   }
 }
 

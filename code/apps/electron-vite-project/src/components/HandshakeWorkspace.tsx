@@ -15,6 +15,8 @@ import ProtectedAccessWarningDialog from './ProtectedAccessWarningDialog'
 import StructuredHsContextPanel, { KNOWN_HS_CONTEXT_LINK_FIELDS } from './StructuredHsContextPanel'
 import HandshakeBeapMessages from './HandshakeBeapMessages'
 import { UI_BADGE, UI_BUTTON } from '../styles/uiContrastTokens'
+import { InternalHandshakeIdentityPanel } from './InternalHandshakeIdentityPanel'
+import type { InternalIdentitySource } from '@shared/handshake/internalIdentityUi'
 
 // ── Types ──
 
@@ -38,6 +40,18 @@ interface HandshakeRecord {
   p2p_endpoint?: string | null
   context_sync_pending?: boolean
   policy_selections?: { cloud_ai?: boolean; internal_ai?: boolean }
+  handshake_type?: 'internal' | 'standard' | null
+  initiator_device_name?: string | null
+  acceptor_device_name?: string | null
+  initiator_device_role?: 'host' | 'sandbox' | null
+  acceptor_device_role?: 'host' | 'sandbox' | null
+  initiator_coordination_device_id?: string | null
+  acceptor_coordination_device_id?: string | null
+  internal_peer_device_id?: string | null
+  internal_peer_device_role?: 'host' | 'sandbox' | null
+  internal_peer_computer_name?: string | null
+  internal_coordination_identity_complete?: boolean
+  internal_coordination_repair_needed?: boolean
 }
 
 interface ContextBlockWithVisibility {
@@ -922,6 +936,8 @@ export default function HandshakeWorkspace({
             </div>
           </div>
         </div>
+
+        <InternalHandshakeIdentityPanel record={record as unknown as InternalIdentitySource} />
 
         {showVaultIndicator && (
           <div style={{ marginTop: '12px' }}>

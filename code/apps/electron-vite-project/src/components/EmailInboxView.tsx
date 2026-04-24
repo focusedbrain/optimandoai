@@ -5,7 +5,7 @@
  * When message selected: right = 50/50 message + AI workspace.
  */
 
-import { useEffect, useCallback, useState, useRef, useMemo } from 'react'
+import { useEffect, useCallback, useState, useRef, useMemo, type MouseEvent } from 'react'
 import EmailInboxToolbar from './EmailInboxToolbar'
 import { emailInboxSyncWindowSelectValue } from './EmailInboxSyncControls'
 import EmailMessageDetail from './EmailMessageDetail'
@@ -21,6 +21,9 @@ import { useEmailInboxStore, activeEmailAccountIdsForSync, type InboxMessage } f
 import { useDraftRefineStore } from '../stores/useDraftRefineStore'
 import type { NormalInboxAiResult } from '../types/inboxAi'
 import { useInboxPreloadQueue } from '../hooks/useInboxPreloadQueue'
+import { useInternalSandboxesList } from '../hooks/useInternalSandboxesList'
+import BeapSandboxCloneDialog from './BeapSandboxCloneDialog'
+import { isBeapQbeapOutboundEcho } from '../lib/inboxBeapOutbound'
 import { tryParsePartialAnalysis, tryParseAnalysis, type NormalInboxAiResultKey } from '../utils/parseInboxAiJson'
 import { reconcileAnalyzeTriage } from '../lib/inboxClassificationReconcile'
 import { deriveInboxMessageKind } from '../lib/inboxMessageKind'
@@ -1649,6 +1652,9 @@ interface InboxMessageRowProps {
   onToggleMultiSelect: () => void
   onMouseEnter?: () => void
   onNavigateToHandshake?: (handshakeId: string) => void
+  /** When true, show row-level Sandbox (clone) control for BEAP rows. */
+  showSandboxInRow?: boolean
+  onSandboxInRow?: (e: MouseEvent, message: InboxMessage) => void
 }
 
 function InboxMessageRow({
@@ -1660,8 +1666,12 @@ function InboxMessageRow({
   onToggleMultiSelect,
   onMouseEnter,
   onNavigateToHandshake,
+  showSandboxInRow,
+  onSandboxInRow,
 }: InboxMessageRowProps) {
   const isBeap = message.source_type === 'email_beap' || message.source_type === 'direct_beap'
+  const canRowSandbox =
+    showSandboxInRow && isBeap && !isBeapQbeapOutboundEcho(message)
   const bodyPreview = (message.body_text || '').slice(0, 100).replace(/\s+/g, ' ').trim()
   const hasAttachments = message.has_attachments === 1
 
@@ -1809,6 +1819,30 @@ function InboxMessageRow({
           </div>
         )}
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+          {canRowSandbox && onSandboxInRow && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation()
+                e.preventDefault()
+                onSandboxInRow(e, message)
+              }}
+              title="Clone to internal sandbox (new package)"
+              style={{
+                fontSize: 9,
+                fontWeight: 700,
+                padding: '2px 8px',
+                borderRadius: 4,
+                border: '1px solid rgba(124, 58, 237, 0.45)',
+                background: 'rgba(124, 58, 237, 0.15)',
+                color: 'var(--purple-accent, #c4b5fd)',
+                cursor: 'pointer',
+                flexShrink: 0,
+              }}
+            >
+              Sandbox
+            </button>
+          )}
           {hasAttachments && (
             <span style={{ fontSize: 10, color: 'var(--color-text-muted, #94a3b8)' }}>📎</span>
           )}
@@ -1892,6 +1926,16 @@ export default function EmailInboxView({
 
   const { prioritize } = useInboxPreloadQueue({ messages, analysisCache })
 
+  const {
+    sandboxes: internalSandboxes,
+    incomplete: internalSandboxesIncomplete,
+    loading: internalSandboxesLoading,
+    hasUsableSandbox,
+  } = useInternalSandboxesList()
+
+  const showInternalSandboxInboxRow =
+    internalSandboxesLoading || hasUsableSandbox || internalSandboxesIncomplete.length > 0
+
   const primaryAccountId = pickDefaultEmailAccountRowId(accounts)
   const autoSyncEligibleAccountIds = useMemo(() => activeEmailAccountIdsForSync(accounts), [accounts])
 
@@ -1930,6 +1974,8 @@ export default function EmailInboxView({
     body: string
     handshakeId?: string
   } | null>(null)
+
+  const [sandboxCloneForMessage, setSandboxCloneForMessage] = useState<InboxMessage | null>(null)
 
   const [leftPanelTab, setLeftPanelTab] = useState<'inbox' | 'sent'>('inbox')
   const [sentMessages, setSentMessages] = useState<Array<Record<string, unknown>>>([])
@@ -2624,6 +2670,23 @@ export default function EmailInboxView({
                 }
               : undefined
           }
+          internalSandbox={
+            showInternalSandboxInboxRow
+              ? {
+                  loading: internalSandboxesLoading,
+                  hasUsable: hasUsableSandbox,
+                  hasIdentityIncomplete:
+                    !hasUsableSandbox && internalSandboxesIncomplete.length > 0,
+                  liveStatusLabel: internalSandboxes[0]?.live_status_optional ?? null,
+                  onOpenHandshake: () => {
+                    const id =
+                      internalSandboxes[0]?.handshake_id ??
+                      internalSandboxesIncomplete[0]?.handshake_id
+                    if (id) onNavigateToHandshake?.(id)
+                  },
+                }
+              : undefined
+          }
         />
 
         <div style={{ display: 'flex', gap: 4, margin: '8px 12px 4px', flexShrink: 0 }}>
@@ -2846,6 +2909,8 @@ export default function EmailInboxView({
                 onToggleMultiSelect={() => toggleMultiSelect(msg.id)}
                 onMouseEnter={() => prioritize(msg.id)}
                 onNavigateToHandshake={onNavigateToHandshake}
+                showSandboxInRow={hasUsableSandbox && !internalSandboxesLoading}
+                onSandboxInRow={(_e, m) => setSandboxCloneForMessage(m)}
               />
             ))
           )}
@@ -3025,6 +3090,8 @@ export default function EmailInboxView({
               message={selectedMessage}
               onSelectAttachment={onSelectAttachment ? handleSelectAttachment : undefined}
               onReply={handleReply}
+              internalSandboxTargets={hasUsableSandbox ? internalSandboxes : undefined}
+              onSandboxClone={hasUsableSandbox ? (m) => setSandboxCloneForMessage(m) : undefined}
             />
           </div>
           <div className="inbox-detail-ai" data-collapsed={aiPanelCollapsed}>
@@ -3039,6 +3106,18 @@ export default function EmailInboxView({
           </div>
         </div>
       ) : null}
+
+      {sandboxCloneForMessage && hasUsableSandbox && internalSandboxes.length > 0 && (
+        <BeapSandboxCloneDialog
+          message={sandboxCloneForMessage}
+          sandboxes={internalSandboxes}
+          onClose={() => setSandboxCloneForMessage(null)}
+          onSent={() => {
+            setSandboxCloneForMessage(null)
+            void fetchMessages()
+          }}
+        />
+      )}
 
       {connectEmailFlowModal}
 

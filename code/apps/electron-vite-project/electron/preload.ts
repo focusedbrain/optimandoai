@@ -1138,6 +1138,8 @@ contextBridge.exposeInMainWorld('emailInbox', {
     search?: string
   }) => ipcRenderer.invoke('inbox:listMessageIds', options),
   getMessage: (messageId: string) => ipcRenderer.invoke('inbox:getMessage', messageId),
+  /** Plaintext layers for BEAP redirect (no ciphertext; read-only from inbox row). */
+  getBeapRedirectSource: (messageId: string) => ipcRenderer.invoke('inbox:getBeapRedirectSource', messageId),
   markRead: (ids: string[], read: boolean) => ipcRenderer.invoke('inbox:markRead', ids, read),
   toggleStar: (id: string) => ipcRenderer.invoke('inbox:toggleStar', id),
   archiveMessages: (ids: string[]) => ipcRenderer.invoke('inbox:archiveMessages', ids),
@@ -1221,6 +1223,12 @@ contextBridge.exposeInMainWorld('emailInbox', {
   readFileForAttachment: (filePath: string) => ipcRenderer.invoke('inbox:readFileForAttachment', filePath),
   reconcileImapRemoteLifecycle: (accountId: string) =>
     ipcRenderer.invoke('inbox:reconcileImapRemoteLifecycle', accountId),
+})
+
+/** BEAP inbox automation helpers (vault-gated; main validates + extract only for sandbox clone). */
+contextBridge.exposeInMainWorld('beapInbox', {
+  cloneToSandboxPrepare: (payload: { sourceMessageId: string; targetHandshakeId: string }) =>
+    ipcRenderer.invoke('inbox:beapInboxCloneToSandboxPrepare', payload),
 })
 
 contextBridge.exposeInMainWorld('autosortSession', {

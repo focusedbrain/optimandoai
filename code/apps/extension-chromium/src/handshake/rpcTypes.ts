@@ -77,6 +77,8 @@ export interface HandshakeRecord {
   readonly internal_routing_key?: string | null
   /** False for degraded legacy / incomplete internal rows — coordination relay must not send */
   readonly internal_coordination_identity_complete?: boolean
+  /** True when device ids or routing are inconsistent — user should repair pairing */
+  readonly internal_coordination_repair_needed?: boolean
 }
 
 // ── Context block proof (hash-only, no content in handshake capsules) ──
@@ -117,6 +119,10 @@ export interface SelectedHandshakeRecipient {
    * in a P2P send context.
    */
   readonly localX25519PublicKey?: string
+  /**
+   * Internal handshake only: one line describing peer orchestrator + device (for BEAP delivery / picker).
+   */
+  readonly internal_target_summary?: string | null
 }
 
 /**

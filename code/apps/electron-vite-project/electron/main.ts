@@ -3108,6 +3108,35 @@ app.whenReady().then(async () => {
         return (await handleHandshakeRPC(method, p, db)) as Record<string, unknown>
       }
 
+      if (method === 'internalSandboxes.listAvailable') {
+        const { vaultService: vsForInt } = await import('./main/vault/rpc')
+        if (!dashboardRendererVsbt || !vsForInt.validateToken(dashboardRendererVsbt)) {
+          const tok = vsForInt.getSessionToken()
+          if (tok && vsForInt.validateToken(tok)) {
+            dashboardRendererVsbt = tok
+            ;(globalThis as any).__og_dashboard_vsbt__ = dashboardRendererVsbt
+          }
+        }
+        if (!dashboardRendererVsbt || !vsForInt.validateToken(dashboardRendererVsbt)) {
+          return {
+            success: false,
+            error: 'Vault session not bound — unlock the vault to list sandbox handshakes',
+            sandboxes: [] as unknown[],
+            incomplete: [] as unknown[],
+          }
+        }
+        const db = await getLedgerDbOrOpen()
+        if (!db) {
+          return { success: false, error: 'No ledger database', sandboxes: [], incomplete: [] }
+        }
+        const session = getCurrentSession()
+        if (!session) {
+          return { success: false, error: 'Not logged in', sandboxes: [], incomplete: [] }
+        }
+        const { listAvailableInternalSandboxes } = await import('./main/handshake/internalSandboxesApi')
+        return listAvailableInternalSandboxes(db, session) as Record<string, unknown>
+      }
+
       return { success: false, error: `Unknown RPC method: ${method}` }
     }
 

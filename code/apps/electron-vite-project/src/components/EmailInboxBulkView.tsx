@@ -47,6 +47,8 @@ import { BulkInboxAttachmentsStrip } from './BulkInboxAttachmentsStrip'
 import { AutoSortSessionReview } from './AutoSortSessionReview'
 import { AutoSortSessionHistory } from './AutoSortSessionHistory'
 import { InboxHandshakeNavIconButton } from './InboxHandshakeNavIcon'
+import { useInternalSandboxesList } from '../hooks/useInternalSandboxesList'
+import BeapSandboxCloneDialog from './BeapSandboxCloneDialog'
 import '../components/handshakeViewTypes'
 import {
   DEBUG_AUTOSORT_DIAGNOSTICS,
@@ -1686,6 +1688,9 @@ export default function EmailInboxBulkView({
       archived: typeof t.archived === 'number' ? t.archived : 0,
     }
   }, [storeTabCounts])
+
+  const { sandboxes: bulkInternalSandboxes, hasUsableSandbox: bulkHasUsableSandbox } = useInternalSandboxesList()
+  const [bulkSandboxCloneFor, setBulkSandboxCloneFor] = useState<InboxMessage | null>(null)
 
   useEffect(() => {
     void refreshInboxSyncBackendState({
@@ -6556,6 +6561,18 @@ export default function EmailInboxBulkView({
       {/* EmailComposeOverlay removed — use EmailInlineComposer via composeMode (Prompt 3/6) */}
 
       {/* Full message modal — stays inside bulk mode */}
+      {bulkSandboxCloneFor && bulkHasUsableSandbox && bulkInternalSandboxes.length > 0 && (
+        <BeapSandboxCloneDialog
+          message={bulkSandboxCloneFor}
+          sandboxes={bulkInternalSandboxes}
+          onClose={() => setBulkSandboxCloneFor(null)}
+          onSent={() => {
+            setBulkSandboxCloneFor(null)
+            void refreshMessages()
+          }}
+        />
+      )}
+
       {expandedMessageId && (
         <div
           className="bulk-view-modal-overlay"
@@ -6589,6 +6606,8 @@ export default function EmailInboxBulkView({
                     onSelectAttachment?.(attachmentId)
                   }}
                   onReply={handleReply}
+                  internalSandboxTargets={bulkHasUsableSandbox ? bulkInternalSandboxes : undefined}
+                  onSandboxClone={bulkHasUsableSandbox ? (m) => setBulkSandboxCloneFor(m) : undefined}
                 />
               ) : (
                 <div className="bulk-view-modal-loading">Loading…</div>

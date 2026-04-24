@@ -5,6 +5,7 @@
 
 import type { VerifiedContextBlock } from './contextEscaping'
 import type { NormalInboxAiResult, BulkClassification } from '../types/inboxAi'
+import type { BeapInboxClonePrepareOk } from '../types/beapInboxClone'
 
 /** AutoSort session persistence / review (preload `window.autosortSession`). */
 export interface AutosortSessionAPI {
@@ -90,7 +91,10 @@ declare global {
         packageJson: string,
       ) => Promise<{ success: boolean; error?: string; delivered?: boolean; queued?: boolean; code?: string }>
       checkHandshakeSendReady?: (handshakeId: string) => Promise<{ ready: boolean; error?: string; localX25519PublicKey?: string; hasStoredPrivateKey?: boolean }>
-      /** Same RPC dispatch as extension WebSocket VAULT_RPC (vault.* / handshake.* / ingestion.*). */
+      /**
+       * Same RPC dispatch as extension WebSocket VAULT_RPC (vault.* / handshake.* / ingestion.*).
+       * Also supports `internalSandboxes.listAvailable` (vault unlocked) → `{ success, sandboxes, incomplete }`.
+       */
       vaultRpc?: (args: { method: string; params?: Record<string, unknown>; id?: string }) => Promise<Record<string, unknown>>
       /** Electron: X-Launch-Secret for localhost PQ KEM HTTP (beapCrypto pqEncapsulate). */
       pqHeaders?: () => Promise<Record<string, string>>
@@ -351,6 +355,13 @@ declare global {
     }
     /** Email Inbox IPC bridge (inbox_messages, sync, deletion, attachments, AI placeholders) */
     emailInbox?: EmailInboxBridge
+    /** BEAP inbox → sandbox: `inbox:beapInboxCloneToSandboxPrepare` (vault + target validation; no ciphertext). */
+    beapInbox?: {
+      cloneToSandboxPrepare: (payload: {
+        sourceMessageId: string
+        targetHandshakeId: string
+      }) => Promise<{ success: boolean; error?: string; prepare?: BeapInboxClonePrepareOk }>
+    }
     /** AutoSort run CRUD + session summary (IPC). */
     autosortSession?: AutosortSessionAPI
   }
@@ -435,6 +446,14 @@ export interface EmailInboxBridge {
     search?: string
   }) => Promise<{ ok: boolean; data?: { ids: string[]; total: number }; error?: string }>
   getMessage: (messageId: string) => Promise<{ ok: boolean; data?: unknown; error?: string }>
+  /**
+   * Read-only: `public_text` + `encrypted_text` for redirecting a BEAP inbox message to another handshake
+   * (no `beap_package_json` / wire ciphertext in the response).
+   */
+  getBeapRedirectSource?: (messageId: string) => Promise<
+    | { ok: true; message_id: string; subject: string; public_text: string; encrypted_text: string; [k: string]: unknown }
+    | { ok: false; error: string }
+  >
   markRead: (ids: string[], read: boolean) => Promise<{ ok: boolean; error?: string }>
   toggleStar: (id: string) => Promise<{ ok: boolean; data?: { starred: boolean }; error?: string }>
   archiveMessages: (ids: string[]) => Promise<{ ok: boolean; error?: string }>

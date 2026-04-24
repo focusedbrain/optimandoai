@@ -150,6 +150,7 @@ function createRequestHandler(
         let acceptorDeviceRole: string | undefined
         let initiatorDeviceName: string | undefined
         let acceptorDeviceName: string | undefined
+        let handshakeTypeForLog: string | null = null
         try {
           const parsed = JSON.parse(body) as Record<string, unknown>
           if (
@@ -179,6 +180,8 @@ function createRequestHandler(
           acceptorDeviceRole = trimOpt('acceptor_device_role')
           initiatorDeviceName = trimOpt('initiator_device_name')
           acceptorDeviceName = trimOpt('acceptor_device_name')
+          const htr = parsed.handshake_type
+          handshakeTypeForLog = typeof htr === 'string' && htr.trim() ? htr.trim() : null
         } catch {
           sendError(res, 400)
           return
@@ -242,6 +245,18 @@ function createRequestHandler(
           sendError(res, 503, { error: 'Storage unavailable' })
           return
         }
+        console.log(
+          '[RELAY_IDENTITY] register_handshake',
+          JSON.stringify({
+            handshake_id: handshakeId,
+            initiator_user_id: initiatorUserId,
+            acceptor_user_id: acceptorUserId,
+            same_principal: samePrincipalReg,
+            handshake_type: handshakeTypeForLog,
+            initiator_device_id: initiatorDeviceId ?? null,
+            acceptor_device_id: acceptorDeviceId ?? null,
+          }),
+        )
         try {
           const dInit = wsManager.flushPendingToConnectedClientsForUser(
             initiatorUserId,
@@ -628,10 +643,17 @@ function createRequestHandler(
         }
         rateLimiter.recordCapsuleSent(identity.userId)
 
-        const recipientClient =
-          recipientRoute.deviceId != null && recipientRoute.deviceId.length > 0
-            ? wsManager.getClientByDevice(recipientRoute.userId, recipientRoute.deviceId)
-            : wsManager.getClient(recipientRoute.userId)
+        const lookupUsedGetClientByDevice =
+          recipientRoute.deviceId != null && String(recipientRoute.deviceId).trim().length > 0
+        const recipientClient = lookupUsedGetClientByDevice
+          ? wsManager.getClientByDevice(recipientRoute.userId, recipientRoute.deviceId!)
+          : wsManager.getClient(recipientRoute.userId)
+        const connectedDeviceIds = wsManager.listConnectedDeviceIdsForUser(recipientUserId)
+        const targetRecv = (recipientRoute.deviceId ?? '').trim()
+        const sameUserHasOtherDeviceSessions =
+          targetRecv.length > 0
+            ? connectedDeviceIds.some((id) => id !== targetRecv)
+            : connectedDeviceIds.length > 0
         let pushed = false
         if (recipientClient) {
           try {
@@ -652,8 +674,12 @@ function createRequestHandler(
               handshake_id: handshakeId,
               capsule_type: capType,
               sender_user_id: identity.userId,
+              sender_device_id: senderDeviceId ?? null,
               receiver_user_id: recipientUserId,
               receiver_device_id: recipientRoute.deviceId ?? null,
+              lookup_used_get_client_by_device: lookupUsedGetClientByDevice,
+              connected_device_ids_for_recipient_user: connectedDeviceIds,
+              same_user_has_other_device_sessions: sameUserHasOtherDeviceSessions,
               coordinationRelayDelivery: 'pushed_live',
             }),
           )
@@ -666,8 +692,13 @@ function createRequestHandler(
               handshake_id: handshakeId,
               capsule_type: capType,
               sender_user_id: identity.userId,
+              sender_device_id: senderDeviceId ?? null,
               receiver_user_id: recipientUserId,
               receiver_device_id: recipientRoute.deviceId ?? null,
+              lookup_used_get_client_by_device: lookupUsedGetClientByDevice,
+              any_client_connected_for_recipient_user: connectedDeviceIds.length > 0,
+              connected_device_ids_for_recipient_user: connectedDeviceIds,
+              same_user_has_other_device_sessions: sameUserHasOtherDeviceSessions,
               coordinationRelayDelivery: 'queued_recipient_offline',
               note: 'Recipient had no matching live WebSocket (offline or user+device mismatch); will drain on WS connect / register-handshake flush',
             }),

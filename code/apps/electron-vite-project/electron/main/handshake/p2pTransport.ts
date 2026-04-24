@@ -221,7 +221,10 @@ export interface SendCapsuleResult {
   success: boolean
   error?: string
   statusCode?: number
-  /** Coordination relay: set when success — distinguishes live push vs offline queue. */
+  /**
+   * Coordination relay: set when HTTP 2xx — `pushed_live` (200) vs `queued_recipient_offline` (202).
+   * 202 is still `success: true` for transport (capsule persisted at relay); not peer live delivery.
+   */
   coordinationRelayDelivery?: CoordinationRelayDelivery
   /** From HTTP Retry-After (seconds), when present */
   retryAfterSec?: number
@@ -557,17 +560,6 @@ export async function sendCapsuleViaCoordination(
     payload.sender_device_id = senderDeviceId
     logDeviceIdBinding('outbound_sender_device_id', { outbound_sender_device_id: senderDeviceId })
   }
-  const pLog = payload as Record<string, unknown>
-  console.log(
-    '[RELAY_IDENTITY] outbound_capsule',
-    JSON.stringify({
-      queue_handshake_id: queueHandshakeId,
-      sender_user_id: decodeJwtSubForLogs(oidcToken),
-      sender_device_id: (pLog.sender_device_id as string | undefined) ?? null,
-      capsule_type: typeof pLog.capsule_type === 'string' ? pLog.capsule_type : null,
-      note: 'receiver_user_id resolved server-side from handshake registry, not duplicated on client',
-    }),
-  )
 
   if (db) {
     applyContextSyncInternalRoutingFromRecord(db, queueHandshakeId, payload)
@@ -606,6 +598,19 @@ export async function sendCapsuleViaCoordination(
       }
     }
   }
+
+  const pLog = payload as Record<string, unknown>
+  console.log(
+    '[RELAY_IDENTITY] outbound_capsule',
+    JSON.stringify({
+      queue_handshake_id: queueHandshakeId,
+      sender_user_id: decodeJwtSubForLogs(oidcToken),
+      sender_device_id: (pLog.sender_device_id as string | undefined) ?? null,
+      receiver_device_id: typeof pLog.receiver_device_id === 'string' ? pLog.receiver_device_id : null,
+      capsule_type: typeof pLog.capsule_type === 'string' ? pLog.capsule_type : null,
+      note: 'receiver_user_id resolved server-side from handshake registry, not duplicated on client',
+    }),
+  )
 
   console.log('[OUTBOUND-DEBUG] Sending capsule with sender_device_id:', senderDeviceId ?? '(none)', 'handshake:', queueHandshakeId)
   return sendCapsuleViaHttpWithAuth(payload, targetEndpoint, oidcToken)

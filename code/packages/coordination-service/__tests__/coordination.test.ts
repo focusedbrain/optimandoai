@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeAll, afterAll, beforeEach } from 'vitest'
+import { describe, test, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest'
 import { join } from 'path'
 import { tmpdir } from 'os'
 import http from 'http'
@@ -98,6 +98,21 @@ async function request(
 function wsConnect(port: number, token: string, onMessage?: (data: Buffer | string) => void): Promise<WebSocket> {
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(`ws://127.0.0.1:${port}/beap/ws?token=${encodeURIComponent(token)}`)
+    if (onMessage) ws.on('message', onMessage)
+    ws.on('open', () => resolve(ws))
+    ws.on('error', reject)
+  })
+}
+
+function wsConnectWithDevice(
+  port: number,
+  token: string,
+  deviceId: string,
+  onMessage?: (data: Buffer | string) => void,
+): Promise<WebSocket> {
+  return new Promise((resolve, reject) => {
+    const q = new URLSearchParams({ token, device_id: deviceId })
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/beap/ws?${q.toString()}`)
     if (onMessage) ws.on('message', onMessage)
     ws.on('open', () => resolve(ws))
     ws.on('error', reject)
@@ -1043,6 +1058,209 @@ describe('coordination-service', () => {
     const body = JSON.parse(r.body)
     expect(body.code).toBe('INTERNAL_CAPSULE_MISSING_DEVICE_ID')
     expect(String(body.detail)).toContain('sender_device_id')
+  })
+
+  // ── Internal same-principal BEAP relay + device id (orchestrator ↔ sandbox) ──
+
+  test('CS_SP_01: same-principal host → sandbox, both online, correct device ids → 200', async () => {
+    const hsId = 'hs-sp-01'
+    const user = 'spuserA01'
+    const devHost = 'dev-host-sp01'
+    const devSbx = 'dev-sbx-sp01'
+    await request(port, 'POST', '/beap/register-handshake', {
+      body: JSON.stringify({
+        handshake_id: hsId,
+        initiator_user_id: user,
+        acceptor_user_id: user,
+        initiator_device_id: devHost,
+        acceptor_device_id: devSbx,
+        handshake_type: 'internal',
+      }),
+      auth: `test-${user}-pro`,
+      contentType: 'application/json',
+    })
+    const received: Array<{ type?: string }> = []
+    const sbxWs = await wsConnectWithDevice(port, `test-${user}-pro`, devSbx, (data) => {
+      const msg = JSON.parse(data.toString()) as { type?: string }
+      if (msg.type === 'capsule') received.push(msg)
+    })
+    await new Promise((r) => setTimeout(r, 100))
+    const r = await request(port, 'POST', '/beap/capsule', {
+      body: samePrincipalCapsule(hsId, user, devHost, devSbx),
+      auth: `test-${user}-pro`,
+      contentType: 'application/json',
+    })
+    expect(r.status).toBe(200)
+    await new Promise((res) => setTimeout(res, 200))
+    expect(received.length).toBeGreaterThanOrEqual(1)
+    sbxWs.close()
+  })
+
+  test('CS_SP_02: sandbox offline → 202 queued', async () => {
+    const hsId = 'hs-sp-02'
+    const user = 'spuserA02'
+    const devHost = 'dev-host-sp02'
+    const devSbx = 'dev-sbx-sp02'
+    await request(port, 'POST', '/beap/register-handshake', {
+      body: JSON.stringify({
+        handshake_id: hsId,
+        initiator_user_id: user,
+        acceptor_user_id: user,
+        initiator_device_id: devHost,
+        acceptor_device_id: devSbx,
+      }),
+      auth: `test-${user}-pro`,
+      contentType: 'application/json',
+    })
+    const r = await request(port, 'POST', '/beap/capsule', {
+      body: samePrincipalCapsule(hsId, user, devHost, devSbx),
+      auth: `test-${user}-pro`,
+      contentType: 'application/json',
+    })
+    expect(r.status).toBe(202)
+    const body = JSON.parse(r.body) as { status?: string }
+    expect(body.status).toMatch(/offline|stored/i)
+  })
+
+  test('CS_SP_03: 202 then sandbox connects with correct device id → queue drains', async () => {
+    const hsId = 'hs-sp-03'
+    const user = 'spuserA03'
+    const devHost = 'dev-host-sp03'
+    const devSbx = 'dev-sbx-sp03'
+    await request(port, 'POST', '/beap/register-handshake', {
+      body: JSON.stringify({
+        handshake_id: hsId,
+        initiator_user_id: user,
+        acceptor_user_id: user,
+        initiator_device_id: devHost,
+        acceptor_device_id: devSbx,
+      }),
+      auth: `test-${user}-pro`,
+      contentType: 'application/json',
+    })
+    const r1 = await request(port, 'POST', '/beap/capsule', {
+      body: samePrincipalCapsule(hsId, user, devHost, devSbx),
+      auth: `test-${user}-pro`,
+      contentType: 'application/json',
+    })
+    expect(r1.status).toBe(202)
+    const received: string[] = []
+    const sbxWs = await wsConnectWithDevice(port, `test-${user}-pro`, devSbx, (data) => {
+      const msg = JSON.parse(data.toString()) as { type?: string; id?: string }
+      if (msg.type === 'capsule' && msg.id) received.push(msg.id)
+    })
+    await new Promise((res) => setTimeout(res, 400))
+    expect(received.length).toBeGreaterThanOrEqual(1)
+    sbxWs.close()
+  })
+
+  test('CS_SP_04: connect as default device with queued row for UUID device → not delivered, mismatch log', async () => {
+    const hsId = 'hs-sp-04'
+    const user = 'spuserA04'
+    const devHost = 'dev-host-sp04'
+    const devSbx = '6f3b8a20-0c4d-4b2e-9a7f-111111111111' // fixed UUID shape for pending row
+    await request(port, 'POST', '/beap/register-handshake', {
+      body: JSON.stringify({
+        handshake_id: hsId,
+        initiator_user_id: user,
+        acceptor_user_id: user,
+        initiator_device_id: devHost,
+        acceptor_device_id: devSbx,
+      }),
+      auth: `test-${user}-pro`,
+      contentType: 'application/json',
+    })
+    const r0 = await request(port, 'POST', '/beap/capsule', {
+      body: samePrincipalCapsule(hsId, user, devHost, devSbx),
+      auth: `test-${user}-pro`,
+      contentType: 'application/json',
+    })
+    expect(r0.status).toBe(202)
+    const spy = vi.spyOn(console, 'log').mockImplementation(() => {})
+    const received: string[] = []
+    const ws = await wsConnect(port, `test-${user}-pro`, (data) => {
+      const msg = JSON.parse(data.toString()) as { type?: string; id?: string }
+      if (msg.type === 'capsule' && msg.id) received.push(msg.id)
+    })
+    await new Promise((res) => setTimeout(res, 300))
+    const logCalls = [...spy.mock.calls]
+    spy.mockRestore()
+    expect(received).toHaveLength(0)
+    const foundMismatch = logCalls.some(
+      (args) =>
+        typeof args[0] === 'string' &&
+        args[0].includes('pending_cannot_drain_device_mismatch') &&
+        String(args[1] ?? '').includes('pending_recipient_device_id'),
+    )
+    expect(foundMismatch).toBe(true)
+    const pending = relay?.store
+      .getDb()
+      .prepare(
+        `SELECT COUNT(*) as c FROM coordination_capsules
+         WHERE recipient_user_id = ? AND acknowledged_at IS NULL AND trim(coalesce(recipient_device_id,'')) = ?`,
+      )
+      .get(user, devSbx) as { c: number }
+    expect(pending.c).toBeGreaterThan(0)
+    ws.close()
+  })
+
+  test('CS_SP_05: wrong sender_device_id → 403, not queued (no new pending row for failed POST)', async () => {
+    const hsId = 'hs-sp-05'
+    const user = 'spuserA05'
+    const devHost = 'dev-host-sp05'
+    const devSbx = 'dev-sbx-sp05'
+    await request(port, 'POST', '/beap/register-handshake', {
+      body: JSON.stringify({
+        handshake_id: hsId,
+        initiator_user_id: user,
+        acceptor_user_id: user,
+        initiator_device_id: devHost,
+        acceptor_device_id: devSbx,
+      }),
+      auth: `test-${user}-pro`,
+      contentType: 'application/json',
+    })
+    const before = relay?.store
+      .getDb()
+      .prepare(`SELECT COUNT(*) as c FROM coordination_capsules WHERE handshake_id = ?`)
+      .get(hsId) as { c: number }
+    const o = JSON.parse(samePrincipalCapsule(hsId, user, devHost, devSbx)) as Record<string, unknown>
+    o.sender_device_id = 'wrong-sender-sp05'
+    const r = await request(port, 'POST', '/beap/capsule', {
+      body: JSON.stringify(o),
+      auth: `test-${user}-pro`,
+      contentType: 'application/json',
+    })
+    expect(r.status).toBe(403)
+    const after = relay?.store
+      .getDb()
+      .prepare(`SELECT COUNT(*) as c FROM coordination_capsules WHERE handshake_id = ?`)
+      .get(hsId) as { c: number }
+    expect(after.c).toBe(before.c)
+  })
+
+  test('CS_SP_06: cross-principal online recipient → 200 (unchanged)', async () => {
+    const hsId = 'hs-sp-06'
+    await request(port, 'POST', '/beap/register-handshake', {
+      body: JSON.stringify({
+        handshake_id: hsId,
+        initiator_user_id: 'sendersp06',
+        acceptor_user_id: 'recipsp06',
+        initiator_email: 'a@test.com',
+        acceptor_email: 'b@test.com',
+      }),
+      auth: 'test-sendersp06-pro',
+      contentType: 'application/json',
+    })
+    const recipientWs = await wsConnect(port, 'test-recipsp06-pro')
+    await new Promise((r) => setTimeout(r, 100))
+    const r = await request(port, 'POST', '/beap/capsule', {
+      body: validBeapCapsule(hsId, 'sendersp06'),
+      auth: 'test-sendersp06-pro',
+      contentType: 'application/json',
+    })
+    expect(r.status).toBe(200)
+    recipientWs.close()
   })
 
   test('CS_28_flush_queued_401: POST /beap/flush-queued without auth → 401', async () => {

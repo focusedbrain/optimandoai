@@ -10,7 +10,10 @@ import InboxAttachmentRow from './InboxAttachmentRow'
 import LinkWarningDialog from './LinkWarningDialog'
 import { extractLinkParts } from '../utils/safeLinks'
 import { deriveInboxMessageKind } from '../lib/inboxMessageKind'
+import { isBeapQbeapOutboundEcho } from '../lib/inboxBeapOutbound'
+import type { InternalSandboxTargetWire } from '../hooks/useInternalSandboxesList'
 import SessionImportDialog, { type SessionImportDialogSessionRef } from './SessionImportDialog'
+import BeapRedirectDialog from './BeapRedirectDialog'
 import { listHandshakes } from '../shims/handshakeRpc'
 import { UI_BADGE, UI_BUTTON } from '../styles/uiContrastTokens'
 
@@ -22,6 +25,10 @@ export interface EmailMessageDetailProps {
   onSelectAttachment?: (attachmentId: string | null) => void
   /** When provided, called when user clicks Reply — parent routes depackaged → inline email compose, BEAP → capsule reply */
   onReply?: (message: InboxMessage) => void
+  /** When set and non-empty, show Sandbox (clone) for BEAP rows when a sandbox orchestrator is available. */
+  internalSandboxTargets?: InternalSandboxTargetWire[]
+  /** Open sandbox clone flow for this message (parent owns dialog state). */
+  onSandboxClone?: (message: InboxMessage) => void
 }
 
 // ── Helpers ──
@@ -257,7 +264,15 @@ function renderDepackagedJson(jsonStr: string | null): ReactNode {
   }
 }
 
-export default function EmailMessageDetail({ message, selectedAttachmentId: selectedAttachmentIdProp, onSelectAttachment, onReply }: EmailMessageDetailProps) {
+export default function EmailMessageDetail({
+  message,
+  selectedAttachmentId: selectedAttachmentIdProp,
+  onSelectAttachment,
+  onReply,
+  internalSandboxTargets,
+  onSandboxClone,
+}: EmailMessageDetailProps) {
+  const [beapRedirectOpen, setBeapRedirectOpen] = useState(false)
   const [beapPanelOpen, setBeapPanelOpen] = useState(false)
   const [pendingLinkUrl, setPendingLinkUrl] = useState<string | null>(null)
   const [importingSession, setImportingSession] = useState<Record<string, unknown> | null>(null)
@@ -561,7 +576,11 @@ export default function EmailMessageDetail({ message, selectedAttachmentId: sele
   const sessionRefsList = parsedDepackaged ? getSessionRefs(parsedDepackaged) : []
 
   const isOutboundQbeap =
-    isNativeBeap && parsedDepackaged && parsedDepackaged.format === 'beap_qbeap_outbound'
+    isNativeBeap && (parsedDepackaged?.format === 'beap_qbeap_outbound' || isBeapQbeapOutboundEcho(message))
+  const canSandboxClone =
+    (message.source_type === 'direct_beap' || message.source_type === 'email_beap') &&
+    !isOutboundQbeap &&
+    (internalSandboxTargets?.length ?? 0) > 0
 
   const handleStar = useCallback(() => {
     toggleStar(message.id)
@@ -609,6 +628,12 @@ export default function EmailMessageDetail({ message, selectedAttachmentId: sele
           importing={importStatus[dialogSessionRef.sessionId] === 'importing'}
         />
       ) : null}
+      {beapRedirectOpen && (
+        <BeapRedirectDialog
+          message={message}
+          onClose={() => setBeapRedirectOpen(false)}
+        />
+      )}
     <div
       className={`inbox-detail-message-inner inbox-detail-message-inner--premium${editingDraftForMessageId === message.id ? ' inbox-detail-message-inner--editing-draft' : ''}`}
       style={{
@@ -764,6 +789,48 @@ export default function EmailMessageDetail({ message, selectedAttachmentId: sele
               >
                 Reply using capsule fields →
               </span>
+            )}
+            {(message.source_type === 'direct_beap' || message.source_type === 'email_beap') && !isOutboundQbeap && (
+              <button
+                type="button"
+                onClick={() => setBeapRedirectOpen(true)}
+                title="Send a new BEAP copy of this content to another handshake"
+                style={{
+                  padding: '6px 10px',
+                  fontSize: 11,
+                  fontWeight: 600,
+                  borderRadius: 6,
+                  cursor: 'pointer',
+                  background: 'rgba(59, 130, 246, 0.12)',
+                  border: '1px solid rgba(59, 130, 246, 0.35)',
+                  color: '#93c5fd',
+                }}
+              >
+                Redirect
+              </button>
+            )}
+            {canSandboxClone && onSandboxClone && (
+              <button
+                type="button"
+                onClick={() => onSandboxClone(message)}
+                title="Clone to internal sandbox (new qBEAP; original unchanged)"
+                style={{
+                  padding: '6px 10px',
+                  fontSize: 11,
+                  fontWeight: 600,
+                  borderRadius: 6,
+                  cursor: 'pointer',
+                  background: 'rgba(124, 58, 237, 0.12)',
+                  border: '1px solid rgba(124, 58, 237, 0.4)',
+                  color: 'var(--purple-accent, #c4b5fd)',
+                }}
+              >
+                {internalSandboxTargets?.length === 1 &&
+                (internalSandboxTargets[0]?.live_status_optional === 'relay_disconnected' ||
+                  internalSandboxTargets[0]?.live_status_optional === 'coordination_disabled')
+                  ? 'Queue to Sandbox'
+                  : 'Sandbox'}
+              </button>
             )}
           </div>
           <div style={{ fontSize: 12, color: 'var(--color-text-muted, #94a3b8)' }}>

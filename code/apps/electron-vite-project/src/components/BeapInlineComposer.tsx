@@ -39,6 +39,8 @@ import {
 
 import { listHandshakes } from '../shims/handshakeRpc';
 
+import { handshakeRecordToSelectedRecipient } from '../lib/handshakeRecipientMap';
+
 import './handshakeViewTypes';
 
 import '../styles/dashboard-base.css';
@@ -105,32 +107,6 @@ const draftFocusOutline = '2px solid #6366f1';
 
 type OrchestratorSession = { id: string; name: string };
 
-/** Map IPC `HandshakeRecord` to builder `SelectedHandshakeRecipient` (same field contract as extension picker). */
-
-function handshakeRecordToSelectedRecipient(h: HandshakeRecord): SelectedHandshakeRecipient {
-  const email = h.counterparty_email ?? '';
-
-  return {
-    handshake_id: h.handshake_id,
-
-    counterparty_email: email,
-
-    counterparty_user_id: h.counterparty_user_id,
-
-    sharing_mode: h.sharing_mode === 'reciprocal' ? 'reciprocal' : 'receive-only',
-
-    receiver_email_list: email ? [email] : [],
-
-    receiver_display_name: email ? email.split('@')[0] : 'Peer',
-
-    peerX25519PublicKey: h.peerX25519PublicKey,
-
-    peerPQPublicKey: h.peerPQPublicKey,
-
-    p2pEndpoint: h.p2pEndpoint ?? null,
-  };
-}
-
 function isPdfAttachment(name: string, mime?: string): boolean {
   const m = (mime || '').toLowerCase();
 
@@ -188,6 +164,9 @@ export function BeapInlineComposer({
   const [sendError, setSendError] = useState<string | null>(null);
 
   const [sendSuccess, setSendSuccess] = useState(false);
+
+  /** Live push vs HTTP 202 relay queue (peer offline) — for banner copy and outbox. */
+  const [sendSuccessMode, setSendSuccessMode] = useState<'live' | 'queued_relay' | null>(null);
 
   const sendSuccessCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -520,6 +499,7 @@ export function BeapInlineComposer({
     setSendError(null);
 
     setSendSuccess(false);
+    setSendSuccessMode(null);
 
     if (sendSuccessCloseTimerRef.current) {
       clearTimeout(sendSuccessCloseTimerRef.current);
@@ -677,12 +657,16 @@ export function BeapInlineComposer({
                 : undefined,
             hasEncryptedInner: recipientMode === 'private' && !!encryptedMessage.trim(),
             deliveryMethod: deliveryMethod,
-            deliveryStatus: 'sent',
+            deliveryStatus:
+              result.queued || result.coordinationRelayDelivery === 'queued_recipient_offline'
+                ? 'queued_relay'
+                : 'sent',
             deliveryDetailJson: JSON.stringify({
               action: result.action,
               message: result.message,
               coordinationRelayDelivery: result.coordinationRelayDelivery,
               delivered: result.delivered,
+              queued: result.queued,
             }),
             attachmentSummaryJson:
               attachments.length > 0
@@ -696,12 +680,16 @@ export function BeapInlineComposer({
           /* fire-and-forget */
         }
 
+        setSendSuccessMode(
+          result.queued || result.coordinationRelayDelivery === 'queued_recipient_offline' ? 'queued_relay' : 'live',
+        );
         setSendSuccess(true);
 
         sendSuccessCloseTimerRef.current = setTimeout(() => {
           sendSuccessCloseTimerRef.current = null;
 
           setSendSuccess(false);
+          setSendSuccessMode(null);
 
           onSent();
         }, 2000);
@@ -1000,6 +988,24 @@ export function BeapInlineComposer({
               </p>
             )}
 
+            {recipientMode === 'private' && selectedRecipient?.internal_target_summary && (
+              <p
+                style={{
+                  margin: '8px 0 0 0',
+                  fontSize: 12,
+                  color: '#1e3a5f',
+                  fontWeight: 600,
+                  lineHeight: 1.45,
+                  padding: '8px 10px',
+                  background: 'rgba(67,56,202,0.08)',
+                  borderRadius: 6,
+                  border: '1px solid rgba(67,56,202,0.2)',
+                }}
+              >
+                {selectedRecipient.internal_target_summary}
+              </p>
+            )}
+
             {deliveryMethod === 'email' && recipientMode === 'public' && (
               <label style={{ display: 'block', marginTop: 8 }}>
                 <span style={{ fontSize: 11, color: '#475569' }}>To (email)</span>
@@ -1023,7 +1029,9 @@ export function BeapInlineComposer({
             {deliveryMethod === 'p2p' && (
               <p style={{ margin: 0, fontSize: 12, color: '#334155' }}>
                 {recipientMode === 'private'
-                  ? 'Sends via encrypted P2P to the handshake peer when the endpoint is available.'
+                  ? selectedRecipient?.internal_target_summary
+                    ? 'Sends via encrypted P2P to the peer orchestrator above when the endpoint is available.'
+                    : 'Sends via encrypted P2P to the handshake peer when the endpoint is available.'
                   : 'Public P2P distribution uses the standard pBEAP builder path.'}
               </p>
             )}
@@ -1407,9 +1415,9 @@ export function BeapInlineComposer({
           {sendSuccess && (
             <div
               style={{
-                background: '#dcfce7',
-                color: '#166534',
-                border: '1px solid #86efac',
+                background: sendSuccessMode === 'queued_relay' ? '#ffedd5' : '#dcfce7',
+                color: sendSuccessMode === 'queued_relay' ? '#9a3412' : '#166534',
+                border: `1px solid ${sendSuccessMode === 'queued_relay' ? '#fdba74' : '#86efac'}`,
                 borderRadius: 6,
                 padding: '10px 16px',
                 fontSize: 13,
@@ -1419,7 +1427,10 @@ export function BeapInlineComposer({
                 gap: 8,
               }}
             >
-              ✅ BEAP™ message sent successfully
+              {sendSuccessMode === 'queued_relay' ? '⏳' : '✅'}{' '}
+              {sendSuccessMode === 'queued_relay'
+                ? 'Queued at relay (recipient offline — not live delivery)'
+                : 'BEAP™ message sent successfully'}
             </div>
           )}
 

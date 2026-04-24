@@ -2296,50 +2296,62 @@ export async function executeP2PAction(
       )
     }
     if (rpc.success === true && rpc.delivered === false) {
-      const msg = rpc.error || `P2P delivery not confirmed (code: ${rpc.code ?? 'unknown'})`
-      console.error(
-        '[BEAP-SEND] P2P delivery NOT confirmed:',
-        JSON.stringify({
-          delivered: rpc.delivered,
-          code: rpc.code,
-          http_status: rpc.http_status,
-          error: rpc.error,
-          outbound_debug: rpc.outbound_debug,
-        }),
-      )
-      return {
-        success: false,
-        action: 'sent',
-        message: msg,
-        clientSendFailureDebug: {
-          kind: 'client_send_failure',
-          phase: 'p2p_transport',
+      const relayQueued =
+        rpc.code === 'QUEUED_RECIPIENT_OFFLINE' ||
+        rpc.coordinationRelayDelivery === 'queued_recipient_offline' ||
+        (rpc.queued === true && rpc.relayTransportAccepted === true)
+      if (!relayQueued) {
+        const msg = rpc.error || `P2P delivery not confirmed (code: ${rpc.code ?? 'unknown'})`
+        console.error(
+          '[BEAP-SEND] P2P delivery NOT confirmed:',
+          JSON.stringify({
+            delivered: rpc.delivered,
+            code: rpc.code,
+            http_status: rpc.http_status,
+            error: rpc.error,
+            outbound_debug: rpc.outbound_debug,
+          }),
+        )
+        return {
+          success: false,
+          action: 'sent',
           message: msg,
-        },
-        ...(rpc.outbound_debug && { p2pOutboundDebug: rpc.outbound_debug }),
+          clientSendFailureDebug: {
+            kind: 'client_send_failure',
+            phase: 'p2p_transport',
+            message: msg,
+          },
+          ...(rpc.outbound_debug && { p2pOutboundDebug: rpc.outbound_debug }),
+        }
       }
     }
     if (result?.success) {
       const relay = result.coordinationRelayDelivery
+      const queuedOffline =
+        relay === 'queued_recipient_offline' || result.code === 'QUEUED_RECIPIENT_OFFLINE' || result.queued === true
       const ingestConfirmed = result.recipient_ingest_confirmed === true
-      const relayDebugDetail =
-        relay === 'queued_recipient_offline'
-          ? 'Relay accepted — message queued (recipient offline).'
-          : relay === 'pushed_live'
-            ? 'Relay accepted — live push to coordination (not a guarantee the recipient app has ingested it).'
-            : 'Relay accepted message.'
+      const relayDebugDetail = queuedOffline
+        ? 'Relay accepted — message queued (recipient offline); not live delivery.'
+        : relay === 'pushed_live'
+          ? 'Relay accepted — live push to coordination (not a guarantee the recipient app has ingested it).'
+          : 'Relay accepted message.'
       console.log('[BEAP-SEND] P2P relay result (debug):', relayDebugDetail, {
         coordinationRelayDelivery: relay,
         recipient_ingest_confirmed: ingestConfirmed,
         rpc_delivered: rpc.delivered,
+        code: result.code,
       })
       return {
         success: true,
         action: 'sent',
-        message: 'Message sent',
+        message: queuedOffline
+          ? 'Queued — recipient offline (saved at relay; not live delivery).'
+          : 'Message sent',
         delivered: rpc.delivered !== false,
+        code: result.code,
         recipientIngestConfirmed: ingestConfirmed,
         ...(!ingestConfirmed && { p2pRelayAcceptedPendingIngest: true }),
+        ...(queuedOffline && { queued: true as const }),
         ...(relay && { coordinationRelayDelivery: relay }),
       }
     }

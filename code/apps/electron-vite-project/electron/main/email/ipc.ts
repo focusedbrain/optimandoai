@@ -25,6 +25,8 @@ import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
 import { fileURLToPath } from 'node:url'
+import { extractBeapRedirectSourceFromRow } from './beapRedirectSource'
+import { prepareBeapInboxSandboxClone } from './beapInboxClonePrepare'
 
 /** Per-call ⚡ logs for `inbox:aiAnalyzeMessage` — keep false in production. */
 const DEBUG_INBOX_AI_IPC_VERBOSE = false
@@ -1560,7 +1562,8 @@ export function registerInboxHandlers(
     'inbox:patchAccountSyncPreferences',
     'inbox:toggleAutoSync',
     'inbox:getSyncState',
-    'inbox:listMessages', 'inbox:listMessageIds', 'inbox:dashboardSnapshot', 'inbox:getMessage',
+    'inbox:listMessages', 'inbox:listMessageIds', 'inbox:dashboardSnapshot', 'inbox:getMessage', 'inbox:getBeapRedirectSource',
+    'inbox:beapInboxCloneToSandboxPrepare',
     'inbox:markRead', 'inbox:toggleStar', 'inbox:archiveMessages', 'inbox:setCategory',
     'inbox:deleteMessages', 'inbox:cancelDeletion', 'inbox:getDeletedMessages', 'inbox:deleteAllDirectBeap',
     'inbox:getAttachment', 'inbox:getAttachmentText', 'inbox:openAttachmentOriginal', 'inbox:rasterAttachment',
@@ -3178,6 +3181,129 @@ Rules:
       return { ok: false, error: err?.message ?? 'Get failed' }
     }
   })
+
+  /**
+   * Read-only: plaintext layers for BEAP redirect. Does not return `beap_package_json` or ciphertext.
+   */
+  ipcMain.handle('inbox:getBeapRedirectSource', async (_e, messageId: string) => {
+    try {
+      const db = await resolveDb()
+      if (!db) return { ok: false, error: 'Database unavailable' }
+      const id = typeof messageId === 'string' ? messageId.trim() : ''
+      if (!id) return { ok: false, error: 'messageId required' }
+      const row = db
+        .prepare(
+          `SELECT id, source_type, handshake_id, subject, body_text, depackaged_json, has_attachments
+           FROM inbox_messages WHERE id = ?`,
+        )
+        .get(id) as
+        | {
+            id: string
+            source_type?: string | null
+            handshake_id?: string | null
+            subject?: string | null
+            body_text?: string | null
+            depackaged_json?: string | null
+            has_attachments?: number | null
+          }
+        | undefined
+      const extracted = extractBeapRedirectSourceFromRow(row)
+      if (!extracted.ok) return extracted
+
+      let redirectedBy = ''
+      try {
+        const { getCurrentSession } = await import('../handshake/ipc')
+        const session = getCurrentSession() as
+          | { email?: string | null; wrdesk_user_id?: string | null; sub?: string | null }
+          | null
+          | undefined
+        redirectedBy =
+          (session?.email && String(session.email).trim()) ||
+          (session?.wrdesk_user_id && String(session.wrdesk_user_id).trim()) ||
+          (session?.sub && String(session.sub).trim()) ||
+          ''
+      } catch {
+        /* session optional */
+      }
+
+      return {
+        ok: true,
+        message_id: extracted.message_id,
+        source_type: extracted.source_type,
+        original_handshake_id: extracted.original_handshake_id,
+        subject: extracted.subject,
+        public_text: extracted.public_text,
+        encrypted_text: extracted.encrypted_text,
+        has_attachments: (row?.has_attachments ?? 0) > 0,
+        ...(extracted.content_warning ? { content_warning: extracted.content_warning } : {}),
+        redirected_by_account: redirectedBy || null,
+      }
+    } catch (err: any) {
+      return { ok: false, error: err?.message ?? 'getBeapRedirectSource failed' }
+    }
+  })
+
+  /**
+   * Validate vault + account, internal sandbox target, and extract cloneable plaintext.
+   * Does not build or send the BEAP package (renderer uses BeapPackageBuilder + executeDeliveryAction).
+   */
+  ipcMain.handle(
+    'inbox:beapInboxCloneToSandboxPrepare',
+    async (
+      _e,
+      payload: { sourceMessageId?: string; targetHandshakeId?: string } | undefined,
+    ) => {
+      try {
+        const { vaultService: vs } = await import('../vault/rpc')
+        let tok = (globalThis as { __og_dashboard_vsbt__?: string }).__og_dashboard_vsbt__
+        if (!tok || !vs.validateToken(tok)) {
+          const t2 = vs.getSessionToken()
+          if (t2 && vs.validateToken(t2)) {
+            tok = t2
+            ;(globalThis as { __og_dashboard_vsbt__?: string }).__og_dashboard_vsbt__ = t2
+          }
+        }
+        if (!tok || !vs.validateToken(tok)) {
+          return {
+            success: false,
+            error: 'Vault session not bound — unlock the vault to clone to sandbox',
+          }
+        }
+
+        const { getCurrentSession } = await import('../handshake/ipc')
+        const session = getCurrentSession()
+        if (!session) {
+          return { success: false, error: 'Not logged in' }
+        }
+
+        const db = await resolveDb()
+        if (!db) {
+          return { success: false, error: 'Database unavailable' }
+        }
+
+        const srcId = typeof payload?.sourceMessageId === 'string' ? payload.sourceMessageId.trim() : ''
+        const tgtId = typeof payload?.targetHandshakeId === 'string' ? payload.targetHandshakeId.trim() : ''
+        if (!srcId || !tgtId) {
+          return { success: false, error: 'sourceMessageId and targetHandshakeId are required' }
+        }
+
+        const accountTag =
+          (session.email && String(session.email).trim()) ||
+          (session.wrdesk_user_id && String(session.wrdesk_user_id).trim()) ||
+          (session.sub && String(session.sub).trim()) ||
+          null
+
+        const prep = prepareBeapInboxSandboxClone(db, session, srcId, tgtId, accountTag)
+        if (!prep.ok) {
+          return { success: false, error: prep.error }
+        }
+
+        return { success: true, prepare: prep }
+      } catch (err: any) {
+        return { success: false, error: err?.message ?? 'beapInboxCloneToSandboxPrepare failed' }
+      }
+    },
+  )
 
   // ── Actions ──
   ipcMain.handle('inbox:markRead', async (_e, messageIds: string[], read: boolean) => {
