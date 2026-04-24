@@ -637,10 +637,11 @@ async function sendCapsuleViaHttpWithAuth(
       }
     }
     if (response.status === 202) {
-      console.log('[P2P] Coordination delivery OK (recipient offline, queued)', {
-        endpoint: targetEndpoint,
-        status: response.status,
-      })
+      console.log(
+        '[P2P] Coordination: relay stored for offline recipient (HTTP 202). Peer has not received this yet; ' +
+          'live delivery = WS register-handshake/flush, reconnect push, or client flush. success=true here = transport accepted / retry-avoidance only.',
+        { endpoint: targetEndpoint, status: response.status },
+      )
       return {
         success: true,
         statusCode: 202,

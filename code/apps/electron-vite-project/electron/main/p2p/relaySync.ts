@@ -8,6 +8,7 @@
 import { getP2PConfig } from './p2pConfig'
 import { getHandshakeRecord } from '../handshake/db'
 import { logHandshakeKeyBinding } from '../handshake/keyBindingDebug'
+import { requestCoordinationFlushQueued } from './coordinationFlushQueued'
 
 /** Decode JWT payload for debug — returns aud value or null */
 function decodeJwtAud(token: string): string | string[] | null {
@@ -130,6 +131,14 @@ export async function registerHandshakeWithRelay(
         })
       } catch { /* read-only log */ }
       console.log('[RELAY-REG] Success:', { handshakeId, status: res.status })
+      void requestCoordinationFlushQueued(coordUrl, token, 'post_register').then((fr) => {
+        if (fr.ok && (fr.delivered ?? 0) > 0) {
+          console.log(
+            '[CLIENT-QUEUE-PULL] post_register flush delivered queued capsules',
+            JSON.stringify({ handshakeId, delivered: fr.delivered }),
+          )
+        }
+      })
       return { success: true }
     } catch (err: any) {
       const msg = err?.message ?? String(err)

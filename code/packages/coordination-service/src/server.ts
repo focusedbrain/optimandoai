@@ -242,8 +242,41 @@ function createRequestHandler(
           sendError(res, 503, { error: 'Storage unavailable' })
           return
         }
+        try {
+          const dInit = wsManager.flushPendingToConnectedClientsForUser(
+            initiatorUserId,
+            initiatorEmail ?? null,
+            'register_handshake',
+          )
+          const dAcc = wsManager.flushPendingToConnectedClientsForUser(
+            acceptorUserId,
+            acceptorEmail ?? null,
+            'register_handshake',
+          )
+          log.info('register-handshake post-flush', {
+            handshake_id: handshakeId,
+            initiator_user_id: initiatorUserId,
+            acceptor_user_id: acceptorUserId,
+            flush_initiator_delivered: dInit.delivered,
+            flush_acceptor_delivered: dAcc.delivered,
+          })
+        } catch (flushErr: unknown) {
+          const msg = flushErr instanceof Error ? flushErr.message : String(flushErr)
+          log.info('register-handshake post-flush failed (non-fatal)', { error: msg })
+        }
         res.writeHead(200, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify({ registered: true }))
+        return
+      }
+
+      if (req.method === 'POST' && path === '/beap/flush-queued') {
+        if (!identity) {
+          sendError(res, 401)
+          return
+        }
+        const out = wsManager.flushPendingToConnectedClientsForUser(identity.userId, identity.email, 'http_flush')
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ ok: true, delivered: out.delivered, user_id: identity.userId }))
         return
       }
 
@@ -611,10 +644,31 @@ function createRequestHandler(
             pushed = false
           }
         }
+        const capType = typeof parsed?.capsule_type === 'string' ? parsed.capsule_type : null
         if (pushed) {
+          console.log(
+            '[RELAY-QUEUE] push_live',
+            JSON.stringify({
+              handshake_id: handshakeId,
+              capsule_type: capType,
+              sender_user_id: identity.userId,
+              receiver_user_id: recipientUserId,
+              receiver_device_id: recipientRoute.deviceId ?? null,
+            }),
+          )
           res.writeHead(200, { 'Content-Type': 'application/json' })
           res.end(JSON.stringify({ status: 'Capsule delivered' }))
         } else {
+          console.log(
+            '[RELAY-QUEUE] stored_offline',
+            JSON.stringify({
+              handshake_id: handshakeId,
+              capsule_type: capType,
+              sender_user_id: identity.userId,
+              receiver_user_id: recipientUserId,
+              receiver_device_id: recipientRoute.deviceId ?? null,
+            }),
+          )
           res.writeHead(202, { 'Content-Type': 'application/json' })
           res.end(JSON.stringify({ status: 'Capsule stored, recipient offline' }))
         }

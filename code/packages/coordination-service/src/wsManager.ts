@@ -31,8 +31,41 @@ function parseCompositeKey(key: string): { userId: string; deviceId: string } {
   return { userId: key.slice(0, i), deviceId: key.slice(i + 1) }
 }
 
+/** One WebSocket: send all pending rows matching this (user, email, device) per store.getPendingCapsules. */
+function deliverPendingToWs(
+  store: StoreAdapter,
+  userId: string,
+  email: string | null | undefined,
+  deviceId: string,
+  send: (jsonUtf8: string) => void,
+): number {
+  const pending = store.getPendingCapsules(userId, email, deviceId)
+  let n = 0
+  for (const { id, capsule_json } of pending) {
+    try {
+      const payload = JSON.stringify({ type: 'capsule', id, capsule: JSON.parse(capsule_json) })
+      send(payload)
+      store.markPushed(id)
+      n++
+    } catch {
+      // malformed or send failed
+    }
+  }
+  return n
+}
+
 export interface WsManagerAdapter {
   handleConnection(ws: WebSocket, identity: ValidatedIdentity, deviceId?: string): void
+  /**
+   * Push any coordination_capsules still pending for this user to **already-connected** WebSocket
+   * clients (per device, same as handleConnection). Use after register-handshake or explicit
+   * /beap/flush-queued so offline-stored (HTTP 202) capsules reach recipients without reconnecting.
+   */
+  flushPendingToConnectedClientsForUser(
+    userId: string,
+    email: string | null | undefined,
+    reason: 'register_handshake' | 'http_flush' | 'ws_connect',
+  ): { delivered: number }
   pushCapsule(recipientUserId: string, id: string, capsuleJson: string): boolean
   pushSystemEvent(recipientUserId: string, event: string, payload?: Record<string, unknown>): boolean
   handleAck(userId: string, ids: string[]): void
@@ -111,15 +144,53 @@ export function createWsManager(store: StoreAdapter): WsManagerAdapter {
       ws.on('close', () => removeClient(clientKey))
       ws.on('error', () => removeClient(clientKey))
 
-      const pending = store.getPendingCapsules(userId, email, did)
-      for (const { id, capsule_json } of pending) {
-        try {
-          ws.send(JSON.stringify({ type: 'capsule', id, capsule: JSON.parse(capsule_json) }))
-          store.markPushed(id)
-        } catch {
-          // skip malformed
-        }
+      const deliveredOnConnect = deliverPendingToWs(store, userId, email, did, (payload) => {
+        ws.send(payload)
+      })
+      if (deliveredOnConnect > 0) {
+        console.log(
+          '[RELAY-QUEUE] drain_attempt',
+          JSON.stringify({ reason: 'ws_connect', userId, device_id: did, delivered: deliveredOnConnect }),
+        )
       }
+    },
+
+    flushPendingToConnectedClientsForUser(
+      userId: string,
+      email: string | null | undefined,
+      reason: 'register_handshake' | 'http_flush' | 'ws_connect',
+    ): { delivered: number } {
+      const list = getClientsByUser(userId)
+      if (list.length === 0) {
+        console.log(
+          '[RELAY-QUEUE] drain_attempt',
+          JSON.stringify({ reason, userId, device_count: 0, delivered: 0, note: 'no_online_recipient' }),
+        )
+        return { delivered: 0 }
+      }
+      let delivered = 0
+      for (const client of list) {
+        delivered += deliverPendingToWs(store, userId, email, client.deviceId, (payload) => {
+          try {
+            client.ws.send(payload)
+          } catch {
+            /* */
+          }
+        })
+      }
+      console.log(
+        '[RELAY-QUEUE] drain_attempt',
+        JSON.stringify({ reason, userId, device_count: list.length, delivered }),
+      )
+      if (delivered > 0) {
+        console.log('[RELAY-QUEUE] delivered_queued', JSON.stringify({ userId, delivered, reason }))
+      } else {
+        console.log(
+          '[RELAY-QUEUE] no_queued_for_connected_clients',
+          JSON.stringify({ userId, reason, device_count: list.length }),
+        )
+      }
+      return { delivered }
     },
 
     pushCapsule(recipientUserId: string, id: string, capsuleJson: string): boolean {

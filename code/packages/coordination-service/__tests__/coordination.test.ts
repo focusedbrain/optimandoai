@@ -1044,6 +1044,56 @@ describe('coordination-service', () => {
     expect(body.code).toBe('INTERNAL_CAPSULE_MISSING_DEVICE_ID')
     expect(String(body.detail)).toContain('sender_device_id')
   })
+
+  test('CS_28_flush_queued_401: POST /beap/flush-queued without auth → 401', async () => {
+    const r = await request(port, 'POST', '/beap/flush-queued')
+    expect(r.status).toBe(401)
+  })
+
+  test('CS_29_flush_queued_200: POST /beap/flush-queued returns ok, user_id, delivered', async () => {
+    const r = await request(port, 'POST', '/beap/flush-queued', {
+      auth: 'test-zflush-pro',
+    })
+    expect(r.status).toBe(200)
+    const j = JSON.parse(r.body) as { ok?: boolean; user_id?: string; delivered?: number }
+    expect(j.ok).toBe(true)
+    expect(j.user_id).toBe('zflush')
+    expect(typeof j.delivered).toBe('number')
+  })
+
+  test('CS_30_flush_queued_after_202: recipient offline 202, then connect; flush-queued is safe (0 left)', async () => {
+    const hsId = 'hs-flush-after'
+    await request(port, 'POST', '/beap/register-handshake', {
+      body: JSON.stringify({
+        handshake_id: hsId,
+        initiator_user_id: 'senderF',
+        acceptor_user_id: 'recipientF',
+      }),
+      auth: 'test-senderF-pro',
+      contentType: 'application/json',
+    })
+    const r1 = await request(port, 'POST', '/beap/capsule', {
+      body: validBeapCapsule(hsId, 'senderF'),
+      auth: 'test-senderF-pro',
+      contentType: 'application/json',
+    })
+    expect(r1.status).toBe(202)
+    const recipientWs = await wsConnect(port, 'test-recipientF-pro')
+    let got = 0
+    recipientWs.on('message', (data) => {
+      const msg = JSON.parse(data.toString()) as { type?: string }
+      if (msg.type === 'capsule') got++
+    })
+    await new Promise((r) => setTimeout(r, 250))
+    expect(got).toBeGreaterThanOrEqual(1)
+    const rFlush = await request(port, 'POST', '/beap/flush-queued', {
+      auth: 'test-recipientF-pro',
+    })
+    expect(rFlush.status).toBe(200)
+    const j = JSON.parse(rFlush.body) as { delivered: number }
+    expect(j.delivered).toBe(0)
+    recipientWs.close()
+  })
 })
 
 describe('coordination-service fail-close', () => {

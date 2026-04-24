@@ -30,6 +30,7 @@ import {
 import { notifyBeapRecipientPending } from './beapRecipientNotify'
 import { getInstanceId } from '../orchestrator/orchestratorModeStore'
 import { computeSamePrincipalCoordinationSkipOwn } from './coordinationSamePrincipalInbound'
+import { requestCoordinationFlushQueued } from './coordinationFlushQueued'
 
 /**
  * In-memory buffer for context_sync capsules that arrived before the accept was processed.
@@ -592,6 +593,10 @@ export function createCoordinationWsClient(
         console.log('[RELAY-WS] Connected to:', wsUrl)
         console.log('[RELAY-WS] Connection state:', ws?.readyState)
         resolve()
+        const cu = config.coordination_url?.trim()
+        if (cu && token?.trim()) {
+          void requestCoordinationFlushQueued(cu, token, 'ws_connect')
+        }
       })
 
       ws.on('message', (data: Buffer | string) => {
