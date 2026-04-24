@@ -3196,7 +3196,7 @@ Rules:
       if (!id) return { ok: false, error: 'messageId required' }
       const row = db
         .prepare(
-          `SELECT id, source_type, handshake_id, subject, body_text, depackaged_json, has_attachments
+          `SELECT id, source_type, handshake_id, subject, body_text, depackaged_json, beap_package_json, has_attachments
            FROM inbox_messages WHERE id = ?`,
         )
         .get(id) as
@@ -3207,6 +3207,7 @@ Rules:
             subject?: string | null
             body_text?: string | null
             depackaged_json?: string | null
+            beap_package_json?: string | null
             has_attachments?: number | null
           }
         | undefined

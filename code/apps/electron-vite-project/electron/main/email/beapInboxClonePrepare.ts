@@ -3,7 +3,7 @@
  * Eligibility: internal ACTIVE host↔sandbox, same identity, peer sandbox role, keys + relay (see internalSandboxesApi).
  */
 
-import { extractBeapRedirectSourceFromRow, isReceivedBeapInboxSourceType } from './beapRedirectSource'
+import { extractBeapRedirectSourceFromRow, inboxRowIsReceivedBeapForRedirectOrClone } from './beapRedirectSource'
 import { getHandshakeRecord } from '../handshake/db'
 import {
   isBeapCloneEligibleForRecord,
@@ -110,7 +110,7 @@ export function prepareBeapInboxSandboxClone(
 
   const row = db
     .prepare(
-      `SELECT id, source_type, handshake_id, subject, body_text, depackaged_json, has_attachments, from_address, account_id, received_at, ingested_at
+      `SELECT id, source_type, handshake_id, subject, body_text, depackaged_json, beap_package_json, has_attachments, from_address, account_id, received_at, ingested_at
        FROM inbox_messages WHERE id = ?`,
     )
     .get(srcId) as
@@ -121,6 +121,7 @@ export function prepareBeapInboxSandboxClone(
         subject?: string | null
         body_text?: string | null
         depackaged_json?: string | null
+        beap_package_json?: string | null
         has_attachments?: number | null
         from_address?: string | null
         account_id?: string | null
@@ -154,13 +155,12 @@ export function prepareBeapInboxSandboxClone(
     return own
   }
 
-  const st0 = String(row.source_type ?? '').trim()
-  if (st0 && !isReceivedBeapInboxSourceType(st0)) {
+  if (!inboxRowIsReceivedBeapForRedirectOrClone(row)) {
     return {
       ok: false,
       code: 'SOURCE_NOT_RECEIVED_BEAP',
       error:
-        'Sandbox clone applies only to received BEAP inbox messages (`direct_beap` or `email_beap`). Depackaged BEAP delivered via email is stored as `email_beap`.',
+        'Sandbox clone applies only to received BEAP inbox messages: `direct_beap`, `email_beap`, or `email_plain` with BEAP package or depackaged BEAP content.',
     }
   }
 

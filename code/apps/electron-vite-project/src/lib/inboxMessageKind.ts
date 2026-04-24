@@ -3,9 +3,9 @@
  * Independent of raw `source_type` for display — renderer + main stay aligned on filter SQL.
  *
  * “Received BEAP” (clone / Redirect / Sandbox product rules) is *not* this dimension.
- * The store uses `source_type` ∈ {`direct_beap`, `email_beap`} for P2P vs email-carried BEAP;
- * depackaging state (e.g. `beap_qbeap_pending`, `beap_qbeap_decrypted` in `depackaged_json`) lives
- * alongside those types — see `beapInboxSandboxVisibility` and `extractBeapRedirectSourceFromRow`.
+ * The store uses `source_type` ∈ {`direct_beap`, `email_beap`, `email_plain`} — BEAP payloads can also
+ * live on `email_plain` with `beap_package_json` / depackaged JSON (see `inboxBeapRowEligibility`).
+ * Depackaging state (e.g. `beap_qbeap_decrypted` in `depackaged_json`) is orthogonal to this filter.
  *
  * Rules (this file only):
  * - `handshake` (UI: Native BEAP): non-empty `handshake_id` OR `source_type === 'direct_beap'`

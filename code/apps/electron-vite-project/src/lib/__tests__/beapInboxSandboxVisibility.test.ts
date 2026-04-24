@@ -7,6 +7,7 @@ import {
   isOutboundQbeapEchoForSandboxAction,
 } from '../beapInboxSandboxVisibility'
 import { isBeapQbeapOutboundEcho } from '../inboxBeapOutbound'
+import { isReceivedBeapInboxMessage } from '../inboxBeapRowEligibility'
 import type { InboxMessage } from '../../stores/useEmailInboxStore'
 
 function beapMsg(partial: Partial<InboxMessage> & { source_type: 'direct_beap' | 'email_beap' }): InboxMessage {
@@ -53,15 +54,42 @@ describe('beapInboxSandboxVisibility', () => {
       source_type: 'email_beap',
       depackaged_json: JSON.stringify({ format: 'beap_qbeap_outbound' }),
     })
-    const isBeap = (m: InboxMessage) => m.source_type === 'email_beap' || m.source_type === 'direct_beap'
-    expect(isBeap(received) && !isBeapQbeapOutboundEcho(received)).toBe(true)
-    expect(isBeap(echo) && !isBeapQbeapOutboundEcho(echo)).toBe(false)
+    const depackagedFromEmail = beapMsg({
+      source_type: 'email_plain',
+      beap_package_json: '{"v":1}',
+      depackaged_json: JSON.stringify({ format: 'beap_qbeap_decrypted', body: 'x' }),
+    })
+    expect(isReceivedBeapInboxMessage(received) && !isBeapQbeapOutboundEcho(received)).toBe(true)
+    expect(isReceivedBeapInboxMessage(echo) && !isBeapQbeapOutboundEcho(echo)).toBe(false)
+    expect(isReceivedBeapInboxMessage(depackagedFromEmail) && !isBeapQbeapOutboundEcho(depackagedFromEmail)).toBe(
+      true,
+    )
   })
 
-  test('isReceivedBeapMessageForSandbox for direct and email', () => {
+  test('isReceivedBeapMessageForSandbox for direct, email, and depackaged email_plain', () => {
     expect(isReceivedBeapMessageForSandbox({ source_type: 'direct_beap' })).toBe(true)
     expect(isReceivedBeapMessageForSandbox({ source_type: 'email_beap' })).toBe(true)
-    expect(isReceivedBeapMessageForSandbox({ source_type: 'email_plain' })).toBe(false)
+    expect(
+      isReceivedBeapMessageForSandbox({
+        source_type: 'email_plain',
+        beap_package_json: null,
+        depackaged_json: null,
+      }),
+    ).toBe(false)
+    expect(
+      isReceivedBeapMessageForSandbox({
+        source_type: 'email_plain',
+        beap_package_json: '{}',
+        depackaged_json: null,
+      }),
+    ).toBe(true)
+    expect(
+      isReceivedBeapMessageForSandbox({
+        source_type: 'email_plain',
+        beap_package_json: null,
+        depackaged_json: JSON.stringify({ format: 'beap_qbeap_decrypted' }),
+      }),
+    ).toBe(true)
   })
 
   test('isReceivedBeapMessage is an alias of isReceivedBeapMessageForSandbox', () => {

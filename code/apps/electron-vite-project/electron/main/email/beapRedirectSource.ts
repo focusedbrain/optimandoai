@@ -26,12 +26,45 @@ type InboxRow = {
   subject?: string | null
   body_text?: string | null
   depackaged_json?: string | null
+  beap_package_json?: string | null
 }
 
 /** Inbox `source_type` values that represent a received BEAP row (P2P direct or email-carried / depackaged). */
 export function isReceivedBeapInboxSourceType(st: string | null | undefined): boolean {
   const t = String(st ?? '')
   return t === 'direct_beap' || t === 'email_beap'
+}
+
+function depackFormatFromRow(dep: string | null | undefined): string | null {
+  if (!dep?.trim()) return null
+  try {
+    const d = JSON.parse(dep) as { format?: string }
+    return typeof d.format === 'string' ? d.format : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Row is eligible for Redirect + Sandbox clone extraction: `direct_beap` / `email_beap`, or `email_plain`
+ * with BEAP payload (`beap_package_json` and/or depackaged `beap_*` format, excluding outbound echo).
+ * Kept in sync with renderer `inboxBeapRowEligibility.ts`.
+ */
+export function inboxRowIsReceivedBeapForRedirectOrClone(row: {
+  source_type?: string | null
+  beap_package_json?: string | null
+  depackaged_json?: string | null
+}): boolean {
+  const st = String(row.source_type ?? '')
+  if (st === 'direct_beap' || st === 'email_beap') return true
+  if (st !== 'email_plain') return false
+  if (row.beap_package_json && String(row.beap_package_json).trim().length > 0) return true
+  const fmt = depackFormatFromRow(row.depackaged_json)
+  if (!fmt) return false
+  if (fmt === 'beap_qbeap_outbound') return false
+  if (fmt.startsWith('beap_')) return true
+  if (fmt === 'pbeap') return true
+  return false
 }
 
 function extractBodyFromDepackaged(d: Record<string, unknown>): string {
@@ -50,11 +83,11 @@ function extractBodyFromDepackaged(d: Record<string, unknown>): string {
 export function extractBeapRedirectSourceFromRow(row: InboxRow | null | undefined): BeapRedirectSourceResult {
   if (!row?.id) return { ok: false, error: 'Message not found' }
   const st = String(row.source_type ?? '')
-  if (!isReceivedBeapInboxSourceType(st)) {
+  if (!inboxRowIsReceivedBeapForRedirectOrClone(row)) {
     return {
       ok: false,
       error:
-        'This row is not a received BEAP inbox message. Redirect and Sandbox clone use source types `direct_beap` or `email_beap` (including depackaged BEAP from email, stored as `email_beap`).',
+        'This row is not a received BEAP inbox message. Use `direct_beap`, `email_beap`, or `email_plain` with BEAP package/depackaged content.',
     }
   }
 

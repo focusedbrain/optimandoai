@@ -1,5 +1,9 @@
 import { describe, test, expect } from 'vitest'
-import { extractBeapRedirectSourceFromRow, isReceivedBeapInboxSourceType } from '../beapRedirectSource'
+import {
+  extractBeapRedirectSourceFromRow,
+  inboxRowIsReceivedBeapForRedirectOrClone,
+  isReceivedBeapInboxSourceType,
+} from '../beapRedirectSource'
 
 describe('beapRedirectSource (redirect + sandbox clone extraction)', () => {
   test('isReceivedBeapInboxSourceType identifies P2P and email-carried BEAP', () => {
@@ -22,6 +26,58 @@ describe('beapRedirectSource (redirect + sandbox clone extraction)', () => {
     if (!r.ok) {
       expect(r.error.length).toBeGreaterThan(20)
       expect(r.error.toLowerCase()).toMatch(/extract|decrypt|pending|content/)
+    }
+  })
+
+  test('inboxRowIsReceivedBeapForRedirectOrClone: email_plain with package or depackaged beap_*', () => {
+    expect(
+      inboxRowIsReceivedBeapForRedirectOrClone({
+        source_type: 'email_plain',
+        beap_package_json: '{}',
+        depackaged_json: null,
+      }),
+    ).toBe(true)
+    expect(
+      inboxRowIsReceivedBeapForRedirectOrClone({
+        source_type: 'email_plain',
+        beap_package_json: null,
+        depackaged_json: JSON.stringify({ format: 'beap_qbeap_decrypted' }),
+      }),
+    ).toBe(true)
+    expect(
+      inboxRowIsReceivedBeapForRedirectOrClone({
+        source_type: 'email_plain',
+        beap_package_json: null,
+        depackaged_json: JSON.stringify({ format: 'beap_qbeap_outbound' }),
+      }),
+    ).toBe(false)
+    expect(
+      inboxRowIsReceivedBeapForRedirectOrClone({
+        source_type: 'email_plain',
+        beap_package_json: null,
+        depackaged_json: null,
+      }),
+    ).toBe(false)
+  })
+
+  test('extract succeeds for depackaged email_plain qBEAP decrypted (depackaged from email)', () => {
+    const dep = JSON.stringify({
+      format: 'beap_qbeap_decrypted',
+      transport_plaintext: 'Public line',
+      body: 'Secret line',
+    })
+    const r = extractBeapRedirectSourceFromRow({
+      id: 'm-ep',
+      source_type: 'email_plain',
+      beap_package_json: null,
+      body_text: '',
+      depackaged_json: dep,
+      handshake_id: 'hs-1',
+    })
+    expect(r.ok).toBe(true)
+    if (r.ok) {
+      expect(r.public_text).toContain('Public')
+      expect(r.encrypted_text).toContain('Secret')
     }
   })
 

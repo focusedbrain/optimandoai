@@ -12,6 +12,7 @@ import { extractLinkParts } from '../utils/safeLinks'
 import { deriveInboxMessageKind } from '../lib/inboxMessageKind'
 import { isBeapQbeapOutboundEcho } from '../lib/inboxBeapOutbound'
 import { canShowSandboxCloneAction } from '../lib/beapInboxSandboxVisibility'
+import { isReceivedBeapInboxMessage } from '../lib/inboxBeapRowEligibility'
 import type { InternalSandboxTargetWire } from '../hooks/useInternalSandboxesList'
 import { useOrchestratorMode } from '../hooks/useOrchestratorMode'
 import { beapInboxCloneToSandboxApi } from '../lib/beapInboxCloneToSandbox'
@@ -650,8 +651,7 @@ export default function EmailMessageDetail({
 
   const canShowDetailReply = Boolean(onReply) && !isBeapQbeapOutboundEcho(message)
   const canShowBeapDetailActions =
-    (message.source_type === 'direct_beap' || message.source_type === 'email_beap') &&
-    !isBeapQbeapOutboundEcho(message)
+    isReceivedBeapInboxMessage(message) && !isBeapQbeapOutboundEcho(message)
   const showDetailActionEnd = canShowDetailReply || canShowBeapDetailActions
   const beapRedirectDetailTip = beapInboxRedirectTooltipPropsForDetail()
   const beapSandboxDetailTip = beapHostSandboxCloneTooltipForAvailability(sandboxAvailability, 'detail')

@@ -32,6 +32,7 @@ import BeapSandboxUnavailableDialog, { type BeapSandboxUnavailableVariant } from
 import BeapRedirectDialog from './BeapRedirectDialog'
 import { isBeapQbeapOutboundEcho } from '../lib/inboxBeapOutbound'
 import { canShowSandboxCloneAction } from '../lib/beapInboxSandboxVisibility'
+import { isReceivedBeapInboxMessage } from '../lib/inboxBeapRowEligibility'
 import {
   resolveHostSandboxCloneClickAction,
   sandboxCloneUnavailableDialogVariant,
@@ -1690,7 +1691,7 @@ function InboxMessageRow({
   onSandboxInRow,
   onRedirectInRow,
 }: InboxMessageRowProps) {
-  const isBeap = message.source_type === 'email_beap' || message.source_type === 'direct_beap'
+  const isBeap = isReceivedBeapInboxMessage(message)
   const canRowRedirect = Boolean(onRedirectInRow) && isBeap && !isBeapQbeapOutboundEcho(message)
   const canRowSandbox = canShowSandboxCloneAction({ ...sandboxOrchestrator, message })
   const rowRedirectTip = beapInboxRedirectTooltipPropsForRow()

@@ -2,27 +2,30 @@
  * UI rules for the inbox Sandbox (Host → internal Sandbox) clone action.
  * Does not affect main-process host checks (ipc) or crypto.
  *
- * Received-BEAP rows (show Sandbox in Host mode when not echo):
- * - `source_type === 'direct_beap'`: P2P / native BEAP delivery.
- * - `source_type === 'email_beap'`: same logical message after email ingress; depackaging uses
- *   `depackaged_json` (e.g. `beap_qbeap_decrypted`, `beap_qbeap_pending`, …) — there is no separate
- *   inbox `source_type` for “depackaged” vs “raw capsule”.
- * Not clone-eligible in UI: outbound qBEAP echo (`isBeapQbeapOutboundEcho`), non-Host orchestrator,
- * or `source_type` outside the two above (e.g. `email_plain`). Prepare/clone may still return
- * `SOURCE_NO_EXTRACTABLE_CONTENT` when plaintext is not yet available.
+ * Received-BEAP rows (show Sandbox in Host mode when not echo) include:
+ * - `source_type === 'direct_beap'` (P2P) or `email_beap` (email-carried / merged BEAP)
+ * - `source_type === 'email_plain'` when the row still has BEAP payload (`beap_package_json` and/or
+ *   depackaged JSON with a `beap_*` / qBEAP format) — e.g. BEAP from email before/after depackaging.
+ * Not clone-eligible in UI: outbound qBEAP echo (`isBeapQbeapOutboundEcho`), non-Host orchestrator.
  *
  * Gating uses **local persisted** `orchestratorMode` from `useOrchestratorMode()` / `orchestrator:getMode`
- * only — not remote handshake peer `mode`.
+ * only — not remote handshake peer `mode`. Row classification matches `inboxBeapRowEligibility` / main
+ * `inboxRowIsReceivedBeapForRedirectOrClone`.
  */
 
 import type { InboxMessage } from '../stores/useEmailInboxStore'
+import { isReceivedBeapInboxMessage } from './inboxBeapRowEligibility'
 import { isBeapQbeapOutboundEcho } from './inboxBeapOutbound'
 
-/** Inbox rows the product treats as received BEAP for Sandbox/Redirect (clone + redirect). */
-export function isReceivedBeapMessageForSandbox(m: Pick<InboxMessage, 'source_type'> | null | undefined): boolean {
+/**
+ * Inbox rows the product treats as received BEAP for Sandbox/Redirect (clone + redirect), including
+ * depackaged BEAP from email when stored as `email_plain` with BEAP fields.
+ */
+export function isReceivedBeapMessageForSandbox(
+  m: Pick<InboxMessage, 'source_type' | 'beap_package_json' | 'depackaged_json'> | null | undefined,
+): boolean {
   if (!m) return false
-  const t = m.source_type
-  return t === 'email_beap' || t === 'direct_beap'
+  return isReceivedBeapInboxMessage(m)
 }
 
 /** Alias for docs / call sites that match the name `isReceivedBeapMessage`. */
@@ -46,7 +49,7 @@ type SandboxCloneActionParams = {
 
 /**
  * `canShowSandboxCloneAction` ⇔
- * `modeReady && orchestratorMode === 'host' && isReceivedBeapMessage(m) && !isOutboundQbeapEcho(m)`.
+ * `modeReady && orchestratorMode === 'host' && isReceivedBeapInboxMessage(m) && !isOutboundQbeapEcho(m)`.
  * Never true when the local device is configured as a Sandbox orchestrator.
  */
 export function canShowSandboxCloneAction(params: SandboxCloneActionParams): boolean {
