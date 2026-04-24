@@ -98,23 +98,31 @@ export default function BeapSandboxCloneDialog({
           width: 'min(480px, 100%)',
           maxHeight: '90vh',
           overflow: 'auto',
-          background: 'var(--color-surface-elevated, #1e293b)',
-          border: '1px solid var(--color-border, rgba(255,255,255,0.1))',
-          borderRadius: 10,
-          padding: 20,
+          background: '#0f172a',
+          color: '#e2e8f0',
+          border: '1px solid rgba(148, 163, 184, 0.35)',
+          borderRadius: 12,
+          padding: 22,
+          boxShadow: '0 20px 50px rgba(0,0,0,0.45)',
         }}
         onClick={(e) => e.stopPropagation()}
       >
-        <h2 id="beap-sandbox-clone-title" style={{ margin: '0 0 12px', fontSize: 16, fontWeight: 700 }}>
+        <h2
+          id="beap-sandbox-clone-title"
+          style={{ margin: '0 0 12px', fontSize: 17, fontWeight: 700, color: '#f8fafc' }}
+        >
           Clone to sandbox
         </h2>
-        <p style={{ margin: '0 0 12px', fontSize: 12, color: 'var(--color-text-muted, #94a3b8)', lineHeight: 1.5 }}>
-          Sends a <strong>new</strong> qBEAP message to your sandbox for automation testing. The original inbox
-          message is not modified.
+        <p style={{ margin: '0 0 12px', fontSize: 13, color: '#e2e8f0', lineHeight: 1.55, fontWeight: 500 }}>
+          Sends a <strong style={{ color: '#f8fafc' }}>new</strong> qBEAP message to your sandbox for testing. The
+          original inbox message is <strong style={{ color: '#f8fafc' }}>not modified</strong>.
         </p>
         {sandboxes.length > 1 && (
           <>
-            <label style={{ display: 'block', fontSize: 11, fontWeight: 600, marginBottom: 6 }} htmlFor="beap-sbx-target">
+            <label
+              style={{ display: 'block', fontSize: 11, fontWeight: 700, marginBottom: 6, color: '#cbd5e1' }}
+              htmlFor="beap-sbx-target"
+            >
               Sandbox
             </label>
             <select
@@ -143,8 +151,8 @@ export default function BeapSandboxCloneDialog({
         )}
 
         {sandboxes.length === 1 && selected && (
-          <p style={{ fontSize: 12, color: 'var(--color-text)', marginBottom: 12 }}>
-            Target: <strong>{formatSandboxSelectLabel(selected)}</strong>
+          <p style={{ fontSize: 12, color: '#cbd5e1', marginBottom: 12 }}>
+            Target: <strong style={{ color: '#f8fafc' }}>{formatSandboxSelectLabel(selected)}</strong>
           </p>
         )}
 

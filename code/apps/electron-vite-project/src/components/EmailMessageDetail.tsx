@@ -14,11 +14,11 @@ import { isBeapQbeapOutboundEcho } from '../lib/inboxBeapOutbound'
 import type { InternalSandboxTargetWire } from '../hooks/useInternalSandboxesList'
 import { useOrchestratorMode } from '../hooks/useOrchestratorMode'
 import { beapInboxCloneToSandboxApi } from '../lib/beapInboxCloneToSandbox'
-import { beapHostSandboxCloneTooltipProps } from '../lib/beapInboxActionTooltips'
+import { beapHostSandboxCloneTooltipProps, beapInboxReplyTooltipProps } from '../lib/beapInboxActionTooltips'
 import SessionImportDialog, { type SessionImportDialogSessionRef } from './SessionImportDialog'
 import BeapRedirectDialog from './BeapRedirectDialog'
 import { listHandshakes } from '../shims/handshakeRpc'
-import { UI_BADGE, UI_BUTTON } from '../styles/uiContrastTokens'
+import { UI_BADGE } from '../styles/uiContrastTokens'
 
 export interface EmailMessageDetailProps {
   message: InboxMessage | null
@@ -729,7 +729,7 @@ export default function EmailMessageDetail({
           >
             {message.subject || '(No subject)'}
           </h2>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', marginBottom: 10 }}>
+          <div className="inbox-detail-action-toolbar">
             {editingDraftForMessageId === message.id && (
               <span
                 role="button"
@@ -751,98 +751,48 @@ export default function EmailMessageDetail({
               type="button"
               onClick={handleStar}
               title={message.starred === 1 ? 'Unstar' : 'Star'}
-              style={{
-                padding: '6px 10px',
-                fontSize: 11,
-                fontWeight: 600,
-                borderRadius: 6,
-                cursor: 'pointer',
-                ...(message.starred === 1 ? UI_BUTTON.purpleSoft : {
-                  background: 'rgba(255,255,255,0.06)',
-                  border: '1px solid rgba(255,255,255,0.12)',
-                  color: 'var(--color-text-muted, #94a3b8)',
-                }),
-              }}
+              aria-label={message.starred === 1 ? 'Unstar' : 'Star'}
+              className={
+                message.starred === 1
+                  ? 'inbox-detail-icon-btn inbox-detail-icon-btn--starred'
+                  : 'inbox-detail-icon-btn'
+              }
             >
-              {message.starred === 1 ? '★ Starred' : '☆ Star'}
+              {message.starred === 1 ? '★' : '☆'}
             </button>
             <button
               type="button"
               onClick={handleArchive}
-              style={{
-                padding: '6px 10px',
-                fontSize: 11,
-                fontWeight: 600,
-                background: 'rgba(255,255,255,0.06)',
-                border: '1px solid rgba(255,255,255,0.12)',
-                borderRadius: 6,
-                color: 'var(--color-text, #e2e8f0)',
-                cursor: 'pointer',
-              }}
+              className="inbox-detail-toolbar-text-btn"
             >
               Archive
             </button>
             <button
               type="button"
               onClick={handleDelete}
-              style={{
-                padding: '6px 10px',
-                fontSize: 11,
-                fontWeight: 600,
-                borderRadius: 6,
-                cursor: 'pointer',
-                ...UI_BUTTON.danger,
-              }}
+              className="inbox-detail-toolbar-text-btn inbox-detail-toolbar-text-btn--danger"
             >
               Delete
             </button>
-            {onReply && message.source_type === 'email_plain' && (
+            {onReply && !isOutboundQbeap && (
               <button
                 type="button"
                 onClick={handleReply}
-                title="Reply with email"
-                style={{
-                  padding: '6px 10px',
-                  fontSize: 11,
-                  fontWeight: 600,
-                  borderRadius: 6,
-                  cursor: 'pointer',
-                  ...UI_BUTTON.purpleSoft,
-                }}
+                className="inbox-detail-icon-btn inbox-detail-icon-btn--reply"
+                {...beapInboxReplyTooltipProps()}
               >
-                Reply
+                <span className="inbox-detail-reply-glyph" aria-hidden>
+                  ↩
+                </span>
               </button>
             )}
-            {onReply && (message.source_type === 'direct_beap' || message.source_type === 'email_beap') && (
-              <span
-                style={{
-                  fontSize: 11,
-                  color: 'var(--color-text-muted, #6b7280)',
-                  fontStyle: 'italic',
-                  alignSelf: 'center',
-                }}
-              >
-                Reply using capsule fields →
-              </span>
-            )}
             {(message.source_type === 'direct_beap' || message.source_type === 'email_beap') && !isOutboundQbeap && (
-              <div
-                style={{
-                  display: 'flex',
-                  flexWrap: 'wrap',
-                  alignItems: 'center',
-                  gap: 8,
-                  marginLeft: 4,
-                  paddingLeft: 12,
-                  borderLeft: '1px solid var(--color-border, rgba(148, 163, 184, 0.4))',
-                }}
-                aria-label="BEAP actions"
-              >
+              <div className="inbox-detail-beap-action-group" aria-label="BEAP actions">
                 <button
                   type="button"
                   className="inbox-detail-beap-btn inbox-detail-beap-btn--redirect"
                   onClick={() => setBeapRedirectOpen(true)}
-                  title="Redirect this BEAP message to another destination."
+                  title="Forward this message as a new BEAP to another handshake (separate from Sandbox clone)."
                 >
                   Redirect
                 </button>

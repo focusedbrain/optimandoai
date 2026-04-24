@@ -1831,23 +1831,13 @@ function InboxMessageRow({
           {canRowRedirect && onRedirectInRow && (
             <button
               type="button"
+              className="inbox-row-beap-btn inbox-row-beap-btn--redirect"
               onClick={(e) => {
                 e.stopPropagation()
                 e.preventDefault()
                 onRedirectInRow(e, message)
               }}
-              title="Redirect this BEAP message to another destination."
-              style={{
-                fontSize: 9,
-                fontWeight: 700,
-                padding: '2px 8px',
-                borderRadius: 4,
-                border: '1px solid rgba(59, 130, 246, 0.45)',
-                background: 'rgba(59, 130, 246, 0.12)',
-                color: '#93c5fd',
-                cursor: 'pointer',
-                flexShrink: 0,
-              }}
+              title="Forward as a new BEAP to another handshake (separate from Sandbox clone)."
             >
               Redirect
             </button>
@@ -1855,23 +1845,13 @@ function InboxMessageRow({
           {canRowSandbox && onSandboxInRow && (
             <button
               type="button"
+              className="inbox-row-beap-btn inbox-row-beap-btn--sandbox"
               onClick={(e) => {
                 e.stopPropagation()
                 e.preventDefault()
                 onSandboxInRow(e, message)
               }}
               {...beapHostSandboxCloneTooltipProps()}
-              style={{
-                fontSize: 9,
-                fontWeight: 700,
-                padding: '2px 8px',
-                borderRadius: 4,
-                border: '1px solid rgba(124, 58, 237, 0.45)',
-                background: 'rgba(124, 58, 237, 0.15)',
-                color: 'var(--purple-accent, #c4b5fd)',
-                cursor: 'pointer',
-                flexShrink: 0,
-              }}
             >
               Sandbox
             </button>
@@ -2580,6 +2560,11 @@ export default function EmailInboxView({
         subject: 'Re: ' + (msg.subject || ''),
         body: '',
       })
+      return
+    }
+    if (src === 'direct_beap' || src === 'email_beap') {
+      setAiPanelCollapsed(false)
+      useEmailInboxStore.getState().setEditingDraftForMessageId(msg.id)
     }
   }, [])
 
@@ -3006,7 +2991,7 @@ export default function EmailInboxView({
                 onToggleMultiSelect={() => toggleMultiSelect(msg.id)}
                 onMouseEnter={() => prioritize(msg.id)}
                 onNavigateToHandshake={onNavigateToHandshake}
-                showSandboxInRow={hostModeReady && isHost && !internalSandboxesLoading}
+                showSandboxInRow={hostModeReady && isHost}
                 onSandboxInRow={handleInboxRowSandbox}
                 onRedirectInRow={(_e, m) => setBeapRedirectForMessage(m)}
               />

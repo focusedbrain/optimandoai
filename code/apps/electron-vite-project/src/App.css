@@ -877,6 +877,111 @@ body {
   color: #0f172a;
 }
 
+/* Message detail — compact toolbar (light premium panel) */
+.inbox-detail-action-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.inbox-detail-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  min-width: 32px;
+  height: 32px;
+  padding: 0 8px;
+  font-size: 16px;
+  line-height: 1;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+  background: #ffffff;
+  color: #64748b;
+  cursor: pointer;
+  box-shadow: 0 1px 1px rgba(15, 23, 42, 0.06);
+  transition:
+    background-color 0.12s ease,
+    border-color 0.12s ease,
+    color 0.12s ease;
+}
+
+.inbox-detail-icon-btn:hover {
+  background: #f8fafc;
+  border-color: #cbd5e1;
+  color: #0f172a;
+}
+
+.inbox-detail-icon-btn--starred {
+  background: #f3e8ff;
+  border-color: #c4b5fd;
+  color: #5b21b6;
+}
+
+.inbox-detail-icon-btn--starred:hover {
+  background: #ede9fe;
+  border-color: #a78bfa;
+  color: #4c1d95;
+}
+
+.inbox-detail-icon-btn--reply .inbox-detail-reply-glyph {
+  font-size: 18px;
+  line-height: 1;
+  transform: scaleX(-1);
+  display: inline-block;
+}
+
+.inbox-detail-icon-btn:focus {
+  outline: none;
+}
+
+.inbox-detail-icon-btn:focus-visible {
+  outline: 2px solid #7c3aed;
+  outline-offset: 2px;
+}
+
+.inbox-detail-toolbar-text-btn {
+  padding: 6px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 6px;
+  cursor: pointer;
+  border: 1px solid #e2e8f0;
+  background: #ffffff;
+  color: #334155;
+  box-shadow: 0 1px 1px rgba(15, 23, 42, 0.05);
+}
+
+.inbox-detail-toolbar-text-btn:hover {
+  background: #f8fafc;
+  border-color: #cbd5e1;
+  color: #0f172a;
+}
+
+.inbox-detail-toolbar-text-btn--danger {
+  background: #fef2f2;
+  border-color: #fecaca;
+  color: #991b1b;
+}
+
+.inbox-detail-toolbar-text-btn--danger:hover {
+  background: #fee2e2;
+  border-color: #fca5a5;
+  color: #7f1d1d;
+}
+
+.inbox-detail-beap-action-group {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-left: 2px;
+  padding-left: 10px;
+  border-left: 1px solid #e2e8f0;
+}
+
 /*
  * BEAP message detail — Redirect + Sandbox in the action row (no source-type badge).
  * Solid fills + #fff label: WCAG AA on the control.
@@ -978,6 +1083,49 @@ body {
   padding: 6px 14px;
   border-radius: 6px;
   box-shadow: 0 1px 1px rgba(15, 23, 42, 0.1);
+}
+
+/* Inbox list row — BEAP Redirect / Sandbox: solid fills, white text (same contrast intent as detail) */
+.inbox-row-beap-btn {
+  font-family: inherit;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1.2;
+  padding: 2px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  box-sizing: border-box;
+  border: 1px solid transparent;
+  flex-shrink: 0;
+  transition:
+    background-color 0.12s ease,
+    border-color 0.12s ease;
+}
+
+.inbox-row-beap-btn--redirect {
+  background: #1d4ed8;
+  color: #ffffff;
+  border-color: #3b82f6;
+  box-shadow: 0 1px 1px rgba(15, 23, 42, 0.12);
+}
+
+.inbox-row-beap-btn--redirect:hover {
+  background: #2563eb;
+  border-color: #60a5fa;
+  color: #ffffff;
+}
+
+.inbox-row-beap-btn--sandbox {
+  background: #6d28d9;
+  color: #ffffff;
+  border-color: #7c3aed;
+  box-shadow: 0 1px 1px rgba(15, 23, 42, 0.12);
+}
+
+.inbox-row-beap-btn--sandbox:hover {
+  background: #7c3aed;
+  border-color: #8b5cf6;
+  color: #ffffff;
 }
 
 /* Attachments block — light separation from body without restructuring layout */
