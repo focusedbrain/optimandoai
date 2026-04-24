@@ -16,6 +16,11 @@ function readRel(...segments: string[]): string {
 }
 
 describe('beapInbox Ux source regressions', () => {
+  test('no undefined isBeap: EmailInboxView must not reference isBeap (crash guard)', () => {
+    const inbox = readRel('components', 'EmailInboxView.tsx')
+    expect(inbox).not.toMatch(/\bisBeap\b/)
+  })
+
   test('11: legacy “Reply using capsule fields” copy is not present in message detail', () => {
     const src = readRel('components', 'EmailMessageDetail.tsx')
     expect(src).not.toMatch(/Reply using capsule fields/i)
@@ -48,6 +53,8 @@ describe('beapInbox Ux source regressions', () => {
     const beapBtn = readRel('components', 'BeapActionIconButton.tsx')
     expect(beapBtn).toContain('BeapInboxSandboxCloneIcon')
     expect(detail).toContain('InboxSandboxCloneActionIcon')
+    expect(detail).toContain('showSandboxCloneIcon')
+    expect(detail).not.toMatch(/showHostSandboxStrip/)
     expect(inbox).toContain('InboxSandboxCloneActionIcon')
     expect(detail).toContain('authoritativeDeviceInternalRole')
     expect(detail).toContain('internalSandboxListReady')

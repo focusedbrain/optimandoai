@@ -1756,7 +1756,7 @@ function InboxMessageRow({
         </span>
       )}
 
-      {/* Source badge */}
+      {/* Source badge — BEAP inbox is BEAP-only; do not branch on source_type for display */}
       <div
         style={{
           flexShrink: 0,
@@ -1768,11 +1768,12 @@ function InboxMessageRow({
           justifyContent: 'center',
           fontSize: 12,
           fontWeight: 700,
-          background: isBeap ? 'var(--purple-accent, #9333ea)' : 'rgba(107,114,128,0.5)',
+          background: 'var(--purple-accent, #9333ea)',
           color: '#fff',
         }}
+        title="BEAP message"
       >
-        {isBeap ? 'B' : '✉'}
+        B
       </div>
 
       <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>

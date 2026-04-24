@@ -601,7 +601,8 @@ export default function EmailMessageDetail({
     message != null &&
     isNativeBeap &&
     (parsedDepackaged?.format === 'beap_qbeap_outbound' || isBeapQbeapOutboundEcho(message))
-  const showHostSandboxStrip = canShowSandboxCloneAction({
+  /** Host-only Sandbox clone icon — not gated on native/depackaged BEAP shape (inbox is BEAP-only). */
+  const showSandboxCloneIcon = canShowSandboxCloneAction({
     modeReady,
     orchestratorMode,
     message,
@@ -862,7 +863,7 @@ export default function EmailMessageDetail({
                       ariaLabel={beapRedirectDetailTip['aria-label']}
                       onClick={() => setBeapRedirectOpen(true)}
                     />
-                    {showHostSandboxStrip ? (
+                    {showSandboxCloneIcon ? (
                       <InboxSandboxCloneActionIcon
                         title={beapSandboxDetailTip.title}
                         ariaLabel={beapSandboxDetailTip['aria-label']}
@@ -875,7 +876,7 @@ export default function EmailMessageDetail({
               </div>
             ) : null}
           </div>
-          {showHostSandboxStrip && hostSandboxInlineFeedback ? (
+          {showSandboxCloneIcon && hostSandboxInlineFeedback ? (
             <div
               role="status"
               style={{

@@ -38,6 +38,7 @@ export function getSandboxCloneEligibilityDetail(
   p: CanShowSandboxCloneIconParams,
 ): SandboxCloneEligibilityDetail {
   const { modeReady, orchestratorMode, message, authoritativeDeviceInternalRole, internalSandboxListReady } = p
+  logOrchestratorRoleModeConflict(p)
   if (!modeReady) {
     return { show: false, reason: 'mode_not_ready', orchestratorMode, authoritativeDeviceInternalRole, internalSandboxListReady }
   }
@@ -75,6 +76,36 @@ export const canShowSandboxCloneAction = canShowSandboxCloneIcon
 export const canShowSandboxAction = canShowSandboxCloneIcon
 
 const DEBUG_PREFIX = '[sandbox-clone-ui]'
+
+/**
+ * When persisted orchestrator mode and internal same-principal handshake role disagree, fail closed
+ * (Sandbox icon hidden) and surface a single console warning for support/debug.
+ */
+let warnedHostVsAuthSandbox: boolean | undefined
+let warnedSandboxVsAuthHost: boolean | undefined
+
+function logOrchestratorRoleModeConflict(p: CanShowSandboxCloneIconParams): void {
+  const { orchestratorMode, authoritativeDeviceInternalRole, internalSandboxListReady } = p
+  if (!internalSandboxListReady) return
+  if (orchestratorMode === 'host' && authoritativeDeviceInternalRole === 'sandbox') {
+    if (warnedHostVsAuthSandbox) return
+    warnedHostVsAuthSandbox = true
+    // eslint-disable-next-line no-console
+    console.warn(
+      DEBUG_PREFIX,
+      'Orchestrator mode is host but internal handshake marks this device as Sandbox — hiding Sandbox clone icon.',
+    )
+  }
+  if (orchestratorMode === 'sandbox' && authoritativeDeviceInternalRole === 'host') {
+    if (warnedSandboxVsAuthHost) return
+    warnedSandboxVsAuthHost = true
+    // eslint-disable-next-line no-console
+    console.warn(
+      DEBUG_PREFIX,
+      'Orchestrator mode is sandbox but internal handshake marks this device as Host — Sandbox clone icon hidden.',
+    )
+  }
+}
 
 export function logSandboxCloneEligibilityDebug(
   p: CanShowSandboxCloneIconParams,
