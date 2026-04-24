@@ -15,6 +15,7 @@
 import type { RawInput, SourceType, TransportMetadata } from './types'
 import { processIncomingInput } from './ingestionPipeline'
 import { processHandshakeCapsule } from '../handshake/enforcement'
+import { maybeEnqueueInitialContextSyncAfterInboundAccept } from '../handshake/contextSyncEnqueue'
 import { canonicalRebuild } from '../handshake/canonicalRebuild'
 import type { SSOSession } from '../handshake/types'
 import { buildDefaultReceiverPolicy } from '../handshake/types'
@@ -145,9 +146,15 @@ export async function handleIngestionRPC(
               handshake_result: handshakeResult,
               distribution_target: 'handshake_pipeline',
             }
-          } else {
-            // Each side independently sends exactly one context_sync (seq=1) after accept.
-            // Both sides reach ACTIVE when they receive the other's seq=1. No reverse needed.
+          }
+          {
+            const cap = rebuildResult.capsule as { capsule_type?: unknown; capsule_hash?: unknown }
+            maybeEnqueueInitialContextSyncAfterInboundAccept(db, ssoSession, {
+              handshakeResult,
+              wireCapsuleType: cap?.capsule_type,
+              acceptCapsuleHash: typeof cap?.capsule_hash === 'string' ? cap.capsule_hash : '',
+              ingress_path: `ingestion_rpc/${sourceType ?? 'unknown'}`,
+            })
           }
           return {
             type: 'ingestion-result',
@@ -288,8 +295,13 @@ export function registerIngestionRoutes(app: any, getDb: () => any, getSsoSessio
             if (!handshakeResult.success) {
               console.warn('[INGESTION] Handshake rejected:', handshakeResult.reason, handshakeResult.failedStep ?? '', handshakeResult.detail ?? '')
             } else {
-              // Each side independently sends exactly one context_sync (seq=1) after accept.
-              // Both sides reach ACTIVE when they receive the other's seq=1. No reverse needed.
+              const cap = rebuildResult.capsule as { capsule_type?: unknown; capsule_hash?: unknown }
+              maybeEnqueueInitialContextSyncAfterInboundAccept(db, ssoSession, {
+                handshakeResult,
+                wireCapsuleType: cap?.capsule_type,
+                acceptCapsuleHash: typeof cap?.capsule_hash === 'string' ? cap.capsule_hash : '',
+                ingress_path: `ingestion_http/${sourceType ?? 'unknown'}`,
+              })
             }
             return res.json({
               success: handshakeResult.success,

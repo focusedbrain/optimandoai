@@ -84,6 +84,34 @@ export function createHandshakeTestDb() {
             }
             return { changes: 0 }
           }
+          // Positional: context_sync_pending (tryEnqueueContextSync deferral)
+          if (/context_sync_pending = \? WHERE handshake_id = \?/i.test(sql) && pos.length >= 2) {
+            const handshakeId = pos[1]
+            const existing = handshakes.get(handshakeId)
+            if (existing) {
+              handshakes.set(handshakeId, { ...existing, context_sync_pending: pos[0] })
+              return { changes: 1 }
+            }
+            return { changes: 0 }
+          }
+          // Positional: updateHandshakeContextSyncEnqueued — durable post-accept context_sync
+          if (
+            /last_seq_sent = \?.*last_capsule_hash_sent = \?.*context_sync_pending = 0.*handshake_id = \?/is.test(sql) &&
+            pos.length >= 3
+          ) {
+            const handshakeId = pos[2]
+            const existing = handshakes.get(handshakeId)
+            if (existing) {
+              handshakes.set(handshakeId, {
+                ...existing,
+                last_seq_sent: pos[0],
+                last_capsule_hash_sent: pos[1],
+                context_sync_pending: 0,
+              })
+              return { changes: 1 }
+            }
+            return { changes: 0 }
+          }
           return { changes: 0 }
         }
 

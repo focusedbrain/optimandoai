@@ -33,6 +33,7 @@ import {
   buildAcceptCapsule,
   buildRefreshCapsule,
 } from '../capsuleBuilder'
+import { MOCK_EXTENSION_X25519_PUBLIC_B64 } from './mockKeypair'
 import { canonicalRebuild } from '../canonicalRebuild'
 import { HandshakeState } from '../types'
 import type { SSOSession } from '../types'
@@ -208,6 +209,7 @@ describe('Handshake E2E — Hardened', () => {
         handshake_id: initCapsule.handshake_id,
         sharing_mode: 'reciprocal',
         fromAccountId: 'acct-bob-1',
+        senderX25519PublicKeyB64: MOCK_EXTENSION_X25519_PUBLIC_B64,
       },
       bobDb,
     )
@@ -252,6 +254,7 @@ describe('Handshake E2E — Hardened', () => {
         handshake_id: parsed.handshake_id,
         sharing_mode: 'reciprocal',
         fromAccountId: 'acct-bob-1',
+        senderX25519PublicKeyB64: MOCK_EXTENSION_X25519_PUBLIC_B64,
       },
       bobDb,
     )
@@ -353,6 +356,7 @@ describe('Handshake E2E — Hardened', () => {
       handshake_id: initCapsule.handshake_id,
       sharing_mode: 'reciprocal',
       fromAccountId: 'acct-bob-1',
+      senderX25519PublicKeyB64: MOCK_EXTENSION_X25519_PUBLIC_B64,
     }, bobDb)
 
     // Seed Alice's DB so she can build refresh capsule

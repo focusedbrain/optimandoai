@@ -29,7 +29,7 @@ import { INGESTION_CONSTANTS } from '../../ingestion/types'
 import { handleHandshakeRPC, setSSOSessionProvider, _resetSSOSessionProvider } from '../../handshake/ipc'
 import { getContextStoreByHandshake, insertContextStoreEntry } from '../../handshake/db'
 import { computeBlockHash } from '../../handshake/contextCommitment'
-import { mockKeypairFields } from '../../handshake/__tests__/mockKeypair'
+import { mockKeypairFields, MOCK_EXTENSION_X25519_PUBLIC_B64 } from '../../handshake/__tests__/mockKeypair'
 import type { HandshakeRecord } from '../../handshake/types'
 import { upsertP2PConfig } from '../p2pConfig'
 import type { P2PConfig } from '../p2pConfig'
@@ -883,6 +883,7 @@ describe('P6: Auto-Trigger', () => {
       handshake_id: initiate.handshake_id,
       sharing_mode: 'reciprocal',
       fromAccountId: 'acct-a',
+      senderX25519PublicKeyB64: MOCK_EXTENSION_X25519_PUBLIC_B64,
       p2p_endpoint: 'http://127.0.0.1:51261/beap/ingest',
       context_blocks: [{ block_id: 'ctx-1', block_hash: blockHash, type: 'plaintext', content }],
     }, db)
@@ -912,6 +913,7 @@ describe('P6: Auto-Trigger', () => {
       handshake_id: initiate.handshake_id,
       sharing_mode: 'reciprocal',
       fromAccountId: 'acct-a',
+      senderX25519PublicKeyB64: MOCK_EXTENSION_X25519_PUBLIC_B64,
       p2p_endpoint: null,
       context_blocks: [{ block_id: 'ctx-1', block_hash: blockHash, type: 'plaintext', content }],
     }, db)
@@ -937,6 +939,7 @@ describe('P6: Auto-Trigger', () => {
       handshake_id: initiate.handshake_id,
       sharing_mode: 'reciprocal',
       fromAccountId: 'acct-a',
+      senderX25519PublicKeyB64: MOCK_EXTENSION_X25519_PUBLIC_B64,
       p2p_endpoint: 'http://127.0.0.1:51261/beap/ingest',
       context_blocks: [],
     }, db)

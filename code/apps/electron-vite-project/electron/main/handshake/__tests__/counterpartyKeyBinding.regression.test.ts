@@ -7,12 +7,12 @@
  */
 
 import { describe, test, expect, beforeEach, vi } from 'vitest'
-import os from 'node:os'
 
 // Email gateway reads `app.getPath` at module-load time via `ingestion/ipc` → `emailTransport` →
 // `messageRouter` (same pattern as ipc.internal.relayPush.test.ts).
+// Avoid `node:os` — Vitest in this package can resolve `os` to vite-electron-renderer shims.
 vi.mock('electron', () => ({
-  app: { getPath: () => os.tmpdir() },
+  app: { getPath: () => process.env.TEMP ?? process.env.TMPDIR ?? '/tmp' },
   safeStorage: { isEncryptionAvailable: () => false },
   ipcMain: { handle: () => undefined, on: () => undefined, removeHandler: () => undefined },
   BrowserWindow: class {

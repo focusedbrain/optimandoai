@@ -18,8 +18,8 @@ import {
   insertQuarantineRecord,
 } from '../ingestion/persistenceDb'
 import { getHandshakeRecord, insertPendingP2PBeap } from '../handshake/db'
-import { tryEnqueueContextSync, retryDeferredInitialContextSyncForInternalHandshake } from '../handshake/contextSyncEnqueue'
-import { processOutboundQueue } from '../handshake/outboundQueue'
+import { maybeEnqueueInitialContextSyncAfterInboundAccept } from './coordinationHandshakePostIngest'
+import { retryDeferredInitialContextSyncForInternalHandshake } from '../handshake/contextSyncEnqueue'
 import {
   setP2PHealthCoordinationConnected,
   setP2PHealthCoordinationDisconnected,
@@ -335,6 +335,13 @@ async function processCapsuleInternal(
     console.log('[Coordination] processHandshakeCapsule returned: success=', handshakeResult.success, 'reason=', (handshakeResult as any).reason ?? 'n/a')
 
     if (handshakeResult.success) {
+      const capRebuilt = rebuildResult.capsule as { capsule_type?: unknown; capsule_hash?: unknown }
+      maybeEnqueueInitialContextSyncAfterInboundAccept(db, ssoSession, {
+        handshakeResult,
+        wireCapsuleType: capRebuilt?.capsule_type,
+        acceptCapsuleHash: typeof capRebuilt?.capsule_hash === 'string' ? capRebuilt.capsule_hash : '',
+        ingress_path: 'coordination_ws',
+      })
       const newState = handshakeResult.handshakeRecord?.state ?? 'unknown'
       console.log('[Coordination] processHandshakeCapsule result: success, newState=', newState, 'capsuleType=', capsuleType, 'seq=', (rebuildResult.capsule as any)?.seq)
       if (capsuleType === 'revoke') {
@@ -380,27 +387,8 @@ async function processCapsuleInternal(
         )
       }
 
-      // After ACCEPT: send initial context_sync (or defer if vault locked).
-      // No targetEndpoint guard — coordination mode delivers via coordination_url, not p2p_endpoint.
+      // Initial context_sync after inbound accept: `maybeEnqueueInitialContextSyncAfterInboundAccept` (shared hook).
       if (newState === 'ACCEPTED') {
-        const lastHash = (rebuildResult.capsule as unknown as Record<string, unknown>)?.capsule_hash as string ?? ''
-        console.log('[Coordination] Triggering initial context_sync, lastHash=', lastHash?.slice(0,16))
-        const contextResult = tryEnqueueContextSync(db, record.handshake_id, ssoSession, {
-          lastCapsuleHash: lastHash,
-          lastSeqReceived: 0,
-        })
-        if (contextResult.success) {
-          console.log('[Coordination] Initial context_sync enqueued for handshake=', record.handshake_id)
-          // Flush immediately with real token — don't wait for 10s poller
-          setImmediate(() => { processOutboundQueue(db, getOidcToken).catch(() => {}) })
-        } else if (contextResult.reason === 'VAULT_LOCKED') {
-          console.log('[Coordination] Context sync deferred for initiator — vault locked')
-        } else if (contextResult.reason === 'INTERNAL_RELAY_ENDPOINTS_INCOMPLETE') {
-          console.log('[Coordination] Initial context_sync deferred — internal relay endpoints incomplete (context_sync_pending=1)')
-        } else {
-          console.warn('[Coordination] Initial context_sync skipped, reason=', contextResult.reason)
-        }
-
         // After accept succeeds: replay any context_sync that arrived early (before accept).
         const buffered = pendingContextSyncBuffer.get(record.handshake_id)
         if (buffered) {
@@ -452,6 +440,23 @@ async function processCapsuleInternal(
     console.error('[Coordination] NOT acknowledging — capsule will be retried')
     // Do NOT sendAckFn — let relay retry
   }
+}
+
+/**
+ * Test seam: same async stack as an inbound coordination WebSocket push (processIncomingInput →
+ * processHandshakeCapsule → maybeEnqueueInitialContextSyncAfterInboundAccept). No socket.
+ */
+export function processCoordinationInboundCapsuleForTest(
+  id: string,
+  capsule: unknown,
+  db: any,
+  ssoSession: SSOSession,
+  getOidcToken?: () => Promise<string | null>,
+  onHandshakeUpdated?: () => void,
+): Promise<void> {
+  const tokenFn = getOidcToken ?? (async () => null)
+  const noopAck = (_ids: string[]) => {}
+  return processCapsuleInternal(id, capsule, db, ssoSession, noopAck, tokenFn, onHandshakeUpdated)
 }
 
 export function createCoordinationWsClient(

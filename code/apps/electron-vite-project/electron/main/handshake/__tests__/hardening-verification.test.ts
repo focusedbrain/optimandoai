@@ -50,6 +50,7 @@ import { computeBlockHash, computeContextCommitment } from '../contextCommitment
 import { HandshakeState } from '../types'
 import type { SSOSession } from '../types'
 import { updateHandshakeSigningKeys, updateHandshakeCounterpartyKey } from '../db'
+import { MOCK_EXTENSION_X25519_PUBLIC_B64 } from './mockKeypair'
 
 function aliceSession(): SSOSession {
   return buildTestSession({
@@ -148,6 +149,7 @@ describe('Hardening Verification — Fix 1: capsule_hash', () => {
       handshake_id: initCapsule.handshake_id,
       sharing_mode: 'reciprocal',
       fromAccountId: 'acct-bob-1',
+      senderX25519PublicKeyB64: MOCK_EXTENSION_X25519_PUBLIC_B64,
     }, bobDb)
     const { capsule: acceptCapsule } = buildAcceptCapsule(bob, {
       handshake_id: initCapsule.handshake_id,
@@ -689,6 +691,7 @@ describe('Hardening Verification — Fix 3: Context-sync enforcement', () => {
       handshake_id: initCapsule.handshake_id,
       sharing_mode: 'reciprocal',
       fromAccountId: 'acct-bob-1',
+      senderX25519PublicKeyB64: MOCK_EXTENSION_X25519_PUBLIC_B64,
     }, bobDb)
     const { capsule: acceptCapsule } = buildAcceptCapsule(bob, {
       handshake_id: initCapsule.handshake_id,
@@ -724,6 +727,7 @@ describe('Hardening Verification — Fix 3: Context-sync enforcement', () => {
       handshake_id: initCapsule.handshake_id,
       sharing_mode: 'reciprocal',
       fromAccountId: 'acct-bob-1',
+      senderX25519PublicKeyB64: MOCK_EXTENSION_X25519_PUBLIC_B64,
     }, bobDb)
     const { capsule: acceptCapsule } = buildAcceptCapsule(bob, {
       handshake_id: initCapsule.handshake_id,

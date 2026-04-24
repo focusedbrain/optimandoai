@@ -15,6 +15,7 @@ import { insertIngestionAuditRecord, insertQuarantineRecord } from '../ingestion
 import { migrateHandshakeTables } from '../handshake/db'
 import { canonicalRebuild } from '../handshake/canonicalRebuild'
 import { processHandshakeCapsule } from '../handshake/enforcement'
+import { maybeEnqueueInitialContextSyncAfterInboundAccept } from '../handshake/contextSyncEnqueue'
 import { buildDefaultReceiverPolicy } from '../handshake/types'
 import type { SSOSession } from '../handshake/types'
 import { computeLocalP2PEndpoint, type P2PConfig } from './p2pConfig'
@@ -281,8 +282,15 @@ function createP2PRequestHandler(
               res.end(JSON.stringify({ error: 'Capsule rejected' }))
               return
             }
-            // Each side independently sends exactly one context_sync (seq=1) after accept.
-            // Both sides reach ACTIVE when they receive the other's seq=1. No reverse needed.
+            {
+              const cap = rebuildResult.capsule as { capsule_type?: unknown; capsule_hash?: unknown }
+              maybeEnqueueInitialContextSyncAfterInboundAccept(db, ssoSession, {
+                handshakeResult,
+                wireCapsuleType: cap?.capsule_type,
+                acceptCapsuleHash: typeof cap?.capsule_hash === 'string' ? cap.capsule_hash : '',
+                ingress_path: 'p2p_http',
+              })
+            }
             res.writeHead(200, { 'Content-Type': 'application/json' })
             res.end(JSON.stringify({ success: true }))
             return

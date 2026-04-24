@@ -193,9 +193,44 @@ type EnsureKeyAgreementKeysOptions = {
   /**
    * Internal handshakes: never mint a random X25519 keypair here — use caller-provided pubkey
    * (extension) or the orchestrator `device_keys` row. Otherwise fail fast (capsule vs encrypt drift).
-   * Cross-party flows may still use ephemeral fallback when the caller omits the key.
+   * Normal `handshake.accept` rejects a missing caller X25519 before this runs (see preflight below).
+   * Other call sites (e.g. initiate) may still use ephemeral fallback when the caller omits the key.
    */
   strictDeviceBoundX25519?: boolean
+}
+
+/**
+ * Acceptors pass X25519 on `handshake.accept` via `senderX25519PublicKeyB64` or nested
+ * `key_agreement.x25519_public_key_b64` (must match `ensureKeyAgreementKeys` extraction).
+ */
+function acceptorX25519FromHandshakeAcceptParams(params: unknown): string {
+  const p = params as {
+    senderX25519PublicKeyB64?: string | null
+    key_agreement?: { x25519_public_key_b64?: string | null }
+  }
+  const top = p?.senderX25519PublicKeyB64?.trim() ?? ''
+  if (top.length > 0) return top
+  return p?.key_agreement?.x25519_public_key_b64?.trim() ?? ''
+}
+
+function handshakeAcceptMissingX25519Result(handshake_id: string) {
+  const msg =
+    'ERR_HANDSHAKE_ACCEPT_X25519_REQUIRED: Normal handshake accept requires the acceptor device X25519 public key. ' +
+    'Set `senderX25519PublicKeyB64` or `key_agreement.x25519_public_key_b64` on the handshake.accept request ' +
+    '(extension chrome.storage device key). Without it, Electron would mint an ephemeral X25519 key that does not match encrypt-time keys and qBEAP decrypt fails.'
+  return {
+    type: 'handshake-accept-result' as const,
+    success: false as const,
+    error: msg,
+    code: 'ERR_HANDSHAKE_ACCEPT_X25519_REQUIRED' as const,
+    handshake_id,
+    email_sent: false,
+    email_error: undefined,
+    local_result: { success: false as const, error: msg },
+    context_sync_status: 'skipped' as const,
+    electronGeneratedMlkemSecret: null,
+    message: undefined,
+  }
 }
 
 async function ensureKeyAgreementKeys(
@@ -1589,6 +1624,9 @@ export async function handleHandshakeRPC(
         handshake_id: string
         sharing_mode: 'receive-only' | 'reciprocal'
         fromAccountId: string
+        /** Required for normal (non-internal) accepts — extension device X25519 from chrome.storage. */
+        senderX25519PublicKeyB64?: string | null
+        key_agreement?: { x25519_public_key_b64?: string | null; mlkem768_public_key_b64?: string | null }
         context_blocks?: RawBlockWithPolicy[]
         profile_ids?: string[]
         profile_items?: Array<{ profile_id: string; policy_mode?: 'inherit' | 'override'; policy?: { ai_processing_mode?: 'none' | 'local_only' | 'internal_and_cloud' } | { cloud_ai?: boolean; internal_ai?: boolean } }>
@@ -1638,6 +1676,14 @@ export async function handleHandshakeRPC(
         requested_sharing_mode === 'reciprocal' && !record.reciprocal_allowed
           ? 'receive-only'
           : requested_sharing_mode
+
+      // Normal (cross-principal) accept: require acceptor X25519 up front — same params
+      // `ensureKeyAgreementKeys` reads later; avoids silent ephemeral fallback (see KEY-AGREEMENT log).
+      if (record.handshake_type !== 'internal') {
+        if (!acceptorX25519FromHandshakeAcceptParams(params)) {
+          return handshakeAcceptMissingX25519Result(handshake_id)
+        }
+      }
 
       const initiatorUserId = record.initiator.wrdesk_user_id
       let initiatorEmail = record.initiator.email

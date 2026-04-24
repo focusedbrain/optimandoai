@@ -8,6 +8,7 @@
 import { getP2PConfig } from './p2pConfig'
 import { processIncomingInput } from '../ingestion/ingestionPipeline'
 import { processHandshakeCapsule } from '../handshake/enforcement'
+import { maybeEnqueueInitialContextSyncAfterInboundAccept } from '../handshake/contextSyncEnqueue'
 import { canonicalRebuild } from '../handshake/canonicalRebuild'
 import { buildDefaultReceiverPolicy } from '../handshake/types'
 import { migrateHandshakeTables, insertPendingP2PBeap } from '../handshake/db'
@@ -199,6 +200,12 @@ export async function pullFromRelay(
         if (handshakeResult.success) {
           accepted++
           const capObj = rebuildResult.capsule as unknown as Record<string, unknown>
+          maybeEnqueueInitialContextSyncAfterInboundAccept(db, ssoSession, {
+            handshakeResult,
+            wireCapsuleType: capObj?.capsule_type,
+            acceptCapsuleHash: typeof capObj?.capsule_hash === 'string' ? capObj.capsule_hash : '',
+            ingress_path: 'relay_pull',
+          })
           if (capObj?.capsule_type === 'context_sync' && capObj?.seq === 1 && handshakeResult.handshakeRecord) {
             const record = handshakeResult.handshakeRecord
             const targetEndpoint = record.p2p_endpoint

@@ -8,7 +8,8 @@
  * and clears pending (durable local proof; ACCEPTED → ACTIVE does not use pending alone).
  */
 
-import type { SSOSession } from './types'
+import type { HandshakeProcessResult, SSOSession } from './types'
+import { HandshakeState as HS } from './types'
 import type { ContextBlockForCommitment } from './contextCommitment'
 import type { ContextBlockInput } from './types'
 import { getHandshakeRecord, updateHandshakeContextSyncPending, updateHandshakeContextSyncEnqueued } from './db'
@@ -244,6 +245,93 @@ export function tryEnqueueContextSync(
   } catch (err: any) {
     console.warn('[ContextSync] Enqueue failed:', err?.message)
     return { success: false, reason: err?.message ?? 'ENQUEUE_FAILED' }
+  }
+}
+
+/**
+ * Shared ingest outcome hook: after an inbound `accept` capsule is committed as ACCEPTED on the
+ * initiator row, attempt the first `context_sync` enqueue (same as coordination relay / vault /
+ * internal deferral rules inside `tryEnqueueContextSync`). Acceptor-side local accept is skipped
+ * (`local_role !== 'initiator'`). Call from every transport that runs `processHandshakeCapsule`.
+ *
+ * Emits exactly one `[POST_ACCEPT_CONTEXT_SYNC]` line per successful inbound `accept` process
+ * (see `ingress_path` + `enqueue_attempted` / `reason` in the JSON payload).
+ */
+export function maybeEnqueueInitialContextSyncAfterInboundAccept(
+  db: any,
+  session: SSOSession,
+  args: {
+    handshakeResult: HandshakeProcessResult
+    /** Canonical wire `capsule_type` (e.g. `rebuildResult.capsule.capsule_type`) */
+    wireCapsuleType: unknown
+    acceptCapsuleHash: string
+    /** Stable id for the ingest stack (e.g. `coordination_ws`, `ingestion_rpc/email`). */
+    ingress_path: string
+  },
+): void {
+  if (!args.handshakeResult.success) return
+  const ct = typeof args.wireCapsuleType === 'string' ? args.wireCapsuleType.trim() : ''
+  if (ct !== 'accept') return
+
+  const r = args.handshakeResult.handshakeRecord
+  const logLine = (payload: Record<string, unknown>): void => {
+    console.log('[POST_ACCEPT_CONTEXT_SYNC]', JSON.stringify(payload))
+  }
+
+  const base = {
+    handshake_id: r.handshake_id,
+    local_role: r.local_role,
+    ingress_path: args.ingress_path,
+    newState: r.state,
+  }
+
+  if (r.local_role !== 'initiator') {
+    logLine({
+      ...base,
+      enqueue_attempted: false,
+      reason: 'skip_not_initiator',
+    })
+    return
+  }
+  if (r.state !== HS.ACCEPTED) {
+    logLine({
+      ...base,
+      enqueue_attempted: false,
+      reason: 'skip_not_accepted_state',
+    })
+    return
+  }
+
+  const hash = args.acceptCapsuleHash?.trim() ?? ''
+  if (!hash) {
+    logLine({
+      ...base,
+      enqueue_attempted: false,
+      reason: 'missing_accept_capsule_hash',
+    })
+    return
+  }
+
+  const contextResult = tryEnqueueContextSync(db, r.handshake_id, session, {
+    lastCapsuleHash: hash,
+    lastSeqReceived: 0,
+  })
+  if (contextResult.success) {
+    logLine({
+      ...base,
+      enqueue_attempted: true,
+    })
+    setImmediate(() => {
+      void import('./ipc').then((m) => {
+        processOutboundQueue(db, m.getCoordinationOidcToken).catch(() => {})
+      })
+    })
+  } else {
+    logLine({
+      ...base,
+      enqueue_attempted: true,
+      reason: contextResult.reason ?? 'unknown',
+    })
   }
 }
 

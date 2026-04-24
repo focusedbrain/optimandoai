@@ -21,7 +21,7 @@ import { migrateIngestionTables } from '../../ingestion/persistenceDb'
 import { buildInitiateCapsule, buildAcceptCapsule } from '../capsuleBuilder'
 import { handleIngestionRPC } from '../../ingestion/ipc'
 import { updateHandshakeSigningKeys, updateHandshakeRecord, getHandshakeRecord } from '../db'
-import { mockKeypairFields } from './mockKeypair'
+import { mockKeypairFields, MOCK_EXTENSION_X25519_PUBLIC_B64 } from './mockKeypair'
 import type { SSOSession } from '../types'
 import { HandshakeState } from '../types'
 
@@ -226,6 +226,7 @@ describe('Handshake IPC — handshake.accept', () => {
       handshake_id: handshakeId,
       sharing_mode: 'receive-only',
       fromAccountId: 'acct-1',
+      senderX25519PublicKeyB64: MOCK_EXTENSION_X25519_PUBLIC_B64,
     }, db)
 
     expect(result.success).toBeDefined()
@@ -256,6 +257,7 @@ describe('Handshake IPC — handshake.accept', () => {
       handshake_id: handshakeId,
       sharing_mode: 'receive-only',
       fromAccountId: 'acct-1',
+      senderX25519PublicKeyB64: MOCK_EXTENSION_X25519_PUBLIC_B64,
       policy_selections: { cloud_ai: false, internal_ai: true },
     }, db)
 
@@ -280,6 +282,7 @@ describe('Handshake IPC — handshake.accept', () => {
       handshake_id: handshakeId,
       sharing_mode: 'receive-only',
       fromAccountId: 'acct-1',
+      senderX25519PublicKeyB64: MOCK_EXTENSION_X25519_PUBLIC_B64,
       policy_selections: { cloud_ai: false, internal_ai: false },
       context_blocks: [{
         block_id: 'blk-adhoc-1',
@@ -302,6 +305,33 @@ describe('Handshake IPC — handshake.accept', () => {
     const gov = JSON.parse(adhocBlock.governance_json)
     expect(gov.usage_policy?.cloud_ai_allowed).toBe(true)
     expect(gov.usage_policy?.local_ai_allowed).toBe(true)
+  })
+
+  test('normal accept without acceptor X25519 fails fast with ERR_HANDSHAKE_ACCEPT_X25519_REQUIRED', async () => {
+    const receiver = receiverSession()
+    setSSOSessionProvider(() => receiver)
+    const handshakeId = await createPendingHandshake()
+    const result = await handleHandshakeRPC(
+      'handshake.accept',
+      { handshake_id: handshakeId, sharing_mode: 'receive-only', fromAccountId: 'acct-1' },
+      db,
+    )
+    expect(result.success).toBe(false)
+    expect((result as { code?: string }).code).toBe('ERR_HANDSHAKE_ACCEPT_X25519_REQUIRED')
+    expect(String((result as { error?: string }).error ?? '')).toMatch(/senderX25519PublicKeyB64|key_agreement\.x25519_public_key_b64/)
+  })
+
+  test('normal accept accepts key_agreement.x25519_public_key_b64', async () => {
+    const receiver = receiverSession()
+    setSSOSessionProvider(() => receiver)
+    const handshakeId = await createPendingHandshake()
+    const result = await handleHandshakeRPC('handshake.accept', {
+      handshake_id: handshakeId,
+      sharing_mode: 'receive-only',
+      fromAccountId: 'acct-1',
+      key_agreement: { x25519_public_key_b64: MOCK_EXTENSION_X25519_PUBLIC_B64 },
+    }, db)
+    expect(result.success).toBe(true)
   })
 })
 
