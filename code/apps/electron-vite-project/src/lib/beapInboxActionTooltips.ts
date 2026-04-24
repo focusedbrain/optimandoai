@@ -1,45 +1,45 @@
 /**
- * Host orchestrator — Sandbox clone (received BEAP). Native `title` hover; not Redirect.
- * Tri-state copy from `useInternalSandboxesList().sandboxAvailability` (click still opens dialogs when needed).
+ * Host orchestrator — Sandbox clone (received BEAP). Tri-state for screen readers; short `title` for hover.
+ * Does not include Redirect.
  */
 
 import type { SandboxOrchestratorAvailability } from '../types/sandboxOrchestratorAvailability'
 
-/** Sandbox relay/path up — clone can be sent when prepare succeeds. */
-export const BEAP_HOST_SANDBOX_CLONE_TOOLTIP_CONNECTED =
-  'Send a clone of this BEAP message to your connected Sandbox orchestrator. The original stays unchanged.'
+const SANDBOX_CLONE_TIP_SHORT = 'Send a clone to Sandbox'
 
-/** No internal Sandbox handshake under this identity yet (or not listed as available). */
-export const BEAP_HOST_SANDBOX_CLONE_TOOLTIP_NOT_CONFIGURED =
+/** Long context for a11y (tri-state) — not shown as primary visible label. */
+export const BEAP_HOST_SANDBOX_CLONE_ARIA_SUFFIX_CONNECTED =
+  'Sends a clone of this BEAP message to your connected Sandbox orchestrator. The original stays unchanged.'
+
+export const BEAP_HOST_SANDBOX_CLONE_ARIA_SUFFIX_NOT_CONFIGURED =
   'Sandbox clone is available after connecting a Sandbox orchestrator under the same identity.'
 
-/** Handshake exists but orchestrator is offline / path down. */
-export const BEAP_HOST_SANDBOX_CLONE_TOOLTIP_OFFLINE =
-  'Your Sandbox orchestrator exists but is offline. Start it to receive cloned BEAP messages.'
+export const BEAP_HOST_SANDBOX_CLONE_ARIA_SUFFIX_OFFLINE =
+  'Your Sandbox orchestrator exists but is offline. Start the Sandbox app or wait for the coordination relay, then try again.'
 
 /**
- * Spread onto Sandbox buttons for native hover text (`title`) and a short `aria-label`.
+ * `title` — short native tooltip. `aria-label` — short + long sentence for screen readers.
  */
 export function beapHostSandboxCloneTooltipForAvailability(
   availability: SandboxOrchestratorAvailability,
 ): { title: string; 'aria-label': string } {
+  const short = SANDBOX_CLONE_TIP_SHORT
+  let long: string
   switch (availability.status) {
     case 'connected':
-      return {
-        title: BEAP_HOST_SANDBOX_CLONE_TOOLTIP_CONNECTED,
-        'aria-label': 'Send clone to Sandbox',
-      }
+      long = BEAP_HOST_SANDBOX_CLONE_ARIA_SUFFIX_CONNECTED
+      break
     case 'exists_but_offline':
-      return {
-        title: BEAP_HOST_SANDBOX_CLONE_TOOLTIP_OFFLINE,
-        'aria-label': 'Sandbox offline — start orchestrator to receive clones',
-      }
+      long = BEAP_HOST_SANDBOX_CLONE_ARIA_SUFFIX_OFFLINE
+      break
     case 'not_configured':
     default:
-      return {
-        title: BEAP_HOST_SANDBOX_CLONE_TOOLTIP_NOT_CONFIGURED,
-        'aria-label': 'Connect a Sandbox under the same identity to clone',
-      }
+      long = BEAP_HOST_SANDBOX_CLONE_ARIA_SUFFIX_NOT_CONFIGURED
+      break
+  }
+  return {
+    title: short,
+    'aria-label': `${short}. ${long}`,
   }
 }
 

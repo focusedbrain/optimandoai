@@ -25,6 +25,7 @@ import { useInternalSandboxesList } from '../hooks/useInternalSandboxesList'
 import { useOrchestratorMode } from '../hooks/useOrchestratorMode'
 import { beapInboxCloneToSandboxApi } from '../lib/beapInboxCloneToSandbox'
 import { beapHostSandboxCloneTooltipForAvailability } from '../lib/beapInboxActionTooltips'
+import { BeapInboxSandboxCloneIcon } from './BeapInboxSandboxCloneIcon'
 import type { SandboxOrchestratorAvailability } from '../types/sandboxOrchestratorAvailability'
 import BeapSandboxCloneDialog from './BeapSandboxCloneDialog'
 import BeapSandboxUnavailableDialog, { type BeapSandboxUnavailableVariant } from './BeapSandboxUnavailableDialog'
@@ -1665,9 +1666,9 @@ interface InboxMessageRowProps {
   onNavigateToHandshake?: (handshakeId: string) => void
   /**
    * Host orchestrator + mode ready. Row combines with per-message `canShowSandboxAction`
-   * (same rules as the message detail pane).
+   * (same rules as the message detail pane). `orchestratorMode` must be `'host'` to show Sandbox.
    */
-  sandboxOrchestrator: { modeReady: boolean; isHost: boolean }
+  sandboxOrchestrator: { modeReady: boolean; orchestratorMode: 'host' | 'sandbox' | null }
   /** Drives Sandbox button hover (connected / offline / not configured). */
   sandboxAvailability: SandboxOrchestratorAvailability
   onSandboxInRow?: (e: MouseEvent, message: InboxMessage) => void
@@ -1857,7 +1858,7 @@ function InboxMessageRow({
           {canRowSandbox && onSandboxInRow && (
             <button
               type="button"
-              className="inbox-row-beap-btn inbox-row-beap-btn--sandbox"
+              className="inbox-row-beap-btn inbox-row-beap-btn--sandbox inbox-row-sandbox-clone-icon-btn"
               onClick={(e) => {
                 e.stopPropagation()
                 e.preventDefault()
@@ -1865,7 +1866,7 @@ function InboxMessageRow({
               }}
               {...beapHostSandboxCloneTooltipForAvailability(sandboxAvailability)}
             >
-              Sandbox
+              <BeapInboxSandboxCloneIcon />
             </button>
           )}
           {hasAttachments && (
@@ -1954,7 +1955,7 @@ export default function EmailInboxView({
 
   const { prioritize } = useInboxPreloadQueue({ messages, analysisCache })
 
-  const { isHost, ready: hostModeReady } = useOrchestratorMode()
+  const { mode: orchestratorMode, ready: hostModeReady } = useOrchestratorMode()
   const {
     sandboxes: internalSandboxes,
     incomplete: internalSandboxesIncomplete,
@@ -2533,7 +2534,7 @@ export default function EmailInboxView({
 
   const handleInboxRowSandbox = useCallback(
     (_e: MouseEvent, m: InboxMessage) => {
-      if (!hostModeReady || !isHost) return
+      if (!hostModeReady || orchestratorMode !== 'host') return
       const n = cloneEligibleSandboxes.length
       const next = resolveHostSandboxCloneClickAction({
         internalListLoading: internalSandboxesLoading,
@@ -2571,7 +2572,7 @@ export default function EmailInboxView({
     },
     [
       hostModeReady,
-      isHost,
+      orchestratorMode,
       internalSandboxesLoading,
       cloneEligibleSandboxes.length,
       fetchMessages,
@@ -3020,7 +3021,7 @@ export default function EmailInboxView({
                 onToggleMultiSelect={() => toggleMultiSelect(msg.id)}
                 onMouseEnter={() => prioritize(msg.id)}
                 onNavigateToHandshake={onNavigateToHandshake}
-                sandboxOrchestrator={{ modeReady: hostModeReady, isHost }}
+                sandboxOrchestrator={{ modeReady: hostModeReady, orchestratorMode }}
                 sandboxAvailability={sandboxAvailability}
                 onSandboxInRow={handleInboxRowSandbox}
                 onRedirectInRow={(_e, m) => setBeapRedirectForMessage(m)}

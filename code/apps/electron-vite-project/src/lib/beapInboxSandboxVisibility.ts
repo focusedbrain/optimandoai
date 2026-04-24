@@ -32,17 +32,18 @@ export function isOutboundQbeapEchoForSandboxAction(message: InboxMessage | null
 }
 
 /**
- * When orchestrator mode is known and the device is the Host, show Sandbox for received BEAP
- * that is not an outbound echo. When mode is not ready or the device is not Host (including
- * Sandbox orchestrator or unknown), do not show — avoids flicker and wrong mode.
+ * Host-only: Sandbox clone is a Host → internal Sandbox path. Gated on **local** orchestrator
+ * mode (not handshake peer role). `orchestratorMode === 'host'` from `useOrchestratorMode` —
+ * never show on Sandbox device or when mode is null/unknown (until ready+host).
  */
 export function canShowSandboxAction(params: {
   modeReady: boolean
-  isHost: boolean
+  /** From `useOrchestratorMode().mode` — must be exactly `'host'` to show UI. */
+  orchestratorMode: 'host' | 'sandbox' | null
   message: InboxMessage | null | undefined
 }): boolean {
-  const { modeReady, isHost, message } = params
-  if (!modeReady || !isHost || !message) return false
+  const { modeReady, orchestratorMode, message } = params
+  if (!modeReady || orchestratorMode !== 'host' || !message) return false
   if (!isReceivedBeapMessageForSandbox(message)) return false
   if (isOutboundQbeapEchoForSandboxAction(message)) return false
   return true

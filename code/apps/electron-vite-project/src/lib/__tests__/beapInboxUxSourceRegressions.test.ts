@@ -20,9 +20,22 @@ describe('beapInbox Ux source regressions', () => {
     expect(src).not.toMatch(/Reply using capsule fields/i)
   })
 
-  test('12: Reply control uses Reply tooltip/aria (beapInboxActionTooltips)', () => {
+  test('12: Reply is icon-only (class + tooltip); no visible Reply label in the control', () => {
     const src = readRel('components', 'EmailMessageDetail.tsx')
     expect(src).toContain('beapInboxReplyTooltipProps()')
+    expect(src).toContain('inbox-action-icon-only')
+    expect(src).toContain('inbox-detail-reply-icon-only')
+    expect(src).not.toMatch(/className="[^"]*inbox-detail-icon-btn[^"]*--reply/)
+  })
+
+  test('Sandbox UI: Host gate on orchestratorMode; 3-ray icon component', () => {
+    const vis = readRel('lib', 'beapInboxSandboxVisibility.ts')
+    expect(vis).toContain("orchestratorMode !== 'host'")
+    const detail = readRel('components', 'EmailMessageDetail.tsx')
+    const inbox = readRel('components', 'EmailInboxView.tsx')
+    expect(detail).toContain('BeapInboxSandboxCloneIcon')
+    expect(inbox).toContain('BeapInboxSandboxCloneIcon')
+    expect(detail).toContain('canShowSandboxAction({ modeReady, orchestratorMode, message })')
   })
 
   test('14: clone prepare IPC enforces Host orchestrator before vault/db', () => {

@@ -17,6 +17,7 @@ import { useOrchestratorMode } from '../hooks/useOrchestratorMode'
 import { beapInboxCloneToSandboxApi } from '../lib/beapInboxCloneToSandbox'
 import { beapHostSandboxCloneTooltipForAvailability, beapInboxReplyTooltipProps } from '../lib/beapInboxActionTooltips'
 import { resolveHostSandboxCloneClickAction } from '../lib/beapInboxHostSandboxClickPolicy'
+import { BeapInboxSandboxCloneIcon } from './BeapInboxSandboxCloneIcon'
 import type { SandboxOrchestratorAvailability } from '../types/sandboxOrchestratorAvailability'
 import { defaultSandboxAvailability } from '../types/sandboxOrchestratorAvailability'
 import SessionImportDialog, { type SessionImportDialogSessionRef } from './SessionImportDialog'
@@ -284,7 +285,7 @@ export default function EmailMessageDetail({
   onRequestInternalSandboxListRefresh,
   sandboxAvailability = defaultSandboxAvailability,
 }: EmailMessageDetailProps) {
-  const { isHost, ready: modeReady } = useOrchestratorMode()
+  const { mode: orchestratorMode, ready: modeReady } = useOrchestratorMode()
   const [beapRedirectOpen, setBeapRedirectOpen] = useState(false)
   const [beapPanelOpen, setBeapPanelOpen] = useState(false)
   const [pendingLinkUrl, setPendingLinkUrl] = useState<string | null>(null)
@@ -583,7 +584,7 @@ export default function EmailMessageDetail({
     message != null &&
     isNativeBeap &&
     (parsedDepackaged?.format === 'beap_qbeap_outbound' || isBeapQbeapOutboundEcho(message))
-  const showHostSandboxStrip = canShowSandboxAction({ modeReady, isHost, message })
+  const showHostSandboxStrip = canShowSandboxAction({ modeReady, orchestratorMode, message })
 
   const handleHostSandboxClick = useCallback(async () => {
     if (!message) return
@@ -822,7 +823,7 @@ export default function EmailMessageDetail({
                   <button
                     type="button"
                     onClick={handleReply}
-                    className="inbox-detail-icon-btn inbox-detail-icon-btn--reply"
+                    className="inbox-action-icon-only inbox-detail-reply-icon-only"
                     {...beapInboxReplyTooltipProps()}
                   >
                     <span className="inbox-detail-reply-glyph" aria-hidden>
@@ -844,12 +845,12 @@ export default function EmailMessageDetail({
                     {showHostSandboxStrip ? (
                       <button
                         type="button"
-                        className="inbox-detail-beap-btn inbox-detail-beap-btn--sandbox"
+                        className="inbox-detail-sandbox-clone-icon-btn"
                         onClick={() => void handleHostSandboxClick()}
                         disabled={hostSandboxBusy}
                         {...beapHostSandboxCloneTooltipForAvailability(sandboxAvailability)}
                       >
-                        Sandbox
+                        <BeapInboxSandboxCloneIcon />
                       </button>
                     ) : null}
                   </>

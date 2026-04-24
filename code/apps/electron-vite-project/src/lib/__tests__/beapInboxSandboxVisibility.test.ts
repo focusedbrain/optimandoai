@@ -26,15 +26,15 @@ describe('beapInboxSandboxVisibility', () => {
   test('1 & 2: Host + direct_beap or email_beap (not echo) => Sandbox action shown', () => {
     const direct = beapMsg({ source_type: 'direct_beap' })
     const email = beapMsg({ source_type: 'email_beap' })
-    expect(canShowSandboxAction({ modeReady: true, isHost: true, message: direct })).toBe(true)
-    expect(canShowSandboxAction({ modeReady: true, isHost: true, message: email })).toBe(true)
+    expect(canShowSandboxAction({ modeReady: true, orchestratorMode: 'host', message: direct })).toBe(true)
+    expect(canShowSandboxAction({ modeReady: true, orchestratorMode: 'host', message: email })).toBe(true)
   })
 
   test('7 & 8: Sandbox orchestrator mode => Sandbox action hidden (direct_beap and email_beap)', () => {
     const direct = beapMsg({ source_type: 'direct_beap' })
     const email = beapMsg({ source_type: 'email_beap' })
-    expect(canShowSandboxAction({ modeReady: true, isHost: false, message: direct })).toBe(false)
-    expect(canShowSandboxAction({ modeReady: true, isHost: false, message: email })).toBe(false)
+    expect(canShowSandboxAction({ modeReady: true, orchestratorMode: 'sandbox', message: direct })).toBe(false)
+    expect(canShowSandboxAction({ modeReady: true, orchestratorMode: 'sandbox', message: email })).toBe(false)
   })
 
   test('9: outbound qBEAP echo => Sandbox hidden', () => {
@@ -42,7 +42,7 @@ describe('beapInboxSandboxVisibility', () => {
       source_type: 'direct_beap',
       depackaged_json: JSON.stringify({ format: 'beap_qbeap_outbound' }),
     })
-    expect(canShowSandboxAction({ modeReady: true, isHost: true, message: echo })).toBe(false)
+    expect(canShowSandboxAction({ modeReady: true, orchestratorMode: 'host', message: echo })).toBe(false)
   })
 
   test('10: Redirect row and Sandbox share “received BEAP” + same echo exclusion (Redirect does not require Host)', () => {
@@ -73,18 +73,19 @@ describe('beapInboxSandboxVisibility', () => {
   test('canShowSandboxAction: host + received BEAP + not echo', () => {
     const received = beapMsg({ source_type: 'email_beap' })
     expect(
-      canShowSandboxAction({ modeReady: true, isHost: true, message: received }),
+      canShowSandboxAction({ modeReady: true, orchestratorMode: 'host', message: received }),
     ).toBe(true)
   })
 
   test('canShowSandboxAction: hide when not Host (Sandbox orchestrator or unknown)', () => {
     const received = beapMsg({ source_type: 'direct_beap' })
-    expect(canShowSandboxAction({ modeReady: true, isHost: false, message: received })).toBe(false)
+    expect(canShowSandboxAction({ modeReady: true, orchestratorMode: 'sandbox', message: received })).toBe(false)
+    expect(canShowSandboxAction({ modeReady: true, orchestratorMode: null, message: received })).toBe(false)
   })
 
   test('canShowSandboxAction: hide when mode not ready (avoid flicker)', () => {
     const received = beapMsg({ source_type: 'direct_beap' })
-    expect(canShowSandboxAction({ modeReady: false, isHost: true, message: received })).toBe(false)
+    expect(canShowSandboxAction({ modeReady: false, orchestratorMode: 'host', message: received })).toBe(false)
   })
 
   test('canShowSandboxAction: hide for outbound qBEAP echo', () => {
@@ -93,7 +94,7 @@ describe('beapInboxSandboxVisibility', () => {
       depackaged_json: JSON.stringify({ format: 'beap_qbeap_outbound' }),
     })
     expect(
-      canShowSandboxAction({ modeReady: true, isHost: true, message: echo }),
+      canShowSandboxAction({ modeReady: true, orchestratorMode: 'host', message: echo }),
     ).toBe(false)
   })
 })
