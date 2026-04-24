@@ -1158,6 +1158,25 @@ body {
   color: #ffffff;
 }
 
+/* BeapSandboxUnavailableDialog — keyboard focus (light card, explicit colors in component) */
+.beap-sandbox-unavail-dialog__btn {
+  font-family: inherit;
+}
+.beap-sandbox-unavail-dialog__btn:focus {
+  outline: none;
+}
+.beap-sandbox-unavail-dialog__btn--secondary:focus-visible {
+  outline: 2px solid #64748b;
+  outline-offset: 2px;
+}
+.beap-sandbox-unavail-dialog__btn--primary:focus-visible {
+  outline: 2px solid #5b21b6;
+  outline-offset: 2px;
+  box-shadow:
+    0 2px 8px rgba(124, 58, 237, 0.4),
+    0 0 0 3px rgba(124, 58, 237, 0.3);
+}
+
 /* Attachments block — light separation from body without restructuring layout */
 .inbox-detail-attachments-block {
   margin-top: 20px;
