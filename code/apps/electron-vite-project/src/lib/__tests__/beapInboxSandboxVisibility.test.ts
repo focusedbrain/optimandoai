@@ -2,142 +2,131 @@ import { describe, test, expect } from 'vitest'
 import {
   canShowSandboxAction,
   canShowSandboxCloneAction,
-  isReceivedBeapMessage,
-  isReceivedBeapMessageForSandbox,
-  isOutboundQbeapEchoForSandboxAction,
+  canShowSandboxCloneIcon,
+  getSandboxCloneEligibilityDetail,
 } from '../beapInboxSandboxVisibility'
-import { isBeapQbeapOutboundEcho } from '../inboxBeapOutbound'
-import { isReceivedBeapInboxMessage } from '../inboxBeapRowEligibility'
 import type { InboxMessage } from '../../stores/useEmailInboxStore'
 
-function beapMsg(partial: Partial<InboxMessage> & { source_type: 'direct_beap' | 'email_beap' }): InboxMessage {
+const listOkHost = { internalSandboxListReady: true as const, authoritativeDeviceInternalRole: 'host' as const }
+const listOkNone = { internalSandboxListReady: true as const, authoritativeDeviceInternalRole: 'none' as const }
+
+function msg(over: Partial<InboxMessage> & { id: string }): InboxMessage {
   return {
-    id: 'm1',
-    source_type: partial.source_type,
+    id: over.id,
+    source_type: over.source_type ?? 'email_plain',
     subject: 's',
-    body_text: '',
+    body_text: 'body',
     from_address: 'a@b.com',
     to_addresses: '',
     received_at: '2020-01-01T00:00:00.000Z',
     read_status: 0,
     account_id: 'acc',
-    ...partial,
+    ...over,
   } as InboxMessage
 }
 
-describe('beapInboxSandboxVisibility', () => {
-  test('1 & 2: Host + direct_beap or email_beap (not echo) => Sandbox action shown', () => {
-    const direct = beapMsg({ source_type: 'direct_beap' })
-    const email = beapMsg({ source_type: 'email_beap' })
-    expect(canShowSandboxAction({ modeReady: true, orchestratorMode: 'host', message: direct })).toBe(true)
-    expect(canShowSandboxAction({ modeReady: true, orchestratorMode: 'host', message: email })).toBe(true)
-  })
+function params(p: Partial<import('../beapInboxSandboxVisibility').CanShowSandboxCloneIconParams> & {
+  message: InboxMessage | null
+  modeReady: boolean
+  orchestratorMode: 'host' | 'sandbox' | null
+}) {
+  return {
+    authoritativeDeviceInternalRole: 'host' as const,
+    internalSandboxListReady: true,
+    ...p,
+  } as import('../beapInboxSandboxVisibility').CanShowSandboxCloneIconParams
+}
 
-  test('7 & 8: Sandbox orchestrator mode => Sandbox action hidden (direct_beap and email_beap)', () => {
-    const direct = beapMsg({ source_type: 'direct_beap' })
-    const email = beapMsg({ source_type: 'email_beap' })
-    expect(canShowSandboxAction({ modeReady: true, orchestratorMode: 'sandbox', message: direct })).toBe(false)
-    expect(canShowSandboxAction({ modeReady: true, orchestratorMode: 'sandbox', message: email })).toBe(false)
-  })
-
-  test('9: outbound qBEAP echo => Sandbox hidden', () => {
-    const echo = beapMsg({
-      source_type: 'direct_beap',
-      depackaged_json: JSON.stringify({ format: 'beap_qbeap_outbound' }),
-    })
-    expect(canShowSandboxAction({ modeReady: true, orchestratorMode: 'host', message: echo })).toBe(false)
-  })
-
-  test('10: Redirect row and Sandbox share “received BEAP” + same echo exclusion (Redirect does not require Host)', () => {
-    const received = beapMsg({ source_type: 'email_beap' })
-    const echo = beapMsg({
-      source_type: 'email_beap',
-      depackaged_json: JSON.stringify({ format: 'beap_qbeap_outbound' }),
-    })
-    const depackagedFromEmail = beapMsg({
-      source_type: 'email_plain',
-      beap_package_json: '{"v":1}',
-      depackaged_json: JSON.stringify({ format: 'beap_qbeap_decrypted', body: 'x' }),
-    })
-    expect(isReceivedBeapInboxMessage(received) && !isBeapQbeapOutboundEcho(received)).toBe(true)
-    expect(isReceivedBeapInboxMessage(echo) && !isBeapQbeapOutboundEcho(echo)).toBe(false)
-    expect(isReceivedBeapInboxMessage(depackagedFromEmail) && !isBeapQbeapOutboundEcho(depackagedFromEmail)).toBe(
-      true,
-    )
-  })
-
-  test('isReceivedBeapMessageForSandbox for direct, email, and depackaged email_plain', () => {
-    expect(isReceivedBeapMessageForSandbox({ source_type: 'direct_beap' })).toBe(true)
-    expect(isReceivedBeapMessageForSandbox({ source_type: 'email_beap' })).toBe(true)
+describe('beapInboxSandboxVisibility (every inbox message on Host)', () => {
+  test('plain email_plain: show on Host, hide on Sandbox, hide when authoritative sandbox', () => {
+    const ordinary = msg({ id: '1' })
     expect(
-      isReceivedBeapMessageForSandbox({
-        source_type: 'email_plain',
-        beap_package_json: null,
-        depackaged_json: null,
-      }),
+      canShowSandboxCloneIcon(
+        params({ modeReady: true, orchestratorMode: 'host', message: ordinary, ...listOkNone }),
+      ),
+    ).toBe(true)
+    expect(
+      canShowSandboxCloneIcon(
+        params({ modeReady: true, orchestratorMode: 'sandbox', message: ordinary, ...listOkHost }),
+      ),
     ).toBe(false)
     expect(
-      isReceivedBeapMessageForSandbox({
-        source_type: 'email_plain',
-        beap_package_json: '{}',
-        depackaged_json: null,
-      }),
-    ).toBe(true)
+      canShowSandboxCloneIcon(
+        params({
+          modeReady: true,
+          orchestratorMode: 'host',
+          message: ordinary,
+          internalSandboxListReady: true,
+          authoritativeDeviceInternalRole: 'sandbox',
+        }),
+      ),
+    ).toBe(false)
+  })
+
+  test('list still loading: Host keeps Sandbox icon visible', () => {
+    const ordinary = msg({ id: '2' })
     expect(
-      isReceivedBeapMessageForSandbox({
-        source_type: 'email_plain',
-        beap_package_json: null,
-        depackaged_json: JSON.stringify({ format: 'beap_qbeap_decrypted' }),
-      }),
+      canShowSandboxCloneIcon(
+        params({
+          modeReady: true,
+          orchestratorMode: 'host',
+          message: ordinary,
+          internalSandboxListReady: false,
+          authoritativeDeviceInternalRole: 'none',
+        }),
+      ),
     ).toBe(true)
   })
 
-  test('isReceivedBeapMessage is an alias of isReceivedBeapMessageForSandbox', () => {
-    expect(isReceivedBeapMessage({ source_type: 'direct_beap' })).toBe(
-      isReceivedBeapMessageForSandbox({ source_type: 'direct_beap' }),
-    )
+  test('direct_beap and email_beap same as plain for visibility', () => {
+    const a = msg({ id: '3', source_type: 'direct_beap' })
+    const b = msg({ id: '4', source_type: 'email_beap' })
+    expect(
+      canShowSandboxCloneIcon(params({ modeReady: true, orchestratorMode: 'host', message: a, ...listOkHost })),
+    ).toBe(true)
+    expect(
+      canShowSandboxCloneIcon(params({ modeReady: true, orchestratorMode: 'host', message: b, ...listOkHost })),
+    ).toBe(true)
+  })
+
+  test('deleted row: not actionable', () => {
+    expect(
+      canShowSandboxCloneIcon(
+        params({
+          modeReady: true,
+          orchestratorMode: 'host',
+          message: msg({ id: 'd', deleted: 1 }),
+          ...listOkHost,
+        }),
+      ),
+    ).toBe(false)
   })
 
   test('canShowSandboxCloneAction matches canShowSandboxAction', () => {
-    const received = beapMsg({ source_type: 'email_beap' })
-    const a = canShowSandboxAction({ modeReady: true, orchestratorMode: 'host', message: received })
-    const b = canShowSandboxCloneAction({ modeReady: true, orchestratorMode: 'host', message: received })
-    expect(a).toBe(b)
+    const p = params({ modeReady: true, orchestratorMode: 'host', message: msg({ id: 'x' }), ...listOkHost })
+    expect(canShowSandboxAction(p)).toBe(canShowSandboxCloneAction(p))
   })
 
-  test('isOutboundQbeapEchoForSandboxAction when depackaged format is outbound', () => {
-    const echo = beapMsg({
-      source_type: 'direct_beap',
-      depackaged_json: JSON.stringify({ format: 'beap_qbeap_outbound' }),
+  test('getSandboxCloneEligibilityDetail: host + no topology is eligible', () => {
+    const d = getSandboxCloneEligibilityDetail({
+      modeReady: true,
+      orchestratorMode: 'host',
+      message: msg({ id: 'n' }),
+      authoritativeDeviceInternalRole: 'none',
+      internalSandboxListReady: true,
     })
-    expect(isOutboundQbeapEchoForSandboxAction(echo)).toBe(true)
+    expect(d.show).toBe(true)
   })
 
-  test('canShowSandboxAction: host + received BEAP + not echo', () => {
-    const received = beapMsg({ source_type: 'email_beap' })
-    expect(
-      canShowSandboxAction({ modeReady: true, orchestratorMode: 'host', message: received }),
-    ).toBe(true)
-  })
-
-  test('canShowSandboxAction: hide when not Host (Sandbox orchestrator or unknown)', () => {
-    const received = beapMsg({ source_type: 'direct_beap' })
-    expect(canShowSandboxAction({ modeReady: true, orchestratorMode: 'sandbox', message: received })).toBe(false)
-    expect(canShowSandboxAction({ modeReady: true, orchestratorMode: null, message: received })).toBe(false)
-  })
-
-  test('canShowSandboxAction: hide when mode not ready (avoid flicker)', () => {
-    const received = beapMsg({ source_type: 'direct_beap' })
-    expect(canShowSandboxAction({ modeReady: false, orchestratorMode: 'host', message: received })).toBe(false)
-  })
-
-  test('canShowSandboxAction: hide for outbound qBEAP echo', () => {
-    const echo = beapMsg({
-      source_type: 'direct_beap',
-      depackaged_json: JSON.stringify({ format: 'beap_qbeap_outbound' }),
+  test('orchestrator sandbox hides even if handshake would say host', () => {
+    const d = getSandboxCloneEligibilityDetail({
+      modeReady: true,
+      orchestratorMode: 'sandbox',
+      message: msg({ id: 'o' }),
+      authoritativeDeviceInternalRole: 'host',
+      internalSandboxListReady: true,
     })
-    expect(
-      canShowSandboxAction({ modeReady: true, orchestratorMode: 'host', message: echo }),
-    ).toBe(false)
+    expect(d.show).toBe(false)
+    expect(d.reason).toBe('orchestrator_not_host')
   })
 })

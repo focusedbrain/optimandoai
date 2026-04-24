@@ -1698,6 +1698,10 @@ export default function EmailInboxBulkView({
     hasUsableSandbox: bulkHasUsableSandbox,
     cloneEligibleSandboxes: bulkCloneEligibleSandboxes,
     sandboxAvailability: bulkSandboxAvailability,
+    loading: bulkInternalSandboxesLoading,
+    refresh: refreshBulkInternalSandboxesList,
+    authoritativeDeviceInternalRole: bulkAuthoritativeDeviceInternalRole,
+    internalSandboxListReady: bulkInternalSandboxListReady,
   } = useInternalSandboxesList()
   const [bulkSandboxCloneFor, setBulkSandboxCloneFor] = useState<InboxMessage | null>(null)
   const [bulkSandboxUnavailableOpen, setBulkSandboxUnavailableOpen] = useState(false)
@@ -6636,7 +6640,11 @@ export default function EmailInboxBulkView({
                   }
                   onNoSandboxConnectedInfo={openBulkSandboxUnavailableDialog}
                   onSandboxCloneComplete={() => void refreshMessages()}
+                  internalSandboxListLoading={bulkInternalSandboxesLoading}
+                  onRequestInternalSandboxListRefresh={() => void refreshBulkInternalSandboxesList()}
                   sandboxAvailability={bulkSandboxAvailability}
+                  authoritativeDeviceInternalRole={bulkAuthoritativeDeviceInternalRole}
+                  internalSandboxListReady={bulkInternalSandboxListReady}
                 />
               ) : (
                 <div className="bulk-view-modal-loading">Loading…</div>

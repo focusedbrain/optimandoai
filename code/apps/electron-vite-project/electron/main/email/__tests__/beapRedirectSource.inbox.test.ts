@@ -14,7 +14,7 @@ describe('beapRedirectSource (redirect + sandbox clone extraction)', () => {
     expect(isReceivedBeapInboxSourceType(null)).toBe(false)
   })
 
-  test('extract fails clearly when there is no body or depackaged text', () => {
+  test('extract succeeds for every inbox row; empty body yields placeholder + warning', () => {
     const r = extractBeapRedirectSourceFromRow({
       id: 'msg-empty',
       source_type: 'email_beap',
@@ -22,10 +22,10 @@ describe('beapRedirectSource (redirect + sandbox clone extraction)', () => {
       depackaged_json: null,
       subject: 'S',
     })
-    expect(r.ok).toBe(false)
-    if (!r.ok) {
-      expect(r.error.length).toBeGreaterThan(20)
-      expect(r.error.toLowerCase()).toMatch(/extract|decrypt|pending|content/)
+    expect(r.ok).toBe(true)
+    if (r.ok) {
+      expect(r.encrypted_text.length).toBeGreaterThan(10)
+      expect(r.content_warning).toMatch(/empty|placeholder/i)
     }
   })
 
@@ -78,6 +78,23 @@ describe('beapRedirectSource (redirect + sandbox clone extraction)', () => {
     if (r.ok) {
       expect(r.public_text).toContain('Public')
       expect(r.encrypted_text).toContain('Secret')
+    }
+  })
+
+  test('extract succeeds for ordinary email_plain (non-BEAP)', () => {
+    const r = extractBeapRedirectSourceFromRow({
+      id: 'm-plain',
+      source_type: 'email_plain',
+      beap_package_json: null,
+      depackaged_json: null,
+      body_text: 'Hello from IMAP',
+      subject: 'Meeting',
+      handshake_id: null,
+    })
+    expect(r.ok).toBe(true)
+    if (r.ok) {
+      expect(r.encrypted_text).toContain('Hello from IMAP')
+      expect(r.subject).toBe('Meeting')
     }
   })
 

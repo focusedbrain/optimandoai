@@ -7,7 +7,7 @@
  * - `email_plain` rows that still hold BEAP payloads: non-empty `beap_package_json` and/or depackaged BEAP formats
  *   (e.g. qBEAP decrypted/pending) after email ingress / depackaging.
  *
- * Does not test Host mode or outbound qBEAP echo — callers combine with `canShowSandboxCloneAction` / `isBeapQbeapOutboundEcho`.
+ * Does not test Host mode — inbox Redirect/Sandbox use `inboxMessageActionable` + `beapInboxSandboxVisibility`.
  */
 
 import type { InboxMessage } from '../stores/useEmailInboxStore'

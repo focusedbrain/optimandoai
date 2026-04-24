@@ -1,14 +1,8 @@
 import { describe, test, expect } from 'vitest'
 import {
-  BEAP_HOST_SANDBOX_CLONE_ARIA_SUFFIX_CONNECTED,
-  BEAP_HOST_SANDBOX_CLONE_ARIA_SUFFIX_NOT_CONFIGURED,
-  BEAP_HOST_SANDBOX_CLONE_ARIA_SUFFIX_OFFLINE,
+  BEAP_INBOX_REDIRECT_ARIA,
   BEAP_INBOX_REDIRECT_TIP,
-  BEAP_INBOX_REDIRECT_TIP_DESC,
-  BEAP_INBOX_REDIRECT_TIP_DETAIL,
   BEAP_INBOX_REPLY_TOOLTIP,
-  BEAP_INBOX_SANDBOX_TIP_DETAIL,
-  BEAP_INBOX_SANDBOX_TIP_ROW,
   beapHostSandboxCloneTooltipForAvailability,
   beapInboxRedirectTooltipPropsForDetail,
   beapInboxRedirectTooltipPropsForRow,
@@ -16,54 +10,36 @@ import {
 } from '../beapInboxActionTooltips'
 import { defaultSandboxAvailability } from '../../types/sandboxOrchestratorAvailability'
 
-const SHORT = 'Send a clone to Sandbox'
+const SANDBOX_HOVER = 'Clone this message and send it to your Sandbox orchestrator for safe testing.'
 
 describe('beapInboxActionTooltips', () => {
-  test('beapHostSandboxCloneTooltip: detail — connected uses long single-line title; tri-state in aria', () => {
+  test('Sandbox: connected — single-line hover + aria short + suffix', () => {
     const c = beapHostSandboxCloneTooltipForAvailability({ ...defaultSandboxAvailability, status: 'connected' }, 'detail')
-    expect(c.title).toBe(BEAP_INBOX_SANDBOX_TIP_DETAIL)
-    expect(c['aria-label']).toBe(`${SHORT}. ${BEAP_HOST_SANDBOX_CLONE_ARIA_SUFFIX_CONNECTED}`)
+    expect(c.title).toBe(SANDBOX_HOVER)
+    expect(c['aria-label']).toMatch(/^Clone message to Sandbox/)
+  })
 
+  test('Sandbox: not configured — title has second line', () => {
     const nc = beapHostSandboxCloneTooltipForAvailability(
       { ...defaultSandboxAvailability, status: 'not_configured' },
       'detail',
     )
-    expect(nc.title).toContain(BEAP_INBOX_SANDBOX_TIP_DETAIL)
-    expect(nc['aria-label']).toBe(`${SHORT}. ${BEAP_HOST_SANDBOX_CLONE_ARIA_SUFFIX_NOT_CONFIGURED}`)
-
-    const off = beapHostSandboxCloneTooltipForAvailability(
-      { ...defaultSandboxAvailability, status: 'exists_but_offline' },
-      'detail',
-    )
-    expect(off.title).toContain(BEAP_INBOX_SANDBOX_TIP_DETAIL)
-    expect(off['aria-label']).toBe(`${SHORT}. ${BEAP_HOST_SANDBOX_CLONE_ARIA_SUFFIX_OFFLINE}`)
+    expect(nc.title).toContain(SANDBOX_HOVER)
+    expect(nc['aria-label']).toMatch(/^Clone message to Sandbox/)
   })
 
-  test('beapHostSandboxCloneTooltip: row — short title Clone to Sandbox; tri-state may add second line', () => {
-    const c = beapHostSandboxCloneTooltipForAvailability({ ...defaultSandboxAvailability, status: 'connected' }, 'row')
-    expect(c.title).toBe(BEAP_INBOX_SANDBOX_TIP_ROW)
-    const nc = beapHostSandboxCloneTooltipForAvailability(
-      { ...defaultSandboxAvailability, status: 'not_configured' },
-      'row',
-    )
-    expect(nc.title).toContain(BEAP_INBOX_SANDBOX_TIP_ROW)
-  })
-
-  test('beapInboxReplyTooltipProps: Reply for title/aria (icon-only; no visible label in UI)', () => {
+  test('beapInboxReplyTooltipProps: icon-only Reply', () => {
     const p = beapInboxReplyTooltipProps()
     expect(p.title).toBe(BEAP_INBOX_REPLY_TOOLTIP)
     expect(p['aria-label']).toBe('Reply')
   })
 
-  test('beapInboxRedirectTooltipPropsForRow: short “Redirect”', () => {
-    const p = beapInboxRedirectTooltipPropsForRow()
-    expect(p['aria-label']).toBe(`${BEAP_INBOX_REDIRECT_TIP}. ${BEAP_INBOX_REDIRECT_TIP_DESC}`)
-    expect(p.title).toBe(BEAP_INBOX_REDIRECT_TIP)
-  })
-
-  test('beapInboxRedirectTooltipPropsForDetail: one-line “Redirect this BEAP message”', () => {
-    const p = beapInboxRedirectTooltipPropsForDetail()
-    expect(p.title).toBe(BEAP_INBOX_REDIRECT_TIP_DETAIL)
-    expect(p['aria-label']).toBe(`${BEAP_INBOX_REDIRECT_TIP_DETAIL}. ${BEAP_INBOX_REDIRECT_TIP_DESC}`)
+  test('Redirect row + detail: “Redirect” / “Redirect message”', () => {
+    const row = beapInboxRedirectTooltipPropsForRow()
+    expect(row.title).toBe(BEAP_INBOX_REDIRECT_TIP)
+    expect(row['aria-label']).toBe(BEAP_INBOX_REDIRECT_ARIA)
+    const detail = beapInboxRedirectTooltipPropsForDetail()
+    expect(detail.title).toBe(BEAP_INBOX_REDIRECT_TIP)
+    expect(detail['aria-label']).toBe(BEAP_INBOX_REDIRECT_ARIA)
   })
 })

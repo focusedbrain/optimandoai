@@ -16,3 +16,6 @@ export const defaultSandboxAvailability: SandboxOrchestratorAvailability = {
   relay_connected: false,
   use_coordination: false,
 }
+
+/** Returned by `internalSandboxes.listAvailable` — mirrors main `AuthoritativeDeviceInternalRole`. */
+export type AuthoritativeDeviceInternalRole = 'host' | 'sandbox' | 'none'

@@ -3,7 +3,7 @@
  * Eligibility: internal ACTIVE host↔sandbox, same identity, peer sandbox role, keys + relay (see internalSandboxesApi).
  */
 
-import { extractBeapRedirectSourceFromRow, inboxRowIsReceivedBeapForRedirectOrClone } from './beapRedirectSource'
+import { extractInboxMessageRedirectSourceFromRow } from './beapRedirectSource'
 import { getHandshakeRecord } from '../handshake/db'
 import {
   isBeapCloneEligibleForRecord,
@@ -48,8 +48,7 @@ export type BeapInboxClonePrepareOk = {
 export type BeapInboxCloneErrorCode =
   | 'NO_SANDBOX_CONNECTED'
   | 'TARGET_HANDSHAKE_REQUIRED'
-  | 'SOURCE_NOT_RECEIVED_BEAP'
-  /** Row is BEAP but `extractBeapRedirectSourceFromRow` found no buildable plaintext (e.g. pending qBEAP, not decrypted). */
+  /** Generic row could not be serialized (extremely rare). */
   | 'SOURCE_NO_EXTRACTABLE_CONTENT'
   | 'PREPARE_FAILED'
 
@@ -134,34 +133,9 @@ export function prepareBeapInboxSandboxClone(
     return { ok: false, error: 'Source message not found' }
   }
 
-  const depStr = typeof row.depackaged_json === 'string' ? row.depackaged_json.trim() : ''
-  if (depStr) {
-    try {
-      const dj = JSON.parse(depStr) as { format?: string }
-      if (dj?.format === 'beap_qbeap_outbound') {
-        return {
-          ok: false,
-          code: 'SOURCE_NOT_RECEIVED_BEAP',
-          error: 'Sandbox clone applies only to received BEAP messages, not outbound sends.',
-        }
-      }
-    } catch {
-      /* ignore */
-    }
-  }
-
   const own = assertInboxMessageOwned(row.account_id ?? '', row.source_type, allowedInboxAccountIds)
   if (!own.ok) {
     return own
-  }
-
-  if (!inboxRowIsReceivedBeapForRedirectOrClone(row)) {
-    return {
-      ok: false,
-      code: 'SOURCE_NOT_RECEIVED_BEAP',
-      error:
-        'Sandbox clone applies only to received BEAP inbox messages: `direct_beap`, `email_beap`, or `email_plain` with BEAP package or depackaged BEAP content.',
-    }
   }
 
   const list = listAvailableInternalSandboxes(db, session)
@@ -229,7 +203,7 @@ export function prepareBeapInboxSandboxClone(
     return { ok: false, error: 'Target sandbox is not available for clone (relay or keys)' }
   }
 
-  const extracted = extractBeapRedirectSourceFromRow(row)
+  const extracted = extractInboxMessageRedirectSourceFromRow(row)
   if (!extracted.ok) {
     return {
       ok: false,
@@ -238,6 +212,16 @@ export function prepareBeapInboxSandboxClone(
       details: { reason: 'extraction_failed' as const, extraction_error: extracted.error },
     }
   }
+
+  const provenance = {
+    source_message_id: extracted.message_id,
+    original_source_type: extracted.source_type,
+    original_handshake_id: extracted.original_handshake_id,
+    clone_reason: 'sandbox_test' as const,
+    cloned_at: new Date().toISOString(),
+    target_sandbox_handshake_id: tgtId,
+  }
+  const encWithProvenance = `${extracted.encrypted_text}\n\n---\n${JSON.stringify({ inbox_sandbox_clone_provenance: provenance })}`
 
   const live = entry.live_status_optional ?? 'coordination_disabled'
   const receivedAt = row.received_at?.trim() || row.ingested_at?.trim() || null
@@ -262,7 +246,7 @@ export function prepareBeapInboxSandboxClone(
     original_received_at: receivedAt,
     subject: extracted.subject,
     public_text: extracted.public_text,
-    encrypted_text: extracted.encrypted_text,
+    encrypted_text: encWithProvenance,
     has_attachments: (row.has_attachments ?? 0) > 0,
     ...(extracted.content_warning ? { content_warning: extracted.content_warning } : {}),
     from_address: row.from_address?.trim() || null,

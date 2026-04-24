@@ -32,24 +32,26 @@ describe('beapInbox Ux source regressions', () => {
   test('15: Redirect is icon-only in detail + list row; no button text node Redirect', () => {
     const detail = readRel('components', 'EmailMessageDetail.tsx')
     const inbox = readRel('components', 'EmailInboxView.tsx')
-    expect(detail).toContain('BeapActionIconButton')
+    expect(detail).toContain('InboxRedirectActionIcon')
     expect(detail).toContain('beapInboxRedirectTooltipPropsForDetail()')
     expect(detail).not.toMatch(/>Redirect</)
-    expect(inbox).toContain("kind=\"redirect\"")
+    expect(inbox).toContain('InboxRedirectActionIcon')
     expect(inbox).toContain('row')
     expect(inbox).not.toMatch(/>Redirect</)
   })
 
-  test('Sandbox UI: Host gate on orchestratorMode; 3-ray icon component', () => {
+  test('Sandbox UI: Host gate on orchestratorMode; shared icon components', () => {
     const vis = readRel('lib', 'beapInboxSandboxVisibility.ts')
     expect(vis).toContain("orchestratorMode !== 'host'")
     const detail = readRel('components', 'EmailMessageDetail.tsx')
     const inbox = readRel('components', 'EmailInboxView.tsx')
     const beapBtn = readRel('components', 'BeapActionIconButton.tsx')
     expect(beapBtn).toContain('BeapInboxSandboxCloneIcon')
-    expect(detail).toContain('BeapActionIconButton')
-    expect(inbox).toContain('BeapActionIconButton')
-    expect(detail).toContain('canShowSandboxCloneAction({ modeReady, orchestratorMode, message })')
+    expect(detail).toContain('InboxSandboxCloneActionIcon')
+    expect(inbox).toContain('InboxSandboxCloneActionIcon')
+    expect(detail).toContain('authoritativeDeviceInternalRole')
+    expect(detail).toContain('internalSandboxListReady')
+    expect(detail).toContain('canShowSandboxCloneAction(')
   })
 
   test('14: clone prepare IPC enforces Host orchestrator before vault/db', () => {

@@ -25,7 +25,7 @@ import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
 import { fileURLToPath } from 'node:url'
-import { extractBeapRedirectSourceFromRow } from './beapRedirectSource'
+import { extractInboxMessageRedirectSourceFromRow } from './beapRedirectSource'
 import { prepareBeapInboxSandboxClone } from './beapInboxClonePrepare'
 import { isHostMode } from '../orchestrator/orchestratorModeStore'
 
@@ -3196,7 +3196,7 @@ Rules:
       if (!id) return { ok: false, error: 'messageId required' }
       const row = db
         .prepare(
-          `SELECT id, source_type, handshake_id, subject, body_text, depackaged_json, beap_package_json, has_attachments
+          `SELECT id, source_type, handshake_id, subject, body_text, depackaged_json, beap_package_json, has_attachments, received_at, ingested_at, account_id, from_address
            FROM inbox_messages WHERE id = ?`,
         )
         .get(id) as
@@ -3211,7 +3211,7 @@ Rules:
             has_attachments?: number | null
           }
         | undefined
-      const extracted = extractBeapRedirectSourceFromRow(row)
+      const extracted = extractInboxMessageRedirectSourceFromRow(row)
       if (!extracted.ok) return extracted
 
       let redirectedBy = ''
@@ -3279,7 +3279,7 @@ Rules:
    * `inbox:cloneBeapToSandbox` is the product channel name; both invoke the same logic.
    *
    * Host only: clone is a Host → Sandbox orchestration path (same identity, internal handshake).
-   * On failure, `code` may include `NO_SANDBOX_CONNECTED`, `TARGET_HANDSHAKE_REQUIRED`, `SOURCE_NOT_RECEIVED_BEAP`,
+   * On failure, `code` may include `NO_SANDBOX_CONNECTED`, `TARGET_HANDSHAKE_REQUIRED`, `SOURCE_NO_EXTRACTABLE_CONTENT`,
    * `SOURCE_NO_EXTRACTABLE_CONTENT`, or `NOT_HOST_ORCHESTRATOR` (envelope) for structured UI.
    */
   async function handleBeapInboxCloneToSandbox(

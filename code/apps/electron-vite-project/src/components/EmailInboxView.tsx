@@ -25,14 +25,16 @@ import { useInternalSandboxesList } from '../hooks/useInternalSandboxesList'
 import { useOrchestratorMode } from '../hooks/useOrchestratorMode'
 import { beapInboxCloneToSandboxApi } from '../lib/beapInboxCloneToSandbox'
 import { beapHostSandboxCloneTooltipForAvailability, beapInboxRedirectTooltipPropsForRow } from '../lib/beapInboxActionTooltips'
-import { BeapActionIconButton } from './BeapActionIconButton'
-import type { SandboxOrchestratorAvailability } from '../types/sandboxOrchestratorAvailability'
+import { InboxRedirectActionIcon, InboxSandboxCloneActionIcon } from './InboxActionIcons'
+import type {
+  AuthoritativeDeviceInternalRole,
+  SandboxOrchestratorAvailability,
+} from '../types/sandboxOrchestratorAvailability'
 import BeapSandboxCloneDialog from './BeapSandboxCloneDialog'
 import BeapSandboxUnavailableDialog, { type BeapSandboxUnavailableVariant } from './BeapSandboxUnavailableDialog'
 import BeapRedirectDialog from './BeapRedirectDialog'
-import { isBeapQbeapOutboundEcho } from '../lib/inboxBeapOutbound'
-import { canShowSandboxCloneAction } from '../lib/beapInboxSandboxVisibility'
-import { isReceivedBeapInboxMessage } from '../lib/inboxBeapRowEligibility'
+import { canShowSandboxCloneAction, logSandboxCloneEligibilityDebug } from '../lib/beapInboxSandboxVisibility'
+import { isInboxMessageActionable } from '../lib/inboxMessageActionable'
 import {
   resolveHostSandboxCloneClickAction,
   sandboxCloneUnavailableDialogVariant,
@@ -1666,10 +1668,15 @@ interface InboxMessageRowProps {
   onMouseEnter?: () => void
   onNavigateToHandshake?: (handshakeId: string) => void
   /**
-   * Host orchestrator + mode ready. Row uses `canShowSandboxCloneAction` (same as message detail).
-   * `orchestratorMode` must be `'host'`; never inferred from remote handshake peer.
+   * Host orchestrator + internal list — row uses `canShowSandboxCloneAction` (same as message detail).
+   * `authoritativeDeviceInternalRole` from main comes from persisted internal handshakes, not from mode alone.
    */
-  sandboxOrchestrator: { modeReady: boolean; orchestratorMode: 'host' | 'sandbox' | null }
+  sandboxOrchestrator: {
+    modeReady: boolean
+    orchestratorMode: 'host' | 'sandbox' | null
+    authoritativeDeviceInternalRole: AuthoritativeDeviceInternalRole
+    internalSandboxListReady: boolean
+  }
   /** Drives Sandbox button hover (connected / offline / not configured). */
   sandboxAvailability: SandboxOrchestratorAvailability
   onSandboxInRow?: (e: MouseEvent, message: InboxMessage) => void
@@ -1691,8 +1698,8 @@ function InboxMessageRow({
   onSandboxInRow,
   onRedirectInRow,
 }: InboxMessageRowProps) {
-  const isBeap = isReceivedBeapInboxMessage(message)
-  const canRowRedirect = Boolean(onRedirectInRow) && isBeap && !isBeapQbeapOutboundEcho(message)
+  const canRowAction = isInboxMessageActionable(message)
+  const canRowRedirect = Boolean(onRedirectInRow) && canRowAction
   const canRowSandbox = canShowSandboxCloneAction({ ...sandboxOrchestrator, message })
   const rowRedirectTip = beapInboxRedirectTooltipPropsForRow()
   const rowSandboxTip = beapHostSandboxCloneTooltipForAvailability(sandboxAvailability, 'row')
@@ -1844,8 +1851,7 @@ function InboxMessageRow({
         )}
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
           {canRowRedirect && onRedirectInRow && (
-            <BeapActionIconButton
-              kind="redirect"
+            <InboxRedirectActionIcon
               row
               title={rowRedirectTip.title}
               ariaLabel={rowRedirectTip['aria-label']}
@@ -1857,8 +1863,7 @@ function InboxMessageRow({
             />
           )}
           {canRowSandbox && onSandboxInRow && (
-            <BeapActionIconButton
-              kind="sandbox"
+            <InboxSandboxCloneActionIcon
               row
               title={rowSandboxTip.title}
               ariaLabel={rowSandboxTip['aria-label']}
@@ -1964,12 +1969,36 @@ export default function EmailInboxView({
     cloneEligibleSandboxes,
     sandboxAvailability,
     refresh: refreshInternalSandboxesList,
+    authoritativeDeviceInternalRole,
+    internalSandboxListReady,
   } = useInternalSandboxesList()
 
   const showInternalSandboxInboxRow =
     hostModeReady &&
     orchestratorMode === 'host' &&
+    authoritativeDeviceInternalRole !== 'sandbox' &&
     (internalSandboxesLoading || hasUsableSandbox || internalSandboxesIncomplete.length > 0)
+
+  useEffect(() => {
+    if (!selectedMessage) return
+    logSandboxCloneEligibilityDebug(
+      {
+        modeReady: hostModeReady,
+        orchestratorMode,
+        message: selectedMessage,
+        authoritativeDeviceInternalRole,
+        internalSandboxListReady,
+      },
+      { selectedHandshakeId: cloneEligibleSandboxes[0]?.handshake_id ?? null },
+    )
+  }, [
+    selectedMessage,
+    hostModeReady,
+    orchestratorMode,
+    authoritativeDeviceInternalRole,
+    internalSandboxListReady,
+    cloneEligibleSandboxes,
+  ])
 
   const primaryAccountId = pickDefaultEmailAccountRowId(accounts)
   const autoSyncEligibleAccountIds = useMemo(() => activeEmailAccountIdsForSync(accounts), [accounts])
@@ -3023,7 +3052,12 @@ export default function EmailInboxView({
                 onToggleMultiSelect={() => toggleMultiSelect(msg.id)}
                 onMouseEnter={() => prioritize(msg.id)}
                 onNavigateToHandshake={onNavigateToHandshake}
-                sandboxOrchestrator={{ modeReady: hostModeReady, orchestratorMode }}
+                sandboxOrchestrator={{
+                  modeReady: hostModeReady,
+                  orchestratorMode,
+                  authoritativeDeviceInternalRole,
+                  internalSandboxListReady,
+                }}
                 sandboxAvailability={sandboxAvailability}
                 onSandboxInRow={handleInboxRowSandbox}
                 onRedirectInRow={(_e, m) => setBeapRedirectForMessage(m)}
@@ -3215,6 +3249,8 @@ export default function EmailInboxView({
               internalSandboxListLoading={internalSandboxesLoading}
               onRequestInternalSandboxListRefresh={() => void refreshInternalSandboxesList()}
               sandboxAvailability={sandboxAvailability}
+              authoritativeDeviceInternalRole={authoritativeDeviceInternalRole}
+              internalSandboxListReady={internalSandboxListReady}
             />
           </div>
           <div className="inbox-detail-ai" data-collapsed={aiPanelCollapsed}>

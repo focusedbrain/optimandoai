@@ -5,6 +5,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
+  type AuthoritativeDeviceInternalRole,
   type SandboxOrchestratorAvailability,
   defaultSandboxAvailability,
 } from '../types/sandboxOrchestratorAvailability'
@@ -43,6 +44,8 @@ export function useInternalSandboxesList() {
   const [sandboxAvailability, setSandboxAvailability] = useState<SandboxOrchestratorAvailability>(
     () => defaultSandboxAvailability,
   )
+  const [authoritativeDeviceInternalRole, setAuthoritativeDeviceInternalRole] =
+    useState<AuthoritativeDeviceInternalRole>('none')
 
   const refresh = useCallback(async () => {
     const rpc = (window as unknown as { handshakeView?: { vaultRpc?: (a: unknown) => Promise<unknown> } })
@@ -53,6 +56,7 @@ export function useInternalSandboxesList() {
       setSandboxes([])
       setIncomplete([])
       setSandboxAvailability(defaultSandboxAvailability)
+      setAuthoritativeDeviceInternalRole('none')
       return
     }
     setLoading(true)
@@ -67,11 +71,16 @@ export function useInternalSandboxesList() {
         sandboxes?: InternalSandboxTargetWire[]
         incomplete?: InternalSandboxIncompleteWire[]
         sandbox_availability?: SandboxOrchestratorAvailability
+        authoritative_device_internal_role?: AuthoritativeDeviceInternalRole
       }
       if (r?.success) {
         setLastSuccess(true)
         setSandboxes((Array.isArray(r.sandboxes) ? r.sandboxes : []) as InternalSandboxTargetWire[])
         setIncomplete(Array.isArray(r.incomplete) ? r.incomplete : [])
+        const ar = r.authoritative_device_internal_role
+        setAuthoritativeDeviceInternalRole(
+          ar === 'host' || ar === 'sandbox' || ar === 'none' ? ar : 'none',
+        )
         if (r.sandbox_availability && typeof r.sandbox_availability === 'object') {
           const sa = r.sandbox_availability
           setSandboxAvailability({
@@ -91,6 +100,7 @@ export function useInternalSandboxesList() {
         setSandboxes([])
         setIncomplete([])
         setSandboxAvailability(defaultSandboxAvailability)
+        setAuthoritativeDeviceInternalRole('none')
       }
     } catch (e) {
       setLastSuccess(false)
@@ -98,6 +108,7 @@ export function useInternalSandboxesList() {
       setSandboxes([])
       setIncomplete([])
       setSandboxAvailability(defaultSandboxAvailability)
+      setAuthoritativeDeviceInternalRole('none')
     } finally {
       setLoading(false)
     }
@@ -120,12 +131,21 @@ export function useInternalSandboxesList() {
     [sandboxes],
   )
 
+  const internalSandboxListReady = !loading && lastSuccess
+
   return {
     sandboxes,
     incomplete,
     loading,
     error,
     lastSuccess,
+    /** True after a successful `internalSandboxes.listAvailable` (vault + RPC). */
+    internalSandboxListReady,
+    /**
+     * Host vs Sandbox for ACTIVE internal handshakes (main-process authoritative).
+     * `sandbox` ⇒ never show Host → Sandbox clone UI.
+     */
+    authoritativeDeviceInternalRole,
     refresh,
     /** Tri-state: connected (live send), exists_but_offline (keys OK, relay/path down), not_configured. */
     sandboxAvailability,

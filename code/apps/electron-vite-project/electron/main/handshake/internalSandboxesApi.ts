@@ -58,6 +58,39 @@ export interface SandboxOrchestratorAvailability {
   use_coordination: boolean
 }
 
+/**
+ * From persisted ACTIVE `internal` handshakes for the current account.
+ * - `host` — this device is Host (peer is Sandbox) on at least one row
+ * - `sandbox` — this device is Sandbox (peer is Host) on at least one row; Host-only UI must not show
+ * - `none` — no qualifying internal rows for this session
+ */
+export type AuthoritativeDeviceInternalRole = 'host' | 'sandbox' | 'none'
+
+/**
+ * Scans ACTIVE internal handshakes: cross-principal rows are ignored via `accountMatchesRecord`.
+ * If the device is Sandbox on any row, returns `sandbox` (stricter than `host`).
+ */
+export function computeAuthoritativeDeviceInternalRole(
+  db: any,
+  session: SSOSession | null | undefined,
+): AuthoritativeDeviceInternalRole {
+  if (!db || !session) return 'none'
+  const rows = listHandshakeRecords(db, {
+    state: HandshakeState.ACTIVE,
+    handshake_type: 'internal',
+  })
+  let host = false
+  let sand = false
+  for (const record of rows) {
+    if (!accountMatchesRecord(record, session)) continue
+    if (isLocalHostPeerSandbox(record)) host = true
+    if (isLocalSandboxPeerHost(record)) sand = true
+  }
+  if (sand) return 'sandbox'
+  if (host) return 'host'
+  return 'none'
+}
+
 function computeSandboxOrchestratorAvailability(
   sandboxes: InternalSandboxListEntry[],
 ): SandboxOrchestratorAvailability {
@@ -97,6 +130,17 @@ function isLocalHostPeerSandbox(record: HandshakeRecord): boolean {
     return record.initiator_device_role === 'host' && record.acceptor_device_role === 'sandbox'
   }
   return record.acceptor_device_role === 'host' && record.initiator_device_role === 'sandbox'
+}
+
+/**
+ * This device is the Sandbox side of an internal Host↔Sandbox pairing (local sandbox, remote host).
+ * Used to suppress Host-only Sandbox UI even when `orchestratorMode` is mis-set to "host".
+ */
+function isLocalSandboxPeerHost(record: HandshakeRecord): boolean {
+  if (record.local_role === 'initiator') {
+    return record.initiator_device_role === 'sandbox' && record.acceptor_device_role === 'host'
+  }
+  return record.acceptor_device_role === 'sandbox' && record.initiator_device_role === 'host'
 }
 
 function peerCoordinationOrLegacyId(record: HandshakeRecord): string {
@@ -185,6 +229,7 @@ export function listAvailableInternalSandboxes(
   sandboxes: InternalSandboxListEntry[]
   incomplete: InternalSandboxListIncompleteEntry[]
   sandbox_availability: SandboxOrchestratorAvailability
+  authoritative_device_internal_role: AuthoritativeDeviceInternalRole
 } {
   if (!db) {
     const h0 = getP2PHealth()
@@ -198,6 +243,7 @@ export function listAvailableInternalSandboxes(
         relay_connected: h0.coordination_connected,
         use_coordination: h0.use_coordination,
       },
+      authoritative_device_internal_role: 'none',
     }
   }
   if (!session) {
@@ -212,6 +258,7 @@ export function listAvailableInternalSandboxes(
         relay_connected: h0.coordination_connected,
         use_coordination: h0.use_coordination,
       },
+      authoritative_device_internal_role: 'none',
     }
   }
 
@@ -260,5 +307,12 @@ export function listAvailableInternalSandboxes(
   }
 
   const sandbox_availability = computeSandboxOrchestratorAvailability(sandboxes)
-  return { success: true, sandboxes, incomplete, sandbox_availability }
+  const authoritative_device_internal_role = computeAuthoritativeDeviceInternalRole(db, session)
+  return {
+    success: true,
+    sandboxes,
+    incomplete,
+    sandbox_availability,
+    authoritative_device_internal_role,
+  }
 }

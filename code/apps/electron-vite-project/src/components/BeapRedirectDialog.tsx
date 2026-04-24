@@ -9,7 +9,6 @@ import { getSigningKeyPair } from '@ext/beap-messages/services/beapCrypto'
 import { hasHandshakeKeyMaterial, type HandshakeRecord } from '@ext/handshake/rpcTypes'
 import { listHandshakes } from '../shims/handshakeRpc'
 import { handshakeRecordToSelectedRecipient } from '../lib/handshakeRecipientMap'
-import { UI_BUTTON } from '../styles/uiContrastTokens'
 import './handshakeViewTypes'
 
 const REDIRECT_BANNER =
@@ -230,59 +229,37 @@ export default function BeapRedirectDialog({ message, onClose, onSent }: BeapRed
       role="dialog"
       aria-modal="true"
       aria-labelledby="beap-redirect-title"
-      style={{
-        position: 'fixed',
-        inset: 0,
-        zIndex: 500,
-        background: 'rgba(0,0,0,0.55)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: 16,
-      }}
+      className="wrdesk-modal__backdrop"
       onClick={onClose}
     >
-      <div
-        style={{
-          width: 'min(480px, 100%)',
-          maxHeight: '90vh',
-          overflow: 'auto',
-          background: 'var(--color-surface-elevated, #1e293b)',
-          border: '1px solid var(--color-border, rgba(255,255,255,0.1))',
-          borderRadius: 10,
-          padding: 20,
-        }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <h2 id="beap-redirect-title" style={{ margin: '0 0 12px', fontSize: 16, fontWeight: 700 }}>
+      <div className="wrdesk-modal__panel" onClick={(e) => e.stopPropagation()}>
+        <h2 id="beap-redirect-title" className="wrdesk-modal__title">
           Redirect BEAP message
         </h2>
-        <p style={{ margin: '0 0 12px', fontSize: 12, color: 'var(--color-text-muted, #94a3b8)', lineHeight: 1.5 }}>
+        <p className="wrdesk-modal__lede">
           Sends a <strong>new</strong> qBEAP message to the handshake you select. The original inbox row is not changed.
         </p>
 
-        {loading && <p style={{ fontSize: 12 }}>Loading message…</p>}
-        {loadError && <p style={{ fontSize: 12, color: '#f87171' }}>{loadError}</p>}
+        {loading && <p className="wrdesk-modal__body">Loading message…</p>}
+        {loadError && <p className="wrdesk-modal__error">{loadError}</p>}
 
-        {source?.content_warning && (
-          <p style={{ fontSize: 12, color: '#fbbf24', marginBottom: 12 }}>{source.content_warning}</p>
-        )}
+        {source?.content_warning && <p className="wrdesk-modal__warn" style={{ marginBottom: 12 }}>{source.content_warning}</p>}
 
         {source?.has_attachments && (
-          <p style={{ fontSize: 11, color: 'var(--color-text-muted)', marginBottom: 12 }}>
+          <p className="wrdesk-modal__lede" style={{ fontSize: 11, marginBottom: 12 }}>
             Attachments on the original message are not copied into the redirect (text only).
           </p>
         )}
 
         {source && !loading && (
           <>
-            <label style={{ display: 'block', fontSize: 11, fontWeight: 600, marginBottom: 6 }} htmlFor="beap-redirect-target">
+            <label className="wrdesk-modal__label" htmlFor="beap-redirect-target">
               Target handshake (ACTIVE, P2P)
             </label>
-            {hsLoading && <p style={{ fontSize: 12 }}>Loading handshakes…</p>}
-            {hsError && <p style={{ fontSize: 12, color: '#f87171' }}>{hsError}</p>}
+            {hsLoading && <p className="wrdesk-modal__body">Loading handshakes…</p>}
+            {hsError && <p className="wrdesk-modal__error">{hsError}</p>}
             {!hsLoading && eligible.length === 0 && (
-              <p style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>
+              <p className="wrdesk-modal__lede">
                 No eligible handshakes. You need another ACTIVE handshake with P2P endpoint, bound local key, and (for
                 internal) completed coordination identity.
               </p>
@@ -290,18 +267,9 @@ export default function BeapRedirectDialog({ message, onClose, onSent }: BeapRed
             {eligible.length > 0 && (
               <select
                 id="beap-redirect-target"
+                className="wrdesk-modal__select"
                 value={targetId ?? ''}
                 onChange={(e) => setTargetId(e.target.value || null)}
-                style={{
-                  width: '100%',
-                  marginBottom: 12,
-                  padding: '8px 10px',
-                  borderRadius: 6,
-                  fontSize: 12,
-                  background: 'var(--color-surface, #0f172a)',
-                  color: 'var(--color-text, #e2e8f0)',
-                  border: '1px solid var(--color-border, rgba(255,255,255,0.12))',
-                }}
               >
                 <option value="">Select handshake…</option>
                 {eligible.map((h) => {
@@ -318,15 +286,15 @@ export default function BeapRedirectDialog({ message, onClose, onSent }: BeapRed
               </select>
             )}
 
-            {sendError && <p style={{ fontSize: 12, color: '#f87171', marginBottom: 8 }}>{sendError}</p>}
+            {sendError && <p className="wrdesk-modal__error" style={{ marginBottom: 8 }}>{sendError}</p>}
 
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 8 }}>
-              <button type="button" className={UI_BUTTON.ghost} onClick={onClose} disabled={sending}>
+            <div className="wrdesk-modal__actions">
+              <button type="button" className="wrdesk-modal__btn" onClick={onClose} disabled={sending}>
                 Cancel
               </button>
               <button
                 type="button"
-                className={UI_BUTTON.primary}
+                className="wrdesk-modal__btn wrdesk-modal__btn--primary"
                 disabled={!targetId || sending || eligible.length === 0}
                 onClick={() => void doRedirect()}
               >

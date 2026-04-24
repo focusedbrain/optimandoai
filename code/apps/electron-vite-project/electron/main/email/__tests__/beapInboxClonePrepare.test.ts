@@ -98,6 +98,7 @@ describe('prepareBeapInboxSandboxClone', () => {
         relay_connected: true,
         use_coordination: true,
       },
+      authoritative_device_internal_role: 'host',
     })
   }
 
@@ -157,7 +158,7 @@ describe('prepareBeapInboxSandboxClone', () => {
     }
   })
 
-  test('13: empty body and no depack returns SOURCE_NO_EXTRACTABLE_CONTENT with actionable error', () => {
+  test('13: empty body still prepares clone (placeholder text)', () => {
     const row = {
       id: 'm-empty',
       source_type: 'email_beap',
@@ -175,14 +176,13 @@ describe('prepareBeapInboxSandboxClone', () => {
     getHandshakeRecord.mockReturnValue(makeHandshakeRecord('hs-sbx-1'))
     const db = makeInboxDb(row)
     const r = prepareBeapInboxSandboxClone(db as any, session, 'm-empty', undefined, null, allowed)
-    expect(r.ok).toBe(false)
-    if (!r.ok) {
-      expect(r.code).toBe('SOURCE_NO_EXTRACTABLE_CONTENT')
-      expect(r.error.toLowerCase()).toMatch(/extract|decrypt|content|merge|pending/)
+    expect(r.ok).toBe(true)
+    if (r.ok) {
+      expect(r.encrypted_text).toMatch(/inbox_sandbox_clone_provenance|No message body|placeholder/i)
     }
   })
 
-  test('rejects depackaged outbound qBEAP row', () => {
+  test('outbound depack qBEAP row can still be cloned (uses body/placeholder)', () => {
     const row = {
       id: 'm-out',
       source_type: 'email_beap',
@@ -197,13 +197,13 @@ describe('prepareBeapInboxSandboxClone', () => {
       ingested_at: null,
     }
     mockHappyList([makeEligibleEntry()])
+    getHandshakeRecord.mockReturnValue(makeHandshakeRecord('hs-sbx-1'))
     const db = makeInboxDb(row)
     const r = prepareBeapInboxSandboxClone(db as any, session, 'm-out', undefined, null, allowed)
-    expect(r.ok).toBe(false)
-    if (!r.ok) expect(r.code).toBe('SOURCE_NOT_RECEIVED_BEAP')
+    expect(r.ok).toBe(true)
   })
 
-  test('rejects non-BEAP source_type when set', () => {
+  test('plain email (email_plain) is accepted for prepare', () => {
     const row = {
       id: 'm-plain',
       source_type: 'email_plain',
@@ -219,10 +219,14 @@ describe('prepareBeapInboxSandboxClone', () => {
       ingested_at: null,
     }
     mockHappyList([makeEligibleEntry()])
+    getHandshakeRecord.mockReturnValue(makeHandshakeRecord('hs-sbx-1'))
     const db = makeInboxDb(row)
     const r = prepareBeapInboxSandboxClone(db as any, session, 'm-plain', undefined, null, allowed)
-    expect(r.ok).toBe(false)
-    if (!r.ok) expect(r.code).toBe('SOURCE_NOT_RECEIVED_BEAP')
+    expect(r.ok).toBe(true)
+    if (r.ok) {
+      expect(r.source_type).toBe('email_plain')
+      expect(r.encrypted_text).toContain('plain body')
+    }
   })
 
   test('email_plain with beap_package_json is accepted as received BEAP for prepare', () => {
@@ -270,6 +274,7 @@ describe('prepareBeapInboxSandboxClone', () => {
       sandboxes: [makeEligibleEntry({ beap_clone_eligible: false, live_status_optional: 'relay_disconnected' })],
       incomplete: [],
       sandbox_availability: { status: 'exists_but_offline', relay_connected: false, use_coordination: true },
+      authoritative_device_internal_role: 'host',
     })
     const db = makeInboxDb(row)
     const r = prepareBeapInboxSandboxClone(db as any, session, 'm-1', undefined, null, allowed)

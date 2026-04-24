@@ -70,44 +70,16 @@ export default function BeapSandboxUnavailableDialog({
       aria-modal="true"
       aria-labelledby="beap-sandbox-unavailable-title"
       aria-describedby={descId}
-      style={{
-        position: 'fixed',
-        inset: 0,
-        zIndex: 500,
-        background: DIALOG.overlay,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: 20,
-      }}
+      className="wrdesk-modal__backdrop"
       onClick={onClose}
     >
       <div
-        style={{
-          width: 'min(500px, 100%)',
-          maxHeight: 'min(90vh, 640px)',
-          overflow: 'auto',
-          background: DIALOG.cardBg,
-          color: DIALOG.body,
-          border: `1px solid ${DIALOG.cardBorder}`,
-          borderRadius: 12,
-          padding: 0,
-          boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(15, 23, 42, 0.06) inset',
-        }}
+        className="wrdesk-modal__panel wrdesk-modal__panel--sandbox-wide"
+        style={{ overflow: 'auto', color: DIALOG.body, boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.2)' }}
         onClick={(e) => e.stopPropagation()}
       >
         <div style={{ padding: '24px 24px 20px' }}>
-          <h2
-            id="beap-sandbox-unavailable-title"
-            style={{
-              margin: 0,
-              fontSize: 20,
-              fontWeight: 700,
-              lineHeight: 1.3,
-              letterSpacing: '-0.02em',
-              color: DIALOG.title,
-            }}
-          >
+          <h2 id="beap-sandbox-unavailable-title" className="wrdesk-modal__title" style={{ fontSize: 20, letterSpacing: '-0.02em' }}>
             {isOffline ? 'Sandbox orchestrator is offline' : 'No Sandbox orchestrator available'}
           </h2>
         </div>
@@ -126,7 +98,7 @@ export default function BeapSandboxUnavailableDialog({
             }}
           >
             <strong style={{ color: DIALOG.bodyStrong, fontWeight: 600 }}>Sandbox</strong> sends a{' '}
-            <strong style={{ color: DIALOG.bodyStrong, fontWeight: 600 }}>clone</strong> of this BEAP message to
+            <strong style={{ color: DIALOG.bodyStrong, fontWeight: 600 }}>clone</strong> of this message to
             your Sandbox orchestrator. The <strong style={{ color: DIALOG.bodyStrong, fontWeight: 600 }}>original
             message stays unchanged</strong>.
           </p>

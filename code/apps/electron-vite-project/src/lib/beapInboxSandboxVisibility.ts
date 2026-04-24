@@ -1,64 +1,97 @@
 /**
- * UI rules for the inbox Sandbox (Host → internal Sandbox) clone action.
- * Does not affect main-process host checks (ipc) or crypto.
+ * Host-only Sandbox clone icon. Does not apply crypto; main IPC still enforces host + target.
  *
- * Received-BEAP rows (show Sandbox in Host mode when not echo) include:
- * - `source_type === 'direct_beap'` (P2P) or `email_beap` (email-carried / merged BEAP)
- * - `source_type === 'email_plain'` when the row still has BEAP payload (`beap_package_json` and/or
- *   depackaged JSON with a `beap_*` / qBEAP format) — e.g. BEAP from email before/after depackaging.
- * Not clone-eligible in UI: outbound qBEAP echo (`isBeapQbeapOutboundEcho`), non-Host orchestrator.
- *
- * Gating uses **local persisted** `orchestratorMode` from `useOrchestratorMode()` / `orchestrator:getMode`
- * only — not remote handshake peer `mode`. Row classification matches `inboxBeapRowEligibility` / main
- * `inboxRowIsReceivedBeapForRedirectOrClone`.
+ * - Every actionable inbox message on a Host orchestrator can show the icon; connected vs offline
+ *   only changes what happens on click (clone vs unavailable dialog).
+ * - When `internalSandboxes.listAvailable` has succeeded and marks this device as the Sandbox side,
+ *   the icon is hidden (fail closed vs mis-set global mode).
  */
 
+import type { AuthoritativeDeviceInternalRole } from '../types/sandboxOrchestratorAvailability'
 import type { InboxMessage } from '../stores/useEmailInboxStore'
-import { isReceivedBeapInboxMessage } from './inboxBeapRowEligibility'
-import { isBeapQbeapOutboundEcho } from './inboxBeapOutbound'
+import { isInboxMessageActionable } from './inboxMessageActionable'
 
-/**
- * Inbox rows the product treats as received BEAP for Sandbox/Redirect (clone + redirect), including
- * depackaged BEAP from email when stored as `email_plain` with BEAP fields.
- */
-export function isReceivedBeapMessageForSandbox(
-  m: Pick<InboxMessage, 'source_type' | 'beap_package_json' | 'depackaged_json'> | null | undefined,
-): boolean {
-  if (!m) return false
-  return isReceivedBeapInboxMessage(m)
-}
-
-/** Alias for docs / call sites that match the name `isReceivedBeapMessage`. */
-export const isReceivedBeapMessage = isReceivedBeapMessageForSandbox
-
-/**
- * True when the row must not offer Sandbox: user's outbound qBEAP echo, not a received message.
- * (Same as list logic; use this everywhere for consistent visibility with `canShowSandboxCloneAction`.)
- */
-export function isOutboundQbeapEchoForSandboxAction(message: InboxMessage | null | undefined): boolean {
-  if (!message) return false
-  return isBeapQbeapOutboundEcho(message)
-}
-
-type SandboxCloneActionParams = {
+export type CanShowSandboxCloneIconParams = {
   modeReady: boolean
-  /** From `useOrchestratorMode().mode` / `window.orchestratorMode.getMode()` — must be `'host'`. */
   orchestratorMode: 'host' | 'sandbox' | null
   message: InboxMessage | null | undefined
+  authoritativeDeviceInternalRole: AuthoritativeDeviceInternalRole
+  /**
+   * After a successful `internalSandboxes.listAvailable`, `authoritative` is trusted.
+   * While false (loading or RPC error), we do not treat the device as Sandbox unless mode says so.
+   */
+  internalSandboxListReady: boolean
 }
 
-/**
- * `canShowSandboxCloneAction` ⇔
- * `modeReady && orchestratorMode === 'host' && isReceivedBeapInboxMessage(m) && !isOutboundQbeapEcho(m)`.
- * Never true when the local device is configured as a Sandbox orchestrator.
- */
-export function canShowSandboxCloneAction(params: SandboxCloneActionParams): boolean {
-  const { modeReady, orchestratorMode, message } = params
-  if (!modeReady || orchestratorMode !== 'host' || !message) return false
-  if (!isReceivedBeapMessageForSandbox(message)) return false
-  if (isOutboundQbeapEchoForSandboxAction(message)) return false
-  return true
+/** @deprecated use {@link CanShowSandboxCloneIconParams} */
+export type CanShowSandboxCloneActionParams = CanShowSandboxCloneIconParams
+
+export type SandboxCloneEligibilityDetail = {
+  show: boolean
+  reason: string
+  orchestratorMode: 'host' | 'sandbox' | null
+  authoritativeDeviceInternalRole: AuthoritativeDeviceInternalRole
+  internalSandboxListReady: boolean
 }
 
-/** Same as `canShowSandboxCloneAction` (kept for existing imports). */
-export const canShowSandboxAction = canShowSandboxCloneAction
+export function getSandboxCloneEligibilityDetail(
+  p: CanShowSandboxCloneIconParams,
+): SandboxCloneEligibilityDetail {
+  const { modeReady, orchestratorMode, message, authoritativeDeviceInternalRole, internalSandboxListReady } = p
+  if (!modeReady) {
+    return { show: false, reason: 'mode_not_ready', orchestratorMode, authoritativeDeviceInternalRole, internalSandboxListReady }
+  }
+  if (orchestratorMode !== 'host') {
+    return { show: false, reason: 'orchestrator_not_host', orchestratorMode, authoritativeDeviceInternalRole, internalSandboxListReady }
+  }
+  if (internalSandboxListReady && authoritativeDeviceInternalRole === 'sandbox') {
+    return {
+      show: false,
+      reason: 'authoritative_device_is_sandbox_orchestrator',
+      orchestratorMode,
+      authoritativeDeviceInternalRole,
+      internalSandboxListReady,
+    }
+  }
+  if (!isInboxMessageActionable(message)) {
+    return { show: false, reason: 'message_not_actionable', orchestratorMode, authoritativeDeviceInternalRole, internalSandboxListReady }
+  }
+  return {
+    show: true,
+    reason: 'eligible',
+    orchestratorMode,
+    authoritativeDeviceInternalRole,
+    internalSandboxListReady,
+  }
+}
+
+export function canShowSandboxCloneIcon(p: CanShowSandboxCloneIconParams): boolean {
+  return getSandboxCloneEligibilityDetail(p).show
+}
+
+/** @deprecated use {@link canShowSandboxCloneIcon} */
+export const canShowSandboxCloneAction = canShowSandboxCloneIcon
+/** @deprecated */
+export const canShowSandboxAction = canShowSandboxCloneIcon
+
+const DEBUG_PREFIX = '[sandbox-clone-ui]'
+
+export function logSandboxCloneEligibilityDebug(
+  p: CanShowSandboxCloneIconParams,
+  extra?: { selectedHandshakeId?: string | null },
+): void {
+  if (!import.meta.env.DEV) return
+  const d = getSandboxCloneEligibilityDetail(p)
+  const { message } = p
+  const firstHs = extra?.selectedHandshakeId ?? null
+  // eslint-disable-next-line no-console
+  console.info(DEBUG_PREFIX, {
+    show: d.show,
+    reason: d.reason,
+    orchestratorMode: p.orchestratorMode,
+    authoritativeDeviceInternalRole: p.authoritativeDeviceInternalRole,
+    internalSandboxListReady: p.internalSandboxListReady,
+    selectedInternalSandboxHandshakeId: firstHs,
+    messageId: message?.id,
+  })
+}

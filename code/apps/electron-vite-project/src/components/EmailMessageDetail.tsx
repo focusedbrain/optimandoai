@@ -12,7 +12,7 @@ import { extractLinkParts } from '../utils/safeLinks'
 import { deriveInboxMessageKind } from '../lib/inboxMessageKind'
 import { isBeapQbeapOutboundEcho } from '../lib/inboxBeapOutbound'
 import { canShowSandboxCloneAction } from '../lib/beapInboxSandboxVisibility'
-import { isReceivedBeapInboxMessage } from '../lib/inboxBeapRowEligibility'
+import { isInboxMessageActionable } from '../lib/inboxMessageActionable'
 import type { InternalSandboxTargetWire } from '../hooks/useInternalSandboxesList'
 import { useOrchestratorMode } from '../hooks/useOrchestratorMode'
 import { beapInboxCloneToSandboxApi } from '../lib/beapInboxCloneToSandbox'
@@ -22,8 +22,11 @@ import {
   beapInboxReplyTooltipProps,
 } from '../lib/beapInboxActionTooltips'
 import { resolveHostSandboxCloneClickAction } from '../lib/beapInboxHostSandboxClickPolicy'
-import { BeapActionIconButton } from './BeapActionIconButton'
-import type { SandboxOrchestratorAvailability } from '../types/sandboxOrchestratorAvailability'
+import { InboxRedirectActionIcon, InboxSandboxCloneActionIcon } from './InboxActionIcons'
+import type {
+  AuthoritativeDeviceInternalRole,
+  SandboxOrchestratorAvailability,
+} from '../types/sandboxOrchestratorAvailability'
 import { defaultSandboxAvailability } from '../types/sandboxOrchestratorAvailability'
 import SessionImportDialog, { type SessionImportDialogSessionRef } from './SessionImportDialog'
 import BeapRedirectDialog from './BeapRedirectDialog'
@@ -55,6 +58,13 @@ export interface EmailMessageDetailProps {
   onRequestInternalSandboxListRefresh?: () => void
   /** From `useInternalSandboxesList().sandboxAvailability`; drives Sandbox button hover. */
   sandboxAvailability?: SandboxOrchestratorAvailability
+  /**
+   * Authoritative internal Host/Sandbox (main-process). Required for Sandbox icon — omit only in tests
+   * that do not need clone UI.
+   */
+  authoritativeDeviceInternalRole?: AuthoritativeDeviceInternalRole
+  /** `useInternalSandboxesList().internalSandboxListReady` — false hides Sandbox until RPC succeeds. */
+  internalSandboxListReady?: boolean
 }
 
 // ── Helpers ──
@@ -289,6 +299,8 @@ export default function EmailMessageDetail({
   internalSandboxListLoading,
   onRequestInternalSandboxListRefresh,
   sandboxAvailability = defaultSandboxAvailability,
+  authoritativeDeviceInternalRole = 'none',
+  internalSandboxListReady = false,
 }: EmailMessageDetailProps) {
   const { mode: orchestratorMode, ready: modeReady } = useOrchestratorMode()
   const [beapRedirectOpen, setBeapRedirectOpen] = useState(false)
@@ -589,7 +601,13 @@ export default function EmailMessageDetail({
     message != null &&
     isNativeBeap &&
     (parsedDepackaged?.format === 'beap_qbeap_outbound' || isBeapQbeapOutboundEcho(message))
-  const showHostSandboxStrip = canShowSandboxCloneAction({ modeReady, orchestratorMode, message })
+  const showHostSandboxStrip = canShowSandboxCloneAction({
+    modeReady,
+    orchestratorMode,
+    message,
+    authoritativeDeviceInternalRole,
+    internalSandboxListReady,
+  })
 
   const handleHostSandboxClick = useCallback(async () => {
     if (!message) return
@@ -649,10 +667,10 @@ export default function EmailMessageDetail({
   const attachmentsPendingRows = attachmentMetaExpected && attachments.length === 0
   const isDeleted = message.deleted === 1
 
-  const canShowDetailReply = Boolean(onReply) && !isBeapQbeapOutboundEcho(message)
-  const canShowBeapDetailActions =
-    isReceivedBeapInboxMessage(message) && !isBeapQbeapOutboundEcho(message)
-  const showDetailActionEnd = canShowDetailReply || canShowBeapDetailActions
+  const actionable = isInboxMessageActionable(message)
+  const canShowDetailReply = Boolean(onReply) && actionable
+  const canShowInboxRedirectAndSandbox = actionable
+  const showDetailActionEnd = canShowDetailReply || canShowInboxRedirectAndSandbox
   const beapRedirectDetailTip = beapInboxRedirectTooltipPropsForDetail()
   const beapSandboxDetailTip = beapHostSandboxCloneTooltipForAvailability(sandboxAvailability, 'detail')
 
@@ -823,7 +841,7 @@ export default function EmailMessageDetail({
             {showDetailActionEnd ? (
               <div
                 className="inbox-detail-action-group inbox-detail-action-group--end"
-                aria-label="Reply, redirect, and sandbox"
+                aria-label="Reply, redirect, and Sandbox"
               >
                 {canShowDetailReply && (
                   <button
@@ -837,17 +855,15 @@ export default function EmailMessageDetail({
                     </span>
                   </button>
                 )}
-                {canShowBeapDetailActions && (
+                {canShowInboxRedirectAndSandbox && (
                   <>
-                    <BeapActionIconButton
-                      kind="redirect"
+                    <InboxRedirectActionIcon
                       title={beapRedirectDetailTip.title}
                       ariaLabel={beapRedirectDetailTip['aria-label']}
                       onClick={() => setBeapRedirectOpen(true)}
                     />
                     {showHostSandboxStrip ? (
-                      <BeapActionIconButton
-                        kind="sandbox"
+                      <InboxSandboxCloneActionIcon
                         title={beapSandboxDetailTip.title}
                         ariaLabel={beapSandboxDetailTip['aria-label']}
                         onClick={() => void handleHostSandboxClick()}
