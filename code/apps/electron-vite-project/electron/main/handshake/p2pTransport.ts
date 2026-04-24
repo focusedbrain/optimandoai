@@ -9,7 +9,8 @@
 
 /** Direct source import: Vitest + `@repo/ingestion-core` index alias can yield incomplete exports for this module. */
 import { isCoordinationRelayNativeBeap } from '../../../../../packages/ingestion-core/src/beapDetection.ts'
-import { getInstanceId } from '../orchestrator/orchestratorModeStore'
+import { getCanonicalRelayDeviceId, logDeviceIdBinding } from '../p2p/relayDeviceBinding'
+import { decodeJwtSubForLogs } from '../p2p/relayIdentity'
 import {
   applyContextSyncInternalRoutingFromRecord,
   validateCoordinationInternalPayloadBeforePost,
@@ -547,12 +548,26 @@ export async function sendCapsuleViaCoordination(
   // needs sender_device_id on the POST body to pick the correct peer when userIds match.
   let senderDeviceId: string | undefined
   try {
-    const id = getInstanceId()?.trim()
+    const id = getCanonicalRelayDeviceId()
     if (id) senderDeviceId = id
   } catch {
     /* Vitest / non-Electron: orchestrator store may be unavailable */
   }
-  if (senderDeviceId) payload.sender_device_id = senderDeviceId
+  if (senderDeviceId) {
+    payload.sender_device_id = senderDeviceId
+    logDeviceIdBinding('outbound_sender_device_id', { outbound_sender_device_id: senderDeviceId })
+  }
+  const pLog = payload as Record<string, unknown>
+  console.log(
+    '[RELAY_IDENTITY] outbound_capsule',
+    JSON.stringify({
+      queue_handshake_id: queueHandshakeId,
+      sender_user_id: decodeJwtSubForLogs(oidcToken),
+      sender_device_id: (pLog.sender_device_id as string | undefined) ?? null,
+      capsule_type: typeof pLog.capsule_type === 'string' ? pLog.capsule_type : null,
+      note: 'receiver_user_id resolved server-side from handshake registry, not duplicated on client',
+    }),
+  )
 
   if (db) {
     applyContextSyncInternalRoutingFromRecord(db, queueHandshakeId, payload)

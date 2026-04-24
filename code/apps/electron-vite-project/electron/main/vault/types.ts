@@ -102,6 +102,16 @@ export interface VaultStatus {
   autoLockMinutes: number
   currentVaultId?: string
   availableVaults?: Array<{ id: string, name: string, created: number }>
+  /** Vaults on disk with no owner metadata — require migration/claim, not auto-bound */
+  legacyUnclaimedVaults?: Array<{
+    id: string
+    name: string
+    created: number
+    legacy_unclaimed?: boolean
+    requires_migration?: boolean
+  }>
+  /** Count of vaults owned by other SSO accounts (hidden from main list) */
+  hiddenForeignVaultCount?: number
   /** User's resolved subscription tier (injected by the API route layer). */
   tier?: string
   /** Available unlock provider types for the current vault. */

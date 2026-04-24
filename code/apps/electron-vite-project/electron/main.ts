@@ -32,6 +32,15 @@ import {
   setPairingCodeRegistrar,
   type PairingCodeRegistrar,
 } from './main/orchestrator/orchestratorModeStore'
+import { fileURLToPath } from 'node:url'
+import path from 'node:path'
+import os from 'node:os'
+import { execSync } from 'node:child_process'
+import WebSocket, { WebSocketServer } from 'ws'
+import express from 'express'
+import * as http from 'node:http'
+import * as net from 'net'
+import * as crypto from 'crypto'
 
 function stripDataUriPrefixForLlm(s: string): string {
   if (!s.startsWith('data:')) return s
@@ -150,14 +159,31 @@ console.warn = (...args: unknown[]) => {
 function logoutFast(): void {
   const t0 = Date.now()
   console.log(`[AUTH][t0] logoutFast() - Locking UI immediately`)
-  
+
+  let lockedVault = false
+  let clearedVsbt = false
+  let closedLedger = false
+  let closedRelayWs = false
+
   // 1. Lock vault FIRST â€” clears KEK/DEK from memory before anything else
   lockVaultIfLoaded('logoutFast')
+  lockedVault = true
   console.log(`[AUTH][t+${Date.now() - t0}ms] Vault lock requested`)
+
+  try {
+    const { clearEmbeddingServiceRef } = require('./main/vault/rpc') as typeof import('./main/vault/rpc')
+    clearEmbeddingServiceRef()
+  } catch {
+    /* */
+  }
 
   // 1b. Close handshake ledger â€” discards the session-derived key from memory
   closeLedger()
+  closedLedger = true
   console.log(`[AUTH][t+${Date.now() - t0}ms] Handshake ledger closed`)
+
+  disconnectCoordinationWsForAccountSwitch('logout')
+  closedRelayWs = true
 
   // 2. Set auth state to locked (blocks all privileged actions)
   hasValidSession = false
@@ -191,7 +217,22 @@ function logoutFast(): void {
       console.log(`[AUTH][t+${Date.now() - t0}ms] Sent CLOSE_COMMAND_CENTER_POPUP to extension`)
     } catch {}
   })
-  
+
+  clearedVsbt = true
+
+  console.log(
+    '[ACCOUNT_SWITCH_CLEANUP]',
+    JSON.stringify({
+      lockedVault,
+      closedVaultDb: lockedVault,
+      clearedCurrentVaultId: lockedVault,
+      clearedVsbt,
+      closedLedger,
+      closedRelayWs,
+      clearedRendererState: true,
+    }),
+  )
+
   console.log(`[AUTH][t+${Date.now() - t0}ms] logoutFast() complete - UI is now locked`)
 }
 
@@ -363,15 +404,6 @@ function lockVaultIfLoaded(reason?: string): void {
   }
   dashboardRendererVsbt = null
 }
-import { fileURLToPath } from 'node:url'
-import path from 'node:path'
-import os from 'node:os'
-import { execSync } from 'node:child_process'
-import WebSocket, { WebSocketServer } from 'ws'
-import express from 'express'
-import * as http from 'node:http'
-import * as net from 'net'
-import * as crypto from 'crypto'
 
 // ============================================================================
 // AUTH TEST FUNCTION - Manual trigger only via IPC
@@ -843,7 +875,7 @@ import {
   invokeOptimizerSnapshot,
 } from './main/projects/optimizerHttpInvoke'
 import { registerDbHandlers, testConnection, syncChromeDataToPostgres, getConfig, getPostgresAdapter } from './ipc/db'
-import { handleVaultRPC } from './main/vault/rpc'
+import { handleVaultRPC, vaultService } from './main/vault/rpc'
 import { handleHandshakeRPC, registerHandshakeRoutes, setSSOSessionProvider, setOidcTokenProvider, getCurrentSession } from './main/handshake/ipc'
 import { sessionFromClaims } from './main/handshake/sessionFactory'
 import { handleIngestionRPC, registerIngestionRoutes } from './main/ingestion/ipc'
@@ -858,6 +890,11 @@ import { processOutboundQueue, setOutboundQueueAuthRefresh } from './main/handsh
 import { pullFromRelay } from './main/p2p/relayPull'
 import { createP2PServer } from './main/p2p/p2pServer'
 import { createCoordinationWsClient } from './main/p2p/coordinationWs'
+import {
+  setCoordinationWsClient,
+  disconnectCoordinationWsForAccountSwitch,
+  getCoordinationWsClient,
+} from './main/p2p/coordinationWsHolder'
 import { setBeapRecipientPendingNotifier } from './main/p2p/beapRecipientNotify'
 import { processPendingP2PBeapEmails, retryPendingQbeapDecrypt } from './main/email/beapEmailIngestion'
 import { getAuditForMessage, getAutoresponderAuditLog } from './main/beap/autoresponderAudit'
@@ -2892,7 +2929,11 @@ app.whenReady().then(async () => {
       }
       if (!db) {
         const vs = (globalThis as any).__og_vault_service_ref
-        db = vs?.getDb?.() ?? vs?.db ?? null
+        const vdb = vs?.getDb?.() ?? vs?.db ?? null
+        if (vdb && !vaultService.isActiveVaultAccountAlignedWithSession()) {
+          return null
+        }
+        db = vdb
       }
       return db
     }
@@ -10765,8 +10806,16 @@ async function runDeviceKeyMigration(
 
     // P2P outbound queue + P2P server startup (default-on, start as soon as db available)
     let p2pServerStarted = false
-    let coordinationWsClient: ReturnType<typeof createCoordinationWsClient> | null = null
-    const getHandshakeDb = () => getLedgerDb() ?? (globalThis as any).__og_vault_service_ref?.getDb?.() ?? (globalThis as any).__og_vault_service_ref?.db ?? null
+    const getHandshakeDb = () => {
+      const L = getLedgerDb()
+      if (L) return L
+      const vdb =
+        (globalThis as any).__og_vault_service_ref?.getDb?.() ?? (globalThis as any).__og_vault_service_ref?.db ?? null
+      if (vdb && !vaultService.isActiveVaultAccountAlignedWithSession()) {
+        return null
+      }
+      return vdb
+    }
 
     setBeapRecipientPendingNotifier((handshakeId) => {
       broadcastToExtensions({ type: 'P2P_BEAP_RECEIVED', handshakeId })
@@ -10964,12 +11013,23 @@ async function runDeviceKeyMigration(
           console.warn('[P2P] Server startup skipped:', err?.message)
         }
       }
-      // Coordination WebSocket: connect when use_coordination (receives capsules from relay)
+      // Coordination WebSocket: single ref in coordinationWsHolder (no parallel closure variable)
       const coordConfig = getP2PConfig(handshakeDb)
+      const ui = getCachedUserInfo()
+      const accKey = ui?.sub && ui?.iss ? `${ui.sub}|${ui.iss}` : 'no-session'
+      const existingCoord = getCoordinationWsClient()
+      console.log(
+        '[RELAY_WS_LIFECYCLE] startup_check',
+        JSON.stringify({
+          has_local_client: !!existingCoord,
+          has_holder_client: !!existingCoord,
+          account: accKey,
+        }),
+      )
       if (coordConfig?.use_coordination && coordConfig?.coordination_enabled) {
-        if (!coordinationWsClient) {
+        if (!existingCoord) {
           console.log('[P2P] Starting coordination WebSocket client (relay:', coordConfig.coordination_ws_url, ')')
-          coordinationWsClient = createCoordinationWsClient(
+          const coordinationWsClient = createCoordinationWsClient(
             coordConfig,
             () => getHandshakeDb(), // Handshake DB (ledger or vault fallback) â€” receive works when either is ready
             () => getCurrentSession(),
@@ -10980,13 +11040,16 @@ async function runDeviceKeyMigration(
               },
             },
           )
+          setCoordinationWsClient(
+            coordinationWsClient,
+            accKey,
+          )
           coordinationWsClient.connect().catch((err) => {
             console.warn('[Coordination] WS connect error:', err?.message)
           })
         }
-      } else if (coordinationWsClient) {
-        coordinationWsClient.disconnect()
-        coordinationWsClient = null
+      } else if (existingCoord) {
+        disconnectCoordinationWsForAccountSwitch('config_disabled')
       }
     }
 

@@ -52,10 +52,19 @@ import {
   vaultExists,
   getVaultPath,
   getVaultMetaPath,
-  listVaults,
+  listVaultsForAccount,
+  readVaultOwnerFromMetaFile,
   registerVault,
   unregisterVault,
 } from './db'
+import { getCachedUserInfo } from '../../../src/auth/session'
+import {
+  getCurrentAccountIdentity,
+  hasVaultOwnerMetadata,
+  vaultOwnerMatchesSession,
+  VAULT_ACCOUNT_ERROR,
+  type VaultOwnerRecord,
+} from './vaultOwnerIdentity'
 import { readFileSync, unlinkSync, existsSync as fsExistsSync, mkdirSync } from 'fs'
 import { dirname } from 'path'
 
@@ -99,6 +108,10 @@ export class VaultService {
   private db: any | null = null
   private session: VaultSession | null = null
   private currentVaultId: string = 'default' // Currently active vault
+  /** Set after successful unlock; cleared on lock. */
+  private currentVaultOwner: VaultOwnerRecord | null = null
+  /** Fingerprint of SSO session at unlock time: sub|iss|wrdesk */
+  private sessionFingerprintAtUnlock: string | null = null
   private autoLockTimer: NodeJS.Timeout | null = null
   private settings: VaultSettings = {
     autoLockMinutes: 30, // Default: 30 minutes
@@ -148,6 +161,11 @@ export class VaultService {
     vaultId?: string,
     providerType: UnlockProviderType = 'passphrase',
   ): Promise<string> {
+    const accountOwner = getCurrentAccountIdentity(getCachedUserInfo())
+    if (!accountOwner) {
+      throw new Error('Authentication required — log in to create a vault')
+    }
+
     // Generate unique vault ID if not provided
     if (!vaultId) {
       vaultId = `vault_${Date.now()}_${randomBytes(4).toString('hex')}`
@@ -180,10 +198,10 @@ export class VaultService {
     this.currentVaultId = vaultId
 
     // Store vault metadata (now includes provider info)
-    this.saveVaultMeta(salt, wrappedDEK, DEFAULT_KDF_PARAMS, vaultId)
+    this.saveVaultMeta(salt, wrappedDEK, DEFAULT_KDF_PARAMS, vaultId, accountOwner)
 
     // Register vault in registry
-    registerVault(vaultId, vaultName)
+    registerVault(vaultId, vaultName, accountOwner)
 
     // Store settings
     this.saveSettings()
@@ -199,6 +217,8 @@ export class VaultService {
 
     this.startAutoLockTimer()
 
+    this.currentVaultOwner = accountOwner
+    this.sessionFingerprintAtUnlock = this.fingerprintSessionFromInfo(getCachedUserInfo())
     console.log('[VAULT] ✅ Vault created successfully:', vaultId, 'via', providerType)
     return vaultId
   }
@@ -217,6 +237,30 @@ export class VaultService {
   ): Promise<string> {
     if (!vaultExists(vaultId)) {
       throw new Error(`Vault does not exist: ${vaultId}`)
+    }
+
+    const ownerMeta = readVaultOwnerFromMetaFile(vaultId)
+    if (!hasVaultOwnerMetadata(ownerMeta)) {
+      const e = new Error(
+        'This vault has no account owner on file. It cannot be used until you run the legacy claim/migration flow.',
+      )
+      ;(e as any).code = VAULT_ACCOUNT_ERROR.LEGACY_REQUIRES_CLAIM
+      throw e
+    }
+    const session = getCachedUserInfo()
+    if (!vaultOwnerMatchesSession(ownerMeta, session)) {
+      console.log(
+        '[VAULT_ACCOUNT_MISMATCH]',
+        JSON.stringify({
+          vaultId,
+          operation: 'unlock',
+          vaultOwner_wrdesk_user_id: String(ownerMeta.owner_wrdesk_user_id || '').slice(0, 64),
+          current_wrdesk_user_id: String(session?.wrdesk_user_id || session?.sub || '').slice(0, 64),
+        }),
+      )
+      const e = new Error(VAULT_ACCOUNT_ERROR.MISMATCH_UNLOCK)
+      ;(e as any).code = VAULT_ACCOUNT_ERROR.MISMATCH_UNLOCK
+      throw e
     }
 
     this.currentVaultId = vaultId
@@ -286,6 +330,13 @@ export class VaultService {
 
     this.startAutoLockTimer()
 
+    const fullOwner = readVaultOwnerFromMetaFile(vaultId)
+    this.currentVaultOwner =
+      fullOwner && hasVaultOwnerMetadata(fullOwner)
+        ? (fullOwner as VaultOwnerRecord)
+        : getCurrentAccountIdentity(getCachedUserInfo())!
+    this.sessionFingerprintAtUnlock = this.fingerprintSessionFromInfo(getCachedUserInfo())
+
     console.log('[VAULT] ✅ Vault unlocked successfully via', effectiveProviderType)
     // Convert token to hex only at the transport boundary
     return this.session.extensionToken.toString('hex')
@@ -336,10 +387,29 @@ export class VaultService {
   }
 
   /**
-   * List all available vaults
+   * List vaults visible to the current SSO account (foreign / legacy returned separately in status when needed).
    */
-  getAvailableVaults(): Array<{ id: string, name: string, created: number }> {
-    return listVaults()
+  getAvailableVaults(): Array<{ id: string; name: string; created: number }> {
+    return listVaultsForAccount(getCachedUserInfo() ?? null).vaults
+  }
+
+  getVaultListAccountDetail() {
+    return listVaultsForAccount(getCachedUserInfo() ?? null)
+  }
+
+  /** True if unlocked vault was opened under the current session identity. */
+  isActiveVaultAccountAlignedWithSession(): boolean {
+    if (!this.session || !this.db) return true
+    const s = getCachedUserInfo()
+    if (!s?.sub) return false
+    if (!this.currentVaultOwner) return false
+    if (!vaultOwnerMatchesSession(this.currentVaultOwner, s)) return false
+    return this.sessionFingerprintAtUnlock === this.fingerprintSessionFromInfo(s)
+  }
+
+  private fingerprintSessionFromInfo(s: ReturnType<typeof getCachedUserInfo>): string | null {
+    if (!s?.sub?.trim() || !s.iss?.trim()) return null
+    return `${s.sub.trim()}|${s.iss.trim()}|${(s.wrdesk_user_id || s.sub).trim()}`
   }
 
   /**
@@ -382,6 +452,9 @@ export class VaultService {
     // Clear session
     this.session = null
     this.dbValid = false
+    this.currentVaultOwner = null
+    this.sessionFingerprintAtUnlock = null
+    this.currentVaultId = 'default'
 
     // Stop autolock timer
     if (this.autoLockTimer) {
@@ -424,13 +497,16 @@ export class VaultService {
       }
     }
 
+    const listDetail = this.getVaultListAccountDetail()
     return {
       exists,
       locked: !isCurrentVault || !this.session,
       isUnlocked: isCurrentVault && !!this.session,
       autoLockMinutes: this.settings.autoLockMinutes,
       currentVaultId: this.currentVaultId,
-      availableVaults: this.getAvailableVaults(),
+      availableVaults: listDetail.vaults,
+      legacyUnclaimedVaults: listDetail.legacyUnclaimed,
+      hiddenForeignVaultCount: listDetail.hiddenForeignCount,
       unlockProviders,
       activeProviderType,
     }
@@ -1315,7 +1391,16 @@ export class VaultService {
 
   resolveHsProfilesForHandshake(tier: VaultTier, profileIds: string[]) {
     this.ensureUnlocked()
+    this.assertContextProfileAccountOrThrow()
     this.updateActivity()
+    console.log(
+      '[CONTEXT_PROFILE_OWNER_CHECK]',
+      JSON.stringify({
+        vaultId: this.currentVaultId,
+        profileCount: profileIds.length,
+        ownerMatches: this.isActiveVaultAccountAlignedWithSession(),
+      }),
+    )
     return resolveProfilesForHandshake(this.db!, tier, profileIds)
   }
 
@@ -1692,6 +1777,20 @@ export class VaultService {
     if (!this.session || !this.db) {
       throw new Error('Vault is locked')
     }
+    if (!this.isActiveVaultAccountAlignedWithSession()) {
+      this.lock()
+      const e = new Error(VAULT_ACCOUNT_ERROR.MISMATCH_ACTIVE)
+      ;(e as any).code = VAULT_ACCOUNT_ERROR.MISMATCH_ACTIVE
+      throw e
+    }
+  }
+
+  private assertContextProfileAccountOrThrow(): void {
+    if (!this.isActiveVaultAccountAlignedWithSession()) {
+      const e = new Error(VAULT_ACCOUNT_ERROR.MISMATCH_CONTEXT_PROFILE)
+      ;(e as any).code = VAULT_ACCOUNT_ERROR.MISMATCH_CONTEXT_PROFILE
+      throw e
+    }
   }
 
   /**
@@ -1877,7 +1976,13 @@ export class VaultService {
   /**
    * Save vault metadata
    */
-  private saveVaultMeta(salt: Buffer, wrappedDEK: Buffer, kdfParams: KDFParams, vaultId: string = 'default'): void {
+  private saveVaultMeta(
+    salt: Buffer,
+    wrappedDEK: Buffer,
+    kdfParams: KDFParams,
+    vaultId: string = 'default',
+    owner?: VaultOwnerRecord,
+  ): void {
     const metaPath = getVaultMetaPath(vaultId)
 
     const metaData: Record<string, any> = {
@@ -1887,6 +1992,34 @@ export class VaultService {
       // Provider metadata (additive — old code simply ignores these fields)
       unlockProviders: this.providerStates,
       activeProviderType: this.activeProviderType,
+    }
+    if (owner) {
+      metaData.owner_wrdesk_user_id = owner.owner_wrdesk_user_id
+      metaData.owner_sub = owner.owner_sub
+      metaData.owner_iss = owner.owner_iss
+      metaData.owner_email = owner.owner_email
+      if (owner.owner_email_verified !== undefined) {
+        metaData.owner_email_verified = owner.owner_email_verified
+      }
+      metaData.owner_claimed_at = owner.owner_claimed_at
+      metaData.vault_schema_version = owner.vault_schema_version
+    } else if (fsExistsSync(metaPath)) {
+      try {
+        const prev = JSON.parse(readFileSync(metaPath, 'utf-8')) as Record<string, unknown>
+        for (const k of [
+          'owner_wrdesk_user_id',
+          'owner_sub',
+          'owner_iss',
+          'owner_email',
+          'owner_email_verified',
+          'owner_claimed_at',
+          'vault_schema_version',
+        ] as const) {
+          if (prev[k] !== undefined) metaData[k] = prev[k]
+        }
+      } catch {
+        /* keep crypto-only */
+      }
     }
 
     // Ensure directory exists

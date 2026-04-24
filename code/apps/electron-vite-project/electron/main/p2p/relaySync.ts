@@ -78,6 +78,16 @@ export async function registerHandshakeWithRelay(
       aud: aud ?? '(absent)',
       endpoint: `${coordUrl.replace(/\/$/, '')}/beap/register-handshake`,
     })
+    console.log(
+      '[RELAY_IDENTITY] register_handshake',
+      JSON.stringify({
+        initiator_user_id: handshakeDetails.initiator_user_id,
+        acceptor_user_id: handshakeDetails.acceptor_user_id,
+        initiator_device_id: handshakeDetails.initiator_device_id ?? null,
+        acceptor_device_id: handshakeDetails.acceptor_device_id ?? null,
+        token_sub: tokenSub,
+      }),
+    )
     const base = coordUrl.replace(/\/$/, '')
     const registerUrl = `${base}/beap/register-handshake`
 

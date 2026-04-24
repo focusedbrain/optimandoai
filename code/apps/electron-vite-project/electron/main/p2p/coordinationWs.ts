@@ -31,6 +31,8 @@ import { notifyBeapRecipientPending } from './beapRecipientNotify'
 import { getInstanceId } from '../orchestrator/orchestratorModeStore'
 import { computeSamePrincipalCoordinationSkipOwn } from './coordinationSamePrincipalInbound'
 import { requestCoordinationFlushQueued } from './coordinationFlushQueued'
+import { getCanonicalRelayDeviceId, logDeviceIdBinding } from './relayDeviceBinding'
+import { relayIdentitySnapshot } from './relayIdentity'
 
 /**
  * In-memory buffer for context_sync capsules that arrived before the accept was processed.
@@ -476,6 +478,8 @@ export function createCoordinationWsClient(
   let ackFlushTimer: ReturnType<typeof setTimeout> | null = null
   let lastActivityAt = 0
   let heartbeatTimer: ReturnType<typeof setInterval> | null = null
+  /** When true, `close` must not schedule reconnect (logout / explicit shutdown). */
+  let intentionalShutdown = false
 
   // Watchdog: if WS appears open but no traffic for >90s, force-close and reconnect.
   // This catches the case where the socket silently dies (no 'close' event fired).
@@ -534,6 +538,7 @@ export function createCoordinationWsClient(
   }
 
   const connect = async (): Promise<void> => {
+    intentionalShutdown = false
     if (!config.use_coordination || !config.coordination_enabled) {
       console.log('[Coordination] Skipping connect: use_coordination=', config.use_coordination, 'coordination_enabled=', config.coordination_enabled)
       return
@@ -551,26 +556,56 @@ export function createCoordinationWsClient(
       return
     }
 
+    const sso = getSsoSession()
+    const idSnap = relayIdentitySnapshot(sso)
+    const canonicalDev = getCanonicalRelayDeviceId()
+    logDeviceIdBinding('pre_ws_connect', {
+      source: 'getCanonicalRelayDeviceId',
+      value: canonicalDev,
+      register_handshake_device_expectation: 'same as outbound sender_device_id when present',
+    })
+
     let wsUrlForConnect = wsUrl
     let deviceIdParam = ''
+    let didTrimmed = ''
     try {
-      const mod = await import('../orchestrator/orchestratorModeStore')
-      const getInstanceId = mod.getInstanceId as (() => string | undefined) | undefined
-      const did = typeof getInstanceId === 'function' ? getInstanceId() : undefined
-      const didTrimmed = typeof did === 'string' ? did.trim() : ''
+      didTrimmed = canonicalDev ?? ''
       if (didTrimmed.length > 0) {
         deviceIdParam = `device_id=${encodeURIComponent(didTrimmed)}`
+        logDeviceIdBinding('ws_query_built', { ws_device_id: didTrimmed })
       } else {
-        console.warn('[Coordination] getInstanceId() returned empty — WS will register under userId:default. Handshake delivery to this device will fail until the orchestrator instanceId is populated.')
+        console.error(
+          '[DEVICE_ID_BINDING] CRITICAL: empty instance id — relay WebSocket will register as userId:default. ' +
+            'If coordination_handshake_registry has a non-null device id for you, live push will miss and HTTP 202 will occur.',
+        )
+        logDeviceIdBinding('ws_query_empty', { ws_device_id: 'default' })
+        console.warn('[Coordination] getInstanceId() returned empty — see [DEVICE_ID_BINDING] above.')
       }
     } catch (err: any) {
-      console.warn('[Coordination] orchestratorModeStore unavailable when building WS URL — WS will register under userId:default. Handshake delivery to this device will fail. Error:', err?.message)
+      console.warn('[Coordination] relayDeviceBinding failed: Error:', err?.message)
     }
     if (deviceIdParam) {
       const separator = wsUrlForConnect.includes('?') ? '&' : '?'
       wsUrlForConnect = `${wsUrlForConnect}${separator}${deviceIdParam}`
     }
     const url = `${wsUrlForConnect}${wsUrlForConnect.includes('?') ? '&' : '?'}token=${encodeURIComponent(token)}`
+    console.log(
+      '[RELAY_WS_LIFECYCLE] connect_begin',
+      JSON.stringify({
+        account: idSnap.relay_user_id ?? 'unknown',
+        device_id: didTrimmed || 'default',
+      }),
+    )
+    console.log(
+      '[RELAY_IDENTITY] ws_connect',
+      JSON.stringify({
+        user_id: idSnap.relay_user_id,
+        sub: idSnap.sub,
+        wrdesk_user_id: idSnap.wrdesk_user_id,
+        email: idSnap.email,
+        device_id: didTrimmed || 'default',
+      }),
+    )
     console.log('[Coordination] Connecting to relay WebSocket:', wsUrl.replace(/\?.*/, ''))
 
     return new Promise((resolve, reject) => {
@@ -583,6 +618,25 @@ export function createCoordinationWsClient(
       }
 
       ws.on('open', () => {
+        const ssoOpen = getSsoSession()
+        const openSnap = relayIdentitySnapshot(ssoOpen)
+        const openDev = getCanonicalRelayDeviceId()
+        console.log(
+          '[RELAY_WS_LIFECYCLE] connect_open',
+          JSON.stringify({
+            account: openSnap.relay_user_id ?? 'unknown',
+            device_id: openDev ?? 'default',
+          }),
+        )
+        console.log(
+          '[RELAY_IDENTITY] connect_open',
+          JSON.stringify({
+            user_id: openSnap.relay_user_id,
+            sub: openSnap.sub,
+            wrdesk_user_id: openSnap.wrdesk_user_id,
+            device_id: openDev ?? 'default',
+          }),
+        )
         reconnectAttempt = 0
         setP2PHealthCoordinationConnected()
         setP2PHealthCoordinationReconnectAttempts(0)
@@ -623,6 +677,21 @@ export function createCoordinationWsClient(
           }
 
           if (msg?.type === 'capsule' && msg.id) {
+            const capEarly = typeof msg.capsule === 'object' && msg.capsule !== null ? (msg.capsule as Record<string, unknown>) : {}
+            const ctEarly = typeof capEarly.capsule_type === 'string' ? capEarly.capsule_type : null
+            const hidEarly =
+              (typeof capEarly.handshake_id === 'string' && capEarly.handshake_id.trim()) ||
+              (typeof msg.handshake_id === 'string' && msg.handshake_id.trim()) ||
+              null
+            console.log(
+              '[RELAY-WS] received_queued',
+              JSON.stringify({
+                relay_message_id: msg.id,
+                handshake_id: hidEarly,
+                capsule_type: ctEarly,
+                note: 'Inbound from relay (live push or drained after HTTP 202); not peer-ack until processed',
+              }),
+            )
             const db = getDb()
             const ssoSession = getSsoSession()
             if (!ssoSession) {
@@ -711,6 +780,11 @@ export function createCoordinationWsClient(
         ws = null
         stopHeartbeat()
         setP2PHealthCoordinationDisconnected()
+        if (intentionalShutdown) {
+          intentionalShutdown = false
+          console.log('[RELAY_WS_LIFECYCLE] close_after_intentional_disconnect — skip reconnect')
+          return
+        }
         if (!config.use_coordination || !config.coordination_enabled) return
         scheduleReconnect()
       })
@@ -743,6 +817,8 @@ export function createCoordinationWsClient(
   }
 
   const disconnect = (): void => {
+    intentionalShutdown = true
+    console.log('[RELAY_WS_LIFECYCLE] client_disconnect_intentional')
     if (reconnectTimer) {
       clearTimeout(reconnectTimer)
       reconnectTimer = null
@@ -752,7 +828,11 @@ export function createCoordinationWsClient(
       ackFlushTimer = null
     }
     if (ws) {
-      ws.close()
+      try {
+        ws.close()
+      } catch {
+        /* */
+      }
       ws = null
     }
     stopHeartbeat()

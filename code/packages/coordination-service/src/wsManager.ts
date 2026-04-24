@@ -43,10 +43,23 @@ function deliverPendingToWs(
   let n = 0
   for (const { id, capsule_json } of pending) {
     try {
-      const payload = JSON.stringify({ type: 'capsule', id, capsule: JSON.parse(capsule_json) })
+      const capObj = JSON.parse(capsule_json) as Record<string, unknown>
+      const payload = JSON.stringify({ type: 'capsule', id, capsule: capObj })
       send(payload)
       store.markPushed(id)
       n++
+      const hid = typeof capObj.handshake_id === 'string' ? capObj.handshake_id : null
+      const ct = typeof capObj.capsule_type === 'string' ? capObj.capsule_type : null
+      console.log(
+        '[RELAY-QUEUE] delivered_queued',
+        JSON.stringify({
+          capsule_row_id: id,
+          handshake_id: hid,
+          capsule_type: ct,
+          client_user_id: userId,
+          client_device_id: deviceId,
+        }),
+      )
     } catch {
       // malformed or send failed
     }

@@ -7,6 +7,8 @@ import { join, dirname } from 'path'
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs'
 import { createRequire } from 'module'
 import { homedir } from 'os'
+import type { SessionUserInfo } from '../../../src/auth/session'
+import { hasVaultOwnerMetadata, vaultOwnerMatchesSession, type VaultOwnerRecord } from './vaultOwnerIdentity'
 
 const require = createRequire(import.meta.url)
 
@@ -120,6 +122,52 @@ export function getVaultRegistryPath(): string {
   return join(vaultDataDir, 'vaults.json')
 }
 
+/** One vault row for UI: owned vaults, or marked legacy/foreign. */
+export interface ListedVaultEntry {
+  id: string
+  name: string
+  created: number
+  /** No owner block on disk — pre–account-isolation vault */
+  legacy_unclaimed?: boolean
+  /** Must go through claim/migration before unlock */
+  requires_migration?: boolean
+  /** Another account owns this vault — hidden from main list (counted separately) */
+  foreign_vault?: boolean
+}
+
+export interface ListVaultsAccountResult {
+  /** Vaults the current account may use (unlocked as normal) */
+  vaults: ListedVaultEntry[]
+  /** Legacy: no owner metadata; not auto-claimed */
+  legacyUnclaimed: ListedVaultEntry[]
+  hiddenForeignCount: number
+  totalScanned: number
+}
+
+/**
+ * Read owner fields from unencrypted meta JSON (before crypto unlock).
+ */
+export function readVaultOwnerFromMetaFile(vaultId: string): Partial<VaultOwnerRecord> | null {
+  const metaPath = getVaultMetaPath(vaultId)
+  if (!existsSync(metaPath)) return null
+  try {
+    const j = JSON.parse(readFileSync(metaPath, 'utf-8')) as Record<string, unknown>
+    if (!j || typeof j !== 'object') return null
+    if (!j.owner_sub && !j.owner_wrdesk_user_id) return null
+    return {
+      owner_wrdesk_user_id: String(j.owner_wrdesk_user_id || j.owner_sub || ''),
+      owner_sub: String(j.owner_sub || ''),
+      owner_iss: String(j.owner_iss || ''),
+      owner_email: String(j.owner_email || ''),
+      owner_email_verified: Boolean(j.owner_email_verified),
+      owner_claimed_at: String(j.owner_claimed_at || ''),
+      vault_schema_version: typeof j.vault_schema_version === 'number' ? j.vault_schema_version : 0,
+    }
+  } catch {
+    return null
+  }
+}
+
 /**
  * Check if vault database exists
  */
@@ -127,14 +175,19 @@ export function vaultExists(vaultId: string = 'default'): boolean {
   return existsSync(getVaultPath(vaultId))
 }
 
+type RegistryVault = {
+  id: string
+  name: string
+  created: number
+} & Partial<VaultOwnerRecord>
+
 /**
- * List all available vaults with metadata
+ * Collect all vault ids from registry + directory scan (same as legacy listVaults).
  */
-export function listVaults(): Array<{ id: string, name: string, created: number }> {
+function collectAllVaultBaseRows(): Map<string, { id: string; name: string; created: number; registry?: RegistryVault }> {
   const registryPath = getVaultRegistryPath()
-  const vaultMap = new Map<string, { id: string, name: string, created: number }>()
-  
-  // First, try to read from registry
+  const vaultMap = new Map<string, { id: string; name: string; created: number; registry?: RegistryVault }>()
+
   if (existsSync(registryPath)) {
     try {
       const registry = JSON.parse(readFileSync(registryPath, 'utf-8'))
@@ -144,7 +197,8 @@ export function listVaults(): Array<{ id: string, name: string, created: number 
             vaultMap.set(vault.id, {
               id: vault.id,
               name: vault.name || vault.id,
-              created: vault.created || 0
+              created: vault.created || 0,
+              registry: vault as RegistryVault,
             })
           }
         }
@@ -153,38 +207,28 @@ export function listVaults(): Array<{ id: string, name: string, created: number 
       console.warn('[VAULT DB] Failed to read vault registry, will scan directory:', error)
     }
   }
-  
-  // Scan the vault directory for database files
+
   const vaultDataDir = join(homedir(), '.opengiraffe', 'electron-data')
-  
   try {
     if (existsSync(vaultDataDir)) {
       const files = require('fs').readdirSync(vaultDataDir)
       const dbFiles = files.filter((f: string) => f.startsWith('vault_') && f.endsWith('.db'))
-      
       for (const dbFile of dbFiles) {
-        // Extract vault ID from filename: vault_vault_1234567890_abc123.db
         const match = dbFile.match(/^vault_(vault_\d+_[a-f0-9]+)\.db$/)
         if (match) {
           const vaultId = match[1]
           if (!vaultMap.has(vaultId)) {
-            // Try to get name from meta file
             let vaultName = vaultId
             const metaPath = getVaultMetaPath(vaultId)
             if (existsSync(metaPath)) {
               try {
                 const meta = JSON.parse(readFileSync(metaPath, 'utf-8'))
                 vaultName = meta.name || vaultId
-              } catch (e) {
-                // Use ID as name if meta file can't be read
+              } catch {
+                /* */
               }
             }
-            
-            vaultMap.set(vaultId, {
-              id: vaultId,
-              name: vaultName,
-              created: 0 // Unknown creation time
-            })
+            vaultMap.set(vaultId, { id: vaultId, name: vaultName, created: 0 })
           }
         }
       }
@@ -192,20 +236,86 @@ export function listVaults(): Array<{ id: string, name: string, created: number 
   } catch (error) {
     console.warn(`[VAULT DB] Failed to scan directory ${vaultDataDir}:`, error)
   }
-  
-  // Fallback: check for default vault if no vaults found
+
   if (vaultMap.size === 0 && vaultExists('default')) {
     vaultMap.set('default', { id: 'default', name: 'Default Vault', created: 0 })
   }
-  
-  console.log('[VAULT DB] Found', vaultMap.size, 'vaults:', Array.from(vaultMap.values()))
-  return Array.from(vaultMap.values())
+  return vaultMap
+}
+
+/**
+ * List vaults for the current SSO account. Foreign-owned vaults are not listed as usable;
+ * legacy vaults (no owner metadata) are not auto-claimed.
+ */
+export function listVaultsForAccount(session: SessionUserInfo | null): ListVaultsAccountResult {
+  const base = collectAllVaultBaseRows()
+  const totalScanned = base.size
+  const vaults: ListedVaultEntry[] = []
+  const legacyUnclaimed: ListedVaultEntry[] = []
+  let hiddenForeignCount = 0
+
+  const currentW = session?.wrdesk_user_id || session?.sub || ''
+  for (const row of base.values()) {
+    const fromFile = readVaultOwnerFromMetaFile(row.id)
+    const fromReg = row.registry
+    const owner: Partial<VaultOwnerRecord> | null = hasVaultOwnerMetadata(fromFile)
+      ? fromFile
+      : fromReg && hasVaultOwnerMetadata(fromReg)
+        ? {
+            owner_wrdesk_user_id: String(fromReg.owner_wrdesk_user_id || fromReg.owner_sub || ''),
+            owner_sub: String(fromReg.owner_sub || ''),
+            owner_iss: String(fromReg.owner_iss || ''),
+            owner_email: String(fromReg.owner_email || ''),
+            owner_claimed_at: String(fromReg.owner_claimed_at || ''),
+            vault_schema_version: typeof fromReg.vault_schema_version === 'number' ? fromReg.vault_schema_version : 0,
+          }
+        : null
+
+    const entry: ListedVaultEntry = {
+      id: row.id,
+      name: row.name,
+      created: row.created,
+    }
+
+    if (!owner || !hasVaultOwnerMetadata(owner)) {
+      legacyUnclaimed.push({
+        ...entry,
+        legacy_unclaimed: true,
+        requires_migration: true,
+      })
+      continue
+    }
+
+    if (!session) {
+      hiddenForeignCount += 1
+      continue
+    }
+
+    if (vaultOwnerMatchesSession(owner, session)) {
+      vaults.push(entry)
+    } else {
+      hiddenForeignCount += 1
+    }
+  }
+
+  console.log(
+    '[VAULT_ACCOUNT_FILTER]',
+    JSON.stringify({
+      current_wrdesk_user_id: String(currentW).slice(0, 64),
+      totalVaults: totalScanned,
+      visibleVaults: vaults.length,
+      hiddenForeignVaults: hiddenForeignCount,
+      legacyUnclaimedVaults: legacyUnclaimed.length,
+    }),
+  )
+
+  return { vaults, legacyUnclaimed, hiddenForeignCount, totalScanned }
 }
 
 /**
  * Register a new vault in the registry
  */
-export function registerVault(vaultId: string, name: string): void {
+export function registerVault(vaultId: string, name: string, owner?: VaultOwnerRecord): void {
   const registryPath = getVaultRegistryPath()
   
   // Ensure directory exists
@@ -215,7 +325,8 @@ export function registerVault(vaultId: string, name: string): void {
     // Directory might already exist
   }
   
-  let registry: { vaults: Array<{ id: string, name: string, created: number }> } = { vaults: [] }
+  type RegRow = { id: string; name: string; created: number } & Partial<VaultOwnerRecord>
+  let registry: { vaults: RegRow[] } = { vaults: [] }
   
   if (existsSync(registryPath)) {
     try {
@@ -227,11 +338,15 @@ export function registerVault(vaultId: string, name: string): void {
   
   // Check if vault already registered
   if (!registry.vaults.find((v: any) => v.id === vaultId)) {
-    registry.vaults.push({
+    const row: RegRow = {
       id: vaultId,
       name,
-      created: Date.now()
-    })
+      created: Date.now(),
+    }
+    if (owner) {
+      Object.assign(row, owner)
+    }
+    registry.vaults.push(row)
     
     writeFileSync(registryPath, JSON.stringify(registry, null, 2))
     console.log('[VAULT DB] Registered vault:', vaultId)

@@ -654,6 +654,7 @@ function createRequestHandler(
               sender_user_id: identity.userId,
               receiver_user_id: recipientUserId,
               receiver_device_id: recipientRoute.deviceId ?? null,
+              coordinationRelayDelivery: 'pushed_live',
             }),
           )
           res.writeHead(200, { 'Content-Type': 'application/json' })
@@ -667,6 +668,8 @@ function createRequestHandler(
               sender_user_id: identity.userId,
               receiver_user_id: recipientUserId,
               receiver_device_id: recipientRoute.deviceId ?? null,
+              coordinationRelayDelivery: 'queued_recipient_offline',
+              note: 'Recipient had no matching live WebSocket (offline or user+device mismatch); will drain on WS connect / register-handshake flush',
             }),
           )
           res.writeHead(202, { 'Content-Type': 'application/json' })
