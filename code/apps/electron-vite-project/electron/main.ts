@@ -3114,23 +3114,9 @@ app.whenReady().then(async () => {
         return (await handleHandshakeRPC(method, p, db)) as Record<string, unknown>
       }
 
+      // Internal Sandbox clone targets: handshake ledger + SSO session (same as `handshake:list`).
+      // No VSBT / vault unlock — see product invariant “Sandbox target discovery is ledger-based”.
       if (method === 'internalSandboxes.listAvailable') {
-        const { vaultService: vsForInt } = await import('./main/vault/rpc')
-        if (!dashboardRendererVsbt || !vsForInt.validateToken(dashboardRendererVsbt)) {
-          const tok = vsForInt.getSessionToken()
-          if (tok && vsForInt.validateToken(tok)) {
-            dashboardRendererVsbt = tok
-            ;(globalThis as any).__og_dashboard_vsbt__ = dashboardRendererVsbt
-          }
-        }
-        if (!dashboardRendererVsbt || !vsForInt.validateToken(dashboardRendererVsbt)) {
-          return {
-            success: false,
-            error: 'Vault session not bound — unlock the vault to list sandbox handshakes',
-            sandboxes: [] as unknown[],
-            incomplete: [] as unknown[],
-          }
-        }
         const db = await getLedgerDbOrOpen()
         if (!db) {
           return { success: false, error: 'No ledger database', sandboxes: [], incomplete: [] }

@@ -2,6 +2,7 @@ import { describe, test, expect } from 'vitest'
 import {
   resolveHostSandboxCloneClickAction,
   sandboxCloneUnavailableDialogVariant,
+  toProductSandboxTargetDecision,
 } from '../beapInboxHostSandboxClickPolicy'
 
 describe('beapInboxHostSandboxClickPolicy (Host Sandbox row + detail)', () => {
@@ -80,5 +81,13 @@ describe('beapInboxHostSandboxClickPolicy (Host Sandbox row + detail)', () => {
         p({ internalListLoading: true, listLastSuccess: true, sendableTargetCount: 1, activeIdentityCompleteHostSandboxCount: 1, identityIncompleteHostSandboxCount: 0 }),
       ),
     ).toBe('direct_clone')
+  })
+
+  test('toProductSandboxTargetDecision: direct_clone => send_now', () => {
+    expect(toProductSandboxTargetDecision('direct_clone', 'host_active_target_send_now')).toBe('send_now')
+  })
+
+  test('toProductSandboxTargetDecision: hide sandbox mode', () => {
+    expect(toProductSandboxTargetDecision(null, 'sandbox_mode_hide_action')).toBe('hidden_sandbox')
   })
 })

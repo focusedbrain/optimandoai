@@ -93,7 +93,7 @@ declare global {
       checkHandshakeSendReady?: (handshakeId: string) => Promise<{ ready: boolean; error?: string; localX25519PublicKey?: string; hasStoredPrivateKey?: boolean }>
       /**
        * Same RPC dispatch as extension WebSocket VAULT_RPC (vault.* / handshake.* / ingestion.*).
-       * `internalSandboxes.listAvailable` (vault unlocked) → `{ success, sandboxes, incomplete, sandbox_availability, authoritative_device_internal_role }`.
+       * `internalSandboxes.listAvailable` (ledger + SSO; no vault unlock) → `{ success, sandboxes, incomplete, sandbox_availability, authoritative_device_internal_role }`.
        */
       vaultRpc?: (args: { method: string; params?: Record<string, unknown>; id?: string }) => Promise<Record<string, unknown>>
       /** Electron: X-Launch-Secret for localhost PQ KEM HTTP (beapCrypto pqEncapsulate). */
@@ -355,7 +355,7 @@ declare global {
     }
     /** Email Inbox IPC bridge (inbox_messages, sync, deletion, attachments, AI placeholders) */
     emailInbox?: EmailInboxBridge
-    /** BEAP inbox → sandbox: `inbox:cloneBeapToSandbox` / `inbox:beapInboxCloneToSandboxPrepare` (vault; no ciphertext). */
+    /** BEAP inbox → sandbox: `inbox:cloneBeapToSandbox` / `inbox:beapInboxCloneToSandboxPrepare` (ledger + session; no vault unlock; no ciphertext in prepare). */
     beapInbox?: {
       cloneToSandboxPrepare: (payload: {
         sourceMessageId: string

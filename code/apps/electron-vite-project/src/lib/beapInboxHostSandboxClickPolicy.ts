@@ -80,8 +80,42 @@ export type SandboxTargetResolutionLogDecision =
 
 const RESOLUTION_LOG_PREFIX = '[SANDBOX_TARGET_RESOLUTION]'
 
+/** Product-facing `decision` for logs (ledger-based target resolution; not vault/relay gating). */
+export function toProductSandboxTargetDecision(
+  action: HostSandboxCloneClickAction | null,
+  resolutionKind: SandboxTargetResolutionLogDecision,
+): string {
+  if (action != null) {
+    switch (action) {
+      case 'direct_clone':
+        return 'send_now'
+      case 'open_target_picker':
+        return 'open_picker'
+      case 'open_unavailable_dialog':
+        return 'show_setup'
+      case 'keying_incomplete':
+        return 'keying_incomplete'
+      case 'identity_incomplete':
+        return 'identity_incomplete'
+      case 'loading_refresh':
+        return 'refetch'
+      default:
+        return 'unknown'
+    }
+  }
+  switch (resolutionKind) {
+    case 'sandbox_mode_hide_action':
+      return 'hidden_sandbox'
+    case 'mode_not_ready_hide_action':
+      return 'hidden_not_ready'
+    default:
+      return 'unknown'
+  }
+}
+
 /**
- * Dev-only structured log for Sandbox click routing. Does not use relay, email, or isBeap as gating “reasons”.
+ * Dev-only structured log for Sandbox click routing. Target discovery is handshake-ledger + SSO
+ * (`source: handshake_ledger`, `vault_required: false`). Does not use relay, email, or isBeap as gating “reasons”.
  */
 export function logSandboxTargetResolution(p: {
   source: 'inbox_row' | 'message_detail' | 'external_link_dialog' | 'bulk_inbox'
@@ -89,6 +123,8 @@ export function logSandboxTargetResolution(p: {
   modeReady: boolean
   orchestratorMode: 'host' | 'sandbox' | null
   isHost: boolean
+  /** Sendable-clone target count (keying complete); primary `target_count` for product logs. */
+  targetCount: number
   /** `sandboxes.length` from listAvailable */
   internalSandboxRowsCount: number
   /** Identity-complete + identity-incomplete host↔sandbox active rows (same as routing input). */
@@ -101,10 +137,17 @@ export function logSandboxTargetResolution(p: {
   reason: string
 }): void {
   if (!import.meta.env.DEV) return
+  const productDecision = toProductSandboxTargetDecision(p.action, p.decision)
   // eslint-disable-next-line no-console
   console.log(RESOLUTION_LOG_PREFIX, {
-    source: p.source,
     message_id: p.messageId,
+    host_mode: p.isHost,
+    target_count: p.targetCount,
+    source: 'handshake_ledger',
+    ui_source: p.source,
+    vault_required: false,
+    decision: productDecision,
+    resolution_kind: p.decision,
     modeReady: p.modeReady,
     orchestratorMode: p.orchestratorMode,
     isHost: p.isHost,
@@ -113,7 +156,6 @@ export function logSandboxTargetResolution(p: {
     liveSandboxTargetsCount: p.liveSandboxTargetsCount,
     selectedTargetHandshakeId: p.selectedTargetHandshakeId,
     action: p.action,
-    decision: p.decision,
     reason: p.reason,
   })
 }

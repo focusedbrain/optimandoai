@@ -3274,13 +3274,13 @@ Rules:
   }
 
   /**
-   * Validate vault + account, internal sandbox target, and extract cloneable plaintext.
+   * Validate account + internal sandbox target, and extract cloneable plaintext (ledger + SSO session; no vault unlock).
    * Does not build or send the BEAP package (renderer uses BeapPackageBuilder + executeDeliveryAction).
    * `inbox:cloneBeapToSandbox` is the product channel name; both invoke the same logic.
    *
    * Host only: clone is a Host → Sandbox orchestration path (same identity, internal handshake).
    * On failure, `code` may include `NO_SANDBOX_CONNECTED`, `TARGET_HANDSHAKE_REQUIRED`, `SOURCE_NO_EXTRACTABLE_CONTENT`,
-   * `SOURCE_NO_EXTRACTABLE_CONTENT`, or `NOT_HOST_ORCHESTRATOR` (envelope) for structured UI.
+   * or `NOT_HOST_ORCHESTRATOR` (envelope) for structured UI.
    */
   async function handleBeapInboxCloneToSandbox(
     _e: unknown,
@@ -3299,23 +3299,6 @@ Rules:
           success: false,
           code: 'NOT_HOST_ORCHESTRATOR' as const,
           error: 'Sandbox clone is only available when this device is the Host orchestrator.',
-        }
-      }
-
-      const { vaultService: vs } = await import('../vault/rpc')
-      let tok = (globalThis as { __og_dashboard_vsbt__?: string }).__og_dashboard_vsbt__
-      if (!tok || !vs.validateToken(tok)) {
-        const t2 = vs.getSessionToken()
-        if (t2 && vs.validateToken(t2)) {
-          tok = t2
-          ;(globalThis as { __og_dashboard_vsbt__?: string }).__og_dashboard_vsbt__ = t2
-        }
-      }
-      if (!tok || !vs.validateToken(tok)) {
-        return {
-          success: false,
-          code: 'VAULT_NOT_BOUND' as const,
-          error: 'Vault session not bound — unlock the vault to clone to sandbox',
         }
       }
 

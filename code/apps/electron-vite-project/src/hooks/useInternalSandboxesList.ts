@@ -1,6 +1,6 @@
 /**
- * Fetches internal Host → Sandbox handshakes for the logged-in user (vault must be unlocked).
- * Calls `window.handshakeView.vaultRpc({ method: 'internalSandboxes.listAvailable' })`.
+ * Fetches internal Host → Sandbox handshakes for the logged-in user (handshake ledger + SSO session; no vault unlock).
+ * Calls `window.handshakeView.vaultRpc({ method: 'internalSandboxes.listAvailable' })` — the main process resolves targets from the ledger, not the vault.
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
@@ -165,7 +165,7 @@ export function useInternalSandboxesList() {
     loading,
     error,
     lastSuccess,
-    /** True after a successful `internalSandboxes.listAvailable` (vault + RPC). */
+    /** True after a successful `internalSandboxes.listAvailable` (ledger + RPC). */
     internalSandboxListReady,
     /**
      * Host vs Sandbox for ACTIVE internal handshakes (main-process authoritative).

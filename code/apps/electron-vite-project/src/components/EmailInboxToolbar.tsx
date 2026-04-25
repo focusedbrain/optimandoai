@@ -38,7 +38,7 @@ export interface EmailInboxToolbarProps {
   onBulkMoveToPendingReview?: () => void
   onBulkCategorize?: () => void
   /**
-   * Internal Host→Sandbox handshakes (requires unlocked vault + `internalSandboxes.listAvailable`).
+   * Internal Host→Sandbox handshakes from `internalSandboxes.listAvailable` (ledger; no vault unlock).
    * Omitted when the feature is not active or the user has no internal sandbox rows.
    */
   internalSandbox?: {
