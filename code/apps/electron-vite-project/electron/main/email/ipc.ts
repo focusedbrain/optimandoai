@@ -178,7 +178,6 @@ function getInboxAiRulesForPrompt(): string {
     .join('\n')
 }
 import { emailGateway } from './gateway'
-import { P2P_BEAP_INBOX_ACCOUNT_ID } from '../handshake/internalSandboxesApi'
 import { pickOauthDebugFromError } from './gmailOAuthConnectDebug'
 import { DIAGNOSE_IMAP_IPC_DEV, EMAIL_DEBUG, emailDebugLog, gmailPersistenceDebugLog } from './emailDebug'
 import { runDiagnoseImapStandalone } from './diagnoseImapStandalone'
@@ -3248,39 +3247,13 @@ Rules:
   })
 
   /**
-   * Email accounts whose `id` is allowed to own an inbox row for the logged-in session (same address).
-   * Always includes the P2P BEAP synthetic id for device-local `direct_beap` / `email_beap` rows.
-   */
-  const resolveAllowedInboxAccountIds = async (session: {
-    email?: string | null
-  }): Promise<Set<string>> => {
-    const s = new Set<string>()
-    s.add(P2P_BEAP_INBOX_ACCOUNT_ID)
-    const em = (session?.email ?? '').trim().toLowerCase()
-    if (!em) return s
-    try {
-      const accounts = await emailGateway.listAccounts()
-      for (const a of accounts) {
-        if (String(a.email ?? '')
-          .trim()
-          .toLowerCase() === em) {
-          s.add(String(a.id).trim())
-        }
-      }
-    } catch {
-      /* still allow P2P rows */
-    }
-    return s
-  }
-
-  /**
-   * Validate account + internal sandbox target, and extract cloneable plaintext (ledger + SSO session; no vault unlock).
+   * Validate internal sandbox target, and extract cloneable plaintext (ledger + SSO session; no vault unlock).
    * Does not build or send the BEAP package (renderer uses BeapPackageBuilder + executeDeliveryAction).
    * `inbox:cloneBeapToSandbox` is the product channel name; both invoke the same logic.
    *
    * Host only: clone is a Host → Sandbox orchestration path (same identity, internal handshake).
-   * On failure, `code` may include `NO_SANDBOX_CONNECTED`, `TARGET_HANDSHAKE_REQUIRED`, `SOURCE_NO_EXTRACTABLE_CONTENT`,
-   * or `NOT_HOST_ORCHESTRATOR` (envelope) for structured UI.
+   * On failure, `code` may include `NO_ACTIVE_SANDBOX_HANDSHAKE`, `MESSAGE_NOT_FOUND`, `MESSAGE_CONTENT_NOT_EXTRACTABLE`,
+   * `TARGET_HANDSHAKE_REQUIRED`, or `NOT_HOST_ORCHESTRATOR` (envelope) for structured UI.
    */
   async function handleBeapInboxCloneToSandbox(
     _e: unknown,
@@ -3329,7 +3302,6 @@ Rules:
         (session.sub && String(session.sub).trim()) ||
         null
 
-      const allowed = await resolveAllowedInboxAccountIds(session)
       const cr = payload?.cloneReason
       const tu = typeof payload?.triggeredUrl === 'string' ? payload.triggeredUrl.trim() : ''
       const cloneOptions =
@@ -3339,7 +3311,7 @@ Rules:
               ...(tu ? { triggered_url: tu } : {}),
             }
           : undefined
-      const prep = prepareBeapInboxSandboxClone(db, session, srcId, tgt, accountTag, allowed, cloneOptions)
+      const prep = prepareBeapInboxSandboxClone(db, session, srcId, tgt, accountTag, cloneOptions)
       if (!prep.ok) {
         return {
           success: false,

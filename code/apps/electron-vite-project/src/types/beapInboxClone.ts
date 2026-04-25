@@ -34,12 +34,14 @@ export interface BeapInboxClonePrepareOk {
   triggered_url?: string | null
 }
 
-/** Main-process prepare path (not including vault / host envelope errors). */
+/** Main-process prepare path (not including host envelope errors). */
 export type BeapInboxClonePrepareErrorCode =
-  | 'NO_SANDBOX_CONNECTED'
+  | 'MESSAGE_NOT_FOUND'
+  | 'MESSAGE_CONTENT_NOT_EXTRACTABLE'
+  | 'NO_ACTIVE_SANDBOX_HANDSHAKE'
   | 'INCOMPLETE_SANDBOX_KEYING'
   | 'TARGET_HANDSHAKE_REQUIRED'
-  | 'SOURCE_NO_EXTRACTABLE_CONTENT'
+  | 'SANDBOX_TARGET_NOT_CONNECTED'
   | 'PREPARE_FAILED'
 
 export type BeapInboxCloneNoSandboxDetails = {
@@ -53,13 +55,13 @@ export type BeapInboxCloneNoSandboxDetails = {
 export type CloneBeapToSandboxIpcErrorCode =
   | BeapInboxClonePrepareErrorCode
   | 'NOT_HOST_ORCHESTRATOR'
-  | 'VAULT_NOT_BOUND'
   | 'UNAUTHENTICATED'
   | 'DB_UNAVAILABLE'
+  | 'SANDBOX_SEND_FAILED'
 
 /**
  * `inbox:cloneBeapToSandbox` success: prepare only (renderer builds new qBEAP + send).
- * Failure: `code` is set for NO_SANDBOX_CONNECTED and other structured cases.
+ * Failure: `code` is set for NO_ACTIVE_SANDBOX_HANDSHAKE and other structured cases.
  */
 export type CloneBeapToSandboxIpcResult =
   | { success: true; prepare: BeapInboxClonePrepareOk }

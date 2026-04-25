@@ -78,7 +78,7 @@ export type BeapInboxCloneToSandboxResult =
       deliveryMode: 'live' | 'queued' | 'failed' | 'unknown'
       cloneMetadata: BeapInboxCloneAuditMetadata
     }
-  | { success: false; error: string }
+  | { success: false; error: string; code?: 'SANDBOX_SEND_FAILED' }
 
 /**
  * @param prepare - From `inbox:beapInboxCloneToSandboxPrepare` (success + prepare object).
@@ -90,11 +90,11 @@ export async function cloneBeapInboxToSandbox(
   const records = await listHandshakes('active')
   const raw = (records as HandshakeRecord[]).find((r) => r.handshake_id === preparePayload.target_handshake_id)
   if (!raw) {
-    return { success: false, error: 'Target handshake not found in active list' }
+    return { success: false, code: 'SANDBOX_SEND_FAILED', error: 'Target handshake not found in active list' }
   }
   const selectedRecipient = handshakeRecordToSelectedRecipient(raw)
   if (!hasHandshakeKeyMaterial(selectedRecipient)) {
-    return { success: false, error: 'Target handshake is missing key material for qBEAP' }
+    return { success: false, code: 'SANDBOX_SEND_FAILED', error: 'Target handshake is missing key material for qBEAP' }
   }
 
   const kp = await getSigningKeyPair()
@@ -120,7 +120,7 @@ export async function cloneBeapInboxToSandbox(
 
   const delivery = await executeDeliveryAction(config)
   if (!delivery.success) {
-    return { success: false, error: delivery.message || 'Send failed' }
+    return { success: false, code: 'SANDBOX_SEND_FAILED', error: delivery.message || 'Send failed' }
   }
 
   const deliveryMode = mapCoordinationDeliveryToMatrixMode(delivery)
@@ -187,14 +187,41 @@ export type BeapInboxClonePrepareFailure = {
 
 const CLONE_OK_LIVE = 'Message cloned and sent to Sandbox.'
 const CLONE_OK_QUEUED =
-  'Message cloned and queued for Sandbox. It will be delivered when the Sandbox orchestrator reconnects.'
+  'Message cloned and queued for Sandbox. It will arrive when the Sandbox orchestrator reconnects.'
 
 /** User-facing string after a clone attempt (200 vs 202 vs prepare/send failure). */
+function sandboxCloneFailureUserText(
+  e: string | undefined,
+  code?: CloneBeapToSandboxIpcErrorCode,
+): string {
+  const err = (e && String(e).trim()) || 'Sandbox clone failed.'
+  if (code === 'MESSAGE_CONTENT_NOT_EXTRACTABLE') {
+    return 'Message content could not be extracted for Sandbox clone.'
+  }
+  if (code === 'MESSAGE_NOT_FOUND') {
+    return 'Inbox message was not found.'
+  }
+  if (code === 'NO_ACTIVE_SANDBOX_HANDSHAKE') {
+    return err
+  }
+  if (code === 'SANDBOX_SEND_FAILED' || code === 'SANDBOX_TARGET_NOT_CONNECTED') {
+    return `Sandbox clone failed: ${err}`
+  }
+  if (code === 'NOT_HOST_ORCHESTRATOR') {
+    return err
+  }
+  return err.startsWith('Sandbox clone failed:') ? err : `Sandbox clone failed: ${err}`
+}
+
 export function sandboxCloneFeedbackFromOutcome(
   r: BeapInboxCloneToSandboxResult | BeapInboxClonePrepareFailure,
 ): { kind: 'success_live' | 'success_queued' | 'error'; text: string } {
   if (r && 'success' in r && r.success === false) {
-    return { kind: 'error', text: r.error || 'Sandbox clone failed.' }
+    const f = r as BeapInboxClonePrepareFailure
+    return {
+      kind: 'error',
+      text: sandboxCloneFailureUserText(f.error, f.code),
+    }
   }
   if (r && 'success' in r && r.success === true) {
     if (r.deliveryMode === 'queued') {

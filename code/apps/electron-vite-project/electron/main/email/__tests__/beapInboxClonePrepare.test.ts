@@ -45,8 +45,8 @@ function makeHandshakeRecord(id: string): HandshakeRecord {
     local_x25519_public_key_b64: 'bG9jYWx4MjU1MTk=',
     peer_x25519_public_key_b64: 'cGVlcngyNTUxOQ==',
     peer_mlkem768_public_key_b64: 'bWxrZW0xMjM=',
-    initiator: { wrdesk_user_id: 'u-regression' },
-    acceptor: { wrdesk_user_id: 'u-regression' },
+    initiator: { wrdesk_user_id: 'u-regression', email: 'h@example.com' },
+    acceptor: { wrdesk_user_id: 'u-regression', email: 'h@example.com' },
     internal_peer_pairing_code: '123456',
   } as HandshakeRecord
 }
@@ -81,7 +81,6 @@ function makeInboxDb(row: Record<string, unknown> | undefined) {
 
 describe('prepareBeapInboxSandboxClone', () => {
   const session = makeSession()
-  const allowed = new Set<string>(['acc-1'])
 
   beforeEach(() => {
     listAvailableInternalSandboxes.mockReset()
@@ -119,12 +118,47 @@ describe('prepareBeapInboxSandboxClone', () => {
     mockHappyList([makeEligibleEntry({ handshake_id: 'hs-sbx-1' })])
     getHandshakeRecord.mockReturnValue(makeHandshakeRecord('hs-sbx-1'))
     const db = makeInboxDb(row)
-    const r = prepareBeapInboxSandboxClone(db as any, session, 'm-direct', undefined, 'tag', allowed)
+    const r = prepareBeapInboxSandboxClone(db as any, session, 'm-direct', undefined, 'tag')
     expect(r.ok).toBe(true)
     if (r.ok) {
       expect(r.source_type).toBe('direct_beap')
       expect(r.clone_reason).toBe('sandbox_test')
       expect(r.encrypted_text).toContain('Extractable')
+    }
+  })
+
+  test('visible inbox row: unrelated account_id does not block prepare (list is the boundary)', () => {
+    const row = {
+      id: 'm-visible-foreign',
+      source_type: 'email_plain',
+      beap_package_json: null,
+      handshake_id: null,
+      subject: 'S',
+      body_text: 'body from row visible in unified inbox',
+      depackaged_json: null,
+      has_attachments: 0,
+      from_address: 'stranger@external.com',
+      account_id: 'unrelated-mail-account-id',
+      received_at: '2020-01-01T00:00:00.000Z',
+      ingested_at: null,
+    }
+    mockHappyList([makeEligibleEntry({ handshake_id: 'hs-sbx-1' })])
+    getHandshakeRecord.mockReturnValue(makeHandshakeRecord('hs-sbx-1'))
+    const db = makeInboxDb(row)
+    const r = prepareBeapInboxSandboxClone(db as any, session, 'm-visible-foreign', undefined, null)
+    expect(r.ok).toBe(true)
+    if (r.ok) {
+      expect(r.encrypted_text).toContain('body from row')
+    }
+  })
+
+  test('MESSAGE_NOT_FOUND when inbox row is missing', () => {
+    const db = makeInboxDb(undefined)
+    const r = prepareBeapInboxSandboxClone(db as any, session, 'missing-id', undefined, null)
+    expect(r.ok).toBe(false)
+    if (!r.ok) {
+      expect(r.code).toBe('MESSAGE_NOT_FOUND')
+      expect(r.error).toMatch(/not found/i)
     }
   })
 
@@ -150,7 +184,7 @@ describe('prepareBeapInboxSandboxClone', () => {
     mockHappyList([makeEligibleEntry({ handshake_id: 'hs-sbx-1' })])
     getHandshakeRecord.mockReturnValue(makeHandshakeRecord('hs-sbx-1'))
     const db = makeInboxDb(row)
-    const r = prepareBeapInboxSandboxClone(db as any, session, 'm-email', undefined, null, allowed)
+    const r = prepareBeapInboxSandboxClone(db as any, session, 'm-email', undefined, null)
     expect(r.ok).toBe(true)
     if (r.ok) {
       expect(r.source_type).toBe('email_beap')
@@ -175,7 +209,7 @@ describe('prepareBeapInboxSandboxClone', () => {
     mockHappyList([makeEligibleEntry()])
     getHandshakeRecord.mockReturnValue(makeHandshakeRecord('hs-sbx-1'))
     const db = makeInboxDb(row)
-    const r = prepareBeapInboxSandboxClone(db as any, session, 'm-empty', undefined, null, allowed)
+    const r = prepareBeapInboxSandboxClone(db as any, session, 'm-empty', undefined, null)
     expect(r.ok).toBe(true)
     if (r.ok) {
       expect(r.encrypted_text).toMatch(/inbox_sandbox_clone_provenance|No message body|placeholder/i)
@@ -199,7 +233,7 @@ describe('prepareBeapInboxSandboxClone', () => {
     mockHappyList([makeEligibleEntry()])
     getHandshakeRecord.mockReturnValue(makeHandshakeRecord('hs-sbx-1'))
     const db = makeInboxDb(row)
-    const r = prepareBeapInboxSandboxClone(db as any, session, 'm-out', undefined, null, allowed)
+    const r = prepareBeapInboxSandboxClone(db as any, session, 'm-out', undefined, null)
     expect(r.ok).toBe(true)
   })
 
@@ -221,7 +255,7 @@ describe('prepareBeapInboxSandboxClone', () => {
     mockHappyList([makeEligibleEntry()])
     getHandshakeRecord.mockReturnValue(makeHandshakeRecord('hs-sbx-1'))
     const db = makeInboxDb(row)
-    const r = prepareBeapInboxSandboxClone(db as any, session, 'm-plain', undefined, null, allowed)
+    const r = prepareBeapInboxSandboxClone(db as any, session, 'm-plain', undefined, null)
     expect(r.ok).toBe(true)
     if (r.ok) {
       expect(r.source_type).toBe('email_plain')
@@ -247,7 +281,7 @@ describe('prepareBeapInboxSandboxClone', () => {
     mockHappyList([makeEligibleEntry({ handshake_id: 'hs-sbx-1' })])
     getHandshakeRecord.mockReturnValue(makeHandshakeRecord('hs-sbx-1'))
     const db = makeInboxDb(row)
-    const r = prepareBeapInboxSandboxClone(db as any, session, 'm-ep-pkg', undefined, null, allowed)
+    const r = prepareBeapInboxSandboxClone(db as any, session, 'm-ep-pkg', undefined, null)
     expect(r.ok).toBe(true)
     if (r.ok) {
       expect(r.source_type).toBe('email_plain')
@@ -273,7 +307,7 @@ describe('prepareBeapInboxSandboxClone', () => {
     mockHappyList([makeEligibleEntry({ handshake_id: 'hs-sbx-1' })])
     getHandshakeRecord.mockReturnValue(makeHandshakeRecord('hs-sbx-1'))
     const db = makeInboxDb(row)
-    const r = prepareBeapInboxSandboxClone(db as any, session, 'm-link', undefined, null, allowed, {
+    const r = prepareBeapInboxSandboxClone(db as any, session, 'm-link', undefined, null, {
       clone_reason: 'external_link_or_artifact_review',
       triggered_url: 'https://example.com/risk',
     })
@@ -315,7 +349,7 @@ describe('prepareBeapInboxSandboxClone', () => {
     })
     getHandshakeRecord.mockReturnValue(makeHandshakeRecord('hs-sbx-1'))
     const db = makeInboxDb(row)
-    const r = prepareBeapInboxSandboxClone(db as any, session, 'm-1', undefined, null, allowed)
+    const r = prepareBeapInboxSandboxClone(db as any, session, 'm-1', undefined, null)
     expect(r.ok).toBe(true)
   })
 
@@ -347,12 +381,12 @@ describe('prepareBeapInboxSandboxClone', () => {
       authoritative_device_internal_role: 'host',
     })
     const db = makeInboxDb(row)
-    const r = prepareBeapInboxSandboxClone(db as any, session, 'm-k', undefined, null, allowed)
+    const r = prepareBeapInboxSandboxClone(db as any, session, 'm-k', undefined, null)
     expect(r.ok).toBe(false)
     if (!r.ok) expect(r.code).toBe('INCOMPLETE_SANDBOX_KEYING')
   })
 
-  test('NO_SANDBOX_CONNECTED when there are no active internal sandboxes in the list', () => {
+  test('NO_ACTIVE_SANDBOX_HANDSHAKE when there are no active internal sandboxes in the list', () => {
     const row = {
       id: 'm-ns',
       source_type: 'direct_beap',
@@ -374,9 +408,9 @@ describe('prepareBeapInboxSandboxClone', () => {
       authoritative_device_internal_role: 'host',
     })
     const db = makeInboxDb(row)
-    const r = prepareBeapInboxSandboxClone(db as any, session, 'm-ns', undefined, null, allowed)
+    const r = prepareBeapInboxSandboxClone(db as any, session, 'm-ns', undefined, null)
     expect(r.ok).toBe(false)
-    if (!r.ok) expect(r.code).toBe('NO_SANDBOX_CONNECTED')
+    if (!r.ok) expect(r.code).toBe('NO_ACTIVE_SANDBOX_HANDSHAKE')
   })
 
   test('TARGET_HANDSHAKE_REQUIRED when two eligible sandboxes and no target id', () => {
@@ -398,7 +432,7 @@ describe('prepareBeapInboxSandboxClone', () => {
       makeEligibleEntry({ handshake_id: 'hs-b', peer_device_id: 'd2' }),
     ])
     const db = makeInboxDb(row)
-    const r = prepareBeapInboxSandboxClone(db as any, session, 'm-2', undefined, null, allowed)
+    const r = prepareBeapInboxSandboxClone(db as any, session, 'm-2', undefined, null)
     expect(r.ok).toBe(false)
     if (!r.ok) expect(r.code).toBe('TARGET_HANDSHAKE_REQUIRED')
   })

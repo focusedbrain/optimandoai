@@ -8,7 +8,6 @@ import { getHandshakeRecord } from '../handshake/db'
 import {
   isEligibleActiveInternalHostSandboxRecord,
   listAvailableInternalSandboxes,
-  P2P_BEAP_INBOX_ACCOUNT_ID,
   type SandboxOrchestratorAvailabilityStatus,
 } from '../handshake/internalSandboxesApi'
 import type { SSOSession } from '../handshake/types'
@@ -53,11 +52,12 @@ export type BeapInboxClonePrepareOptions = {
 
 /** Structured failure for `inbox:cloneBeapToSandbox` / prepare (UI + logs). */
 export type BeapInboxCloneErrorCode =
-  | 'NO_SANDBOX_CONNECTED'
+  | 'MESSAGE_NOT_FOUND'
+  | 'MESSAGE_CONTENT_NOT_EXTRACTABLE'
+  | 'NO_ACTIVE_SANDBOX_HANDSHAKE'
   | 'INCOMPLETE_SANDBOX_KEYING'
   | 'TARGET_HANDSHAKE_REQUIRED'
-  /** Generic row could not be serialized (extremely rare). */
-  | 'SOURCE_NO_EXTRACTABLE_CONTENT'
+  | 'SANDBOX_TARGET_NOT_CONNECTED'
   | 'PREPARE_FAILED'
 
 export type BeapInboxCloneNoSandboxDetails = {
@@ -74,30 +74,12 @@ export type BeapInboxClonePrepareResult =
   | BeapInboxClonePrepareOk
   | { ok: false; error: string; code?: BeapInboxCloneErrorCode; details?: BeapInboxCloneNoSandboxDetails | Record<string, unknown> }
 
-function assertInboxMessageOwned(
-  accountId: string,
-  sourceType: string | null | undefined,
-  allowedAccountIds: ReadonlySet<string>,
-): { ok: true } | { ok: false; error: string } {
-  const id = (accountId ?? '').trim()
-  if (!id) {
-    return { ok: false, error: 'Inbox message has no account' }
-  }
-  if (id === P2P_BEAP_INBOX_ACCOUNT_ID) {
-    if (sourceType === 'direct_beap' || sourceType === 'email_beap' || !sourceType) {
-      return { ok: true }
-    }
-  }
-  if (allowedAccountIds.has(id)) {
-    return { ok: true }
-  }
-  return { ok: false, error: 'Inbox message does not belong to the current account' }
-}
-
 /**
- * @param session - Current SSO session (account scope).
+ * Inbox list / query is the access boundary. Prepare does not re-check row `account_id` or
+ * email/BEAP identities against the session; isolation belongs in listing and storage.
+ *
+ * @param session - Current SSO session (for sandbox target filtering only).
  * @param targetHandshakeId - When omitted, must be exactly one `sandbox_keying_complete` sandbox in the list.
- * @param allowedInboxAccountIds - Email `account_id` values for the logged-in user (from gateway).
  */
 export function prepareBeapInboxSandboxClone(
   db: any,
@@ -105,7 +87,6 @@ export function prepareBeapInboxSandboxClone(
   sourceMessageId: string,
   targetHandshakeId: string | undefined,
   accountTag: string | null,
-  allowedInboxAccountIds: ReadonlySet<string>,
   cloneOptions?: BeapInboxClonePrepareOptions,
 ): BeapInboxClonePrepareResult {
   if (!db) return { ok: false, error: 'Database unavailable' }
@@ -139,12 +120,7 @@ export function prepareBeapInboxSandboxClone(
     | undefined
 
   if (!row) {
-    return { ok: false, error: 'Source message not found' }
-  }
-
-  const own = assertInboxMessageOwned(row.account_id ?? '', row.source_type, allowedInboxAccountIds)
-  if (!own.ok) {
-    return own
+    return { ok: false, code: 'MESSAGE_NOT_FOUND', error: 'Inbox message was not found.' }
   }
 
   const list = listAvailableInternalSandboxes(db, session)
@@ -166,8 +142,8 @@ export function prepareBeapInboxSandboxClone(
       }
       return {
         ok: false,
-        code: 'NO_SANDBOX_CONNECTED',
-        error: 'No active internal Host ↔ Sandbox handshake is available for this account.',
+        code: 'NO_ACTIVE_SANDBOX_HANDSHAKE',
+        error: 'No active internal Host ↔ Sandbox handshake is available.',
         details,
       }
     }
@@ -193,24 +169,24 @@ export function prepareBeapInboxSandboxClone(
 
   const targetRecord = getHandshakeRecord(db, tgtId)
   if (!targetRecord) {
-    return { ok: false, error: 'Target handshake not found' }
+    return { ok: false, code: 'SANDBOX_TARGET_NOT_CONNECTED', error: 'Sandbox target handshake was not found.' }
   }
   if (!isEligibleActiveInternalHostSandboxRecord(targetRecord, session)) {
     return {
       ok: false,
-      error:
-        'Target is not an eligible ACTIVE internal host→sandbox handshake for this account (identity and roles must match).',
+      code: 'SANDBOX_TARGET_NOT_CONNECTED',
+      error: 'Sandbox target is not an eligible ACTIVE internal Host → Sandbox handshake for this device.',
     }
   }
   if (!targetRecord.p2p_endpoint?.trim()) {
-    return { ok: false, error: 'Sandbox handshake has no P2P endpoint' }
+    return { ok: false, code: 'SANDBOX_TARGET_NOT_CONNECTED', error: 'Sandbox handshake has no P2P endpoint.' }
   }
   if (!targetRecord.local_x25519_public_key_b64?.trim()) {
-    return { ok: false, error: 'ERR_HANDSHAKE_LOCAL_KEY_MISSING: sandbox handshake has no bound local X25519 key' }
+    return { ok: false, code: 'SANDBOX_TARGET_NOT_CONNECTED', error: 'Sandbox handshake has no bound local encryption key.' }
   }
   const entry = list.sandboxes.find((s) => s.handshake_id === tgtId)
   if (!entry) {
-    return { ok: false, error: 'Target handshake is not in the current internal sandbox list' }
+    return { ok: false, code: 'SANDBOX_TARGET_NOT_CONNECTED', error: 'Target handshake is not in the current internal Sandbox list.' }
   }
   if (!entry.sandbox_keying_complete) {
     return {
@@ -225,7 +201,7 @@ export function prepareBeapInboxSandboxClone(
   if (!extracted.ok) {
     return {
       ok: false,
-      code: 'SOURCE_NO_EXTRACTABLE_CONTENT',
+      code: 'MESSAGE_CONTENT_NOT_EXTRACTABLE',
       error: extracted.error,
       details: { reason: 'extraction_failed' as const, extraction_error: extracted.error },
     }
