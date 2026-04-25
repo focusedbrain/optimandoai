@@ -9,7 +9,7 @@ const root = __dirname
 const extSrc = path.resolve(root, '../extension-chromium/src')
 
 /** Parsed by scripts/kill-wr-desk.cjs and clear-build-caches (extension); keep in sync with extension outDir. */
-const ORCHESTRATOR_BUILD_STAMP = 'build64'
+const ORCHESTRATOR_BUILD_STAMP = 'build65'
 
 const oauthId =
   process.env.GOOGLE_OAUTH_CLIENT_ID?.trim() ||

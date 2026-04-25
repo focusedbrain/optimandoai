@@ -109,6 +109,13 @@ export function isWebRtcHostAiArchitectureEnabled(f: P2pInferenceFlagSnapshot): 
   return f.p2pInferenceEnabled && f.p2pInferenceWebrtcEnabled
 }
 
+/** One-line snapshot for [HOST_AI_FLAGS] — Host AI / list / transport diagnostics. */
+export function logHostAiP2pFlagsSnapshot(f: P2pInferenceFlagSnapshot): void {
+  console.log(
+    `[HOST_AI_FLAGS] p2pInferenceEnabled=${f.p2pInferenceEnabled} signaling=${f.p2pInferenceSignalingEnabled} webrtc=${f.p2pInferenceWebrtcEnabled} capsOverP2p=${f.p2pInferenceCapsOverP2p} requestOverP2p=${f.p2pInferenceRequestOverP2p} httpFallback=${f.p2pInferenceHttpFallback}`,
+  )
+}
+
 /** True if any non-default P2P plane may be considered (all off in production until wired). */
 export function isP2pInferenceFeatureTouched(): boolean {
   const f = getP2pInferenceFlags()

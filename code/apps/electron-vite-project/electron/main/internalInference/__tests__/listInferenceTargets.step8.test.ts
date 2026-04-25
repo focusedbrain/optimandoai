@@ -608,10 +608,60 @@ describe('STEP 8 — Production safety (unit contracts)', () => {
     const r = await listSandboxHostInternalInferenceTargets()
     const t = r.targets[0]!
     const joined = log.mock.calls.flat().join('\n')
-    expect(joined).toMatch(/target_detected=true/)
+    expect(joined).toMatch(/\[HOST_AI_FLAGS\] p2pInferenceEnabled=true/)
+    expect(joined).toMatch(/\[HOST_AI_TRANSPORT_DECIDE\].*target_detected=true.*preferred=webrtc_p2p.*reason=p2p_enabled_legacy_endpoint_ignored/s)
+    expect(joined).not.toMatch(
+      /target_disabled[^\n]*reason=legacy_http_invalid[^\n]*MVP_P2P_ENDPOINT_INVALID/,
+    )
     expect(t.p2pUiPhase).toBe('ready')
     expect(t.p2pUiPhase).not.toBe('legacy_http_invalid')
+    expect(t.unavailable_reason).not.toBe('MVP_P2P_ENDPOINT_INVALID')
     log.mockRestore()
+    vi.unstubAllEnvs()
+    resetP2pInferenceFlagsForTests()
+  })
+
+  it('(1a) CONTRACT: WebRTC on + relay + ACTIVE Sandbox→Host — no MVP disable; transport shows webrtc_p2p + connecting/ready; legacy invalid only', async () => {
+    vi.stubEnv('WRDESK_P2P_INFERENCE_ENABLED', '1')
+    vi.stubEnv('WRDESK_P2P_INFERENCE_WEBRTC_ENABLED', '1')
+    vi.stubEnv('WRDESK_P2P_INFERENCE_SIGNALING_ENABLED', '1')
+    const { resetP2pInferenceFlagsForTests } = await import('../p2pInferenceFlags')
+    resetP2pInferenceFlagsForTests()
+    isSandboxModeMock.mockReturnValue(true)
+    isDcUpListMock.mockReturnValue(false)
+    const relay = 'https://relay.wrdesk.com/xyz/beap/ingest'
+    listHandshakeRecordsMock.mockReturnValue([activeInternalSandboxToHost({ p2p_endpoint: relay })])
+    ensureSessionListMock.mockResolvedValue({
+      handshakeId: 'hs-internal-1',
+      sessionId: 'sess-1a',
+      phase: 'signaling',
+      p2pUiPhase: 'connecting',
+      lastErrorCode: null,
+      connectedAt: null,
+      updatedAt: Date.now(),
+      signalingExpiresAt: Date.now() + 60_000,
+      boundLocalDeviceId: 'dev-sand-1',
+      boundPeerDeviceId: 'dev-host-1',
+    })
+    probeHostInferencePolicyFromSandboxMock.mockResolvedValue({
+      ok: true as const,
+      allowSandboxInference: true,
+      defaultChatModel: 'm1',
+      modelId: 'm1',
+      displayLabelFromHost: 'Host AI · m1',
+      hostComputerNameFromHost: 'H',
+      hostOrchestratorRoleLabelFromHost: 'Host',
+      internalIdentifierDisplayFromHost: '1-2-3',
+      internalIdentifier6FromHost: '123456',
+      directP2pAvailable: false,
+    })
+    const r = await listSandboxHostInternalInferenceTargets()
+    const t = r.targets[0]!
+    expect(t.p2pUiPhase).toBe('connecting')
+    expect(t.transportMode).toBe('webrtc_p2p')
+    expect(t.p2pUiPhase).not.toBe('legacy_http_invalid')
+    expect(t.inference_error_code).not.toBe('MVP_P2P_ENDPOINT_INVALID')
+    expect(ensureSessionListMock).toHaveBeenCalled()
     vi.unstubAllEnvs()
     resetP2pInferenceFlagsForTests()
   })
@@ -671,11 +721,45 @@ describe('STEP 8 — Production safety (unit contracts)', () => {
     expect(r.targets).toEqual([])
   })
 
+  it('CONTRACT (4): WebRTC env on + local side Host — no Host AI self-target', async () => {
+    vi.stubEnv('WRDESK_P2P_INFERENCE_ENABLED', '1')
+    vi.stubEnv('WRDESK_P2P_INFERENCE_WEBRTC_ENABLED', '1')
+    const { resetP2pInferenceFlagsForTests } = await import('../p2pInferenceFlags')
+    resetP2pInferenceFlagsForTests()
+    isHostModeMock.mockReturnValue(true)
+    isSandboxModeMock.mockReturnValue(false)
+    getHandshakeDbMock.mockResolvedValue({})
+    listHandshakeRecordsMock.mockReturnValue([
+      activeInternalSandboxToHost({
+        local_role: 'initiator',
+        initiator_device_role: 'host',
+        acceptor_device_role: 'sandbox',
+      }),
+    ])
+    const r = await listSandboxHostInternalInferenceTargets()
+    expect(r.targets).toEqual([])
+    vi.unstubAllEnvs()
+    resetP2pInferenceFlagsForTests()
+  })
+
   it('(4) standard/external handshake: no Host AI target', async () => {
     isSandboxModeMock.mockReturnValue(true)
     listHandshakeRecordsMock.mockReturnValue([activeInternalSandboxToHost({ handshake_type: 'standard' as any })])
     const r = await listSandboxHostInternalInferenceTargets()
     expect(r.targets).toHaveLength(0)
+  })
+
+  it('CONTRACT (3): WebRTC env on + external/standard handshake — target_detected path not used; no Host row', async () => {
+    vi.stubEnv('WRDESK_P2P_INFERENCE_ENABLED', '1')
+    vi.stubEnv('WRDESK_P2P_INFERENCE_WEBRTC_ENABLED', '1')
+    const { resetP2pInferenceFlagsForTests } = await import('../p2pInferenceFlags')
+    resetP2pInferenceFlagsForTests()
+    isSandboxModeMock.mockReturnValue(true)
+    listHandshakeRecordsMock.mockReturnValue([activeInternalSandboxToHost({ handshake_type: 'standard' as any })])
+    const r = await listSandboxHostInternalInferenceTargets()
+    expect(r.targets).toHaveLength(0)
+    vi.unstubAllEnvs()
+    resetP2pInferenceFlagsForTests()
   })
 
   it('(5) cross-principal internal row: rejected (no target)', async () => {
@@ -693,6 +777,23 @@ describe('STEP 8 — Production safety (unit contracts)', () => {
     expect(t.p2pUiPhase).toBe('hidden')
     expect(t.available).toBe(false)
     expect(t.host_selector_state).toBe('unavailable')
+  })
+
+  it('CONTRACT (5): WebRTC env on + internal_coordination_identity_complete=false — not selectable; no P2P session', async () => {
+    ensureSessionListMock.mockClear()
+    vi.stubEnv('WRDESK_P2P_INFERENCE_ENABLED', '1')
+    vi.stubEnv('WRDESK_P2P_INFERENCE_WEBRTC_ENABLED', '1')
+    vi.stubEnv('WRDESK_P2P_INFERENCE_SIGNALING_ENABLED', '1')
+    const { resetP2pInferenceFlagsForTests } = await import('../p2pInferenceFlags')
+    resetP2pInferenceFlagsForTests()
+    isSandboxModeMock.mockReturnValue(true)
+    listHandshakeRecordsMock.mockReturnValue([activeInternalSandboxToHost({ internal_coordination_identity_complete: false as any })])
+    const r = await listSandboxHostInternalInferenceTargets()
+    const t = r.targets[0]!
+    expect(t.p2pUiPhase).toBe('hidden')
+    expect(ensureSessionListMock).not.toHaveBeenCalled()
+    vi.unstubAllEnvs()
+    resetP2pInferenceFlagsForTests()
   })
 
   it('(7) WebRTC session failed: p2p_unavailable, not legacy_http_invalid', async () => {

@@ -13,7 +13,7 @@ import { getOrchestratorMode } from '../orchestrator/orchestratorModeStore'
 import { getHandshakeDbForInternalInference } from './dbAccess'
 import { logInternalHostHandshakeP2pInspect } from './internalP2pHandshakeInspect'
 import { newHostAiCorrelationChain } from './hostAiStageLog'
-import { getP2pInferenceFlags } from './p2pInferenceFlags'
+import { getP2pInferenceFlags, isWebRtcHostAiArchitectureEnabled, logHostAiP2pFlagsSnapshot } from './p2pInferenceFlags'
 import { ensureSession, P2pSessionPhase } from './p2pSession/p2pInferenceSessionManager'
 import { isP2pDataChannelUpForHandshake } from './p2pSession/p2pSessionWait'
 import { assertRecordForServiceRpc, handshakeSamePrincipal, p2pEndpointKind, peerCoordinationDeviceId } from './policy'
@@ -44,6 +44,26 @@ export type HostListLegacyEndpointKind = 'direct' | 'relay' | 'missing' | 'inval
 
 function p2pStackEnabledForList(f: P2pInferenceFlagSnapshot): boolean {
   return f.p2pInferenceEnabled && f.p2pInferenceWebrtcEnabled && f.p2pInferenceSignalingEnabled
+}
+
+/** Full signaling stack, or WebRTC intent + relay (signaling URL — session can still be ensured). */
+function p2pEnsureEligibleForList(
+  f: P2pInferenceFlagSnapshot,
+  endpointKind: 'direct' | 'relay' | 'missing' | 'invalid',
+): boolean {
+  return p2pStackEnabledForList(f) || (isWebRtcHostAiArchitectureEnabled(f) && endpointKind === 'relay')
+}
+
+function legacyHttpStatusForDecideLog(
+  d: HostAiTransportDeciderResult,
+  endpointKind: 'direct' | 'relay' | 'missing' | 'invalid',
+): 'valid' | 'invalid' | 'not_checked' {
+  if (!d.targetDetected) return 'not_checked'
+  if (d.legacyHttpFallbackViable) return 'valid'
+  /** Relay never supports legacy HTTP POST to p2p_endpoint — invalid for fallback regardless of env default for httpFallback. */
+  if (endpointKind === 'relay') return 'invalid'
+  if (d.mayUseLegacyHttpFallback) return 'invalid'
+  return 'not_checked'
 }
 
 /**
@@ -632,6 +652,7 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
   console.log(
     `${L} list_begin configured_mode=${configuredModeForLog(mainMode)} (orchestrator file is a hint, not a hard block)`,
   )
+  logHostAiP2pFlagsSnapshot(getP2pInferenceFlags())
 
   const db = await getHandshakeDbForInternalInference()
   const dbOk = db != null
@@ -767,28 +788,34 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
     const epK = p2pEndpointKind(db, r.p2p_endpoint)
     const leK = epKindToListKind(epK)
 
-    // MVP_P2P_ENDPOINT_INVALID / `legacy_http_invalid` is legacy-HTTP-fallback only; with WebRTC stack on, relay+signaling is valid — WebRTC path (detected → ensureSession), not a disabled list row.
+    // MVP / legacy_http_invalid is legacy-HTTP only. WRDESK_P2P_INFERENCE_ENABLED + WEBRTC: relay is signaling; do not disable Host AI.
     let listDec: HostAiTransportDeciderResult = dec
-    if (dec.selectorPhase === 'legacy_http_invalid' && p2pStackEnabledForList(fRow)) {
+    let transportDecideLogReason: string = 'policy'
+    if (dec.selectorPhase === 'legacy_http_invalid' && isWebRtcHostAiArchitectureEnabled(fRow)) {
       console.warn(
-        `${L} transport_repair handshake=${hid} raw_phase=legacy_http_invalid p2p_endpoint_kind=${epK} -> detected (MVP not applied when WebRTC stack on)`,
+        `${L} transport_repair handshake=${hid} raw_phase=legacy_http_invalid p2p_endpoint_kind=${epK} -> connecting (MVP not applied; WebRTC intent)`,
       )
+      transportDecideLogReason = 'p2p_enabled_legacy_repaired'
       listDec = {
         ...dec,
-        selectorPhase: 'detected',
+        selectorPhase: 'connecting',
         preferredTransport: 'webrtc_p2p',
         p2pTransportEndpointOpen: true,
+        mayUseLegacyHttpFallback: dec.mayUseLegacyHttpFallback,
+        legacyHttpFallbackViable: false,
         failureCode: null,
         userSafeReason: null,
       }
+    } else if (
+      isWebRtcHostAiArchitectureEnabled(fRow) &&
+      epK === 'relay' &&
+      listDec.preferredTransport === 'webrtc_p2p'
+    ) {
+      transportDecideLogReason = 'p2p_enabled_legacy_endpoint_ignored'
     }
     const bm = baseMetaFromDec(listDec, leK)
-    const phaseLog =
-      listDec === dec
-        ? ''
-        : ` raw_phase=${dec.selectorPhase} (repaired_for_webrtc_p2p)`
     console.log(
-      `${L} transport_decide handshake=${hid} selector_phase=${listDec.selectorPhase} p2p_endpoint_kind=${epK} target_detected=${listDec.targetDetected} preferred=${listDec.preferredTransport} failure=${listDec.failureCode ?? 'null'}${phaseLog}`,
+      `[HOST_AI_TRANSPORT_DECIDE] handshake=${hid} target_detected=${listDec.targetDetected} preferred=${listDec.preferredTransport} selector_phase=${listDec.selectorPhase} legacy_http_status=${legacyHttpStatusForDecideLog(listDec, epK)} p2p_endpoint_kind=${epK} reason=${transportDecideLogReason}`,
     )
 
     if (!listDec.targetDetected) {
@@ -874,7 +901,7 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
       continue
     }
 
-    if (listDec.selectorPhase === 'legacy_http_invalid' && !p2pStackEnabledForList(fRow)) {
+    if (listDec.selectorPhase === 'legacy_http_invalid' && !isWebRtcHostAiArchitectureEnabled(fRow)) {
       const ml = metaLocal(displayName, pcc)
       const ur: HostTargetUnavailableCode = 'MVP_P2P_ENDPOINT_INVALID'
       const sub = secondaryLabelFromMeta(ml.hostName, ml.roleLabel, ml.pairingDisplay)
@@ -965,7 +992,7 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
 
     console.log(`[HOST_INFERENCE_P2P] from_listInferenceTargets handshake=${hid}`)
 
-    const stackOn = p2pStackEnabledForList(fRow) && listDec.p2pTransportEndpointOpen
+    const stackOn = p2pEnsureEligibleForList(fRow, epK) && listDec.p2pTransportEndpointOpen
     if (stackOn) {
       let sState: Awaited<ReturnType<typeof ensureSession>> | null = null
       try {
@@ -1110,13 +1137,13 @@ export async function listSandboxHostInternalInferenceTargets(): Promise<{
     if (!probe.ok) {
       const code = probe.code
       const isPolicyForbid = code === InternalInferenceErrorCode.POLICY_FORBIDDEN
-      const stackOn = p2pStackEnabledForList(fRow)
+      const stackOnForRelay = p2pStackEnabledForList(fRow) || (isWebRtcHostAiArchitectureEnabled(fRow) && epK === 'relay')
       const relaySig = epK === 'relay'
       // Relay is valid for WebRTC signaling; a false "direct HTTP" probe flag must not be the only reason we hide the row.
       const p2pFail =
         !isPolicyForbid &&
         (code === InternalInferenceErrorCode.HOST_DIRECT_P2P_UNAVAILABLE ||
-          (!probe.directP2pAvailable && !(stackOn && relaySig)))
+          (!probe.directP2pAvailable && !(stackOnForRelay && relaySig)))
       const ur: HostTargetUnavailableCode = isPolicyForbid
         ? 'HOST_POLICY_DISABLED'
         : p2pFail

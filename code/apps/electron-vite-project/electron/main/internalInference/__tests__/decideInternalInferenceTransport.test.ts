@@ -81,7 +81,37 @@ describe('decideInternalInferenceTransport (STEP 4 legacy vs WebRTC)', () => {
     expect(r.legacyHttpFallbackViable).toBe(false)
   })
 
-  it('WRDESK P2P+WebRTC on but stack incomplete (no signaling) — not legacy MVP; P2P_STACK_INCOMPLETE', () => {
+  it('WRDESK P2P+WebRTC on, no signaling, relay — connecting; relay is not legacy MVP (legacy HTTP invalid only)', () => {
+    const r = decideInternalInferenceTransport({
+      ...base,
+      featureFlags: {
+        p2pInferenceEnabled: true,
+        p2pInferenceWebrtcEnabled: true,
+        p2pInferenceSignalingEnabled: false,
+        p2pInferenceHttpFallback: true,
+        p2pInferenceCapsOverP2p: false,
+        p2pInferenceRequestOverP2p: false,
+        p2pInferenceHttpInternalCompat: false,
+        p2pInferenceVerboseLogs: false,
+        p2pInferenceAnalysisLog: false,
+        p2pInferenceDataChannelCapabilities: false,
+        p2pInferenceDataChannelInference: false,
+      },
+      legacyEndpointInfo: {
+        p2pEndpointKind: 'relay',
+        mayPostInternalInferenceHttpToIngest: false,
+        mvpClassForLog: 'relay',
+        p2pEndpointGateOpen: false,
+      },
+    })
+    expect(r.selectorPhase).toBe('connecting')
+    expect(r.preferredTransport).toBe('webrtc_p2p')
+    expect(r.p2pTransportEndpointOpen).toBe(true)
+    expect(r.failureCode).toBeNull()
+    expect(r.legacyHttpFallbackViable).toBe(false)
+  })
+
+  it('WRDESK P2P+WebRTC on but stack incomplete (no signaling), direct — P2P_STACK_INCOMPLETE', () => {
     const r = decideInternalInferenceTransport({
       ...base,
       featureFlags: {
@@ -107,9 +137,77 @@ describe('decideInternalInferenceTransport (STEP 4 legacy vs WebRTC)', () => {
     })
     expect(r.selectorPhase).toBe('p2p_unavailable')
     expect(r.failureCode).toBe('P2P_STACK_INCOMPLETE')
+    expect(r.preferredTransport).toBe('webrtc_p2p')
     expect(r.failureCode).not.toBe('MVP_P2P_ENDPOINT_INVALID')
     expect(r.mayUseLegacyHttpFallback).toBe(true)
     expect(r.legacyHttpFallbackViable).toBe(true)
+  })
+
+  it('WebRTC enabled + full stack + relay + session signaling: preferred=webrtc_p2p, selector_phase=connecting (relay only blocks legacy HTTP)', () => {
+    const r = decideInternalInferenceTransport({
+      ...base,
+      featureFlags: {
+        p2pInferenceEnabled: true,
+        p2pInferenceWebrtcEnabled: true,
+        p2pInferenceSignalingEnabled: true,
+        p2pInferenceHttpFallback: true,
+        p2pInferenceCapsOverP2p: false,
+        p2pInferenceRequestOverP2p: false,
+        p2pInferenceHttpInternalCompat: false,
+        p2pInferenceVerboseLogs: false,
+        p2pInferenceAnalysisLog: false,
+        p2pInferenceDataChannelCapabilities: false,
+        p2pInferenceDataChannelInference: false,
+      },
+      legacyEndpointInfo: {
+        p2pEndpointKind: 'relay',
+        mayPostInternalInferenceHttpToIngest: false,
+        mvpClassForLog: 'relay',
+        p2pEndpointGateOpen: true,
+      },
+      sessionState: {
+        handshakeId: 'h1',
+        p2pSession: { phase: P2pSessionPhase.signaling } as any,
+        dataChannelUp: false,
+      },
+    })
+    expect(r.preferredTransport).toBe('webrtc_p2p')
+    expect(r.selectorPhase).toBe('connecting')
+    expect(r.targetDetected).toBe(true)
+    expect(r.legacyHttpFallbackViable).toBe(false)
+  })
+
+  it('relay + stale p2pEndpointGateOpen false + full stack: WebRTC not blocked; connecting when signaling (gate repair for relay only)', () => {
+    const r = decideInternalInferenceTransport({
+      ...base,
+      featureFlags: {
+        p2pInferenceEnabled: true,
+        p2pInferenceWebrtcEnabled: true,
+        p2pInferenceSignalingEnabled: true,
+        p2pInferenceHttpFallback: true,
+        p2pInferenceCapsOverP2p: false,
+        p2pInferenceRequestOverP2p: false,
+        p2pInferenceHttpInternalCompat: false,
+        p2pInferenceVerboseLogs: false,
+        p2pInferenceAnalysisLog: false,
+        p2pInferenceDataChannelCapabilities: false,
+        p2pInferenceDataChannelInference: false,
+      },
+      legacyEndpointInfo: {
+        p2pEndpointKind: 'relay',
+        mayPostInternalInferenceHttpToIngest: false,
+        mvpClassForLog: 'relay',
+        p2pEndpointGateOpen: false,
+      },
+      sessionState: {
+        handshakeId: 'h1',
+        p2pSession: { phase: P2pSessionPhase.signaling } as any,
+        dataChannelUp: false,
+      },
+    })
+    expect(r.preferredTransport).toBe('webrtc_p2p')
+    expect(r.selectorPhase).toBe('connecting')
+    expect(r.failureCode).toBeNull()
   })
 
   it('full stack: transport open, DataChannel up — ready, MVP never applies', () => {

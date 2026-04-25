@@ -21,6 +21,8 @@ import { getSessionState, P2pSessionPhase, type P2pSessionState } from '../p2pSe
 import { isP2pDataChannelUpForHandshake } from '../p2pSession/p2pSessionWait'
 import type { HandshakeRecord } from '../../handshake/types'
 
+const L = '[HOST_AI_TRANSPORT]'
+
 export type HostAiOperationContext = 'list_targets' | 'capabilities' | 'request' | 'result'
 
 export type HostAiSelectorPhase =
@@ -116,12 +118,22 @@ export function decideInternalInferenceTransport(
   } = input
 
   const mayFb = f.p2pInferenceHttpFallback
-  /** `HTTP_FALLBACK` flag && direct BEAP ingest — legacy path could actually be used. */
+  /** `HTTP_FALLBACK` flag && direct BEAP ingest — legacy path could actually be used. Relay never POSTs; `mayPost` is false. */
   const legacyViable = mayFb && le.mayPostInternalInferenceHttpToIngest
   const p2pOn = p2pStackEnabled(f)
   const kind = le.p2pEndpointKind
+  const wrtcArch = isWebRtcHostAiArchitectureEnabled(f)
+  /**
+   * P2P transport may run over relay (signaling URL). `p2pEndpointGateOpen` already encodes that when policy agrees;
+   * if `legacyEndpointInfo` is stale, relay + full stack still must not be treated as `P2P_TRANSPORT_BLOCK` (relay only blocks legacy HTTP to `p2p_endpoint`).
+   */
+  const transportOpen = le.p2pEndpointGateOpen || (p2pOn && kind === 'relay')
 
-  const transportOpen = le.p2pEndpointGateOpen
+  if (f.p2pInferenceVerboseLogs) {
+    console.log(
+      `${L} transport_decide flags_snapshot p2pInferenceEnabled=${f.p2pInferenceEnabled} p2pWebrtcEnabled=${f.p2pInferenceWebrtcEnabled} p2pSignalingEnabled=${f.p2pInferenceSignalingEnabled} httpFallback=${f.p2pInferenceHttpFallback} capsOverP2p=${f.p2pInferenceCapsOverP2p} requestOverP2p=${f.p2pInferenceRequestOverP2p} p2pOn=${p2pOn} wrtcArch=${wrtcArch} p2pEndpointKind=${kind} mayPostIngest=${le.mayPostInternalInferenceHttpToIngest} legacyHttpFallbackViable=${legacyViable} p2pEndpointGateOpen_le=${le.p2pEndpointGateOpen} transportOpen=${transportOpen} sessionPhase=${ss?.p2pSession?.phase ?? 'null'} dataChannelUp=${ss?.dataChannelUp ?? false}`,
+    )
+  }
 
   const trust =
     Boolean(hr) &&
@@ -184,11 +196,24 @@ export function decideInternalInferenceTransport(
 
   if (!p2pOn) {
     // WRDESK_P2P_INFERENCE_ENABLED + WEBRTC: incomplete stack is a P2P config issue, not legacy MVP.
-    if (isWebRtcHostAiArchitectureEnabled(f)) {
+    if (wrtcArch) {
+      // Relay URL is signaling; it never supports legacy HTTP POST — do not conflate with MVP / legacy_http_invalid.
+      if (kind === 'relay') {
+        return {
+          targetDetected: true,
+          selectorPhase: 'connecting',
+          preferredTransport: 'webrtc_p2p',
+          mayUseLegacyHttpFallback: mayFb,
+          legacyHttpFallbackViable: false,
+          p2pTransportEndpointOpen: true,
+          failureCode: null,
+          userSafeReason: null,
+        }
+      }
       return {
         targetDetected: true,
         selectorPhase: 'p2p_unavailable',
-        preferredTransport: 'none',
+        preferredTransport: 'webrtc_p2p',
         mayUseLegacyHttpFallback: mayFb,
         legacyHttpFallbackViable: legacyViable,
         p2pTransportEndpointOpen: false,
@@ -228,7 +253,7 @@ export function decideInternalInferenceTransport(
     return {
       targetDetected: true,
       selectorPhase: 'p2p_unavailable',
-      preferredTransport: 'none',
+      preferredTransport: wrtcArch ? 'webrtc_p2p' : 'none',
       mayUseLegacyHttpFallback: mayFb,
       legacyHttpFallbackViable: legacyViable,
       p2pTransportEndpointOpen: false,
@@ -266,7 +291,7 @@ export function decideInternalInferenceTransport(
 
   return {
     targetDetected: true,
-    selectorPhase: 'detected',
+    selectorPhase: 'connecting',
     preferredTransport: 'webrtc_p2p',
     mayUseLegacyHttpFallback: mayFb,
     legacyHttpFallbackViable: legacyViable,
