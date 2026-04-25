@@ -6,6 +6,13 @@
 import { useState, useEffect, useCallback } from 'react'
 import RelaySetupWizard from './RelaySetupWizard'
 import ThisDeviceCard from './ThisDeviceCard'
+import { useSandboxHostInference } from '../hooks/useSandboxHostInference'
+import { useHostToSandboxDirectReachability } from '../hooks/useHostToSandboxDirectReachability'
+import {
+  directP2pReachabilityCopyForHostToSandbox,
+  directP2pReachabilityCopyForSandboxToHost,
+  hostInferenceDirectUnavailableMessage,
+} from '../lib/hostInferenceUiGates'
 
 // ── Inbox AI Settings types ──
 interface InboxAiSettings {
@@ -118,6 +125,10 @@ export default function SettingsView({ onNavigateToHandshake }: SettingsViewProp
   const [orchPeers, setOrchPeers] = useState<SettingsOrchestratorPeer[]>([])
   const [orchLoading, setOrchLoading] = useState(true)
   const [orchConnectMessage, setOrchConnectMessage] = useState<string | null>(null)
+  const [hostInfProbeId, setHostInfProbeId] = useState<string | null>(null)
+  const [hostP2pProbeId, setHostP2pProbeId] = useState<string | null>(null)
+  const sandboxHostInf = useSandboxHostInference(hostInfProbeId)
+  const hostToSand = useHostToSandboxDirectReachability(hostP2pProbeId)
 
   const auth = (window as any).auth
   const relay = (window as any).relay
@@ -174,6 +185,42 @@ export default function SettingsView({ onNavigateToHandshake }: SettingsViewProp
   useEffect(() => {
     loadInboxAiSettings()
   }, [loadInboxAiSettings])
+
+  useEffect(() => {
+    if (orchConfig?.mode !== 'sandbox') {
+      setHostInfProbeId(null)
+      return
+    }
+    const direct = sandboxHostInf.candidates.filter((c) => c.directP2pAvailable)
+    if (direct.length === 0) {
+      setHostInfProbeId(null)
+      return
+    }
+    setHostInfProbeId((prev) => {
+      if (prev && direct.some((d) => d.handshakeId === prev)) {
+        return prev
+      }
+      return direct[0]!.handshakeId
+    })
+  }, [orchConfig?.mode, sandboxHostInf.candidates])
+
+  useEffect(() => {
+    if (orchConfig?.mode !== 'host') {
+      setHostP2pProbeId(null)
+      return
+    }
+    const direct = hostToSand.candidates.filter((c) => c.directP2pAvailable)
+    if (direct.length === 0) {
+      setHostP2pProbeId(null)
+      return
+    }
+    setHostP2pProbeId((prev) => {
+      if (prev && direct.some((d) => d.handshakeId === prev)) {
+        return prev
+      }
+      return direct[0]!.handshakeId
+    })
+  }, [orchConfig?.mode, hostToSand.candidates])
 
   const loadOrchestratorSettings = useCallback(async () => {
     if (!orchestratorMode?.getMode) {
@@ -734,6 +781,233 @@ export default function SettingsView({ onNavigateToHandshake }: SettingsViewProp
               mode={orchConfig?.mode ?? 'host'}
               pairingCode={orchConfig?.pairingCode ?? ''}
             />
+
+            {orchConfig?.mode === 'sandbox' && (() => {
+              const directRows = sandboxHostInf.candidates.filter((c) => c.directP2pAvailable)
+              const probed = hostInfProbeId
+                ? directRows.find((c) => c.handshakeId === hostInfProbeId) ?? null
+                : null
+              const p2pMsg = probed ? hostInferenceDirectUnavailableMessage(probed.directP2pAvailable) : null
+              return (
+                <div
+                  style={{
+                    marginTop: 16,
+                    marginBottom: 8,
+                    padding: 12,
+                    background: 'rgba(30, 64, 175, 0.06)',
+                    borderRadius: 8,
+                    border: '1px solid rgba(30, 64, 175, 0.2)',
+                  }}
+                >
+                  <span
+                    style={{
+                      display: 'block',
+                      marginBottom: 8,
+                      fontSize: '12px',
+                      fontWeight: 600,
+                      color: 'var(--color-text-muted)',
+                    }}
+                  >
+                    Host inference (WR Chat)
+                  </span>
+                  {(() => {
+                    const dr = directP2pReachabilityCopyForSandboxToHost(sandboxHostInf.directReachability)
+                    if (directRows.length === 0) return null
+                    return (
+                      <p
+                        style={{
+                          margin: '0 0 8px',
+                          fontSize: 12,
+                          lineHeight: 1.45,
+                        }}
+                      >
+                        <span
+                          style={{
+                            fontWeight: 600,
+                            color: sandboxHostInf.directReachability === 'reachable' ? '#4ade80' : 'var(--color-text)',
+                          }}
+                        >
+                          {dr.primary}
+                        </span>
+                        {dr.hint ? (
+                          <span style={{ color: 'var(--color-text-muted)' }}>
+                            <br />
+                            {dr.hint}
+                          </span>
+                        ) : null}
+                      </p>
+                    )
+                  })()}
+                  {sandboxHostInf.listLoading ? (
+                    <p style={{ margin: 0, fontSize: 13, color: 'var(--color-text-muted)' }}>
+                      Checking Host inference status…
+                    </p>
+                  ) : directRows.length === 0 ? (
+                    <p style={{ margin: 0, fontSize: 12, lineHeight: 1.5, color: 'var(--color-text)' }}>
+                      No Host connection — add an active internal Handshake to a Host (Sandbox role) in
+                      Handshakes, with direct P2P, to use Host inference.
+                    </p>
+                  ) : (
+                    <>
+                      {directRows.length > 1 && (
+                        <label style={{ display: 'block', marginBottom: 8, fontSize: 12, fontWeight: 600 }}>
+                          Host
+                          <select
+                            value={hostInfProbeId ?? ''}
+                            onChange={(e) => {
+                              const v = e.target.value
+                              setHostInfProbeId(v || null)
+                            }}
+                            style={{
+                              display: 'block',
+                              width: '100%',
+                              marginTop: 6,
+                              padding: '8px 10px',
+                              fontSize: 12,
+                              borderRadius: 6,
+                              border: '1px solid var(--color-border, rgba(255,255,255,0.12))',
+                              background: 'rgba(255,255,255,0.04)',
+                              color: 'var(--color-text)',
+                            }}
+                          >
+                            {directRows.map((c) => (
+                              <option key={c.handshakeId} value={c.handshakeId}>
+                                {c.hostDisplayName} · {c.hostRoleLabel} · {c.pairingCodeDisplay}
+                                {c.endpointHostLabel ? ` · ${c.endpointHostLabel}` : ''}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      )}
+                      {sandboxHostInf.policy === 'no_direct' || p2pMsg ? (
+                        <p style={{ margin: 0, fontSize: 12, lineHeight: 1.5, color: '#f87171' }}>
+                          {p2pMsg ?? hostInferenceDirectUnavailableMessage(false)}
+                        </p>
+                      ) : sandboxHostInf.policy === 'deny' ? (
+                        <p style={{ margin: 0, fontSize: 12, lineHeight: 1.5, color: '#f87171' }}>
+                          Host inference is not enabled on the Host.
+                        </p>
+                      ) : sandboxHostInf.policy === 'unreachable' || sandboxHostInf.policy === 'unknown' ? (
+                        <p style={{ margin: 0, fontSize: 12, lineHeight: 1.5, color: 'var(--color-text-muted)' }}>
+                          {sandboxHostInf.policy === 'unreachable' && sandboxHostInf.policyDetail
+                            ? sandboxHostInf.policyDetail
+                            : 'Checking Host policy…'}
+                        </p>
+                      ) : (
+                        <p style={{ margin: 0, fontSize: 12, lineHeight: 1.5, color: 'var(--color-text)' }}>
+                          Use the chat bar model menu (<strong>On Host (orchestrator)</strong>)
+                          {probed ? (
+                            <>
+                              {' '}
+                              to run on <strong>{probed.hostDisplayName}</strong> ({probed.hostRoleLabel},{' '}
+                              {probed.pairingCodeDisplay}
+                              {probed.endpointHostLabel ? ` · direct ${probed.endpointHostLabel}` : ''}).
+                            </>
+                          ) : (
+                            '.'
+                          )}
+                        </p>
+                      )}
+                    </>
+                  )}
+                </div>
+              )
+            })()}
+
+            {orchConfig?.mode === 'host' && (() => {
+              const directS = hostToSand.candidates.filter((c) => c.directP2pAvailable)
+              const sprobe = hostP2pProbeId
+                ? directS.find((c) => c.handshakeId === hostP2pProbeId) ?? null
+                : null
+              const sCopy = directP2pReachabilityCopyForHostToSandbox(hostToSand.reachability)
+              return (
+                <div
+                  style={{
+                    marginTop: 16,
+                    marginBottom: 8,
+                    padding: 12,
+                    background: 'rgba(22, 101, 52, 0.08)',
+                    borderRadius: 8,
+                    border: '1px solid rgba(34, 197, 94, 0.25)',
+                  }}
+                >
+                  <span
+                    style={{
+                      display: 'block',
+                      marginBottom: 8,
+                      fontSize: '12px',
+                      fontWeight: 600,
+                      color: 'var(--color-text-muted)',
+                    }}
+                  >
+                    Direct P2P to Sandbox
+                  </span>
+                  {hostToSand.listLoading ? (
+                    <p style={{ margin: 0, fontSize: 13, color: 'var(--color-text-muted)' }}>Loading…</p>
+                  ) : directS.length === 0 ? (
+                    <p style={{ margin: 0, fontSize: 12, lineHeight: 1.5, color: 'var(--color-text)' }}>
+                      No internal Sandbox handshakes with a direct P2P endpoint.
+                    </p>
+                  ) : (
+                    <>
+                      {directS.length > 1 && (
+                        <label style={{ display: 'block', marginBottom: 8, fontSize: 12, fontWeight: 600 }}>
+                          Sandbox
+                          <select
+                            value={hostP2pProbeId ?? ''}
+                            onChange={(e) => {
+                              const v = e.target.value
+                              setHostP2pProbeId(v || null)
+                            }}
+                            style={{
+                              display: 'block',
+                              width: '100%',
+                              marginTop: 6,
+                              padding: '8px 10px',
+                              fontSize: 12,
+                              borderRadius: 6,
+                              border: '1px solid var(--color-border, rgba(255,255,255,0.12))',
+                              background: 'rgba(255,255,255,0.04)',
+                              color: 'var(--color-text)',
+                            }}
+                          >
+                            {directS.map((c) => (
+                              <option key={c.handshakeId} value={c.handshakeId}>
+                                {c.peerDisplayName} · {c.peerRoleLabel} · {c.pairingCodeDisplay}
+                                {c.endpointHostLabel ? ` · ${c.endpointHostLabel}` : ''}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      )}
+                      <p style={{ margin: 0, fontSize: 12, lineHeight: 1.5 }}>
+                        <span
+                          style={{
+                            fontWeight: 600,
+                            color: hostToSand.reachability === 'reachable' ? '#4ade80' : 'var(--color-text)',
+                          }}
+                        >
+                          {sCopy.primary}
+                        </span>
+                        {sCopy.hint ? (
+                          <span style={{ color: 'var(--color-text-muted)' }}>
+                            <br />
+                            {sCopy.hint}
+                          </span>
+                        ) : null}
+                      </p>
+                      {sprobe && hostToSand.reachability === 'reachable' ? (
+                        <p style={{ margin: '8px 0 0', fontSize: 11, color: 'var(--color-text-muted)' }}>
+                          Measured to <strong>{sprobe.peerDisplayName}</strong> ({sprobe.peerRoleLabel},{' '}
+                          {sprobe.pairingCodeDisplay}
+                          {sprobe.endpointHostLabel ? ` · ${sprobe.endpointHostLabel}` : ''}).
+                        </p>
+                      ) : null}
+                    </>
+                  )}
+                </div>
+              )
+            })()}
 
             <div>
               <span style={{ display: 'block', marginBottom: '10px', fontSize: '12px', fontWeight: 600, color: 'var(--color-text-muted)' }}>

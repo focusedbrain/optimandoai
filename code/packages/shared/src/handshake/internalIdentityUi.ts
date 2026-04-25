@@ -122,8 +122,10 @@ export function formatInternalPairingIdLine(r: InternalIdentitySource): string |
 }
 
 /**
- * @deprecated Prefer {@link formatInternalPrimaryLine} + {@link formatInternalPairingIdLine} for two-line UIs.
- * Single-line list hint: same as {@link formatInternalPrimaryLine} (no UUID, no old "orchestrator · uuid" format).
+ * Compact list/row subtitle: `"<computer> — <Host|Sandbox> orchestrator"`.
+ * No UUIDs. Pairing id is a separate line via {@link formatInternalPairingIdLine}.
+ * In the app, pair with the `handshake-identity-line--subtitle` / `--meta` CSS classes (theme-token colors;
+ * do not use inline pale/muted colors for this active identity text).
  */
 export function formatInternalListSubtitle(r: InternalIdentitySource): string | null {
   return formatInternalPrimaryLine(r)

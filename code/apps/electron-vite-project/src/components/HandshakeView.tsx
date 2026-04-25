@@ -45,14 +45,15 @@ interface HandshakeRecord {
   acceptor_coordination_device_id?: string | null
   internal_peer_device_id?: string | null
   internal_peer_computer_name?: string | null
+  internal_peer_pairing_code?: string | null
   internal_coordination_identity_complete?: boolean
   internal_coordination_repair_needed?: boolean
 }
 
 import './handshakeViewTypes'
 import {
+  formatInternalListSubtitle,
   formatInternalPairingIdLine,
-  formatInternalPrimaryLine,
   isInternalHandshake,
 } from '@shared/handshake/internalIdentityUi'
 
@@ -262,7 +263,7 @@ export default function HandshakeView({
         </div>
         {records.map(r => {
           const count = contextBlockCounts[r.handshake_id] ?? 0
-          const internalPrimary = isInternalHandshake(r) ? formatInternalPrimaryLine(r) : null
+          const internalPrimary = isInternalHandshake(r) ? formatInternalListSubtitle(r) : null
           const internalPairing = isInternalHandshake(r) ? formatInternalPairingIdLine(r) : null
           return (
             <div
@@ -286,7 +287,7 @@ export default function HandshakeView({
               >
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '6px', minWidth: 0 }}>
                   <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '4px', minWidth: 0, flex: 1 }}>
-                    <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--color-text, #e2e8f0)', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--color-text, #0f1419)', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {counterpartyEmail(r)}
                     </span>
                     {r.handshake_type === 'internal' && (
@@ -304,17 +305,17 @@ export default function HandshakeView({
                 </div>
                 {internalPrimary && (
                   <div style={{ marginTop: '4px', display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                    <div style={{ fontSize: '11px', color: '#e2e8f0', lineHeight: 1.35, fontWeight: 600 }}>
+                    <div className="handshake-identity-line--subtitle">
                       {internalPrimary}
                     </div>
                     {internalPairing && (
-                      <div style={{ fontSize: '10px', color: '#a5b4ca', lineHeight: 1.35, fontWeight: 500 }}>
+                      <div className="handshake-identity-line--meta">
                         {internalPairing}
                       </div>
                     )}
                   </div>
                 )}
-                <div style={{ fontSize: '10px', color: 'var(--color-text-muted, #94a3b8)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                <div className="handshake-list-row__date-meta" style={{ fontSize: '10px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {formatDate(r.created_at)}
                   {count > 0 && (
                     <span style={{ marginLeft: '6px', color: 'var(--color-accent, #a78bfa)', fontWeight: 600 }}>
@@ -365,7 +366,7 @@ export default function HandshakeView({
       display: 'grid', gridTemplateColumns: gridCols,
       height: '100%', overflow: 'hidden',
       background: 'var(--color-bg, #0f172a)',
-      color: 'var(--color-text, #e2e8f0)',
+      color: 'var(--color-text, #0f1419)',
     }}>
       {/* ── Left Panel: Handshakes ── */}
       <div style={{

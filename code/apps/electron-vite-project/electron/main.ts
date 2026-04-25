@@ -3725,9 +3725,13 @@ app.whenReady().then(async () => {
           }
         }
 
+        /** Sandbox: hide local HTTP Ollama from the chat model list unless explicitly opted in. */
+        const localForChat =
+          isSandboxMode() && process.env.WRDESK_SANDBOX_LOCAL_OLLAMA !== '1' ? [] : localModels
+
         return {
           success: true,
-          models: [...localModels, ...cloudModels],
+          models: [...localForChat, ...cloudModels],
         }
       } catch (err: any) {
         console.error('[MAIN] handshake:getAvailableModels error:', err?.message)
@@ -5288,6 +5292,10 @@ app.whenReady().then(async () => {
     // Register IPC handlers
     registerLlmHandlers()
     console.log('[MAIN] LLM IPC handlers registered')
+
+    const { registerInternalInferenceIpc } = await import('./main/internalInference/ipc')
+    registerInternalInferenceIpc()
+    console.log('[MAIN] Internal-inference IPC handlers registered')
 
     registerOrchestratorIPC()
     console.log('[MAIN] Orchestrator IPC handlers registered')

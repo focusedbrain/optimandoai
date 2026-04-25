@@ -1,0 +1,92 @@
+/**
+ * GET /beap/internal-inference-policy — Host only; same auth as ingest (Bearer + X-BEAP-Handshake).
+ * Returns { allowSandboxInference: boolean } — no secrets.
+ */
+
+import type http from 'http'
+import { getHandshakeRecord } from '../handshake/db'
+import { isHostMode } from '../orchestrator/orchestratorModeStore'
+import { checkAuthFailLimit, checkIpLimit, recordAuthFailure } from '../p2p/rateLimiter'
+import { assertHostSendsResultToSandbox, assertRecordForServiceRpc } from './policy'
+import { getHostInternalInferencePolicy } from './hostInferencePolicyStore'
+
+const IP_LIMIT = 30
+
+function getClientIp(req: http.IncomingMessage): string {
+  const forwarded = req.headers['x-forwarded-for']
+  if (typeof forwarded === 'string') return forwarded.split(',')[0]!.trim()
+  return req.socket?.remoteAddress ?? '0.0.0.0'
+}
+
+/**
+ * Serves allowSandboxInference for authenticated internal Host↔Sandbox handshakes.
+ */
+export async function handleGetInternalInferencePolicy(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  getDb: () => any,
+): Promise<void> {
+  const ip = getClientIp(req)
+
+  if (!checkIpLimit(ip, IP_LIMIT)) {
+    res.writeHead(429, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({ error: 'Too many requests' }))
+    return
+  }
+  if (!checkAuthFailLimit(ip)) {
+    res.writeHead(429, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({ error: 'Too many requests' }))
+    return
+  }
+
+  const hRaw = req.headers['x-beap-handshake']
+  const handshakeId = typeof hRaw === 'string' ? hRaw.trim() : ''
+  const auth = req.headers.authorization
+  const token = auth?.startsWith('Bearer ') ? auth.slice(7).trim() : null
+
+  if (!handshakeId || !token) {
+    res.writeHead(401, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({ error: 'Unauthorized' }))
+    return
+  }
+
+  if (!isHostMode()) {
+    res.writeHead(404, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({ error: 'Not found' }))
+    return
+  }
+
+  const db = getDb()
+  if (!db) {
+    res.writeHead(503, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({ error: 'Service unavailable' }))
+    return
+  }
+
+  const record = getHandshakeRecord(db, handshakeId)
+  const expected = record?.counterparty_p2p_token ?? null
+  if (!expected || token !== expected) {
+    recordAuthFailure(ip)
+    res.writeHead(401, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({ error: 'Unauthorized' }))
+    return
+  }
+
+  const ar = assertRecordForServiceRpc(record)
+  if (!ar.ok) {
+    res.writeHead(403, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({ error: 'Forbidden' }))
+    return
+  }
+
+  const h = assertHostSendsResultToSandbox(ar.record)
+  if (!h.ok) {
+    res.writeHead(403, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({ error: 'Forbidden' }))
+    return
+  }
+
+  const { allowSandboxInference } = getHostInternalInferencePolicy()
+  res.writeHead(200, { 'Content-Type': 'application/json' })
+  res.end(JSON.stringify({ allowSandboxInference }))
+}

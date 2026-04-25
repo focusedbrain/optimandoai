@@ -372,6 +372,48 @@ declare global {
     }
     /** AutoSort run CRUD + session summary (IPC). */
     autosortSession?: AutosortSessionAPI
+    /** Sandbox → Host direct P2P inference (see `electron/main/internalInference`). */
+    internalInference?: {
+      listHostCandidates: () => Promise<{
+        ok: boolean
+        candidates: Array<{
+          handshakeId: string
+          hostDisplayName: string
+          hostRoleLabel: string
+          pairingCodeDisplay: string
+          directP2pAvailable: boolean
+          endpointHostLabel: string | null
+        }>
+      }>
+      listSandboxPeerCandidates: () => Promise<{
+        ok: boolean
+        candidates: Array<{
+          handshakeId: string
+          peerDisplayName: string
+          peerRoleLabel: string
+          pairingCodeDisplay: string
+          directP2pAvailable: boolean
+          endpointHostLabel: string | null
+        }>
+      }>
+      checkDirectP2pReachability: (handshakeId: string) => Promise<{
+        ok: boolean
+        error?: string
+        status?: 'reachable' | 'unreachable' | 'missing_endpoint' | 'tls_error' | 'auth_failed' | 'timeout'
+        detail?: string
+      }>
+      probeHostPolicy: (handshakeId: string) => Promise<unknown>
+      runHostChat: (params: {
+        handshakeId: string
+        messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>
+        model?: string
+        temperature?: number
+        max_tokens?: number
+      }) => Promise<unknown>
+      getHostPolicy: () => Promise<unknown>
+      setHostPolicy: (partial: Record<string, unknown>) => Promise<unknown>
+      requestPongTest: (params: { handshakeId: string }) => Promise<unknown>
+    }
   }
 }
 

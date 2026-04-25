@@ -1,8 +1,9 @@
 /**
  * P2P Ingestion Server — Separate HTTP server for external capsule delivery.
  *
- * Only exposes POST /beap/ingest. Binds to 0.0.0.0 on configurable port.
- * Auth via handshake-bound Bearer token. Rate limited.
+ * Exposes POST /beap/ingest, GET /beap/p2p-reachability (no-body direct P2P reachability),
+ * and GET /beap/internal-inference-policy (Host policy for Sandbox direct P2P inference).
+ * Binds to 0.0.0.0 on configurable port. Auth via handshake-bound Bearer token. Rate limited.
  */
 
 import http from 'http'
@@ -32,6 +33,9 @@ import {
   setP2PHealthServerFailed,
   formatP2PErrorForUser,
 } from './p2pHealth'
+import { handleGetInternalInferencePolicy } from '../internalInference/p2pHostPolicyGet'
+import { handleGetP2PReachability } from '../internalInference/p2pReachabilityGet'
+import { isInternalServiceRpcShape, tryHandleInternalServiceP2P } from '../internalInference/p2pServiceDispatch'
 
 const MAX_BODY_BYTES = INGESTION_CONSTANTS.MAX_RAW_INPUT_BYTES
 const IP_LIMIT = 30
@@ -124,7 +128,17 @@ function createP2PRequestHandler(
 ): (req: http.IncomingMessage, res: http.ServerResponse) => void {
   return (req: http.IncomingMessage, res: http.ServerResponse) => {
     void (async () => {
-    if (req.method !== 'POST' || req.url !== '/beap/ingest') {
+    const pathOnly = (req.url ?? '').split('?')[0] ?? ''
+    if (req.method === 'GET' && pathOnly === '/beap/p2p-reachability') {
+      await handleGetP2PReachability(req, res, getDb)
+      return
+    }
+    if (req.method === 'GET' && pathOnly === '/beap/internal-inference-policy') {
+      await handleGetInternalInferencePolicy(req, res, getDb)
+      return
+    }
+
+    if (req.method !== 'POST' || pathOnly !== '/beap/ingest') {
       const ip = getClientIp(req)
       sendGenericError(res, 404, ip, 'not_found')
       return
@@ -206,6 +220,14 @@ function createP2PRequestHandler(
       console.warn('[P2P] P2P_AUTH_FAILURE', { ip, handshake_id: handshakeId, timestamp: new Date().toISOString() })
       sendGenericError(res, 401, ip, 'auth_failure', handshakeId)
       return
+    }
+
+    // Direct P2P internal service RPC (inference skeleton — not user inbox, not Ollama)
+    if (isInternalServiceRpcShape(parsed)) {
+      const handled = await tryHandleInternalServiceP2P(db, parsed, res)
+      if (handled) {
+        return
+      }
     }
 
     // BEAP message package (qBEAP/pBEAP): store in p2p_pending_beap for extension ingestion

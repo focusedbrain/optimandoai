@@ -44,7 +44,7 @@ function row(label: string, value: string, options?: { mono?: boolean; muted?: b
       <span
         style={{
           fontSize: '12px',
-          color: options?.muted ? 'var(--color-text-muted, #94a3b8)' : 'var(--color-text, #e2e8f0)',
+          color: options?.muted ? 'var(--color-text-muted, #64748b)' : 'var(--color-text, #0f1419)',
           textAlign: 'right',
           wordBreak: 'break-word',
           fontFamily: options?.mono ? 'ui-monospace, SFMono-Regular, Menlo, monospace' : 'inherit',
@@ -106,25 +106,13 @@ export function InternalHandshakeIdentityPanel({ record }: { record: InternalIde
       )}
 
       <div
-        style={{
-          fontSize: '12px',
-          fontWeight: 600,
-          color: 'var(--color-text, #e2e8f0)',
-          lineHeight: 1.45,
-          marginBottom: pairingLine ? '4px' : '10px',
-        }}
+        className="handshake-identity-line--subtitle"
+        style={{ fontSize: '12px', lineHeight: 1.45, marginBottom: pairingLine ? '4px' : '10px' }}
       >
         {primary}
       </div>
       {pairingLine && (
-        <div
-          style={{
-            fontSize: '11px',
-            fontWeight: 600,
-            color: 'var(--color-text-muted, #a5b4ca)',
-            marginBottom: '10px',
-          }}
-        >
+        <div className="handshake-identity-line--meta" style={{ fontSize: '11px', fontWeight: 600, marginBottom: '10px' }}>
           {pairingLine}
         </div>
       )}

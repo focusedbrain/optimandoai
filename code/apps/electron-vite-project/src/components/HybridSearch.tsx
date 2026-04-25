@@ -18,6 +18,13 @@ import { parseLetterFillJson, wantsLetterTemplateMultiVersion } from '../lib/let
 import { UI_BADGE } from '../styles/uiContrastTokens'
 import { resolveChatRoute } from '../chat/routing/resolveChatRoute'
 import { handleLetterComposerChat } from '../chat/routing/letterComposerChat'
+import { useSandboxHostInference } from '../hooks/useSandboxHostInference'
+import {
+  hostInferenceModelId,
+  isHostInferenceModelId,
+  parseHostInferenceModelId,
+} from '../lib/hostInferenceModelIds'
+import { directP2pReachabilityCopyForSandboxToHost } from '../lib/hostInferenceUiGates'
 
 /** Resolves which template field the user meant (focused row, name in message, or single field). */
 function matchLetterComposerFieldFromMessage(
@@ -119,7 +126,9 @@ interface AvailableModel {
   type: 'local' | 'cloud'
 }
 
-function getModelLabel(id: string, models: AvailableModel[]): string {
+function getModelLabel(id: string, models: AvailableModel[], hostLabel?: (modelId: string) => string | null): string {
+  const h = hostLabel?.(id)
+  if (h) return h
   return models.find(m => m.id === id)?.name ?? id
 }
 
@@ -533,6 +542,32 @@ export default function HybridSearch({
   /** Bumped on letter-composer field switch and on each chat submit so stale stream tokens are ignored. */
   const chatGenerationRef = useRef(0)
 
+  const [hostInfSuccess, setHostInfSuccess] = useState(false)
+  const [hostInfRunningName, setHostInfRunningName] = useState<string | null>(null)
+  const hostInferenceProbeId = parseHostInferenceModelId(selectedModel)?.handshakeId ?? null
+  const hostInf = useSandboxHostInference(hostInferenceProbeId)
+  const hostModelLabel = useCallback(
+    (modelId: string) => {
+      const p = parseHostInferenceModelId(modelId)
+      if (!p) return null
+      const row = hostInf.candidates.find((c) => c.handshakeId === p.handshakeId)
+      if (!row) return 'Host inference'
+      return `Host: ${row.hostDisplayName}`
+    },
+    [hostInf.candidates],
+  )
+
+  const hostDirectP2pStatusUi = useMemo(() => {
+    if (!hostInf.isSandbox || mode !== 'chat' || !isHostInferenceModelId(selectedModel)) {
+      return null
+    }
+    return directP2pReachabilityCopyForSandboxToHost(hostInf.directReachability)
+  }, [hostInf.isSandbox, hostInf.directReachability, mode, selectedModel])
+
+  useEffect(() => {
+    setHostInfSuccess(false)
+  }, [selectedModel])
+
   const letterComposerPortForUse = useChatFocusStore((s) =>
     s.chatFocusMode.mode === 'letter-composer' ? s.focusMeta?.letterComposerPort : undefined,
   )
@@ -912,6 +947,7 @@ export default function HybridSearch({
     setLastMode(mode)
     setIsLoading(true)
     setShowPanel(true)
+    setHostInfSuccess(false)
     setResults([])
     setResponse(null)
     setContextBlocks([])
@@ -938,6 +974,78 @@ export default function HybridSearch({
       } else if (mode === 'actions') {
         setResponse('Actions mode: Draft, analyze, extract, or automate based on the selected handshake or message. Coming soon.')
       } else {
+        if (mode === 'chat' && !isDraftRefineSession && isHostInferenceModelId(selectedModel)) {
+          setChatGovernanceNote(null)
+          setStructuredResult(null)
+          setResultType(null)
+          const hid = parseHostInferenceModelId(selectedModel)?.handshakeId
+          if (!hid) {
+            setResponse('Invalid Host inference selection.')
+            setIsLoading(false)
+            return
+          }
+          const row = hostInf.candidates.find((c) => c.handshakeId === hid)
+          if (!row?.directP2pAvailable) {
+            setResponse(
+              'Host is not directly reachable. Start Host orchestrator on the same network or check firewall.',
+            )
+            setIsLoading(false)
+            return
+          }
+          if (hostInf.policy === 'deny') {
+            setResponse('Host inference is not enabled on the Host.')
+            setIsLoading(false)
+            return
+          }
+          const run = (
+            window as unknown as { internalInference?: { runHostChat?: (p: unknown) => Promise<unknown> } }
+          ).internalInference?.runHostChat
+          if (typeof run !== 'function') {
+            setResponse('Host inference is not available in this build.')
+            setIsLoading(false)
+            return
+          }
+          setHostInfSuccess(false)
+          setHostInfRunningName(row.hostDisplayName)
+          const prior = chatMessages.map((m) => ({ role: m.role, content: m.content }))
+          const msgSeq =
+            previousAnswer?.trim() && mode === 'chat' && !isDraftRefineSession
+              ? [
+                  ...prior,
+                  { role: 'assistant' as const, content: previousAnswer.trim() },
+                  { role: 'user' as const, content: trimmed },
+                ]
+              : [...prior, { role: 'user' as const, content: trimmed }]
+          try {
+            const r = (await run({ handshakeId: hid, messages: msgSeq })) as
+              | { ok: true; output: string }
+              | { ok: false; code: string; message: string }
+            if (r && 'ok' in r && r.ok) {
+              setResponse((r as { output: string }).output)
+              setHostInfSuccess(true)
+            } else {
+              const er = r as { ok: false; code: string; message: string }
+              if (er.code === 'HOST_INFERENCE_DISABLED') {
+                setResponse('Host inference is not enabled on the Host.')
+              } else if (er.code === 'HOST_DIRECT_P2P_UNAVAILABLE' || er.code === 'SERVICE_RPC_NOT_SUPPORTED') {
+                setResponse(
+                  'Host is not directly reachable. Start Host orchestrator on the same network or check firewall.',
+                )
+              } else {
+                setResponse(er.message?.trim() || 'Host inference failed.')
+              }
+              setHostInfSuccess(false)
+            }
+          } catch (e) {
+            setResponse((e as Error)?.message ?? 'Host inference failed.')
+            setHostInfSuccess(false)
+          } finally {
+            setHostInfRunningName(null)
+            setIsLoading(false)
+            setChatAttachments([])
+          }
+          return
+        }
         const modelInfo = availableModels.find(m => m.id === selectedModel)
         const streamedRef = { current: '' }
         const streamGenAtSubmit = chatGenerationRef.current
@@ -1329,7 +1437,7 @@ export default function HybridSearch({
       setIsLoading(false)
       setChatAttachments([])
     }
-  }, [query, mode, scope, activeView, selectedHandshakeId, selectedMessageId, selectedAttachmentId, selectedModel, availableModels, isLoading, response, selectedDocumentId, isDraftRefineSession, draftRefineDraftText, draftRefineTarget, draftRefineDeliverResponse, draftRefineAcceptRefinement, chatAttachments])
+  }, [query, mode, scope, activeView, selectedHandshakeId, selectedMessageId, selectedAttachmentId, selectedModel, availableModels, isLoading, response, selectedDocumentId, isDraftRefineSession, draftRefineDraftText, draftRefineTarget, draftRefineDeliverResponse, draftRefineAcceptRefinement, chatAttachments, chatMessages, hostInf.candidates, hostInf.policy])
 
   const handleContextUpload = useCallback(async (e: ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || [])
@@ -1629,6 +1737,59 @@ export default function HybridSearch({
           </button>
         </div>
       )}
+      {hostInf.isSandbox && mode === 'chat' && hostDirectP2pStatusUi && (
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 2,
+            padding: '4px 10px',
+            marginBottom: 4,
+            borderRadius: 6,
+            background: 'rgba(15, 23, 42, 0.35)',
+            border: '1px solid var(--color-border, rgba(255,255,255,0.1))',
+          }}
+          role="status"
+          aria-label="Direct P2P reachability to Host"
+        >
+          <span
+            style={{
+              fontSize: 11,
+              fontWeight: 600,
+              color: hostInf.directReachability === 'reachable' ? '#4ade80' : 'var(--text-secondary, #cbd5e1)',
+            }}
+          >
+            {hostDirectP2pStatusUi.primary}
+          </span>
+          {hostDirectP2pStatusUi.hint ? (
+            <span style={{ fontSize: 10, color: 'var(--text-muted, #94a3b8)', lineHeight: 1.35 }}>{hostDirectP2pStatusUi.hint}</span>
+          ) : null}
+        </div>
+      )}
+      {hostInf.isSandbox && mode === 'chat' && (hostInfRunningName || hostInfSuccess) && (
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            padding: '4px 10px',
+            marginBottom: 4,
+            borderRadius: 6,
+            background: hostInfSuccess ? 'linear-gradient(90deg, rgba(234,179,8,0.12), rgba(217,119,6,0.08))' : 'rgba(30, 64, 175, 0.08)',
+            border: hostInfSuccess ? '1px solid rgba(217, 119, 6, 0.35)' : '1px solid rgba(30, 64, 175, 0.2)',
+          }}
+          role="status"
+        >
+          {hostInfRunningName ? (
+            <span style={{ fontSize: 12, color: 'var(--text-primary, #e2e8f0)', fontWeight: 500 }}>
+              Running on Host: {hostInfRunningName}
+            </span>
+          ) : null}
+          {hostInfSuccess && !hostInfRunningName ? (
+            <span style={{ fontSize: 12, color: '#b45309', fontWeight: 600 }}>Host inference completed</span>
+          ) : null}
+        </div>
+      )}
       <div
         className="hs-bar"
         data-draft-refine={isDraftRefineSession ? 'true' : undefined}
@@ -1802,10 +1963,10 @@ export default function HybridSearch({
             disabled={!query.trim() || isLoading}
             title={
               mode === 'chat'
-                ? `Send to ${getModelLabel(selectedModel, availableModels)} (Enter)`
+                ? `Send to ${getModelLabel(selectedModel, availableModels, hostModelLabel)} (Enter)`
                 : mode === 'search'
                 ? 'Run search (Enter)'
-                : `Run action with ${getModelLabel(selectedModel, availableModels)} (Enter)`
+                : `Run action with ${getModelLabel(selectedModel, availableModels, hostModelLabel)} (Enter)`
             }
           >
             {isLoading ? (
@@ -1826,12 +1987,21 @@ export default function HybridSearch({
                 const next = !modelMenuOpen
                 setModelMenuOpen(next)
                 if (next) {
+                  void hostInf.refresh()
                   try {
                     const result = await window.handshakeView?.getAvailableModels?.()
                     if (result?.success && Array.isArray(result.models)) {
                       setAvailableModels(result.models)
                       const preferred = result.models.find((m: { type: string }) => m.type === 'local') ?? result.models[0]
-                      setSelectedModel(prev => (result.models.some((m: { id: string }) => m.id === prev) ? prev : (preferred?.id ?? '')))
+                      setSelectedModel((prev) => {
+                        if (parseHostInferenceModelId(prev)) {
+                          return prev
+                        }
+                        if (result.models.some((m: { id: string }) => m.id === prev)) {
+                          return prev
+                        }
+                        return preferred?.id ?? ''
+                      })
                     }
                   } catch { /* ignore */ }
                 }
@@ -1845,19 +2015,63 @@ export default function HybridSearch({
               }
               tabIndex={0}
             >
-              <span className="hs-send-model">{getModelLabel(selectedModel, availableModels)}</span>
+              <span className="hs-send-model">{getModelLabel(selectedModel, availableModels, hostModelLabel)}</span>
               <span className="hs-model-caret">▾</span>
             </button>
           )}
 
           {modelMenuOpen && showModelSelector && (
             <div className="hs-model-menu" role="menu">
-              {modelsLoading ? (
+              {modelsLoading || (hostInf.isSandbox && hostInf.listLoading) ? (
                 <div className="hs-model-group-label">Loading models…</div>
-              ) : availableModels.length === 0 ? (
-                <div className="hs-model-group-label">No models configured — check Settings</div>
               ) : (
                 <>
+                  {hostInf.isSandbox && (
+                    <>
+                      {hostInf.candidates.filter((c) => c.directP2pAvailable).length > 0 ? (
+                        <>
+                          <div className="hs-model-group-label">On Host (orchestrator)</div>
+                          {hostInf.candidates
+                            .filter((c) => c.directP2pAvailable)
+                            .map((c) => {
+                              const id = hostInferenceModelId(c.handshakeId)
+                              return (
+                                <button
+                                  key={id}
+                                  type="button"
+                                  role="menuitem"
+                                  className={`hs-model-item${selectedModel === id ? ' hs-model-item--active' : ''}`}
+                                  onClick={() => {
+                                    setSelectedModel(id)
+                                    setModelMenuOpen(false)
+                                  }}
+                                >
+                                  <div style={{ fontWeight: 600 }}>{c.hostDisplayName}</div>
+                                  <div style={{ fontSize: 11, opacity: 0.75, lineHeight: 1.3 }}>
+                                    {c.hostRoleLabel} · {c.pairingCodeDisplay}
+                                    {c.endpointHostLabel ? ` · direct ${c.endpointHostLabel}` : ' · direct P2P'}
+                                  </div>
+                                  {hostInf.policy === 'deny' && selectedModel === id ? (
+                                    <div style={{ fontSize: 10, color: 'var(--text-muted, #94a3b8)', marginTop: 4 }}>
+                                      Host has not enabled inference for this device.
+                                    </div>
+                                  ) : null}
+                                  {selectedModel === id && <span className="hs-model-check">✓</span>}
+                                </button>
+                              )
+                            })}
+                        </>
+                      ) : !hostInf.listLoading ? (
+                        <div
+                          className="hs-model-group-label"
+                          style={{ maxWidth: 280, lineHeight: 1.4, fontWeight: 400, whiteSpace: 'normal' }}
+                        >
+                          No Host connection — add an active internal Handshake to a Host (Sandbox role) in
+                          Handshakes, with direct P2P, to use Host inference.
+                        </div>
+                      ) : null}
+                    </>
+                  )}
                   {availableModels.some(m => m.type === 'local') && (
                     <>
                       <div className="hs-model-group-label">Local Models</div>
@@ -1889,6 +2103,10 @@ export default function HybridSearch({
                         </button>
                       ))}
                     </>
+                  )}
+                  {availableModels.length === 0 &&
+                    !(hostInf.isSandbox && hostInf.candidates.some((c) => c.directP2pAvailable)) && (
+                    <div className="hs-model-group-label">No models configured — check Settings</div>
                   )}
                 </>
               )}
@@ -1953,8 +2171,8 @@ export default function HybridSearch({
               {lastMode === 'search'
                 ? `Search · ${SCOPE_LABELS[scope]}`
                 : lastMode === 'actions'
-                ? `Actions · ${getModelLabel(selectedModel, availableModels)}`
-                : `Chat · ${getModelLabel(selectedModel, availableModels)} · ${SCOPE_LABELS[scope]}`}
+                ? `Actions · ${getModelLabel(selectedModel, availableModels, hostModelLabel)}`
+                : `Chat · ${getModelLabel(selectedModel, availableModels, hostModelLabel)} · ${SCOPE_LABELS[scope]}`}
             </span>
             <button
               className="hs-panel-close"
@@ -2336,7 +2554,7 @@ export default function HybridSearch({
               )}
               <div className="hs-response-chips">
                 <span className="hs-chip">{SCOPE_LABELS[scope]}</span>
-                <span className="hs-chip">{getModelLabel(selectedModel, availableModels)}</span>
+                <span className="hs-chip">{getModelLabel(selectedModel, availableModels, hostModelLabel)}</span>
               </div>
               {milestoneMarkerSuggestion &&
                 activeMilestoneChatCtx &&

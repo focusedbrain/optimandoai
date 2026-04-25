@@ -181,6 +181,46 @@
   background: rgba(0, 0, 0, 0.62);
 }
 
+/* --- Handshake UI: internal identity lines (theme tokens; WCAG-friendly — never pale-on-bg body text) --- */
+[data-ui-theme="standard"] {
+  --handshake-internal-subtitle-fg: var(--text-secondary-prof);
+  --handshake-internal-meta-fg: #4b5563;
+}
+
+[data-ui-theme="dark"] {
+  --handshake-internal-subtitle-fg: var(--text-secondary-dark);
+  --handshake-internal-meta-fg: #9ca3af;
+}
+
+[data-ui-theme="pro"] {
+  --handshake-internal-subtitle-fg: rgba(255, 255, 255, 0.9);
+  --handshake-internal-meta-fg: rgba(255, 255, 255, 0.78);
+}
+
+/**
+ * Secondary line: "<computer> — <Host|Sandbox> orchestrator" — must stay readable on list row
+ * backgrounds (incl. selected purple tint) in all themes; not muted/disabled styling.
+ */
+.handshake-identity-line--subtitle {
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--handshake-internal-subtitle-fg, var(--text-secondary, #374151));
+}
+
+/** Tertiary: "ID: xxx-xxx" — quieter than subtitle but still AA-readable; not body-muted gray on white. */
+.handshake-identity-line--meta {
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1.35;
+  color: var(--handshake-internal-meta-fg, var(--text-secondary, #4b5563));
+}
+
+/** List row: date + block count (muted but legible; not used for active identity). */
+.handshake-list-row__date-meta {
+  color: var(--color-text-muted, #64748b);
+}
+
 .wrdesk-modal__panel {
   width: min(480px, 100%);
   max-height: 90vh;

@@ -49,6 +49,12 @@ describe('internal display (host viewing sandbox as peer)', () => {
     expect(s).not.toMatch(/[0-9a-f-]{8,}/i) // not a long uuid
   })
 
+  it('formatInternalListSubtitle is computer name + em dash + peer orchestrator label (user-facing row copy)', () => {
+    const s = formatInternalListSubtitle(base)
+    expect(s).toMatch(/ — /)
+    expect(s).toMatch(/(Host|Sandbox) orchestrator/)
+  })
+
   it('beap target combines primary and id', () => {
     expect(formatInternalBeapTargetSummary(base)).toBe(
       'WORKSTATION-01 — Sandbox orchestrator — ID: 123-456',
