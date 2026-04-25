@@ -4,6 +4,7 @@
  */
 
 import type { InboxMessage } from '../stores/useEmailInboxStore'
+import { deriveInboxMessageKind } from './inboxMessageKind'
 
 const BANNER = '[BEAP sandbox clone — sent by you]'
 const PROV_KEY = 'inbox_sandbox_clone_provenance'
@@ -63,7 +64,18 @@ export function inboxMessageIsSandboxBeapClone(m: InboxMessage | null | undefine
   return false
 }
 
+/**
+ * When true, {@link EmailMessageDetail} may use the pBEAP + qBEAP section layout. When false, use the same
+ * `body_text` / `body_html` + `beapInboxMessageBodyToLinkParts` path as depackaged email — required for
+ * sandbox clones of depackaged BEAP (no qBEAP-only representation).
+ */
+export function inboxMessageUsesNativeBeapPbeapQbeapSplit(m: InboxMessage | null | undefined): boolean {
+  if (!m) return false
+  if (inboxMessageIsSandboxBeapClone(m)) return false
+  return deriveInboxMessageKind(m) === 'handshake'
+}
+
 export const INBOX_SANDBOX_CLONE_BADGE_TOOLTIP =
-  'Sandboxed BEAP message — cloned from another inbox message for safe inspection.'
+  'Sandboxed BEAP message — cloned from the Host inbox for safe inspection.'
 
 export const INBOX_DIRECT_BEAP_BADGE_TOOLTIP = 'BEAP message (direct or depackaged in this inbox).'

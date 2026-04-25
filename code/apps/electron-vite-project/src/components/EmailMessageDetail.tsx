@@ -13,6 +13,7 @@ import { openAppExternalUrl } from '../lib/openAppExternalUrl'
 import BeapMessageSafeLinkParts from './BeapMessageSafeLinkParts'
 import { beapInboxMessageBodyToLinkParts, extractLinkParts } from '../utils/safeLinks'
 import { deriveInboxMessageKind } from '../lib/inboxMessageKind'
+import { inboxMessageIsSandboxBeapClone, inboxMessageUsesNativeBeapPbeapQbeapSplit } from '../lib/inboxMessageSandboxClone'
 import { isBeapQbeapOutboundEcho } from '../lib/inboxBeapOutbound'
 import { canShowSandboxCloneAction } from '../lib/beapInboxSandboxVisibility'
 import { isInboxMessageActionable } from '../lib/inboxMessageActionable'
@@ -362,6 +363,15 @@ export default function EmailMessageDetail({
 
   const messageKind = message ? deriveInboxMessageKind(message) : 'depackaged'
   const isNativeBeap = messageKind === 'handshake'
+  /** pBEAP/qBEAP split — false for sandbox clones (use Host depackaged-style body + safe links). */
+  const useNativePbeapQbeapSplit = useMemo(
+    () => (message ? inboxMessageUsesNativeBeapPbeapQbeapSplit(message) : false),
+    [message],
+  )
+  const isSandboxBeapClone = useMemo(
+    () => (message ? inboxMessageIsSandboxBeapClone(message) : false),
+    [message],
+  )
 
   const parsedDepackaged = useMemo(() => {
     if (!message?.depackaged_json) return null
@@ -447,7 +457,7 @@ export default function EmailMessageDetail({
   }, [message?.handshake_id, message?.from_address, message?.to_addresses, isNativeBeap])
 
   const publicBody = useMemo(() => {
-    if (!message || !isNativeBeap) return ''
+    if (!message || !inboxMessageUsesNativeBeapPbeapQbeapSplit(message)) return ''
     const pkg = parsedPackage
     const dp = parsedDepackaged
     const pick = (s: string | undefined) => {
@@ -485,10 +495,10 @@ export default function EmailMessageDetail({
       if (t) return t
     }
     return ''
-  }, [message, isNativeBeap, parsedPackage, parsedDepackaged])
+  }, [message, parsedPackage, parsedDepackaged])
 
   const encryptedBody = useMemo(() => {
-    if (!isNativeBeap) return ''
+    if (!message || !inboxMessageUsesNativeBeapPbeapQbeapSplit(message)) return ''
     if (parsedDepackaged) {
       const b =
         extractText(parsedDepackaged.body) ||
@@ -506,7 +516,7 @@ export default function EmailMessageDetail({
       if (b && !isPlaceholder(b)) return b
     }
     return ''
-  }, [isNativeBeap, parsedDepackaged, parsedPackage])
+  }, [message, parsedDepackaged, parsedPackage])
 
   const publicBodyLinkParts = useMemo(
     () => (publicBody ? extractLinkParts(publicBody) : null),
@@ -517,9 +527,9 @@ export default function EmailMessageDetail({
     [encryptedBody],
   )
   const nonNativeBodyLinkParts = useMemo(() => {
-    if (isNativeBeap || !message) return null
+    if (!message || inboxMessageUsesNativeBeapPbeapQbeapSplit(message)) return null
     return beapInboxMessageBodyToLinkParts(message)
-  }, [isNativeBeap, message])
+  }, [message])
 
   const fromDisplay = useMemo((): ReactNode => {
     if (!message) return '—'
@@ -605,11 +615,11 @@ export default function EmailMessageDetail({
   }, [message?.id, message?.has_attachments, message?.attachment_count, message?.attachments, mergeMessageAttachments])
 
   useEffect(() => {
-    if (!import.meta.env.DEV || !message || !isNativeBeap) return
+    if (!import.meta.env.DEV || !message || !useNativePbeapQbeapSplit) return
     console.log('[BEAP attachment debug] message.attachments:', message.attachments)
     console.log('[BEAP attachment debug] message.attachment_count:', message.attachment_count)
     console.log('[BEAP attachment debug] message.has_attachments:', message.has_attachments)
-  }, [message, isNativeBeap])
+  }, [message, useNativePbeapQbeapSplit])
 
   const handleSessionImport = useCallback(async (raw: Record<string, unknown>) => {
     const sessionId = typeof raw.sessionId === 'string' ? raw.sessionId : String(raw.sessionId ?? '')
@@ -649,7 +659,7 @@ export default function EmailMessageDetail({
 
   const isOutboundQbeap =
     message != null &&
-    isNativeBeap &&
+    useNativePbeapQbeapSplit &&
     (parsedDepackaged?.format === 'beap_qbeap_outbound' || isBeapQbeapOutboundEcho(message))
   /** Host-only Sandbox clone icon — not gated on native/depackaged BEAP shape (inbox is BEAP-only). */
   const showSandboxCloneIcon = canShowSandboxCloneAction({
@@ -1289,9 +1299,9 @@ export default function EmailMessageDetail({
           </div>
         </div>
 
-        {/* Body — human-readable by default; native BEAP uses structured depackaged sections */}
+        {/* Body — pBEAP/qBEAP split only for real native BEAP; sandbox clones use depackaged-style body like Host depackaged rows */}
         <div style={{ marginBottom: 20 }}>
-          {isNativeBeap ? (
+          {useNativePbeapQbeapSplit ? (
             <div className="native-beap-body">
               {isOutboundQbeap ? (
                 <div
@@ -1443,7 +1453,7 @@ export default function EmailMessageDetail({
                 </div>
               ) : null}
 
-              {message.depackaged_json && !isNativeBeap ? (
+              {message.depackaged_json && (!isNativeBeap || isSandboxBeapClone) ? (
                 <div style={{ marginTop: 16 }}>
                   <button
                     type="button"
@@ -1457,6 +1467,66 @@ export default function EmailMessageDetail({
                       {renderDepackagedJson(message.depackaged_json)}
                     </div>
                   )}
+                </div>
+              ) : null}
+
+              {isSandboxBeapClone && parsedDepackaged && automationTags.length > 0 ? (
+                <div className="beap-body-section" style={{ marginTop: 16 }}>
+                  <div className="beap-body-label">🏷️ Automation Tags</div>
+                  <div className="beap-automation-tags">
+                    {automationTags.map((tag, i) => (
+                      <span key={i} className="beap-automation-tag">
+                        {tag}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
+              {isSandboxBeapClone && parsedDepackaged && sessionRefsList.length > 0 ? (
+                <div className="beap-body-section beap-session-indicator" style={{ marginTop: 12 }}>
+                  <div className="beap-body-label">⚙️ Attached Session</div>
+                  {sessionRefsList.map((ref, i) => {
+                    const sessionId =
+                      typeof ref.sessionId === 'string' ? ref.sessionId : String(ref.sessionId ?? '')
+                    const sessionName =
+                      typeof ref.sessionName === 'string'
+                        ? ref.sessionName
+                        : sessionId || 'Session'
+                    const cap = ref.requiredCapability
+                    const capLabel =
+                      cap != null && typeof cap === 'object'
+                        ? JSON.stringify(cap)
+                        : cap != null
+                          ? String(cap)
+                          : ''
+                    const status = importStatus[sessionId]
+                    return (
+                      <div key={`sbx-s-${sessionId}-${i}`} className="beap-session-ref">
+                        <span className="beap-session-name">{sessionName || sessionId}</span>
+                        {capLabel ? (
+                          <span className="beap-session-capability">Requires: {capLabel}</span>
+                        ) : null}
+                        {status === 'imported' ? (
+                          <span className="beap-session-imported">✓ Imported</span>
+                        ) : (
+                          <>
+                            {status === 'error' ? (
+                              <span className="beap-session-import-error">Import failed</span>
+                            ) : null}
+                            <button
+                              type="button"
+                              className="beap-session-import-btn"
+                              onClick={() => setImportingSession(ref)}
+                              disabled={status === 'importing'}
+                            >
+                              {status === 'importing' ? 'Importing…' : status === 'error' ? 'Retry' : '▶ Import & Run'}
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    )
+                  })}
                 </div>
               ) : null}
             </>

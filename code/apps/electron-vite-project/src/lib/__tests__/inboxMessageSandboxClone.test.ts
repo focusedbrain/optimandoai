@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest'
-import { inboxMessageIsSandboxBeapClone } from '../inboxMessageSandboxClone'
+import {
+  inboxMessageIsSandboxBeapClone,
+  inboxMessageUsesNativeBeapPbeapQbeapSplit,
+} from '../inboxMessageSandboxClone'
 import type { InboxMessage } from '../../stores/useEmailInboxStore'
 
 const base: InboxMessage = {
@@ -64,5 +67,30 @@ describe('inboxMessageIsSandboxBeapClone', () => {
         body_text: '---\n' + JSON.stringify({ inbox_sandbox_clone_provenance: { source_message_id: 'x' } }),
       }),
     ).toBe(true)
+  })
+})
+
+describe('inboxMessageUsesNativeBeapPbeapQbeapSplit', () => {
+  it('true for direct_beap without clone markers', () => {
+    expect(
+      inboxMessageUsesNativeBeapPbeapQbeapSplit({ ...base, source_type: 'direct_beap', handshake_id: 'h1' }),
+    ).toBe(true)
+  })
+
+  it('false for depackaged email row (no handshake)', () => {
+    expect(
+      inboxMessageUsesNativeBeapPbeapQbeapSplit({ ...base, source_type: 'email_plain', handshake_id: null }),
+    ).toBe(false)
+  })
+
+  it('false when handshake but row is a sandbox clone (depackaged-style body)', () => {
+    const clone: InboxMessage = {
+      ...base,
+      source_type: 'direct_beap',
+      handshake_id: 'hs-sandbox',
+      body_text: '[BEAP sandbox clone — sent by you]\nhttps://example.com',
+    }
+    expect(inboxMessageIsSandboxBeapClone(clone)).toBe(true)
+    expect(inboxMessageUsesNativeBeapPbeapQbeapSplit(clone)).toBe(false)
   })
 })

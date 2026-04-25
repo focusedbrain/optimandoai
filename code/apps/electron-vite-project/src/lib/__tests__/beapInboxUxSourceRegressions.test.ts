@@ -55,9 +55,17 @@ describe('beapInbox Ux source regressions', () => {
   test('11d: B vs S source badge via inboxMessageIsSandboxBeapClone', () => {
     const src = readRel('lib', 'inboxMessageSandboxClone.ts')
     expect(src).toContain('inboxMessageIsSandboxBeapClone')
+    expect(src).toContain('inboxMessageUsesNativeBeapPbeapQbeapSplit')
     const badge = readRel('components', 'InboxBeapSourceBadge.tsx')
     expect(badge).toMatch(/'S'/)
     expect(badge).toMatch(/'B'/)
+  })
+
+  test('11e: EmailMessageDetail routes sandbox clones to depackaged-style body, not pBEAP/qBEAP only', () => {
+    const detail = readRel('components', 'EmailMessageDetail.tsx')
+    expect(detail).toContain('inboxMessageUsesNativeBeapPbeapQbeapSplit')
+    expect(detail).toContain('useNativePbeapQbeapSplit')
+    expect(detail).toContain('pBEAP/qBEAP split only for real native BEAP')
   })
 
   test('12: Reply is icon-only (class + tooltip); no visible Reply label in the control', () => {
@@ -81,7 +89,7 @@ describe('beapInbox Ux source regressions', () => {
 
   test('Sandbox UI: Host gate on orchestratorMode; shared icon components', () => {
     const vis = readRel('lib', 'beapInboxSandboxVisibility.ts')
-    expect(vis).toContain("orchestratorMode !== 'host'")
+    expect(vis).toContain("orchestratorMode === 'sandbox'")
     const detail = readRel('components', 'EmailMessageDetail.tsx')
     const inbox = readRel('components', 'EmailInboxView.tsx')
     const beapBtn = readRel('components', 'BeapActionIconButton.tsx')
