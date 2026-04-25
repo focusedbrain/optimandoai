@@ -21,6 +21,11 @@ export interface HostInternalInferencePolicy {
   timeoutMs: number
   /** In-flight cap for internal inference. */
   maxConcurrent: number
+  /**
+   * When true, `internal_inference_capabilities_result` lists all installed Ollama models (metadata only).
+   * Default false: expose only the resolved active / allowlist chat model (MVP).
+   */
+  capabilitiesExposeAllInstalledOllama: boolean
 }
 
 const DEFAULT_POLICY: HostInternalInferencePolicy = {
@@ -29,6 +34,7 @@ const DEFAULT_POLICY: HostInternalInferencePolicy = {
   maxPromptBytes: 256_000,
   timeoutMs: 60_000,
   maxConcurrent: 1,
+  capabilitiesExposeAllInstalledOllama: false,
 }
 
 const FILE = 'host-internal-inference-policy.json'
@@ -68,6 +74,7 @@ function normalizePolicy(p: Partial<HostInternalInferencePolicy>): HostInternalI
       typeof p.maxConcurrent === 'number' && p.maxConcurrent >= 1 && p.maxConcurrent <= 8
         ? Math.floor(p.maxConcurrent)
         : DEFAULT_POLICY.maxConcurrent,
+    capabilitiesExposeAllInstalledOllama: p.capabilitiesExposeAllInstalledOllama === true,
   }
 }
 

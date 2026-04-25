@@ -4,7 +4,7 @@
  */
 
 import { getHandshakeRecord, listHandshakeRecords } from '../handshake/db'
-import type { HandshakeRecord } from '../handshake/types'
+import { HandshakeState, type HandshakeRecord } from '../handshake/types'
 import { isHostMode, isSandboxMode } from '../orchestrator/orchestratorModeStore'
 import { getHandshakeDbForInternalInference } from './dbAccess'
 import {
@@ -231,7 +231,7 @@ export async function listHostToSandboxDirectReachabilityRows(): Promise<DirectR
   if (!db) {
     return []
   }
-  const rows = listHandshakeRecords(db, { state: 'ACTIVE', handshake_type: 'internal' })
+  const rows = listHandshakeRecords(db, { state: HandshakeState.ACTIVE, handshake_type: 'internal' })
   const out: DirectReachabilityListRow[] = []
   for (const r of rows) {
     const ar = assertRecordForServiceRpc(r)

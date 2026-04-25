@@ -1,7 +1,10 @@
 import { describe, it, expect } from 'vitest'
 import {
+  extractSandboxCloneUiMeta,
   inboxMessageIsSandboxBeapClone,
   inboxMessageUsesNativeBeapPbeapQbeapSplit,
+  SANDBOX_CLONE_INBOX_LEAD_IN,
+  stripSandboxCloneLeadInFromBodyText,
 } from '../inboxMessageSandboxClone'
 import type { InboxMessage } from '../../stores/useEmailInboxStore'
 
@@ -81,6 +84,33 @@ describe('inboxMessageUsesNativeBeapPbeapQbeapSplit', () => {
     expect(
       inboxMessageUsesNativeBeapPbeapQbeapSplit({ ...base, source_type: 'email_plain', handshake_id: null }),
     ).toBe(false)
+  })
+
+  it('stripSandboxCloneLeadInFromBodyText removes one-line and full lead-in', () => {
+    expect(
+      stripSandboxCloneLeadInFromBodyText('[BEAP sandbox clone — sent by you]\nHello\n'),
+    ).toBe('Hello\n')
+    const long = `${SANDBOX_CLONE_INBOX_LEAD_IN}User body`
+    expect(stripSandboxCloneLeadInFromBodyText(long)).toBe('User body')
+  })
+
+  it('extractSandboxCloneUiMeta reads depackaged beap_sandbox_clone', () => {
+    const dep = JSON.stringify({
+      beap_sandbox_clone: {
+        cloned_at: '2025-01-15T12:00:00.000Z',
+        original_message_id: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+        target_sandbox_device_name: 'Konge-AS1',
+        original_handshake_id: '11111111-2222-3333-4444-555555555555',
+      },
+    })
+    const meta = extractSandboxCloneUiMeta(
+      { ...base, depackaged_json: dep },
+      JSON.parse(dep) as Record<string, unknown>,
+    )
+    expect(meta.targetSandboxName).toBe('Konge-AS1')
+    expect(meta.sourceMessageIdShort).toMatch(/aaaaaaaa/)
+    expect(meta.sourceMessageIdShort).toMatch(/eeee/)
+    expect(meta.sourceOrchestratorLine).toContain('Host handshake')
   })
 
   it('false when handshake but row is a sandbox clone (depackaged-style body)', () => {

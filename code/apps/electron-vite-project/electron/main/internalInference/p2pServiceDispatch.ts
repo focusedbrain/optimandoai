@@ -8,6 +8,7 @@ import type { HandshakeRecord } from '../handshake/types'
 import type { InternalHostInferenceMessage } from '../llm/internalHostInferenceOllama'
 import { getInstanceId, isHostMode, isSandboxMode } from '../orchestrator/orchestratorModeStore'
 import { InternalInferenceErrorCode } from './errors'
+import { buildInternalInferenceCapabilitiesResult } from './hostInferenceCapabilities'
 import * as hostInference from './hostInferenceExecute'
 import { getHostInternalInferencePolicy } from './hostInferencePolicyStore'
 import { postServiceEnvelopeDirect } from './directSend'
@@ -36,9 +37,16 @@ function jsonError(res: http.ServerResponse, status: number, code: string, messa
 
 function isServiceType(
   t: unknown,
-): t is InternalInferenceRequestWire['type'] | InternalInferenceResultWire['type'] | 'internal_inference_error' {
+): t is
+  | InternalInferenceRequestWire['type']
+  | InternalInferenceResultWire['type']
+  | 'internal_inference_error'
+  | 'internal_inference_capabilities_request' {
   return (
-    t === 'internal_inference_request' || t === 'internal_inference_result' || t === 'internal_inference_error'
+    t === 'internal_inference_request' ||
+    t === 'internal_inference_result' ||
+    t === 'internal_inference_error' ||
+    t === 'internal_inference_capabilities_request'
   )
 }
 
@@ -138,6 +146,48 @@ export async function tryHandleInternalServiceP2P(
     return true
   }
   const r: HandshakeRecord = ar.record
+
+  if (t === 'internal_inference_capabilities_request') {
+    if (!isHostMode()) {
+      jsonError(res, 400, InternalInferenceErrorCode.SERVICE_RPC_NOT_SUPPORTED, 'capabilities on non-host')
+      return true
+    }
+    const h = assertHostReceivesRequestFromSandbox(r, (parsed as { sender_device_id: string }).sender_device_id)
+    if (!h.ok) {
+      jsonError(res, 403, h.code, 'policy')
+      return true
+    }
+    const localId = localCoordinationDeviceId(r) ?? ''
+    const capTarget = (parsed as { target_device_id: string }).target_device_id.trim()
+    if (!localId || localId !== capTarget) {
+      jsonError(res, 403, InternalInferenceErrorCode.POLICY_FORBIDDEN, 'target_device_id mismatch')
+      return true
+    }
+    const directCap = assertP2pEndpointDirect(db, r.p2p_endpoint)
+    if (!directCap.ok) {
+      jsonError(res, 503, directCap.code, 'direct peer URL required')
+      return true
+    }
+    const hsCap = assertHostSendsResultToSandbox(r)
+    if (!hsCap.ok) {
+      jsonError(res, 500, hsCap.code, 'internal')
+      return true
+    }
+    const capReq = parsed as { request_id: string; created_at: string }
+    console.log(
+      `[INTERNAL_INFERENCE_CAPABILITIES] request handshake_id=${r.handshake_id} request_id=${capReq.request_id}`,
+    )
+    const capWire = await buildInternalInferenceCapabilitiesResult(r, {
+      request_id: capReq.request_id,
+      created_at: capReq.created_at,
+    })
+    console.log(
+      `[INTERNAL_INFERENCE_CAPABILITIES] result handshake_id=${r.handshake_id} models=${capWire.models.length} policy_enabled=${capWire.policy_enabled}`,
+    )
+    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify(capWire))
+    return true
+  }
 
   if (t === 'internal_inference_request') {
     if (!isHostMode()) {

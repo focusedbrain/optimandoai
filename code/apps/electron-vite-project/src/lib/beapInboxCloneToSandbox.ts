@@ -16,11 +16,7 @@ import type { DeliveryResult } from '@ext/beap-messages/services/BeapPackageBuil
 import '../components/handshakeViewTypes'
 import { mapCoordinationDeliveryToMatrixMode } from './beapSandboxCloneDeliverySemantics'
 import { SANDBOX_CLONE_COPY, type SandboxCloneFeedbackView } from './sandboxCloneFeedbackUi'
-
-const SANDBOX_BANNER =
-  '[BEAP sandbox clone — sent by you]\n' +
-  'This is a test clone for your sandbox; the original inbox message is unchanged. New qBEAP only — no original ciphertext reuse.\n' +
-  'Automation: sandbox_clone=true in metadata below.\n\n'
+import { SANDBOX_CLONE_INBOX_LEAD_IN } from './inboxMessageSandboxClone'
 
 function buildCloneMetadata(
   p: BeapInboxClonePrepareOk,
@@ -105,7 +101,7 @@ export async function cloneBeapInboxToSandbox(
   const at = new Date().toISOString()
   const prov = buildCloneMetadata(preparePayload, at)
 
-  const pub = `${SANDBOX_BANNER}${preparePayload.public_text || preparePayload.encrypted_text}`.trim()
+  const pub = `${SANDBOX_CLONE_INBOX_LEAD_IN}${preparePayload.public_text || preparePayload.encrypted_text}`.trim()
   const enc = `${preparePayload.encrypted_text.trim()}${prov}`.trim()
 
   const config: BeapPackageConfig = {

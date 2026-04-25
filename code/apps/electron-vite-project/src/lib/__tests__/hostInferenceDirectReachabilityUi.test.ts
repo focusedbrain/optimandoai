@@ -13,7 +13,7 @@ describe('directP2pReachabilityCopyForSandboxToHost', () => {
 
   it('tls maps to network hint', () => {
     const u = directP2pReachabilityCopyForSandboxToHost('tls_error')
-    expect(u.primary).toBe('Host not reachable')
+    expect(u.primary).toBe('Host not directly reachable')
     expect(u.hint).toMatch(/Firewall or network/i)
   })
 })

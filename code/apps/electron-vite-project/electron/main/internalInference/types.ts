@@ -9,6 +9,11 @@ export type InternalServiceMessageType =
   | 'internal_inference_request'
   | 'internal_inference_result'
   | 'internal_inference_error'
+  /** Sandbox → Host direct P2P POST; response body is `InternalInferenceCapabilitiesResultWire` (no second POST). */
+  | 'internal_inference_capabilities_request'
+
+/** Ingest JSON body only — not used as a separate POST to /beap/ingest in MVP (carried in HTTP response). */
+export type InternalInferenceCapabilitiesResultType = 'internal_inference_capabilities_result'
 
 export interface InternalServiceEnvelopeBase {
   type: InternalServiceMessageType
@@ -56,6 +61,35 @@ export interface InternalInferenceErrorWire {
   message: string
   retryable: boolean
   duration_ms: number
+}
+
+export interface InternalInferenceCapabilitiesRequestWire extends InternalServiceEnvelopeBase {
+  type: 'internal_inference_capabilities_request'
+}
+
+export interface InternalInferenceCapabilitiesModelEntry {
+  provider: 'ollama'
+  model: string
+  label: string
+  enabled: boolean
+}
+
+/** Returned in the HTTP 200 body of `internal_inference_capabilities_request` (same connection; not inbox / not BEAP message). */
+export interface InternalInferenceCapabilitiesResultWire {
+  type: InternalInferenceCapabilitiesResultType
+  schema_version: number
+  request_id: string
+  handshake_id: string
+  sender_device_id: string
+  target_device_id: string
+  created_at: string
+  transport_policy?: 'direct_only'
+  host_computer_name: string
+  /** Six decimal digits when known (e.g. "123456"). */
+  host_pairing_code: string
+  models: InternalInferenceCapabilitiesModelEntry[]
+  policy_enabled: boolean
+  inference_error_code?: string
 }
 
 export type ServiceEnvelope =

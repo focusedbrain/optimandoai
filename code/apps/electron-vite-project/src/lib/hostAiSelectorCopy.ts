@@ -4,7 +4,7 @@ export const HOST_AI_OPTION_TOOLTIP =
   'Uses the model on your Host — the same idea as choosing a local model, but the model runs on the machine you paired with.'
 
 export const HOST_AI_UNREACHABLE_TOOLTIP =
-  "Can't reach your Host right now. Check that it's online, on the same network, and that firewalls or VPN allow the connection."
+  'Host not directly reachable. Check that the Host is online, on a reachable network path, and that firewalls or VPN allow the connection.'
 
 export const HOST_AI_STALE_INLINE =
   'That Host model is no longer in the list. Choose another model to continue.'
@@ -12,6 +12,9 @@ export const HOST_AI_STALE_INLINE =
 /** Persisted Host selection can no longer be used (handshake missing, inactive, or after account change). */
 export const HOST_INFERENCE_UNAVAILABLE =
   'Your saved Host model is no longer available. Pick another model from the menu.'
+
+/** Visual for Host AI rows in merged selectors (not technical transport text). */
+export const HOST_AI_SELECTOR_ICON_CLASS = 'host-ai-model-icon'
 
 export const GROUP_LOCAL_MODELS = 'Local models'
 export const GROUP_HOST_MODELS = 'Host models'

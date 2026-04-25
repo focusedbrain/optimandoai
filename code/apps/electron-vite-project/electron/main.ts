@@ -23,6 +23,7 @@ import {
   setManualSofficePath,
 } from './main/libreoffice/libreofficeService'
 import { registerOrchestratorIPC } from './main/orchestrator/ipc'
+import { broadcastOrchestratorModeChanged } from './main/orchestrator/broadcastModeChange'
 import {
   ensurePairingCodeRegistered,
   getOrchestratorMode,
@@ -3729,9 +3730,43 @@ app.whenReady().then(async () => {
         const localForChat =
           isSandboxMode() && process.env.WRDESK_SANDBOX_LOCAL_OLLAMA !== '1' ? [] : localModels
 
+        const hostForChat: Array<{
+          id: string
+          name: string
+          provider: string
+          type: 'host_internal'
+          displayTitle: string
+          displaySubtitle: string
+          hostTargetAvailable: boolean
+        }> = []
+        let hostInferenceTargetsOut: unknown[] | undefined
+        if (isSandboxMode()) {
+          try {
+            const { listSandboxHostInternalInferenceTargets } = await import('./main/internalInference/listInferenceTargets')
+            const h = await listSandboxHostInternalInferenceTargets()
+            hostInferenceTargetsOut = h.targets
+            for (const t of h.targets) {
+              const title = (t.display_label || t.label).trim() || 'Host AI'
+              const sub = (t.secondary_label || t.unavailable_reason || '').trim()
+              hostForChat.push({
+                id: t.id,
+                name: title,
+                provider: 'host_internal',
+                type: 'host_internal',
+                displayTitle: title,
+                displaySubtitle: sub,
+                hostTargetAvailable: t.available,
+              })
+            }
+          } catch (e: any) {
+            console.warn('[MAIN] handshake:getAvailableModels host targets:', e?.message ?? e)
+          }
+        }
+
         return {
           success: true,
-          models: [...localForChat, ...cloudModels],
+          models: [...localForChat, ...cloudModels, ...hostForChat],
+          ...(isSandboxMode() && hostInferenceTargetsOut ? { hostInferenceTargets: hostInferenceTargetsOut } : {}),
         }
       } catch (err: any) {
         console.error('[MAIN] handshake:getAvailableModels error:', err?.message)
@@ -8933,7 +8968,11 @@ async function runDeviceKeyMigration(
     // POST /api/orchestrator/mode — persist host/sandbox role (extension RPC; X-Launch-Secret)
     httpApp.post('/api/orchestrator/mode', (req, res) => {
       try {
+        const prevMode = getOrchestratorMode().mode
         setOrchestratorMode(req.body)
+        if (getOrchestratorMode().mode !== prevMode) {
+          broadcastOrchestratorModeChanged()
+        }
         res.json({ ok: true as const })
       } catch (error: any) {
         console.error('[HTTP-ORCHESTRATOR] Error in mode POST:', error)
@@ -8976,7 +9015,11 @@ async function runDeviceKeyMigration(
     // POST /api/orchestrator/mode-config — legacy alias
     httpApp.post('/api/orchestrator/mode-config', (req, res) => {
       try {
+        const prevMode = getOrchestratorMode().mode
         setOrchestratorMode(req.body)
+        if (getOrchestratorMode().mode !== prevMode) {
+          broadcastOrchestratorModeChanged()
+        }
         res.json({ ok: true as const })
       } catch (error: any) {
         console.error('[HTTP-ORCHESTRATOR] Error in mode-config POST:', error)

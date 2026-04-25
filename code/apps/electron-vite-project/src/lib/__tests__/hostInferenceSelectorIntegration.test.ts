@@ -186,7 +186,7 @@ describe('selector integration — visibility', () => {
 
   it('UI pattern: primary line is model / Host label, not a UUID', () => {
     const id = '550e8400-e29b-41d4-a716-446655440000'
-    const line = 'Host AI · qwen2.5'
+    const line = 'Running on Host AI · qwen2.5'
     expect(line).not.toContain(id)
     expect(line).toMatch(/Host AI/)
   })
@@ -211,20 +211,46 @@ describe('selector integration — selection / routing (extension + preload cont
     expect(resolveChatInferenceKind('oai-gpt4', [{ id: 'oai-gpt4', type: 'cloud' }])).toBe('cloud')
   })
 
-  it('selecting Host uses requestHostCompletion when exposed on window.internalInference (wrapped)', () => {
+  it('selecting Host uses requestCompletion when exposed (STEP 5)', () => {
     const call = vi.fn()
-    const w = { internalInference: { requestHostCompletion: call } } as unknown as Window
+    const w = { internalInference: { requestCompletion: call } } as unknown as Window
     const fn = getRequestHostCompletion(w)
     expect(fn).toBeTypeOf('function')
-    void fn?.({ handshakeId: 'h', messages: [] })
-    expect(call).toHaveBeenCalled()
+    void fn?.({
+      targetId: 'host-route-id',
+      handshakeId: 'h',
+      messages: [{ role: 'user', content: 'hi' }],
+    })
+    expect(call).toHaveBeenCalledWith(
+      expect.objectContaining({
+        target_id: 'host-route-id',
+        handshake_id: 'h',
+        stream: false,
+      }),
+    )
+  })
+
+  it('getRequestHostCompletion falls back to requestHostCompletion then runHostChat', () => {
+    const requestHostCompletion = vi.fn()
+    const w = { internalInference: { requestHostCompletion } } as unknown as Window
+    const fn = getRequestHostCompletion(w)
+    void fn?.({
+      targetId: 't',
+      handshakeId: 'h',
+      messages: [{ role: 'user', content: 'x' }],
+    })
+    expect(requestHostCompletion).toHaveBeenCalled()
   })
 
   it('getRequestHostCompletion falls back to runHostChat for older preload', () => {
     const runHostChat = vi.fn()
     const w = { internalInference: { runHostChat } } as unknown as Window
     const fn = getRequestHostCompletion(w)
-    void fn?.({ handshakeId: 'h', messages: [] })
+    void fn?.({
+      targetId: 't',
+      handshakeId: 'h',
+      messages: [{ role: 'user', content: 'x' }],
+    })
     expect(runHostChat).toHaveBeenCalled()
   })
 })
@@ -291,6 +317,7 @@ describe('selector integration — error mapping (orchestrator user strings)', (
     { code: 'HOST_DIRECT_P2P_UNAVAILABLE', needle: "can't reach" },
     { code: 'HOST_INFERENCE_DISABLED', needle: 'turned off' },
     { code: 'MODEL_UNAVAILABLE', needle: 'not available' },
+    { code: 'PROVIDER_UNAVAILABLE', needle: 'Ollama' },
     { code: 'PROVIDER_TIMEOUT', needle: 'too long' },
     { code: 'POLICY_FORBIDDEN', needle: "isn't allowed" },
   ]
@@ -314,7 +341,7 @@ describe('selector integration — regression ownership (no behavior change; doc
   })
 
   it('defers inbox / BEAP sandbox clone to inbox and BEAP regression suites', () => {
-    /* beapInboxUxSourceRegressions, inboxMessageSandboxClone, beapInboxVisibleSandboxClone */
+    /* beapInboxUxSourceRegressions, inboxMessageSandboxClone, step8.sandboxHostUiAndClone */
     expect(true).toBe(true)
   })
 })

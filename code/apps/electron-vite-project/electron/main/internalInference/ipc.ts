@@ -47,13 +47,14 @@ export function registerInternalInferenceIpc(): void {
     return { ok: true as const, candidates }
   })
 
-  ipcMain.handle('internal-inference:listInferenceTargets', async () => {
-    if (isHostMode()) {
-      return { ok: true as const, targets: [] }
-    }
+  const listInferenceTargetsHandler = async () => {
     const { listSandboxHostInternalInferenceTargets } = await import('./listInferenceTargets')
     return listSandboxHostInternalInferenceTargets()
-  })
+  }
+  /** Legacy alias — same as `internal-inference:listTargets`. */
+  ipcMain.handle('internal-inference:listInferenceTargets', listInferenceTargetsHandler)
+  /** Host AI model rows for Sandbox (active internal Host handshakes; same handler as listInferenceTargets). */
+  ipcMain.handle('internal-inference:listTargets', listInferenceTargetsHandler)
 
   ipcMain.handle('internal-inference:listSandboxPeerCandidates', async () => {
     if (isSandboxMode()) {
@@ -91,6 +92,7 @@ export function registerInternalInferenceIpc(): void {
       model?: string
       temperature?: number
       max_tokens?: number
+      timeoutMs?: number
     },
   ) => {
     const { runSandboxHostInferenceChat } = await import('./sandboxHostChat')
@@ -104,11 +106,45 @@ export function registerInternalInferenceIpc(): void {
       model: params.model,
       temperature: params.temperature,
       max_tokens: params.max_tokens,
+      timeoutMs: params.timeoutMs,
     })
   }
 
+  /** STEP 5: `internalInference:requestCompletion` — direct P2P, snake_case wire fields. */
+  ipcMain.handle(
+    'internal-inference:requestCompletion',
+    async (
+      _e: unknown,
+      params: {
+        target_id?: string
+        handshake_id?: string
+        messages?: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>
+        model?: string
+        timeout_ms?: number
+        stream?: boolean
+      },
+    ) => {
+      const { runSandboxHostInferenceChat } = await import('./sandboxHostChat')
+      const targetId = typeof params?.target_id === 'string' ? params.target_id.trim() : ''
+      const handshakeId = typeof params?.handshake_id === 'string' ? params.handshake_id.trim() : ''
+      if (!targetId || !handshakeId || !Array.isArray(params?.messages)) {
+        return { ok: false as const, code: InternalInferenceErrorCode.MALFORMED_SERVICE_MESSAGE, message: 'invalid params' }
+      }
+      if (params?.stream !== false) {
+        return { ok: false as const, code: InternalInferenceErrorCode.MALFORMED_SERVICE_MESSAGE, message: 'stream must be false' }
+      }
+      const timeoutMs = typeof params.timeout_ms === 'number' && Number.isFinite(params.timeout_ms) ? params.timeout_ms : undefined
+      return runSandboxHostInferenceChat({
+        handshakeId,
+        messages: params.messages,
+        model: typeof params.model === 'string' ? params.model : undefined,
+        timeoutMs,
+      })
+    },
+  )
+
   /** Legacy name — same as `requestHostCompletion` (direct P2P internal inference). */
   ipcMain.handle('internal-inference:runHostChat', handleHostChatOrRequestCompletion)
-  /** STEP 5: explicit entry for Host internal completion (no relay, not local llm:chat). */
+  /** Direct P2P internal inference; camelCase params (older preload). */
   ipcMain.handle('internal-inference:requestHostCompletion', handleHostChatOrRequestCompletion)
 }

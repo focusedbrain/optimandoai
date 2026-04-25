@@ -501,7 +501,10 @@ contextBridge.exposeInMainWorld('orchestratorMode', {
 
 function assertHostChatMessages(
   v: unknown,
-  apiLabel: 'internalInference.runHostChat' | 'internalInference.requestHostCompletion',
+  apiLabel:
+    | 'internalInference.runHostChat'
+    | 'internalInference.requestHostCompletion'
+    | 'internalInference.requestCompletion',
 ): Array<{ role: 'system' | 'user' | 'assistant'; content: string }> {
   if (!Array.isArray(v) || v.length < 1) {
     throw new Error(`${apiLabel}: messages must be a non-empty array`)
@@ -540,13 +543,46 @@ function buildInternalInferenceHostChatPayload(
   const temperature = typeof o.temperature === 'number' && Number.isFinite(o.temperature) ? o.temperature : undefined
   const max_tokens =
     typeof o.max_tokens === 'number' && Number.isFinite(o.max_tokens) ? Math.floor(o.max_tokens) : undefined
-  return { handshakeId, messages, model, temperature, max_tokens }
+  const timeoutMs =
+    typeof o.timeoutMs === 'number' && Number.isFinite(o.timeoutMs) && o.timeoutMs > 0
+      ? Math.floor(o.timeoutMs)
+      : undefined
+  return { handshakeId, messages, model, temperature, max_tokens, timeoutMs }
+}
+
+/** STEP 5: Host internal completion — `target_id`, `handshake_id`, `timeout_ms`, `stream: false`. */
+function buildInternalInferenceRequestCompletionPayload(params: unknown) {
+  if (params == null || typeof params !== 'object') {
+    throw new Error('internalInference.requestCompletion: expected params object')
+  }
+  const o = params as Record<string, unknown>
+  const target_id = typeof o.target_id === 'string' ? o.target_id.trim() : ''
+  const handshake_id = typeof o.handshake_id === 'string' ? o.handshake_id.trim() : ''
+  if (!target_id) {
+    throw new Error('internalInference.requestCompletion: target_id required')
+  }
+  if (!handshake_id) {
+    throw new Error('internalInference.requestCompletion: handshake_id required')
+  }
+  const messages = assertHostChatMessages(o.messages, 'internalInference.requestCompletion')
+  const model = typeof o.model === 'string' && o.model.trim() ? o.model.trim().slice(0, 200) : undefined
+  const timeout_ms =
+    typeof o.timeout_ms === 'number' && Number.isFinite(o.timeout_ms) && o.timeout_ms > 0
+      ? Math.floor(o.timeout_ms)
+      : 120_000
+  if (o.stream !== false) {
+    throw new Error('internalInference.requestCompletion: stream must be false')
+  }
+  return { target_id, handshake_id, messages, model, timeout_ms, stream: false as const }
 }
 
 // ── Internal inference (Sandbox → Host direct P2P; Host policy) ───────
 contextBridge.exposeInMainWorld('internalInference', {
   listHostCandidates: () => ipcRenderer.invoke('internal-inference:listHostCandidates'),
+  /** @deprecated Prefer `listTargets` — identical IPC. */
   listInferenceTargets: () => ipcRenderer.invoke('internal-inference:listInferenceTargets'),
+  /** Host AI rows for Sandbox (same as `listInferenceTargets`). */
+  listTargets: () => ipcRenderer.invoke('internal-inference:listTargets'),
   probeHostPolicy: (handshakeId: unknown) => {
     const id = typeof handshakeId === 'string' ? handshakeId.trim() : ''
     if (!id) throw new Error('internalInference.probeHostPolicy: handshakeId required')
@@ -559,6 +595,14 @@ contextBridge.exposeInMainWorld('internalInference', {
   requestHostCompletion: (params: unknown) => {
     const p = buildInternalInferenceHostChatPayload(params, 'internalInference.requestHostCompletion')
     return ipcRenderer.invoke('internal-inference:requestHostCompletion', p)
+  },
+  /**
+   * Host internal inference (STEP 5): direct P2P to Host Ollama — no local llm:chat, relay, or inbox.
+   * Pass `stream: false` and `timeout_ms` in payload.
+   */
+  requestCompletion: (params: unknown) => {
+    const p = buildInternalInferenceRequestCompletionPayload(params)
+    return ipcRenderer.invoke('internal-inference:requestCompletion', p)
   },
   getHostPolicy: () => ipcRenderer.invoke('internal-inference:getHostPolicy'),
   setHostPolicy: (partial: unknown) => {
@@ -654,6 +698,10 @@ contextBridge.exposeInMainWorld('analysisDashboard', {
 // ── Handshake list refresh (main → renderer when coordination receives capsule) ─
 ipcRenderer.on('handshake-list-refresh', () => {
   window.dispatchEvent(new CustomEvent('handshake-list-refresh'))
+})
+/** Main → renderer: persisted host/sandbox orchestrator mode changed (IPC or local HTTP). */
+ipcRenderer.on('orchestrator-mode-did-change', () => {
+  window.dispatchEvent(new CustomEvent('orchestrator-mode-changed'))
 })
 ipcRenderer.on('vault-status-changed', () => {
   window.dispatchEvent(new CustomEvent('vault-status-changed'))

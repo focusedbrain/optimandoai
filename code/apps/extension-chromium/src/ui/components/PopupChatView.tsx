@@ -99,6 +99,8 @@ export interface PopupChatViewProps {
     hostAvailable?: boolean
     /** Shown in Host running UI and answer attribution (dashboard listInferenceTargets). */
     hostComputerName?: string
+    /** Optional CSS class for a Host row icon (e.g. dashboard `host-ai-model-icon`). */
+    hostIconClass?: string
     section?: 'local' | 'host' | 'cloud'
   }>
   activeLlmModel?: string
@@ -1150,7 +1152,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
           }
           const hostComputerName = (row?.hostComputerName || '').trim() || 'Host'
           setHostInternalRunUi({
-            line1: `Host AI · ${hostModelDisplayNameFromSelection({
+            line1: `Running on Host AI · ${hostModelDisplayNameFromSelection({
               parsedModel: parsed.model,
               targetLabel: row?.displayTitle,
             })}`,
@@ -1158,9 +1160,11 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
           })
           try {
             const r = (await run({
+              targetId: modelId,
               handshakeId: parsed.handshakeId,
               messages: hostMsgs,
               model: parsed.model,
+              timeoutMs: 120_000,
             })) as { ok?: boolean; output?: string; code?: string; message?: string }
             if (r && 'ok' in r && r.ok && typeof (r as { output?: string }).output === 'string') {
               const text = appendHostAiAttributionLine((r as { output: string }).output, hostComputerName)
@@ -1453,7 +1457,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
             }
             const hostComputerName = (row?.hostComputerName || '').trim() || 'Host'
             setHostInternalRunUi({
-              line1: `Host AI · ${hostModelDisplayNameFromSelection({
+              line1: `Running on Host AI · ${hostModelDisplayNameFromSelection({
                 parsedModel: parsed.model,
                 targetLabel: row?.displayTitle,
               })}`,
@@ -1461,9 +1465,11 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
             })
             try {
               const r = (await run({
+                targetId: modelId,
                 handshakeId: parsed.handshakeId,
                 messages: hostMsgs,
                 model: parsed.model,
+                timeoutMs: 120_000,
               })) as { ok?: boolean; output?: string; code?: string; message?: string }
               if (r && 'ok' in r && r.ok && typeof (r as { output?: string }).output === 'string') {
                 const text = appendHostAiAttributionLine((r as { output: string }).output, hostComputerName)
@@ -3184,6 +3190,7 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
                             </div>
                             {modelGroups.hosts.map((m) => {
                               const tip = m.hostAvailable ? HOST_AI_OPTION_TOOLTIP : HOST_AI_UNREACHABLE_TOOLTIP
+                              const hostIcon = m.hostIconClass?.trim()
                               return (
                                 <div
                                   key={m.name}
@@ -3202,10 +3209,21 @@ export const PopupChatView: React.FC<PopupChatViewProps> = ({
                                     borderLeft: m.name === activeLlmModel ? '3px solid #a78bfa' : '3px solid transparent',
                                   }}
                                 >
-                                  <div style={{ fontWeight: 600 }}>{modelMenuPrimary(m)}</div>
-                                  {m.subtitle ? (
-                                    <div style={{ fontSize: 10, opacity: 0.8, marginTop: 2, lineHeight: 1.3 }}>{m.subtitle}</div>
-                                  ) : null}
+                                  <div
+                                    style={{
+                                      display: 'flex',
+                                      alignItems: 'flex-start',
+                                      gap: 6,
+                                    }}
+                                  >
+                                    {hostIcon ? <span className={hostIcon} aria-hidden title="" /> : null}
+                                    <div style={{ minWidth: 0, flex: 1 }}>
+                                      <div style={{ fontWeight: 600 }}>{modelMenuPrimary(m)}</div>
+                                      {m.subtitle ? (
+                                        <div style={{ fontSize: 10, opacity: 0.8, marginTop: 2, lineHeight: 1.3 }}>{m.subtitle}</div>
+                                      ) : null}
+                                    </div>
+                                  </div>
                                 </div>
                               )
                             })}

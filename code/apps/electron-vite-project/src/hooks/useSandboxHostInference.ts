@@ -11,7 +11,7 @@ export type HostInferenceCandidateRow = {
   endpointHostLabel: string | null
 }
 
-/** Row from `internal-inference:listInferenceTargets` (Host AI selector). */
+/** Row from `internal-inference:listTargets` / `listInferenceTargets` (Host AI selector). */
 export type HostInferenceTargetRow = {
   kind: 'host_internal'
   id: string
@@ -20,7 +20,9 @@ export type HostInferenceTargetRow = {
   model_id?: string
   /** Live label from Host policy GET; preferred over `label` in UI. */
   display_label?: string
-  provider?: 'ollama' | ''
+  /** Second line: "<host> — Host orchestrator · ID …" (no raw device UUID in normal copy). */
+  secondary_label?: string
+  provider?: 'host_internal' | 'ollama' | ''
   handshake_id: string
   host_device_id: string
   host_computer_name: string
@@ -39,21 +41,41 @@ export type HostInferenceTargetRow = {
 
 type PolicyState = 'unknown' | 'allow' | 'deny' | 'unreachable' | 'no_direct'
 
+function formatPairingDisplay(code: string | undefined): string {
+  const s = (code ?? '').replace(/\D/g, '')
+  if (s.length === 6) {
+    return `${s.slice(0, 3)}-${s.slice(3)}`
+  }
+  return code && code.trim() ? code : '—'
+}
+
 function targetsToCandidates(targets: HostInferenceTargetRow[]): HostInferenceCandidateRow[] {
   return targets.map((t) => ({
     handshakeId: t.handshake_id,
     hostDisplayName: t.host_computer_name,
     hostRoleLabel: 'Host orchestrator',
-    pairingCodeDisplay: t.host_pairing_code ?? '—',
+    pairingCodeDisplay: formatPairingDisplay(t.host_pairing_code),
     directP2pAvailable: t.direct_reachable,
     endpointHostLabel: null,
   }))
 }
 
 /**
- * Lists internal Host handshakes on Sandbox, probes allowSandboxInference over direct P2P when possible.
+ * Merged host rows from `handshake:getAvailableModels` (see main process) + reload (same as chat model list).
  */
-export function useSandboxHostInference(selectedHandshakeIdForProbe: string | null) {
+export type HostInferenceGavSync = {
+  targets: HostInferenceTargetRow[]
+  refresh: () => Promise<void>
+}
+
+/**
+ * Lists internal Host handshakes on Sandbox, probes allowSandboxInference over direct P2P when possible.
+ * When `gav` is set (e.g. HybridSearch), Host targets come from `getAvailableModels` (merged with local+cloud in main) instead of a separate `listTargets` call.
+ */
+export function useSandboxHostInference(
+  selectedHandshakeIdForProbe: string | null,
+  gav?: HostInferenceGavSync | null,
+) {
   const { isSandbox, ready: modeReady } = useOrchestratorMode()
   const [candidates, setCandidates] = useState<HostInferenceCandidateRow[]>([])
   const [inferenceTargets, setInferenceTargets] = useState<HostInferenceTargetRow[]>([])
@@ -66,15 +88,21 @@ export function useSandboxHostInference(selectedHandshakeIdForProbe: string | nu
     modeReady && isSandbox && inferenceTargets.some((t) => t.direct_reachable && t.available)
 
   const refresh = useCallback(async () => {
+    if (gav) {
+      await gav.refresh()
+      return
+    }
     const api = (window as unknown as {
       internalInference?: {
+        listTargets?: () => Promise<unknown>
         listInferenceTargets?: () => Promise<unknown>
         listHostCandidates?: () => Promise<unknown>
       }
     }).internalInference
-    if (typeof api?.listInferenceTargets === 'function') {
+    const listFn = typeof api?.listTargets === 'function' ? api.listTargets : api?.listInferenceTargets
+    if (typeof listFn === 'function') {
       try {
-        const r = (await api.listInferenceTargets()) as { ok?: boolean; targets?: HostInferenceTargetRow[] }
+        const r = (await listFn()) as { ok?: boolean; targets?: HostInferenceTargetRow[] }
         if (r?.ok && Array.isArray(r.targets)) {
           setInferenceTargets(r.targets)
           setCandidates(targetsToCandidates(r.targets))
@@ -123,7 +151,9 @@ export function useSandboxHostInference(selectedHandshakeIdForProbe: string | nu
             policy_enabled: true,
             available: c.directP2pAvailable,
             availability: c.directP2pAvailable ? 'available' : 'direct_unreachable',
-            unavailable_reason: `${c.hostDisplayName} — ${c.hostRoleLabel} · ${c.pairingCodeDisplay}`,
+            unavailable_reason: c.directP2pAvailable
+              ? `${c.hostDisplayName} — ${c.hostRoleLabel} · ${c.pairingCodeDisplay}`
+              : `Host not directly reachable — ${c.hostDisplayName} — ${c.hostRoleLabel} · ${c.pairingCodeDisplay}`,
             host_role: 'Host',
           })),
         )
@@ -137,7 +167,7 @@ export function useSandboxHostInference(selectedHandshakeIdForProbe: string | nu
     } finally {
       setListLoading(false)
     }
-  }, [])
+  }, [gav])
 
   useEffect(() => {
     if (!modeReady) {
@@ -149,16 +179,26 @@ export function useSandboxHostInference(selectedHandshakeIdForProbe: string | nu
       setInferenceTargets([])
       return
     }
+    if (gav) {
+      setListLoading(false)
+      setInferenceTargets(gav.targets)
+      setCandidates(targetsToCandidates(gav.targets))
+      return
+    }
     setListLoading(true)
     void refresh()
-  }, [isSandbox, modeReady, refresh])
+  }, [isSandbox, modeReady, gav, gav?.targets, refresh])
 
   useEffect(() => {
     const on = () => {
       if (isSandbox) void refresh()
     }
     window.addEventListener('handshake-list-refresh', on)
-    return () => window.removeEventListener('handshake-list-refresh', on)
+    window.addEventListener('orchestrator-mode-changed', on)
+    return () => {
+      window.removeEventListener('handshake-list-refresh', on)
+      window.removeEventListener('orchestrator-mode-changed', on)
+    }
   }, [isSandbox, refresh])
 
   useEffect(() => {

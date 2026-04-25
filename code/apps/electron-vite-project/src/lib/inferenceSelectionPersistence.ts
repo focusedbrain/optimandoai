@@ -78,7 +78,7 @@ function parseJson(raw: string | null): StoredInferenceSelectionV1 | null {
 
 function inferKindFromId(
   id: string,
-  availableModels: Array<{ id: string; type: 'local' | 'cloud' }>,
+  availableModels: Array<{ id: string; type: 'local' | 'cloud' | 'host_internal' }>,
 ): InferenceSelectionKind {
   if (isHostInferenceModelId(id)) return 'host_internal'
   const row = availableModels.find((m) => m.id === id)
@@ -88,7 +88,7 @@ function inferKindFromId(
 
 export function toStoredSelection(
   id: string,
-  availableModels: Array<{ id: string; type: 'local' | 'cloud' }>,
+  availableModels: Array<{ id: string; type: 'local' | 'cloud' | 'host_internal' }>,
 ): StoredInferenceSelectionV1 {
   const kind = inferKindFromId(id, availableModels)
   if (kind === 'host_internal') {
@@ -106,7 +106,7 @@ export function toStoredSelection(
 
 export function persistOrchestratorModelId(
   id: string,
-  availableModels: Array<{ id: string; type: 'local' | 'cloud' }>,
+  availableModels: Array<{ id: string; type: 'local' | 'cloud' | 'host_internal' }>,
 ): void {
   if (!id) {
     clearOrchestratorInferenceSelection()
@@ -215,7 +215,7 @@ export type ValidateSelectionResult = {
 
 export function validateStoredSelectionForOrchestrator(
   stored: StoredInferenceSelectionV1,
-  availableModels: Array<{ id: string; type: 'local' | 'cloud' }>,
+  availableModels: Array<{ id: string; type: 'local' | 'cloud' | 'host_internal' }>,
   inferenceTargets: HostishTarget[] | undefined,
   isSandbox: boolean,
   hasLocalModelsInList: boolean,
@@ -295,7 +295,7 @@ export function readWrChatInferenceSelection(): StoredInferenceSelectionV1 | nul
 
 export function persistWrChatModelId(
   id: string,
-  availableModels: Array<{ id: string; type: 'local' | 'cloud' }>,
+  availableModels: Array<{ id: string; type: 'local' | 'cloud' | 'host_internal' }>,
 ): void {
   if (!id) {
     clearWrChatInferenceSelection()

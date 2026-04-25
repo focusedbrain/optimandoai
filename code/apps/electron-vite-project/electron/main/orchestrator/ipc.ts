@@ -11,6 +11,7 @@ import {
   setOrchestratorMode,
   type OrchestratorModeConfig,
 } from './orchestratorModeStore'
+import { broadcastOrchestratorModeChanged } from './broadcastModeChange'
 
 /**
  * Register orchestrator IPC handlers (idempotent if Electron replaces on duplicate channel names).
@@ -24,7 +25,11 @@ export function registerOrchestratorIPC(): void {
 
   ipcMain.handle('orchestrator:setMode', async (_event, config: OrchestratorModeConfig) => {
     try {
+      const prevMode = getOrchestratorMode().mode
       setOrchestratorMode(config)
+      if (getOrchestratorMode().mode !== prevMode) {
+        broadcastOrchestratorModeChanged()
+      }
       return { ok: true as const }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err)

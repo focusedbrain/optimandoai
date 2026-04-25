@@ -39,10 +39,15 @@ export function useOrchestratorMode() {
     const onVisibility = () => {
       if (document.visibilityState === 'visible') void fetchMode()
     }
+    const onModeEvent = () => {
+      void fetchMode()
+    }
     document.addEventListener('visibilitychange', onVisibility)
+    window.addEventListener('orchestrator-mode-changed', onModeEvent)
     return () => {
       cancelled = true
       document.removeEventListener('visibilitychange', onVisibility)
+      window.removeEventListener('orchestrator-mode-changed', onModeEvent)
     }
   }, [])
 

@@ -113,9 +113,11 @@ describe('beapInbox Ux source regressions', () => {
     expect(ipc).toContain('Sandbox clone is only available when this device is the Host orchestrator')
   })
 
-  test('beapInboxCloneToSandbox documents no ciphertext reuse in package banner', () => {
-    const src = readRel('lib', 'beapInboxCloneToSandbox.ts')
-    expect(src).toContain('no original ciphertext reuse')
+  test('sandbox clone inbox lead-in documents no ciphertext reuse (shared with outbox banner)', () => {
+    const clone = readRel('lib', 'beapInboxCloneToSandbox.ts')
+    expect(clone).toContain('SANDBOX_CLONE_INBOX_LEAD_IN')
+    const banner = readRel('lib', 'inboxMessageSandboxClone.ts')
+    expect(banner).toContain('no original ciphertext reuse')
   })
 
   test('EmailInboxView + EmailMessageDetail use shared Host Sandbox click policy', () => {

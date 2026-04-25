@@ -46,7 +46,24 @@ declare global {
       requestOriginalDocument?: (documentId: string, acknowledgedWarning: boolean, handshakeId?: string | null) => Promise<{ success: boolean; error?: string; approved?: boolean; contentBase64?: string; filename?: string; mimeType?: string }>
       requestLinkOpenApproval?: (linkEntityId: string, acknowledgedWarning: boolean, handshakeId?: string | null) => Promise<{ success: boolean; error?: string; approved?: boolean }>
       semanticSearch?: (query: string, scope?: string, limit?: number) => Promise<{ success: boolean; error?: string; results?: Array<{ block_id: string; type?: string; snippet?: string; payload_ref?: string; score?: number }> }>
-      getAvailableModels?: () => Promise<{ success: boolean; error?: string; models?: Array<{ id: string; name: string; provider: string; type: 'local' | 'cloud' }> }>
+      getAvailableModels?: () => Promise<{
+        success: boolean
+        error?: string
+        models?: Array<
+          | { id: string; name: string; provider: string; type: 'local' | 'cloud' }
+          | {
+              id: string
+              name: string
+              provider: 'host_internal'
+              type: 'host_internal'
+              displayTitle: string
+              displaySubtitle: string
+              hostTargetAvailable: boolean
+            }
+        >
+        /** Present on Sandbox when main merged `listTargets` into the same IPC. */
+        hostInferenceTargets?: unknown[]
+      }>
       generateDraft?: (prompt: string) => Promise<{ success: boolean; answer?: string; error?: string }>
       chatWithContext?: (systemMessage: string, dataWrapper: string, userMessage: string) => Promise<string>
       chatDirect?: (params: {
@@ -385,7 +402,7 @@ declare global {
           endpointHostLabel: string | null
         }>
       }>
-      /** Full Host AI rows (availability + model label) for model selectors. */
+      /** Full Host AI rows (availability + model label) for model selectors. @deprecated use listTargets */
       listInferenceTargets: () => Promise<{
         ok: boolean
         targets?: Array<{
@@ -395,7 +412,36 @@ declare global {
           model: string
           model_id: string
           display_label: string
-          provider: 'ollama' | ''
+          secondary_label: string
+          provider: 'host_internal' | 'ollama' | ''
+          handshake_id: string
+          host_device_id: string
+          host_computer_name: string
+          host_pairing_code?: string
+          host_orchestrator_role: 'host'
+          host_orchestrator_role_label: string
+          internal_identifier_6: string
+          direct_reachable: boolean
+          policy_enabled: boolean
+          available: boolean
+          availability: string
+          unavailable_reason?: string
+          host_role: string
+          inference_error_code?: string
+        }>
+      }>
+      /** Same as `listInferenceTargets` (internal-inference:listTargets). */
+      listTargets: () => Promise<{
+        ok: boolean
+        targets?: Array<{
+          kind: 'host_internal'
+          id: string
+          label: string
+          model: string
+          model_id: string
+          display_label: string
+          secondary_label: string
+          provider: 'host_internal' | 'ollama' | ''
           handshake_id: string
           host_device_id: string
           host_computer_name: string
@@ -444,6 +490,18 @@ declare global {
         model?: string
         temperature?: number
         max_tokens?: number
+        timeoutMs?: number
+      }) => Promise<unknown>
+      /**
+       * STEP 5: Host internal completion over direct P2P (`target_id`, `handshake_id`, `timeout_ms`, `stream: false`).
+       */
+      requestCompletion: (params: {
+        target_id: string
+        handshake_id: string
+        messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>
+        model?: string
+        timeout_ms: number
+        stream: false
       }) => Promise<unknown>
       getHostPolicy: () => Promise<unknown>
       setHostPolicy: (partial: Record<string, unknown>) => Promise<unknown>

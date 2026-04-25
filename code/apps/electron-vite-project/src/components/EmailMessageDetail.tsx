@@ -13,7 +13,12 @@ import { openAppExternalUrl } from '../lib/openAppExternalUrl'
 import BeapMessageSafeLinkParts from './BeapMessageSafeLinkParts'
 import { beapInboxMessageBodyToLinkParts, extractLinkParts } from '../utils/safeLinks'
 import { deriveInboxMessageKind } from '../lib/inboxMessageKind'
-import { inboxMessageIsSandboxBeapClone, inboxMessageUsesNativeBeapPbeapQbeapSplit } from '../lib/inboxMessageSandboxClone'
+import {
+  extractSandboxCloneUiMeta,
+  inboxMessageIsSandboxBeapClone,
+  inboxMessageUsesNativeBeapPbeapQbeapSplit,
+  stripSandboxCloneLeadInFromBodyText,
+} from '../lib/inboxMessageSandboxClone'
 import { isBeapQbeapOutboundEcho } from '../lib/inboxBeapOutbound'
 import { canShowSandboxCloneAction } from '../lib/beapInboxSandboxVisibility'
 import { isInboxMessageActionable } from '../lib/inboxMessageActionable'
@@ -43,6 +48,7 @@ import {
   resolveHostSandboxCloneClickAction,
 } from '../lib/beapInboxHostSandboxClickPolicy'
 import { InboxRedirectActionIcon, InboxSandboxCloneActionIcon } from './InboxActionIcons'
+import SandboxCloneDisclosure from './SandboxCloneDisclosure'
 import type {
   AuthoritativeDeviceInternalRole,
   SandboxOrchestratorAvailability,
@@ -526,8 +532,20 @@ export default function EmailMessageDetail({
     () => (encryptedBody ? extractLinkParts(encryptedBody) : null),
     [encryptedBody],
   )
+  const sandboxCloneUiMeta = useMemo(
+    () => (message ? extractSandboxCloneUiMeta(message, parsedDepackaged) : {}),
+    [message, parsedDepackaged],
+  )
+
   const nonNativeBodyLinkParts = useMemo(() => {
     if (!message || inboxMessageUsesNativeBeapPbeapQbeapSplit(message)) return null
+    if (inboxMessageIsSandboxBeapClone(message)) {
+      const stripped = stripSandboxCloneLeadInFromBodyText(message.body_text)
+      return beapInboxMessageBodyToLinkParts({
+        body_text: stripped,
+        body_html: null,
+      })
+    }
     return beapInboxMessageBodyToLinkParts(message)
   }, [message])
 
@@ -1432,6 +1450,7 @@ export default function EmailMessageDetail({
             </div>
           ) : (
             <>
+              {isSandboxBeapClone ? <SandboxCloneDisclosure meta={sandboxCloneUiMeta} /> : null}
               {nonNativeBodyLinkParts ? (
                 <div
                   className="msg-detail-body-safe"

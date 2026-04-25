@@ -3,8 +3,8 @@
  *
  * ## STEP 1 — Selector inventory (classifications)
  * - `HybridSearch` (`components/HybridSearch.tsx`) — A. PROVIDER_AWARE_SELECTOR:
- *   Data: `window.handshakeView.getAvailableModels` → local + cloud; Sandbox adds Host block via
- *   `useSandboxHostInference` / internal inference. Value: `selectedModel: string` (model id, cloud id,
+ *   Data: `window.handshakeView.getAvailableModels` → local + cloud; on Sandbox, main also merges
+ *   Host AI rows (same as `listTargets`) into `models` + `hostInferenceTargets`. Value: `selectedModel: string` (model id, cloud id,
  *   or `host-inference:` / `host-internal:` id). onChange: `setSelectedModel`. Chat submit uses
  *   `selectedModel` to branch host IPC vs `handshake` chat.
  * - `WRChatDashboardView` + `PopupChatView` (extension) — A (dashboard): models from

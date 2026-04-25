@@ -7,6 +7,15 @@ import type { InboxMessage } from '../stores/useEmailInboxStore'
 import { deriveInboxMessageKind } from './inboxMessageKind'
 
 const BANNER = '[BEAP sandbox clone — sent by you]'
+
+/**
+ * Prepended to the sandbox clone public `body_text` on send. UI strips this for display; keep in sync
+ * with `beapInboxCloneToSandbox` (imports this constant).
+ */
+export const SANDBOX_CLONE_INBOX_LEAD_IN =
+  `${BANNER}\n` +
+  'This is a test clone for your sandbox; the original inbox message is unchanged. New qBEAP only — no original ciphertext reuse.\n' +
+  'Automation: sandbox_clone=true in metadata below.\n\n'
 const PROV_KEY = 'inbox_sandbox_clone_provenance'
 
 function stringHintsSandboxClone(s: string): boolean {
@@ -79,3 +88,109 @@ export const INBOX_SANDBOX_CLONE_BADGE_TOOLTIP =
   'Sandboxed BEAP message — cloned from the Host inbox for safe inspection.'
 
 export const INBOX_DIRECT_BEAP_BADGE_TOOLTIP = 'BEAP message (direct or depackaged in this inbox).'
+
+/** Shown in the compact Sandbox Clone disclosure; parsed from `depackaged_json.beap_sandbox_clone` when present. */
+export type SandboxCloneUiMeta = {
+  clonedAtLabel?: string
+  sourceMessageIdShort?: string
+  sourceOrchestratorLine?: string
+  targetSandboxName?: string
+}
+
+function shortenId(id: string): string {
+  const t = id.trim()
+  if (!t) return ''
+  if (t.length <= 16) return t
+  return `${t.slice(0, 8)}…${t.slice(-4)}`
+}
+
+function beapCloneBlockFromObject(root: Record<string, unknown> | null | undefined): Record<string, unknown> | null {
+  if (!root) return null
+  const b = root.beap_sandbox_clone
+  if (b && typeof b === 'object' && b !== null) return b as Record<string, unknown>
+  return null
+}
+
+/**
+ * Best-effort metadata for the Sandbox Clone disclosure. Prefers `depackaged_json.beap_sandbox_clone`.
+ */
+export function extractSandboxCloneUiMeta(
+  m: InboxMessage | null | undefined,
+  depackaged: Record<string, unknown> | null,
+): SandboxCloneUiMeta {
+  if (!m) return {}
+  const b =
+    beapCloneBlockFromObject(depackaged) || beapCloneBlockFromObject(tryParseInBodyJson(m.body_text))
+  if (!b) return {}
+  const clonedAt =
+    typeof b.cloned_at === 'string' && b.cloned_at.trim() ? b.cloned_at.trim() : undefined
+  const omid =
+    typeof b.original_message_id === 'string' && b.original_message_id.trim()
+      ? b.original_message_id.trim()
+      : undefined
+  const tsn =
+    typeof b.target_sandbox_device_name === 'string' && b.target_sandbox_device_name.trim()
+      ? b.target_sandbox_device_name.trim()
+      : undefined
+  const ohs =
+    typeof b.original_handshake_id === 'string' && b.original_handshake_id.trim()
+      ? b.original_handshake_id.trim()
+      : undefined
+  const acc = (() => {
+    if (typeof b.cloned_by_account === 'string' && b.cloned_by_account.trim()) {
+      return b.cloned_by_account.trim()
+    }
+    if (typeof b.account_tag === 'string' && b.account_tag.trim()) return b.account_tag.trim()
+    return undefined
+  })()
+  let sourceOrchestratorLine: string | undefined
+  if (ohs) {
+    sourceOrchestratorLine = `Host handshake ${shortenId(ohs)}`
+  } else if (acc) {
+    sourceOrchestratorLine = `Account ${acc}`
+  }
+  let clonedAtLabel: string | undefined
+  if (clonedAt) {
+    const d = new Date(clonedAt)
+    clonedAtLabel = Number.isFinite(d.getTime())
+      ? d.toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' })
+      : clonedAt
+  }
+  return {
+    clonedAtLabel,
+    sourceMessageIdShort: omid ? shortenId(omid) : undefined,
+    sourceOrchestratorLine,
+    targetSandboxName: tsn,
+  }
+}
+
+function tryParseInBodyJson(s: string | null | undefined): Record<string, unknown> | null {
+  if (!s || !s.includes('beap_sandbox_clone')) return null
+  const sep = '\n\n---\n'
+  const i = s.lastIndexOf(sep)
+  if (i < 0) return null
+  try {
+    const j = JSON.parse(s.slice(i + sep.length).trim()) as unknown
+    if (j && typeof j === 'object' && (j as Record<string, unknown>).beap_sandbox_clone != null) {
+      return j as Record<string, unknown>
+    }
+  } catch {
+    /* */
+  }
+  return null
+}
+
+/**
+ * Strips the synthetic inbox lead-in so the main body matches the Host-visible content (plus safe links).
+ */
+export function stripSandboxCloneLeadInFromBodyText(raw: string | null | undefined): string {
+  const s = raw ?? ''
+  if (!s) return ''
+  if (s.startsWith(SANDBOX_CLONE_INBOX_LEAD_IN)) {
+    return s.slice(SANDBOX_CLONE_INBOX_LEAD_IN.length)
+  }
+  if (s.startsWith(BANNER)) {
+    return s.slice(BANNER.length).replace(/^\n+/, '')
+  }
+  return s
+}

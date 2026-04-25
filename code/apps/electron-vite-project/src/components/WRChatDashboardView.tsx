@@ -1,4 +1,4 @@
-import { useCallback, useLayoutEffect, useState } from 'react'
+import { useCallback, useLayoutEffect, useRef, useState } from 'react'
 import { PopupChatView } from '@ext/ui/components'
 import { useProjectStore } from '../stores/useProjectStore'
 import { ensureOrchestratorSessionForDashboard } from '../lib/wrChatDashboardBootstrap'
@@ -7,12 +7,14 @@ import { setWrChatRuntimeSurface } from '../lib/wrChatRuntimeMode'
 import { ensureWrdeskChromeShim } from '../shims/wrChatDashboardChrome'
 import { isHostInferenceModelId } from '../lib/hostInferenceModelIds'
 import {
+  accountKeyFromSession,
   readWrChatInferenceSelection,
   validateStoredSelectionForWrChat,
   persistWrChatModelId,
   clearWrChatInferenceSelection,
 } from '../lib/inferenceSelectionPersistence'
-import { HOST_INFERENCE_UNAVAILABLE } from '../lib/hostAiSelectorCopy'
+import { logModelSelectorTargets } from '../lib/modelSelectorTargetsLog'
+import { HOST_INFERENCE_UNAVAILABLE, HOST_AI_SELECTOR_ICON_CLASS } from '../lib/hostAiSelectorCopy'
 import './WRChatDashboardView.css'
 
 type WrChatModelOption = {
@@ -23,8 +25,21 @@ type WrChatModelOption = {
   hostAi?: boolean
   hostAvailable?: boolean
   hostComputerName?: string
+  /** CSS class for a non-text Host row marker (e.g. `host-ai-model-icon`). */
+  hostIconClass?: string
   /** Grouping for dropdown: same order as orchestrator (local → host → cloud). */
   section?: 'local' | 'host' | 'cloud'
+}
+
+function wrChatModelsForPersist(models: WrChatModelOption[]) {
+  return models.map((m) => ({
+    id: m.name,
+    type: (m.section === 'cloud'
+      ? 'cloud'
+      : m.hostAi || m.section === 'host'
+        ? 'host_internal'
+        : 'local') as 'local' | 'cloud' | 'host_internal',
+  }))
 }
 
 type DashboardTheme = 'pro' | 'dark' | 'standard'
@@ -65,6 +80,9 @@ export default function WRChatDashboardView({ theme }: WRChatDashboardViewProps)
   const [activeLlmModel, setActiveLlmModel] = useState<string | undefined>(undefined)
   const [hostAiStale, setHostAiStale] = useState(false)
   const [inferenceSelectionPersistError, setInferenceSelectionPersistError] = useState<string | null>(null)
+  const activeLlmModelRef = useRef<string | undefined>(undefined)
+  activeLlmModelRef.current = activeLlmModel
+  const lastAccountKeyForWrRef = useRef(accountKeyFromSession())
 
   useLayoutEffect(() => {
     ensureWrdeskChromeShim()
@@ -107,8 +125,9 @@ export default function WRChatDashboardView({ theme }: WRChatDashboardViewProps)
       let hostRows: WrChatModelOption[] = []
       try {
         const inf = window.internalInference
-        if (typeof inf?.listInferenceTargets === 'function') {
-          const ht = (await inf.listInferenceTargets()) as {
+        const listHostTargets = typeof inf?.listTargets === 'function' ? inf.listTargets : inf?.listInferenceTargets
+        if (typeof listHostTargets === 'function') {
+          const ht = (await listHostTargets()) as {
             ok?: boolean
             targets?: Array<{
               id: string
@@ -120,15 +139,22 @@ export default function WRChatDashboardView({ theme }: WRChatDashboardViewProps)
             }>
           }
           if (ht?.ok && Array.isArray(ht.targets)) {
-            hostRows = ht.targets.map((t) => ({
-              name: t.id,
-              displayTitle: t.display_label || t.label,
-              subtitle: t.unavailable_reason,
-              hostAi: true,
-              hostAvailable: t.available,
-              hostComputerName: t.host_computer_name,
-              section: 'host' as const,
-            }))
+            hostRows = ht.targets.map((t) => {
+              const secondary =
+                (t as { secondary_label?: string }).secondary_label?.trim() ||
+                (t as { unavailable_reason?: string }).unavailable_reason?.trim() ||
+                ''
+              return {
+                name: t.id,
+                displayTitle: t.display_label || t.label,
+                subtitle: secondary,
+                hostAi: true,
+                hostAvailable: t.available,
+                hostComputerName: t.host_computer_name,
+                hostIconClass: HOST_AI_SELECTOR_ICON_CLASS,
+                section: 'host' as const,
+              }
+            })
           }
         }
       } catch {
@@ -137,6 +163,15 @@ export default function WRChatDashboardView({ theme }: WRChatDashboardViewProps)
 
       const merged = [...installed, ...hostRows]
       setAvailableModels(merged)
+      const localCount = merged.filter((m) => m.section === 'local').length
+      const hostInternalCount = merged.filter((m) => m.hostAi || m.section === 'host').length
+      logModelSelectorTargets({
+        localCount,
+        hostInternalCount,
+        finalCount: merged.length,
+        selectedTarget: activeLlmModelRef.current ?? '',
+        surface: 'wr_chat',
+      })
 
       let preferred: string | undefined = d.activeModel as string | undefined
       const names = merged.map((m) => m.name)
@@ -186,6 +221,34 @@ export default function WRChatDashboardView({ theme }: WRChatDashboardViewProps)
   useLayoutEffect(() => {
     if (!ready) return
     void refreshModels()
+  }, [ready, refreshModels])
+
+  /** Handshake ledger, orchestrator mode, resume, account — keep Host rows in sync with Sandbox (same triggers as top chat). */
+  useLayoutEffect(() => {
+    if (!ready) return
+    const onResume = () => {
+      if (document.visibilityState !== 'visible') return
+      const ak = accountKeyFromSession()
+      if (ak !== lastAccountKeyForWrRef.current) {
+        lastAccountKeyForWrRef.current = ak
+        setAvailableModels([])
+      }
+      void refreshModels()
+    }
+    const onList = () => {
+      void refreshModels()
+    }
+    const onMode = () => {
+      void refreshModels()
+    }
+    document.addEventListener('visibilitychange', onResume)
+    window.addEventListener('handshake-list-refresh', onList)
+    window.addEventListener('orchestrator-mode-changed', onMode)
+    return () => {
+      document.removeEventListener('visibilitychange', onResume)
+      window.removeEventListener('handshake-list-refresh', onList)
+      window.removeEventListener('orchestrator-mode-changed', onMode)
+    }
   }, [ready, refreshModels])
 
   /** Merge host-stored tags (extension mirror) into dashboard localStorage so Tags menus stay aligned. */
@@ -284,11 +347,7 @@ export default function WRChatDashboardView({ theme }: WRChatDashboardViewProps)
     if (next) {
       setActiveLlmModel(next)
       setInferenceSelectionPersistError(null)
-      const forPersist = availableModels.map((m) => ({
-        id: m.name,
-        type: (m.section === 'cloud' ? 'cloud' : 'local') as 'local' | 'cloud',
-      }))
-      persistWrChatModelId(next, forPersist)
+      persistWrChatModelId(next, wrChatModelsForPersist(availableModels))
       if (!isHostInferenceModelId(next) && typeof window.llm?.setActiveModel === 'function') {
         void window.llm.setActiveModel(next)
       }
@@ -303,11 +362,7 @@ export default function WRChatDashboardView({ theme }: WRChatDashboardViewProps)
     (name: string) => {
       setActiveLlmModel(name)
       setInferenceSelectionPersistError(null)
-      const forPersist = availableModels.map((m) => ({
-        id: m.name,
-        type: (m.section === 'cloud' ? 'cloud' : 'local') as 'local' | 'cloud',
-      }))
-      persistWrChatModelId(name, forPersist)
+      persistWrChatModelId(name, wrChatModelsForPersist(availableModels))
       if (isHostInferenceModelId(name)) {
         return
       }

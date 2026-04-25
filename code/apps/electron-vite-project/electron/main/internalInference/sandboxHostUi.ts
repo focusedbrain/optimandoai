@@ -1,9 +1,12 @@
 /**
  * Sandbox renderer support: list internal Host handshakes, probe Host policy over direct P2P.
+ * Prefers `internal_inference_capabilities_request` → `internal_inference_capabilities_result` (POST /beap/ingest,
+ * not inbox, not a BEAP message). Falls back to GET /beap/internal-inference-policy.
  */
 
+import { randomUUID } from 'crypto'
 import { getHandshakeRecord, listHandshakeRecords } from '../handshake/db'
-import type { HandshakeRecord } from '../handshake/types'
+import { HandshakeState, type HandshakeRecord } from '../handshake/types'
 import { isSandboxMode } from '../orchestrator/orchestratorModeStore'
 import { getHandshakeDbForInternalInference } from './dbAccess'
 import { InternalInferenceErrorCode } from './errors'
@@ -11,8 +14,11 @@ import {
   assertP2pEndpointDirect,
   assertRecordForServiceRpc,
   assertSandboxRequestToHost,
+  localCoordinationDeviceId,
+  peerCoordinationDeviceId,
 } from './policy'
 import { getHostInternalInferencePolicy } from './hostInferencePolicyStore'
+import { INTERNAL_INFERENCE_SCHEMA_VERSION, type InternalInferenceCapabilitiesResultWire } from './types'
 
 export interface SandboxHostInferenceCandidate {
   handshakeId: string
@@ -82,7 +88,7 @@ export async function listSandboxHostInferenceCandidates(): Promise<SandboxHostI
   if (!db) {
     return []
   }
-  const rows = listHandshakeRecords(db, { state: 'ACTIVE', handshake_type: 'internal' })
+  const rows = listHandshakeRecords(db, { state: HandshakeState.ACTIVE, handshake_type: 'internal' })
   const out: SandboxHostInferenceCandidate[] = []
   for (const r of rows) {
     const ar = assertRecordForServiceRpc(r)
@@ -142,8 +148,101 @@ export type ProbeHostPolicyResult =
     }
   | { ok: false; code: string; message: string; directP2pAvailable: boolean; allowSandboxInference?: undefined }
 
+function displayPairingFromDigits6(d: string): string {
+  const s = (d ?? '').replace(/\D/g, '')
+  if (s.length === 6) return `${s.slice(0, 3)}-${s.slice(3)}`
+  return s ? s : '—'
+}
+
+function mapCapabilitiesWireToProbe(
+  w: InternalInferenceCapabilitiesResultWire,
+): Extract<ProbeHostPolicyResult, { ok: true }> {
+  const allow = w.policy_enabled === true
+  const enabledModels = w.models.filter((m) => m.enabled && typeof m.model === 'string' && m.model.trim())
+  const dcm = enabledModels[0]?.model?.trim()
+  const modelId = dcm != null && dcm.length > 0 ? dcm : null
+  const displayLabel = !allow ? 'Host AI' : dcm ? `Host AI · ${dcm}` : 'Host AI · —'
+  return {
+    ok: true,
+    allowSandboxInference: allow,
+    defaultChatModel: dcm,
+    modelId,
+    displayLabelFromHost: displayLabel,
+    hostComputerNameFromHost: w.host_computer_name,
+    providerFromHost: 'ollama',
+    hostOrchestratorRoleLabelFromHost: 'Host orchestrator',
+    internalIdentifier6FromHost: w.host_pairing_code,
+    internalIdentifierDisplayFromHost: displayPairingFromDigits6(w.host_pairing_code),
+    directP2pPath: true,
+    policyEnabledFromHost: allow,
+    inferenceErrorCode: w.inference_error_code,
+  }
+}
+
 /**
- * HTTP GET to Host’s direct P2P base — returns whether Host has enabled Sandbox inference in policy.
+ * Direct P2P POST: `internal_inference_capabilities_request` → 200 + `internal_inference_capabilities_result` (MVP, no relay).
+ */
+export async function postInternalInferenceCapabilitiesRequest(
+  hid: string,
+  record: HandshakeRecord,
+  ingestUrl: string,
+  token: string,
+  timeoutMs: number,
+): Promise<
+  | { ok: true; wire: InternalInferenceCapabilitiesResultWire }
+  | { ok: false; reason: string }
+> {
+  const localSandbox = (localCoordinationDeviceId(record) ?? '').trim()
+  const peerHost = (peerCoordinationDeviceId(record) ?? '').trim()
+  if (!localSandbox || !peerHost) {
+    return { ok: false, reason: 'missing_coordination_ids' }
+  }
+  const body = {
+    type: 'internal_inference_capabilities_request',
+    schema_version: INTERNAL_INFERENCE_SCHEMA_VERSION,
+    request_id: randomUUID(),
+    handshake_id: hid,
+    sender_device_id: localSandbox,
+    target_device_id: peerHost,
+    created_at: new Date().toISOString(),
+    transport_policy: 'direct_only' as const,
+  }
+  const ac = new AbortController()
+  const timer = setTimeout(() => ac.abort(), Math.min(timeoutMs, 15_000))
+  try {
+    const res = await fetch(ingestUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token.trim()}`,
+        'X-BEAP-Handshake': hid,
+      },
+      body: JSON.stringify(body),
+      signal: ac.signal,
+    })
+    clearTimeout(timer)
+    if (res.status === 401 || res.status === 403) {
+      return { ok: false, reason: 'forbidden' }
+    }
+    if (!res.ok) {
+      return { ok: false, reason: `http_${res.status}` }
+    }
+    const j = (await res.json()) as Record<string, unknown>
+    if (j.type !== 'internal_inference_capabilities_result') {
+      return { ok: false, reason: 'wrong_type' }
+    }
+    return { ok: true, wire: j as InternalInferenceCapabilitiesResultWire }
+  } catch (e) {
+    clearTimeout(timer)
+    if ((e as Error)?.name === 'AbortError') {
+      return { ok: false, reason: 'timeout' }
+    }
+    return { ok: false, reason: 'network' }
+  }
+}
+
+/**
+ * Probes Host policy and live model metadata: POST capabilities (preferred), then GET /internal-inference-policy as fallback.
  */
 export async function probeHostInferencePolicyFromSandbox(
   handshakeId: string,
@@ -179,10 +278,17 @@ export async function probeHostInferencePolicyFromSandbox(
   if (!token?.trim()) {
     return { ok: false, code: 'POLICY_FORBIDDEN', message: 'token', directP2pAvailable: true }
   }
-  const url = policyProbeUrlFromP2pIngest(ep)
   const { timeoutMs } = getHostInternalInferencePolicy()
+  const tCap = Math.min(timeoutMs, 15_000)
+
+  const cap = await postInternalInferenceCapabilitiesRequest(hid, ar.record, ep, token, tCap)
+  if (cap.ok) {
+    return mapCapabilitiesWireToProbe(cap.wire)
+  }
+
+  const url = policyProbeUrlFromP2pIngest(ep)
   const ac = new AbortController()
-  const timer = setTimeout(() => ac.abort(), Math.min(timeoutMs, 15_000))
+  const timer = setTimeout(() => ac.abort(), tCap)
   try {
     const res = await fetch(url, {
       method: 'GET',

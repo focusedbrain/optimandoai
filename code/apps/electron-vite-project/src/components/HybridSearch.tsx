@@ -5,6 +5,7 @@ import {
   GROUP_LOCAL_MODELS,
   HOST_AI_OPTION_TOOLTIP,
   HOST_AI_STALE_INLINE,
+  HOST_AI_SELECTOR_ICON_CLASS,
   HOST_AI_UNREACHABLE_TOOLTIP,
   HOST_INFERENCE_UNAVAILABLE,
 } from '../lib/hostAiSelectorCopy'
@@ -27,7 +28,12 @@ import { parseLetterFillJson, wantsLetterTemplateMultiVersion } from '../lib/let
 import { UI_BADGE } from '../styles/uiContrastTokens'
 import { resolveChatRoute } from '../chat/routing/resolveChatRoute'
 import { handleLetterComposerChat } from '../chat/routing/letterComposerChat'
-import { useSandboxHostInference } from '../hooks/useSandboxHostInference'
+import {
+  useSandboxHostInference,
+  type HostInferenceTargetRow,
+} from '../hooks/useSandboxHostInference'
+import { useOrchestratorMode } from '../hooks/useOrchestratorMode'
+import { logModelSelectorTargets } from '../lib/modelSelectorTargetsLog'
 import {
   isHostInferenceModelId,
   parseAnyHostInferenceModelId,
@@ -140,17 +146,31 @@ interface HybridSearchProps {
 
 // ── LLM Models (loaded from backend) ──
 
-interface AvailableModel {
-  id: string
-  name: string
-  provider: string
-  type: 'local' | 'cloud'
-}
+type AvailableModel =
+  | {
+      id: string
+      name: string
+      provider: string
+      type: 'local' | 'cloud'
+    }
+  | {
+      id: string
+      name: string
+      provider: 'host_internal'
+      type: 'host_internal'
+      displayTitle: string
+      displaySubtitle: string
+      hostTargetAvailable: boolean
+    }
 
 function getModelLabel(id: string, models: AvailableModel[], hostLabel?: (modelId: string) => string | null): string {
   const h = hostLabel?.(id)
   if (h) return h
-  return models.find(m => m.id === id)?.name ?? id
+  const m = models.find((x) => x.id === id)
+  if (m && m.type === 'host_internal') {
+    return m.displayTitle || m.name
+  }
+  return m?.name ?? id
 }
 
 function defaultScope(view: DashboardView): SearchScope {
@@ -542,6 +562,8 @@ export default function HybridSearch({
   const [scope, setScope] = useState<SearchScope>(() => defaultScope(activeView))
   const [selectedModel, setSelectedModel] = useState('')
   const [availableModels, setAvailableModels] = useState<AvailableModel[]>([])
+  /** Host rows from the same `getAvailableModels` call as `availableModels` (main merges listTargets). */
+  const [gavHostTargets, setGavHostTargets] = useState<HostInferenceTargetRow[]>([])
   const [modelsLoading, setModelsLoading] = useState(true)
   const [isLoading, setIsLoading] = useState(false)
   const [results, setResults] = useState<SearchResult[]>([])
@@ -571,8 +593,49 @@ export default function HybridSearch({
     line1: string
     line2: string
   } | null>(null)
+  const { ready: orchModeReady, isSandbox: orchIsSandbox } = useOrchestratorMode()
   const hostInferenceProbeId = parseAnyHostInferenceModelId(selectedModel)?.handshakeId ?? null
-  const hostInf = useSandboxHostInference(hostInferenceProbeId)
+  const selectedModelRef = useRef(selectedModel)
+  selectedModelRef.current = selectedModel
+  const loadModels = useCallback(async () => {
+    try {
+      const result = await window.handshakeView?.getAvailableModels?.()
+      if (result?.success && Array.isArray(result.models)) {
+        const models = result.models as AvailableModel[]
+        setAvailableModels(models)
+        const withHost = result as { hostInferenceTargets?: HostInferenceTargetRow[] }
+        if (Array.isArray(withHost.hostInferenceTargets)) {
+          setGavHostTargets(withHost.hostInferenceTargets)
+        } else {
+          setGavHostTargets([])
+        }
+        const localCount = models.filter((m) => m.type === 'local').length
+        const hostInternalCount = models.filter((m) => m.type === 'host_internal').length
+        logModelSelectorTargets({
+          localCount,
+          hostInternalCount,
+          finalCount: models.length,
+          selectedTarget: selectedModelRef.current,
+          surface: 'orchestrator',
+        })
+        return result
+      }
+    } catch (err) {
+      console.error('Failed to load models:', err)
+    } finally {
+      setModelsLoading(false)
+    }
+    return null
+  }, [])
+
+  const gavForHostHook = useMemo(
+    () => ({
+      targets: gavHostTargets,
+      refresh: loadModels,
+    }),
+    [gavHostTargets, loadModels],
+  )
+  const hostInf = useSandboxHostInference(hostInferenceProbeId, gavForHostHook)
   const hostModelLabel = useCallback(
     (modelId: string) => {
       const p = parseAnyHostInferenceModelId(modelId)
@@ -858,22 +921,10 @@ export default function HybridSearch({
     }
   }, [draftRefineDisconnect, onClearMessageSelection])
 
-  // Load available models from backend
+  // Load available models: app start, when orchestrator mode is known or changes, Sandbox toggle (avoids empty Host list on first paint).
   useEffect(() => {
-    async function loadModels() {
-      try {
-        const result = await window.handshakeView?.getAvailableModels?.()
-        if (result?.success && Array.isArray(result.models)) {
-          setAvailableModels(result.models)
-        }
-      } catch (err) {
-        console.error('Failed to load models:', err)
-      } finally {
-        setModelsLoading(false)
-      }
-    }
-    loadModels()
-  }, [])
+    void loadModels()
+  }, [loadModels, orchModeReady, orchIsSandbox])
 
   useEffect(() => {
     if (selectedModel) {
@@ -881,18 +932,25 @@ export default function HybridSearch({
     }
   }, [selectedModel, availableModels])
 
+  // App resume and account switch: refetch (Host hook also reloads on handshake-list-refresh + orchestrator-mode-changed).
   useEffect(() => {
-    const onVis = () => {
+    const onResume = () => {
       if (document.visibilityState !== 'visible') return
       const next = accountKeyFromSession()
       if (next !== lastAccountKeyForOrchRef.current) {
         lastAccountKeyForOrchRef.current = next
         orchestratorChatModelRestoredRef.current = false
+        setGavHostTargets([])
+        setAvailableModels([])
+        setModelsLoading(true)
+        void loadModels()
+        return
       }
+      void loadModels()
     }
-    document.addEventListener('visibilitychange', onVis)
-    return () => document.removeEventListener('visibilitychange', onVis)
-  }, [])
+    document.addEventListener('visibilitychange', onResume)
+    return () => document.removeEventListener('visibilitychange', onResume)
+  }, [loadModels])
 
   useEffect(() => {
     if (modelsLoading) {
@@ -940,7 +998,9 @@ export default function HybridSearch({
       }
     }
     const firstCloud = availableModels.find((m) => m.type === 'cloud')?.id
-    const firstHost = hostInf.inferenceTargets.find((t) => t.available)?.id
+    const firstHost =
+      availableModels.find((m) => m.type === 'host_internal' && m.hostTargetAvailable)?.id ??
+      hostInf.inferenceTargets.find((t) => t.available)?.id
     const firstLocal = availableModels.find((m) => m.type === 'local')?.id
     const preferred =
       (hostInf.isSandbox ? firstCloud ?? firstHost ?? firstLocal : firstLocal ?? firstCloud) ??
@@ -948,12 +1008,12 @@ export default function HybridSearch({
       ''
     setSelectedModel((prev) => {
       if (isHostInferenceModelId(prev)) {
-        if (hostInf.inferenceTargets.some((t) => t.id === prev && t.available)) {
+        if (availableModels.some((m) => m.id === prev)) {
           return prev
         }
         return preferred
       }
-      if (availableModels.some((m) => m.id === prev) || hostInf.inferenceTargets.some((t) => t.id === prev)) {
+      if (availableModels.some((m) => m.id === prev)) {
         return prev
       }
       return preferred
@@ -1176,7 +1236,7 @@ export default function HybridSearch({
           setHostInfSuccess(false)
           const hostComputerName = (target?.host_computer_name ?? row?.hostDisplayName ?? 'Host').trim() || 'Host'
           setHostInfRunUi({
-            line1: `Host AI · ${hostModelDisplayNameFromSelection({
+            line1: `Running on Host AI · ${hostModelDisplayNameFromSelection({
               parsedModel: parsed?.model,
               targetLabel: target?.label,
             })}`,
@@ -1193,9 +1253,11 @@ export default function HybridSearch({
               : [...prior, { role: 'user' as const, content: trimmed }]
           try {
             const r = (await run({
+              targetId: selectedModel,
               handshakeId: hid,
               messages: msgSeq,
               model: parsed?.model,
+              timeoutMs: 120_000,
             })) as
               | { ok: true; output: string }
               | { ok: false; code: string; message: string }
@@ -2186,23 +2248,29 @@ export default function HybridSearch({
                 const next = !modelMenuOpen
                 setModelMenuOpen(next)
                 if (next) {
-                  void hostInf.refresh()
-                  try {
-                    const result = await window.handshakeView?.getAvailableModels?.()
-                    if (result?.success && Array.isArray(result.models)) {
-                      setAvailableModels(result.models)
-                      const preferred = result.models.find((m: { type: string }) => m.type === 'local') ?? result.models[0]
-                      setSelectedModel((prev) => {
-                        if (isHostInferenceModelId(prev)) {
-                          return prev
-                        }
-                        if (result.models.some((m: { id: string }) => m.id === prev)) {
-                          return prev
-                        }
-                        return preferred?.id ?? ''
-                      })
+                  void (async () => {
+                    try {
+                      const result = await loadModels()
+                      if (result?.success && Array.isArray(result.models)) {
+                        const models = result.models as AvailableModel[]
+                        const preferred =
+                          models.find((m) => m.type === 'local') ??
+                          models.find((m) => m.type === 'host_internal') ??
+                          models[0]
+                        setSelectedModel((prev) => {
+                          if (isHostInferenceModelId(prev)) {
+                            return prev
+                          }
+                          if (models.some((m) => m.id === prev)) {
+                            return prev
+                          }
+                          return preferred?.id ?? ''
+                        })
+                      }
+                    } catch {
+                      /* ignore */
                     }
-                  } catch { /* ignore */ }
+                  })()
                 }
               }}
               disabled={isSortingActive}
@@ -2244,37 +2312,56 @@ export default function HybridSearch({
                   )}
                   {hostInf.isSandbox && (
                     <>
-                      {hostInf.inferenceTargets.length > 0 ? (
+                      {availableModels.filter((m) => m.type === 'host_internal').length > 0 ? (
                         <>
                           <div className="hs-model-group-label hs-model-group-label--ledge">{GROUP_HOST_MODELS}</div>
-                          {hostInf.inferenceTargets.map((t) => {
-                            const id = t.id
+                          {availableModels
+                            .filter((m): m is Extract<AvailableModel, { type: 'host_internal' }> => m.type === 'host_internal')
+                            .map((m) => {
+                            const id = m.id
                             const active = selectedModel === id
-                            const titleLine = (t as { display_label?: string }).display_label || t.label
-                            const tip = t.available
+                            const t = hostInf.inferenceTargets.find((x) => x.id === m.id)
+                            const titleLine = m.displayTitle || m.name
+                            const sub =
+                              m.displaySubtitle?.trim() ||
+                              t?.secondary_label?.trim() ||
+                              t?.unavailable_reason?.trim() ||
+                              ''
+                            const tip = m.hostTargetAvailable
                               ? HOST_AI_OPTION_TOOLTIP
-                              : [HOST_AI_UNREACHABLE_TOOLTIP, t.unavailable_reason?.trim() ?? ''].filter(Boolean).join(' ')
+                              : [HOST_AI_UNREACHABLE_TOOLTIP, sub].filter(Boolean).join(' ')
                             return (
                               <button
                                 key={id}
                                 type="button"
                                 role="menuitem"
-                                disabled={!t.available}
+                                disabled={!m.hostTargetAvailable}
                                 title={tip}
-                                className={`hs-model-item hs-model-item--host${active ? ' hs-model-item--active' : ''}${!t.available ? ' hs-model-item--disabled' : ''}`}
+                                className={`hs-model-item hs-model-item--host${active ? ' hs-model-item--active' : ''}${!m.hostTargetAvailable ? ' hs-model-item--disabled' : ''}`}
                                 onClick={() => {
-                                  if (!t.available) return
+                                  if (!m.hostTargetAvailable) return
                                   setSelectedModel(id)
                                   setModelMenuOpen(false)
                                 }}
                               >
-                                <div className="hs-model-item__stack">
-                                  <div style={{ fontWeight: 600 }}>{titleLine}</div>
-                                  <div style={{ fontSize: 11, opacity: 0.8, lineHeight: 1.3 }}>
-                                    {t.unavailable_reason?.trim() || `${t.host_computer_name} — Host orchestrator`}
+                                <div
+                                  style={{
+                                    display: 'flex',
+                                    alignItems: 'flex-start',
+                                    gap: 6,
+                                    width: '100%',
+                                    textAlign: 'left',
+                                  }}
+                                >
+                                  <span className={HOST_AI_SELECTOR_ICON_CLASS} aria-hidden title="" />
+                                  <div className="hs-model-item__stack">
+                                    <div style={{ fontWeight: 600 }}>{titleLine}</div>
+                                    {sub ? (
+                                      <div style={{ fontSize: 11, opacity: 0.8, lineHeight: 1.3 }}>{sub}</div>
+                                    ) : null}
                                   </div>
                                 </div>
-                                {hostInf.policy === 'deny' && active && t.available ? (
+                                {hostInf.policy === 'deny' && active && m.hostTargetAvailable && t?.available ? (
                                   <div style={{ fontSize: 10, color: 'var(--text-muted, #94a3b8)', marginTop: 4 }}>
                                     Host has not enabled AI for this device.
                                   </div>
@@ -2312,7 +2399,10 @@ export default function HybridSearch({
                     </>
                   )}
                   {availableModels.length === 0 &&
-                    !(hostInf.isSandbox && hostInf.inferenceTargets.length > 0) && (
+                    !(
+                        hostInf.isSandbox &&
+                        availableModels.some((m) => m.type === 'host_internal')
+                      ) && (
                     <div className="hs-model-group-label">No models configured — check Settings</div>
                   )}
                 </>

@@ -29,12 +29,23 @@ export type SandboxHostChatResult =
   | { ok: true; request_id: string; output: string; model: string; duration_ms?: number }
   | { ok: false; code: string; message: string }
 
+const DEFAULT_INTERNAL_INFERENCE_TIMEOUT_MS = 120_000
+
+function clampTimeoutMs(v: number | undefined): number {
+  if (typeof v !== 'number' || !Number.isFinite(v) || v <= 0) {
+    return DEFAULT_INTERNAL_INFERENCE_TIMEOUT_MS
+  }
+  return Math.min(Math.max(Math.floor(v), 5_000), 600_000)
+}
+
 export async function runSandboxHostInferenceChat(params: {
   handshakeId: string
   messages: SandboxHostChatMessage[]
   model?: string
   temperature?: number
   max_tokens?: number
+  /** Pending timeout + `expires_at` on wire. Defaults to 120s. */
+  timeoutMs?: number
 }): Promise<SandboxHostChatResult> {
   const db = await getHandshakeDbForInternalInference()
   if (!db) {
@@ -92,7 +103,8 @@ export async function runSandboxHostInferenceChat(params: {
   }
 
   const now = Date.now()
-  const promise = registerInternalInferenceRequest(requestId, 120_000)
+  const requestTimeoutMs = clampTimeoutMs(params.timeoutMs)
+  const promise = registerInternalInferenceRequest(requestId, requestTimeoutMs)
   const options: { temperature?: number; max_tokens?: number } = {}
   if (typeof params.temperature === 'number' && Number.isFinite(params.temperature)) {
     options.temperature = params.temperature
@@ -109,7 +121,7 @@ export async function runSandboxHostInferenceChat(params: {
     target_device_id: peerHostId,
     transport_policy: 'direct_only',
     created_at: new Date(now).toISOString(),
-    expires_at: new Date(now + 120_000).toISOString(),
+    expires_at: new Date(now + requestTimeoutMs).toISOString(),
     stream: false,
     messages: params.messages,
     model: params.model?.trim() || undefined,

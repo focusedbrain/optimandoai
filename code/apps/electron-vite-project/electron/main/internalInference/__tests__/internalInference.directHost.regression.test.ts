@@ -116,6 +116,7 @@ const defaultPolicy = {
   maxPromptBytes: 256_000,
   timeoutMs: 60_000,
   maxConcurrent: 1,
+  capabilitiesExposeAllInstalledOllama: false,
 }
 
 function requestPayload(over: Record<string, unknown> = {}): Record<string, unknown> {
@@ -545,6 +546,7 @@ describe('internal inference service vs qBEAP inbox path', () => {
     const beapMsg = { header: {}, metadata: {} }
     expect(isInternalServiceRpcShape(beapMsg)).toBe(false)
     expect(isInternalServiceRpcShape({ type: 'internal_inference_request' })).toBe(true)
+    expect(isInternalServiceRpcShape({ type: 'internal_inference_capabilities_request' })).toBe(true)
   })
 })
 
